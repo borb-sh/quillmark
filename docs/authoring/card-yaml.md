@@ -8,6 +8,7 @@ to render the document; later blocks are composable [cards](cards.md).
 ```
 ~~~card-yaml
 #@quill: my_format
+#@kind: main
 title: My Document
 author: Jane Doe
 date: 2025-01-15
@@ -23,11 +24,12 @@ A card-yaml block has four parts, in order:
 
 1. **Opening fence** — exactly `~~~card-yaml` (three tildes plus the info
    string). No leading indentation.
-2. **System sentinel** — the first non-blank line inside the block, prefixed
-   with `#@`. The root block declares `#@quill: <name>@<version>`; every
-   other block declares `#@kind: <block_type>`.
+2. **System sentinels** — the leading non-blank lines inside the block,
+   prefixed with `#@`. Every block declares `#@kind: <block_type>`; the root
+   block additionally declares `#@quill: <name>@<version>` and its kind is the
+   reserved value `main` (`#@kind: main`).
 3. **Data payload** — standard YAML key/value pairs directly below the
-   sentinel.
+   sentinels.
 4. **Closing fence** — exactly `~~~`.
 
 The unstructured Markdown body begins immediately after the closing `~~~`
@@ -38,11 +40,15 @@ A blank line is required immediately above every `~~~card-yaml` opener,
 `~~~card-yaml` line without a blank line above it is **not** an opener — it is
 treated as an ordinary code block.
 
-## The `#@quill:` Sentinel
+## The `#@quill:` and `#@kind: main` Sentinels
 
-The root block's system sentinel must be `#@quill: <name>@<version>`. It names
-the format used to render the document. If it is missing, parsing fails.
-`#@quill:` is permitted only in the root block.
+The root block declares two system sentinels: `#@quill: <name>@<version>`,
+which names the format used to render the document, and `#@kind: main`, the
+reserved kind of the root block. Canonically `#@quill:` comes first, then
+`#@kind: main` on the next line. If `#@quill:` is missing, parsing fails;
+`#@quill:` is permitted only in the root block. The root block must declare
+`#@kind: main`, and `main` is **reserved** — no composable card block may use
+it.
 
 ### Version Selectors
 
@@ -51,6 +57,7 @@ Pin a specific version with `@version` syntax on the sentinel:
 ```
 ~~~card-yaml
 #@quill: my_format@2.1
+#@kind: main
 title: Document Title
 ~~~
 ```
@@ -169,9 +176,11 @@ See [Cards](cards.md) for details on card syntax and usage.
 ## Emission
 
 `toMarkdown` always emits the canonical block form — a `~~~card-yaml` opener,
-the `#@quill:` or `#@kind:` sentinel, the YAML payload, and a `~~~` closer.
-Fence markers, the sentinel form, key ordering, and YAML quoting are
-normalised; `!fill` tags and payload comments survive the round-trip.
+the system sentinels, the YAML payload, and a `~~~` closer. The root block
+emits `#@quill:` first, then `#@kind: main`; composable blocks emit a single
+`#@kind:` sentinel. Fence markers, the sentinel form and order, key ordering,
+and YAML quoting are normalised; `!fill` tags and payload comments survive the
+round-trip.
 
 The payload is coerced and validated against the schema declared in the
 Quill's `Quill.yaml` (`main.fields`). See the

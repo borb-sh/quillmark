@@ -9,7 +9,7 @@ use quillmark_core::Document;
 // A bare `---` thematic break inside body prose is not a metadata block.
 #[test]
 fn thematic_break_in_body_is_not_a_block() {
-    let md = "~~~card-yaml\n#@quill: t\n~~~\n\nParagraph text.\n\n---\n\nAfter.";
+    let md = "~~~card-yaml\n#@quill: t\n#@kind: main\n~~~\n\nParagraph text.\n\n---\n\nAfter.";
     let doc = Document::from_markdown(md).unwrap();
     let body = doc.main().body();
     assert!(
@@ -20,10 +20,10 @@ fn thematic_break_in_body_is_not_a_block() {
     assert!(doc.cards().is_empty(), "no cards expected");
 }
 
-// The document's first card-yaml block must declare `#@quill:`.
+// The document's root card-yaml block must declare `#@quill:`.
 #[test]
 fn first_block_without_quill_is_rejected() {
-    let md = "~~~card-yaml\n#@kind: x\ntitle: X\n~~~\n\nBody.";
+    let md = "~~~card-yaml\n#@kind: main\ntitle: X\n~~~\n\nBody.";
     let err = Document::from_markdown(md).unwrap_err().to_string();
     assert!(
         err.contains("must declare `#@quill"),
@@ -35,7 +35,7 @@ fn first_block_without_quill_is_rejected() {
 // YAML `#` comment lines inside a block are accepted as ordinary YAML.
 #[test]
 fn yaml_comment_banners_inside_block_are_accepted() {
-    let md = "~~~card-yaml\n#@quill: t\n# Essential\ntitle: T\n~~~\n\nBody.";
+    let md = "~~~card-yaml\n#@quill: t\n#@kind: main\n# Essential\ntitle: T\n~~~\n\nBody.";
     let doc = Document::from_markdown(md).unwrap();
     assert_eq!(
         doc.main()
@@ -51,7 +51,7 @@ fn yaml_comment_banners_inside_block_are_accepted() {
 // A composable card-yaml block declares `#@kind:`.
 #[test]
 fn composable_card_block_registers_a_card() {
-    let md = "~~~card-yaml\n#@quill: t\n~~~\n\nB.\n\n~~~card-yaml\n#@kind: endorsement\nname: X\n~~~\n\nTrailing.";
+    let md = "~~~card-yaml\n#@quill: t\n#@kind: main\n~~~\n\nB.\n\n~~~card-yaml\n#@kind: endorsement\nname: X\n~~~\n\nTrailing.";
     let doc = Document::from_markdown(md).unwrap();
     assert_eq!(doc.cards().len(), 1);
     assert_eq!(doc.cards()[0].tag(), "endorsement");
@@ -60,10 +60,10 @@ fn composable_card_block_registers_a_card() {
 // A non-root block missing `#@kind:` is rejected.
 #[test]
 fn non_root_block_without_kind_is_rejected() {
-    let md = "~~~card-yaml\n#@quill: t\n~~~\n\nB.\n\n~~~card-yaml\n#@quill: oops\nname: X\n~~~\n";
+    let md = "~~~card-yaml\n#@quill: t\n#@kind: main\n~~~\n\nB.\n\n~~~card-yaml\n#@quill: oops\nname: X\n~~~\n";
     let err = Document::from_markdown(md).unwrap_err().to_string();
     assert!(
-        err.contains("`#@quill` may only be declared by the document's first card-yaml block"),
+        err.contains("`#@quill` may only be declared by the document's root card-yaml block"),
         "got: {}",
         err
     );
@@ -72,7 +72,7 @@ fn non_root_block_without_kind_is_rejected() {
 // `~~~card-yaml` inside an ordinary fenced code block must be ignored.
 #[test]
 fn fences_inside_code_blocks_are_ignored() {
-    let md = "~~~card-yaml\n#@quill: t\n~~~\n\n```\n~~~card-yaml\n#@kind: x\n~~~\n```\n\nBody.";
+    let md = "~~~card-yaml\n#@quill: t\n#@kind: main\n~~~\n\n```\n~~~card-yaml\n#@kind: x\n~~~\n```\n\nBody.";
     let doc = Document::from_markdown(md).unwrap();
     assert!(
         doc.cards().is_empty(),
@@ -84,7 +84,7 @@ fn fences_inside_code_blocks_are_ignored() {
 #[test]
 fn reserved_keys_in_frontmatter_are_rejected() {
     for reserved in ["BODY", "CARDS"] {
-        let md = format!("~~~card-yaml\n#@quill: t\n{}: nope\n~~~\n\nBody.", reserved);
+        let md = format!("~~~card-yaml\n#@quill: t\n#@kind: main\n{}: nope\n~~~\n\nBody.", reserved);
         let err = Document::from_markdown(&md).unwrap_err().to_string();
         assert!(
             err.contains(&format!("Reserved field name '{}'", reserved)),
@@ -98,14 +98,14 @@ fn reserved_keys_in_frontmatter_are_rejected() {
 // CARDS is always accessible, even when empty.
 #[test]
 fn cards_is_always_present_even_when_empty() {
-    let doc = Document::from_markdown("~~~card-yaml\n#@quill: t\n~~~\n\nBody.").unwrap();
+    let doc = Document::from_markdown("~~~card-yaml\n#@quill: t\n#@kind: main\n~~~\n\nBody.").unwrap();
     assert!(doc.cards().is_empty());
 }
 
 // `#@kind:` value pattern is enforced.
 #[test]
 fn card_kind_pattern_enforced() {
-    let md = "~~~card-yaml\n#@quill: t\n~~~\n\nB.\n\n~~~card-yaml\n#@kind: ITEMS\n~~~\n\nX.";
+    let md = "~~~card-yaml\n#@quill: t\n#@kind: main\n~~~\n\nB.\n\n~~~card-yaml\n#@kind: ITEMS\n~~~\n\nX.";
     let err = Document::from_markdown(md).unwrap_err().to_string();
     assert!(
         err.contains("Invalid card kind"),
@@ -117,7 +117,7 @@ fn card_kind_pattern_enforced() {
 // Body bidi stripped during normalize_document.
 #[test]
 fn normalize_body_strips_bidi() {
-    let md = "~~~card-yaml\n#@quill: t\n~~~\n\nhi\u{202D}there";
+    let md = "~~~card-yaml\n#@quill: t\n#@kind: main\n~~~\n\nhi\u{202D}there";
     let doc = Document::from_markdown(md).unwrap();
     let doc = normalize_document(doc).unwrap();
     assert_eq!(doc.main().body(), "\nhithere");
@@ -126,7 +126,7 @@ fn normalize_body_strips_bidi() {
 // YAML scalar bidi NOT stripped.
 #[test]
 fn normalize_yaml_scalar_keeps_bidi() {
-    let md = "~~~card-yaml\n#@quill: t\ntitle: hi\u{202D}there\n~~~\n";
+    let md = "~~~card-yaml\n#@quill: t\n#@kind: main\ntitle: hi\u{202D}there\n~~~\n";
     let doc = Document::from_markdown(md).unwrap();
     let doc = normalize_document(doc).unwrap();
     assert_eq!(
@@ -143,7 +143,7 @@ fn normalize_yaml_scalar_keeps_bidi() {
 // Card body normalization reaches nested cards.
 #[test]
 fn normalize_reaches_card_body() {
-    let md = "~~~card-yaml\n#@quill: t\n~~~\n\n~~~card-yaml\n#@kind: x\n~~~\n\n<!-- c -->trailing\u{202D}text";
+    let md = "~~~card-yaml\n#@quill: t\n#@kind: main\n~~~\n\n~~~card-yaml\n#@kind: x\n~~~\n\n<!-- c -->trailing\u{202D}text";
     let doc = Document::from_markdown(md).unwrap();
     let doc = normalize_document(doc).unwrap();
     let body = doc.cards()[0].body();
@@ -157,7 +157,7 @@ fn normalize_reaches_card_body() {
 // CRLF line endings in the body are canonicalized to LF.
 #[test]
 fn body_crlf_line_endings_are_normalized() {
-    let md = "~~~card-yaml\n#@quill: t\n~~~\n\nLine one.\r\nLine two.\r\n";
+    let md = "~~~card-yaml\n#@quill: t\n#@kind: main\n~~~\n\nLine one.\r\nLine two.\r\n";
     let doc = Document::from_markdown(md).unwrap();
     let doc = normalize_document(doc).unwrap();
     let body = doc.main().body();
@@ -172,7 +172,7 @@ fn body_crlf_line_endings_are_normalized() {
 // CRLF normalization reaches card bodies.
 #[test]
 fn card_body_crlf_line_endings_are_normalized() {
-    let md = "~~~card-yaml\n#@quill: t\n~~~\n\n~~~card-yaml\n#@kind: x\n~~~\n\nCard line one.\r\nCard line two.\r\n";
+    let md = "~~~card-yaml\n#@quill: t\n#@kind: main\n~~~\n\n~~~card-yaml\n#@kind: x\n~~~\n\nCard line one.\r\nCard line two.\r\n";
     let doc = Document::from_markdown(md).unwrap();
     let doc = normalize_document(doc).unwrap();
     let body = doc.cards()[0].body();
@@ -210,7 +210,7 @@ fn missing_root_block_is_rejected() {
 // A card-yaml block opened but never closed is a fatal error.
 #[test]
 fn unclosed_card_yaml_block_is_rejected() {
-    let md = "~~~card-yaml\n#@quill: t\ntitle: T\n";
+    let md = "~~~card-yaml\n#@quill: t\n#@kind: main\ntitle: T\n";
     let err = Document::from_markdown(md).unwrap_err().to_string();
     assert!(
         err.contains("never closed with `~~~`"),
@@ -223,7 +223,7 @@ fn unclosed_card_yaml_block_is_rejected() {
 // block and emits a `parse::card_fence_missing_blank` warning.
 #[test]
 fn card_fence_missing_blank_emits_warning() {
-    let md = "~~~card-yaml\n#@quill: t\n~~~\nBody line.\n~~~card-yaml\n#@kind: x\n~~~\n";
+    let md = "~~~card-yaml\n#@quill: t\n#@kind: main\n~~~\nBody line.\n~~~card-yaml\n#@kind: x\n~~~\n";
     let out = Document::from_markdown_with_warnings(md).unwrap();
     assert!(
         out.warnings
@@ -242,7 +242,7 @@ fn card_fence_missing_blank_emits_warning() {
 // Unclosed fenced code block at end-of-document emits a warning.
 #[test]
 fn unclosed_code_block_emits_warning() {
-    let md = "~~~card-yaml\n#@quill: t\n~~~\n\n```\ncode line\n\n~~~card-yaml\n#@kind: x\n~~~\n\ntrailing body";
+    let md = "~~~card-yaml\n#@quill: t\n#@kind: main\n~~~\n\n```\ncode line\n\n~~~card-yaml\n#@kind: x\n~~~\n\ntrailing body";
     let out = Document::from_markdown_with_warnings(md).unwrap();
     assert!(
         out.warnings
@@ -264,7 +264,7 @@ fn unclosed_code_block_emits_warning() {
 // Per-block field-count cap.
 #[test]
 fn per_block_field_count_cap() {
-    let mut s = String::from("~~~card-yaml\n#@quill: t\n");
+    let mut s = String::from("~~~card-yaml\n#@quill: t\n#@kind: main\n");
     for i in 0..1001 {
         s.push_str(&format!("f{}: v\n", i));
     }
@@ -276,7 +276,7 @@ fn per_block_field_count_cap() {
 // Card count cap counts cards only.
 #[test]
 fn card_count_cap_is_per_card() {
-    let mut s = String::from("~~~card-yaml\n#@quill: t\n~~~\n");
+    let mut s = String::from("~~~card-yaml\n#@quill: t\n#@kind: main\n~~~\n");
     for _ in 0..1001 {
         s.push_str("\n~~~card-yaml\n#@kind: x\n~~~\n\nB.\n");
     }

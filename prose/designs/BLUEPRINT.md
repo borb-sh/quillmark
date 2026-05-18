@@ -16,6 +16,7 @@ free.
 ````
 ~~~card-yaml
 #@quill: <name>@<version>
+#@kind: main
 # <description>
 
 # <field description>
@@ -36,8 +37,9 @@ Write <card_kind> body here.
 ````
 
 Every block is a `~~~card-yaml` block (see [MARKDOWN.md](MARKDOWN.md) §3):
-the root block carries the `#@quill:` system sentinel; each composable card
-carries a `#@kind: <card_kind>` system sentinel.
+the root block carries the `#@quill:` system sentinel together with
+`#@kind: main` (the reserved root kind); each composable card carries a
+`#@kind: <card_kind>` system sentinel.
 
 When `body.example` is set, its text replaces the body marker entirely.
 When `body.enabled` is false the marker is omitted entirely.
@@ -93,9 +95,10 @@ Form: **`# <type>[<format>]; <role>[, <extra>...]`**
 The system sentinels (`#@quill:` and `#@kind:`) have no inline-annotation
 slot — they are not YAML fields and carry no trailing `#` comment
 (comments are unsupported on the sentinel line). The root block's
-`#@quill:` line is emitted verbatim; the value is fixed and must not be
-modified. A composable card's kind is carried in its `#@kind: <card_kind>`
-sentinel. Its `composable (0..N)` role is emitted as an own-line
+`#@quill:` and `#@kind: main` lines are emitted verbatim; their values are
+fixed and must not be modified. A composable card's kind is carried in its
+`#@kind: <card_kind>` sentinel (and may never be `main`, which is reserved
+for the root block). Its `composable (0..N)` role is emitted as an own-line
 `# composable (0..N)` comment directly under the sentinel, ahead of the
 card description.
 
@@ -276,6 +279,7 @@ blueprint's document structure.
 ```
 ~~~card-yaml
 #@quill: cmu_letter@0.1.0
+#@kind: main
 # Typeset letters that comply with Carnegie Mellon University letterhead standards.
 
 # The recipient's name and full mailing address.

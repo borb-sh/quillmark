@@ -13,7 +13,7 @@ use crate::Sentinel;
 
 #[test]
 fn card_fence_parses_kind_fields_and_body() {
-    let src = "~~~card-yaml\n#@quill: q\n~~~\n\n~~~card-yaml\n#@kind: product\nname: Widget\nprice: 19\n~~~\n\nWidget description.\n";
+    let src = "~~~card-yaml\n#@quill: q\n#@kind: main\n~~~\n\n~~~card-yaml\n#@kind: product\nname: Widget\nprice: 19\n~~~\n\nWidget description.\n";
     let doc = Document::from_markdown(src).unwrap();
 
     assert_eq!(doc.cards().len(), 1);
@@ -29,7 +29,7 @@ fn card_fence_parses_kind_fields_and_body() {
 
 #[test]
 fn card_fence_empty_body_has_no_fields() {
-    let src = "~~~card-yaml\n#@quill: q\n~~~\n\n~~~card-yaml\n#@kind: marker\n~~~\n";
+    let src = "~~~card-yaml\n#@quill: q\n#@kind: main\n~~~\n\n~~~card-yaml\n#@kind: marker\n~~~\n";
     let doc = Document::from_markdown(src).unwrap();
     assert_eq!(doc.cards().len(), 1);
     assert!(doc.cards()[0].frontmatter().is_empty());
@@ -38,7 +38,7 @@ fn card_fence_empty_body_has_no_fields() {
 
 #[test]
 fn card_fence_multiple_cards() {
-    let src = "~~~card-yaml\n#@quill: q\n~~~\n\n~~~card-yaml\n#@kind: product\nname: A\n~~~\n\n~~~card-yaml\n#@kind: product\nname: B\n~~~\n";
+    let src = "~~~card-yaml\n#@quill: q\n#@kind: main\n~~~\n\n~~~card-yaml\n#@kind: product\nname: A\n~~~\n\n~~~card-yaml\n#@kind: product\nname: B\n~~~\n";
     let doc = Document::from_markdown(src).unwrap();
     assert_eq!(doc.cards().len(), 2);
     assert_eq!(
@@ -55,18 +55,18 @@ fn card_fence_multiple_cards() {
 
 #[test]
 fn emit_uses_canonical_card_fence() {
-    let src = "~~~card-yaml\n#@quill: q\n~~~\n\n~~~card-yaml\n#@kind: product\nname: Widget\n~~~\n";
+    let src = "~~~card-yaml\n#@quill: q\n#@kind: main\n~~~\n\n~~~card-yaml\n#@kind: product\nname: Widget\n~~~\n";
     let doc = Document::from_markdown(src).unwrap();
     let emitted = doc.to_markdown();
     assert_eq!(
         emitted,
-        "~~~card-yaml\n#@quill: q\n~~~\n\n~~~card-yaml\n#@kind: product\nname: \"Widget\"\n~~~\n"
+        "~~~card-yaml\n#@quill: q\n#@kind: main\n~~~\n\n~~~card-yaml\n#@kind: product\nname: \"Widget\"\n~~~\n"
     );
 }
 
 #[test]
 fn emit_is_idempotent_for_card_fences() {
-    let src = "~~~card-yaml\n#@quill: q\n~~~\n\n~~~card-yaml\n#@kind: product\nname: Widget\n~~~\n\nTrailing body.\n";
+    let src = "~~~card-yaml\n#@quill: q\n#@kind: main\n~~~\n\n~~~card-yaml\n#@kind: product\nname: Widget\n~~~\n\nTrailing body.\n";
     let doc = Document::from_markdown(src).unwrap();
     let once = doc.to_markdown();
     let twice = Document::from_markdown(&once).unwrap().to_markdown();
@@ -75,7 +75,7 @@ fn emit_is_idempotent_for_card_fences() {
 
 #[test]
 fn card_fence_body_round_trips() {
-    let src = "~~~card-yaml\n#@quill: q\n~~~\n\nMain body.\n\n~~~card-yaml\n#@kind: product\nname: Widget\n~~~\n\nCard body.\n";
+    let src = "~~~card-yaml\n#@quill: q\n#@kind: main\n~~~\n\nMain body.\n\n~~~card-yaml\n#@kind: product\nname: Widget\n~~~\n\nCard body.\n";
     let a = Document::from_markdown(src).unwrap();
     let b = Document::from_markdown(&a.to_markdown()).unwrap();
     assert_eq!(a, b);
@@ -85,7 +85,7 @@ fn card_fence_body_round_trips() {
 
 #[test]
 fn card_fence_preserves_yaml_comments() {
-    let src = "~~~card-yaml\n#@quill: q\n~~~\n\n~~~card-yaml\n#@kind: product\n# a banner\nname: Widget\n~~~\n";
+    let src = "~~~card-yaml\n#@quill: q\n#@kind: main\n~~~\n\n~~~card-yaml\n#@kind: product\n# a banner\nname: Widget\n~~~\n";
     let doc = Document::from_markdown(src).unwrap();
     let emitted = doc.to_markdown();
     assert!(
@@ -101,7 +101,7 @@ fn card_fence_preserves_yaml_comments() {
 #[test]
 fn card_fence_missing_kind_sentinel_is_error() {
     // A composable block with no `#@` sentinel at all.
-    let src = "~~~card-yaml\n#@quill: q\n~~~\n\n~~~card-yaml\nname: Widget\n~~~\n";
+    let src = "~~~card-yaml\n#@quill: q\n#@kind: main\n~~~\n\n~~~card-yaml\nname: Widget\n~~~\n";
     let err = Document::from_markdown(src).unwrap_err().to_string();
     assert!(
         err.contains("missing its `#@kind: <type>` system sentinel"),
@@ -111,25 +111,25 @@ fn card_fence_missing_kind_sentinel_is_error() {
 
 #[test]
 fn card_fence_non_kind_sentinel_is_error() {
-    // A composable block whose sentinel is not `#@kind`.
-    let src = "~~~card-yaml\n#@quill: q\n~~~\n\n~~~card-yaml\n#@foo: bar\nname: Widget\n~~~\n";
+    // A composable block whose sentinel is an unknown `#@` directive.
+    let src = "~~~card-yaml\n#@quill: q\n#@kind: main\n~~~\n\n~~~card-yaml\n#@foo: bar\nname: Widget\n~~~\n";
     let err = Document::from_markdown(src).unwrap_err().to_string();
     assert!(
-        err.contains("must declare `#@kind: <type>`"),
+        err.contains("Unknown system sentinel `#@foo:` — expected `#@quill:` or `#@kind:`"),
         "got: {err}"
     );
 }
 
 #[test]
 fn card_fence_invalid_kind_is_error() {
-    let src = "~~~card-yaml\n#@quill: q\n~~~\n\n~~~card-yaml\n#@kind: BadKind\nname: Widget\n~~~\n";
+    let src = "~~~card-yaml\n#@quill: q\n#@kind: main\n~~~\n\n~~~card-yaml\n#@kind: BadKind\nname: Widget\n~~~\n";
     let err = Document::from_markdown(src).unwrap_err().to_string();
     assert!(err.contains("Invalid card kind"), "got: {err}");
 }
 
 #[test]
 fn card_fence_unclosed_is_error() {
-    let src = "~~~card-yaml\n#@quill: q\n~~~\n\n~~~card-yaml\n#@kind: product\nname: Widget\n";
+    let src = "~~~card-yaml\n#@quill: q\n#@kind: main\n~~~\n\n~~~card-yaml\n#@kind: product\nname: Widget\n";
     let err = Document::from_markdown(src).unwrap_err().to_string();
     assert!(
         err.contains("never closed with `~~~`"),
@@ -139,17 +139,17 @@ fn card_fence_unclosed_is_error() {
 
 #[test]
 fn card_fence_reserved_key_is_error() {
-    let src = "~~~card-yaml\n#@quill: q\n~~~\n\n~~~card-yaml\n#@kind: product\nBODY: nope\n~~~\n";
+    let src = "~~~card-yaml\n#@quill: q\n#@kind: main\n~~~\n\n~~~card-yaml\n#@kind: product\nBODY: nope\n~~~\n";
     let err = Document::from_markdown(src).unwrap_err().to_string();
     assert!(err.contains("Reserved field name"), "got: {err}");
 }
 
 #[test]
 fn non_root_block_declaring_quill_is_error() {
-    let src = "~~~card-yaml\n#@quill: q\n~~~\n\n~~~card-yaml\n#@quill: other\nname: Widget\n~~~\n";
+    let src = "~~~card-yaml\n#@quill: q\n#@kind: main\n~~~\n\n~~~card-yaml\n#@quill: other\n#@kind: main\nname: Widget\n~~~\n";
     let err = Document::from_markdown(src).unwrap_err().to_string();
     assert!(
-        err.contains("`#@quill` may only be declared by the document's first card-yaml block"),
+        err.contains("`#@quill` may only be declared by the document's root card-yaml block"),
         "got: {err}"
     );
 }
@@ -158,7 +158,7 @@ fn non_root_block_declaring_quill_is_error() {
 
 #[test]
 fn ordinary_code_fence_is_not_a_card() {
-    let src = "~~~card-yaml\n#@quill: q\n~~~\n\n```rust\nlet x = 1;\n```\n";
+    let src = "~~~card-yaml\n#@quill: q\n#@kind: main\n~~~\n\n```rust\nlet x = 1;\n```\n";
     let doc = Document::from_markdown(src).unwrap();
     assert_eq!(doc.cards().len(), 0);
     assert!(doc.main().body().contains("```rust"));
@@ -167,7 +167,7 @@ fn ordinary_code_fence_is_not_a_card() {
 #[test]
 fn card_yaml_info_inside_outer_code_fence_is_not_a_card() {
     // A `~~~card-yaml` line shielded by an outer code fence is plain text.
-    let src = "~~~card-yaml\n#@quill: q\n~~~\n\n````text\n~~~card-yaml\n#@kind: product\nname: Widget\n~~~\n````\n";
+    let src = "~~~card-yaml\n#@quill: q\n#@kind: main\n~~~\n\n````text\n~~~card-yaml\n#@kind: product\nname: Widget\n~~~\n````\n";
     let doc = Document::from_markdown(src).unwrap();
     assert_eq!(doc.cards().len(), 0);
 }
@@ -176,7 +176,7 @@ fn card_yaml_info_inside_outer_code_fence_is_not_a_card() {
 fn card_fence_without_blank_line_above_is_not_a_card() {
     // The blank-line rule fails — the `~~~card-yaml` fence is delegated to
     // CommonMark as a code block, with a non-fatal lint warning.
-    let src = "~~~card-yaml\n#@quill: q\n~~~\n\nSome prose.\n~~~card-yaml\n#@kind: product\nname: Widget\n~~~\n";
+    let src = "~~~card-yaml\n#@quill: q\n#@kind: main\n~~~\n\nSome prose.\n~~~card-yaml\n#@kind: product\nname: Widget\n~~~\n";
     let out = Document::from_markdown_with_warnings(src).unwrap();
     assert_eq!(out.document.cards().len(), 0);
     assert!(out

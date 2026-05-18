@@ -14,7 +14,9 @@ use crate::Diagnostic;
 use super::fences::find_metadata_blocks;
 use super::frontmatter::{Frontmatter, FrontmatterItem};
 use super::prescan::{prescan_fence_content, NestedComment, PreItem};
-use super::sentinel::{is_valid_tag_name, parse_system_sentinel, validate_payload_yaml};
+use super::sentinel::{
+    is_valid_tag_name, parse_system_sentinel, validate_payload_yaml, MAIN_KIND,
+};
 use super::{Card, Document, Sentinel};
 
 /// Strip exactly one structural separator from the tail of a body slice.
@@ -62,22 +64,31 @@ fn yaml_parse_options() -> serde_saphyr::Options {
     }
 }
 
-/// Split a block's raw content into its `#@` system-sentinel line (the first
-/// non-blank line) and the YAML payload that follows it.
+/// Split a block's raw content into its `#@` system-sentinel header and the
+/// YAML payload that follows it.
 ///
-/// Returns `(Some(sentinel_line), payload)` when a non-blank line is found, or
-/// `(None, "")` when the block content is entirely blank.
-fn split_sentinel_line(content: &str) -> (Option<&str>, &str) {
-    let mut offset = 0;
+/// The sentinel header is the run of `#@`-prefixed lines at the top of the
+/// block (blank lines interspersed are skipped). The payload is everything
+/// after the last header line. A block with no `#@` line yields an empty
+/// header.
+fn split_sentinel_header(content: &str) -> (Vec<&str>, &str) {
+    let mut sentinels: Vec<&str> = Vec::new();
+    let mut payload_start = 0;
     for line in content.split_inclusive('\n') {
         let line_text = line.trim_end_matches(['\n', '\r']);
-        if line_text.trim().is_empty() {
-            offset += line.len();
+        let trimmed = line_text.trim();
+        if trimmed.is_empty() {
+            payload_start += line.len();
             continue;
         }
-        return (Some(line_text), &content[offset + line.len()..]);
+        if trimmed.starts_with("#@") {
+            sentinels.push(line_text);
+            payload_start += line.len();
+            continue;
+        }
+        break;
     }
-    (None, "")
+    (sentinels, &content[payload_start..])
 }
 
 /// Process one recognised `~~~card-yaml` block and build a [`MetadataBlock`].
@@ -106,9 +117,9 @@ pub(super) fn build_block(
         });
     }
 
-    // Separate the `#@` system sentinel from the YAML payload.
-    let (sentinel_line, yaml_payload) = split_sentinel_line(raw_content);
-    let (tag, quill_ref) = resolve_sentinel(block_index, sentinel_line)?;
+    // Separate the `#@` system-sentinel header from the YAML payload.
+    let (sentinels, yaml_payload) = split_sentinel_header(raw_content);
+    let (tag, quill_ref) = resolve_sentinel(block_index, &sentinels)?;
 
     // Run the pre-scan over the YAML payload to extract top-level comments,
     // `!fill` markers, and warn on unsupported tags / nested comments.
@@ -161,61 +172,105 @@ pub(super) fn build_block(
     })
 }
 
-/// Resolve the `#@` system sentinel for a block, returning `(tag, quill_ref)`.
+/// Resolve a block's `#@` system-sentinel header, returning `(tag, quill_ref)`.
 ///
-/// The root block (index 0) must declare `#@quill: <name>`; every composable
-/// block must declare `#@kind: <type>`.
+/// Every block declares `#@kind: <type>`. The root block (index 0) declares
+/// `#@kind: main` and additionally `#@quill: <name>@<version>`; `main` is a
+/// reserved kind that no composable block may use. Header lines may appear in
+/// any order.
 #[allow(clippy::type_complexity)]
 fn resolve_sentinel(
     block_index: usize,
-    sentinel_line: Option<&str>,
+    sentinels: &[&str],
 ) -> Result<(Option<String>, Option<String>), ParseError> {
-    let parsed = sentinel_line.and_then(parse_system_sentinel);
+    let mut quill: Option<String> = None;
+    let mut kind: Option<String> = None;
 
-    if block_index == 0 {
-        match parsed {
+    for line in sentinels {
+        match parse_system_sentinel(line) {
             Some((key, value)) if key == "quill" => {
-                if value.is_empty() {
+                if quill.is_some() {
                     return Err(ParseError::InvalidStructure(
-                        "`#@quill:` system sentinel has no value — expected `#@quill: <name>`"
-                            .to_string(),
+                        "Duplicate `#@quill:` system sentinel in one card-yaml block".to_string(),
                     ));
                 }
-                Ok((None, Some(value)))
+                quill = Some(value);
             }
-            Some((key, _)) => Err(ParseError::MissingQuillField(format!(
-                "The document's first card-yaml block must declare `#@quill: <name>` (found `#@{}:`).",
-                key
-            ))),
-            None => Err(ParseError::MissingQuillField(
-                "The document's first card-yaml block is missing its `#@quill: <name>` system sentinel."
-                    .to_string(),
-            )),
-        }
-    } else {
-        match parsed {
             Some((key, value)) if key == "kind" => {
-                if !is_valid_tag_name(&value) {
-                    return Err(ParseError::InvalidStructure(format!(
-                        "Invalid card kind '{}': must match pattern [a-z_][a-z0-9_]*",
-                        value
-                    )));
+                if kind.is_some() {
+                    return Err(ParseError::InvalidStructure(
+                        "Duplicate `#@kind:` system sentinel in one card-yaml block".to_string(),
+                    ));
                 }
-                Ok((Some(value), None))
+                kind = Some(value);
             }
-            Some((key, _)) if key == "quill" => Err(ParseError::InvalidStructure(
-                "`#@quill` may only be declared by the document's first card-yaml block"
-                    .to_string(),
-            )),
-            Some((key, _)) => Err(ParseError::InvalidStructure(format!(
-                "A composable card-yaml block must declare `#@kind: <type>` (found `#@{}:`).",
-                key
-            ))),
-            None => Err(ParseError::InvalidStructure(
+            Some((key, _)) => {
+                return Err(ParseError::InvalidStructure(format!(
+                    "Unknown system sentinel `#@{}:` — expected `#@quill:` or `#@kind:`",
+                    key
+                )));
+            }
+            None => {
+                return Err(ParseError::InvalidStructure(format!(
+                    "Malformed system sentinel line `{}` — expected `#@<directive>: <value>`",
+                    line.trim()
+                )));
+            }
+        }
+    }
+
+    if block_index == 0 {
+        // Root block — must declare `#@kind: main` and `#@quill:`.
+        match kind.as_deref() {
+            Some(MAIN_KIND) => {}
+            Some(other) => {
+                return Err(ParseError::MissingQuillField(format!(
+                    "The document's root card-yaml block must declare `#@kind: main` (found `#@kind: {}`).",
+                    other
+                )));
+            }
+            None => {
+                return Err(ParseError::MissingQuillField(
+                    "The document's root card-yaml block must declare `#@kind: main`.".to_string(),
+                ));
+            }
+        }
+        let Some(quill) = quill else {
+            return Err(ParseError::MissingQuillField(
+                "The document's root card-yaml block must declare `#@quill: <name>`.".to_string(),
+            ));
+        };
+        if quill.is_empty() {
+            return Err(ParseError::InvalidStructure(
+                "`#@quill:` system sentinel has no value — expected `#@quill: <name>`".to_string(),
+            ));
+        }
+        Ok((None, Some(quill)))
+    } else {
+        // Composable card — must declare `#@kind: <type>`, never `#@quill:`.
+        if quill.is_some() {
+            return Err(ParseError::InvalidStructure(
+                "`#@quill` may only be declared by the document's root card-yaml block".to_string(),
+            ));
+        }
+        let Some(kind) = kind else {
+            return Err(ParseError::InvalidStructure(
                 "A composable card-yaml block is missing its `#@kind: <type>` system sentinel."
                     .to_string(),
-            )),
+            ));
+        };
+        if kind == MAIN_KIND {
+            return Err(ParseError::InvalidStructure(
+                "`#@kind: main` is reserved for the document's root card-yaml block".to_string(),
+            ));
         }
+        if !is_valid_tag_name(&kind) {
+            return Err(ParseError::InvalidStructure(format!(
+                "Invalid card kind '{}': must match pattern [a-z_][a-z0-9_]*",
+                kind
+            )));
+        }
+        Ok((Some(kind), None))
     }
 }
 

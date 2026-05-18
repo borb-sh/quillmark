@@ -51,6 +51,7 @@ def test_quill_render_ref_mismatch_warning(taro_quill_dir):
     mismatch_md = (
         "~~~card-yaml\n"
         "#@quill: completely_different_quill\n"
+        "#@kind: main\n"
         "author: Test Author\n"
         "ice_cream: Chocolate\n"
         "title: Mismatch Test\n"

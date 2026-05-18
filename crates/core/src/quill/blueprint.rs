@@ -88,10 +88,10 @@ fn write_comment(out: &mut String, text: &str) {
 }
 
 /// Emit the root block:
-/// `~~~card-yaml\n#@quill: …\n# sentinel; …\n[# desc\n]<fields>~~~\n`.
+/// `~~~card-yaml\n#@quill: …\n#@kind: main\n# sentinel; …\n[# desc\n]<fields>~~~\n`.
 ///
-/// The `#@quill` system sentinel must be the first line; its role annotation
-/// and the optional description follow as own-line comments.
+/// The `#@quill` and `#@kind: main` system sentinels lead the block; the role
+/// annotation and the optional description follow as own-line comments.
 fn write_main_fence(
     out: &mut String,
     card: &CardSchema,
@@ -102,6 +102,7 @@ fn write_main_fence(
     out.push_str("#@quill: ");
     out.push_str(quill_ref);
     out.push('\n');
+    out.push_str("#@kind: main\n");
     write_comment(out, "sentinel; required, verbatim");
     if let Some(desc) = description {
         write_comment(out, desc);
@@ -688,7 +689,7 @@ main:
 "#)
         .blueprint();
         assert!(t.starts_with(
-            "~~~card-yaml\n#@quill: taro@0.1.0\n# sentinel; required, verbatim\n# x\n"
+            "~~~card-yaml\n#@quill: taro@0.1.0\n#@kind: main\n# sentinel; required, verbatim\n# x\n"
         ));
         assert!(t.contains("\nWrite main body here.\n"));
     }

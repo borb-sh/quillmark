@@ -8,6 +8,11 @@
 
 use crate::error::ParseError;
 
+/// The reserved card kind that identifies the document's root block. Every
+/// block declares `#@kind:`; the root block declares `#@kind: main`, and a
+/// composable card may not use this kind.
+pub(super) const MAIN_KIND: &str = "main";
+
 /// Validate tag name follows pattern [a-z_][a-z0-9_]*
 pub(super) fn is_valid_tag_name(name: &str) -> bool {
     if name.is_empty() {

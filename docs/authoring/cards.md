@@ -13,6 +13,7 @@ sentinel; the Markdown after the closing `~~~` fence is the card's body.
 ```
 ~~~card-yaml
 #@quill: my_quill@1.0
+#@kind: main
 title: Main Document
 ~~~
 
@@ -56,8 +57,9 @@ All card blocks are collected into the `CARDS` array.
   comments are supported in the payload below it.
 
 The first block in a document is the root block; it carries a
-`#@quill: <name>@<version>` sentinel instead of `#@kind:`. Every subsequent
-block is a card.
+`#@quill: <name>@<version>` sentinel together with `#@kind: main`. `main` is a
+**reserved** card kind for the root block — a composable card may not declare
+`#@kind: main`. Every subsequent block is a card.
 
 ## Card Body Content
 

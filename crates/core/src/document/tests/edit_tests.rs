@@ -11,14 +11,14 @@ use std::str::FromStr;
 
 fn make_doc() -> Document {
     Document::from_markdown(
-        "~~~card-yaml\n#@quill: test_quill\ntitle: Hello\n~~~\n\nBody text.\n",
+        "~~~card-yaml\n#@quill: test_quill\n#@kind: main\ntitle: Hello\n~~~\n\nBody text.\n",
     )
     .unwrap()
 }
 
 fn make_doc_with_cards() -> Document {
     Document::from_markdown(
-        "~~~card-yaml\n#@quill: test_quill\ntitle: Hello\n~~~\n\nBody.\n\n~~~card-yaml\n#@kind: note\nfoo: bar\n~~~\n\nCard body.\n\n~~~card-yaml\n#@kind: summary\n~~~\n",
+        "~~~card-yaml\n#@quill: test_quill\n#@kind: main\ntitle: Hello\n~~~\n\nBody.\n\n~~~card-yaml\n#@kind: note\nfoo: bar\n~~~\n\nCard body.\n\n~~~card-yaml\n#@kind: summary\n~~~\n",
     )
     .unwrap()
 }

@@ -21,7 +21,7 @@
 
 use unicode_normalization::UnicodeNormalization;
 
-use crate::document::sentinel::is_valid_tag_name;
+use crate::document::sentinel::{is_valid_tag_name, MAIN_KIND};
 use crate::document::{Card, Document, Frontmatter, Sentinel};
 use crate::value::QuillValue;
 use crate::version::QuillReference;
@@ -85,6 +85,11 @@ pub enum EditError {
     /// The supplied tag does not match `[a-z_][a-z0-9_]*`.
     #[error("invalid tag name '{0}': must match [a-z_][a-z0-9_]*")]
     InvalidTagName(String),
+
+    /// The supplied kind is `main`, which is reserved for the document's
+    /// root block and cannot be used for a composable card.
+    #[error("reserved kind 'main' cannot be used for a composable card")]
+    ReservedKind,
 
     /// A card index was out of the valid range.
     #[error("index {index} is out of range (len = {len})")]
@@ -194,7 +199,8 @@ impl Document {
     /// - `index` must be in `0..len`. Out of range returns
     ///   [`EditError::IndexOutOfRange`].
     /// - `new_tag` must match `[a-z_][a-z0-9_]*`. Invalid tags return
-    ///   [`EditError::InvalidTagName`].
+    ///   [`EditError::InvalidTagName`]. The reserved kind `main` returns
+    ///   [`EditError::ReservedKind`].
     ///
     /// # Warnings
     ///
@@ -207,6 +213,9 @@ impl Document {
         let new_tag = new_tag.into();
         if !is_valid_tag_name(&new_tag) {
             return Err(EditError::InvalidTagName(new_tag));
+        }
+        if new_tag == MAIN_KIND {
+            return Err(EditError::ReservedKind);
         }
         let len = self.cards().len();
         let card = self
@@ -253,13 +262,17 @@ impl Card {
     /// # Invariants enforced
     ///
     /// `tag` must match `[a-z_][a-z0-9_]*`.  An invalid tag returns
-    /// [`EditError::InvalidTagName`].
+    /// [`EditError::InvalidTagName`]; the reserved kind `main` returns
+    /// [`EditError::ReservedKind`].
     ///
     /// The new card has no fields and an empty body.
     pub fn new(tag: impl Into<String>) -> Result<Self, EditError> {
         let tag = tag.into();
         if !is_valid_tag_name(&tag) {
             return Err(EditError::InvalidTagName(tag));
+        }
+        if tag == MAIN_KIND {
+            return Err(EditError::ReservedKind);
         }
         Ok(Card::new_with_sentinel(
             Sentinel::Card(tag),

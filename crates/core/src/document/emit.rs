@@ -112,13 +112,14 @@ impl Document {
 
 // ── Block emission ────────────────────────────────────────────────────────────
 
-/// Emit a card-yaml block: `~~~card-yaml`, the `#@` system sentinel, the YAML
-/// payload, then a closing `~~~`.
+/// Emit a card-yaml block: `~~~card-yaml`, the `#@` system-sentinel header,
+/// the YAML payload, then a closing `~~~`.
 ///
-/// The root block declares `#@quill: <ref>`; composable cards declare
-/// `#@kind: <tag>`. There is no sentinel line for an inline comment to attach
-/// to, so an inline comment carried over at `items[0]` degrades to an own-line
-/// comment as the first payload line, preserving its text.
+/// The root block declares `#@quill: <ref>` followed by `#@kind: main`;
+/// composable cards declare `#@kind: <tag>`. There is no sentinel line for an
+/// inline comment to attach to, so an inline comment carried over at
+/// `items[0]` degrades to an own-line comment as the first payload line,
+/// preserving its text.
 ///
 /// Three tildes are always a safe fence length: canonically emitted payload
 /// lines never begin with `~` (keys are identifiers, sequence items start with
@@ -132,6 +133,7 @@ fn emit_block(out: &mut String, card: &Card) {
             out.push_str("#@quill: ");
             out.push_str(&r.to_string());
             out.push('\n');
+            out.push_str("#@kind: main\n");
         }
         Sentinel::Card(tag) => {
             out.push_str("#@kind: ");

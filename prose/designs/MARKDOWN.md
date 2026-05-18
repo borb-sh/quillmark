@@ -49,6 +49,7 @@ Document = (CardYamlBlock ProseBody)+
 ```
 ~~~card-yaml
 #@quill: example@0.1.0
+#@kind: main
 from: "bob"
 to: "alice"
 ~~~
@@ -66,9 +67,9 @@ I have reviewed the contents and officially endorse this flight plan.
 ```
 
 The first block is the root block; its `#@quill:` sentinel binds the document
-to the `example` quill at version `0.1.0`. The second block is an
-`endorsement` card. The text after each closing `~~~` fence is that block's
-prose body.
+to the `example` quill at version `0.1.0`, and its `#@kind: main` sentinel
+declares the reserved root kind. The second block is an `endorsement` card.
+The text after each closing `~~~` fence is that block's prose body.
 
 ## 3. card-yaml Blocks
 
@@ -77,9 +78,10 @@ prose body.
 A card-yaml block has four parts, in order:
 
 1. **Opening fence** — exactly `~~~card-yaml` (see §3.2).
-2. **System sentinel** — the first non-blank line inside the block, a
-   `#@`-prefixed directive (see §3.3).
-3. **Data payload** — standard YAML key/value pairs below the sentinel
+2. **System sentinels** — the leading `#@`-prefixed directive lines inside the
+   block (see §3.3). Every block declares `#@kind:`; the root block declares
+   `#@quill:` and `#@kind: main`.
+3. **Data payload** — standard YAML key/value pairs below the sentinels
    (see §3.4).
 4. **Closing fence** — exactly `~~~` (see §3.2).
 
@@ -105,23 +107,29 @@ the next opening fence or EOF.
 
 ### 3.3 System Sentinels (`#@`)
 
-The first non-blank line inside a block is a **system sentinel** — a line
-prefixed with `#@`. The sentinel identifies the block:
+The leading non-blank lines inside a block are **system sentinels** — lines
+prefixed with `#@`. The sentinels identify the block:
 
-- The document's first (root) block must declare
+- **Every block** must declare `#@kind: <block_type>`, naming its card kind.
+- The document's first (root) block must *additionally* declare
   `#@quill: <name>@<version>`. This binds the document to a quill (see §3.5
-  for the version-selector forms).
-- Every subsequent block must declare `#@kind: <block_type>`, naming the card
-  kind.
+  for the version-selector forms). The root block's kind is the reserved
+  value `main`, so the root block declares both `#@quill: <name>@<version>`
+  and `#@kind: main`.
+- The canonical order in the root block is `#@quill:` first, then
+  `#@kind: main`; the parser accepts the two `#@` header lines in either
+  order, but emits them in canonical order (see §9).
 
 Rules:
 
-- The sentinel is mandatory and must be the first non-blank line of the
+- A sentinel is mandatory and must appear in the leading `#@` lines of the
   block. A block whose first non-blank line is not a `#@` sentinel is a parse
   error.
-- `#@quill:` is permitted only in the root block. `#@kind:` is required in
-  every non-root block. `#@quill:` in a non-root block, or `#@kind:` in the
-  root block, is a parse error.
+- `#@quill:` is permitted only in the root block, and a non-root (composable)
+  block declaring `#@quill:` is a parse error.
+- `main` is a **reserved** card kind: it is declared by — and only by — the
+  root block. A composable (non-root) block may not declare `#@kind: main`,
+  and the root block must declare `#@kind: main`.
 - `<block_type>` (the card kind) matches `/^[a-z_][a-z0-9_]*$/`.
 - **Comments are not supported on the `#@` sentinel line itself.** Unlike the
   payload (§3.4), the sentinel line carries no trailing `#` comment.
@@ -188,6 +196,7 @@ before EOF is a hard parse error (§9).
 ```
 ~~~card-yaml
 #@quill: resume@1.0.0
+#@kind: main
 title: CV
 ~~~
 
@@ -318,21 +327,34 @@ error when any is exceeded:
 
 ## 9. Emission Contract
 
-`toMarkdown` always emits the **canonical form** of every block:
+`toMarkdown` always emits the **canonical form** of every block.
+
+The root block:
 
 ```
 ~~~card-yaml
-#@quill: <name>@<version>     (root block) — or — #@kind: <block_type>
+#@quill: <name>@<version>
+#@kind: main
 <payload>
 ~~~
 ```
 
-That is: a `~~~card-yaml` opener, the `#@quill:` or `#@kind:` system
-sentinel, the YAML payload, and a `~~~` closer. A document round-trips to
-this canonical shape — fence markers, the sentinel form, key ordering, and
-YAML quoting are normalised. `!fill` tags and payload comments (own-line and
-inline) survive the round-trip; the sentinel line is emitted without a
-comment.
+Every composable (non-root) block:
+
+```
+~~~card-yaml
+#@kind: <block_type>
+<payload>
+~~~
+```
+
+That is: a `~~~card-yaml` opener, the system sentinel lines, the YAML
+payload, and a `~~~` closer. The root block emits `#@quill:` first, then
+`#@kind: main`, regardless of the order in which the two `#@` header lines
+appeared in the source. A document round-trips to this canonical shape —
+fence markers, the sentinel form and order, key ordering, and YAML quoting
+are normalised. `!fill` tags and payload comments (own-line and inline)
+survive the round-trip; the sentinel lines are emitted without a comment.
 
 ## 10. Errors
 
@@ -341,9 +363,11 @@ Parse errors include:
 - A `~~~card-yaml` opener with no matching `~~~` closer before EOF.
 - A block whose first non-blank line is not a `#@` system sentinel.
 - The root block missing its `#@quill:` sentinel.
+- The root block not declaring `#@kind: main`.
 - A non-root block missing its `#@kind:` sentinel.
-- `#@quill:` appearing outside the root block, or `#@kind:` in the root
-  block.
+- `#@quill:` appearing outside the root block.
+- A composable (non-root) block declaring `#@kind: main` — `main` is reserved
+  for the root block.
 - A card kind (`#@kind:` value) failing `/^[a-z_][a-z0-9_]*$/`.
 - A field name failing `/^[a-z_][a-z0-9_]*$/`.
 - Use of a reserved name (`QUILL`, `CARD`, `BODY`, `CARDS`) as a field name.

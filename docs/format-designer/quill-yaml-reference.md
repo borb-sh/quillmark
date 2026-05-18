@@ -386,6 +386,7 @@ Cards appear as `~~~card-yaml` blocks with a `#@kind: <kind>` system sentinel in
 ```markdown
 ~~~card-yaml
 #@quill: usaf_memo
+#@kind: main
 subject: Example
 # ... other fields ...
 ~~~
