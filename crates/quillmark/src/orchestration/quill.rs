@@ -125,11 +125,7 @@ impl Quill {
             Frontmatter::from_index_map(main_with_defaults),
             normalized.main().body().to_string(),
         );
-        let final_doc = Document::from_main_and_cards(
-            final_main,
-            cards_with_defaults,
-            normalized.warnings().to_vec(),
-        );
+        let final_doc = Document::from_main_and_cards(final_main, cards_with_defaults);
 
         Ok(final_doc.to_plate_json())
     }
@@ -167,8 +163,7 @@ impl Quill {
             Frontmatter::from_index_map(coerced_frontmatter),
             doc.main().body().to_string(),
         );
-        let coerced_doc =
-            Document::from_main_and_cards(coerced_main, coerced_cards, doc.warnings().to_vec());
+        let coerced_doc = Document::from_main_and_cards(coerced_main, coerced_cards);
 
         self.validate_document(&coerced_doc)?;
 

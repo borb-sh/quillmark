@@ -280,7 +280,7 @@ fn empty_map_omitted_from_emit() {
         Frontmatter::from_index_map(frontmatter),
         String::new(),
     );
-    let doc = crate::document::Document::from_main_and_cards(main, vec![], vec![]);
+    let doc = crate::document::Document::from_main_and_cards(main, vec![]);
 
     let md = doc.to_markdown();
     assert!(

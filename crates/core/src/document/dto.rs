@@ -304,7 +304,7 @@ impl TryFrom<DocumentV0_81_0> for Document {
             .into_iter()
             .map(Card::try_from)
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(Document::from_main_and_cards(main, cards, Vec::new()))
+        Ok(Document::from_main_and_cards(main, cards))
     }
 }
 
@@ -431,7 +431,6 @@ This body and the metadata above are an indorsement card.
         let doc = sample();
         let value: serde_json::Value = serde_json::to_value(&doc).unwrap();
         assert_eq!(value["schema"], SCHEMA_V0_81_0);
-        assert!(value.get("warnings").is_none());
     }
 
     #[test]

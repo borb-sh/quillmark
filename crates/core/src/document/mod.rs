@@ -246,23 +246,11 @@ impl Card {
 /// this struct's in-memory layout. This is distinct from the plate wire
 /// shape ([`to_plate_json`](Document::to_plate_json), a one-way export for
 /// backends) and from Markdown ([`to_markdown`](Document::to_markdown)).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(into = "StoredDocument", try_from = "StoredDocument")]
 pub struct Document {
     main: Card,
     cards: Vec<Card>,
-    warnings: Vec<Diagnostic>,
-}
-
-// Equality is defined over the structural content only — `warnings` are
-// parse-time observations that depend on what the source text happened to
-// contain (near-miss sentinels, unsupported tag drops, etc.) and so differ
-// between a source document and its round-tripped emission. Two documents
-// are equal when their `main` and `cards` match.
-impl PartialEq for Document {
-    fn eq(&self, other: &Self) -> bool {
-        self.main == other.main && self.cards == other.cards
-    }
 }
 
 impl Document {
@@ -270,17 +258,13 @@ impl Document {
     ///
     /// The caller must guarantee that `main.sentinel` is `Sentinel::Main(_)`
     /// and every card in `cards` has `sentinel` = `Sentinel::Card(_)`.
-    pub fn from_main_and_cards(main: Card, cards: Vec<Card>, warnings: Vec<Diagnostic>) -> Self {
+    pub fn from_main_and_cards(main: Card, cards: Vec<Card>) -> Self {
         debug_assert!(main.sentinel.is_main(), "main card must be Sentinel::Main");
         debug_assert!(
             cards.iter().all(|c| !c.sentinel.is_main()),
             "composable cards must be Sentinel::Card"
         );
-        Self {
-            main,
-            cards,
-            warnings,
-        }
+        Self { main, cards }
     }
 
     /// Parse a Quillmark Markdown document, discarding any non-fatal warnings.
@@ -332,11 +316,6 @@ impl Document {
     /// remove elements.
     pub(crate) fn cards_vec_mut(&mut self) -> &mut Vec<Card> {
         &mut self.cards
-    }
-
-    /// Non-fatal warnings collected during parsing.
-    pub fn warnings(&self) -> &[Diagnostic] {
-        &self.warnings
     }
 
     // ── Wire format ────────────────────────────────────────────────────────────

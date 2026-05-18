@@ -46,9 +46,9 @@ restart or a crate upgrade: database rows, caches, message payloads.
 
 `StoredDocument` is an internally-tagged enum (`#[serde(tag = "schema")]`);
 each variant carries a frozen DTO tree. Quill references are stored as
-strings (parsed back via `QuillReference::from_str`). Parse-time `warnings`
-are excluded — they are observations about source text, not document
-content, and are repopulated on the next parse.
+strings (parsed back via `QuillReference::from_str`). Parse-time warnings are
+not part of `Document` — they are returned separately by
+`Document::from_markdown_with_warnings` — so they never reach this format.
 
 ```rust
 use quillmark_core::Document;
@@ -105,7 +105,6 @@ any past version always loads.
 - The schema tag is a hand-set constant (`SCHEMA_V0_81_0`), **not**
   `CARGO_PKG_VERSION` — bumping it is a deliberate act tied to a model change.
 - Unknown schema tags are rejected on read, never silently ignored.
-- `warnings` are dropped on serialize and default to empty on deserialize.
 - DTO type names carry version suffixes with underscores
   (`DocumentV0_81_0`); `non_camel_case_types` is allowed module-wide for this.
 

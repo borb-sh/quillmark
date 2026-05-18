@@ -429,11 +429,7 @@ pub fn normalize_document(
         })
         .collect();
 
-    Ok(Document::from_main_and_cards(
-        main,
-        normalized_cards,
-        doc.warnings().to_vec(),
-    ))
+    Ok(Document::from_main_and_cards(main, normalized_cards))
 }
 
 #[cfg(test)]
