@@ -67,6 +67,29 @@ byte-equal to the original source — YAML quoting, key ordering, and
 whitespace are normalised. Use `equals` (not string comparison) to test
 semantic equality.
 
+### `doc.toJSON()`
+Serialize the document to its versioned storage DTO — a plain object shaped
+like `StoredDocument`, immediately `JSON.stringify`-able. Use this (not
+`toMarkdown`) to persist a document across a process restart or crate
+upgrade: the wire format is frozen per `schema` version, whereas Markdown
+syntax evolves. Parse-time `warnings` are not part of the DTO.
+
+Because the method is named `toJSON`, `JSON.stringify(doc)` also produces
+the storage DTO directly.
+
+### `Document.fromJSON(value)`
+Reconstruct a `Document` from a `StoredDocument` (a live object or one
+revived via `JSON.parse`). Round-trips losslessly with `toJSON`:
+
+```ts
+const stored = JSON.stringify(doc);          // persist
+const restored = Document.fromJSON(JSON.parse(stored));
+restored.equals(doc);                        // true
+```
+
+Throws a JS `Error` on an unknown `schema` tag or a malformed payload. The
+restored document has no parse-time `warnings`.
+
 ### `doc.equals(other)`
 Structural equality between two `Document` handles. Compares `main` and
 `cards` by value; parse-time `warnings` are intentionally excluded.

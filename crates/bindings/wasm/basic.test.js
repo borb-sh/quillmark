@@ -203,6 +203,63 @@ describe('Document.toMarkdown — fromMarkdown → mutate → emit → re-parse'
   })
 })
 
+// ---------------------------------------------------------------------------
+// Document.toJSON / Document.fromJSON — versioned storage DTO round-trip
+// ---------------------------------------------------------------------------
+
+describe('Document JSON DTO — toJSON / fromJSON', () => {
+  it('toJSON emits a plain object carrying the versioned schema tag', () => {
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const dto = doc.toJSON()
+    expect(typeof dto).toBe('object')
+    expect(dto.schema).toBe('quillmark/document@0.81.0')
+    expect(dto.main).toBeDefined()
+  })
+
+  it('round-trips losslessly: fromJSON(toJSON(doc)) equals doc', () => {
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const restored = Document.fromJSON(doc.toJSON())
+    expect(restored.equals(doc)).toBe(true)
+  })
+
+  it('survives a JSON.stringify / JSON.parse string round-trip', () => {
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    doc.setField('title', 'New Title')
+    doc.pushCard({ tag: 'note', fields: { author: 'Alice' }, body: 'Hello' })
+
+    const serialized = JSON.stringify(doc.toJSON())
+    const restored = Document.fromJSON(JSON.parse(serialized))
+
+    expect(restored.equals(doc)).toBe(true)
+    expect(restored.main.frontmatter.title).toBe('New Title')
+    expect(restored.cards[0].tag).toBe('note')
+    expect(restored.cards[0].frontmatter.author).toBe('Alice')
+    expect(restored.cards[0].body).toBe('Hello')
+  })
+
+  it('JSON.stringify(doc) produces the storage DTO directly', () => {
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const parsed = JSON.parse(JSON.stringify(doc))
+    expect(parsed.schema).toBe('quillmark/document@0.81.0')
+  })
+
+  it('reconstructed document carries no parse-time warnings', () => {
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const restored = Document.fromJSON(doc.toJSON())
+    expect(restored.warnings.length).toBe(0)
+  })
+
+  it('fromJSON rejects an unknown schema tag', () => {
+    expect(() =>
+      Document.fromJSON({ schema: 'quillmark/document@0.99.0', main: {} }),
+    ).toThrow()
+  })
+
+  it('fromJSON rejects a malformed payload', () => {
+    expect(() => Document.fromJSON({ not: 'a document' })).toThrow()
+  })
+})
+
 describe('Quillmark.quill', () => {
   it('should return a render-ready Quill', () => {
     const engine = new Quillmark()

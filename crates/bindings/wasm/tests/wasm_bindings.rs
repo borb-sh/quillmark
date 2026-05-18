@@ -159,6 +159,59 @@ fn test_to_markdown_round_trip() {
     );
 }
 
+/// `toJSON` emits the versioned storage DTO and `fromJSON` round-trips it
+/// back to an equal `Document`.
+#[wasm_bindgen_test]
+fn test_json_dto_round_trip() {
+    use js_sys::Reflect;
+    use wasm_bindgen::JsValue;
+
+    let md = "---\nQUILL: test_quill\ntitle: Hello\nsubject: !fill A Subject\n---\n\n# Hello\n\n```card note\nfor: someone\n```\n\nNote body.\n";
+    let doc = Document::from_markdown(md).expect("fromMarkdown failed");
+
+    // toJSON yields a plain object carrying the versioned schema tag.
+    let dto = doc.to_json().expect("toJSON failed");
+    assert!(dto.is_object(), "toJSON must return a plain object");
+    let schema = Reflect::get(&dto, &JsValue::from_str("schema")).unwrap();
+    assert_eq!(
+        schema.as_string().as_deref(),
+        Some("quillmark/document@0.81.0"),
+        "DTO must carry the versioned schema tag"
+    );
+
+    // fromJSON reconstructs an equal document.
+    let restored = Document::from_json(dto).expect("fromJSON failed");
+    assert!(
+        restored.equals(&doc),
+        "fromJSON(toJSON(doc)) must equal doc"
+    );
+    assert_eq!(restored.quill_ref(), doc.quill_ref());
+
+    // The restored document carries no parse-time warnings.
+    assert_eq!(
+        js_sys::Array::from(&restored.warnings()).length(),
+        0,
+        "DTO-reconstructed document must have no warnings"
+    );
+}
+
+/// `fromJSON` rejects a payload whose `schema` tag is unknown.
+#[wasm_bindgen_test]
+fn test_json_dto_rejects_unknown_schema() {
+    use wasm_bindgen::JsValue;
+
+    let bad = js_sys::JSON::parse(r#"{"schema":"quillmark/document@0.99.0","main":{}}"#)
+        .expect("JSON.parse");
+    let err = match Document::from_json(bad) {
+        Ok(_) => panic!("fromJSON must reject unknown schema"),
+        Err(e) => e,
+    };
+    assert!(
+        !JsValue::from(err).is_undefined(),
+        "rejection must surface a JS error"
+    );
+}
+
 /// Plain object (`Record<string, Uint8Array>`) must be accepted by
 /// `engine.quill` equivalently to `Map<string, Uint8Array>`.
 #[wasm_bindgen_test]
