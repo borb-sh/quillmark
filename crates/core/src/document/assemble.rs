@@ -325,7 +325,7 @@ pub(super) fn decompose_with_warnings(
     })?;
 
     let main = Card::new_with_sentinel(Sentinel::Main(quill_ref), frontmatter, global_body);
-    let doc = Document::from_main_and_cards(main, cards, warnings.clone());
+    let doc = Document::from_main_and_cards(main, cards);
 
     Ok((doc, warnings))
 }

@@ -412,7 +412,7 @@ main:
             Frontmatter::from_index_map(frontmatter),
             String::new(),
         );
-        Document::from_main_and_cards(main, cards, vec![])
+        Document::from_main_and_cards(main, cards)
     }
 
     fn typed_card(tag: &str, fields: &[(&str, serde_json::Value)]) -> Card {
@@ -745,7 +745,7 @@ main:
             Frontmatter::from_index_map(IndexMap::new()),
             "Body content that should not be here.".to_string(),
         );
-        let doc = Document::from_main_and_cards(main, vec![], vec![]);
+        let doc = Document::from_main_and_cards(main, vec![]);
         let errors = validate_typed_document(&config, &doc).unwrap_err();
         assert!(has_error(&errors, |e| matches!(
             e,
