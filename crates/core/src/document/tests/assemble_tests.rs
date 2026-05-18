@@ -42,9 +42,9 @@ fn test_empty_input_diagnostic_code() {
 }
 
 #[test]
-fn test_missing_quill_field_diagnostic_code() {
+fn test_missing_quill_diagnostic_code() {
     // Documents with no `~~~card-yaml` block at all surface the dedicated
-    // `parse::missing_quill_field` code.
+    // `parse::missing_quill` code.
     let cases = [
         "# Hello World\n\nNo payload here.",
         "Just prose, no card-yaml block.",
@@ -54,8 +54,8 @@ fn test_missing_quill_field_diagnostic_code() {
         let diag = err.to_diagnostic();
         assert_eq!(
             diag.code.as_deref(),
-            Some("parse::missing_quill_field"),
-            "expected parse::missing_quill_field for {input:?}, got: {:?}",
+            Some("parse::missing_quill"),
+            "expected parse::missing_quill for {input:?}, got: {:?}",
             diag.code
         );
     }
@@ -1318,7 +1318,7 @@ fn test_unmatched_chevrons_preserved() {
 
 /// Inputs with no `~~~card-yaml` block must fail with the missing-root error.
 #[test]
-fn test_missing_quill_field() {
+fn test_missing_quill() {
     for input in ["plain text", "# Heading\n\nbody"] {
         let err = decompose(input).unwrap_err().to_string();
         assert!(
@@ -1980,7 +1980,7 @@ Conclusion content.
 }
 
 #[test]
-fn test_missing_quill_field_errors() {
+fn test_missing_quill_errors() {
     let markdown = "# Body\n\nNo card-yaml block here.";
     let result = decompose(markdown);
     assert!(result.is_err());

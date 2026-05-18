@@ -326,12 +326,12 @@ pub enum ParseError {
     EmptyInput(String),
 
     /// The document is missing its root `~~~card-yaml` block, or that block
-    /// does not declare the required `#@quill:` system sentinel.
+    /// does not declare the required `#@quill` system metadata.
     ///
-    /// Emitted as code `parse::missing_quill_field` so consumers can
+    /// Emitted as code `parse::missing_quill` so consumers can
     /// pattern-match without inspecting the message text.
     #[error("{0}")]
-    MissingQuillField(String),
+    MissingQuill(String),
 
     /// YAML parsing error with location context
     #[error("YAML error at line {line}: {message}")]
@@ -362,8 +362,8 @@ impl ParseError {
                 .with_code("parse::invalid_structure".to_string()),
             ParseError::EmptyInput(msg) => Diagnostic::new(Severity::Error, msg.clone())
                 .with_code("parse::empty_input".to_string()),
-            ParseError::MissingQuillField(msg) => Diagnostic::new(Severity::Error, msg.clone())
-                .with_code("parse::missing_quill_field".to_string()),
+            ParseError::MissingQuill(msg) => Diagnostic::new(Severity::Error, msg.clone())
+                .with_code("parse::missing_quill".to_string()),
             ParseError::YamlErrorWithLocation {
                 message,
                 line,

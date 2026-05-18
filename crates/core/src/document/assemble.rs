@@ -228,7 +228,7 @@ pub(super) fn decompose_with_warnings(
     let (blocks, warnings) = find_metadata_blocks(markdown)?;
 
     if blocks.is_empty() {
-        return Err(crate::error::ParseError::MissingQuillField(
+        return Err(crate::error::ParseError::MissingQuill(
             "Missing required root card-yaml block. The document must open with a \
              `~~~card-yaml` block declaring `#@quill: <name>`."
                 .to_string(),
@@ -238,7 +238,7 @@ pub(super) fn decompose_with_warnings(
     // The root block must declare a valid `#@quill` reference.
     let root_block = &blocks[0];
     let quill_str = root_block.meta.quill().ok_or_else(|| {
-        ParseError::MissingQuillField(
+        ParseError::MissingQuill(
             "The document's root card-yaml block must declare `#@quill: <name>`.".to_string(),
         )
     })?;
