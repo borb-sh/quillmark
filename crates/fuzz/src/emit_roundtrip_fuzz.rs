@@ -62,7 +62,7 @@ proptest! {
         );
     }
 
-    /// Inputs that look like valid frontmatter with a QUILL field.
+    /// Inputs that look like a valid card-yaml block with a `#@quill:` sentinel.
     #[test]
     fn fuzz_emit_roundtrip_frontmatter_shaped(
         quill in "[a-z][a-z0-9_]{0,20}",
@@ -70,7 +70,7 @@ proptest! {
         value in "\\PC{0,100}"
     ) {
         // Build a minimal Quillmark document.
-        let src = format!("---\nQUILL: {}\n{}: \"{}\"\n---\n\nBody.\n",
+        let src = format!("~~~card-yaml\n#@quill: {}\n{}: \"{}\"\n~~~\n\nBody.\n",
             quill, key, value.replace('\\', "\\\\").replace('"', "\\\""));
 
         let doc_a = match Document::from_markdown(&src) {
@@ -111,7 +111,7 @@ proptest! {
         card_value in "[a-zA-Z0-9 ]{0,50}"
     ) {
         let src = format!(
-            "---\nQUILL: {}\ntitle: \"test\"\n---\n\nBody here.\n\n```card {}\n{}: \"{}\"\n```\n\nCard body.\n",
+            "~~~card-yaml\n#@quill: {}\ntitle: \"test\"\n~~~\n\nBody here.\n\n~~~card-yaml\n#@kind: {}\n{}: \"{}\"\n~~~\n\nCard body.\n",
             quill, card_tag, card_key, card_value
         );
 

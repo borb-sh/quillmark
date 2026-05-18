@@ -18,10 +18,10 @@ from quillmark import Quillmark, Document, OutputFormat
 engine = Quillmark()
 quill = engine.quill_from_path("path/to/quill")
 
-markdown = """---
-QUILL: my_quill
+markdown = """~~~card-yaml
+#@quill: my_quill
 title: Hello World
----
+~~~
 
 # Hello
 """

@@ -10,12 +10,15 @@ use std::str::FromStr;
 // ── Helper ───────────────────────────────────────────────────────────────────
 
 fn make_doc() -> Document {
-    Document::from_markdown("---\nQUILL: test_quill\ntitle: Hello\n---\n\nBody text.\n").unwrap()
+    Document::from_markdown(
+        "~~~card-yaml\n#@quill: test_quill\ntitle: Hello\n~~~\n\nBody text.\n",
+    )
+    .unwrap()
 }
 
 fn make_doc_with_cards() -> Document {
     Document::from_markdown(
-        "---\nQUILL: test_quill\ntitle: Hello\n---\n\nBody.\n\n```card note\nfoo: bar\n```\n\nCard body.\n\n```card summary\n```\n",
+        "~~~card-yaml\n#@quill: test_quill\ntitle: Hello\n~~~\n\nBody.\n\n~~~card-yaml\n#@kind: note\nfoo: bar\n~~~\n\nCard body.\n\n~~~card-yaml\n#@kind: summary\n~~~\n",
     )
     .unwrap()
 }

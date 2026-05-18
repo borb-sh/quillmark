@@ -4,9 +4,9 @@
 //! for LLM consumers. The blueprint shows the document's shape — fields,
 //! constraints, examples — so a consumer can write a fresh document from it.
 //!
-//! The frontmatter is a `---` fence; each composable card is a fenced code
-//! block with the info string `card <kind>` (the canonical card syntax — see
-//! `MARKDOWN.md` §3.2).
+//! Every block is a `~~~card-yaml` fence: the root block declares
+//! `#@quill: <name>@<version>` and each composable card declares
+//! `#@kind: <kind>` (see `MARKDOWN.md`).
 //!
 //! Annotation grammar:
 //! - **Leading `# …` lines** carry prose: `# <description>` (single line,
@@ -16,11 +16,12 @@
 //!   `# <type>[<format>]; <role>[, <extras>...]`. Type is mandatory on every
 //!   field. Format slot uses angle brackets (`array<string>`,
 //!   `date<YYYY-MM-DD>`, `enum<a | b | c>`). Role is `required` or
-//!   `optional`. The QUILL sentinel adds a `verbatim` extra signaling that
-//!   the value must not be modified.
-//! - **Card role annotation.** A card has no inline-annotation slot (its
-//!   kind is in the info string), so its `composable (0..N)` role is emitted
-//!   as an own-line `# composable (0..N)` comment directly under the opener.
+//!   `optional`.
+//! - **Sentinel annotation.** The `#@quill` / `#@kind` system sentinels have
+//!   no inline-annotation slot, so their role annotation
+//!   (`sentinel; required, verbatim` for the root block, `composable (0..N)`
+//!   for cards) is emitted as an own-line `# …` comment directly under the
+//!   sentinel.
 //! - **Body regions** are signalled by `Write main body here.` after the main
 //!   fence and `Write <card kind> body here.` after each card fence. When
 //!   `body.example` is set, the example text is embedded verbatim instead.
@@ -55,10 +56,7 @@ impl QuillConfig {
         write_main_fence(
             &mut out,
             &self.main,
-            &format!(
-                "QUILL: {}@{}  # sentinel; required, verbatim",
-                self.name, self.version
-            ),
+            &format!("{}@{}", self.name, self.version),
             main_desc,
         );
         if self.main.body_enabled() {
@@ -89,30 +87,35 @@ fn write_comment(out: &mut String, text: &str) {
     }
 }
 
-/// Emit the document frontmatter fence: `---\n[# desc\n]QUILL: …\n<fields>---\n`.
+/// Emit the root block:
+/// `~~~card-yaml\n#@quill: …\n# sentinel; …\n[# desc\n]<fields>~~~\n`.
+///
+/// The `#@quill` system sentinel must be the first line; its role annotation
+/// and the optional description follow as own-line comments.
 fn write_main_fence(
     out: &mut String,
     card: &CardSchema,
-    sentinel_line: &str,
+    quill_ref: &str,
     description: Option<&str>,
 ) {
-    out.push_str("---\n");
+    out.push_str("~~~card-yaml\n");
+    out.push_str("#@quill: ");
+    out.push_str(quill_ref);
+    out.push('\n');
+    write_comment(out, "sentinel; required, verbatim");
     if let Some(desc) = description {
         write_comment(out, desc);
     }
-    out.push_str(sentinel_line);
-    out.push('\n');
     write_card_fields(out, card);
-    out.push_str("---\n");
+    out.push_str("~~~\n");
 }
 
-/// Emit a composable card as the canonical fenced block
-/// ```` ```card <kind>\n…\n``` ````. The kind lives in the info string; the
-/// `composable (0..N)` role annotation — which the legacy `---` syntax carried
-/// inline on the `CARD:` line — moves to an own-line comment directly under
-/// the opener, and the optional description follows it.
+/// Emit a composable card as a `~~~card-yaml` block declaring `#@kind: <kind>`.
+/// The `composable (0..N)` role annotation and the optional description are
+/// emitted as own-line comments directly under the sentinel.
 fn write_card_fence(out: &mut String, card: &CardSchema) {
-    out.push_str("```card ");
+    out.push_str("~~~card-yaml\n");
+    out.push_str("#@kind: ");
     out.push_str(&card.name);
     out.push('\n');
     out.push_str("# composable (0..N)\n");
@@ -120,7 +123,7 @@ fn write_card_fence(out: &mut String, card: &CardSchema) {
         write_comment(out, desc);
     }
     write_card_fields(out, card);
-    out.push_str("```\n");
+    out.push_str("~~~\n");
 }
 
 /// Emit a card's fields, clustered by `ui.group` and ordered by `ui.order`.
@@ -684,7 +687,9 @@ main:
     flavor: { type: string, default: taro }
 "#)
         .blueprint();
-        assert!(t.starts_with("---\n# x\nQUILL: taro@0.1.0  # sentinel; required, verbatim\n"));
+        assert!(t.starts_with(
+            "~~~card-yaml\n#@quill: taro@0.1.0\n# sentinel; required, verbatim\n# x\n"
+        ));
         assert!(t.contains("\nWrite main body here.\n"));
     }
 
@@ -703,7 +708,7 @@ card_kinds:
 "#)
         .blueprint();
         assert!(t.contains(
-            "```card note\n# composable (0..N)\n# A short note appended to the document.\n"
+            "~~~card-yaml\n#@kind: note\n# composable (0..N)\n# A short note appended to the document.\n"
         ));
     }
 
@@ -721,7 +726,7 @@ card_kinds:
       items: { type: array, required: true }
 "#)
         .blueprint();
-        let after = &t[t.find("```card skills").unwrap()..];
+        let after = &t[t.find("#@kind: skills").unwrap()..];
         assert!(!after.contains("skills body"));
     }
 
@@ -740,7 +745,7 @@ card_kinds:
       author: { type: string }
 "#)
         .blueprint();
-        let after = &t[t.find("```card note").unwrap()..];
+        let after = &t[t.find("#@kind: note").unwrap()..];
         assert!(after.contains("\nThis is an example note.\n"));
         assert!(!after.contains("Write note body here."));
     }
@@ -788,7 +793,7 @@ main:
     notes: { type: string }
 "#)
         .blueprint();
-        let after_quill = &t[t.find("QUILL:").unwrap()..];
+        let after_quill = &t[t.find("#@quill:").unwrap()..];
         // No banners emitted at all.
         assert!(!after_quill.contains("===="));
         // Order: ungrouped first, then groups in first-appearance order.

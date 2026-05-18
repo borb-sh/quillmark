@@ -1,7 +1,8 @@
-//! Assembly of fences and sentinels into a [`Document`].
+//! Assembly of card-yaml blocks into a [`Document`].
 //!
 //! This module contains the top-level parsing glue: it calls the fence scanner,
-//! extracts sentinels, and assembles a typed [`Document`] from the pieces.
+//! parses each block's `#@` system sentinel, and assembles a typed [`Document`]
+//! from the pieces.
 
 use std::str::FromStr;
 
@@ -13,23 +14,17 @@ use crate::Diagnostic;
 use super::fences::find_metadata_blocks;
 use super::frontmatter::{Frontmatter, FrontmatterItem};
 use super::prescan::{prescan_fence_content, NestedComment, PreItem};
-use super::sentinel::extract_sentinels;
+use super::sentinel::{is_valid_tag_name, parse_system_sentinel, validate_payload_yaml};
 use super::{Card, Document, Sentinel};
 
-/// Strip exactly one F2 structural separator from the tail of a body slice.
+/// Strip exactly one structural separator from the tail of a body slice.
 ///
-/// The F2 rule (`MARKDOWN.md §3`) requires a blank line immediately above
-/// every metadata fence. When a body is followed by another fence, the raw
-/// slice ends with that blank line's terminator — exactly one `\n` or
-/// `\r\n`. This helper strips that single line ending so stored bodies
-/// contain only authored content. The emitter re-adds the separator on
-/// output via `ensure_f2_before_fence`.
-///
-/// Stripping more than one line ending (as the WASM binding's former
-/// `trim_body` did) would silently drop content-meaningful trailing
-/// newlines — e.g. a body that ends with a fenced code block's closing
-/// newline.
-fn strip_f2_separator(body: &str) -> &str {
+/// Every card-yaml block requires a blank line immediately above it. When a
+/// body is followed by another block, the raw slice ends with that blank
+/// line's terminator — exactly one `\n` or `\r\n`. This helper strips that
+/// single line ending so stored bodies contain only authored content. The
+/// emitter re-adds the separator on output via `ensure_blank_before_fence`.
+fn strip_blank_separator(body: &str) -> &str {
     if let Some(rest) = body.strip_suffix("\r\n") {
         rest
     } else if let Some(rest) = body.strip_suffix('\n') {
@@ -39,14 +34,14 @@ fn strip_f2_separator(body: &str) -> &str {
     }
 }
 
-/// An intermediate representation of one `---…---` metadata block.
+/// An intermediate representation of one `~~~card-yaml … ~~~` block.
 #[derive(Debug)]
 pub(super) struct MetadataBlock {
-    pub(super) start: usize,                          // Position of opening "---"
-    pub(super) end: usize,                            // Position after closing "---\n"
-    pub(super) yaml_value: Option<serde_json::Value>, // Parsed YAML as JSON (None if empty or parse failed)
-    pub(super) tag: Option<String>,                   // Field name from CARD key
-    pub(super) quill_ref: Option<String>,             // Quill reference from QUILL key
+    pub(super) start: usize, // Position of the opening `~~~card-yaml`
+    pub(super) end: usize,   // Position after the closing `~~~`
+    pub(super) yaml_value: Option<serde_json::Value>, // Parsed YAML payload as JSON
+    pub(super) tag: Option<String>, // Card kind from `#@kind:` (composable blocks)
+    pub(super) quill_ref: Option<String>, // Quill reference from `#@quill:` (root block)
     /// Pre-scan items (comments + fill-tagged field keys) in source order.
     pub(super) pre_items: Vec<PreItem>,
     /// Pre-scan nested comments (with structural paths).
@@ -56,9 +51,6 @@ pub(super) struct MetadataBlock {
 }
 
 /// Creates serde_saphyr Options with security budgets configured.
-///
-/// Uses MAX_YAML_DEPTH from limits.rs to limit nesting depth at the parser level,
-/// which is more robust than heuristic-based pre-parse checks.
 fn yaml_parse_options() -> serde_saphyr::Options {
     let budget = serde_saphyr::Budget {
         max_depth: super::limits::MAX_YAML_DEPTH,
@@ -70,29 +62,41 @@ fn yaml_parse_options() -> serde_saphyr::Options {
     }
 }
 
-/// Process the YAML content of a recognized metadata block and build a
-/// `MetadataBlock`. Returns errors per spec §9.
+/// Split a block's raw content into its `#@` system-sentinel line (the first
+/// non-blank line) and the YAML payload that follows it.
+///
+/// Returns `(Some(sentinel_line), payload)` when a non-blank line is found, or
+/// `(None, "")` when the block content is entirely blank.
+fn split_sentinel_line(content: &str) -> (Option<&str>, &str) {
+    let mut offset = 0;
+    for line in content.split_inclusive('\n') {
+        let line_text = line.trim_end_matches(['\n', '\r']);
+        if line_text.trim().is_empty() {
+            offset += line.len();
+            continue;
+        }
+        return (Some(line_text), &content[offset + line.len()..]);
+    }
+    (None, "")
+}
+
+/// Process one recognised `~~~card-yaml` block and build a [`MetadataBlock`].
 ///
 /// `block_start` / `block_end` bound the whole block (used to slice card
-/// bodies). `yaml_start` / `yaml_end` bound just the YAML content — between the
-/// `---` markers for a legacy fence, or between the ```` ```card ```` opener and
-/// its closer for a fenced card.
+/// bodies). `content_start` / `content_end` bound the block content between
+/// the `~~~card-yaml` opener and its `~~~` closer.
 ///
-/// `card_kind` discriminates the two syntaxes:
-/// - `None` — a legacy `---` fence; the `QUILL` / `CARD` sentinel is extracted
-///   from the first YAML key.
-/// - `Some(kind)` — a ```` ```card <kind> ```` fence; the kind comes from the
-///   info string and the YAML body carries no sentinel.
+/// `block_index` discriminates the root block (index 0, which must declare
+/// `#@quill:`) from composable blocks (which must declare `#@kind:`).
 pub(super) fn build_block(
     markdown: &str,
     block_start: usize,
-    yaml_start: usize,
-    yaml_end: usize,
+    content_start: usize,
+    content_end: usize,
     block_end: usize,
     block_index: usize,
-    card_kind: Option<&str>,
 ) -> Result<MetadataBlock, ParseError> {
-    let raw_content = &markdown[yaml_start..yaml_end];
+    let raw_content = &markdown[content_start..content_end];
 
     // Check YAML size limit (spec §8)
     if raw_content.len() > crate::error::MAX_YAML_SIZE {
@@ -102,17 +106,21 @@ pub(super) fn build_block(
         });
     }
 
-    // Run the pre-scan to extract top-level comments, `!fill` markers,
-    // and warn on unsupported tags / nested comments.
-    let pre = prescan_fence_content(raw_content);
+    // Separate the `#@` system sentinel from the YAML payload.
+    let (sentinel_line, yaml_payload) = split_sentinel_line(raw_content);
+    let (tag, quill_ref) = resolve_sentinel(block_index, sentinel_line)?;
+
+    // Run the pre-scan over the YAML payload to extract top-level comments,
+    // `!fill` markers, and warn on unsupported tags / nested comments.
+    let pre = prescan_fence_content(yaml_payload);
 
     if let Some(err) = pre.fill_target_errors.first() {
         return Err(ParseError::InvalidStructure(err.clone()));
     }
 
     let content = pre.cleaned_yaml.trim().to_string();
-    let (tag, quill_ref, yaml_value) = if content.is_empty() {
-        (card_kind.map(str::to_string), None, None)
+    let yaml_value = if content.is_empty() {
+        None
     } else {
         let parsed = match serde_saphyr::from_str_with_options::<serde_json::Value>(
             &content,
@@ -128,31 +136,14 @@ pub(super) fn build_block(
                 });
             }
         };
-        match card_kind {
-            // `card`-fenced block: kind from the info string, body carries no
-            // sentinel — only reject reserved keys.
-            Some(kind) => {
-                let yaml = super::sentinel::validate_card_fence_yaml(parsed)?;
-                (Some(kind.to_string()), None, yaml)
-            }
-            // Legacy `---` fence: extract the QUILL / CARD sentinel.
-            None => extract_sentinels(parsed)?,
-        }
+        validate_payload_yaml(parsed)?
     };
 
-    // Per-fence field-count check (spec §8, §6.1 of GAP analysis)
+    // Per-block field-count check (spec §8)
     if let Some(serde_json::Value::Object(ref map)) = yaml_value {
-        // Add +1 for a stripped legacy sentinel (`QUILL` / `CARD`) so the cap
-        // matches what the user wrote. A `card` fence carries its kind in the
-        // info string, so nothing was stripped from its field set.
-        let sentinel_extra = if card_kind.is_none() && (quill_ref.is_some() || tag.is_some()) {
-            1
-        } else {
-            0
-        };
-        if map.len() + sentinel_extra > crate::error::MAX_FIELD_COUNT {
+        if map.len() > crate::error::MAX_FIELD_COUNT {
             return Err(ParseError::InputTooLarge {
-                size: map.len() + sentinel_extra,
+                size: map.len(),
                 max: crate::error::MAX_FIELD_COUNT,
             });
         }
@@ -170,21 +161,61 @@ pub(super) fn build_block(
     })
 }
 
-/// Construct the top-level "missing QUILL" error message. If we saw a
-/// first-fence F1 failure, tailor the message to the actual key found:
-/// a case-insensitive match to `QUILL` is a typo, anything else is a
-/// key-ordering problem.
-fn missing_quill_message(first_fence_issue: Option<(String, usize)>) -> String {
-    match first_fence_issue {
-        Some((actual, line)) if actual.eq_ignore_ascii_case("QUILL") => format!(
-            "Missing required QUILL field. Found `{}:` at line {} — expected `QUILL:` (uppercase). Change the key to `QUILL` to register this fence as the document frontmatter.",
-            actual, line
-        ),
-        Some((actual, line)) => format!(
-            "Missing required QUILL field. The first YAML key in the frontmatter must be `QUILL:` (found `{}:` at line {}). Reorder the frontmatter so `QUILL: <name>` is the first key.",
-            actual, line
-        ),
-        None => "Missing required QUILL field. Add `QUILL: <name>` to the frontmatter.".to_string(),
+/// Resolve the `#@` system sentinel for a block, returning `(tag, quill_ref)`.
+///
+/// The root block (index 0) must declare `#@quill: <name>`; every composable
+/// block must declare `#@kind: <type>`.
+#[allow(clippy::type_complexity)]
+fn resolve_sentinel(
+    block_index: usize,
+    sentinel_line: Option<&str>,
+) -> Result<(Option<String>, Option<String>), ParseError> {
+    let parsed = sentinel_line.and_then(parse_system_sentinel);
+
+    if block_index == 0 {
+        match parsed {
+            Some((key, value)) if key == "quill" => {
+                if value.is_empty() {
+                    return Err(ParseError::InvalidStructure(
+                        "`#@quill:` system sentinel has no value — expected `#@quill: <name>`"
+                            .to_string(),
+                    ));
+                }
+                Ok((None, Some(value)))
+            }
+            Some((key, _)) => Err(ParseError::MissingQuillField(format!(
+                "The document's first card-yaml block must declare `#@quill: <name>` (found `#@{}:`).",
+                key
+            ))),
+            None => Err(ParseError::MissingQuillField(
+                "The document's first card-yaml block is missing its `#@quill: <name>` system sentinel."
+                    .to_string(),
+            )),
+        }
+    } else {
+        match parsed {
+            Some((key, value)) if key == "kind" => {
+                if !is_valid_tag_name(&value) {
+                    return Err(ParseError::InvalidStructure(format!(
+                        "Invalid card kind '{}': must match pattern [a-z_][a-z0-9_]*",
+                        value
+                    )));
+                }
+                Ok((Some(value), None))
+            }
+            Some((key, _)) if key == "quill" => Err(ParseError::InvalidStructure(
+                "`#@quill` may only be declared by the document's first card-yaml block"
+                    .to_string(),
+            )),
+            Some((key, _)) => Err(ParseError::InvalidStructure(format!(
+                "A composable card-yaml block must declare `#@kind: <type>` (found `#@{}:`).",
+                key
+            ))),
+            None => Err(ParseError::InvalidStructure(
+                "A composable card-yaml block is missing its `#@kind: <type>` system sentinel."
+                    .to_string(),
+            )),
+        }
     }
 }
 
@@ -198,18 +229,13 @@ pub(super) fn decompose(markdown: &str) -> Result<Document, crate::error::ParseE
 pub(super) fn decompose_with_warnings(
     markdown: &str,
 ) -> Result<(Document, Vec<Diagnostic>), crate::error::ParseError> {
-    // Strip a leading UTF-8 BOM if present. Editors on Windows (Notepad, some
-    // Word exports) prepend `\u{FEFF}` which otherwise defeats F2 because the
-    // first line no longer matches `---`.
+    // Strip a leading UTF-8 BOM if present.
     let markdown = markdown.strip_prefix('\u{FEFF}').unwrap_or(markdown);
 
-    // Empty / whitespace-only input gets a tailored message. The default
-    // missing-QUILL error reads as if the user supplied a partial document
-    // missing only QUILL, which is misleading when there's no document at all.
     if markdown.trim().is_empty() {
         return Err(crate::error::ParseError::EmptyInput(
             "Empty markdown input cannot be parsed as a Quillmark Document. \
-             Provide at least a QUILL frontmatter field: `QUILL: <name>`."
+             Provide at least a root card-yaml block declaring `#@quill: <name>`."
                 .to_string(),
         ));
     }
@@ -222,29 +248,27 @@ pub(super) fn decompose_with_warnings(
         });
     }
 
-    // Find all metadata blocks. F1/F2 already guarantee that block 0 carries
-    // QUILL and that every subsequent block carries CARD.
-    let (blocks, warnings, first_fence_issue) = find_metadata_blocks(markdown)?;
+    // Find all card-yaml blocks. The scanner guarantees block 0 carries the
+    // `#@quill` sentinel and every later block carries `#@kind`.
+    let (blocks, warnings) = find_metadata_blocks(markdown)?;
 
     if blocks.is_empty() {
         return Err(crate::error::ParseError::MissingQuillField(
-            missing_quill_message(first_fence_issue),
+            "Missing required root card-yaml block. The document must open with a \
+             `~~~card-yaml` block declaring `#@quill: <name>`."
+                .to_string(),
         ));
     }
 
-    // Block 0 is always the QUILL frontmatter (F1 guarantee).
+    // Block 0 is always the root `#@quill` block.
     let frontmatter_block = &blocks[0];
     let quill_tag = frontmatter_block.quill_ref.clone().ok_or_else(|| {
         ParseError::MissingQuillField(
-            "Missing required QUILL field. Add `QUILL: <name>` to the frontmatter.".to_string(),
+            "The document's first card-yaml block must declare `#@quill: <name>`.".to_string(),
         )
     })?;
 
-    // Build frontmatter item list (YAML content with QUILL stripped).
-    //
-    // The pre-scan captured top-level comments and `!fill` markers in source
-    // order; serde_saphyr produced the parsed values. We iterate the pre-scan
-    // order and pull each field's value from the parsed map.
+    // Build the root block's frontmatter item list.
     let frontmatter = build_frontmatter_from_pre_and_parsed(
         &frontmatter_block.pre_items,
         &frontmatter_block.pre_nested_comments,
@@ -256,13 +280,10 @@ pub(super) fn decompose_with_warnings(
         warnings.push(w.clone());
     }
 
-    // Global body: between end of frontmatter (block 0) and start of the
-    // first CARD block (or EOF).
-    //
-    // When a fence follows, the body slice ends with the F2 blank-line
-    // terminator — strip it so stored bodies contain only authored content.
-    // The emitter re-derives the separator on output (see `emit.rs`'s
-    // `ensure_f2_before_fence`).
+    // Global body: between the end of block 0 and the start of the first
+    // composable card block (or EOF). When a block follows, the slice ends
+    // with the blank-line separator — strip it so stored bodies contain only
+    // authored content.
     let body_start = blocks[0].end;
     let first_card_block = blocks.iter().skip(1).find(|b| b.tag.is_some());
     let (body_end, body_is_followed_by_fence) = match first_card_block {
@@ -271,16 +292,15 @@ pub(super) fn decompose_with_warnings(
     };
     let global_body_raw = &markdown[body_start..body_end];
     let global_body = if body_is_followed_by_fence {
-        strip_f2_separator(global_body_raw).to_string()
+        strip_blank_separator(global_body_raw).to_string()
     } else {
         global_body_raw.to_string()
     };
 
-    // Parse tagged blocks (CARD blocks) into typed Cards.
+    // Parse composable card blocks into typed Cards.
     let mut cards: Vec<Card> = Vec::new();
     for (idx, block) in blocks.iter().enumerate() {
         if let Some(ref tag_name) = block.tag {
-            // Build the card's typed frontmatter from pre-scan + parsed YAML.
             let card_frontmatter = build_frontmatter_from_pre_and_parsed(
                 &block.pre_items,
                 &block.pre_nested_comments,
@@ -297,7 +317,7 @@ pub(super) fn decompose_with_warnings(
                 warnings.push(w.clone());
             }
 
-            // Card body: between this block's end and the next block's start (or EOF).
+            // Card body: between this block's end and the next block's start.
             let card_body_start = block.end;
             let has_next_block = idx + 1 < blocks.len();
             let card_body_end = if has_next_block {
@@ -307,7 +327,7 @@ pub(super) fn decompose_with_warnings(
             };
             let card_body_raw = &markdown[card_body_start..card_body_end];
             let card_body = if has_next_block {
-                strip_f2_separator(card_body_raw).to_string()
+                strip_blank_separator(card_body_raw).to_string()
             } else {
                 card_body_raw.to_string()
             };
@@ -321,7 +341,7 @@ pub(super) fn decompose_with_warnings(
     }
 
     let quill_ref = QuillReference::from_str(&quill_tag).map_err(|e| {
-        ParseError::InvalidStructure(format!("Invalid QUILL tag '{}': {}", quill_tag, e))
+        ParseError::InvalidStructure(format!("Invalid #@quill reference '{}': {}", quill_tag, e))
     })?;
 
     let main = Card::new_with_sentinel(Sentinel::Main(quill_ref), frontmatter, global_body);
@@ -331,14 +351,12 @@ pub(super) fn decompose_with_warnings(
 }
 
 /// Build a [`Frontmatter`] from the pre-scan items and the parsed YAML
-/// mapping (with sentinel keys already stripped).
+/// mapping.
 ///
 /// The pre-scan defined source order for fields and comments; the parsed
-/// YAML defined the typed value for each key. We walk pre-scan order,
-/// pulling each field's value from `parsed`. Any field that the pre-scan
-/// didn't catch (e.g. it used a YAML key form the pre-scan doesn't
-/// recognise — exotic identifier, flow-mapping syntax, etc.) is appended at
-/// the end of the item list in parsed-map order so we never drop values.
+/// YAML defined the typed value for each key. We walk pre-scan order, pulling
+/// each field's value from `parsed`. Any field the pre-scan didn't catch is
+/// appended at the end in parsed-map order so we never drop values.
 fn build_frontmatter_from_pre_and_parsed(
     pre_items: &[PreItem],
     pre_nested_comments: &[NestedComment],
@@ -356,36 +374,19 @@ fn build_frontmatter_from_pre_and_parsed(
 
     let mut items: Vec<FrontmatterItem> = Vec::new();
     let mut consumed: std::collections::HashSet<String> = std::collections::HashSet::new();
-    // When a QUILL/CARD sentinel field is skipped, its trailing inline comment
-    // loses its host field. The emitter can only round-trip an inline comment
-    // on the sentinel line when it sits at items[0] (sentinel-preview path).
-    // If other items already precede it, it will never reach items[0] and will
-    // become an orphan that degrades differently on each emit → broken
-    // idempotency. Demote it to own-line at parse time in that case.
-    let mut after_stripped_sentinel = false;
 
     for pre in pre_items {
         match pre {
             PreItem::Comment { text, inline } => {
-                let demote = after_stripped_sentinel && *inline && !items.is_empty();
-                after_stripped_sentinel = false;
                 items.push(FrontmatterItem::Comment {
                     text: text.clone(),
-                    inline: *inline && !demote,
+                    inline: *inline,
                 });
             }
             PreItem::Field { key, fill } => {
-                // QUILL / CARD sentinel keys are stripped from the parsed
-                // map by `extract_sentinels`; skip them in the item list.
-                if key == "QUILL" || key == "CARD" {
-                    after_stripped_sentinel = true;
-                    continue;
-                }
-                after_stripped_sentinel = false;
                 if let Some(value) = mapping.get(key).cloned() {
-                    // `!fill` applies to scalars and sequences. Mappings
-                    // are rejected because top-level `type: object` is
-                    // unsupported by Quillmark's schema.
+                    // `!fill` applies to scalars and sequences. Mappings are
+                    // rejected because top-level `type: object` is unsupported.
                     if *fill && value.is_object() {
                         return Err(ParseError::InvalidStructure(format!(
                             "`!fill` on key `{}` targets a mapping; `!fill` is supported on scalars and sequences only",
@@ -399,9 +400,6 @@ fn build_frontmatter_from_pre_and_parsed(
                     });
                     consumed.insert(key.clone());
                 }
-                // If the key isn't in the parsed map, it was dropped by
-                // YAML parsing (shouldn't happen for well-formed input);
-                // silently skip.
             }
         }
     }

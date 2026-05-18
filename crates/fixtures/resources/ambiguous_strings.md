@@ -1,5 +1,5 @@
----
-QUILL: test_quill
+~~~card-yaml
+#@quill: test_quill
 on_word: "on"
 off_word: "off"
 yes_word: "yes"
@@ -23,6 +23,6 @@ hash_comment: "#comment"
 yaml_anchor: "&anchor"
 yaml_alias: "*alias"
 yaml_tag: "!tag"
----
+~~~
 
 Body text.

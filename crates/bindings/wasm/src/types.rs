@@ -194,25 +194,25 @@ pub enum FrontmatterItem {
 ///
 /// Exposed as a plain JS object via `Document.main`, `Document.cards`, etc.
 /// Carries a sentinel that distinguishes the document entry (main) card from
-/// composable cards, a `tag` string (the QUILL reference or CARD tag), typed
-/// frontmatter (map view under `frontmatter`, ordered item list under
+/// composable cards, a `tag` string (the `#@quill` reference or `#@kind` tag),
+/// typed frontmatter (map view under `frontmatter`, ordered item list under
 /// `frontmatterItems`), and the body.
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct Card {
-    /// `"main"` for the document entry (QUILL) card; `"card"` for composable cards.
+    /// `"main"` for the document entry (`#@quill`) card; `"card"` for composable cards.
     pub sentinel: String,
-    /// The CARD sentinel value (e.g. `"indorsement"`) or the QUILL reference
-    /// string for the main card.
+    /// The `#@kind` sentinel value (e.g. `"endorsement"`) or the `#@quill`
+    /// reference string for the main card.
     pub tag: String,
-    /// Map-keyed view of frontmatter values (no `CARD`/`QUILL` key, comments invisible).
+    /// Map-keyed view of frontmatter values (no `#@` sentinel key, comments invisible).
     #[tsify(type = "Record<string, unknown>")]
     pub frontmatter: serde_json::Value,
     /// Ordered frontmatter item list — fields and comments, in source order.
     #[tsify(type = "FrontmatterItem[]")]
     pub frontmatter_items: Vec<FrontmatterItem>,
-    /// Markdown body after the card's closing `---`. Empty string when absent.
+    /// Markdown body after the card's closing `~~~`. Empty string when absent.
     pub body: String,
 }
 
@@ -378,14 +378,14 @@ mod tests {
     fn card_from_core_carries_frontmatter_items() {
         use quillmark_core::Document;
 
-        let md = "---\nQUILL: q\ntitle: Hi # inline note\nauthor: Alice\n---\n";
+        let md = "~~~card-yaml\n#@quill: q\ntitle: Hi # inline note\nauthor: Alice\n~~~\n";
         let doc = Document::from_markdown(md).unwrap();
         let card = Card::from(doc.main());
 
-        // Map view: title and author present, QUILL absent.
+        // Map view: title and author present, #@quill absent.
         assert_eq!(card.frontmatter["title"], "Hi");
         assert_eq!(card.frontmatter["author"], "Alice");
-        assert!(card.frontmatter.get("QUILL").is_none());
+        assert!(card.frontmatter.get("quill").is_none());
 
         // Item list: field + inline comment + field.
         let fields: Vec<&str> = card

@@ -22,11 +22,11 @@
 //! ```
 //! use quillmark_core::Document;
 //!
-//! let markdown = r#"---
-//! QUILL: my_quill
+//! let markdown = r#"~~~card-yaml
+//! #@quill: my_quill
 //! title: My Document
 //! author: John Doe
-//! ---
+//! ~~~
 //!
 //! # Introduction
 //!
@@ -49,7 +49,7 @@
 //! use quillmark_core::Document;
 //!
 //! let doc = Document::from_markdown(
-//!     "---\nQUILL: my_quill\ntitle: Hi\n---\n\nBody here.\n"
+//!     "~~~card-yaml\n#@quill: my_quill\ntitle: Hi\n~~~\n\nBody here.\n"
 //! ).unwrap();
 //! let json = doc.to_plate_json();
 //! assert_eq!(json["QUILL"], "my_quill");
@@ -62,14 +62,13 @@
 //!
 //! [`Document::from_markdown`] returns errors for:
 //! - Malformed YAML syntax
-//! - Unclosed frontmatter blocks
-//! - Multiple global frontmatter blocks
-//! - Both QUILL and CARD specified in the same block
+//! - Unclosed `~~~card-yaml` blocks
+//! - A missing or misplaced `#@quill` / `#@kind` system sentinel
 //! - Reserved field name usage
 //! - Name collisions
 //!
-//! See [PARSE.md](https://github.com/nibsbin/quillmark/blob/main/designs/PARSE.md) for
-//! comprehensive documentation of the Extended YAML Metadata Standard.
+//! See [MARKDOWN.md](https://github.com/nibsbin/quillmark/blob/main/prose/designs/MARKDOWN.md)
+//! for comprehensive documentation of the card-yaml format.
 
 use crate::error::ParseError;
 use crate::version::QuillReference;
@@ -105,11 +104,10 @@ pub struct ParseOutput {
 
 /// Discriminator for a [`Card`].
 ///
-/// The document frontmatter carries `QUILL: <ref>` and is the document-level
-/// *main* card; every composable card carries a kind — written as the
-/// ```` ```card <kind> ```` info string (canonical) or a legacy `CARD: <kind>`
-/// sentinel. `Sentinel` captures that distinction in the typed model so every
-/// card is one uniform shape.
+/// The document's root block declares `#@quill: <ref>` and is the
+/// document-level *main* card; every composable card declares a kind via its
+/// `#@kind: <kind>` system sentinel. `Sentinel` captures that distinction in
+/// the typed model so every card is one uniform shape.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Sentinel {
     /// The document entry card, carrying the `QUILL` reference.

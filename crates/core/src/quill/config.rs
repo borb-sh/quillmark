@@ -87,7 +87,7 @@ impl QuillConfig {
             &mut main_value,
             "QUILL",
             &canonical_ref,
-            "Canonical quill reference. Must be exactly this value as the QUILL: sentinel in the document frontmatter.",
+            "Canonical quill reference. Must be exactly this value as the #@quill: system sentinel in the root card-yaml block.",
         );
         obj.insert("main".to_string(), main_value);
 
@@ -102,7 +102,7 @@ impl QuillConfig {
                         &mut card_value,
                         "CARD",
                         &card.name,
-                        "Card kind name. Must match the card kind in the card block's ```card <kind>``` info string.",
+                        "Card kind name. Must match the card kind in the card block's #@kind: system sentinel.",
                     );
                     (card.name.clone(), card_value)
                 })
@@ -1200,9 +1200,8 @@ impl QuillConfig {
         }
 
         // Error when `body.example` contains a line that the document parser
-        // would interpret as a metadata fence (`---` with up to 3 leading
-        // spaces and optional trailing whitespace). Such a line would split the
-        // blueprint body region into a new fence, corrupting document structure.
+        // would interpret as a `~~~card-yaml` block opener. Such a line would
+        // start a new metadata block, corrupting document structure.
         let err_example_contains_fence = |label: &str,
                                           body: &Option<BodyCardSchema>|
          -> Option<Diagnostic> {
@@ -1212,12 +1211,12 @@ impl QuillConfig {
                     Diagnostic::new(
                         Severity::Error,
                         format!(
-                            "`{label}.body.example` contains a line that would be parsed as a metadata fence (`---`); this would corrupt the blueprint"
+                            "`{label}.body.example` contains a line that would be parsed as a `~~~card-yaml` block opener; this would corrupt the blueprint"
                         ),
                     )
                     .with_code("quill::body_example_contains_fence".to_string())
                     .with_hint(
-                        "Remove or reword any line that is exactly `---` (with up to 3 leading spaces and optional trailing whitespace).".to_string(),
+                        "Remove or reword any line that is exactly `~~~card-yaml` (with up to 3 leading spaces and optional trailing whitespace).".to_string(),
                     ),
                 )
             } else {
@@ -1256,16 +1255,13 @@ impl QuillConfig {
     }
 }
 
-/// Returns true if any line in `text` would be parsed as a card-fence or
-/// metadata-fence marker by the document parser — either of which would
-/// corrupt the blueprint's document structure when the example is embedded
-/// verbatim as body content.
+/// Returns true if any line in `text` would be parsed as a `~~~card-yaml`
+/// block opener by the document parser, which would corrupt the blueprint's
+/// document structure when the example is embedded verbatim as body content.
 ///
-/// Two markers are flagged, both after up to 3 leading spaces (no leading
-/// tab):
-/// - a legacy `---` metadata fence marker (`---` then only whitespace);
-/// - a canonical ```` ```card ```` fenced-card opener (3+ backticks or tildes
-///   followed by an info string whose first token is `card`).
+/// The marker is flagged after up to 3 leading spaces (no leading tab): a
+/// `~~~card-yaml` opener — exactly three tildes followed by the `card-yaml`
+/// info string.
 fn example_contains_fence_line(text: &str) -> bool {
     text.lines().any(|line| {
         let line = line.strip_suffix('\r').unwrap_or(line);
@@ -1274,17 +1270,10 @@ fn example_contains_fence_line(text: &str) -> bool {
             return false;
         }
         let rest = &line[indent..];
-        // Legacy `---` metadata fence marker.
-        if matches!(rest.strip_prefix("---"), Some(r) if r.chars().all(|c| c == ' ' || c == '\t')) {
-            return true;
-        }
-        // Canonical ```card <kind> fenced-card opener.
-        if let Some(&fence) = rest.as_bytes().first() {
-            if fence == b'`' || fence == b'~' {
-                let run = rest.bytes().take_while(|&b| b == fence).count();
-                if run >= 3 && rest[run..].split_whitespace().next() == Some("card") {
-                    return true;
-                }
+        // A `~~~card-yaml` block opener.
+        if let Some(after) = rest.strip_prefix("~~~") {
+            if !after.starts_with('~') && after.trim() == "card-yaml" {
+                return true;
             }
         }
         false

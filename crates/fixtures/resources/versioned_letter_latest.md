@@ -1,5 +1,5 @@
----
-QUILL: business_letter@latest
+~~~card-yaml
+#@quill: business_letter@latest
 sender:
   name: Alice Johnson
   title: Engineering Manager
@@ -18,7 +18,7 @@ recipient:
   zip: "94301"
 date: March 15, 2024
 subject: Proposal for Technical Partnership
----
+~~~
 
 Dear Mr. Williams,
 

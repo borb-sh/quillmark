@@ -1,17 +1,18 @@
----
-title: Quillmark Frontmatter Demo  
+~~~card-yaml
+#@quill: test_quill
+title: Quillmark Card-YAML Demo
 author: Quillmark Team
 date: 2024-01-01
 version: 1.0
 tags:
   - demo
-  - frontmatter
+  - card-yaml
   - yaml
   - markdown
 description: >
-  This document demonstrates Quillmark's ability to parse 
-  YAML frontmatter and separate it from markdown content.
----
+  This document demonstrates Quillmark's ability to parse
+  card-yaml metadata blocks and separate them from markdown content.
+~~~
 
 # Welcome to Quillmark Frontmatter Demo
 

@@ -2277,12 +2277,13 @@ card_kinds:
 }
 
 #[test]
-fn body_example_with_bare_fence_line_is_an_error() {
+fn body_example_with_card_yaml_fence_line_is_an_error() {
+    // A `~~~card-yaml` opener in a body example would be parsed as a block.
     let yaml = r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
   body:
-    example: "Opening paragraph.\n\n---\n\nClosing paragraph."
+    example: "Opening paragraph.\n\n~~~card-yaml\n#@kind: note\n~~~\n\nClosing paragraph."
   fields:
     title: { type: string }
 "#;
@@ -2306,7 +2307,7 @@ fn body_example_fence_line_with_leading_spaces_is_an_error() {
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
   body:
-    example: "text\n   ---\nmore text"
+    example: "text\n   ~~~card-yaml\nmore text"
   fields:
     title: { type: string }
 "#;
@@ -2321,43 +2322,37 @@ fn body_example_four_leading_spaces_is_not_a_fence() {
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
   body:
-    example: "text\n    ---\nmore text"
+    example: "text\n    ~~~card-yaml\nmore text"
   fields:
     title: { type: string }
 "#;
     let result = QuillConfig::from_yaml_with_warnings(yaml);
     assert!(
         result.is_ok(),
-        "four-space indented --- should not trigger fence error"
+        "four-space indented ~~~card-yaml should not trigger fence error"
     );
 }
 
 #[test]
-fn body_example_card_fence_line_is_an_error() {
-    // A ```card <kind> opener in a body example would be parsed as a card.
+fn body_example_bare_triple_dash_is_not_a_fence() {
+    // A bare `---` thematic break is no longer a metadata fence — allowed.
     let yaml = r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
   body:
-    example: "Intro.\n\n```card note\nauthor: x\n```"
+    example: "Opening paragraph.\n\n---\n\nClosing paragraph."
   fields:
     title: { type: string }
 "#;
     let result = QuillConfig::from_yaml_with_warnings(yaml);
-    let errors = result.unwrap_err();
     assert!(
-        errors.iter().any(|d| d
-            .code
-            .as_deref()
-            .map(|c| c == "quill::body_example_contains_fence")
-            .unwrap_or(false)),
-        "expected body_example_contains_fence error for card fence, got: {:?}",
-        errors
+        result.is_ok(),
+        "a bare --- thematic break should not trigger a fence error"
     );
 }
 
 #[test]
-fn body_example_card_kind_fence_line_is_an_error() {
+fn body_example_card_yaml_fence_line_in_card_kind_is_an_error() {
     // The fence check applies to card-kind body examples too.
     let yaml = r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
@@ -2367,7 +2362,7 @@ main:
 card_kinds:
   note:
     body:
-      example: "See below:\n---\nEnd."
+      example: "See below:\n~~~card-yaml\n#@kind: other\n~~~\nEnd."
     fields:
       author: { type: string }
 "#;

@@ -37,7 +37,7 @@ nav:
       - Concepts: getting-started/concepts.md
   - Authoring:
       - Markdown Syntax: authoring/markdown-syntax.md
-      - YAML Frontmatter: authoring/yaml-frontmatter.md
+      - card-yaml Blocks: authoring/card-yaml.md
       - Cards: authoring/cards.md
   - Quills:
       - Creating Quills: format-designer/creating-quills.md

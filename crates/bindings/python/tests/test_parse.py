@@ -51,7 +51,7 @@ def test_body_is_str(taro_md):
 
 def test_body_empty_when_absent():
     """Test that body is empty string when no body content."""
-    md = "---\nQUILL: taro\nauthor: Test\ntitle: Test\nice_cream: Vanilla\n---\n"
+    md = "~~~card-yaml\n#@quill: taro\nauthor: Test\ntitle: Test\nice_cream: Vanilla\n~~~\n"
     doc = Document.from_markdown(md)
     assert doc.body == ""
 
@@ -59,8 +59,8 @@ def test_body_empty_when_absent():
 def test_cards_access():
     """Test accessing typed cards list."""
     md = (
-        "---\nQUILL: my_quill\ntitle: Main\n---\n\nGlobal body.\n\n"
-        "```card note\nfoo: bar\n```\n\nCard body.\n"
+        "~~~card-yaml\n#@quill: my_quill\ntitle: Main\n~~~\n\nGlobal body.\n\n"
+        "~~~card-yaml\n#@kind: note\nfoo: bar\n~~~\n\nCard body.\n"
     )
     doc = Document.from_markdown(md)
     assert len(doc.cards) == 1
@@ -72,7 +72,7 @@ def test_cards_access():
 
 def test_cards_empty_when_none():
     """Test that cards is an empty list when no cards present."""
-    md = "---\nQUILL: taro\nauthor: Test\ntitle: Test\nice_cream: Vanilla\n---\n\nBody.\n"
+    md = "~~~card-yaml\n#@quill: taro\nauthor: Test\ntitle: Test\nice_cream: Vanilla\n~~~\n\nBody.\n"
     doc = Document.from_markdown(md)
     assert doc.cards == []
 

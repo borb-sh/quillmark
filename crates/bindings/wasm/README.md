@@ -34,10 +34,10 @@ import { Document, Quillmark } from "@quillmark-test/wasm";
 const engine = new Quillmark();
 const quill = engine.quill(tree);
 
-const markdown = `---
-QUILL: my_quill
+const markdown = `~~~card-yaml
+#@quill: my_quill
 title: My Document
----
+~~~
 
 # Hello`;
 
@@ -55,9 +55,9 @@ Build + validate + attach backend. Returns a render-ready `Quill`.
 
 ### `Document.fromMarkdown(markdown)`
 Parse markdown to a parsed document. Throws a JS `Error` (with `.diagnostics`
-attached, see [Errors](#errors)) on any parse failure, including missing
-`QUILL`, malformed YAML, and inputs over the 10 MB `parse::input_too_large`
-limit.
+attached, see [Errors](#errors)) on any parse failure, including a missing
+`#@quill:` sentinel, malformed YAML, and inputs over the 10 MB
+`parse::input_too_large` limit.
 
 ### `doc.toMarkdown()`
 Emit canonical Quillmark Markdown. Type-fidelity round-trip safe:
@@ -179,8 +179,8 @@ backend compilation errors. `message` is derived from `diagnostics`
 Read `err.diagnostics[0]` for the primary diagnostic; iterate the array for
 compilation failures. The same shape applies to every throw site:
 
-- `Document.fromMarkdown` — parse errors (missing `QUILL`, YAML errors,
-  `parse::input_too_large` for inputs > 10 MB).
+- `Document.fromMarkdown` — parse errors (missing `#@quill:` sentinel, YAML
+  errors, `parse::input_too_large` for inputs > 10 MB).
 - `Document` mutators (`setField`, `updateCardField`, etc.) — `EditError`
   variants (`ReservedName`, `InvalidFieldName`, `InvalidTagName`,
   `IndexOutOfRange`) appear in `diagnostics[0].message` with the
@@ -214,8 +214,9 @@ try {
 
 ## Notes
 
-- Parsed markdown requires top-level `QUILL` in frontmatter. Empty input
-  surfaces a dedicated "Empty markdown input cannot be parsed" message.
+- Parsed markdown requires a root `~~~card-yaml` block with a
+  `#@quill:` system sentinel. Empty input surfaces a dedicated
+  "Empty markdown input cannot be parsed" message.
 - QUILL mismatch during `quill.render(parsed)` is a warning (`quill::ref_mismatch`), not an error.
 - Output schema APIs are no longer engine-level in WASM.
 

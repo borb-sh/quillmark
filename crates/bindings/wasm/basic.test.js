@@ -11,11 +11,11 @@ import { describe, it, expect } from 'vitest'
 import { Quillmark, Document } from '@quillmark-wasm'
 import { makeQuill } from './test-helpers.js'
 
-const TEST_MARKDOWN = `---
-QUILL: test_quill
+const TEST_MARKDOWN = `~~~card-yaml
+#@quill: test_quill
 title: Test Document
 author: Test Author
----
+~~~
 
 # Hello World
 
@@ -45,6 +45,7 @@ describe('Document.fromMarkdown', () => {
     expect(doc.main.frontmatter.title).toBe('Test Document')
     expect(doc.main.frontmatter.author).toBe('Test Author')
     // QUILL, BODY, CARDS must NOT appear in frontmatter
+    expect(doc.main.frontmatter.quill).toBeUndefined()
     expect(doc.main.frontmatter.QUILL).toBeUndefined()
     expect(doc.main.frontmatter.BODY).toBeUndefined()
     expect(doc.main.frontmatter.CARDS).toBeUndefined()
@@ -65,15 +66,16 @@ describe('Document.fromMarkdown', () => {
   })
 
   it('should expose card fields and body', () => {
-    const md = `---
-QUILL: test_quill
----
+    const md = `~~~card-yaml
+#@quill: test_quill
+~~~
 
 Global body.
 
-\`\`\`card note
+~~~card-yaml
+#@kind: note
 foo: bar
-\`\`\`
+~~~
 
 Card body.
 `
@@ -92,11 +94,11 @@ Card body.
   })
 
   it('should throw on invalid YAML frontmatter', () => {
-    const badMarkdown = `---
+    const badMarkdown = `~~~card-yaml
+#@quill: test_quill
 title: Test
-QUILL: test_quill
 this is not valid yaml
----
+~~~
 
 # Content`
 
@@ -106,14 +108,14 @@ this is not valid yaml
   })
 
   it('should throw when QUILL field is absent', () => {
-    const markdownWithoutQuill = `---
+    const markdownWithoutQuill = `~~~card-yaml
 title: Default Test
 author: Test Author
----
+~~~
 
 # Hello Default
 
-This document has no QUILL tag.`
+This document has no #@quill sentinel.`
 
     expect(() => {
       Document.fromMarkdown(markdownWithoutQuill)
@@ -160,8 +162,8 @@ describe('Document.toMarkdown — fromMarkdown → mutate → emit → re-parse'
     //
     // Note on trailing newlines: the global body is followed by a card fence,
     // so the wire format inserts a line terminator + F2 blank line between
-    // them (`Updated body\n\n---`). On re-parse the F2 blank is stripped but
-    // the terminator stays, so `doc2.main.body === 'Updated body\n'`. The card
+    // them (`Updated body\n\n~~~card-yaml`). On re-parse the F2 blank is
+    // stripped but the terminator stays, so `doc2.main.body === 'Updated body\n'`. The card
     // body is at EOF and has no F2 separator, so it survives byte-for-byte.
     const doc2 = Document.fromMarkdown(emitted)
     expect(doc2.main.frontmatter.title).toBe('New Title')
@@ -292,10 +294,10 @@ describe('Quillmark.quill', () => {
     const quill = engine.quill(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
 
     // Document declares a different quill name
-    const otherMarkdown = `---
-QUILL: other_quill
+    const otherMarkdown = `~~~card-yaml
+#@quill: other_quill
 title: Mismatch Test
----
+~~~
 
 # Content`
     const doc = Document.fromMarkdown(otherMarkdown)
@@ -399,20 +401,22 @@ describe('Document editor surface — setQuillRef / replaceBody', () => {
 })
 
 describe('Document editor surface — card mutations', () => {
-  const MD_WITH_CARDS = `---
-QUILL: test_quill
----
+  const MD_WITH_CARDS = `~~~card-yaml
+#@quill: test_quill
+~~~
 
 Body.
 
-\`\`\`card note
+~~~card-yaml
+#@kind: note
 foo: bar
-\`\`\`
+~~~
 
 Card one.
 
-\`\`\`card summary
-\`\`\`
+~~~card-yaml
+#@kind: summary
+~~~
 
 Card two.
 `
@@ -549,15 +553,16 @@ describe('Document.equals', () => {
 })
 
 describe('Document editor surface — updateCardField / updateCardBody', () => {
-  const MD_WITH_CARD = `---
-QUILL: test_quill
----
+  const MD_WITH_CARD = `~~~card-yaml
+#@quill: test_quill
+~~~
 
 Body.
 
-\`\`\`card note
+~~~card-yaml
+#@kind: note
 foo: bar
-\`\`\`
+~~~
 
 Card body.
 `
@@ -809,10 +814,10 @@ card_kinds:
         type: string
 `
 
-  const MD_WITH_TITLE = `---
-QUILL: form_smoke_test
+  const MD_WITH_TITLE = `~~~card-yaml
+#@quill: form_smoke_test
 title: "Hello"
----
+~~~
 `
 
   it('form returns a plain object with main, cards, diagnostics', () => {
