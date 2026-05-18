@@ -47,6 +47,7 @@ nav:
   - CLI:
       - Reference: cli/reference.md
   - Migration:
+      - 0.80 → 0.81 (card-yaml): migrations/0.80-to-0.81.md
       - WASM 0.77 → 0.80: migrations/wasm-0.77-to-0.80.md
 
 markdown_extensions:

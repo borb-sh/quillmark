@@ -219,7 +219,7 @@ pub struct RenderSession {
 #[wasm_bindgen]
 pub struct Document {
     inner: quillmark_core::Document,
-    /// Parse-time warnings (e.g. near-miss sentinel lints).
+    /// Parse-time warnings (e.g. a `~~~card-yaml` opener missing its blank line).
     parse_warnings: Vec<quillmark_core::Diagnostic>,
 }
 

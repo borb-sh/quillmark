@@ -1,6 +1,6 @@
 //! # Document Module
 //!
-//! Parsing functionality for markdown documents with YAML frontmatter.
+//! Parsing functionality for markdown documents with card-yaml blocks.
 //!
 //! ## Overview
 //!
@@ -12,8 +12,9 @@
 //! - [`Document`]: Typed in-memory Quillmark document — `main` card plus composable cards.
 //! - [`Card`]: A single card block, main or composable, with a sentinel,
 //!   typed frontmatter, and a body.
-//! - [`Sentinel`]: Discriminates the `QUILL:` frontmatter from composable card blocks.
-//! - [`Frontmatter`]: Ordered list of items (fields + comments) parsed from a YAML fence.
+//! - [`Sentinel`]: Discriminates the root block from composable card blocks.
+//! - [`Frontmatter`]: Ordered list of items (fields + comments) parsed from a
+//!   block's YAML payload.
 //!
 //! ## Examples
 //!
@@ -93,7 +94,7 @@ pub use frontmatter::{Frontmatter, FrontmatterItem};
 mod tests;
 
 /// Parse result carrying both the parsed document and any non-fatal warnings
-/// (e.g. near-miss sentinel lints emitted per spec §4.2).
+/// (e.g. a `~~~card-yaml` opener missing its blank line, unsupported YAML tags).
 #[derive(Debug)]
 pub struct ParseOutput {
     /// The successfully parsed document.
@@ -110,9 +111,9 @@ pub struct ParseOutput {
 /// the typed model so every card is one uniform shape.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Sentinel {
-    /// The document entry card, carrying the `QUILL` reference.
+    /// The document's root block, carrying the `#@quill` reference.
     Main(QuillReference),
-    /// A composable card with the given kind tag.
+    /// A composable card with the given `#@kind` tag.
     Card(String),
 }
 
@@ -132,17 +133,17 @@ impl Sentinel {
     }
 }
 
-/// A single metadata fence parsed from a Quillmark Markdown document.
+/// A single card-yaml block parsed from a Quillmark Markdown document.
 ///
-/// A `Card` is the uniform shape for both the document entry (main) fence and
-/// composable card fences. `sentinel` distinguishes the two.
+/// A `Card` is the uniform shape for both the document's root block and
+/// composable card blocks. `sentinel` distinguishes the two.
 ///
 /// Every card has:
-/// - `sentinel` — the `QUILL` reference (for main) or `CARD` tag (for composable).
-/// - `frontmatter` — ordered items parsed from the YAML fence body (with the
-///   sentinel key already removed).
-/// - `body` — the Markdown text that follows the closing fence, up to the next
-///   fence (or EOF).
+/// - `sentinel` — the `#@quill` reference (for the root block) or the
+///   `#@kind` tag (for a composable card).
+/// - `frontmatter` — ordered items parsed from the block's YAML payload.
+/// - `body` — the Markdown text that follows the closing `~~~` fence, up to
+///   the next block (or EOF).
 ///
 /// ## Card body absence
 ///
@@ -239,7 +240,7 @@ pub struct Document {
 
 // Equality is defined over the structural content only — `warnings` are
 // parse-time observations that depend on what the source text happened to
-// contain (near-miss sentinels, unsupported tag drops, etc.) and so differ
+// contain (unsupported tag drops, missing-blank-line lints, etc.) and so differ
 // between a source document and its round-tripped emission. Two documents
 // are equal when their `main` and `cards` match.
 impl PartialEq for Document {

@@ -195,8 +195,8 @@ Body of item 1.";
 
     let doc = decompose(markdown).unwrap();
 
-    // Global body is followed by a card block: F2 separator stripped, so the
-    // trailing `\n\n` from the source becomes a single `\n`.
+    // Global body is followed by a card block: blank-line separator stripped,
+    // so the trailing `\n\n` from the source becomes a single `\n`.
     assert_eq!(doc.main().body(), "\nMain body content.\n");
     assert_eq!(
         doc.main()
@@ -215,7 +215,7 @@ Body of item 1.";
         card.frontmatter().get("name").unwrap().as_str().unwrap(),
         "Item 1"
     );
-    // Last card body at EOF: no F2 separator to strip.
+    // Last card body at EOF: no blank-line separator to strip.
     assert_eq!(card.body(), "\nBody of item 1.");
 }
 
@@ -1703,29 +1703,29 @@ fn test_body_with_leading_newlines() {
 
 #[test]
 fn test_body_with_trailing_newlines() {
-    // Body at EOF: no F2 separator to strip, source's trailing newlines
-    // are preserved verbatim as authored content.
+    // Body at EOF: no blank-line separator to strip, source's trailing
+    // newlines are preserved verbatim as authored content.
     let markdown = "~~~card-yaml\n#@quill: test_quill\ntitle: Test\n~~~\n\nBody.\n\n\n";
     let doc = decompose(markdown).unwrap();
     assert_eq!(doc.main().body(), "\nBody.\n\n\n");
 }
 
-// ── F2 separator stripping: parse-side normalisation ─────────────────────────
-// See `assemble.rs::strip_blank_separator` and `MARKDOWN.md §3 F2`.
+// ── Blank-line separator stripping: parse-side normalisation ─────────────────
+// See `assemble.rs::strip_blank_separator` and `MARKDOWN.md §4` (rule D1).
 
 #[test]
-fn test_f2_strip_global_body_followed_by_card_lf() {
+fn test_blank_separator_strip_global_body_followed_by_card_lf() {
     // Global body followed by a card block: the source's tail `\n\n` is
-    // (content line terminator) + (F2 blank line). Strip exactly the F2 `\n`,
-    // leaving `\n` as the content terminator.
+    // (content line terminator) + (blank-line separator). Strip exactly the
+    // separator `\n`, leaving `\n` as the content terminator.
     let markdown = "~~~card-yaml\n#@quill: q\n~~~\n\nbody\n\n~~~card-yaml\n#@kind: x\n~~~\n";
     let doc = decompose(markdown).unwrap();
     assert_eq!(doc.main().body(), "\nbody\n");
 }
 
 #[test]
-fn test_f2_strip_global_body_followed_by_card_crlf() {
-    // CRLF line endings: strip exactly one `\r\n` as the F2 separator.
+fn test_blank_separator_strip_global_body_followed_by_card_crlf() {
+    // CRLF line endings: strip exactly one `\r\n` as the blank-line separator.
     let markdown =
         "~~~card-yaml\r\n#@quill: q\r\n~~~\r\n\r\nbody\r\n\r\n~~~card-yaml\r\n#@kind: x\r\n~~~\r\n";
     let doc = decompose(markdown).unwrap();
@@ -1737,8 +1737,8 @@ fn test_f2_strip_global_body_followed_by_card_crlf() {
 }
 
 #[test]
-fn test_f2_strip_card_body_followed_by_card() {
-    // First card body is followed by another fence → F2 stripped.
+fn test_blank_separator_strip_card_body_followed_by_card() {
+    // First card body is followed by another fence → separator stripped.
     // Last card body is at EOF → preserved verbatim.
     let markdown = "~~~card-yaml\n#@quill: q\n~~~\n\n~~~card-yaml\n#@kind: a\n~~~\n\nfirst\n\n~~~card-yaml\n#@kind: b\n~~~\n\nsecond\n";
     let doc = decompose(markdown).unwrap();
@@ -1747,9 +1747,9 @@ fn test_f2_strip_card_body_followed_by_card() {
 }
 
 #[test]
-fn test_f2_strip_preserves_author_blank_lines() {
-    // Author wrote two blank lines after the body. Only the F2 blank (last
-    // `\n`) is stripped; the author's blank line is preserved.
+fn test_blank_separator_strip_preserves_author_blank_lines() {
+    // Author wrote two blank lines after the body. Only the blank-line
+    // separator (last `\n`) is stripped; the author's blank line is preserved.
     let markdown = "~~~card-yaml\n#@quill: q\n~~~\n\nbody\n\n\n~~~card-yaml\n#@kind: x\n~~~\n";
     let doc = decompose(markdown).unwrap();
     assert_eq!(doc.main().body(), "\nbody\n\n");
@@ -2045,7 +2045,7 @@ Card body here.
 
     assert_eq!(json["QUILL"], "usaf_memo");
     assert_eq!(json["title"], "Test");
-    // F2 separator stripped on parse; plate `BODY` reflects the same
+    // Blank-line separator stripped on parse; plate `BODY` reflects the same
     // content-only string as `Document::body()`.
     assert_eq!(json["BODY"], "\nGlobal body.\n");
 

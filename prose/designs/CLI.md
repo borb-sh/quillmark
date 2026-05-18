@@ -12,7 +12,7 @@
 quillmark render [OPTIONS] <QUILL_PATH> [MARKDOWN_FILE]
 ```
 
-`QUILL_PATH` provides the local quill bundle used for rendering. `MARKDOWN_FILE` frontmatter still requires top-level `QUILL` because parsing enforces it.
+`QUILL_PATH` provides the local quill bundle used for rendering. `MARKDOWN_FILE` still requires a root `~~~card-yaml` block with a `#@quill:` sentinel because parsing enforces it.
 
 Options:
 - `-o, --output <FILE>` — output file path (default: derived from input filename)

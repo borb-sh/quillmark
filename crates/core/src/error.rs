@@ -42,7 +42,7 @@
 //!
 //! | Anchor                        | Path                                          |
 //! |-------------------------------|-----------------------------------------------|
-//! | Main frontmatter field        | `title`                                       |
+//! | Root-block field              | `title`                                       |
 //! | Nested in array of objects    | `recipients[0].name`                          |
 //! | Main card body                | `main.body`                                   |
 //! | Typed card (whole)            | `cards.indorsement[0]`                        |
@@ -59,7 +59,7 @@
 //! ### RenderError Variants
 //!
 //! - [`RenderError::EngineCreation`]: Failed to create rendering engine
-//! - [`RenderError::InvalidFrontmatter`]: Malformed YAML frontmatter
+//! - [`RenderError::InvalidFrontmatter`]: Malformed YAML in a card-yaml block
 //! - [`RenderError::CompilationFailed`]: Backend compilation errors
 //! - [`RenderError::FormatNotSupported`]: Requested format not supported
 //! - [`RenderError::UnsupportedBackend`]: Backend not registered
@@ -325,7 +325,8 @@ pub enum ParseError {
     #[error("{0}")]
     EmptyInput(String),
 
-    /// Frontmatter is missing the required `QUILL:` field.
+    /// The document is missing its root `~~~card-yaml` block, or that block
+    /// does not declare the required `#@quill:` system sentinel.
     ///
     /// Emitted as code `parse::missing_quill_field` so consumers can
     /// pattern-match without inspecting the message text.
@@ -408,7 +409,7 @@ pub enum RenderError {
         diag: Box<Diagnostic>,
     },
 
-    /// Invalid YAML frontmatter in markdown document
+    /// Invalid YAML in a card-yaml block
     #[error("{diag}")]
     InvalidFrontmatter {
         /// Diagnostic information

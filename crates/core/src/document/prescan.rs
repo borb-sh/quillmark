@@ -1,4 +1,4 @@
-//! Pre-scan of a metadata fence's YAML content to recover features that
+//! Pre-scan of a card-yaml block's YAML payload to recover features that
 //! serde_saphyr discards.
 //!
 //! Three features are recovered here:
@@ -105,10 +105,10 @@ enum FrameKind {
     Sequence,
 }
 
-/// Scan the body of a YAML metadata fence.
+/// Scan the YAML payload of a card-yaml block.
 ///
-/// `content` is the text between the opening and closing `---` markers
-/// (exclusive), with leading/trailing whitespace preserved.
+/// `content` is the block's YAML payload — the text below the `#@` system
+/// sentinel — with leading/trailing whitespace preserved.
 pub fn prescan_fence_content(content: &str) -> PreScan {
     let mut out = PreScan::default();
 

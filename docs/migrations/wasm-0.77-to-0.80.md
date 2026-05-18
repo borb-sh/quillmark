@@ -26,9 +26,9 @@ Migration notes for `@quillmark/wasm` consumers upgrading across the
 The `Quillmark`, `Document`, and `RenderSession` class APIs are **unchanged**.
 Four things change:
 
-1. The Markdown metadata syntax is the **card-yaml** format: blocks delimited
-   by `~~~card-yaml` / `~~~` fences with a `#@`-prefixed system sentinel. The
-   old `---`/`QUILL:` frontmatter and `---`/`CARD:` card fences are removed.
+1. The canonical Markdown **card syntax** is a fenced code block
+   (`` ```card <kind> ``). The legacy `---`/`CARD:` fence still parses, but
+   `doc.toMarkdown()` now emits the fenced form.
 2. The `Quill.example` getter is **removed** — the bundled example-document
    concept no longer exists.
 3. The quill schema returned by `Quill.schema` names its composable-card
@@ -38,9 +38,9 @@ Four things change:
    just the first.
 
 ```diff
-- // 0.77.0 documents used --- delimited frontmatter and card fences
-+ // 0.80.0 documents use ~~~card-yaml blocks with #@ system sentinels
-  const doc = Document.fromMarkdown(markdown);
+   const doc = Document.fromMarkdown(markdown);   // still accepts legacy CARD: fences
+- // doc.toMarkdown() emitted `---`/`CARD:` card fences
++ // doc.toMarkdown() now emits ```card <kind> fenced blocks
 
 - const sample = quill.example;                   // removed — no bundled example
 
@@ -58,67 +58,58 @@ Four things change:
 
 ---
 
-## 1. card-yaml Markdown syntax
+## 1. Card Markdown syntax
 
-In `0.80.0` document metadata uses the **card-yaml** format. A block opens
-with `~~~card-yaml` and closes with `~~~`; its first non-blank line is a
-`#@`-prefixed system sentinel, and the YAML payload sits below it. The
-Markdown after the closing `~~~` fence is that block's body.
-
-The document's first (root) block declares `#@quill: <name>@<version>`. Every
-subsequent block is a card and declares `#@kind: <kind>`, where `<kind>` is
-the **card kind** — the on-the-wire `CARD` discriminator.
+In `0.80.0` the canonical card block is a fenced code block whose info string
+is `card <kind>`. The block content is the card's YAML; the Markdown after the
+closing fence is the card body. `<kind>` is the **card kind** — the on-the-wire
+`CARD` discriminator.
 
 ```diff
-- ---
-- QUILL: my_quill
-- title: Main Document
-- ---
-+ ~~~card-yaml
-+ #@quill: my_quill
-+ title: Main Document
-+ ~~~
+  ---
+  QUILL: my_quill
+  title: Main Document
+  ---
 
   Some content here.
 
 - ---
 - CARD: products
-+ ~~~card-yaml
-+ #@kind: products
++ ```card products
   name: Widget
   price: 19.99
 - ---
-+ ~~~
++ ```
 
   Widget description.
 ```
 
 The card kind still matches `[a-z_][a-z0-9_]*`, and `QUILL`, `CARD`, `BODY`,
-and `CARDS` remain reserved field names. A `~~~card-yaml` block must have a
-blank line above it to be recognized (unless it is the first line of the
-document); without one it is treated as an ordinary code block.
+and `CARDS` remain reserved field names. A `card` fenced block must have a
+blank line above it to be recognized as a card.
 
-The `0.77.0` `---`/`QUILL:` frontmatter and `---`/`CARD:` card fences are
-**removed** — they no longer parse. Stored Markdown must be migrated to the
-card-yaml syntax.
+### Input — no action required
+
+`Document.fromMarkdown` still accepts the legacy `---`/`CARD:` fence. Both
+syntaxes parse identically, so existing stored Markdown keeps working without
+changes.
 
 ### Output — review round-trip consumers
 
-`doc.toMarkdown()` emits the **canonical card-yaml form** — a `~~~card-yaml`
-opener, the `#@quill:` or `#@kind:` system sentinel, the YAML payload, and a
-`~~~` closer.
+`doc.toMarkdown()` always emits the **canonical fenced form**. Any legacy
+`CARD:` fence in the source is rewritten to a `` ```card `` block on the next
+`toMarkdown()` call.
 
 This is the one behavior change most likely to affect you:
 
 - **Snapshot / golden-file tests** that compare `toMarkdown()` output against
   a fixed string need their fixtures regenerated.
 - **Persistence layers** that store `toMarkdown()` output will start writing
-  card-yaml blocks. This is safe — the result re-parses identically — but the
+  fenced cards. This is safe — the result re-parses identically — but the
   on-disk bytes change.
 - **Diffing the original source against `toMarkdown()`** to detect edits will
-  report a spurious diff for documents whose source differs from the canonical
-  form. Use `doc.equals(other)` for semantic comparison instead of string
-  comparison.
+  report a spurious diff for documents that contained legacy card fences. Use
+  `doc.equals(other)` for semantic comparison instead of string comparison.
 
 The `Document` card mutators (`pushCard`, `insertCard`, `updateCardField`,
 etc.) and the `CardInput` shape (`{ tag, fields?, body? }`) are unchanged.
@@ -220,8 +211,6 @@ diagnostics.
 
 - [ ] Bump `@quillmark/wasm` from `0.77.0` directly to `0.80.0` (skip the
       experimental `0.78.0` and `0.79.0`).
-- [ ] Migrate stored Markdown from `---` frontmatter / `CARD:` fences to
-      `~~~card-yaml` blocks with `#@` system sentinels.
 - [ ] Regenerate any snapshot/golden fixtures that compare `toMarkdown()` output.
 - [ ] Replace string comparisons of `toMarkdown()` output with `doc.equals`.
 - [ ] Remove any use of the `Quill.example` getter — it no longer exists.

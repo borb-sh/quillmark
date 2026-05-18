@@ -2,7 +2,7 @@
 //!
 //! Detects `~~~card-yaml` metadata blocks and skips over ordinary CommonMark
 //! fenced code blocks so that a `~~~card-yaml` opener inside a code block is
-//! treated as literal content, not a metadata fence.
+//! treated as literal content, not a card-yaml block.
 
 use crate::error::ParseError;
 use crate::{Diagnostic, Severity};

@@ -4,7 +4,7 @@
 //! - Composable cards declared with `#@kind:` parse to `Card`s.
 //! - Every card round-trips to the canonical `~~~card-yaml` form.
 //! - Card-kind validation and error reporting.
-//! - The F2 blank-line rule for `~~~card-yaml` openers.
+//! - The blank-line rule for `~~~card-yaml` openers.
 
 use crate::document::Document;
 use crate::Sentinel;
@@ -174,8 +174,8 @@ fn card_yaml_info_inside_outer_code_fence_is_not_a_card() {
 
 #[test]
 fn card_fence_without_blank_line_above_is_not_a_card() {
-    // F2 fails — the `~~~card-yaml` fence is delegated to CommonMark as a code
-    // block, with a non-fatal lint warning.
+    // The blank-line rule fails — the `~~~card-yaml` fence is delegated to
+    // CommonMark as a code block, with a non-fatal lint warning.
     let src = "~~~card-yaml\n#@quill: q\n~~~\n\nSome prose.\n~~~card-yaml\n#@kind: product\nname: Widget\n~~~\n";
     let out = Document::from_markdown_with_warnings(src).unwrap();
     assert_eq!(out.document.cards().len(), 0);

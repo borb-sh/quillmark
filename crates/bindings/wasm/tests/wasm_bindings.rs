@@ -27,7 +27,7 @@ fn test_parse_markdown_static() {
 #[wasm_bindgen_test]
 fn test_document_body_and_warnings() {
     let doc = Document::from_markdown(SIMPLE_MARKDOWN).expect("fromMarkdown failed");
-    // Body at EOF: no F2 separator to strip, so trailing content newlines are
+    // Body at EOF: no blank-line separator to strip, so trailing content newlines are
     // preserved verbatim. `toMarkdown` carries the body through unchanged.
     assert!(doc.to_markdown().contains("# Hello\n"));
     // warnings() returns JsValue (array) — just verify it's defined
