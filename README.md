@@ -8,7 +8,7 @@
 
 A format-first Markdown rendering system that converts Markdown with YAML frontmatter into PDF, SVG, PNG, and other output formats.
 
-Maintained by [TongueToQuill](https://tonguetoquill.com).
+Maintained by [quillmark-org]([url](https://github.com/quillmark-org)).
 
 **UNDER DEVELOPMENT** — APIs may change.
 
