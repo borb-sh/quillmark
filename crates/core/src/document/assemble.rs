@@ -4,15 +4,12 @@
 //! scanner, parses each block's `#@` system-metadata header, and assembles a
 //! typed [`Document`] from the pieces.
 
-use std::str::FromStr;
-
 use crate::error::ParseError;
 use crate::value::QuillValue;
-use crate::version::QuillReference;
 use crate::Diagnostic;
 
 use super::fences::find_metadata_blocks;
-use super::meta::{parse_meta_line, validate_payload_yaml, SystemMeta};
+use super::meta::{parse_meta_header, validate_payload_yaml, CardMetadata};
 use super::payload::{Payload, PayloadItem};
 use super::prescan::{prescan_fence_content, NestedComment, PreItem};
 use super::{Card, Document};
@@ -40,7 +37,7 @@ pub(super) struct MetadataBlock {
     pub(super) start: usize, // Position of the opening `~~~card-yaml`
     pub(super) end: usize,   // Position after the closing `~~~`
     pub(super) yaml_value: Option<serde_json::Value>, // Parsed YAML payload as JSON
-    pub(super) meta: SystemMeta, // The block's `#@` system metadata
+    pub(super) meta: CardMetadata, // The block's typed `#@` system metadata
     /// Pre-scan items (comments + fill-tagged field keys) in source order.
     pub(super) pre_items: Vec<PreItem>,
     /// Pre-scan nested comments (with structural paths).
@@ -86,34 +83,6 @@ fn split_meta_header(content: &str) -> (Vec<&str>, &str) {
         break;
     }
     (header, &content[payload_start..])
-}
-
-/// Parse a block's `#@` header lines into a [`SystemMeta`] map.
-///
-/// Header lines may appear in any order. A malformed `#@` line, or a
-/// duplicate key, is a parse error.
-fn parse_meta_header(header: &[&str]) -> Result<SystemMeta, ParseError> {
-    let mut meta = SystemMeta::new();
-    for line in header {
-        match parse_meta_line(line) {
-            Some((key, value)) => {
-                if meta.contains_key(&key) {
-                    return Err(ParseError::InvalidStructure(format!(
-                        "Duplicate `#@{}` system-metadata entry in one card-yaml block",
-                        key
-                    )));
-                }
-                meta.insert(key, value);
-            }
-            None => {
-                return Err(ParseError::InvalidStructure(format!(
-                    "Malformed `#@` metadata line `{}` — expected `#@<key>: <value>`",
-                    line.trim()
-                )));
-            }
-        }
-    }
-    Ok(meta)
 }
 
 /// Process one recognised `~~~card-yaml` block and build a [`MetadataBlock`].
@@ -235,16 +204,14 @@ pub(super) fn decompose_with_warnings(
         ));
     }
 
-    // The root block must declare a valid `#@quill` reference.
+    // The root block must declare a `#@quill` reference. (Its value is
+    // validated into a typed `QuillReference` during `#@` header parsing.)
     let root_block = &blocks[0];
-    let quill_str = root_block.meta.quill().ok_or_else(|| {
-        ParseError::MissingQuill(
+    if root_block.meta.quill.is_none() {
+        return Err(ParseError::MissingQuill(
             "The document's root card-yaml block must declare `#@quill: <name>`.".to_string(),
-        )
-    })?;
-    QuillReference::from_str(quill_str).map_err(|e| {
-        ParseError::InvalidStructure(format!("Invalid #@quill reference '{}': {}", quill_str, e))
-    })?;
+        ));
+    }
 
     // Build the root block's payload item list.
     let main_payload = build_payload_from_pre_and_parsed(

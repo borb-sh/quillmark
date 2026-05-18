@@ -712,7 +712,7 @@ fn card_to_pydict<'py>(
 ) -> PyResult<Bound<'py, PyDict>> {
     let d = PyDict::new(py);
     d.set_item("sentinel", if card.is_main() { "main" } else { "card" })?;
-    d.set_item("tag", card.tag())?;
+    d.set_item("tag", card.kind().unwrap_or(""))?;
 
     // Map-keyed payload view (values only, no comments).
     let fm = PyDict::new(py);

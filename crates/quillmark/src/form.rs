@@ -148,7 +148,7 @@ pub(crate) fn build_form(quill: &Quill, doc: &Document) -> Form {
 
     let mut cards: Vec<FormCard> = Vec::new();
     for (index, card) in doc.cards().iter().enumerate() {
-        let tag = card.tag();
+        let tag = card.kind().unwrap_or("").to_string();
         match quill.source().config().card_kind(&tag) {
             Some(card_schema) => {
                 let card_fields = card.payload().to_index_map();

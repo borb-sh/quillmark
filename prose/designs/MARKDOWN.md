@@ -109,30 +109,36 @@ the next opening fence or EOF.
 ### 3.3 System Metadata (`#@`)
 
 A block may begin with a **system metadata header** — an optional leading run
-of `#@key: value` lines. These lines carry no parser semantics beyond the
-rules below; they are simply kept out of the YAML payload's user field set
-(§3.4). The `#@` header is not part of the data model's field map.
+of `#@key: value` lines. The header is a **closed set** of three keys —
+`#@quill`, `#@kind`, `#@id`; any other `#@key` is a parse error. These lines
+are kept out of the YAML payload's user field set (§3.4); the `#@` header is
+not part of the data model's field map.
+
+In the typed model, the header parses to a `CardMetadata` struct with three
+optional fields — `quill`, `kind`, `id`.
 
 - **`#@quill: <name>@<version>`** — binds the document to a quill (see §3.5
   for the version-selector forms). This is the **only required `#@` entry**,
   and it must be declared by the **root block** (the first block). It may
-  appear on any block.
+  appear on any block, and is parsed into a typed quill reference as the
+  block is read.
 - **`#@kind: <value>`** — optional metadata identifying a card's kind. There
-  is no reserved kind; `#@kind` is plain metadata.
+  is no reserved kind; `#@kind` is carried verbatim with no parse-time
+  name-pattern validation.
 - **`#@id: <value>`** — an opaque, optional identifier. It is plain metadata:
   no validation, no uniqueness requirement; it is carried through the
   round-trip unchanged.
-- Any other `#@key` is accepted and carried as system metadata.
 
 Rules:
 
 - The `#@` header is optional on every block *except* the root block, which
   must declare `#@quill`.
-- `#@` header lines may appear in any order. The emitter preserves their
-  source order (see §9).
+- `#@` header lines may appear in any order. The emitter emits them in the
+  canonical key order `quill`, `kind`, `id` (see §9).
 - A duplicate `#@key` within a single block is a parse error.
 - A malformed `#@` line (not of the form `#@key: value`) is a parse error.
-- `<value>` for `#@kind` matches `/^[a-z_][a-z0-9_]*$/`.
+- An unknown `#@key` (anything outside `{quill, kind, id}`) is a parse error.
+- An invalid `#@quill` reference is a parse error.
 - **Comments are not supported on a `#@` header line itself.** Unlike the
   payload (§3.4), a `#@` line carries no trailing `#` comment.
 
@@ -332,18 +338,18 @@ error when any is exceeded:
 
 ```
 ~~~card-yaml
-<#@ header lines, in order>
+<#@ header lines, in canonical order>
 <payload>
 ~~~
 ```
 
-That is: a `~~~card-yaml` opener, the `#@` system-metadata lines (in their
-source order), the YAML payload, and a `~~~` closer. The root block's `#@`
-header includes `#@quill`; other blocks emit whatever `#@` entries they
-declared, or none. A document round-trips to this canonical shape — fence
-markers, key ordering, and YAML quoting are normalised. `!fill` tags and
-payload comments (own-line and inline) survive the round-trip; the `#@`
-header lines are emitted without a comment.
+That is: a `~~~card-yaml` opener, the `#@` system-metadata lines (in the
+canonical key order `quill`, `kind`, `id`), the YAML payload, and a `~~~`
+closer. The root block's `#@` header includes `#@quill`; other blocks emit
+whatever `#@` entries they declared, or none. A document round-trips to this
+canonical shape — fence markers, key ordering, and YAML quoting are
+normalised. `!fill` tags and payload comments (own-line and inline) survive
+the round-trip; the `#@` header lines are emitted without a comment.
 
 ## 10. Errors
 
@@ -353,7 +359,8 @@ Parse errors include:
 - The root block missing its `#@quill` entry.
 - A malformed `#@` header line (not of the form `#@key: value`).
 - A duplicate `#@key` within a single block.
-- A `#@kind` value failing `/^[a-z_][a-z0-9_]*$/`.
+- An unknown `#@key` outside the closed set `{quill, kind, id}`.
+- An invalid `#@quill` reference.
 - A field name failing `/^[a-z_][a-z0-9_]*$/`.
 - Use of a reserved name (`QUILL`, `CARD`, `BODY`, `CARDS`) as a field name.
 - Invalid YAML inside any block payload.

@@ -252,7 +252,7 @@ fn test_document_push_card() {
     let card = Card::new("note").unwrap();
     doc.push_card(card);
     assert_eq!(doc.cards().len(), 1);
-    assert_eq!(doc.cards()[0].tag(), "note");
+    assert_eq!(doc.cards()[0].kind().unwrap_or(""), "note");
 }
 
 // ── Document::insert_card ────────────────────────────────────────────────────
@@ -263,8 +263,8 @@ fn test_document_insert_card_at_zero() {
     let card = Card::new("intro").unwrap();
     doc.insert_card(0, card).unwrap();
     assert_eq!(doc.cards().len(), 3);
-    assert_eq!(doc.cards()[0].tag(), "intro");
-    assert_eq!(doc.cards()[1].tag(), "note");
+    assert_eq!(doc.cards()[0].kind().unwrap_or(""), "intro");
+    assert_eq!(doc.cards()[1].kind().unwrap_or(""), "note");
 }
 
 #[test]
@@ -273,7 +273,7 @@ fn test_document_insert_card_at_end() {
     let len = doc.cards().len();
     let card = Card::new("footer").unwrap();
     doc.insert_card(len, card).unwrap();
-    assert_eq!(doc.cards()[len].tag(), "footer");
+    assert_eq!(doc.cards()[len].kind().unwrap_or(""), "footer");
 }
 
 #[test]
@@ -291,9 +291,9 @@ fn test_document_remove_card() {
     let mut doc = make_doc_with_cards(); // 2 cards: note, summary
     let removed = doc.remove_card(0);
     assert!(removed.is_some());
-    assert_eq!(removed.unwrap().tag(), "note");
+    assert_eq!(removed.unwrap().kind().unwrap_or(""), "note");
     assert_eq!(doc.cards().len(), 1);
-    assert_eq!(doc.cards()[0].tag(), "summary");
+    assert_eq!(doc.cards()[0].kind().unwrap_or(""), "summary");
 }
 
 #[test]
@@ -328,16 +328,16 @@ fn test_move_card_no_op_same_index() {
     let mut doc = make_doc_with_cards(); // note(0), summary(1)
     let result = doc.move_card(0, 0);
     assert_eq!(result, Ok(()));
-    assert_eq!(doc.cards()[0].tag(), "note");
-    assert_eq!(doc.cards()[1].tag(), "summary");
+    assert_eq!(doc.cards()[0].kind().unwrap_or(""), "note");
+    assert_eq!(doc.cards()[1].kind().unwrap_or(""), "summary");
 }
 
 #[test]
 fn test_move_card_last_to_first() {
     let mut doc = make_doc_with_cards(); // note(0), summary(1)
     doc.move_card(1, 0).unwrap();
-    assert_eq!(doc.cards()[0].tag(), "summary");
-    assert_eq!(doc.cards()[1].tag(), "note");
+    assert_eq!(doc.cards()[0].kind().unwrap_or(""), "summary");
+    assert_eq!(doc.cards()[1].kind().unwrap_or(""), "note");
 }
 
 #[test]
@@ -345,8 +345,8 @@ fn test_move_card_first_to_last() {
     let mut doc = make_doc_with_cards(); // note(0), summary(1)
     let last = doc.cards().len() - 1;
     doc.move_card(0, last).unwrap();
-    assert_eq!(doc.cards()[0].tag(), "summary");
-    assert_eq!(doc.cards()[last].tag(), "note");
+    assert_eq!(doc.cards()[0].kind().unwrap_or(""), "summary");
+    assert_eq!(doc.cards()[last].kind().unwrap_or(""), "note");
 }
 
 #[test]
@@ -372,14 +372,14 @@ fn test_set_card_tag_renames_in_place() {
     let mut doc = make_doc_with_cards(); // note(0) with field foo=bar, summary(1)
     doc.set_card_tag(0, "annotation").unwrap();
     // `#@kind` changed.
-    assert_eq!(doc.cards()[0].tag(), "annotation");
+    assert_eq!(doc.cards()[0].kind().unwrap_or(""), "annotation");
     // Payload and body untouched.
     assert_eq!(
         doc.cards()[0].payload().get("foo").unwrap().as_str(),
         Some("bar")
     );
     // Other cards untouched.
-    assert_eq!(doc.cards()[1].tag(), "summary");
+    assert_eq!(doc.cards()[1].kind().unwrap_or(""), "summary");
 }
 
 #[test]
@@ -392,7 +392,7 @@ fn test_set_card_tag_rejects_invalid_tag() {
         }
     }
     // Original tag preserved on failure.
-    assert_eq!(doc.cards()[0].tag(), "note");
+    assert_eq!(doc.cards()[0].kind().unwrap_or(""), "note");
 }
 
 #[test]
@@ -411,7 +411,7 @@ fn test_set_card_tag_round_trips_via_markdown() {
     doc.set_card_tag(0, "annotation").unwrap();
     let md = doc.to_markdown();
     let reparsed = crate::Document::from_markdown(&md).unwrap();
-    assert_eq!(reparsed.cards()[0].tag(), "annotation");
+    assert_eq!(reparsed.cards()[0].kind().unwrap_or(""), "annotation");
 }
 
 // ── Card::new ────────────────────────────────────────────────────────────────
@@ -419,7 +419,7 @@ fn test_set_card_tag_round_trips_via_markdown() {
 #[test]
 fn test_card_new_valid() {
     let card = Card::new("note").unwrap();
-    assert_eq!(card.tag(), "note");
+    assert_eq!(card.kind().unwrap_or(""), "note");
     assert!(card.payload().is_empty());
     assert_eq!(card.body(), "");
 }
@@ -556,7 +556,7 @@ fn test_invariants_after_mutation_sequence() {
 
     // Every card tag is valid
     for card in doc.cards() {
-        let tag = card.tag();
+        let tag = card.kind().unwrap_or("");
         assert!(is_valid_tag_name(&tag), "invalid tag '{}' found", tag);
     }
 

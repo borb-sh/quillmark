@@ -12,7 +12,7 @@
 //! - [`Document`]: Typed in-memory Quillmark document — `main` card plus composable cards.
 //! - [`Card`]: A single card block, root or composable, with a `#@` metadata
 //!   header, a typed payload, and a body.
-//! - [`SystemMeta`]: A block's `#@` system metadata (`#@quill`, `#@kind`, `#@id`, …).
+//! - [`CardMetadata`]: A block's typed `#@` system metadata (`#@quill`, `#@kind`, `#@id`).
 //! - [`Payload`]: Ordered list of items (fields + comments) parsed from a
 //!   block's YAML payload.
 //!
@@ -85,7 +85,7 @@ pub mod payload;
 pub mod prescan;
 
 pub use edit::EditError;
-pub use meta::SystemMeta;
+pub use meta::CardMetadata;
 pub use payload::{Payload, PayloadItem};
 
 #[cfg(test)]
@@ -109,7 +109,7 @@ pub struct ParseOutput {
 /// carries no information beyond that position.
 ///
 /// Every card has:
-/// - `meta` — the block's `#@` system metadata (`#@quill`, `#@kind`, `#@id`, …).
+/// - `meta` — the block's typed `#@` system metadata (`#@quill`, `#@kind`, `#@id`).
 /// - `payload` — ordered items parsed from the block's YAML payload.
 /// - `body` — the Markdown text that follows the closing `~~~` fence, up to
 ///   the next block (or EOF).
@@ -123,7 +123,7 @@ pub struct ParseOutput {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Card {
     is_main: bool,
-    meta: SystemMeta,
+    meta: CardMetadata,
     payload: Payload,
     body: String,
 }
@@ -133,7 +133,7 @@ impl Card {
     /// block. Does **not** validate metadata or field names — callers are
     /// responsible for providing already-valid data. For user-facing
     /// construction of composable cards use [`Card::new`] (defined in `edit.rs`).
-    pub fn from_parts(is_main: bool, meta: SystemMeta, payload: Payload, body: String) -> Self {
+    pub fn from_parts(is_main: bool, meta: CardMetadata, payload: Payload, body: String) -> Self {
         Self {
             is_main,
             meta,
@@ -142,30 +142,24 @@ impl Card {
         }
     }
 
-    /// The block's `#@` system metadata.
-    pub fn meta(&self) -> &SystemMeta {
+    /// The block's typed `#@` system metadata.
+    pub fn meta(&self) -> &CardMetadata {
         &self.meta
     }
 
     /// Mutable access to the system metadata.
-    pub fn meta_mut(&mut self) -> &mut SystemMeta {
+    pub fn meta_mut(&mut self) -> &mut CardMetadata {
         &mut self.meta
-    }
-
-    /// The card kind — the `#@kind` metadata value, or the empty string when
-    /// the block declares no `#@kind`.
-    pub fn tag(&self) -> String {
-        self.meta.kind().unwrap_or("").to_string()
     }
 
     /// The `#@kind` card kind, if the block declares one.
     pub fn kind(&self) -> Option<&str> {
-        self.meta.kind()
+        self.meta.kind.as_deref()
     }
 
     /// The `#@id` opaque identifier, if the block declares one.
     pub fn id(&self) -> Option<&str> {
-        self.meta.id()
+        self.meta.id.as_deref()
     }
 
     /// Typed payload (map-keyed view and ordered item list).
@@ -278,8 +272,8 @@ impl Document {
     pub fn quill_reference(&self) -> QuillReference {
         self.main
             .meta
-            .quill()
-            .and_then(|s| s.parse().ok())
+            .quill
+            .clone()
             .expect("root block's #@quill is validated at parse time")
     }
 
@@ -356,7 +350,9 @@ impl Document {
                 let mut card_map = serde_json::Map::new();
                 card_map.insert(
                     "CARD".to_string(),
-                    serde_json::Value::String(card.meta.kind().unwrap_or("").to_string()),
+                    serde_json::Value::String(
+                        card.meta.kind.as_deref().unwrap_or("").to_string(),
+                    ),
                 );
                 for (key, value) in card.payload.iter() {
                     card_map.insert(key.clone(), value.as_json().clone());

@@ -248,7 +248,7 @@ impl From<&quillmark_core::Card> for Card {
 
         Card {
             sentinel: sentinel.to_string(),
-            tag: card.tag(),
+            tag: card.kind().unwrap_or("").to_string(),
             payload: serde_json::Value::Object(fields_map),
             payload_items: items,
             body: card.body().to_string(),

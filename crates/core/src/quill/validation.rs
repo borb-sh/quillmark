@@ -127,7 +127,7 @@ pub fn validate_typed_document(
     }
 
     for (index, card) in doc.cards().iter().enumerate() {
-        let card_name = card.tag();
+        let card_name = card.kind().unwrap_or("").to_string();
         let item_path = format!("cards[{index}]");
         // NOTE: `cards[N]` is the document-instance-side path (the cards
         // array on a Document). Card-kind definitions live under
@@ -367,11 +367,8 @@ fn child_path(parent: &str, child: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-
     use super::*;
     use crate::document::{Card, Document};
-    use crate::version::QuillReference;
     use serde_json::json;
 
     fn config_with(main_fields: &str, cards: &str) -> QuillConfig {
@@ -402,13 +399,15 @@ main:
     }
 
     fn doc_with_typed_cards(fm: &[(&str, serde_json::Value)], cards: Vec<Card>) -> Document {
-        use crate::document::{Payload, SystemMeta};
+        use crate::document::{CardMetadata, Payload};
         let mut payload = IndexMap::new();
         for (k, v) in fm {
             payload.insert(k.to_string(), QuillValue::from_json(v.clone()));
         }
-        let mut meta = SystemMeta::new();
-        meta.insert("quill", "test_quill");
+        let meta = CardMetadata {
+            quill: Some("test_quill".parse().unwrap()),
+            ..CardMetadata::default()
+        };
         let main = Card::from_parts(true, meta, Payload::from_index_map(payload), String::new());
         Document::from_main_and_cards(main, cards, vec![])
     }
@@ -737,9 +736,11 @@ main:
 "#,
         )
         .unwrap();
-        use crate::document::{Payload, SystemMeta};
-        let mut meta = SystemMeta::new();
-        meta.insert("quill", "test_quill");
+        use crate::document::{CardMetadata, Payload};
+        let meta = CardMetadata {
+            quill: Some("test_quill".parse().unwrap()),
+            ..CardMetadata::default()
+        };
         let main = Card::from_parts(
             true,
             meta,

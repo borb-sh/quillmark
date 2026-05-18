@@ -272,9 +272,11 @@ fn empty_map_omitted_from_emit() {
         QuillValue::from_json(serde_json::json!("hello")),
     );
 
-    use crate::document::{Card, Payload, SystemMeta};
-    let mut meta = SystemMeta::new();
-    meta.insert("quill", "test");
+    use crate::document::{Card, CardMetadata, Payload};
+    let meta = CardMetadata {
+        quill: Some("test".parse().unwrap()),
+        ..CardMetadata::default()
+    };
     let main = Card::from_parts(
         true,
         meta,

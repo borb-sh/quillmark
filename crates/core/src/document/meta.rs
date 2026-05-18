@@ -1,85 +1,99 @@
 //! Card-yaml block metadata: the `#@`-prefixed system-metadata header.
 //!
 //! Every `~~~card-yaml` block may carry a leading run of `#@key: value` lines.
-//! These are **system metadata** — reserved keys (`#@quill`, `#@kind`, `#@id`,
-//! …) kept out of the YAML payload's user field set. The `#@` prefix also
-//! keeps them invisible to a plain YAML parser (a `#` line is a comment).
+//! These are **system metadata** drawn from a closed set of three reserved
+//! keys — `#@quill`, `#@kind`, `#@id`. Any other `#@key` is a parse error.
+//! The `#@` prefix keeps them invisible to a plain YAML parser (a `#` line is
+//! a comment).
 //!
-//! System metadata carries no parser semantics beyond `#@quill` on the root
-//! block, which binds the document to a quill. Every other entry — including
-//! `#@kind` and `#@id` — is opaque metadata, carried through round-trip
-//! unchanged.
+//! Only `#@quill` on the root block carries parser semantics — it binds the
+//! document to a quill. `#@kind` and `#@id` are opaque metadata carried
+//! through round-trip unchanged.
 
-use indexmap::IndexMap;
+use std::str::FromStr;
 
 use crate::error::ParseError;
+use crate::version::QuillReference;
 
-/// Ordered `#@`-metadata of a single card-yaml block.
+/// Typed `#@`-metadata of a single card-yaml block.
 ///
-/// Keys are stored without the `#@` prefix (`quill`, `kind`, `id`, …) and
-/// values are the raw line text after the `:`. Insertion order is preserved
-/// so emission round-trips byte-stably.
+/// The `#@` header is a **closed set** of three optional keys; an unknown
+/// `#@key` is rejected at parse time. `#@quill` is parsed into a typed
+/// [`QuillReference`] as the block is read.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct SystemMeta {
-    entries: IndexMap<String, String>,
+pub struct CardMetadata {
+    /// The `#@quill` reference. Required on the document's root block;
+    /// optional (and inert) on composable cards.
+    pub quill: Option<QuillReference>,
+    /// The `#@kind` card kind, if the block declares one. Carried verbatim.
+    pub kind: Option<String>,
+    /// The `#@id` opaque identifier, if the block declares one.
+    pub id: Option<String>,
 }
 
-impl SystemMeta {
+impl CardMetadata {
     /// Create an empty metadata set.
     pub fn new() -> Self {
         Self::default()
     }
+}
 
-    /// Look up a metadata value by key (key without the `#@` prefix).
-    pub fn get(&self, key: &str) -> Option<&str> {
-        self.entries.get(key).map(String::as_str)
+/// Parse a block's `#@` header lines into a typed [`CardMetadata`].
+///
+/// Header lines may appear in any order. The accepted keys are the closed set
+/// `{quill, kind, id}`. A malformed `#@` line, an unknown `#@key`, a duplicate
+/// key, or an invalid `#@quill` reference is a parse error.
+pub(super) fn parse_meta_header(header: &[&str]) -> Result<CardMetadata, ParseError> {
+    let mut meta = CardMetadata::new();
+    for line in header {
+        let (key, value) = parse_meta_line(line).ok_or_else(|| {
+            ParseError::InvalidStructure(format!(
+                "Malformed `#@` metadata line `{}` — expected `#@<key>: <value>`",
+                line.trim()
+            ))
+        })?;
+        match key.as_str() {
+            "quill" => {
+                if meta.quill.is_some() {
+                    return Err(duplicate_meta_error("quill"));
+                }
+                let reference = QuillReference::from_str(&value).map_err(|e| {
+                    ParseError::InvalidStructure(format!(
+                        "Invalid #@quill reference '{}': {}",
+                        value, e
+                    ))
+                })?;
+                meta.quill = Some(reference);
+            }
+            "kind" => {
+                if meta.kind.is_some() {
+                    return Err(duplicate_meta_error("kind"));
+                }
+                meta.kind = Some(value);
+            }
+            "id" => {
+                if meta.id.is_some() {
+                    return Err(duplicate_meta_error("id"));
+                }
+                meta.id = Some(value);
+            }
+            other => {
+                return Err(ParseError::InvalidStructure(format!(
+                    "Unknown `#@{}` system-metadata key — the card-yaml header \
+                     accepts only `#@quill`, `#@kind`, and `#@id`",
+                    other
+                )));
+            }
+        }
     }
+    Ok(meta)
+}
 
-    /// Returns `true` if a metadata entry with this key is present.
-    pub fn contains_key(&self, key: &str) -> bool {
-        self.entries.contains_key(key)
-    }
-
-    /// Insert or update a metadata entry. Existing keys keep their position.
-    pub fn insert(&mut self, key: impl Into<String>, value: impl Into<String>) -> Option<String> {
-        self.entries.insert(key.into(), value.into())
-    }
-
-    /// Remove a metadata entry, returning its value if present. Preserves the
-    /// order of the remaining entries.
-    pub fn remove(&mut self, key: &str) -> Option<String> {
-        self.entries.shift_remove(key)
-    }
-
-    /// Ordered iterator over `(key, value)` pairs.
-    pub fn iter(&self) -> impl Iterator<Item = (&String, &String)> + '_ {
-        self.entries.iter()
-    }
-
-    /// Returns `true` if there are no metadata entries.
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    /// Number of metadata entries.
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    /// The `#@quill` quill reference, if present.
-    pub fn quill(&self) -> Option<&str> {
-        self.get("quill")
-    }
-
-    /// The `#@kind` card kind, if present.
-    pub fn kind(&self) -> Option<&str> {
-        self.get("kind")
-    }
-
-    /// The `#@id` opaque identifier, if present.
-    pub fn id(&self) -> Option<&str> {
-        self.get("id")
-    }
+fn duplicate_meta_error(key: &str) -> ParseError {
+    ParseError::InvalidStructure(format!(
+        "Duplicate `#@{}` system-metadata entry in one card-yaml block",
+        key
+    ))
 }
 
 /// Parse a `#@`-prefixed metadata line into its `(key, value)` pair.

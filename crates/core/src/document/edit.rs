@@ -6,7 +6,7 @@
 //!
 //! Every successful mutator call leaves the document in a state that:
 //! - Contains no reserved key in any card's payload (`BODY`, `CARDS`, `QUILL`, `CARD`).
-//! - Has every composable `card.tag()` passing `meta::is_valid_tag_name`.
+//! - Has every composable card's `#@kind` passing `meta::is_valid_tag_name`.
 //! - Can be safely serialized via [`Document::to_plate_json`].
 //!
 //! **Mutators never modify `warnings`.**  Warnings are parse-time observations
@@ -22,7 +22,7 @@
 use unicode_normalization::UnicodeNormalization;
 
 use crate::document::meta::is_valid_tag_name;
-use crate::document::{Card, Document, Payload, SystemMeta};
+use crate::document::{Card, CardMetadata, Document, Payload};
 use crate::value::QuillValue;
 use crate::version::QuillReference;
 
@@ -105,9 +105,7 @@ impl Document {
     ///
     /// This method never modifies `warnings`.
     pub fn set_quill_ref(&mut self, reference: QuillReference) {
-        self.main_mut()
-            .meta_mut()
-            .insert("quill", reference.to_string());
+        self.main_mut().meta_mut().quill = Some(reference);
     }
 
     // ── Card mutators ────────────────────────────────────────────────────────
@@ -214,7 +212,7 @@ impl Document {
         let card = self
             .card_mut(index)
             .ok_or(EditError::IndexOutOfRange { index, len })?;
-        card.meta_mut().insert("kind", new_tag);
+        card.meta_mut().kind = Some(new_tag);
         Ok(())
     }
 
@@ -263,8 +261,10 @@ impl Card {
         if !is_valid_tag_name(&tag) {
             return Err(EditError::InvalidTagName(tag));
         }
-        let mut meta = SystemMeta::new();
-        meta.insert("kind", tag);
+        let meta = CardMetadata {
+            kind: Some(tag),
+            ..CardMetadata::default()
+        };
         Ok(Card::from_parts(false, meta, Payload::new(), String::new()))
     }
 

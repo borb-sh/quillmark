@@ -45,7 +45,7 @@
 
 pub mod document;
 pub use document::{
-    Card, Document, EditError, ParseOutput, Payload, PayloadItem, SystemMeta,
+    Card, CardMetadata, Document, EditError, ParseOutput, Payload, PayloadItem,
 };
 
 pub mod backend;

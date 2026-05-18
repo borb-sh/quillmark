@@ -108,7 +108,7 @@ impl Quill {
                 let defaults = self
                     .source
                     .config()
-                    .card_kind(&card.tag())
+                    .card_kind(card.kind().unwrap_or(""))
                     .map(|c| c.defaults())
                     .unwrap_or_default();
                 let fields = apply_defaults(&card.payload().to_index_map(), defaults);
@@ -155,7 +155,7 @@ impl Quill {
         let mut coerced_cards: Vec<Card> = Vec::with_capacity(doc.cards().len());
         for card in doc.cards() {
             let coerced_fields = config
-                .coerce_card(&card.tag(), &card.payload().to_index_map())
+                .coerce_card(card.kind().unwrap_or(""), &card.payload().to_index_map())
                 .map_err(coercion_error)?;
             coerced_cards.push(Card::from_parts(
                 false,

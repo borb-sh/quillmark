@@ -115,24 +115,36 @@ impl Document {
 /// Emit a card-yaml block: `~~~card-yaml`, the `#@` system-metadata header,
 /// the YAML payload, then a closing `~~~`.
 ///
-/// The `#@` header lines are emitted in metadata insertion order. There is no
-/// `#@` line for an inline comment to attach to, so an inline comment carried
-/// over at `items[0]` degrades to an own-line comment as the first payload
-/// line, preserving its text.
+/// The `#@` header is emitted in the canonical key order `quill`, `kind`,
+/// `id` — only keys the block declares appear. There is no `#@` line for an
+/// inline comment to attach to, so an inline comment carried over at
+/// `items[0]` degrades to an own-line comment as the first payload line,
+/// preserving its text.
 ///
 /// Three tildes are always a safe fence length: canonically emitted payload
 /// lines never begin with `~` (keys are identifiers, sequence items start with
 /// `-`, strings are double-quoted, comments start with `#`), so the fence can
 /// never be closed early.
+fn emit_meta_line(out: &mut String, key: &str, value: &str) {
+    out.push_str("#@");
+    out.push_str(key);
+    out.push_str(": ");
+    out.push_str(value);
+    out.push('\n');
+}
+
 fn emit_block(out: &mut String, card: &Card) {
     out.push_str("~~~card-yaml\n");
 
-    for (key, value) in card.meta().iter() {
-        out.push_str("#@");
-        out.push_str(key);
-        out.push_str(": ");
-        out.push_str(value);
-        out.push('\n');
+    let meta = card.meta();
+    if let Some(quill) = &meta.quill {
+        emit_meta_line(out, "quill", &quill.to_string());
+    }
+    if let Some(kind) = &meta.kind {
+        emit_meta_line(out, "kind", kind);
+    }
+    if let Some(id) = &meta.id {
+        emit_meta_line(out, "id", id);
     }
 
     emit_fence_items(
