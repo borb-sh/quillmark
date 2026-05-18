@@ -26,17 +26,14 @@
 //!
 //! ## Schema versioning
 //!
-//! The schema tag is tied to the crate version at which the Document model
-//! was last changed — *not* the running crate version. The current model
-//! was established in `0.81.0`, so the tag is [`SCHEMA_V0_81_0`]; every
-//! `0.81.x` release writes that same tag because the model is unchanged
-//! across patch releases.
+//! The schema tag tracks the crate version at which the `Document` model was
+//! last changed — currently `0.81.0` (see [`SCHEMA_V0_81_0`]). A model change
+//! adds a new [`StoredDocument`] variant with its own frozen type tree and a
+//! migration; older variants stay frozen so previously stored rows keep
+//! deserializing.
 //!
-//! When the Document model changes (planned for `0.82.0`), a new
-//! [`StoredDocument`] variant is added — `V0_82_0(DocumentV0_82_0)` — with a
-//! fresh type tree and a migration. The `V0_81_0` types stay frozen, so rows
-//! written by `0.81.x` keep deserializing. Internal refactors that do *not*
-//! change the model only touch the `From`/`TryFrom` conversions here.
+//! The canonical design — including the step-by-step procedure for adding a
+//! schema version — is `prose/designs/DOCUMENT_STORAGE.md`.
 
 // Storage DTO types are deliberately named after the crate version that
 // fixed their shape (e.g. `DocumentV0_81_0`); the underscores are intentional.
