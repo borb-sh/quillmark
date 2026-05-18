@@ -31,20 +31,13 @@ pub struct CardMetadata {
     pub id: Option<String>,
 }
 
-impl CardMetadata {
-    /// Create an empty metadata set.
-    pub fn new() -> Self {
-        Self::default()
-    }
-}
-
 /// Parse a block's `#@` header lines into a typed [`CardMetadata`].
 ///
 /// Header lines may appear in any order. The accepted keys are the closed set
 /// `{quill, kind, id}`. A malformed `#@` line, an unknown `#@key`, a duplicate
 /// key, or an invalid `#@quill` reference is a parse error.
 pub(super) fn parse_meta_header(header: &[&str]) -> Result<CardMetadata, ParseError> {
-    let mut meta = CardMetadata::new();
+    let mut meta = CardMetadata::default();
     for line in header {
         let (key, value) = parse_meta_line(line).ok_or_else(|| {
             ParseError::InvalidStructure(format!(
@@ -101,7 +94,7 @@ fn duplicate_meta_error(key: &str) -> ParseError {
 /// `#@quill: example@0.1.0` parses to `("quill", "example@0.1.0")`. Returns
 /// `None` when `line` is not a `#@` metadata line (no `#@` prefix, or no `:`
 /// separator).
-pub(super) fn parse_meta_line(line: &str) -> Option<(String, String)> {
+fn parse_meta_line(line: &str) -> Option<(String, String)> {
     let rest = line.trim_start().strip_prefix("#@")?;
     let colon = rest.find(':')?;
     let key = rest[..colon].trim().to_string();

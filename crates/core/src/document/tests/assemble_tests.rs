@@ -210,7 +210,7 @@ Body of item 1.";
 
     assert_eq!(doc.cards().len(), 1);
     let card = &doc.cards()[0];
-    assert_eq!(card.kind().unwrap_or(""), "items");
+    assert_eq!(card.kind(), Some("items"));
     assert_eq!(
         card.payload().get("name").unwrap().as_str().unwrap(),
         "Item 1"
@@ -245,14 +245,14 @@ Second item body.";
     assert_eq!(doc.cards().len(), 2);
 
     let card1 = &doc.cards()[0];
-    assert_eq!(card1.kind().unwrap_or(""), "items");
+    assert_eq!(card1.kind(), Some("items"));
     assert_eq!(
         card1.payload().get("name").unwrap().as_str().unwrap(),
         "Item 1"
     );
 
     let card2 = &doc.cards()[1];
-    assert_eq!(card2.kind().unwrap_or(""), "items");
+    assert_eq!(card2.kind(), Some("items"));
     assert_eq!(
         card2.payload().get("name").unwrap().as_str().unwrap(),
         "Item 2"
@@ -296,7 +296,7 @@ Section 2 content.";
     );
     assert_eq!(doc.main().body(), "\nGlobal body.\n");
     assert_eq!(doc.cards().len(), 2);
-    assert_eq!(doc.cards()[0].kind().unwrap_or(""), "sections");
+    assert_eq!(doc.cards()[0].kind(), Some("sections"));
 }
 
 #[test]
@@ -314,7 +314,7 @@ Body without metadata.";
     let doc = decompose(markdown).unwrap();
     assert_eq!(doc.cards().len(), 1);
     let card = &doc.cards()[0];
-    assert_eq!(card.kind().unwrap_or(""), "items");
+    assert_eq!(card.kind(), Some("items"));
     assert!(card.payload().is_empty());
     assert_eq!(card.body(), "\nBody without metadata.");
 }
@@ -333,7 +333,7 @@ name: Item
     let doc = decompose(markdown).unwrap();
     assert_eq!(doc.cards().len(), 1);
     let card = &doc.cards()[0];
-    assert_eq!(card.kind().unwrap_or(""), "items");
+    assert_eq!(card.kind(), Some("items"));
     assert_eq!(card.body(), ""); // empty, not absent
 }
 
@@ -509,7 +509,7 @@ title: Test
 
     let doc = decompose(markdown).unwrap();
     assert_eq!(doc.cards().len(), 1);
-    assert_eq!(doc.cards()[0].kind().unwrap_or(""), "Invalid-Name");
+    assert_eq!(doc.cards()[0].kind(), Some("Invalid-Name"));
 }
 
 #[test]
@@ -536,14 +536,14 @@ Section 1 body";
     assert_eq!(doc.cards().len(), 2);
 
     let card0 = &doc.cards()[0];
-    assert_eq!(card0.kind().unwrap_or(""), "items");
+    assert_eq!(card0.kind(), Some("items"));
     assert_eq!(
         card0.payload().get("name").unwrap().as_str().unwrap(),
         "Item 1"
     );
 
     let card1 = &doc.cards()[1];
-    assert_eq!(card1.kind().unwrap_or(""), "sections");
+    assert_eq!(card1.kind(), Some("sections"));
     assert_eq!(
         card1.payload().get("title").unwrap().as_str().unwrap(),
         "Section 1"
@@ -581,7 +581,7 @@ Third";
     assert_eq!(doc.cards().len(), 3);
 
     for (i, card) in doc.cards().iter().enumerate() {
-        assert_eq!(card.kind().unwrap_or(""), "items");
+        assert_eq!(card.kind(), Some("items"));
         let id = card.payload().get("id").unwrap().as_i64().unwrap();
         assert_eq!(id, (i + 1) as i64);
     }
@@ -670,7 +670,7 @@ rating: 4
     assert_eq!(doc.cards().len(), 4);
 
     // First 2 are products
-    assert_eq!(doc.cards()[0].kind().unwrap_or(""), "products");
+    assert_eq!(doc.cards()[0].kind(), Some("products"));
     assert_eq!(
         doc.cards()[0]
             .payload()
@@ -690,7 +690,7 @@ rating: 4
         19.99
     );
 
-    assert_eq!(doc.cards()[1].kind().unwrap_or(""), "products");
+    assert_eq!(doc.cards()[1].kind(), Some("products"));
     assert_eq!(
         doc.cards()[1]
             .payload()
@@ -702,7 +702,7 @@ rating: 4
     );
 
     // Last 2 are reviews
-    assert_eq!(doc.cards()[2].kind().unwrap_or(""), "reviews");
+    assert_eq!(doc.cards()[2].kind(), Some("reviews"));
     assert_eq!(
         doc.cards()[2]
             .payload()
@@ -780,7 +780,7 @@ Section 1 body.";
         "Test Document"
     );
     assert_eq!(doc.cards().len(), 1);
-    assert_eq!(doc.cards()[0].kind().unwrap_or(""), "sections");
+    assert_eq!(doc.cards()[0].kind(), Some("sections"));
     assert_eq!(doc.main().body(), "\nMain body.\n");
 }
 
@@ -932,7 +932,7 @@ Body of item 1.";
     let doc = decompose(markdown).unwrap();
     assert_eq!(doc.cards().len(), 1);
     let card = &doc.cards()[0];
-    assert_eq!(card.kind().unwrap_or(""), "items");
+    assert_eq!(card.kind(), Some("items"));
     assert_eq!(
         card.payload().get("name").unwrap().as_str().unwrap(),
         "Item 1"
@@ -1074,17 +1074,17 @@ fn test_extended_metadata_demo_file() {
     // 5 cards total: 3 features + 2 use_cases
     assert_eq!(doc.cards().len(), 5);
 
-    let features_count = doc.cards().iter().filter(|c| c.kind().unwrap_or("") == "features").count();
+    let features_count = doc.cards().iter().filter(|c| c.kind() == Some("features")).count();
     let use_cases_count = doc
         .cards()
         .iter()
-        .filter(|c| c.kind().unwrap_or("") == "use_cases")
+        .filter(|c| c.kind() == Some("use_cases"))
         .count();
     assert_eq!(features_count, 3);
     assert_eq!(use_cases_count, 2);
 
     // Check first card is a feature
-    assert_eq!(doc.cards()[0].kind().unwrap_or(""), "features");
+    assert_eq!(doc.cards()[0].kind(), Some("features"));
     assert_eq!(
         doc.cards()[0]
             .payload()
@@ -1553,7 +1553,7 @@ name: Item
 ~~~";
     let doc = decompose(markdown).unwrap();
     assert_eq!(doc.cards().len(), 1);
-    assert_eq!(doc.cards()[0].kind().unwrap_or(""), "items");
+    assert_eq!(doc.cards()[0].kind(), Some("items"));
     assert_eq!(doc.cards()[0].body(), "");
 }
 
@@ -1574,8 +1574,8 @@ id: 2
 ~~~";
     let doc = decompose(markdown).unwrap();
     assert_eq!(doc.cards().len(), 2);
-    assert_eq!(doc.cards()[0].kind().unwrap_or(""), "a");
-    assert_eq!(doc.cards()[1].kind().unwrap_or(""), "a");
+    assert_eq!(doc.cards()[0].kind(), Some("a"));
+    assert_eq!(doc.cards()[1].kind(), Some("a"));
 }
 
 #[test]
@@ -1654,7 +1654,7 @@ fn test_unusual_card_kind_names_are_accepted_verbatim() {
         );
         let doc = decompose(&markdown).unwrap();
         assert_eq!(doc.cards().len(), 1);
-        assert_eq!(doc.cards()[0].kind().unwrap_or(""), kind);
+        assert_eq!(doc.cards()[0].kind(), Some(kind));
     }
 }
 
@@ -1868,7 +1868,7 @@ Body
         "some global value"
     );
     assert_eq!(doc.cards().len(), 1);
-    assert_eq!(doc.cards()[0].kind().unwrap_or(""), "my_card");
+    assert_eq!(doc.cards()[0].kind(), Some("my_card"));
     assert_eq!(
         doc.cards()[0]
             .payload()
@@ -1959,7 +1959,7 @@ Conclusion content.
     assert!(body.contains("More content after horizontal rule."));
 
     assert_eq!(doc.cards().len(), 2);
-    assert_eq!(doc.cards()[0].kind().unwrap_or(""), "section");
+    assert_eq!(doc.cards()[0].kind(), Some("section"));
     assert_eq!(
         doc.cards()[0]
             .payload()
@@ -1970,7 +1970,7 @@ Conclusion content.
         "Introduction"
     );
     assert_eq!(doc.cards()[0].body(), "\nIntroduction content.\n");
-    assert_eq!(doc.cards()[1].kind().unwrap_or(""), "section");
+    assert_eq!(doc.cards()[1].kind(), Some("section"));
     assert_eq!(
         doc.cards()[1]
             .payload()

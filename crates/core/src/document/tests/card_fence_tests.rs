@@ -18,7 +18,6 @@ fn card_fence_parses_kind_fields_and_body() {
     assert_eq!(doc.cards().len(), 1);
     let card = &doc.cards()[0];
     assert_eq!(card.kind(), Some("product"));
-    assert_eq!(card.kind().unwrap_or(""), "product");
     assert_eq!(
         card.payload().get("name").unwrap().as_str(),
         Some("Widget")
@@ -104,7 +103,6 @@ fn card_fence_without_kind_is_allowed() {
     let doc = Document::from_markdown(src).unwrap();
     assert_eq!(doc.cards().len(), 1);
     assert_eq!(doc.cards()[0].kind(), None);
-    assert_eq!(doc.cards()[0].kind().unwrap_or(""), "");
 }
 
 #[test]
@@ -122,7 +120,7 @@ fn card_fence_unusual_kind_is_accepted_verbatim() {
     let src = "~~~card-yaml\n#@quill: q\n~~~\n\n~~~card-yaml\n#@kind: BadKind\nname: Widget\n~~~\n";
     let doc = Document::from_markdown(src).unwrap();
     assert_eq!(doc.cards().len(), 1);
-    assert_eq!(doc.cards()[0].kind().unwrap_or(""), "BadKind");
+    assert_eq!(doc.cards()[0].kind(), Some("BadKind"));
 }
 
 #[test]
