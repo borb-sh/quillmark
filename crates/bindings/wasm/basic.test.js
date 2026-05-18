@@ -82,7 +82,7 @@ Card body.
     const doc = Document.fromMarkdown(md)
 
     expect(doc.cards.length).toBe(1)
-    expect(doc.cards[0].tag).toBe('note')
+    expect(doc.cards[0].kind).toBe('note')
     expect(doc.cards[0].payload.foo).toBe('bar')
     expect(doc.cards[0].body).toContain('Card body.')
   })
@@ -150,7 +150,7 @@ describe('Document.toMarkdown — fromMarkdown → mutate → emit → re-parse'
 
     // Mutate
     doc.setField('title', 'New Title')
-    doc.pushCard({ tag: 'note', fields: { author: 'Alice' }, body: 'Hello' })
+    doc.pushCard({ kind: 'note', fields: { author: 'Alice' }, body: 'Hello' })
     doc.replaceBody('Updated body')
 
     // Emit
@@ -169,7 +169,7 @@ describe('Document.toMarkdown — fromMarkdown → mutate → emit → re-parse'
     expect(doc2.main.payload.title).toBe('New Title')
     expect(doc2.main.body).toBe('Updated body\n')
     expect(doc2.cards.length).toBe(originalCardCount + 1)
-    expect(doc2.cards[0].tag).toBe('note')
+    expect(doc2.cards[0].kind).toBe('note')
     expect(doc2.cards[0].payload.author).toBe('Alice')
     expect(doc2.cards[0].body).toBe('Hello')
   })
@@ -423,36 +423,36 @@ Card two.
 
   it('pushCard appends a card', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.pushCard({ tag: 'note', fields: {}, body: 'My card.' })
+    doc.pushCard({ kind: 'note', fields: {}, body: 'My card.' })
     expect(doc.cards.length).toBe(1)
-    expect(doc.cards[0].tag).toBe('note')
+    expect(doc.cards[0].kind).toBe('note')
     expect(doc.cards[0].body).toBe('My card.')
   })
 
   it('pushCard throws on invalid tag', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    expect(() => doc.pushCard({ tag: 'BadTag' })).toThrow(/InvalidTagName/)
+    expect(() => doc.pushCard({ kind: 'BadTag' })).toThrow(/InvalidTagName/)
   })
 
   it('insertCard inserts at specified index', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARDS)
-    doc.insertCard(0, { tag: 'intro' })
-    expect(doc.cards[0].tag).toBe('intro')
-    expect(doc.cards[1].tag).toBe('note')
+    doc.insertCard(0, { kind: 'intro' })
+    expect(doc.cards[0].kind).toBe('intro')
+    expect(doc.cards[1].kind).toBe('note')
   })
 
   it('insertCard throws IndexOutOfRange when index > len', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN) // 0 cards
-    expect(() => doc.insertCard(5, { tag: 'note' })).toThrow(/IndexOutOfRange/)
+    expect(() => doc.insertCard(5, { kind: 'note' })).toThrow(/IndexOutOfRange/)
   })
 
   it('removeCard removes and returns the card', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARDS)
     const removed = doc.removeCard(0)
     expect(removed).toBeDefined()
-    expect(removed.tag).toBe('note')
+    expect(removed.kind).toBe('note')
     expect(doc.cards.length).toBe(1)
-    expect(doc.cards[0].tag).toBe('summary')
+    expect(doc.cards[0].kind).toBe('summary')
   })
 
   it('removeCard returns undefined when out of range', () => {
@@ -463,14 +463,14 @@ Card two.
   it('moveCard swaps positions correctly', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARDS)
     doc.moveCard(1, 0) // summary → front
-    expect(doc.cards[0].tag).toBe('summary')
-    expect(doc.cards[1].tag).toBe('note')
+    expect(doc.cards[0].kind).toBe('summary')
+    expect(doc.cards[1].kind).toBe('note')
   })
 
   it('moveCard no-op when from == to', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARDS)
     doc.moveCard(0, 0)
-    expect(doc.cards[0].tag).toBe('note')
+    expect(doc.cards[0].kind).toBe('note')
   })
 
   it('moveCard throws IndexOutOfRange on out-of-range index', () => {
@@ -481,7 +481,7 @@ Card two.
   it('setCardTag renames the tag in place', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARDS)
     doc.setCardTag(0, 'annotation')
-    expect(doc.cards[0].tag).toBe('annotation')
+    expect(doc.cards[0].kind).toBe('annotation')
     // Payload preserved across rename.
     expect(doc.cards[0].payload).toBeDefined()
   })
@@ -504,7 +504,7 @@ Card two.
 
     const two = Document.fromMarkdown(MD_WITH_CARDS)
     expect(two.cardCount).toBe(2)
-    two.pushCard({ tag: 'extra' })
+    two.pushCard({ kind: 'extra' })
     expect(two.cardCount).toBe(3)
     two.removeCard(0)
     expect(two.cardCount).toBe(2)
@@ -541,7 +541,7 @@ describe('Document.equals', () => {
   it('returns false after pushing a card', () => {
     const a = Document.fromMarkdown(TEST_MARKDOWN)
     const b = Document.fromMarkdown(TEST_MARKDOWN)
-    b.pushCard({ tag: 'note' })
+    b.pushCard({ kind: 'note' })
     expect(a.equals(b)).toBe(false)
   })
 
@@ -619,14 +619,14 @@ describe('Document editor surface — parse→mutate→read round-trip', () => {
     // Mutate
     doc.setField('author', 'Bob')
     doc.replaceBody('New body text.')
-    doc.pushCard({ tag: 'note', body: 'Card content.' })
+    doc.pushCard({ kind: 'note', body: 'Card content.' })
     doc.setQuillRef('updated_quill')
 
     // Assert state
     expect(doc.main.payload.author).toBe('Bob')
     expect(doc.main.body).toBe('New body text.')
     expect(doc.cards.length).toBe(1)
-    expect(doc.cards[0].tag).toBe('note')
+    expect(doc.cards[0].kind).toBe('note')
     expect(doc.cards[0].body).toBe('Card content.')
     expect(doc.quillRef).toBe('updated_quill')
 

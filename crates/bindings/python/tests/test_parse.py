@@ -65,7 +65,7 @@ def test_cards_access():
     doc = Document.from_markdown(md)
     assert len(doc.cards) == 1
     card = doc.cards[0]
-    assert card["tag"] == "note"
+    assert card["kind"] == "note"
     assert card["fields"]["foo"] == "bar"
     assert "Card body." in card["body"]
 

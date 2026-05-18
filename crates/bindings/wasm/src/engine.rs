@@ -133,10 +133,10 @@ const CARD_INPUT_TS: &'static str = r#"
 /**
  * Input shape for `Document.pushCard` and `Document.insertCard`.
  *
- * Only `tag` is required. `fields` defaults to `{}`, `body` to `""`.
+ * Only `kind` is required. `fields` defaults to `{}`, `body` to `""`.
  */
 export interface CardInput {
-    tag: string;
+    kind: string;
     fields?: Record<string, unknown>;
     body?: string;
 }
@@ -830,12 +830,12 @@ fn edit_error_to_js(err: &quillmark_core::EditError) -> JsValue {
     WasmError::from(format!("[EditError::{}] {}", variant, err)).to_js_value()
 }
 
-/// Deserialise a JS object `{ tag: string, fields?: object, body?: string }`
-/// into a [`quillmark_core::Card`].  Throws on invalid tag.
+/// Deserialise a JS object `{ kind: string, fields?: object, body?: string }`
+/// into a [`quillmark_core::Card`].  Throws on invalid kind.
 fn js_value_to_card(value: &JsValue) -> Result<quillmark_core::Card, JsValue> {
     #[derive(Deserialize)]
     struct CardInput {
-        tag: String,
+        kind: String,
         #[serde(default)]
         fields: serde_json::Map<String, serde_json::Value>,
         #[serde(default)]
@@ -843,11 +843,11 @@ fn js_value_to_card(value: &JsValue) -> Result<quillmark_core::Card, JsValue> {
     }
 
     let input: CardInput = serde_wasm_bindgen::from_value(value.clone()).map_err(|e| {
-        WasmError::from(format!("card must be {{ tag, fields?, body? }}: {}", e)).to_js_value()
+        WasmError::from(format!("card must be {{ kind, fields?, body? }}: {}", e)).to_js_value()
     })?;
 
-    // Validate tag via Card::new, then upgrade with fields and body.
-    let mut card = quillmark_core::Card::new(input.tag).map_err(|e| edit_error_to_js(&e))?;
+    // Validate kind via Card::new, then upgrade with fields and body.
+    let mut card = quillmark_core::Card::new(input.kind).map_err(|e| edit_error_to_js(&e))?;
 
     for (k, v) in input.fields {
         let qv = quillmark_core::QuillValue::from_json(v);

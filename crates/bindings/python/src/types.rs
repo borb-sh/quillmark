@@ -712,7 +712,7 @@ fn card_to_pydict<'py>(
 ) -> PyResult<Bound<'py, PyDict>> {
     let d = PyDict::new(py);
     d.set_item("sentinel", if card.is_main() { "main" } else { "card" })?;
-    d.set_item("tag", card.kind().unwrap_or(""))?;
+    d.set_item("kind", card.kind().unwrap_or(""))?;
 
     // Map-keyed payload view (values only, no comments).
     let fm = PyDict::new(py);
@@ -835,19 +835,19 @@ fn py_to_json(value: &Bound<'_, PyAny>) -> PyResult<serde_json::Value> {
     Ok(serde_json::Value::String(s))
 }
 
-/// Convert a Python dict `{"tag": str, "fields"?: dict, "body"?: str}` to a
-/// [`quillmark_core::Card`].  Raises `EditError` on invalid tag or field names.
+/// Convert a Python dict `{"kind": str, "fields"?: dict, "body"?: str}` to a
+/// [`quillmark_core::Card`].  Raises `EditError` on invalid kind or field names.
 fn py_dict_to_card(value: &Bound<'_, PyAny>) -> PyResult<quillmark_core::Card> {
     let dict = value
         .downcast::<PyDict>()
-        .map_err(|_| PyValueError::new_err("card must be a dict with a 'tag' key"))?;
+        .map_err(|_| PyValueError::new_err("card must be a dict with a 'kind' key"))?;
 
-    let tag: String = dict
-        .get_item("tag")?
-        .ok_or_else(|| PyValueError::new_err("card dict must have a 'tag' key"))?
+    let kind: String = dict
+        .get_item("kind")?
+        .ok_or_else(|| PyValueError::new_err("card dict must have a 'kind' key"))?
         .extract()?;
 
-    let mut card = quillmark_core::Card::new(tag).map_err(convert_edit_error)?;
+    let mut card = quillmark_core::Card::new(kind).map_err(convert_edit_error)?;
 
     if let Some(fields_val) = dict.get_item("fields")? {
         let fields_dict = fields_val

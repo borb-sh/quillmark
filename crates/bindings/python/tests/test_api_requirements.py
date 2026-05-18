@@ -162,9 +162,9 @@ def test_replace_body():
 def test_push_card():
     """push_card appends a card to the list."""
     doc = Document.from_markdown(SIMPLE_MD)
-    doc.push_card({"tag": "note", "body": "Card body."})
+    doc.push_card({"kind": "note", "body": "Card body."})
     assert len(doc.cards) == 1
-    assert doc.cards[0]["tag"] == "note"
+    assert doc.cards[0]["kind"] == "note"
     assert doc.cards[0]["body"] == "Card body."
 
 
@@ -172,22 +172,22 @@ def test_push_card_invalid_tag():
     """push_card raises EditError for an invalid tag."""
     doc = Document.from_markdown(SIMPLE_MD)
     with pytest.raises(EditError, match="InvalidTagName"):
-        doc.push_card({"tag": "BadTag"})
+        doc.push_card({"kind": "BadTag"})
 
 
 def test_insert_card_at_front():
     """insert_card at index 0 prepends the card."""
     doc = Document.from_markdown(MD_WITH_CARDS)
-    doc.insert_card(0, {"tag": "intro"})
-    assert doc.cards[0]["tag"] == "intro"
-    assert doc.cards[1]["tag"] == "note"
+    doc.insert_card(0, {"kind": "intro"})
+    assert doc.cards[0]["kind"] == "intro"
+    assert doc.cards[1]["kind"] == "note"
 
 
 def test_insert_card_out_of_range():
     """insert_card raises EditError when index > len."""
     doc = Document.from_markdown(SIMPLE_MD)  # 0 cards
     with pytest.raises(EditError, match="IndexOutOfRange"):
-        doc.insert_card(5, {"tag": "note"})
+        doc.insert_card(5, {"kind": "note"})
 
 
 def test_remove_card():
@@ -195,9 +195,9 @@ def test_remove_card():
     doc = Document.from_markdown(MD_WITH_CARDS)
     removed = doc.remove_card(0)
     assert removed is not None
-    assert removed["tag"] == "note"
+    assert removed["kind"] == "note"
     assert len(doc.cards) == 1
-    assert doc.cards[0]["tag"] == "summary"
+    assert doc.cards[0]["kind"] == "summary"
 
 
 def test_remove_card_out_of_range():
@@ -210,8 +210,8 @@ def test_move_card_no_op():
     """move_card(0, 0) is a no-op."""
     doc = Document.from_markdown(MD_WITH_CARDS)
     doc.move_card(0, 0)
-    assert doc.cards[0]["tag"] == "note"
-    assert doc.cards[1]["tag"] == "summary"
+    assert doc.cards[0]["kind"] == "note"
+    assert doc.cards[1]["kind"] == "summary"
 
 
 def test_move_card_last_to_first():
@@ -219,8 +219,8 @@ def test_move_card_last_to_first():
     doc = Document.from_markdown(MD_WITH_CARDS)
     last = len(doc.cards) - 1
     doc.move_card(last, 0)
-    assert doc.cards[0]["tag"] == "summary"
-    assert doc.cards[1]["tag"] == "note"
+    assert doc.cards[0]["kind"] == "summary"
+    assert doc.cards[1]["kind"] == "note"
 
 
 def test_move_card_out_of_range():
@@ -271,7 +271,7 @@ def test_mutators_do_not_touch_warnings():
     initial = list(doc.warnings)
     doc.set_field("extra", "value")
     doc.replace_body("New body.")
-    doc.push_card({"tag": "new_card"})
+    doc.push_card({"kind": "new_card"})
     assert list(doc.warnings) == initial
 
 
@@ -280,10 +280,10 @@ def test_invariants_after_mutation_sequence():
     doc = Document.from_markdown(SIMPLE_MD)
 
     # Add and manipulate cards
-    doc.push_card({"tag": "note", "fields": {"text": "hi"}})
-    doc.push_card({"tag": "summary"})
-    doc.push_card({"tag": "appendix"})
-    doc.insert_card(1, {"tag": "intro"})  # note, intro, summary, appendix
+    doc.push_card({"kind": "note", "fields": {"text": "hi"}})
+    doc.push_card({"kind": "summary"})
+    doc.push_card({"kind": "appendix"})
+    doc.insert_card(1, {"kind": "intro"})  # note, intro, summary, appendix
     doc.move_card(3, 0)                    # appendix, note, intro, summary
     doc.remove_card(2)                     # appendix, note, summary
 
@@ -296,10 +296,10 @@ def test_invariants_after_mutation_sequence():
     for key in doc.payload:
         assert key not in RESERVED, f"reserved key '{key}' found in payload"
 
-    # Every card tag is lowercase-valid (just check non-empty and lowercase)
+    # Every card kind is lowercase-valid (just check non-empty and lowercase)
     for card in doc.cards:
-        tag = card["tag"]
-        assert tag and tag == tag.lower(), f"invalid tag '{tag}'"
+        kind = card["kind"]
+        assert kind and kind == kind.lower(), f"invalid kind '{kind}'"
 
     # Document identity preserved
     assert doc.quill_ref() == "test_quill"
@@ -317,7 +317,7 @@ def test_to_markdown_general_round_trip():
 
     # Mutate
     doc.set_field("title", "New Title")
-    doc.push_card({"tag": "note", "fields": {"author": "Alice"}, "body": "Hello"})
+    doc.push_card({"kind": "note", "fields": {"author": "Alice"}, "body": "Hello"})
     doc.replace_body("Updated body")
 
     # Emit
@@ -330,7 +330,7 @@ def test_to_markdown_general_round_trip():
     assert doc2.payload["title"] == "New Title"
     assert doc2.body.rstrip("\n") == "Updated body"
     assert len(doc2.cards) == original_card_count + 1
-    assert doc2.cards[0]["tag"] == "note"
+    assert doc2.cards[0]["kind"] == "note"
     assert doc2.cards[0]["fields"]["author"] == "Alice"
     assert doc2.cards[0]["body"] == "Hello"
 
