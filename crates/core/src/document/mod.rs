@@ -236,6 +236,16 @@ impl Card {
 /// Backend plates consume the flat JSON wire shape produced by
 /// [`Document::to_plate_json`]. That method is the **only** place in core
 /// that reconstructs `{"QUILL": ..., "CARDS": [...], "BODY": "..."}`.
+///
+/// ## Serialization
+///
+/// `Document` implements `serde::Serialize`/`Deserialize` for persistence
+/// (e.g. storing documents in a database). Serialization is routed through
+/// the versioned [`StoredDocument`] envelope — see the [`dto`] module — so
+/// the stored JSON is decoupled from both the evolving Markdown syntax and
+/// this struct's in-memory layout. This is distinct from the plate wire
+/// shape ([`to_plate_json`](Document::to_plate_json), a one-way export for
+/// backends) and from Markdown ([`to_markdown`](Document::to_markdown)).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(into = "StoredDocument", try_from = "StoredDocument")]
 pub struct Document {

@@ -24,13 +24,23 @@
 //! assert_eq!(doc, restored);
 //! ```
 //!
-//! ## Evolving the format
+//! ## Schema versioning
 //!
-//! When the internal model changes, the `From`/`TryFrom` conversions in this
-//! module are updated — the `V1` types stay frozen. A breaking change adds a
-//! new `StoredDocument` variant (`V2(DocumentV2)`) and a migration; rows
-//! written under older versions keep deserializing because their variant is
-//! still present.
+//! The schema tag is tied to the crate version at which the Document model
+//! was last changed — *not* the running crate version. The current model
+//! was established in `0.81.0`, so the tag is [`SCHEMA_V0_81_0`]; every
+//! `0.81.x` release writes that same tag because the model is unchanged
+//! across patch releases.
+//!
+//! When the Document model changes (planned for `0.82.0`), a new
+//! [`StoredDocument`] variant is added — `V0_82_0(DocumentV0_82_0)` — with a
+//! fresh type tree and a migration. The `V0_81_0` types stay frozen, so rows
+//! written by `0.81.x` keep deserializing. Internal refactors that do *not*
+//! change the model only touch the `From`/`TryFrom` conversions here.
+
+// Storage DTO types are deliberately named after the crate version that
+// fixed their shape (e.g. `DocumentV0_81_0`); the underscores are intentional.
+#![allow(non_camel_case_types)]
 
 use std::str::FromStr;
 
@@ -42,6 +52,10 @@ use super::{Card, Document, Sentinel};
 use crate::value::QuillValue;
 use crate::version::QuillReference;
 
+/// Schema tag for the Document model as established in crate version
+/// `0.81.0`. Bumped only when the model itself changes.
+pub const SCHEMA_V0_81_0: &str = "quillmark/document@0.81.0";
+
 /// Versioned envelope for a persisted [`Document`].
 ///
 /// The `schema` field selects the payload version. Deserialization
@@ -50,38 +64,38 @@ use crate::version::QuillReference;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "schema")]
 pub enum StoredDocument {
-    /// Version 1 payload.
-    #[serde(rename = "quillmark/document@v1")]
-    V1(DocumentV1),
+    /// Document model as of crate version `0.81.0`.
+    #[serde(rename = "quillmark/document@0.81.0")]
+    V0_81_0(DocumentV0_81_0),
 }
 
-/// Frozen v1 representation of a [`Document`].
+/// Frozen `0.81.0` representation of a [`Document`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DocumentV1 {
+pub struct DocumentV0_81_0 {
     /// The document entry card.
-    pub main: CardV1,
+    pub main: CardV0_81_0,
     /// Composable cards, in order.
     #[serde(default)]
-    pub cards: Vec<CardV1>,
+    pub cards: Vec<CardV0_81_0>,
 }
 
-/// Frozen v1 representation of a [`Card`].
+/// Frozen `0.81.0` representation of a [`Card`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct CardV1 {
+pub struct CardV0_81_0 {
     /// Card discriminator.
-    pub sentinel: SentinelV1,
+    pub sentinel: SentinelV0_81_0,
     /// Ordered frontmatter.
     #[serde(default)]
-    pub frontmatter: FrontmatterV1,
+    pub frontmatter: FrontmatterV0_81_0,
     /// Markdown body following the card fence.
     #[serde(default)]
     pub body: String,
 }
 
-/// Frozen v1 representation of a [`Sentinel`].
+/// Frozen `0.81.0` representation of a [`Sentinel`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
-pub enum SentinelV1 {
+pub enum SentinelV0_81_0 {
     /// Document entry card. `quill` is the rendered quill reference string
     /// (e.g. `usaf_memo@0.1`), parsed back via [`QuillReference::from_str`].
     Main {
@@ -95,21 +109,21 @@ pub enum SentinelV1 {
     },
 }
 
-/// Frozen v1 representation of a [`Frontmatter`].
+/// Frozen `0.81.0` representation of a [`Frontmatter`].
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
-pub struct FrontmatterV1 {
+pub struct FrontmatterV0_81_0 {
     /// Ordered fields and top-level comments.
     #[serde(default)]
-    pub items: Vec<FrontmatterItemV1>,
+    pub items: Vec<FrontmatterItemV0_81_0>,
     /// Comments captured inside nested mappings/sequences.
     #[serde(default)]
-    pub nested_comments: Vec<NestedCommentV1>,
+    pub nested_comments: Vec<NestedCommentV0_81_0>,
 }
 
-/// Frozen v1 representation of a [`FrontmatterItem`].
+/// Frozen `0.81.0` representation of a [`FrontmatterItem`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
-pub enum FrontmatterItemV1 {
+pub enum FrontmatterItemV0_81_0 {
     /// A YAML field.
     Field {
         /// Field key.
@@ -130,11 +144,11 @@ pub enum FrontmatterItemV1 {
     },
 }
 
-/// Frozen v1 representation of a [`NestedComment`].
+/// Frozen `0.81.0` representation of a [`NestedComment`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct NestedCommentV1 {
+pub struct NestedCommentV0_81_0 {
     /// Path to the immediate parent container.
-    pub container_path: Vec<CommentPathSegmentV1>,
+    pub container_path: Vec<CommentPathSegmentV0_81_0>,
     /// Slot or host index (see [`NestedComment`]).
     pub position: usize,
     /// Comment text.
@@ -143,9 +157,9 @@ pub struct NestedCommentV1 {
     pub inline: bool,
 }
 
-/// Frozen v1 representation of a [`CommentPathSegment`].
+/// Frozen `0.81.0` representation of a [`CommentPathSegment`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum CommentPathSegmentV1 {
+pub enum CommentPathSegmentV0_81_0 {
     /// Mapping key.
     Key(String),
     /// Sequence index.
@@ -180,62 +194,66 @@ impl std::error::Error for StorageError {}
 
 impl From<Document> for StoredDocument {
     fn from(doc: Document) -> Self {
-        StoredDocument::V1(DocumentV1::from(&doc))
+        StoredDocument::V0_81_0(DocumentV0_81_0::from(&doc))
     }
 }
 
-impl From<&Document> for DocumentV1 {
+impl From<&Document> for DocumentV0_81_0 {
     fn from(doc: &Document) -> Self {
-        DocumentV1 {
-            main: CardV1::from(doc.main()),
-            cards: doc.cards().iter().map(CardV1::from).collect(),
+        DocumentV0_81_0 {
+            main: CardV0_81_0::from(doc.main()),
+            cards: doc.cards().iter().map(CardV0_81_0::from).collect(),
         }
     }
 }
 
-impl From<&Card> for CardV1 {
+impl From<&Card> for CardV0_81_0 {
     fn from(card: &Card) -> Self {
-        CardV1 {
-            sentinel: SentinelV1::from(card.sentinel()),
-            frontmatter: FrontmatterV1::from(card.frontmatter()),
+        CardV0_81_0 {
+            sentinel: SentinelV0_81_0::from(card.sentinel()),
+            frontmatter: FrontmatterV0_81_0::from(card.frontmatter()),
             body: card.body().to_string(),
         }
     }
 }
 
-impl From<&Sentinel> for SentinelV1 {
+impl From<&Sentinel> for SentinelV0_81_0 {
     fn from(sentinel: &Sentinel) -> Self {
         match sentinel {
-            Sentinel::Main(reference) => SentinelV1::Main {
+            Sentinel::Main(reference) => SentinelV0_81_0::Main {
                 quill: reference.to_string(),
             },
-            Sentinel::Card(tag) => SentinelV1::Card { tag: tag.clone() },
+            Sentinel::Card(tag) => SentinelV0_81_0::Card { tag: tag.clone() },
         }
     }
 }
 
-impl From<&Frontmatter> for FrontmatterV1 {
+impl From<&Frontmatter> for FrontmatterV0_81_0 {
     fn from(fm: &Frontmatter) -> Self {
-        FrontmatterV1 {
-            items: fm.items().iter().map(FrontmatterItemV1::from).collect(),
+        FrontmatterV0_81_0 {
+            items: fm
+                .items()
+                .iter()
+                .map(FrontmatterItemV0_81_0::from)
+                .collect(),
             nested_comments: fm
                 .nested_comments()
                 .iter()
-                .map(NestedCommentV1::from)
+                .map(NestedCommentV0_81_0::from)
                 .collect(),
         }
     }
 }
 
-impl From<&FrontmatterItem> for FrontmatterItemV1 {
+impl From<&FrontmatterItem> for FrontmatterItemV0_81_0 {
     fn from(item: &FrontmatterItem) -> Self {
         match item {
-            FrontmatterItem::Field { key, value, fill } => FrontmatterItemV1::Field {
+            FrontmatterItem::Field { key, value, fill } => FrontmatterItemV0_81_0::Field {
                 key: key.clone(),
                 value: value.as_json().clone(),
                 fill: *fill,
             },
-            FrontmatterItem::Comment { text, inline } => FrontmatterItemV1::Comment {
+            FrontmatterItem::Comment { text, inline } => FrontmatterItemV0_81_0::Comment {
                 text: text.clone(),
                 inline: *inline,
             },
@@ -243,13 +261,13 @@ impl From<&FrontmatterItem> for FrontmatterItemV1 {
     }
 }
 
-impl From<&NestedComment> for NestedCommentV1 {
+impl From<&NestedComment> for NestedCommentV0_81_0 {
     fn from(nc: &NestedComment) -> Self {
-        NestedCommentV1 {
+        NestedCommentV0_81_0 {
             container_path: nc
                 .container_path
                 .iter()
-                .map(CommentPathSegmentV1::from)
+                .map(CommentPathSegmentV0_81_0::from)
                 .collect(),
             position: nc.position,
             text: nc.text.clone(),
@@ -258,11 +276,11 @@ impl From<&NestedComment> for NestedCommentV1 {
     }
 }
 
-impl From<&CommentPathSegment> for CommentPathSegmentV1 {
+impl From<&CommentPathSegment> for CommentPathSegmentV0_81_0 {
     fn from(seg: &CommentPathSegment) -> Self {
         match seg {
-            CommentPathSegment::Key(k) => CommentPathSegmentV1::Key(k.clone()),
-            CommentPathSegment::Index(i) => CommentPathSegmentV1::Index(*i),
+            CommentPathSegment::Key(k) => CommentPathSegmentV0_81_0::Key(k.clone()),
+            CommentPathSegment::Index(i) => CommentPathSegmentV0_81_0::Index(*i),
         }
     }
 }
@@ -274,17 +292,17 @@ impl TryFrom<StoredDocument> for Document {
 
     fn try_from(stored: StoredDocument) -> Result<Self, Self::Error> {
         match stored {
-            StoredDocument::V1(v1) => Document::try_from(v1),
+            StoredDocument::V0_81_0(payload) => Document::try_from(payload),
         }
     }
 }
 
-impl TryFrom<DocumentV1> for Document {
+impl TryFrom<DocumentV0_81_0> for Document {
     type Error = StorageError;
 
-    fn try_from(v1: DocumentV1) -> Result<Self, Self::Error> {
-        let main = Card::try_from(v1.main)?;
-        let cards = v1
+    fn try_from(payload: DocumentV0_81_0) -> Result<Self, Self::Error> {
+        let main = Card::try_from(payload.main)?;
+        let cards = payload
             .cards
             .into_iter()
             .map(Card::try_from)
@@ -293,22 +311,22 @@ impl TryFrom<DocumentV1> for Document {
     }
 }
 
-impl TryFrom<CardV1> for Card {
+impl TryFrom<CardV0_81_0> for Card {
     type Error = StorageError;
 
-    fn try_from(card: CardV1) -> Result<Self, Self::Error> {
+    fn try_from(card: CardV0_81_0) -> Result<Self, Self::Error> {
         let sentinel = Sentinel::try_from(card.sentinel)?;
         let frontmatter = Frontmatter::from(card.frontmatter);
         Ok(Card::new_with_sentinel(sentinel, frontmatter, card.body))
     }
 }
 
-impl TryFrom<SentinelV1> for Sentinel {
+impl TryFrom<SentinelV0_81_0> for Sentinel {
     type Error = StorageError;
 
-    fn try_from(sentinel: SentinelV1) -> Result<Self, Self::Error> {
+    fn try_from(sentinel: SentinelV0_81_0) -> Result<Self, Self::Error> {
         match sentinel {
-            SentinelV1::Main { quill } => {
+            SentinelV0_81_0::Main { quill } => {
                 let reference = QuillReference::from_str(&quill).map_err(|reason| {
                     StorageError::InvalidQuillReference {
                         value: quill.clone(),
@@ -317,13 +335,13 @@ impl TryFrom<SentinelV1> for Sentinel {
                 })?;
                 Ok(Sentinel::Main(reference))
             }
-            SentinelV1::Card { tag } => Ok(Sentinel::Card(tag)),
+            SentinelV0_81_0::Card { tag } => Ok(Sentinel::Card(tag)),
         }
     }
 }
 
-impl From<FrontmatterV1> for Frontmatter {
-    fn from(fm: FrontmatterV1) -> Self {
+impl From<FrontmatterV0_81_0> for Frontmatter {
+    fn from(fm: FrontmatterV0_81_0) -> Self {
         let items = fm.items.into_iter().map(FrontmatterItem::from).collect();
         let nested = fm
             .nested_comments
@@ -334,23 +352,23 @@ impl From<FrontmatterV1> for Frontmatter {
     }
 }
 
-impl From<FrontmatterItemV1> for FrontmatterItem {
-    fn from(item: FrontmatterItemV1) -> Self {
+impl From<FrontmatterItemV0_81_0> for FrontmatterItem {
+    fn from(item: FrontmatterItemV0_81_0) -> Self {
         match item {
-            FrontmatterItemV1::Field { key, value, fill } => FrontmatterItem::Field {
+            FrontmatterItemV0_81_0::Field { key, value, fill } => FrontmatterItem::Field {
                 key,
                 value: QuillValue::from_json(value),
                 fill,
             },
-            FrontmatterItemV1::Comment { text, inline } => {
+            FrontmatterItemV0_81_0::Comment { text, inline } => {
                 FrontmatterItem::Comment { text, inline }
             }
         }
     }
 }
 
-impl From<NestedCommentV1> for NestedComment {
-    fn from(nc: NestedCommentV1) -> Self {
+impl From<NestedCommentV0_81_0> for NestedComment {
+    fn from(nc: NestedCommentV0_81_0) -> Self {
         NestedComment {
             container_path: nc
                 .container_path
@@ -364,11 +382,11 @@ impl From<NestedCommentV1> for NestedComment {
     }
 }
 
-impl From<CommentPathSegmentV1> for CommentPathSegment {
-    fn from(seg: CommentPathSegmentV1) -> Self {
+impl From<CommentPathSegmentV0_81_0> for CommentPathSegment {
+    fn from(seg: CommentPathSegmentV0_81_0) -> Self {
         match seg {
-            CommentPathSegmentV1::Key(k) => CommentPathSegment::Key(k),
-            CommentPathSegmentV1::Index(i) => CommentPathSegment::Index(i),
+            CommentPathSegmentV0_81_0::Key(k) => CommentPathSegment::Key(k),
+            CommentPathSegmentV0_81_0::Index(i) => CommentPathSegment::Index(i),
         }
     }
 }
@@ -412,27 +430,27 @@ This body and the metadata above are an indorsement card.
     }
 
     #[test]
-    fn serialized_form_carries_schema_tag() {
+    fn serialized_form_carries_versioned_schema_tag() {
         let doc = sample();
         let value: serde_json::Value = serde_json::to_value(&doc).unwrap();
-        assert_eq!(value["schema"], "quillmark/document@v1");
+        assert_eq!(value["schema"], SCHEMA_V0_81_0);
         assert!(value.get("warnings").is_none());
     }
 
     #[test]
     fn rejects_unknown_schema_version() {
-        let json = r#"{"schema":"quillmark/document@v999","main":{}}"#;
+        let json = r#"{"schema":"quillmark/document@0.99.0","main":{}}"#;
         assert!(serde_json::from_str::<Document>(json).is_err());
     }
 
     #[test]
     fn rejects_invalid_quill_reference() {
-        let stored = StoredDocument::V1(DocumentV1 {
-            main: CardV1 {
-                sentinel: SentinelV1::Main {
+        let stored = StoredDocument::V0_81_0(DocumentV0_81_0 {
+            main: CardV0_81_0 {
+                sentinel: SentinelV0_81_0::Main {
                     quill: "not a valid ref!!".to_string(),
                 },
-                frontmatter: FrontmatterV1::default(),
+                frontmatter: FrontmatterV0_81_0::default(),
                 body: String::new(),
             },
             cards: Vec::new(),
@@ -444,7 +462,7 @@ This body and the metadata above are an indorsement card.
     #[test]
     fn explicit_dto_conversion_round_trips() {
         let doc = sample();
-        let dto = DocumentV1::from(&doc);
+        let dto = DocumentV0_81_0::from(&doc);
         let restored = Document::try_from(dto).unwrap();
         assert_eq!(doc, restored);
     }
