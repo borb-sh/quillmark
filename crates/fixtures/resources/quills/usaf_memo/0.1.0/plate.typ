@@ -4,33 +4,33 @@
 // Frontmatter configuration
 #show: frontmatter.with(
   // Letterhead configuration
-  letterhead_title: data.letterhead_title,
-  letterhead_caption: data.letterhead_caption,
+  letterhead_title: data.main.letterhead_title,
+  letterhead_caption: data.main.letterhead_caption,
   letterhead_seal: image("assets/dow_seal.jpg"),
 
   // Date
-  date: data.date,
+  date: data.main.date,
 
   // Receiver information
-  memo_for: data.memo_for,
+  memo_for: data.main.memo_for,
 
   // Sender information
-  memo_from: data.memo_from,
+  memo_from: data.main.memo_from,
 
   // Subject line
-  subject: data.subject,
+  subject: data.main.subject,
 
   // Optional references
-  ..if "references" in data { (references: data.references) },
+  ..if "references" in data.main { (references: data.main.references) },
 
   // Optional footer tag line
-  ..if "tag_line" in data { (footer_tag_line: data.tag_line) },
+  ..if "tag_line" in data.main { (footer_tag_line: data.main.tag_line) },
 
   // Optional classification level
-  ..if "classification" in data { (classification_level: data.classification) },
+  ..if "classification" in data.main { (classification_level: data.main.classification) },
 
   // Font size
-  ..if "font_size" in data { (font_size: float(data.font_size) * 1pt) },
+  ..if "font_size" in data.main { (font_size: float(data.main.font_size) * 1pt) },
 
   // List recipients in vertical list
   memo_for_cols: 1,
@@ -38,26 +38,26 @@
 
 // Mainmatter configuration
 #mainmatter[
-  #data.BODY
+  #data.main.BODY
 ]
 
 // Backmatter
 #backmatter(
   // Signature block
-  signature_block: data.signature_block,
+  signature_block: data.main.signature_block,
 
   // Optional cc
-  ..if "cc" in data { (cc: data.cc) },
+  ..if "cc" in data.main { (cc: data.main.cc) },
 
   // Optional distribution
-  ..if "distribution" in data { (distribution: data.distribution) },
+  ..if "distribution" in data.main { (distribution: data.main.distribution) },
 
   // Optional attachments
-  ..if "attachments" in data { (attachments: data.attachments) },
+  ..if "attachments" in data.main { (attachments: data.main.attachments) },
 )
 
-// Indorsements - iterate through CARDS array and filter by CARD type
-#for card in data.CARDS {
+// Indorsements - iterate through cards array and filter by CARD type
+#for card in data.cards {
   if card.CARD == "indorsement" {
     indorsement(
       from: card.at("from", default: ""),

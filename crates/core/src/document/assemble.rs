@@ -9,7 +9,7 @@ use crate::value::QuillValue;
 use crate::Diagnostic;
 
 use super::fences::find_metadata_blocks;
-use super::meta::{parse_meta_header, validate_payload_yaml, CardMetadata};
+use super::meta::{parse_meta_header, validate_payload_yaml, CardMetadata, MAIN_KIND};
 use super::payload::{Payload, PayloadItem};
 use super::prescan::{prescan_fence_content, NestedComment, PreItem};
 use super::{Card, Document};
@@ -204,13 +204,31 @@ pub(super) fn decompose_with_warnings(
         ));
     }
 
-    // The root block must declare a `#@quill` reference. (Its value is
+    // The main card must declare a `#@quill` reference. (Its value is
     // validated into a typed `QuillReference` during `#@` header parsing.)
     let root_block = &blocks[0];
     if root_block.meta.quill.is_none() {
         return Err(ParseError::MissingQuill(
-            "The document's root card-yaml block must declare `#@quill: <name>`.".to_string(),
+            "The document's main card-yaml card must declare `#@quill: <name>`.".to_string(),
         ));
+    }
+
+    // The main card must declare `#@kind: main`. The kind names the main
+    // card's role; it is reserved and exclusive to the first card.
+    match root_block.meta.kind.as_deref() {
+        Some(MAIN_KIND) => {}
+        Some(other) => {
+            return Err(ParseError::InvalidStructure(format!(
+                "The document's main card-yaml card must declare `#@kind: main`, \
+                 not `#@kind: {}`.",
+                other
+            )));
+        }
+        None => {
+            return Err(ParseError::InvalidStructure(
+                "The document's main card-yaml card must declare `#@kind: main`.".to_string(),
+            ));
+        }
     }
 
     // Build the root block's payload item list.
@@ -248,14 +266,23 @@ pub(super) fn decompose_with_warnings(
     for idx in 1..blocks.len() {
         let block = &blocks[idx];
 
-        // Only the root block binds the document to a quill. A composable
+        // Only the main card binds the document to a quill. A non-main
         // card declaring `#@quill` is a structural error — `#@quill` is
-        // captured by the per-block header parser, but rejected here, where
-        // root-vs-composable position is known.
+        // captured by the per-card header parser, but rejected here, where
+        // main-vs-other position is known.
         if block.meta.quill.is_some() {
             return Err(ParseError::InvalidStructure(
-                "A composable card-yaml block must not declare `#@quill` — only \
-                 the document's root block binds the document to a quill."
+                "A non-main card-yaml card must not declare `#@quill` — only \
+                 the document's main card binds the document to a quill."
+                    .to_string(),
+            ));
+        }
+
+        // `#@kind: main` is reserved for the main card (the first card).
+        if block.meta.kind.as_deref() == Some(MAIN_KIND) {
+            return Err(ParseError::InvalidStructure(
+                "`#@kind: main` is reserved for the document's main card — only \
+                 the first card-yaml card may declare it."
                     .to_string(),
             ));
         }

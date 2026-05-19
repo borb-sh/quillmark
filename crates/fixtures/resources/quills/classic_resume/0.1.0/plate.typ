@@ -4,11 +4,11 @@
 #show: resume
 
 #resume-header(
-  name: data.name,
-  contacts: data.contacts,
+  name: data.main.name,
+  contacts: data.main.contacts,
 )
 
-#for card in data.CARDS {
+#for card in data.cards {
   if "title" in card and card.title != "" {
     section-header(card.title)
   }

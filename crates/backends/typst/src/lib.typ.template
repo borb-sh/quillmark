@@ -47,14 +47,38 @@
   datetime(year: year, month: month, day: day)
 }
 
-/// Document data as a dictionary.
+/// Auto-evaluate markdown content fields and parse date fields on one card
+/// dictionary, given the field-name lists for its kind.
+#let _normalize-card(card, content-fields, date-fields) = {
+  for key in content-fields {
+    if key in card {
+      let val = card.at(key)
+      if type(val) == str and val != "" {
+        card.insert(key, eval(val, mode: "markup"))
+      }
+    }
+  }
+  for key in date-fields {
+    if key in card {
+      let val = card.at(key)
+      if val != none {
+        card.insert(key, _parse-date(val))
+      }
+    }
+  }
+  card
+}
+
+/// Document data as a dictionary with two keys: `main` (the main card) and
+/// `cards` (the array of remaining cards). Each card is itself a dictionary
+/// of its fields plus the `CARD` discriminator and `BODY`.
 /// Markdown fields are automatically converted to Typst content objects.
 /// The `__meta__` key (injected by the Rust backend) is consumed here and
 /// never exposed to plate authors.
 #let data = {
   let d = json(bytes("{escaped_json}"))
 
-  // Read and consume __meta__ (injected by transform_fields)
+  // Read and consume __meta__ (injected by the backend transform)
   let meta = d.remove("__meta__", default: (
     content_fields: (),
     card_content_fields: (:),
@@ -62,56 +86,20 @@
     card_date_fields: (:),
   ))
 
-  // Auto-eval top-level content fields
-  for key in meta.content_fields {
-    if key in d {
-      let val = d.at(key)
-      if type(val) == str and val != "" {
-        d.insert(key, eval(val, mode: "markup"))
-      }
-    }
+  // Normalize the main card.
+  d.main = _normalize-card(d.main, meta.content_fields, meta.date_fields)
+
+  // Normalize each remaining card by its kind.
+  let cards = ()
+  for card in d.cards {
+    let card-type = card.at("CARD", default: none)
+    cards.push(_normalize-card(
+      card,
+      meta.card_content_fields.at(card-type, default: ()),
+      meta.card_date_fields.at(card-type, default: ()),
+    ))
   }
-
-  // Auto-convert top-level date fields to datetime
-  for key in meta.date_fields {
-    if key in d {
-      let val = d.at(key)
-      if val != none {
-        d.insert(key, _parse-date(val))
-      }
-    }
-  }
-
-  // Auto-eval content fields within each CARD
-  if "CARDS" in d {
-    let cards = ()
-    for card in d.at("CARDS") {
-      let card-type = card.at("CARD", default: none)
-      let fields = meta.card_content_fields.at(card-type, default: ())
-      for key in fields {
-        if key in card {
-          let val = card.at(key)
-          if type(val) == str and val != "" {
-            card.insert(key, eval(val, mode: "markup"))
-          }
-        }
-      }
-
-      // Auto-convert date fields for this card type
-      let date-fields = meta.card_date_fields.at(card-type, default: ())
-      for key in date-fields {
-        if key in card {
-          let val = card.at(key)
-          if val != none {
-            card.insert(key, _parse-date(val))
-          }
-        }
-      }
-
-      cards.push(card)
-    }
-    d.insert("CARDS", cards)
-  }
+  d.cards = cards
 
   d
 }

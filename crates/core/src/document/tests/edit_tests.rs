@@ -10,13 +10,13 @@ use std::str::FromStr;
 // ── Helper ───────────────────────────────────────────────────────────────────
 
 fn make_doc() -> Document {
-    Document::from_markdown("~~~card-yaml\n#@quill: test_quill\ntitle: Hello\n~~~\n\nBody text.\n")
+    Document::from_markdown("~~~card-yaml\n#@quill: test_quill\n#@kind: main\ntitle: Hello\n~~~\n\nBody text.\n")
         .unwrap()
 }
 
 fn make_doc_with_cards() -> Document {
     Document::from_markdown(
-        "~~~card-yaml\n#@quill: test_quill\ntitle: Hello\n~~~\n\nBody.\n\n~~~card-yaml\n#@kind: note\nfoo: bar\n~~~\n\nCard body.\n\n~~~card-yaml\n#@kind: summary\n~~~\n",
+        "~~~card-yaml\n#@quill: test_quill\n#@kind: main\ntitle: Hello\n~~~\n\nBody.\n\n~~~card-yaml\n#@kind: note\nfoo: bar\n~~~\n\nCard body.\n\n~~~card-yaml\n#@kind: summary\n~~~\n",
     )
     .unwrap()
 }
@@ -562,9 +562,10 @@ fn test_invariants_after_mutation_sequence() {
     // Can produce plate JSON without panicking
     let json = doc.to_plate_json();
     assert!(json.is_object());
-    assert_eq!(json["QUILL"].as_str(), Some("test_quill"));
-    assert!(json["CARDS"].is_array());
-    assert_eq!(json["BODY"].as_str(), Some("Updated body."));
+    assert_eq!(json["main"]["QUILL"].as_str(), Some("test_quill"));
+    assert_eq!(json["main"]["CARD"].as_str(), Some("main"));
+    assert!(json["cards"].is_array());
+    assert_eq!(json["main"]["BODY"].as_str(), Some("Updated body."));
 
     // Payload still has expected keys
     assert_eq!(

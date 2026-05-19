@@ -49,8 +49,9 @@ fn host_source() -> QuillSource {
     QuillSource::from_tree(tree).expect("load source")
 }
 
-/// Empty data payload — our plates don't reference any fields.
-const MIN_JSON: &str = r#"{}"#;
+/// Minimal plate-wire payload — our plates don't reference any fields, but
+/// the helper package's `data` binding still expects the `main`/`cards` shape.
+const MIN_JSON: &str = r#"{"main": {}, "cards": []}"#;
 
 fn compile(plate: &str) -> Result<Vec<u8>, RenderError> {
     compile_to_pdf(&host_source(), plate, MIN_JSON)

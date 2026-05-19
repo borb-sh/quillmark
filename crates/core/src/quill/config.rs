@@ -73,8 +73,9 @@ impl QuillConfig {
 
     /// Full schema including `ui` hints.
     ///
-    /// `main.fields` is prefixed with a required `QUILL` entry (`const = name@version`);
-    /// each `card_kinds[<name>].fields` is prefixed with a required `CARD` entry
+    /// `main.fields` is prefixed with a required `QUILL` entry (`const = name@version`)
+    /// and a required `CARD` entry (`const = "main"`); each
+    /// `card_kinds[<name>].fields` is prefixed with a required `CARD` entry
     /// (`const = <name>`). Identity (`name`, `version`, etc.) lives elsewhere
     /// on the host's metadata surface.
     pub fn schema(&self) -> serde_json::Value {
@@ -83,11 +84,18 @@ impl QuillConfig {
         let mut obj = serde_json::Map::new();
 
         let mut main_value = serde_json::to_value(&self.main).unwrap_or(serde_json::Value::Null);
+        // Prepend CARD then QUILL so the emitted order is QUILL, CARD, ...fields.
+        Self::prepend_reserved_field(
+            &mut main_value,
+            "CARD",
+            "main",
+            "Card kind discriminator. Must be exactly \"main\" as the #@kind system metadata on the document's main card.",
+        );
         Self::prepend_reserved_field(
             &mut main_value,
             "QUILL",
             &canonical_ref,
-            "Canonical quill reference. Must be exactly this value as the #@quill system metadata in the root card-yaml block.",
+            "Canonical quill reference. Must be exactly this value as the #@quill system metadata on the document's main card.",
         );
         obj.insert("main".to_string(), main_value);
 

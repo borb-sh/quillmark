@@ -15,6 +15,12 @@ use std::str::FromStr;
 use crate::error::ParseError;
 use crate::version::QuillReference;
 
+/// The reserved card kind naming the document's main card.
+///
+/// The first card in a document is the main card; it must declare
+/// `#@kind: main` and no other card may use this kind.
+pub const MAIN_KIND: &str = "main";
+
 /// Typed `#@`-metadata of a single card-yaml block.
 ///
 /// The `#@` header is a **closed set** of three optional keys; an unknown

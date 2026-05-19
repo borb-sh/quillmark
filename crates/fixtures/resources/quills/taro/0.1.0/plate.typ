@@ -6,19 +6,19 @@
 #show regex("(?i)taro"): it => text(fill: purple)[#it]
 
 // Filters like `String` render to code mode automatically,
-#underline(data.title)
+#underline(data.main.title)
 
 // When using filters in markup mode,
 // add `#` before the template expression to enter code mode.
-*Author: #data.author*
+*Author: #data.main.author*
 
-*Favorite Ice Cream: #data.ice_cream*__
+*Favorite Ice Cream: #data.main.ice_cream*__
 
 
-#data.BODY
+#data.main.BODY
 
-// Present each sub-document programatically
-#for card in data.CARDS {
+// Present each card programatically
+#for card in data.cards {
   if card.CARD == "quotes" [
     *#card.author*: _#card.BODY _
   ]
@@ -26,6 +26,6 @@
 
 
 // Include an image with a dynamic asset
-#if "picture" in data {
-  image(data.picture)
+#if "picture" in data.main {
+  image(data.main.picture)
 }

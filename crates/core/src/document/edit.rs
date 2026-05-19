@@ -21,7 +21,7 @@
 
 use unicode_normalization::UnicodeNormalization;
 
-use crate::document::meta::is_valid_kind_name;
+use crate::document::meta::{is_valid_kind_name, MAIN_KIND};
 use crate::document::{Card, CardMetadata, Document, Payload};
 use crate::value::QuillValue;
 use crate::version::QuillReference;
@@ -85,6 +85,11 @@ pub enum EditError {
     /// The supplied card kind does not match `[a-z_][a-z0-9_]*`.
     #[error("invalid card kind '{0}': must match [a-z_][a-z0-9_]*")]
     InvalidKindName(String),
+
+    /// The supplied card kind is `main`, which is reserved for the
+    /// document's main card.
+    #[error("card kind 'main' is reserved for the document's main card")]
+    ReservedKind,
 
     /// A card index was out of the valid range.
     #[error("index {index} is out of range (len = {len})")]
@@ -195,6 +200,9 @@ impl Document {
         if !is_valid_kind_name(&new_kind) {
             return Err(EditError::InvalidKindName(new_kind));
         }
+        if new_kind == MAIN_KIND {
+            return Err(EditError::ReservedKind);
+        }
         let len = self.cards().len();
         let card = self
             .card_mut(index)
@@ -240,13 +248,17 @@ impl Card {
     /// # Invariants enforced
     ///
     /// `kind` must match `[a-z_][a-z0-9_]*`.  An invalid kind returns
-    /// [`EditError::InvalidKindName`].
+    /// [`EditError::InvalidKindName`]. The kind `main` is reserved for the
+    /// document's main card and returns [`EditError::ReservedKind`].
     ///
     /// The new card declares `#@kind: <kind>`, has no fields, and an empty body.
     pub fn new(kind: impl Into<String>) -> Result<Self, EditError> {
         let kind = kind.into();
         if !is_valid_kind_name(&kind) {
             return Err(EditError::InvalidKindName(kind));
+        }
+        if kind == MAIN_KIND {
+            return Err(EditError::ReservedKind);
         }
         let meta = CardMetadata {
             kind: Some(kind),

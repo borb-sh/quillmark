@@ -50,7 +50,6 @@ use quillmark_core::{
     QuillSource, QuillValue, RenderError, RenderOptions, RenderResult, RenderSession, Severity,
 };
 use std::any::Any;
-use std::collections::HashMap;
 
 /// Typst backend implementation for Quillmark.
 #[derive(Debug)]
@@ -166,20 +165,8 @@ impl Backend for TypstBackend {
         source: &QuillSource,
         json_data: &serde_json::Value,
     ) -> Result<RenderSession, RenderError> {
-        let fields = json_data.as_object().map_or_else(HashMap::new, |obj| {
-            obj.iter()
-                .map(|(key, value)| (key.clone(), QuillValue::from_json(value.clone())))
-                .collect::<HashMap<_, _>>()
-        });
-
-        let transformed_fields =
-            transform_markdown_fields(&fields, &build_transform_schema(source.config()));
-        let transformed_json = serde_json::Value::Object(
-            transformed_fields
-                .into_iter()
-                .map(|(key, value)| (key, value.into_json()))
-                .collect(),
-        );
+        let transformed_json =
+            transform_plate_json(json_data, &build_transform_schema(source.config()));
 
         let json_str =
             serde_json::to_string(&transformed_json).unwrap_or_else(|_| "{}".to_string());
@@ -235,182 +222,138 @@ fn is_date_field(field_schema: &serde_json::Value) -> bool {
     is_string && is_date_format
 }
 
-/// Transform markdown fields to Typst markup based on schema.
+/// Transform a Quillmark plate-wire document for the Typst backend.
 ///
-/// Identifies fields with `contentMediaType = "text/markdown"` and converts
-/// their content using `mark_to_typst()`. This includes recursive handling
-/// of CARDS arrays.
+/// The input is the `{ "main": {...}, "cards": [...] }` shape produced by
+/// `Document::to_plate_json`. Markdown-typed fields on the main card and on
+/// every card are converted to Typst markup with `mark_to_typst()`.
 ///
-/// Also injects a `__meta__` key into the result containing the names of
-/// converted fields, which the quillmark-helper package uses to auto-evaluate
-/// markup strings into Typst content objects.
-fn transform_markdown_fields(
-    fields: &HashMap<String, QuillValue>,
-    schema: &QuillValue,
-) -> HashMap<String, QuillValue> {
-    let mut result = fields.clone();
+/// A `__meta__` key is added to the result carrying the names of converted
+/// content fields and of date fields, which the `quillmark-helper` package
+/// consumes to auto-evaluate markup strings and parse dates at Typst runtime.
+fn transform_plate_json(json_data: &serde_json::Value, schema: &QuillValue) -> serde_json::Value {
     let schema_json = schema.as_json();
+    let main_props = schema_json.get("properties").and_then(|v| v.as_object());
+    let defs = schema_json.get("$defs").and_then(|v| v.as_object());
 
-    // Get the properties object from the schema
-    let properties_obj = match schema_json.get("properties").and_then(|v| v.as_object()) {
-        Some(obj) => obj,
-        None => return result,
-    };
+    // ── Main card ───────────────────────────────────────────────────────────
+    let empty = serde_json::Map::new();
+    let main_obj = json_data
+        .get("main")
+        .and_then(|v| v.as_object())
+        .unwrap_or(&empty);
+    let (main_transformed, content_fields) = convert_markdown_fields(main_obj, main_props);
+    let date_fields = date_field_names(main_props);
 
-    // Transform each field based on schema, collecting converted field names
-    let mut content_field_names: Vec<&str> = Vec::new();
-    for (field_name, field_value) in fields {
-        if let Some(field_schema) = properties_obj.get(field_name) {
-            if is_markdown_field(field_schema) {
-                if let Some(content) = field_value.as_str() {
-                    if let Ok(typst_markup) = mark_to_typst(content) {
-                        result.insert(
-                            field_name.clone(),
-                            QuillValue::from_json(serde_json::json!(typst_markup)),
-                        );
-                        content_field_names.push(field_name);
-                    }
+    // ── Cards ───────────────────────────────────────────────────────────────
+    let mut transformed_cards: Vec<serde_json::Value> = Vec::new();
+    if let Some(cards) = json_data.get("cards").and_then(|v| v.as_array()) {
+        for card in cards {
+            match card.as_object() {
+                Some(card_obj) => {
+                    let kind = card_obj.get("CARD").and_then(|v| v.as_str()).unwrap_or("");
+                    let card_props = defs
+                        .and_then(|d| d.get(&format!("{kind}_card")))
+                        .and_then(|d| d.get("properties"))
+                        .and_then(|v| v.as_object());
+                    let (transformed, _) = convert_markdown_fields(card_obj, card_props);
+                    transformed_cards.push(serde_json::Value::Object(transformed));
                 }
+                None => transformed_cards.push(card.clone()),
             }
         }
     }
 
-    let date_fields: Vec<&str> = properties_obj
-        .iter()
-        .filter(|(_, fs)| is_date_field(fs))
-        .map(|(name, _)| name.as_str())
-        .collect();
-
-    // Handle CARDS array recursively
-    if let Some(cards_value) = result.get("CARDS") {
-        if let Some(cards_array) = cards_value.as_array() {
-            let transformed_cards = transform_cards_array(schema, cards_array);
-            result.insert(
-                "CARDS".to_string(),
-                QuillValue::from_json(serde_json::Value::Array(transformed_cards)),
-            );
-        }
-    }
-
-    // Collect per-card-kind content field names from schema $defs
+    // ── Per-card-kind content/date field names (schema-driven) ───────────────
     let mut card_content_fields = serde_json::Map::new();
     let mut card_date_fields = serde_json::Map::new();
-    if let Some(defs) = schema_json.get("$defs").and_then(|v| v.as_object()) {
+    if let Some(defs) = defs {
         for (def_name, def_schema) in defs {
             if let Some(card_kind) = def_name.strip_suffix("_card") {
-                let card_fields: Vec<&str> = def_schema
-                    .get("properties")
-                    .and_then(|v| v.as_object())
-                    .map(|props| {
-                        props
-                            .iter()
-                            .filter(|(_, fs)| is_markdown_field(fs))
-                            .map(|(name, _)| name.as_str())
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                if !card_fields.is_empty() {
-                    card_content_fields.insert(
-                        card_kind.to_string(),
-                        serde_json::Value::Array(
-                            card_fields
-                                .into_iter()
-                                .map(|s| serde_json::Value::String(s.to_string()))
-                                .collect(),
-                        ),
-                    );
+                let props = def_schema.get("properties").and_then(|v| v.as_object());
+                let content = markdown_field_names(props);
+                if !content.is_empty() {
+                    card_content_fields
+                        .insert(card_kind.to_string(), serde_json::json!(content));
                 }
-
-                let date_fields: Vec<&str> = def_schema
-                    .get("properties")
-                    .and_then(|v| v.as_object())
-                    .map(|props| {
-                        props
-                            .iter()
-                            .filter(|(_, fs)| is_date_field(fs))
-                            .map(|(name, _)| name.as_str())
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                if !date_fields.is_empty() {
-                    card_date_fields.insert(
-                        card_kind.to_string(),
-                        serde_json::Value::Array(
-                            date_fields
-                                .into_iter()
-                                .map(|s| serde_json::Value::String(s.to_string()))
-                                .collect(),
-                        ),
-                    );
+                let dates = date_field_names(props);
+                if !dates.is_empty() {
+                    card_date_fields.insert(card_kind.to_string(), serde_json::json!(dates));
                 }
             }
         }
     }
 
-    // Inject __meta__ so the helper package can auto-eval content fields
-    result.insert(
-        "__meta__".to_string(),
-        QuillValue::from_json(serde_json::json!({
-            "content_fields": content_field_names,
-            "card_content_fields": card_content_fields,
-            "date_fields": date_fields,
-            "card_date_fields": card_date_fields,
-        })),
+    let mut meta = serde_json::Map::new();
+    meta.insert("content_fields".to_string(), serde_json::json!(content_fields));
+    meta.insert(
+        "card_content_fields".to_string(),
+        serde_json::Value::Object(card_content_fields),
+    );
+    meta.insert("date_fields".to_string(), serde_json::json!(date_fields));
+    meta.insert(
+        "card_date_fields".to_string(),
+        serde_json::Value::Object(card_date_fields),
     );
 
-    result
+    let mut root = serde_json::Map::new();
+    root.insert("main".to_string(), serde_json::Value::Object(main_transformed));
+    root.insert("cards".to_string(), serde_json::Value::Array(transformed_cards));
+    root.insert("__meta__".to_string(), serde_json::Value::Object(meta));
+    serde_json::Value::Object(root)
 }
 
-/// Transform markdown fields in CARDS array items.
-fn transform_cards_array(
-    document_schema: &QuillValue,
-    cards_array: &[serde_json::Value],
-) -> Vec<serde_json::Value> {
-    let mut transformed_cards = Vec::new();
-
-    // Get definitions for card schemas
-    let defs = document_schema
-        .as_json()
-        .get("$defs")
-        .and_then(|v| v.as_object());
-
-    for card in cards_array {
-        if let Some(card_obj) = card.as_object() {
-            if let Some(card_kind) = card_obj.get("CARD").and_then(|v| v.as_str()) {
-                // Construct the definition name: {kind}_card
-                let def_name = format!("{}_card", card_kind);
-
-                // Look up the schema for this card kind
-                if let Some(card_schema_json) = defs.and_then(|d| d.get(&def_name)) {
-                    // Convert the card object to HashMap<String, QuillValue>
-                    let mut card_fields: HashMap<String, QuillValue> = HashMap::new();
-                    for (k, v) in card_obj {
-                        card_fields.insert(k.clone(), QuillValue::from_json(v.clone()));
+/// Convert the markdown-typed fields of `obj` to Typst markup, using `props`
+/// (the card's field-properties schema) to identify which fields are markdown.
+///
+/// Returns the rewritten object and the names of the fields actually
+/// converted. Fields absent from `props` (e.g. the `QUILL`/`CARD`
+/// discriminators) pass through unchanged.
+fn convert_markdown_fields(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    props: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> (serde_json::Map<String, serde_json::Value>, Vec<String>) {
+    let mut result = obj.clone();
+    let mut converted = Vec::new();
+    if let Some(props) = props {
+        for (name, value) in obj {
+            if props.get(name).map(is_markdown_field).unwrap_or(false) {
+                if let Some(content) = value.as_str() {
+                    if let Ok(markup) = mark_to_typst(content) {
+                        result.insert(name.clone(), serde_json::Value::String(markup));
+                        converted.push(name.clone());
                     }
-
-                    // Recursively transform this card's fields
-                    let transformed_card_fields = transform_markdown_fields(
-                        &card_fields,
-                        &QuillValue::from_json(card_schema_json.clone()),
-                    );
-
-                    // Convert back to JSON Value
-                    let mut transformed_card_obj = serde_json::Map::new();
-                    for (k, v) in transformed_card_fields {
-                        transformed_card_obj.insert(k, v.into_json());
-                    }
-
-                    transformed_cards.push(serde_json::Value::Object(transformed_card_obj));
-                    continue;
                 }
             }
         }
-
-        // If not an object, no CARD kind, or no matching schema, keep as-is
-        transformed_cards.push(card.clone());
     }
+    (result, converted)
+}
 
-    transformed_cards
+/// Names of the markdown-typed fields declared in a field-properties schema.
+fn markdown_field_names(
+    props: Option<&serde_json::Map<String, serde_json::Value>>,
+) -> Vec<String> {
+    props
+        .map(|p| {
+            p.iter()
+                .filter(|(_, fs)| is_markdown_field(fs))
+                .map(|(name, _)| name.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Names of the date/date-time-typed fields declared in a field-properties schema.
+fn date_field_names(props: Option<&serde_json::Map<String, serde_json::Value>>) -> Vec<String> {
+    props
+        .map(|p| {
+            p.iter()
+                .filter(|(_, fs)| is_date_field(fs))
+                .map(|(name, _)| name.clone())
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -468,7 +411,7 @@ mod tests {
     }
 
     #[test]
-    fn test_transform_markdown_fields_basic() {
+    fn test_transform_plate_json_basic() {
         let schema = QuillValue::from_json(json!({
             "type": "object",
             "properties": {
@@ -477,28 +420,23 @@ mod tests {
             }
         }));
 
-        let mut fields = HashMap::new();
-        fields.insert(
-            "title".to_string(),
-            QuillValue::from_json(json!("My Title")),
-        );
-        fields.insert(
-            "BODY".to_string(),
-            QuillValue::from_json(json!("This is **bold** text.")),
-        );
+        let json_data = json!({
+            "main": { "title": "My Title", "BODY": "This is **bold** text." },
+            "cards": []
+        });
 
-        let result = transform_markdown_fields(&fields, &schema);
+        let result = transform_plate_json(&json_data, &schema);
 
         // title should be unchanged
-        assert_eq!(result.get("title").unwrap().as_str(), Some("My Title"));
+        assert_eq!(result["main"]["title"], json!("My Title"));
 
         // BODY should be converted to Typst markup
-        let body = result.get("BODY").unwrap().as_str().unwrap();
+        let body = result["main"]["BODY"].as_str().unwrap();
         assert!(body.contains("#strong[bold]"));
     }
 
     #[test]
-    fn test_transform_markdown_fields_no_markdown() {
+    fn test_transform_plate_json_no_markdown() {
         let schema = QuillValue::from_json(json!({
             "type": "object",
             "properties": {
@@ -507,43 +445,47 @@ mod tests {
             }
         }));
 
-        let mut fields = HashMap::new();
-        fields.insert(
-            "title".to_string(),
-            QuillValue::from_json(json!("My Title")),
-        );
-        fields.insert("count".to_string(), QuillValue::from_json(json!(42)));
+        let json_data = json!({
+            "main": { "title": "My Title", "count": 42 },
+            "cards": []
+        });
 
-        let result = transform_markdown_fields(&fields, &schema);
+        let result = transform_plate_json(&json_data, &schema);
 
         // All fields should be unchanged
-        assert_eq!(result.get("title").unwrap().as_str(), Some("My Title"));
-        assert_eq!(result.get("count").unwrap().as_i64(), Some(42));
+        assert_eq!(result["main"]["title"], json!("My Title"));
+        assert_eq!(result["main"]["count"].as_i64(), Some(42));
     }
 
     #[test]
-    fn test_transform_markdown_fields_wrapper() {
+    fn test_transform_plate_json_card_markdown() {
         let schema = QuillValue::from_json(json!({
             "type": "object",
-            "properties": {
-                "BODY": { "type": "string", "contentMediaType": "text/markdown" }
+            "properties": {},
+            "$defs": {
+                "quote_card": {
+                    "type": "object",
+                    "properties": {
+                        "BODY": { "type": "string", "contentMediaType": "text/markdown" }
+                    }
+                }
             }
         }));
 
-        let mut fields = HashMap::new();
-        fields.insert(
-            "BODY".to_string(),
-            QuillValue::from_json(json!("_italic_ text")),
-        );
+        let json_data = json!({
+            "main": {},
+            "cards": [ { "CARD": "quote", "BODY": "_italic_ text" } ]
+        });
 
-        let result = transform_markdown_fields(&fields, &schema);
+        let result = transform_plate_json(&json_data, &schema);
 
-        let body = result.get("BODY").unwrap().as_str().unwrap();
+        let body = result["cards"][0]["BODY"].as_str().unwrap();
         assert!(body.contains("#emph[italic]"));
+        assert_eq!(result["cards"][0]["CARD"], json!("quote"));
     }
 
     #[test]
-    fn test_transform_markdown_fields_collects_top_level_date_metadata() {
+    fn test_transform_plate_json_collects_top_level_date_metadata() {
         let schema = QuillValue::from_json(json!({
             "type": "object",
             "properties": {
@@ -553,20 +495,14 @@ mod tests {
             }
         }));
 
-        let mut fields = HashMap::new();
-        fields.insert(
-            "title".to_string(),
-            QuillValue::from_json(json!("My Title")),
-        );
+        let json_data = json!({ "main": { "title": "My Title" }, "cards": [] });
 
-        let result = transform_markdown_fields(&fields, &schema);
-        let meta = result.get("__meta__").expect("missing __meta__").as_json();
-
-        assert_eq!(meta["date_fields"], json!(["date"]));
+        let result = transform_plate_json(&json_data, &schema);
+        assert_eq!(result["__meta__"]["date_fields"], json!(["date"]));
     }
 
     #[test]
-    fn test_transform_markdown_fields_collects_card_date_metadata() {
+    fn test_transform_plate_json_collects_card_date_metadata() {
         let schema = QuillValue::from_json(json!({
             "type": "object",
             "properties": {},
@@ -582,10 +518,12 @@ mod tests {
             }
         }));
 
-        let fields = HashMap::new();
-        let result = transform_markdown_fields(&fields, &schema);
-        let meta = result.get("__meta__").expect("missing __meta__").as_json();
+        let json_data = json!({ "main": {}, "cards": [] });
+        let result = transform_plate_json(&json_data, &schema);
 
-        assert_eq!(meta["card_date_fields"]["indorsement"], json!(["date"]));
+        assert_eq!(
+            result["__meta__"]["card_date_fields"]["indorsement"],
+            json!(["date"])
+        );
     }
 }

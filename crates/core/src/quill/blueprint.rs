@@ -4,9 +4,9 @@
 //! for LLM consumers. The blueprint shows the document's shape — fields,
 //! constraints, examples — so a consumer can write a fresh document from it.
 //!
-//! Every block is a `~~~card-yaml` fence: the root block declares
-//! `#@quill: <name>@<version>` and each composable card declares
-//! `#@kind: <kind>` (see `MARKDOWN.md`).
+//! Every card is a `~~~card-yaml` fence: the main card declares
+//! `#@quill: <name>@<version>` and `#@kind: main`, and each other card
+//! declares `#@kind: <kind>` (see `MARKDOWN.md`).
 //!
 //! Annotation grammar:
 //! - **Leading `# …` lines** carry prose: `# <description>` (single line,
@@ -102,6 +102,7 @@ fn write_main_fence(
     out.push_str("#@quill: ");
     out.push_str(quill_ref);
     out.push('\n');
+    out.push_str("#@kind: main\n");
     write_comment(out, "system metadata; required, verbatim");
     if let Some(desc) = description {
         write_comment(out, desc);
@@ -682,7 +683,7 @@ main:
 "#)
         .blueprint();
         assert!(t.starts_with(
-            "~~~card-yaml\n#@quill: taro@0.1.0\n# system metadata; required, verbatim\n# x\n"
+            "~~~card-yaml\n#@quill: taro@0.1.0\n#@kind: main\n# system metadata; required, verbatim\n# x\n"
         ));
         assert!(t.contains("\nWrite main body here.\n"));
     }

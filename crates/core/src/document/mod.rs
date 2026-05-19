@@ -25,6 +25,7 @@
 //!
 //! let markdown = r#"~~~card-yaml
 //! #@quill: my_quill
+//! #@kind: main
 //! title: My Document
 //! author: John Doe
 //! ~~~
@@ -50,13 +51,14 @@
 //! use quillmark_core::Document;
 //!
 //! let doc = Document::from_markdown(
-//!     "~~~card-yaml\n#@quill: my_quill\ntitle: Hi\n~~~\n\nBody here.\n"
+//!     "~~~card-yaml\n#@quill: my_quill\n#@kind: main\ntitle: Hi\n~~~\n\nBody here.\n"
 //! ).unwrap();
 //! let json = doc.to_plate_json();
-//! assert_eq!(json["QUILL"], "my_quill");
-//! assert_eq!(json["title"], "Hi");
-//! assert_eq!(json["BODY"], "\nBody here.\n");
-//! assert!(json["CARDS"].is_array());
+//! assert_eq!(json["main"]["QUILL"], "my_quill");
+//! assert_eq!(json["main"]["CARD"], "main");
+//! assert_eq!(json["main"]["title"], "Hi");
+//! assert_eq!(json["main"]["BODY"], "\nBody here.\n");
+//! assert!(json["cards"].is_array());
 //! ```
 //!
 //! ## Error Handling
@@ -217,11 +219,18 @@ impl PartialEq for Document {
 }
 
 impl Document {
-    /// Create a `Document` from a pre-built main `Card` and composable cards.
+    /// Create a `Document` from a pre-built main `Card` and the remaining cards.
     ///
     /// The caller must guarantee that `main`'s `#@quill` metadata is present
-    /// and valid.
-    pub fn from_main_and_cards(main: Card, cards: Vec<Card>, warnings: Vec<Diagnostic>) -> Self {
+    /// and valid. The main card's `#@kind` is normalized to `main` here — the
+    /// main slot's kind is definitionally `main` regardless of how the caller
+    /// built the `Card`.
+    pub fn from_main_and_cards(
+        mut main: Card,
+        cards: Vec<Card>,
+        warnings: Vec<Diagnostic>,
+    ) -> Self {
+        main.meta_mut().kind = Some(meta::MAIN_KIND.to_string());
         Self {
             main,
             cards,
@@ -291,17 +300,21 @@ impl Document {
 
     /// Serialize this document to the JSON shape expected by backend plates.
     ///
-    /// The output has the following top-level keys, which match what
-    /// `lib.typ.template` reads at Typst runtime:
+    /// The output has two top-level keys — `main` and `cards` — mirroring the
+    /// typed model. The main card and every other card serialize through the
+    /// **same** card-object shape; the only difference is cardinality (one
+    /// `main`, an array of `cards`):
     ///
     /// ```json
     /// {
-    ///   "QUILL": "<ref>",
-    ///   "<field>": <value>,
-    ///   ...
-    ///   "BODY": "<global-body>",
-    ///   "CARDS": [
-    ///     { "CARD": "<tag>", "<field>": <value>, ..., "BODY": "<card-body>" },
+    ///   "main": {
+    ///     "QUILL": "<ref>",
+    ///     "CARD": "main",
+    ///     "<field>": <value>, ...,
+    ///     "BODY": "<main-body>"
+    ///   },
+    ///   "cards": [
+    ///     { "CARD": "<kind>", "<field>": <value>, ..., "BODY": "<card-body>" },
     ///     ...
     ///   ]
     /// }
@@ -311,48 +324,53 @@ impl Document {
     /// wire format. All internal consumers (Quill, backends) call this instead
     /// of constructing the shape by hand.
     pub fn to_plate_json(&self) -> serde_json::Value {
-        let mut map = serde_json::Map::new();
+        let mut root = serde_json::Map::new();
+        root.insert("main".to_string(), self.main_to_plate_json());
 
-        // QUILL first — plate authors expect this at the top.
+        let cards: Vec<serde_json::Value> =
+            self.cards.iter().map(Self::card_to_plate_json).collect();
+        root.insert("cards".to_string(), serde_json::Value::Array(cards));
+
+        serde_json::Value::Object(root)
+    }
+
+    /// Serialize the main card to its wire object: `QUILL`, the `CARD`
+    /// discriminator (`"main"`), the payload fields, then `BODY`.
+    fn main_to_plate_json(&self) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
         map.insert(
             "QUILL".to_string(),
             serde_json::Value::String(self.quill_reference().to_string()),
         );
-
-        // Payload fields in insertion order.
+        map.insert(
+            "CARD".to_string(),
+            serde_json::Value::String(meta::MAIN_KIND.to_string()),
+        );
         for (key, value) in self.main.payload.iter() {
             map.insert(key.clone(), value.as_json().clone());
         }
-
-        // Global body.
         map.insert(
             "BODY".to_string(),
             serde_json::Value::String(self.main.body.clone()),
         );
+        serde_json::Value::Object(map)
+    }
 
-        // Cards array.
-        let cards_array: Vec<serde_json::Value> = self
-            .cards
-            .iter()
-            .map(|card| {
-                let mut card_map = serde_json::Map::new();
-                card_map.insert(
-                    "CARD".to_string(),
-                    serde_json::Value::String(card.meta.kind.as_deref().unwrap_or("").to_string()),
-                );
-                for (key, value) in card.payload.iter() {
-                    card_map.insert(key.clone(), value.as_json().clone());
-                }
-                card_map.insert(
-                    "BODY".to_string(),
-                    serde_json::Value::String(card.body.clone()),
-                );
-                serde_json::Value::Object(card_map)
-            })
-            .collect();
-
-        map.insert("CARDS".to_string(), serde_json::Value::Array(cards_array));
-
+    /// Serialize a non-main card to its wire object: the `CARD` discriminator,
+    /// the payload fields, then `BODY`.
+    fn card_to_plate_json(card: &Card) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        map.insert(
+            "CARD".to_string(),
+            serde_json::Value::String(card.meta.kind.as_deref().unwrap_or("").to_string()),
+        );
+        for (key, value) in card.payload.iter() {
+            map.insert(key.clone(), value.as_json().clone());
+        }
+        map.insert(
+            "BODY".to_string(),
+            serde_json::Value::String(card.body.clone()),
+        );
         serde_json::Value::Object(map)
     }
 }
