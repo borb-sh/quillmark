@@ -261,6 +261,46 @@ describe('Document JSON DTO — toJson / fromJson', () => {
   it('fromJson rejects malformed JSON', () => {
     expect(() => Document.fromJson('not json at all')).toThrow()
   })
+
+  it('toJson is deterministic across repeated calls', () => {
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    expect(doc.toJson()).toBe(doc.toJson())
+  })
+
+  it('toJson is byte-identical for equal documents', () => {
+    const a = Document.fromMarkdown(TEST_MARKDOWN)
+    const b = Document.fromJson(a.toJson())
+    expect(b.equals(a)).toBe(true)
+    expect(b.toJson()).toBe(a.toJson())
+  })
+
+  it('tryFromJson returns a Document for a valid DTO', () => {
+    const dto = Document.fromMarkdown(TEST_MARKDOWN).toJson()
+    const restored = Document.tryFromJson(dto)
+    expect(restored).toBeDefined()
+    expect(restored.equals(Document.fromMarkdown(TEST_MARKDOWN))).toBe(true)
+  })
+
+  it('tryFromJson returns undefined for non-DTO input instead of throwing', () => {
+    expect(Document.tryFromJson('not json at all')).toBeUndefined()
+    expect(
+      Document.tryFromJson('{"schema":"quillmark/document@0.99.0","main":{}}'),
+    ).toBeUndefined()
+    expect(Document.tryFromJson(TEST_MARKDOWN)).toBeUndefined()
+  })
+
+  it('markdownToJson / jsonToMarkdown convert without a handle', () => {
+    const json = Document.markdownToJson(TEST_MARKDOWN)
+    expect(json).toBe(Document.fromMarkdown(TEST_MARKDOWN).toJson())
+
+    const markdown = Document.jsonToMarkdown(json)
+    expect(markdown).toBe(Document.fromJson(json).toMarkdown())
+  })
+
+  it('markdownToJson / jsonToMarkdown throw on bad input', () => {
+    expect(() => Document.markdownToJson('no quill frontmatter')).toThrow()
+    expect(() => Document.jsonToMarkdown('not a dto')).toThrow()
+  })
 })
 
 describe('Quillmark.quill', () => {

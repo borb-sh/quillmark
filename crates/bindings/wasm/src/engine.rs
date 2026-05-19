@@ -508,6 +508,27 @@ impl Document {
         })
     }
 
+    /// Reconstruct a `Document` from a storage DTO string, or `undefined`.
+    ///
+    /// Like [`fromJson`](Document::from_json), but returns `undefined`
+    /// instead of throwing when `json` is not a valid storage DTO. Use this
+    /// to detect format and fall back without exceptions as control flow:
+    ///
+    /// ```js
+    /// const doc = Document.tryFromJson(content) ?? Document.fromMarkdown(content);
+    /// ```
+    ///
+    /// `undefined` only ever means "not a storage DTO" — `fromMarkdown`
+    /// still throws on genuinely malformed markdown.
+    #[wasm_bindgen(js_name = tryFromJson)]
+    pub fn try_from_json(json: &str) -> Option<Document> {
+        let inner: quillmark_core::Document = serde_json::from_str(json).ok()?;
+        Some(Document {
+            inner,
+            parse_warnings: Vec::new(),
+        })
+    }
+
     /// Emit canonical Quillmark Markdown.
     ///
     /// Returns the document serialised as a Quillmark Markdown string.
@@ -539,6 +560,28 @@ impl Document {
         serde_json::to_string(&self.inner).map_err(|e| {
             WasmError::from(format!("toJson: serialization failed: {e}")).to_js_value()
         })
+    }
+
+    /// Convert Quillmark Markdown directly to a storage DTO string.
+    ///
+    /// Equivalent to `fromMarkdown(markdown).toJson()` without exposing an
+    /// intermediate `Document` handle — a pure `string -> string` function
+    /// for storage layers that only need the conversion. Throws on the same
+    /// inputs as [`fromMarkdown`](Document::from_markdown).
+    #[wasm_bindgen(js_name = markdownToJson)]
+    pub fn markdown_to_json(markdown: &str) -> Result<String, JsValue> {
+        Document::from_markdown(markdown)?.to_json()
+    }
+
+    /// Convert a storage DTO string directly to Quillmark Markdown.
+    ///
+    /// Equivalent to `fromJson(json).toMarkdown()` without exposing an
+    /// intermediate `Document` handle — a pure `string -> string` function
+    /// for storage layers that only need the conversion. Throws on the same
+    /// inputs as [`fromJson`](Document::from_json).
+    #[wasm_bindgen(js_name = jsonToMarkdown)]
+    pub fn json_to_markdown(json: &str) -> Result<String, JsValue> {
+        Ok(Document::from_json(json)?.to_markdown())
     }
 
     /// Return a fresh `Document` handle with the same parse state.

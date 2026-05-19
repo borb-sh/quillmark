@@ -99,6 +99,26 @@ restored.equals(doc);               // true
 Throws a JS `Error` on malformed JSON, an unknown `schema` tag, or a
 malformed payload. The restored document has no parse-time `warnings`.
 
+### `Document.tryFromJson(json)`
+Like `fromJson`, but returns `undefined` instead of throwing when `json` is
+not a valid storage DTO. Use it to branch on format without a heuristic or
+`try`/`catch` as control flow:
+
+```ts
+// "JSON canonical, Markdown fallback" — no exceptions, no string sniffing
+const doc = Document.tryFromJson(content) ?? Document.fromMarkdown(content);
+```
+
+`undefined` means only "not a storage DTO"; `fromMarkdown` still throws on
+genuinely malformed Markdown.
+
+### `Document.markdownToJson(markdown)` / `Document.jsonToMarkdown(json)`
+Pure `string → string` conversions for storage layers that don't need a
+`Document` handle. `markdownToJson` is `fromMarkdown(md).toJson()` and
+`jsonToMarkdown` is `fromJson(json).toMarkdown()`, with no intermediate
+handle to track or `free()`. Each throws on the same inputs as the
+underlying parse method.
+
 ### Storage compatibility across versions
 
 The `schema` tag (`quillmark/document@0.81.0`) is the **model version**, not
