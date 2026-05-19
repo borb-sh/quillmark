@@ -33,8 +33,8 @@ fn assert_blueprint_renders(quill_dir: &str) {
 
     // Font-less CI environments cannot exercise the renderer; skip rather
     // than fail, matching the convention in quill_engine_test.rs.
-    if let Err(RenderError::EngineCreation { diag }) = &result {
-        if diag.message.contains("No fonts found") {
+    if let Err(RenderError::EngineCreation { diags }) = &result {
+        if diags[0].message.contains("No fonts found") {
             eprintln!("{quill_dir}: skipping — no fonts available");
             return;
         }

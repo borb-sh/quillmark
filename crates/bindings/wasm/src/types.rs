@@ -538,9 +538,7 @@ mod tests {
             })
             .with_hint("This is a hint".to_string());
 
-        let render_err = quillmark_core::RenderError::InvalidFrontmatter {
-            diag: Box::new(diag),
-        };
+        let render_err = quillmark_core::RenderError::InvalidFrontmatter { diags: vec![diag] };
         let wasm_err: WasmError = render_err.into();
 
         assert_eq!(wasm_err.message(), "Test error message");
