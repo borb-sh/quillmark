@@ -79,6 +79,13 @@ global is not involved. It is standard JSON text, so callers may
 `JSON.parse` it to inspect it — but it is intended as an opaque blob you
 persist and hand back.
 
+`toJson()` is **deterministic**: a `Document` that is `equals` to another
+serializes to a byte-identical string — across repeated calls, and across
+any crate upgrade that keeps the same `schema` tag (every release does until
+the `Document` model changes; see [Storage compatibility](#storage-compatibility-across-versions)).
+Field order is fixed and object key order is preserved, so content hashes
+and string-equality dirty-checks over the output are stable.
+
 ### `Document.fromJson(json)`
 Reconstruct a `Document` from a storage DTO string produced by `toJson`.
 Round-trips losslessly:
@@ -91,6 +98,27 @@ restored.equals(doc);               // true
 
 Throws a JS `Error` on malformed JSON, an unknown `schema` tag, or a
 malformed payload. The restored document has no parse-time `warnings`.
+
+### Storage compatibility across versions
+
+The `schema` tag (`quillmark/document@0.81.0`) is the **model version**, not
+the running crate version. It is a hand-set constant, bumped only when the
+`Document` model itself changes — so every `0.81.x` patch release reads and
+writes that same tag.
+
+- **Upgrading is safe.** A newer build always reads documents written by an
+  older one. Each schema version's wire format is frozen and never changes;
+  when the model does change, the new build ships a migration that converts
+  old payloads on `fromJson`. A document you commit as your canonical
+  on-disk format keeps loading across crate upgrades — there is no need to
+  pin old wasm to read old data.
+- **Downgrading is not.** `fromJson` rejects an *unknown* (i.e. newer)
+  `schema` tag rather than guessing at a format it predates. Don't feed
+  documents written by a newer build back into an older one.
+
+In short: persist the `toJson` string, upgrade freely, never downgrade. The
+full design — including how migrations are added — is in
+`prose/canon/DOCUMENT_STORAGE.md`.
 
 ### `doc.equals(other)`
 Structural equality between two `Document` handles. Compares `main` and
