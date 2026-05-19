@@ -26,7 +26,7 @@
 //! - Event-based conversion flow
 //! - Implementation notes
 //!
-//! See [CONVERT.md](https://github.com/quillmark-org/quillmark/blob/main/quillmark-typst/docs/designs/CONVERT.md) for the complete specification.
+//! See [CONVERT.md](https://github.com/quillmark-org/quillmark/blob/main/prose/canon/CONVERT.md) for the complete specification.
 
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use quillmark_core::error::MAX_NESTING_DEPTH;
