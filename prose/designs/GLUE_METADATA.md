@@ -7,12 +7,23 @@
 
 Quillmark does not use a template engine for plates. Data flows in two stages:
 
-1. `Quill::compile_data()` coerces, validates, normalizes, and applies schema defaults to the root-block fields, producing a plain JSON object.
+1. `Quill::compile_data()` coerces, validates, normalizes, and applies schema defaults to the main-card and card fields, producing a plain JSON object.
 2. `Backend::open()` receives that JSON and performs any backend-specific field transformations (e.g., converting markdown strings to Typst markup) before compilation.
 
 ### Data Shape
 
-- Keys mirror normalized root-block fields (including `BODY` and `CARDS`)
+The JSON object has two keys:
+
+- `main` — the main card's object: normalized main-card fields plus `QUILL`, `CARD` (always `"main"`), and `BODY`
+- `cards` — an array of card objects, each carrying its own `CARD` discriminator, normalized fields, and `BODY`
+
+```json
+{
+  "main": { "QUILL": "<ref>", "CARD": "main", "<field>": "...", "BODY": "<main-body>" },
+  "cards": [ { "CARD": "<kind>", "<field>": "...", "BODY": "<card-body>" } ]
+}
+```
+
 - Defaults from the Quill schema are applied before serialization in stage 1
 - Markdown-to-Typst conversion and date parsing happen in stage 2, inside the backend
 
@@ -23,9 +34,10 @@ The Typst backend injects a virtual package `@local/quillmark-helper:<version>` 
 ```typst
 #import "@local/quillmark-helper:0.1.0": data
 
-#data.title          // plain field access
-#data.BODY           // BODY is automatically converted to content
-#data.date           // date fields are auto-converted to datetime
+#data.main.title     // plain main-card field access
+#data.main.BODY      // BODY is automatically converted to content
+#data.main.date      // date fields are auto-converted to datetime
+#data.cards          // array of card objects
 ```
 
 Helper contents (generated in `backends/typst/helper.rs` from `lib.typ.template`):

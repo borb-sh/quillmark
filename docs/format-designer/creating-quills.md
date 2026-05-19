@@ -37,7 +37,7 @@ main:
       description: Letter date
 ```
 
-`name`, `backend`, `version`, and `description` are all required. `name` must be `snake_case`. Define your document's expected root-block fields under `main.fields`. Each field has a `type`, optional `default`, `description`, and validation constraints. Use `integer` for whole numbers only and `number` for values that may include decimals. For the full list of field types, UI hints, typed arrays, and enum constraints, see the [Quill.yaml Reference](quill-yaml-reference.md).
+`name`, `backend`, `version`, and `description` are all required. `name` must be `snake_case`. Define your document's expected main-card fields under `main.fields`. Each field has a `type`, optional `default`, `description`, and validation constraints. Use `integer` for whole numbers only and `number` for values that may include decimals. For the full list of field types, UI hints, typed arrays, and enum constraints, see the [Quill.yaml Reference](quill-yaml-reference.md).
 
 ## 3. Write `plate.typ`
 
@@ -48,16 +48,16 @@ Your first plate template:
 
 #set page(margin: 1in)
 
-Dear #data.recipient,
+Dear #data.main.recipient,
 
-#data.at("BODY", default: "")
+#data.main.at("BODY", default: "")
 
 Sincerely,
 
-#data.sender
+#data.main.sender
 ```
 
-For data access patterns, helper package details, optional fields, and CARDS iteration, see the [Typst Backend](typst-backend.md) guide.
+For data access patterns, helper package details, optional fields, and cards iteration, see the [Typst Backend](typst-backend.md) guide.
 
 ## 4. Write a document
 
@@ -66,6 +66,7 @@ Create a `document.md` that matches the fields you defined:
 ```markdown
 ~~~card-yaml
 #@quill: my_quill
+#@kind: main
 sender: Jane Doe
 recipient: John Smith
 date: 2026-01-15
@@ -87,7 +88,7 @@ For command options and output controls, see the [CLI Reference](../cli/referenc
 ## 6. Next steps
 
 - [Quill.yaml Reference](quill-yaml-reference.md) — full field types, UI hints, `card_kinds`, `typst` section
-- [Typst Backend](typst-backend.md) — data access patterns, CARDS iteration, helper package
+- [Typst Backend](typst-backend.md) — data access patterns, cards iteration, helper package
 - [Quill Versioning](versioning.md)
 
 **Tip:** To exclude files (fonts, build artifacts) from the bundle when loading from disk, add a `.quillignore` file at the bundle root using gitignore syntax.

@@ -5,7 +5,7 @@
 
 ## Overview
 
-Cards are structured metadata blocks inline within document content. All cards are stored in a single `CARDS` array, discriminated by the `CARD` field.
+Cards are structured metadata records inline within document content. A document is a sequence of cards. The first card is the **main card** — a positional role, not a separate type: it is an ordinary card that bears the document's `#@quill` reference and declares `#@kind: main`. Every other card is discriminated by its `#@kind`.
 
 ## Data Model
 
@@ -76,10 +76,11 @@ card_kinds:
 
 ## Markdown Syntax
 
-A composable card is a `~~~card-yaml` block, optionally led by a
-`#@kind: <kind>` system-metadata line. The kind is the on-the-wire `CARD`
-discriminator; the block's payload is the card's YAML data, and the markdown
-after the closing `~~~` fence is the card's body.
+A card is a `~~~card-yaml` fence led by a `#@` system-metadata header. The
+main card declares `#@quill: <ref>` and `#@kind: main`; every other card
+declares `#@kind: <kind>`. The kind is the on-the-wire `CARD` discriminator;
+the card's payload is its YAML data, and the markdown after the closing
+`~~~` fence is the card's body.
 
 ````markdown
 ~~~card-yaml
@@ -98,5 +99,5 @@ See [`MARKDOWN.md`](./MARKDOWN.md) §3 for the full syntax specification.
 
 ## Backend Consumption
 
-- **All backends**: cards are delivered as `data.CARDS`, an array of objects each containing a `CARD` discriminator field, the card's metadata fields, and a `BODY` field with the card's body Markdown.
-- **`Quill::compile_data()`** returns the fully coerced and validated JSON, including `CARDS`.
+- **All backends**: the document is delivered as `{ "main": <card>, "cards": [<card>, ...] }`. Each `<card>` is an object containing a `CARD` discriminator, the card's fields, and a `BODY` field with the card's body Markdown. The `main` card additionally carries the `QUILL` reference (`CARD` is `"main"`).
+- **`Quill::compile_data()`** returns the fully coerced and validated JSON in this `{ main, cards }` shape.

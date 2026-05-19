@@ -771,6 +771,37 @@ fn test_non_root_block_declaring_quill_is_error() {
 }
 
 #[test]
+fn test_main_card_missing_kind_main_is_error() {
+    // The main card must declare `#@kind: main`.
+    let markdown = "~~~card-yaml\n#@quill: q\ntitle: t\n~~~\n";
+    let err = decompose(markdown).unwrap_err().to_string();
+    assert!(err.contains("#@kind: main"), "got: {err}");
+}
+
+#[test]
+fn test_main_card_wrong_kind_is_error() {
+    // The main card's kind must be exactly `main`.
+    let markdown = "~~~card-yaml\n#@quill: q\n#@kind: cover\ntitle: t\n~~~\n";
+    let err = decompose(markdown).unwrap_err().to_string();
+    assert!(err.contains("#@kind: main"), "got: {err}");
+}
+
+#[test]
+fn test_non_main_card_with_kind_main_is_error() {
+    // `#@kind: main` is reserved for the document's main card.
+    let markdown = "~~~card-yaml
+#@quill: q
+#@kind: main
+~~~
+
+~~~card-yaml
+#@kind: main
+~~~";
+    let err = decompose(markdown).unwrap_err().to_string();
+    assert!(err.contains("reserved"), "got: {err}");
+}
+
+#[test]
 fn test_invalid_quill_ref() {
     let markdown = "~~~card-yaml
 #@quill: Invalid-Name

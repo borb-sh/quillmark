@@ -21,13 +21,13 @@ typst:
 
 ## Data Access
 
-Plates are plain Typst code. Document metadata reaches the plate as a JSON dictionary exposed by the virtual `@local/quillmark-helper` package:
+Plates are plain Typst code. Document metadata reaches the plate as a JSON dictionary exposed by the virtual `@local/quillmark-helper` package. The dictionary has two keys: `main` (the main card's object) and `cards` (the array of all other cards). Main-card fields live under `data.main`:
 
 ```typst
 #import "@local/quillmark-helper:0.1.0": data
 
-#data.title                                  // direct — errors if missing
-#data.at("title", default: "Untitled")       // safe with default
+#data.main.title                                  // direct — errors if missing
+#data.main.at("title", default: "Untitled")       // safe with default
 ```
 
 Fields declared `type: markdown` in `Quill.yaml` arrive as Typst content (ready to render); `type: date` fields arrive as Typst `datetime` values.
@@ -37,15 +37,15 @@ Fields declared `type: markdown` in `Quill.yaml` arrive as Typst content (ready 
 Use Typst's `in` operator to check for optional fields:
 
 ```typst
-#if "subtitle" in data {
-  [Subtitle: #data.subtitle]
+#if "subtitle" in data.main {
+  [Subtitle: #data.main.subtitle]
 }
 
 // Or use spread syntax for function arguments
 #show: template.with(
-  title: data.title,
-  ..if "subtitle" in data {
-    (subtitle: data.subtitle,)
+  title: data.main.title,
+  ..if "subtitle" in data.main {
+    (subtitle: data.main.subtitle,)
   } else {
     (:)
   },
@@ -54,14 +54,14 @@ Use Typst's `in` operator to check for optional fields:
 
 ### Body, arrays, and cards
 
-The document body is at `data.BODY`. Arrays come through as Typst arrays. Cards live under `data.CARDS`, each carrying its own `CARD` discriminator, fields, and `BODY`:
+The main card's body is at `data.main.BODY`. Arrays come through as Typst arrays. Cards live under `data.cards`, each carrying its own `CARD` discriminator, fields, and `BODY`:
 
 ```typst
-#data.at("BODY", default: "")
+#data.main.at("BODY", default: "")
 
-#for author in data.authors [- #author]
+#for author in data.main.authors [- #author]
 
-#for card in data.at("CARDS", default: ()) {
+#for card in data.at("cards", default: ()) {
   if card.CARD == "product" {
     [Product: #card.name — #card.BODY]
   }
@@ -82,7 +82,7 @@ typst:
 #import "@local/quillmark-helper:0.1.0": data
 #import "@preview/appreciated-letter:0.1.0": letter
 
-#show: letter.with(sender: data.sender, recipient: data.recipient)
+#show: letter.with(sender: data.main.sender, recipient: data.main.recipient)
 ```
 
 Browse the full catalog at [Typst Universe](https://typst.app/universe/).

@@ -59,7 +59,7 @@ quill:
 
 ## `main` Section
 
-The main document card holds **root-block field schemas** under `main.fields`. Optional `main.description` describes the schema itself (independent of `quill.description`, which describes the quill package). Optional `main.ui` sets container-level UI for that card. `quill.ui` is merged with `main.ui` when building the main card.
+The main document card holds **main-card field schemas** under `main.fields`. Optional `main.description` describes the schema itself (independent of `quill.description`, which describes the quill package). Optional `main.ui` sets container-level UI for that card. `quill.ui` is merged with `main.ui` when building the main card.
 
 Field order under `main.fields` determines display order in UIs — the first field gets `order: 0`, the second gets `order: 1`, and so on.
 
@@ -260,7 +260,7 @@ main:
 
 ## `card_kinds` Section
 
-`card_kinds` define composable, repeatable content blocks (the *kinds* — a document can then carry zero or more *instances* of each kind, interleaved with body content). Each entry is shaped exactly like `main:` (`fields`, optional `description`, `ui`, `body`); think of `main:` as the single mandatory card-kind for the document body, and `card_kinds:` as the library of additional kinds that may attach to it.
+`card_kinds` define composable, repeatable cards (the *kinds* — a document can then carry zero or more *instances* of each kind, interleaved with body content). Each entry is shaped exactly like `main:` (`fields`, optional `description`, `ui`, `body`); think of `main:` as the single mandatory card-kind for the document body, and `card_kinds:` as the library of additional kinds that may attach to it.
 
 Card-kind names (the keys under `card_kinds`) must match `[a-z_][a-z0-9_]*` (leading underscore is allowed).
 
@@ -381,11 +381,12 @@ card_kinds:
 
 ### Using Cards in Markdown
 
-Cards appear as `~~~card-yaml` blocks with a `#@kind: <kind>` metadata line in the document body:
+Cards appear as `~~~card-yaml` records with a `#@kind: <kind>` metadata line in the document body:
 
 ```markdown
 ~~~card-yaml
 #@quill: usaf_memo
+#@kind: main
 subject: Example
 # ... other fields ...
 ~~~

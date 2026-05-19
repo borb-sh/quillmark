@@ -105,6 +105,18 @@ fn test_edit_error_invalid_kind_name() {
 }
 
 #[test]
+fn test_card_new_rejects_reserved_main_kind() {
+    assert_eq!(Card::new("main"), Err(EditError::ReservedKind));
+}
+
+#[test]
+fn test_set_card_kind_rejects_reserved_main_kind() {
+    let mut doc = make_doc();
+    doc.push_card(Card::new("note").unwrap());
+    assert_eq!(doc.set_card_kind(0, "main"), Err(EditError::ReservedKind));
+}
+
+#[test]
 fn test_edit_error_index_out_of_range() {
     let mut doc = make_doc(); // no cards
     let card = Card::new("note").unwrap();

@@ -10,7 +10,7 @@ Schema authoring lives in `Quill.yaml` under:
 
 - `main.fields`
 - `card_kinds.<card_name>.fields`
-- optional `ui` and `body` blocks on `main` and each card kind
+- optional `ui` and `body` sections on `main` and each card kind
 
 Supported field types:
 

@@ -1,13 +1,15 @@
-# card-yaml Blocks
+# card-yaml Cards
 
-Quillmark documents carry structured metadata in **card-yaml blocks** —
-explicitly delimited blocks that isolate YAML data from the surrounding
-Markdown prose. The first such block (the *root block*) names the format used
-to render the document; later blocks are composable [cards](cards.md).
+Quillmark documents carry structured metadata in **cards** —
+explicitly delimited records that isolate YAML data from the surrounding
+Markdown prose. A document is a sequence of cards. The first card (the *main
+card*) names the format used to render the document; later cards are
+composable [cards](cards.md).
 
 ```
 ~~~card-yaml
 #@quill: my_format
+#@kind: main
 title: My Document
 author: Jane Doe
 date: 2025-01-15
@@ -17,16 +19,16 @@ tags: ["important", "draft"]
 # Document content starts here
 ```
 
-## Block Structure
+## Card Structure
 
-A card-yaml block has four parts, in order:
+A card has four parts, in order:
 
 1. **Opening fence** — exactly `~~~card-yaml` (three tildes plus the info
    string). No leading indentation. The info string alone identifies a
-   metadata block.
+   card.
 2. **System metadata header** — an optional leading run of `#@key: value`
-   lines inside the block. The root block must declare `#@quill`; all other
-   `#@` entries are optional.
+   lines inside the card. The main card must declare `#@quill` and
+   `#@kind: main`; all other `#@` entries are optional.
 3. **Data payload** — standard YAML key/value pairs directly below the
    `#@` header.
 4. **Closing fence** — exactly `~~~`.
@@ -37,27 +39,28 @@ fence and runs to the next opening fence or the end of the document.
 A blank line is required immediately above every `~~~card-yaml` opener,
 *except* when the opener is the very first line of the document. A
 `~~~card-yaml` line without a blank line above it is **not** an opener — it is
-treated as an ordinary code block.
+treated as an ordinary fenced code block.
 
 ## System Metadata (`#@`)
 
-A block may begin with a **system metadata header** — an optional leading run
+A card may begin with a **system metadata header** — an optional leading run
 of `#@key: value` lines. These lines carry no parser semantics; they are kept
 out of the YAML payload's user field set.
 
 - **`#@quill: <name>@<version>`** names the format used to render the
-  document. The root block (the first block, identified by position) **must
-  declare `#@quill`** — it is the only required `#@` entry. If the root block
-  is missing `#@quill`, parsing fails.
-- **`#@kind: <kind>`** is optional metadata identifying a card's kind. There
-  is no reserved kind, but `<kind>` must match `[a-z_][a-z0-9_]*` — an invalid
-  kind is a parse error.
+  document. The main card (the first card, identified by position) **must
+  declare `#@quill`**. If the main card is missing `#@quill`, parsing fails.
+- **`#@kind: <kind>`** identifies a card's kind, where `<kind>` must match
+  `[a-z_][a-z0-9_]*` — an invalid kind is a parse error. `main` is a
+  **reserved card kind**: the main card **must** declare `#@kind: main`, and
+  no other card may declare it. It is a parse error for the main card to omit
+  `#@kind: main`, or for any non-first card to declare it.
 - **`#@id: <value>`** is an opaque, optional identifier — plain metadata with
   no validation or uniqueness requirement, carried through the round-trip.
 
-`#@` header lines may appear in any order; the emitter preserves their source
-order. A duplicate `#@key` within a single block, or a malformed `#@` line, is
-a parse error.
+The canonical `#@` header order is `quill`, `kind`, `id`. `#@` header lines
+may appear in any order; the emitter preserves their source order. A duplicate
+`#@key` within a single card, or a malformed `#@` line, is a parse error.
 
 ### Version Selectors
 
@@ -66,6 +69,7 @@ Pin a specific version with `@version` syntax on the `#@quill` line:
 ```
 ~~~card-yaml
 #@quill: my_format@2.1
+#@kind: main
 title: Document Title
 ~~~
 ```
@@ -160,14 +164,15 @@ dropped with a warning.
 
 `QUILL`, `CARD`, `BODY`, and `CARDS` are reserved and cannot be used as field
 names — the parser rejects documents that include them. `BODY` holds the
-block's Markdown body; `CARDS` holds the array of card blocks; `QUILL` and
-`CARD` hold the values declared by the `#@quill` and `#@kind` metadata.
+card's Markdown body; `QUILL` and `CARD` hold the values declared by the
+`#@quill` and `#@kind` metadata.
 
-## Card Blocks
+## Cards
 
-Every card-yaml block after the root block is a **card**. It may carry a
-`#@kind: <kind>` metadata line, where `<kind>` matches `[a-z_][a-z0-9_]*`. All
-card blocks are collected into the `CARDS` array available to templates.
+Every card after the main card is a **card** carrying a `#@kind: <kind>`
+metadata line, where `<kind>` matches `[a-z_][a-z0-9_]*` (and is never
+`main`). All such cards are collected into the `cards` array available to
+templates.
 
 ```
 ~~~card-yaml
@@ -183,11 +188,12 @@ See [Cards](cards.md) for details on card syntax and usage.
 
 ## Emission
 
-`toMarkdown` always emits the canonical block form — a `~~~card-yaml` opener,
+`toMarkdown` always emits the canonical card form — a `~~~card-yaml` opener,
 the `#@` metadata lines in source order, the YAML payload, and a `~~~` closer.
-The root block's header includes `#@quill`; other blocks emit whatever `#@`
-entries they declared, or none. Fence markers, key ordering, and YAML quoting
-are normalised; `!fill` tags and payload comments survive the round-trip.
+The main card's header includes `#@quill` and `#@kind: main`; other cards emit
+the `#@kind` entry they declared plus any optional `#@` entries. Fence
+markers, key ordering, and YAML quoting are normalised; `!fill` tags and
+payload comments survive the round-trip.
 
 The payload is coerced and validated against the schema declared in the
 Quill's `Quill.yaml` (`main.fields`). See the

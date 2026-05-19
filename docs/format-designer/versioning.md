@@ -24,11 +24,12 @@ Use semantic versioning (`MAJOR.MINOR.PATCH`) to communicate compatibility:
 
 ## How Authors Select Versions
 
-Authors can target versions through the root block's `#@quill` system metadata:
+Authors can target versions through the main card's `#@quill` system metadata:
 
 ```markdown
 ~~~card-yaml
 #@quill: my_quill@1.2
+#@kind: main
 title: Quarterly Report
 ~~~
 ```
@@ -55,4 +56,4 @@ Supported selectors:
 
 - [Creating Quills](creating-quills.md)
 - [Quill.yaml Reference](quill-yaml-reference.md)
-- [card-yaml Blocks](../authoring/card-yaml.md)
+- [card-yaml Cards](../authoring/card-yaml.md)

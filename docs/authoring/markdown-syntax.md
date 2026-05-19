@@ -6,7 +6,7 @@ For the authoritative grammar, block-detection rules, normalization, and limits,
 
 ## Foundation
 
-Body content (the prose after each [card-yaml block](card-yaml.md), including any [card](cards.md)) is parsed as CommonMark 0.31.2. Headings, emphasis, links, lists, code blocks, blockquotes, thematic breaks, and inline code all behave exactly as the [CommonMark spec](https://spec.commonmark.org/0.31.2/) defines them.
+Body content (the prose after each [card](card-yaml.md), including any [card](cards.md)) is parsed as CommonMark 0.31.2. Headings, emphasis, links, lists, code blocks, blockquotes, thematic breaks, and inline code all behave exactly as the [CommonMark spec](https://spec.commonmark.org/0.31.2/) defines them.
 
 For the conventional syntax of these elements, refer to:
 
@@ -58,21 +58,21 @@ The following are recognised by the parser (so they will not corrupt surrounding
 
 Some constructs (like link titles) are accepted by the parser but may be dropped during rendering when the active backend has no target for them. Those losses are backend-specific — see each backend's documentation.
 
-## Structured metadata: card-yaml blocks
+## Structured metadata: cards
 
-Quillmark carries structured metadata in [card-yaml blocks](card-yaml.md) —
-blocks delimited by `~~~card-yaml` / `~~~` fences, optionally led by a run of
-`#@`-prefixed system metadata lines. Each block is followed by its Markdown
-prose body. The document's first block (the root block) names the rendering
-format; later blocks are composable [cards](cards.md).
+Quillmark carries structured metadata in [cards](card-yaml.md) —
+records delimited by `~~~card-yaml` / `~~~` fences, optionally led by a run of
+`#@`-prefixed system metadata lines. Each card is followed by its Markdown
+prose body. The document's first card (the main card) names the rendering
+format; later cards are composable [cards](cards.md).
 
 Because metadata lives inside `~~~card-yaml` fences, ordinary Markdown markers
 keep their CommonMark meaning. A `---` line in body content is a thematic
 break or a setext heading underline, exactly as CommonMark defines it — it has
-no special role in Quillmark. The full block-detection rules are in
+no special role in Quillmark. The full card-detection rules are in
 [§4 of the spec](https://github.com/nibsbin/quillmark/blob/main/prose/designs/MARKDOWN.md#4-block-detection).
 
 ## Next steps
 
-- [card-yaml Blocks](card-yaml.md)
+- [card-yaml Cards](card-yaml.md)
 - [Cards](cards.md)

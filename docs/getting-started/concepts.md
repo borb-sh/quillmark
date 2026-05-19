@@ -5,7 +5,7 @@
 Quillmark separates content from presentation:
 
 - **Quills control structure and styling** — a Quill format defines layout and produces the output artifact.
-- **Markdown provides content** — authors write plain Markdown with card-yaml metadata blocks; the Quill renders it.
+- **Markdown provides content** — authors write plain Markdown with card-yaml metadata cards; the Quill renders it.
 
 The same Markdown can be rendered by different Quills to produce different outputs.
 
@@ -20,15 +20,16 @@ A **Quill** is a format bundle that defines how Markdown content should be rende
 - **Assets** - Fonts, images, and other resources needed for rendering
 - **Packages** - Backend-specific packages (e.g., Typst packages)
 
-### card-yaml Blocks
+### card-yaml Cards
 
-Quillmark documents use **card-yaml blocks** to provide structured metadata. A
-card-yaml block is delimited by `~~~card-yaml` / `~~~` fences and may begin
+Quillmark documents use **cards** to provide structured metadata. A
+card is delimited by `~~~card-yaml` / `~~~` fences and may begin
 with a run of `#@`-prefixed system metadata lines followed by a YAML payload:
 
 ```markdown
 ~~~card-yaml
 #@quill: my_format
+#@kind: main
 title: My Document
 author: John Doe
 date: 2025-01-15
@@ -37,7 +38,7 @@ date: 2025-01-15
 # Content starts here
 ```
 
-This metadata is accessible in formats and is validated against native schema rules defined in the Quill. See [card-yaml Blocks](../authoring/card-yaml.md) for the full syntax.
+This metadata is accessible in formats and is validated against native schema rules defined in the Quill. See [card-yaml Cards](../authoring/card-yaml.md) for the full syntax.
 
 ### Backends
 
@@ -45,24 +46,25 @@ A backend compiles the plate plus injected JSON data into the final artifact. Th
 
 ### Required `#@quill` Metadata
 
-Each document must declare its target format in the root block's `#@quill`
-system metadata line.
+Each document must declare its target format in the main card's `#@quill`
+system metadata line, alongside `#@kind: main`.
 
 ```markdown
 ~~~card-yaml
 #@quill: my_custom_format
+#@kind: main
 title: My First Document
 author: Jane Doe
 ~~~
 ```
 
-If the root block's `#@quill` line is missing, parsing fails. Quill names must be `snake_case` (`[a-z][a-z0-9_]*`); hyphens are not allowed.
+If the main card's `#@quill` line or `#@kind: main` line is missing, parsing fails. Quill names must be `snake_case` (`[a-z][a-z0-9_]*`); hyphens are not allowed.
 
 ## The Rendering Pipeline
 
 Quillmark follows a three-stage pipeline:
 
-1. **Parse & Normalize** - Extract card-yaml blocks and body prose, apply schema coercion/defaults, strip bidi characters, fix HTML fences
+1. **Parse & Normalize** - Extract cards and body prose, apply schema coercion/defaults, strip bidi characters, fix HTML fences
 2. **Compile** - Backend receives plate content + JSON data and converts them into final artifacts (PDF, SVG, PNG, etc.)
 3. **Output** - Return artifacts with metadata
 
