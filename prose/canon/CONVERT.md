@@ -1,5 +1,7 @@
 # Markdown to Typst Conversion
 
+> **Implementation**: `crates/backends/typst/src/`
+
 This document details the design and implementation of the markdown-to-Typst conversion system in `crates/backends/typst/src/`.
 
 ## Table of Contents

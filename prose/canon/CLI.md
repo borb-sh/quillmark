@@ -1,6 +1,5 @@
 # CLI
 
-> **Status**: Implemented
 > **Package**: `quillmark-cli` → binary `quillmark`
 > **Implementation**: `crates/bindings/cli/src/`
 

@@ -1,7 +1,6 @@
 # Document Storage Serialization
 
-> **Status**: Implemented
-> **Implementation**: `crates/core/src/document/dto.rs`
+> **Implementation**: `crates/core/src/document/`
 
 ## Overview
 

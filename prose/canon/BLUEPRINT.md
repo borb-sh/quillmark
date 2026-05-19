@@ -1,5 +1,7 @@
 # Blueprint Emission (`QuillConfig::blueprint`)
 
+> **Implementation**: `crates/core/src/quill/`
+
 ## TL;DR
 
 `blueprint()` produces an annotated Markdown document — the same shape an
