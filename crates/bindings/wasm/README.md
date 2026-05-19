@@ -266,8 +266,11 @@ compilation failures. The same shape applies to every throw site:
 The wasm bindings are built with `--weak-refs`, so dropped `Document`,
 `Quill`, and `RenderSession` handles are reclaimed by `FinalizationRegistry`
 without manual `.free()` discipline. `.free()` is still emitted as an eager
-teardown hook for callers that want deterministic release. Requires
-Node 14.6+ / current evergreen browsers (all supported targets).
+teardown hook for callers that want deterministic release.
+
+The package requires Node 24+ (`engines: { node: ">=24" }`) and current
+evergreen browsers; `--weak-refs` itself only needs Node 14.6+, but the
+published package floor is 24.
 
 For environments where `using` (the [explicit resource management][erm]
 proposal) hasn't landed, use an explicit `try` / `finally`:
