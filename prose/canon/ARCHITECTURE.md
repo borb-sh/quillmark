@@ -1,5 +1,7 @@
 # Quillmark Architecture
 
+> **Implementation**: `crates/` (workspace overview)
+
 ## TL;DR
 
 Quillmark converts Markdown with YAML frontmatter into output artifacts (PDF, SVG, PNG, TXT). A `Quill` (the renderable shape) orchestrates the pipeline; backends do the heavy compilation.
