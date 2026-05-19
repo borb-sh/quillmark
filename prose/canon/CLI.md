@@ -30,10 +30,10 @@ quillmark schema <QUILL_PATH> [-o <FILE>]
 
 Outputs the Quill's public schema contract as YAML to stdout or file.
 
-### `specs`
+### `blueprint`
 
 ```
-quillmark specs <QUILL_PATH> [-o <FILE>]
+quillmark blueprint <QUILL_PATH> [-o <FILE>]
 ```
 
 Outputs the Quill's annotated Markdown blueprint (see [BLUEPRINT.md](BLUEPRINT.md)) to stdout or file.
