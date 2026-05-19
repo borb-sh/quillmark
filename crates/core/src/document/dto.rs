@@ -178,6 +178,28 @@ pub enum StorageError {
     MainCardNotMain,
     /// A composable card carried a `Main` sentinel; only `main` may.
     ComposableCardIsMain,
+    /// A composable card's tag was not a valid `[a-z_][a-z0-9_]*` identifier.
+    InvalidCardTag {
+        /// The offending tag.
+        tag: String,
+    },
+    /// A card carried more frontmatter fields than
+    /// [`MAX_FIELD_COUNT`](crate::error::MAX_FIELD_COUNT).
+    TooManyFields {
+        /// The field count found.
+        count: usize,
+    },
+    /// A frontmatter field used a reserved sentinel key
+    /// (`BODY`, `CARDS`, `QUILL`, `CARD`).
+    ReservedFieldName {
+        /// The offending key.
+        key: String,
+    },
+    /// Two frontmatter fields in the same card shared a key.
+    DuplicateFieldKey {
+        /// The duplicated key.
+        key: String,
+    },
 }
 
 impl std::fmt::Display for StorageError {
@@ -193,8 +215,41 @@ impl std::fmt::Display for StorageError {
                 f,
                 "composable cards must carry a card tag, not a QUILL sentinel"
             ),
+            StorageError::InvalidCardTag { tag } => {
+                write!(f, "invalid card tag {tag:?}: must match [a-z_][a-z0-9_]*")
+            }
+            StorageError::TooManyFields { count } => write!(
+                f,
+                "card has {count} frontmatter fields, exceeding the maximum of {}",
+                crate::error::MAX_FIELD_COUNT
+            ),
+            StorageError::ReservedFieldName { key } => {
+                write!(f, "reserved name {key:?} cannot be used as a field name")
+            }
+            StorageError::DuplicateFieldKey { key } => {
+                write!(f, "duplicate frontmatter field key {key:?}")
+            }
         }
     }
+}
+
+/// Reject a frontmatter no markdown-parsed `Document` could produce: too many
+/// fields, a reserved sentinel key, or a duplicate key. The markdown parser
+/// already rejects all three, so this only guards hand-crafted storage DTOs.
+fn validate_dto_frontmatter(fm: &Frontmatter) -> Result<(), StorageError> {
+    if fm.len() > crate::error::MAX_FIELD_COUNT {
+        return Err(StorageError::TooManyFields { count: fm.len() });
+    }
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for key in fm.keys() {
+        if super::edit::is_reserved_name(key) {
+            return Err(StorageError::ReservedFieldName { key: key.clone() });
+        }
+        if !seen.insert(key.as_str()) {
+            return Err(StorageError::DuplicateFieldKey { key: key.clone() });
+        }
+    }
+    Ok(())
 }
 
 impl std::error::Error for StorageError {}
@@ -332,6 +387,7 @@ impl TryFrom<CardV0_81_0> for Card {
     fn try_from(card: CardV0_81_0) -> Result<Self, Self::Error> {
         let sentinel = Sentinel::try_from(card.sentinel)?;
         let frontmatter = Frontmatter::from(card.frontmatter);
+        validate_dto_frontmatter(&frontmatter)?;
         Ok(Card::new_with_sentinel(sentinel, frontmatter, card.body))
     }
 }
@@ -350,7 +406,12 @@ impl TryFrom<SentinelV0_81_0> for Sentinel {
                 })?;
                 Ok(Sentinel::Main(reference))
             }
-            SentinelV0_81_0::Card { tag } => Ok(Sentinel::Card(tag)),
+            SentinelV0_81_0::Card { tag } => {
+                if !super::sentinel::is_valid_tag_name(&tag) {
+                    return Err(StorageError::InvalidCardTag { tag });
+                }
+                Ok(Sentinel::Card(tag))
+            }
         }
     }
 }
@@ -504,6 +565,94 @@ This body and the metadata above are an indorsement card.
         });
         let err = Document::try_from(stored).unwrap_err();
         assert_eq!(err, StorageError::ComposableCardIsMain);
+    }
+
+    /// A minimal valid main card wrapping `fm`, with no composable cards.
+    fn doc_with_main_frontmatter(fm: FrontmatterV0_81_0) -> StoredDocument {
+        StoredDocument::V0_81_0(DocumentV0_81_0 {
+            main: CardV0_81_0 {
+                sentinel: SentinelV0_81_0::Main {
+                    quill: "usaf_memo@0.1".to_string(),
+                },
+                frontmatter: fm,
+                body: String::new(),
+            },
+            cards: Vec::new(),
+        })
+    }
+
+    fn dto_field(key: &str) -> FrontmatterItemV0_81_0 {
+        FrontmatterItemV0_81_0::Field {
+            key: key.to_string(),
+            value: serde_json::json!("x"),
+            fill: false,
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_card_tag() {
+        let stored = StoredDocument::V0_81_0(DocumentV0_81_0 {
+            main: CardV0_81_0 {
+                sentinel: SentinelV0_81_0::Main {
+                    quill: "usaf_memo@0.1".to_string(),
+                },
+                frontmatter: FrontmatterV0_81_0::default(),
+                body: String::new(),
+            },
+            cards: vec![CardV0_81_0 {
+                sentinel: SentinelV0_81_0::Card {
+                    tag: "Bad Tag".to_string(),
+                },
+                frontmatter: FrontmatterV0_81_0::default(),
+                body: String::new(),
+            }],
+        });
+        let err = Document::try_from(stored).unwrap_err();
+        assert!(matches!(err, StorageError::InvalidCardTag { .. }));
+    }
+
+    #[test]
+    fn rejects_reserved_field_name() {
+        let fm = FrontmatterV0_81_0 {
+            items: vec![dto_field("BODY")],
+            nested_comments: Vec::new(),
+        };
+        let err = Document::try_from(doc_with_main_frontmatter(fm)).unwrap_err();
+        assert!(matches!(err, StorageError::ReservedFieldName { .. }));
+    }
+
+    #[test]
+    fn rejects_duplicate_field_key() {
+        let fm = FrontmatterV0_81_0 {
+            items: vec![dto_field("a"), dto_field("a")],
+            nested_comments: Vec::new(),
+        };
+        let err = Document::try_from(doc_with_main_frontmatter(fm)).unwrap_err();
+        assert!(matches!(err, StorageError::DuplicateFieldKey { .. }));
+    }
+
+    #[test]
+    fn rejects_too_many_fields() {
+        let items = (0..=crate::error::MAX_FIELD_COUNT)
+            .map(|i| dto_field(&format!("f{i}")))
+            .collect();
+        let fm = FrontmatterV0_81_0 {
+            items,
+            nested_comments: Vec::new(),
+        };
+        let err = Document::try_from(doc_with_main_frontmatter(fm)).unwrap_err();
+        assert!(matches!(err, StorageError::TooManyFields { .. }));
+    }
+
+    #[test]
+    fn accepts_non_identifier_field_keys() {
+        // The markdown parser produces keys like `memo-for`; the DTO must
+        // round-trip them rather than reject them on charset grounds.
+        let fm = FrontmatterV0_81_0 {
+            items: vec![dto_field("memo-for")],
+            nested_comments: Vec::new(),
+        };
+        assert!(Document::try_from(doc_with_main_frontmatter(fm)).is_ok());
     }
 
     #[test]
