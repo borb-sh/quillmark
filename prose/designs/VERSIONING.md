@@ -15,7 +15,7 @@ Semantic versioning: `MAJOR.MINOR.PATCH` (two-segment `MAJOR.MINOR` also accepte
 
 ## Document Syntax
 
-The version selector is carried on the root block's `#@quill` system-metadata
+The version selector is carried on the main card's `#@quill` system-metadata
 line (see [MARKDOWN.md](MARKDOWN.md) §3.3):
 
 ```

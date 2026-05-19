@@ -16,6 +16,7 @@ free.
 ````
 ~~~card-yaml
 #@quill: <name>@<version>
+#@kind: main
 # <description>
 
 # <field description>
@@ -35,9 +36,9 @@ Write main body here.
 Write <card_kind> body here.
 ````
 
-Every block is a `~~~card-yaml` block (see [MARKDOWN.md](MARKDOWN.md) §3):
-the root block carries the `#@quill` system-metadata line; each composable
-card carries a `#@kind: <card_kind>` metadata line.
+Every card is a `~~~card-yaml` record (see [MARKDOWN.md](MARKDOWN.md) §3):
+the main card carries the `#@quill` and `#@kind: main` system-metadata lines;
+each composable card carries a `#@kind: <card_kind>` metadata line.
 
 When `body.example` is set, its text replaces the body marker entirely.
 When `body.enabled` is false the marker is omitted entirely.
@@ -92,10 +93,10 @@ Form: **`# <type>[<format>]; <role>[, <extra>...]`**
 
 The `#@` system-metadata lines (`#@quill`, `#@kind`, …) have no
 inline-annotation slot — they are not YAML fields and carry no trailing `#`
-comment (comments are unsupported on a `#@` header line). The root block's
+comment (comments are unsupported on a `#@` header line). The main card's
 `#@quill` line is emitted verbatim; its value is fixed and must not be
-modified. A composable card's kind is carried in its `#@kind: <card_kind>`
-metadata line. Its `composable (0..N)` role is emitted as an own-line
+modified. The main card also carries `#@kind: main`. A composable card's kind
+is carried in its `#@kind: <card_kind>` metadata line. Its `composable (0..N)` role is emitted as an own-line
 `# composable (0..N)` comment directly under the `#@` header, ahead of the
 card description.
 
@@ -113,7 +114,7 @@ Examples:
 | `published: ""  # datetime<ISO 8601>; required` | required datetime in ISO 8601 |
 | `level: low  # enum<low \| medium \| high>; optional` | optional enum, default is first value |
 | `#@quill: cmu_letter@0.1.0` | quill binding metadata, emitted verbatim, do not modify |
-| `#@kind: skill` followed by `# composable (0..N)` | repeat the entire `~~~card-yaml` … `~~~` block per instance |
+| `#@kind: skill` followed by `# composable (0..N)` | repeat the entire `~~~card-yaml` … `~~~` card per instance |
 
 ## Placeholder value precedence
 
@@ -259,8 +260,8 @@ within the same `ui.group` still cluster together via `ui.order`.
 
 ## Body markers
 
-- `Write main body here.` after the root block's closing `~~~`
-- `Write <card_kind> body here.` after each card block's closing `~~~`
+- `Write main body here.` after the main card's closing `~~~`
+- `Write <card_kind> body here.` after each card's closing `~~~`
 - When `body.example` is set, its text replaces the marker verbatim.
 
 `body.enabled: false` suppresses the marker entirely for body-less cards
@@ -276,6 +277,7 @@ blueprint's document structure.
 ```
 ~~~card-yaml
 #@quill: cmu_letter@0.1.0
+#@kind: main
 # Typeset letters that comply with Carnegie Mellon University letterhead standards.
 
 # The recipient's name and full mailing address.
@@ -323,8 +325,8 @@ degrades gracefully on every type-valid input shape. The contract
 requires:
 
 - Templates treat type-empty values (`""`, `0`, `false`, `[]`, empty
-  markdown body) as valid *present* input — read via `data.field`,
-  `card.at("field", default: …)`, or guarded with `if "field" in data`.
+  markdown body) as valid *present* input — read via `data.main.field`,
+  `card.at("field", default: …)`, or guarded with `if "field" in data.main`.
 - No template asserts that a required field is *non-empty*. The schema
   guarantees *presence*, not non-emptiness; `required` is an authoring
   signal, not a render-time precondition.

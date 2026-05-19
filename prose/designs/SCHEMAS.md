@@ -52,7 +52,7 @@ Validation is implemented by a native walker over `QuillConfig` in `quill/valida
 
 - Field types, constraints, and `enum`/`default`/`example` annotations
 - `ui` hints on fields and card kinds (`group`, `order`, `compact`, `multiline`, `title`)
-- `body` blocks on cards (`enabled`, `description`)
+- `body` sections on cards (`enabled`, `description`)
 - A required `QUILL` discriminator field prepended to `main.fields` (`const = "<name>@<version>"`)
 - A required `CARD` discriminator field prepended to each `card_kinds.<name>.fields` (`const = "<name>"`)
 

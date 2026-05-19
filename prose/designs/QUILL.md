@@ -111,8 +111,8 @@ Metadata resolution:
 - Unknown top-level sections error with `quill::unknown_section` (typos like `card_kind:` are not silently ignored). Root-level `fields:` gets a targeted hint pointing to `main.fields:`.
 - Field schemas that fail to parse (e.g. legacy `title:`, missing `type:`) error with `quill::field_parse_error` and an actionable hint where applicable, rather than being dropped from the schema.
 - Standalone `object` fields and disallowed nested-object shapes error with `quill::standalone_object_not_supported` / `quill::nested_object_not_supported`.
-- Malformed `quill.ui` / `main.ui` blocks error with `quill::invalid_ui` rather than being silently discarded.
-- Malformed `main.body` / `card_kinds.<name>.body` blocks error with `quill::invalid_body`.
+- Malformed `quill.ui` / `main.ui` sections error with `quill::invalid_ui` rather than being silently discarded.
+- Malformed `main.body` / `card_kinds.<name>.body` sections error with `quill::invalid_body`.
 - A `body.description` set together with `body.enabled: false` warns with `quill::body_description_unused` (the description has no effect).
 
 Errors flow through `RenderError::QuillConfig { diags: Vec<Diagnostic> }` and surface to bindings as a structured array (`err.diagnostics` in WASM, `.diagnostics` attribute in Python).

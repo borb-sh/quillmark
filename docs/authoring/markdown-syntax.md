@@ -2,7 +2,7 @@
 
 Quillmark Markdown is a **strict superset of [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/)** with a small set of [GitHub Flavored Markdown](https://github.github.com/gfm/) extensions and **one declared deviation**. If you already know CommonMark, you only need to learn what is on this page.
 
-For the authoritative grammar, block-detection rules, normalization, and limits, see the formal specification: [prose/designs/MARKDOWN.md](https://github.com/nibsbin/quillmark/blob/main/prose/designs/MARKDOWN.md).
+For the authoritative grammar, card-detection rules, normalization, and limits, see the formal specification: [prose/designs/MARKDOWN.md](https://github.com/nibsbin/quillmark/blob/main/prose/designs/MARKDOWN.md).
 
 ## Foundation
 
