@@ -68,7 +68,7 @@
 //! - Reserved field name usage
 //! - Name collisions
 //!
-//! See [PARSE.md](https://github.com/nibsbin/quillmark/blob/main/designs/PARSE.md) for
+//! See [PARSE.md](https://github.com/quillmark-org/quillmark/blob/main/designs/PARSE.md) for
 //! comprehensive documentation of the Extended YAML Metadata Standard.
 
 use serde::{Deserialize, Serialize};
