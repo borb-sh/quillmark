@@ -142,65 +142,6 @@ export interface CardInput {
 }
 "#;
 
-/// TypeScript declarations for the versioned storage DTO.
-///
-/// `Document.toJSON` produces a `StoredDocument`; `Document.fromJSON`
-/// consumes one. The wire format is frozen per `schema` version — see the
-/// Rust `quillmark_core::document::dto` module and
-/// `prose/designs/DOCUMENT_STORAGE.md`. Emitted via `typescript_custom_section`
-/// so the shape lands in the generated `.d.ts` as a single source of truth.
-#[wasm_bindgen(typescript_custom_section)]
-const STORED_DOCUMENT_TS: &'static str = r#"
-/** A stored card's discriminator: the document entry or a composable card. */
-export type StoredSentinel =
-    | { kind: "main"; quill: string }
-    | { kind: "card"; tag: string };
-
-/** A stored frontmatter field or comment, in source order. */
-export type StoredFrontmatterItem =
-    | { kind: "field"; key: string; value: unknown; fill?: boolean }
-    | { kind: "comment"; text: string; inline?: boolean };
-
-/** A path segment locating a comment nested inside a mapping or sequence. */
-export type StoredCommentPathSegment = { Key: string } | { Index: number };
-
-/** A comment captured inside a nested mapping or sequence. */
-export interface StoredNestedComment {
-    container_path: StoredCommentPathSegment[];
-    position: number;
-    text: string;
-    inline: boolean;
-}
-
-/** A stored card's frontmatter: ordered items plus nested comments. */
-export interface StoredFrontmatter {
-    items?: StoredFrontmatterItem[];
-    nested_comments?: StoredNestedComment[];
-}
-
-/** A stored card (the main card or a composable card). */
-export interface StoredCard {
-    sentinel: StoredSentinel;
-    frontmatter?: StoredFrontmatter;
-    body?: string;
-}
-
-/**
- * Versioned, storage-stable serialization of a `Document`.
- *
- * Produced by `Document.toJSON` and consumed by `Document.fromJSON`. The
- * `schema` tag selects the payload version; unknown tags are rejected on
- * read. Use this — not `toMarkdown` — whenever a document must survive a
- * process restart or a crate upgrade (database rows, caches, message
- * payloads).
- */
-export interface StoredDocument {
-    schema: "quillmark/document@0.81.0";
-    main: StoredCard;
-    cards?: StoredCard[];
-}
-"#;
-
 /// Backend identifier for the only canvas-capable backend today. Both
 /// `Quill::supportsCanvas` and `RenderSession::supportsCanvas` route
 /// through this so the two APIs can't drift; if a second canvas backend
@@ -543,27 +484,24 @@ impl Document {
         })
     }
 
-    /// Reconstruct a `Document` from its versioned storage DTO.
+    /// Reconstruct a `Document` from its versioned storage DTO string.
     ///
-    /// `value` must be a [`StoredDocument`] — the shape produced by
-    /// [`toJSON`](Document::to_json), either as a live JS object or one
-    /// revived via `JSON.parse`. Deserialization dispatches on the `schema`
-    /// tag; unknown tags are rejected.
+    /// `json` must be a string produced by [`toJson`](Document::to_json) —
+    /// the versioned storage DTO. Parsing and schema dispatch happen inside
+    /// the module via `serde_json`; the JS `JSON` global is not involved.
+    /// Unknown `schema` tags are rejected.
     ///
     /// The reconstructed document carries no parse-time warnings — the DTO
     /// describes content, not source text — so `.warnings` is always empty.
     ///
-    /// Throws a JS `Error` if `value` is not a valid `StoredDocument`
-    /// (unknown `schema`, malformed payload, or an unparseable quill
+    /// Throws a JS `Error` if `json` is not a valid storage DTO (malformed
+    /// JSON, unknown `schema`, missing fields, or an unparseable quill
     /// reference).
-    #[wasm_bindgen(js_name = fromJSON)]
-    pub fn from_json(
-        #[wasm_bindgen(unchecked_param_type = "StoredDocument")] value: JsValue,
-    ) -> Result<Document, JsValue> {
-        let inner: quillmark_core::Document =
-            serde_wasm_bindgen::from_value(value).map_err(|e| {
-                WasmError::from(format!("fromJSON: invalid StoredDocument: {e}")).to_js_value()
-            })?;
+    #[wasm_bindgen(js_name = fromJson)]
+    pub fn from_json(json: &str) -> Result<Document, JsValue> {
+        let inner: quillmark_core::Document = serde_json::from_str(json).map_err(|e| {
+            WasmError::from(format!("fromJson: invalid storage DTO: {e}")).to_js_value()
+        })?;
         Ok(Document {
             inner,
             parse_warnings: Vec::new(),
@@ -580,23 +518,26 @@ impl Document {
         self.inner.to_markdown()
     }
 
-    /// Serialize this document to its versioned storage DTO.
+    /// Serialize this document to a versioned storage DTO string.
     ///
-    /// Returns a plain JS object shaped like [`StoredDocument`] — immediately
-    /// `JSON.stringify`-able. The result carries a `schema` version tag and
+    /// Returns the document as a JSON string carrying a `schema` version
+    /// tag. The string is produced inside the module via `serde_json` and
     /// round-trips losslessly back to an equal `Document` via
-    /// [`fromJSON`](Document::from_json).
+    /// [`fromJson`](Document::from_json) — the JS `JSON` global is not
+    /// involved in either direction.
     ///
-    /// Named `toJSON` so `JSON.stringify(doc)` produces the storage DTO
-    /// directly. Use this — not [`toMarkdown`](Document::to_markdown) — to
-    /// persist a document across a process restart or crate upgrade; the
-    /// wire format is frozen per `schema` version, whereas Markdown syntax
-    /// evolves. Parse-time `warnings` are not part of the DTO.
-    #[wasm_bindgen(js_name = toJSON, unchecked_return_type = "StoredDocument")]
-    pub fn to_json(&self) -> Result<JsValue, JsValue> {
-        let serializer = serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
-        self.inner.serialize(&serializer).map_err(|e| {
-            WasmError::from(format!("toJSON: serialization failed: {e}")).to_js_value()
+    /// Use this — not [`toMarkdown`](Document::to_markdown) — to persist a
+    /// document across a process restart or crate upgrade; the wire format
+    /// is frozen per `schema` version, whereas Markdown syntax evolves.
+    /// Parse-time `warnings` are not part of the DTO.
+    ///
+    /// The result is standard JSON text, so callers that want to inspect it
+    /// may `JSON.parse` it — but treating it as an opaque blob is the
+    /// intended use.
+    #[wasm_bindgen(js_name = toJson)]
+    pub fn to_json(&self) -> Result<String, JsValue> {
+        serde_json::to_string(&self.inner).map_err(|e| {
+            WasmError::from(format!("toJson: serialization failed: {e}")).to_js_value()
         })
     }
 
