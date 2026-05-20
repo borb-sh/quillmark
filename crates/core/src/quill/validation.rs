@@ -404,10 +404,8 @@ main:
         for (k, v) in fm {
             payload.insert(k.to_string(), QuillValue::from_json(v.clone()));
         }
-        let meta = CardMetadata {
-            quill: Some("test_quill".parse().unwrap()),
-            ..CardMetadata::default()
-        };
+        let mut meta = CardMetadata::new();
+        meta.set_quill("test_quill".parse().unwrap());
         let main = Card::from_parts(meta, Payload::from_index_map(payload), String::new());
         Document::from_main_and_cards(main, cards, vec![])
     }
@@ -737,10 +735,8 @@ main:
         )
         .unwrap();
         use crate::document::{CardMetadata, Payload};
-        let meta = CardMetadata {
-            quill: Some("test_quill".parse().unwrap()),
-            ..CardMetadata::default()
-        };
+        let mut meta = CardMetadata::new();
+        meta.set_quill("test_quill".parse().unwrap());
         let main = Card::from_parts(
             meta,
             Payload::from_index_map(IndexMap::new()),

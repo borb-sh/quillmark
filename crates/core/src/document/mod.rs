@@ -91,7 +91,7 @@ pub mod prescan;
 
 pub use dto::{peek_schema_version, StorageError, StoredDocument, SCHEMA_V0_81_0};
 pub use edit::EditError;
-pub use meta::CardMetadata;
+pub use meta::{CardKindError, CardMetadata, MetaItem};
 pub use payload::{Payload, PayloadItem};
 
 #[cfg(test)]
@@ -159,12 +159,12 @@ impl Card {
 
     /// The `$kind` card kind, if the block declares one.
     pub fn kind(&self) -> Option<&str> {
-        self.meta.kind.as_deref()
+        self.meta.kind()
     }
 
     /// The `$id` opaque identifier, if the block declares one.
     pub fn id(&self) -> Option<&str> {
-        self.meta.id.as_deref()
+        self.meta.id()
     }
 
     /// Typed payload (map-keyed view and ordered item list).
@@ -239,9 +239,9 @@ impl Document {
     /// The caller must guarantee that `main`'s `$quill` metadata is present
     /// and valid, and that composable cards do not carry `$quill`.
     pub fn from_main_and_cards(main: Card, cards: Vec<Card>, warnings: Vec<Diagnostic>) -> Self {
-        debug_assert!(main.meta.quill.is_some(), "main card must carry `$quill`");
+        debug_assert!(main.meta.quill().is_some(), "main card must carry `$quill`");
         debug_assert!(
-            cards.iter().all(|c| c.meta.quill.is_none()),
+            cards.iter().all(|c| c.meta.quill().is_none()),
             "composable cards must not carry `$quill`"
         );
         Self {
@@ -282,8 +282,8 @@ impl Document {
     pub fn quill_reference(&self) -> QuillReference {
         self.main
             .meta
-            .quill
-            .clone()
+            .quill()
+            .cloned()
             .expect("root block's $quill is validated at parse time")
     }
 
@@ -362,7 +362,7 @@ impl Document {
                 let mut card_map = serde_json::Map::new();
                 card_map.insert(
                     "CARD".to_string(),
-                    serde_json::Value::String(card.meta.kind.as_deref().unwrap_or("").to_string()),
+                    serde_json::Value::String(card.meta.kind().unwrap_or("").to_string()),
                 );
                 for (key, value) in card.payload.iter() {
                     card_map.insert(key.clone(), value.as_json().clone());

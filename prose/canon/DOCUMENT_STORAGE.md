@@ -72,7 +72,7 @@ detection, cache keys).
 
 The guarantee follows from: struct field order is fixed in the frozen
 DTO tree; `Vec` fields preserve order by definition; `serde_json::Value`
-inside frontmatter field values keeps YAML insertion order via the
+inside payload field values keeps YAML insertion order via the
 workspace's `serde_json/preserve_order` feature. No key sorting or
 whitespace normalization is applied — the output is `serde_json`'s
 compact form. Bumping the `schema` version is the only event that may
@@ -133,4 +133,4 @@ any past version always loads.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — `Document` in the core type overview
 - [MARKDOWN.md](MARKDOWN.md) — Markdown syntax and the in-memory data model
 - [VERSIONING.md](VERSIONING.md) — quill version resolution (a separate concern)
-- [QUILL_VALUE.md](QUILL_VALUE.md) — value type stored inside frontmatter fields
+- [QUILL_VALUE.md](QUILL_VALUE.md) — value type stored inside payload fields

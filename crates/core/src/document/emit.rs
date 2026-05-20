@@ -24,6 +24,7 @@
 use serde_json::Value as JsonValue;
 use serde_saphyr::{FlowMap, FlowSeq, SerializerOptions};
 
+use super::meta::MetaItem;
 use super::payload::PayloadItem;
 use super::prescan::{CommentPathSegment, NestedComment};
 use super::{Card, Document};
@@ -119,38 +120,56 @@ impl Document {
 
 // ── Block emission ────────────────────────────────────────────────────────────
 
-/// Emit a card-yaml block: `~~~card-yaml`, the `$`-prefixed system-metadata
-/// lines, the YAML data payload, then a closing `~~~`.
+/// Emit a `$key: value` system-metadata line with optional inline trailer.
 ///
-/// The `$` lines are emitted in the canonical key order `$quill`, `$kind`,
-/// `$id` — only keys the block declares appear. They lead the YAML payload
-/// as ordinary mapping entries; the parser extracts them back into typed
-/// metadata via [`super::meta::extract_meta_from_payload`].
-///
-/// Three tildes are always a safe fence length: canonically emitted payload
-/// lines never begin with `~` (keys are identifiers, sequence items start with
-/// `-`, saphyr quotes any string that would, comments start with `#`), so the
-/// fence can never be closed early.
-fn emit_meta_line(out: &mut String, key: &str, value: &str) {
+/// Three tildes around the block are always a safe fence length: canonically
+/// emitted payload lines never begin with `~` (keys are identifiers, sequence
+/// items start with `-`, saphyr quotes any string that would, comments start
+/// with `#`), so the fence can never be closed early.
+fn emit_meta_line(out: &mut String, key: &str, value: &str, trailer: Option<&str>) {
     out.push('$');
     out.push_str(key);
     out.push_str(": ");
     out.push_str(&saphyr_emit_scalar(&JsonValue::String(value.to_string())));
+    push_trailer(out, trailer);
     out.push('\n');
 }
 
+/// Emit a card-yaml block: `~~~card-yaml`, the `$`-prefixed system-metadata
+/// section, the YAML data payload, then a closing `~~~`.
+///
+/// The metadata section walks [`super::CardMetadata::items`] in source order
+/// (or canonical order for programmatically constructed metadata): each
+/// `$` entry emits its line, with any following `Comment { inline: true }`
+/// consumed as a trailer on the same line. Own-line comments inside the
+/// metadata region render as `# text` lines. The parser extracts `$` keys
+/// back into typed metadata via [`super::meta::extract_meta_from_payload`].
 fn emit_block(out: &mut String, card: &Card) {
     out.push_str("~~~card-yaml\n");
 
-    let meta = card.meta();
-    if let Some(quill) = &meta.quill {
-        emit_meta_line(out, "quill", &quill.to_string());
-    }
-    if let Some(kind) = &meta.kind {
-        emit_meta_line(out, "kind", kind);
-    }
-    if let Some(id) = &meta.id {
-        emit_meta_line(out, "id", id);
+    let meta_items = card.meta().items();
+    let mut i = 0;
+    while i < meta_items.len() {
+        let trailer = meta_items.get(i + 1).and_then(|next| match next {
+            MetaItem::Comment { text, inline: true } => Some(text.as_str()),
+            _ => None,
+        });
+        let consumed_trailer = trailer.is_some();
+        match &meta_items[i] {
+            MetaItem::Quill(q) => emit_meta_line(out, "quill", &q.to_string(), trailer),
+            MetaItem::Kind(k) => emit_meta_line(out, "kind", k, trailer),
+            MetaItem::Id(id) => emit_meta_line(out, "id", id, trailer),
+            MetaItem::Comment { text, .. } => {
+                out.push_str("# ");
+                out.push_str(text);
+                out.push('\n');
+            }
+        }
+        i += if consumed_trailer && !matches!(meta_items[i], MetaItem::Comment { .. }) {
+            2
+        } else {
+            1
+        };
     }
 
     emit_fence_items(

@@ -835,10 +835,10 @@ Body.";
 
     let doc = decompose(markdown).expect("payload with $-keys mid-mapping should parse");
     assert_eq!(
-        doc.main().meta().quill.as_ref().unwrap().to_string(),
+        doc.main().meta().quill().unwrap().to_string(),
         "test_quill"
     );
-    assert_eq!(doc.main().meta().kind.as_deref(), Some("main"));
+    assert_eq!(doc.main().meta().kind(), Some("main"));
     assert_eq!(
         doc.main().payload().get("title").unwrap().as_str(),
         Some("First")

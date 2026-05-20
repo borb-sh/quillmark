@@ -40,7 +40,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use super::meta::{is_valid_kind_name, CardMetadata};
+use super::meta::CardMetadata;
 use super::payload::{Payload, PayloadItem};
 use super::prescan::{CommentPathSegment, NestedComment};
 use super::{Card, Document};
@@ -328,16 +328,20 @@ impl From<&CardMetadata> for SentinelV0_81_0 {
         // `Card::from_parts`), preferring `quill` keeps the entry-card shape
         // intact on the wire — the root's `kind` is always `"main"` per the
         // spec and is implied by the `Main` variant itself.
-        if let Some(reference) = &meta.quill {
+        //
+        // V0_81_0 predates comment-preserving metadata: any comments on
+        // `$` lines are dropped here. Storage paths that need comment
+        // fidelity should use a newer schema version.
+        if let Some(reference) = meta.quill() {
             SentinelV0_81_0::Main {
                 quill: reference.to_string(),
-                id: meta.id.clone(),
+                id: meta.id().map(|s| s.to_string()),
             }
         } else {
-            let tag = meta.kind.clone().unwrap_or_default();
+            let tag = meta.kind().unwrap_or_default().to_string();
             SentinelV0_81_0::Card {
                 tag,
-                id: meta.id.clone(),
+                id: meta.id().map(|s| s.to_string()),
             }
         }
     }
@@ -417,7 +421,7 @@ impl TryFrom<DocumentV0_81_0> for Document {
 
     fn try_from(payload: DocumentV0_81_0) -> Result<Self, Self::Error> {
         let main = Card::try_from(payload.main)?;
-        if main.meta().quill.is_none() {
+        if main.meta().quill().is_none() {
             return Err(StorageError::MainCardNotMain);
         }
         let cards = payload
@@ -425,7 +429,7 @@ impl TryFrom<DocumentV0_81_0> for Document {
             .into_iter()
             .map(Card::try_from)
             .collect::<Result<Vec<_>, _>>()?;
-        if cards.iter().any(|c| c.meta().quill.is_some()) {
+        if cards.iter().any(|c| c.meta().quill().is_some()) {
             return Err(StorageError::ComposableCardIsMain);
         }
         Ok(Document::from_main_and_cards(main, cards, Vec::new()))
@@ -459,21 +463,24 @@ impl TryFrom<SentinelV0_81_0> for CardMetadata {
                 // reconstructed model carries the canonical kind so the
                 // markdown emit emits `$kind: main` and the round-trip is
                 // symmetric with the parser, which requires it.
-                Ok(CardMetadata {
-                    quill: Some(reference),
-                    kind: Some("main".to_string()),
-                    id,
-                })
+                let mut meta = CardMetadata::new();
+                meta.set_quill(reference);
+                meta.set_kind("main");
+                if let Some(id) = id {
+                    meta.set_id(id);
+                }
+                Ok(meta)
             }
             SentinelV0_81_0::Card { tag, id } => {
-                if !is_valid_kind_name(&tag) || tag == "main" {
+                if let Err(_) = super::meta::validate_composable_kind(&tag) {
                     return Err(StorageError::InvalidCardTag { tag });
                 }
-                Ok(CardMetadata {
-                    quill: None,
-                    kind: Some(tag),
-                    id,
-                })
+                let mut meta = CardMetadata::new();
+                meta.set_kind(tag);
+                if let Some(id) = id {
+                    meta.set_id(id);
+                }
+                Ok(meta)
             }
         }
     }
@@ -579,11 +586,11 @@ This body and the metadata above are an indorsement card.
             "~~~card-yaml\n$quill: usaf_memo@0.1\n$kind: main\ntitle: \"Hi\"\n~~~\n",
         )
         .unwrap();
-        assert_eq!(doc.main().meta().kind.as_deref(), Some("main"));
+        assert_eq!(doc.main().meta().kind(), Some("main"));
         let restored: Document =
             serde_json::from_str(&serde_json::to_string(&doc).unwrap()).unwrap();
         assert_eq!(doc, restored);
-        assert_eq!(restored.main().meta().kind.as_deref(), Some("main"));
+        assert_eq!(restored.main().meta().kind(), Some("main"));
     }
 
     /// A composable card tagged `"main"` on the wire must be rejected on
