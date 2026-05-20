@@ -16,9 +16,15 @@ Quillmark converts Markdown with YAML frontmatter into output artifacts (PDF, SV
 
 ### `quillmark-core`
 
+> **Pending rename → `quillmark-primitives`** (see below).
+
 Foundation types and traits. No backend dependencies; backends depend on this crate.
 
 Key exports: `Backend`, `Artifact`, `OutputFormat`, `RenderOptions`, `RenderSession`, `Document`, `QuillSource`, `FileTreeNode`, `QuillIgnore`, `RenderError`, `Diagnostic`, `Severity`, `Location`, `RenderResult`, `QuillValue`, `QuillReference`, `Version`, `VersionSelector`.
+
+#### Pending rename: `quillmark-core` → `quillmark-primitives`
+
+The name `quillmark-core` sends the wrong signal. Consumers read "core" as "the lightweight foundation I build on"; in reality this crate is the contract layer for backend authors. Renaming to `quillmark-primitives` clarifies the audience. Downstream impact: all workspace `Cargo.toml` files, the `quillmark` re-export block, and any external backend authors (all first-party today). The rename also unlocks the consistent cross-layer "core" semantic: `quillmark` without backends (Rust) and `@quillmark/wasm-core` (npm) would then both mean "load, validate, inspect — no rendering backend required."
 
 ### `quillmark` (orchestration)
 
