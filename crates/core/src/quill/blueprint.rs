@@ -88,7 +88,7 @@ fn write_comment(out: &mut String, text: &str) {
 }
 
 /// Emit the root block:
-/// `~~~card-yaml\n#@quill: …\n# system metadata; …\n[# desc\n]<fields>~~~\n`.
+/// `~~~card-yaml\n#@quill: …\n#@kind: main\n# system metadata; …\n[# desc\n]<fields>~~~\n`.
 ///
 /// The `#@quill` system-metadata line leads the block; the role annotation
 /// and the optional description follow as own-line comments.
@@ -682,7 +682,7 @@ main:
 "#)
         .blueprint();
         assert!(t.starts_with(
-            "~~~card-yaml\n#@quill: taro@0.1.0\n# system metadata; required, verbatim\n# x\n"
+            "~~~card-yaml\n#@quill: taro@0.1.0\n#@kind: main\n# system metadata; required, verbatim\n# x\n"
         ));
         assert!(t.contains("\nWrite main body here.\n"));
     }
