@@ -577,10 +577,9 @@ This body and the metadata above are an indorsement card.
     /// never wrote, or `PartialEq` would fail after a save+load.
     #[test]
     fn round_trip_preserves_implicit_root_kind() {
-        let doc = Document::from_markdown(
-            "~~~card-yaml\n#@quill: usaf_memo@0.1\ntitle: \"Hi\"\n~~~\n",
-        )
-        .unwrap();
+        let doc =
+            Document::from_markdown("~~~card-yaml\n#@quill: usaf_memo@0.1\ntitle: \"Hi\"\n~~~\n")
+                .unwrap();
         assert_eq!(doc.main().meta().kind, None);
         let restored: Document =
             serde_json::from_str(&serde_json::to_string(&doc).unwrap()).unwrap();

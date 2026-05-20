@@ -343,10 +343,6 @@ pub enum ParseError {
         /// Index of the metadata block (0-indexed)
         block_index: usize,
     },
-
-    /// Other parsing errors
-    #[error("{0}")]
-    Other(String),
 }
 
 impl ParseError {
@@ -376,26 +372,7 @@ impl ParseError {
                 ),
             )
             .with_code("parse::yaml_error_with_location".to_string()),
-            ParseError::Other(msg) => Diagnostic::new(Severity::Error, msg.clone()),
         }
-    }
-}
-
-impl From<Box<dyn std::error::Error + Send + Sync>> for ParseError {
-    fn from(err: Box<dyn std::error::Error + Send + Sync>) -> Self {
-        ParseError::Other(err.to_string())
-    }
-}
-
-impl From<String> for ParseError {
-    fn from(msg: String) -> Self {
-        ParseError::Other(msg)
-    }
-}
-
-impl From<&str> for ParseError {
-    fn from(msg: &str) -> Self {
-        ParseError::Other(msg.to_string())
     }
 }
 
