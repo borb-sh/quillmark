@@ -7,8 +7,10 @@
 //! time (empty-mapping omission, programmatic field removal) degrade to
 //! own-line comments at the same indent so the comment text is preserved
 //! even when its position shifts. `!fill` on scalars and sequences round-
-//! trips, and string quoting is normalised to double-quoted (the type-
-//! fidelity guarantee).
+//! trips. String quoting is normalised to saphyr's canonical form (plain
+//! when safe, quoted when the value would otherwise be misread on
+//! re-parse) — type fidelity is guaranteed; the exact quoting style is
+//! not.
 
 use crate::document::Document;
 
@@ -53,12 +55,12 @@ fn top_level_inline_comments_round_trip() {
     let emitted = doc.to_markdown();
 
     assert!(
-        emitted.contains("title: \"My Document\" # this is a comment"),
+        emitted.contains("title: My Document # this is a comment"),
         "trailing inline comment must round-trip on the same line\nGot:\n{}",
         emitted
     );
     assert!(
-        !emitted.contains("\"My Document\"\n# this is a comment"),
+        !emitted.contains("My Document\n# this is a comment"),
         "trailing inline comment must NOT degrade to own-line\nGot:\n{}",
         emitted
     );
@@ -262,71 +264,60 @@ fn fill_tag_all_scalar_types_round_trip() {
     }
 }
 
-// ── Category: Original quoting style ─────────────────────────────────────────
+// ── Category: Canonical quoting style ────────────────────────────────────────
 
-/// The original quoting style (`'single-quoted'`, unquoted, block scalars)
-/// is not preserved.  All strings are re-emitted double-quoted with JSON-style
-/// escaping, regardless of how they were written in the source.
-///
-/// This is intentional: normalizing to double-quoted style is
-/// what guarantees type fidelity for ambiguous strings like `on` and `01234`.
+/// Quoting style is normalized on emit — saphyr picks the canonical form
+/// (plain when safe, quoted when the unquoted form would be re-parsed as
+/// the wrong type). The original quoting in the source is not preserved,
+/// but values survive round-trip with type fidelity, which is what
+/// callers actually depend on.
 #[test]
-fn original_quoting_style_is_not_preserved() {
-    // Mix of single-quoted, unquoted, and double-quoted strings.
-    let src = "~~~card-yaml\n#@quill: q\n#@kind: main\nsingle_q: 'hello'\nunquoted: world\ndouble_q: \"already\"\n~~~\n";
+fn quoting_normalises_to_canonical_form_with_type_fidelity() {
+    // Mix of single-quoted, unquoted, and double-quoted strings — all of
+    // them safe-to-emit-plain after parse.
+    let src = "~~~card-yaml\n#@quill: q\n#@kind: main\nsingle_q: 'hello'\nunquoted: world\ndouble_q: \"already\"\nambiguous: \"on\"\nnumeric_str: \"01234\"\n~~~\n";
 
     let doc = Document::from_markdown(src).unwrap();
     let emitted = doc.to_markdown();
 
-    // Single-quoted must become double-quoted.
+    // Source-side single-quoting is dropped; safe strings emit plain.
     assert!(
         !emitted.contains("'hello'"),
-        "single-quoted string must not be re-emitted single-quoted\nGot:\n{}",
-        emitted
-    );
-    assert!(
-        emitted.contains("\"hello\""),
-        "single-quoted string must be re-emitted double-quoted\nGot:\n{}",
+        "original single-quote style must not survive\nGot:\n{}",
         emitted
     );
 
-    // Unquoted must become double-quoted.
+    // Ambiguous values stay quoted so they re-parse as strings.
     assert!(
-        emitted.contains("\"world\""),
-        "unquoted string must be re-emitted double-quoted\nGot:\n{}",
+        emitted.contains("\"on\"") || emitted.contains("'on'"),
+        "ambiguous string `on` must stay quoted\nGot:\n{}",
+        emitted
+    );
+    assert!(
+        emitted.contains("\"01234\"") || emitted.contains("'01234'"),
+        "numeric-looking string `01234` must stay quoted\nGot:\n{}",
         emitted
     );
 
-    // Already double-quoted is fine — stays double-quoted.
-    assert!(
-        emitted.contains("\"already\""),
-        "double-quoted string must survive as double-quoted\nGot:\n{}",
-        emitted
-    );
-
-    // Values must survive round-trip.
+    // Values survive the full round-trip with the right types.
     let doc2 = Document::from_markdown(&emitted).unwrap();
-    assert_eq!(
-        doc2.main()
-            .payload()
-            .get("single_q")
-            .and_then(|v| v.as_str()),
-        Some("hello")
-    );
-    assert_eq!(
-        doc2.main()
-            .payload()
-            .get("unquoted")
-            .and_then(|v| v.as_str()),
-        Some("world")
-    );
-    assert_eq!(
-        doc2.main()
-            .payload()
-            .get("double_q")
-            .and_then(|v| v.as_str()),
-        Some("already")
-    );
+    for (key, expected) in [
+        ("single_q", "hello"),
+        ("unquoted", "world"),
+        ("double_q", "already"),
+        ("ambiguous", "on"),
+        ("numeric_str", "01234"),
+    ] {
+        assert_eq!(
+            doc2.main().payload().get(key).and_then(|v| v.as_str()),
+            Some(expected),
+            "field {key} must round-trip as string {expected:?}",
+        );
+    }
+
+    // And emission is idempotent: a second round-trip is byte-equal.
+    let emitted2 = doc2.to_markdown();
+    assert_eq!(emitted, emitted2, "round-trip must be idempotent");
 }
 
 // ── Category: Nested comments round-trip ─────────────────────────────────────
@@ -400,7 +391,7 @@ fn nested_sequence_inline_comments_round_trip() {
     let doc = Document::from_markdown(src).unwrap();
     let emitted = doc.to_markdown();
     assert!(
-        emitted.contains("- \"a\" # inline"),
+        emitted.contains("- a # inline"),
         "trailing inline comment on a sequence item must round-trip on the same line\nGot:\n{}",
         emitted
     );
@@ -500,7 +491,7 @@ fn fill_with_inline_comment_round_trips() {
 
     let emitted = doc.to_markdown();
     assert!(
-        emitted.contains("dept: !fill \"Sales\" # placeholder"),
+        emitted.contains("dept: !fill Sales # placeholder"),
         "`!fill` and inline comment must round-trip together\nGot:\n{}",
         emitted
     );
@@ -519,8 +510,8 @@ fn mixed_inline_comments_round_trip() {
     let doc = Document::from_markdown(src).unwrap();
     let emitted = doc.to_markdown();
 
-    assert!(emitted.contains("title: \"Hello\" # greeting"));
-    assert!(emitted.contains("- \"a\" # first"));
+    assert!(emitted.contains("title: Hello # greeting"));
+    assert!(emitted.contains("- a # first"));
     assert!(emitted.contains("inner: 1 # nested tail"));
 
     let doc2 = Document::from_markdown(&emitted).unwrap();
@@ -606,7 +597,7 @@ fn own_line_then_inline_round_trip() {
     let emitted = doc.to_markdown();
 
     assert!(emitted.contains("# header\n"));
-    assert!(emitted.contains("title: \"Hi\" # tail\n"));
+    assert!(emitted.contains("title: Hi # tail\n"));
     assert!(emitted.contains("# footer\n"));
 
     let doc2 = Document::from_markdown(&emitted).unwrap();

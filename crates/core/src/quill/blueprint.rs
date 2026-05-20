@@ -33,7 +33,7 @@
 use std::collections::BTreeMap;
 
 use super::{CardSchema, FieldSchema, FieldType, QuillConfig};
-use crate::document::emit::emit_double_quoted;
+use crate::document::emit::{saphyr_emit_flow, saphyr_emit_scalar};
 use crate::value::QuillValue;
 
 impl QuillConfig {
@@ -436,79 +436,18 @@ fn write_array_items(out: &mut String, items: &[serde_json::Value], pad: &str) {
 /// lines.
 fn eg_hint(example: &QuillValue) -> String {
     match example.as_json() {
-        v @ (serde_json::Value::Array(_) | serde_json::Value::Object(_)) => render_flow(v),
+        v @ (serde_json::Value::Array(_) | serde_json::Value::Object(_)) => saphyr_emit_flow(v),
         val => render_scalar(val),
     }
 }
 
+/// Emit a scalar (or fallback container) as a single-line YAML value
+/// using saphyr's quoting heuristics. Saphyr decides between plain
+/// (`hello`, `42`), double-quoted (`"on"`, `"01234"`), and single-quoted
+/// forms based on whether the unquoted form would re-parse to the same
+/// `QuillValue`.
 fn render_scalar(val: &serde_json::Value) -> String {
-    match val {
-        serde_json::Value::String(s) => yaml_string(s),
-        serde_json::Value::Number(n) => n.to_string(),
-        serde_json::Value::Bool(b) => b.to_string(),
-        serde_json::Value::Null => "null".to_string(),
-        other => yaml_string(&other.to_string()),
-    }
-}
-
-/// Render a value as a compact one-line YAML flow collection — used for
-/// `# e.g.` hints on arrays and objects. Strings containing flow indicators
-/// (`,`, `[`, `]`, `{`, `}`) are quoted so the flow form round-trips as
-/// distinct items rather than a comma-split list.
-fn render_flow(val: &serde_json::Value) -> String {
-    match val {
-        serde_json::Value::Array(items) => {
-            let parts: Vec<String> = items.iter().map(render_flow).collect();
-            format!("[{}]", parts.join(", "))
-        }
-        serde_json::Value::Object(map) => {
-            let parts: Vec<String> = map
-                .iter()
-                .map(|(k, v)| format!("{}: {}", k, render_flow(v)))
-                .collect();
-            format!("{{{}}}", parts.join(", "))
-        }
-        serde_json::Value::String(s) => yaml_string_flow(s),
-        other => render_scalar(other),
-    }
-}
-
-/// Quote a YAML string only when necessary in block context.
-fn yaml_string(s: &str) -> String {
-    let needs_quotes = s.is_empty()
-        || matches!(s, "true" | "false" | "null" | "yes" | "no" | "on" | "off")
-        || s.starts_with(|c: char| {
-            matches!(
-                c,
-                '{' | '[' | '&' | '*' | '!' | '|' | '>' | '\'' | '"' | '%' | '@' | '`'
-            )
-        })
-        || s.contains(": ")
-        || s.contains(" #")
-        || s.starts_with("- ")
-        || s.starts_with('#');
-    if needs_quotes {
-        quote(s)
-    } else {
-        s.to_string()
-    }
-}
-
-/// Quote a YAML string for flow context — adds flow indicators (`,`, `[`, `]`,
-/// `{`, `}`) to the trigger set so flow-sequence items round-trip as single
-/// values.
-fn yaml_string_flow(s: &str) -> String {
-    if s.contains([',', '[', ']', '{', '}']) {
-        quote(s)
-    } else {
-        yaml_string(s)
-    }
-}
-
-fn quote(s: &str) -> String {
-    let mut out = String::new();
-    emit_double_quoted(&mut out, s);
-    out
+    saphyr_emit_scalar(val)
 }
 
 #[cfg(test)]
@@ -1002,5 +941,43 @@ card_kinds:
             doc1, doc2,
             "Document must be equal after blueprint → parse → emit → parse"
         );
+    }
+
+    /// Regression: string defaults that look numeric/boolean/null get
+    /// quoted so the schema-validated payload still types as `string`
+    /// after round-trip. Pre-saphyr, defaults like `1.0`, `on`, `01234`,
+    /// or `null` were emitted bare and re-parsed as the wrong YAML type.
+    #[test]
+    fn type_ambiguous_string_defaults_round_trip_as_strings() {
+        let bp = cfg(r#"
+quill: { name: x, version: 1.0.0, backend: typst, description: x }
+main:
+  fields:
+    version:     { type: string, default: "1.0" }
+    activation:  { type: string, default: "on" }
+    code:        { type: string, default: "01234" }
+    placeholder: { type: string, default: "null" }
+    yes_flag:    { type: string, default: "yes" }
+"#)
+        .blueprint();
+
+        let doc = Document::from_markdown(&bp).expect("blueprint must parse");
+        let payload = doc.main().payload();
+        for (key, expected) in [
+            ("version", "1.0"),
+            ("activation", "on"),
+            ("code", "01234"),
+            ("placeholder", "null"),
+            ("yes_flag", "yes"),
+        ] {
+            let v = payload.get(key).unwrap_or_else(|| panic!("missing {key}"));
+            assert!(
+                v.as_str().is_some(),
+                "field {key} must round-trip as a string, got {:?}\nBlueprint:\n{}",
+                v,
+                bp
+            );
+            assert_eq!(v.as_str().unwrap(), expected, "field {key}: value mismatch");
+        }
     }
 }

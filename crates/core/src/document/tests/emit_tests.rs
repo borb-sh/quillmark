@@ -293,8 +293,8 @@ fn empty_map_omitted_from_emit() {
         md
     );
     assert!(
-        md.contains("\"hello\""),
-        "real field should appear double-quoted, got:\n{}",
+        md.contains("real_field: hello"),
+        "real field should appear in emit, got:\n{}",
         md
     );
 }
