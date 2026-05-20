@@ -56,7 +56,7 @@ fn emit_uses_canonical_card_fence() {
     let emitted = doc.to_markdown();
     assert_eq!(
         emitted,
-        "~~~card-yaml\n#@quill: q\n#@kind: main\n~~~\n\n~~~card-yaml\n#@kind: product\nname: \"Widget\"\n~~~\n"
+        "~~~card-yaml\n#@quill: q\n#@kind: main\n~~~\n\n~~~card-yaml\n#@kind: product\nname: Widget\n~~~\n"
     );
 }
 
@@ -85,7 +85,7 @@ fn card_fence_preserves_yaml_comments() {
     let doc = Document::from_markdown(src).unwrap();
     let emitted = doc.to_markdown();
     assert!(
-        emitted.contains("~~~card-yaml\n#@kind: product\n# a banner\nname: \"Widget\"\n~~~\n"),
+        emitted.contains("~~~card-yaml\n#@kind: product\n# a banner\nname: Widget\n~~~\n"),
         "emit:\n{emitted}"
     );
     let reparsed = Document::from_markdown(&emitted).unwrap();
