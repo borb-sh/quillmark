@@ -163,7 +163,7 @@ fn test_to_markdown_round_trip() {
 /// round-trips it back to an equal `Document`.
 #[wasm_bindgen_test]
 fn test_json_dto_round_trip() {
-    let md = "---\nQUILL: test_quill\ntitle: Hello\nsubject: !fill A Subject\n---\n\n# Hello\n\n```card note\nfor: someone\n```\n\nNote body.\n";
+    let md = "~~~card-yaml\n#@quill: test_quill\ntitle: Hello\nsubject: !fill A Subject\n~~~\n\n# Hello\n\n~~~card-yaml\n#@kind: note\nfor: someone\n~~~\n\nNote body.\n";
     let doc = Document::from_markdown(md).expect("fromMarkdown failed");
 
     // toJson yields a string carrying the schema version.
@@ -187,7 +187,8 @@ fn test_json_dto_round_trip() {
 #[wasm_bindgen_test]
 fn test_json_dto_drops_parse_warnings() {
     // An unknown YAML tag triggers a `parse::unsupported_yaml_tag` warning.
-    let warn_md = "---\nQUILL: test_quill\ntitle: Hi\nweird: !custom value\n---\n\nBody\n";
+    let warn_md =
+        "~~~card-yaml\n#@quill: test_quill\ntitle: Hi\nweird: !custom value\n~~~\n\nBody\n";
     let doc = Document::from_markdown(warn_md).expect("fromMarkdown failed");
     assert!(
         js_sys::Array::from(&doc.warnings()).length() > 0,

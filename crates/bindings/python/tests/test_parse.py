@@ -121,7 +121,7 @@ def test_json_dto_rejects_invalid_input():
 def test_json_dto_drops_parse_warnings():
     """A DTO-reconstructed document carries no parse-time warnings."""
     # An unknown YAML tag triggers a `parse::unsupported_yaml_tag` warning.
-    warn_md = "---\nQUILL: my_quill\ntitle: Hi\nweird: !custom value\n---\n\nBody\n"
+    warn_md = "~~~card-yaml\n#@quill: my_quill\ntitle: Hi\nweird: !custom value\n~~~\n\nBody\n"
     doc = Document.from_markdown(warn_md)
     assert len(doc.warnings) > 0, "source document should have a parse warning"
 

@@ -8,7 +8,7 @@
 
 A format-first Markdown rendering system that converts Markdown with card-yaml metadata blocks into PDF, SVG, PNG, and other output formats.
 
-Maintained by [quillmark-org]([url](https://github.com/quillmark-org)).
+Maintained by [quillmark-org](https://github.com/quillmark-org).
 
 **UNDER DEVELOPMENT** — APIs may change.
 

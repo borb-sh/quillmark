@@ -117,6 +117,13 @@ pub enum SentinelV0_81_0 {
     Main {
         /// Quill reference string.
         quill: String,
+        /// `#@kind` value on the root, if the author declared it. Always
+        /// `"main"` when present — the parser rejects any other value at the
+        /// root. Skipped on serialize when the author omitted `#@kind` so
+        /// `Document → StoredDocument → Document` stays byte-symmetric under
+        /// `PartialEq`.
+        #[serde(default, rename = "tag", skip_serializing_if = "Option::is_none")]
+        kind: Option<String>,
         /// `#@id` opaque identifier, if any.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
@@ -315,10 +322,12 @@ impl From<&CardMetadata> for SentinelV0_81_0 {
         // `None` on a card produced by parsing or by the `Card::new` editor.
         // If both happen to be set (only constructable via low-level
         // `Card::from_parts`), preferring `quill` keeps the entry-card shape
-        // intact on the wire.
+        // intact on the wire — the optional `kind` field carries any explicit
+        // `#@kind: main` the author wrote at the root.
         if let Some(reference) = &meta.quill {
             SentinelV0_81_0::Main {
                 quill: reference.to_string(),
+                kind: meta.kind.clone(),
                 id: meta.id.clone(),
             }
         } else {
@@ -436,20 +445,25 @@ impl TryFrom<SentinelV0_81_0> for CardMetadata {
 
     fn try_from(sentinel: SentinelV0_81_0) -> Result<Self, Self::Error> {
         match sentinel {
-            SentinelV0_81_0::Main { quill, id } => {
+            SentinelV0_81_0::Main { quill, kind, id } => {
                 let reference = QuillReference::from_str(&quill).map_err(|reason| {
                     StorageError::InvalidQuillReference {
                         value: quill.clone(),
                         reason,
                     }
                 })?;
-                // The `Main` variant implies `#@kind: main`. We set it
-                // explicitly on the reconstructed model so the round-trip
-                // matches the parsed shape, where the root block carries
-                // `kind: Some("main")` per the markdown grammar.
+                // The root carries `kind` only when the author wrote `#@kind`
+                // explicitly. The parser already enforces that any such value
+                // is `"main"`, but reconstructed-from-storage data hasn't
+                // passed through the parser — reject anything else here.
+                if let Some(value) = kind.as_deref() {
+                    if value != "main" {
+                        return Err(StorageError::InvalidCardTag { tag: value.into() });
+                    }
+                }
                 Ok(CardMetadata {
                     quill: Some(reference),
-                    kind: Some("main".to_string()),
+                    kind,
                     id,
                 })
             }
@@ -558,6 +572,22 @@ This body and the metadata above are an indorsement card.
         assert_eq!(doc.to_markdown(), restored.to_markdown());
     }
 
+    /// A root block that omits `#@kind` must round-trip with `kind: None`
+    /// intact — the wire format must not synthesize a kind that the author
+    /// never wrote, or `PartialEq` would fail after a save+load.
+    #[test]
+    fn round_trip_preserves_implicit_root_kind() {
+        let doc = Document::from_markdown(
+            "~~~card-yaml\n#@quill: usaf_memo@0.1\ntitle: \"Hi\"\n~~~\n",
+        )
+        .unwrap();
+        assert_eq!(doc.main().meta().kind, None);
+        let restored: Document =
+            serde_json::from_str(&serde_json::to_string(&doc).unwrap()).unwrap();
+        assert_eq!(doc, restored);
+        assert_eq!(restored.main().meta().kind, None);
+    }
+
     #[test]
     fn serialization_is_byte_deterministic() {
         // The wasm `toJson` docstring promises byte-equal output for
@@ -633,6 +663,7 @@ This body and the metadata above are an indorsement card.
             main: CardV0_81_0 {
                 sentinel: SentinelV0_81_0::Main {
                     quill: "not a valid ref!!".to_string(),
+                    kind: None,
                     id: None,
                 },
                 frontmatter: FrontmatterV0_81_0::default(),
@@ -663,6 +694,7 @@ This body and the metadata above are an indorsement card.
             main: CardV0_81_0 {
                 sentinel: SentinelV0_81_0::Main {
                     quill: "usaf_memo@0.1".to_string(),
+                    kind: None,
                     id: None,
                 },
                 frontmatter: FrontmatterV0_81_0::default(),
@@ -671,6 +703,7 @@ This body and the metadata above are an indorsement card.
             cards: vec![CardV0_81_0 {
                 sentinel: SentinelV0_81_0::Main {
                     quill: "usaf_memo@0.1".to_string(),
+                    kind: None,
                     id: None,
                 },
                 frontmatter: FrontmatterV0_81_0::default(),
@@ -687,6 +720,7 @@ This body and the metadata above are an indorsement card.
             main: CardV0_81_0 {
                 sentinel: SentinelV0_81_0::Main {
                     quill: "usaf_memo@0.1".to_string(),
+                    kind: None,
                     id: None,
                 },
                 frontmatter: fm,
@@ -710,6 +744,7 @@ This body and the metadata above are an indorsement card.
             main: CardV0_81_0 {
                 sentinel: SentinelV0_81_0::Main {
                     quill: "usaf_memo@0.1".to_string(),
+                    kind: None,
                     id: None,
                 },
                 frontmatter: FrontmatterV0_81_0::default(),

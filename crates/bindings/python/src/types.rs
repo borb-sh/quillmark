@@ -269,7 +269,11 @@ impl PyDocument {
                     let py_diag = crate::types::PyDiagnostic {
                         inner: e.to_diagnostic(),
                     };
-                    let _ = exc.setattr("diagnostic", py_diag);
+                    // Per the v0.81 binding-error contract, every parse
+                    // exception carries the full `.diagnostics` list; the
+                    // singular `.diagnostic` shim is the single entry.
+                    let _ = exc.setattr("diagnostic", py_diag.clone());
+                    let _ = exc.setattr("diagnostics", vec![py_diag]);
                 }
             });
             py_err

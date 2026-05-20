@@ -66,7 +66,7 @@ crates/bindings/cli/src/
 │   ├── info.rs
 │   ├── render.rs
 │   ├── schema.rs
-│   ├── specs.rs
+│   ├── blueprint.rs
 │   └── validate.rs
 ├── output.rs
 └── errors.rs

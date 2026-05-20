@@ -246,7 +246,7 @@ describe('Document JSON DTO — toJson / fromJson', () => {
   it('drops parse-time warnings on reconstruction', () => {
     // An unknown YAML tag triggers a `parse::unsupported_yaml_tag` warning.
     const warnMd =
-      '---\nQUILL: test_quill\ntitle: Hi\nweird: !custom value\n---\n\nBody\n'
+      '~~~card-yaml\n#@quill: test_quill\ntitle: Hi\nweird: !custom value\n~~~\n\nBody\n'
     const doc = Document.fromMarkdown(warnMd)
     expect(doc.warnings.length).toBeGreaterThan(0)
 

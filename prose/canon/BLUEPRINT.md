@@ -336,7 +336,7 @@ requires:
 
 The contract is enforced by a fixture test that renders every bundled
 quill's blueprint and asserts success
-(`crates/quillmark/tests/blueprint_render_test.rs`).
+(`crates/quillmark/tests/quiver_test.rs::every_quill_in_quiver_renders`).
 
 ## Bindings surface
 

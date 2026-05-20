@@ -98,9 +98,10 @@ def test_parse_error_carries_diagnostic_payload():
     exception carries the diagnostic list; the singular shim is set only
     when there is exactly one diagnostic.
     """
-    invalid_md = """---
+    invalid_md = """~~~card-yaml
+#@quill: test_quill
 title: [unclosed bracket
----
+~~~
 
 Content
 """
