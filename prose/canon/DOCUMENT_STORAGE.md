@@ -15,11 +15,14 @@ syntax also evolves), `Document` serializes to a **versioned JSON envelope**,
 | Form | Round-trips? | Stable for storage? |
 |---|---|---|
 | Markdown (`Document::to_markdown`) | Yes | No — syntax evolves |
-| Plate JSON (`Document::to_plate_json`) | No — lossy, one-way export to backends | — |
 | `StoredDocument` JSON | Yes — lossless | Yes — frozen per schema version |
 
 Use `StoredDocument` JSON whenever a `Document` must survive a process
 restart or a crate upgrade: database rows, caches, message payloads.
+
+`Document::to_plate_json` also exists as a lossy, one-way export to
+Plate-shaped backends; it is core-only (not exposed by the WASM or Python
+bindings) and never a storage option.
 
 ## Design Principles
 
@@ -60,10 +63,11 @@ assert_eq!(doc, restored);
 
 ## Schema Versioning
 
-The schema tag is tied to the **crate version at which the `Document` model
-was last changed** — not the running crate version. The current model was
-fixed in `0.81.0`, so the tag is `quillmark/document@0.81.0`; every `0.81.x`
-patch release writes that same tag, because patches do not change the model.
+The schema version is tied to the **crate version at which the `Document`
+model was last changed** — not the running crate version. The current model
+was fixed in `0.81.0`, so the version is `quillmark/document@0.81.0`; every
+`0.81.x` patch release writes that same value, because patches do not
+change the model.
 
 `0.81.0` is the **baseline** schema: it has no predecessor and requires no
 migration. The first migration work occurs at the next model change.
@@ -101,9 +105,9 @@ any past version always loads.
 
 ## Gotchas
 
-- The schema tag is a hand-set constant (`SCHEMA_V0_81_0`), **not**
+- The schema version is a hand-set constant (`SCHEMA_V0_81_0`), **not**
   `CARGO_PKG_VERSION` — bumping it is a deliberate act tied to a model change.
-- Unknown schema tags are rejected on read, never silently ignored.
+- Unknown schema versions are rejected on read, never silently ignored.
 - DTO type names carry version suffixes with underscores
   (`DocumentV0_81_0`); `non_camel_case_types` is allowed module-wide for this.
 
