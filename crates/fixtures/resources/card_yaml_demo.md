@@ -1,6 +1,6 @@
 ~~~card-yaml
-#@quill: test_quill
-#@kind: main
+$quill: test_quill
+$kind: main
 title: Quillmark Card-YAML Demo
 author: Quillmark Team
 date: 2024-01-01
@@ -28,7 +28,7 @@ Quillmark parses a **`~~~card-yaml` block** at the beginning of the document. Th
 - **YAML Parsing**: Supports standard YAML syntax in the payload
 - **Field Extraction**: All payload fields are available as dictionary entries
 - **Body Separation**: Only the markdown body (not the payload) gets converted
-- **System Metadata**: `#@quill` and `#@kind` are `#@`-prefixed metadata lines
+- **System Metadata**: `$quill` and `$kind` are reserved `$`-prefixed keys, extracted from the YAML payload into typed metadata
 
 ## Example Usage
 

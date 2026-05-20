@@ -6,7 +6,7 @@
 //!
 //! Every successful mutator call leaves the document in a state that:
 //! - Contains no reserved key in any card's payload (`BODY`, `CARDS`, `QUILL`, `CARD`).
-//! - Has every composable card's `#@kind` passing `meta::is_valid_kind_name`.
+//! - Has every composable card's `$kind` passing `meta::is_valid_kind_name`.
 //! - Can be safely serialized via [`Document::to_plate_json`].
 //!
 //! **Mutators never modify `warnings`.**  Warnings are parse-time observations
@@ -87,7 +87,7 @@ pub enum EditError {
     InvalidKindName(String),
 
     /// The supplied card kind is `"main"`, which is reserved for the
-    /// document root. Composable cards may not declare `#@kind: main`.
+    /// document root. Composable cards may not declare `$kind: main`.
     #[error("card kind 'main' is reserved for the document root")]
     ReservedKind,
 
@@ -99,7 +99,7 @@ pub enum EditError {
 // ── impl Document ────────────────────────────────────────────────────────────
 
 impl Document {
-    /// Replace the root block's `#@quill` system-metadata entry.
+    /// Replace the root block's `$quill` system-metadata entry.
     ///
     /// # Invariants enforced
     ///
@@ -165,9 +165,9 @@ impl Document {
         Some(self.cards_vec_mut().remove(index))
     }
 
-    /// Replace the `#@kind` of the composable card at `index`.
+    /// Replace the `$kind` of the composable card at `index`.
     ///
-    /// **Field-bag semantics.** This mutates only the `#@kind` metadata; the
+    /// **Field-bag semantics.** This mutates only the `$kind` metadata; the
     /// card's payload and body are untouched. After the call:
     ///
     /// - Fields valid under both old and new schemas round-trip unchanged.
@@ -254,7 +254,7 @@ impl Card {
     /// - `kind` must not be `"main"` — that kind is reserved for the
     ///   document root. Returns [`EditError::ReservedKind`].
     ///
-    /// The new card declares `#@kind: <kind>`, has no fields, and an empty body.
+    /// The new card declares `$kind: <kind>`, has no fields, and an empty body.
     pub fn new(kind: impl Into<String>) -> Result<Self, EditError> {
         let kind = kind.into();
         if !is_valid_kind_name(&kind) {

@@ -7,8 +7,8 @@ to render the document; later blocks are composable [cards](cards.md).
 
 ```
 ~~~card-yaml
-#@quill: my_format
-#@kind: main
+$quill: my_format
+$kind: main
 title: My Document
 author: Jane Doe
 date: 2025-01-15
@@ -20,17 +20,15 @@ tags: ["important", "draft"]
 
 ## Block Structure
 
-A card-yaml block has four parts, in order:
+A card-yaml block has three parts, in order:
 
 1. **Opening fence** — exactly `~~~card-yaml` (three tildes plus the info
    string). No leading indentation. The info string alone identifies a
    metadata block.
-2. **System metadata header** — an optional leading run of `#@key: value`
-   lines inside the block. The root block must declare `#@quill`; all other
-   `#@` entries are optional.
-3. **Data payload** — standard YAML key/value pairs directly below the
-   `#@` header.
-4. **Closing fence** — exactly `~~~`.
+2. **YAML payload** — a standard YAML mapping. The reserved keys `$quill`,
+   `$kind`, and `$id` carry system metadata (see below); every other key is
+   a user-defined data field.
+3. **Closing fence** — exactly `~~~`.
 
 The unstructured Markdown body begins immediately after the closing `~~~`
 fence and runs to the next opening fence or the end of the document.
@@ -40,34 +38,34 @@ A blank line is required immediately above every `~~~card-yaml` opener,
 `~~~card-yaml` line without a blank line above it is **not** an opener — it is
 treated as an ordinary code block.
 
-## System Metadata (`#@`)
+## System Metadata (`$`)
 
-A block may begin with a **system metadata header** — an optional leading run
-of `#@key: value` lines. These lines carry no parser semantics; they are kept
-out of the YAML payload's user field set.
+The block's YAML payload may contain three reserved `$`-prefixed keys.
+After parsing, these keys are extracted from the user field set and exposed
+on the block's typed metadata.
 
-- **`#@quill: <name>@<version>`** names the format used to render the
+- **`$quill: <name>@<version>`** names the format used to render the
   document. The root block (the first block, identified by position) **must
-  declare `#@quill`** — it is the only required `#@` entry. If the root block
-  is missing `#@quill`, parsing fails.
-- **`#@kind: <kind>`** is optional metadata identifying a card's kind. There
-  is no reserved kind, but `<kind>` must match `[a-z_][a-z0-9_]*` — an invalid
-  kind is a parse error.
-- **`#@id: <value>`** is an opaque, optional identifier — plain metadata with
+  declare `$quill`** — it is the only required `$` entry. If the root block
+  is missing `$quill`, parsing fails.
+- **`$kind: <kind>`** identifies a card's kind. The root block must declare
+  `$kind: main`; every composable card must declare a kind matching
+  `[a-z_][a-z0-9_]*` other than `main`.
+- **`$id: <value>`** is an opaque, optional identifier — plain metadata with
   no validation or uniqueness requirement, carried through the round-trip.
 
-`#@` header lines may appear in any order; the emitter preserves their source
-order. A duplicate `#@key` within a single block, or a malformed `#@` line, is
-a parse error.
+`$` metadata entries may appear anywhere in the block's payload (the
+canonical emission puts them first, in the order `$quill`, `$kind`,
+`$id`). Any other `$`-prefixed key is a parse error — the set is closed.
 
 ### Version Selectors
 
-Pin a specific version with `@version` syntax on the `#@quill` line:
+Pin a specific version with `@version` syntax on the `$quill` line:
 
 ```
 ~~~card-yaml
-#@quill: my_format@2.1
-#@kind: main
+$quill: my_format@2.1
+$kind: main
 title: Document Title
 ~~~
 ```
@@ -85,7 +83,8 @@ underscores; must start with a lowercase letter).
 
 ## Payload Data Types
 
-The data payload below the `#@` metadata header is standard YAML.
+The data payload (everything in the YAML mapping except the `$`-prefixed
+metadata keys) is standard YAML.
 
 **Strings:**
 ```yaml
@@ -140,7 +139,9 @@ YAML comments are supported in the payload and round-trip through
 title: My Document  # an inline comment
 ```
 
-Comments are **not** supported on a `#@` header line itself.
+Comments adjacent to a `$` metadata key (whether inline or own-line) are
+accepted by the YAML parser but **not preserved** through emit — the
+canonical form drops them.
 
 ## Placeholder Fields (`!fill`)
 
@@ -163,17 +164,18 @@ dropped with a warning.
 `QUILL`, `CARD`, `BODY`, and `CARDS` are reserved and cannot be used as field
 names — the parser rejects documents that include them. `BODY` holds the
 block's Markdown body; `CARDS` holds the array of card blocks; `QUILL` and
-`CARD` hold the values declared by the `#@quill` and `#@kind` metadata.
+`CARD` hold the values declared by the `$quill` and `$kind` metadata.
 
 ## Card Blocks
 
-Every card-yaml block after the root block is a **card**. It may carry a
-`#@kind: <kind>` metadata line, where `<kind>` matches `[a-z_][a-z0-9_]*`. All
-card blocks are collected into the `CARDS` array available to templates.
+Every card-yaml block after the root block is a **card**. It must declare a
+`$kind: <kind>` entry, where `<kind>` matches `[a-z_][a-z0-9_]*` and is not
+`main`. All card blocks are collected into the `CARDS` array available to
+templates.
 
 ```
 ~~~card-yaml
-#@kind: endorsement
+$kind: endorsement
 from: ORG/SYMBOL
 for: ORG2/SYMBOL
 ~~~
@@ -186,10 +188,11 @@ See [Cards](cards.md) for details on card syntax and usage.
 ## Emission
 
 `toMarkdown` always emits the canonical block form — a `~~~card-yaml` opener,
-the `#@` metadata lines in source order, the YAML payload, and a `~~~` closer.
-The root block's header includes `#@quill`; other blocks emit whatever `#@`
-entries they declared, or none. Fence markers, key ordering, and YAML quoting
-are normalised; `!fill` tags and payload comments survive the round-trip.
+the `$` metadata lines in the canonical order `$quill`, `$kind`, `$id`, the
+remaining data fields, and a `~~~` closer. The root block emits both
+`$quill` and `$kind: main`; composable cards emit `$kind: <kind>` plus any
+`$id` they declared. Fence markers, key ordering, and YAML quoting are
+normalised; `!fill` tags and data-field comments survive the round-trip.
 
 The payload is coerced and validated against the schema declared in the
 Quill's `Quill.yaml` (`main.fields`). See the

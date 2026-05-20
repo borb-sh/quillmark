@@ -381,12 +381,12 @@ card_kinds:
 
 ### Using Cards in Markdown
 
-Cards appear as `~~~card-yaml` blocks with a `#@kind: <kind>` metadata line in the document body:
+Cards appear as `~~~card-yaml` blocks with a `$kind: <kind>` metadata line in the document body:
 
 ```markdown
 ~~~card-yaml
-#@quill: usaf_memo
-#@kind: main
+$quill: usaf_memo
+$kind: main
 subject: Example
 # ... other fields ...
 ~~~
@@ -394,7 +394,7 @@ subject: Example
 Main memo body text here.
 
 ~~~card-yaml
-#@kind: indorsement
+$kind: indorsement
 from: ORG/SYMBOL
 for: RECIPIENT/SYMBOL
 signature_block:
@@ -405,7 +405,7 @@ signature_block:
 Body of the first endorsement.
 
 ~~~card-yaml
-#@kind: indorsement
+$kind: indorsement
 from: ANOTHER/ORG
 for: FINAL/RECIPIENT
 format: informal
