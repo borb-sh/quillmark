@@ -26,7 +26,7 @@
 //! The V0_81_0 wire format uses the names current at the time it was frozen
 //! (`sentinel`, `frontmatter`, `tag`). The in-memory model has since renamed
 //! these to `meta`, `payload`, and `kind` respectively; the conversion code
-//! below maps between the two. The `#@id` system-metadata field, added after
+//! below maps between the two. The `$id` system-metadata field, added after
 //! V0_81_0 was frozen, is carried as an optional, soft-additive field on
 //! the wire-format sentinel variants — documents without an `id` serialize
 //! to byte-identical output, preserving the V0_81_0 byte-stability contract
@@ -107,27 +107,27 @@ pub struct CardV0_81_0 {
 ///
 /// Maps the V0_81_0 wire enum (`Main { quill }` vs `Card { tag }`) onto the
 /// model's unified [`CardMetadata`]. The `id` field is a soft-additive
-/// extension: absent on documents written before `#@id` existed, optional
+/// extension: absent on documents written before `$id` existed, optional
 /// on documents written after.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum SentinelV0_81_0 {
     /// Document entry card. `quill` is the rendered quill reference string
     /// (e.g. `usaf_memo@0.1`), parsed back via [`QuillReference::from_str`].
-    /// The root's `#@kind` is always `"main"` per the spec (§3.3); the wire
+    /// The root's `$kind` is always `"main"` per the spec (§3.3); the wire
     /// format omits it because the variant discriminator already implies it.
     Main {
         /// Quill reference string.
         quill: String,
-        /// `#@id` opaque identifier, if any.
+        /// `$id` opaque identifier, if any.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
     },
     /// Composable card with a kind tag.
     Card {
-        /// Card kind tag (matches the model's `#@kind`).
+        /// Card kind tag (matches the model's `$kind`).
         tag: String,
-        /// `#@id` opaque identifier, if any.
+        /// `$id` opaque identifier, if any.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
     },
@@ -455,9 +455,9 @@ impl TryFrom<SentinelV0_81_0> for CardMetadata {
                         reason,
                     }
                 })?;
-                // The `Main` variant implies `#@kind: main` (spec §3.3); the
+                // The `Main` variant implies `$kind: main` (spec §3.3); the
                 // reconstructed model carries the canonical kind so the
-                // markdown emit emits `#@kind: main` and the round-trip is
+                // markdown emit emits `$kind: main` and the round-trip is
                 // symmetric with the parser, which requires it.
                 Ok(CardMetadata {
                     quill: Some(reference),
@@ -538,8 +538,8 @@ mod tests {
         Document::from_markdown(
             "\
 ~~~card-yaml
-#@quill: usaf_memo@0.1
-#@kind: main
+$quill: usaf_memo@0.1
+$kind: main
 # a top-level comment
 memo_for:
   - ORG/SYMBOL # inline comment inside a sequence
@@ -550,7 +550,7 @@ subject: !fill Subject of the Memorandum
 The body of the memorandum.
 
 ~~~card-yaml
-#@kind: indorsement
+$kind: indorsement
 for: ORG/SYMBOL
 from: ORG/SYMBOL
 ~~~
@@ -576,7 +576,7 @@ This body and the metadata above are an indorsement card.
     #[test]
     fn root_kind_is_main_through_round_trip() {
         let doc = Document::from_markdown(
-            "~~~card-yaml\n#@quill: usaf_memo@0.1\n#@kind: main\ntitle: \"Hi\"\n~~~\n",
+            "~~~card-yaml\n$quill: usaf_memo@0.1\n$kind: main\ntitle: \"Hi\"\n~~~\n",
         )
         .unwrap();
         assert_eq!(doc.main().meta().kind.as_deref(), Some("main"));

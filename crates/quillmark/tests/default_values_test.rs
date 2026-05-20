@@ -47,7 +47,7 @@ main:
         .expect("quill_from_path failed");
 
     let markdown =
-        "~~~card-yaml\n#@quill: test_quill\n#@kind: main\ntitle: My Document\n~~~\n\n# Content\n";
+        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: My Document\n~~~\n\n# Content\n";
     let parsed = Document::from_markdown(markdown).expect("parse failed");
 
     let result = quill.dry_run(&parsed);
@@ -85,7 +85,7 @@ main:
         .expect("quill_from_path failed");
 
     let markdown =
-        "~~~card-yaml\n#@quill: test_quill\n#@kind: main\ntitle: My Document\nstatus: published\n~~~\n\n# Content\n";
+        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: My Document\nstatus: published\n~~~\n\n# Content\n";
     let parsed = Document::from_markdown(markdown).expect("parse failed");
 
     let result = quill.dry_run(&parsed);
@@ -123,7 +123,7 @@ main:
         .quill_from_path(&quill_path)
         .expect("quill_from_path failed");
 
-    let markdown = "~~~card-yaml\n#@quill: test_quill\n#@kind: main\n~~~\n\n# Content";
+    let markdown = "~~~card-yaml\n$quill: test_quill\n$kind: main\n~~~\n\n# Content";
     let parsed = Document::from_markdown(markdown).expect("parse failed");
 
     let dry_run_result = quill.dry_run(&parsed);
@@ -162,7 +162,7 @@ main:
         .expect("quill_from_path failed");
 
     let markdown =
-        "~~~card-yaml\n#@quill: test_quill\n#@kind: main\nstatus: published\n~~~\n\n# Content\n";
+        "~~~card-yaml\n$quill: test_quill\n$kind: main\nstatus: published\n~~~\n\n# Content\n";
     let parsed = Document::from_markdown(markdown).expect("parse failed");
 
     let result = quill.dry_run(&parsed);

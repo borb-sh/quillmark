@@ -18,7 +18,7 @@
 //! `|` or `>` block forms in v1.
 //!
 //! This module owns the surrounding structure — `~~~card-yaml` fences,
-//! `#@` system-metadata headers, field ordering, indentation, comment
+//! `$`-prefixed system-metadata lines, field ordering, indentation, comment
 //! interleaving — and calls saphyr only for the scalar leaves.
 
 use serde_json::Value as JsonValue;
@@ -50,9 +50,9 @@ impl Document {
     ///
     /// - Line endings: `\n` only.  CRLF normalization happens on import.
     /// - Every block is emitted as a `~~~card-yaml` fence: a `~~~card-yaml`
-    ///   opener, the `#@` system-metadata header (`#@quill: <ref>` for the
-    ///   root block, `#@kind: <kind>` for composable cards), the block's YAML
-    ///   payload, then a closing `~~~`.
+    ///   opener, the `$`-prefixed system-metadata lines (`$quill: <ref>` for
+    ///   the root block, `$kind: <kind>` for composable cards) leading the
+    ///   YAML payload, the user-defined data fields, then a closing `~~~`.
     /// - Cards: one blank line before each, then the block, then the card body.
     /// - Body: emitted verbatim after the root block (and after each card).
     /// - Mappings and sequences: **block style** at every nesting level.
@@ -119,24 +119,23 @@ impl Document {
 
 // ── Block emission ────────────────────────────────────────────────────────────
 
-/// Emit a card-yaml block: `~~~card-yaml`, the `#@` system-metadata header,
-/// the YAML payload, then a closing `~~~`.
+/// Emit a card-yaml block: `~~~card-yaml`, the `$`-prefixed system-metadata
+/// lines, the YAML data payload, then a closing `~~~`.
 ///
-/// The `#@` header is emitted in the canonical key order `quill`, `kind`,
-/// `id` — only keys the block declares appear. There is no `#@` line for an
-/// inline comment to attach to, so an inline comment carried over at
-/// `items[0]` degrades to an own-line comment as the first payload line,
-/// preserving its text.
+/// The `$` lines are emitted in the canonical key order `$quill`, `$kind`,
+/// `$id` — only keys the block declares appear. They lead the YAML payload
+/// as ordinary mapping entries; the parser extracts them back into typed
+/// metadata via [`super::meta::extract_meta_from_payload`].
 ///
 /// Three tildes are always a safe fence length: canonically emitted payload
 /// lines never begin with `~` (keys are identifiers, sequence items start with
 /// `-`, saphyr quotes any string that would, comments start with `#`), so the
 /// fence can never be closed early.
 fn emit_meta_line(out: &mut String, key: &str, value: &str) {
-    out.push_str("#@");
+    out.push('$');
     out.push_str(key);
     out.push_str(": ");
-    out.push_str(value);
+    out.push_str(&saphyr_emit_scalar(&JsonValue::String(value.to_string())));
     out.push('\n');
 }
 
@@ -746,7 +745,7 @@ mod tests {
     /// any specific quoting form, so the test asserts the value survives
     /// parse — not the byte layout.
     fn assert_scalar_round_trips(value: serde_json::Value) {
-        let mut yaml = String::from("~~~card-yaml\n#@quill: q\n#@kind: main\nv: ");
+        let mut yaml = String::from("~~~card-yaml\n$quill: q\n$kind: main\nv: ");
         yaml.push_str(&saphyr_emit_scalar(&value));
         yaml.push_str("\n~~~\n");
         let doc = crate::document::Document::from_markdown(&yaml).unwrap_or_else(|e| {

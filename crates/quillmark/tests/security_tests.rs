@@ -15,7 +15,7 @@ fn test_yaml_depth_limit_attack() {
         deep_yaml.push_str("a:\n");
     }
     let markdown = format!(
-        "~~~card-yaml\n#@quill: test_quill\n#@kind: main\n{}~~~\n\nBody",
+        "~~~card-yaml\n$quill: test_quill\n$kind: main\n{}~~~\n\nBody",
         deep_yaml
     );
     let result = Document::from_markdown(&markdown);
@@ -35,11 +35,11 @@ fn test_yaml_depth_limit_attack() {
 fn test_card_count_limit_attack() {
     // Generate more than MAX_CARD_COUNT (1000) card blocks
     let mut markdown = String::from(
-        "~~~card-yaml\n#@quill: test_quill\n#@kind: main\ntitle: Test\n~~~\n\nBody\n\n",
+        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\nBody\n\n",
     );
     for i in 0..1002 {
         markdown.push_str(&format!(
-            "~~~card-yaml\n#@kind: item{}\nvalue: {}\n~~~\n\n",
+            "~~~card-yaml\n$kind: item{}\nvalue: {}\n~~~\n\n",
             i, i
         ));
     }
@@ -68,7 +68,7 @@ fn test_typst_injection_via_special_chars() {
 
     for input in malicious_inputs {
         let markdown = format!(
-            "~~~card-yaml\n#@quill: test_quill\n#@kind: main\n~~~\n\n{}",
+            "~~~card-yaml\n$quill: test_quill\n$kind: main\n~~~\n\n{}",
             input
         );
         let result = Document::from_markdown(&markdown);
@@ -86,7 +86,7 @@ fn test_typst_injection_via_special_chars() {
 fn test_input_size_limit() {
     let large_content = "a".repeat(11 * 1024 * 1024); // 11 MB
     let markdown = format!(
-        "~~~card-yaml\n#@quill: test_quill\n#@kind: main\ntitle: Large\n~~~\n\n{}",
+        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Large\n~~~\n\n{}",
         large_content
     );
     let result = Document::from_markdown(&markdown);
@@ -105,7 +105,7 @@ fn test_input_size_limit() {
 fn test_yaml_size_limit() {
     let large_value = "x".repeat(1024 * 1024 + 100);
     let markdown = format!(
-        "~~~card-yaml\n#@quill: test_quill\n#@kind: main\ndata: {}\n~~~\n\nBody",
+        "~~~card-yaml\n$quill: test_quill\n$kind: main\ndata: {}\n~~~\n\nBody",
         large_value
     );
     let result = Document::from_markdown(&markdown);
@@ -124,11 +124,11 @@ fn test_yaml_size_limit() {
 fn test_reserved_field_injection() {
     let reserved_tests = vec![
         (
-            "~~~card-yaml\n#@quill: test_quill\n#@kind: main\nBODY: injected\n~~~\n\nBody",
+            "~~~card-yaml\n$quill: test_quill\n$kind: main\nBODY: injected\n~~~\n\nBody",
             "BODY",
         ),
         (
-            "~~~card-yaml\n#@quill: test_quill\n#@kind: main\nCARDS: []\n~~~\n\nBody",
+            "~~~card-yaml\n$quill: test_quill\n$kind: main\nCARDS: []\n~~~\n\nBody",
             "CARDS",
         ),
     ];
@@ -151,7 +151,7 @@ fn test_reserved_field_injection() {
 
 /// Test that card kind validation prevents invalid names via the edit API.
 ///
-/// `#@kind` is now opaque system metadata at parse time, so `from_markdown`
+/// `$kind` is now opaque system metadata at parse time, so `from_markdown`
 /// no longer validates kind names. The `[a-z_][a-z0-9_]*` rule is still
 /// enforced by the structural edit API (`Card::new`), which is what this
 /// test now exercises.
@@ -173,7 +173,7 @@ fn test_card_name_validation() {
 #[test]
 fn test_yaml_error_location() {
     let markdown =
-        "~~~card-yaml\n#@quill: test_quill\n#@kind: main\ntitle: Test\n~~~\n\nBody\n\n~~~card-yaml\n#@kind: test\ninvalid yaml: {\n~~~\n\n";
+        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\nBody\n\n~~~card-yaml\n$kind: test\ninvalid yaml: {\n~~~\n\n";
     let result = Document::from_markdown(markdown);
 
     assert!(result.is_err(), "Should reject invalid YAML");
@@ -189,7 +189,7 @@ fn test_yaml_error_location() {
 #[test]
 fn test_strict_fence_detection() {
     let markdown =
-        "~~~card-yaml\n#@quill: test_quill\n#@kind: main\ntitle: Test\n~~~\n\n````\n~~~card-yaml\n#@kind: test\nvalue: 1\n~~~\n````";
+        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\n````\n~~~card-yaml\n$kind: test\nvalue: 1\n~~~\n````";
     let result = Document::from_markdown(markdown);
 
     assert!(result.is_ok(), "Should parse successfully: {:?}", result);

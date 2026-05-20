@@ -326,7 +326,7 @@ pub enum ParseError {
     EmptyInput(String),
 
     /// The document is missing its root `~~~card-yaml` block, or that block
-    /// does not declare the required `#@quill` system metadata.
+    /// does not declare the required `$quill` system metadata.
     ///
     /// Emitted as code `parse::missing_quill` so consumers can
     /// pattern-match without inspecting the message text.

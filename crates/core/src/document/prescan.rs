@@ -107,7 +107,7 @@ enum FrameKind {
 
 /// Scan the YAML payload of a card-yaml block.
 ///
-/// `content` is the block's YAML payload — the text below the `#@`
+/// `content` is the block's YAML payload — the text below the `$`
 /// metadata header — with leading/trailing whitespace preserved.
 pub fn prescan_fence_content(content: &str) -> PreScan {
     let mut out = PreScan::default();
@@ -457,16 +457,25 @@ fn has_empty_inline_value(after_colon: &str) -> bool {
 fn split_key(line: &str) -> Option<(String, String)> {
     // Identifier-like keys only. YAML allows more, but Quillmark's schema
     // restricts field names to `[a-zA-Z_][a-zA-Z0-9_]*` (and reserved
-    // uppercase keys). Anything more exotic falls through to the
+    // uppercase keys). `$`-prefixed system-metadata keys (`$quill`, `$kind`,
+    // `$id`) are also recognised so the prescan can detect tags or trailing
+    // comments on them. Anything more exotic falls through to the
     // unmodified path and will be parsed (or rejected) by serde_saphyr.
     let bytes = line.as_bytes();
     if bytes.is_empty() {
         return None;
     }
-    if !(bytes[0].is_ascii_alphabetic() || bytes[0] == b'_') {
+    let mut i;
+    if bytes[0] == b'$' {
+        if bytes.len() < 2 || !(bytes[1].is_ascii_alphabetic() || bytes[1] == b'_') {
+            return None;
+        }
+        i = 2;
+    } else if bytes[0].is_ascii_alphabetic() || bytes[0] == b'_' {
+        i = 1;
+    } else {
         return None;
     }
-    let mut i = 1;
     while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
         i += 1;
     }

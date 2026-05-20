@@ -10,15 +10,15 @@ constraint hints. It is the **authoring surface** for LLM and MCP
 consumers; [SCHEMAS.md](SCHEMAS.md) covers the validation/form surface.
 
 A blueprint is the document, not a description of the document. Fill in
-the placeholders; the structure, `#@` metadata, and body markers come for
+the placeholders; the structure, `$` metadata, and body markers come for
 free.
 
 ## Output shape
 
 ````
 ~~~card-yaml
-#@quill: <name>@<version>
-#@kind: main
+$quill: <name>@<version>
+$kind: main
 # <description>
 
 # <field description>
@@ -29,7 +29,7 @@ field: value  # <type>; <role>
 Write main body here.
 
 ~~~card-yaml
-#@kind: <card_kind>
+$kind: <card_kind>
 # composable (0..N)
 # <card description>
 ...fields...
@@ -39,8 +39,8 @@ Write <card_kind> body here.
 ````
 
 Every block is a `~~~card-yaml` block (see [MARKDOWN.md](MARKDOWN.md) §3):
-the root block carries the `#@quill` system-metadata line; each composable
-card carries a `#@kind: <card_kind>` metadata line.
+the root block carries the `$quill` system-metadata line; each composable
+card carries a `$kind: <card_kind>` metadata line.
 
 When `body.example` is set, its text replaces the body marker entirely.
 When `body.enabled` is false the marker is omitted entirely.
@@ -93,15 +93,15 @@ Form: **`# <type>[<format>]; <role>[, <extra>...]`**
 - **Extras** (optional, comma-separated, after the role): additional
   qualifiers.
 
-The `#@` system-metadata lines (`#@quill`, `#@kind`, …) have no
-inline-annotation slot — they are not YAML fields. (Parsers accept a
-trailing ` # comment` on a `#@` line, but the blueprint emitter does not
-attach one — the canonical form drops it.) The root block's
-`#@quill` line is emitted verbatim; its value is fixed and must not be
-modified. A composable card's kind is carried in its `#@kind: <card_kind>`
-metadata line. Its `composable (0..N)` role is emitted as an own-line
-`# composable (0..N)` comment directly under the `#@` header, ahead of the
-card description.
+The `$`-prefixed system-metadata keys (`$quill`, `$kind`, …) have no
+inline-annotation slot — they are not user-defined data fields. (The YAML
+parser accepts a trailing ` # comment` on a `$` line, but the blueprint
+emitter does not attach one, and the canonical form drops every comment
+attached to a `$` line.) The root block's `$quill` line is emitted
+verbatim; its value is fixed and must not be modified. A composable
+card's kind is carried in its `$kind: <card_kind>` metadata line. Its
+`composable (0..N)` role is emitted as an own-line `# composable (0..N)`
+comment directly under the `$kind` line, ahead of the card description.
 
 Examples:
 
@@ -116,8 +116,8 @@ Examples:
 | `date: ""  # date<YYYY-MM-DD>; required` | required date in `YYYY-MM-DD` format |
 | `published: ""  # datetime<ISO 8601>; required` | required datetime in ISO 8601 |
 | `level: low  # enum<low \| medium \| high>; optional` | optional enum, default is first value |
-| `#@quill: cmu_letter@0.1.0` | quill binding metadata, emitted verbatim, do not modify |
-| `#@kind: skill` followed by `# composable (0..N)` | repeat the entire `~~~card-yaml` … `~~~` block per instance |
+| `$quill: cmu_letter@0.1.0` | quill binding metadata, emitted verbatim, do not modify |
+| `$kind: skill` followed by `# composable (0..N)` | repeat the entire `~~~card-yaml` … `~~~` block per instance |
 
 ## Placeholder value precedence
 
@@ -279,8 +279,8 @@ blueprint's document structure.
 
 ```
 ~~~card-yaml
-#@quill: cmu_letter@0.1.0
-#@kind: main
+$quill: cmu_letter@0.1.0
+$kind: main
 # Typeset letters that comply with Carnegie Mellon University letterhead standards.
 
 # The recipient's name and full mailing address.

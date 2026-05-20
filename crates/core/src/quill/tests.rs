@@ -2283,7 +2283,7 @@ fn body_example_with_card_yaml_fence_line_is_an_error() {
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
   body:
-    example: "Opening paragraph.\n\n~~~card-yaml\n#@kind: note\n~~~\n\nClosing paragraph."
+    example: "Opening paragraph.\n\n~~~card-yaml\n$kind: note\n~~~\n\nClosing paragraph."
   fields:
     title: { type: string }
 "#;
@@ -2362,7 +2362,7 @@ main:
 card_kinds:
   note:
     body:
-      example: "See below:\n~~~card-yaml\n#@kind: other\n~~~\nEnd."
+      example: "See below:\n~~~card-yaml\n$kind: other\n~~~\nEnd."
     fields:
       author: { type: string }
 "#;

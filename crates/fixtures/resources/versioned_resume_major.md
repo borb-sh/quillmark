@@ -1,6 +1,6 @@
 ~~~card-yaml
-#@quill: classic_resume@2
-#@kind: main
+$quill: classic_resume@2
+$kind: main
 name: John Smith
 email: john.smith@example.com
 phone: (555) 987-6543

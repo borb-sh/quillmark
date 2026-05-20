@@ -24,12 +24,12 @@ Use semantic versioning (`MAJOR.MINOR.PATCH`) to communicate compatibility:
 
 ## How Authors Select Versions
 
-Authors can target versions through the root block's `#@quill` system metadata:
+Authors can target versions through the root block's `$quill` system metadata:
 
 ```markdown
 ~~~card-yaml
-#@quill: my_quill@1.2
-#@kind: main
+$quill: my_quill@1.2
+$kind: main
 title: Quarterly Report
 ~~~
 ```

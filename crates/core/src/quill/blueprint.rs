@@ -5,8 +5,8 @@
 //! constraints, examples — so a consumer can write a fresh document from it.
 //!
 //! Every block is a `~~~card-yaml` fence: the root block declares
-//! `#@quill: <name>@<version>` and each composable card declares
-//! `#@kind: <kind>` (see `MARKDOWN.md`).
+//! `$quill: <name>@<version>` and each composable card declares
+//! `$kind: <kind>` (see `MARKDOWN.md`).
 //!
 //! Annotation grammar:
 //! - **Leading `# …` lines** carry prose: `# <description>` (single line,
@@ -17,11 +17,11 @@
 //!   field. Format slot uses angle brackets (`array<string>`,
 //!   `date<YYYY-MM-DD>`, `enum<a | b | c>`). Role is `required` or
 //!   `optional`.
-//! - **Metadata annotation.** The `#@quill` / `#@kind` system-metadata lines
+//! - **Metadata annotation.** The `$quill` / `$kind` system-metadata lines
 //!   have no inline-annotation slot, so their role annotation
 //!   (`system metadata; required, verbatim` for the root block,
 //!   `composable (0..N)` for cards) is emitted as an own-line `# …` comment
-//!   directly under the `#@` line.
+//!   directly under the `$` line.
 //! - **Body regions** are signalled by `Write main body here.` after the main
 //!   fence and `Write <card kind> body here.` after each card fence. When
 //!   `body.example` is set, the example text is embedded verbatim instead.
@@ -35,6 +35,7 @@ use std::collections::BTreeMap;
 use super::{CardSchema, FieldSchema, FieldType, QuillConfig};
 use crate::document::emit::{saphyr_emit_flow, saphyr_emit_scalar};
 use crate::value::QuillValue;
+use serde_json::Value as JsonValue;
 
 impl QuillConfig {
     /// Generate an annotated Markdown blueprint for this quill. See module
@@ -88,9 +89,9 @@ fn write_comment(out: &mut String, text: &str) {
 }
 
 /// Emit the root block:
-/// `~~~card-yaml\n#@quill: …\n#@kind: main\n# system metadata; …\n[# desc\n]<fields>~~~\n`.
+/// `~~~card-yaml\n$quill: …\n$kind: main\n# system metadata; …\n[# desc\n]<fields>~~~\n`.
 ///
-/// The `#@quill` system-metadata line leads the block; the role annotation
+/// The `$quill` system-metadata line leads the block; the role annotation
 /// and the optional description follow as own-line comments.
 fn write_main_fence(
     out: &mut String,
@@ -99,10 +100,10 @@ fn write_main_fence(
     description: Option<&str>,
 ) {
     out.push_str("~~~card-yaml\n");
-    out.push_str("#@quill: ");
-    out.push_str(quill_ref);
+    out.push_str("$quill: ");
+    out.push_str(&saphyr_emit_scalar(&JsonValue::String(quill_ref.to_string())));
     out.push('\n');
-    out.push_str("#@kind: main\n");
+    out.push_str("$kind: main\n");
     write_comment(out, "system metadata; required, verbatim");
     if let Some(desc) = description {
         write_comment(out, desc);
@@ -111,13 +112,13 @@ fn write_main_fence(
     out.push_str("~~~\n");
 }
 
-/// Emit a composable card as a `~~~card-yaml` block declaring `#@kind: <kind>`.
+/// Emit a composable card as a `~~~card-yaml` block declaring `$kind: <kind>`.
 /// The `composable (0..N)` role annotation and the optional description are
-/// emitted as own-line comments directly under the `#@kind` header.
+/// emitted as own-line comments directly under the `$kind` header.
 fn write_card_fence(out: &mut String, card: &CardSchema) {
     out.push_str("~~~card-yaml\n");
-    out.push_str("#@kind: ");
-    out.push_str(&card.name);
+    out.push_str("$kind: ");
+    out.push_str(&saphyr_emit_scalar(&JsonValue::String(card.name.clone())));
     out.push('\n');
     out.push_str("# composable (0..N)\n");
     if let Some(desc) = &card.description {
@@ -622,7 +623,7 @@ main:
 "#)
         .blueprint();
         assert!(t.starts_with(
-            "~~~card-yaml\n#@quill: taro@0.1.0\n#@kind: main\n# system metadata; required, verbatim\n# x\n"
+            "~~~card-yaml\n$quill: taro@0.1.0\n$kind: main\n# system metadata; required, verbatim\n# x\n"
         ));
         assert!(t.contains("\nWrite main body here.\n"));
     }
@@ -642,7 +643,7 @@ card_kinds:
 "#)
         .blueprint();
         assert!(t.contains(
-            "~~~card-yaml\n#@kind: note\n# composable (0..N)\n# A short note appended to the document.\n"
+            "~~~card-yaml\n$kind: note\n# composable (0..N)\n# A short note appended to the document.\n"
         ));
     }
 
@@ -660,7 +661,7 @@ card_kinds:
       items: { type: array, required: true }
 "#)
         .blueprint();
-        let after = &t[t.find("#@kind: skills").unwrap()..];
+        let after = &t[t.find("$kind: skills").unwrap()..];
         assert!(!after.contains("skills body"));
     }
 
@@ -679,7 +680,7 @@ card_kinds:
       author: { type: string }
 "#)
         .blueprint();
-        let after = &t[t.find("#@kind: note").unwrap()..];
+        let after = &t[t.find("$kind: note").unwrap()..];
         assert!(after.contains("\nThis is an example note.\n"));
         assert!(!after.contains("Write note body here."));
     }
@@ -727,7 +728,7 @@ main:
     notes: { type: string }
 "#)
         .blueprint();
-        let after_quill = &t[t.find("#@quill:").unwrap()..];
+        let after_quill = &t[t.find("$quill:").unwrap()..];
         // No banners emitted at all.
         assert!(!after_quill.contains("===="));
         // Order: ungrouped first, then groups in first-appearance order.

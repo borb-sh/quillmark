@@ -11,14 +11,14 @@ use std::str::FromStr;
 
 fn make_doc() -> Document {
     Document::from_markdown(
-        "~~~card-yaml\n#@quill: test_quill\n#@kind: main\ntitle: Hello\n~~~\n\nBody text.\n",
+        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Hello\n~~~\n\nBody text.\n",
     )
     .unwrap()
 }
 
 fn make_doc_with_cards() -> Document {
     Document::from_markdown(
-        "~~~card-yaml\n#@quill: test_quill\n#@kind: main\ntitle: Hello\n~~~\n\nBody.\n\n~~~card-yaml\n#@kind: note\nfoo: bar\n~~~\n\nCard body.\n\n~~~card-yaml\n#@kind: summary\n~~~\n",
+        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Hello\n~~~\n\nBody.\n\n~~~card-yaml\n$kind: note\nfoo: bar\n~~~\n\nCard body.\n\n~~~card-yaml\n$kind: summary\n~~~\n",
     )
     .unwrap()
 }
@@ -371,7 +371,7 @@ fn test_move_card_to_out_of_range() {
 fn test_set_card_kind_renames_in_place() {
     let mut doc = make_doc_with_cards(); // note(0) with field foo=bar, summary(1)
     doc.set_card_kind(0, "annotation").unwrap();
-    // `#@kind` changed.
+    // `$kind` changed.
     assert_eq!(doc.cards()[0].kind(), Some("annotation"));
     // Payload and body untouched.
     assert_eq!(
