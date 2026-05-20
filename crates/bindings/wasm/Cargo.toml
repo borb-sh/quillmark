@@ -11,9 +11,13 @@ publish = false
 [lib]
 crate-type = ["cdylib", "rlib"]
 
+[features]
+default = ["typst"]
+typst = ["dep:quillmark-typst", "quillmark/typst"]
+
 [dependencies]
-quillmark = { workspace = true }
-quillmark-typst = { workspace = true }
+quillmark = { path = "../../quillmark", default-features = false }
+quillmark-typst = { workspace = true, optional = true }
 quillmark-core = { workspace = true }
 wasm-bindgen = "0.2"
 serde = { workspace = true }

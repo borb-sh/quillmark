@@ -142,20 +142,10 @@ export interface CardInput {
 }
 "#;
 
-/// Backend identifier for the only canvas-capable backend today. Both
-/// `Quill::supportsCanvas` and `RenderSession::supportsCanvas` route
-/// through this so the two APIs can't drift; if a second canvas backend
-/// ever ships, replace this with a richer check.
+#[cfg(feature = "typst")]
 const CANVAS_BACKEND_ID: &str = "typst";
 
-/// Maximum backing-store dimension the painter will produce, in device
-/// pixels per side. Real browser limits vary (~32k on Chrome/Firefox,
-/// 16k on Safari, lower on memory-constrained devices); 16384 is the
-/// floor that works everywhere we ship to. When a requested
-/// `layoutScale * densityScale` would exceed this, the painter clamps
-/// `densityScale` proportionally and surfaces the actual backing
-/// dimensions in the returned `PaintResult` so consumers can detect the
-/// clamp.
+#[cfg(feature = "typst")]
 const MAX_BACKING_DIMENSION: u32 = 16384;
 
 fn now_ms() -> f64 {
@@ -312,7 +302,10 @@ impl Quill {
     /// remains the enforcement contract.
     #[wasm_bindgen(getter, js_name = supportsCanvas)]
     pub fn supports_canvas(&self) -> bool {
-        self.inner.backend_id() == CANVAS_BACKEND_ID
+        #[cfg(feature = "typst")]
+        { self.inner.backend_id() == CANVAS_BACKEND_ID }
+        #[cfg(not(feature = "typst"))]
+        { false }
     }
 
     /// Auto-generated annotated Markdown blueprint for LLM consumers.
@@ -1066,14 +1059,7 @@ fn js_bytes_for_tree_entry(path: &str, value: JsValue) -> Result<Vec<u8>, JsValu
     Ok(bytes.to_vec())
 }
 
-/// TypeScript declarations for the canvas-preview surface.
-///
-/// `paint` is the single source of truth for canvas backing-store sizing —
-/// consumers do not multiply by `devicePixelRatio` themselves and do not
-/// write to `canvas.width` / `canvas.height` directly. They supply layout
-/// (`layoutScale`) and density (`densityScale`) inputs separately; the
-/// painter folds them into the rasterization scale, sizes the backing
-/// store, and reports what it picked.
+#[cfg(feature = "typst")]
 #[wasm_bindgen(typescript_custom_section)]
 const CANVAS_PREVIEW_TS: &'static str = r#"
 /**
@@ -1173,7 +1159,10 @@ impl RenderSession {
     /// opened this session.
     #[wasm_bindgen(getter, js_name = supportsCanvas)]
     pub fn supports_canvas(&self) -> bool {
-        self.backend_id == CANVAS_BACKEND_ID
+        #[cfg(feature = "typst")]
+        { self.backend_id == CANVAS_BACKEND_ID }
+        #[cfg(not(feature = "typst"))]
+        { false }
     }
 
     /// Session-level warnings attached at `quill.open(...)` time.
@@ -1229,6 +1218,7 @@ impl RenderSession {
     ///
     /// Throws if the underlying backend has no canvas painter (i.e. is not
     /// the Typst backend) or if `page` is out of range.
+    #[cfg(feature = "typst")]
     #[wasm_bindgen(js_name = pageSize, unchecked_return_type = "PageSize")]
     pub fn page_size(&self, page: usize) -> Result<JsValue, JsValue> {
         let typst = self.typst_session("pageSize")?;
@@ -1280,6 +1270,7 @@ impl RenderSession {
     /// - `ctx` is neither `CanvasRenderingContext2D` nor
     ///   `OffscreenCanvasRenderingContext2D`,
     /// - `opts.layoutScale` or `opts.densityScale` is non-finite or `<= 0`.
+    #[cfg(feature = "typst")]
     #[wasm_bindgen(js_name = paint, unchecked_return_type = "PaintResult")]
     pub fn paint(
         &self,
@@ -1368,8 +1359,7 @@ impl RenderSession {
 }
 
 impl RenderSession {
-    /// Borrow the Typst backend's typed session, or build a JS error citing
-    /// `op` (the public method name) and the resolved `backendId`.
+    #[cfg(feature = "typst")]
     fn typst_session(&self, op: &str) -> Result<&quillmark_typst::TypstSession, JsValue> {
         quillmark_typst::typst_session_of(&self.inner).ok_or_else(|| {
             WasmError::from(format!(
@@ -1389,15 +1379,13 @@ impl RenderSession {
     }
 }
 
-/// Adapter unifying `CanvasRenderingContext2D` and
-/// `OffscreenCanvasRenderingContext2D` behind one Rust shape so `paint`
-/// can size the backing store and emit pixels without repeating the
-/// downcast.
+#[cfg(feature = "typst")]
 enum CanvasCtx<'a> {
     OnScreen(&'a web_sys::CanvasRenderingContext2d),
     OffScreen(&'a web_sys::OffscreenCanvasRenderingContext2d),
 }
 
+#[cfg(feature = "typst")]
 impl<'a> CanvasCtx<'a> {
     fn from_js(ctx: &'a JsValue) -> Result<Self, JsValue> {
         if let Some(c) = ctx.dyn_ref::<web_sys::CanvasRenderingContext2d>() {
@@ -1443,6 +1431,7 @@ impl<'a> CanvasCtx<'a> {
     }
 }
 
+#[cfg(feature = "typst")]
 #[derive(Serialize)]
 struct PageSize {
     #[serde(rename = "widthPt")]
@@ -1451,6 +1440,7 @@ struct PageSize {
     height_pt: f32,
 }
 
+#[cfg(feature = "typst")]
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PaintOptions {
@@ -1460,6 +1450,7 @@ struct PaintOptions {
     density_scale: Option<f32>,
 }
 
+#[cfg(feature = "typst")]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PaintResult {
