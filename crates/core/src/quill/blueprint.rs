@@ -102,6 +102,7 @@ fn write_main_fence(
     out.push_str("#@quill: ");
     out.push_str(quill_ref);
     out.push('\n');
+    out.push_str("#@kind: main\n");
     write_comment(out, "system metadata; required, verbatim");
     if let Some(desc) = description {
         write_comment(out, desc);
