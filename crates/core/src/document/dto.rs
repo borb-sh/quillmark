@@ -215,6 +215,13 @@ pub enum StorageError {
         /// The offending tag.
         tag: String,
     },
+    /// The document root carried `#@kind: <other>` for some `<other>` that
+    /// is not `"main"`. `main` is reserved for the document root, so any
+    /// other value is rejected on reconstruction.
+    ReservedRootKind {
+        /// The offending kind value (already known not to be `"main"`).
+        kind: String,
+    },
     /// A card carried more payload fields than
     /// [`MAX_FIELD_COUNT`](crate::error::MAX_FIELD_COUNT).
     TooManyFields {
@@ -249,6 +256,13 @@ impl std::fmt::Display for StorageError {
             ),
             StorageError::InvalidCardTag { tag } => {
                 write!(f, "invalid card tag {tag:?}: must match [a-z_][a-z0-9_]*")
+            }
+            StorageError::ReservedRootKind { kind } => {
+                write!(
+                    f,
+                    "root card declared #@kind: {kind:?}, but `main` is reserved \
+                     for the document root and no other value is permitted"
+                )
             }
             StorageError::TooManyFields { count } => write!(
                 f,
@@ -458,7 +472,7 @@ impl TryFrom<SentinelV0_81_0> for CardMetadata {
                 // passed through the parser — reject anything else here.
                 if let Some(value) = kind.as_deref() {
                     if value != "main" {
-                        return Err(StorageError::InvalidCardTag { tag: value.into() });
+                        return Err(StorageError::ReservedRootKind { kind: value.into() });
                     }
                 }
                 Ok(CardMetadata {

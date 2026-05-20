@@ -32,6 +32,11 @@ Implements `Backend` for PDF, SVG, and PNG. Converts Markdown fields to Typst ma
 
 PyO3 bindings published as `quillmark` on PyPI.
 
+> **Status: experimental, second-class binding.** The Python surface lags
+> the WASM binding in coverage and in error-shape uniformity. New
+> diagnostics / contract work lands in WASM first; Python catches up on a
+> best-effort basis. Do not gate releases on Python parity.
+
 ### `bindings/quillmark-wasm`
 
 wasm-bindgen bindings published as `@quillmark/wasm`. Supports bundler and Node.js targets. Builds with `--weak-refs` so wasm-bindgen handles are reclaimed by `FinalizationRegistry`; `.free()` remains as the eager teardown hook. Requires Node 14.6+ / current evergreen browsers.
