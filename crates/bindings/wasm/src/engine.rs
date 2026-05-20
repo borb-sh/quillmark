@@ -860,9 +860,9 @@ impl Document {
             .map_err(|e| edit_error_to_js(&e))
     }
 
-    /// Replace the `#@kind` of the composable card at `index`.
+    /// Replace the `@kind` of the composable card at `index`.
     ///
-    /// Mutates only the `#@kind` — the card's payload and body are
+    /// Mutates only the `@kind` — the card's payload and body are
     /// untouched. Schema-aware migration (clearing orphan fields, applying
     /// new defaults) is the caller's responsibility; `setCardKind` is a
     /// structural primitive.

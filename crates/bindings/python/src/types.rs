@@ -510,9 +510,9 @@ impl PyDocument {
             .map_err(convert_edit_error)
     }
 
-    /// Replace the `#@kind` of the composable card at `index`.
+    /// Replace the `@kind` of the composable card at `index`.
     ///
-    /// Mutates only the `#@kind` — the card's payload and body are
+    /// Mutates only the `@kind` — the card's payload and body are
     /// untouched. Schema-aware migration (clearing orphan fields, applying
     /// new defaults) is the caller's responsibility; `set_card_kind` is a
     /// structural primitive.

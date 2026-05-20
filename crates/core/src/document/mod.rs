@@ -10,9 +10,9 @@
 //! ## Key Types
 //!
 //! - [`Document`]: Typed in-memory Quillmark document — `main` card plus composable cards.
-//! - [`Card`]: A single card block, root or composable, with a `#@` metadata
+//! - [`Card`]: A single card block, root or composable, with a `@` metadata
 //!   header, a typed payload, and a body.
-//! - [`CardMetadata`]: A block's typed `#@` system metadata (`#@quill`, `#@kind`, `#@id`).
+//! - [`CardMetadata`]: A block's typed `@` system metadata (`@quill`, `@kind`, `@id`).
 //! - [`Payload`]: Ordered list of items (fields + comments) parsed from a
 //!   block's YAML payload.
 //!
@@ -24,8 +24,8 @@
 //! use quillmark_core::Document;
 //!
 //! let markdown = r#"~~~card-yaml
-//! #@quill: my_quill
-//! #@kind: main
+//! @quill: my_quill
+//! @kind: main
 //! title: My Document
 //! author: John Doe
 //! ~~~
@@ -51,7 +51,7 @@
 //! use quillmark_core::Document;
 //!
 //! let doc = Document::from_markdown(
-//!     "~~~card-yaml\n#@quill: my_quill\n#@kind: main\ntitle: Hi\n~~~\n\nBody here.\n"
+//!     "~~~card-yaml\n@quill: my_quill\n@kind: main\ntitle: Hi\n~~~\n\nBody here.\n"
 //! ).unwrap();
 //! let json = doc.to_plate_json();
 //! assert_eq!(json["QUILL"], "my_quill");
@@ -65,8 +65,8 @@
 //! [`Document::from_markdown`] returns errors for:
 //! - Malformed YAML syntax
 //! - Unclosed `~~~card-yaml` blocks
-//! - A root block missing its required `#@quill` system metadata
-//! - A malformed or duplicated `#@` metadata line
+//! - A root block missing its required `@quill` system metadata
+//! - A malformed or duplicated `@` metadata line
 //! - Reserved field name usage
 //!
 //! See [MARKDOWN.md](https://github.com/quillmark-org/quillmark/blob/main/prose/canon/MARKDOWN.md)
@@ -115,7 +115,7 @@ pub struct ParseOutput {
 /// recording which collection it belongs to.
 ///
 /// Every card has:
-/// - `meta` — the block's typed `#@` system metadata (`#@quill`, `#@kind`, `#@id`).
+/// - `meta` — the block's typed `@` system metadata (`@quill`, `@kind`, `@id`).
 /// - `payload` — ordered items parsed from the block's YAML payload.
 /// - `body` — the Markdown text that follows the closing `~~~` fence, up to
 ///   the next block (or EOF).
@@ -146,7 +146,7 @@ impl Card {
         }
     }
 
-    /// The block's typed `#@` system metadata.
+    /// The block's typed `@` system metadata.
     pub fn meta(&self) -> &CardMetadata {
         &self.meta
     }
@@ -156,12 +156,12 @@ impl Card {
         &mut self.meta
     }
 
-    /// The `#@kind` card kind, if the block declares one.
+    /// The `@kind` card kind, if the block declares one.
     pub fn kind(&self) -> Option<&str> {
         self.meta.kind.as_deref()
     }
 
-    /// The `#@id` opaque identifier, if the block declares one.
+    /// The `@id` opaque identifier, if the block declares one.
     pub fn id(&self) -> Option<&str> {
         self.meta.id.as_deref()
     }
@@ -235,13 +235,13 @@ impl PartialEq for Document {
 impl Document {
     /// Create a `Document` from a pre-built main `Card` and composable cards.
     ///
-    /// The caller must guarantee that `main`'s `#@quill` metadata is present
-    /// and valid, and that composable cards do not carry `#@quill`.
+    /// The caller must guarantee that `main`'s `@quill` metadata is present
+    /// and valid, and that composable cards do not carry `@quill`.
     pub fn from_main_and_cards(main: Card, cards: Vec<Card>, warnings: Vec<Diagnostic>) -> Self {
-        debug_assert!(main.meta.quill.is_some(), "main card must carry `#@quill`");
+        debug_assert!(main.meta.quill.is_some(), "main card must carry `@quill`");
         debug_assert!(
             cards.iter().all(|c| c.meta.quill.is_none()),
-            "composable cards must not carry `#@quill`"
+            "composable cards must not carry `@quill`"
         );
         Self {
             main,
@@ -274,16 +274,16 @@ impl Document {
     }
 
     /// The quill reference (`name@version-selector`) the document binds to,
-    /// parsed from the root block's `#@quill` system metadata.
+    /// parsed from the root block's `@quill` system metadata.
     ///
-    /// The root `#@quill` is validated when the document is parsed, so this
+    /// The root `@quill` is validated when the document is parsed, so this
     /// never fails for a `Document` produced by [`Document::from_markdown`].
     pub fn quill_reference(&self) -> QuillReference {
         self.main
             .meta
             .quill
             .clone()
-            .expect("root block's #@quill is validated at parse time")
+            .expect("root block's @quill is validated at parse time")
     }
 
     /// Ordered list of composable card blocks.

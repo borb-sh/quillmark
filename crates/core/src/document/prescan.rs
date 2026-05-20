@@ -107,7 +107,7 @@ enum FrameKind {
 
 /// Scan the YAML payload of a card-yaml block.
 ///
-/// `content` is the block's YAML payload — the text below the `#@`
+/// `content` is the block's YAML payload — the text below the `@`
 /// metadata header — with leading/trailing whitespace preserved.
 pub fn prescan_fence_content(content: &str) -> PreScan {
     let mut out = PreScan::default();

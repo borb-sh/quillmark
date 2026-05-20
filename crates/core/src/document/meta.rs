@@ -1,13 +1,13 @@
-//! Card-yaml block metadata: the `#@`-prefixed system-metadata header.
+//! Card-yaml block metadata: the `@`-prefixed system-metadata header.
 //!
-//! Every `~~~card-yaml` block may carry a leading run of `#@key: value` lines.
+//! Every `~~~card-yaml` block may carry a leading run of `@key: value` lines.
 //! These are **system metadata** drawn from a closed set of three reserved
-//! keys — `#@quill`, `#@kind`, `#@id`. Any other `#@key` is a parse error.
-//! The `#@` prefix keeps them invisible to a plain YAML parser (a `#` line is
-//! a comment).
+//! keys — `@quill`, `@kind`, `@id`. Any other `@key` is a parse error.
+//! The `@` prefix segregates them from the YAML payload: header lines are
+//! extracted before the payload is handed to the YAML parser.
 //!
-//! `#@quill` on the root block binds the document to a quill; `#@kind` is
-//! name-validated against `[a-z_][a-z0-9_]*` at parse time. `#@id` is opaque
+//! `@quill` on the root block binds the document to a quill; `@kind` is
+//! name-validated against `[a-z_][a-z0-9_]*` at parse time. `@id` is opaque
 //! metadata, carried through round-trip unchanged.
 
 use std::str::FromStr;
@@ -15,36 +15,36 @@ use std::str::FromStr;
 use crate::error::ParseError;
 use crate::version::QuillReference;
 
-/// Typed `#@`-metadata of a single card-yaml block.
+/// Typed `@`-metadata of a single card-yaml block.
 ///
-/// The `#@` header is a **closed set** of three optional keys; an unknown
-/// `#@key` is rejected at parse time. `#@quill` is parsed into a typed
+/// The `@` header is a **closed set** of three optional keys; an unknown
+/// `@key` is rejected at parse time. `@quill` is parsed into a typed
 /// [`QuillReference`] as the block is read.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct CardMetadata {
-    /// The `#@quill` reference. Required on the document's root block and
+    /// The `@quill` reference. Required on the document's root block and
     /// rejected on composable cards (see `assemble`); `None` on every card
     /// in a successfully parsed [`crate::Document`].
     pub quill: Option<QuillReference>,
-    /// The `#@kind` card kind, if the block declares one. Validated against
+    /// The `@kind` card kind, if the block declares one. Validated against
     /// `[a-z_][a-z0-9_]*` at parse time.
     pub kind: Option<String>,
-    /// The `#@id` opaque identifier, if the block declares one.
+    /// The `@id` opaque identifier, if the block declares one.
     pub id: Option<String>,
 }
 
-/// Parse a block's `#@` header lines into a typed [`CardMetadata`].
+/// Parse a block's `@` header lines into a typed [`CardMetadata`].
 ///
 /// Header lines may appear in any order. The accepted keys are the closed set
-/// `{quill, kind, id}`. A malformed `#@` line, an unknown `#@key`, a duplicate
-/// key, an invalid `#@quill` reference, or a `#@kind` that does not match
+/// `{quill, kind, id}`. A malformed `@` line, an unknown `@key`, a duplicate
+/// key, an invalid `@quill` reference, or a `@kind` that does not match
 /// `[a-z_][a-z0-9_]*` is a parse error.
 pub(super) fn parse_meta_header(header: &[&str]) -> Result<CardMetadata, ParseError> {
     let mut meta = CardMetadata::default();
     for line in header {
         let (key, value) = parse_meta_line(line).ok_or_else(|| {
             ParseError::InvalidStructure(format!(
-                "Malformed `#@` metadata line `{}` — expected `#@<key>: <value>`",
+                "Malformed `@` metadata line `{}` — expected `@<key>: <value>`",
                 line.trim()
             ))
         })?;
@@ -55,7 +55,7 @@ pub(super) fn parse_meta_header(header: &[&str]) -> Result<CardMetadata, ParseEr
                 }
                 let reference = QuillReference::from_str(&value).map_err(|e| {
                     ParseError::InvalidStructure(format!(
-                        "Invalid #@quill reference '{}': {}",
+                        "Invalid @quill reference '{}': {}",
                         value, e
                     ))
                 })?;
@@ -67,7 +67,7 @@ pub(super) fn parse_meta_header(header: &[&str]) -> Result<CardMetadata, ParseEr
                 }
                 if !is_valid_kind_name(&value) {
                     return Err(ParseError::InvalidStructure(format!(
-                        "Invalid `#@kind` value '{}' — a card kind must match \
+                        "Invalid `@kind` value '{}' — a card kind must match \
                          `[a-z_][a-z0-9_]*`",
                         value
                     )));
@@ -82,8 +82,8 @@ pub(super) fn parse_meta_header(header: &[&str]) -> Result<CardMetadata, ParseEr
             }
             other => {
                 return Err(ParseError::InvalidStructure(format!(
-                    "Unknown `#@{}` system-metadata key — the card-yaml header \
-                     accepts only `#@quill`, `#@kind`, and `#@id`",
+                    "Unknown `@{}` system-metadata key — the card-yaml header \
+                     accepts only `@quill`, `@kind`, and `@id`",
                     other
                 )));
             }
@@ -94,29 +94,29 @@ pub(super) fn parse_meta_header(header: &[&str]) -> Result<CardMetadata, ParseEr
 
 fn duplicate_meta_error(key: &str) -> ParseError {
     ParseError::InvalidStructure(format!(
-        "Duplicate `#@{}` system-metadata entry in one card-yaml block",
+        "Duplicate `@{}` system-metadata entry in one card-yaml block",
         key
     ))
 }
 
-/// Parse a `#@`-prefixed metadata line into its `(key, value)` pair.
+/// Parse a `@`-prefixed metadata line into its `(key, value)` pair.
 ///
-/// `#@quill: example@0.1.0` parses to `("quill", "example@0.1.0")`. A trailing
+/// `@quill: example@0.1.0` parses to `("quill", "example@0.1.0")`. A trailing
 /// inline comment (` # …` to end of line) is dropped from the value, matching
 /// YAML's own comment rule:
 ///
 /// ```text
-/// #@quill: example@0.1.0  # bound at build time
+/// @quill: example@0.1.0  # bound at build time
 /// →                ↳ key="quill", value="example@0.1.0"
 /// ```
 ///
 /// A `#` is only treated as a comment marker when preceded by whitespace
-/// (or at the start of the value), so `#@id: abc#def` keeps `abc#def` intact.
+/// (or at the start of the value), so `@id: abc#def` keeps `abc#def` intact.
 ///
-/// Returns `None` when `line` is not a `#@` metadata line (no `#@` prefix,
+/// Returns `None` when `line` is not a `@` metadata line (no `@` prefix,
 /// or no `:` separator).
 fn parse_meta_line(line: &str) -> Option<(String, String)> {
-    let rest = line.trim_start().strip_prefix("#@")?;
+    let rest = line.trim_start().strip_prefix("@")?;
     let colon = rest.find(':')?;
     let key = rest[..colon].trim().to_string();
     let value_raw = &rest[colon + 1..];
@@ -124,7 +124,7 @@ fn parse_meta_line(line: &str) -> Option<(String, String)> {
     Some((key, value))
 }
 
-/// Strip a YAML-style trailing comment from a `#@` value.
+/// Strip a YAML-style trailing comment from a `@` value.
 ///
 /// A `#` starts a comment when it is the first non-whitespace character of
 /// the value or is preceded by whitespace. Other `#`s are kept verbatim.
@@ -189,14 +189,14 @@ mod tests {
 
     #[test]
     fn trailing_comment_stripped_from_quill_value() {
-        let (k, v) = parse_meta_line("#@quill: foo@0.1  # bound at build").unwrap();
+        let (k, v) = parse_meta_line("@quill: foo@0.1  # bound at build").unwrap();
         assert_eq!(k, "quill");
         assert_eq!(v, "foo@0.1");
     }
 
     #[test]
     fn trailing_comment_stripped_from_kind_value() {
-        let (k, v) = parse_meta_line("#@kind: main # the root").unwrap();
+        let (k, v) = parse_meta_line("@kind: main # the root").unwrap();
         assert_eq!(k, "kind");
         assert_eq!(v, "main");
     }
@@ -204,7 +204,7 @@ mod tests {
     #[test]
     fn hash_inside_value_is_kept_when_not_preceded_by_whitespace() {
         // `abc#def` is a single token — `#` has no whitespace before it.
-        let (_, v) = parse_meta_line("#@id: abc#def").unwrap();
+        let (_, v) = parse_meta_line("@id: abc#def").unwrap();
         assert_eq!(v, "abc#def");
     }
 
@@ -212,14 +212,14 @@ mod tests {
     fn hash_at_start_of_value_is_a_comment() {
         // After the colon-space, `#` is the first non-whitespace character —
         // matches YAML's rule for "comment starts at column 0 of value".
-        let (k, v) = parse_meta_line("#@id: # gone").unwrap();
+        let (k, v) = parse_meta_line("@id: # gone").unwrap();
         assert_eq!(k, "id");
         assert_eq!(v, "");
     }
 
     #[test]
     fn no_trailing_comment_leaves_value_unchanged() {
-        let (_, v) = parse_meta_line("#@quill: foo@0.1").unwrap();
+        let (_, v) = parse_meta_line("@quill: foo@0.1").unwrap();
         assert_eq!(v, "foo@0.1");
     }
 }

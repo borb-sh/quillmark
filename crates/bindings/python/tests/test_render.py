@@ -52,8 +52,8 @@ def test_quill_render_ref_mismatch_warning(taro_quill_dir):
     # Build a document that names a different quill
     mismatch_md = (
         "~~~card-yaml\n"
-        "#@quill: completely_different_quill\n"
-        "#@kind: main\n"
+        "@quill: completely_different_quill\n"
+        "@kind: main\n"
         "author: Test Author\n"
         "ice_cream: Chocolate\n"
         "title: Mismatch Test\n"
@@ -100,8 +100,8 @@ def test_parse_error_carries_diagnostic_payload():
     when there is exactly one diagnostic.
     """
     invalid_md = """~~~card-yaml
-#@quill: test_quill
-#@kind: main
+@quill: test_quill
+@kind: main
 title: [unclosed bracket
 ~~~
 

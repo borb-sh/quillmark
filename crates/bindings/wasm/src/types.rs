@@ -183,7 +183,7 @@ pub enum PayloadItem {
         /// `true` when the comment was a trailing inline comment in source
         /// (`field: value # text`). Inline comments attach to the previous
         /// field on emit; `Comment{inline:true}` at index 0 attaches to the
-        /// `#@` metadata header. Inline comments without a host degrade to
+        /// `@` metadata header. Inline comments without a host degrade to
         /// own-line on emit.
         #[serde(default)]
         inline: bool,
@@ -193,7 +193,7 @@ pub enum PayloadItem {
 /// A single card block parsed from a Quillmark Markdown document.
 ///
 /// Exposed as a plain JS object via `Document.main`, `Document.cards`, etc.
-/// Carries a `kind` string (the block's `#@kind`, empty when the block
+/// Carries a `kind` string (the block's `@kind`, empty when the block
 /// declares none), typed payload (map view under `payload`, ordered item
 /// list under `payloadItems`), and the body. Whether a card is the document
 /// entry (main) card or a composable card is positional — it is whichever
@@ -202,10 +202,10 @@ pub enum PayloadItem {
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct Card {
-    /// The block's `#@kind` value (e.g. `"endorsement"`); empty string when
-    /// the block declares no `#@kind`.
+    /// The block's `@kind` value (e.g. `"endorsement"`); empty string when
+    /// the block declares no `@kind`.
     pub kind: String,
-    /// Map-keyed view of payload values (no `#@` metadata, comments invisible).
+    /// Map-keyed view of payload values (no `@` metadata, comments invisible).
     #[tsify(type = "Record<string, unknown>")]
     pub payload: serde_json::Value,
     /// Ordered payload item list — fields and comments, in source order.
@@ -362,11 +362,11 @@ mod tests {
         use quillmark_core::Document;
 
         let md =
-            "~~~card-yaml\n#@quill: q\n#@kind: main\ntitle: Hi # inline note\nauthor: Alice\n~~~\n";
+            "~~~card-yaml\n@quill: q\n@kind: main\ntitle: Hi # inline note\nauthor: Alice\n~~~\n";
         let doc = Document::from_markdown(md).unwrap();
         let card = Card::from(doc.main());
 
-        // Map view: title and author present, #@quill absent.
+        // Map view: title and author present, @quill absent.
         assert_eq!(card.payload["title"], "Hi");
         assert_eq!(card.payload["author"], "Alice");
         assert!(card.payload.get("quill").is_none());

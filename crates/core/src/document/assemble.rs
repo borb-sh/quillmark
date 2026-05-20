@@ -1,7 +1,7 @@
 //! Assembly of card-yaml blocks into a [`Document`].
 //!
 //! This module contains the top-level parsing glue: it calls the fence
-//! scanner, parses each block's `#@` system-metadata header, and assembles a
+//! scanner, parses each block's `@` system-metadata header, and assembles a
 //! typed [`Document`] from the pieces.
 
 use crate::error::ParseError;
@@ -37,7 +37,7 @@ pub(super) struct MetadataBlock {
     pub(super) start: usize, // Position of the opening `~~~card-yaml`
     pub(super) end: usize,   // Position after the closing `~~~`
     pub(super) yaml_value: Option<serde_json::Value>, // Parsed YAML payload as JSON
-    pub(super) meta: CardMetadata, // The block's typed `#@` system metadata
+    pub(super) meta: CardMetadata, // The block's typed `@` system metadata
     /// Pre-scan items (comments + fill-tagged field keys) in source order.
     pub(super) pre_items: Vec<PreItem>,
     /// Pre-scan nested comments (with structural paths).
@@ -46,12 +46,12 @@ pub(super) struct MetadataBlock {
     pub(super) pre_warnings: Vec<Diagnostic>,
 }
 
-/// Split a block's raw content into its `#@` system-metadata header and the
+/// Split a block's raw content into its `@` system-metadata header and the
 /// YAML payload that follows it.
 ///
-/// The metadata header is the run of `#@`-prefixed lines at the top of the
+/// The metadata header is the run of `@`-prefixed lines at the top of the
 /// block (blank lines interspersed are skipped). The payload is everything
-/// after the last header line. A block with no `#@` line yields an empty
+/// after the last header line. A block with no `@` line yields an empty
 /// header.
 fn split_meta_header(content: &str) -> (Vec<&str>, &str) {
     let mut header: Vec<&str> = Vec::new();
@@ -63,7 +63,7 @@ fn split_meta_header(content: &str) -> (Vec<&str>, &str) {
             payload_start += line.len();
             continue;
         }
-        if trimmed.starts_with("#@") {
+        if trimmed.starts_with("@") {
             header.push(line_text);
             payload_start += line.len();
             continue;
@@ -97,7 +97,7 @@ pub(super) fn build_block(
         });
     }
 
-    // Separate the `#@` system-metadata header from the YAML payload.
+    // Separate the `@` system-metadata header from the YAML payload.
     let (header, yaml_payload) = split_meta_header(raw_content);
     let meta = parse_meta_header(&header)?;
 
@@ -167,7 +167,7 @@ pub(super) fn decompose_with_warnings(
     if markdown.trim().is_empty() {
         return Err(crate::error::ParseError::EmptyInput(
             "Empty markdown input cannot be parsed as a Quillmark Document. \
-             Provide at least a root card-yaml block declaring `#@quill: <name>`."
+             Provide at least a root card-yaml block declaring `@quill: <name>`."
                 .to_string(),
         ));
     }
@@ -187,36 +187,36 @@ pub(super) fn decompose_with_warnings(
     if blocks.is_empty() {
         return Err(crate::error::ParseError::MissingQuill(
             "Missing required root card-yaml block. The document must open with a \
-             `~~~card-yaml` block declaring `#@quill: <name>`."
+             `~~~card-yaml` block declaring `@quill: <name>`."
                 .to_string(),
         ));
     }
 
-    // The root block must declare a `#@quill` reference. (Its value is
-    // validated into a typed `QuillReference` during `#@` header parsing.)
+    // The root block must declare a `@quill` reference. (Its value is
+    // validated into a typed `QuillReference` during `@` header parsing.)
     let root_block = &blocks[0];
     if root_block.meta.quill.is_none() {
         return Err(ParseError::MissingQuill(
-            "The document's root card-yaml block must declare `#@quill: <name>`.".to_string(),
+            "The document's root card-yaml block must declare `@quill: <name>`.".to_string(),
         ));
     }
 
     // `main` is the reserved kind for the document root. The root block
-    // must declare `#@kind: main`; no other value is permitted there, and a
-    // composable card may not declare `#@kind: main` (checked below).
+    // must declare `@kind: main`; no other value is permitted there, and a
+    // composable card may not declare `@kind: main` (checked below).
     match root_block.meta.kind.as_deref() {
         Some("main") => {}
         Some(other) => {
             return Err(ParseError::InvalidStructure(format!(
-                "The document's root card-yaml block must declare `#@kind: main`, \
-                 not `#@kind: {}` — `main` is reserved for the document root.",
+                "The document's root card-yaml block must declare `@kind: main`, \
+                 not `@kind: {}` — `main` is reserved for the document root.",
                 other
             )));
         }
         None => {
             return Err(ParseError::InvalidStructure(
-                "The document's root card-yaml block must declare `#@kind: main` \
-                 alongside `#@quill:`."
+                "The document's root card-yaml block must declare `@kind: main` \
+                 alongside `@quill:`."
                     .to_string(),
             ));
         }
@@ -258,12 +258,12 @@ pub(super) fn decompose_with_warnings(
         let block = &blocks[idx];
 
         // Only the root block binds the document to a quill. A composable
-        // card declaring `#@quill` is a structural error — `#@quill` is
+        // card declaring `@quill` is a structural error — `@quill` is
         // captured by the per-block header parser, but rejected here, where
         // root-vs-composable position is known.
         if block.meta.quill.is_some() {
             return Err(ParseError::InvalidStructure(
-                "A composable card-yaml block must not declare `#@quill` — only \
+                "A composable card-yaml block must not declare `@quill` — only \
                  the document's root block binds the document to a quill."
                     .to_string(),
             ));
@@ -272,7 +272,7 @@ pub(super) fn decompose_with_warnings(
         // `main` is reserved for the document root.
         if block.meta.kind.as_deref() == Some("main") {
             return Err(ParseError::InvalidStructure(
-                "A composable card-yaml block must not declare `#@kind: main` — \
+                "A composable card-yaml block must not declare `@kind: main` — \
                  `main` is reserved for the document root."
                     .to_string(),
             ));

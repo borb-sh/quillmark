@@ -22,8 +22,8 @@ def test_parse_invalid_yaml():
     """Test parsing invalid YAML payload."""
     invalid_md = (
         "~~~card-yaml\n"
-        "#@quill: test_quill\n"
-        "#@kind: main\n"
+        "@quill: test_quill\n"
+        "@kind: main\n"
         "title: [unclosed bracket\n"
         "~~~\n\nContent\n"
     )
@@ -52,7 +52,7 @@ def test_body_is_str(taro_md):
 
 def test_body_empty_when_absent():
     """Test that body is empty string when no body content."""
-    md = "~~~card-yaml\n#@quill: taro\n#@kind: main\nauthor: Test\ntitle: Test\nice_cream: Vanilla\n~~~\n"
+    md = "~~~card-yaml\n@quill: taro\n@kind: main\nauthor: Test\ntitle: Test\nice_cream: Vanilla\n~~~\n"
     doc = Document.from_markdown(md)
     assert doc.body == ""
 
@@ -60,8 +60,8 @@ def test_body_empty_when_absent():
 def test_cards_access():
     """Test accessing typed cards list."""
     md = (
-        "~~~card-yaml\n#@quill: my_quill\n#@kind: main\ntitle: Main\n~~~\n\nGlobal body.\n\n"
-        "~~~card-yaml\n#@kind: note\nfoo: bar\n~~~\n\nCard body.\n"
+        "~~~card-yaml\n@quill: my_quill\n@kind: main\ntitle: Main\n~~~\n\nGlobal body.\n\n"
+        "~~~card-yaml\n@kind: note\nfoo: bar\n~~~\n\nCard body.\n"
     )
     doc = Document.from_markdown(md)
     assert len(doc.cards) == 1
@@ -73,7 +73,7 @@ def test_cards_access():
 
 def test_cards_empty_when_none():
     """Test that cards is an empty list when no cards present."""
-    md = "~~~card-yaml\n#@quill: taro\n#@kind: main\nauthor: Test\ntitle: Test\nice_cream: Vanilla\n~~~\n\nBody.\n"
+    md = "~~~card-yaml\n@quill: taro\n@kind: main\nauthor: Test\ntitle: Test\nice_cream: Vanilla\n~~~\n\nBody.\n"
     doc = Document.from_markdown(md)
     assert doc.cards == []
 
@@ -122,7 +122,7 @@ def test_json_dto_rejects_invalid_input():
 def test_json_dto_drops_parse_warnings():
     """A DTO-reconstructed document carries no parse-time warnings."""
     # An unknown YAML tag triggers a `parse::unsupported_yaml_tag` warning.
-    warn_md = "~~~card-yaml\n#@quill: my_quill\n#@kind: main\ntitle: Hi\nweird: !custom value\n~~~\n\nBody\n"
+    warn_md = "~~~card-yaml\n@quill: my_quill\n@kind: main\ntitle: Hi\nweird: !custom value\n~~~\n\nBody\n"
     doc = Document.from_markdown(warn_md)
     assert len(doc.warnings) > 0, "source document should have a parse warning"
 

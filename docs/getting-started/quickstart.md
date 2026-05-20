@@ -19,8 +19,8 @@ Get started with Quillmark in Python or JavaScript.
     quill = engine.quill_from_path("path/to/quill")
 
     markdown = """~~~card-yaml
-    #@quill: my_quill
-    #@kind: main
+    @quill: my_quill
+    @kind: main
     title: Example Document
     ~~~
 
@@ -56,8 +56,8 @@ Get started with Quillmark in Python or JavaScript.
     ]));
 
     const markdown = `~~~card-yaml
-    #@quill: my_quill
-    #@kind: main
+    @quill: my_quill
+    @kind: main
     title: Example Document
     ~~~
 

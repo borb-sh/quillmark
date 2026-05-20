@@ -87,7 +87,7 @@ impl QuillConfig {
             &mut main_value,
             "QUILL",
             &canonical_ref,
-            "Canonical quill reference. Must be exactly this value as the #@quill system metadata in the root card-yaml block.",
+            "Canonical quill reference. Must be exactly this value as the @quill system metadata in the root card-yaml block.",
         );
         obj.insert("main".to_string(), main_value);
 
@@ -102,7 +102,7 @@ impl QuillConfig {
                         &mut card_value,
                         "CARD",
                         &card.name,
-                        "Card kind name. Must match the card kind in the card block's #@kind system metadata.",
+                        "Card kind name. Must match the card kind in the card block's @kind system metadata.",
                     );
                     (card.name.clone(), card_value)
                 })

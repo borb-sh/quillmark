@@ -62,7 +62,7 @@ Some constructs (like link titles) are accepted by the parser but may be dropped
 
 Quillmark carries structured metadata in [card-yaml blocks](card-yaml.md) —
 blocks delimited by `~~~card-yaml` / `~~~` fences, optionally led by a run of
-`#@`-prefixed system metadata lines. Each block is followed by its Markdown
+`@`-prefixed system metadata lines. Each block is followed by its Markdown
 prose body. The document's first block (the root block) names the rendering
 format; later blocks are composable [cards](cards.md).
 

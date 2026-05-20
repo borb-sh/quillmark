@@ -37,7 +37,7 @@ followed by its prose body:
 Document = (CardYamlBlock ProseBody)+
 ```
 
-- **Root block** — the first block, identified purely by position. Its `#@`
+- **Root block** — the first block, identified purely by position. Its `@`
   header declares the quill that renders the document.
 - **Subsequent blocks** — zero or more *cards*. Each declares a composable
   structured record.
@@ -48,8 +48,8 @@ Document = (CardYamlBlock ProseBody)+
 
 ```
 ~~~card-yaml
-#@quill: example@0.1.0
-#@kind: main
+@quill: example@0.1.0
+@kind: main
 from: "bob"
 to: "alice"
 ~~~
@@ -57,8 +57,8 @@ to: "alice"
 This is the primary document container body text.
 
 ~~~card-yaml
-#@kind: endorsement
-#@id: rev-1
+@kind: endorsement
+@id: rev-1
 from: "charlie"
 role: "reviewer"
 clearance: "alpha"
@@ -67,9 +67,9 @@ clearance: "alpha"
 I have reviewed the contents and officially endorse this flight plan.
 ```
 
-The first block is the root block (by position); its `#@quill` header binds
+The first block is the root block (by position); its `@quill` header binds
 the document to the `example` quill at version `0.1.0`. The second block is a
-card whose `#@kind` is `endorsement`. The text after each closing `~~~` fence
+card whose `@kind` is `endorsement`. The text after each closing `~~~` fence
 is that block's prose body.
 
 ## 3. card-yaml Blocks
@@ -80,10 +80,10 @@ A card-yaml block has four parts, in order:
 
 1. **Opening fence** — exactly `~~~card-yaml` (see §3.2). The info string
    alone identifies the block; no further declaration is needed.
-2. **System metadata header** — an optional leading run of `#@key: value`
-   lines inside the block (see §3.3). The root block must declare `#@quill`;
-   all other `#@` entries are optional.
-3. **Data payload** — standard YAML key/value pairs below the `#@` header
+2. **System metadata header** — an optional leading run of `@key: value`
+   lines inside the block (see §3.3). The root block must declare `@quill`;
+   all other `@` entries are optional.
+3. **Data payload** — standard YAML key/value pairs below the `@` header
    (see §3.4).
 4. **Closing fence** — exactly `~~~` (see §3.2).
 
@@ -107,12 +107,12 @@ the next opening fence or EOF.
   block. Requiring the blank line keeps prose-body round-tripping stable and
   prevents a card-yaml block from being absorbed into a preceding paragraph.
 
-### 3.3 System Metadata (`#@`)
+### 3.3 System Metadata (`@`)
 
 A block may begin with a **system metadata header** — an optional leading run
-of `#@key: value` lines. The header is a **closed set** of three keys —
-`#@quill`, `#@kind`, `#@id`; any other `#@key` is a parse error. These lines
-are kept out of the YAML payload's user field set (§3.4); the `#@` header is
+of `@key: value` lines. The header is a **closed set** of three keys —
+`@quill`, `@kind`, `@id`; any other `@key` is a parse error. These lines
+are kept out of the YAML payload's user field set (§3.4); the `@` header is
 not part of the data model's field map.
 
 In the typed model, the header parses to a `CardMetadata` struct with three
@@ -121,37 +121,37 @@ the root block always carries `quill = Some(_)` and `kind = Some("main")`;
 composable cards always carry `quill = None` and `kind = Some(_)` (any
 value other than `"main"`).
 
-- **`#@quill: <name>@<version>`** — binds the document to a quill (see §3.5
+- **`@quill: <name>@<version>`** — binds the document to a quill (see §3.5
   for the version-selector forms). The root block (the first block) must
   declare it; no other block may. It is parsed into a typed quill reference
   as the block is read.
-- **`#@kind: <value>`** — identifies a card's kind. The value is
+- **`@kind: <value>`** — identifies a card's kind. The value is
   name-validated at parse time and must match `[a-z_][a-z0-9_]*`. The kind
   `main` is **reserved for the document root**: the root block must declare
-  `#@kind: main`, and no composable card may declare `#@kind: main`.
-- **`#@id: <value>`** — an opaque, optional identifier. Plain metadata: no
+  `@kind: main`, and no composable card may declare `@kind: main`.
+- **`@id: <value>`** — an opaque, optional identifier. Plain metadata: no
   validation, no uniqueness requirement; carried through round-trip
   unchanged.
 
 Rules:
 
-- The root block must declare both `#@quill: <ref>` and `#@kind: main`. A
-  composable (non-root) block must declare `#@kind: <kind>` for some
-  `<kind>` other than `main`, and must not declare `#@quill`.
-- `#@` header lines may appear in any order. The emitter emits them in the
+- The root block must declare both `@quill: <ref>` and `@kind: main`. A
+  composable (non-root) block must declare `@kind: <kind>` for some
+  `<kind>` other than `main`, and must not declare `@quill`.
+- `@` header lines may appear in any order. The emitter emits them in the
   canonical key order `quill`, `kind`, `id` (see §9).
-- A duplicate `#@key` within a single block is a parse error.
-- A malformed `#@` line (not of the form `#@key: value`) is a parse error.
-- An unknown `#@key` (anything outside `{quill, kind, id}`) is a parse error.
-- An invalid `#@quill` reference is a parse error.
-- **Trailing inline comments are supported on `#@` header lines.** A `#@`
-  line of the form `#@key: value  # note` is accepted: the trailing
+- A duplicate `@key` within a single block is a parse error.
+- A malformed `@` line (not of the form `@key: value`) is a parse error.
+- An unknown `@key` (anything outside `{quill, kind, id}`) is a parse error.
+- An invalid `@quill` reference is a parse error.
+- **Trailing inline comments are supported on `@` header lines.** A `@`
+  line of the form `@key: value  # note` is accepted: the trailing
   ` # …` is treated as a comment and dropped from the typed value. The
   comment is not preserved through emit — the canonical form (§9) omits it.
 
 ### 3.4 Data Payload
 
-Standard YAML key/value pairs sit directly below the `#@` metadata header.
+Standard YAML key/value pairs sit directly below the `@` metadata header.
 
 - **Field names.** Every field name matches `/^[a-z_][a-z0-9_]*$/`.
 - **Reserved names.** `QUILL`, `CARD`, `BODY`, and `CARDS` are reserved and
@@ -160,7 +160,7 @@ Standard YAML key/value pairs sit directly below the `#@` metadata header.
   yields an empty field set.
 - **YAML comments.** Both own-line comments (`# …` on their own line) and
   inline comments (`field: value  # note`) are supported in the payload and
-  round-trip through `toMarkdown`. (A `#@` header line is the one
+  round-trip through `toMarkdown`. (A `@` header line is the one
   exception — see §3.3.) Comments inside nested YAML values (arrays, maps)
   are also preserved: the pre-scan captures each nested comment with a
   structural path and the emitter re-injects it at the matching position.
@@ -174,7 +174,7 @@ Standard YAML key/value pairs sit directly below the `#@` metadata header.
 
 ### 3.5 Version Selectors
 
-The `#@quill` value is `<name>@<version>`, where `<version>` is one
+The `@quill` value is `<name>@<version>`, where `<version>` is one
 of:
 
 | Form | Meaning |
@@ -210,8 +210,8 @@ before EOF is a hard parse error (§9).
 
 ```
 ~~~card-yaml
-#@quill: resume@1.0.0
-#@kind: main
+@quill: resume@1.0.0
+@kind: main
 title: CV
 ~~~
 
@@ -222,7 +222,7 @@ Main body text.
 A thematic break in prose stays a thematic break.
 
 ~~~card-yaml
-#@kind: profile
+@kind: profile
 name: "Alice"
 ~~~
 
@@ -240,7 +240,7 @@ Parsing yields:
 
 ```typescript
 interface Document {
-  QUILL: string;          // quill name@version, from the root block #@quill
+  QUILL: string;          // quill name@version, from the root block @quill
   BODY: string;           // prose body of the root block
   CARDS: Card[];          // zero or more cards, in document order
   [field: string]: any;   // other root-block payload fields
@@ -346,18 +346,18 @@ error when any is exceeded:
 
 ```
 ~~~card-yaml
-<#@ header lines, in canonical order>
+<@ header lines, in canonical order>
 <payload>
 ~~~
 ```
 
-That is: a `~~~card-yaml` opener, the `#@` system-metadata lines (in the
+That is: a `~~~card-yaml` opener, the `@` system-metadata lines (in the
 canonical key order `quill`, `kind`, `id`), the YAML payload, and a `~~~`
-closer. The root block emits both `#@quill` and `#@kind: main`; composable
-cards emit `#@kind: <kind>` plus any other `#@` entries they declared. A
+closer. The root block emits both `@quill` and `@kind: main`; composable
+cards emit `@kind: <kind>` plus any other `@` entries they declared. A
 document round-trips to this canonical shape — fence markers, key ordering,
 and YAML quoting are normalised. `!fill` tags and payload comments (own-line
-and inline) survive the round-trip; `#@`-header trailing comments do not —
+and inline) survive the round-trip; `@`-header trailing comments do not —
 the canonical form drops them.
 
 ### 9.1 Canonical Idempotence
@@ -381,7 +381,7 @@ A document in canonical form round-trips byte-equal under both
 Arbitrary (non-canonical) input parses successfully when it satisfies §1–8
 and converges to the canonical form on the first emit. Type fidelity (a
 quoted `"42"` survives as a string, an unquoted `42` survives as an
-integer) is preserved; fence-marker length, quoting style, and `#@` key
+integer) is preserved; fence-marker length, quoting style, and `@` key
 ordering are not. The canonical form is what consumers should content-hash,
 content-address, or compare for equality.
 
@@ -390,15 +390,15 @@ content-address, or compare for equality.
 Parse errors include:
 
 - A `~~~card-yaml` opener with no matching `~~~` closer before EOF.
-- The root block missing its `#@quill` entry.
-- The root block missing its `#@kind: main` entry, or declaring a
-  non-`main` `#@kind`.
-- A composable (non-root) block declaring `#@quill`, or declaring
-  `#@kind: main` (which is reserved for the document root).
-- A malformed `#@` header line (not of the form `#@key: value`).
-- A duplicate `#@key` within a single block.
-- An unknown `#@key` outside the closed set `{quill, kind, id}`.
-- An invalid `#@quill` reference.
+- The root block missing its `@quill` entry.
+- The root block missing its `@kind: main` entry, or declaring a
+  non-`main` `@kind`.
+- A composable (non-root) block declaring `@quill`, or declaring
+  `@kind: main` (which is reserved for the document root).
+- A malformed `@` header line (not of the form `@key: value`).
+- A duplicate `@key` within a single block.
+- An unknown `@key` outside the closed set `{quill, kind, id}`.
+- An invalid `@quill` reference.
 - A field name failing `/^[a-z_][a-z0-9_]*$/`.
 - Use of a reserved name (`QUILL`, `CARD`, `BODY`, `CARDS`) as a field name.
 - Invalid YAML inside any block payload.

@@ -46,8 +46,8 @@ impl Document {
     ///
     /// - Line endings: `\n` only.  CRLF normalization happens on import.
     /// - Every block is emitted as a `~~~card-yaml` fence: a `~~~card-yaml`
-    ///   opener, the `#@` system-metadata header (`#@quill: <ref>` for the
-    ///   root block, `#@kind: <kind>` for composable cards), the block's YAML
+    ///   opener, the `@` system-metadata header (`@quill: <ref>` for the
+    ///   root block, `@kind: <kind>` for composable cards), the block's YAML
     ///   payload, then a closing `~~~`.
     /// - Cards: one blank line before each, then the block, then the card body.
     /// - Body: emitted verbatim after the root block (and after each card).
@@ -112,11 +112,11 @@ impl Document {
 
 // ── Block emission ────────────────────────────────────────────────────────────
 
-/// Emit a card-yaml block: `~~~card-yaml`, the `#@` system-metadata header,
+/// Emit a card-yaml block: `~~~card-yaml`, the `@` system-metadata header,
 /// the YAML payload, then a closing `~~~`.
 ///
-/// The `#@` header is emitted in the canonical key order `quill`, `kind`,
-/// `id` — only keys the block declares appear. There is no `#@` line for an
+/// The `@` header is emitted in the canonical key order `quill`, `kind`,
+/// `id` — only keys the block declares appear. There is no `@` line for an
 /// inline comment to attach to, so an inline comment carried over at
 /// `items[0]` degrades to an own-line comment as the first payload line,
 /// preserving its text.
@@ -126,7 +126,7 @@ impl Document {
 /// `-`, strings are double-quoted, comments start with `#`), so the fence can
 /// never be closed early.
 fn emit_meta_line(out: &mut String, key: &str, value: &str) {
-    out.push_str("#@");
+    out.push_str("@");
     out.push_str(key);
     out.push_str(": ");
     out.push_str(value);

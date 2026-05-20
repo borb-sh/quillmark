@@ -14,15 +14,15 @@ Semantic versioning: `MAJOR.MINOR.PATCH` (two-segment `MAJOR.MINOR` also accepte
 
 ## Document Syntax
 
-The version selector is carried on the root block's `#@quill` system-metadata
+The version selector is carried on the root block's `@quill` system-metadata
 line (see [MARKDOWN.md](MARKDOWN.md) §3.3):
 
 ```
-#@quill: my_format@2.1.0    # exact version
-#@quill: my_format@2.1      # latest 2.1.x
-#@quill: my_format@2        # latest 2.x.x
-#@quill: my_format@latest   # latest overall (explicit)
-#@quill: my_format          # latest overall (default)
+@quill: my_format@2.1.0    # exact version
+@quill: my_format@2.1      # latest 2.1.x
+@quill: my_format@2        # latest 2.x.x
+@quill: my_format@latest   # latest overall (explicit)
+@quill: my_format          # latest overall (default)
 ```
 
 ## Resolution
