@@ -167,7 +167,7 @@ pub struct RenderResult {
 /// Exposed via `Card.payloadItems`.
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
-#[serde(tag = "kind", rename_all = "lowercase")]
+#[serde(tag = "type", rename_all = "lowercase")]
 pub enum PayloadItem {
     Field {
         key: String,
