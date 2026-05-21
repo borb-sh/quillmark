@@ -82,7 +82,8 @@ fn test_dry_run_no_schema() {
         .quill_from_path(&quill_path)
         .expect("quill_from_path failed");
 
-    let markdown = "~~~card-yaml\n$quill: test_quill\n$kind: main\nrandom_field: anything\n~~~\n\n# Content\n";
+    let markdown =
+        "~~~card-yaml\n$quill: test_quill\n$kind: main\nrandom_field: anything\n~~~\n\n# Content\n";
     let parsed = Document::from_markdown(markdown).expect("parse failed");
 
     let result = quill.dry_run(&parsed);

@@ -91,7 +91,7 @@ pub mod prescan;
 
 pub use dto::{peek_schema_version, StorageError, StoredDocument, SCHEMA_V0_81_0, SCHEMA_V0_82_0};
 pub use edit::EditError;
-pub use meta::{CardKindError, is_valid_kind_name, validate_composable_kind};
+pub use meta::{is_valid_kind_name, validate_composable_kind, CardKindError};
 pub use payload::{Payload, PayloadItem};
 
 #[cfg(test)]

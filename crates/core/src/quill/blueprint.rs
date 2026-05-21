@@ -101,7 +101,9 @@ fn write_main_fence(
 ) {
     out.push_str("~~~card-yaml\n");
     out.push_str("$quill: ");
-    out.push_str(&saphyr_emit_scalar(&JsonValue::String(quill_ref.to_string())));
+    out.push_str(&saphyr_emit_scalar(&JsonValue::String(
+        quill_ref.to_string(),
+    )));
     out.push('\n');
     out.push_str("$kind: main\n");
     write_comment(out, "system metadata; required, verbatim");

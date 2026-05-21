@@ -46,19 +46,13 @@ pub(super) fn meta_key(item: &PayloadItem) -> Option<&'static str> {
 ///
 /// `$quill` and `$kind` require string scalars (non-string YAML types are
 /// rejected). `$id` accepts any scalar and stringifies it.
-pub(super) fn extract_meta_items(
-    payload: &mut JsonValue,
-) -> Result<Vec<PayloadItem>, ParseError> {
+pub(super) fn extract_meta_items(payload: &mut JsonValue) -> Result<Vec<PayloadItem>, ParseError> {
     let map = match payload {
         JsonValue::Object(m) => m,
         _ => return Ok(Vec::new()),
     };
 
-    let dollar_keys: Vec<String> = map
-        .keys()
-        .filter(|k| k.starts_with('$'))
-        .cloned()
-        .collect();
+    let dollar_keys: Vec<String> = map.keys().filter(|k| k.starts_with('$')).cloned().collect();
 
     let mut out = Vec::with_capacity(dollar_keys.len());
     for key in dollar_keys {
@@ -69,10 +63,7 @@ pub(super) fn extract_meta_items(
             "$quill" => {
                 let s = require_string("$quill reference", value)?;
                 let reference = QuillReference::from_str(&s).map_err(|e| {
-                    ParseError::InvalidStructure(format!(
-                        "Invalid $quill reference '{}': {}",
-                        s, e
-                    ))
+                    ParseError::InvalidStructure(format!("Invalid $quill reference '{}': {}", s, e))
                 })?;
                 PayloadItem::Quill { reference }
             }

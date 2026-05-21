@@ -52,4 +52,3 @@ fn test_markdown_field_normalization() {
         "This has <<stripped>>"
     );
 }
-

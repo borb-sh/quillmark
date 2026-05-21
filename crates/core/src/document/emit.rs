@@ -136,7 +136,11 @@ fn emit_meta_line(out: &mut String, key: &str, value: &str, trailer: Option<&str
 
 fn emit_block(out: &mut String, card: &Card) {
     out.push_str("~~~card-yaml\n");
-    emit_payload_items(out, card.payload().items(), card.payload().nested_comments());
+    emit_payload_items(
+        out,
+        card.payload().items(),
+        card.payload().nested_comments(),
+    );
     out.push_str("~~~\n");
 }
 
@@ -737,7 +741,10 @@ mod tests {
         yaml.push_str(&saphyr_emit_scalar(&value));
         yaml.push_str("\n~~~\n");
         let doc = crate::document::Document::from_markdown(&yaml).unwrap_or_else(|e| {
-            panic!("failed to parse emitted scalar {:?}: {}\n{}", value, e, yaml)
+            panic!(
+                "failed to parse emitted scalar {:?}: {}\n{}",
+                value, e, yaml
+            )
         });
         let parsed = doc.main().payload().get("v").expect("field 'v'").as_json();
         assert_eq!(

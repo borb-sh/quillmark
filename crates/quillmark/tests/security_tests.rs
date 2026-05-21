@@ -34,9 +34,8 @@ fn test_yaml_depth_limit_attack() {
 #[test]
 fn test_card_count_limit_attack() {
     // Generate more than MAX_CARD_COUNT (1000) card blocks
-    let mut markdown = String::from(
-        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\nBody\n\n",
-    );
+    let mut markdown =
+        String::from("~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\nBody\n\n");
     for i in 0..1002 {
         markdown.push_str(&format!(
             "~~~card-yaml\n$kind: item{}\nvalue: {}\n~~~\n\n",

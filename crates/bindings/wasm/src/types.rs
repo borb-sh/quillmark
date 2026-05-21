@@ -228,10 +228,12 @@ impl From<&quillmark_core::Card> for Card {
                         fill: *fill,
                     })
                 }
-                quillmark_core::PayloadItem::Comment { text, inline } => Some(PayloadItem::Comment {
-                    text: text.clone(),
-                    inline: *inline,
-                }),
+                quillmark_core::PayloadItem::Comment { text, inline } => {
+                    Some(PayloadItem::Comment {
+                        text: text.clone(),
+                        inline: *inline,
+                    })
+                }
                 quillmark_core::PayloadItem::Quill { .. }
                 | quillmark_core::PayloadItem::Kind { .. }
                 | quillmark_core::PayloadItem::Id { .. } => None,
@@ -312,7 +314,9 @@ mod tests {
             value: serde_json::json!("Sales"),
             fill: true,
         };
-        assert!(serde_json::to_string(&filled).unwrap().contains("\"fill\":true"));
+        assert!(serde_json::to_string(&filled)
+            .unwrap()
+            .contains("\"fill\":true"));
     }
 
     #[test]

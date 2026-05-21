@@ -182,7 +182,8 @@ fn round_trip_string_ambiguous() {
 
 #[test]
 fn round_trip_nested_map() {
-    let src = "~~~card-yaml\n$quill: q\n$kind: main\nsender:\n  name: Alice\n  city: Springfield\n~~~\n";
+    let src =
+        "~~~card-yaml\n$quill: q\n$kind: main\nsender:\n  name: Alice\n  city: Springfield\n~~~\n";
     assert_round_trip("nested map", src);
 }
 

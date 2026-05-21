@@ -835,10 +835,7 @@ $kind: main
 Body.";
 
     let doc = decompose(markdown).expect("payload with $-keys mid-mapping should parse");
-    assert_eq!(
-        doc.main().quill().unwrap().to_string(),
-        "test_quill"
-    );
+    assert_eq!(doc.main().quill().unwrap().to_string(), "test_quill");
     assert_eq!(doc.main().kind(), Some("main"));
     assert_eq!(
         doc.main().payload().get("title").unwrap().as_str(),
@@ -1339,8 +1336,7 @@ fn test_missing_quill() {
 
 #[test]
 fn test_dashes_in_middle_of_line() {
-    let markdown =
-        "~~~card-yaml\n$quill: test_quill\n$kind: main\n~~~\n\nsome text --- more text";
+    let markdown = "~~~card-yaml\n$quill: test_quill\n$kind: main\n~~~\n\nsome text --- more text";
     let doc = decompose(markdown).unwrap();
     assert_eq!(doc.main().body(), "\nsome text --- more text");
 }
@@ -1678,8 +1674,7 @@ fn test_body_with_leading_newlines() {
 fn test_body_with_trailing_newlines() {
     // Body at EOF: no blank-line separator to strip, source's trailing
     // newlines are preserved verbatim as authored content.
-    let markdown =
-        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\nBody.\n\n\n";
+    let markdown = "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\nBody.\n\n\n";
     let doc = decompose(markdown).unwrap();
     assert_eq!(doc.main().body(), "\nBody.\n\n\n");
 }

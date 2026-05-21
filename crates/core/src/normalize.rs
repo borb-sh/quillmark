@@ -657,9 +657,8 @@ mod tests {
     fn test_normalize_document_preserves_quill_tag() {
         use crate::document::Document;
 
-        let doc =
-            Document::from_markdown("~~~card-yaml\n$quill: custom_quill\n$kind: main\n~~~\n")
-                .unwrap();
+        let doc = Document::from_markdown("~~~card-yaml\n$quill: custom_quill\n$kind: main\n~~~\n")
+            .unwrap();
         let normalized = super::normalize_document(doc).unwrap();
 
         assert_eq!(normalized.quill_reference().name, "custom_quill");
@@ -669,10 +668,9 @@ mod tests {
     fn test_normalize_document_idempotent() {
         use crate::document::Document;
 
-        let doc = Document::from_markdown(
-            "~~~card-yaml\n$quill: test\n$kind: main\n~~~\n\n<<content>>",
-        )
-        .unwrap();
+        let doc =
+            Document::from_markdown("~~~card-yaml\n$quill: test\n$kind: main\n~~~\n\n<<content>>")
+                .unwrap();
         let normalized_once = super::normalize_document(doc).unwrap();
         let normalized_twice = super::normalize_document(normalized_once.clone()).unwrap();
 

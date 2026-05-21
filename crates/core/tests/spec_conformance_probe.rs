@@ -99,10 +99,12 @@ fn cards_is_always_present_even_when_empty() {
 // `$kind:` is name-validated at parse time against `[a-z_][a-z0-9_]*`.
 #[test]
 fn card_kind_is_name_validated() {
-    let bad = "~~~card-yaml\n$quill: t\n$kind: main\n~~~\n\nB.\n\n~~~card-yaml\n$kind: ITEMS\n~~~\n\nX.";
+    let bad =
+        "~~~card-yaml\n$quill: t\n$kind: main\n~~~\n\nB.\n\n~~~card-yaml\n$kind: ITEMS\n~~~\n\nX.";
     assert!(Document::from_markdown(bad).is_err());
 
-    let ok = "~~~card-yaml\n$quill: t\n$kind: main\n~~~\n\nB.\n\n~~~card-yaml\n$kind: items\n~~~\n\nX.";
+    let ok =
+        "~~~card-yaml\n$quill: t\n$kind: main\n~~~\n\nB.\n\n~~~card-yaml\n$kind: items\n~~~\n\nX.";
     let doc = Document::from_markdown(ok).unwrap();
     assert_eq!(doc.cards()[0].kind(), Some("items"));
 }
@@ -203,8 +205,7 @@ fn unclosed_card_yaml_block_is_rejected() {
 // block and emits a `parse::card_fence_missing_blank` warning.
 #[test]
 fn card_fence_missing_blank_emits_warning() {
-    let md =
-        "~~~card-yaml\n$quill: t\n$kind: main\n~~~\nBody line.\n~~~card-yaml\n$kind: x\n~~~\n";
+    let md = "~~~card-yaml\n$quill: t\n$kind: main\n~~~\nBody line.\n~~~card-yaml\n$kind: x\n~~~\n";
     let out = Document::from_markdown_with_warnings(md).unwrap();
     assert!(
         out.warnings

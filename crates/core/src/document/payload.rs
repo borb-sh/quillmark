@@ -213,9 +213,7 @@ impl Payload {
     /// Set or replace the `$kind` entry. Same insertion rules as
     /// [`set_quill`](Self::set_quill).
     pub fn set_kind(&mut self, kind: impl Into<String>) {
-        self.upsert_meta(PayloadItem::Kind {
-            value: kind.into(),
-        });
+        self.upsert_meta(PayloadItem::Kind { value: kind.into() });
     }
 
     /// Set or replace the `$id` entry. Same insertion rules as
