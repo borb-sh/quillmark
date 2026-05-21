@@ -112,16 +112,14 @@ impl Quill {
                     .unwrap_or_default();
                 let fields = apply_defaults(&card.payload().to_index_map(), defaults);
                 Card::from_parts(
-                    card.meta().clone(),
-                    Payload::from_index_map(fields),
+                    rebuild_payload_with_meta(card, fields),
                     card.body().to_string(),
                 )
             })
             .collect();
 
         let final_main = Card::from_parts(
-            normalized.main().meta().clone(),
-            Payload::from_index_map(main_with_defaults),
+            rebuild_payload_with_meta(normalized.main(), main_with_defaults),
             normalized.main().body().to_string(),
         );
         let final_doc = Document::from_main_and_cards(final_main, cards_with_defaults, Vec::new());
@@ -151,15 +149,13 @@ impl Quill {
                 .coerce_card(card.kind().unwrap_or(""), &card.payload().to_index_map())
                 .map_err(coercion_error)?;
             coerced_cards.push(Card::from_parts(
-                card.meta().clone(),
-                Payload::from_index_map(coerced_fields),
+                rebuild_payload_with_meta(card, coerced_fields),
                 card.body().to_string(),
             ));
         }
 
         let coerced_main = Card::from_parts(
-            doc.main().meta().clone(),
-            Payload::from_index_map(coerced_payload),
+            rebuild_payload_with_meta(doc.main(), coerced_payload),
             doc.main().body().to_string(),
         );
         let coerced_doc = Document::from_main_and_cards(coerced_main, coerced_cards, Vec::new());
@@ -281,6 +277,29 @@ fn apply_defaults(
         result.entry(k).or_insert(v);
     }
     result
+}
+
+/// Build a fresh [`Payload`] from a coerced/defaulted user-field map,
+/// carrying the source card's `$` system-metadata entries forward.
+///
+/// Used by the orchestration coercion path: the coerced field map is the
+/// product of schema-aware coercion, so it doesn't carry `$` entries or
+/// comments. We rebuild from the map and re-attach `$quill` / `$kind` /
+/// `$id` from `source` so the resulting payload still identifies its
+/// quill and kind. Comments are intentionally dropped — the coerced
+/// payload feeds backend rendering, not round-trip storage.
+fn rebuild_payload_with_meta(source: &Card, fields: IndexMap<String, QuillValue>) -> Payload {
+    let mut payload = Payload::from_index_map(fields);
+    if let Some(q) = source.quill() {
+        payload.set_quill(q.clone());
+    }
+    if let Some(k) = source.kind() {
+        payload.set_kind(k.to_string());
+    }
+    if let Some(id) = source.id() {
+        payload.set_id(id.to_string());
+    }
+    payload
 }
 
 impl std::fmt::Debug for Quill {

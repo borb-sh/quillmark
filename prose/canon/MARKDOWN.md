@@ -114,11 +114,15 @@ ordinary YAML — they are read by the same YAML parser that handles the rest
 of the payload — but they are **extracted** from the user field set after
 parsing; they are not part of the data model's field map (§3.4).
 
-In the typed model, the extracted metadata is exposed as a `CardMetadata`
-struct with three optional fields — `quill`, `kind`, `id`. On a successfully
-parsed document the root block always carries `quill = Some(_)` and
-`kind = Some("main")`; composable cards always carry `quill = None` and
-`kind = Some(_)` (any value other than `"main"`).
+In the typed model, the `$` entries live as typed variants of the
+unified payload-item list (`PayloadItem::Quill`, `PayloadItem::Kind`,
+`PayloadItem::Id`), interleaved in source order with user fields and
+YAML comments. They are surfaced through typed accessors —
+`card.quill()`, `card.kind()`, `card.id()` — which return `Option<…>`.
+On a successfully parsed document the root card always returns
+`Some(_)` for both `quill()` and `kind()` (with `kind() == "main"`);
+composable cards return `None` for `quill()` and `Some(_)` for `kind()`
+(any value other than `"main"`).
 
 - **`$quill: <name>@<version>`** — binds the document to a quill (see §3.5
   for the version-selector forms). The root block (the first block) must
@@ -138,8 +142,9 @@ Rules:
   composable (non-root) block must declare `$kind: <kind>` for some
   `<kind>` other than `main`, and must not declare `$quill`.
 - `$` metadata entries may appear at any position within the payload, and
-  may be interleaved with data fields. The emitter places them first, in
-  the canonical key order `$quill`, `$kind`, `$id` (see §9).
+  may be interleaved with data fields. The emitter preserves source order
+  (see §9); newly constructed metadata that does not have a source-order
+  is emitted in the canonical key order `$quill`, `$kind`, `$id`.
 - A duplicate `$key` within a single block is a parse error (a YAML mapping
   cannot carry two entries under the same key).
 - An unknown `$key` (anything outside `{quill, kind, id}`) is a parse error.
@@ -147,10 +152,9 @@ Rules:
 - A `$`-prefixed key whose value type is wrong for the key (e.g. a sequence
   under `$quill`) is a parse error.
 - **YAML comments on `$` lines.** Inline trailing comments (`$quill: foo  #
-  bound at build`) and adjacent own-line comments are accepted by the
-  YAML parser, but they are **not preserved** through emit — the canonical
-  form (§9) drops every comment that targets a `$` metadata key. Comments
-  on data fields round-trip normally (§3.4).
+  bound at build`) and adjacent own-line comments round-trip through the
+  unified payload-item list — the same mechanism that preserves comments
+  on data fields (§3.4). Both flavors survive parse → emit → parse.
 
 ### 3.4 Data Payload
 
@@ -356,20 +360,21 @@ error when any is exceeded:
 
 ```
 ~~~card-yaml
-<$ metadata lines, in canonical order>
-<data fields>
+<payload items in source order>
 ~~~
 ```
 
-That is: a `~~~card-yaml` opener, the `$` system-metadata lines (in the
-canonical key order `$quill`, `$kind`, `$id`) leading the YAML payload, the
-remaining data fields, and a `~~~` closer. The root block emits both
-`$quill` and `$kind: main`; composable cards emit `$kind: <kind>` plus any
-other `$` entries they declared. A document round-trips to this canonical
-shape — fence markers, key ordering, and YAML quoting are normalised.
-`!fill` tags and data-field comments (own-line and inline) survive the
-round-trip; comments targeting `$` metadata keys do not — the canonical
-form drops them.
+That is: a `~~~card-yaml` opener, the YAML payload (typed `$` system
+metadata, user data fields, and YAML comments interleaved in source
+order), and a `~~~` closer. The root block must declare `$quill` and
+`$kind: main`; composable cards must declare `$kind: <kind>`. A document
+round-trips to this canonical shape — fence markers and YAML quoting are
+normalised. `!fill` tags and YAML comments (own-line and inline, including
+those adjacent to `$` lines) survive the round-trip.
+
+Programmatically constructed metadata that does not have a source-order
+emits in the canonical key order `$quill`, `$kind`, `$id` — the typed
+mutators (`set_quill` / `set_kind` / `set_id`) insert at these positions.
 
 ### 9.1 Canonical Idempotence
 
@@ -392,9 +397,10 @@ A document in canonical form round-trips byte-equal under both
 Arbitrary (non-canonical) input parses successfully when it satisfies §1–8
 and converges to the canonical form on the first emit. Type fidelity (a
 quoted `"42"` survives as a string, an unquoted `42` survives as an
-integer) is preserved; fence-marker length, quoting style, and the source
-position of `$` metadata keys are not. The canonical form is what consumers
-should content-hash, content-address, or compare for equality.
+integer) is preserved, along with the source positions of `$` metadata
+keys and YAML comments; fence-marker length and quoting style are not.
+The canonical form is what consumers should content-hash, content-address,
+or compare for equality.
 
 ## 10. Errors
 

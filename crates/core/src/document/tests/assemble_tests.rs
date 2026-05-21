@@ -823,7 +823,8 @@ $kind: note
 #[test]
 fn dollar_keys_at_any_position_in_payload_work() {
     // `$`-prefixed reserved keys are ordinary YAML; they may appear at any
-    // position in the block's mapping. Canonical emit places them first.
+    // position in the block's mapping. Emit preserves source order so that
+    // any comments adjacent to a `$` line round-trip in place.
     let markdown = "~~~card-yaml
 title: First
 $quill: test_quill
@@ -835,10 +836,10 @@ Body.";
 
     let doc = decompose(markdown).expect("payload with $-keys mid-mapping should parse");
     assert_eq!(
-        doc.main().meta().quill().unwrap().to_string(),
+        doc.main().quill().unwrap().to_string(),
         "test_quill"
     );
-    assert_eq!(doc.main().meta().kind(), Some("main"));
+    assert_eq!(doc.main().kind(), Some("main"));
     assert_eq!(
         doc.main().payload().get("title").unwrap().as_str(),
         Some("First")
@@ -847,16 +848,14 @@ Body.";
         doc.main().payload().get("author").unwrap().as_str(),
         Some("Bob")
     );
-    // `$` keys do not appear in the user payload.
+    // `$` keys do not appear in the user-field accessors.
     assert!(doc.main().payload().get("$quill").is_none());
     assert!(doc.main().payload().get("$kind").is_none());
 
-    // Round-trip places `$` keys first in canonical order.
+    // Round-trip stability: emit then re-parse produces an equal Document.
     let emitted = doc.to_markdown();
-    assert!(
-        emitted.starts_with("~~~card-yaml\n$quill: test_quill\n$kind: main\n"),
-        "canonical emit must lead with $-keys; got:\n{emitted}"
-    );
+    let reparsed = decompose(&emitted).expect("round-trip should re-parse");
+    assert_eq!(doc, reparsed);
 }
 
 #[test]

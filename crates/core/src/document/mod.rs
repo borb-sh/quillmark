@@ -91,7 +91,7 @@ pub mod prescan;
 
 pub use dto::{peek_schema_version, StorageError, StoredDocument, SCHEMA_V0_81_0};
 pub use edit::EditError;
-pub use meta::{CardKindError, CardMetadata, MetaItem};
+pub use meta::{CardKindError, is_valid_kind_name, validate_composable_kind};
 pub use payload::{Payload, PayloadItem};
 
 #[cfg(test)]
@@ -116,8 +116,9 @@ pub struct ParseOutput {
 /// recording which collection it belongs to.
 ///
 /// Every card has:
-/// - `meta` — the block's typed `$` system metadata (`$quill`, `$kind`, `$id`).
-/// - `payload` — ordered items parsed from the block's YAML payload.
+/// - `payload` — ordered items parsed from the block's YAML payload,
+///   carrying typed `$` system metadata, user fields, and comments
+///   interleaved in source order.
 /// - `body` — the Markdown text that follows the closing `~~~` fence, up to
 ///   the next block (or EOF).
 ///
@@ -129,7 +130,6 @@ pub struct ParseOutput {
 /// should check `card.body().is_empty()`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Card {
-    meta: CardMetadata,
     payload: Payload,
     body: String,
 }
@@ -139,35 +139,27 @@ impl Card {
     /// field names — callers are responsible for providing already-valid
     /// data. For user-facing construction of composable cards use
     /// [`Card::new`] (defined in `edit.rs`).
-    pub fn from_parts(meta: CardMetadata, payload: Payload, body: String) -> Self {
-        Self {
-            meta,
-            payload,
-            body,
-        }
+    pub fn from_parts(payload: Payload, body: String) -> Self {
+        Self { payload, body }
     }
 
-    /// The block's typed `$` system metadata.
-    pub fn meta(&self) -> &CardMetadata {
-        &self.meta
-    }
-
-    /// Mutable access to the system metadata.
-    pub fn meta_mut(&mut self) -> &mut CardMetadata {
-        &mut self.meta
+    /// The `$quill` reference, if the block declares one.
+    pub fn quill(&self) -> Option<&QuillReference> {
+        self.payload.quill()
     }
 
     /// The `$kind` card kind, if the block declares one.
     pub fn kind(&self) -> Option<&str> {
-        self.meta.kind()
+        self.payload.kind()
     }
 
     /// The `$id` opaque identifier, if the block declares one.
     pub fn id(&self) -> Option<&str> {
-        self.meta.id()
+        self.payload.id()
     }
 
-    /// Typed payload (map-keyed view and ordered item list).
+    /// Typed payload (map-keyed view and ordered item list, including `$`
+    /// entries).
     pub fn payload(&self) -> &Payload {
         &self.payload
     }
@@ -239,9 +231,9 @@ impl Document {
     /// The caller must guarantee that `main`'s `$quill` metadata is present
     /// and valid, and that composable cards do not carry `$quill`.
     pub fn from_main_and_cards(main: Card, cards: Vec<Card>, warnings: Vec<Diagnostic>) -> Self {
-        debug_assert!(main.meta.quill().is_some(), "main card must carry `$quill`");
+        debug_assert!(main.quill().is_some(), "main card must carry `$quill`");
         debug_assert!(
-            cards.iter().all(|c| c.meta.quill().is_none()),
+            cards.iter().all(|c| c.quill().is_none()),
             "composable cards must not carry `$quill`"
         );
         Self {
@@ -281,7 +273,6 @@ impl Document {
     /// never fails for a `Document` produced by [`Document::from_markdown`].
     pub fn quill_reference(&self) -> QuillReference {
         self.main
-            .meta
             .quill()
             .cloned()
             .expect("root block's $quill is validated at parse time")
@@ -362,7 +353,7 @@ impl Document {
                 let mut card_map = serde_json::Map::new();
                 card_map.insert(
                     "CARD".to_string(),
-                    serde_json::Value::String(card.meta.kind().unwrap_or("").to_string()),
+                    serde_json::Value::String(card.kind().unwrap_or("").to_string()),
                 );
                 for (key, value) in card.payload.iter() {
                     card_map.insert(key.clone(), value.as_json().clone());

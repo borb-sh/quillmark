@@ -22,7 +22,7 @@
 use unicode_normalization::UnicodeNormalization;
 
 use crate::document::meta::{validate_composable_kind, CardKindError};
-use crate::document::{Card, CardMetadata, Document, Payload};
+use crate::document::{Card, Document, Payload};
 use crate::value::QuillValue;
 use crate::version::QuillReference;
 
@@ -110,7 +110,7 @@ impl Document {
     ///
     /// This method never modifies `warnings`.
     pub fn set_quill_ref(&mut self, reference: QuillReference) {
-        self.main_mut().meta_mut().set_quill(reference);
+        self.main_mut().payload_mut().set_quill(reference);
     }
 
     // ── Card mutators ────────────────────────────────────────────────────────
@@ -207,7 +207,7 @@ impl Document {
         let card = self
             .card_mut(index)
             .ok_or(EditError::IndexOutOfRange { index, len })?;
-        card.meta_mut().set_kind(new_kind);
+        card.payload_mut().set_kind(new_kind);
         Ok(())
     }
 
@@ -259,9 +259,9 @@ impl Card {
             CardKindError::InvalidName => EditError::InvalidKindName(kind.clone()),
             CardKindError::Reserved => EditError::ReservedKind,
         })?;
-        let mut meta = CardMetadata::new();
-        meta.set_kind(kind);
-        Ok(Card::from_parts(meta, Payload::new(), String::new()))
+        let mut payload = Payload::new();
+        payload.set_kind(kind);
+        Ok(Card::from_parts(payload, String::new()))
     }
 
     /// Set a payload field by name. Always clears the `!fill` marker for
