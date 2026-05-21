@@ -193,10 +193,11 @@ pub enum PayloadItem {
 ///
 /// Exposed as a plain JS object via `Document.main`, `Document.cards`, etc.
 /// Carries a `kind` string (the block's `$kind`, empty when the block
-/// declares none), typed payload (map view under `payload`, ordered item
-/// list under `payloadItems`), and the body. Whether a card is the document
-/// entry (main) card or a composable card is positional — it is whichever
-/// `Document` accessor it came from (`main` vs `cards`).
+/// declares none), an ordered `payloadItems` list (fields + comments in
+/// source order), and the body. To read a specific field by name, filter
+/// `payloadItems` for `{type: "field", key: "..."}`. Whether a card is the
+/// document entry (main) card or a composable card is positional — it is
+/// whichever `Document` accessor it came from (`main` vs `cards`).
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
@@ -204,10 +205,9 @@ pub struct Card {
     /// The block's `$kind` value (e.g. `"endorsement"`); empty string when
     /// the block declares no `$kind`.
     pub kind: String,
-    /// Map-keyed view of payload values (no `$` metadata, comments invisible).
-    #[tsify(type = "Record<string, unknown>")]
-    pub payload: serde_json::Value,
     /// Ordered payload item list — fields and comments, in source order.
+    /// Typed `$` entries (`$quill`, `$kind`, `$id`) are exposed via the
+    /// typed accessors (`card.kind` etc.) and are absent from this list.
     #[tsify(type = "PayloadItem[]")]
     pub payload_items: Vec<PayloadItem>,
     /// Markdown body after the card's closing `~~~`. Empty string when absent.
@@ -216,16 +216,7 @@ pub struct Card {
 
 impl From<&quillmark_core::Card> for Card {
     fn from(card: &quillmark_core::Card) -> Self {
-        let mut fields_map = serde_json::Map::new();
-        for (k, v) in card.payload().iter() {
-            fields_map.insert(k.clone(), v.as_json().clone());
-        }
-
-        // `payloadItems` exposes user fields + comments. Typed `$` entries
-        // are visible through the typed accessors (`card.kind` etc.); for
-        // full round-trip fidelity through the binding, callers use the
-        // versioned storage DTO via `Document.toJson()`.
-        let items: Vec<PayloadItem> = card
+        let payload_items = card
             .payload()
             .items()
             .iter()
@@ -241,8 +232,6 @@ impl From<&quillmark_core::Card> for Card {
                     text: text.clone(),
                     inline: *inline,
                 }),
-                // `$` entries are typed system metadata; expose them via
-                // `card.kind` and friends rather than as opaque items.
                 quillmark_core::PayloadItem::Quill { .. }
                 | quillmark_core::PayloadItem::Kind { .. }
                 | quillmark_core::PayloadItem::Id { .. } => None,
@@ -251,8 +240,7 @@ impl From<&quillmark_core::Card> for Card {
 
         Card {
             kind: card.kind().unwrap_or("").to_string(),
-            payload: serde_json::Value::Object(fields_map),
-            payload_items: items,
+            payload_items,
             body: card.body().to_string(),
         }
     }
@@ -376,10 +364,15 @@ mod tests {
         let doc = Document::from_markdown(md).unwrap();
         let card = Card::from(doc.main());
 
-        // Map view: title and author present, $quill absent.
-        assert_eq!(card.payload["title"], "Hi");
-        assert_eq!(card.payload["author"], "Alice");
-        assert!(card.payload.get("quill").is_none());
+        let field = |key: &str| -> Option<&serde_json::Value> {
+            card.payload_items.iter().find_map(|it| match it {
+                PayloadItem::Field { key: k, value, .. } if k == key => Some(value),
+                _ => None,
+            })
+        };
+        assert_eq!(field("title").and_then(|v| v.as_str()), Some("Hi"));
+        assert_eq!(field("author").and_then(|v| v.as_str()), Some("Alice"));
+        assert!(field("quill").is_none());
 
         // Item list: field + inline comment + field.
         let fields: Vec<&str> = card
