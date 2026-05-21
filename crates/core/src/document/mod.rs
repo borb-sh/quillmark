@@ -10,12 +10,13 @@
 //! ## Key Types
 //!
 //! - [`Document`]: Typed in-memory Quillmark document — `main` card plus composable cards.
-//! - [`Card`]: A single card block, root or composable, with typed
-//!   system metadata, a typed payload, and a body.
-//! - [`CardMetadata`]: A block's typed system metadata (`$quill`, `$kind`, `$id`),
-//!   extracted from the block's YAML payload at parse time.
-//! - [`Payload`]: Ordered list of items (fields + comments) parsed from a
-//!   block's YAML payload, with `$`-prefixed reserved keys already removed.
+//! - [`Card`]: A single card block, root or composable, carrying a typed
+//!   payload and a body.
+//! - [`Payload`]: Ordered items parsed from a block's YAML payload, carrying
+//!   typed `$`-system entries (`$quill`, `$kind`, `$id`), user fields, and
+//!   comments interleaved in source order.
+//! - [`PayloadItem`]: The item variant — `Quill` / `Kind` / `Id` / `Field` /
+//!   `Comment`.
 //!
 //! ## Examples
 //!

@@ -250,10 +250,6 @@ pub fn fix_html_comment_fences(s: &str) -> String {
 /// 1. Strip Unicode bidirectional formatting characters
 /// 2. Fix HTML comment closing fences (ensure text after `-->` is preserved)
 ///
-/// Note: Guillemet preprocessing (`<<text>>` → `«text»`) is handled separately
-/// in [`normalize_fields`] because it needs to be applied after schema defaults
-/// and coercion.
-///
 /// # Examples
 ///
 /// ```

@@ -1182,7 +1182,7 @@ impl RenderSession {
     /// Snapshot of any non-fatal diagnostics emitted while opening the
     /// session (e.g. version compatibility shims). Stable across the
     /// session's lifetime. These are also appended to
-    /// [`RenderResult.warnings`] on every `render()` call; the accessor
+    /// `RenderResult.warnings` on every `render()` call; the accessor
     /// surfaces them to canvas-preview consumers that don't go through
     /// `render()`.
     #[wasm_bindgen(getter, js_name = warnings, unchecked_return_type = "Diagnostic[]")]

@@ -9,8 +9,9 @@
 //! This module retains only the validation primitives shared between the
 //! parser, the editor surface, and the storage DTO:
 //!
-//! - [`extract_meta_items`] — strip `$` keys from a parsed YAML mapping
-//!   and validate each into a typed system-metadata [`super::PayloadItem`].
+//! - `extract_meta_items` (private) — strip `$` keys from a parsed YAML
+//!   mapping and validate each into a typed system-metadata
+//!   [`super::PayloadItem`].
 //! - [`is_valid_kind_name`] / [`validate_composable_kind`] — name checks
 //!   for `$kind`.
 
