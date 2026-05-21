@@ -1,15 +1,32 @@
 //! Assembly of card-yaml blocks into a [`Document`].
 //!
-//! This module contains the top-level parsing glue: it calls the fence
-//! scanner, parses each block's YAML payload, extracts the `$`-prefixed
-//! system metadata, and assembles a typed [`Document`] from the pieces.
+//! This module is the top-level parsing glue: it calls the fence scanner,
+//! parses each block's YAML payload, extracts the `$`-prefixed system
+//! metadata into typed values, and assembles a typed [`Document`] from the
+//! pieces.
+//!
+//! ## Unified payload items
+//!
+//! Both `$`-prefixed system metadata and user fields end up as variants of
+//! [`PayloadItem`] in the card's [`Payload`] item list, in source order.
+//! There is no separate "metadata region" or "metadata vs payload" routing
+//! — a comment is a comment, attached to whichever item precedes it. This
+//! is what keeps inline-comment preservation symmetric across the
+//! `$`/non-`$` boundary.
+//!
+//! `extract_meta_from_payload` returns typed [`MetaValue`]s in source order;
+//! `build_payload` then walks the prescan items, replacing `$` field
+//! markers with the corresponding typed `Quill`/`Kind`/`Id` payload item
+//! and preserving every comment as-authored.
+
+use std::collections::HashMap;
 
 use crate::error::ParseError;
 use crate::value::QuillValue;
 use crate::Diagnostic;
 
 use super::fences::find_metadata_blocks;
-use super::meta::{extract_meta_from_payload, validate_payload_yaml, CardMetadata};
+use super::meta::{extract_meta_from_payload, validate_payload_yaml, MetaValue};
 use super::payload::{Payload, PayloadItem};
 use super::prescan::{prescan_fence_content, NestedComment, PreItem};
 use super::{Card, Document};
@@ -37,7 +54,8 @@ pub(super) struct MetadataBlock {
     pub(super) start: usize, // Position of the opening `~~~card-yaml`
     pub(super) end: usize,   // Position after the closing `~~~`
     pub(super) yaml_value: Option<serde_json::Value>, // Parsed YAML payload as JSON
-    pub(super) meta: CardMetadata, // The block's typed `$` system metadata
+    /// Typed `$` system metadata values in source order.
+    pub(super) meta_values: Vec<MetaValue>,
     /// Pre-scan items (comments + fill-tagged field keys) in source order.
     pub(super) pre_items: Vec<PreItem>,
     /// Pre-scan nested comments (with structural paths).
@@ -70,10 +88,6 @@ pub(super) fn build_block(
         });
     }
 
-    // Run the pre-scan over the full block contents to extract top-level
-    // comments, `!fill` markers, and warn on unsupported tags / nested
-    // comments. `$`-prefixed reserved keys are ordinary YAML fields at this
-    // stage; they get extracted into typed metadata after parsing below.
     let pre = prescan_fence_content(raw_content);
 
     if let Some(err) = pre.fill_target_errors.first() {
@@ -81,7 +95,7 @@ pub(super) fn build_block(
     }
 
     // `!fill` is not permitted on `$` metadata keys — those are extracted into
-    // a typed [`CardMetadata`] and have no placeholder semantics.
+    // typed values and have no placeholder semantics.
     for item in &pre.items {
         if let PreItem::Field { key, fill: true } = item {
             if key.starts_with('$') {
@@ -95,8 +109,8 @@ pub(super) fn build_block(
     }
 
     let content = pre.cleaned_yaml.trim().to_string();
-    let (meta, yaml_value) = if content.is_empty() {
-        (CardMetadata::default(), None)
+    let (meta_values, yaml_value) = if content.is_empty() {
+        (Vec::new(), None)
     } else {
         let mut parsed = match serde_saphyr::from_str_with_options::<serde_json::Value>(
             &content,
@@ -131,7 +145,7 @@ pub(super) fn build_block(
         start: block_start,
         end: block_end,
         yaml_value,
-        meta,
+        meta_values,
         pre_items: pre.items,
         pre_nested_comments: pre.nested_comments,
         pre_warnings: pre.warnings,
@@ -179,19 +193,24 @@ pub(super) fn decompose_with_warnings(
         ));
     }
 
-    // The root block must declare a `$quill` reference. (Its value is
-    // validated into a typed `QuillReference` during `$` metadata extraction.)
+    // The root block must declare a `$quill` reference.
     let root_block = &blocks[0];
-    if root_block.meta.quill.is_none() {
+    let has_root_quill = root_block
+        .meta_values
+        .iter()
+        .any(|m| matches!(m, MetaValue::Quill(_)));
+    if !has_root_quill {
         return Err(ParseError::MissingQuill(
             "The document's root card-yaml block must declare `$quill: <name>`.".to_string(),
         ));
     }
 
-    // `main` is the reserved kind for the document root. The root block
-    // must declare `$kind: main`; no other value is permitted there, and a
-    // composable card may not declare `$kind: main` (checked below).
-    match root_block.meta.kind.as_deref() {
+    // The root block must declare `$kind: main`.
+    let root_kind = root_block.meta_values.iter().find_map(|m| match m {
+        MetaValue::Kind(k) => Some(k.as_str()),
+        _ => None,
+    });
+    match root_kind {
         Some("main") => {}
         Some(other) => {
             return Err(ParseError::InvalidStructure(format!(
@@ -209,22 +228,21 @@ pub(super) fn decompose_with_warnings(
         }
     }
 
-    // Build the root block's payload item list.
-    let main_payload = build_payload_from_pre_and_parsed(
+    // Build the root block's payload.
+    let main_payload = build_payload(
+        &root_block.meta_values,
         &root_block.pre_items,
         &root_block.pre_nested_comments,
         &root_block.yaml_value,
     )?;
-    // Surface pre-scan warnings (nested-comment drops, unsupported tags).
     let mut warnings = warnings;
     for w in &root_block.pre_warnings {
         warnings.push(w.clone());
     }
 
     // Global body: between the end of the root block and the start of the
-    // first composable card block (or EOF). When a block follows, the slice
-    // ends with the blank-line separator — strip it so stored bodies contain
-    // only authored content.
+    // first composable card block (or EOF). Strip the structural blank-line
+    // separator when a block follows.
     let body_start = blocks[0].end;
     let (body_end, body_is_followed_by_fence) = match blocks.get(1) {
         Some(b) => (b.start, true),
@@ -237,18 +255,19 @@ pub(super) fn decompose_with_warnings(
         global_body_raw.to_string()
     };
 
-    let main = Card::from_parts(blocks[0].meta.clone(), main_payload, global_body);
+    let main = Card::from_parts(main_payload, global_body);
 
     // Parse composable card blocks (every block after the root) into Cards.
     let mut cards: Vec<Card> = Vec::new();
     for idx in 1..blocks.len() {
         let block = &blocks[idx];
 
-        // Only the root block binds the document to a quill. A composable
-        // card declaring `$quill` is a structural error — `$quill` is
-        // captured by the per-block header parser, but rejected here, where
-        // root-vs-composable position is known.
-        if block.meta.quill.is_some() {
+        // Only the root block binds the document to a quill.
+        if block
+            .meta_values
+            .iter()
+            .any(|m| matches!(m, MetaValue::Quill(_)))
+        {
             return Err(ParseError::InvalidStructure(
                 "A composable card-yaml block must not declare `$quill` — only \
                  the document's root block binds the document to a quill."
@@ -257,7 +276,11 @@ pub(super) fn decompose_with_warnings(
         }
 
         // `main` is reserved for the document root.
-        if block.meta.kind.as_deref() == Some("main") {
+        let kind_is_main = block.meta_values.iter().any(|m| match m {
+            MetaValue::Kind(k) => k == "main",
+            _ => false,
+        });
+        if kind_is_main {
             return Err(ParseError::InvalidStructure(
                 "A composable card-yaml block must not declare `$kind: main` — \
                  `main` is reserved for the document root."
@@ -265,7 +288,8 @@ pub(super) fn decompose_with_warnings(
             ));
         }
 
-        let card_payload = build_payload_from_pre_and_parsed(
+        let card_payload = build_payload(
+            &block.meta_values,
             &block.pre_items,
             &block.pre_nested_comments,
             &block.yaml_value,
@@ -295,11 +319,7 @@ pub(super) fn decompose_with_warnings(
             card_body_raw.to_string()
         };
 
-        cards.push(Card::from_parts(
-            block.meta.clone(),
-            card_payload,
-            card_body,
-        ));
+        cards.push(Card::from_parts(card_payload, card_body));
     }
 
     let doc = Document::from_main_and_cards(main, cards, warnings.clone());
@@ -307,20 +327,16 @@ pub(super) fn decompose_with_warnings(
     Ok((doc, warnings))
 }
 
-/// Build a [`Payload`] from the pre-scan items and the parsed YAML mapping.
+/// Build a unified [`Payload`] from the pre-scan items, the typed `$`
+/// metadata values, and the parsed YAML mapping.
 ///
-/// The pre-scan defined source order for fields and comments; the parsed
-/// YAML defined the typed value for each key. We walk pre-scan order, pulling
-/// each field's value from `parsed`. Any field the pre-scan didn't catch is
-/// appended at the end in parsed-map order so we never drop values.
-///
-/// `$`-prefixed reserved keys have already been extracted into the block's
-/// [`CardMetadata`] by [`extract_meta_from_payload`] and removed from
-/// `yaml_value`. The pre-scan still carries their `Field` entries (and any
-/// inline comments that trailed them); we drop both here so they do not
-/// appear in the user-visible payload. Own-line comments adjacent to a `$`
-/// line remain in place — they round-trip as ordinary payload comments.
-fn build_payload_from_pre_and_parsed(
+/// Walks `pre_items` in source order. Each non-`$` field pulls its typed
+/// value from `yaml_value`; each `$` field is replaced with the matching
+/// typed [`MetaValue`] from `meta_values`; comments pass through verbatim.
+/// Any parsed-map keys the pre-scan didn't capture are appended at the end
+/// so we never silently drop values.
+fn build_payload(
+    meta_values: &[MetaValue],
     pre_items: &[PreItem],
     pre_nested_comments: &[NestedComment],
     yaml_value: &Option<serde_json::Value>,
@@ -335,34 +351,33 @@ fn build_payload_from_pre_and_parsed(
         }
     };
 
-    let mut items: Vec<PayloadItem> = Vec::new();
-    let mut consumed: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Look up typed `$` values by `$key`. Each entry is consumed at most
+    // once; anything left over at the end is appended in source order.
+    let mut typed_by_key: HashMap<&'static str, MetaValue> = HashMap::with_capacity(meta_values.len());
+    for m in meta_values {
+        typed_by_key.insert(m.key(), m.clone());
+    }
 
-    let mut idx = 0;
-    while idx < pre_items.len() {
-        match &pre_items[idx] {
+    let mut items: Vec<PayloadItem> = Vec::new();
+    let mut consumed_user_keys: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+
+    for item in pre_items {
+        match item {
             PreItem::Comment { text, inline } => {
                 items.push(PayloadItem::Comment {
                     text: text.clone(),
                     inline: *inline,
                 });
-                idx += 1;
             }
             PreItem::Field { key, fill } => {
                 if key.starts_with('$') {
-                    // `$`-key Field is system metadata, already extracted.
-                    // Drop the Field itself, and drop any inline comment that
-                    // immediately follows it (it targeted the metadata line).
-                    let drop_trailing_inline = matches!(
-                        pre_items.get(idx + 1),
-                        Some(PreItem::Comment { inline: true, .. })
-                    );
-                    idx += if drop_trailing_inline { 2 } else { 1 };
+                    if let Some(meta) = typed_by_key.remove(key.as_str()) {
+                        items.push(meta_to_payload_item(meta));
+                    }
                     continue;
                 }
                 if let Some(value) = mapping.get(key).cloned() {
-                    // `!fill` applies to scalars and sequences. Mappings are
-                    // rejected because top-level `type: object` is unsupported.
                     if *fill && value.is_object() {
                         return Err(ParseError::InvalidStructure(format!(
                             "`!fill` on key `{}` targets a mapping; `!fill` is supported on scalars and sequences only",
@@ -374,16 +389,26 @@ fn build_payload_from_pre_and_parsed(
                         value: QuillValue::from_json(value),
                         fill: *fill,
                     });
-                    consumed.insert(key.clone());
+                    consumed_user_keys.insert(key.clone());
                 }
-                idx += 1;
             }
+        }
+    }
+
+    // Drain any typed `$` entries the prescan didn't reach (shouldn't
+    // happen in well-formed input but keeps the conversion total). Walk
+    // `meta_values` in source order so the relative `$` ordering is
+    // preserved.
+    for meta in meta_values {
+        if typed_by_key.contains_key(meta.key()) {
+            items.push(meta_to_payload_item(meta.clone()));
+            typed_by_key.remove(meta.key());
         }
     }
 
     // Append any parsed-map keys that the pre-scan didn't capture.
     for (key, value) in &mapping {
-        if consumed.contains(key) {
+        if consumed_user_keys.contains(key) {
             continue;
         }
         items.push(PayloadItem::Field {
@@ -397,4 +422,12 @@ fn build_payload_from_pre_and_parsed(
         items,
         pre_nested_comments.to_vec(),
     ))
+}
+
+fn meta_to_payload_item(meta: MetaValue) -> PayloadItem {
+    match meta {
+        MetaValue::Quill(reference) => PayloadItem::Quill { reference },
+        MetaValue::Kind(value) => PayloadItem::Kind { value },
+        MetaValue::Id(value) => PayloadItem::Id { value },
+    }
 }

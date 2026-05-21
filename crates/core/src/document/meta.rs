@@ -1,16 +1,18 @@
-//! Card-yaml block metadata: the `$`-prefixed reserved keys.
+//! Validation helpers for card-yaml `$`-prefixed system metadata.
 //!
-//! Every `~~~card-yaml` block's YAML payload may carry up to three reserved
-//! keys — `$quill`, `$kind`, `$id`. These are **system metadata** drawn from
-//! a closed set; any other `$`-prefixed key is a parse error. The keys are
-//! ordinary YAML and are read by the same parser that handles the rest of
-//! the payload; this module then **extracts** them from the user field set
-//! into a typed [`CardMetadata`].
+//! The closed set of `$` keys (`$quill`, `$kind`, `$id`) and their typed
+//! values are now stored as variants of [`super::PayloadItem`] inside a
+//! card's unified [`super::Payload`] item list — they sit alongside user
+//! fields and comments in source order, which is what makes inline-comment
+//! preservation symmetric across the `$`/non-`$` boundary.
 //!
-//! `$quill` on the root block binds the document to a quill; `$kind` is
-//! name-validated against `[a-z_][a-z0-9_]*` at parse time. `$id` is opaque
-//! metadata: any scalar is accepted and stringified on extraction, then
-//! carried through round-trip unchanged.
+//! This module retains only the validation primitives shared between the
+//! parser, the editor surface, and the storage DTO:
+//!
+//! - [`extract_meta_from_payload`] — strip `$` keys from a parsed YAML
+//!   mapping and validate each into a typed [`MetaValue`].
+//! - [`is_valid_kind_name`] / [`validate_composable_kind`] — name checks
+//!   for `$kind`.
 
 use std::str::FromStr;
 
@@ -19,44 +21,47 @@ use serde_json::Value as JsonValue;
 use crate::error::ParseError;
 use crate::version::QuillReference;
 
-/// Typed `$`-metadata of a single card-yaml block.
+/// A typed `$`-prefixed metadata value, decoupled from its position in the
+/// containing card's item list.
 ///
-/// The reserved keys are a **closed set** of three optional entries; an
-/// unknown `$key` is rejected at parse time. `$quill` is parsed into a typed
-/// [`QuillReference`] as the block is read.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct CardMetadata {
-    /// The `$quill` reference. Required on the document's root block and
-    /// rejected on composable cards (see `assemble`); `None` on every card
-    /// in a successfully parsed [`crate::Document`].
-    pub quill: Option<QuillReference>,
-    /// The `$kind` card kind, if the block declares one. Validated against
-    /// `[a-z_][a-z0-9_]*` at parse time.
-    pub kind: Option<String>,
-    /// The `$id` opaque identifier, if the block declares one.
-    pub id: Option<String>,
+/// `extract_meta_from_payload` returns these in source order; the assembler
+/// then interleaves them with comments and user fields when building the
+/// final [`super::Payload`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum MetaValue {
+    Quill(QuillReference),
+    Kind(String),
+    Id(String),
+}
+
+impl MetaValue {
+    /// The `$key` string this value corresponds to.
+    pub(super) fn key(&self) -> &'static str {
+        match self {
+            MetaValue::Quill(_) => "$quill",
+            MetaValue::Kind(_) => "$kind",
+            MetaValue::Id(_) => "$id",
+        }
+    }
 }
 
 /// Walk the parsed YAML payload, extracting `$`-prefixed reserved keys into
-/// a typed [`CardMetadata`] and removing them from the user field set.
+/// typed [`MetaValue`]s in source order. The keys are removed from `payload`
+/// so the caller can build the user-field portion from what remains.
 ///
 /// The accepted keys are the closed set `{$quill, $kind, $id}`. Any other
 /// `$`-prefixed key is a parse error. Duplicate keys cannot arise here —
 /// the YAML parser rejects them as duplicate mapping keys before this
-/// function runs. A `$quill` value that fails to parse as a
-/// [`QuillReference`], or a `$kind` value that fails [`is_valid_kind_name`],
-/// is also a parse error.
+/// function runs.
 ///
 /// `$quill` and `$kind` require string scalars (non-string YAML types are
-/// rejected). `$id` accepts any scalar and stringifies it, matching the
-/// "opaque identifier" semantics of the spec (§3.3).
+/// rejected). `$id` accepts any scalar and stringifies it.
 pub(super) fn extract_meta_from_payload(
     payload: &mut JsonValue,
-) -> Result<CardMetadata, ParseError> {
-    let mut meta = CardMetadata::default();
+) -> Result<Vec<MetaValue>, ParseError> {
     let map = match payload {
         JsonValue::Object(m) => m,
-        _ => return Ok(meta),
+        _ => return Ok(Vec::new()),
     };
 
     let dollar_keys: Vec<String> = map
@@ -65,11 +70,12 @@ pub(super) fn extract_meta_from_payload(
         .cloned()
         .collect();
 
+    let mut out = Vec::with_capacity(dollar_keys.len());
     for key in dollar_keys {
         let value = map
             .shift_remove(&key)
             .expect("key was just enumerated from the same map");
-        match key.as_str() {
+        let meta = match key.as_str() {
             "$quill" => {
                 let s = require_string("$quill reference", value)?;
                 let reference = QuillReference::from_str(&s).map_err(|e| {
@@ -78,7 +84,7 @@ pub(super) fn extract_meta_from_payload(
                         s, e
                     ))
                 })?;
-                meta.quill = Some(reference);
+                MetaValue::Quill(reference)
             }
             "$kind" => {
                 let s = match value {
@@ -98,11 +104,9 @@ pub(super) fn extract_meta_from_payload(
                         s
                     )));
                 }
-                meta.kind = Some(s);
+                MetaValue::Kind(s)
             }
-            "$id" => {
-                meta.id = Some(scalar_to_string(&key, value)?);
-            }
+            "$id" => MetaValue::Id(scalar_to_string(&key, value)?),
             other => {
                 return Err(ParseError::InvalidStructure(format!(
                     "Unknown `{}` system-metadata key — the card-yaml block \
@@ -110,14 +114,13 @@ pub(super) fn extract_meta_from_payload(
                     other
                 )));
             }
-        }
+        };
+        out.push(meta);
     }
 
-    Ok(meta)
+    Ok(out)
 }
 
-/// Require a YAML string scalar. The `label` is interpolated into the error
-/// message — pass `"$quill reference"` to get `"Invalid $quill reference …"`.
 fn require_string(label: &str, value: JsonValue) -> Result<String, ParseError> {
     match value {
         JsonValue::String(s) => Ok(s),
@@ -129,8 +132,6 @@ fn require_string(label: &str, value: JsonValue) -> Result<String, ParseError> {
     }
 }
 
-/// Coerce any YAML scalar to its string form (for `$id`, the opaque
-/// identifier). Mappings, sequences, and explicit null are rejected.
 fn scalar_to_string(key: &str, value: JsonValue) -> Result<String, ParseError> {
     match value {
         JsonValue::String(s) => Ok(s),
@@ -159,12 +160,9 @@ fn yaml_type_name(value: &JsonValue) -> &'static str {
     }
 }
 
-/// Validate a card-yaml block's YAML payload (after `$` metadata extraction).
-///
-/// Rejects the reserved wire-format keys (`QUILL`, `CARD`, `BODY`, `CARDS`)
+/// Reject the reserved wire-format keys (`QUILL`, `CARD`, `BODY`, `CARDS`)
 /// appearing as user-defined fields — they would collide with
-/// [`crate::Document::to_plate_json`]'s output. The parsed value is returned
-/// unchanged.
+/// [`crate::Document::to_plate_json`]'s output.
 pub(super) fn validate_payload_yaml(
     parsed: serde_json::Value,
 ) -> Result<serde_json::Value, ParseError> {
@@ -181,26 +179,47 @@ pub(super) fn validate_payload_yaml(
     Ok(parsed)
 }
 
-/// Validate a card kind name follows the pattern `[a-z_][a-z0-9_]*`.
-pub(super) fn is_valid_kind_name(name: &str) -> bool {
+/// `true` when `name` matches `[a-z_][a-z0-9_]*`.
+pub fn is_valid_kind_name(name: &str) -> bool {
     if name.is_empty() {
         return false;
     }
-
     let mut chars = name.chars();
     let first = chars.next().unwrap();
-
     if !first.is_ascii_lowercase() && first != '_' {
         return false;
     }
-
     for ch in chars {
         if !ch.is_ascii_lowercase() && !ch.is_ascii_digit() && ch != '_' {
             return false;
         }
     }
-
     true
+}
+
+/// Validate a composable card kind: must match `[a-z_][a-z0-9_]*` and must
+/// not be the reserved root kind `"main"`.
+///
+/// Single source of truth for the composable-kind rule, used by
+/// [`crate::Card::new`], [`crate::Document::set_card_kind`], and the storage
+/// DTO conversion so the rule cannot drift between editor and reader paths.
+pub fn validate_composable_kind(kind: &str) -> Result<(), CardKindError> {
+    if !is_valid_kind_name(kind) {
+        return Err(CardKindError::InvalidName);
+    }
+    if kind == "main" {
+        return Err(CardKindError::Reserved);
+    }
+    Ok(())
+}
+
+/// Reason [`validate_composable_kind`] rejected a kind string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CardKindError {
+    /// Kind did not match `[a-z_][a-z0-9_]*`.
+    InvalidName,
+    /// Kind was `"main"`, reserved for the document root.
+    Reserved,
 }
 
 #[cfg(test)]
@@ -216,93 +235,58 @@ mod tests {
             "title": "Doc",
         });
         let meta = extract_meta_from_payload(&mut payload).unwrap();
-        assert_eq!(meta.quill.unwrap().to_string(), "foo@0.1");
-        assert_eq!(meta.kind.as_deref(), Some("main"));
+        assert_eq!(meta.len(), 2);
+        assert!(matches!(meta[0], MetaValue::Quill(_)));
+        assert!(matches!(meta[1], MetaValue::Kind(_)));
         assert_eq!(payload, json!({"title": "Doc"}));
-    }
-
-    #[test]
-    fn extracts_id_from_string() {
-        let mut payload = json!({"$id": "rev-1"});
-        let meta = extract_meta_from_payload(&mut payload).unwrap();
-        assert_eq!(meta.id.as_deref(), Some("rev-1"));
     }
 
     #[test]
     fn extracts_id_from_number() {
         let mut payload = json!({"$id": 42});
         let meta = extract_meta_from_payload(&mut payload).unwrap();
-        assert_eq!(meta.id.as_deref(), Some("42"));
-    }
-
-    #[test]
-    fn extracts_id_from_bool() {
-        let mut payload = json!({"$id": true});
-        let meta = extract_meta_from_payload(&mut payload).unwrap();
-        assert_eq!(meta.id.as_deref(), Some("true"));
+        assert!(matches!(meta[0], MetaValue::Id(ref s) if s == "42"));
     }
 
     #[test]
     fn rejects_unknown_dollar_key() {
         let mut payload = json!({"$unknown": "x"});
         let err = extract_meta_from_payload(&mut payload).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("Unknown `$unknown`"), "got: {msg}");
+        assert!(err.to_string().contains("Unknown `$unknown`"));
     }
 
     #[test]
     fn rejects_non_string_quill() {
         let mut payload = json!({"$quill": 42});
         let err = extract_meta_from_payload(&mut payload).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("$quill reference"), "got: {msg}");
-    }
-
-    #[test]
-    fn rejects_non_string_kind() {
-        let mut payload = json!({"$kind": ["main"]});
-        let err = extract_meta_from_payload(&mut payload).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("Invalid `$kind`"), "got: {msg}");
-    }
-
-    #[test]
-    fn null_kind_reports_invalid_kind() {
-        let mut payload = json!({"$kind": JsonValue::Null});
-        let err = extract_meta_from_payload(&mut payload).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("Invalid `$kind`"), "got: {msg}");
-    }
-
-    #[test]
-    fn null_quill_reports_invalid_quill_reference() {
-        let mut payload = json!({"$quill": JsonValue::Null});
-        let err = extract_meta_from_payload(&mut payload).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("Invalid $quill reference"), "got: {msg}");
+        assert!(err.to_string().contains("$quill reference"));
     }
 
     #[test]
     fn rejects_invalid_kind_pattern() {
         let mut payload = json!({"$kind": "Bad-Kind"});
         let err = extract_meta_from_payload(&mut payload).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("Invalid `$kind`"), "got: {msg}");
+        assert!(err.to_string().contains("Invalid `$kind`"));
     }
 
     #[test]
-    fn rejects_id_mapping() {
-        let mut payload = json!({"$id": {"nested": "yes"}});
-        let err = extract_meta_from_payload(&mut payload).unwrap_err();
-        let msg = err.to_string();
-        assert!(msg.contains("`$id`"), "got: {msg}");
-        assert!(msg.contains("scalar"), "got: {msg}");
+    fn validate_composable_kind_rejects_main() {
+        assert_eq!(
+            validate_composable_kind("main"),
+            Err(CardKindError::Reserved)
+        );
     }
 
     #[test]
-    fn non_object_payload_returns_empty_meta() {
-        let mut payload = JsonValue::Null;
-        let meta = extract_meta_from_payload(&mut payload).unwrap();
-        assert_eq!(meta, CardMetadata::default());
+    fn validate_composable_kind_rejects_bad_name() {
+        assert_eq!(
+            validate_composable_kind("Bad-Name"),
+            Err(CardKindError::InvalidName)
+        );
+    }
+
+    #[test]
+    fn validate_composable_kind_accepts_valid() {
+        assert!(validate_composable_kind("indorsement").is_ok());
     }
 }

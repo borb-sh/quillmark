@@ -21,8 +21,8 @@
 
 use unicode_normalization::UnicodeNormalization;
 
-use crate::document::meta::is_valid_kind_name;
-use crate::document::{Card, CardMetadata, Document, Payload};
+use crate::document::meta::{validate_composable_kind, CardKindError};
+use crate::document::{Card, Document, Payload};
 use crate::value::QuillValue;
 use crate::version::QuillReference;
 
@@ -110,7 +110,7 @@ impl Document {
     ///
     /// This method never modifies `warnings`.
     pub fn set_quill_ref(&mut self, reference: QuillReference) {
-        self.main_mut().meta_mut().quill = Some(reference);
+        self.main_mut().payload_mut().set_quill(reference);
     }
 
     // ── Card mutators ────────────────────────────────────────────────────────
@@ -199,17 +199,15 @@ impl Document {
         new_kind: impl Into<String>,
     ) -> Result<(), EditError> {
         let new_kind = new_kind.into();
-        if !is_valid_kind_name(&new_kind) {
-            return Err(EditError::InvalidKindName(new_kind));
-        }
-        if new_kind == "main" {
-            return Err(EditError::ReservedKind);
-        }
+        validate_composable_kind(&new_kind).map_err(|e| match e {
+            CardKindError::InvalidName => EditError::InvalidKindName(new_kind.clone()),
+            CardKindError::Reserved => EditError::ReservedKind,
+        })?;
         let len = self.cards().len();
         let card = self
             .card_mut(index)
             .ok_or(EditError::IndexOutOfRange { index, len })?;
-        card.meta_mut().kind = Some(new_kind);
+        card.payload_mut().set_kind(new_kind);
         Ok(())
     }
 
@@ -257,17 +255,13 @@ impl Card {
     /// The new card declares `$kind: <kind>`, has no fields, and an empty body.
     pub fn new(kind: impl Into<String>) -> Result<Self, EditError> {
         let kind = kind.into();
-        if !is_valid_kind_name(&kind) {
-            return Err(EditError::InvalidKindName(kind));
-        }
-        if kind == "main" {
-            return Err(EditError::ReservedKind);
-        }
-        let meta = CardMetadata {
-            kind: Some(kind),
-            ..CardMetadata::default()
-        };
-        Ok(Card::from_parts(meta, Payload::new(), String::new()))
+        validate_composable_kind(&kind).map_err(|e| match e {
+            CardKindError::InvalidName => EditError::InvalidKindName(kind.clone()),
+            CardKindError::Reserved => EditError::ReservedKind,
+        })?;
+        let mut payload = Payload::new();
+        payload.set_kind(kind);
+        Ok(Card::from_parts(payload, String::new()))
     }
 
     /// Set a payload field by name. Always clears the `!fill` marker for

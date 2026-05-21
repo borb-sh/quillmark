@@ -278,12 +278,11 @@ fn empty_map_omitted_from_emit() {
         QuillValue::from_json(serde_json::json!("hello")),
     );
 
-    use crate::document::{Card, CardMetadata, Payload};
-    let meta = CardMetadata {
-        quill: Some("test".parse().unwrap()),
-        ..CardMetadata::default()
-    };
-    let main = Card::from_parts(meta, Payload::from_index_map(payload), String::new());
+    use crate::document::{Card, Payload};
+    let mut p = Payload::from_index_map(payload);
+    p.set_quill("test".parse().unwrap());
+    p.set_kind("main");
+    let main = Card::from_parts(p, String::new());
     let doc = crate::document::Document::from_main_and_cards(main, vec![], vec![]);
 
     let md = doc.to_markdown();

@@ -119,80 +119,68 @@ impl Document {
 
 // ── Block emission ────────────────────────────────────────────────────────────
 
-/// Emit a card-yaml block: `~~~card-yaml`, the `$`-prefixed system-metadata
-/// lines, the YAML data payload, then a closing `~~~`.
+/// Emit a `$key: value` system-metadata line with optional inline trailer.
 ///
-/// The `$` lines are emitted in the canonical key order `$quill`, `$kind`,
-/// `$id` — only keys the block declares appear. They lead the YAML payload
-/// as ordinary mapping entries; the parser extracts them back into typed
-/// metadata via [`super::meta::extract_meta_from_payload`].
-///
-/// Three tildes are always a safe fence length: canonically emitted payload
-/// lines never begin with `~` (keys are identifiers, sequence items start with
-/// `-`, saphyr quotes any string that would, comments start with `#`), so the
-/// fence can never be closed early.
-fn emit_meta_line(out: &mut String, key: &str, value: &str) {
+/// Three tildes around the block are always a safe fence length: canonically
+/// emitted payload lines never begin with `~` (keys are identifiers, sequence
+/// items start with `-`, saphyr quotes any string that would, comments start
+/// with `#`), so the fence can never be closed early.
+fn emit_meta_line(out: &mut String, key: &str, value: &str, trailer: Option<&str>) {
     out.push('$');
     out.push_str(key);
     out.push_str(": ");
     out.push_str(&saphyr_emit_scalar(&JsonValue::String(value.to_string())));
+    push_trailer(out, trailer);
     out.push('\n');
 }
 
 fn emit_block(out: &mut String, card: &Card) {
     out.push_str("~~~card-yaml\n");
-
-    let meta = card.meta();
-    if let Some(quill) = &meta.quill {
-        emit_meta_line(out, "quill", &quill.to_string());
-    }
-    if let Some(kind) = &meta.kind {
-        emit_meta_line(out, "kind", kind);
-    }
-    if let Some(id) = &meta.id {
-        emit_meta_line(out, "id", id);
-    }
-
-    emit_fence_items(
-        out,
-        card.payload().items(),
-        card.payload().nested_comments(),
-    );
-
+    emit_payload_items(out, card.payload().items(), card.payload().nested_comments());
     out.push_str("~~~\n");
 }
 
-/// Emit the ordered YAML items (fields and comments) of a fence body.
+/// Emit the ordered payload items of a card-yaml block.
 ///
-/// ## Inline-comment handling
-///
-/// - **Field + trailing inline.** A `Field` peeks at its successor: if the
-///   next item is `Comment{inline:true}`, the comment text is passed to
-///   [`emit_field`] as a trailer and consumed here. The trailer lands on the
-///   field's key/value line.
-/// - **Own-line / orphan.** A `Comment` that is not consumed by a field's
-///   lookahead — own-line, or an inline orphan — renders as an own-line
-///   `# text` comment.
-fn emit_fence_items(out: &mut String, items: &[PayloadItem], nested: &[NestedComment]) {
+/// Walks the unified item list — typed `$` entries, user fields, and
+/// comments interleaved in source order. A `Comment { inline: true }` that
+/// immediately follows any non-comment item is consumed as a trailer on
+/// that item's line; otherwise comments render own-line.
+fn emit_payload_items(out: &mut String, items: &[PayloadItem], nested: &[NestedComment]) {
     let mut i = 0;
     while i < items.len() {
+        // Peek for a trailing inline comment to use as the line trailer.
+        let trailer = items.get(i + 1).and_then(|next| match next {
+            PayloadItem::Comment { text, inline: true } => Some(text.as_str()),
+            _ => None,
+        });
+        let mut consumed_trailer = trailer.is_some();
+
         match &items[i] {
+            PayloadItem::Quill { reference } => {
+                emit_meta_line(out, "quill", &reference.to_string(), trailer);
+            }
+            PayloadItem::Kind { value } => {
+                emit_meta_line(out, "kind", value, trailer);
+            }
+            PayloadItem::Id { value } => {
+                emit_meta_line(out, "id", value, trailer);
+            }
             PayloadItem::Field { key, value, fill } => {
-                let trailer = items.get(i + 1).and_then(|next| match next {
-                    PayloadItem::Comment { text, inline: true } => Some(text.as_str()),
-                    _ => None,
-                });
                 let path = vec![CommentPathSegment::Key(key.clone())];
                 emit_field(out, key, value.as_json(), 0, *fill, &path, nested, trailer);
-                i += if trailer.is_some() { 2 } else { 1 };
             }
             PayloadItem::Comment { text, .. } => {
+                // Standalone comment line. A trailer would attach to
+                // *another* comment, which doesn't make sense; render it
+                // own-line on the next iteration instead.
                 out.push_str("# ");
                 out.push_str(text);
                 out.push('\n');
-                i += 1;
+                consumed_trailer = false;
             }
         }
+        i += if consumed_trailer { 2 } else { 1 };
     }
 }
 

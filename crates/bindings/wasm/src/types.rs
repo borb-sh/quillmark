@@ -221,20 +221,31 @@ impl From<&quillmark_core::Card> for Card {
             fields_map.insert(k.clone(), v.as_json().clone());
         }
 
+        // `payloadItems` exposes user fields + comments. Typed `$` entries
+        // are visible through the typed accessors (`card.kind` etc.); for
+        // full round-trip fidelity through the binding, callers use the
+        // versioned storage DTO via `Document.toJson()`.
         let items: Vec<PayloadItem> = card
             .payload()
             .items()
             .iter()
-            .map(|item| match item {
-                quillmark_core::PayloadItem::Field { key, value, fill } => PayloadItem::Field {
-                    key: key.clone(),
-                    value: value.as_json().clone(),
-                    fill: *fill,
-                },
-                quillmark_core::PayloadItem::Comment { text, inline } => PayloadItem::Comment {
+            .filter_map(|item| match item {
+                quillmark_core::PayloadItem::Field { key, value, fill } => {
+                    Some(PayloadItem::Field {
+                        key: key.clone(),
+                        value: value.as_json().clone(),
+                        fill: *fill,
+                    })
+                }
+                quillmark_core::PayloadItem::Comment { text, inline } => Some(PayloadItem::Comment {
                     text: text.clone(),
                     inline: *inline,
-                },
+                }),
+                // `$` entries are typed system metadata; expose them via
+                // `card.kind` and friends rather than as opaque items.
+                quillmark_core::PayloadItem::Quill { .. }
+                | quillmark_core::PayloadItem::Kind { .. }
+                | quillmark_core::PayloadItem::Id { .. } => None,
             })
             .collect();
 

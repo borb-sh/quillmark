@@ -399,41 +399,34 @@ pub fn normalize_document(
 ) -> Result<crate::document::Document, crate::error::ParseError> {
     use crate::document::Document;
 
-    // NFC-normalize main-card field names; values pass through verbatim.
-    // The `$` system metadata passes through unchanged.
-    let normalized_main_fm_map = normalize_fields(doc.main().payload().to_index_map());
-    let normalized_main_body = normalize_markdown(doc.main().body());
-    let main = Card::from_parts(
-        doc.main().meta().clone(),
-        crate::document::Payload::from_index_map(normalized_main_fm_map),
-        normalized_main_body,
-    );
-
-    // Normalize each composable card's body; NFC-normalize its field names;
-    // values pass through verbatim.
-    let normalized_cards: Vec<Card> = doc
-        .cards()
-        .iter()
-        .map(|card| {
-            let normalized_card_fields: IndexMap<String, QuillValue> = card
-                .payload()
-                .iter()
-                .map(|(k, v)| (normalize_field_name(k), v.clone()))
-                .collect();
-            let normalized_card_body = normalize_markdown(card.body());
-            Card::from_parts(
-                card.meta().clone(),
-                crate::document::Payload::from_index_map(normalized_card_fields),
-                normalized_card_body,
-            )
-        })
-        .collect();
+    let main = normalize_card(doc.main());
+    let normalized_cards: Vec<Card> = doc.cards().iter().map(normalize_card).collect();
 
     Ok(Document::from_main_and_cards(
         main,
         normalized_cards,
         doc.warnings().to_vec(),
     ))
+}
+
+/// Build a new `Card` with NFC-normalized field names and a normalized body.
+///
+/// The card's payload is cloned and walked: each user-field `key` is
+/// rewritten to NFC, and the body has Unicode normalization plus HTML
+/// comment fence repair applied. `$` system metadata, fill markers, and
+/// comments pass through verbatim.
+fn normalize_card(card: &Card) -> Card {
+    use crate::document::PayloadItem;
+    let mut payload = card.payload().clone();
+    for item in payload.items_mut() {
+        if let PayloadItem::Field { key, .. } = item {
+            let normalized = normalize_field_name(key);
+            if normalized != *key {
+                *key = normalized;
+            }
+        }
+    }
+    Card::from_parts(payload, normalize_markdown(card.body()))
 }
 
 #[cfg(test)]

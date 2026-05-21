@@ -399,16 +399,15 @@ main:
     }
 
     fn doc_with_typed_cards(fm: &[(&str, serde_json::Value)], cards: Vec<Card>) -> Document {
-        use crate::document::{CardMetadata, Payload};
+        use crate::document::Payload;
         let mut payload = IndexMap::new();
         for (k, v) in fm {
             payload.insert(k.to_string(), QuillValue::from_json(v.clone()));
         }
-        let meta = CardMetadata {
-            quill: Some("test_quill".parse().unwrap()),
-            ..CardMetadata::default()
-        };
-        let main = Card::from_parts(meta, Payload::from_index_map(payload), String::new());
+        let mut p = Payload::from_index_map(payload);
+        p.set_quill("test_quill".parse().unwrap());
+        p.set_kind("main");
+        let main = Card::from_parts(p, String::new());
         Document::from_main_and_cards(main, cards, vec![])
     }
 
@@ -736,16 +735,11 @@ main:
 "#,
         )
         .unwrap();
-        use crate::document::{CardMetadata, Payload};
-        let meta = CardMetadata {
-            quill: Some("test_quill".parse().unwrap()),
-            ..CardMetadata::default()
-        };
-        let main = Card::from_parts(
-            meta,
-            Payload::from_index_map(IndexMap::new()),
-            "Body content that should not be here.".to_string(),
-        );
+        use crate::document::Payload;
+        let mut p = Payload::from_index_map(IndexMap::new());
+        p.set_quill("test_quill".parse().unwrap());
+        p.set_kind("main");
+        let main = Card::from_parts(p, "Body content that should not be here.".to_string());
         let doc = Document::from_main_and_cards(main, vec![], vec![]);
         let errors = validate_typed_document(&config, &doc).unwrap_err();
         assert!(has_error(&errors, |e| matches!(

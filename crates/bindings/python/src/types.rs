@@ -951,7 +951,10 @@ fn card_to_pydict<'py>(
     d.set_item("payload", fm.clone())?;
     d.set_item("fields", fm)?;
 
-    // Ordered item list with comments and fill flags.
+    // Ordered item list with comments and fill flags. Typed `$` entries
+    // are exposed via the typed accessors (e.g. `card["kind"]`); for full
+    // round-trip fidelity through the binding, callers use the versioned
+    // storage DTO via `Document.to_json()`.
     let items = pyo3::types::PyList::empty(py);
     for item in card.payload().items() {
         let entry = PyDict::new(py);
@@ -967,6 +970,9 @@ fn card_to_pydict<'py>(
                 entry.set_item("text", text)?;
                 entry.set_item("inline", *inline)?;
             }
+            quillmark_core::PayloadItem::Quill { .. }
+            | quillmark_core::PayloadItem::Kind { .. }
+            | quillmark_core::PayloadItem::Id { .. } => continue,
         }
         items.append(entry)?;
     }

@@ -229,14 +229,14 @@ describe('Document JSON DTO — toJson / fromJson', () => {
   it('round-trips a mutated document with cards', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     doc.setField('title', 'New Title')
-    doc.pushCard({ tag: 'note', fields: { author: 'Alice' }, body: 'Hello' })
+    doc.pushCard({ kind: 'note', fields: { author: 'Alice' }, body: 'Hello' })
 
     const restored = Document.fromJson(doc.toJson())
 
     expect(restored.equals(doc)).toBe(true)
-    expect(restored.main.frontmatter.title).toBe('New Title')
-    expect(restored.cards[0].tag).toBe('note')
-    expect(restored.cards[0].frontmatter.author).toBe('Alice')
+    expect(restored.main.payload.title).toBe('New Title')
+    expect(restored.cards[0].kind).toBe('note')
+    expect(restored.cards[0].payload.author).toBe('Alice')
     expect(restored.cards[0].body).toBe('Hello')
   })
 
