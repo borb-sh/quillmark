@@ -571,7 +571,7 @@ impl Document {
     /// new schema variant ships.
     #[wasm_bindgen(js_name = currentSchemaVersion)]
     pub fn current_schema_version() -> String {
-        quillmark_core::document::SCHEMA_V0_81_0.to_string()
+        quillmark_core::document::SCHEMA_V0_82_0.to_string()
     }
 
     /// Emit canonical Quillmark Markdown.

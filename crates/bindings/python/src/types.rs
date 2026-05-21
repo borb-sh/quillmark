@@ -377,7 +377,7 @@ impl PyDocument {
     /// model version, not the running crate version.
     #[staticmethod]
     fn current_schema_version() -> &'static str {
-        quillmark_core::document::SCHEMA_V0_81_0
+        quillmark_core::document::SCHEMA_V0_82_0
     }
 
     /// Emit canonical Quillmark Markdown.
