@@ -244,6 +244,24 @@ canvas.style.height = `${result.layoutHeight}px`;
   enforcement contract and includes the resolved `backendId` for
   debugging.
 
+### Schema model
+
+A field's *cell* is inferred from whether its schema declares a `default:`:
+
+- **Must Fill** (no `default:`) — `quill.blueprint` renders `<must-fill>`
+  in the value cell, and `quill.render(doc)` throws with
+  `validation::must_fill_absent` when the field is absent at
+  validate time, or `validation::must_fill_sentinel` when the
+  `<must-fill>` sentinel survives into the document.
+- **Endorsed** (with `default:`) — `quill.blueprint` renders the
+  default value followed by a `; skip-ok` annotation, and the default
+  is used when the document omits the field.
+
+`QuillFieldSchema` no longer carries a `required` axis. The legacy
+`validation::missing_required` code has been replaced by
+`validation::must_fill_absent`; the `validation::must_fill_sentinel`
+code covers unreplaced sentinels.
+
 ### Errors
 
 Every method that can fail throws a JS `Error` with `.diagnostics` attached:

@@ -44,7 +44,6 @@ card_kinds:
         description: Office symbol receiving the endorsed memo.
       signature_block:
         type: array
-        required: true
         ui:
           group: Addressing
         description: Name, grade, and duty title.
@@ -67,7 +66,6 @@ card_kinds:
         type: string
       signature_block:
         type: array
-        required: true
         ui:
           group: Addressing
 ```
@@ -95,7 +93,7 @@ signature_block:
 Indorsement body content.
 ````
 
-See [`MARKDOWN.md`](./MARKDOWN.md) §3 for the full syntax specification.
+See [`markdown-spec.md`](../references/markdown-spec.md) §3 for the full syntax specification.
 
 ## Backend Consumption
 
@@ -112,4 +110,4 @@ stripped from `Document::to_plate_json()` before backends see it, so
 template renders are not affected by editor state. Consumers
 namespace inside the map (`$ext.presentation`, `$ext.agent`, …) to avoid
 collisions when more than one tool carries state on the same card. See
-[MARKDOWN.md §3.3](./MARKDOWN.md) for the full specification.
+[markdown-spec.md §3.3](../references/markdown-spec.md) for the full specification.
