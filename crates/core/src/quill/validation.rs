@@ -219,12 +219,29 @@ impl ValidationError {
         }
     }
 
+    /// Actionable hint for this error, when one is well-defined for the
+    /// variant. The hint restates the recommended exit so consumers (LLM
+    /// agents, IDEs, MCP clients) can surface it next to the message
+    /// without re-parsing prose.
+    pub fn hint(&self) -> Option<String> {
+        match self {
+            ValidationError::UnfilledPlaceholder { expected, .. } => Some(format!(
+                "Replace `{MUST_FILL_SENTINEL}` with a value of type `{expected}`."
+            )),
+            _ => None,
+        }
+    }
+
     /// Convert this error into a structured [`Diagnostic`] carrying the
     /// stable code, the document-model `path`, and the canonical message.
     pub fn to_diagnostic(&self) -> Diagnostic {
-        Diagnostic::new(Severity::Error, self.to_string())
+        let mut diag = Diagnostic::new(Severity::Error, self.to_string())
             .with_code(self.code().to_string())
-            .with_path(self.path().to_string())
+            .with_path(self.path().to_string());
+        if let Some(hint) = self.hint() {
+            diag = diag.with_hint(hint);
+        }
+        diag
     }
 }
 
@@ -960,6 +977,21 @@ main:
             Some("cards.indorsement[0].signature_block")
         );
         assert_eq!(diag.severity, Severity::Error);
+    }
+
+    #[test]
+    fn unfilled_placeholder_diagnostic_carries_actionable_hint() {
+        let err = ValidationError::UnfilledPlaceholder {
+            path: "title".to_string(),
+            expected: "string".to_string(),
+        };
+        let diag = err.to_diagnostic();
+        let hint = diag
+            .hint
+            .as_deref()
+            .expect("unfilled_placeholder diagnostic should carry a hint");
+        assert!(hint.contains(MUST_FILL_SENTINEL));
+        assert!(hint.contains("string"));
     }
 
     #[test]
