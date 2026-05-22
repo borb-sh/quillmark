@@ -108,21 +108,21 @@ the next opening fence or EOF.
 ### 3.3 System Metadata (`$`)
 
 A block's YAML payload may contain **`$`-prefixed reserved keys** that carry
-system metadata. The set is **closed**: only `$quill`, `$kind`, and `$id`
-are accepted. Any other `$`-prefixed key is a parse error. These keys are
-ordinary YAML — they are read by the same YAML parser that handles the rest
-of the payload — but they are **extracted** from the user field set after
-parsing; they are not part of the data model's field map (§3.4).
+system metadata. The set is **closed**: only `$quill`, `$kind`, `$id`, and
+`$ext` are accepted. Any other `$`-prefixed key is a parse error. These
+keys are ordinary YAML — they are read by the same YAML parser that handles
+the rest of the payload — but they are **extracted** from the user field
+set after parsing; they are not part of the data model's field map (§3.4).
 
 In the typed model, the `$` entries live as typed variants of the
 unified payload-item list (`PayloadItem::Quill`, `PayloadItem::Kind`,
-`PayloadItem::Id`), interleaved in source order with user fields and
-YAML comments. They are surfaced through typed accessors —
-`card.quill()`, `card.kind()`, `card.id()` — which return `Option<…>`.
-On a successfully parsed document the root card always returns
-`Some(_)` for both `quill()` and `kind()` (with `kind() == "main"`);
-composable cards return `None` for `quill()` and `Some(_)` for `kind()`
-(any value other than `"main"`).
+`PayloadItem::Id`, `PayloadItem::Ext`), interleaved in source order with
+user fields and YAML comments. They are surfaced through typed
+accessors — `card.quill()`, `card.kind()`, `card.id()`, `card.ext()` —
+which return `Option<…>`. On a successfully parsed document the root
+card always returns `Some(_)` for both `quill()` and `kind()` (with
+`kind() == "main"`); composable cards return `None` for `quill()` and
+`Some(_)` for `kind()` (any value other than `"main"`).
 
 - **`$quill: <name>@<version>`** — binds the document to a quill (see §3.5
   for the version-selector forms). The root block (the first block) must
@@ -135,6 +135,14 @@ composable cards return `None` for `quill()` and `Some(_)` for `kind()`
 - **`$id: <value>`** — an opaque, optional identifier. Plain metadata: no
   validation, no uniqueness requirement; carried through round-trip
   unchanged.
+- **`$ext: <mapping>`** — an opaque, optional **mapping** reserved for
+  out-of-band extension data (UI editor state, agent annotations, …).
+  Required to be a YAML mapping (object); scalars and sequences are
+  rejected. Contents are carried verbatim through Markdown and storage
+  DTO round-trips, and **never** appear in the plate JSON consumed by
+  backends (§5). Bespoke consumers namespace their state inside the
+  map — e.g. `$ext.presentation.title` for an editor-side card rename.
+  An empty `$ext: {}` is preserved as a distinct, explicit declaration.
 
 Rules:
 
@@ -144,13 +152,14 @@ Rules:
 - `$` metadata entries may appear at any position within the payload, and
   may be interleaved with data fields. The emitter preserves source order
   (see §9); newly constructed metadata that does not have a source-order
-  is emitted in the canonical key order `$quill`, `$kind`, `$id`.
+  is emitted in the canonical key order `$quill`, `$kind`, `$id`, `$ext`.
 - A duplicate `$key` within a single block is a parse error (a YAML mapping
   cannot carry two entries under the same key).
-- An unknown `$key` (anything outside `{quill, kind, id}`) is a parse error.
+- An unknown `$key` (anything outside `{quill, kind, id, ext}`) is a parse
+  error.
 - An invalid `$quill` reference is a parse error.
 - A `$`-prefixed key whose value type is wrong for the key (e.g. a sequence
-  under `$quill`) is a parse error.
+  under `$quill`, a scalar under `$ext`) is a parse error.
 - **YAML comments on `$` lines.** Inline trailing comments (`$quill: foo  #
   bound at build`) and adjacent own-line comments round-trip through the
   unified payload-item list — the same mechanism that preserves comments

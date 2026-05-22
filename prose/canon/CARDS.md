@@ -100,3 +100,15 @@ See [`MARKDOWN.md`](./MARKDOWN.md) §3 for the full syntax specification.
 
 - **All backends**: cards are delivered as `data.CARDS`, an array of objects each containing a `CARD` discriminator field, the card's metadata fields, and a `BODY` field with the card's body Markdown.
 - **`Quill::compile_data()`** returns the fully coerced and validated JSON, including `CARDS`.
+
+## Out-of-band Metadata (`$ext`)
+
+Per-card editor state — display renames, collapse flags, agent
+annotations, anything bespoke to a UI consumer — belongs in the card's
+`$ext` system-metadata key, **not** in user fields. `$ext` is an opaque
+mapping that round-trips through Markdown and the storage DTO but is
+stripped from `Document::to_plate_json()` before backends see it, so
+template renders are not affected by editor state. Consumers
+namespace inside the map (`$ext.presentation`, `$ext.agent`, …) to avoid
+collisions when more than one tool carries state on the same card. See
+[MARKDOWN.md §3.3](./MARKDOWN.md) for the full specification.

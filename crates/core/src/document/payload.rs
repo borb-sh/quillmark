@@ -21,13 +21,15 @@
 //! map-keyed access (`get`, `iter`, `insert`, `remove`). The map-style
 //! accessors filter to [`PayloadItem::Field`] only — they intentionally
 //! don't expose `$` entries because typed `$` access has dedicated methods
-//! (`quill`, `kind`, `id`, `set_quill`, `set_kind`, `set_id`).
+//! (`quill`, `kind`, `id`, `ext`, `set_quill`, `set_kind`, `set_id`,
+//! `set_ext`).
 //!
 //! This preserves the historical "payload as a key/value map of user data"
 //! API while letting comment preservation and `$` access ride on the same
 //! underlying storage.
 
 use indexmap::IndexMap;
+use serde_json::{Map as JsonMap, Value as JsonValue};
 
 use super::prescan::NestedComment;
 use crate::value::QuillValue;
@@ -47,6 +49,11 @@ pub enum PayloadItem {
     Kind { value: String },
     /// `$id` system metadata — opaque identifier.
     Id { value: String },
+    /// `$ext` system metadata — an opaque mapping reserved for out-of-band
+    /// extension data (UI editor state, agent annotations, …). Never
+    /// emitted into the plate JSON, always round-trips through Markdown
+    /// and the storage DTO.
+    Ext { value: JsonMap<String, JsonValue> },
     /// A user-defined YAML field, optionally tagged `!fill`.
     Field {
         key: String,
@@ -90,13 +97,14 @@ impl PayloadItem {
     }
 
     /// Canonical sort rank for typed `$` entries: `$quill` < `$kind` <
-    /// `$id`. Returns `None` for user fields and comments, which are
-    /// positioned by source order and never reshuffled.
+    /// `$id` < `$ext`. Returns `None` for user fields and comments, which
+    /// are positioned by source order and never reshuffled.
     fn meta_rank(&self) -> Option<u8> {
         match self {
             PayloadItem::Quill { .. } => Some(0),
             PayloadItem::Kind { .. } => Some(1),
             PayloadItem::Id { .. } => Some(2),
+            PayloadItem::Ext { .. } => Some(3),
             _ => None,
         }
     }
@@ -202,8 +210,18 @@ impl Payload {
         })
     }
 
+    /// The `$ext` map, if declared. The map is opaque — Quillmark does not
+    /// interpret its contents and never emits them into the plate JSON.
+    pub fn ext(&self) -> Option<&JsonMap<String, JsonValue>> {
+        self.items.iter().find_map(|i| match i {
+            PayloadItem::Ext { value } => Some(value),
+            _ => None,
+        })
+    }
+
     /// Set or replace the `$quill` entry. Inserts at canonical position
-    /// (before any `$kind` / `$id`) when adding. Comments are untouched.
+    /// (before any `$kind` / `$id` / `$ext`) when adding. Comments are
+    /// untouched.
     pub fn set_quill(&mut self, reference: QuillReference) {
         self.upsert_meta(PayloadItem::Quill { reference });
     }
@@ -220,6 +238,13 @@ impl Payload {
         self.upsert_meta(PayloadItem::Id { value: id.into() });
     }
 
+    /// Set or replace the `$ext` entry. Same insertion rules as
+    /// [`set_quill`](Self::set_quill); the canonical position is after
+    /// `$quill` / `$kind` / `$id` and before any user field.
+    pub fn set_ext(&mut self, value: JsonMap<String, JsonValue>) {
+        self.upsert_meta(PayloadItem::Ext { value });
+    }
+
     /// Remove the `$quill` entry, returning the previous value if any.
     pub fn take_quill(&mut self) -> Option<QuillReference> {
         let pos = self
@@ -228,6 +253,18 @@ impl Payload {
             .position(|i| matches!(i, PayloadItem::Quill { .. }))?;
         match self.items.remove(pos) {
             PayloadItem::Quill { reference } => Some(reference),
+            _ => unreachable!(),
+        }
+    }
+
+    /// Remove the `$ext` entry, returning the previous map if any.
+    pub fn take_ext(&mut self) -> Option<JsonMap<String, JsonValue>> {
+        let pos = self
+            .items
+            .iter()
+            .position(|i| matches!(i, PayloadItem::Ext { .. }))?;
+        match self.items.remove(pos) {
+            PayloadItem::Ext { value } => Some(value),
             _ => unreachable!(),
         }
     }

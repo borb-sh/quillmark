@@ -74,6 +74,14 @@ impl Card {
         self.payload.id()
     }
 
+    /// Opaque `$ext` map for out-of-band extension data (UI editor state,
+    /// agent annotations, …). Carried through Markdown and storage DTO
+    /// round-trips; never emitted into the plate JSON consumed by
+    /// backends.
+    pub fn ext(&self) -> Option<&serde_json::Map<String, serde_json::Value>> {
+        self.payload.ext()
+    }
+
     pub fn payload(&self) -> &Payload {
         &self.payload
     }

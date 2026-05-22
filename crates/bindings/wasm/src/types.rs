@@ -194,10 +194,11 @@ pub enum PayloadItem {
 /// Exposed as a plain JS object via `Document.main`, `Document.cards`, etc.
 /// Carries a `kind` string (the block's `$kind`, empty when the block
 /// declares none), an ordered `payloadItems` list (fields + comments in
-/// source order), and the body. To read a specific field by name, filter
-/// `payloadItems` for `{type: "field", key: "..."}`. Whether a card is the
-/// document entry (main) card or a composable card is positional — it is
-/// whichever `Document` accessor it came from (`main` vs `cards`).
+/// source order), an optional opaque `$ext` map, and the body. To read a
+/// specific field by name, filter `payloadItems` for
+/// `{type: "field", key: "..."}`. Whether a card is the document entry
+/// (main) card or a composable card is positional — it is whichever
+/// `Document` accessor it came from (`main` vs `cards`).
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
@@ -206,10 +207,19 @@ pub struct Card {
     /// the block declares no `$kind`.
     pub kind: String,
     /// Ordered payload item list — fields and comments, in source order.
-    /// Typed `$` entries (`$quill`, `$kind`, `$id`) are exposed via the
-    /// typed accessors (`card.kind` etc.) and are absent from this list.
+    /// Typed `$` entries (`$quill`, `$kind`, `$id`, `$ext`) are exposed
+    /// via the typed accessors (`card.kind`, `card.ext`, etc.) and are
+    /// absent from this list.
     #[tsify(type = "PayloadItem[]")]
     pub payload_items: Vec<PayloadItem>,
+    /// The block's `$ext` map, if declared. Opaque storage for out-of-band
+    /// extension data (UI editor state, agent annotations, …) that
+    /// Quillmark carries through Markdown and storage DTO round-trips but
+    /// never feeds into the plate JSON consumed by backends.
+    /// `null`/`undefined` when no `$ext` was declared.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[tsify(type = "Record<string, unknown> | undefined")]
+    pub ext: Option<serde_json::Map<String, serde_json::Value>>,
     /// Markdown body after the card's closing `~~~`. Empty string when absent.
     pub body: String,
 }
@@ -236,13 +246,15 @@ impl From<&quillmark_core::Card> for Card {
                 }
                 quillmark_core::PayloadItem::Quill { .. }
                 | quillmark_core::PayloadItem::Kind { .. }
-                | quillmark_core::PayloadItem::Id { .. } => None,
+                | quillmark_core::PayloadItem::Id { .. }
+                | quillmark_core::PayloadItem::Ext { .. } => None,
             })
             .collect();
 
         Card {
             kind: card.kind().unwrap_or("").to_string(),
             payload_items,
+            ext: card.ext().cloned(),
             body: card.body().to_string(),
         }
     }
@@ -392,6 +404,49 @@ mod tests {
         assert!(
             inline_comment.is_some(),
             "inline comment must appear in payload_items"
+        );
+    }
+
+    #[test]
+    fn card_from_core_carries_ext_and_strips_it_from_payload_items() {
+        use quillmark_core::Document;
+
+        let md = "~~~card-yaml\n$quill: q\n$kind: main\n$ext:\n  presentation:\n    title: \"Greeting\"\ntitle: Hi\n~~~\n";
+        let doc = Document::from_markdown(md).unwrap();
+        let card = Card::from(doc.main());
+
+        // `$ext` is surfaced through the typed accessor.
+        let ext = card.ext.as_ref().expect("ext should be present");
+        assert_eq!(
+            ext.get("presentation")
+                .and_then(|v| v.get("title"))
+                .and_then(|v| v.as_str()),
+            Some("Greeting"),
+        );
+
+        // …and is absent from `payloadItems`, like the other `$` entries.
+        let has_ext_field = card.payload_items.iter().any(|it| match it {
+            PayloadItem::Field { key, .. } => key == "$ext",
+            _ => false,
+        });
+        assert!(!has_ext_field, "$ext must not leak into payload_items");
+    }
+
+    #[test]
+    fn card_from_core_omits_ext_when_absent() {
+        use quillmark_core::Document;
+
+        let md = "~~~card-yaml\n$quill: q\n$kind: main\ntitle: Hi\n~~~\n";
+        let doc = Document::from_markdown(md).unwrap();
+        let card = Card::from(doc.main());
+        assert!(card.ext.is_none());
+
+        // `skip_serializing_if = "Option::is_none"` keeps the field out of
+        // the JS-facing object entirely when not declared.
+        let json = serde_json::to_string(&card).unwrap();
+        assert!(
+            !json.contains("\"ext\""),
+            "ext should be omitted when None, got: {json}",
         );
     }
 
