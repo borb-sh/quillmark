@@ -282,11 +282,11 @@ title: Hi
         !obj.contains_key("ext"),
         "plate must not contain `ext`: {plate}",
     );
-    // Plate still carries user fields and the canonical QUILL/BODY/CARDS keys.
+    // Plate still carries user fields and the canonical $quill/$body/$cards keys.
     assert_eq!(obj.get("title").and_then(|v| v.as_str()), Some("Hi"));
-    assert!(obj.contains_key("QUILL"));
-    assert!(obj.contains_key("BODY"));
-    assert!(obj.contains_key("CARDS"));
+    assert!(obj.contains_key("$quill"));
+    assert!(obj.contains_key("$body"));
+    assert!(obj.contains_key("$cards"));
 }
 
 // ── Storage DTO ────────────────────────────────────────────────────────────
