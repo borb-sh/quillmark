@@ -387,13 +387,14 @@ impl PyDocument {
         self.inner.main().body()
     }
 
-    /// Main (entry) card as a dict with `kind`, `payload_items`, and `body`.
+    /// Main (entry) card as a dict with `kind`, `payload_items`, `ext`, and `body`.
     #[getter]
     fn main<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         card_to_pydict(py, self.inner.main())
     }
 
-    /// Ordered list of composable card blocks, each a dict with `kind`, `payload_items`, and `body`.
+    /// Ordered list of composable card blocks, each a dict with `kind`,
+    /// `payload_items`, `ext`, and `body`.
     #[getter]
     fn cards<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyDict>>> {
         let mut result = Vec::new();
@@ -769,11 +770,24 @@ fn card_to_pydict<'py>(
             }
             quillmark_core::PayloadItem::Quill { .. }
             | quillmark_core::PayloadItem::Kind { .. }
-            | quillmark_core::PayloadItem::Id { .. } => continue,
+            | quillmark_core::PayloadItem::Id { .. }
+            | quillmark_core::PayloadItem::Ext { .. } => continue,
         }
         items.append(entry)?;
     }
     d.set_item("payload_items", items)?;
+
+    // `$ext` map for out-of-band extension data (UI editor state, agent
+    // annotations, …). `None` when no `$ext` was declared on the block;
+    // stripped from `payload_items` so binding consumers do not see it
+    // twice. Quillmark never emits `$ext` into the plate JSON.
+    match card.ext() {
+        Some(ext_map) => {
+            let ext_value = serde_json::Value::Object(ext_map.clone());
+            d.set_item("ext", json_to_py(py, &ext_value)?)?;
+        }
+        None => d.set_item("ext", py.None())?,
+    }
 
     d.set_item("body", card.body())?;
     Ok(d)

@@ -52,6 +52,7 @@ the `$`/non-`$` boundary.
       "items": [
         { "type": "quill", "value": "usaf_memo@0.1" },
         { "type": "kind",  "value": "main" },
+        { "type": "ext",   "value": { "presentation": { "title": "Greeting Card" } } },
         { "type": "field", "key": "title", "value": "Hi" }
       ]
     },
@@ -65,9 +66,12 @@ the `$`/non-`$` boundary.
 each variant carries a frozen DTO tree. Quill references are stored as
 strings (parsed back via `QuillReference::from_str`). The discriminator on
 payload items is `type` (not `kind`) to keep it unambiguous next to the
-`$kind` metadata semantic. Parse-time warnings are not part of `Document`
-— they are returned separately by `Document::from_markdown_with_warnings`
-— so they never reach this format.
+`$kind` metadata semantic. The full variant set is `quill | kind | id |
+ext | field | comment`; the `ext` variant carries the opaque `$ext` map
+verbatim and is stripped from `to_plate_json()` before backends see it.
+Parse-time warnings are not part of `Document` — they are returned
+separately by `Document::from_markdown_with_warnings` — so they never
+reach this format.
 
 ### Legacy schema (V0_81_0)
 

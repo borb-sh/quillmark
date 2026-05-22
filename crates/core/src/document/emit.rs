@@ -128,6 +128,30 @@ fn emit_meta_line(out: &mut String, key: &str, value: &str, trailer: Option<&str
     out.push('\n');
 }
 
+/// Emit the `$ext: …` block. An empty map emits inline as `$ext: {}` so the
+/// declaration survives the round-trip; a non-empty map emits as a `$ext:`
+/// header followed by indented block-style children. Nested comments
+/// captured under the `$ext` key are re-injected by the child mapping
+/// walker.
+fn emit_ext_block(
+    out: &mut String,
+    value: &serde_json::Map<String, JsonValue>,
+    trailer: Option<&str>,
+    nested: &[NestedComment],
+) {
+    if value.is_empty() {
+        out.push_str("$ext: {}");
+        push_trailer(out, trailer);
+        out.push('\n');
+        return;
+    }
+    out.push_str("$ext:");
+    push_trailer(out, trailer);
+    out.push('\n');
+    let path = vec![CommentPathSegment::Key("$ext".to_string())];
+    emit_mapping_children(out, value, 2, &path, nested);
+}
+
 fn emit_block(out: &mut String, card: &Card) {
     out.push_str("~~~card-yaml\n");
     emit_payload_items(
@@ -159,6 +183,9 @@ fn emit_payload_items(out: &mut String, items: &[PayloadItem], nested: &[NestedC
             }
             PayloadItem::Id { value } => {
                 emit_meta_line(out, "id", value, trailer);
+            }
+            PayloadItem::Ext { value } => {
+                emit_ext_block(out, value, trailer, nested);
             }
             PayloadItem::Field { key, value, fill } => {
                 let path = vec![CommentPathSegment::Key(key.clone())];

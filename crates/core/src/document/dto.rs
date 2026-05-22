@@ -158,6 +158,12 @@ pub enum PayloadItemV0_82_0 {
     Kind { value: String },
     /// `$id` system metadata.
     Id { value: String },
+    /// `$ext` system metadata — an opaque mapping carrying out-of-band
+    /// extension data (UI editor state, agent annotations, …). Never
+    /// emitted into the plate JSON; round-trips through the DTO unchanged.
+    Ext {
+        value: serde_json::Map<String, serde_json::Value>,
+    },
     /// A user-defined field.
     Field {
         key: String,
@@ -242,6 +248,9 @@ impl From<&PayloadItem> for PayloadItemV0_82_0 {
                 value: value.clone(),
             },
             PayloadItem::Id { value } => PayloadItemV0_82_0::Id {
+                value: value.clone(),
+            },
+            PayloadItem::Ext { value } => PayloadItemV0_82_0::Ext {
                 value: value.clone(),
             },
             PayloadItem::Field { key, value, fill } => PayloadItemV0_82_0::Field {
@@ -377,6 +386,7 @@ impl TryFrom<PayloadItemV0_82_0> for PayloadItem {
             }
             PayloadItemV0_82_0::Kind { value } => PayloadItem::Kind { value },
             PayloadItemV0_82_0::Id { value } => PayloadItem::Id { value },
+            PayloadItemV0_82_0::Ext { value } => PayloadItem::Ext { value },
             PayloadItemV0_82_0::Field { key, value, fill } => PayloadItem::Field {
                 key,
                 value: QuillValue::from_json(value),
