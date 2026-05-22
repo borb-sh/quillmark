@@ -191,12 +191,12 @@ fn write_field(out: &mut String, field: &FieldSchema, indent: usize) {
     // Markdown fields render as a YAML block scalar so multi-line content has
     // a consistent shape regardless of whether a default is configured.
     if matches!(field.r#type, FieldType::Markdown) {
-        let inline = inline_annotation(field, false, None);
+        let inline = inline_annotation(field, false, field.default.is_some());
         write_markdown_block(out, field, &pad, &inline);
         return;
     }
 
-    let inline = format!("  # {}", inline_annotation(field, false, None));
+    let inline = format!("  # {}", inline_annotation(field, false, field.default.is_some()));
     let value = field_value(field);
     write_value(out, &field.name, &value, &inline, &pad);
 }
@@ -255,17 +255,19 @@ fn sort_props(props: &BTreeMap<String, Box<FieldSchema>>) -> Vec<&FieldSchema> {
     v
 }
 
-/// Emit a typed-table field: description + `# e.g.` line (whenever an example
-/// is configured), then the field key with its `array<object>` inline
-/// annotation, then either default rows or a synthetic template row. An
-/// example never renders as rows — like every other field type it surfaces
-/// only in the `# e.g.` leading line.
+/// Emit a typed-table field: description + `# e.g.` line (whenever an
+/// example is configured), then the field key with its `array<object>`
+/// inline annotation, then either the declared default or a synthetic
+/// template row. An example never renders as rows — like every other
+/// field type it surfaces only in the `# e.g.` leading line.
 ///
-/// Cell rule: an Endorsed container (with a non-empty `default:`) carries
-/// `; skip-ok` on the outer key and renders concrete rows without
-/// per-property annotations. A Must Fill container (no default) drops
-/// `; skip-ok` from the outer key (state is a leaf concern) and recurses
-/// into one synthetic row whose leaves carry their own cell signals.
+/// Cell rule (uniform with scalars): a field with a `default:` is Endorsed
+/// — the outer key carries `; skip-ok` and the rendered value is the
+/// default (rows for `default: [...]`, inline `[]` for `default: []`). A
+/// field without a `default:` is Must Fill — the outer key drops
+/// `; skip-ok` and one synthetic row is emitted with leaf-level sentinels.
+/// See `prose/BOOKMARKS.md` "Typed container empty default loses inline
+/// shape documentation" for the rendering-vs-symmetry trade-off.
 fn write_typed_table_field(
     out: &mut String,
     field: &FieldSchema,
@@ -274,21 +276,26 @@ fn write_typed_table_field(
 ) {
     let pad = "  ".repeat(indent);
 
-    let concrete_rows = field.default.as_ref().and_then(|v| match v.as_json() {
-        serde_json::Value::Array(items) if !items.is_empty() => Some(items.clone()),
+    let default_items = field.default.as_ref().and_then(|v| match v.as_json() {
+        serde_json::Value::Array(items) => Some(items.clone()),
         _ => None,
     });
 
     write_description(out, field, &pad);
     write_eg_comment(out, field, &pad);
 
-    let container_endorsed = concrete_rows.is_some();
-    let inline = inline_annotation(field, true, Some(container_endorsed));
-    out.push_str(&format!("{}{}:  # {}\n", pad, field.name, inline));
+    let inline = inline_annotation(field, true, default_items.is_some());
 
-    match concrete_rows {
-        Some(items) => write_array_items(out, &items, &pad),
+    match default_items {
+        Some(items) if items.is_empty() => {
+            out.push_str(&format!("{}{}: []  # {}\n", pad, field.name, inline));
+        }
+        Some(items) => {
+            out.push_str(&format!("{}{}:  # {}\n", pad, field.name, inline));
+            write_array_items(out, &items, &pad);
+        }
         None => {
+            out.push_str(&format!("{}{}:  # {}\n", pad, field.name, inline));
             let dash_pad = "  ".repeat(indent + 1);
             out.push_str(&format!("{}-\n", dash_pad));
             for prop in sort_props(item_props) {
@@ -300,16 +307,16 @@ fn write_typed_table_field(
 
 /// Emit a typed-dictionary field: description + `# e.g.` line (whenever an
 /// example is configured), then the field key with its `object` inline
-/// annotation, then either a concrete mapping from `default` or per-property
-/// annotations. An example never renders as a concrete mapping — like every
-/// other field type it surfaces only in the `# e.g.` leading line.
+/// annotation, then either the declared default or per-property
+/// annotations. An example never renders as a concrete mapping — like
+/// every other field type it surfaces only in the `# e.g.` leading line.
 ///
-/// Cell rule: an Endorsed container (with a non-empty `default:`) carries
-/// `; skip-ok` on the outer key and renders a concrete block mapping
-/// without per-property annotations. A Must Fill container (no default)
-/// drops `; skip-ok` from the outer key (state is a leaf concern) and
-/// recurses into per-property annotations whose leaves carry their own
-/// cell signals.
+/// Cell rule (uniform with scalars): a field with a `default:` is Endorsed
+/// — the outer key carries `; skip-ok` and the rendered value is the
+/// default (a block mapping for non-empty, inline `{}` for `default: {}`).
+/// A field without a `default:` is Must Fill — per-property recursion with
+/// leaf-level sentinels. See `prose/BOOKMARKS.md` "Typed container empty
+/// default loses inline shape documentation" for the trade-off.
 fn write_typed_object_field(
     out: &mut String,
     field: &FieldSchema,
@@ -318,26 +325,29 @@ fn write_typed_object_field(
 ) {
     let pad = "  ".repeat(indent);
 
-    let concrete = field.default.as_ref().and_then(|v| match v.as_json() {
-        serde_json::Value::Object(map) if !map.is_empty() => Some(map.clone()),
+    let default_map = field.default.as_ref().and_then(|v| match v.as_json() {
+        serde_json::Value::Object(map) => Some(map.clone()),
         _ => None,
     });
 
     write_description(out, field, &pad);
     write_eg_comment(out, field, &pad);
 
-    let container_endorsed = concrete.is_some();
-    let inline = inline_annotation(field, false, Some(container_endorsed));
-    out.push_str(&format!("{}{}:  # {}\n", pad, field.name, inline));
+    let inline = inline_annotation(field, false, default_map.is_some());
 
-    match concrete {
+    match default_map {
+        Some(map) if map.is_empty() => {
+            out.push_str(&format!("{}{}: {{}}  # {}\n", pad, field.name, inline));
+        }
         Some(map) => {
+            out.push_str(&format!("{}{}:  # {}\n", pad, field.name, inline));
             let inner_pad = format!("{}  ", pad);
             for (k, v) in &map {
                 out.push_str(&format!("{}{}: {}\n", inner_pad, k, render_scalar(v)));
             }
         }
         None => {
+            out.push_str(&format!("{}{}:  # {}\n", pad, field.name, inline));
             for prop in sort_props(props) {
                 write_field(out, prop, indent + 1);
             }
@@ -349,29 +359,15 @@ fn write_typed_object_field(
 ///
 /// `force_array_object` is `true` for typed-table outer fields, which
 /// always render as `array<object>`; plain arrays render as `array<string>`.
-/// `endorsed_override` short-circuits the schema-driven cell decision —
-/// it's used for the typed-table / typed-dict outer key when the container
-/// is a leaf, or for property leaves whose cell decision differs from the
-/// container.
-fn inline_annotation(
-    field: &FieldSchema,
-    force_array_object: bool,
-    endorsed_override: Option<bool>,
-) -> String {
-    let endorsed = endorsed_override.unwrap_or_else(|| is_endorsed(field));
+/// `endorsed` is uniformly `field.default.is_some()` — any `default:`
+/// (including type-empty `""`, `[]`, `{}`) means the cell is shippable.
+fn inline_annotation(field: &FieldSchema, force_array_object: bool, endorsed: bool) -> String {
     let type_expr = type_expression(field, force_array_object);
     if endorsed {
         format!("{}; skip-ok", type_expr)
     } else {
         type_expr
     }
-}
-
-/// A field is **Endorsed** when its schema declares a `default:`. Otherwise
-/// it is **Must Fill** and the blueprint emits a `<must-fill>` sentinel in
-/// the value cell.
-fn is_endorsed(field: &FieldSchema) -> bool {
-    field.default.is_some()
 }
 
 fn type_expression(field: &FieldSchema, force_array_object: bool) -> String {
@@ -860,10 +856,11 @@ main:
     }
 
     #[test]
-    fn typed_table_with_empty_default_falls_through_to_synthetic_row() {
-        // An empty default array is treated like a Must Fill container
-        // for rendering purposes (we need a synthetic row to show the
-        // shape), and the outer key drops `; skip-ok`.
+    fn typed_table_with_empty_default_renders_inline_and_skip_ok() {
+        // `default: []` means shippable as-is — the outer cell carries
+        // `; skip-ok` uniformly with scalar cells and the value renders
+        // inline as `[]`. Inline row shape under an empty default belongs
+        // in `example:`; see prose/BOOKMARKS.md.
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -875,9 +872,33 @@ main:
         org: { type: string }
 "#)
         .blueprint();
-        assert!(t.contains(
-            "refs:  # array<object>\n  -\n    org: <must-fill>  # string\n"
-        ));
+        assert!(
+            t.contains("refs: []  # array<object>; skip-ok\n"),
+            "wrong rendering: {t}"
+        );
+        assert!(!t.contains("<must-fill>"), "no sentinels expected: {t}");
+    }
+
+    #[test]
+    fn typed_dict_with_empty_default_renders_inline_and_skip_ok() {
+        // Same uniform rule as typed tables: `default: {}` is Endorsed and
+        // renders inline as `{}` with `; skip-ok`.
+        let t = cfg(r#"
+quill: { name: x, version: 1.0.0, backend: typst, description: x }
+main:
+  fields:
+    address:
+      type: object
+      default: {}
+      properties:
+        street: { type: string }
+"#)
+        .blueprint();
+        assert!(
+            t.contains("address: {}  # object; skip-ok\n"),
+            "wrong rendering: {t}"
+        );
+        assert!(!t.contains("<must-fill>"), "no sentinels expected: {t}");
     }
 
     #[test]
