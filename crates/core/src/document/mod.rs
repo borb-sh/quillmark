@@ -45,16 +45,29 @@ pub use payload::{Payload, PayloadItem};
 /// rules. This is the single source of truth; bindings should call into it
 /// rather than re-stating the rules in their own glue.
 pub const FORMAT_RULES: &str = "Document format rules:
-\u{2022} Metadata blocks use `~~~card-yaml` as the opener and `~~~` as the closer. Do NOT use `---` YAML frontmatter.
-\u{2022} The closer is EXACTLY `~~~` (three tildes, no info string). Do NOT write `~~~card-yaml` as the closer.
-\u{2022} A blank line is required before every `~~~card-yaml` opener (except when it is the first line of the document).
-\u{2022} The first block is the root and MUST contain `$quill: <name>@<version>` and `$kind: main`.
+\u{2022} Block opener is `~~~card-yaml`; closer is EXACTLY `~~~` (three tildes, no info string). Do NOT use `---` frontmatter or repeat `~~~card-yaml` as the closer.
+\u{2022} A blank line must precede every `~~~card-yaml` opener (unless it is line 1).
+\u{2022} The first block is the root and MUST contain `$quill: <name>@<version>` and `$kind: main`. Additional blocks declare composable cards via `$kind: <card_kind>`.
 \u{2022} Reserved `$`-keys: `$quill`, `$kind`, `$id`, `$ext`. User fields use lowercase snake_case.
-\u{2022} Additional `~~~card-yaml` blocks declare composable cards via `$kind: <card_kind>`.
-\u{2022} Prose body is the text after a block's closing `~~~`, before the next opener or EOF.
-\u{2022} Fields annotated `; delete-ok` are optional \u{2014} DELETE THE ENTIRE LINE to use the default, or replace the right-hand side to override. Do NOT write `field:`, `field: null`, or `field: ~` \u{2014} all three parse as YAML null and will fail validation.
-\u{2022} Respect field types: numbers unquoted (`word_count: 42`), booleans unquoted (`pinned: true`), strings as plain scalars or quoted. Quoting a number turns it into a string and will fail validation.
-\u{2022} Plain-scalar values cannot start with `*` or `&` (YAML alias/anchor indicators) and cannot contain `:` followed by a space. For markdown emphasis, embedded colons, or other special prefixes, single-quote the value: `field: '**bold**'`, `field: \"Name: subtitle\"`.";
+\u{2022} Prose body is the text after a block's closing `~~~`, up to the next opener or EOF.
+\u{2022} `; delete-ok` fields carry a default \u{2014} keep the line, override the value, or delete the entire line to use the default. Do not write `field:`, `field: null`, or `field: ~` \u{2014} all three parse as explicit YAML null and fail validation.
+\u{2022} Numbers and booleans MUST be unquoted (`year: 2025`, `pinned: true`); quoting turns them into strings and fails validation.
+\u{2022} Plain-scalar values cannot start with `*` or `&` (YAML alias/anchor markers) and cannot contain `: ` (colon-space). For markdown emphasis, embedded colons, or other special prefixes, quote the value: `field: '**bold**'` or `field: \"Name: subtitle\"`.";
+
+/// Authoring-ergonomics header that introduces a blueprint to an LLM/MCP
+/// consumer. The `{quill}` placeholder is substituted with the quill name.
+/// Designed to be shown above [`FORMAT_RULES`], which covers field-level
+/// semantics like `; omit-ok` — keep the wording tight here so the two
+/// strings do not duplicate guidance.
+const BLUEPRINT_INSTRUCTION_TEMPLATE: &str =
+    "Fill in the `{quill}` blueprint below: replace each `<must-fill>` sentinel and edit the \
+body prose. Submit the filled markdown as `content` to `create_document`.";
+
+/// Render the blueprint-instruction header with `quill_name` substituted in.
+/// Single source of truth for the prose so every binding shows identical text.
+pub fn blueprint_instruction(quill_name: &str) -> String {
+    BLUEPRINT_INSTRUCTION_TEMPLATE.replace("{quill}", quill_name)
+}
 
 #[cfg(test)]
 mod tests;
