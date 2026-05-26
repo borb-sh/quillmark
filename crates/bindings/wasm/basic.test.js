@@ -1033,13 +1033,13 @@ title: "Hello"
 //
 // Post-mcp-feedback the schema axis is implicit: a field with a `default:` is
 // Endorsed (the rendered default is shippable as-is and the blueprint emits
-// the value + `; skip-ok` annotation); a field without a `default:` is Must
+// the value + `; delete-ok` annotation); a field without a `default:` is Must
 // Fill (the blueprint emits the `<must-fill>` sentinel and validation flags
 // either the absence or the unreplaced sentinel).
 //
 // These tests pin the JS-facing contract:
 //   - `QuillFieldSchema` no longer carries a `required` axis.
-//   - `quill.blueprint` carries `<must-fill>` and `; skip-ok` annotations.
+//   - `quill.blueprint` carries `<must-fill>` and `; delete-ok` annotations.
 //   - `quill.render(doc)` raises `validation::must_fill_absent` when a
 //     Must Fill field is absent at validate time.
 //   - `quill.render(doc)` raises `validation::must_fill_sentinel` when the
@@ -1107,21 +1107,21 @@ main:
     expect(fields.subtitle.default).toBe('Untitled subtitle')
   })
 
-  it('blueprint carries `<must-fill>` for Must Fill fields and `; skip-ok` for Endorsed', () => {
+  it('blueprint carries `<must-fill>` for Must Fill fields and `; delete-ok` for Endorsed', () => {
     const quill = buildQuill()
     const blueprint = quill.blueprint
 
     expect(typeof blueprint).toBe('string')
     expect(blueprint.length).toBeGreaterThan(0)
 
-    // Must Fill: value cell is the literal sentinel; no `; skip-ok` tag.
+    // Must Fill: value cell is the literal sentinel; no `; delete-ok` tag.
     expect(blueprint).toContain('title: <must-fill>  # string')
-    expect(blueprint).not.toMatch(/title: <must-fill>.*skip-ok/)
+    expect(blueprint).not.toMatch(/title: <must-fill>.*delete-ok/)
 
-    // Endorsed: rendered default + `; skip-ok` tag. The emitter does not
+    // Endorsed: rendered default + `; delete-ok` tag. The emitter does not
     // quote strings that don't need quoting (`Untitled subtitle` has no YAML
     // ambiguity), so the value cell is bare.
-    expect(blueprint).toContain('subtitle: Untitled subtitle  # string; skip-ok')
+    expect(blueprint).toContain('subtitle: Untitled subtitle  # string; delete-ok')
 
     // The legacy `; required` / `; optional` role tag must not appear anywhere.
     expect(blueprint).not.toContain('; required')

@@ -52,7 +52,7 @@ pub const FORMAT_RULES: &str = "Document format rules:
 \u{2022} Reserved `$`-keys: `$quill`, `$kind`, `$id`, `$ext`. User fields use lowercase snake_case.
 \u{2022} Additional `~~~card-yaml` blocks declare composable cards via `$kind: <card_kind>`.
 \u{2022} Prose body is the text after a block's closing `~~~`, before the next opener or EOF.
-\u{2022} For optional fields with no value, OMIT the line entirely \u{2014} do not write `field: null`.
+\u{2022} Fields annotated `; delete-ok` are optional \u{2014} DELETE THE ENTIRE LINE to use the default, or replace the right-hand side to override. Do NOT write `field:`, `field: null`, or `field: ~` \u{2014} all three parse as YAML null and will fail validation.
 \u{2022} Respect field types: numbers unquoted (`word_count: 42`), booleans unquoted (`pinned: true`), strings as plain scalars or quoted. Quoting a number turns it into a string and will fail validation.
 \u{2022} Plain-scalar values cannot start with `*` or `&` (YAML alias/anchor indicators) and cannot contain `:` followed by a space. For markdown emphasis, embedded colons, or other special prefixes, single-quote the value: `field: '**bold**'`, `field: \"Name: subtitle\"`.";
 

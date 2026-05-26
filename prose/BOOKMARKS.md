@@ -58,7 +58,7 @@ walker uses the same shape.
 
 **What:** When a typed container declares `default: []` (or `default: {}`)
 the blueprint now renders the value inline — `refs: []  # array<object>;
-skip-ok` — and emits no row/property shape. Inner shape is only surfaced
+delete-ok` — and emits no row/property shape. Inner shape is only surfaced
 when the container is Must Fill (no `default:` at all), via the synthetic
 row / per-property recursion path.
 

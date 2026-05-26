@@ -254,7 +254,7 @@ A field's *cell* is inferred from whether its schema declares a `default:`:
   validate time, or `validation::must_fill_sentinel` when the
   `<must-fill>` sentinel survives into the document.
 - **Endorsed** (with `default:`) — `quill.blueprint` renders the
-  default value followed by a `; skip-ok` annotation, and the default
+  default value followed by a `; delete-ok` annotation, and the default
   is used when the document omits the field.
 
 `QuillFieldSchema` no longer carries a `required` axis. The legacy

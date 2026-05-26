@@ -7,7 +7,7 @@ A field's *cell* is determined by whether the schema declares a `default:`.
   is absent at validate time and ``validation::must_fill_sentinel`` if
   the `<must-fill>` sentinel survives into the rendered document.
 - With `default:` -> **Endorsed**: the blueprint renders the default
-  value with a ``; skip-ok`` annotation; the field is optional and the
+  value with a ``; delete-ok`` annotation; the field is optional and the
   default is used when absent.
 """
 
@@ -103,16 +103,16 @@ def test_blueprint_must_fill_sentinel(tmp_path):
     )
 
 
-def test_blueprint_endorsed_skip_ok(tmp_path):
-    """Endorsed cells carry `; skip-ok` after the type annotation."""
+def test_blueprint_endorsed_delete_ok(tmp_path):
+    """Endorsed cells carry `; delete-ok` after the type annotation."""
     quill = make_quill(tmp_path)
     bp = quill.blueprint
 
-    # The Endorsed `status` field renders its default value with `; skip-ok`.
-    # The exact format is `status: draft  # string; skip-ok`.
+    # The Endorsed `status` field renders its default value with `; delete-ok`.
+    # The exact format is `status: draft  # string; delete-ok`.
     assert "status: draft" in bp, f"expected default in blueprint; got:\n{bp}"
-    assert "skip-ok" in bp, (
-        f"expected `; skip-ok` annotation on Endorsed cell; got:\n{bp}"
+    assert "delete-ok" in bp, (
+        f"expected `; delete-ok` annotation on Endorsed cell; got:\n{bp}"
     )
 
 
