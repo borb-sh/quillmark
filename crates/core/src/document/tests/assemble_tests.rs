@@ -62,6 +62,21 @@ fn test_missing_quill_diagnostic_code() {
 }
 
 #[test]
+fn test_missing_block_with_frontmatter_names_swap() {
+    let err = decompose("---\nquill: usaf_memo\ntitle: Memo\n---\n\nBody\n").unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("`---` YAML frontmatter"), "got: {msg}");
+    assert!(msg.contains("Replace the opening `---` with `~~~card-yaml`"), "got: {msg}");
+}
+
+#[test]
+fn test_missing_block_with_bare_yaml_calls_out_missing_fence() {
+    let err = decompose("$quill: usaf_memo\n$kind: main\ntitle: Memo\n").unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("missing the `~~~card-yaml` fence"), "got: {msg}");
+}
+
+#[test]
 fn test_with_payload() {
     let markdown = "~~~card-yaml
 $quill: test_quill

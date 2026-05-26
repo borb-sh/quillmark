@@ -142,6 +142,53 @@ fn derive_hint(message: &str, content: &str) -> Option<String> {
         );
     }
 
+    // S2-1: a `- item` list line where a mapping key was expected. Either the
+    // sequence is mis-indented, or the field was meant to be a scalar.
+    if m.contains("block sequence entries are not allowed") {
+        return Some(
+            "A `- item` list was found where a mapping key was expected. Either \
+             indent the sequence two spaces under the key it belongs to \
+             (`field:` newline `  - item`), or — if this field expects a single \
+             scalar value — drop the `-` and put the value on the same line: \
+             `field: value`."
+                .to_string(),
+        );
+    }
+
+    // S2-2: a continuation line of a plain-scalar value is being read as a new
+    // key. Either quote / block-scalar the multi-line value, or indent the
+    // continuation.
+    if m.contains("simple key expected") || m.contains("simple key expect") {
+        return Some(
+            "A second line of a value was read as a new mapping key (YAML \
+             plain-scalar values stop at the next unindented line). For \
+             multi-line text, use a block scalar: `field: |` then put each \
+             line indented two spaces below. For a single-line value, keep it \
+             on one line."
+                .to_string(),
+        );
+    }
+
+    // S2-3: anchor-scan failure — same root cause as the alias case (unquoted
+    // value starts with `&`). The sprint 1 alias hint already matched on the
+    // word "anchor"; this matches the new wording that mentions only "scanning
+    // an anchor or alias".
+    if m.contains("scanning an anchor") || m.contains("scanning an alias") {
+        if let Some(field) = first_field_with_unquoted_prefix(content, &['*', '&']) {
+            return Some(format!(
+                "Plain-scalar values cannot start with `*` or `&` (reserved as YAML \
+                 alias/anchor indicators). Wrap the value in single quotes: \
+                 `{field}: '&literal value'`"
+            ));
+        }
+        return Some(
+            "Plain-scalar values cannot start with `*` or `&` (reserved as YAML \
+             alias/anchor indicators). Wrap the value in single quotes — e.g. \
+             `field: '&literal value'`."
+                .to_string(),
+        );
+    }
+
     // Gap 5: a multi-line double-quoted scalar — block scalars are friendlier.
     if m.contains("invalid indentation in multiline quoted scalar")
         || (m.contains("indentation") && m.contains("quoted scalar"))
@@ -347,6 +394,46 @@ mod tests {
         let enriched = enrich_yaml_error("something unrelated", "");
         assert!(enriched.hint.is_none());
         assert_eq!(enriched.message, "something unrelated");
+    }
+
+    #[test]
+    fn hint_for_block_sequence_in_mapping_context() {
+        let enriched = enrich_yaml_error(
+            "block sequence entries are not allowed in this context",
+            "section_headers:\n- Title\n",
+        );
+        let hint = enriched.hint.expect("hint should be set");
+        assert!(hint.contains("`- item` list"));
+        assert!(hint.contains("indent"));
+    }
+
+    #[test]
+    fn hint_for_simple_key_expected_suggests_block_scalar() {
+        let enriched = enrich_yaml_error(
+            "simple key expected at line 17, column 1",
+            "summary: This is a long\nsummary across multiple lines\n",
+        );
+        let hint = enriched.hint.expect("hint should be set");
+        assert!(hint.contains("block scalar"));
+        assert!(hint.contains("|"));
+    }
+
+    #[test]
+    fn hint_for_simple_key_expect_colon_variant_also_matches() {
+        let enriched = enrich_yaml_error("simple key expect ':'", "");
+        assert!(enriched.hint.is_some());
+    }
+
+    #[test]
+    fn hint_for_scanning_anchor_names_field() {
+        let content = "title: Doc\nbluf: &unquoted ampersand\n";
+        let enriched = enrich_yaml_error(
+            "while scanning an anchor or alias, did not find expected alphabetic or numeric character",
+            content,
+        );
+        let hint = enriched.hint.expect("hint should be set");
+        assert!(hint.contains("bluf"));
+        assert!(hint.contains("single quotes"));
     }
 
     #[test]

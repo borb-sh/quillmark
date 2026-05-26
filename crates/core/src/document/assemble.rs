@@ -31,6 +31,51 @@ use super::payload::{Payload, PayloadItem};
 use super::prescan::{prescan_fence_content, NestedComment, PreItem};
 use super::{Card, Document};
 
+/// Build a `MissingQuill` message that names the specific malformation when
+/// the document has none of the `~~~card-yaml` blocks the parser requires.
+///
+/// LLM authors hit two recurring shapes here:
+///
+/// 1. `---` YAML frontmatter (Jekyll-style). The `$quill` line is inside, but
+///    the fences are wrong.
+/// 2. Bare YAML mapping with `$quill: ...` at the top, no fences at all.
+///
+/// In both cases, the generic "open a `~~~card-yaml` block" advice is correct
+/// but doesn't name what the user *did*. Pointing at the specific malformation
+/// helps the model converge faster on the right edit.
+fn missing_block_message(markdown: &str) -> String {
+    let trimmed = markdown.trim_start();
+
+    // `---` frontmatter at the top: name the swap directly.
+    if trimmed.starts_with("---") {
+        return "Missing required root card-yaml block. Your document opens with `---` \
+                YAML frontmatter — that syntax is NOT supported. Replace the opening \
+                `---` with `~~~card-yaml` and the closing `---` with `~~~` (three \
+                tildes, no info string), and ensure the block declares \
+                `$quill: <name>@<version>` and `$kind: main`."
+            .to_string();
+    }
+
+    // Bare YAML with `$quill:` at the top: the model wrote the metadata but
+    // forgot the fence entirely.
+    if trimmed.starts_with("$quill:") || trimmed.starts_with("quill:") {
+        return "Missing required root card-yaml block. Your document starts with \
+                YAML metadata but is missing the `~~~card-yaml` fence. Wrap the \
+                metadata: add a line `~~~card-yaml` above the `$quill:` line and a \
+                line containing exactly `~~~` (three tildes, no info string) below \
+                the last metadata field, before the prose body."
+            .to_string();
+    }
+
+    "Missing required root card-yaml block. The document must open with a \
+     `~~~card-yaml` block declaring `$quill: <name>` (and `$kind: main`) as \
+     the first two lines, closed by a line containing exactly `~~~`.\n\n\
+     If you used `---` YAML frontmatter, that syntax is NOT supported. \
+     Replace the `---` fences with `~~~card-yaml` (opener) and `~~~` \
+     (closer)."
+        .to_string()
+}
+
 /// Strip exactly one structural separator from the tail of a body slice.
 ///
 /// Every card-yaml block requires a blank line immediately above it. When a
@@ -189,15 +234,9 @@ pub(super) fn decompose_with_warnings(
     let (blocks, warnings) = find_metadata_blocks(markdown)?;
 
     if blocks.is_empty() {
-        return Err(crate::error::ParseError::MissingQuill(
-            "Missing required root card-yaml block. The document must open with a \
-             `~~~card-yaml` block declaring `$quill: <name>` (and `$kind: main`) as \
-             the first two lines, closed by a line containing exactly `~~~`.\n\n\
-             If you used `---` YAML frontmatter, that syntax is NOT supported. \
-             Replace the `---` fences with `~~~card-yaml` (opener) and `~~~` \
-             (closer)."
-                .to_string(),
-        ));
+        return Err(crate::error::ParseError::MissingQuill(missing_block_message(
+            markdown,
+        )));
     }
 
     // The root block must declare a `$quill` reference.
