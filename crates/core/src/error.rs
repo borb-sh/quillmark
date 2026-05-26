@@ -237,8 +237,8 @@ pub enum ParseError {
         /// Index of the metadata block (0-indexed)
         block_index: usize,
         /// Optional actionable hint attached when the YAML parser's message
-        /// is too cryptic to be recoverable on its own. See
-        /// [`crate::document::yaml_hints`].
+        /// is too cryptic to be recoverable on its own. Derived by the
+        /// internal `document::yaml_hints` enrichment pass.
         hint: Option<String>,
     },
 }
