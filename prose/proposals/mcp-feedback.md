@@ -12,7 +12,7 @@
 Collapse the field-schema axes (`required`, `optional`, `default`)
 into a two-cell model: a field either has a `default:` (Endorsed) or
 does not (Must Fill). Render Must Fill with the `<must-fill>` sentinel
-in the value cell; render Endorsed with `; skip-ok` on the annotation.
+in the value cell; render Endorsed with `; delete-ok` on the annotation.
 Pre-1.0; breaking changes acceptable.
 
 Two unrelated changes from the original draft (root-block `$kind:
@@ -56,11 +56,11 @@ Two render shapes:
 
 | Cell | Render |
 |---|---|
-| Endorsed | `field: <value>  # <type>[<format>]; skip-ok` |
+| Endorsed | `field: <value>  # <type>[<format>]; delete-ok` |
 | Must Fill | `field: <must-fill>  # <type>[<format>]` |
 
 The sentinel `<must-fill>` in the value cell signals "you must replace
-this." The tag `; skip-ok` in the annotation signals "this default is
+this." The tag `; delete-ok` in the annotation signals "this default is
 shippable; keep or override." The two are orthogonal — every field is
 exactly one cell, and the two signals never co-occur on the same
 field.
@@ -68,7 +68,7 @@ field.
 A reader's mental model is one rule: **sentinel in value cell → must
 replace; otherwise the value cell is shippable.** Endorsed values
 include type-empty values (`""`, `[]`, `false`, `0`) and the `;
-skip-ok` tag confirms they are deliberate, not artifacts.
+delete-ok` tag confirms they are deliberate, not artifacts.
 
 ## 3. Sentinel placement by type
 
@@ -96,16 +96,16 @@ is rendered with its own annotation and its own cell signal:
 address:  # object
   street: <must-fill>  # string
   city: <must-fill>  # string
-  zip: ""  # string; skip-ok
+  zip: ""  # string; delete-ok
 ```
 
-The container annotation has no `; skip-ok` tag because state is a
+The container annotation has no `; delete-ok` tag because state is a
 leaf concern. If the container itself has a `default:` (concrete
 block mapping), the container is Endorsed and carries the tag;
 property annotations are dropped per the existing spec:
 
 ```
-address:  # object; skip-ok
+address:  # object; delete-ok
   street: 5000 Forbes Avenue
   city: Pittsburgh
   zip: "15213"
@@ -121,19 +121,19 @@ entries:  # array<object>
 ```
 
 With a container `default:`, actual rows render with property values
-only (no annotations), and the container carries `; skip-ok`.
+only (no annotations), and the container carries `; delete-ok`.
 
 ## 4. Inline annotation grammar
 
 The annotation collapses to:
 
 ```
-# <type>[<format>][; skip-ok]
+# <type>[<format>][; delete-ok]
 ```
 
 The role slot (`; required` / `; optional`) is removed. No replacement
 token. State is conveyed by the value cell (sentinel or real value)
-and by the presence or absence of `; skip-ok`. The `<format>` slot is
+and by the presence or absence of `; delete-ok`. The `<format>` slot is
 unchanged from the current spec.
 
 Examples:
@@ -141,9 +141,9 @@ Examples:
 | Line | Reading |
 |---|---|
 | `name: <must-fill>  # string` | Must Fill string |
-| `title: "Curriculum Vitae"  # string; skip-ok` | Endorsed string |
-| `is_published: false  # boolean; skip-ok` | Endorsed boolean (type-empty default, explicitly shippable) |
-| `notes: ""  # string; skip-ok` | Endorsed empty string (the "skippable" cell, now Endorsed) |
+| `title: "Curriculum Vitae"  # string; delete-ok` | Endorsed string |
+| `is_published: false  # boolean; delete-ok` | Endorsed boolean (type-empty default, explicitly shippable) |
+| `notes: ""  # string; delete-ok` | Endorsed empty string (the "skippable" cell, now Endorsed) |
 | `date: <must-fill>  # date<YYYY-MM-DD>` | Must Fill date |
 | `severity: <must-fill>  # enum<low \| medium \| high>` | Must Fill enum |
 | `tags: <must-fill>  # array<string>` | Must Fill array of strings |
@@ -264,13 +264,13 @@ recipient: <must-fill>  # array<string>
 signature_block: <must-fill>  # array<string>
 # The department or organizational unit name for the letterhead.
 # e.g. Department of Electrical and Computer Engineering
-department: ""  # string; skip-ok
+department: ""  # string; delete-ok
 # The sender's institutional mailing address.
 # e.g. [5000 Forbes Avenue, "Pittsburgh, PA 15213-3890"]
 address: <must-fill>  # array<string>
 # The department or university website URL.
 # e.g. www.ece.cmu.edu
-url: ""  # string; skip-ok
+url: ""  # string; delete-ok
 # The date to appear on the letter.
 date: <must-fill>  # date<YYYY-MM-DD>
 ~~~
@@ -279,7 +279,7 @@ Write main body here.
 ````
 
 Two render shapes, one tag, no `required` token. The LLM reads
-`<must-fill>` as "replace before shipping" and `; skip-ok` as "the
+`<must-fill>` as "replace before shipping" and `; delete-ok` as "the
 default here is fine; keep or override." Six fields, three signals
 (sentinel, plain value with tag, leading `# e.g.` reference), no
 ambiguity.
@@ -312,7 +312,7 @@ landing order.
 3. **Blueprint emitter rewrite** in `crates/core/src/quill/`:
    - New annotation grammar (drop role slot).
    - Sentinel rendering at the right position per type.
-   - `; skip-ok` tag emission on Endorsed cells.
+   - `; delete-ok` tag emission on Endorsed cells.
 4. **Quill migration**: rewrite bundled quills in
    `crates/fixtures/resources/quills/` to the two-cell shape; update
    fixture tests; verify `every_quill_in_quiver_renders` still holds.

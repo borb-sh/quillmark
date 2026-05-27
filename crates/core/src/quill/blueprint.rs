@@ -13,9 +13,9 @@
 //!   whitespace-collapsed) and `# e.g. <value>` (whenever an `example:` is
 //!   configured, regardless of cell or type).
 //! - **Inline `# …` annotation** on the value line is structural:
-//!   `# <type>[<format>][; skip-ok]`. Type is mandatory on every field.
+//!   `# <type>[<format>][; delete-ok]`. Type is mandatory on every field.
 //!   Format slot uses angle brackets (`array<string>`, `date<YYYY-MM-DD>`,
-//!   `enum<a | b | c>`). The optional `; skip-ok` tag marks **Endorsed**
+//!   `enum<a | b | c>`). The optional `; delete-ok` tag marks **Endorsed**
 //!   cells whose rendered default is shippable as-is; its absence marks
 //!   **Must Fill** cells, which carry the `<must-fill>` sentinel in the
 //!   value cell instead.
@@ -262,10 +262,10 @@ fn sort_props(props: &BTreeMap<String, Box<FieldSchema>>) -> Vec<&FieldSchema> {
 /// field type it surfaces only in the `# e.g.` leading line.
 ///
 /// Cell rule (uniform with scalars): a field with a `default:` is Endorsed
-/// — the outer key carries `; skip-ok` and the rendered value is the
+/// — the outer key carries `; delete-ok` and the rendered value is the
 /// default (rows for `default: [...]`, inline `[]` for `default: []`). A
 /// field without a `default:` is Must Fill — the outer key drops
-/// `; skip-ok` and one synthetic row is emitted with leaf-level sentinels.
+/// `; delete-ok` and one synthetic row is emitted with leaf-level sentinels.
 /// See `prose/BOOKMARKS.md` "Typed container empty default loses inline
 /// shape documentation" for the rendering-vs-symmetry trade-off.
 fn write_typed_table_field(
@@ -312,7 +312,7 @@ fn write_typed_table_field(
 /// every other field type it surfaces only in the `# e.g.` leading line.
 ///
 /// Cell rule (uniform with scalars): a field with a `default:` is Endorsed
-/// — the outer key carries `; skip-ok` and the rendered value is the
+/// — the outer key carries `; delete-ok` and the rendered value is the
 /// default (a block mapping for non-empty, inline `{}` for `default: {}`).
 /// A field without a `default:` is Must Fill — per-property recursion with
 /// leaf-level sentinels. See `prose/BOOKMARKS.md` "Typed container empty
@@ -364,7 +364,7 @@ fn write_typed_object_field(
 fn inline_annotation(field: &FieldSchema, force_array_object: bool, endorsed: bool) -> String {
     let type_expr = type_expression(field, force_array_object);
     if endorsed {
-        format!("{}; skip-ok", type_expr)
+        format!("{}; delete-ok", type_expr)
     } else {
         type_expr
     }
@@ -486,9 +486,9 @@ mod tests {
     }
 
     #[test]
-    fn must_fill_string_renders_sentinel_with_no_skip_ok() {
+    fn must_fill_string_renders_sentinel_with_no_delete_ok() {
         // No `default:` → Must Fill. Sentinel sits in the value cell; the
-        // inline annotation drops `; skip-ok`.
+        // inline annotation drops `; delete-ok`.
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -509,11 +509,11 @@ main:
     status: { type: string, default: draft, example: final }
 "#)
         .blueprint();
-        assert!(t.contains("# e.g. final\nstatus: draft  # string; skip-ok\n"));
+        assert!(t.contains("# e.g. final\nstatus: draft  # string; delete-ok\n"));
     }
 
     #[test]
-    fn endorsed_empty_default_renders_value_with_skip_ok_and_eg_line() {
+    fn endorsed_empty_default_renders_value_with_delete_ok_and_eg_line() {
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -521,7 +521,7 @@ main:
     classification: { type: string, default: "", example: CONFIDENTIAL }
 "#)
         .blueprint();
-        assert!(t.contains("# e.g. CONFIDENTIAL\nclassification: \"\"  # string; skip-ok\n"));
+        assert!(t.contains("# e.g. CONFIDENTIAL\nclassification: \"\"  # string; delete-ok\n"));
     }
 
     #[test]
@@ -552,7 +552,7 @@ main:
     format: { type: string, enum: [standard, informal], default: standard }
 "#)
         .blueprint();
-        assert!(t.contains("format: standard  # enum<standard | informal>; skip-ok\n"));
+        assert!(t.contains("format: standard  # enum<standard | informal>; delete-ok\n"));
         assert!(!t.contains("e.g."));
     }
 
@@ -606,7 +606,7 @@ main:
 
     #[test]
     fn every_field_carries_inline_type_and_cell_signal() {
-        // Endorsed cells carry `; skip-ok`; Must Fill cells carry the
+        // Endorsed cells carry `; delete-ok`; Must Fill cells carry the
         // sentinel in the value cell and drop the tag.
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
@@ -621,11 +621,11 @@ main:
 "#)
         .blueprint();
         assert!(t.contains("title: <must-fill>  # string\n"));
-        assert!(t.contains("size: 11  # number; skip-ok\n"));
-        assert!(t.contains("flag: false  # boolean; skip-ok\n"));
+        assert!(t.contains("size: 11  # number; delete-ok\n"));
+        assert!(t.contains("flag: false  # boolean; delete-ok\n"));
         assert!(t.contains("issued: <must-fill>  # date<YYYY-MM-DD>\n"));
         assert!(t.contains("published: <must-fill>  # datetime<ISO 8601>\n"));
-        assert!(t.contains("refs: []  # array<string>; skip-ok\n"));
+        assert!(t.contains("refs: []  # array<string>; delete-ok\n"));
     }
 
     #[test]
@@ -641,7 +641,7 @@ main:
     }
 
     #[test]
-    fn endorsed_empty_markdown_renders_blank_line_with_skip_ok() {
+    fn endorsed_empty_markdown_renders_blank_line_with_delete_ok() {
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -649,7 +649,7 @@ main:
     bio: { type: markdown, default: "" }
 "#)
         .blueprint();
-        assert!(t.contains("bio: |-  # markdown; skip-ok\n  \n"));
+        assert!(t.contains("bio: |-  # markdown; delete-ok\n  \n"));
         assert!(!t.contains("<must-fill>"));
     }
 
@@ -664,7 +664,7 @@ main:
       default: "## About me\n\nHello."
 "###)
         .blueprint();
-        assert!(t.contains("bio: |-  # markdown; skip-ok\n  ## About me\n  \n  Hello.\n"));
+        assert!(t.contains("bio: |-  # markdown; delete-ok\n  ## About me\n  \n  Hello.\n"));
     }
 
     #[test]
@@ -795,7 +795,7 @@ main:
 
     #[test]
     fn typed_table_must_fill_emits_synthetic_row_with_leaf_sentinels() {
-        // Must Fill container → outer key has no `; skip-ok` (state is a
+        // Must Fill container → outer key has no `; delete-ok` (state is a
         // leaf concern). Property leaves carry their own cell signals.
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
@@ -811,7 +811,7 @@ main:
         .blueprint();
         assert!(t.contains("# Cited works.\nreferences:  # array<object>\n  -\n"));
         assert!(t.contains("    # Citing organization.\n    org: <must-fill>  # string\n"));
-        assert!(t.contains("    # Publication year.\n    year: 0  # integer; skip-ok\n"));
+        assert!(t.contains("    # Publication year.\n    year: 0  # integer; delete-ok\n"));
     }
 
     #[test]
@@ -834,11 +834,11 @@ main:
         assert!(t.contains("# e.g. [{org: ACME, year: 2020}]\n"));
         assert!(t.contains("refs:  # array<object>\n  -\n"));
         assert!(t.contains("    org: <must-fill>  # string\n"));
-        assert!(t.contains("    year: 0  # integer; skip-ok\n"));
+        assert!(t.contains("    year: 0  # integer; delete-ok\n"));
     }
 
     #[test]
-    fn typed_table_endorsed_renders_default_rows_with_skip_ok() {
+    fn typed_table_endorsed_renders_default_rows_with_delete_ok() {
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -851,14 +851,14 @@ main:
         org: { type: string }
 "#)
         .blueprint();
-        assert!(t.contains("refs:  # array<object>; skip-ok\n  - org: ACME\n"));
-        assert!(!t.contains("refs:  # array<object>; skip-ok\n  -\n"));
+        assert!(t.contains("refs:  # array<object>; delete-ok\n  - org: ACME\n"));
+        assert!(!t.contains("refs:  # array<object>; delete-ok\n  -\n"));
     }
 
     #[test]
-    fn typed_table_with_empty_default_renders_inline_and_skip_ok() {
+    fn typed_table_with_empty_default_renders_inline_and_delete_ok() {
         // `default: []` means shippable as-is — the outer cell carries
-        // `; skip-ok` uniformly with scalar cells and the value renders
+        // `; delete-ok` uniformly with scalar cells and the value renders
         // inline as `[]`. Inline row shape under an empty default belongs
         // in `example:`; see prose/BOOKMARKS.md.
         let t = cfg(r#"
@@ -873,16 +873,16 @@ main:
 "#)
         .blueprint();
         assert!(
-            t.contains("refs: []  # array<object>; skip-ok\n"),
+            t.contains("refs: []  # array<object>; delete-ok\n"),
             "wrong rendering: {t}"
         );
         assert!(!t.contains("<must-fill>"), "no sentinels expected: {t}");
     }
 
     #[test]
-    fn typed_dict_with_empty_default_renders_inline_and_skip_ok() {
+    fn typed_dict_with_empty_default_renders_inline_and_delete_ok() {
         // Same uniform rule as typed tables: `default: {}` is Endorsed and
-        // renders inline as `{}` with `; skip-ok`.
+        // renders inline as `{}` with `; delete-ok`.
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -895,7 +895,7 @@ main:
 "#)
         .blueprint();
         assert!(
-            t.contains("address: {}  # object; skip-ok\n"),
+            t.contains("address: {}  # object; delete-ok\n"),
             "wrong rendering: {t}"
         );
         assert!(!t.contains("<must-fill>"), "no sentinels expected: {t}");
@@ -903,7 +903,7 @@ main:
 
     #[test]
     fn typed_dict_must_fill_emits_per_property_annotations() {
-        // Must Fill container → outer key has no `; skip-ok`; per-property
+        // Must Fill container → outer key has no `; delete-ok`; per-property
         // recursion with leaf cell signals.
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
@@ -921,11 +921,11 @@ main:
         assert!(t.contains("# Mailing address.\naddress:  # object\n"));
         assert!(t.contains("  # Street line.\n  street: <must-fill>  # string\n"));
         assert!(t.contains("  city: <must-fill>  # string\n"));
-        assert!(t.contains("  zip: \"\"  # string; skip-ok\n"));
+        assert!(t.contains("  zip: \"\"  # string; delete-ok\n"));
     }
 
     #[test]
-    fn typed_dict_endorsed_renders_block_mapping_with_skip_ok() {
+    fn typed_dict_endorsed_renders_block_mapping_with_delete_ok() {
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -938,7 +938,7 @@ main:
         city:   { type: string }
 "#)
         .blueprint();
-        assert!(t.contains("address:  # object; skip-ok\n"));
+        assert!(t.contains("address:  # object; delete-ok\n"));
         assert!(
             t.contains("  street: 5000 Forbes Ave\n")
                 || t.contains("  street: \"5000 Forbes Ave\"\n")
@@ -970,7 +970,7 @@ main:
                 || t.contains("# e.g. {city: Cupertino, street: 1 Infinite Loop}\n")
         );
         assert!(t.contains("  street: <must-fill>  # string\n"));
-        assert!(t.contains("  city: \"\"  # string; skip-ok\n"));
+        assert!(t.contains("  city: \"\"  # string; delete-ok\n"));
     }
 
     const LETTER_QUILL: &str = r#"

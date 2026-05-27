@@ -23,7 +23,7 @@ $kind: main
 
 # <field description>
 # e.g. <example value>
-field: value  # <type>[; skip-ok]
+field: value  # <type>[; delete-ok]
 ~~~
 
 Write main body here.
@@ -50,7 +50,7 @@ When `body.enabled` is false the marker is omitted entirely.
 | Slot | Form | Carries |
 |---|---|---|
 | **Leading `# …` lines** above a field | `# <prose>` or `# e.g. <value>` | description (single-line prose) and an illustrative example |
-| **Inline `# …`** at end of the value line | `# <type>[<format>][; skip-ok]` | structural metadata: type, optional format refinement, optional skip-ok tag |
+| **Inline `# …`** at end of the value line | `# <type>[<format>][; delete-ok]` | structural metadata: type, optional format refinement, optional delete-ok tag |
 
 The two slots have disjoint purposes: leading is prose, inline is
 structural. No colon-separated `key: value` annotation syntax appears in
@@ -72,7 +72,7 @@ That's it. There is no leading `# required`, `# enum:`, `# default:`, or
 
 ### Inline annotation
 
-Form: **`# <type>[<format>][; skip-ok]`**
+Form: **`# <type>[<format>][; delete-ok]`**
 
 - **Type slot** (mandatory, first): one of
   `string`, `integer`, `number`, `boolean`, `array`, `object`,
@@ -89,7 +89,7 @@ Form: **`# <type>[<format>][; skip-ok]`**
   - `enum<a | b | c>`
   - omitted for `string`, `integer`, `number`, `boolean`, `object`,
     `markdown` (nothing meaningful to refine).
-- **Skip-ok tag** (optional, after `;`): the single tag `skip-ok`. Present
+- **Skip-ok tag** (optional, after `;`): the single tag `delete-ok`. Present
   on Endorsed fields (fields with a `default:` in the schema), signalling
   "the rendered value is shippable as-is — keep or override". Absent on
   Must Fill fields (fields without a `default:`), which carry the
@@ -110,10 +110,10 @@ Examples:
 | Line | Reading |
 |---|---|
 | `name: <must-fill>  # string` | Must Fill string — replace `<must-fill>` before shipping |
-| `title: "Curriculum Vitae"  # string; skip-ok` | Endorsed string — keep or override |
-| `count: 0  # integer; skip-ok` | Endorsed integer (type-empty default, explicitly shippable) |
-| `active: false  # boolean; skip-ok` | Endorsed boolean (type-empty default, explicitly shippable) |
-| `notes: ""  # string; skip-ok` | Endorsed empty string (the "skippable" cell, now Endorsed) |
+| `title: "Curriculum Vitae"  # string; delete-ok` | Endorsed string — keep or override |
+| `count: 0  # integer; delete-ok` | Endorsed integer (type-empty default, explicitly shippable) |
+| `active: false  # boolean; delete-ok` | Endorsed boolean (type-empty default, explicitly shippable) |
+| `notes: ""  # string; delete-ok` | Endorsed empty string (the "skippable" cell, now Endorsed) |
 | `bio: |-` followed by indented `<must-fill>`, then `# markdown` | Must Fill markdown — see "Markdown fields render as block scalars" |
 | `recipient: <must-fill>  # array<string>` | Must Fill array of strings |
 | `date: <must-fill>  # date<YYYY-MM-DD>` | Must Fill date in `YYYY-MM-DD` format |
@@ -127,8 +127,8 @@ The rendered value follows a single cascade keyed on the cell:
 
 | Field state | Value rendered | Cell |
 |---|---|---|
-| Has `default` | default | Endorsed (carries `; skip-ok`) |
-| No `default` | `<must-fill>` sentinel | Must Fill (no `; skip-ok`) |
+| Has `default` | default | Endorsed (carries `; delete-ok`) |
+| No `default` | `<must-fill>` sentinel | Must Fill (no `; delete-ok`) |
 
 Examples never become the rendered value, regardless of cell or type —
 this holds uniformly for scalars, arrays, typed tables, and typed
@@ -174,14 +174,14 @@ When a `default:` is configured, the field is Endorsed and the default's
 content fills the block:
 
 ```
-bio: |-  # markdown; skip-ok
+bio: |-  # markdown; delete-ok
   ## About me
   
   <body>
 ```
 
 If the default is empty (`default: ""`), the block scalar still carries
-the `; skip-ok` tag and renders with one indented blank line — the
+the `; delete-ok` tag and renders with one indented blank line — the
 "skippable" markdown cell.
 
 ### Multi-element example arrays
@@ -213,16 +213,16 @@ cell cascade — `default:` (any default, including `[]`) is Endorsed and
 shippable as-is; no `default:` is Must Fill:
 
 - A non-empty `default:` renders as actual rows (no per-property
-  annotations on each row). The outer key carries `# array<object>; skip-ok`.
-- `default: []` renders inline as `[]` with `# array<object>; skip-ok` —
+  annotations on each row). The outer key carries `# array<object>; delete-ok`.
+- `default: []` renders inline as `[]` with `# array<object>; delete-ok` —
   shippable empty. Inline row shape is not surfaced under an empty
   default; use `example:` to document row shape. See
   `prose/BOOKMARKS.md` "Typed container empty default loses inline
   shape documentation."
 - No `default:` is Must Fill: one synthetic row is emitted with each
   property carrying its own description, inline annotation, and cell
-  signal (sentinel or `; skip-ok`). The outer key carries
-  `# array<object>` (no `; skip-ok`).
+  signal (sentinel or `; delete-ok`). The outer key carries
+  `# array<object>` (no `; delete-ok`).
 
 An `example:` never renders as rows. Like every other field type, it
 surfaces only in the `# e.g.` leading line — as a one-line flow
@@ -236,13 +236,13 @@ shippable as-is; no `default:` is Must Fill:
 
 - A non-empty `default:` renders as a concrete block mapping (property
   values only, no annotations). The outer key carries
-  `# object; skip-ok`.
-- `default: {}` renders inline as `{}` with `# object; skip-ok` —
+  `# object; delete-ok`.
+- `default: {}` renders inline as `{}` with `# object; delete-ok` —
   shippable empty. Inline property shape is not surfaced under an empty
   default; use `example:` to document property shape.
 - No `default:` is Must Fill: each property is emitted with its own
   description, inline annotation, and cell signal. The outer key
-  carries `# object` (no `; skip-ok`).
+  carries `# object` (no `; delete-ok`).
 
 An `example:` never renders as a concrete mapping. Like every other
 field type, it surfaces only in the `# e.g.` leading line — as a
@@ -257,13 +257,13 @@ address:  # object
   # City name.
   city: <must-fill>  # string
   # ZIP or postal code.
-  zip: ""  # string; skip-ok
+  zip: ""  # string; delete-ok
 ```
 
 With a default:
 
 ```
-address:  # object; skip-ok
+address:  # object; delete-ok
   street: 5000 Forbes Avenue
   city: Pittsburgh
   zip: "15213"
@@ -313,13 +313,13 @@ recipient: <must-fill>  # array<string>
 signature_block: <must-fill>  # array<string>
 # The department or organizational unit name for the letterhead.
 # e.g. Department of Electrical and Computer Engineering
-department: ""  # string; skip-ok
+department: ""  # string; delete-ok
 # The sender's institutional mailing address.
 # e.g. [5000 Forbes Avenue, "Pittsburgh, PA 15213-3890"]
 address: <must-fill>  # array<string>
 # The department or university website URL.
 # e.g. www.ece.cmu.edu
-url: ""  # string; skip-ok
+url: ""  # string; delete-ok
 # The date to appear on the letter.
 date: <must-fill>  # date<YYYY-MM-DD>
 ~~~
@@ -393,7 +393,7 @@ Endorsed per field:
 
 - **Declare `default:`** when a value (including a type-empty value like
   `""`, `[]`, `false`, or `0`) is acceptable to ship as-is. The field
-  becomes Endorsed and the blueprint carries `; skip-ok`.
+  becomes Endorsed and the blueprint carries `; delete-ok`.
 - **Omit `default:`** when the author, LLM, or user must supply a value
   before shipping. The field becomes Must Fill and the blueprint carries
   the `<must-fill>` sentinel.

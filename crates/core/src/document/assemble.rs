@@ -31,6 +31,34 @@ use super::payload::{Payload, PayloadItem};
 use super::prescan::{prescan_fence_content, NestedComment, PreItem};
 use super::{Card, Document};
 
+/// Build a `MissingQuill` message that names the specific malformation when
+/// the document has none of the recognised root block forms the parser
+/// requires.
+///
+/// LLM authors hit one recurring shape here: a bare YAML mapping with
+/// `$quill: ...` (or `quill: ...`) at the top, no fences at all. Naming the
+/// concrete edit helps the model converge faster than the generic "open a
+/// `~~~card-yaml` block" advice.
+fn missing_block_message(markdown: &str) -> String {
+    let trimmed = markdown.trim_start();
+
+    // Bare YAML with `$quill:` at the top: the model wrote the metadata but
+    // forgot the fence entirely.
+    if trimmed.starts_with("$quill:") || trimmed.starts_with("quill:") {
+        return "Missing required root card-yaml block. Your document starts with \
+                YAML metadata but is missing the `~~~card-yaml` fence. Wrap the \
+                metadata: add a line `~~~card-yaml` above the `$quill:` line and a \
+                line containing exactly `~~~` (three tildes, no info string) below \
+                the last metadata field, before the prose body."
+            .to_string();
+    }
+
+    "Missing required root card-yaml block. The document must open with a \
+     `~~~card-yaml` block declaring `$quill: <name>` (and `$kind: main`) as \
+     the first two lines, closed by a line containing exactly `~~~`."
+        .to_string()
+}
+
 /// Strip exactly one structural separator from the tail of a body slice.
 ///
 /// Every card-yaml block requires a blank line immediately above it. When a
@@ -119,10 +147,13 @@ pub(super) fn build_block(
             Ok(parsed) => parsed,
             Err(e) => {
                 let line = markdown[..block_start].lines().count() + 1;
+                let enriched =
+                    super::yaml_hints::enrich_yaml_error(&e.to_string(), &content);
                 return Err(ParseError::YamlErrorWithLocation {
-                    message: e.to_string(),
+                    message: enriched.message,
                     line,
                     block_index,
+                    hint: enriched.hint,
                 });
             }
         };
@@ -186,11 +217,9 @@ pub(super) fn decompose_with_warnings(
     let (blocks, warnings) = find_metadata_blocks(markdown)?;
 
     if blocks.is_empty() {
-        return Err(crate::error::ParseError::MissingQuill(
-            "Missing required root card-yaml block. The document must open with a \
-             `~~~card-yaml` block declaring `$quill: <name>`."
-                .to_string(),
-        ));
+        return Err(crate::error::ParseError::MissingQuill(missing_block_message(
+            markdown,
+        )));
     }
 
     // The root block must declare a `$quill` reference.
@@ -201,7 +230,9 @@ pub(super) fn decompose_with_warnings(
         .any(|m| matches!(m, PayloadItem::Quill { .. }));
     if !has_root_quill {
         return Err(ParseError::MissingQuill(
-            "The document's root card-yaml block must declare `$quill: <name>`.".to_string(),
+            "The document's root card-yaml block must declare `$quill: <name>` as \
+             its first line (e.g. `$quill: usaf_memo@0.2.0`)."
+                .to_string(),
         ));
     }
 

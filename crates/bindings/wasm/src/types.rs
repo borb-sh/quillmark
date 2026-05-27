@@ -57,6 +57,16 @@ impl From<quillmark_core::Severity> for Severity {
     }
 }
 
+impl From<Severity> for quillmark_core::Severity {
+    fn from(severity: Severity) -> Self {
+        match severity {
+            Severity::Error => quillmark_core::Severity::Error,
+            Severity::Warning => quillmark_core::Severity::Warning,
+            Severity::Note => quillmark_core::Severity::Note,
+        }
+    }
+}
+
 /// Source location for errors and warnings
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
@@ -77,32 +87,56 @@ impl From<quillmark_core::Location> for Location {
     }
 }
 
+impl From<Location> for quillmark_core::Location {
+    fn from(loc: Location) -> Self {
+        quillmark_core::Location {
+            file: loc.file,
+            line: loc.line as u32,
+            column: loc.column as u32,
+        }
+    }
+}
+
 /// Diagnostic message (error, warning, or note)
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
 pub struct Diagnostic {
     pub severity: Severity,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub code: Option<String>,
     pub message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub location: Option<Location>,
     /// Document-model path anchor (e.g. `"cards.indorsement[0].signature_block"`).
     ///
     /// Set on schema validation diagnostics; `undefined` otherwise. See the
     /// Rust `quillmark_core::error` module docs for the path grammar.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub path: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub hint: Option<String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub source_chain: Vec<String>,
 }
 
 impl From<quillmark_core::Diagnostic> for Diagnostic {
     fn from(diag: quillmark_core::Diagnostic) -> Self {
         Diagnostic {
+            severity: diag.severity.into(),
+            code: diag.code,
+            message: diag.message,
+            location: diag.location.map(Into::into),
+            path: diag.path,
+            hint: diag.hint,
+            source_chain: diag.source_chain,
+        }
+    }
+}
+
+impl From<Diagnostic> for quillmark_core::Diagnostic {
+    fn from(diag: Diagnostic) -> Self {
+        quillmark_core::Diagnostic {
             severity: diag.severity.into(),
             code: diag.code,
             message: diag.message,

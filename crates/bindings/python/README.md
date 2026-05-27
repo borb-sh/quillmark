@@ -122,7 +122,7 @@ A field's *cell* is inferred from whether the schema declares a `default:`:
   field is absent at validate time, or `validation::must_fill_sentinel`
   if the `<must-fill>` sentinel survives into the rendered document.
 - **Endorsed** (with `default:`) — the blueprint renders the default
-  value with a `; skip-ok` annotation, and the default is used when
+  value with a `; delete-ok` annotation, and the default is used when
   the document omits the field.
 
 There is no `required:` axis on `FieldSchema`.

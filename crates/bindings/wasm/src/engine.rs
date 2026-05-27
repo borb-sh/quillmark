@@ -477,6 +477,32 @@ impl Document {
         quillmark_core::document::SCHEMA_V0_82_0.to_string()
     }
 
+    /// Authoring-format rules for the card-yaml markdown surface — the same
+    /// text every binding (CLI, Python, MCP) shows so callers reading errors
+    /// from one binding can use the rules from any other. Read once at
+    /// startup and cache; the value never changes between calls.
+    #[wasm_bindgen(js_name = formatRules)]
+    pub fn format_rules() -> String {
+        quillmark_core::document::FORMAT_RULES.to_string()
+    }
+
+    /// Authoring-ergonomics header introducing a blueprint to an LLM/MCP
+    /// consumer for the given `quillName`. Surfaced verbatim by every binding
+    /// so the wording stays uniform across CLI / Python / MCP.
+    #[wasm_bindgen(js_name = blueprintInstruction)]
+    pub fn blueprint_instruction(quill_name: &str) -> String {
+        quillmark_core::document::blueprint_instruction(quill_name)
+    }
+
+    /// Render a Diagnostic as the canonical pretty-printed text every binding
+    /// shows (CLI, Python, MCP). Single source of truth so a Diagnostic looks
+    /// identical no matter which consumer surfaces it.
+    #[wasm_bindgen(js_name = formatDiagnostic)]
+    pub fn format_diagnostic(diag: Diagnostic) -> String {
+        let core: quillmark_core::Diagnostic = diag.into();
+        core.fmt_pretty()
+    }
+
     /// Emit canonical Quillmark Markdown. Round-trip safe: re-parsing the
     /// result produces a `Document` equal to `self` by value and by type.
     #[wasm_bindgen(js_name = toMarkdown)]

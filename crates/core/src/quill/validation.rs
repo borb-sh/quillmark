@@ -181,8 +181,17 @@ fn type_mismatch_hint(
     default: Option<&str>,
 ) -> String {
     if default.is_some() && actual == "null" {
+        // `null` here means the YAML value parsed as null. That can be any of:
+        //   `field: null`   (explicit literal)
+        //   `field: ~`      (YAML shorthand for null)
+        //   `field:`        (bare key — a missing value also parses as null)
+        // In every case the LLM almost always meant "skip this field". The
+        // shortest fix is to remove the line entirely so the default applies.
         format!(
-            "Either omit the line (the default will fill in) or set the value to a {expected}."
+            "To use the default, delete this entire line (do NOT write \
+             `{path}:`, `{path}: null`, or `{path}: ~` — all three parse as \
+             null). To set an explicit value, replace the right-hand side \
+             with a {expected}."
         )
     } else if expected == "string" && quotable_actual(actual) {
         format!(
@@ -1197,8 +1206,12 @@ main:
             "wrong head: {msg}"
         );
         assert!(
-            msg.contains("omit the line (the default will fill in)"),
+            msg.contains("delete this entire line"),
             "missing omit-line exit: {msg}"
+        );
+        assert!(
+            msg.contains("`subtitle: ~`"),
+            "expected message to name the `~` shorthand: {msg}"
         );
     }
 
