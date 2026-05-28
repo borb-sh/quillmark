@@ -47,8 +47,9 @@ use serde_json::Value as JsonValue;
 /// Downstream parsing accepts the sentinel as a literal string, but
 /// validation rejects it (or rejects the wrong-typed string for non-string
 /// fields). Use this to choose between letting that error surface
-/// (`Strict`) and silently substituting placeholder values for a preview
-/// render (`Preview`).
+/// (`Strict`), substituting placeholder values for a preview render
+/// (`Preview`), or substituting type-minimal values for a render-test
+/// (`TypeEmpty`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FillBehavior {
     /// Leave `<must-fill>` sentinels in place. Downstream parsing or
@@ -62,20 +63,27 @@ pub enum FillBehavior {
     /// for booleans, a fixed ISO date/datetime, the first enum variant,
     /// and `[]` / `{}` for arrays/objects.
     Preview,
+    /// Replace each `<must-fill>` sentinel with a *type-empty* value: `""`
+    /// for strings/dates/datetimes/objects, `0` for numbers, `false` for
+    /// booleans, `[]` for arrays, the first variant for enums, and an
+    /// empty body for markdown block scalars. This is the leanest input
+    /// the schema accepts — useful for asserting that a plate renders
+    /// every type-valid shape gracefully.
+    TypeEmpty,
 }
 
 /// Substitute `<must-fill>` sentinels in a generated blueprint according to
 /// `behavior`. With [`FillBehavior::Strict`] the input is returned
-/// unchanged; with [`FillBehavior::Preview`] each sentinel is replaced by
-/// a placeholder value derived from the inline type annotation on the same
-/// line (or, for markdown block scalars, a single-line lorem paragraph).
+/// unchanged; otherwise each sentinel is replaced by a value derived from
+/// the inline type annotation on the same line (markdown block scalars
+/// substitute on the body line).
 ///
 /// The output remains valid blueprint markdown — the annotation comments
 /// and structure are preserved.
 pub fn fill_blueprint(blueprint: &str, behavior: FillBehavior) -> String {
     match behavior {
         FillBehavior::Strict => blueprint.to_string(),
-        FillBehavior::Preview => fill_preview(blueprint),
+        FillBehavior::Preview | FillBehavior::TypeEmpty => fill_substitute(blueprint, behavior),
     }
 }
 
@@ -84,34 +92,38 @@ const PREVIEW_MARKDOWN: &str = "Lorem ipsum dolor sit amet, consectetur adipisci
 const PREVIEW_DATE: &str = "\"2024-01-15\"";
 const PREVIEW_DATETIME: &str = "\"2024-01-15T12:00:00Z\"";
 
-fn fill_preview(blueprint: &str) -> String {
+fn fill_substitute(blueprint: &str, behavior: FillBehavior) -> String {
     let mut out = String::with_capacity(blueprint.len());
     for line in blueprint.lines() {
-        out.push_str(&substitute_line(line));
+        out.push_str(&substitute_line(line, behavior));
         out.push('\n');
     }
     out
 }
 
-fn substitute_line(line: &str) -> String {
+fn substitute_line(line: &str, behavior: FillBehavior) -> String {
     const NEEDLE: &str = ": <must-fill>  # ";
     if let Some(idx) = line.find(NEEDLE) {
         let prefix = &line[..idx];
         let annotation = &line[idx + NEEDLE.len()..];
-        let value = preview_value_for(annotation);
+        let value = scalar_value_for(annotation, behavior);
         return format!("{}: {}  # {}", prefix, value, annotation);
     }
     // Markdown block scalar: `<indent><must-fill>` on its own line. The
-    // outer block-scalar header is unchanged; only the body line gets a
-    // lorem paragraph.
+    // outer block-scalar header is unchanged; only the body line is
+    // substituted.
     if line.trim_start() == MUST_FILL_SENTINEL {
         let indent: String = line.chars().take_while(|c| c.is_whitespace()).collect();
-        return format!("{}{}", indent, PREVIEW_MARKDOWN);
+        return match behavior {
+            FillBehavior::Preview => format!("{}{}", indent, PREVIEW_MARKDOWN),
+            // TypeEmpty: leave the body blank (just the indent).
+            _ => indent,
+        };
     }
     line.to_string()
 }
 
-fn preview_value_for(annotation: &str) -> String {
+fn scalar_value_for(annotation: &str, behavior: FillBehavior) -> String {
     let head = annotation.split(';').next().unwrap_or(annotation).trim();
     if head.starts_with("array<") || head == "array" {
         return "[]".to_string();
@@ -122,24 +134,33 @@ fn preview_value_for(annotation: &str) -> String {
     if head == "boolean" {
         return "false".to_string();
     }
-    if head == "object" {
-        return "{}".to_string();
-    }
-    if head.starts_with("date<") || head == "date" {
-        return PREVIEW_DATE.to_string();
-    }
-    if head.starts_with("datetime<") || head == "datetime" {
-        return PREVIEW_DATETIME.to_string();
-    }
     if let Some(inner) = head
         .strip_prefix("enum<")
         .and_then(|s| s.strip_suffix('>'))
     {
+        // Enums substitute the first variant unquoted in both modes —
+        // type-empty has no separate notion for enums.
         let first = inner.split('|').next().unwrap_or("").trim();
         return first.to_string();
     }
-    // string (inline scalars; markdown takes the block-scalar branch).
-    PREVIEW_STRING.to_string()
+    match behavior {
+        FillBehavior::Preview => {
+            if head == "object" {
+                return "{}".to_string();
+            }
+            if head.starts_with("date<") || head == "date" {
+                return PREVIEW_DATE.to_string();
+            }
+            if head.starts_with("datetime<") || head == "datetime" {
+                return PREVIEW_DATETIME.to_string();
+            }
+            // string (markdown takes the block-scalar branch above).
+            PREVIEW_STRING.to_string()
+        }
+        // TypeEmpty: empty string covers strings / dates / datetimes /
+        // objects — validation accepts `""` for each by design.
+        _ => "\"\"".to_string(),
+    }
 }
 
 impl QuillConfig {
@@ -1209,6 +1230,33 @@ main:
         assert!(!out.contains("<must-fill>"), "no sentinels expected: {out}");
         assert!(out.contains("    org: Lorem ipsum  # string\n"));
         assert!(out.contains("    year: 0  # integer\n"));
+    }
+
+    #[test]
+    fn fill_blueprint_type_empty_substitutes_with_minimal_values() {
+        let bp = cfg(r#"
+quill: { name: x, version: 1.0.0, backend: typst, description: x }
+main:
+  fields:
+    title:    { type: string }
+    count:    { type: integer }
+    flag:     { type: boolean }
+    refs:     { type: array }
+    issued:   { type: date }
+    severity: { type: string, enum: [low, medium, high] }
+    bio:      { type: markdown }
+"#)
+        .blueprint();
+        let out = super::fill_blueprint(&bp, super::FillBehavior::TypeEmpty);
+        assert!(!out.contains("<must-fill>"), "no sentinels expected: {out}");
+        assert!(out.contains("title: \"\"  # string\n"));
+        assert!(out.contains("count: 0  # integer\n"));
+        assert!(out.contains("flag: false  # boolean\n"));
+        assert!(out.contains("refs: []  # array<string>\n"));
+        assert!(out.contains("issued: \"\"  # date<YYYY-MM-DD>\n"));
+        assert!(out.contains("severity: low  # enum<low | medium | high>\n"));
+        // Markdown block scalar: body line collapses to bare indent.
+        assert!(out.contains("bio: |-  # markdown\n  \n"));
     }
 
     #[test]
