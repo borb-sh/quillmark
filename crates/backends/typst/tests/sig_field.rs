@@ -134,7 +134,7 @@ Page 2.
         .as_reference()
         .expect("AcroForm indirect");
     let af = doc.get_object(af_ref).unwrap().as_dict().unwrap();
-    assert_eq!(af.get(b"SigFlags").unwrap().as_i64().unwrap(), 3);
+    assert_eq!(af.get(b"SigFlags").unwrap().as_i64().unwrap(), 1);
     assert!(af.get(b"NeedAppearances").unwrap().as_bool().unwrap());
 
     let fields = af.get(b"Fields").unwrap().as_array().unwrap();

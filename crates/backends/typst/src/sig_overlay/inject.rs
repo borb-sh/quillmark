@@ -88,7 +88,7 @@ pub(crate) fn inject(
     {
         let mut form: Form<'_> = chunk.indirect(acroform_id).start::<Form>();
         form.fields(widget_ids.iter().copied())
-            .sig_flags(SigFlags::SIGNATURES_EXIST | SigFlags::APPEND_ONLY);
+            .sig_flags(SigFlags::SIGNATURES_EXIST);
         form.pair(Name(b"NeedAppearances"), true);
         form.finish();
     }
