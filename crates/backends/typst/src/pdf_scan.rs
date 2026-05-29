@@ -1,15 +1,24 @@
 //! Minimal byte-level PDF scanner used to parse a typst_pdf output well
-//! enough to do an incremental update. Not a general PDF parser.
+//! enough to do an incremental update. Not a general PDF parser. Shared by
+//! the `sig_overlay` (AcroForm widgets) and `meta_overlay` (/Info /Producer)
+//! incremental-update passes.
 
-use quillmark_core::RenderError;
+use quillmark_core::{Diagnostic, RenderError, Severity};
 
-use super::err;
+const CODE_PARSE: &str = "typst::pdf_parse";
+const CODE_XREF_STREAM: &str = "typst::pdf_xref_stream";
 
-const CODE_PARSE: &str = "typst::sig_overlay_pdf_parse";
-const CODE_XREF_STREAM: &str = "typst::sig_overlay_xref_stream";
+/// Build a single-Diagnostic `RenderError` with the given code. Used at every
+/// fail site in the scanner and the overlay passes — the alternative was a
+/// large variant enum + `From` impl that all collapsed to this anyway.
+pub(crate) fn err(code: &'static str, msg: impl Into<String>) -> RenderError {
+    RenderError::CompilationFailed {
+        diags: vec![Diagnostic::new(Severity::Error, msg.into()).with_code(code.into())],
+    }
+}
 
 /// The offset stored after the last `startxref` marker.
-pub(super) fn find_startxref(pdf: &[u8]) -> Result<usize, RenderError> {
+pub(crate) fn find_startxref(pdf: &[u8]) -> Result<usize, RenderError> {
     let needle = b"startxref";
     let from = pdf.len().saturating_sub(1024);
     let tail = &pdf[from..];
@@ -29,7 +38,7 @@ pub(super) fn find_startxref(pdf: &[u8]) -> Result<usize, RenderError> {
 }
 
 /// Bail if typst-pdf emitted an xref stream instead of a traditional table.
-pub(super) fn assert_traditional_xref(pdf: &[u8], xref_offset: usize) -> Result<(), RenderError> {
+pub(crate) fn assert_traditional_xref(pdf: &[u8], xref_offset: usize) -> Result<(), RenderError> {
     if pdf.get(xref_offset..xref_offset + 4) != Some(b"xref") {
         return Err(err(
             CODE_XREF_STREAM,
@@ -39,19 +48,40 @@ pub(super) fn assert_traditional_xref(pdf: &[u8], xref_offset: usize) -> Result<
     Ok(())
 }
 
-/// Returns (catalog_id, /Size, encrypted?).
-pub(super) fn parse_traditional_trailer(
-    pdf: &[u8],
-    xref_offset: usize,
-) -> Result<(u32, u32, bool), RenderError> {
+/// Return the trailer dictionary bytes for the xref section at `xref_offset`.
+/// The slice is the inner dict (between `<<` and `>>`) and may be queried with
+/// [`find_dict_value`].
+pub(crate) fn find_trailer_dict(pdf: &[u8], xref_offset: usize) -> Result<&[u8], RenderError> {
     let needle = b"trailer";
     let pos = pdf[xref_offset..]
         .windows(needle.len())
         .position(|w| w == needle)
         .ok_or_else(|| err(CODE_PARSE, "trailer marker not found"))?
         + xref_offset;
-    let dict = extract_outer_dict(&pdf[pos + needle.len()..])
-        .ok_or_else(|| err(CODE_PARSE, "trailer dict not parseable"))?;
+    extract_outer_dict(&pdf[pos + needle.len()..])
+        .ok_or_else(|| err(CODE_PARSE, "trailer dict not parseable"))
+}
+
+/// Append the `/Info` and `/ID` entries found in `prior_trailer` to `out`, so
+/// an incremental-update trailer preserves them. Required because many readers
+/// (and lopdf) consult only the last trailer; dropping these keys would lose
+/// the document `/Info` (producer/creator) and file identifier. No-op for keys
+/// that are absent. Callers append `/Size`, `/Root` and `/Prev` themselves.
+pub(crate) fn write_preserved_trailer_keys(out: &mut Vec<u8>, prior_trailer: &[u8]) {
+    for key in ["Info", "ID"] {
+        if let Some(value) = find_dict_value(prior_trailer, key) {
+            out.extend_from_slice(format!(" /{} ", key).as_bytes());
+            out.extend_from_slice(value.trim_ascii());
+        }
+    }
+}
+
+/// Returns (catalog_id, /Size, encrypted?).
+pub(crate) fn parse_traditional_trailer(
+    pdf: &[u8],
+    xref_offset: usize,
+) -> Result<(u32, u32, bool), RenderError> {
+    let dict = find_trailer_dict(pdf, xref_offset)?;
     let (root_id, _) = find_dict_value(dict, "Root")
         .and_then(parse_indirect_ref)
         .ok_or_else(|| err(CODE_PARSE, "/Root missing or malformed in trailer"))?;
@@ -64,7 +94,7 @@ pub(super) fn parse_traditional_trailer(
 }
 
 /// Locate object `id` via linear scan and return `(obj_start, endobj_end)`.
-pub(super) fn find_object_bytes(pdf: &[u8], id: u32) -> Option<(usize, usize)> {
+pub(crate) fn find_object_bytes(pdf: &[u8], id: u32) -> Option<(usize, usize)> {
     let header = format!("{} 0 obj", id);
     let h = header.as_bytes();
     let mut i = 0;
@@ -84,7 +114,7 @@ pub(super) fn find_object_bytes(pdf: &[u8], id: u32) -> Option<(usize, usize)> {
 /// Within a dict's inner bytes, locate `/Key` and return its raw value slice.
 /// Value-terminating tokenisation handles Name values like `/Pages` so they
 /// aren't mis-read as the next entry.
-pub(super) fn find_dict_value<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
+pub(crate) fn find_dict_value<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
     let key_marker = format!("/{}", key);
     let km = key_marker.as_bytes();
     let mut i = 0;
@@ -281,7 +311,7 @@ fn is_pdf_delim(c: u8) -> bool {
     )
 }
 
-pub(super) fn parse_indirect_ref(s: &[u8]) -> Option<(u32, u16)> {
+pub(crate) fn parse_indirect_ref(s: &[u8]) -> Option<(u32, u16)> {
     let s = skip_ws(s);
     let mut i = 0;
     while i < s.len() && s[i].is_ascii_digit() {
@@ -305,7 +335,7 @@ pub(super) fn parse_indirect_ref(s: &[u8]) -> Option<(u32, u16)> {
     Some((id, gen))
 }
 
-pub(super) fn parse_int(s: &[u8]) -> Option<i64> {
+pub(crate) fn parse_int(s: &[u8]) -> Option<i64> {
     let s = skip_ws(s);
     let (negate, s) = if s.starts_with(b"-") {
         (true, &s[1..])
@@ -324,7 +354,7 @@ pub(super) fn parse_int(s: &[u8]) -> Option<i64> {
 }
 
 /// Slice between the outermost `<< ... >>` of an indirect object's body.
-pub(super) fn extract_outer_dict(obj_bytes: &[u8]) -> Option<&[u8]> {
+pub(crate) fn extract_outer_dict(obj_bytes: &[u8]) -> Option<&[u8]> {
     let open = obj_bytes.windows(2).position(|w| w == b"<<")?;
     let mut depth = 0i32;
     let mut i = open;
@@ -361,7 +391,7 @@ fn skip_ws(s: &[u8]) -> &[u8] {
 /// Resolve the catalog's `/Pages` tree into a flat list of page object IDs,
 /// in document order. typst-pdf emits a flat tree today; the recursion is
 /// defensive and capped to prevent runaway on a pathological PDF.
-pub(super) fn resolve_page_ids(pdf: &[u8], catalog_id: u32) -> Result<Vec<u32>, RenderError> {
+pub(crate) fn resolve_page_ids(pdf: &[u8], catalog_id: u32) -> Result<Vec<u32>, RenderError> {
     let (cs, ce) =
         find_object_bytes(pdf, catalog_id).ok_or_else(|| err(CODE_PARSE, "catalog not found"))?;
     let cat_dict = extract_outer_dict(&pdf[cs..ce])
@@ -406,7 +436,7 @@ pub(super) fn resolve_page_ids(pdf: &[u8], catalog_id: u32) -> Result<Vec<u32>, 
     Ok(out)
 }
 
-pub(super) fn parse_ref_array(bytes: &[u8]) -> Vec<(u32, u16)> {
+pub(crate) fn parse_ref_array(bytes: &[u8]) -> Vec<(u32, u16)> {
     let mut s = bytes;
     if let Some(l) = s.iter().position(|&b| b == b'[') {
         s = &s[l + 1..];

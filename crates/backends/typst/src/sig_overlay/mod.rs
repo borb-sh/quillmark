@@ -3,12 +3,18 @@
 //! [`extract`] walks the Typst document and returns placements; [`inject`]
 //! applies them to the PDF.
 
-use quillmark_core::{Diagnostic, RenderError, Severity};
+use quillmark_core::RenderError;
 use typst::layout::PagedDocument;
 
 mod extract;
 mod inject;
-mod scanner;
+
+// The byte-level PDF scanner and `err` helper moved to the crate-level
+// `pdf_scan` module when `meta_overlay` became a second consumer. Re-export
+// them under the original names so the submodules' `super::scanner::…` and
+// `super::err` paths keep resolving.
+pub(super) use crate::pdf_scan as scanner;
+pub(super) use crate::pdf_scan::err;
 
 /// One signature field's name + page + rect in Typst (top-left origin) points.
 /// The PDF inject pass converts to bottom-left.
@@ -17,15 +23,6 @@ pub(crate) struct SigPlacement {
     pub name: String,
     pub page: usize,
     pub rect_typst_pt: [f32; 4],
-}
-
-/// Build a single-Diagnostic `RenderError` with the given code. Used at every
-/// fail site in `scanner`/`inject`/`extract` — the alternative was a 17-variant
-/// enum + `From` impl that all collapsed to this anyway.
-pub(super) fn err(code: &'static str, msg: impl Into<String>) -> RenderError {
-    RenderError::CompilationFailed {
-        diags: vec![Diagnostic::new(Severity::Error, msg.into()).with_code(code.into())],
-    }
 }
 
 pub(crate) fn extract(doc: &PagedDocument) -> Result<Vec<SigPlacement>, RenderError> {

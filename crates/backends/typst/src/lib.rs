@@ -34,6 +34,8 @@ pub mod convert;
 mod error_mapping;
 
 pub mod helper;
+mod meta_overlay;
+mod pdf_scan;
 mod sig_overlay;
 mod world;
 
@@ -127,6 +129,7 @@ impl SessionHandle for TypstSession {
             format,
             opts.ppi,
             &self.sig_placements,
+            opts.producer.as_deref(),
         )
     }
 

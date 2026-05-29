@@ -282,19 +282,23 @@ Just a doc.
         "expected no /AcroForm in catalog for sig-field-free plate"
     );
 
-    // Sanity: only one startxref (i.e. no incremental update appended) and
-    // no `/Prev` key in the trailer.
+    // The signature overlay is skipped (no fields), but the always-on
+    // `/Producer` metadata pass appends exactly one incremental update — so
+    // expect two startxref markers and a single `/Prev` chain entry.
     let startxref_count = pdf
         .windows(b"startxref\n".len())
         .filter(|w| *w == b"startxref\n")
         .count();
     assert_eq!(
-        startxref_count, 1,
-        "expected exactly 1 startxref marker (no incremental update); got {}",
+        startxref_count, 2,
+        "expected 2 startxref markers (one Producer-metadata incremental update); got {}",
         startxref_count
     );
-    assert!(
-        !pdf.windows(b"/Prev".len()).any(|w| w == b"/Prev"),
-        "fresh typst-pdf output should not declare /Prev in the trailer"
+    assert_eq!(
+        pdf.windows(b"/Prev".len())
+            .filter(|w| *w == b"/Prev")
+            .count(),
+        1,
+        "expected exactly one /Prev (the Producer-metadata incremental update)"
     );
 }

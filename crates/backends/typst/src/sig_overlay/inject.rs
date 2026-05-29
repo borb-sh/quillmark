@@ -13,7 +13,8 @@ use typst::layout::PagedDocument;
 use super::err;
 use super::scanner::{
     assert_traditional_xref, extract_outer_dict, find_dict_value, find_object_bytes,
-    find_startxref, parse_indirect_ref, parse_traditional_trailer, resolve_page_ids,
+    find_startxref, find_trailer_dict, parse_indirect_ref, parse_traditional_trailer,
+    resolve_page_ids, write_preserved_trailer_keys,
 };
 use super::SigPlacement;
 
@@ -183,11 +184,16 @@ pub(crate) fn inject(
     }
 
     let new_size = next_id + placements.len() as u32 + 1;
+    // Forward `/Info` and `/ID` from the prior trailer (still intact at
+    // `xref_offset`) so they survive this incremental update.
+    let mut trailer_tail = Vec::new();
+    write_preserved_trailer_keys(&mut trailer_tail, find_trailer_dict(&out, xref_offset)?);
     out.extend_from_slice(
-        format!(
-            "trailer\n<< /Size {new_size} /Root {catalog_id} 0 R /Prev {xref_offset} >>\nstartxref\n{new_xref_off}\n%%EOF\n"
-        )
-        .as_bytes(),
+        format!("trailer\n<< /Size {new_size} /Root {catalog_id} 0 R").as_bytes(),
+    );
+    out.extend_from_slice(&trailer_tail);
+    out.extend_from_slice(
+        format!(" /Prev {xref_offset} >>\nstartxref\n{new_xref_off}\n%%EOF\n").as_bytes(),
     );
     Ok(out)
 }
