@@ -2,21 +2,24 @@
 
 > **Motivation**: a live-editing web app wants documents to preview and
 > export while still in progress — without forcing authors to fill every
-> unendorsed field or writing boilerplate to satisfy validation. At the
-> same time, LLM/MCP authoring must stay held to a completeness bar. This
+> unendorsed field or writing boilerplate to satisfy validation. The same
+> leniency should serve LLM/MCP authoring, with one guard: a copied
+> `<must-fill>` placeholder is an accident and must be rejected. This
 > proposal adds a **zero-filled** *render* path and pins down how the two
-> interfaces — UI form and MCP/LLM — share one document model without
-> either one weakening the other.
+> interfaces — UI form and MCP/LLM — share one document model and one
+> validation behavior.
 
 ## TL;DR
 
-Render fill and validation verdict are **orthogonal**. Keep one validity
-notion — strict validation answers *"is this document complete?"* — and
-add a **zero-filled render** path that fills each absent field with its
-type-empty (zero) value, in the plate-JSON projection only, never in the
-persisted document. UI forms use zero-filled render and persist the sparse
-authored truth; MCP/LLM `create_document` gates on strict validation. The
-same strict verdict applies uniformly to documents of either origin.
+Render fill and completeness verdict are **orthogonal**. Both interfaces —
+UI form and MCP/LLM — use **zero-filled render**: each absent field is
+filled with its type-empty (zero) value, in the plate-JSON projection only,
+never in the persisted document. A document that is merely *incomplete*
+(Must Fill fields absent) renders fine; a *malformed* one — a value that
+won't coerce, or a surviving `<must-fill>` sentinel — always errors. Strict
+completeness ("every Must Fill present") is a separate **queryable
+verdict**, not a creation gate, answered identically for documents of
+either origin.
 
 Pre-1.0; not yet implemented. When built, the conceptual model graduates
 into [SCHEMAS.md](../canon/SCHEMAS.md) with a pointer from
@@ -28,7 +31,8 @@ Today the render path (`compile_data` in `crates/quillmark/src/orchestration/`)
 runs `coerce_and_validate`, which **hard-fails** on `must_fill_absent`: a
 document that omits any field without a `default:` cannot render at all.
 That is correct for a finished-document pipeline but wrong for a live form
-editor, where the natural state of a document is *in progress*.
+editor — and, as it turns out, wrong for LLM drafting too — where the
+natural state of a document is *in progress*.
 
 Two facts already in the codebase make the fix small:
 
@@ -44,37 +48,53 @@ Two facts already in the codebase make the fix small:
 
 Two questions that are easy to conflate, kept separate:
 
-| Question | Answered by | Always succeeds? |
+| Question | Mechanism | Fails when |
 |---|---|---|
-| *Show me something now* | **render fill** (plain / zero-filled) | zero-filled: yes |
-| *Is this document complete?* | **strict validation** | no — that's the point |
+| *Show me something now* | **zero-filled render** | the document is **malformed** — a value that won't coerce, or a surviving `<must-fill>` sentinel. Never merely because it is incomplete. |
+| *Is this document complete?* | **strict completeness check** (a query) | any Must Fill field is **absent** |
 
-A document can be renderable (zero-filled) and incomplete (fails strict)
-at the same time. "Always compiles" is a render guarantee; "always valid"
-is a validation verdict. They are not the same claim, and the design
-depends on not fusing them. Naming the render by its *fill* — not by a
-validation posture — keeps the two axes from collapsing into one.
+A document can be renderable (zero-filled) and incomplete (the completeness
+query says "not done") at the same time. "Always compiles" is a render
+guarantee; "complete" is a separate verdict. Naming the render by its
+*fill* — not by a validation posture — keeps the two axes from collapsing
+into one.
 
-## Strict validation — the single completeness verdict
+## Malformed vs. incomplete
 
-Strict validation checks **structural completeness**, uniformly regardless
-of who authored the document:
+Zero-filled render tolerates a document that is *incomplete* but rejects
+one that is *malformed*. The line is about what the document **says**, not
+how much of it is filled:
 
-- every Must Fill field (no `default:`) is **present**;
-- no `<must-fill>` sentinel survives;
-- every value coerces to its declared type.
+- **Incomplete** — a Must Fill field is **absent**. A coherent state: the
+  author (human or LLM) simply did not provide the field. Zero-filled
+  render fills it with the type-empty value; the omission surfaces as a
+  **warning**, never a render error.
+- **Malformed** — the document carries something that is **not a value**: a
+  value that cannot coerce to its declared type, or a surviving
+  `<must-fill>` **sentinel**. These always error, on every path.
 
-It does **not** check non-emptiness or semantics. A present `""` for a
-Must Fill string passes strict. Semantic quality is steered by the
-blueprint's `# e.g.` example hints (see the `default`/`example` framing in
-[SCHEMAS.md](../canon/SCHEMAS.md)), not by the validator.
+The sentinel is the sharp case, and the reason this proposal treats LLM
+input the same as form input. `<must-fill>` is the system's own
+placeholder — stamped *"this is not a real value; replace it."* Leaving it
+in the document is therefore provably an accident, almost always a verbatim
+**transcription** of the blueprint that the author forgot to fill. Unlike
+an absent field (a deliberate-looking omission), a surviving sentinel is
+scaffolding leaked into content, and rendering it literally — `<must-fill>`
+printed into a PDF — is never what anyone wants. So it earns a hard error
+with a precise correction ("you left these fields as placeholders"), while
+mere absence does not.
 
-Consequence worth internalizing: a document in which **every** field is
-present at its type-empty value (`""`, `0`, `false`, `[]`, `{}`,
-first-enum) *passes strict* — present, non-sentinel, type-valid. A
-**sparse** document (Must Fill fields absent) *fails strict*. The
-difference between the two is exactly presence, which is what strict keys
-on.
+A human form never produces the sentinel: widgets emit values, and a user
+who literally types `<must-fill>` yields the quoted, escaped string, not
+the sentinel. So this rule fires **only on the LLM path** — exactly where
+the transcription accident happens — without any interface-specific
+special-casing.
+
+**Strict completeness** — *every* Must Fill field present — remains a
+well-defined verdict, answered identically regardless of origin. It is a
+**query** ("is this done?"), not a creation gate: wire it to the actions
+that need a finished document (publish, submit, finalize), not to render or
+to `create_document`.
 
 ## Zero-filled render — type-empty fill in the projection only
 
@@ -100,10 +120,12 @@ else.
 
 ## The two interfaces
 
-Both produce documents in one shared model; they differ only in what they
-gate on.
+Both produce documents in one shared model and run the **same** render +
+validation behavior (zero-fill absence; error on malformation). They differ
+only in how completeness is surfaced to the author — and in the practical
+fact that only the LLM path can emit a sentinel.
 
-### UI form (zero-filled render)
+### UI form
 
 - Uses zero-filled render for **both** preview and artifact export
   (PDF/SVG/PNG) — a blank form always produces a renderable result, no
@@ -111,29 +133,35 @@ gate on.
 - Emits **sparse** documents: an empty text box / unselected dropdown is
   *omitted* (treated as absent), so form-completeness and schema-presence
   coincide. The form's existing `FormFieldSource::Missing` / `Default`
-  state remains the human-facing completeness signal — the analog of the
-  `<must-fill>` sentinel for LLMs.
+  state is the human-facing completeness signal.
 - **Persists the sparse authored truth**, never the fill.
-- Strict validation is available as the *"is it done?"* gate, wired to the
-  actions that need completeness (submit / publish), not to preview or
-  draft export.
+- The strict completeness query is the *"is it done?"* gate, wired to
+  submit / publish — not to preview or draft export.
 
-### MCP / LLM (strict validation)
+### MCP / LLM
 
-- `create_document(markdown)` **gates on strict validation**. The LLM is
-  handed the blueprint and must return a complete document: every Must
-  Fill field present, no surviving `<must-fill>` sentinel.
-- Strict enforces *structural* completeness; the blueprint's `# e.g.`
-  hints carry the *semantic* guidance. "The LLM writes a semantically
-  valid document" is guaranteed by **blueprint guidance + strict structural
-  check together**, not by strict alone.
+- `create_document(markdown)` also uses zero-filled render. Absent Must
+  Fill fields are zero-filled, not rejected — the LLM is **not** forced to
+  fill every field, so it never has to invent data it does not have.
+- The one accident guard, beyond type-validity: a surviving `<must-fill>`
+  **sentinel errors**. `create_document` rejects it with diagnostics and
+  the LLM retries (per the MCP workflow). This targets the common LLM
+  failure — echoing the blueprint placeholder — precisely, without a blunt
+  completeness gate.
+- Absent Must Fill fields come back as **warnings** in the response, so the
+  LLM still learns what it left blank (guidance, not rejection).
+- Contract for LLM authors: **fill each field or omit it — never leave
+  `<must-fill>`.** The blueprint's sentinels mean "replace or delete," not
+  content.
+- Semantic quality is steered by the blueprint's `# e.g.` example hints
+  (the `default`/`example` framing in [SCHEMAS.md](../canon/SCHEMAS.md)),
+  not by validation.
 
 ### Mixing the two
 
-Both interfaces write into the same document model, so a document's strict
-verdict is a uniform signal of "came from a finished process": LLM docs
-pass, in-progress form docs fail, regardless of origin. No two-class
-document semantics.
+One document model, one render + validation behavior. A document's strict
+completeness verdict is a uniform signal of "came from a finished process,"
+independent of origin. No two-class document semantics.
 
 ## Rejected alternatives
 
@@ -144,6 +172,13 @@ document semantics.
   creates two-class document semantics in a mixed-author ecosystem — which
   this project *is*, by design, because blueprints exist precisely so LLMs
   author these documents too. Zero-fill must stay render-only.
+- **Strict-gating the LLM on absence** (reject `create_document` when any
+  Must Fill field is absent). Rejected in favor of erroring only on the
+  malformed sentinel: absence is a coherent, zero-fillable state, and
+  forcing the LLM to fill every field pushes it to invent data it does not
+  have. The genuine accident worth rejecting is the placeholder
+  transcription, which the sentinel rule targets exactly; completeness
+  stays a query for the finalize step.
 - **Example-fallback render** (fill absent fields from `example:` instead
   of the type-empty zero value). Rejected: an example is realistic but
   *not the value most authors want* (the canonized framing), so it
@@ -151,7 +186,7 @@ document semantics.
   through a complete-looking export. The zero value is honestly blank
   everywhere except enum. `example` keeps its existing home — blueprint
   `FillBehavior::Preview` for LLM/no-input *generation*, where a realistic
-  shape genuinely helps — and does not follow onto the form render path.
+  shape genuinely helps — and does not follow onto the render path.
 
 ## Implementation sketch
 
@@ -160,23 +195,28 @@ document semantics.
    `crates/core/src/quill/`) into a per-field `QuillValue` producer shared
    by blueprint emission and the render path — one source of truth for
    "the zero value for this field."
-2. **Zero-filled render mode.** On the render path
-   (`crates/quillmark/src/orchestration/`), add a mode that, after
-   coercion, interpolates each absent field's zero value (mirroring
-   `apply_defaults`, "authored value wins") and demotes `must_fill_absent`
-   from a hard error to a warning. The fill goes into the `to_plate_json`
-   projection only.
-3. **Strict validation path unchanged.** `coerce_and_validate` keeps
-   hard-failing on `must_fill_absent`; MCP `create_document` uses it as
-   today.
-4. **Surface.** Expose render-fill selection on the bindings (Rust / Wasm /
-   Python / CLI) and document that zero-filled output is preview/export,
-   not a completeness assertion.
+2. **Zero-filled render (the single render behavior).** On the render path
+   (`crates/quillmark/src/orchestration/`), after coercion: interpolate
+   each absent field's zero value (mirroring `apply_defaults`, "authored
+   value wins") and demote `must_fill_absent` to a **warning**. Keep
+   `must_fill_sentinel` and coercion failures as **hard errors**. The fill
+   goes into the `to_plate_json` projection only. Both the form path and
+   MCP `create_document` use this same behavior; absence warnings flow back
+   in the result.
+3. **Strict completeness query.** Expose the "every Must Fill present?"
+   check (the existing strict `validate_document`, or a thin wrapper over
+   it) as a separate API for finalize / publish gates — distinct from
+   render.
+4. **Surface.** Render returns artifact + warnings on every binding (Rust /
+   Wasm / Python / CLI); document that zero-filled output is preview/export,
+   not a completeness assertion, and that a surviving `<must-fill>` is the
+   one authoring accident render refuses to paper over.
 
 ## Graduation
 
 Once implemented and tested, fold the conceptual model into
-[SCHEMAS.md](../canon/SCHEMAS.md) as a "Zero-filled render" section (render
-fill ⊥ validation verdict; the two interfaces), add a one-line pointer from
+[SCHEMAS.md](../canon/SCHEMAS.md) as a "Zero-filled render" section
+(render fill ⊥ completeness verdict; malformed vs. incomplete; the two
+interfaces), add a one-line pointer from
 [BLUEPRINT.md](../canon/BLUEPRINT.md)'s filled-blueprints section, and
 delete this proposal.
