@@ -61,15 +61,20 @@ Some constructs (like link titles) are accepted by the parser but may be dropped
 ## Structured metadata: card-yaml blocks
 
 Quillmark carries structured metadata in [card-yaml blocks](card-yaml.md) —
-blocks delimited by `~~~card-yaml` / `~~~` fences, optionally led by a run of
-`$`-prefixed system metadata lines. Each block is followed by its Markdown
-prose body. The document's first block (the root block) names the rendering
-format; later blocks are composable [cards](cards.md).
+blocks delimited by bare `~~~` / `~~~` fences, optionally led by a run of
+`$`-prefixed system metadata lines. (The legacy `~~~card-yaml` opener is still
+accepted on input but is non-canonical and re-emits as a bare `~~~`.) Each
+block is followed by its Markdown prose body. The document's first block (the
+root block) names the rendering format; later blocks are composable
+[cards](cards.md).
 
-Because metadata lives inside `~~~card-yaml` fences, ordinary Markdown markers
-keep their CommonMark meaning. A `---` line in body content is a thematic
-break or a setext heading underline, exactly as CommonMark defines it — it has
-no special role in Quillmark. The full block-detection rules are in
+Because a bare `~~~` block is a card-yaml block, writing a literal `~~~`-style
+fenced code block in prose requires an escape hatch: use four or more tildes
+(`~~~~`), backticks, or a `~~~` fence carrying a language info string. Apart
+from that, ordinary Markdown markers keep their CommonMark meaning. A `---`
+line in body content is a thematic break or a setext heading underline,
+exactly as CommonMark defines it — it has no special role in Quillmark. The
+full block-detection rules are in
 [§4 of the spec](../reference/markdown-spec.md#4-block-detection).
 
 ## Next steps

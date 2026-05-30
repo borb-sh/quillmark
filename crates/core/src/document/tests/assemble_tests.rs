@@ -68,19 +68,19 @@ fn test_root_dash_frontmatter_without_quill_reports_missing_quill() {
     // "use `~~~card-yaml` instead of `---`" hint, which is now misleading.
     let err = decompose("---\nquill: usaf_memo\ntitle: Memo\n---\n\nBody\n").unwrap_err();
     let msg = err.to_string();
-    assert!(
-        msg.contains("must declare `$quill: <name>`"),
-        "got: {msg}"
-    );
+    assert!(msg.contains("must declare `$quill: <name>`"), "got: {msg}");
     assert!(!msg.contains("`---` YAML frontmatter"), "stale hint: {msg}");
-    assert!(!msg.contains("Replace the opening `---`"), "stale hint: {msg}");
+    assert!(
+        !msg.contains("Replace the opening `---`"),
+        "stale hint: {msg}"
+    );
 }
 
 #[test]
 fn test_missing_block_with_bare_yaml_calls_out_missing_fence() {
     let err = decompose("$quill: usaf_memo\n$kind: main\ntitle: Memo\n").unwrap_err();
     let msg = err.to_string();
-    assert!(msg.contains("missing the `~~~card-yaml` fence"), "got: {msg}");
+    assert!(msg.contains("missing the `~~~` fence"), "got: {msg}");
 }
 
 // -----------------------------------------------------------------------
@@ -96,15 +96,20 @@ fn test_missing_block_with_bare_yaml_calls_out_missing_fence() {
 #[test]
 fn test_dash_root_block_parses_equivalent_to_card_yaml() {
     let dash_md = "---\n$quill: test_quill\n$kind: main\ntitle: Test\n---\n\nBody.";
-    let canonical_md =
-        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\nBody.";
+    let canonical_md = "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\nBody.";
     let dash_doc = decompose(dash_md).expect("--- root block should parse");
     let canonical_doc = decompose(canonical_md).expect("canonical root block parses");
     // PartialEq on Document ignores warnings; just compares main + cards.
     assert_eq!(dash_doc, canonical_doc);
     assert_eq!(dash_doc.quill_reference().name, "test_quill");
     assert_eq!(
-        dash_doc.main().payload().get("title").unwrap().as_str().unwrap(),
+        dash_doc
+            .main()
+            .payload()
+            .get("title")
+            .unwrap()
+            .as_str()
+            .unwrap(),
         "Test"
     );
     assert_eq!(dash_doc.main().body(), "\nBody.");
@@ -112,17 +117,19 @@ fn test_dash_root_block_parses_equivalent_to_card_yaml() {
 
 #[test]
 fn test_dash_root_block_emits_canonical_card_yaml() {
-    // Re-emitting a `---`-parsed document MUST produce the canonical
-    // `~~~card-yaml` / `~~~` fence shape. Normalisation on first emit is
-    // intended.
+    // Re-emitting a `---`-parsed document MUST produce the canonical bare
+    // `~~~` fence shape. Normalisation on first emit is intended.
     let dash_md = "---\n$quill: test_quill\n$kind: main\ntitle: Test\n---\n\nBody.";
     let doc = decompose(dash_md).unwrap();
     let emitted = doc.to_markdown();
     assert!(
-        emitted.starts_with("~~~card-yaml\n"),
+        emitted.starts_with("~~~\n"),
         "expected canonical opener, got: {emitted:?}"
     );
-    assert!(!emitted.contains("---\n"), "stray dash fence in emit: {emitted:?}");
+    assert!(
+        !emitted.contains("---\n"),
+        "stray dash fence in emit: {emitted:?}"
+    );
 }
 
 #[test]
@@ -159,7 +166,7 @@ fn test_dash_opener_in_composable_card_position_errors() {
         msg.contains("composable cards") || msg.contains("Composable card"),
         "expected composable-card rejection, got: {msg}"
     );
-    assert!(msg.contains("~~~card-yaml"), "got: {msg}");
+    assert!(msg.contains("~~~"), "got: {msg}");
 }
 
 #[test]
@@ -182,7 +189,7 @@ fn test_tilde_opener_with_dash_closer_errors() {
     let markdown = "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: T\n---\n\nBody.";
     let err = decompose(markdown).unwrap_err();
     let msg = err.to_string();
-    assert!(msg.contains("never closed with `~~~`"), "got: {msg}");
+    assert!(msg.contains("never closed"), "got: {msg}");
 }
 
 #[test]
@@ -287,10 +294,7 @@ Content without closing fence";
 
     let result = decompose(markdown);
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("never closed with `~~~`"));
+    assert!(result.unwrap_err().to_string().contains("never closed"));
 }
 
 // Extended metadata tests
@@ -916,7 +920,7 @@ fn test_canonical_root_with_kind_round_trips_byte_equal() {
     // §9.1: a canonical document is a parse-emit fixed point. Adding the
     // implicit-kind synthesis must not perturb canonical input — when
     // `$kind: main` is already written, the emitter produces the same line.
-    let canonical = "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\nBody.";
+    let canonical = "~~~\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\nBody.";
     let doc = decompose(canonical).unwrap();
     assert_eq!(doc.to_markdown(), canonical);
 }

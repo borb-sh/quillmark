@@ -4,7 +4,7 @@
 //! for LLM consumers. The blueprint shows the document's shape — fields,
 //! constraints, examples — so a consumer can write a fresh document from it.
 //!
-//! Every block is a `~~~card-yaml` fence: the root block declares
+//! Every block is a `~~~` card-yaml fence: the root block declares
 //! `$quill: <name>@<version>` and each composable card declares
 //! `$kind: <kind>` (see `prose/references/markdown-spec.md`).
 //!
@@ -177,7 +177,7 @@ fn write_comment(out: &mut String, text: &str) {
 }
 
 /// Emit the root block:
-/// `~~~card-yaml\n$quill: …\n$kind: main\n# system metadata; …\n[# desc\n]<fields>~~~\n`.
+/// `~~~\n$quill: …\n$kind: main\n# system metadata; …\n[# desc\n]<fields>~~~\n`.
 ///
 /// The `$quill` system-metadata line leads the block; the role annotation
 /// and the optional description follow as own-line comments.
@@ -188,7 +188,7 @@ fn write_main_fence(
     description: Option<&str>,
     behavior: FillBehavior,
 ) {
-    out.push_str("~~~card-yaml\n");
+    out.push_str("~~~\n");
     out.push_str("$quill: ");
     out.push_str(&saphyr_emit_scalar(&JsonValue::String(
         quill_ref.to_string(),
@@ -203,11 +203,11 @@ fn write_main_fence(
     out.push_str("~~~\n");
 }
 
-/// Emit a composable card as a `~~~card-yaml` block declaring `$kind: <kind>`.
+/// Emit a composable card as a `~~~` block declaring `$kind: <kind>`.
 /// The `composable (0..N)` role annotation and the optional description are
 /// emitted as own-line comments directly under the `$kind` header.
 fn write_card_fence(out: &mut String, card: &CardSchema, behavior: FillBehavior) {
-    out.push_str("~~~card-yaml\n");
+    out.push_str("~~~\n");
     out.push_str("$kind: ");
     out.push_str(&saphyr_emit_scalar(&JsonValue::String(card.name.clone())));
     out.push('\n');
@@ -282,7 +282,10 @@ fn write_field(out: &mut String, field: &FieldSchema, indent: usize, behavior: F
         return;
     }
 
-    let inline = format!("  # {}", inline_annotation(field, false, field.default.is_some()));
+    let inline = format!(
+        "  # {}",
+        inline_annotation(field, false, field.default.is_some())
+    );
     let value = field_value(field, behavior);
     write_value(out, &field.name, &value, &inline, &pad);
 }
@@ -799,7 +802,7 @@ main:
 "#)
         .blueprint();
         assert!(t.starts_with(
-            "~~~card-yaml\n$quill: taro@0.1.0\n$kind: main\n# system metadata; verbatim\n# x\n"
+            "~~~\n$quill: taro@0.1.0\n$kind: main\n# system metadata; verbatim\n# x\n"
         ));
         assert!(t.contains("\nWrite main body here.\n"));
     }
@@ -819,7 +822,7 @@ card_kinds:
 "#)
         .blueprint();
         assert!(t.contains(
-            "~~~card-yaml\n$kind: note\n# composable (0..N)\n# A short note appended to the document.\n"
+            "~~~\n$kind: note\n# composable (0..N)\n# A short note appended to the document.\n"
         ));
     }
 
@@ -1280,9 +1283,9 @@ main:
             );
             let doc = Document::from_markdown(&bp)
                 .unwrap_or_else(|e| panic!("{behavior:?} must parse: {e:?}\n---\n{bp}"));
-            config.validate_document(&doc).unwrap_or_else(|errs| {
-                panic!("{behavior:?} must validate: {errs:?}\n---\n{bp}")
-            });
+            config
+                .validate_document(&doc)
+                .unwrap_or_else(|errs| panic!("{behavior:?} must validate: {errs:?}\n---\n{bp}"));
         }
     }
 

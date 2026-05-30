@@ -6,7 +6,7 @@ Markdown prose. The first such block (the *root block*) names the format used
 to render the document; later blocks are composable [cards](cards.md).
 
 ```
-~~~card-yaml
+~~~
 $quill: my_format
 $kind: main
 title: My Document
@@ -22,9 +22,10 @@ tags: ["important", "draft"]
 
 A card-yaml block has three parts, in order:
 
-1. **Opening fence** — exactly `~~~card-yaml` (three tildes plus the info
-   string). No leading indentation. The info string alone identifies a
-   metadata block.
+1. **Opening fence** — a bare `~~~` (three tildes, no info string). No leading
+   indentation. The legacy `~~~card-yaml` info string is still accepted on
+   input but is non-canonical; it parses identically and re-emits as a bare
+   `~~~`.
 2. **YAML payload** — a standard YAML mapping. The reserved keys `$quill`,
    `$kind`, `$id`, and `$ext` carry system metadata (see below); every other
    key is a user-defined data field.
@@ -33,10 +34,16 @@ A card-yaml block has three parts, in order:
 The unstructured Markdown body begins immediately after the closing `~~~`
 fence and runs to the next opening fence or the end of the document.
 
-A blank line is required immediately above every `~~~card-yaml` opener,
+A blank line is required immediately above every `~~~` opener,
 *except* when the opener is the very first line of the document. A
-`~~~card-yaml` line without a blank line above it is **not** an opener — it is
+`~~~` line without a blank line above it is **not** an opener — it is
 treated as an ordinary code block.
+
+Because a bare `~~~` block is a card-yaml block, writing a literal
+`~~~`-style fenced code block in prose requires an escape hatch: use **four
+or more tildes** (`~~~~`), backticks, or a `~~~` fence carrying a language
+info string (e.g. `~~~rust`). A `~~~` fence with any info string other than
+the legacy `card-yaml` stays an ordinary code block.
 
 ## System Metadata (`$`)
 
@@ -71,7 +78,7 @@ closed.
 Pin a specific version with `@version` syntax on the `$quill` line:
 
 ```
-~~~card-yaml
+~~~
 $quill: my_format@2.1
 $kind: main
 title: Document Title
@@ -184,7 +191,7 @@ Every card-yaml block after the root block is a **card**. It must declare a
 plate JSON available to templates.
 
 ```
-~~~card-yaml
+~~~
 $kind: endorsement
 from: ORG/SYMBOL
 for: ORG2/SYMBOL
@@ -197,7 +204,7 @@ See [Cards](cards.md) for details on card syntax and usage.
 
 ## Emission
 
-`toMarkdown` always emits the canonical block form — a `~~~card-yaml`
+`toMarkdown` always emits the canonical block form — a bare `~~~`
 opener, the `$` metadata lines in the canonical order `$quill`, `$kind`,
 `$id`, `$ext`, the remaining data fields, and a `~~~` closer. The root
 block emits both `$quill` and `$kind: main`; composable cards emit

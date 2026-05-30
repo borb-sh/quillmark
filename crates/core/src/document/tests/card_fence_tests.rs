@@ -1,9 +1,10 @@
-//! Tests for the `~~~card-yaml` composable-card syntax.
+//! Tests for the `~~~` card-yaml composable-card syntax.
 //!
 //! Coverage:
 //! - Composable cards declared with `$kind:` parse to `Card`s; `$kind` is optional.
-//! - Every card round-trips to the canonical `~~~card-yaml` form.
-//! - Ordinary fenced code blocks and the blank-line rule for `~~~card-yaml` openers.
+//! - Every card round-trips to the canonical bare `~~~` form.
+//! - The legacy `~~~card-yaml` opener is still accepted on input.
+//! - Ordinary fenced code blocks and the blank-line rule for `~~~` openers.
 //!
 //! Parse-error and metadata-validation cases live in `assemble_tests.rs`.
 
@@ -56,7 +57,7 @@ fn emit_uses_canonical_card_fence() {
     let emitted = doc.to_markdown();
     assert_eq!(
         emitted,
-        "~~~card-yaml\n$quill: q\n$kind: main\n~~~\n\n~~~card-yaml\n$kind: product\nname: Widget\n~~~\n"
+        "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~\n$kind: product\nname: Widget\n~~~\n"
     );
 }
 
@@ -85,7 +86,7 @@ fn card_fence_preserves_yaml_comments() {
     let doc = Document::from_markdown(src).unwrap();
     let emitted = doc.to_markdown();
     assert!(
-        emitted.contains("~~~card-yaml\n$kind: product\n# a banner\nname: Widget\n~~~\n"),
+        emitted.contains("~~~\n$kind: product\n# a banner\nname: Widget\n~~~\n"),
         "emit:\n{emitted}"
     );
     let reparsed = Document::from_markdown(&emitted).unwrap();
@@ -101,6 +102,84 @@ fn card_fence_without_kind_is_allowed() {
     let doc = Document::from_markdown(src).unwrap();
     assert_eq!(doc.cards().len(), 1);
     assert_eq!(doc.cards()[0].kind(), None);
+}
+
+// ── Bare `~~~` is the canonical card-yaml fence ───────────────────────────────
+
+#[test]
+fn bare_tilde_fence_opens_a_card_yaml_block() {
+    // The canonical opener is a bare `~~~` (no info string). It parses the
+    // same as the legacy `~~~card-yaml` alias.
+    let src =
+        "~~~\n$quill: q\n$kind: main\ntitle: Hi\n~~~\n\nBody.\n\n~~~\n$kind: note\nname: N\n~~~\n";
+    let doc = Document::from_markdown(src).unwrap();
+    assert_eq!(doc.quill_reference().name, "q");
+    assert_eq!(
+        doc.main().payload().get("title").unwrap().as_str(),
+        Some("Hi")
+    );
+    assert_eq!(doc.cards().len(), 1);
+    assert_eq!(doc.cards()[0].kind(), Some("note"));
+}
+
+#[test]
+fn bare_tilde_fence_round_trips_byte_equal() {
+    let src = "~~~\n$quill: q\n$kind: main\ntitle: Hi\n~~~\n\nBody.\n";
+    let doc = Document::from_markdown(src).unwrap();
+    assert_eq!(doc.to_markdown(), src);
+}
+
+#[test]
+fn legacy_card_yaml_info_string_normalizes_to_bare_tilde() {
+    // `~~~card-yaml` is accepted on input but converges to a bare `~~~` opener
+    // on first emit.
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\n~~~\n";
+    let emitted = Document::from_markdown(src).unwrap().to_markdown();
+    assert_eq!(emitted, "~~~\n$quill: q\n$kind: main\n~~~\n");
+}
+
+// ── Escape hatches: not every tilde fence is a card-yaml block ─────────────────
+
+#[test]
+fn four_tilde_fence_is_an_ordinary_code_block() {
+    // Four or more tildes is the escape hatch for a literal `~~~`-style code
+    // block in body prose — it never opens a card-yaml block.
+    let src = "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~~\n~~~\nnot a card\n~~~\n~~~~\n";
+    let doc = Document::from_markdown(src).unwrap();
+    assert_eq!(doc.cards().len(), 0);
+    assert!(doc.main().body().contains("not a card"));
+}
+
+#[test]
+fn tilde_fence_with_language_info_is_an_ordinary_code_block() {
+    // A `~~~` fence carrying a non-`card-yaml` info string (e.g. a language)
+    // stays an ordinary CommonMark code block.
+    let src = "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~rust\nlet x = 1;\n~~~\n";
+    let doc = Document::from_markdown(src).unwrap();
+    assert_eq!(doc.cards().len(), 0);
+    assert!(doc.main().body().contains("let x = 1;"));
+}
+
+#[test]
+fn tilde_code_block_without_blank_line_above_stays_in_body() {
+    // A `~~~` fence with no blank line above it fails the blank-line rule, so
+    // the scanner does NOT claim it as a card-yaml opener — it is left in the
+    // body verbatim for the CommonMark renderer to treat as a code block.
+    let src = "~~~\n$quill: q\n$kind: main\n~~~\n\nText line\n~~~\ncode\n~~~\n";
+    let doc = Document::from_markdown(src).unwrap();
+    assert_eq!(doc.cards().len(), 0);
+    assert!(doc.main().body().contains("~~~\ncode\n~~~"));
+}
+
+#[test]
+fn unclosed_bare_tilde_in_body_is_a_parse_error() {
+    // A bare `~~~` opener with a blank line above but no matching closer is an
+    // unclosed card-yaml block — a hard parse error, mirroring an unclosed
+    // root block. (CommonMark alone would treat it as a code block to EOF; the
+    // card-yaml superset claims the bare `~~~` first.)
+    let src = "~~~\n$quill: q\n$kind: main\n~~~\n\nIntro.\n\n~~~\nstray\n";
+    let err = Document::from_markdown(src).unwrap_err().to_string();
+    assert!(err.contains("never closed"), "got: {err}");
 }
 
 // ── Non-card fenced code blocks are untouched ─────────────────────────────────

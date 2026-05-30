@@ -200,7 +200,7 @@ fn missing_root_block_is_rejected() {
 fn unclosed_card_yaml_block_is_rejected() {
     let md = "~~~card-yaml\n$quill: t\n$kind: main\ntitle: T\n";
     let err = Document::from_markdown(md).unwrap_err().to_string();
-    assert!(err.contains("never closed with `~~~`"), "got: {}", err);
+    assert!(err.contains("never closed"), "got: {}", err);
 }
 
 // A card-yaml block with no blank line above is treated as an ordinary code

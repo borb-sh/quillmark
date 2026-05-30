@@ -555,10 +555,9 @@ impl QuillConfig {
             return true;
         }
         match field_type {
-            FieldType::String
-            | FieldType::Markdown
-            | FieldType::Date
-            | FieldType::DateTime => value.is_string(),
+            FieldType::String | FieldType::Markdown | FieldType::Date | FieldType::DateTime => {
+                value.is_string()
+            }
             FieldType::Integer => value.is_i64() || value.is_u64(),
             FieldType::Number => value.is_number(),
             FieldType::Boolean => value.is_boolean(),
@@ -607,27 +606,28 @@ impl QuillConfig {
                 let actual = Self::value_shape(raw);
                 let declared = schema.r#type.as_str();
                 let preview = Self::value_preview(raw);
-                let hint = if actual == "float" || actual == "integer" {
-                    format!(
+                let hint =
+                    if actual == "float" || actual == "integer" {
+                        format!(
                         "Quote the {slot} as \"{val}\" if the value is intentionally a string, \
                          or change the field type to '{actual}'.",
                         slot = slot,
                         val = raw.to_string().trim_matches('"'),
                         actual = if actual == "integer" { "integer" } else { "number" },
                     )
-                } else if actual == "string" {
-                    format!(
-                        "Remove the quotes around the {slot} value to keep it a {declared}.",
-                        slot = slot,
-                        declared = declared,
-                    )
-                } else {
-                    format!(
+                    } else if actual == "string" {
+                        format!(
+                            "Remove the quotes around the {slot} value to keep it a {declared}.",
+                            slot = slot,
+                            declared = declared,
+                        )
+                    } else {
+                        format!(
                         "Make the {slot} value a {declared}, or change the field type to match.",
                         slot = slot,
                         declared = declared,
                     )
-                };
+                    };
                 errors.push(
                     Diagnostic::new(
                         Severity::Error,
@@ -1363,7 +1363,7 @@ impl QuillConfig {
         }
 
         // Error when `body.example` contains a line that the document parser
-        // would interpret as a `~~~card-yaml` block opener. Such a line would
+        // would interpret as a `~~~` card-yaml block opener. Such a line would
         // start a new metadata block, corrupting document structure.
         let err_example_contains_fence = |label: &str,
                                           body: &Option<BodyCardSchema>|
@@ -1374,12 +1374,12 @@ impl QuillConfig {
                     Diagnostic::new(
                         Severity::Error,
                         format!(
-                            "`{label}.body.example` contains a line that would be parsed as a `~~~card-yaml` block opener; this would corrupt the blueprint"
+                            "`{label}.body.example` contains a line that would be parsed as a `~~~` card-yaml block opener; this would corrupt the blueprint"
                         ),
                     )
                     .with_code("quill::body_example_contains_fence".to_string())
                     .with_hint(
-                        "Remove or reword any line that is exactly `~~~card-yaml` (with up to 3 leading spaces and optional trailing whitespace).".to_string(),
+                        "Remove or reword any line that is exactly `~~~` or `~~~card-yaml` (with up to 3 leading spaces and optional trailing whitespace). For a literal triple-tilde code block, use four or more tildes (`~~~~`).".to_string(),
                     ),
                 )
             } else {
@@ -1418,13 +1418,15 @@ impl QuillConfig {
     }
 }
 
-/// Returns true if any line in `text` would be parsed as a `~~~card-yaml`
+/// Returns true if any line in `text` would be parsed as a `~~~` card-yaml
 /// block opener by the document parser, which would corrupt the blueprint's
 /// document structure when the example is embedded verbatim as body content.
 ///
 /// The marker is flagged after up to 3 leading spaces (no leading tab): a
-/// `~~~card-yaml` opener — exactly three tildes followed by the `card-yaml`
-/// info string.
+/// card-yaml opener — exactly three tildes whose info string is empty (the
+/// canonical bare `~~~`) or exactly `card-yaml` (the legacy alias). Four or
+/// more tildes, or any other info string, are ordinary code fences and are
+/// not flagged.
 fn example_contains_fence_line(text: &str) -> bool {
     text.lines().any(|line| {
         let line = line.strip_suffix('\r').unwrap_or(line);
@@ -1433,10 +1435,15 @@ fn example_contains_fence_line(text: &str) -> bool {
             return false;
         }
         let rest = &line[indent..];
-        // A `~~~card-yaml` block opener.
+        // A `~~~` card-yaml block opener: exactly three tildes (a fourth tilde
+        // makes it an ordinary code fence) whose info string is empty or
+        // `card-yaml`.
         if let Some(after) = rest.strip_prefix("~~~") {
-            if !after.starts_with('~') && after.trim() == "card-yaml" {
-                return true;
+            if !after.starts_with('~') {
+                let info = after.trim();
+                if info.is_empty() || info == "card-yaml" {
+                    return true;
+                }
             }
         }
         false

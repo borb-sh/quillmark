@@ -29,7 +29,7 @@ pub(crate) struct EnrichedYamlError {
 /// Inspect a serde_saphyr error string against the YAML content it came from
 /// and return an [`EnrichedYamlError`].
 ///
-/// The content slice is the YAML payload of a single `~~~card-yaml` block
+/// The content slice is the YAML payload of a single `~~~` card-yaml block
 /// (the same string passed to the parser). The function never panics on
 /// non-UTF8 byte offsets — all inspection is over `&str` / `chars()`.
 pub(crate) fn enrich_yaml_error(raw: &str, content: &str) -> EnrichedYamlError {
@@ -81,8 +81,7 @@ fn derive_hint(message: &str, content: &str) -> Option<String> {
     // Gap 2: a plain scalar starting with `*` or `&` is read as a YAML alias
     // or anchor indicator. LLMs writing `field: **bold**` trip this.
     if m.contains("alias references unknown anchor")
-        || m.contains("anchor")
-            && m.contains("not found")
+        || m.contains("anchor") && m.contains("not found")
     {
         if let Some(field) = first_field_with_unquoted_prefix(content, &['*', '&']) {
             return Some(format!(
@@ -115,11 +114,11 @@ fn derive_hint(message: &str, content: &str) -> Option<String> {
     }
 
     // Gap 4 (the `---` separator case): a stray YAML document separator
-    // inside a `~~~card-yaml` block.
+    // inside a card-yaml block.
     if m.contains("multiple yaml documents") {
         if content.lines().any(|l| l.trim_end() == "---") {
             return Some(
-                "`---` is not a valid separator inside a `~~~card-yaml` block (YAML \
+                "`---` is not a valid separator inside a card-yaml block (YAML \
                  reads it as a new-document marker). Close the metadata block with a \
                  line containing exactly `~~~` (three tildes) before starting the \
                  prose body."
@@ -127,7 +126,7 @@ fn derive_hint(message: &str, content: &str) -> Option<String> {
             );
         }
         return Some(
-            "Only one YAML document is allowed per `~~~card-yaml` block. Remove the \
+            "Only one YAML document is allowed per card-yaml block. Remove the \
              stray `---` separator and close the block with `~~~` before any prose."
                 .to_string(),
         );
@@ -136,7 +135,7 @@ fn derive_hint(message: &str, content: &str) -> Option<String> {
     // Gap 4 (duplicate keys): a field declared twice in the same block.
     if m.contains("duplicate mapping key") || m.contains("duplicate key") {
         return Some(
-            "Each field may appear at most once inside a `~~~card-yaml` block. \
+            "Each field may appear at most once inside a card-yaml block. \
              Remove the duplicate line, or move it to a separate composable card."
                 .to_string(),
         );
@@ -323,14 +322,16 @@ mod tests {
 
     #[test]
     fn strips_from_multiple_advice() {
-        let raw = "multiple YAML documents detected; use from_multiple or from_multiple_with_options";
+        let raw =
+            "multiple YAML documents detected; use from_multiple or from_multiple_with_options";
         let out = sanitize_message(raw);
         assert_eq!(out, "multiple YAML documents detected");
     }
 
     #[test]
     fn strips_duplicate_key_policy_advice() {
-        let raw = "duplicate mapping key: organizations, set DuplicateKeyPolicy in Options if acceptable";
+        let raw =
+            "duplicate mapping key: organizations, set DuplicateKeyPolicy in Options if acceptable";
         let out = sanitize_message(raw);
         assert_eq!(out, "duplicate mapping key: organizations");
     }
@@ -338,10 +339,7 @@ mod tests {
     #[test]
     fn hint_for_alias_unknown_anchor_names_field() {
         let content = "title: Doc\nbluf: **Increased maritime activity**\n";
-        let enriched = enrich_yaml_error(
-            "alias references unknown anchor",
-            content,
-        );
+        let enriched = enrich_yaml_error("alias references unknown anchor", content);
         let hint = enriched.hint.expect("hint should be set");
         assert!(hint.contains("bluf"), "hint did not name the field: {hint}");
         assert!(hint.contains("single quotes"));
@@ -350,10 +348,7 @@ mod tests {
     #[test]
     fn hint_for_mapping_values_names_field_and_value() {
         let content = "system_name: Node.js Service: Order Processing API\n";
-        let enriched = enrich_yaml_error(
-            "mapping values are not allowed in this context",
-            content,
-        );
+        let enriched = enrich_yaml_error("mapping values are not allowed in this context", content);
         let hint = enriched.hint.expect("hint should be set");
         assert!(hint.contains("system_name"));
         assert!(hint.contains("Node.js Service: Order Processing API"));
@@ -363,8 +358,7 @@ mod tests {
     #[test]
     fn hint_for_multiple_documents_calls_out_dash_separator() {
         let content = "title: Doc\n---\n";
-        let enriched =
-            enrich_yaml_error("multiple YAML documents detected", content);
+        let enriched = enrich_yaml_error("multiple YAML documents detected", content);
         let hint = enriched.hint.expect("hint should be set");
         assert!(hint.contains("`---`"));
         assert!(hint.contains("`~~~`"));
@@ -380,10 +374,7 @@ mod tests {
     #[test]
     fn hint_for_multiline_dquote_suggests_block_scalar() {
         let content = "bullets: \"- one\n- two\n- three\"\n";
-        let enriched = enrich_yaml_error(
-            "invalid indentation in multiline quoted scalar",
-            content,
-        );
+        let enriched = enrich_yaml_error("invalid indentation in multiline quoted scalar", content);
         let hint = enriched.hint.expect("hint should be set");
         assert!(hint.contains("bullets"));
         assert!(hint.contains("block scalar"));
@@ -440,11 +431,7 @@ mod tests {
     fn does_not_panic_on_multibyte_content() {
         // Em-dash and curly quotes are multibyte in UTF-8 — must not panic.
         let content = "briefer: Maj Sarah Chen — INDOPACOM/A2\nbluf: **\u{201c}peer\u{201d}**\n";
-        let _ =
-            enrich_yaml_error("alias references unknown anchor", content);
-        let _ = enrich_yaml_error(
-            "mapping values are not allowed in this context",
-            content,
-        );
+        let _ = enrich_yaml_error("alias references unknown anchor", content);
+        let _ = enrich_yaml_error("mapping values are not allowed in this context", content);
     }
 }

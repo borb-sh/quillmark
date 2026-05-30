@@ -11,7 +11,7 @@
 //! let engine = Quillmark::new();
 //! let quill = engine.quill_from_path("path/to/quill").unwrap();
 //!
-//! let parsed = Document::from_markdown("~~~card-yaml\n$quill: my_quill\n$kind: main\ntitle: Hello\n~~~\n\n# Hello World").unwrap();
+//! let parsed = Document::from_markdown("~~~\n$quill: my_quill\n$kind: main\ntitle: Hello\n~~~\n\n# Hello World").unwrap();
 //! let result = quill.render(&parsed, &RenderOptions {
 //!     output_format: Some(OutputFormat::Pdf),
 //!     ..Default::default()
@@ -21,8 +21,8 @@
 // Re-export core types for convenience. Note: `QuillSource` is not re-exported
 // at the crate root — Quillmark consumers work with the renderable `Quill`.
 pub use quillmark_core::{
-    Artifact, Backend, Card, Diagnostic, Document, FillBehavior, Location, OutputFormat, ParseError,
-    ParseOutput, RenderError, RenderOptions, RenderResult, RenderSession, Severity,
+    Artifact, Backend, Card, Diagnostic, Document, FillBehavior, Location, OutputFormat,
+    ParseError, ParseOutput, RenderError, RenderOptions, RenderResult, RenderSession, Severity,
 };
 
 // Declare modules

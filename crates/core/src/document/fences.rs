@@ -1,15 +1,21 @@
 //! Line-oriented fence scanner for Quillmark card-yaml blocks.
 //!
-//! Detects `~~~card-yaml` metadata blocks and skips over ordinary CommonMark
-//! fenced code blocks so that a `~~~card-yaml` opener inside a code block is
-//! treated as literal content, not a card-yaml block.
+//! Detects `~~~` metadata blocks (the canonical card-yaml fence) and skips
+//! over ordinary CommonMark fenced code blocks so that a `~~~` opener inside a
+//! code block is treated as literal content, not a card-yaml block. A bare
+//! `~~~` fence (exactly three tildes, no info string) opens a card-yaml block;
+//! the legacy `~~~card-yaml` info string is also accepted but is no longer
+//! canonical. To write a literal `~~~`-style code block in prose, use four or
+//! more tildes (`~~~~`), backticks, or add a language info string.
 
 use crate::error::ParseError;
 use crate::{Diagnostic, Severity};
 
 use super::assemble::MetadataBlock;
 
-/// The exact info string that promotes a `~~~` fence to a card-yaml block.
+/// The legacy info string that also opens a card-yaml block. Accepted on input
+/// for backward compatibility but never emitted — canonical openers are bare
+/// `~~~` (see [`is_card_yaml_opener`]).
 const CARD_YAML_INFO: &str = "card-yaml";
 
 /// Line-oriented view of the source, used for fence detection.
@@ -110,10 +116,16 @@ pub(super) fn code_fence_info(line: &str, run_len: usize) -> &str {
 }
 
 /// `true` when `line` opens a card-yaml metadata block — a `~~~` fence
-/// (exactly three tildes) whose info string is exactly `card-yaml`.
+/// (exactly three tildes) whose info string is empty (the canonical form) or
+/// exactly `card-yaml` (the accepted, non-canonical legacy alias). A fence
+/// carrying any other info string, or built from four or more tildes, is an
+/// ordinary CommonMark code fence and never opens a card-yaml block.
 fn is_card_yaml_opener(line: &str) -> bool {
     match code_fence_on_line(line, None) {
-        Some((b'~', 3, false)) => code_fence_info(line, 3) == CARD_YAML_INFO,
+        Some((b'~', 3, false)) => {
+            let info = code_fence_info(line, 3);
+            info.is_empty() || info == CARD_YAML_INFO
+        }
         _ => false,
     }
 }
@@ -192,11 +204,11 @@ fn find_paired_dash_with_yaml_keys(lines: &Lines<'_>, opener_k: usize) -> Option
 /// non-fatal diagnostics accumulated along the way.
 pub(super) type FenceScan = (Vec<MetadataBlock>, Vec<Diagnostic>);
 
-/// Find all `~~~card-yaml` metadata blocks in the document.
+/// Find all `~~~` card-yaml metadata blocks in the document.
 ///
-/// A card-yaml block opens with `~~~card-yaml`, requires a blank line above it
-/// (so body round-tripping stays stable), and closes with `~~~`. Openers
-/// inside ordinary fenced code blocks are ignored.
+/// A card-yaml block opens with `~~~` (or the legacy `~~~card-yaml` alias),
+/// requires a blank line above it (so body round-tripping stays stable), and
+/// closes with `~~~`. Openers inside ordinary fenced code blocks are ignored.
 pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseError> {
     let lines = Lines::new(markdown);
     let mut blocks: Vec<MetadataBlock> = Vec::new();
@@ -208,7 +220,7 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
     while k < lines.len() {
         let text = lines.line_text(k);
 
-        // Inside an ordinary fenced code block: `~~~card-yaml` openers here
+        // Inside an ordinary fenced code block: `~~~` openers here
         // are literal content, ignored until the code fence closes.
         if let Some((ch, min, _opener)) = open_code_fence {
             if let Some((_, _, true)) = code_fence_on_line(text, Some((ch, min))) {
@@ -229,7 +241,7 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
                     Diagnostic::new(
                         Severity::Warning,
                         format!(
-                            "`~~~card-yaml` block at line {} has no blank line above it — it is treated as an ordinary code block, not a card-yaml block. Insert a blank line before it to register it.",
+                            "`~~~` card-yaml block at line {} has no blank line above it — it is treated as an ordinary code block, not a card-yaml block. Insert a blank line before it to register it.",
                             k + 1
                         ),
                     )
@@ -253,10 +265,9 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
             }
             let Some(cj) = closer_k else {
                 return Err(ParseError::InvalidStructure(
-                    "card-yaml block opened with `~~~card-yaml` but never closed with `~~~`. \
+                    "card-yaml block opened with `~~~` but never closed. \
                      Close the block with a line containing exactly `~~~` (three tildes, no \
-                     info string) before any prose body. The closer is unadorned — do NOT \
-                     write `~~~card-yaml` as the closer."
+                     info string) before any prose body."
                         .to_string(),
                 ));
             };
@@ -315,7 +326,7 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
                             "Root metadata block opened with `---` but never closed with a \
                              matching `---` line. Close the block with a line containing \
                              exactly `---` before any prose body, or rewrite the block using \
-                             `~~~card-yaml` / `~~~` fences (the canonical form)."
+                             `~~~` fences (the canonical form)."
                                 .to_string(),
                         ));
                     };
@@ -343,10 +354,9 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
                     let _ = cj; // position is captured for future diagnostics
                     return Err(ParseError::InvalidStructure(
                         "Composable card block opened with `---` but composable cards \
-                         must use `~~~card-yaml` / `~~~` fences. Replace the opening \
-                         `---` with `~~~card-yaml` and the closing `---` with `~~~` \
-                         (three tildes, no info string). The `---` style is accepted \
-                         only for the document's root block."
+                         must use `~~~` fences. Replace the opening `---` and the \
+                         closing `---` with `~~~` (three tildes, no info string). The \
+                         `---` style is accepted only for the document's root block."
                             .to_string(),
                     ));
                 }
@@ -384,7 +394,7 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
             Diagnostic::new(
                 Severity::Warning,
                 format!(
-                    "Unclosed fenced code block opened at line {} — end-of-document reached without a matching closing fence. Any `~~~card-yaml` blocks after this line were treated as code and not parsed.",
+                    "Unclosed fenced code block opened at line {} — end-of-document reached without a matching closing fence. Any `~~~` card-yaml blocks after this line were treated as code and not parsed.",
                     opener_line + 1
                 ),
             )
