@@ -1379,7 +1379,7 @@ impl QuillConfig {
                     )
                     .with_code("quill::body_example_contains_fence".to_string())
                     .with_hint(
-                        "Remove or reword any line that is exactly `~~~` or `~~~card-yaml` (with up to 3 leading spaces and optional trailing whitespace). For a literal triple-tilde code block, use four or more tildes (`~~~~`).".to_string(),
+                        "Remove or reword any column-zero line that opens a card-yaml block (`~~~`, a longer tilde run, or `~~~card-yaml`). For a literal fenced code block, use a backtick fence (```).".to_string(),
                     ),
                 )
             } else {
@@ -1418,34 +1418,19 @@ impl QuillConfig {
     }
 }
 
-/// Returns true if any line in `text` would be parsed as a `~~~` card-yaml
-/// block opener by the document parser, which would corrupt the blueprint's
-/// document structure when the example is embedded verbatim as body content.
+/// Returns true if any line in `text` would be parsed as a card-yaml block
+/// opener by the document parser, which would corrupt the blueprint's document
+/// structure when the example is embedded verbatim as body content.
 ///
-/// The marker is flagged after up to 3 leading spaces (no leading tab): a
-/// card-yaml opener — exactly three tildes whose info string is empty (the
-/// canonical bare `~~~`) or exactly `card-yaml` (the legacy alias). Four or
-/// more tildes, or any other info string, are ordinary code fences and are
-/// not flagged.
+/// Delegates to the parser's own opener predicate
+/// ([`crate::document::fences::is_card_yaml_opener_line`]) so the guard stays
+/// in lock-step with fence detection: a column-zero tilde fence (three or more
+/// tildes) whose info string is empty or `card-yaml`. Backtick fences,
+/// language-tagged `~~~` fences, and indented fences are ordinary code blocks
+/// and are not flagged.
 fn example_contains_fence_line(text: &str) -> bool {
     text.lines().any(|line| {
         let line = line.strip_suffix('\r').unwrap_or(line);
-        let indent = line.bytes().take_while(|&b| b == b' ').count();
-        if indent > 3 || line.as_bytes().first() == Some(&b'\t') {
-            return false;
-        }
-        let rest = &line[indent..];
-        // A `~~~` card-yaml block opener: exactly three tildes (a fourth tilde
-        // makes it an ordinary code fence) whose info string is empty or
-        // `card-yaml`.
-        if let Some(after) = rest.strip_prefix("~~~") {
-            if !after.starts_with('~') {
-                let info = after.trim();
-                if info.is_empty() || info == "card-yaml" {
-                    return true;
-                }
-            }
-        }
-        false
+        crate::document::fences::is_card_yaml_opener_line(line)
     })
 }

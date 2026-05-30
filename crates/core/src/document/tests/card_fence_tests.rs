@@ -141,10 +141,43 @@ fn legacy_card_yaml_info_string_normalizes_to_bare_tilde() {
 // ── Escape hatches: not every tilde fence is a card-yaml block ─────────────────
 
 #[test]
-fn four_tilde_fence_is_an_ordinary_code_block() {
-    // Four or more tildes is the escape hatch for a literal `~~~`-style code
-    // block in body prose — it never opens a card-yaml block.
-    let src = "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~~\n~~~\nnot a card\n~~~\n~~~~\n";
+fn longer_tilde_run_still_opens_a_card() {
+    // A four-tilde fence is NOT an escape hatch — it is a (non-canonical) card
+    // opener whose closer must be at least as long, and which re-emits as the
+    // canonical three-tilde form.
+    let src = "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~~\n$kind: note\nname: Widget\n~~~~\n";
+    let doc = Document::from_markdown(src).unwrap();
+    assert_eq!(doc.cards().len(), 1);
+    assert_eq!(doc.cards()[0].kind(), Some("note"));
+    let emitted = doc.to_markdown();
+    assert!(
+        emitted.contains("~~~\n$kind: note\nname: Widget\n~~~\n"),
+        "{emitted}"
+    );
+    assert!(
+        !emitted.contains("~~~~"),
+        "longer runs normalise to `~~~`: {emitted}"
+    );
+}
+
+#[test]
+fn shorter_tilde_run_does_not_close_a_longer_fence() {
+    // A `~~~` line inside a `~~~~`-fenced block is payload, not a closer
+    // (CommonMark fence matching: the closer must be >= the opener length).
+    let src = "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~~\nbody: \"a ~~~ b\"\n~~~~\n";
+    let doc = Document::from_markdown(src).unwrap();
+    assert_eq!(doc.cards().len(), 1);
+    assert_eq!(
+        doc.cards()[0].payload().get("body").unwrap().as_str(),
+        Some("a ~~~ b")
+    );
+}
+
+#[test]
+fn backtick_fence_is_the_code_block_escape_hatch() {
+    // The way to write a literal fenced code block in body prose is a backtick
+    // fence — it is never a card-yaml block, even when it contains `~~~` lines.
+    let src = "~~~\n$quill: q\n$kind: main\n~~~\n\n```\n~~~\nnot a card\n~~~\n```\n";
     let doc = Document::from_markdown(src).unwrap();
     assert_eq!(doc.cards().len(), 0);
     assert!(doc.main().body().contains("not a card"));

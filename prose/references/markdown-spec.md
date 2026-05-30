@@ -95,18 +95,23 @@ the next opening fence or EOF.
 
 ### 3.2 Delimiter and Info String
 
-- **Delimiter.** Blocks open and close exclusively with `~~~` — exactly three
-  tildes, no more, no fewer. Both the opening and closing fence are bare `~~~`.
-  (Exception: the root-block `---` alias in §3.2.1.)
+- **Delimiter.** Blocks open and close with a run of tildes. The canonical
+  fence is exactly three tildes (`~~~`), and `toMarkdown` (§9) always emits
+  three. An opener of four or more tildes is accepted (non-canonical) and
+  re-emits as `~~~`; its closing fence must be at least as long as the opener,
+  per CommonMark's fenced-code-block rule. (Exception: the root-block `---`
+  alias in §3.2.1.)
 - **Info string.** The canonical opening fence carries **no info string** — a
   bare `~~~`. The legacy info string `~~~card-yaml` is still accepted on input
   (and parses identically) but is non-canonical: `toMarkdown` (§9) always
   emits the bare `~~~` form. No other info string opens a card-yaml block — a
   `~~~` fence carrying any other info string (e.g. a language) is an ordinary
   CommonMark fenced code block.
-- **Escape hatch.** Because a bare `~~~` block is a card-yaml block, a literal
-  `~~~`-style code block in prose must use **four or more tildes** (`~~~~`),
-  backticks, or a `~~~` fence with a language info string.
+- **Escape hatch.** Because every column-zero `~~~` block is a card-yaml block,
+  write a literal fenced *code* block in prose with a **backtick fence**
+  (```` ``` ````). A `~~~` fence carrying a language info string is also an
+  ordinary code block. There is no "longer tilde run" escape — more tildes
+  still open a card.
 - **Indentation.** The opening `~~~` is at column zero — **no leading
   spaces**. An indented opener (1–3 spaces) is *not* a card-yaml opener: it
   is delegated to CommonMark as an ordinary fenced code block, exactly like

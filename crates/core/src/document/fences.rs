@@ -2,11 +2,13 @@
 //!
 //! Detects `~~~` metadata blocks (the canonical card-yaml fence) and skips
 //! over ordinary CommonMark fenced code blocks so that a `~~~` opener inside a
-//! code block is treated as literal content, not a card-yaml block. A bare
-//! `~~~` fence (exactly three tildes, no info string) opens a card-yaml block;
-//! the legacy `~~~card-yaml` info string is also accepted but is no longer
-//! canonical. To write a literal `~~~`-style code block in prose, use four or
-//! more tildes (`~~~~`), backticks, or add a language info string.
+//! code block is treated as literal content, not a card-yaml block. A
+//! column-zero `~~~` fence (three or more tildes, no info string) opens a
+//! card-yaml block; the canonical opener is three tildes (`to_markdown`
+//! always emits `~~~`) and the legacy `~~~card-yaml` info string is also
+//! accepted but is no longer canonical. To write a literal fenced *code* block
+//! in prose, use a backtick fence (or a `~~~` fence with a language info
+//! string).
 
 use crate::error::ParseError;
 use crate::{Diagnostic, Severity};
@@ -115,27 +117,40 @@ pub(super) fn code_fence_info(line: &str, run_len: usize) -> &str {
     line[indent + run_len..].trim()
 }
 
-/// `true` when `line` opens a card-yaml metadata block — a `~~~` fence
-/// (exactly three tildes) whose info string is empty (the canonical form) or
-/// exactly `card-yaml` (the accepted, non-canonical legacy alias). A fence
-/// carrying any other info string, or built from four or more tildes, is an
-/// ordinary CommonMark code fence and never opens a card-yaml block.
+/// If `line` opens a card-yaml metadata block, returns the tilde-run length of
+/// the opener (`>= 3`); otherwise `None`.
 ///
-/// The opener must be at **column zero** (spec §3.2). An indented `~~~`
-/// (1–3 leading spaces) is still a valid CommonMark code fence, but it is
-/// *not* a card-yaml opener — recognising it would both contradict the spec
-/// and split at an offset the CommonMark body renderer disagrees with.
-fn is_card_yaml_opener(line: &str) -> bool {
+/// A card-yaml opener is a tilde fence (three **or more** tildes) at **column
+/// zero** (spec §3.2) whose info string is empty (the canonical form) or
+/// exactly `card-yaml` (the accepted, non-canonical legacy alias). The
+/// canonical opener is three tildes — `to_markdown` always emits `~~~` — but a
+/// longer run is accepted and normalised on emit; its closer must be at least
+/// as long (the run length is threaded into the closer scan to honour
+/// CommonMark's fence-matching rule). To write a literal fenced *code* block in
+/// prose, use a backtick fence: backtick fences and `~~~` fences carrying any
+/// other info string (e.g. a language) are never card-yaml openers.
+///
+/// An indented `~~~` (1–3 leading spaces) is still a valid CommonMark code
+/// fence, but it is *not* a card-yaml opener — recognising it would both
+/// contradict the spec and split at an offset the body renderer disagrees with.
+fn card_yaml_opener_run(line: &str) -> Option<usize> {
     if line.starts_with(' ') {
-        return false;
+        return None;
     }
     match code_fence_on_line(line, None) {
-        Some((b'~', 3, false)) => {
-            let info = code_fence_info(line, 3);
-            info.is_empty() || info == CARD_YAML_INFO
+        Some((b'~', run, false)) => {
+            let info = code_fence_info(line, run);
+            (info.is_empty() || info == CARD_YAML_INFO).then_some(run)
         }
-        _ => false,
+        _ => None,
     }
+}
+
+/// `true` when `line` has the shape of a card-yaml opener (see
+/// [`card_yaml_opener_run`]). Used by the `Quill.yaml` `body.example` guard so
+/// the blueprint-corruption check stays in lock-step with the parser.
+pub(crate) fn is_card_yaml_opener_line(line: &str) -> bool {
+    card_yaml_opener_run(line).is_some()
 }
 
 /// `true` when `line` is a `---` YAML-frontmatter fence line — exactly three
@@ -236,7 +251,7 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
         }
 
         // A card-yaml opener?
-        if is_card_yaml_opener(text) {
+        if let Some(open_run) = card_yaml_opener_run(text) {
             // Leading-blank rule: a card-yaml block is a block-level construct
             // and requires a blank line above it. Without one it is delegated
             // to CommonMark as an ordinary `~~~` code block.
@@ -252,16 +267,19 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
                     )
                     .with_code("parse::card_fence_missing_blank".to_string()),
                 );
-                open_code_fence = Some((b'~', 3, k));
+                open_code_fence = Some((b'~', open_run, k));
                 k += 1;
                 continue;
             }
 
-            // Scan for the matching `~~~` closer.
+            // Scan for the matching `~~~` closer. A closer must be a tilde run
+            // at least as long as the opener (CommonMark fence matching), so a
+            // shorter `~~~` inside a longer-fenced block stays payload.
             let mut closer_k: Option<usize> = None;
             let mut j = k + 1;
             while j < lines.len() {
-                if let Some((_, _, true)) = code_fence_on_line(lines.line_text(j), Some((b'~', 3)))
+                if let Some((_, _, true)) =
+                    code_fence_on_line(lines.line_text(j), Some((b'~', open_run)))
                 {
                     closer_k = Some(j);
                     break;

@@ -125,8 +125,16 @@ fn scanner_agrees_with_commonmark_on_synthetic_corpus() {
             "~~~\n$quill: q\n$kind: main\n~~~\n\n```text\n~~~\n$kind: nope\n~~~\n```\n\nBody.\n",
         ),
         (
-            "four-tilde literal block in body",
-            "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~~\n~~~\nliteral\n~~~\n~~~~\n",
+            "longer-tilde card (shorter inner ~~~ stays payload)",
+            "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~~\n$kind: c\nx: 1\n~~~~\n",
+        ),
+        (
+            "five-tilde root",
+            "~~~~~\n$quill: q\n$kind: main\n~~~~~\n\nBody.\n",
+        ),
+        (
+            "backtick code block shielding tildes",
+            "~~~\n$quill: q\n$kind: main\n~~~\n\n```\n~~~\nx\n~~~\n```\n\nBody.\n",
         ),
         (
             "tilde fence with language info in body",
