@@ -94,7 +94,9 @@ pub fn escape_string(s: &str) -> String {
 #[derive(Debug, Clone)]
 enum ListType {
     Bullet,
-    Ordered,
+    /// Ordered list. `start` is the first item's number (CommonMark preserves it);
+    /// `first` tracks whether the next item is the list's first.
+    Ordered { start: u64, first: bool },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -253,10 +255,9 @@ where
                             end_newline = true;
                         }
 
-                        let list_type = if start_number.is_some() {
-                            ListType::Ordered
-                        } else {
-                            ListType::Bullet
+                        let list_type = match start_number {
+                            Some(start) => ListType::Ordered { start, first: true },
+                            None => ListType::Bullet,
                         };
 
                         list_stack.push(list_type);
@@ -264,15 +265,22 @@ where
                     Tag::Item => {
                         in_list_item = true;
                         list_item_first_block = true;
-                        if let Some(list_type) = list_stack.last() {
-                            let indent = "  ".repeat(list_stack.len().saturating_sub(1));
-
+                        let indent = "  ".repeat(list_stack.len().saturating_sub(1));
+                        if let Some(list_type) = list_stack.last_mut() {
                             match list_type {
                                 ListType::Bullet => {
                                     output.push_str(&format!("{}- ", indent));
                                 }
-                                ListType::Ordered => {
-                                    output.push_str(&format!("{}+ ", indent));
+                                ListType::Ordered { start, first } => {
+                                    // Typst `+` always restarts at 1, so emit the explicit
+                                    // start number on the first item when it isn't 1; Typst
+                                    // then continues the `+` items from that number.
+                                    if *first && *start != 1 {
+                                        output.push_str(&format!("{}{}. ", indent, start));
+                                    } else {
+                                        output.push_str(&format!("{}+ ", indent));
+                                    }
+                                    *first = false;
                                 }
                             }
                             end_newline = false;
@@ -989,6 +997,31 @@ mod tests {
         // Typst auto-numbers, so we always use 1.
         // Lists end with extra newline per CONVERT.md examples
         assert_eq!(typst, "+ First\n+ Second\n+ Third\n\n");
+    }
+
+    #[test]
+    fn test_ordered_list_custom_start() {
+        // A list starting at 3 emits the explicit number on the first item; Typst
+        // continues the `+` items from there (renders 3, 4, 5).
+        let markdown = "3. Three\n4. Four\n5. Five";
+        let typst = mark_to_typst(markdown).unwrap();
+        assert_eq!(typst, "3. Three\n+ Four\n+ Five\n\n");
+    }
+
+    #[test]
+    fn test_ordered_list_start_zero() {
+        let markdown = "0. Zero\n1. One";
+        let typst = mark_to_typst(markdown).unwrap();
+        assert_eq!(typst, "0. Zero\n+ One\n\n");
+    }
+
+    #[test]
+    fn test_two_ordered_lists_independent_starts() {
+        // Each ordered list tracks its own start; the first (start 1) stays `+`,
+        // the second (start 5) emits the explicit number on its first item.
+        let markdown = "1. a\n2. b\n\ntext\n\n5. c\n6. d";
+        let typst = mark_to_typst(markdown).unwrap();
+        assert_eq!(typst, "+ a\n+ b\n\ntext\n\n5. c\n+ d\n\n");
     }
 
     #[test]
