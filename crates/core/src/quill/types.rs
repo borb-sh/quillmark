@@ -154,6 +154,11 @@ impl FieldType {
 
 /// Schema definition for a template field.
 ///
+/// `default` and `example` are both type-valid values with opposite intent:
+/// `default` is the value most authors want (interpolated when the field is
+/// omitted), while `example` matches the desired type and shape but is not
+/// the value most authors want (it documents shape only, never rendering).
+///
 /// A field's *cell* is determined by `default`: a field with a `default:`
 /// is **Endorsed** (the rendered value is shippable as-is), while a field
 /// without a `default:` is **Must Fill** (the blueprint carries a
@@ -168,9 +173,12 @@ pub struct FieldSchema {
     pub r#type: FieldType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// The value most authors want; interpolated when the field is omitted.
+    /// Its presence makes the field Endorsed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<QuillValue>,
-    /// Single value; used as template placeholder.
+    /// A value matching the desired type and shape but not the value most
+    /// authors want; documents shape only and never renders as the value.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub example: Option<QuillValue>,
     #[serde(skip_serializing_if = "Option::is_none")]

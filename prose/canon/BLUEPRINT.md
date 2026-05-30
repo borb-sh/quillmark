@@ -134,9 +134,9 @@ The rendered value follows a single cascade keyed on the cell:
 
 Examples never become the rendered value, regardless of cell or type —
 this holds uniformly for scalars, arrays, typed tables, and typed
-dictionaries. Examples are inherently illustrative and unsafe to ship;
-they always surface in the `# e.g.` leading line while the value follows
-the cascade above.
+dictionaries. An example matches the *shape* of the desired value but is
+not the value most authors want, so it always surfaces in the `# e.g.`
+leading line while the value follows the cascade above.
 
 All fields render as **live YAML** — no commented-out fields. The
 sentinel in the value cell is the sole "must fill" signal: a reader's
@@ -407,15 +407,19 @@ fixture.
 When designing a `Quill.yaml` schema, choose between Must Fill and
 Endorsed per field:
 
-- **Declare `default:`** when a value (including a type-empty value like
-  `""`, `[]`, `false`, or `0`) is acceptable to ship as-is. The field
-  becomes Endorsed and the blueprint carries `; delete-ok`.
-- **Omit `default:`** when the author, LLM, or user must supply a value
-  before shipping. The field becomes Must Fill and the blueprint carries
-  the `<must-fill>` sentinel.
-- **Use `example:`** for illustrative reference values. `example:` is
-  orthogonal to the cell decision — it appears in the leading `# e.g.`
-  line for any cell, never rendering as the value.
+- **Declare `default:`** when the value is what the *majority* of authors
+  want — including a type-empty value like `""`, `[]`, `false`, or `0`.
+  Most authors want it, so the field can be omitted and the default is
+  interpolated for them. The field becomes Endorsed and the blueprint
+  carries `; delete-ok`.
+- **Omit `default:`** when there is no value most authors want — the
+  author, LLM, or user must supply one before shipping. The field becomes
+  Must Fill and the blueprint carries the `<must-fill>` sentinel.
+- **Use `example:`** when a value matches the semantic and type shape of
+  what the author wants but is *not* the value they'd want most of the
+  time. It documents shape, not the choice — orthogonal to the cell
+  decision, it appears in the leading `# e.g.` line for any cell and never
+  renders as the value.
 
 This is documentation, not enforcement.
 

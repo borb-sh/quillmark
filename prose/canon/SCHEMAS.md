@@ -81,16 +81,33 @@ For LLM/MCP authoring, see [BLUEPRINT.md](BLUEPRINT.md) — `blueprint()` emits 
 
 Top-level schema keys: `main`, optional `card_kinds` (map keyed by card name). `main` and each entry in `card_kinds` share the same `CardSchema` shape: `fields` (map keyed by field name), optional `description`, optional `ui`, optional `body`. Each `FieldSchema` includes `type`, optional `description`/`default`/`example`/`enum`/`properties`/`ui`.
 
+### `default` and `example`
+
+`default` and `example` are both type- and shape-valid values, but they
+encode opposite author intents:
+
+- **`default`** is the value the *majority* of authors want. Because most
+  authors want it, the field can be omitted entirely: at render time the
+  default is interpolated for any field the document leaves out (an
+  authored value always wins — `apply_defaults` in
+  `quill/orchestration`). A field with a `default:` is **Endorsed** — the
+  rendered value is shippable as-is — and the blueprint tags it
+  `; delete-ok`. Type-empty defaults (`default: ""`, `[]`, `false`, `0`)
+  are the canonical way to mark a "skippable" cell.
+- **`example`** matches the semantic and type *shape* of the desired
+  value but is *not* the value most authors want. It documents shape, not
+  the choice — so it never becomes the rendered value; it only surfaces in
+  the blueprint's `# e.g.` line.
+
 ### Must-Fill vs. Endorsed fields
 
-A field is **Must Fill** when no `default:` is declared; the schema author
-expects the LLM or user to supply a value before shipping. A missing
-Must Fill field at validate time fires `validation::must_fill_absent`.
+A field is **Must Fill** when no `default:` is declared — there is no value
+most authors want, so the LLM or user must supply one before shipping. A
+missing Must Fill field at validate time fires
+`validation::must_fill_absent`.
 
 A field is **Endorsed** when `default:` is declared; the rendered default
-is shippable as-is (the author can keep or override it). Endorsed
-defaults include type-empty values — `default: ""`, `default: []`,
-`default: false`, `default: 0` — which standardize the "skippable" cell.
+is shippable as-is (the author can keep or override it).
 
 There is no separate `required:` axis; the presence or absence of
 `default:` is the sole author choice per field. See
