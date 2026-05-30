@@ -51,8 +51,10 @@ pub enum FillBehavior {
     #[default]
     Strict,
     /// Render preview-friendly placeholders: `Lorem ipsum` for
-    /// strings/markdown, `0`, `false`, `[]`, `{}`, a fixed ISO
-    /// date/datetime, first enum variant.
+    /// strings/markdown, `0`, `false`, `{}`, a fixed ISO date/datetime,
+    /// first enum variant, and a single representative entry for lists (one
+    /// `Lorem ipsum` item for a string list, one synthetic row for a typed
+    /// table) so the previewed document exercises the plate's list rendering.
     Preview,
     /// Render the leanest type-valid values: `""`, `0`, `false`, `[]`, first
     /// enum variant, empty markdown body. Used by the quiver render-test to
@@ -513,9 +515,21 @@ fn field_value(field: &FieldSchema, behavior: FillBehavior) -> FieldValue {
     if let Some(v) = field.default.as_ref() {
         return json_to_value(v.as_json());
     }
-    // No default → Must Fill cell. Under `Strict` the sentinel sits in the
-    // value cell; under `Preview`/`TypeEmpty` a type-valid placeholder does
-    // (markdown is special-cased earlier and never reaches this code path).
+    // No default → Must Fill cell. Under `Preview`, a plain string list renders
+    // one representative entry so the previewed document exercises the plate's
+    // list rendering — mirroring the single synthetic row a typed table already
+    // emits (write_typed_table_field) and the `Lorem ipsum` Preview gives every
+    // scalar string. `TypeEmpty` keeps the leanest `[]`; `Strict` keeps the
+    // sentinel.
+    if behavior == FillBehavior::Preview
+        && matches!(field.r#type, FieldType::Array)
+        && field.enum_values.is_none()
+    {
+        return FieldValue::Block(vec![serde_json::Value::String(PREVIEW_STRING.to_string())]);
+    }
+    // Otherwise the value cell carries the `<must-fill>` sentinel (`Strict`) or a
+    // type-valid placeholder (`Preview`/`TypeEmpty`); markdown is special-cased
+    // earlier and never reaches this code path.
     FieldValue::Inline(must_fill_value(field, behavior))
 }
 
@@ -1157,7 +1171,9 @@ main:
         assert!(out.contains("count: 0  # integer\n"));
         assert!(out.contains("ratio: 0  # number\n"));
         assert!(out.contains("flag: false  # boolean\n"));
-        assert!(out.contains("refs: []  # array<string>\n"));
+        // A plain string list previews one representative entry, not an empty
+        // array, so the previewed document exercises the plate's list rendering.
+        assert!(out.contains("refs:  # array<string>\n  - Lorem ipsum\n"));
         assert!(out.contains("issued: \"2024-01-15\"  # date<YYYY-MM-DD>\n"));
         assert!(out.contains("published: \"2024-01-15T12:00:00Z\"  # datetime<ISO 8601>\n"));
         assert!(out.contains("severity: low  # enum<low | medium | high>\n"));
@@ -1307,7 +1323,7 @@ main:
 
     #[test]
     fn blueprint_filled_preview_round_trips_to_a_valid_document() {
-        let filled = cfg(r#"
+        let config = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
   fields:
@@ -1316,14 +1332,21 @@ main:
     severity:  { type: string, enum: [low, medium, high] }
     bio:       { type: markdown }
     issued:    { type: date }
-"#)
-        .blueprint_filled(super::FillBehavior::Preview);
+    refs:      { type: array }
+"#);
+        let filled = config.blueprint_filled(super::FillBehavior::Preview);
         let doc = Document::from_markdown(&filled)
             .unwrap_or_else(|e| panic!("filled blueprint must parse: {e:?}\n---\n{filled}"));
+        config.validate_document(&doc).unwrap_or_else(|errs| {
+            panic!("preview blueprint must validate: {errs:?}\n---\n{filled}")
+        });
         let main = doc.main().payload();
         assert_eq!(main.get("title").unwrap().as_str().unwrap(), "Lorem ipsum");
         assert_eq!(main.get("count").unwrap().as_i64().unwrap(), 0);
         assert_eq!(main.get("severity").unwrap().as_str().unwrap(), "low");
+        let refs = main.get("refs").unwrap().as_array().unwrap();
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].as_str().unwrap(), "Lorem ipsum");
     }
 
     /// Regression: string defaults that look numeric/boolean/null get
