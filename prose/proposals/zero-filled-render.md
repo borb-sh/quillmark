@@ -1,22 +1,22 @@
-# Non-Strict Render & the Two Authoring Interfaces
+# Zero-Filled Render & the Two Authoring Interfaces
 
 > **Motivation**: a live-editing web app wants documents to preview and
 > export while still in progress — without forcing authors to fill every
 > unendorsed field or writing boilerplate to satisfy validation. At the
 > same time, LLM/MCP authoring must stay held to a completeness bar. This
-> proposal adds a non-strict *render* path and pins down how the two
+> proposal adds a **zero-filled** *render* path and pins down how the two
 > interfaces — UI form and MCP/LLM — share one document model without
 > either one weakening the other.
 
 ## TL;DR
 
-Render mode and validation verdict are **orthogonal**. Keep one validity
+Render fill and validation verdict are **orthogonal**. Keep one validity
 notion — strict validation answers *"is this document complete?"* — and
-add a non-strict **render** path that type-empty-interpolates absent
-fields into the plate-JSON projection only, never into the persisted
-document. UI forms render non-strict and persist the sparse authored
-truth; MCP/LLM `create_document` gates on strict. The same strict verdict
-applies uniformly to documents of either origin.
+add a **zero-filled render** path that fills each absent field with its
+type-empty (zero) value, in the plate-JSON projection only, never in the
+persisted document. UI forms use zero-filled render and persist the sparse
+authored truth; MCP/LLM `create_document` gates on strict validation. The
+same strict verdict applies uniformly to documents of either origin.
 
 Pre-1.0; not yet implemented. When built, the conceptual model graduates
 into [SCHEMAS.md](../canon/SCHEMAS.md) with a pointer from
@@ -46,13 +46,14 @@ Two questions that are easy to conflate, kept separate:
 
 | Question | Answered by | Always succeeds? |
 |---|---|---|
-| *Show me something now* | **render mode** (strict / non-strict) | non-strict: yes |
+| *Show me something now* | **render fill** (plain / zero-filled) | zero-filled: yes |
 | *Is this document complete?* | **strict validation** | no — that's the point |
 
-A document can be renderable (non-strict) and incomplete (fails strict) at
-the same time. "Always compiles" is a render guarantee; "always valid" is
-a validation verdict. They are not the same claim, and the design depends
-on not fusing them.
+A document can be renderable (zero-filled) and incomplete (fails strict)
+at the same time. "Always compiles" is a render guarantee; "always valid"
+is a validation verdict. They are not the same claim, and the design
+depends on not fusing them. Naming the render by its *fill* — not by a
+validation posture — keeps the two axes from collapsing into one.
 
 ## Strict validation — the single completeness verdict
 
@@ -75,23 +76,23 @@ first-enum) *passes strict* — present, non-sentinel, type-valid. A
 difference between the two is exactly presence, which is what strict keys
 on.
 
-## Non-strict render — type-empty fill in the projection only
+## Zero-filled render — type-empty fill in the projection only
 
-A non-strict render fills every absent field with its **type-empty**
+A zero-filled render fills every absent field with its **type-empty (zero)**
 value, in the plate-JSON projection that feeds the backend — and nowhere
 else.
 
-- Type-empty is honestly blank for almost every type: `""` (string,
+- The zero value is honestly blank for almost every type: `""` (string,
   markdown, **date**, **datetime** — the validator accepts the empty
   string for both), `0`, `false`, `[]`, `{}`.
-- The lone seam is `enum`: there is no empty enum member, so type-empty is
-  `first_enum` — a real, meaningful variant. Because the fill lives only
+- The lone seam is `enum`: there is no empty enum member, so the zero value
+  is `first_enum` — a real, meaningful variant. Because the fill lives only
   in the ephemeral projection, this appears **only in preview pixels**: the
   persisted document keeps the enum absent, and a form reload shows the
   dropdown unselected. The "looks-chosen-but-wasn't" value never hardens
   into storage or form state.
-- **Non-persist invariant.** The type-empty fill must never be written
-  back to the document. Type-empty is *indistinguishable from
+- **Non-persist invariant.** The zero-fill must never be written back to
+  the document. A type-empty value is *indistinguishable from
   authored-empty*; persisting it collapses "field absent (untouched)" and
   "field present and empty" into one and destroys `must_fill_absent`
   forever (it keys on absence). The fill is part of the render, never part
@@ -102,10 +103,11 @@ else.
 Both produce documents in one shared model; they differ only in what they
 gate on.
 
-### UI form (non-strict)
+### UI form (zero-filled render)
 
-- Renders non-strict for **both** preview and artifact export (PDF/SVG/PNG)
-  — a blank form always produces a renderable result, no boilerplate.
+- Uses zero-filled render for **both** preview and artifact export
+  (PDF/SVG/PNG) — a blank form always produces a renderable result, no
+  boilerplate.
 - Emits **sparse** documents: an empty text box / unselected dropdown is
   *omitted* (treated as absent), so form-completeness and schema-presence
   coincide. The form's existing `FormFieldSource::Missing` / `Default`
@@ -116,7 +118,7 @@ gate on.
   actions that need completeness (submit / publish), not to preview or
   draft export.
 
-### MCP / LLM (strict)
+### MCP / LLM (strict validation)
 
 - `create_document(markdown)` **gates on strict validation**. The LLM is
   handed the blueprint and must return a complete document: every Must
@@ -135,45 +137,46 @@ document semantics.
 
 ## Rejected alternatives
 
-- **Option X — form populates type-empty at persist time** (document is
-  always complete-and-valid). Rejected: it makes `must_fill_absent`
-  vacuous (every key always present), bakes the enum first-variant value
-  into storage as a silent fake choice, and creates two-class document
-  semantics in a mixed-author ecosystem — which this project *is*, by
-  design, because blueprints exist precisely so LLMs author these
-  documents too.
-- **Example-fallback in non-strict render** (fill absent fields from
-  `example:` instead of type-empty). Rejected: an example is realistic but
+- **Persist-time zero-fill** (the form populates type-empty into the
+  *stored* document, so it is always complete-and-valid). Rejected: it
+  makes `must_fill_absent` vacuous (every key always present), bakes the
+  enum first-variant value into storage as a silent fake choice, and
+  creates two-class document semantics in a mixed-author ecosystem — which
+  this project *is*, by design, because blueprints exist precisely so LLMs
+  author these documents too. Zero-fill must stay render-only.
+- **Example-fallback render** (fill absent fields from `example:` instead
+  of the type-empty zero value). Rejected: an example is realistic but
   *not the value most authors want* (the canonized framing), so it
   camouflages incompleteness and risks leaking placeholder/PII content
-  through a complete-looking export. Type-empty is honestly blank
+  through a complete-looking export. The zero value is honestly blank
   everywhere except enum. `example` keeps its existing home — blueprint
   `FillBehavior::Preview` for LLM/no-input *generation*, where a realistic
   shape genuinely helps — and does not follow onto the form render path.
 
 ## Implementation sketch
 
-1. **Type-empty value producer.** Factor the type-empty logic out of the
+1. **Zero-value producer.** Factor the type-empty logic out of the
    blueprint string emitter (`must_fill_value` / `first_enum` in
    `crates/core/src/quill/`) into a per-field `QuillValue` producer shared
    by blueprint emission and the render path — one source of truth for
-   "the empty value for this field."
-2. **Non-strict render mode.** On the render path
+   "the zero value for this field."
+2. **Zero-filled render mode.** On the render path
    (`crates/quillmark/src/orchestration/`), add a mode that, after
-   coercion, interpolates type-empty `QuillValue`s for absent fields
-   (mirroring `apply_defaults`, "authored value wins") and demotes
-   `must_fill_absent` from a hard error to a warning. The fill goes into
-   the `to_plate_json` projection only.
-3. **Strict path unchanged.** `coerce_and_validate` keeps hard-failing on
-   `must_fill_absent`; MCP `create_document` uses it as today.
-4. **Surface.** Expose mode selection on the render bindings (Rust / Wasm /
-   Python / CLI) and document that non-strict output is preview/export, not
-   a completeness assertion.
+   coercion, interpolates each absent field's zero value (mirroring
+   `apply_defaults`, "authored value wins") and demotes `must_fill_absent`
+   from a hard error to a warning. The fill goes into the `to_plate_json`
+   projection only.
+3. **Strict validation path unchanged.** `coerce_and_validate` keeps
+   hard-failing on `must_fill_absent`; MCP `create_document` uses it as
+   today.
+4. **Surface.** Expose render-fill selection on the bindings (Rust / Wasm /
+   Python / CLI) and document that zero-filled output is preview/export,
+   not a completeness assertion.
 
 ## Graduation
 
 Once implemented and tested, fold the conceptual model into
-[SCHEMAS.md](../canon/SCHEMAS.md) as a "Strict vs. non-strict" section
-(render mode ⊥ validation verdict; the two interfaces), add a one-line
-pointer from [BLUEPRINT.md](../canon/BLUEPRINT.md)'s filled-blueprints
-section, and delete this proposal.
+[SCHEMAS.md](../canon/SCHEMAS.md) as a "Zero-filled render" section (render
+fill ⊥ validation verdict; the two interfaces), add a one-line pointer from
+[BLUEPRINT.md](../canon/BLUEPRINT.md)'s filled-blueprints section, and
+delete this proposal.
