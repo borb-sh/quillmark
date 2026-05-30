@@ -85,6 +85,38 @@ jobs:
             --no-confirm \
             --execute
 
+      - name: Seed changelog entry
+        run: |
+          VERSION="${{ steps.version.outputs.next }}"
+          DATE=$(date +%Y-%m-%d)
+
+          # Changelog baseline: latest strict semver X.Y.Z tag (optional v
+          # prefix). Pre-release tags (e.g. v0.85.0-rc.1) are skipped so the
+          # commit range covers everything since the last final release.
+          LAST=$(git tag -l --sort=-v:refname \
+            | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)
+
+          # Build the seed section: a commit list maintainers refine in the PR.
+          {
+            echo "## v${VERSION} - ${DATE}"
+            echo
+            if [ -n "$LAST" ]; then
+              git log --no-merges --pretty='- %s' "${LAST}..HEAD"
+            else
+              git log --no-merges --pretty='- %s'
+            fi
+            echo
+          } > entry.md
+
+          # Splice the new section in directly after the "# Changelog" title.
+          [ -f CHANGELOG.md ] || printf '# Changelog\n\n' > CHANGELOG.md
+          { head -n1 CHANGELOG.md; echo; cat entry.md; tail -n +2 CHANGELOG.md; } \
+            > CHANGELOG.new && mv CHANGELOG.new CHANGELOG.md
+          rm entry.md
+
+          echo "Seeded changelog entry for v${VERSION}:"
+          cat CHANGELOG.md
+
       - name: Push branch and open PR
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
@@ -101,6 +133,10 @@ jobs:
 
           gh pr create \
             --title "chore(release): v${VERSION}" \
-            --body "Automated version bump to \`v${VERSION}\`. Merging this PR will tag and publish the release." \
+            --body "Automated version bump to \`v${VERSION}\`.
+
+          **Before merging:** review and edit the \`v${VERSION}\` section at the top of \`CHANGELOG.md\` on this branch — it is seeded with the raw commit list. The final section becomes the GitHub Release notes.
+
+          Merging this PR will tag and publish the release." \
             --base main \
             --head "$BRANCH"

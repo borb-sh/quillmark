@@ -54,6 +54,18 @@ jobs:
           git tag -a "v${VERSION}" -m "Release v${VERSION}"
           git push origin "v${VERSION}"
 
+      - name: Extract release notes
+        run: |
+          VERSION="${{ steps.version.outputs.next }}"
+          # Pull the section for this version out of CHANGELOG.md: everything
+          # between its "## v<version>" heading and the next "## " heading.
+          awk -v v="## v${VERSION}" \
+            '$0 ~ "^"v {f=1; next} /^## / && f {exit} f {print}' \
+            CHANGELOG.md > notes.md || true
+          # Fall back to a generic note if the section is missing or empty
+          # (e.g. an RC with no curated changelog).
+          [ -s notes.md ] || echo "Release v${VERSION}" > notes.md
+
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
@@ -62,12 +74,12 @@ jobs:
           if [[ "$VERSION" == *-* ]]; then
             gh release create "v${VERSION}" \
               --title "v${VERSION}" \
-              --notes "Pre-release v${VERSION}" \
+              --notes-file notes.md \
               --prerelease
           else
             gh release create "v${VERSION}" \
               --title "v${VERSION}" \
-              --notes "Release v${VERSION}" \
+              --notes-file notes.md \
               --latest
           fi
 
