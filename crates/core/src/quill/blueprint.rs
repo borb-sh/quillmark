@@ -391,6 +391,11 @@ fn write_typed_table_field(
             out.push_str(&format!("{}{}:  # {}\n", pad, field.name, inline));
             write_array_items(out, &items, &pad);
         }
+        None if item_props.is_empty() => {
+            // Row type declares no properties: emit an empty (type-valid)
+            // array rather than a null synthetic row.
+            out.push_str(&format!("{}{}: []  # {}\n", pad, field.name, inline));
+        }
         None => {
             out.push_str(&format!("{}{}:  # {}\n", pad, field.name, inline));
             let dash_pad = "  ".repeat(indent + 1);
@@ -443,6 +448,11 @@ fn write_typed_object_field(
             for (k, v) in &map {
                 out.push_str(&format!("{}{}: {}\n", inner_pad, k, render_scalar(v)));
             }
+        }
+        None if props.is_empty() => {
+            // Empty typed object: no leaves to fill, so the value cell is an
+            // empty (type-valid) object rather than a bare null.
+            out.push_str(&format!("{}{}: {{}}  # {}\n", pad, field.name, inline));
         }
         None => {
             out.push_str(&format!("{}{}:  # {}\n", pad, field.name, inline));
@@ -1223,6 +1233,41 @@ main:
         assert!(out.contains("issued: \"\"  # date<YYYY-MM-DD>\n"));
         assert!(out.contains("severity: low  # enum<low | medium | high>\n"));
         assert!(out.contains("bio: |-  # markdown\n  \n"));
+    }
+
+    #[test]
+    fn empty_typed_object_and_table_render_type_valid_and_validate() {
+        // `properties: {}` is a legal (if degenerate) schema — the rejection
+        // targets *absent* properties (freeform), not empty ones. With no
+        // leaves to fill, the value cell must be the empty container (`{}` /
+        // `[]`), not a bare null that fails the field's own validation.
+        let config = cfg(r#"
+quill: { name: x, version: 1.0.0, backend: typst, description: x }
+main:
+  fields:
+    addr: { type: object, properties: {} }
+    rows: { type: array,  properties: {} }
+"#);
+        for behavior in [
+            super::FillBehavior::Strict,
+            super::FillBehavior::Preview,
+            super::FillBehavior::TypeEmpty,
+        ] {
+            let bp = config.blueprint_filled(behavior);
+            assert!(
+                bp.contains("addr: {}  # object\n"),
+                "{behavior:?} object cell:\n{bp}"
+            );
+            assert!(
+                bp.contains("rows: []  # array<object>\n"),
+                "{behavior:?} table cell:\n{bp}"
+            );
+            let doc = Document::from_markdown(&bp)
+                .unwrap_or_else(|e| panic!("{behavior:?} must parse: {e:?}\n---\n{bp}"));
+            config.validate_document(&doc).unwrap_or_else(|errs| {
+                panic!("{behavior:?} must validate: {errs:?}\n---\n{bp}")
+            });
+        }
     }
 
     #[test]
