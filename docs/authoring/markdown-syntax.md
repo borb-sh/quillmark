@@ -68,10 +68,11 @@ block is followed by its Markdown prose body. The document's first block (the
 root block) names the rendering format; later blocks are composable
 [cards](cards.md).
 
-Because a bare `~~~` block is a card-yaml block, writing a literal `~~~`-style
-fenced code block in prose requires an escape hatch: use four or more tildes
-(`~~~~`), backticks, or a `~~~` fence carrying a language info string. Apart
-from that, ordinary Markdown markers keep their CommonMark meaning. A `---`
+Because every column-zero `~~~` block is a card-yaml block, writing a literal
+fenced code block in prose requires the escape hatch: use a **backtick fence**
+(or a `~~~` fence carrying a language info string). Adding more tildes does not
+escape — a `~~~~` block is still a card. Apart from that, ordinary Markdown
+markers keep their CommonMark meaning. A `---`
 line in body content is a thematic break or a setext heading underline,
 exactly as CommonMark defines it — it has no special role in Quillmark. The
 full block-detection rules are in

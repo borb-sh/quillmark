@@ -54,8 +54,8 @@ All card blocks are collected into the plate JSON's `$cards` array.
 - A blank line is required immediately above every `~~~` opener
   (unless the block is the very first line of the document). A `~~~`
   line without a blank line above it is treated as an ordinary code block.
-  To write a literal `~~~`-style fenced code block in prose, use four or more
-  tildes (`~~~~`), backticks, or a `~~~` fence with a language info string.
+  To write a literal fenced code block in prose, use a backtick fence (or a
+  `~~~` fence with a language info string); a `~~~~` block is still a card.
 - YAML comments round-trip through the canonical form. Own-line comments
   and inline trailing comments are preserved on both `$` metadata lines
   and data-field lines.

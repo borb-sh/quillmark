@@ -39,10 +39,11 @@ A blank line is required immediately above every `~~~` opener,
 `~~~` line without a blank line above it is **not** an opener — it is
 treated as an ordinary code block.
 
-Because a bare `~~~` block is a card-yaml block, writing a literal
-`~~~`-style fenced code block in prose requires an escape hatch: use **four
-or more tildes** (`~~~~`), backticks, or a `~~~` fence carrying a language
-info string (e.g. `~~~rust`). A `~~~` fence with any info string other than
+Because every column-zero `~~~` block is a card-yaml block, writing a literal
+fenced code block in prose requires the escape hatch: use a **backtick fence**
+(or a `~~~` fence carrying a language info string, e.g. `~~~rust`). Adding more
+tildes does not escape — a `~~~~` block is still a card (its closer must just
+be at least as long). A `~~~` fence whose info string is anything other than
 the legacy `card-yaml` stays an ordinary code block.
 
 ## System Metadata (`$`)
