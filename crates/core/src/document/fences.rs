@@ -198,26 +198,25 @@ fn looks_like_yaml_key_line(line: &str) -> bool {
     i < bytes.len() && bytes[i] == b':'
 }
 
-/// Look for a matching `---` line further down in the document, with at least
-/// one YAML-key-shaped line between the openers. Returns the line index of the
-/// closing `---` if found.
+/// `true` when a matching `---` line appears further down with at least one
+/// YAML-key-shaped line between the two `---` markers.
 ///
-/// Used after the root block has already been parsed: a second `---` block
-/// further down is almost certainly a misplaced composable card.
-fn find_paired_dash_with_yaml_keys(lines: &Lines<'_>, opener_k: usize) -> Option<usize> {
+/// Used after the root block has already been parsed: such a paired `---`
+/// block is almost certainly a misplaced composable card.
+fn has_paired_dash_with_yaml_keys(lines: &Lines<'_>, opener_k: usize) -> bool {
     let mut saw_yaml_key = false;
     let mut j = opener_k + 1;
     while j < lines.len() {
         let text = lines.line_text(j);
         if is_dash_fence_line(text) {
-            return if saw_yaml_key { Some(j) } else { None };
+            return saw_yaml_key;
         }
         if looks_like_yaml_key_line(text) {
             saw_yaml_key = true;
         }
         j += 1;
     }
-    None
+    false
 }
 
 /// Outcome of the fence-detection pass: the recognised metadata blocks and any
@@ -287,12 +286,14 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
                 j += 1;
             }
             let Some(cj) = closer_k else {
-                return Err(ParseError::InvalidStructure(
-                    "card-yaml block opened with `~~~` but never closed. \
-                     Close the block with a line containing exactly `~~~` (three tildes, no \
-                     info string) before any prose body."
-                        .to_string(),
-                ));
+                // No closer before EOF. Per CommonMark an unclosed `~~~` fence
+                // is an ordinary fenced code block running to end of document,
+                // not a card-yaml block — so delegate it rather than erroring.
+                // Shielding here also lets the end-of-document check below
+                // surface the unclosed-fence warning.
+                open_code_fence = Some((b'~', open_run, k));
+                k += 1;
+                continue;
             };
 
             let block = super::assemble::build_block(
@@ -345,13 +346,12 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
                         j += 1;
                     }
                     let Some(cj) = closer_k else {
-                        return Err(ParseError::InvalidStructure(
-                            "Root metadata block opened with `---` but never closed with a \
-                             matching `---` line. Close the block with a line containing \
-                             exactly `---` before any prose body, or rewrite the block using \
-                             `~~~` fences (the canonical form)."
-                                .to_string(),
-                        ));
+                        // No matching `---` closer: per CommonMark a lone
+                        // leading `---` is a thematic break, not frontmatter.
+                        // Fall through (no root block is built here, so the
+                        // document surfaces MissingQuill downstream).
+                        k += 1;
+                        continue;
                     };
 
                     let block = super::assemble::build_block(
@@ -372,17 +372,14 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
             // `---` further down AND has YAML-key content between is almost
             // certainly a misplaced composable-card attempt — surface the
             // standard error rather than silently treating it as body text.
-            if !blocks.is_empty() && blank_above {
-                if let Some(cj) = find_paired_dash_with_yaml_keys(&lines, k) {
-                    let _ = cj; // position is captured for future diagnostics
-                    return Err(ParseError::InvalidStructure(
-                        "Composable card block opened with `---` but composable cards \
-                         must use `~~~` fences. Replace the opening `---` and the \
-                         closing `---` with `~~~` (three tildes, no info string). The \
-                         `---` style is accepted only for the document's root block."
-                            .to_string(),
-                    ));
-                }
+            if !blocks.is_empty() && blank_above && has_paired_dash_with_yaml_keys(&lines, k) {
+                return Err(ParseError::InvalidStructure(
+                    "Composable card block opened with `---` but composable cards \
+                     must use `~~~` fences. Replace the opening `---` and the \
+                     closing `---` with `~~~` (three tildes, no info string). The \
+                     `---` style is accepted only for the document's root block."
+                        .to_string(),
+                ));
             }
 
             // Fall through: a lone `---` is delegated to CommonMark as a

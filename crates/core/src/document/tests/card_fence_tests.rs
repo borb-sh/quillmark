@@ -216,14 +216,19 @@ fn indented_tilde_opener_is_not_a_card() {
 }
 
 #[test]
-fn unclosed_bare_tilde_in_body_is_a_parse_error() {
-    // A bare `~~~` opener with a blank line above but no matching closer is an
-    // unclosed card-yaml block — a hard parse error, mirroring an unclosed
-    // root block. (CommonMark alone would treat it as a code block to EOF; the
-    // card-yaml superset claims the bare `~~~` first.)
+fn unclosed_bare_tilde_in_body_falls_through_to_commonmark() {
+    // A bare `~~~` opener in the body with no matching closer is not a hard
+    // error: per CommonMark an unclosed fence is an ordinary code block running
+    // to end of document. The root parses, the stray `~~~` stays in the body,
+    // and a non-fatal unclosed-fence warning is emitted.
     let src = "~~~\n$quill: q\n$kind: main\n~~~\n\nIntro.\n\n~~~\nstray\n";
-    let err = Document::from_markdown(src).unwrap_err().to_string();
-    assert!(err.contains("never closed"), "got: {err}");
+    let out = Document::from_markdown_with_warnings(src).unwrap();
+    assert_eq!(out.document.cards().len(), 0);
+    assert!(out.document.main().body().contains("~~~\nstray"));
+    assert!(out
+        .warnings
+        .iter()
+        .any(|w| w.code.as_deref() == Some("parse::unclosed_code_block")));
 }
 
 // ── Non-card fenced code blocks are untouched ─────────────────────────────────

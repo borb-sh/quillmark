@@ -137,6 +137,10 @@ fn scanner_agrees_with_commonmark_on_synthetic_corpus() {
             "~~~\n$quill: q\n$kind: main\n~~~\n\n```\n~~~\nx\n~~~\n```\n\nBody.\n",
         ),
         (
+            "unclosed `~~~` in body is CommonMark code to EOF, not a card",
+            "~~~\n$quill: q\n$kind: main\n~~~\n\nIntro.\n\n~~~\nstray\n",
+        ),
+        (
             "tilde fence with language info in body",
             "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~rust\nlet x = 1;\n~~~\n",
         ),

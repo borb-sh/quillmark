@@ -144,7 +144,9 @@ with the same payload.
 - **Matched fences.** Within a single block, opener and closer must agree:
   a `---` opener requires a `---` closer, and a `~~~` opener (bare or the
   legacy `~~~card-yaml`) requires a `~~~` closer. Mixed forms (`---` … `~~~`,
-  `~~~` … `---`) surface as the "never closed" parse error.
+  `~~~` … `---`) leave the opener unclosed, so it falls through to CommonMark
+  (code block to EOF, or a thematic break for a lone `---`) rather than being
+  recognised as a block.
 - **Composable position.** A `---` line after the root block — when it
   pairs with a later `---` and has YAML-key content between — is a
   misplaced composable card and is rejected with a diagnostic that names
@@ -299,8 +301,12 @@ applies to `---` lines inside an open `---`-fenced root block.
 
 A `~~~` line that fails D0 or D1 is delegated to CommonMark as an ordinary
 fenced code block (see above). A `~~~` opener (D0 and D1 satisfied) with no
-matching `~~~` closer before EOF — and equivalently a `---` root opener with
-no matching `---` closer — is a hard parse error (§10). A `---` line that fails R1 falls through to CommonMark
+matching `~~~` closer before EOF is likewise **not** a card-yaml block: per
+CommonMark an unclosed `~~~` fence is an ordinary code block running to end of
+document (a non-fatal unclosed-fence warning is emitted). Equivalently, a `---`
+root opener with no matching `---` closer is a thematic break, not frontmatter.
+In either case no block is built; a document left with no recognised root
+block fails with `MissingQuill` (§10). A `---` line that fails R1 falls through to CommonMark
 unless it pairs with a later `---` line that holds YAML-key content between
 them, in which case it is rejected as a misplaced composable card (§10).
 
@@ -499,13 +505,13 @@ or compare for equality.
 
 Parse errors include:
 
-- A `~~~` opener with no matching `~~~` closer before EOF (or,
-  equivalently, a `---` root opener with no matching `---` closer).
+- The document has no recognised root block (`MissingQuill`). This covers an
+  unclosed root fence: an unclosed `~~~` opener or a `---` opener with no
+  matching `---` closer is delegated to CommonMark (§4) rather than erroring
+  on its own, but with no closed root block the document still fails here.
 - A `---` line in composable position (after the root block) that pairs
   with a later `---` and holds YAML-key content between — composable
   cards must use `~~~` fences (§3.2.1).
-- Mixed fence markers within a single block — `---` opener with `~~~`
-  closer or vice versa (surfaces as the "never closed" error).
 - The root block missing its `$quill` entry.
 - The root block declaring a non-`main` `$kind` (an omitted `$kind` on
   the root is accepted and synthesised; only an explicit non-`main`
