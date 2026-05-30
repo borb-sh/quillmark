@@ -223,13 +223,15 @@ fn upsert_producer(info_dict: &[u8], literal: &[u8]) -> Vec<u8> {
             out
         }
         Some(value) => {
-            // `value` is a subslice of `info_dict`; recover its byte range.
+            // `value` is a subslice of `info_dict` whose start is exactly the
+            // byte after the matched `/Producer` key (find_dict_value's
+            // contract), so the key span is `[value_start - key.len, value_end)`.
+            // Deriving it this way — rather than a naive forward search for
+            // `/Producer` — avoids matching the token inside an earlier key or
+            // string value.
             let value_start = value.as_ptr() as usize - info_dict.as_ptr() as usize;
             let value_end = value_start + value.len();
-            let key_at = info_dict
-                .windows(key.len())
-                .position(|w| w == key)
-                .unwrap_or(value_start);
+            let key_at = value_start - key.len();
             let mut out = Vec::new();
             out.extend_from_slice(&info_dict[..key_at]);
             out.extend_from_slice(b"/Producer ");
@@ -296,14 +298,14 @@ fn rewrite_page_with_annots(pg_dict: &[u8], widget_refs: &[u32]) -> Result<Vec<u
                     String::from_utf8_lossy(inner).trim(),
                     widgets_str
                 );
+                // `existing` is find_dict_value's slice: its start is the byte
+                // after `/Annots`, and its length spans the whole value. So the
+                // key+value occupies `[value_start - key.len, value_end)` — no
+                // re-scan needed, and no risk of matching `/Annots` elsewhere.
                 let key = b"/Annots";
-                let key_at = pg_dict
-                    .windows(key.len())
-                    .position(|w| w == key)
-                    .ok_or_else(|| err(CODE_PARSE, "/Annots key relocated mid-rewrite"))?;
-                let value_start = key_at + key.len();
-                let value_end = find_value_end(pg_dict, value_start)
-                    .ok_or_else(|| err(CODE_PARSE, "/Annots value end not found"))?;
+                let value_start = existing.as_ptr() as usize - pg_dict.as_ptr() as usize;
+                let key_at = value_start - key.len();
+                let value_end = value_start + existing.len();
                 let mut out = Vec::new();
                 out.extend_from_slice(&pg_dict[..key_at]);
                 out.extend_from_slice(b"/Annots ");
@@ -321,38 +323,4 @@ fn rewrite_page_with_annots(pg_dict: &[u8], widget_refs: &[u32]) -> Result<Vec<u
             }
         }
     }
-}
-
-fn find_value_end(dict: &[u8], start: usize) -> Option<usize> {
-    let mut i = start;
-    let mut depth_dict = 0i32;
-    let mut depth_array = 0i32;
-    while i < dict.len() {
-        if dict[i..].starts_with(b"<<") {
-            depth_dict += 1;
-            i += 2;
-            continue;
-        }
-        if dict[i..].starts_with(b">>") {
-            if depth_dict == 0 {
-                return Some(i);
-            }
-            depth_dict -= 1;
-            i += 2;
-            continue;
-        }
-        match dict[i] {
-            b'[' => {
-                depth_array += 1;
-                i += 1;
-            }
-            b']' => {
-                depth_array -= 1;
-                i += 1;
-            }
-            b'/' if depth_dict == 0 && depth_array == 0 && i > start => return Some(i),
-            _ => i += 1,
-        }
-    }
-    Some(i)
 }

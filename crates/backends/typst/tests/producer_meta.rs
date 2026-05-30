@@ -108,6 +108,33 @@ fn producer_override_via_render_options() {
 }
 
 #[test]
+fn producer_override_non_ascii_roundtrips() {
+    // A non-ASCII override takes the UTF-16BE+BOM hex-string branch of
+    // pdf_text_string; assert it decodes back to the original.
+    let source = host_source();
+    let backend = TypstBackend;
+    let session = backend
+        .open(PLATE, &source, &serde_json::json!({}))
+        .expect("open session");
+    let override_str = "Quillmark 日本語 ✒";
+    let result = session
+        .render(&RenderOptions {
+            output_format: Some(OutputFormat::Pdf),
+            producer: Some(override_str.to_string()),
+            ..Default::default()
+        })
+        .expect("render ok");
+    // lopdf hands back the decoded hex bytes: a UTF-16BE BOM then the code units.
+    let bytes = producer_of(&result.artifacts[0].bytes);
+    assert_eq!(&bytes[..2], &[0xFE, 0xFF], "expected UTF-16BE BOM");
+    let units: Vec<u16> = bytes[2..]
+        .chunks_exact(2)
+        .map(|p| u16::from_be_bytes([p[0], p[1]]))
+        .collect();
+    assert_eq!(String::from_utf16(&units).unwrap(), override_str);
+}
+
+#[test]
 fn producer_composes_with_signature_field() {
     // One incremental update must carry both: a signature widget AND the
     // /Producer stamp.
