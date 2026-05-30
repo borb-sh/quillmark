@@ -2497,15 +2497,15 @@ main:
 #[test]
 fn example_integer_type_rejects_float_example() {
     // type: integer with example: 20.04 fails — float is not an integer.
-    let yaml = example_default_yaml("    year:\n      type: integer\n      example: 20.04\n");
+    let yaml = example_default_yaml(
+        "    year:\n      type: integer\n      example: 20.04\n",
+    );
     let errors = QuillConfig::from_yaml_with_warnings(&yaml).unwrap_err();
     assert!(
-        errors.iter().any(
-            |d| d.code.as_deref() == Some("quill::example_type_mismatch")
-                && d.message.contains("year")
-                && d.message.contains("integer")
-                && d.message.contains("float")
-        ),
+        errors.iter().any(|d| d.code.as_deref() == Some("quill::example_type_mismatch")
+            && d.message.contains("year")
+            && d.message.contains("integer")
+            && d.message.contains("float")),
         "expected example_type_mismatch error for integer/float, got: {:?}",
         errors
     );
@@ -2515,8 +2515,9 @@ fn example_integer_type_rejects_float_example() {
 fn example_string_type_rejects_unquoted_decimal_example() {
     // The canonical bug: type: string with example: 20.04 — YAML parses the
     // bare token as a float, and the LLM would copy it back unquoted.
-    let yaml =
-        example_default_yaml("    min_os_version:\n      type: string\n      example: 20.04\n");
+    let yaml = example_default_yaml(
+        "    min_os_version:\n      type: string\n      example: 20.04\n",
+    );
     let errors = QuillConfig::from_yaml_with_warnings(&yaml).unwrap_err();
     let diag = errors
         .iter()
@@ -2536,23 +2537,24 @@ fn example_string_type_rejects_unquoted_decimal_example() {
 #[test]
 fn example_string_type_accepts_quoted_decimal_example() {
     // The fix: quoting forces the YAML parser to keep it as a string.
-    let yaml =
-        example_default_yaml("    min_os_version:\n      type: string\n      example: \"20.04\"\n");
+    let yaml = example_default_yaml(
+        "    min_os_version:\n      type: string\n      example: \"20.04\"\n",
+    );
     QuillConfig::from_yaml(&yaml).expect("quoted string example should load");
 }
 
 #[test]
 fn example_boolean_type_rejects_string_example() {
     // type: boolean with example: "true" — the LLM would emit it as a string.
-    let yaml = example_default_yaml("    flag:\n      type: boolean\n      example: \"true\"\n");
+    let yaml = example_default_yaml(
+        "    flag:\n      type: boolean\n      example: \"true\"\n",
+    );
     let errors = QuillConfig::from_yaml_with_warnings(&yaml).unwrap_err();
     assert!(
-        errors.iter().any(
-            |d| d.code.as_deref() == Some("quill::example_type_mismatch")
-                && d.message.contains("flag")
-                && d.message.contains("boolean")
-                && d.message.contains("string")
-        ),
+        errors.iter().any(|d| d.code.as_deref() == Some("quill::example_type_mismatch")
+            && d.message.contains("flag")
+            && d.message.contains("boolean")
+            && d.message.contains("string")),
         "expected example_type_mismatch error for boolean/string, got: {:?}",
         errors
     );
@@ -2561,15 +2563,15 @@ fn example_boolean_type_rejects_string_example() {
 #[test]
 fn example_array_type_rejects_string_example() {
     // type: array with example: foo — a sequence is required.
-    let yaml = example_default_yaml("    tags:\n      type: array\n      example: foo\n");
+    let yaml = example_default_yaml(
+        "    tags:\n      type: array\n      example: foo\n",
+    );
     let errors = QuillConfig::from_yaml_with_warnings(&yaml).unwrap_err();
     assert!(
-        errors.iter().any(
-            |d| d.code.as_deref() == Some("quill::example_type_mismatch")
-                && d.message.contains("tags")
-                && d.message.contains("array")
-                && d.message.contains("string")
-        ),
+        errors.iter().any(|d| d.code.as_deref() == Some("quill::example_type_mismatch")
+            && d.message.contains("tags")
+            && d.message.contains("array")
+            && d.message.contains("string")),
         "expected example_type_mismatch error for array/string, got: {:?}",
         errors
     );
@@ -2601,7 +2603,9 @@ fn example_in_enum_loads_successfully() {
 #[test]
 fn default_with_type_mismatch_is_rejected() {
     // Defaults are validated the same way as examples.
-    let yaml = example_default_yaml("    version:\n      type: string\n      default: 20.04\n");
+    let yaml = example_default_yaml(
+        "    version:\n      type: string\n      default: 20.04\n",
+    );
     let errors = QuillConfig::from_yaml_with_warnings(&yaml).unwrap_err();
     let diag = errors
         .iter()

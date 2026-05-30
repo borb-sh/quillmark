@@ -282,10 +282,7 @@ fn write_field(out: &mut String, field: &FieldSchema, indent: usize, behavior: F
         return;
     }
 
-    let inline = format!(
-        "  # {}",
-        inline_annotation(field, false, field.default.is_some())
-    );
+    let inline = format!("  # {}", inline_annotation(field, false, field.default.is_some()));
     let value = field_value(field, behavior);
     write_value(out, &field.name, &value, &inline, &pad);
 }
@@ -1283,9 +1280,9 @@ main:
             );
             let doc = Document::from_markdown(&bp)
                 .unwrap_or_else(|e| panic!("{behavior:?} must parse: {e:?}\n---\n{bp}"));
-            config
-                .validate_document(&doc)
-                .unwrap_or_else(|errs| panic!("{behavior:?} must validate: {errs:?}\n---\n{bp}"));
+            config.validate_document(&doc).unwrap_or_else(|errs| {
+                panic!("{behavior:?} must validate: {errs:?}\n---\n{bp}")
+            });
         }
     }
 

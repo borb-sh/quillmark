@@ -68,12 +68,12 @@ fn test_root_dash_frontmatter_without_quill_reports_missing_quill() {
     // "use `~~~card-yaml` instead of `---`" hint, which is now misleading.
     let err = decompose("---\nquill: usaf_memo\ntitle: Memo\n---\n\nBody\n").unwrap_err();
     let msg = err.to_string();
-    assert!(msg.contains("must declare `$quill: <name>`"), "got: {msg}");
-    assert!(!msg.contains("`---` YAML frontmatter"), "stale hint: {msg}");
     assert!(
-        !msg.contains("Replace the opening `---`"),
-        "stale hint: {msg}"
+        msg.contains("must declare `$quill: <name>`"),
+        "got: {msg}"
     );
+    assert!(!msg.contains("`---` YAML frontmatter"), "stale hint: {msg}");
+    assert!(!msg.contains("Replace the opening `---`"), "stale hint: {msg}");
 }
 
 #[test]
@@ -96,20 +96,15 @@ fn test_missing_block_with_bare_yaml_calls_out_missing_fence() {
 #[test]
 fn test_dash_root_block_parses_equivalent_to_card_yaml() {
     let dash_md = "---\n$quill: test_quill\n$kind: main\ntitle: Test\n---\n\nBody.";
-    let canonical_md = "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\nBody.";
+    let canonical_md =
+        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\nBody.";
     let dash_doc = decompose(dash_md).expect("--- root block should parse");
     let canonical_doc = decompose(canonical_md).expect("canonical root block parses");
     // PartialEq on Document ignores warnings; just compares main + cards.
     assert_eq!(dash_doc, canonical_doc);
     assert_eq!(dash_doc.quill_reference().name, "test_quill");
     assert_eq!(
-        dash_doc
-            .main()
-            .payload()
-            .get("title")
-            .unwrap()
-            .as_str()
-            .unwrap(),
+        dash_doc.main().payload().get("title").unwrap().as_str().unwrap(),
         "Test"
     );
     assert_eq!(dash_doc.main().body(), "\nBody.");
@@ -126,10 +121,7 @@ fn test_dash_root_block_emits_canonical_card_yaml() {
         emitted.starts_with("~~~\n"),
         "expected canonical opener, got: {emitted:?}"
     );
-    assert!(
-        !emitted.contains("---\n"),
-        "stray dash fence in emit: {emitted:?}"
-    );
+    assert!(!emitted.contains("---\n"), "stray dash fence in emit: {emitted:?}");
 }
 
 #[test]
@@ -294,7 +286,10 @@ Content without closing fence";
 
     let result = decompose(markdown);
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("never closed"));
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("never closed"));
 }
 
 // Extended metadata tests

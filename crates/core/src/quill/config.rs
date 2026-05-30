@@ -555,9 +555,10 @@ impl QuillConfig {
             return true;
         }
         match field_type {
-            FieldType::String | FieldType::Markdown | FieldType::Date | FieldType::DateTime => {
-                value.is_string()
-            }
+            FieldType::String
+            | FieldType::Markdown
+            | FieldType::Date
+            | FieldType::DateTime => value.is_string(),
             FieldType::Integer => value.is_i64() || value.is_u64(),
             FieldType::Number => value.is_number(),
             FieldType::Boolean => value.is_boolean(),
@@ -606,28 +607,27 @@ impl QuillConfig {
                 let actual = Self::value_shape(raw);
                 let declared = schema.r#type.as_str();
                 let preview = Self::value_preview(raw);
-                let hint =
-                    if actual == "float" || actual == "integer" {
-                        format!(
+                let hint = if actual == "float" || actual == "integer" {
+                    format!(
                         "Quote the {slot} as \"{val}\" if the value is intentionally a string, \
                          or change the field type to '{actual}'.",
                         slot = slot,
                         val = raw.to_string().trim_matches('"'),
                         actual = if actual == "integer" { "integer" } else { "number" },
                     )
-                    } else if actual == "string" {
-                        format!(
-                            "Remove the quotes around the {slot} value to keep it a {declared}.",
-                            slot = slot,
-                            declared = declared,
-                        )
-                    } else {
-                        format!(
+                } else if actual == "string" {
+                    format!(
+                        "Remove the quotes around the {slot} value to keep it a {declared}.",
+                        slot = slot,
+                        declared = declared,
+                    )
+                } else {
+                    format!(
                         "Make the {slot} value a {declared}, or change the field type to match.",
                         slot = slot,
                         declared = declared,
                     )
-                    };
+                };
                 errors.push(
                     Diagnostic::new(
                         Severity::Error,

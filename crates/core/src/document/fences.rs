@@ -17,7 +17,7 @@ use super::assemble::MetadataBlock;
 
 /// The legacy info string that also opens a card-yaml block. Accepted on input
 /// for backward compatibility but never emitted — canonical openers are bare
-/// `~~~` (see [`is_card_yaml_opener`]).
+/// `~~~` (see [`card_yaml_opener_run`]).
 const CARD_YAML_INFO: &str = "card-yaml";
 
 /// Line-oriented view of the source, used for fence detection.
