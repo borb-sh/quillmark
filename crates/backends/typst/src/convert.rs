@@ -403,24 +403,24 @@ where
                     }
                     TagEnd::CodeBlock => {
                         in_code_block = false;
-                        // Choose a fence long enough that no backtick run in the content
-                        // can close the Typst raw block early (min 3 backticks).
-                        let fence_len = (longest_backtick_run(&code_block_buffer) + 1).max(3);
-                        let fence: String = std::iter::repeat('`').take(fence_len).collect();
-                        // Opening fence + language tag.
-                        output.push_str(&fence);
-                        output.push_str(&code_block_lang);
-                        output.push('\n');
-                        // Content (verbatim), guaranteeing the closing fence starts on its own line.
-                        output.push_str(&code_block_buffer);
-                        if !code_block_buffer.ends_with('\n') {
-                            output.push('\n');
+                        // A Typst ``` fenced block is just sugar for the `raw` element, so
+                        // emit `#raw(...)` directly with the content in a string literal.
+                        // This sidesteps backtick-delimiter collisions entirely: the only
+                        // characters that can break a string are `"` and `\`, both handled
+                        // by escape_string. The trailing newline pulldown appends is the
+                        // last line's terminator, not content, so it is dropped.
+                        let content = code_block_buffer
+                            .strip_suffix('\n')
+                            .unwrap_or(&code_block_buffer);
+                        output.push_str("#raw(block: true");
+                        if !code_block_lang.is_empty() {
+                            output.push_str(", lang: \"");
+                            output.push_str(&escape_string(&code_block_lang));
+                            output.push('"');
                         }
-                        if in_list_item {
-                            let cont_indent = "  ".repeat(list_stack.len());
-                            output.push_str(&cont_indent);
-                        }
-                        output.push_str(&fence);
+                        output.push_str(", \"");
+                        output.push_str(&escape_string(content));
+                        output.push_str("\")");
                         output.push('\n');
                         if !in_list_item {
                             output.push('\n');
@@ -1215,55 +1215,54 @@ mod tests {
     fn test_code_block_standalone() {
         let markdown = "```rust\nfn main() {}\n```";
         let typst = mark_to_typst(markdown).unwrap();
-        assert_eq!(typst, "```rust\nfn main() {}\n```\n\n");
+        assert_eq!(typst, "#raw(block: true, lang: \"rust\", \"fn main() {}\")\n\n");
     }
 
     #[test]
     fn test_code_block_no_lang() {
         let markdown = "```\nhello\n```";
         let typst = mark_to_typst(markdown).unwrap();
-        assert_eq!(typst, "```\nhello\n```\n\n");
+        assert_eq!(typst, "#raw(block: true, \"hello\")\n\n");
     }
 
     #[test]
     fn test_code_block_with_triple_backtick_content() {
-        // A fenced block whose content contains a run of 3 backticks must be fenced
-        // with 4 backticks so the inner run does not close the Typst raw block early.
+        // Backtick runs in the content are harmless inside a string literal: they
+        // appear verbatim and cannot close the `raw` span. (`\n` escapes newlines.)
         let markdown = "````\n```\nnested\n```\n````";
         let typst = mark_to_typst(markdown).unwrap();
-        assert_eq!(typst, "````\n```\nnested\n```\n````\n\n");
+        assert_eq!(typst, "#raw(block: true, \"```\\nnested\\n```\")\n\n");
     }
 
     #[test]
     fn test_code_block_with_quad_backtick_content() {
-        // Content with a 4-backtick run needs a 5-backtick fence.
         let markdown = "`````\n````\nx\n````\n`````";
         let typst = mark_to_typst(markdown).unwrap();
-        assert_eq!(typst, "`````\n````\nx\n````\n`````\n\n");
+        assert_eq!(typst, "#raw(block: true, \"````\\nx\\n````\")\n\n");
     }
 
     #[test]
     fn test_code_block_with_inline_triple_backtick_lang() {
-        // Backtick run inside a language-tagged block still widens the fence.
         let markdown = "```text\na ``` b\n```";
         let typst = mark_to_typst(markdown).unwrap();
-        assert_eq!(typst, "````text\na ``` b\n````\n\n");
+        assert_eq!(typst, "#raw(block: true, lang: \"text\", \"a ``` b\")\n\n");
     }
 
     #[test]
     fn test_code_block_no_escaping() {
-        // Special chars in code blocks should NOT be escaped
+        // Markup special chars in code blocks must survive verbatim. Inside a Typst
+        // string literal only `"` and `\` are special, so `*`, `#`, `$` pass through.
         let markdown = "```\n*bold* #heading $math$\n```";
         let typst = mark_to_typst(markdown).unwrap();
-        assert_eq!(typst, "```\n*bold* #heading $math$\n```\n\n");
+        assert_eq!(typst, "#raw(block: true, \"*bold* #heading $math$\")\n\n");
     }
 
     #[test]
     fn test_code_block_in_list_item() {
         let markdown = "- Item text\n\n  ```\n  code here\n  ```";
         let typst = mark_to_typst(markdown).unwrap();
-        // pulldown_cmark strips indentation from code block content
-        assert_eq!(typst, "- Item text\n\n  ```\ncode here\n  ```\n\n");
+        // The `#raw(...)` call sits at the list-item continuation indent.
+        assert_eq!(typst, "- Item text\n\n  #raw(block: true, \"code here\")\n\n");
     }
 
     #[test]
@@ -1272,7 +1271,7 @@ mod tests {
         let typst = mark_to_typst(markdown).unwrap();
         assert_eq!(
             typst,
-            "- First para.\n\n  ```\ncode\n  ```\n\n  After code.\n\n"
+            "- First para.\n\n  #raw(block: true, \"code\")\n\n  After code.\n\n"
         );
     }
 
@@ -2204,14 +2203,18 @@ mod robustness_tests {
     fn test_fenced_code_block() {
         let markdown = "```rust\nfn main() {}\n```";
         let result = mark_to_typst(markdown).unwrap();
-        assert_eq!(result, "```rust\nfn main() {}\n```\n\n");
+        assert_eq!(result, "#raw(block: true, lang: \"rust\", \"fn main() {}\")\n\n");
     }
 
     #[test]
     fn test_indented_code_block() {
         let markdown = "    fn main() {}\n    println!()";
         let result = mark_to_typst(markdown).unwrap();
-        assert_eq!(result, "```\nfn main() {}\nprintln!()\n```\n\n");
+        // Multi-line content is a single string literal; `\n` carries the newline.
+        assert_eq!(
+            result,
+            "#raw(block: true, \"fn main() {}\\nprintln!()\")\n\n"
+        );
     }
 
     // Inline code edge cases
@@ -2572,23 +2575,22 @@ More text with `inline code`."#;
     fn test_code_block_lang_sanitized_simple() {
         // Normal language tags should pass through
         let result = mark_to_typst("```rust\ncode\n```").unwrap();
-        assert_eq!(result, "```rust\ncode\n```\n\n");
+        assert_eq!(result, "#raw(block: true, lang: \"rust\", \"code\")\n\n");
     }
 
     #[test]
     fn test_code_block_lang_sanitized_special_chars() {
-        // Language tag with special characters should be sanitized
-        // pulldown-cmark extracts info string as-is; we strip dangerous chars
+        // The language tag is reduced to its identifier prefix ("rust"); the trailing
+        // junk is dropped rather than carried into the `lang:` argument.
         let result = mark_to_typst("```rust#evil\ncode\n```").unwrap();
-        // '#' should be stripped, only "rust" remains
         assert!(
-            result.starts_with("```rust\n"),
-            "Lang tag should be sanitized to 'rust': got {}",
+            result.contains("lang: \"rust\""),
+            "Lang tag should be reduced to 'rust': got {}",
             result
         );
         assert!(
             !result.contains("#evil"),
-            "Special chars should be stripped from lang tag"
+            "Junk should be stripped from lang tag"
         );
     }
 
@@ -2597,14 +2599,16 @@ More text with `inline code`."#;
         // c++, objective-c, c_sharp etc. should be preserved
         let result = mark_to_typst("```c++\ncode\n```").unwrap();
         assert!(
-            result.starts_with("```c++\n"),
-            "c++ lang tag should be preserved"
+            result.contains("lang: \"c++\""),
+            "c++ lang tag should be preserved: got {}",
+            result
         );
 
         let result = mark_to_typst("```objective-c\ncode\n```").unwrap();
         assert!(
-            result.starts_with("```objective-c\n"),
-            "objective-c lang tag should be preserved"
+            result.contains("lang: \"objective-c\""),
+            "objective-c lang tag should be preserved: got {}",
+            result
         );
     }
 

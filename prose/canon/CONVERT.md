@@ -56,7 +56,7 @@ Two escapers guard the two Typst contexts:
 | `~~strike~~` | `#strike[…]` |
 | `<u>text</u>` | `#underline[…]` |
 | `` `code` `` | backtick-delimited raw (delimiter widened past any inner run) |
-| fenced / indented code block | ```` ```lang … ``` ```` raw block (fence widened past any inner backtick run) |
+| fenced / indented code block | `#raw(block: true, lang: "…", "…")` |
 | `[text](url)`, autolinks | `#link("url")[text]` (link title dropped) |
 | `![alt](src)` | `#image("src")` (alt text dropped) |
 | `-`, `*`, `+` bullet | `- ` |
@@ -76,11 +76,12 @@ Block quotes are not wrapped — their text flows through inline.
 
 - **Backslash first.** `escape_markup` replaces `\` before any other character,
   or later escapes would be double-escaped.
-- **Backtick fences are content-sized.** Both inline code and code blocks size
-  their backtick delimiter to `longest_run_in_content + 1` (min 3 for blocks),
-  so content containing ```` ``` ```` cannot close the raw span early. Block
-  content is buffered until `TagEnd::CodeBlock` so the full run is known before
-  the fence is written.
+- **Code blocks are emitted as `#raw(...)`, not ``` fences.** A ``` block is
+  just sugar for the `raw` element, so the content goes into a string literal
+  where backtick runs are inert — no delimiter can collide. Block content is
+  buffered until `TagEnd::CodeBlock` (to drop the trailing-newline terminator
+  and escape the whole string at once). Inline `` `code` `` still uses the
+  backtick form, sizing its delimiter to `longest_run_in_content + 1`.
 - **Underline vs bold.** `MarkdownFixer` emits `<u>` as strong-emphasis events;
   the emitter distinguishes underline from real `**`/`__` by peeking the source
   range at the tag's start.
