@@ -96,6 +96,30 @@ There is no separate `required:` axis; the presence or absence of
 `default:` is the sole author choice per field. See
 [BLUEPRINT.md](BLUEPRINT.md) for how the two cells render.
 
+#### Choosing `default` vs. `example`
+
+The two carry illustrative values but answer different questions, so the
+choice is a decision pair, not orthogonal axes:
+
+- **`default`** is the value the *majority of authors keep unchanged*. It
+  is provided up front and may be omitted by those authors, so the field
+  is Endorsed and the blueprint marks it `; delete-ok`. Use it only when a
+  value (including a type-empty value like `""` or `[]`) is genuinely
+  shippable as-is.
+- **`example`** conveys the right *type or semantic shape* but does **not**
+  survive as a viable default — there is no single value most authors would
+  ship. The field stays Must Fill (the blueprint renders `<must-fill>` plus
+  the `# e.g.` line) so authors are nudged to supply a real value and
+  validation enforces it.
+
+A placeholder that authors must replace before shipping (e.g. a recipient
+list rendered as `ORG1/SYMBOL`) belongs in `example`, not `default`:
+encoding it as a `default` would stamp `; delete-ok` on a value that is not
+actually shippable, telling LLM authors the field is safe to keep or omit
+when it is not. The "compile with nothing filled in" use case is served by
+the fill-behavior layer (`FillBehavior::Preview` / `TypeEmpty` synthesize a
+type-valid value for Must Fill fields), not by manufacturing a `default`.
+
 Identity fields (`name`, `version`, `backend`, `author`, `description`) live on the parent metadata object (Wasm: `Quill.metadata`; Python: `Quill.metadata` plus dedicated getters).
 
 ### Bindings surface

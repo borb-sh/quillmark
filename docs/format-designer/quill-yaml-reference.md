@@ -80,7 +80,7 @@ main:
 | `type`        | string            | yes      | Data type (see [Field Types](#field-types)) |
 | `description` | string            | no       | Detailed help text |
 | `default`     | any               | no       | Default value when not provided. **Declaring `default` makes the field Endorsed**: the blueprint renders the default plus a `; delete-ok` tag. Omitting `default` makes the field **Must Fill**: the blueprint renders the `<must-fill>` sentinel and validation fires `validation::must_fill_absent` if the field is absent at validate time. |
-| `example`     | any               | no       | Illustrative value surfaced in the [blueprint](https://github.com/quillmark-org/quillmark/blob/main/prose/canon/BLUEPRINT.md) for documentation and LLM authoring |
+| `example`     | any               | no       | Illustrative value surfaced in the [blueprint](https://github.com/quillmark-org/quillmark/blob/main/prose/canon/BLUEPRINT.md)'s `# e.g.` line for documentation and LLM authoring. Use `example` (not `default`) when the value conveys the field's shape but most authors must replace it — a `default` is reserved for a value the majority of authors keep unchanged. |
 | `enum`        | array of strings  | no       | Restrict to specific values |
 | `ui`          | object            | no       | UI rendering hints (see [UI Properties](#ui-properties)) |
 | `properties`  | object            | no       | Nested field schemas (for `array` typed-table rows or `object` typed dictionaries) |
