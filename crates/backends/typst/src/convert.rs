@@ -178,6 +178,8 @@ where
     let mut in_list_item = false; // Track if we're inside a list item
     let mut list_item_first_block = false; // Track if we're on the first block of a list item
     let mut in_code_block = false; // Track if we're inside a code block
+    let mut code_block_buffer = String::new(); // Raw content of the current code block
+    let mut code_block_lang = String::new(); // Sanitized language tag of the current code block
     let mut table_alignments: Vec<pulldown_cmark::Alignment> = Vec::new(); // Column alignments for current table
     let mut depth = 0; // Track nesting depth for DoS prevention
     let mut in_image = false; // Suppress text events inside ![alt](src)
@@ -216,6 +218,14 @@ where
                     }
                     Tag::CodeBlock(kind) => {
                         in_code_block = true;
+                        // Buffer the content so the closing/opening fences can use enough
+                        // backticks to avoid colliding with backtick runs inside the block
+                        // (the fence is emitted in TagEnd::CodeBlock once content is known).
+                        code_block_buffer.clear();
+                        code_block_lang.clear();
+                        if let pulldown_cmark::CodeBlockKind::Fenced(lang) = kind {
+                            code_block_lang = sanitize_lang_tag(&lang);
+                        }
                         if in_list_item {
                             // Code block inside list item: continuation indent
                             let cont_indent = "  ".repeat(list_stack.len());
@@ -232,14 +242,6 @@ where
                         } else if !end_newline {
                             output.push('\n');
                         }
-                        output.push_str("```");
-                        if let pulldown_cmark::CodeBlockKind::Fenced(lang) = kind {
-                            let sanitized = sanitize_lang_tag(&lang);
-                            if !sanitized.is_empty() {
-                                output.push_str(&sanitized);
-                            }
-                        }
-                        output.push('\n');
                         end_newline = true;
                     }
                     Tag::HtmlBlock => {
@@ -393,17 +395,30 @@ where
                     }
                     TagEnd::CodeBlock => {
                         in_code_block = false;
-                        if !end_newline {
+                        // Choose a fence long enough that no backtick run in the content
+                        // can close the Typst raw block early (min 3 backticks).
+                        let fence_len = (longest_backtick_run(&code_block_buffer) + 1).max(3);
+                        let fence: String = std::iter::repeat('`').take(fence_len).collect();
+                        // Opening fence + language tag.
+                        output.push_str(&fence);
+                        output.push_str(&code_block_lang);
+                        output.push('\n');
+                        // Content (verbatim), guaranteeing the closing fence starts on its own line.
+                        output.push_str(&code_block_buffer);
+                        if !code_block_buffer.ends_with('\n') {
                             output.push('\n');
                         }
                         if in_list_item {
                             let cont_indent = "  ".repeat(list_stack.len());
                             output.push_str(&cont_indent);
                         }
-                        output.push_str("```\n");
+                        output.push_str(&fence);
+                        output.push('\n');
                         if !in_list_item {
                             output.push('\n');
                         }
+                        code_block_buffer.clear();
+                        code_block_lang.clear();
                         end_newline = true;
                         list_item_first_block = false;
                     }
@@ -484,9 +499,9 @@ where
                 if in_image {
                     // Suppress alt text inside ![alt](src) — spec §6.3
                 } else if in_code_block {
-                    // Code block content - no escaping needed
-                    output.push_str(&text);
-                    end_newline = text.ends_with('\n');
+                    // Code block content - no escaping needed. Buffered so the fence
+                    // width can be computed from the full content (see TagEnd::CodeBlock).
+                    code_block_buffer.push_str(&text);
                 } else {
                     let escaped = escape_markup(&text);
                     output.push_str(&escaped);
@@ -1175,6 +1190,31 @@ mod tests {
         let markdown = "```\nhello\n```";
         let typst = mark_to_typst(markdown).unwrap();
         assert_eq!(typst, "```\nhello\n```\n\n");
+    }
+
+    #[test]
+    fn test_code_block_with_triple_backtick_content() {
+        // A fenced block whose content contains a run of 3 backticks must be fenced
+        // with 4 backticks so the inner run does not close the Typst raw block early.
+        let markdown = "````\n```\nnested\n```\n````";
+        let typst = mark_to_typst(markdown).unwrap();
+        assert_eq!(typst, "````\n```\nnested\n```\n````\n\n");
+    }
+
+    #[test]
+    fn test_code_block_with_quad_backtick_content() {
+        // Content with a 4-backtick run needs a 5-backtick fence.
+        let markdown = "`````\n````\nx\n````\n`````";
+        let typst = mark_to_typst(markdown).unwrap();
+        assert_eq!(typst, "`````\n````\nx\n````\n`````\n\n");
+    }
+
+    #[test]
+    fn test_code_block_with_inline_triple_backtick_lang() {
+        // Backtick run inside a language-tagged block still widens the fence.
+        let markdown = "```text\na ``` b\n```";
+        let typst = mark_to_typst(markdown).unwrap();
+        assert_eq!(typst, "````text\na ``` b\n````\n\n");
     }
 
     #[test]
