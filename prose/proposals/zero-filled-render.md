@@ -36,10 +36,14 @@ natural state of a document is *in progress*.
 
 Two facts already in the codebase make the fix small:
 
-- The quill **authoring contract** guarantees every quill renders its own
-  type-empty blueprint (`blueprint_filled(FillBehavior::TypeEmpty)`,
-  enforced by `every_quill_in_quiver_renders`). Type-empty input is the
-  type-minimal valid document — the worst-case-but-renderable shape.
+- The quill **authoring contract** guarantees every quill renders
+  type-minimal valid input — today via the type-empty blueprint, and under
+  this proposal expressed directly as a **zero-filled render of an empty
+  document** (`every_quill_in_quiver_renders`). Type-empty input is the
+  worst-case-but-renderable shape, so that test doubles as the proof that
+  zero-filled render always compiles. (The companion
+  [blueprint/example split](blueprint-example-split.md) retires the
+  standalone type-empty *blueprint* mode in favor of this.)
 - `apply_defaults` already builds a throwaway `final_doc` for the plate
   JSON and does not persist it. The render projection is already the right
   place to inject values that never touch storage.
@@ -184,8 +188,9 @@ independent of origin. No two-class document semantics.
   *not the value most authors want* (the canonized framing), so it
   camouflages incompleteness and risks leaking placeholder/PII content
   through a complete-looking export. The zero value is honestly blank
-  everywhere except enum. `example` keeps its existing home — blueprint
-  `FillBehavior::Preview` for LLM/no-input *generation*, where a realistic
+  everywhere except enum. `example` keeps its existing home — the `example`
+  reference document for LLM/no-input *generation* (see
+  [blueprint/example split](blueprint-example-split.md)), where a realistic
   shape genuinely helps — and does not follow onto the render path.
 
 ## Implementation sketch
@@ -194,7 +199,9 @@ independent of origin. No two-class document semantics.
    blueprint string emitter (`must_fill_value` / `first_enum` in
    `crates/core/src/quill/`) into a per-field `QuillValue` producer shared
    by blueprint emission and the render path — one source of truth for
-   "the zero value for this field."
+   "the zero value for this field." (Shared with the
+   [blueprint/example split](blueprint-example-split.md), which uses the
+   same producer for the `example` document's fallback.)
 2. **Zero-filled render (the single render behavior).** On the render path
    (`crates/quillmark/src/orchestration/`), after coercion: interpolate
    each absent field's zero value (mirroring `apply_defaults`, "authored
