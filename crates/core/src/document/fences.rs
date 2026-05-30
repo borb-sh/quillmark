@@ -120,7 +120,15 @@ pub(super) fn code_fence_info(line: &str, run_len: usize) -> &str {
 /// exactly `card-yaml` (the accepted, non-canonical legacy alias). A fence
 /// carrying any other info string, or built from four or more tildes, is an
 /// ordinary CommonMark code fence and never opens a card-yaml block.
+///
+/// The opener must be at **column zero** (spec §3.2). An indented `~~~`
+/// (1–3 leading spaces) is still a valid CommonMark code fence, but it is
+/// *not* a card-yaml opener — recognising it would both contradict the spec
+/// and split at an offset the CommonMark body renderer disagrees with.
 fn is_card_yaml_opener(line: &str) -> bool {
+    if line.starts_with(' ') {
+        return false;
+    }
     match code_fence_on_line(line, None) {
         Some((b'~', 3, false)) => {
             let info = code_fence_info(line, 3);
@@ -131,17 +139,14 @@ fn is_card_yaml_opener(line: &str) -> bool {
 }
 
 /// `true` when `line` is a `---` YAML-frontmatter fence line — exactly three
-/// dashes, with up to three leading spaces and only whitespace afterward.
+/// dashes at column zero, followed only by whitespace.
 ///
 /// `---` is accepted ONLY as the root-block opener/closer (see
-/// [`find_metadata_blocks`]); it is never a composable-card fence.
+/// [`find_metadata_blocks`]); it is never a composable-card fence. It must be
+/// at column zero, matching the YAML-metadata-block semantics of CommonMark
+/// renderers (an indented `---` is a thematic break, not frontmatter).
 fn is_dash_fence_line(line: &str) -> bool {
-    let indent = line.as_bytes().iter().take_while(|&&b| b == b' ').count();
-    if indent > 3 {
-        return false;
-    }
-    let trimmed = &line[indent..];
-    let bytes = trimmed.as_bytes();
+    let bytes = line.as_bytes();
     if bytes.len() < 3 || bytes[0] != b'-' {
         return false;
     }
@@ -149,7 +154,7 @@ fn is_dash_fence_line(line: &str) -> bool {
     if run_len != 3 {
         return false;
     }
-    trimmed[run_len..].chars().all(|c| c == ' ' || c == '\t')
+    line[run_len..].chars().all(|c| c == ' ' || c == '\t')
 }
 
 /// `true` when `line` looks like a YAML mapping key (e.g. `key: value` or

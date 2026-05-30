@@ -107,8 +107,11 @@ the next opening fence or EOF.
 - **Escape hatch.** Because a bare `~~~` block is a card-yaml block, a literal
   `~~~`-style code block in prose must use **four or more tildes** (`~~~~`),
   backticks, or a `~~~` fence with a language info string.
-- **Indentation.** The opening `~~~` and its closing `~~~` are at column zero
-  — no leading spaces.
+- **Indentation.** The opening `~~~` is at column zero — **no leading
+  spaces**. An indented opener (1–3 spaces) is *not* a card-yaml opener: it
+  is delegated to CommonMark as an ordinary fenced code block, exactly like
+  an opener that fails the blank-line rule below. (The closing `~~~` may carry
+  up to three leading spaces, matching CommonMark's closing-fence rule.)
 - **Line endings.** `\n` and `\r\n` are equally accepted.
 - **Blank-line rule.** A blank line is required immediately above every
   `~~~` opener, *except* when the opener is the very first line of the
@@ -262,13 +265,19 @@ the surface syntax accepted on the `$quill` line.
 ## 4. Block Detection
 
 A single detector runs over the line stream. A `~~~` line — a bare `~~~`, or
-the legacy `~~~card-yaml` — opens a card-yaml block **iff** both of the
+the legacy `~~~card-yaml` — opens a card-yaml block **iff** all of the
 following hold:
+
+**D0 — Column zero.** The `~~~` opener has no leading spaces.
 
 **D1 — Blank line above.** The `~~~` line is line 1 of the document, or the
 line immediately above it is blank.
 
 **D2 — Closing fence.** A matching `~~~` line appears later in the document.
+
+A `~~~` line that fails D0 (an indented opener) or D1 is **not** a card-yaml
+opener; it is delegated to CommonMark, where an indented `~~~` is still a
+valid fenced code block.
 
 A `---` line opens the **root block** instead **iff** all of the following
 hold (see §3.2.1):
@@ -283,10 +292,10 @@ YAML content between recognised fence markers is opaque to detection — a
 opener (though the canonical payload never produces such a line). The same
 applies to `---` lines inside an open `---`-fenced root block.
 
-A `~~~` line that fails D1 is delegated to CommonMark as an ordinary fenced
-code block. A `~~~` opener with no matching `~~~` closer before EOF — and
-equivalently a `---` root opener with no matching `---` closer — is a hard
-parse error (§10). A `---` line that fails R1 falls through to CommonMark
+A `~~~` line that fails D0 or D1 is delegated to CommonMark as an ordinary
+fenced code block (see above). A `~~~` opener (D0 and D1 satisfied) with no
+matching `~~~` closer before EOF — and equivalently a `---` root opener with
+no matching `---` closer — is a hard parse error (§10). A `---` line that fails R1 falls through to CommonMark
 unless it pairs with a later `---` line that holds YAML-key content between
 them, in which case it is rejected as a misplaced composable card (§10).
 

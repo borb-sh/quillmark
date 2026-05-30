@@ -172,6 +172,17 @@ fn tilde_code_block_without_blank_line_above_stays_in_body() {
 }
 
 #[test]
+fn indented_tilde_opener_is_not_a_card() {
+    // A `~~~` opener must be at column zero (spec §3.2). An indented `~~~`
+    // (1–3 spaces) is a CommonMark code fence, not a card opener, so it stays
+    // in the body rather than splitting off a card.
+    let src = "~~~\n$quill: q\n$kind: main\n~~~\n\nBody.\n\n   ~~~\n$kind: note\nx: 1\n   ~~~\n";
+    let doc = Document::from_markdown(src).unwrap();
+    assert_eq!(doc.cards().len(), 0);
+    assert!(doc.main().body().contains("   ~~~"));
+}
+
+#[test]
 fn unclosed_bare_tilde_in_body_is_a_parse_error() {
     // A bare `~~~` opener with a blank line above but no matching closer is an
     // unclosed card-yaml block — a hard parse error, mirroring an unclosed
