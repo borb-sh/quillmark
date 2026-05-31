@@ -1885,6 +1885,64 @@ main:
 }
 
 #[test]
+fn test_array_of_objects_with_array_property_rejected() {
+    // The one-level rule: a typed-table row may carry scalar columns only, so
+    // an array nested inside a table row is rejected.
+    let yaml_content = r#"
+quill:
+  name: table_with_array
+  version: "1.0"
+  backend: typst
+  description: Typed table row with an array column
+
+main:
+  fields:
+    rows:
+      type: array
+      items:
+        type: object
+        properties:
+          tags:
+            type: array
+            items:
+              type: string
+"#;
+    let err = QuillConfig::from_yaml_with_warnings(yaml_content).unwrap_err();
+    assert!(err
+        .iter()
+        .any(|d| d.code.as_deref() == Some("quill::nested_array_not_supported")
+            && d.message.contains("rows")));
+}
+
+#[test]
+fn test_object_with_array_property_rejected() {
+    // Symmetric rule for typed dictionaries: an object property may only be a
+    // scalar, so an array-valued property is rejected.
+    let yaml_content = r#"
+quill:
+  name: object_with_array
+  version: "1.0"
+  backend: typst
+  description: Typed dictionary with an array property
+
+main:
+  fields:
+    address:
+      type: object
+      properties:
+        lines:
+          type: array
+          items:
+            type: string
+"#;
+    let err = QuillConfig::from_yaml_with_warnings(yaml_content).unwrap_err();
+    assert!(err
+        .iter()
+        .any(|d| d.code.as_deref() == Some("quill::nested_array_not_supported")
+            && d.message.contains("address")));
+}
+
+#[test]
 fn test_config_coerce_cards_item_wise() {
     let yaml_content = r#"
 quill:
