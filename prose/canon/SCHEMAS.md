@@ -97,8 +97,7 @@ projection that feeds the backend **only, never in the persisted document**.
 The per-field zero value is honestly blank for every scalar type except
 `enum`, whose zero is the first declared variant. An `object` with
 `properties` is shape-valid only when every property is present, so its zero
-is the object whose each property carries that property's zero (recursively),
-not a bare `{}`. It is the one shared producer behind both this render floor
+is the object whose each property carries that property's zero (recursively). It is the one shared producer behind both this render floor
 and the `example` document's fallback (see [BLUEPRINT.md](BLUEPRINT.md)).
 
 ## Schema emission
