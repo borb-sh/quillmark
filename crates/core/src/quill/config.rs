@@ -217,6 +217,9 @@ impl QuillConfig {
                     }
                     Ok(QuillValue::from_json(serde_json::Value::Array(out)))
                 } else {
+                    // Defensive fallback: schema-load rejects any array without
+                    // `items` (quill::array_missing_items), so a validated
+                    // config never reaches here — pass the array through as-is.
                     Ok(QuillValue::from_json(serde_json::Value::Array(arr)))
                 }
             }
@@ -608,8 +611,8 @@ impl QuillConfig {
         }
     }
 
-    /// Recursively validate field-level blueprint constraints across the field
-    /// and any nested object properties.
+    /// Recursively validate field-level blueprint constraints across the field,
+    /// any nested object properties, and an array's element schema (`items`).
     fn validate_field_blueprint_constraints(
         schema: &FieldSchema,
         owner_label: &str,
