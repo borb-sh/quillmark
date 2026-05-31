@@ -85,7 +85,7 @@ impl Quill {
     /// projection only, never in the persisted document. A merely *incomplete*
     /// document renders fine; only a *malformed* one (a surviving `<must-fill>`
     /// sentinel or a value that won't coerce/validate) errors. See
-    /// `prose/proposals/zero-filled-render.md`.
+    /// `prose/canon/SCHEMAS.md`.
     pub fn compile_data(&self, doc: &Document) -> Result<serde_json::Value, RenderError> {
         let coerced = self.coerce_and_validate(doc)?;
         let normalized = normalize_document(coerced)?;
@@ -239,7 +239,7 @@ fn coercion_error(e: impl std::fmt::Display) -> RenderError {
 /// authored value wins; else the schema `default:`; else the type-empty
 /// [`zero_value`]. This is the zero-filled render projection — the fill lives
 /// only here and is never persisted (see
-/// `prose/proposals/zero-filled-render.md`). Non-schema fields already present
+/// `prose/canon/SCHEMAS.md`). Non-schema fields already present
 /// are preserved untouched.
 fn resolve_fields(
     fields: &IndexMap<String, QuillValue>,

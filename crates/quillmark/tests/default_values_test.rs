@@ -137,7 +137,7 @@ main:
 fn test_absent_must_fill_is_zero_filled() {
     // Zero-filled render: an absent Must-Fill field (`title`) is tolerated and
     // filled with its type-empty zero value (`""`) in the plate projection —
-    // never persisted. See prose/proposals/zero-filled-render.md.
+    // never persisted. See prose/canon/SCHEMAS.md.
     let temp_dir = TempDir::new().unwrap();
     let quill_path = create_test_quill(
         &temp_dir,

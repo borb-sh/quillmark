@@ -1047,7 +1047,7 @@ title: "Hello"
 //   - `quill.form(doc)` still flags both situations under `diagnostics`
 //     (the form view reports completeness independent of the render gate).
 //
-// See prose/proposals/zero-filled-render.md.
+// See prose/canon/SCHEMAS.md.
 
 describe('Must Fill / Endorsed schema model', () => {
   // The plate `unwrap`s `data.title` (Must Fill) and substitutes the optional

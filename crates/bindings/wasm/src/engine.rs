@@ -39,7 +39,8 @@ export interface QuillCardBody {
  * without a `default` is **Must Fill** (the blueprint carries a
  * `<must-fill>` sentinel and validation reports
  * `validation::must_fill_absent` if the field is absent at validate
- * time). There is no separate `required` axis.
+ * time — a non-fatal signal, since the render path zero-fills an absent
+ * field). There is no separate `required` axis.
  */
 export interface QuillFieldSchema {
     type: "string" | "number" | "integer" | "boolean" | "array" | "object" | "date" | "datetime" | "markdown";
@@ -299,7 +300,7 @@ impl Quill {
     /// The `example` reference document — the illustrative "show me a
     /// filled-out one." Each field renders its `example:`, else its
     /// `default:`, else the type-empty zero value, with no `<must-fill>`
-    /// sentinels. See `prose/proposals/blueprint-example-split.md`.
+    /// sentinels. See `prose/canon/BLUEPRINT.md`.
     #[wasm_bindgen(getter, js_name = example)]
     pub fn example(&self) -> String {
         self.inner.source().config().example()

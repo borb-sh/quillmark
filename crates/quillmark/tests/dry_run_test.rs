@@ -50,7 +50,7 @@ fn test_dry_run_missing_must_fill_field_is_tolerated() {
     // Zero-filled render: a merely *incomplete* document (Must Fill `title`
     // absent) is no longer a hard error — `title` is zero-filled in the plate
     // projection. Only a *malformed* document (a surviving `<must-fill>`
-    // sentinel) still fails. See prose/proposals/zero-filled-render.md.
+    // sentinel) still fails. See prose/canon/SCHEMAS.md.
     let temp_dir = TempDir::new().unwrap();
     let quill_path = make_test_quill_path(&temp_dir, true);
 

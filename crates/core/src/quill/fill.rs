@@ -1,7 +1,7 @@
 //! The per-field **zero value** — the type-minimal valid value for a field.
 //!
 //! This is the single source of truth for "the zero value for this field,"
-//! shared by two callers (see `prose/proposals/`):
+//! shared by two callers (see `prose/canon/SCHEMAS.md` and `BLUEPRINT.md`):
 //!
 //! - **blueprint/example emission** ([`super::blueprint`]) — the `example`
 //!   document's fallback, when a field carries neither an `example:` nor a

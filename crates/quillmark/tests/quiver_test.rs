@@ -3,7 +3,7 @@
 //! **empty document** (just `$quill` / `$kind: main`, no fields) to a
 //! successful (non-error) output.
 //!
-//! Under zero-filled render (see `prose/proposals/zero-filled-render.md`),
+//! Under zero-filled render (see `prose/canon/SCHEMAS.md`),
 //! every absent field is filled with its type-empty (zero) value in the plate
 //! projection. An empty document is therefore the type-minimal valid input —
 //! the worst-case-but-renderable shape — so a plate that renders it has shown

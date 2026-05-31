@@ -1893,7 +1893,7 @@ main:
 
     let name = config.main.fields.get("name").unwrap();
     assert_eq!(name.r#type, FieldType::String);
-    assert!(name.ui.as_ref().map_or(true, |ui| ui.multiline.is_none()));
+    assert!(name.ui.as_ref().is_none_or(|ui| ui.multiline.is_none()));
 }
 
 #[test]
@@ -1965,7 +1965,7 @@ main:
         .main
         .ui
         .as_ref()
-        .map_or(true, |ui| ui.title.is_none()));
+        .is_none_or(|ui| ui.title.is_none()));
 }
 
 #[test]

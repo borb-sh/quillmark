@@ -394,9 +394,7 @@ fill strategy is an internal detail, not a public parameter.
 - The per-field **zero value** (`""`, `0`, `false`, `[]`, `{}`, first
   enum variant; `quillmark_core::quill::zero_value`) is one shared
   producer — the example fallback above *and* the render floor for
-  zero-filled render (see
-  [zero-filled-render.md](../proposals/zero-filled-render.md), pending
-  graduation into [SCHEMAS.md](SCHEMAS.md)).
+  zero-filled render (see [SCHEMAS.md](SCHEMAS.md) § "Zero-filled render").
 
 ## Bindings surface
 

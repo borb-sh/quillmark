@@ -75,7 +75,7 @@ fn assert_round_trip_strings(keys_and_values: &[(&str, &str)]) {
         let v2 = doc2
             .main()
             .payload()
-            .get(*key)
+            .get(key)
             .unwrap_or_else(|| panic!("field '{}' missing after round-trip", key));
         assert!(
             v2.as_str().is_some(),
@@ -202,7 +202,7 @@ fn all_ambiguous_fields_are_strings() {
         let value = doc
             .main()
             .payload()
-            .get(*field)
+            .get(field)
             .unwrap_or_else(|| panic!("field '{}' not found", field));
         assert!(
             value.as_str().is_some(),

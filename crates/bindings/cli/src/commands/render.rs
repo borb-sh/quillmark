@@ -126,7 +126,7 @@ pub fn execute(args: RenderArgs) -> Result<()> {
     if let Some(data_path) = args.output_data {
         let json_data = quill
             .compile_data(&parsed)
-            .map_err(|e| CliError::Render(e))?;
+            .map_err(CliError::Render)?;
         let f = std::fs::File::create(&data_path).map_err(|e| {
             CliError::Io(std::io::Error::new(
                 e.kind(),
@@ -138,8 +138,7 @@ pub fn execute(args: RenderArgs) -> Result<()> {
             ))
         })?;
         serde_json::to_writer_pretty(f, &json_data).map_err(|e| {
-            CliError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            CliError::Io(std::io::Error::other(
                 format!("Failed to write JSON data: {}", e),
             ))
         })?;
