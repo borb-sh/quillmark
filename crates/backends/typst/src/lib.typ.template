@@ -66,52 +66,46 @@
     card_date_fields: (:),
   ))
 
-  // Auto-eval top-level content fields
-  for key in meta.content_fields {
-    if key in d {
-      let val = d.at(key)
-      if type(val) == str and val != "" {
-        d.insert(key, eval(val, mode: "markup"))
+  // Eval the named content fields of `dict` into Typst content. A markdown
+  // field is a string; a `markdown[]` field is an array whose string elements
+  // are each eval'd. Used uniformly for the top-level data and for each card.
+  let eval-content(dict, keys) = {
+    for key in keys {
+      if key in dict {
+        let val = dict.at(key)
+        if type(val) == str and val != "" {
+          dict.insert(key, eval(val, mode: "markup"))
+        } else if type(val) == array {
+          dict.insert(key, val.map(v => if type(v) == str and v != "" { eval(v, mode: "markup") } else { v }))
+        }
       }
     }
+    dict
   }
 
-  // Auto-convert top-level date fields to datetime
-  for key in meta.date_fields {
-    if key in d {
-      let val = d.at(key)
-      if val != none {
-        d.insert(key, _parse-date(val))
+  // Parse the named date fields of `dict` into Typst datetimes.
+  let parse-dates(dict, keys) = {
+    for key in keys {
+      if key in dict {
+        let val = dict.at(key)
+        if val != none {
+          dict.insert(key, _parse-date(val))
+        }
       }
     }
+    dict
   }
 
-  // Auto-eval content fields within each card under `$cards`
+  d = eval-content(d, meta.content_fields)
+  d = parse-dates(d, meta.date_fields)
+
+  // Apply the same passes to each card under `$cards`, keyed by `$kind`.
   if "$cards" in d {
     let cards = ()
     for card in d.at("$cards") {
       let card-type = card.at("$kind", default: none)
-      let fields = meta.card_content_fields.at(card-type, default: ())
-      for key in fields {
-        if key in card {
-          let val = card.at(key)
-          if type(val) == str and val != "" {
-            card.insert(key, eval(val, mode: "markup"))
-          }
-        }
-      }
-
-      // Auto-convert date fields for this card type
-      let date-fields = meta.card_date_fields.at(card-type, default: ())
-      for key in date-fields {
-        if key in card {
-          let val = card.at(key)
-          if val != none {
-            card.insert(key, _parse-date(val))
-          }
-        }
-      }
-
+      card = eval-content(card, meta.card_content_fields.at(card-type, default: ()))
+      card = parse-dates(card, meta.card_date_fields.at(card-type, default: ()))
       cards.push(card)
     }
     d.insert("$cards", cards)

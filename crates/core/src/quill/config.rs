@@ -54,6 +54,19 @@ struct CardSchemaDef {
     pub body: Option<BodyCardSchema>,
 }
 
+/// Depth context for [`QuillConfig::validate_field_schema_shape`]. Encodes
+/// which shapes are legal at the current nesting level, so the one-level
+/// nesting contract is enforced by a single recursive walk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ShapePosition {
+    /// A field declared directly on a card: scalar, object, or array.
+    Top,
+    /// An array's `items`: scalar or object (typed-table row), not an array.
+    ArrayItem,
+    /// An object's property: scalar only.
+    Leaf,
+}
+
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
 pub enum CoercionError {
     #[error("cannot coerce `{value}` to type `{target}` at `{path}`: {reason}")]
@@ -188,16 +201,19 @@ impl QuillConfig {
                     vec![json_value.clone()]
                 };
 
-                if let Some(props) = &field_schema.properties {
+                // Every array carries an element schema (`items`). Coerce each
+                // element against it: scalar items (`string[]`, `integer[]`,
+                // `markdown[]`) coerce element-wise; object items recurse into
+                // the element's `properties` via the Object branch.
+                if let Some(items) = &field_schema.items {
                     let mut out = Vec::with_capacity(arr.len());
                     for (idx, elem) in arr.iter().enumerate() {
-                        if let Some(obj) = elem.as_object() {
-                            let coerced_obj =
-                                Self::coerce_object_props(obj, props, &format!("{path}[{idx}]"))?;
-                            out.push(serde_json::Value::Object(coerced_obj));
-                        } else {
-                            out.push(elem.clone());
-                        }
+                        let coerced = Self::coerce_value_strict(
+                            &QuillValue::from_json(elem.clone()),
+                            items,
+                            &format!("{path}[{idx}]"),
+                        )?;
+                        out.push(coerced.into_json());
                     }
                     Ok(QuillValue::from_json(serde_json::Value::Array(out)))
                 } else {
@@ -425,31 +441,118 @@ impl QuillConfig {
         Ok(out)
     }
 
-    fn has_disallowed_nested_object(schema: &FieldSchema, allow_object_here: bool) -> bool {
-        if schema.r#type == FieldType::Object {
-            if !allow_object_here {
-                return true;
-            }
-            if let Some(props) = &schema.properties {
-                for prop_schema in props.values() {
-                    if Self::has_disallowed_nested_object(prop_schema, false) {
-                        return true;
-                    }
-                }
-            }
+    /// Recursively validate a field's structural shape, enforcing the
+    /// one-level nesting contract in a single pass. The `position` records
+    /// what shapes are legal at the current depth:
+    ///
+    /// - [`ShapePosition::Top`] — a field declared directly on a card: scalar,
+    ///   `object` (typed dictionary), or `array` (primitive list or typed
+    ///   table).
+    /// - [`ShapePosition::ArrayItem`] — an array's `items`: a scalar or an
+    ///   `object` (the typed-table row), but **not** another array.
+    /// - [`ShapePosition::Leaf`] — an object's property (whether a top-level
+    ///   typed dictionary or a typed-table row): scalar only. No deeper
+    ///   containers, so `array<object<array>>` and `object<array>` are
+    ///   rejected here.
+    ///
+    /// Returns the first violation as a ready-to-push [`Diagnostic`] whose
+    /// message names `owner` (the field-name path, e.g. `rows[].tags`), or
+    /// `None` when the shape is valid.
+    fn validate_field_schema_shape(
+        schema: &FieldSchema,
+        owner: &str,
+        position: ShapePosition,
+    ) -> Option<Diagnostic> {
+        let err = |code: &str, message: String| {
+            Some(Diagnostic::new(Severity::Error, message).with_code(code.to_string()))
+        };
+
+        // `items` is only meaningful on arrays; `properties` only on objects.
+        if schema.r#type != FieldType::Array && schema.items.is_some() {
+            return err(
+                "quill::items_not_supported",
+                format!(
+                    "Field '{owner}' declares 'items' but is not type: array. \
+                     'items' (the element schema) is only valid on array fields."
+                ),
+            );
         }
 
-        if schema.r#type == FieldType::Array {
-            if let Some(props) = &schema.properties {
-                for prop_schema in props.values() {
-                    if Self::has_disallowed_nested_object(prop_schema, false) {
-                        return true;
-                    }
+        match schema.r#type {
+            FieldType::Object => {
+                // An object nested inside another object (a Leaf position) is
+                // the classic "nested type: object" rejection.
+                if position == ShapePosition::Leaf {
+                    return err(
+                        "quill::nested_object_not_supported",
+                        format!(
+                            "Field '{owner}' uses a nested type: object, which is not supported. \
+                             An object's properties may only be scalars."
+                        ),
+                    );
                 }
+                let Some(props) = &schema.properties else {
+                    return err(
+                        "quill::object_missing_properties",
+                        format!(
+                            "Field '{owner}' has type: object but no properties defined. \
+                             Declare a properties map, or use type: array with \
+                             items: {{ type: object, properties: … }} for a list of objects."
+                        ),
+                    );
+                };
+                // Object properties are leaves — scalars only.
+                props.iter().find_map(|(name, prop)| {
+                    Self::validate_field_schema_shape(
+                        prop,
+                        &format!("{owner}.{name}"),
+                        ShapePosition::Leaf,
+                    )
+                })
             }
+            FieldType::Array => {
+                // An array may sit at the top level only; an array element may
+                // not itself be an array, and neither may an object property.
+                if position != ShapePosition::Top {
+                    return err(
+                        "quill::nested_array_not_supported",
+                        format!(
+                            "Field '{owner}' declares a nested array, which is not supported. \
+                             Array elements must be scalars or objects, and object properties \
+                             may only be scalars."
+                        ),
+                    );
+                }
+                if schema.properties.is_some() {
+                    return err(
+                        "quill::array_properties_not_supported",
+                        format!(
+                            "Field '{owner}' is type: array with a bare 'properties' map. \
+                             Declare the element type under 'items' instead — for a list \
+                             of objects use items: {{ type: object, properties: … }}."
+                        ),
+                    );
+                }
+                let Some(items) = &schema.items else {
+                    return err(
+                        "quill::array_missing_items",
+                        format!(
+                            "Field '{owner}' has type: array but no 'items' element schema. \
+                             Declare the element type, e.g. items: {{ type: string }} \
+                             for a list of strings or items: {{ type: object, \
+                             properties: … }} for a list of objects."
+                        ),
+                    );
+                };
+                Self::validate_field_schema_shape(
+                    items,
+                    &format!("{owner}[]"),
+                    ShapePosition::ArrayItem,
+                )
+            }
+            // Scalars are leaves; nothing further to validate.
+            _ => None,
         }
-
-        false
     }
 
     /// Reject multi-line descriptions. Single-line is required so the leading
@@ -520,6 +623,10 @@ impl QuillConfig {
                 let nested = format!("{}.{}", owner_label, name);
                 Self::validate_field_blueprint_constraints(prop, &nested, errors);
             }
+        }
+        if let Some(items) = &schema.items {
+            let nested = format!("{}[]", owner_label);
+            Self::validate_field_blueprint_constraints(items, &nested, errors);
         }
     }
 
@@ -746,54 +853,16 @@ impl QuillConfig {
             let quill_value = QuillValue::from_json(field_value.clone());
             match FieldSchema::from_quill_value(field_name.clone(), &quill_value) {
                 Ok(mut schema) => {
-                    // Typed dictionaries (type: object with properties) are supported.
-                    // Freeform objects (no properties) and objects nested inside
-                    // typed-dictionary properties are not.
-                    if schema.r#type == FieldType::Object {
-                        if schema.properties.is_none() {
-                            errors.push(
-                                Diagnostic::new(
-                                    Severity::Error,
-                                    format!(
-                                        "Field '{}' has type: object but no properties defined. \
-                                        Declare a properties map, or use type: array with \
-                                        a properties map for a list of objects.",
-                                        field_name
-                                    ),
-                                )
-                                .with_code("quill::object_missing_properties".to_string()),
-                            );
-                            continue;
-                        }
-                        // Properties of a typed dictionary may not themselves be objects.
-                        if Self::has_disallowed_nested_object(&schema, true) {
-                            errors.push(
-                                Diagnostic::new(
-                                    Severity::Error,
-                                    format!(
-                                        "Field '{}' contains a nested type: object property, \
-                                        which is not supported. Properties of a typed dictionary \
-                                        may not themselves be objects.",
-                                        field_name
-                                    ),
-                                )
-                                .with_code("quill::nested_object_not_supported".to_string()),
-                            );
-                            continue;
-                        }
-                        // Typed dictionary — fall through to normal processing.
-                    } else if Self::has_disallowed_nested_object(&schema, false) {
-                        errors.push(
-                            Diagnostic::new(
-                                Severity::Error,
-                                format!(
-                                    "Field '{}' uses nested type: object, which is not supported. \
-                                    Use type: array with a properties map for a list of objects.",
-                                    field_name
-                                ),
-                            )
-                            .with_code("quill::nested_object_not_supported".to_string()),
-                        );
+                    // One recursive pass enforces the whole shape contract:
+                    // containers carry the right child schema (`object` →
+                    // `properties`, `array` → `items`), and nesting stops after
+                    // one structural level (a typed table is the deepest shape).
+                    if let Some(diag) = Self::validate_field_schema_shape(
+                        &schema,
+                        field_name,
+                        ShapePosition::Top,
+                    ) {
+                        errors.push(diag);
                         continue;
                     }
 

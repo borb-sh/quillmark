@@ -214,6 +214,23 @@ fn is_markdown_field(field_schema: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
+/// Check if a field schema indicates an array of markdown elements.
+///
+/// True when the field is `{type: array, items: {contentMediaType:
+/// text/markdown}}` — i.e. a `markdown[]` field. Each element is markdown
+/// text that must be converted to backend markup individually.
+fn is_markdown_array_field(field_schema: &serde_json::Value) -> bool {
+    field_schema
+        .get("type")
+        .and_then(|v| v.as_str())
+        .map(|s| s == "array")
+        .unwrap_or(false)
+        && field_schema
+            .get("items")
+            .map(is_markdown_field)
+            .unwrap_or(false)
+}
+
 /// Check if a field schema indicates a date field.
 ///
 /// A field is considered a date if it has:
@@ -233,6 +250,51 @@ fn is_date_field(field_schema: &serde_json::Value) -> bool {
         .unwrap_or(false);
 
     is_string && is_date_format
+}
+
+/// Names of the markdown / `markdown[]` fields in a schema `properties` map —
+/// the fields whose values carry backend markup for the helper to `eval`.
+fn content_field_names(properties: &serde_json::Map<String, serde_json::Value>) -> Vec<String> {
+    properties
+        .iter()
+        .filter(|(_, fs)| is_markdown_field(fs) || is_markdown_array_field(fs))
+        .map(|(name, _)| name.clone())
+        .collect()
+}
+
+/// Names of the date fields in a schema `properties` map.
+fn date_field_names(properties: &serde_json::Map<String, serde_json::Value>) -> Vec<String> {
+    properties
+        .iter()
+        .filter(|(_, fs)| is_date_field(fs))
+        .map(|(name, _)| name.clone())
+        .collect()
+}
+
+/// Convert a content field's value to backend markup: a markdown string is
+/// converted in place; a `markdown[]` array converts each string element.
+/// Returns `None` when the value is neither (e.g. a string that fails to
+/// convert), leaving it untouched.
+fn convert_content_value(value: &QuillValue) -> Option<QuillValue> {
+    match value.as_json() {
+        serde_json::Value::String(s) => mark_to_typst(s)
+            .ok()
+            .map(|markup| QuillValue::from_json(serde_json::json!(markup))),
+        serde_json::Value::Array(arr) => {
+            let converted = arr
+                .iter()
+                .map(|elem| match elem.as_str() {
+                    Some(s) => match mark_to_typst(s) {
+                        Ok(markup) => serde_json::json!(markup),
+                        Err(_) => elem.clone(),
+                    },
+                    None => elem.clone(),
+                })
+                .collect();
+            Some(QuillValue::from_json(serde_json::Value::Array(converted)))
+        }
+        _ => None,
+    }
 }
 
 /// Transform markdown fields to Typst markup based on schema.
@@ -257,29 +319,18 @@ fn transform_markdown_fields(
         None => return result,
     };
 
-    // Transform each field based on schema, collecting converted field names
-    let mut content_field_names: Vec<&str> = Vec::new();
-    for (field_name, field_value) in fields {
-        if let Some(field_schema) = properties_obj.get(field_name) {
-            if is_markdown_field(field_schema) {
-                if let Some(content) = field_value.as_str() {
-                    if let Ok(typst_markup) = mark_to_typst(content) {
-                        result.insert(
-                            field_name.clone(),
-                            QuillValue::from_json(serde_json::json!(typst_markup)),
-                        );
-                        content_field_names.push(field_name);
-                    }
-                }
+    // Convert every markdown / markdown[] field the schema declares; the
+    // helper package maps `eval(.., mode: "markup")` over these names.
+    let content_fields = content_field_names(properties_obj);
+    for field_name in &content_fields {
+        if let Some(value) = fields.get(field_name) {
+            if let Some(converted) = convert_content_value(value) {
+                result.insert(field_name.clone(), converted);
             }
         }
     }
 
-    let date_fields: Vec<&str> = properties_obj
-        .iter()
-        .filter(|(_, fs)| is_date_field(fs))
-        .map(|(name, _)| name.as_str())
-        .collect();
+    let date_fields = date_field_names(properties_obj);
 
     // Handle `$cards` array recursively
     if let Some(cards_value) = result.get("$cards") {
@@ -298,47 +349,28 @@ fn transform_markdown_fields(
     if let Some(defs) = schema_json.get("$defs").and_then(|v| v.as_object()) {
         for (def_name, def_schema) in defs {
             if let Some(card_kind) = def_name.strip_suffix("_card") {
-                let card_fields: Vec<&str> = def_schema
-                    .get("properties")
-                    .and_then(|v| v.as_object())
-                    .map(|props| {
-                        props
-                            .iter()
-                            .filter(|(_, fs)| is_markdown_field(fs))
-                            .map(|(name, _)| name.as_str())
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let card_props = def_schema.get("properties").and_then(|v| v.as_object());
+                let card_fields = card_props.map(content_field_names).unwrap_or_default();
                 if !card_fields.is_empty() {
                     card_content_fields.insert(
                         card_kind.to_string(),
                         serde_json::Value::Array(
                             card_fields
                                 .into_iter()
-                                .map(|s| serde_json::Value::String(s.to_string()))
+                                .map(serde_json::Value::String)
                                 .collect(),
                         ),
                     );
                 }
 
-                let date_fields: Vec<&str> = def_schema
-                    .get("properties")
-                    .and_then(|v| v.as_object())
-                    .map(|props| {
-                        props
-                            .iter()
-                            .filter(|(_, fs)| is_date_field(fs))
-                            .map(|(name, _)| name.as_str())
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let date_fields = card_props.map(date_field_names).unwrap_or_default();
                 if !date_fields.is_empty() {
                     card_date_fields.insert(
                         card_kind.to_string(),
                         serde_json::Value::Array(
                             date_fields
                                 .into_iter()
-                                .map(|s| serde_json::Value::String(s.to_string()))
+                                .map(serde_json::Value::String)
                                 .collect(),
                         ),
                     );
@@ -351,7 +383,7 @@ fn transform_markdown_fields(
     result.insert(
         "__meta__".to_string(),
         QuillValue::from_json(serde_json::json!({
-            "content_fields": content_field_names,
+            "content_fields": content_fields,
             "card_content_fields": card_content_fields,
             "date_fields": date_fields,
             "card_date_fields": card_date_fields,
@@ -444,6 +476,56 @@ mod tests {
             "contentMediaType": "text/plain"
         });
         assert!(!is_markdown_field(&other_media_type));
+    }
+
+    #[test]
+    fn test_is_markdown_array_field() {
+        let md_array = json!({
+            "type": "array",
+            "items": { "type": "string", "contentMediaType": "text/markdown" }
+        });
+        assert!(is_markdown_array_field(&md_array));
+
+        let string_array = json!({
+            "type": "array",
+            "items": { "type": "string" }
+        });
+        assert!(!is_markdown_array_field(&string_array));
+
+        // A plain markdown scalar is not a markdown array.
+        let md_scalar = json!({ "type": "string", "contentMediaType": "text/markdown" });
+        assert!(!is_markdown_array_field(&md_scalar));
+    }
+
+    #[test]
+    fn test_transform_markdown_array_field() {
+        let schema = QuillValue::from_json(json!({
+            "type": "object",
+            "properties": {
+                "sections": {
+                    "type": "array",
+                    "items": { "type": "string", "contentMediaType": "text/markdown" }
+                }
+            }
+        }));
+
+        let mut fields = HashMap::new();
+        fields.insert(
+            "sections".to_string(),
+            QuillValue::from_json(json!(["This is **bold** text.", "Plain line."])),
+        );
+
+        let result = transform_markdown_fields(&fields, &schema);
+
+        // Each element is converted to Typst markup.
+        let sections = result.get("sections").unwrap().as_array().unwrap();
+        assert!(sections[0].as_str().unwrap().contains("#strong[bold]"));
+        assert!(sections[1].as_str().unwrap().contains("Plain line."));
+
+        // The field is registered for auto-eval in __meta__.
+        let meta = result.get("__meta__").unwrap().as_json();
+        let content_fields = meta["content_fields"].as_array().unwrap();
+        assert!(content_fields.iter().any(|v| v == "sections"));
     }
 
     #[test]
