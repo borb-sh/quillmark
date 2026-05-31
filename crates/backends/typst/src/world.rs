@@ -506,7 +506,7 @@ name = "minimal-package"
 
         use quillmark_core::{FileTreeNode, QuillSource};
 
-        fn walk(dir: &Path, base: &Path) -> std::io::Result<FileTreeNode> {
+        fn walk(dir: &Path) -> std::io::Result<FileTreeNode> {
             let mut files = HashMap::new();
             for entry in fs::read_dir(dir)? {
                 let entry = entry?;
@@ -520,7 +520,7 @@ name = "minimal-package"
                         },
                     );
                 } else if p.is_dir() {
-                    files.insert(name, walk(&p, base)?);
+                    files.insert(name, walk(&p)?);
                 }
             }
             Ok(FileTreeNode::Directory { files })
@@ -543,7 +543,7 @@ name = "minimal-package"
             return;
         }
 
-        let tree = walk(&quill_path, &quill_path).expect("walk fixture");
+        let tree = walk(&quill_path).expect("walk fixture");
         let source = QuillSource::from_tree(tree).expect("load source");
         let world = QuillWorld::new(&source, "// Test").unwrap();
 

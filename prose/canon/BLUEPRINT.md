@@ -134,9 +134,9 @@ The rendered value follows a single cascade keyed on the cell:
 
 Examples never become the rendered value, regardless of cell or type —
 this holds uniformly for scalars, arrays, typed tables, and typed
-dictionaries. Examples are inherently illustrative and unsafe to ship;
-they always surface in the `# e.g.` leading line while the value follows
-the cascade above.
+dictionaries. An example matches the *shape* of the desired value but is
+not the value most authors want, so it always surfaces in the `# e.g.`
+leading line while the value follows the cascade above.
 
 All fields render as **live YAML** — no commented-out fields. The
 sentinel in the value cell is the sole "must fill" signal: a reader's
@@ -344,15 +344,16 @@ with a typed value.
 packages, which `blueprint()` does not control. That is a separate
 **quill authoring contract**:
 
-> A quill's `plate.typ` MUST render the quill's own blueprint — generated
-> with Must Fill cells filled by type-empty values of the declared type
-> (`blueprint_filled(FillBehavior::TypeEmpty)`) — to a successful
-> (non-error) output.
+> A quill's `plate.typ` MUST render an **empty document** (just `$quill` /
+> `$kind: main`, no fields) to a successful (non-error) output. Under
+> zero-filled render, every absent field is filled with its type-empty
+> (zero) value in the plate projection, so an empty document is by
+> construction the *type-minimal valid input*.
 
-The type-empty blueprint is by construction the *type-minimal valid
-input* — the worst-case-but-valid document. A plate that renders it has
-shown it degrades gracefully on every type-valid input shape. The
-contract requires:
+The zero-filled empty document is the *type-minimal valid input* — the
+worst-case-but-renderable document. A plate that renders it has shown it
+degrades gracefully on every type-valid input shape. The contract
+requires:
 
 - Templates treat type-empty values (`""`, `0`, `false`, `[]`, empty
   markdown body) as valid *present* input — read via `data.field`,
@@ -364,32 +365,45 @@ contract requires:
   meaningful output." An empty-string title is a blank title — that is
   acceptable.
 
-The contract is enforced by a fixture test that generates each bundled
-quill's blueprint with type-empty fill, renders it, and asserts success
+The contract is enforced by a fixture test that renders each bundled
+quill's empty document (zero-filled) and asserts success
 (`crates/quillmark/tests/quiver_test.rs::every_quill_in_quiver_renders`).
 
-## Filled blueprints
+## Two reference documents
 
-`blueprint()` emits the canonical authoring surface with `<must-fill>`
-sentinels. `QuillConfig::blueprint_filled(behavior)` is an escape hatch
-that fills Must Fill cells at generation time — from the typed schema, so
-no value re-parses the annotation grammar — producing a compile-able
-document without an authored input:
+A quill projects into two intent-named reference documents, each ordering
+its value sources for its own purpose (there is no cross-output "default
+always wins" rule). Both are annotated, parseable, and schema-valid; the
+fill strategy is an internal detail, not a public parameter.
 
-| `FillBehavior` | Must Fill value | Used by |
-|---|---|---|
-| `Strict` | `<must-fill>` sentinel (identical to `blueprint()`) | authoring surface |
-| `Preview` | the field's `example:` when configured, else the `TypeEmpty` value | CLI `render` with no input file |
-| `TypeEmpty` | leanest type-valid values (`""`, `0`, `false`, `[]`, first enum) | quiver authoring-contract test |
+| Output | Intent | Value precedence | Sentinels? |
+|---|---|---|---|
+| `blueprint` | *"give me the form to fill"* | `default:`, else `<must-fill>` | yes |
+| `example` | *"show me a filled-out one"* | `example:` › `default:` › type-empty zero | no |
+
+- The **blueprint** is the canonical authoring surface: an Endorsed field
+  (has a `default:`) renders its default; a Must Fill field carries the
+  `<must-fill>` sentinel.
+- The **example** document is the illustrative consolidation — each
+  field's `example:`, else its `default:`, else its zero value — with no
+  sentinels. It is example-*first* but not guaranteed fully populated
+  (a field with neither an `example:` nor a `default:` renders blank). A
+  field with *both* a default and an example shows its example here but
+  its default on the render path: the example optimizes for illustration,
+  render for fidelity.
+- The per-field **zero value** (`""`, `0`, `false`, `[]`, `{}`, first
+  enum variant; `quillmark_core::quill::zero_value`) is one shared
+  producer — the example fallback above *and* the render floor for
+  zero-filled render (see [SCHEMAS.md](SCHEMAS.md) § "Zero-filled render").
 
 ## Bindings surface
 
 | Binding | Accessor |
 |---|---|
-| Rust | `QuillConfig::blueprint() -> String` (+ `blueprint_filled(behavior)`) |
-| Wasm | `Quill.blueprint` getter |
-| Python | `Quill.blueprint` property |
-| CLI | `quillmark blueprint <QUILL_PATH> [-o <FILE>]` |
+| Rust | `QuillConfig::blueprint() -> String`, `QuillConfig::example() -> String` |
+| Wasm | `Quill.blueprint` / `Quill.example` getters |
+| Python | `Quill.blueprint` / `Quill.example` properties |
+| CLI | `quillmark blueprint <QUILL_PATH> [-o <FILE>]`; `render` with no input file renders the `example` document |
 
 The Rust example `cargo run -p quillmark-core --example print_blueprint
 -- <quill_name> [<version>]` prints the blueprint for any bundled
@@ -407,15 +421,19 @@ fixture.
 When designing a `Quill.yaml` schema, choose between Must Fill and
 Endorsed per field:
 
-- **Declare `default:`** when a value (including a type-empty value like
-  `""`, `[]`, `false`, or `0`) is acceptable to ship as-is. The field
-  becomes Endorsed and the blueprint carries `; delete-ok`.
-- **Omit `default:`** when the author, LLM, or user must supply a value
-  before shipping. The field becomes Must Fill and the blueprint carries
-  the `<must-fill>` sentinel.
-- **Use `example:`** for illustrative reference values. `example:` is
-  orthogonal to the cell decision — it appears in the leading `# e.g.`
-  line for any cell, never rendering as the value.
+- **Declare `default:`** when the value is what the *majority* of authors
+  want — including a type-empty value like `""`, `[]`, `false`, or `0`.
+  Most authors want it, so the field can be omitted and the default is
+  interpolated for them. The field becomes Endorsed and the blueprint
+  carries `; delete-ok`.
+- **Omit `default:`** when there is no value most authors want — the
+  author, LLM, or user must supply one before shipping. The field becomes
+  Must Fill and the blueprint carries the `<must-fill>` sentinel.
+- **Use `example:`** when a value matches the semantic and type shape of
+  what the author wants but is *not* the value they'd want most of the
+  time. It documents shape, not the choice — orthogonal to the cell
+  decision, it appears in the leading `# e.g.` line for any cell and never
+  renders as the value.
 
 This is documentation, not enforcement.
 

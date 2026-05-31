@@ -3,7 +3,7 @@ use crate::errors::{CliError, Result};
 use crate::output::{derive_output_path, OutputWriter};
 use clap::Parser;
 use quillmark::Document;
-use quillmark_core::{FillBehavior, OutputFormat, RenderOptions};
+use quillmark_core::{OutputFormat, RenderOptions};
 use std::fs;
 use std::path::PathBuf;
 
@@ -80,21 +80,20 @@ pub fn execute(args: RenderArgs) -> Result<()> {
             }
             (output, Some(markdown_path.clone()))
         } else {
-            // Generated blueprint, Must Fill cells filled so it renders out of the box.
-            let markdown = quill
-                .source()
-                .config()
-                .blueprint_filled(FillBehavior::Preview);
+            // No input file: render the `example` reference document — the
+            // illustrative consolidation (example › default › zero), filled so
+            // it renders out of the box.
+            let markdown = quill.source().config().example();
 
             if args.verbose {
-                println!("Using generated blueprint from quill (fill: preview)");
+                println!("Using generated example document from quill");
             }
 
             // Parse markdown
             let output = Document::from_markdown_with_warnings(&markdown)?;
 
             if args.verbose {
-                println!("Blueprint parsed successfully");
+                println!("Example document parsed successfully");
             }
 
             (output, None)
@@ -127,7 +126,7 @@ pub fn execute(args: RenderArgs) -> Result<()> {
     if let Some(data_path) = args.output_data {
         let json_data = quill
             .compile_data(&parsed)
-            .map_err(|e| CliError::Render(e))?;
+            .map_err(CliError::Render)?;
         let f = std::fs::File::create(&data_path).map_err(|e| {
             CliError::Io(std::io::Error::new(
                 e.kind(),
@@ -139,8 +138,7 @@ pub fn execute(args: RenderArgs) -> Result<()> {
             ))
         })?;
         serde_json::to_writer_pretty(f, &json_data).map_err(|e| {
-            CliError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            CliError::Io(std::io::Error::other(
                 format!("Failed to write JSON data: {}", e),
             ))
         })?;
@@ -180,7 +178,7 @@ pub fn execute(args: RenderArgs) -> Result<()> {
             if let Some(ref path) = markdown_path_for_output {
                 derive_output_path(path, &args.format)
             } else {
-                PathBuf::from(format!("blueprint.{}", args.format))
+                PathBuf::from(format!("example.{}", args.format))
             }
         }))
     };

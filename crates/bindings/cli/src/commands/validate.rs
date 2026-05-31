@@ -5,7 +5,7 @@ use quillmark_core::quill::{CardSchema, FieldSchema, FieldType, QuillConfig};
 use quillmark_core::QuillValue;
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 pub struct ValidateArgs {
@@ -184,7 +184,7 @@ pub fn execute(args: ValidateArgs) -> Result<()> {
 }
 
 fn validate_file_references(
-    quill_path: &PathBuf,
+    quill_path: &Path,
     config: &QuillConfig,
     result: &mut ValidationResult,
 ) {

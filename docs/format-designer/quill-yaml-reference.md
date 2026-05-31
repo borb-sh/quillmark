@@ -79,8 +79,8 @@ main:
 |---------------|-------------------|----------|-------------|
 | `type`        | string            | yes      | Data type (see [Field Types](#field-types)) |
 | `description` | string            | no       | Detailed help text |
-| `default`     | any               | no       | Default value when not provided. **Declaring `default` makes the field Endorsed**: the blueprint renders the default plus a `; delete-ok` tag. Omitting `default` makes the field **Must Fill**: the blueprint renders the `<must-fill>` sentinel and validation fires `validation::must_fill_absent` if the field is absent at validate time. |
-| `example`     | any               | no       | Illustrative value surfaced in the [blueprint](https://github.com/quillmark-org/quillmark/blob/main/prose/canon/BLUEPRINT.md) for documentation and LLM authoring |
+| `default`     | any               | no       | The value the **majority of authors want**. When the field is omitted, the default is interpolated. **Declaring `default` makes the field Endorsed**: the blueprint renders the default plus a `; delete-ok` tag. Omitting `default` makes the field **Must Fill**: the blueprint renders the `<must-fill>` sentinel and validation flags `validation::must_fill_absent` at validate time (a non-fatal signal — the render path zero-fills an absent field). |
+| `example`     | any               | no       | A value matching the **type and shape** of what the author wants, but **not** the value desired most of the time. Documents shape only — surfaced in the [blueprint](https://github.com/quillmark-org/quillmark/blob/main/prose/canon/BLUEPRINT.md)'s `# e.g.` line for documentation and LLM authoring, never rendered as the value. |
 | `enum`        | array of strings  | no       | Restrict to specific values |
 | `ui`          | object            | no       | UI rendering hints (see [UI Properties](#ui-properties)) |
 | `properties`  | object            | no       | Nested field schemas (for `array` typed-table rows or `object` typed dictionaries) |

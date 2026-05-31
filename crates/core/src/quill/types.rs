@@ -154,12 +154,18 @@ impl FieldType {
 
 /// Schema definition for a template field.
 ///
+/// `default` and `example` are both type-valid values with opposite intent:
+/// `default` is the value most authors want (interpolated when the field is
+/// omitted), while `example` matches the desired type and shape but is not
+/// the value most authors want (it documents shape only, never rendering).
+///
 /// A field's *cell* is determined by `default`: a field with a `default:`
 /// is **Endorsed** (the rendered value is shippable as-is), while a field
 /// without a `default:` is **Must Fill** (the blueprint carries a
 /// `<must-fill>` sentinel and validation reports
-/// `validation::must_fill_absent` if the field is missing at
-/// validate time). There is no separate `required:` axis.
+/// `validation::must_fill_absent` if the field is missing at validate
+/// time — a non-fatal signal, since the render path zero-fills an absent
+/// field). There is no separate `required:` axis.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FieldSchema {
     /// The map key carries this on the wire; skipped during serialization to avoid duplication.
@@ -168,9 +174,12 @@ pub struct FieldSchema {
     pub r#type: FieldType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// The value most authors want; interpolated when the field is omitted.
+    /// Its presence makes the field Endorsed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<QuillValue>,
-    /// Single value; used as template placeholder.
+    /// A value matching the desired type and shape but not the value most
+    /// authors want; documents shape only and never renders as the value.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub example: Option<QuillValue>,
     #[serde(skip_serializing_if = "Option::is_none")]

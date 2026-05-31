@@ -56,11 +56,41 @@ Validation is implemented by a native walker over `QuillConfig` in `quill/valida
   skips the type check for that field.
 - **Required-field semantics**: a missing field with a `default:` accepts
   the default (no error). A missing field without a `default:` fires
-  `validation::must_fill_absent`.
+  `validation::must_fill_absent` — a non-fatal signal at render, where the
+  field is zero-filled (see [Zero-filled render](#zero-filled-render)).
 
 Field-level type and presence errors render under a uniform shape —
 field path, verbatim source token, schema declaration, and both exits
 when applicable. See `ERROR.md` § "Validation message contract".
+
+## Zero-filled render
+
+Rendering and the *completeness verdict* are orthogonal. The render path
+(`compile_data` / `resolve_fields` in `quillmark::orchestration`) uses
+**zero-filled render**: every absent schema field is resolved by precedence
+— an authored value, else the `default:`, else the type-empty zero value
+(`zero_value`; see [BLUEPRINT.md](BLUEPRINT.md)) — in the plate-JSON
+projection that feeds the backend **only, never in the persisted document**.
+
+- **Incomplete is renderable.** A document that merely omits a Must Fill
+  field renders fine: the field is zero-filled in the projection, so
+  `validation::must_fill_absent` is demoted from a render error to a
+  non-fatal signal. The `validate_document` layer still emits the code;
+  consumers (e.g. the form view's per-field state) read it for doneness.
+- **Malformed is fatal.** A value that cannot coerce to its declared type,
+  or a surviving `<must-fill>` sentinel, errors on every path. The sentinel
+  is the system's own "replace me" placeholder, so leaving it in is provably
+  an authoring accident — rendering it literally is never intended.
+- **Non-persist invariant.** The zero-fill lives only in the ephemeral
+  projection and must never be written back. A type-empty value is
+  indistinguishable from authored-empty, so persisting it would make
+  `must_fill_absent` (which keys on absence) vacuous and blind a future
+  schema migration to author intent.
+
+The per-field zero value is honestly blank for every type except `enum`,
+whose zero is the first declared variant; it is the one shared producer
+behind both this render floor and the `example` document's fallback (see
+[BLUEPRINT.md](BLUEPRINT.md)).
 
 ## Schema emission
 
@@ -81,16 +111,33 @@ For LLM/MCP authoring, see [BLUEPRINT.md](BLUEPRINT.md) — `blueprint()` emits 
 
 Top-level schema keys: `main`, optional `card_kinds` (map keyed by card name). `main` and each entry in `card_kinds` share the same `CardSchema` shape: `fields` (map keyed by field name), optional `description`, optional `ui`, optional `body`. Each `FieldSchema` includes `type`, optional `description`/`default`/`example`/`enum`/`properties`/`ui`.
 
+### `default` and `example`
+
+`default` and `example` are both type- and shape-valid values, but they
+encode opposite author intents:
+
+- **`default`** is the value the *majority* of authors want. Because most
+  authors want it, the field can be omitted entirely: at render time the
+  default is interpolated for any field the document leaves out (an
+  authored value always wins — `resolve_fields` in
+  `quill/orchestration`). A field with a `default:` is **Endorsed** — the
+  rendered value is shippable as-is — and the blueprint tags it
+  `; delete-ok`. Type-empty defaults (`default: ""`, `[]`, `false`, `0`)
+  are the canonical way to mark a "skippable" cell.
+- **`example`** matches the semantic and type *shape* of the desired
+  value but is *not* the value most authors want. It documents shape, not
+  the choice — so it never becomes the rendered value; it only surfaces in
+  the blueprint's `# e.g.` line.
+
 ### Must-Fill vs. Endorsed fields
 
-A field is **Must Fill** when no `default:` is declared; the schema author
-expects the LLM or user to supply a value before shipping. A missing
-Must Fill field at validate time fires `validation::must_fill_absent`.
+A field is **Must Fill** when no `default:` is declared — there is no value
+most authors want, so the LLM or user must supply one before shipping. A
+missing Must Fill field at validate time fires
+`validation::must_fill_absent`.
 
 A field is **Endorsed** when `default:` is declared; the rendered default
-is shippable as-is (the author can keep or override it). Endorsed
-defaults include type-empty values — `default: ""`, `default: []`,
-`default: false`, `default: 0` — which standardize the "skippable" cell.
+is shippable as-is (the author can keep or override it).
 
 There is no separate `required:` axis; the presence or absence of
 `default:` is the sole author choice per field. See
