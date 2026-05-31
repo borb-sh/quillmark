@@ -1,0 +1,29 @@
+# Migration Guides
+
+Quillmark evolves through deliberate, documented releases. When a release
+changes the document syntax, the plate-JSON wire format, or a public API in a
+way that is not backward compatible, it ships with a migration guide describing
+exactly what changed and how to update your documents, quills, and host code.
+
+Many of these are **hard cutovers** — the old form stops parsing or compiling,
+so a guide is the path forward, not an optional read. Each guide is scoped to a
+single version step; to cross several versions, work through the relevant
+guides in order.
+
+## Available guides
+
+- [0.85 → 0.86](0.85-to-0.86.md) — partial documents render without error, and
+  the canonical card-yaml fence becomes a bare `~~~`.
+- [0.83 → 0.84](0.83-to-0.84.md) — the Must Fill / Endorsed schema model
+  replaces `required:`, with Python ↔ WASM parity.
+- [0.82 → 0.83](0.82-to-0.83.md) — `$`-prefixed plate JSON wire format retires
+  the legacy uppercase reserved keys.
+- [0.81 → 0.82](0.81-to-0.82.md) — the card-yaml metadata syntax replaces the
+  `---`/`QUILL:` frontmatter and fenced cards.
+- [`@quillmark/wasm` 0.77 → 0.80](wasm-0.77-to-0.80.md) — migration notes for
+  WASM consumers crossing the card-syntax release.
+
+## Related
+
+For how Quills themselves are versioned and how authors target a version, see
+[Quill Versioning](../quills/versioning.md).
