@@ -14,9 +14,9 @@ no modes. Add a second named output, `example`, the illustrative
 consolidation of the schema: each field renders its `example:`, else its
 `default:`, else the zero value. Demote `FillBehavior` from a public
 parameter to an internal `FillSource` strategy. The pure-zero mode (today's
-`TypeEmpty` blueprint) is removed: its only consumer — the quiver authoring
-contract — instead zero-filled-renders an empty document (see
-[zero-filled-render.md](zero-filled-render.md)).
+`TypeEmpty` blueprint) is removed: its only consumer — the quill authoring
+contract (`every_quill_in_quiver_renders`) — instead zero-filled-renders an
+empty document (see [zero-filled-render.md](zero-filled-render.md)).
 
 Pre-1.0; not yet implemented. When built, graduates into
 [BLUEPRINT.md](../canon/BLUEPRINT.md).
@@ -30,7 +30,7 @@ plus `blueprint_filled(FillBehavior)` with three variants:
 |---|---|---|
 | `Strict` | `<must-fill>` sentinel (identical to `blueprint()`) | authoring surface |
 | `Preview` | the field's `example:`, else the zero value | CLI `render` with no input file |
-| `TypeEmpty` | zero value everywhere (`""`, `0`, `false`, `[]`, `{}`, first enum) | quiver authoring-contract test |
+| `TypeEmpty` | zero value everywhere (`""`, `0`, `false`, `[]`, `{}`, first enum) | quill authoring-contract test (`every_quill_in_quiver_renders`) |
 
 Two problems:
 
@@ -107,7 +107,7 @@ invent meaningless combinations (a "blueprint with examples" nobody wants).
 ## The dead branch: pure-zero blueprint
 
 `blueprint_filled(TypeEmpty)` emits a document with every Must Fill field at
-its zero value. Its only caller is the quiver authoring-contract test
+its zero value. Its only caller is the quill authoring-contract test
 (`every_quill_in_quiver_renders`). Once zero-filled render exists, this mode
 has no reason to live:
 
