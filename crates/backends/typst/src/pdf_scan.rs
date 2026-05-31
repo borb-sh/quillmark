@@ -309,7 +309,7 @@ fn read_value_end(b: &[u8], start: usize) -> Option<usize> {
                     j += 1;
                 }
                 if b.get(j).copied() == Some(b'R')
-                    && b.get(j + 1).map_or(true, |c| is_pdf_delim(*c))
+                    && b.get(j + 1).is_none_or(|c| is_pdf_delim(*c))
                 {
                     return Some(j + 1);
                 }
@@ -391,7 +391,7 @@ pub(crate) fn parse_indirect_ref(s: &[u8]) -> Option<(u32, u16)> {
         return None;
     }
     // Standalone-R check rejects identifiers like `Roller`.
-    if !s.get(1).map_or(true, |c| is_pdf_delim(*c)) {
+    if !s.get(1).is_none_or(|c| is_pdf_delim(*c)) {
         return None;
     }
     Some((id, gen))

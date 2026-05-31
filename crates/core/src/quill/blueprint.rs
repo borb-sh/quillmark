@@ -45,7 +45,7 @@ use serde_json::Value as JsonValue;
 /// the typed schema, so the document never re-parses the annotation grammar.
 ///
 /// Two variants for the two named reference documents — no configurable
-/// precedence policy (see `prose/proposals/blueprint-example-split.md`).
+/// precedence policy (see `prose/canon/BLUEPRINT.md`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FillSource {
     /// Render the `<must-fill>` sentinel in every Must Fill cell (a field with
@@ -99,7 +99,7 @@ impl QuillConfig {
     /// but not guaranteed fully populated: a field with neither an `example:`
     /// nor a `default:` renders at its zero value.
     ///
-    /// See `prose/proposals/blueprint-example-split.md`. Like
+    /// See `prose/canon/BLUEPRINT.md`. Like
     /// [`blueprint`](Self::blueprint), the result is schema-valid and
     /// parseable; rendering is the quill authoring contract on `plate.typ`.
     pub fn example(&self) -> String {

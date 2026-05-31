@@ -1140,7 +1140,7 @@ main:
         assert!(
             err.to_string().ends_with(&hint),
             "message tail must equal hint; msg={msg}, hint={hint}",
-            msg = err.to_string(),
+            msg = err,
         );
         assert!(hint.contains("quote the value"));
     }
