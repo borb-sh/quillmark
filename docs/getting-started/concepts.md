@@ -68,7 +68,7 @@ If the root block's `$quill` line is missing, parsing fails. Quill names must be
 
 Quillmark follows a three-stage pipeline:
 
-1. **Parse & Normalize** - Extract card-yaml blocks and body prose, apply schema coercion/defaults, strip bidi characters, fix HTML fences
+1. **Parse & Normalize** - Extract card-yaml blocks and body prose, apply schema coercion/defaults, strip bidi characters, fix HTML fences. Absent fields are zero-filled in the backend projection (never persisted) — partial documents are first-class and always renderable.
 2. **Compile** - Backend receives plate content + JSON data and converts them into final artifacts (PDF, SVG, PNG, etc.)
 3. **Output** - Return artifacts with metadata
 
