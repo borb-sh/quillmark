@@ -156,6 +156,22 @@ impl fmt::Display for VersionSelector {
     }
 }
 
+/// Canonical, author-facing `$quill` reference grammar.
+const QUILL_REF_HINT: &str = "A $quill reference is `<name>` or `<name>@<selector>`. \
+The name must match `[a-z_][a-z0-9_]*` (start with a lowercase letter or underscore, then \
+lowercase letters, digits, or underscores). The optional version selector is \
+`@MAJOR.MINOR.PATCH` (exact), `@MAJOR.MINOR` (latest patch in that minor series), `@MAJOR` \
+(latest in that major series), or `@latest`; omitting the selector means latest.";
+
+/// Single source of truth for the grammar [`QuillReference::from_str`] enforces:
+/// bindings surface it (schema `describe`, validation hints) and it rides as the
+/// `hint` on the `parse::invalid_quill_reference` diagnostic, so error and
+/// describe text can't drift from the parser. Sibling of `document`'s
+/// `FORMAT_RULES` / `blueprint_instruction`.
+pub fn quill_ref_hint() -> &'static str {
+    QUILL_REF_HINT
+}
+
 /// Complete reference to a Quill template with name and version selector.
 ///
 /// Name charset: `[a-z_][a-z0-9_]*`. Selector defaults to `Latest` when omitted.
@@ -376,5 +392,15 @@ mod tests {
 
         let ref3 = QuillReference::new("resume".to_string(), VersionSelector::Latest);
         assert_eq!(ref3.to_string(), "resume");
+    }
+
+    #[test]
+    fn test_quill_ref_hint_describes_the_grammar() {
+        let hint = quill_ref_hint();
+        assert!(!hint.is_empty());
+        // Pin the charset and selector forms so the hint can't drift from `from_str`.
+        assert!(hint.contains("[a-z_][a-z0-9_]*"), "got: {hint}");
+        assert!(hint.contains("@latest"), "got: {hint}");
+        assert!(hint.contains("@MAJOR.MINOR.PATCH"), "got: {hint}");
     }
 }
