@@ -105,7 +105,7 @@ and the `example` document's fallback (see [BLUEPRINT.md](BLUEPRINT.md)).
 
 - Field types, constraints, and `enum`/`default`/`example` annotations
 - `ui` hints on fields and card kinds (`group`, `order`, `compact`, `multiline`, `title`)
-- `body` blocks on cards (`enabled`, `description`)
+- `body` blocks on cards (`enabled`, `example`)
 
 The schema describes only the user-fillable fields. The quill reference
 (`name@version`, available from quill metadata) and card-kind
@@ -127,7 +127,7 @@ encode opposite author intents:
   authors want it, the field can be omitted entirely: at render time the
   default is interpolated for any field the document leaves out (an
   authored value always wins — `resolve_fields` in
-  `quill/orchestration`). A field with a `default:` is **Endorsed** — the
+  `quillmark::orchestration`). A field with a `default:` is **Endorsed** — the
   rendered value is shippable as-is — and the blueprint tags it
   `; delete-ok`. Type-empty defaults (`default: ""`, `[]`, `false`, `0`)
   are the canonical way to mark a "skippable" cell.
@@ -159,7 +159,7 @@ Identity fields (`name`, `version`, `backend`, `author`, `description`) live on 
 |---|---|
 | Rust | `QuillConfig::schema()` (JSON) / `schema_yaml()` (YAML) |
 | Wasm | `Quill.schema` getter (JSON) |
-| Python | `Quill.schema` getter (YAML) |
+| Python | `Quill.schema` getter (dict) |
 | CLI | `quillmark schema <path>` |
 
 ### Where the discriminators come from
