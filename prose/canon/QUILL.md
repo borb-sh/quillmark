@@ -30,12 +30,10 @@ pub enum FileTreeNode {
 }
 
 pub struct QuillSource {
-    pub metadata: HashMap<String, QuillValue>,
-    pub name: String,
-    pub backend_id: String,
-    pub plate: Option<String>,
-    pub config: QuillConfig,
-    pub files: FileTreeNode,
+    pub(crate) metadata: HashMap<String, QuillValue>,
+    pub(crate) plate: Option<String>,
+    pub(crate) config: QuillConfig,
+    pub(crate) files: FileTreeNode,
 }
 
 pub struct Quill {
@@ -55,8 +53,8 @@ entry point; filesystem walking (`engine.quill_from_path`) lives in
 with UTF-8 and binary file contents represented as bytes.
 
 For JS/WASM consumers this is exposed as `engine.quill(...)` accepting a
-`Map<string, Uint8Array>` (path→bytes). Plain objects are not accepted; only
-`Map` instances are supported.
+`Map<string, Uint8Array>` (path→bytes). Plain objects (`Record<string, Uint8Array>`)
+are also accepted and walked via `Object.entries` at the boundary.
 
 Validation rules:
 1. Root MUST be a directory node
