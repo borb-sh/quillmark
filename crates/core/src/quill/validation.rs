@@ -411,34 +411,53 @@ fn validate_fields_for_card_indexmap(
     errors
 }
 
-/// Validate a single value against a field schema at the given path.
-/// Used internally; exposed for testing.
-pub(crate) fn validate_field(
+/// Distinguishes the two value sources the conformance core
+/// [`validate_value`] serves. The type/enum/format/recursion checks are
+/// identical; only the document-authoring concerns differ.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ValueContext {
+    /// A value parsed from an authored document. Detects the `<must-fill>`
+    /// sentinel, requires non-defaulted object properties to be present, and
+    /// reports the field's `default:` token alongside a type mismatch.
+    Document,
+    /// An `example:` or `default:` literal declared in Quill.yaml. Partial
+    /// objects are allowed (absent properties are not errors) and the
+    /// document-only sentinel / default semantics do not apply.
+    SchemaLiteral,
+}
+
+/// Shared conformance core: validate a single `value` against `field` at
+/// `path`, checking type compatibility, enum membership, datetime format, and
+/// recursing into array elements / object properties. `ctx` selects the few
+/// document-only behaviors (see [`ValueContext`]).
+fn validate_value(
     field: &FieldSchema,
     value: &QuillValue,
     path: &str,
+    ctx: ValueContext,
 ) -> Vec<ValidationError> {
-    let mut errors = Vec::new();
-
-    // Sentinel detection runs before per-type coercion / validation.
-    // Scalar fields carry the sentinel in the value cell; markdown carries
-    // it as the trimmed content of the block scalar. On match, emit the
+    // Sentinel detection is a document-only concern and runs before per-type
+    // validation. Scalar fields carry the sentinel in the value cell; markdown
+    // carries it as the trimmed content of the block scalar. On match, emit the
     // sentinel-branch of `MustFillUnset` and skip per-type checks.
-    if let Some(text) = value.as_str() {
-        let candidate = if matches!(field.r#type, FieldType::Markdown) {
-            text.trim()
-        } else {
-            text
-        };
-        if candidate == MUST_FILL_SENTINEL {
-            errors.push(ValidationError::MustFillUnset {
-                path: path.to_string(),
-                expected: expected_type_name(&field.r#type).to_string(),
-                source: MustFillSource::Sentinel,
-            });
-            return errors;
+    if ctx == ValueContext::Document {
+        if let Some(text) = value.as_str() {
+            let candidate = if matches!(field.r#type, FieldType::Markdown) {
+                text.trim()
+            } else {
+                text
+            };
+            if candidate == MUST_FILL_SENTINEL {
+                return vec![ValidationError::MustFillUnset {
+                    path: path.to_string(),
+                    expected: expected_type_name(&field.r#type).to_string(),
+                    source: MustFillSource::Sentinel,
+                }];
+            }
         }
     }
+
+    let mut errors = Vec::new();
 
     let type_valid = match field.r#type {
         FieldType::String | FieldType::Markdown => value.as_str().is_some(),
@@ -474,16 +493,18 @@ pub(crate) fn validate_field(
                 // Validate each element against the array's `items` schema.
                 // Scalar elements (`string[]`, `integer[]`, `markdown[]`, …)
                 // are type-checked element-wise; object elements recurse into
-                // their properties via the Object branch (a row collapsed to
-                // the `<must-fill>` sentinel surfaces a single Sentinel error
-                // at the row path through the sentinel detector above).
+                // their properties via the Object branch (in a document, a row
+                // collapsed to the `<must-fill>` sentinel surfaces a single
+                // Sentinel error at the row path through the sentinel detector
+                // above).
                 if let Some(item_schema) = &field.items {
                     for (idx, item) in items.iter().enumerate() {
                         let row_path = format!("{}[{}]", path, idx);
-                        errors.extend(validate_field(
+                        errors.extend(validate_value(
                             item_schema,
                             &QuillValue::from_json(item.clone()),
                             &row_path,
+                            ctx,
                         ));
                     }
                 }
@@ -500,12 +521,18 @@ pub(crate) fn validate_field(
                         let property_schema = &properties[property_name];
                         let property_path = child_path(path, property_name);
                         match object.get(property_name) {
-                            Some(property_value) => errors.extend(validate_field(
+                            Some(property_value) => errors.extend(validate_value(
                                 property_schema,
                                 &QuillValue::from_json(property_value.clone()),
                                 &property_path,
+                                ctx,
                             )),
-                            None if property_schema.default.is_none() => {
+                            // A missing non-defaulted property is Must Fill in a
+                            // document; in a schema literal, partial objects are
+                            // intentional and absence is not an error.
+                            None if ctx == ValueContext::Document
+                                && property_schema.default.is_none() =>
+                            {
                                 errors.push(ValidationError::MustFillUnset {
                                     path: property_path,
                                     expected: expected_type_name(&property_schema.r#type)
@@ -534,10 +561,16 @@ pub(crate) fn validate_field(
             expected: expected_type_name(&field.r#type).to_string(),
             actual: yaml_scalar_type(value.as_json()).to_string(),
             source_token: verbatim_yaml_scalar(value.as_json()),
-            default: field
-                .default
-                .as_ref()
-                .map(|d| verbatim_yaml_scalar(d.as_json())),
+            // The `default:` token is a document-authoring aid ("omit the line
+            // and the default fills in") — meaningless when validating the
+            // schema's own literals.
+            default: match ctx {
+                ValueContext::Document => field
+                    .default
+                    .as_ref()
+                    .map(|d| verbatim_yaml_scalar(d.as_json())),
+                ValueContext::SchemaLiteral => None,
+            },
         });
     }
 
@@ -554,6 +587,32 @@ pub(crate) fn validate_field(
     }
 
     errors
+}
+
+/// Validate a single document value against a field schema at the given path.
+/// Used internally; exposed for testing.
+pub(crate) fn validate_field(
+    field: &FieldSchema,
+    value: &QuillValue,
+    path: &str,
+) -> Vec<ValidationError> {
+    validate_value(field, value, path, ValueContext::Document)
+}
+
+/// Validate a schema literal value — an `example:` or `default:` declared in
+/// Quill.yaml — against a field schema.
+///
+/// Shares the type/enum/format/recursion core with [`validate_field`] (see
+/// [`validate_value`]) but omits the document-authoring concerns: it does not
+/// detect the `<must-fill>` sentinel, does not emit `MustFillUnset` for absent
+/// object properties (partial examples/defaults are intentional and valid), and
+/// never attaches a `default:` token to a type mismatch.
+pub(crate) fn validate_schema_literal(
+    schema: &FieldSchema,
+    value: &QuillValue,
+    path: &str,
+) -> Vec<ValidationError> {
+    validate_value(schema, value, path, ValueContext::SchemaLiteral)
 }
 
 fn expected_type_name(field_type: &FieldType) -> &'static str {
