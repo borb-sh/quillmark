@@ -13,6 +13,9 @@ Pages instead of Read the Docs.
 
 ### Breaking changes
 
+These are schema-load cutovers for `Quill.yaml` authors; full before/after
+steps are in `docs/migrations/0.86-to-0.87.md`.
+
 - **Array fields now require an `items` element schema** (#672). Arrays
   previously carried a single untyped `Array` type; scalar arrays were
   never coerced or validated element-wise and were always annotated
