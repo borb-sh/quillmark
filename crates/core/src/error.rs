@@ -229,6 +229,20 @@ pub enum ParseError {
     #[error("{0}")]
     MissingQuill(String),
 
+    /// A `$quill` reference string failed to parse against the reference
+    /// grammar (see [`crate::version::quill_ref_hint`]).
+    ///
+    /// Emitted as code `parse::invalid_quill_reference`; the canonical grammar
+    /// travels as the diagnostic's `hint` so the error and any binding's
+    /// schema `describe` text stay in lockstep with the parser.
+    #[error("Invalid $quill reference '{value}': {reason}")]
+    InvalidQuillReference {
+        /// The offending reference string, verbatim.
+        value: String,
+        /// The specific violation reported by `QuillReference::from_str`.
+        reason: String,
+    },
+
     #[error("YAML error at line {line}: {message}")]
     YamlErrorWithLocation {
         message: String,
@@ -257,6 +271,12 @@ impl ParseError {
                 .with_code("parse::empty_input".to_string()),
             ParseError::MissingQuill(msg) => Diagnostic::new(Severity::Error, msg.clone())
                 .with_code("parse::missing_quill".to_string()),
+            ParseError::InvalidQuillReference { value, reason } => Diagnostic::new(
+                Severity::Error,
+                format!("Invalid $quill reference '{}': {}", value, reason),
+            )
+            .with_code("parse::invalid_quill_reference".to_string())
+            .with_hint(crate::version::quill_ref_hint().to_string()),
             ParseError::YamlErrorWithLocation {
                 message,
                 line,

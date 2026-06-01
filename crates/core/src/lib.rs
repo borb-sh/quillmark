@@ -67,4 +67,4 @@ pub use value::QuillValue;
 pub mod normalize;
 
 pub mod version;
-pub use version::{QuillReference, Version, VersionSelector};
+pub use version::{quill_ref_hint, QuillReference, Version, VersionSelector};

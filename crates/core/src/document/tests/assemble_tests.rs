@@ -62,6 +62,23 @@ fn test_missing_quill_diagnostic_code() {
 }
 
 #[test]
+fn test_malformed_quill_reference_carries_code_and_grammar_hint() {
+    // An uppercase name violates the reference grammar. The parser surfaces a
+    // dedicated `parse::invalid_quill_reference` code and attaches the canonical
+    // grammar as the diagnostic `hint` (sourced from `quill_ref_hint`), so every
+    // binding renders identical guidance instead of re-stating the rule.
+    let err =
+        decompose("~~~card-yaml\n$quill: Resume@2.1.0\n$kind: main\n~~~\n\nBody\n").unwrap_err();
+    let diag = err.to_diagnostic();
+    assert_eq!(diag.code.as_deref(), Some("parse::invalid_quill_reference"));
+    assert_eq!(
+        diag.hint.as_deref(),
+        Some(crate::version::quill_ref_hint()),
+        "the malformed-reference diagnostic must carry the canonical grammar hint"
+    );
+}
+
+#[test]
 fn test_root_dash_frontmatter_without_quill_reports_missing_quill() {
     // `---` opener is now accepted for the root block. A `---` block without
     // `$quill` should surface the standard MissingQuill error — not the old

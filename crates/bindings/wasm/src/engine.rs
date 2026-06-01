@@ -504,6 +504,17 @@ impl Document {
         quillmark_core::document::blueprint_instruction(quill_name)
     }
 
+    /// The canonical `$quill` reference grammar as author-facing text — the
+    /// same string every binding shows (CLI, Python, MCP) so a consumer's
+    /// schema `describe`, its validation messages, and the
+    /// `parse::invalid_quill_reference` diagnostic's `hint` all read from one
+    /// source rather than re-stating the rule. Read once at startup and cache;
+    /// the value never changes between calls.
+    #[wasm_bindgen(js_name = quillRefHint)]
+    pub fn quill_ref_hint() -> String {
+        quillmark_core::quill_ref_hint().to_string()
+    }
+
     /// Render a Diagnostic as the canonical pretty-printed text every binding
     /// shows (CLI, Python, MCP). Single source of truth so a Diagnostic looks
     /// identical no matter which consumer surfaces it.
@@ -645,10 +656,18 @@ impl Document {
     #[wasm_bindgen(js_name = setQuillRef)]
     pub fn set_quill_ref(&mut self, ref_str: &str) -> Result<(), JsValue> {
         let qr: quillmark_core::QuillReference = ref_str.parse().map_err(|e| {
-            WasmError::from(format!(
-                "setQuillRef: invalid reference '{}': {}",
-                ref_str, e
-            ))
+            // Surface the same `parse::invalid_quill_reference` shape — code and
+            // canonical grammar `hint` — that document parsing emits, so the
+            // mutator and the parser never drift.
+            let diag = quillmark_core::Diagnostic::new(
+                quillmark_core::Severity::Error,
+                format!("setQuillRef: invalid reference '{}': {}", ref_str, e),
+            )
+            .with_code("parse::invalid_quill_reference".to_string())
+            .with_hint(quillmark_core::quill_ref_hint().to_string());
+            WasmError {
+                diagnostics: vec![diag],
+            }
             .to_js_value()
         })?;
         self.inner.set_quill_ref(qr);

@@ -156,6 +156,29 @@ impl fmt::Display for VersionSelector {
     }
 }
 
+/// Canonical, author-facing description of the `$quill` reference grammar
+/// enforced by [`QuillReference::from_str`].
+///
+/// This is the **single source of truth** for the grammar: bindings surface it
+/// verbatim (zod schema `describe`, CLI help, validation hints) instead of
+/// re-stating the rule in their own glue, and it travels as the `hint` on the
+/// `parse::invalid_quill_reference` diagnostic so a malformed reference's error
+/// and a schema's describe text never drift from the parser. Mirrors the
+/// `FORMAT_RULES` / `blueprint_instruction` pattern in `document`.
+const QUILL_REF_HINT: &str = "A $quill reference is `<name>` or `<name>@<selector>`. \
+The name must match `[a-z_][a-z0-9_]*` (start with a lowercase letter or underscore, then \
+lowercase letters, digits, or underscores). The optional version selector is \
+`@MAJOR.MINOR.PATCH` (exact), `@MAJOR.MINOR` (latest patch in that minor series), `@MAJOR` \
+(latest in that major series), or `@latest`; omitting the selector means latest.";
+
+/// The canonical `$quill` reference grammar as author-facing text. Single
+/// source of truth (see [`QUILL_REF_HINT`]) so every binding shows identical
+/// wording rather than re-stating the rule. The value never changes between
+/// calls.
+pub fn quill_ref_hint() -> &'static str {
+    QUILL_REF_HINT
+}
+
 /// Complete reference to a Quill template with name and version selector.
 ///
 /// Name charset: `[a-z_][a-z0-9_]*`. Selector defaults to `Latest` when omitted.
@@ -376,5 +399,16 @@ mod tests {
 
         let ref3 = QuillReference::new("resume".to_string(), VersionSelector::Latest);
         assert_eq!(ref3.to_string(), "resume");
+    }
+
+    #[test]
+    fn test_quill_ref_hint_describes_the_grammar() {
+        let hint = quill_ref_hint();
+        assert!(!hint.is_empty());
+        // Names the charset and selector forms the parser actually enforces,
+        // so the single-source string can't silently drift from `from_str`.
+        assert!(hint.contains("[a-z_][a-z0-9_]*"), "got: {hint}");
+        assert!(hint.contains("@latest"), "got: {hint}");
+        assert!(hint.contains("@MAJOR.MINOR.PATCH"), "got: {hint}");
     }
 }

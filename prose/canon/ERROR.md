@@ -10,7 +10,7 @@
 
 **`Diagnostic`**: severity, optional error code, message, primary location, optional hint, source error chain (omitted from serialization when empty)
 
-**`ParseError`**: parsing-stage error enum — input too large, YAML errors (with and without location), invalid structure; converts to `Diagnostic` via `to_diagnostic()`
+**`ParseError`**: parsing-stage error enum — input too large, YAML errors (with and without location), invalid structure, missing `$quill`, and invalid `$quill` reference; converts to `Diagnostic` via `to_diagnostic()`. The invalid-reference case (`parse::invalid_quill_reference`) attaches the canonical `$quill` grammar — `quillmark_core::quill_ref_hint()` — as the diagnostic's `hint`. That hint is the single source of truth for the reference grammar: bindings surface it verbatim (e.g. WASM `Document.quillRefHint`) rather than re-stating the rule, mirroring `FORMAT_RULES` / `blueprint_instruction`.
 
 **`RenderError`**: main rendering error enum. Every variant carries the same
 payload — a non-empty `diags: Vec<Diagnostic>` — so all consumers (and all
