@@ -105,7 +105,7 @@ and the `example` document's fallback (see [BLUEPRINT.md](BLUEPRINT.md)).
 
 - Field types, constraints, and `enum`/`default`/`example` annotations
 - `ui` hints on fields and card kinds (`group`, `order`, `compact`, `multiline`, `title`)
-- `body` blocks on cards (`enabled`, `description`)
+- `body` blocks on cards (`enabled`, `example`)
 
 The schema describes only the user-fillable fields. The quill reference
 (`name@version`, available from quill metadata) and card-kind
