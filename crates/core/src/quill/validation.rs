@@ -607,7 +607,7 @@ pub(crate) fn validate_field(
 /// detect the `<must-fill>` sentinel, does not emit `MustFillUnset` for absent
 /// object properties (partial examples/defaults are intentional and valid), and
 /// never attaches a `default:` token to a type mismatch.
-pub fn validate_schema_literal(
+pub(crate) fn validate_schema_literal(
     schema: &FieldSchema,
     value: &QuillValue,
     path: &str,
