@@ -12,6 +12,9 @@ guides in order.
 
 ## Available guides
 
+- [0.86 → 0.87](0.86-to-0.87.md) — array fields require an `items` element
+  schema, `type: date` folds into a unified `type: datetime`, and schema load
+  rejects empty `properties` maps and deeper array nesting.
 - [0.85 → 0.86](0.85-to-0.86.md) — partial documents render without error, and
   the canonical card-yaml fence becomes a bare `~~~`.
 - [0.83 → 0.84](0.83-to-0.84.md) — the Must Fill / Endorsed schema model
