@@ -18,9 +18,9 @@ use crate::value::QuillValue;
 /// The type-empty (zero) value for `field`: the leanest value that satisfies
 /// the field's declared type.
 ///
-/// Honestly blank for almost every type — `""` (string, markdown, date,
-/// datetime: the validator accepts the empty string for date/datetime), `0`,
-/// `false`, `[]`. The lone seam is `enum`: there is no empty enum
+/// Honestly blank for almost every type — `""` (string, markdown, datetime:
+/// the validator accepts the empty string for datetime), `0`, `false`, `[]`.
+/// The lone seam is `enum`: there is no empty enum
 /// member, so the zero value is the first declared variant (`first_enum`).
 ///
 /// An `object` with `properties` is *shape-valid only when every property is
@@ -50,7 +50,7 @@ pub fn zero_value(field: &FieldSchema) -> QuillValue {
         },
         FieldType::Integer | FieldType::Number => json!(0),
         FieldType::Boolean => json!(false),
-        // String / Markdown / Date / DateTime: `""` is schema-valid for all four.
+        // String / Markdown / DateTime: `""` is schema-valid for all three.
         _ => json!(""),
     };
     QuillValue::from_json(json)
