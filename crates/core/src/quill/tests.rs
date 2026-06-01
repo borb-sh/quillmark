@@ -2917,6 +2917,31 @@ fn markdown_type_mismatch_reports_markdown_not_string() {
 }
 
 #[test]
+fn type_date_is_rejected() {
+    // `type: date` was removed in 0.87.0; schemas declaring it must fail to
+    // load with a parse error, not silently accept or coerce the field.
+    let yaml = r#"
+quill:
+  name: old_date_field
+  version: "1.0"
+  backend: typst
+  description: Schema using the removed date type
+
+main:
+  fields:
+    due:
+      type: date
+"#;
+    let err = QuillConfig::from_yaml_with_warnings(yaml).unwrap_err();
+    assert!(
+        err.iter()
+            .any(|d| d.code.as_deref() == Some("quill::field_parse_error")
+                && d.message.contains("due")),
+        "expected field_parse_error for 'due' using removed type: date, got: {err:?}"
+    );
+}
+
+#[test]
 fn type_mismatch_preview_shows_array_contents() {
     // A compound value's preview should show its contents, not a `[…]`
     // placeholder, so the author can see what they wrote.
