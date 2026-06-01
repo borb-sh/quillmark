@@ -229,17 +229,13 @@ pub enum ParseError {
     #[error("{0}")]
     MissingQuill(String),
 
-    /// A `$quill` reference string failed to parse against the reference
-    /// grammar (see [`crate::version::quill_ref_hint`]).
-    ///
-    /// Emitted as code `parse::invalid_quill_reference`; the canonical grammar
-    /// travels as the diagnostic's `hint` so the error and any binding's
-    /// schema `describe` text stay in lockstep with the parser.
+    /// A `$quill` reference failed to parse as a [`crate::version::QuillReference`].
+    /// Code `parse::invalid_quill_reference`; carries
+    /// [`crate::version::quill_ref_hint`] as its diagnostic hint.
     #[error("Invalid $quill reference '{value}': {reason}")]
     InvalidQuillReference {
-        /// The offending reference string, verbatim.
         value: String,
-        /// The specific violation reported by `QuillReference::from_str`.
+        /// The `from_str` violation.
         reason: String,
     },
 

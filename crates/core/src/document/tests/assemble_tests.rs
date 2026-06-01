@@ -63,10 +63,7 @@ fn test_missing_quill_diagnostic_code() {
 
 #[test]
 fn test_malformed_quill_reference_carries_code_and_grammar_hint() {
-    // An uppercase name violates the reference grammar. The parser surfaces a
-    // dedicated `parse::invalid_quill_reference` code and attaches the canonical
-    // grammar as the diagnostic `hint` (sourced from `quill_ref_hint`), so every
-    // binding renders identical guidance instead of re-stating the rule.
+    // Uppercase name → dedicated code plus the canonical grammar as `hint`.
     let err =
         decompose("~~~card-yaml\n$quill: Resume@2.1.0\n$kind: main\n~~~\n\nBody\n").unwrap_err();
     let diag = err.to_diagnostic();

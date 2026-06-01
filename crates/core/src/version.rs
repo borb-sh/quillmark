@@ -156,24 +156,18 @@ impl fmt::Display for VersionSelector {
     }
 }
 
-/// Canonical, author-facing description of the `$quill` reference grammar
-/// enforced by [`QuillReference::from_str`].
-///
-/// This is the **single source of truth** for the grammar: bindings surface it
-/// verbatim (zod schema `describe`, CLI help, validation hints) instead of
-/// re-stating the rule in their own glue, and it travels as the `hint` on the
-/// `parse::invalid_quill_reference` diagnostic so a malformed reference's error
-/// and a schema's describe text never drift from the parser. Mirrors the
-/// `FORMAT_RULES` / `blueprint_instruction` pattern in `document`.
+/// Canonical, author-facing `$quill` reference grammar.
 const QUILL_REF_HINT: &str = "A $quill reference is `<name>` or `<name>@<selector>`. \
 The name must match `[a-z_][a-z0-9_]*` (start with a lowercase letter or underscore, then \
 lowercase letters, digits, or underscores). The optional version selector is \
 `@MAJOR.MINOR.PATCH` (exact), `@MAJOR.MINOR` (latest patch in that minor series), `@MAJOR` \
 (latest in that major series), or `@latest`; omitting the selector means latest.";
 
-/// The canonical `$quill` reference grammar as author-facing text. Single
-/// source of truth so every binding shows identical wording rather than
-/// re-stating the rule. The value never changes between calls.
+/// Single source of truth for the grammar [`QuillReference::from_str`] enforces:
+/// bindings surface it (schema `describe`, validation hints) and it rides as the
+/// `hint` on the `parse::invalid_quill_reference` diagnostic, so error and
+/// describe text can't drift from the parser. Sibling of `document`'s
+/// `FORMAT_RULES` / `blueprint_instruction`.
 pub fn quill_ref_hint() -> &'static str {
     QUILL_REF_HINT
 }
@@ -404,8 +398,7 @@ mod tests {
     fn test_quill_ref_hint_describes_the_grammar() {
         let hint = quill_ref_hint();
         assert!(!hint.is_empty());
-        // Names the charset and selector forms the parser actually enforces,
-        // so the single-source string can't silently drift from `from_str`.
+        // Pin the charset and selector forms so the hint can't drift from `from_str`.
         assert!(hint.contains("[a-z_][a-z0-9_]*"), "got: {hint}");
         assert!(hint.contains("@latest"), "got: {hint}");
         assert!(hint.contains("@MAJOR.MINOR.PATCH"), "got: {hint}");
