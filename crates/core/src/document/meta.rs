@@ -65,8 +65,11 @@ pub(super) fn extract_meta_items(payload: &mut JsonValue) -> Result<Vec<PayloadI
         let meta = match key.as_str() {
             "$quill" => {
                 let s = require_string("$quill reference", value)?;
-                let reference = QuillReference::from_str(&s).map_err(|e| {
-                    ParseError::InvalidStructure(format!("Invalid $quill reference '{}': {}", s, e))
+                let reference = QuillReference::from_str(&s).map_err(|reason| {
+                    ParseError::InvalidQuillReference {
+                        value: s.clone(),
+                        reason,
+                    }
                 })?;
                 PayloadItem::Quill { reference }
             }

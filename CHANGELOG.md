@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.87.1 - 2026-06-01
+
+- Make $quill reference grammar a single source of truth (#684)
+- Remove stale FieldType::Date references and add rejection test (#683)
+
+
 ## v0.87.0 - 2026-06-01
 
 Arrays become first-class typed fields via a required `items` element
