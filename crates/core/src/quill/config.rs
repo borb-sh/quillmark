@@ -659,22 +659,25 @@ impl QuillConfig {
             let diag = match &violation {
                 ValidationError::TypeMismatch {
                     path,
-                    expected,
                     actual,
                     source_token,
                     ..
                 } => {
+                    // Use the field's declared `type:` verbatim (`datetime`,
+                    // `markdown`, …); the validator's `expected` collapses those
+                    // to `string`, which would misreport the author's intent.
+                    let declared = schema.r#type.as_str();
                     // validation.rs uses "number" for all non-integer JSON numbers;
                     // display as "float" so messages match the YAML author's mental model.
                     let display_actual = if actual == "number" { "float" } else { actual.as_str() };
-                    let preview = {
-                        const MAX: usize = 60;
-                        if source_token.chars().count() > MAX {
-                            let truncated: String = source_token.chars().take(MAX).collect();
-                            format!("{}…", truncated)
-                        } else {
-                            source_token.clone()
-                        }
+                    // Show the offending value's content. A top-level mismatch
+                    // renders the original literal (so arrays/objects show their
+                    // contents); a nested mismatch is always a scalar, whose
+                    // verbatim token is already the full value.
+                    let preview = if path.as_str() == owner_label {
+                        Self::literal_preview(value.as_json())
+                    } else {
+                        Self::truncate_preview(source_token)
                     };
                     let hint = if actual == "number" || actual == "integer" {
                         let schema_type = if actual == "integer" { "integer" } else { "number" };
@@ -685,17 +688,17 @@ impl QuillConfig {
                         )
                     } else if actual == "string" {
                         format!(
-                            "Remove the quotes around the {slot} value to keep it a {expected}."
+                            "Remove the quotes around the {slot} value to keep it a {declared}."
                         )
                     } else {
                         format!(
-                            "Make the {slot} value a {expected}, or change the field type to match."
+                            "Make the {slot} value a {declared}, or change the field type to match."
                         )
                     };
                     Diagnostic::new(
                         Severity::Error,
                         format!(
-                            "{path} declares type '{expected}' but {slot} is {display_actual} ({preview})."
+                            "{owner_label} declares type '{declared}' but {slot} is {display_actual} ({preview})."
                         ),
                     )
                     .with_code(format!("quill::{slot}_type_mismatch"))
@@ -728,6 +731,29 @@ impl QuillConfig {
                 _ => continue,
             };
             errors.push(diag);
+        }
+    }
+
+    /// Render a short, quoted preview of a value for an error message. Strings
+    /// are quoted; everything else uses its JSON form. Long renderings are
+    /// truncated (see [`Self::truncate_preview`]).
+    fn literal_preview(value: &serde_json::Value) -> String {
+        let raw = match value {
+            serde_json::Value::String(s) => format!("\"{}\"", s),
+            other => other.to_string(),
+        };
+        Self::truncate_preview(&raw)
+    }
+
+    /// Truncate an already-rendered preview token to at most 60 characters,
+    /// appending an ellipsis when it overflows.
+    fn truncate_preview(raw: &str) -> String {
+        const MAX: usize = 60;
+        if raw.chars().count() > MAX {
+            let truncated: String = raw.chars().take(MAX).collect();
+            format!("{}…", truncated)
+        } else {
+            raw.to_string()
         }
     }
 

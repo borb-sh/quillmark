@@ -1,7 +1,7 @@
 use crate::errors::{CliError, Result};
 use clap::Parser;
 use quillmark::Quillmark;
-use quillmark_core::quill::{validate_schema_literal, CardSchema, FieldSchema, QuillConfig};
+use quillmark_core::quill::{CardSchema, FieldSchema, QuillConfig};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -141,7 +141,8 @@ pub fn execute(args: ValidateArgs) -> Result<()> {
     // Step 2: Validate file references
     validate_file_references(&args.quill_path, &config, &mut result);
 
-    // Step 3: Validate field schemas including defaults
+    // Step 3: Emit schema-quality warnings (example/default type errors were
+    // already caught at parse time in Step 1).
     validate_field_schemas(&config.main.fields, &mut result, "field");
 
     // Step 4: Validate card-kind schemas
@@ -196,27 +197,19 @@ fn validate_file_references(
     }
 }
 
+/// Emit schema-quality *warnings* for a card's fields.
+///
+/// Type/enum/format errors on `example:` and `default:` literals are caught
+/// authoritatively at parse time (`QuillConfig::from_yaml_with_warnings`, Step 1)
+/// via the shared `validate_schema_literal` core and reported there with full
+/// diagnostics. This pass only adds the advisory checks the parser does not:
+/// empty enum constraints and missing field descriptions.
 fn validate_field_schemas(
     fields: &BTreeMap<String, FieldSchema>,
     result: &mut ValidationResult,
     context: &str,
 ) {
     for (field_name, field_schema) in fields {
-        let path = format!("{context} '{field_name}'");
-
-        // Validate example and default via the shared conformance primitive.
-        if let Some(ref example) = field_schema.example {
-            for err in validate_schema_literal(field_schema, example, &path) {
-                result.add_error(format!("{path} example: {err}"));
-            }
-        }
-        if let Some(ref default) = field_schema.default {
-            for err in validate_schema_literal(field_schema, default, &path) {
-                result.add_error(format!("{path} default: {err}"));
-            }
-        }
-
-        // Warn about empty enum constraint and missing description.
         if let Some(ref enum_values) = field_schema.enum_values {
             if enum_values.is_empty() {
                 result.add_warning(format!("{context} '{field_name}': enum constraint is empty"));

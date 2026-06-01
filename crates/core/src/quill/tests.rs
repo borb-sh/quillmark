@@ -2877,3 +2877,60 @@ fn field_with_no_example_or_default_loads_successfully() {
     );
     QuillConfig::from_yaml(&yaml).expect("field with no example/default should load");
 }
+
+#[test]
+fn datetime_type_mismatch_reports_datetime_not_string() {
+    // The mismatch message must name the field's declared type verbatim
+    // (`datetime`), not the internal string-family collapse — otherwise the
+    // author is told they declared `string` when they wrote `datetime`.
+    let yaml = example_default_yaml(
+        "    signed_on:\n      type: datetime\n      example: 42\n",
+    );
+    let errors = QuillConfig::from_yaml_with_warnings(&yaml).unwrap_err();
+    let diag = errors
+        .iter()
+        .find(|d| d.code.as_deref() == Some("quill::example_type_mismatch"))
+        .expect("expected example_type_mismatch error");
+    assert!(
+        diag.message.contains("declares type 'datetime'"),
+        "message should name the datetime type, got: {}",
+        diag.message
+    );
+    assert!(!diag.message.contains("type 'string'"));
+}
+
+#[test]
+fn markdown_type_mismatch_reports_markdown_not_string() {
+    let yaml = example_default_yaml(
+        "    body:\n      type: markdown\n      default: 42\n",
+    );
+    let errors = QuillConfig::from_yaml_with_warnings(&yaml).unwrap_err();
+    let diag = errors
+        .iter()
+        .find(|d| d.code.as_deref() == Some("quill::default_type_mismatch"))
+        .expect("expected default_type_mismatch error");
+    assert!(
+        diag.message.contains("declares type 'markdown'"),
+        "message should name the markdown type, got: {}",
+        diag.message
+    );
+}
+
+#[test]
+fn type_mismatch_preview_shows_array_contents() {
+    // A compound value's preview should show its contents, not a `[…]`
+    // placeholder, so the author can see what they wrote.
+    let yaml = example_default_yaml(
+        "    title:\n      type: string\n      example:\n        - one\n        - two\n",
+    );
+    let errors = QuillConfig::from_yaml_with_warnings(&yaml).unwrap_err();
+    let diag = errors
+        .iter()
+        .find(|d| d.code.as_deref() == Some("quill::example_type_mismatch"))
+        .expect("expected example_type_mismatch error");
+    assert!(
+        diag.message.contains("one") && diag.message.contains("two"),
+        "preview should render array contents, got: {}",
+        diag.message
+    );
+}
