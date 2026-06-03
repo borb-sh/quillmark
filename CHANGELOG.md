@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.87.2 - 2026-06-03
+
+- Expose $ext write path through the editor surface and bindings (#687)
+- Surface prose/canon entrypoint and fix canon documentation drift (#686)
+
+
 ## v0.87.1 - 2026-06-01
 
 - Make $quill reference grammar a single source of truth (#684)
