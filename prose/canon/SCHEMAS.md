@@ -125,7 +125,7 @@ encode opposite author intents:
 
 - **`default`** is the value the *majority* of authors want. Because most
   authors want it, the field can be omitted entirely: at render time the
-  default is interpolated for any field the document leaves out (an
+  default fills any field the document leaves out (an
   authored value always wins — `resolve_fields` in
   `quillmark::orchestration`). A field with a `default:` is **Endorsed** — the
   rendered value is shippable as-is — and the blueprint tags it
