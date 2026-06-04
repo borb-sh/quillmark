@@ -69,12 +69,43 @@ fn seed_main_commits_only_example_fields() {
     // A field with neither is left absent.
     assert!(payload.get("notes").is_none());
 
-    // Main card carries `$quill: name@version`, never `$kind`-only.
+    // Main card carries `$quill: name@version` and `$kind: main`.
     let reference = card.quill().expect("main card must carry $quill");
     assert_eq!(reference.name, "seed_test");
+    assert_eq!(card.kind(), Some("main"), "main card must carry $kind: main");
 
     // Body region carries `body.example`.
     assert_eq!(card.body(), "Main body text.");
+}
+
+/// A seeded document re-parses from its own markdown with `$quill` / `$kind`
+/// metadata and seeded values intact. (Body whitespace is normalized by the
+/// markdown layer, so this asserts structural fidelity, not byte-equality.)
+#[test]
+fn seeded_document_round_trips_through_markdown() {
+    let quill = quill_from_yaml(QUILL);
+    let doc = quill.seed_document();
+
+    let markdown = doc.to_markdown();
+    let reparsed = crate::Document::from_markdown(&markdown)
+        .expect("seeded document must re-parse from its own markdown");
+
+    // Main metadata survives — this is what the `$kind: main` fix guarantees.
+    assert_eq!(reparsed.main().quill().map(|r| r.name.as_str()), Some("seed_test"));
+    assert_eq!(reparsed.main().kind(), Some("main"));
+    assert_eq!(
+        reparsed.main().payload().get("title").and_then(|v| v.as_str()),
+        Some("FIRSTNAME LASTNAME"),
+    );
+    assert_eq!(reparsed.main().body().trim(), "Main body text.");
+
+    // The composable card survives with its kind and seeded value.
+    assert_eq!(reparsed.cards().len(), 1);
+    assert_eq!(reparsed.cards()[0].kind(), Some("note"));
+    assert_eq!(
+        reparsed.cards()[0].payload().get("author").and_then(|v| v.as_str()),
+        Some("A. Author"),
+    );
 }
 
 #[test]

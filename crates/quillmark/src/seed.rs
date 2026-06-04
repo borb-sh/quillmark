@@ -80,6 +80,10 @@ fn main_reference(quill: &Quill) -> QuillReference {
 pub(crate) fn seed_main(quill: &Quill) -> Card {
     let (mut payload, body) = seed_parts(&quill.source().config().main);
     payload.set_quill(main_reference(quill));
+    // The root block carries `$kind: main` alongside `$quill` (see the
+    // markdown spec); set it so a seeded main card round-trips through
+    // `to_markdown()` exactly as the parser and blueprint emit it.
+    payload.set_kind("main");
     Card::from_parts(payload, body)
 }
 
