@@ -75,8 +75,8 @@ Rendering and the *completeness verdict* are orthogonal. The render path
 (`compile_data` / `resolve_fields` in `quillmark::orchestration`) uses
 **zero-filled render**: every absent schema field is resolved by precedence
 — an authored value, else the `default:`, else the type-empty zero value
-(`zero_value`; see [BLUEPRINT.md](BLUEPRINT.md)) — in the plate-JSON
-projection that feeds the backend **only, never in the persisted document**.
+(`zero_value`, defined below) — in the plate-JSON projection that feeds the
+backend **only, never in the persisted document**.
 
 - **Incomplete is renderable.** A document that merely omits a Must Fill
   field renders fine: the field is zero-filled in the projection, so
