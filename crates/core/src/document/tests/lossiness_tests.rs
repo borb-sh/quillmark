@@ -77,6 +77,40 @@ fn top_level_inline_comments_round_trip() {
     assert_eq!(emitted, emitted2, "round-trip must be idempotent");
 }
 
+// ── Category: Block scalars ───────────────────────────────────────────────────
+
+/// A block-scalar value (markdown) whose content contains `#` heading lines
+/// round-trips intact. Regression: the prescan comment-stripper used to treat
+/// any `#`-leading line as a YAML comment, silently deleting markdown headings
+/// (and mis-reading `- ` / `key:` lines) inside literal blocks.
+#[test]
+fn block_scalar_with_markdown_headings_round_trips() {
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\nbio: |-\n  ## About me\n\n  - first point\n  Plain line.\ntitle: Resume\n~~~\n";
+
+    let doc = Document::from_markdown(src).unwrap();
+    assert_eq!(
+        doc.main().payload().get("bio").and_then(|v| v.as_str()),
+        Some("## About me\n\n- first point\nPlain line."),
+        "markdown heading / bullet / plain lines inside a block scalar must survive parse",
+    );
+    // The block ended; the field after it parses normally.
+    assert_eq!(
+        doc.main().payload().get("title").and_then(|v| v.as_str()),
+        Some("Resume"),
+    );
+
+    // Full round-trip is value-stable and idempotent.
+    let emitted = doc.to_markdown();
+    let doc2 = Document::from_markdown(&emitted).unwrap();
+    assert_eq!(
+        doc2.main().payload().get("bio").and_then(|v| v.as_str()),
+        Some("## About me\n\n- first point\nPlain line."),
+        "block-scalar content must survive a full round-trip\nGot:\n{}",
+        emitted
+    );
+    assert_eq!(emitted, doc2.to_markdown(), "round-trip must be idempotent");
+}
+
 // ── Category: Custom tags ─────────────────────────────────────────────────────
 
 /// `!fill` tags round-trip; other custom tags are rejected with a warning
