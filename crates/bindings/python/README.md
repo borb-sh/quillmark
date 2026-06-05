@@ -109,7 +109,7 @@ doc.card_count
 doc.main; doc.cards; doc.body; doc.warnings
 
 doc.set_field("title", "New")
-doc.push_card({"kind": "note", "fields": {"x": 1}, "body": "..."})
+doc.push_card(Document.make_card("note", {"x": 1}, "..."))  # or pass a Card from cards/remove_card/seed_card
 # insert_card, remove_card, move_card, set_card_kind,
 # update_card_field, remove_card_field, update_card_body, ...
 ```
