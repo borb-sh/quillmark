@@ -21,7 +21,8 @@
 //! authored content until that distinction is added.
 //!
 //! Composable cards (`card_kinds`, multiplicity `0..N`) are seeded as **one**
-//! instance per declared kind, mirroring [`QuillConfig::example`].
+//! instance per declared kind, mirroring
+//! [`QuillConfig::example`](quillmark_core::quill::QuillConfig::example).
 
 use indexmap::IndexMap;
 
