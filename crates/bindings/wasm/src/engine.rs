@@ -277,7 +277,10 @@ impl Quill {
         self.inner.source().config().blueprint()
     }
 
-    /// Document schema with `ui` hints stripped — for LLM/MCP consumers.
+    /// Document schema for the quill: the user-fillable fields plus their
+    /// `ui` hints (group / order / showWhen). The single field-metadata
+    /// surface — drives form editors and LLM/MCP consumers alike. Returns the
+    /// `QuillSchema` shape.
     #[wasm_bindgen(getter, js_name = schema, unchecked_return_type = "QuillSchema")]
     pub fn schema(&self) -> JsValue {
         let value = self.inner.source().config().schema();
@@ -757,18 +760,18 @@ impl Document {
     #[wasm_bindgen(js_name = makeCard, unchecked_return_type = "Card")]
     pub fn make_card(
         kind: String,
-        #[wasm_bindgen(unchecked_param_type = "Record<string, unknown>")] fields: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "Record<string, unknown>")] fields: Option<JsValue>,
         body: Option<String>,
     ) -> Result<JsValue, JsValue> {
-        let field_map: serde_json::Map<String, serde_json::Value> =
-            if fields.is_undefined() || fields.is_null() {
-                serde_json::Map::new()
-            } else {
+        let field_map: serde_json::Map<String, serde_json::Value> = match fields {
+            Some(fields) if !fields.is_undefined() && !fields.is_null() => {
                 serde_wasm_bindgen::from_value(fields).map_err(|e| {
                     WasmError::from(format!("makeCard: `fields` must be an object: {e}"))
                         .to_js_value()
                 })?
-            };
+            }
+            _ => serde_json::Map::new(),
+        };
         let payload_items = field_map
             .into_iter()
             .map(|(key, value)| quillmark_core::PayloadItemWire::Field {

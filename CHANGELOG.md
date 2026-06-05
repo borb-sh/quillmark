@@ -62,6 +62,19 @@
   authoring surface is `blueprint()`), so the projection collapses into the
   seed: internally the `FillSource` fork in blueprint emission is gone and the
   blueprint always renders `default:` else the `<must-fill>` sentinel.
+- **wasm:** lower the npm package `engines.node` floor from `>=24` to `>=22`.
+  The runtime never required 24 — `--weak-refs` needs only Node 14.6+, and the
+  `using` sugar that motivated the 24 floor is optional (a `try` / `finally`
+  fallback covers Node 22). The aggressive floor hard-blocked installs on Node
+  22 CI/dev images under `engine-strict`.
+- **wasm:** `Document.makeCard(kind, fields?, body?)` now types `fields` as
+  optional in the generated `.d.ts` (was required, contradicting its docs);
+  omitting it yields an empty field map, as before.
+- **docs:** fix the `Quill.schema` getter doc — the returned schema **includes**
+  `ui` hints (it never stripped them); the stale "ui hints stripped" wording is
+  corrected. The 0.87→0.88 migration guide now documents the `fill` flag's
+  `!fill`-placeholder semantics and clarifies that seeding is example-filled,
+  not a blank-form replacement.
 
 ## v0.87.3 - 2026-06-04
 
