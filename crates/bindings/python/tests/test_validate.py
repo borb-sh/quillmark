@@ -109,8 +109,8 @@ def test_validate_reports_unknown_card_kind(tmp_path):
     assert "validation::unknown_card" in codes, f"got: {codes}"
 
 
-def test_validate_includes_must_fill_absent(tmp_path):
-    """Absent Must Fill fields surface as the must_fill_absent completeness
+def test_validate_includes_field_absent(tmp_path):
+    """Absent Unendorsed fields surface as the field_absent completeness
     signal (render demotes this, validate keeps it)."""
     quill = make_quill(tmp_path)
     doc = Document.from_markdown(_md())  # empty main card
@@ -119,7 +119,7 @@ def test_validate_includes_must_fill_absent(tmp_path):
     absent = [
         d.get("path")
         for d in diags
-        if d.get("code") == "validation::must_fill_absent"
+        if d.get("code") == "validation::field_absent"
     ]
     assert "title" in absent and "count" in absent, f"got: {absent}"
 

@@ -165,8 +165,8 @@ Use this to validate indices before calling card mutators (`removeCard`,
 Returns `Diagnostic[]` — the document validated against the quill schema,
 without invoking the backend. An empty array means the document is valid.
 Each diagnostic carries the canonical `validation::*` `code`, `path`, and
-`hint`. Includes the non-fatal `validation::must_fill_absent` completeness
-signal that `render` demotes (an absent Must Fill field zero-fills rather
+`hint`. Includes the non-fatal `validation::field_absent` completeness
+signal that `render` demotes (an absent Unendorsed field zero-fills rather
 than failing), so filter by `severity`/`code` for blockers vs. hints:
 
 ```ts
@@ -267,9 +267,9 @@ canvas.style.height = `${result.layoutHeight}px`;
 
 A field's *cell* is inferred from whether its schema declares a `default:`:
 
-- **Must Fill** (no `default:`) — `quill.blueprint` renders `<must-fill>`
-  in the value cell. An absent Must Fill field is a non-fatal signal
-  (`validation::must_fill_absent`) — the render path zero-fills it
+- **Unendorsed** (no `default:`) — `quill.blueprint` renders `<must-fill>`
+  in the value cell. An absent Unendorsed field is a non-fatal signal
+  (`validation::field_absent`) — the render path zero-fills it
   silently. A surviving `<must-fill>` sentinel is fatal
   (`validation::must_fill_sentinel`). Partial documents are
   first-class; `quill.render(doc)` only throws for malformed input.
@@ -279,7 +279,7 @@ A field's *cell* is inferred from whether its schema declares a `default:`:
 
 `QuillFieldSchema` no longer carries a `required` axis. The legacy
 `validation::missing_required` code has been replaced by
-`validation::must_fill_absent`; the `validation::must_fill_sentinel`
+`validation::field_absent`; the `validation::must_fill_sentinel`
 code covers unreplaced sentinels.
 
 ### Errors

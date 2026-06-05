@@ -185,9 +185,9 @@ impl Quill {
     /// surviving-`<must-fill>`-sentinel error.
     ///
     /// Unlike [`Quill::render`], it *includes* the non-fatal
-    /// `validation::must_fill_absent` signal that render demotes (an absent
-    /// Must-Fill field zero-fills rather than failing). Treat
-    /// `must_fill_absent` as a per-field completeness hint and the remaining
+    /// `validation::field_absent` signal that render demotes (an absent
+    /// Unendorsed field zero-fills rather than failing). Treat
+    /// `field_absent` as a per-field completeness hint and the remaining
     /// `error`-severity diagnostics as blockers.
     ///
     /// Field values, defaults, and presentation order are not part of this
@@ -204,9 +204,9 @@ impl Quill {
     /// Seed a starter [`Document`]: the main card plus one instance of each
     /// declared composable card kind, each committing its fields' `example`
     /// values and leaving all other fields absent (interpolated at render:
-    /// `default` → type-empty zero). The committed, structured counterpart of
-    /// [`QuillConfig::example`](quillmark_core::quill::QuillConfig::example)'s
-    /// illustrative string. See [`crate::seed`].
+    /// `default` → type-empty zero). The committed, structured "filled-out"
+    /// twin of the [`blueprint`](quillmark_core::quill::QuillConfig::blueprint).
+    /// See [`crate::seed`].
     pub fn seed_document(&self) -> Document {
         seed::seed_document(self)
     }
@@ -227,11 +227,11 @@ impl Quill {
         match self.source.config().validate_document(doc) {
             Ok(_) => Ok(()),
             Err(errors) => {
-                // Zero-filled render: a merely *incomplete* document (Must Fill
+                // Zero-filled render: a merely *incomplete* document (Unendorsed
                 // fields absent) renders fine — each absent field is zero-filled
                 // in `resolve_fields`. Only *malformed* input is fatal: a
                 // surviving `<must-fill>` sentinel, or a value that won't
-                // coerce/validate. So `validation::must_fill_absent` is demoted
+                // coerce/validate. So `validation::field_absent` is demoted
                 // here (the editor-facing `Quill::validate` keeps it as the
                 // per-field doneness signal).
                 //
@@ -240,7 +240,7 @@ impl Quill {
                 // `RenderError::diagnostics()`.
                 let diags: Vec<Diagnostic> = errors
                     .iter()
-                    .filter(|e| e.code() != "validation::must_fill_absent")
+                    .filter(|e| e.code() != "validation::field_absent")
                     .map(|e| e.to_diagnostic())
                     .collect();
                 if diags.is_empty() {

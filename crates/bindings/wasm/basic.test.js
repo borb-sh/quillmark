@@ -1063,7 +1063,7 @@ body: "B"
     expect(diags.some((d) => d.code === 'validation::unknown_card')).toBe(true)
   })
 
-  it('includes must_fill_absent for absent Must Fill fields (completeness signal)', () => {
+  it('includes field_absent for absent Unendorsed fields (completeness signal)', () => {
     const quill = buildQuill()
     const md = `~~~card-yaml
 $quill: validate_smoke_test
@@ -1072,7 +1072,7 @@ $kind: main
 `
     const diags = quill.validate(Document.fromMarkdown(md))
     const absent = diags
-      .filter((d) => d.code === 'validation::must_fill_absent')
+      .filter((d) => d.code === 'validation::field_absent')
       .map((d) => d.path)
     expect(absent).toContain('title')
     expect(absent).toContain('count')
@@ -1094,7 +1094,7 @@ count: "nope"
 })
 
 // ---------------------------------------------------------------------------
-// Schema / blueprint / validation — Must Fill vs Endorsed
+// Schema / blueprint / validation — Unendorsed vs Endorsed
 // ---------------------------------------------------------------------------
 //
 // Post-mcp-feedback the schema axis is implicit: a field with a `default:` is
@@ -1105,7 +1105,7 @@ count: "nope"
 // These tests pin the JS-facing contract:
 //   - `QuillFieldSchema` no longer carries a `required` axis.
 //   - `quill.blueprint` carries `<must-fill>` and `; delete-ok` annotations.
-//   - `quill.render(doc)` *tolerates* an absent Must Fill field: zero-filled
+//   - `quill.render(doc)` *tolerates* an absent Unendorsed field: zero-filled
 //     render fills it with its type-empty value in the plate projection
 //     (never persisted), so absence is not a render error.
 //   - `quill.render(doc)` raises `validation::must_fill_sentinel` when the
@@ -1115,9 +1115,9 @@ count: "nope"
 //
 // See prose/canon/SCHEMAS.md.
 
-describe('Must Fill / Endorsed schema model', () => {
-  // The plate `unwrap`s `data.title` (Must Fill) and substitutes the optional
-  // `data.subtitle` if present. Authoring a quill with both Must Fill and
+describe('Unendorsed / Endorsed schema model', () => {
+  // The plate `unwrap`s `data.title` (Unendorsed) and substitutes the optional
+  // `data.subtitle` if present. Authoring a quill with both Unendorsed and
   // Endorsed fields lets us exercise both validation codes without having to
   // ship two separate test quills.
   const SCHEMA_QUILL_YAML = `quill:
@@ -1125,13 +1125,13 @@ describe('Must Fill / Endorsed schema model', () => {
   version: "1.0"
   backend: typst
   plate_file: plate.typ
-  description: Must Fill / Endorsed coverage
+  description: Unendorsed / Endorsed coverage
 
 main:
   fields:
     title:
       type: string
-      description: Document title (Must Fill — no default)
+      description: Document title (Unendorsed — no default)
     subtitle:
       type: string
       default: "Untitled subtitle"
@@ -1171,19 +1171,19 @@ main:
     expect('required' in fields.title).toBe(false)
     expect('required' in fields.subtitle).toBe(false)
 
-    // Must Fill fields have no `default`; Endorsed fields do.
+    // Unendorsed fields have no `default`; Endorsed fields do.
     expect(fields.title.default).toBeUndefined()
     expect(fields.subtitle.default).toBe('Untitled subtitle')
   })
 
-  it('blueprint carries `<must-fill>` for Must Fill fields and `; delete-ok` for Endorsed', () => {
+  it('blueprint carries `<must-fill>` for Unendorsed fields and `; delete-ok` for Endorsed', () => {
     const quill = buildQuill()
     const blueprint = quill.blueprint
 
     expect(typeof blueprint).toBe('string')
     expect(blueprint.length).toBeGreaterThan(0)
 
-    // Must Fill: value cell is the literal sentinel; no `; delete-ok` tag.
+    // Unendorsed: value cell is the literal sentinel; no `; delete-ok` tag.
     expect(blueprint).toContain('title: <must-fill>  # string')
     expect(blueprint).not.toMatch(/title: <must-fill>.*delete-ok/)
 
@@ -1197,10 +1197,10 @@ main:
     expect(blueprint).not.toContain('; optional')
   })
 
-  it('render tolerates an absent Must Fill field (zero-filled, not an error)', () => {
+  it('render tolerates an absent Unendorsed field (zero-filled, not an error)', () => {
     const quill = buildQuill()
 
-    // Document omits `title`. Schema declares no default → Must Fill. Under
+    // Document omits `title`. Schema declares no default → Unendorsed. Under
     // zero-filled render this is merely *incomplete*, not malformed: render
     // fills `title` with its type-empty value in the plate projection and
     // succeeds. Absence is no longer a hard error (the form's `source:
@@ -1253,7 +1253,7 @@ title: <must-fill>
     }
   })
 
-  it('render succeeds when every Must Fill field is supplied with a real value', () => {
+  it('render succeeds when every Unendorsed field is supplied with a real value', () => {
     const quill = buildQuill()
 
     const md = `~~~card-yaml
@@ -1272,9 +1272,9 @@ title: "A Real Title"
   it('validate surfaces diagnostics for both absent and sentinel cases', () => {
     const quill = buildQuill()
 
-    // Case 1: `title` absent. Schema declares no default → Must Fill. `render`
+    // Case 1: `title` absent. Schema declares no default → Unendorsed. `render`
     // demotes this to a non-fatal zero-fill, but `validate` surfaces it as the
-    // `must_fill_absent` completeness signal.
+    // `field_absent` completeness signal.
     const mdAbsent = `~~~card-yaml
 $quill: schema_test
 $kind: main
@@ -1284,7 +1284,7 @@ subtitle: "Just a subtitle"
     const diagsAbsent = quill.validate(Document.fromMarkdown(mdAbsent))
     expect(
       diagsAbsent.some(
-        (d) => d.code === 'validation::must_fill_absent' && d.path === 'title',
+        (d) => d.code === 'validation::field_absent' && d.path === 'title',
       ),
     ).toBe(true)
 

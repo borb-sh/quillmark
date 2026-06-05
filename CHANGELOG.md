@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased
+
+- **Breaking (bindings + Rust API):** the schema-aware **form view is removed**.
+  `Quill::form` / `Quill::blank_main` / `Quill::blank_card` (and the
+  `quill.form` / `blankMain` / `blankCard` bindings) are gone, along with the
+  `Form` / `FormCard` / `FormFieldValue` / `FormFieldSource` types. Validation
+  diagnostics now flow through `Quill::validate(&Document) -> Vec<Diagnostic>`
+  (`quill.validate(doc)` in WASM/Python), which forwards the canonical
+  `validation::*` diagnostics and keeps the non-fatal `validation::field_absent`
+  completeness signal that `render` demotes. Field values/defaults/order are a
+  `Document` × `quill.schema` join the consumer performs directly. See
+  `docs/migrations/0.87-to-0.88.md`.
+- **Breaking (diagnostics):** the validation code `validation::must_fill_absent`
+  is renamed `validation::field_absent`. "Must-fill" is now scoped to the
+  blueprint communication surface (the `<must-fill>` sentinel and the fatal
+  `validation::must_fill_sentinel`); an *absent* field is a non-fatal
+  completeness signal, not a fill requirement, since the render floor
+  zero-fills it. The schema cell axis is renamed accordingly: the no-`default:`
+  cell is **Unendorsed** (was "Must Fill"), the antonym of **Endorsed** —
+  consumers routing on the old code or label must update. Internally
+  `ValidationError::MustFillUnset { source }` splits into `FieldAbsent` and
+  `MustFillSentinel` and the `MustFillSource` enum is removed.
+- **Breaking (bindings + Rust API):** the `example` reference document is
+  removed. `QuillConfig::example()` and the `Quill.example` (WASM) /
+  `Quill.example` (Python) getters are gone. Its "show me a filled-out one"
+  role is served by seeding — `Quill::seed_document()` / `Quill.seedDocument()`
+  / `Quill.seed_document()` — which returns a committed `Document` rather than
+  an annotated string. The CLI `render` with no input file now renders the
+  seeded document. Nothing consumed the example document's annotations (the
+  authoring surface is `blueprint()`), so the projection collapses into the
+  seed: internally the `FillSource` fork in blueprint emission is gone and the
+  blueprint always renders `default:` else the `<must-fill>` sentinel.
+
 ## v0.87.3 - 2026-06-04
 
 - Complete and consolidate the $ext mutator surface (#689)

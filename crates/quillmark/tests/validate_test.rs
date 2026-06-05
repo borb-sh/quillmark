@@ -48,7 +48,7 @@ card_kinds:
 #[test]
 fn validate_clean_document_has_no_diagnostics() {
     let quill = quill_from_yaml(SIMPLE);
-    // All Must-Fill fields supplied; `status` falls back to its default.
+    // All Unendorsed fields supplied; `status` falls back to its default.
     let md = "~~~card-yaml\n$quill: validate_test\n$kind: main\n\
               title: \"T\"\ncount: 1\n~~~\n";
     let doc = Document::from_markdown(md).unwrap();
@@ -97,9 +97,9 @@ fn validate_reports_unknown_card_kind() {
 }
 
 #[test]
-fn validate_includes_must_fill_absent_completeness_signal() {
+fn validate_includes_field_absent_completeness_signal() {
     let quill = quill_from_yaml(SIMPLE);
-    // `title` and `count` are Must-Fill (no default) and absent. Unlike render
+    // `title` and `count` are Unendorsed (no default) and absent. Unlike render
     // (which demotes this to a non-fatal zero-fill), `validate` surfaces it as
     // the per-field completeness hint.
     let md = "~~~card-yaml\n$quill: validate_test\n$kind: main\n~~~\n";
@@ -108,12 +108,12 @@ fn validate_includes_must_fill_absent_completeness_signal() {
     let diags = quill.validate(&doc);
     let absent: Vec<_> = diags
         .iter()
-        .filter(|d| d.code.as_deref() == Some("validation::must_fill_absent"))
+        .filter(|d| d.code.as_deref() == Some("validation::field_absent"))
         .filter_map(|d| d.path.clone())
         .collect();
     assert!(
         absent.contains(&"title".to_string()) && absent.contains(&"count".to_string()),
-        "must_fill_absent should flag both absent Must-Fill fields; got paths: {absent:?}"
+        "field_absent should flag both absent Unendorsed fields; got paths: {absent:?}"
     );
 }
 

@@ -36,9 +36,9 @@ export interface QuillCardBody {
  *
  * A field's *cell* is determined by `default`: a field with a `default`
  * is **Endorsed** (the rendered value is shippable as-is), while a field
- * without a `default` is **Must Fill** (the blueprint carries a
+ * without a `default` is **Unendorsed** (the blueprint carries a
  * `<must-fill>` sentinel and validation reports
- * `validation::must_fill_absent` if the field is absent at validate
+ * `validation::field_absent` if the field is absent at validate
  * time — a non-fatal signal, since the render path zero-fills an absent
  * field). There is no separate `required` axis.
  */
@@ -259,18 +259,7 @@ impl Quill {
         self.inner.source().config().blueprint()
     }
 
-    /// The `example` reference document — the illustrative "show me a
-    /// filled-out one." Each field renders its `example:`, else its
-    /// `default:`, else the type-empty zero value, with no `<must-fill>`
-    /// sentinels. See `prose/canon/BLUEPRINT.md`.
-    #[wasm_bindgen(getter, js_name = example)]
-    pub fn example(&self) -> String {
-        self.inner.source().config().example()
-    }
-
-    /// Full document schema, including `ui` hints (`order`, `group`, `compact`,
-    /// `multiline`, `title`). Field maps are keyed alphabetically; render fields
-    /// in `ui.order` (each field's `ui.order`) for presentation order.
+    /// Document schema with `ui` hints stripped — for LLM/MCP consumers.
     #[wasm_bindgen(getter, js_name = schema, unchecked_return_type = "QuillSchema")]
     pub fn schema(&self) -> JsValue {
         let value = self.inner.source().config().schema();
@@ -346,7 +335,7 @@ impl Quill {
     ///
     /// Forwards the canonical `validation::*` diagnostics — same `code`,
     /// `path`, and `hint` the engine emits — including the non-fatal
-    /// `validation::must_fill_absent` completeness signal that `render` demotes.
+    /// `validation::field_absent` completeness signal that `render` demotes.
     /// Field values, defaults, and order are not part of this surface: read
     /// them from the `Document` payload and `Quill.schema` (fields carry
     /// `ui.order`).

@@ -132,14 +132,6 @@ impl PyQuill {
         self.inner.source().config().blueprint()
     }
 
-    /// The `example` reference document — the illustrative "show me a
-    /// filled-out one": each field's `example:`, else `default:`, else the
-    /// type-empty zero value, with no `<must-fill>` sentinels.
-    #[getter]
-    fn example(&self) -> String {
-        self.inner.source().config().example()
-    }
-
     #[getter]
     fn supported_formats(&self) -> Vec<PyOutputFormat> {
         self.inner
@@ -193,7 +185,7 @@ impl PyQuill {
     ///
     /// Forwards the canonical `validation::*` diagnostics — same `code`,
     /// `path`, and `hint` the engine emits — including the non-fatal
-    /// `validation::must_fill_absent` completeness signal that `render`
+    /// `validation::field_absent` completeness signal that `render`
     /// demotes. Field values, defaults, and order are not part of this
     /// surface: read them from the `Document` payload and `Quill.schema`
     /// (fields carry `ui.order`).
