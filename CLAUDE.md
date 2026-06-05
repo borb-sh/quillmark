@@ -14,5 +14,7 @@ In a cloud environment, commit early and often to leverage CI/CD builds and test
 cargo test --workspace
 ```
 
-WASM: `./scripts/build-wasm.sh` → `cd crates/bindings/wasm && npm test`  
+WASM: `./scripts/build-wasm.sh` → `cd crates/bindings/wasm && npm test`. in Cloud environment.
 Python: `cd crates/bindings/python && uv run maturin develop && uv run pytest`
+
+In Claude Cloud environment, run bindings tests on CI/CD instead of locally.
