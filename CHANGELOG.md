@@ -2,33 +2,6 @@
 
 ## v0.88.0 - 2026-06-05
 
-- Prune evolutionary information from comments and canon docs (#700)
-- Resolve 0.88 API-feedback friction points (#699)
-- chore(release): v0.88.0-rc.1 (#698)
-- blueprint: flatten group_fields, drop unused group label (#697)
-- Update CLAUDE.md
-- Expose seedMain/seedCard to WASM + Python bindings (#696)
-- docs: note that released migration guides are era-accurate and immutable (#695)
-- Remove form-view projection; add Quill::validate (#694)
-- Remove example() reference document, fold into seeding (#693)
-- Document seeding (example → absent) + block-scalar prescan fix + commitment-ladder docs (#691)
-- docs(canon): dedup field-resolution semantics into SCHEMAS (#692)
-
-
-## v0.88.0-rc.1 - 2026-06-05
-
-- blueprint: flatten group_fields, drop unused group label (#697)
-- Update CLAUDE.md
-- Expose seedMain/seedCard to WASM + Python bindings (#696)
-- docs: note that released migration guides are era-accurate and immutable (#695)
-- Remove form-view projection; add Quill::validate (#694)
-- Remove example() reference document, fold into seeding (#693)
-- Document seeding (example → absent) + block-scalar prescan fix + commitment-ladder docs (#691)
-- docs(canon): dedup field-resolution semantics into SCHEMAS (#692)
-
-
-## Unreleased
-
 - **Breaking (bindings + Rust API):** a single canonical **`Card` wire shape** now
   flows in *both* directions. Core owns it as `quillmark_core::CardWire` (with
   `From<&Card>` / `TryFrom<CardWire>`); the WASM/Python bindings serialize and
@@ -46,7 +19,6 @@
   `Result<(), EditError>` and, with `insert_card`, validates that the card's
   `$kind` is a valid, non-reserved composable kind — the cards-list invariant is
   enforced at the edit op rather than incidentally at `Card::new`.
-
 - **Breaking (bindings + Rust API):** the schema-aware **form view is removed**.
   `Quill::form` / `Quill::blank_main` / `Quill::blank_card` (and the
   `quill.form` / `blankMain` / `blankCard` bindings) are gone, along with the
@@ -90,6 +62,12 @@
   corrected. The 0.87→0.88 migration guide now documents the `fill` flag's
   `!fill`-placeholder semantics and clarifies that seeding is example-filled,
   not a blank-form replacement.
+- **blueprint:** flatten `group_fields` and drop the unused group label (#697).
+- **docs:** document seeding (example → absent), fix a block-scalar prescan
+  bug, and add commitment-ladder docs (#691).
+- **docs(canon):** dedup field-resolution semantics into SCHEMAS (#692); note
+  that released migration guides are era-accurate and immutable (#695); prune
+  evolutionary information from comments and canon docs (#700).
 
 ## v0.87.3 - 2026-06-04
 
