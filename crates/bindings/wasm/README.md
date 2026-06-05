@@ -329,9 +329,10 @@ The wasm bindings are built with `--weak-refs`, so dropped `Document`,
 without manual `.free()` discipline. `.free()` is still emitted as an eager
 teardown hook for callers that want deterministic release.
 
-The package requires Node 24+ (`engines: { node: ">=24" }`) and current
-evergreen browsers; `--weak-refs` itself only needs Node 14.6+, but the
-published package floor is 24.
+The package floor is Node 22+ (`engines: { node: ">=22" }`) and current
+evergreen browsers; `--weak-refs` itself only needs Node 14.6+. The `using`
+sugar shown below ([explicit resource management][erm]) needs Node 24, but is
+optional — the `try` / `finally` fallback runs on the Node 22 floor.
 
 For environments where `using` (the [explicit resource management][erm]
 proposal) hasn't landed, use an explicit `try` / `finally`:
