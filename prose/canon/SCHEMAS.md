@@ -95,7 +95,7 @@ floor, `FieldSchema::ui_order` for ordering):
 | `example` document | `example:` › `default:` › zero | zero | annotated string — [BLUEPRINT.md](BLUEPRINT.md) |
 | `blueprint` document | `default:` › `<must-fill>` | sentinel | annotated string — [BLUEPRINT.md](BLUEPRINT.md) |
 | seeding | `example:` › absent | (deferred to render floor) | committed `Document` — [Document seeding](#document-seeding) |
-| form view | authored / `default:` / missing (uncollapsed; carries `example:`) | — | read-only view |
+| editor (consumer-side) | authored / `default:` / missing (uncollapsed; `example:` as guidance) | — | a `Document`-payload × schema join the UI consumer performs directly (no engine projection); completeness comes from `Quill::validate` |
 
 Two seams are deliberate, not uniform: the floor is `zero` on every projection
 except `blueprint`, which substitutes the `<must-fill>` *sentinel*; and `zero`
@@ -108,8 +108,9 @@ variant (there is no empty enum member). Both are detailed below.
 complete to render — render success is not a completeness signal.
 Shippability is the author's judgment; the engine's only hard requirement
 is that the document be *well-formed* (values coerce, no surviving
-`<must-fill>` sentinel). Completeness is surfaced as a hint — the form
-view's per-field `source: "missing"` — never enforced as a gate.
+`<must-fill>` sentinel). Completeness is surfaced as a hint — the
+`validation::must_fill_absent` diagnostic from `Quill::validate` — never
+enforced as a gate.
 
 Rendering and the *completeness verdict* are orthogonal. The render path
 (`compile_data` / `resolve_fields` in `quillmark::orchestration`) uses
@@ -121,8 +122,8 @@ backend **only, never in the persisted document**.
 - **Incomplete is renderable.** A document that merely omits a Must Fill
   field renders fine: the field is zero-filled in the projection, so
   `validation::must_fill_absent` is demoted from a render error to a
-  non-fatal signal. The `validate_document` layer still emits the code;
-  consumers (e.g. the form view's per-field state) read it for doneness.
+  non-fatal signal. The `validate_document` layer still emits the code, and
+  `Quill::validate` forwards it to consumers, who read it for doneness.
 - **Malformed is fatal.** A value that cannot coerce to its declared type,
   or a surviving `<must-fill>` sentinel, errors on every path. The sentinel
   is the system's own "replace me" placeholder, so leaving it in is provably
@@ -172,7 +173,7 @@ present. In a seed, the `example` is present, so it wins.
 - **The main card** carries `$quill` and `$kind: main`, so a seed round-trips
   through Markdown like an authored document.
 - **Provenance is deferred.** A seeded `example` is committed as ordinary
-  content, so the form view reports it as `source: "document"`, not `"missing"`
+  authored content, so `Quill::validate` emits no `must_fill_absent` for it
   — a Must-Fill field seeded with an `example` reads as done. Distinguishing an
   untouched seed from authored input is a future addition; correctness and
   renderability do not depend on it.

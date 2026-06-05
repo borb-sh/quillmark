@@ -15,6 +15,7 @@ authored / default / zero tiers, so the signal is available at the seam.
 ## Strict-completeness query + finalize gate
 
 Expose a standalone "is every Must Fill field present?" query, independent of
-render, for any future finalize / publish / submit gate. Today the form's
-`FormFieldSource::Missing` per-field state is the de-facto doneness signal and
-no gate consumes a dedicated API; add one when a finalize step exists.
+render, for any future finalize / publish / submit gate. Today the
+`validation::must_fill_absent` diagnostics from `Quill::validate` are the
+de-facto doneness signal and no gate consumes a dedicated API; add one when a
+finalize step exists.

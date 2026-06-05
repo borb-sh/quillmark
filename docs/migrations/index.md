@@ -12,6 +12,9 @@ guides in order.
 
 ## Available guides
 
+- [0.87 → 0.88](0.87-to-0.88.md) — the schema-aware form view (`quill.form`,
+  `blankMain`, `blankCard`) is removed in favor of `quill.validate(doc)`;
+  field/value/order joins move consumer-side onto `quill.schema`.
 - [0.86 → 0.87](0.86-to-0.87.md) — array fields require an `items` element
   schema, `type: date` folds into a unified `type: datetime`, and schema load
   rejects empty `properties` maps and deeper array nesting.
