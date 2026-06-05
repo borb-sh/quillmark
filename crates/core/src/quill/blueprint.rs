@@ -17,7 +17,7 @@
 //!   Format slot uses angle brackets (`array<string>`, `datetime<YYYY-MM-DD[Thh:mm:ss]>`,
 //!   `enum<a | b | c>`). The optional `; delete-ok` tag marks **Endorsed**
 //!   cells whose rendered default is shippable as-is; its absence marks
-//!   **Must Fill** cells, which carry the `<must-fill>` sentinel in the
+//!   **Unendorsed** cells, which carry the `<must-fill>` sentinel in the
 //!   value cell instead.
 //! - **Metadata annotation.** The `$quill` / `$kind` system-metadata lines
 //!   have no inline-annotation slot, so their role annotation
@@ -42,7 +42,7 @@ use serde_json::Value as JsonValue;
 
 impl QuillConfig {
     /// Generate the canonical annotated Markdown blueprint for this quill —
-    /// the authoring surface handed to LLMs and humans, with Must Fill cells
+    /// the authoring surface handed to LLMs and humans, with Unendorsed cells
     /// carrying the `<must-fill>` sentinel. See module docs for the annotation
     /// grammar; the function is total over any valid `QuillConfig`.
     ///
@@ -237,7 +237,7 @@ fn write_markdown_block(out: &mut String, field: &FieldSchema, pad: &str, inline
     let body_pad = format!("{}  ", pad);
     // Endorsed cell with content → render the default. Endorsed cell with
     // empty/absent string default → one indented blank line (the "skippable"
-    // markdown cell). A Must Fill cell (no `default:`) gets the sentinel.
+    // markdown cell). An Unendorsed cell (no `default:`) gets the sentinel.
     let content = field.default.as_ref().and_then(|v| match v.as_json() {
         serde_json::Value::String(s) => Some(s),
         _ => None,
@@ -270,7 +270,7 @@ fn sort_props(props: &BTreeMap<String, Box<FieldSchema>>) -> Vec<&FieldSchema> {
 ///
 /// Cell rule (uniform with scalars): a field with a `default:` is Endorsed
 /// — the outer key carries `; delete-ok`. A field without a `default:` is
-/// Must Fill — the outer key drops `; delete-ok` and the blueprint emits one
+/// Unendorsed — the outer key drops `; delete-ok` and the blueprint emits one
 /// synthetic row with leaf-level sentinels. See `prose/BOOKMARKS.md` "Typed
 /// container empty default loses inline shape documentation" for the
 /// rendering-vs-symmetry trade-off.
@@ -325,7 +325,7 @@ fn write_typed_table_field(
 /// Cell rule (uniform with scalars): a field with a `default:` is Endorsed
 /// — the outer key carries `; delete-ok` and the rendered value is the
 /// resolved mapping (a block mapping for non-empty, inline `{}` for `{}`).
-/// A field without a `default:` is Must Fill — the blueprint recurses to
+/// A field without a `default:` is Unendorsed — the blueprint recurses to
 /// per-property leaf-level sentinels. See `prose/BOOKMARKS.md` "Typed
 /// container empty default loses inline shape documentation" for the trade-off.
 fn write_typed_object_field(
@@ -414,7 +414,7 @@ fn type_expression(field: &FieldSchema) -> String {
 }
 
 /// The value to render for a field. Endorsed cells render their default;
-/// Must Fill cells render the `<must-fill>` sentinel in the value cell.
+/// Unendorsed cells render the `<must-fill>` sentinel in the value cell.
 enum FieldValue {
     Inline(String),
     Block(Vec<serde_json::Value>),
@@ -425,7 +425,7 @@ fn field_value(field: &FieldSchema) -> FieldValue {
     if let Some(v) = &field.default {
         return json_to_value(v.as_json());
     }
-    // Otherwise the cell is Must Fill and falls through to the `<must-fill>`
+    // Otherwise the cell is Unendorsed and falls through to the `<must-fill>`
     // sentinel. Markdown is special-cased in `write_markdown_block` and never
     // reaches this path.
     FieldValue::Inline(MUST_FILL_SENTINEL.to_string())
@@ -507,7 +507,7 @@ mod tests {
 
     #[test]
     fn must_fill_string_renders_sentinel_with_no_delete_ok() {
-        // No `default:` → Must Fill. Sentinel sits in the value cell; the
+        // No `default:` → Unendorsed. Sentinel sits in the value cell; the
         // inline annotation drops `; delete-ok`.
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
@@ -580,7 +580,7 @@ main:
     #[test]
     fn enum_must_fill_renders_sentinel_in_value_cell() {
         // An enum field with no `default:` renders `<must-fill>` rather than
-        // the first enum value — the cell is Must Fill regardless.
+        // the first enum value — the cell is Unendorsed regardless.
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -593,7 +593,7 @@ main:
 
     #[test]
     fn must_fill_array_with_example_renders_eg_only_not_value() {
-        // Plain (non-typed-table) Must Fill arrays render the sentinel; the
+        // Plain (non-typed-table) Unendorsed arrays render the sentinel; the
         // example surfaces in the leading `# e.g.` line.
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
@@ -628,7 +628,7 @@ main:
 
     #[test]
     fn every_field_carries_inline_type_and_cell_signal() {
-        // Endorsed cells carry `; delete-ok`; Must Fill cells carry the
+        // Endorsed cells carry `; delete-ok`; Unendorsed cells carry the
         // sentinel in the value cell and drop the tag.
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
@@ -835,7 +835,7 @@ main:
 
     #[test]
     fn typed_table_must_fill_emits_synthetic_row_with_leaf_sentinels() {
-        // Must Fill container → outer key has no `; delete-ok` (state is a
+        // Unendorsed container → outer key has no `; delete-ok` (state is a
         // leaf concern). Property leaves carry their own cell signals.
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
@@ -951,7 +951,7 @@ main:
 
     #[test]
     fn typed_dict_must_fill_emits_per_property_annotations() {
-        // Must Fill container → outer key has no `; delete-ok`; per-property
+        // Unendorsed container → outer key has no `; delete-ok`; per-property
         // recursion with leaf cell signals.
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }

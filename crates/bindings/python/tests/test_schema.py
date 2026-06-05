@@ -1,9 +1,9 @@
-"""Tests for the Must Fill / Endorsed schema surface.
+"""Tests for the Unendorsed / Endorsed schema surface.
 
 A field's *cell* is determined by whether the schema declares a `default:`.
 
-- No `default:` -> **Must Fill**: the blueprint renders `<must-fill>` and
-  validation reports ``validation::must_fill_absent`` if the field
+- No `default:` -> **Unendorsed**: the blueprint renders `<must-fill>` and
+  validation reports ``validation::field_absent`` if the field
   is absent at validate time and ``validation::must_fill_sentinel`` if
   the `<must-fill>` sentinel survives into the rendered document.
 - With `default:` -> **Endorsed**: the blueprint renders the default
@@ -69,16 +69,16 @@ def test_schema_has_no_required_key(tmp_path):
 
 
 def test_schema_default_marks_endorsed(tmp_path):
-    """Endorsed fields carry the `default` key; Must Fill fields don't."""
+    """Endorsed fields carry the `default` key; Unendorsed fields don't."""
     quill = make_quill(tmp_path)
     fields = quill.schema["main"]["fields"]
 
-    # Must Fill: no `default`
+    # Unendorsed: no `default`
     assert "default" not in fields["title"], (
-        "title is Must Fill — no default should be reported"
+        "title is Unendorsed — no default should be reported"
     )
     assert "default" not in fields["count"], (
-        "count is Must Fill — no default should be reported"
+        "count is Unendorsed — no default should be reported"
     )
 
     # Endorsed: schema carries `default`
@@ -90,11 +90,11 @@ def test_schema_default_marks_endorsed(tmp_path):
 # ---------------------------------------------------------------------------
 
 def test_blueprint_must_fill_sentinel(tmp_path):
-    """Must Fill cells render the literal `<must-fill>` sentinel."""
+    """Unendorsed cells render the literal `<must-fill>` sentinel."""
     quill = make_quill(tmp_path)
     bp = quill.blueprint
 
-    # Must Fill fields carry the sentinel
+    # Unendorsed fields carry the sentinel
     assert "title: <must-fill>" in bp, (
         f"expected `title: <must-fill>` in blueprint; got:\n{bp}"
     )
@@ -138,13 +138,13 @@ def _diag_codes(exc):
     return [d.code for d in exc.diagnostics]
 
 
-def test_absent_must_fill_is_nonfatal_signal(tmp_path):
-    """An absent Must Fill field is a non-fatal completeness signal, not a
+def test_absent_unendorsed_is_nonfatal_signal(tmp_path):
+    """An absent Unendorsed field is a non-fatal completeness signal, not a
     render gate.
 
     Per the zero-filled-render contract (``prose/canon/SCHEMAS.md``), render
     succeeds — each absent field is zero-filled in the ephemeral plate
-    projection — and ``validation::must_fill_absent`` surfaces through the form
+    projection — and ``validation::field_absent`` surfaces through the form
     view's diagnostics, where the field's ``source`` is ``missing``.
     """
     quill = make_quill(tmp_path)
@@ -153,7 +153,7 @@ def test_absent_must_fill_is_nonfatal_signal(tmp_path):
         "$quill: py_schema_smoke\n"
         "$kind: main\n"
         "status: ready\n"          # Endorsed override
-        # title and count omitted — Must Fill, no defaults
+        # title and count omitted — Unendorsed, no defaults
         "~~~\n"
     )
     doc = Document.from_markdown(md)
@@ -163,11 +163,11 @@ def test_absent_must_fill_is_nonfatal_signal(tmp_path):
     assert len(result.artifacts) > 0
 
     # The completeness verdict is orthogonal to rendering; the form view carries
-    # the `must_fill_absent` code and marks the absent fields `missing`.
+    # the `field_absent` code and marks the absent fields `missing`.
     form = quill.form(doc)
     codes = [d.get("code") for d in form["diagnostics"]]
-    assert "validation::must_fill_absent" in codes, (
-        f"expected must_fill_absent in form diagnostics; got: {codes}"
+    assert "validation::field_absent" in codes, (
+        f"expected field_absent in form diagnostics; got: {codes}"
     )
     values = form["main"]["values"]
     assert values["title"]["source"] == "missing"
@@ -198,13 +198,13 @@ def test_render_reports_must_fill_sentinel(tmp_path):
     )
 
 
-def test_absent_must_fill_does_not_emit_legacy_codes(tmp_path):
+def test_absent_unendorsed_does_not_emit_legacy_codes(tmp_path):
     """The legacy ``validation::missing_required`` code must be gone.
 
-    The same condition (absent Must Fill field) must surface the new
-    ``validation::must_fill_absent`` code instead. The intermediate codes
+    The same condition (absent Unendorsed field) must surface the new
+    ``validation::field_absent`` code instead. The intermediate codes
     ``validation::required_field_absent`` and ``validation::unfilled_placeholder``
-    were also retired in favor of ``validation::must_fill_absent`` and
+    were also retired in favor of ``validation::field_absent`` and
     ``validation::must_fill_sentinel``. Absence is a non-fatal signal carried by
     the form view (zero-filled render — ``prose/canon/SCHEMAS.md``), so the
     codes are checked there rather than on a render error.
@@ -222,8 +222,8 @@ def test_absent_must_fill_does_not_emit_legacy_codes(tmp_path):
     quill.render(doc, OutputFormat.PDF)
     codes = [d.get("code") for d in quill.form(doc)["diagnostics"]]
 
-    assert "validation::must_fill_absent" in codes, (
-        f"expected must_fill_absent to be the surfaced code; got: {codes}"
+    assert "validation::field_absent" in codes, (
+        f"expected field_absent to be the surfaced code; got: {codes}"
     )
     assert "validation::missing_required" not in codes, (
         "legacy code `validation::missing_required` must no longer appear; "
@@ -239,8 +239,8 @@ def test_absent_must_fill_does_not_emit_legacy_codes(tmp_path):
     )
 
 
-def test_render_succeeds_when_must_fill_supplied(tmp_path):
-    """Filling every Must Fill field renders successfully — Endorsed
+def test_render_succeeds_when_unendorsed_supplied(tmp_path):
+    """Filling every Unendorsed field renders successfully — Endorsed
     fields fall back to their declared default."""
     quill = make_quill(tmp_path)
     md = (
