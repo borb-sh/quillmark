@@ -12,7 +12,7 @@ cargo install quillmark-cli
 
 ### render
 
-Render markdown documents to PDF, SVG, PNG, or text. Optionally emit compiled JSON data.
+Render a markdown document to the specified output format.
 
 ```bash
 quillmark render [OPTIONS] <QUILL_PATH> [MARKDOWN_FILE]
@@ -21,13 +21,13 @@ quillmark render [OPTIONS] <QUILL_PATH> [MARKDOWN_FILE]
 **Arguments:**
 
 - `<QUILL_PATH>`: Path to quill directory
-- `[MARKDOWN_FILE]`: Path to markdown file with a root card-yaml block (optional — when omitted, the quill's blueprint is rendered)
+- `[MARKDOWN_FILE]`: Path to markdown file with a root card-yaml block (optional — when omitted, the quill's seeded document is rendered, each field populated from its `example:` value, with `default:` used as fallback)
 
-`<QUILL_PATH>` selects the local quill bundle used for rendering. `MARKDOWN_FILE` still requires a root bare `~~~` block (the legacy `~~~card-yaml` opener is also accepted) with a `$quill` system metadata line during parsing.
+The file must open with a `~~~` block containing a `$quill:` key identifying the quill. The `~~~card-yaml` opener is also accepted.
 
 **Options:**
 
-- `-o <PATH>` / `--output <PATH>`: Output file path (default: derived from input filename, e.g. `input.pdf`)
+- `-o <PATH>` / `--output <PATH>`: Output file path (default: input filename with format extension, e.g. `input.pdf`; `example.<format>` when no markdown file is given)
 - `-f <FORMAT>` / `--format <FORMAT>`: Output format: `pdf`, `svg`, `png`, `txt` (default: `pdf`)
 - `--output-data <DATA_FILE>`: Write compiled JSON data to a file
 - `-v` / `--verbose`: Show detailed processing information
@@ -49,13 +49,13 @@ quillmark render ./my-quill input.md --output-data data.json
 # Output to stdout
 quillmark render ./my-quill input.md --stdout > output.pdf
 
-# Render the quill's blueprint
+# Render the quill's seeded document
 quillmark render ./my-quill
 ```
 
 ### schema
 
-Extract the public schema YAML contract from a quill's field definitions.
+Output the quill's field schema as YAML, including main-card and card-kind field definitions with UI hints.
 
 ```bash
 quillmark schema [OPTIONS] <QUILL_PATH>
@@ -77,17 +77,14 @@ quillmark schema ./my-quill
 
 # Save schema to file
 quillmark schema ./my-quill -o schema.yaml
-
-# Use with other tools
-quillmark schema ./my-quill | grep '^  description:'
 ```
 
-### specs
+### blueprint
 
-Print a quill's Markdown blueprint — an annotated document showing the quill's fields, constraints, and examples. The blueprint is dense enough to replace the schema for LLM consumers and is itself a valid document an author can fill in.
+Print a quill's Markdown blueprint — an annotated document showing the quill's fields, constraints, and examples, itself a valid document an author can fill in.
 
 ```bash
-quillmark specs [OPTIONS] <QUILL_PATH>
+quillmark blueprint [OPTIONS] <QUILL_PATH>
 ```
 
 **Arguments:**
@@ -102,10 +99,10 @@ quillmark specs [OPTIONS] <QUILL_PATH>
 
 ```bash
 # Print blueprint to stdout
-quillmark specs ./my-quill
+quillmark blueprint ./my-quill
 
 # Save blueprint to file
-quillmark specs ./my-quill -o blueprint.md
+quillmark blueprint ./my-quill -o blueprint.md
 ```
 
 ### validate
@@ -158,17 +155,9 @@ quillmark info ./my-quill
 
 # Output as JSON
 quillmark info ./my-quill --json
-
-# Use with other tools
-quillmark info ./my-quill --json | jq '.name'
 ```
 
 ## Exit Codes
 
 - `0` — success
 - `1` — error (invalid arguments, file not found, parse error, compilation error, etc.)
-
-## Environment Variables
-
-- `RUST_LOG` — log level (e.g. `RUST_LOG=debug`)
-- `NO_COLOR` — disable colored output

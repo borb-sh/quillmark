@@ -1,7 +1,5 @@
 # Quickstart
 
-Get started with Quillmark in Python or JavaScript.
-
 === "Python"
 
     ## Installation
@@ -51,7 +49,7 @@ Get started with Quillmark in Python or JavaScript.
     const enc = new TextEncoder();
 
     const quill = engine.quill(new Map([
-      ["Quill.yaml", enc.encode("quill:\n  name: my_quill\n  backend: typst\n  version: \"1.0.0\"\n  description: Demo\n  plate_file: plate.typ\n")],
+      ["Quill.yaml", enc.encode("quill:\n  name: my_quill\n  backend: typst\n  version: 1.0.0\n  description: Demo\n  plate_file: plate.typ\n")],
       ["plate.typ", enc.encode("#import \"@local/quillmark-helper:0.1.0\": data\n#data.at(\"$body\")\n")],
     ]));
 
@@ -101,18 +99,12 @@ Get started with Quillmark in Python or JavaScript.
       every call (so each `paint` is a full repaint — no `clearRect` needed).
       The consumer owns `canvas.style.*` and reads `result.layoutWidth` /
       `layoutHeight` to size the display box.
-    - `layoutScale` (default `1`) is layout pixels per Typst point — how big
-      the page looks. `densityScale` (default `1`) is the backing-store
-      density multiplier — how sharp it is. Fold `devicePixelRatio`, in-app
-      zoom, and `visualViewport.scale` into one `densityScale` value.
+    - Fold `devicePixelRatio` and in-app zoom into `densityScale`;
+      `layoutScale` controls display size.
     - If `layoutScale * densityScale` would push either dimension past 16384
       px, `densityScale` is clamped to fit; compare `result.pixelWidth` to
       `round(result.layoutWidth * densityScale)` to detect the clamp.
     - `pageCount` and `pageSize(page)` are stable for the session's lifetime
       (the compiled document is an immutable snapshot) — cache them.
-    - Pass an `OffscreenCanvasRenderingContext2D` to rasterize off the main
-      thread.
-    - Canvas pixels are opaque to the DOM — there's no text selection or
-      find-in-page. Keep an SVG/PDF path alongside if you need either.
 
     Full design rationale: [PREVIEW.md](https://github.com/quillmark-org/quillmark/blob/main/prose/canon/PREVIEW.md).

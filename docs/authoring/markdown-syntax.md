@@ -11,10 +11,7 @@ Body content (the prose after each [card-yaml block](card-yaml.md), including an
 For the conventional syntax of these elements, refer to:
 
 - [CommonMark spec](https://spec.commonmark.org/0.31.2/) — the base grammar.
-- [CommonMark tutorial](https://commonmark.org/help/) — a 10-minute walk-through.
 - [GFM spec](https://github.github.com/gfm/) — pipe tables and strikethrough.
-
-The rest of this page covers only what Quillmark adds, removes, or interprets differently.
 
 ## Selected GFM extensions
 
@@ -52,33 +49,16 @@ Consequences:
 
 The following are recognised by the parser (so they will not corrupt surrounding content) but produce no output in the current version:
 
-- **Images** (`![alt](src)`) — reserved for the asset-resolver integration; planned for v1.
+- **Images** (`![alt](src)`) — reserved for the asset-resolver integration.
 - **Math** (`$…$`, `$$…$$`) — `$` is treated as a literal character.
 - **Footnotes**, **task lists**, **definition lists** — not supported.
 
 Some constructs (like link titles) are accepted by the parser but may be dropped during rendering when the active backend has no target for them. Those losses are backend-specific — see each backend's documentation.
 
-## Structured metadata: card-yaml blocks
+## Structured data: card-yaml blocks
 
-Quillmark carries structured metadata in [card-yaml blocks](card-yaml.md) —
-blocks delimited by bare `~~~` / `~~~` fences, optionally led by a run of
-`$`-prefixed system metadata lines. (The legacy `~~~card-yaml` opener is still
-accepted on input but is non-canonical and re-emits as a bare `~~~`.) Each
-block is followed by its Markdown prose body. The document's first block (the
-root block) names the rendering format; later blocks are composable
-[cards](cards.md).
-
-Because every column-zero `~~~` block is a card-yaml block, writing a literal
-fenced code block in prose requires the escape hatch: use a **backtick fence**
-(or a `~~~` fence carrying a language info string). Adding more tildes does not
-escape — a `~~~~` block is still a card. Apart from that, ordinary Markdown
-markers keep their CommonMark meaning. A `---`
-line in body content is a thematic break or a setext heading underline,
-exactly as CommonMark defines it — it has no special role in Quillmark. The
-full block-detection rules are in
+Quillmark carries structured data in [card-yaml blocks](card-yaml.md),
+each followed by its Markdown prose body. The full block-detection rules —
+fence syntax, the blank-line rule, and the backtick escape hatch for literal
+code blocks — are in
 [§4 of the spec](../reference/markdown-spec.md#4-block-detection).
-
-## Next steps
-
-- [card-yaml Blocks](card-yaml.md)
-- [Cards](cards.md)

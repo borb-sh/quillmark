@@ -33,18 +33,13 @@ main:
       type: string
       description: Name of the recipient
     date:
-      type: date
+      type: datetime   # accepts bare YYYY-MM-DD as well as full ISO 8601
       description: Letter date
 ```
 
 `name`, `backend`, `version`, and `description` are all required. `name` must be `snake_case`. Define your document's expected root-block fields under `main.fields`. Each field has a `type`, optional `default`, `description`, and validation constraints. Use `integer` for whole numbers only and `number` for values that may include decimals. For the full list of field types, UI hints, typed arrays, and enum constraints, see the [Quill.yaml Reference](quill-yaml-reference.md).
 
-When choosing field values, keep `default` and `example` distinct by author intent:
-
-- **`default`** is the value the *majority of authors want*. Declaring it lets authors omit the field entirely — the default is filled in for them — so reach for a `default` whenever one value is the right answer most of the time (including a type-empty value like `""`, `[]`, `false`, or `0` when "blank" is an acceptable ship).
-- **`example`** matches the *type and shape* of what the author wants but is *not* the value they'd want most of the time. It documents the expected shape only — surfacing in the blueprint's `# e.g.` line — and never renders as the value. Use it when there is no single right answer but you still want to show authors what a well-formed value looks like.
-
-Fields with no `default:` are **Unendorsed** — the blueprint carries the `<must-fill>` sentinel as a signal to authors and LLMs. Leaving such a field absent is not a render error: the render path zero-fills it silently. Shippability is the author's judgment, not the engine's.
+Use `default` for the value most authors will accept as-is (the field becomes optional, filled in when omitted). Use `example` to document the expected shape without supplying a default. Fields with neither are flagged in the blueprint with a `<must-fill>` sentinel. See the [Quill.yaml Reference](quill-yaml-reference.md) for details.
 
 ## 3. Write `plate.typ`
 

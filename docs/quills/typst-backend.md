@@ -1,23 +1,6 @@
 # Typst Backend
 
-The Typst backend generates PDF, SVG, and PNG documents using the [Typst](https://typst.app/) typesetting system. It converts card-yaml metadata fields to Typst markup, injects them into the plate as JSON via a helper package, and compiles to the requested format.
-
-## Basic Usage
-
-Specify `backend: typst` in your `Quill.yaml`:
-
-```yaml
-quill:
-  name: my_typst_quill
-  version: "1.0.0"
-  backend: typst
-  description: Document format using Typst
-  plate_file: plate.typ
-
-typst:
-  packages:
-    - "@preview/appreciated-letter:0.1.0"
-```
+The Typst backend generates PDF, SVG, and PNG documents using the [Typst](https://typst.app/) typesetting system. It converts card-yaml payload fields to Typst markup, injects them into the plate as JSON via a helper package, and compiles to the requested format.
 
 ## Data Access
 
@@ -30,7 +13,7 @@ Plates are plain Typst code. Document metadata reaches the plate as a JSON dicti
 #data.at("title", default: "Untitled")       // safe with default
 ```
 
-Fields declared `type: markdown` in `Quill.yaml` arrive as Typst content (ready to render); `type: date` fields arrive as Typst `datetime` values.
+Fields declared `type: markdown` in `Quill.yaml` arrive as Typst content (ready to render); `type: datetime` fields arrive as Typst `datetime` values (the helper parses the string and calls Typst's `datetime()`).
 
 ### Checking for Optional Fields
 
@@ -180,22 +163,26 @@ The label `<__qm_sig__>` and metadata `kind: "__qm_sig__"` are reserved for this
 
 PDF and SVG render as a single artifact. PNG renders one artifact per page.
 
+Python binding:
+
 ```python
 from quillmark import OutputFormat
 result = quill.render(doc, OutputFormat.PDF)   # or .SVG, .PNG
 ```
 
-PNG resolution is set via the `ppi` option (default **144** — 2× at 72pt/inch, suitable for retina previews):
+WASM/JS binding:
 
 ```javascript
 quill.render(doc, { format: 'png' });             // 144 PPI
 quill.render(doc, { format: 'png', ppi: 300 });   // print quality
 ```
 
+PNG resolution is set via the `ppi` option (default **144** — 2× at 72pt/inch, suitable for retina previews):
+
 | PPI | Use case |
 |-----|----------|
 | 72  | Low-res web thumbnails |
-| 144 | Default — retina screen preview (2×) |
+| 144 | Retina screen preview (2×) |
 | 192 | High-DPI screen display |
 | 300 | Standard print quality |
 | 600 | High-quality print / archival |

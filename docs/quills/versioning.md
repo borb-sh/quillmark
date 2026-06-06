@@ -1,10 +1,8 @@
 # Quill Versioning
 
-Versioning helps format designers evolve Quills safely while keeping document rendering predictable.
-
 ## Version Field in `Quill.yaml`
 
-Each Quill must declare a semantic version. Both `version` and `description` are required fields:
+Each Quill declares a semantic version:
 
 ```yaml
 quill:
@@ -13,8 +11,6 @@ quill:
   description: A professional document format
   version: "1.2.0"
 ```
-
-Quill names must be `snake_case` (lowercase letters, digits, and underscores only — hyphens are not allowed).
 
 Use semantic versioning (`MAJOR.MINOR.PATCH`) to communicate compatibility:
 
@@ -48,9 +44,7 @@ Supported selectors:
 
 1. Start at `1.0.0` for your first stable internal format release.
 2. Increase versions on every format change, even if small.
-3. Treat field renames/removals as breaking (`MAJOR`) changes.
-4. Prefer additive changes (new optional fields/cards) to reduce migration work.
-5. Keep example documents updated for the latest major/minor versions.
+3. Treat field renames/removals as breaking (`MAJOR`) changes; prefer additive changes (new optional fields/cards).
 
 ## Related Pages
 

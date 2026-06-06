@@ -42,8 +42,9 @@ All card blocks are collected into the plate JSON's `$cards` array.
 
 ## Structural Rules
 
-- A card block opens with a bare `~~~` and closes with exactly `~~~` (three
-  tildes). The legacy `~~~card-yaml` opener is still accepted on input but is
+- A card block opens with a bare `~~~` (or longer tilde run) and closes with a
+  tilde run at least as long as the opener. The canonical form is `~~~` / `~~~`.
+  The legacy `~~~card-yaml` opener is still accepted on input but is
   non-canonical and re-emits as a bare `~~~`.
 - A composable card block must declare a `$kind: <kind>` entry naming the
   card kind. The kind must match `[a-z_][a-z0-9_]*` and must not be `main`
@@ -74,12 +75,11 @@ opening fence (or document end).
 
 A card may declare `$ext: <mapping>` — an opaque YAML map reserved for
 state that belongs with the card but should not reach the rendered
-output (UI editor renames, collapse flags, agent annotations,
-anything bespoke to a consumer). The map round-trips through Markdown
-and the storage DTO but is stripped from the plate JSON before backends
-see it, so template renders are unaffected. Consumers namespace inside
-the map (`$ext.presentation`, `$ext.agent`, …) to avoid collisions when
-more than one tool carries state on the same card.
+output. The map round-trips through Markdown and the storage DTO but is
+stripped from the plate JSON before backends see it, so template renders
+are unaffected. Consumers namespace inside the map (`$ext.presentation`,
+`$ext.agent`, …) to avoid collisions when more than one tool carries
+state on the same card.
 
 ```
 ~~~
@@ -93,7 +93,4 @@ from: ORG/SYMBOL
 
 ## Emission
 
-Round-tripping a document through `toMarkdown` always emits the canonical
-bare `~~~` / `$`-prefixed metadata lines first / remaining data fields /
-`~~~` form. Fence markers, key ordering, and YAML quoting are normalised.
-`!fill` tags and data-field comments survive the round-trip.
+See [card-yaml Blocks § Emission](card-yaml.md#emission).

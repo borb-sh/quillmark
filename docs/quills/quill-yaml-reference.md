@@ -95,8 +95,7 @@ main:
 | `integer`  | Integer-only numeric scalar |
 | `boolean`  | `true` or `false` |
 | `array`    | Ordered list; requires an `items:` element schema |
-| `date`     | YYYY-MM-DD |
-| `datetime`  | ISO 8601 |
+| `datetime` | Bare `YYYY-MM-DD` through full RFC 3339 with offset |
 | `markdown` | Rich text; backends convert to target format |
 | `object`   | Structured map; requires a `properties:` map |
 
@@ -191,8 +190,6 @@ main:
         title: To       # "Memo For" would confuse users unfamiliar with memo conventions
 ```
 
-Most fields don't need `ui.title`. Prefer clear field names over fixing a bad key with a title override.
-
 `title` is a UI hint only — no effect on validation, backend rendering, or blueprint output.
 
 ### `group`
@@ -226,9 +223,7 @@ Fields with the same `group` value are rendered together. The group name becomes
 
 ### `order`
 
-Auto-assigned based on field position in the YAML file. You rarely need to set this manually — just put fields in the order you want them displayed.
-
-If you do need to override:
+Auto-assigned from field position. To override:
 
 ```yaml
 main:
@@ -461,8 +456,8 @@ See the [Typst Backend Guide](typst-backend.md) for details.
 
 Quillmark emits a public schema contract derived from `Quill.yaml`. Accessors:
 
-- Rust: `QuillConfig::schema()` (JSON) / `schema_yaml()` (YAML)
-- Python: `quill.schema` (YAML)
+- Rust: `QuillConfig::schema()` (JSON) / `QuillConfig::schema_yaml()` (YAML)
+- Python: `quill.schema` (structured dict)
 - WASM: `quill.schema` (JSON)
 - CLI: `quillmark schema <path>`
 
@@ -502,7 +497,7 @@ main:
       description: Describe the risk or blocker. Only needed when status is not on_track.
 
     date:
-      type: date
+      type: datetime
       ui:
         group: Header
 
@@ -527,7 +522,7 @@ card_kinds:
       name:
         type: string
       target_date:
-        type: date
+        type: datetime
       completed:
         type: boolean
         default: false

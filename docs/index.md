@@ -5,14 +5,14 @@
 [![npm](https://img.shields.io/npm/v/@quillmark/wasm.svg?color=CB3837)](https://www.npmjs.com/package/@quillmark/wasm)
 [![Documentation](https://docs.rs/quillmark/badge.svg)](https://docs.rs/quillmark)
 
-A format-first Markdown rendering system that converts Markdown with card-yaml metadata blocks into PDF, SVG, and PNG. Maintained by [TongueToQuill](https://www.tonguetoquill.com).
+A format-first Markdown rendering system that converts Markdown with card-yaml blocks into PDF, SVG, and PNG via a Typst backend.
 
-!!! warning "Under Development"
-    This project is under active development and APIs may change.
+!!! warning "Unstable APIs"
+    APIs may change between releases. Breaking changes are tracked in the [migration guides](migrations/index.md).
 
 ## Choose your path
 
-- **Writing documents?** You author Markdown content using existing formats.  
+- **Writing documents?** You write Markdown documents that target a Quill format.  
   → [Markdown Syntax](authoring/markdown-syntax.md)
 
 - **Building quills?** You create Quill formats that control rendering.  
