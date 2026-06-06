@@ -1,6 +1,6 @@
 # Typst Backend
 
-The Typst backend generates PDF, SVG, and PNG documents using the [Typst](https://typst.app/) typesetting system. It converts card-yaml metadata fields to Typst markup, injects them into the plate as JSON via a helper package, and compiles to the requested format.
+The Typst backend generates PDF, SVG, and PNG documents using the [Typst](https://typst.app/) typesetting system. It converts card-yaml payload fields to Typst markup, injects them into the plate as JSON via a helper package, and compiles to the requested format.
 
 ## Data Access
 

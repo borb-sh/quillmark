@@ -55,9 +55,9 @@ The following are recognised by the parser (so they will not corrupt surrounding
 
 Some constructs (like link titles) are accepted by the parser but may be dropped during rendering when the active backend has no target for them. Those losses are backend-specific — see each backend's documentation.
 
-## Structured metadata: card-yaml blocks
+## Structured data: card-yaml blocks
 
-Quillmark carries structured metadata in [card-yaml blocks](card-yaml.md),
+Quillmark carries structured data in [card-yaml blocks](card-yaml.md),
 each followed by its Markdown prose body. The full block-detection rules —
 fence syntax, the blank-line rule, and the backtick escape hatch for literal
 code blocks — are in
