@@ -29,7 +29,7 @@ A card-yaml block has three parts, in order:
 2. **YAML payload** — a standard YAML mapping. The reserved keys `$quill`,
    `$kind`, `$id`, and `$ext` carry system metadata (see below); every other
    key is a user-defined data field.
-3. **Closing fence** — exactly `~~~`.
+3. **Closing fence** — a tilde run at least as long as the opener. The canonical opener and closer are both `~~~`; a longer opener (e.g. `~~~~`) requires an equally long closer.
 
 The unstructured Markdown body begins immediately after the closing `~~~`
 fence and runs to the next opening fence or the end of the document.
@@ -56,9 +56,10 @@ on the block's typed metadata.
   document. The root block (the first block, identified by position) **must
   declare `$quill`** — it is the only required `$` entry. If the root block
   is missing `$quill`, parsing fails.
-- **`$kind: <kind>`** identifies a card's kind. The root block must declare
-  `$kind: main`; every composable card must declare a kind matching
-  `[a-z_][a-z0-9_]*` other than `main`.
+- **`$kind: <kind>`** identifies a card's kind. The root block's kind is
+  `main` by position; `$kind: main` may be omitted or declared explicitly —
+  any other value is a parse error. Every composable card must declare a kind
+  matching `[a-z_][a-z0-9_]*` other than `main`.
 - **`$id: <value>`** is an opaque, optional identifier — plain metadata with
   no validation or uniqueness requirement, carried through the round-trip.
 - **`$ext: <mapping>`** is an opaque YAML mapping reserved for out-of-band
@@ -94,8 +95,8 @@ title: Document Title
 | `format@2.1` | Latest 2.1.x |
 | `format@2.1.0` | Exact version 2.1.0 |
 
-Quill names must match `[a-z][a-z0-9_]*` (lowercase letters, digits, and
-underscores; must start with a lowercase letter).
+Quill names must match `[a-z_][a-z0-9_]*` (lowercase letters, digits, and
+underscores; must start with a lowercase letter or underscore).
 
 ## Payload Data Types
 
@@ -158,10 +159,8 @@ YAML comments are supported in the payload and round-trip through
 title: My Document  # an inline comment
 ```
 
-Comments adjacent to a `$` metadata key (whether inline trailing
-or own-line) round-trip through emit the same way comments on data fields
-do — the unified payload-item list attaches each comment to the adjacent
-item regardless of whether that item is a `$` entry or a user field.
+Comments adjacent to `$` metadata keys — own-line or inline — round-trip
+identically to comments on data fields.
 
 ## Placeholder Fields (`!fill`)
 
@@ -184,27 +183,11 @@ dropped with a warning.
 User field names match `[a-z_][a-z0-9_]*`. Uppercase, hyphens, and the
 `$` sigil are not allowed — the `$` prefix is reserved for system
 metadata (`$quill`, `$kind`, `$id`, `$ext`, plus the plate-JSON keys
-`$body` and `$cards`). Keeping user fields lowercase guarantees they
-can never shadow that metadata.
+`$body` and `$cards`).
 
 ## Card Blocks
 
-Every card-yaml block after the root block is a **card**. It must declare a
-`$kind: <kind>` entry, where `<kind>` matches `[a-z_][a-z0-9_]*` and is not
-`main`. All card blocks are collected into the `$cards` array on the
-plate JSON available to templates.
-
-```
-~~~
-$kind: endorsement
-from: ORG/SYMBOL
-for: ORG2/SYMBOL
-~~~
-
-Endorsement body text here.
-```
-
-See [Cards](cards.md) for details on card syntax and usage.
+Every block after the root is a card — see [Cards](cards.md) for syntax and structural rules.
 
 ## Emission
 
