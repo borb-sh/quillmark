@@ -51,7 +51,7 @@ pub fn execute(args: RenderArgs) -> Result<()> {
     let quill = load_quill(&args.quill)?;
 
     if args.verbose {
-        println!("Quill loaded: {}", quill.source().name());
+        println!("Quill loaded: {}", quill.name());
     }
 
     // Determine if we have a markdown file or need to seed a starter document.

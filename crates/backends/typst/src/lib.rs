@@ -48,7 +48,7 @@ pub mod fuzz_utils {
 use convert::mark_to_typst;
 use quillmark_core::{
     quill::build_transform_schema, session::SessionHandle, Backend, Diagnostic, OutputFormat,
-    QuillSource, QuillValue, RenderError, RenderOptions, RenderResult, RenderSession, Severity,
+    Quill, QuillValue, RenderError, RenderOptions, RenderResult, RenderSession, Severity,
 };
 use std::any::Any;
 use std::collections::HashMap;
@@ -167,7 +167,7 @@ impl Backend for TypstBackend {
     fn open(
         &self,
         plate_content: &str,
-        source: &QuillSource,
+        source: &Quill,
         json_data: &serde_json::Value,
     ) -> Result<RenderSession, RenderError> {
         let fields = json_data.as_object().map_or_else(HashMap::new, |obj| {

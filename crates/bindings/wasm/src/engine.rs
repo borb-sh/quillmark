@@ -292,7 +292,7 @@ impl Quill {
     ) -> Result<Quill, JsValue> {
         let root = file_tree_from_js_tree(&tree)?;
         let quill =
-            quillmark::Quill::from_tree(root).map_err(|e| WasmError::from(e).to_js_value())?;
+            quillmark::quill_from_tree(root).map_err(|e| WasmError::from(e).to_js_value())?;
         Ok(Quill { inner: quill })
     }
 
@@ -306,7 +306,7 @@ impl Quill {
 
     #[wasm_bindgen(getter, js_name = blueprint)]
     pub fn blueprint(&self) -> String {
-        self.inner.source().config().blueprint()
+        self.inner.config().blueprint()
     }
 
     /// Document schema for the quill: the user-fillable fields plus their
@@ -315,7 +315,7 @@ impl Quill {
     /// `QuillSchema` shape.
     #[wasm_bindgen(getter, js_name = schema, unchecked_return_type = "QuillSchema")]
     pub fn schema(&self) -> JsValue {
-        let value = self.inner.source().config().schema();
+        let value = self.inner.config().schema();
         let serializer = serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
         value.serialize(&serializer).unwrap_or(JsValue::UNDEFINED)
     }
@@ -326,7 +326,7 @@ impl Quill {
     /// (`Quillmark.supportedFormats`), not part of this snapshot.
     #[wasm_bindgen(getter, js_name = metadata, unchecked_return_type = "QuillMetadata")]
     pub fn metadata(&self) -> JsValue {
-        let source = self.inner.source();
+        let source = &self.inner;
         let config = source.config();
 
         let mut obj = serde_json::Map::new();

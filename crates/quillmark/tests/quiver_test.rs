@@ -12,7 +12,7 @@
 
 #![cfg(feature = "typst")]
 
-use quillmark::{Document, OutputFormat, Quill, Quillmark, RenderError, RenderOptions};
+use quillmark::{Document, OutputFormat, Quillmark, RenderError, RenderOptions};
 use quillmark_fixtures::{quills_path, resource_path};
 use std::fs;
 
@@ -33,12 +33,12 @@ fn every_quill_in_quiver_renders() {
     let engine = Quillmark::new();
 
     for name in quiver_quills() {
-        let quill = Quill::from_path(quills_path(&name))
+        let quill = quillmark::quill_from_path(quills_path(&name))
             .unwrap_or_else(|e| panic!("quill '{name}' failed to load: {e:?}"));
 
         // An empty document — zero-filled render fills every absent field with
         // its type-empty value in the plate projection.
-        let config = quill.source().config();
+        let config = quill.config();
         let markdown = format!(
             "~~~\n$quill: {}@{}\n$kind: main\n~~~\n",
             config.name, config.version

@@ -20,7 +20,7 @@ pub fn demo(
         quills_path(quill_dir)
     };
     let engine = quillmark::Quillmark::new();
-    let quill = quillmark::Quill::from_path(quill_path.clone()).expect("Failed to load quill");
+    let quill = quillmark::quill_from_path(quill_path.clone()).expect("Failed to load quill");
 
     let parsed = quill.seed_document();
 

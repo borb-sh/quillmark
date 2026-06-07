@@ -11,8 +11,8 @@ use std::path::Path;
 /// Load a quill from a directory path.
 ///
 /// Upgrades the missing-path error to a clearer message before delegating to
-/// [`Quill::from_path`]. The returned quill is engine-free, validated data;
-/// rendering is done through a [`quillmark::Quillmark`] engine.
+/// [`quillmark::quill_from_path`]. The returned quill is engine-free, validated
+/// data; rendering is done through a [`quillmark::Quillmark`] engine.
 pub fn load_quill(path: &Path) -> Result<Quill> {
     if !path.exists() {
         return Err(CliError::InvalidArgument(format!(
@@ -20,5 +20,5 @@ pub fn load_quill(path: &Path) -> Result<Quill> {
             path.display()
         )));
     }
-    Ok(Quill::from_path(path)?)
+    Ok(quillmark::quill_from_path(path)?)
 }

@@ -1,11 +1,9 @@
 use quillmark_core::{
-    Backend, Diagnostic, Document, OutputFormat, RenderError, RenderOptions, RenderResult,
+    Backend, Diagnostic, Document, OutputFormat, Quill, RenderError, RenderOptions, RenderResult,
     RenderSession, Severity,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
-
-use super::Quill;
 
 /// High-level engine: a backend registry and render dispatcher.
 ///
@@ -74,13 +72,12 @@ impl Quillmark {
         let backend = self.resolve_backend(quill)?;
         quill.check_quill_reference(doc)?;
         let json_data = quill.compile_data(doc)?;
-        let source = quill.source();
-        let plate_content = source
+        let plate_content = quill
             .plate()
             .filter(|s| !s.is_empty())
             .unwrap_or("")
             .to_string();
-        backend.open(&plate_content, source, &json_data)
+        backend.open(&plate_content, quill, &json_data)
     }
 
     /// Render `doc` against `quill` in one shot. Convenience over

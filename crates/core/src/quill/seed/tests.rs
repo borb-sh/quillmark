@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use quillmark_core::quill::FileTreeNode;
+use crate::quill::FileTreeNode;
 
 use crate::Quill;
 

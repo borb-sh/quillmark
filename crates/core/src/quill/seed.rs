@@ -1,15 +1,18 @@
 //! Document seeding from a quill schema.
 //!
-//! [`Quill::seed_document`], [`Quill::seed_main`], and [`Quill::seed_card`]
-//! build a starter document by committing each schema field's `example` value
-//! and leaving **every other field absent**. Absent fields are interpolated at
-//! render time — schema `default`, else type-empty zero — by the zero-filled
-//! render in [`Quill::compile_data`]; they are never written into the document.
+//! [`Quill::seed_document`](super::Quill::seed_document),
+//! [`seed_main`](super::Quill::seed_main), and
+//! [`seed_card`](super::Quill::seed_card) build a starter document by committing
+//! each schema field's `example` value and leaving **every other field absent**.
+//! Absent fields are interpolated at render time — schema `default`, else
+//! type-empty zero — by the zero-filled render in
+//! [`Quill::compile_data`](super::Quill::compile_data); they are never written
+//! into the document.
 //!
 //! This is the **filled-out twin of the blueprint**
-//! ([`QuillConfig::blueprint`](quillmark_core::quill::QuillConfig::blueprint)):
-//! the blueprint is the annotated authoring surface (sentinels, `# e.g.`
-//! hints), while the seed is its `example`-first intent materialized as real
+//! ([`QuillConfig::blueprint`](crate::quill::QuillConfig::blueprint)): the
+//! blueprint is the annotated authoring surface (sentinels, `# e.g.` hints),
+//! while the seed is its `example`-first intent materialized as real
 //! [`Document`] content with no `<must-fill>` sentinels and no default/zero
 //! values persisted. Because only `example` values are committed, the seed
 //! never collides with the render layer (no editor/preview drift) and
@@ -26,8 +29,9 @@
 
 use indexmap::IndexMap;
 
-use quillmark_core::quill::CardSchema;
-use quillmark_core::{Card, Document, Payload, QuillReference, QuillSource, QuillValue};
+use super::Quill;
+use crate::quill::CardSchema;
+use crate::{Card, Document, Payload, QuillReference, QuillValue};
 
 /// Build the seeded `(payload, body)` for one card schema: each field that
 /// declares an `example` is committed, ordered by `ui.order` (matching the
@@ -62,16 +66,16 @@ fn seed_parts(schema: &CardSchema) -> (Payload, String) {
 /// `$quill` reference for the main card, as `name@version`. Falls back to a
 /// versionless reference if the configured version is unparseable (it is
 /// validated at quill load, so the fallback is defensive only).
-fn main_reference(source: &QuillSource) -> QuillReference {
-    let config = source.config();
+fn main_reference(quill: &Quill) -> QuillReference {
+    let config = quill.config();
     format!("{}@{}", config.name, config.version)
         .parse()
         .unwrap_or_else(|_| QuillReference::latest(config.name.clone()))
 }
 
-pub(crate) fn seed_main(source: &QuillSource) -> Card {
-    let (mut payload, body) = seed_parts(&source.config().main);
-    payload.set_quill(main_reference(source));
+pub(crate) fn seed_main(quill: &Quill) -> Card {
+    let (mut payload, body) = seed_parts(&quill.config().main);
+    payload.set_quill(main_reference(quill));
     // The root block carries `$kind: main` alongside `$quill` (see the
     // markdown spec); set it so a seeded main card round-trips through
     // `to_markdown()` exactly as the parser and blueprint emit it.
@@ -79,8 +83,8 @@ pub(crate) fn seed_main(source: &QuillSource) -> Card {
     Card::from_parts(payload, body)
 }
 
-pub(crate) fn seed_card_for_kind(source: &QuillSource, card_kind: &str) -> Option<Card> {
-    let schema = source.config().card_kind(card_kind)?;
+pub(crate) fn seed_card_for_kind(quill: &Quill, card_kind: &str) -> Option<Card> {
+    let schema = quill.config().card_kind(card_kind)?;
     Some(seed_composable(schema))
 }
 
@@ -91,9 +95,9 @@ fn seed_composable(schema: &CardSchema) -> Card {
     Card::from_parts(payload, body)
 }
 
-pub(crate) fn seed_document(source: &QuillSource) -> Document {
-    let main = seed_main(source);
-    let cards = source
+pub(crate) fn seed_document(quill: &Quill) -> Document {
+    let main = seed_main(quill);
+    let cards = quill
         .config()
         .card_kinds
         .iter()

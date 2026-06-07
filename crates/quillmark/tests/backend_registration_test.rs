@@ -2,7 +2,7 @@
 
 use quillmark::{Document, OutputFormat, Quill, Quillmark, RenderError};
 use quillmark_core::{
-    session::SessionHandle, Artifact, Backend, QuillSource, RenderOptions, RenderResult,
+    session::SessionHandle, Artifact, Backend, RenderOptions, RenderResult,
 };
 use std::fs;
 use tempfile::TempDir;
@@ -24,7 +24,7 @@ impl Backend for MockBackend {
     fn open(
         &self,
         plated: &str,
-        _source: &QuillSource,
+        _source: &Quill,
         _json_data: &serde_json::Value,
     ) -> Result<quillmark::RenderSession, RenderError> {
         Ok(quillmark::RenderSession::new(Box::new(MockSession {
@@ -97,7 +97,7 @@ fn test_render_with_custom_backend() {
     ).unwrap();
     fs::write(quill_path.join("plate.txt"), "Test template: {{ title }}").unwrap();
 
-    let quill = Quill::from_path(&quill_path).expect("Quill::from_path failed");
+    let quill = quillmark::quill_from_path(&quill_path).expect("Quill::from_path failed");
 
     assert_eq!(quill.backend_id(), "mock-txt");
     assert_eq!(quill.name(), "custom_backend_quill");

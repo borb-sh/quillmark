@@ -6,7 +6,8 @@ use pyo3::types::{PyDict, PyList};
 use pyo3::Bound;
 
 use quillmark::{
-    Diagnostic, Document, Location, OutputFormat, Quill, Quillmark, RenderResult, RenderSession,
+    quill_from_path, Diagnostic, Document, Location, OutputFormat, Quill, Quillmark, RenderResult,
+    RenderSession,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -33,7 +34,7 @@ impl PyQuillmark {
     /// handle to this engine so its `render`/`open`/`supported_formats` keep
     /// working; the quill itself is engine-free, validated data.
     fn quill_from_path(&self, path: PathBuf) -> PyResult<PyQuill> {
-        let quill = Quill::from_path(&path).map_err(convert_render_error)?;
+        let quill = quill_from_path(&path).map_err(convert_render_error)?;
         Ok(PyQuill {
             inner: quill,
             engine: Arc::clone(&self.inner),
@@ -76,7 +77,7 @@ impl PyQuill {
 
     #[getter]
     fn quill_ref(&self) -> String {
-        let source = self.inner.source();
+        let source = &self.inner;
         let version = source
             .metadata()
             .get("version")
@@ -89,7 +90,7 @@ impl PyQuill {
     /// plus `supportedFormats`. Mirrors WASM `metadata`.
     #[getter]
     fn metadata<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        let source = self.inner.source();
+        let source = &self.inner;
         let config = source.config();
 
         let dict = PyDict::new(py);
@@ -129,13 +130,13 @@ impl PyQuill {
     /// Document schema as a structured dict (matches the wasm `schema` shape).
     #[getter]
     fn schema<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let value = self.inner.source().config().schema();
+        let value = self.inner.config().schema();
         json_to_py(py, &value)
     }
 
     #[getter]
     fn blueprint(&self) -> String {
-        self.inner.source().config().blueprint()
+        self.inner.config().blueprint()
     }
 
     #[getter]

@@ -1,6 +1,6 @@
 //! # Default Values Tests
 
-use quillmark::{Document, Quill};
+use quillmark::Document;
 use std::fs;
 use tempfile::TempDir;
 
@@ -41,7 +41,7 @@ main:
 "#,
     );
 
-    let quill = Quill::from_path(&quill_path).expect("from_path failed");
+    let quill = quillmark::quill_from_path(&quill_path).expect("from_path failed");
 
     let markdown =
         "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: My Document\n~~~\n\n# Content\n";
@@ -76,7 +76,7 @@ main:
 "#,
     );
 
-    let quill = Quill::from_path(&quill_path).expect("from_path failed");
+    let quill = quillmark::quill_from_path(&quill_path).expect("from_path failed");
 
     let markdown =
         "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: My Document\nstatus: published\n~~~\n\n# Content\n";
@@ -112,7 +112,7 @@ main:
 "#,
     );
 
-    let quill = Quill::from_path(&quill_path).expect("from_path failed");
+    let quill = quillmark::quill_from_path(&quill_path).expect("from_path failed");
 
     let markdown = "~~~card-yaml\n$quill: test_quill\n$kind: main\n~~~\n\n# Content";
     let parsed = Document::from_markdown(markdown).expect("parse failed");
@@ -149,7 +149,7 @@ main:
 "#,
     );
 
-    let quill = Quill::from_path(&quill_path).expect("from_path failed");
+    let quill = quillmark::quill_from_path(&quill_path).expect("from_path failed");
 
     let markdown =
         "~~~card-yaml\n$quill: test_quill\n$kind: main\nstatus: published\n~~~\n\n# Content\n";
@@ -203,8 +203,8 @@ main:
     )
     .unwrap();
 
-    let quill = Quill::from_path(quill_path).expect("from_path failed");
-    let defaults = quill.source().config().main.defaults();
+    let quill = quillmark::quill_from_path(quill_path).expect("from_path failed");
+    let defaults = quill.config().main.defaults();
 
     assert!(defaults.contains_key("author"));
     assert_eq!(defaults.get("author").unwrap().as_str(), Some("Anonymous"));

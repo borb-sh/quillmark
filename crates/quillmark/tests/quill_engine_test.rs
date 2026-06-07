@@ -3,7 +3,7 @@
 use std::fs;
 use tempfile::TempDir;
 
-use quillmark::{Document, OutputFormat, Quill, Quillmark, RenderOptions};
+use quillmark::{Document, OutputFormat, Quillmark, RenderOptions};
 
 fn make_quill_dir(temp_dir: &TempDir, name: &str, backend: &str) -> std::path::PathBuf {
     let quill_path = temp_dir.path().join(name);
@@ -35,7 +35,7 @@ fn test_quill_from_path_engine_metadata() {
     let temp_dir = TempDir::new().unwrap();
     let quill_path = make_quill_dir(&temp_dir, "my_test_quill", "typst");
 
-    let quill = Quill::from_path(quill_path).expect("Quill::from_path failed");
+    let quill = quillmark::quill_from_path(quill_path).expect("Quill::from_path failed");
 
     assert_eq!(quill.name(), "my_test_quill");
     assert_eq!(quill.backend_id(), "typst");
@@ -55,7 +55,7 @@ fn test_unsupported_backend_errors_at_render_time() {
     // Loading no longer resolves a backend: it succeeds even for an unknown
     // backend id, tagging the quill with the declared intent. The
     // backend-existence check moved to render time.
-    let quill = Quill::from_path(quill_path).expect("load succeeds; backend resolved later");
+    let quill = quillmark::quill_from_path(quill_path).expect("load succeeds; backend resolved later");
     assert_eq!(quill.backend_id(), "non_existent");
 
     let engine = Quillmark::new();
@@ -81,7 +81,7 @@ fn test_quill_engine_end_to_end() {
     )
     .unwrap();
 
-    let quill = Quill::from_path(&quill_path).expect("Quill::from_path failed");
+    let quill = quillmark::quill_from_path(&quill_path).expect("Quill::from_path failed");
 
     let markdown =
         "~~~card-yaml\n$quill: my_test_quill\n$kind: main\ntitle: Test Document\n~~~\n\n# Introduction\n";
@@ -98,7 +98,7 @@ fn test_quill_render_succeeds_with_engine_loaded_quill() {
     let quill_path = make_quill_dir(&temp_dir, "my_quill", "typst");
 
     let engine = Quillmark::new();
-    let quill = Quill::from_path(quill_path).expect("Quill::from_path failed");
+    let quill = quillmark::quill_from_path(quill_path).expect("Quill::from_path failed");
     let parsed = Document::from_markdown("~~~card-yaml\n$quill: my_quill\n$kind: main\n~~~\n")
         .expect("parse failed");
     let result = engine.render(

@@ -244,18 +244,31 @@ being portable data.
   backend now resolved at render time. Add its `docs/migrations/index.md`
   entry. (Released guides are immutable; only this working one is mutable.)
 
-## Follow-up: collapse `Quill` / `QuillSource`
+## Follow-up: collapse `Quill` / `QuillSource` — **landed**
 
-> **Sequenced after the split lands — not part of this PR.**
+> **Done in this branch.** Bundled with the split rather than deferred: the
+> refactor was already breaking, so consolidating the trauma into one change
+> beat spreading a second core-rename wave across a later release.
 
-Once `Quill` holds no backend it is `Arc<QuillSource>` + config-read
-methods; the only difference from `QuillSource` is the method set and a
-wrapper. That is accidental duplication, not a concept boundary, so the
-two types should collapse into one. This is the logical completion of the
-decouple, not a speculative simplification — but it is deferred so the
-size-win PR is not coupled to a core public-API rename, and so the
-decoupled shape can settle before a type is deleted (defer until maximum
-information, then collapse).
+Once `Quill` held no backend it was just `QuillSource` + config-read methods;
+the only difference was the method set and a wrapper. That was accidental
+duplication, not a concept boundary, so the two types collapsed into one.
+
+**As landed:**
+- `QuillSource` is renamed to **`Quill`** in `quillmark-core`; the orchestration
+  wrapper is deleted and `quillmark` re-exports the core type.
+- `Backend::open` takes `&Quill`. The consumer methods (`compile_data`,
+  `validate`, `dry_run`, `seed_*`, `check_quill_reference`) and the `seed`
+  module moved into core, since inherent methods must live with the type.
+- `Quill::from_tree` is the core constructor (→ `Vec<Diagnostic>`);
+  `quillmark::quill_from_path` / `quill_from_tree` are free functions that
+  surface a `RenderError` and keep fs out of core.
+- The `Arc<QuillSource>` was vestigial and is dropped — `Quill` is held by value.
+- The `.source()` indirection is gone: `self.inner.source().config()` →
+  `self.inner.config()` across the engine and bindings. JS/Python consumers see
+  no change (bindings already hid `QuillSource`).
+
+The original deferral rationale (kept for the record) follows.
 
 **Constraint — collapse goes *into* core.** The reason `QuillSource`
 exists is the `Backend` trait: `open(plate, &QuillSource, json)`. Backends
@@ -280,10 +293,9 @@ The collapse is a readability gain across the codebase, not only the
 removal of a redundant type — which is the argument for doing it rather
 than leaving the two-type shape.
 
-**One fork to decide then (not now):**
-- **`Arc`** — post-decouple the `Arc<QuillSource>` may be vestigial
-  (nothing else shares the source); drop it and let multi-thread consumers
-  wrap, or keep it for cheap clones.
+**Resolved fork — `Arc`:** the `Arc<QuillSource>` was vestigial (nothing else
+shares the source), so it is dropped; `Quill` is held by value and multi-thread
+consumers wrap it themselves.
 
 ## Out of scope
 - *Feature-splitting* Python / CLI into core/render builds (best-effort

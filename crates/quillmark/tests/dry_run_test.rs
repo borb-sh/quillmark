@@ -1,6 +1,6 @@
 //! # Dry Run Validation Tests
 
-use quillmark::{Document, Quill};
+use quillmark::Document;
 use std::fs;
 use tempfile::TempDir;
 
@@ -32,7 +32,7 @@ fn test_dry_run_success() {
     let temp_dir = TempDir::new().unwrap();
     let quill_path = make_test_quill_path(&temp_dir, true);
 
-    let quill = Quill::from_path(&quill_path).expect("from_path failed");
+    let quill = quillmark::quill_from_path(&quill_path).expect("from_path failed");
 
     let markdown =
         "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: My Document\nauthor: Test\n~~~\n\n# Content\n";
@@ -51,7 +51,7 @@ fn test_dry_run_missing_must_fill_field_is_tolerated() {
     let temp_dir = TempDir::new().unwrap();
     let quill_path = make_test_quill_path(&temp_dir, true);
 
-    let quill = Quill::from_path(&quill_path).expect("from_path failed");
+    let quill = quillmark::quill_from_path(&quill_path).expect("from_path failed");
 
     let markdown =
         "~~~card-yaml\n$quill: test_quill\n$kind: main\nauthor: Test\n~~~\n\n# Content\n";
@@ -72,7 +72,7 @@ fn test_dry_run_surviving_sentinel_still_fails() {
     let temp_dir = TempDir::new().unwrap();
     let quill_path = make_test_quill_path(&temp_dir, true);
 
-    let quill = Quill::from_path(&quill_path).expect("from_path failed");
+    let quill = quillmark::quill_from_path(&quill_path).expect("from_path failed");
 
     let markdown =
         "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: <must-fill>\nauthor: Test\n~~~\n\n# Content\n";
@@ -95,7 +95,7 @@ fn test_dry_run_no_schema() {
     let temp_dir = TempDir::new().unwrap();
     let quill_path = make_test_quill_path(&temp_dir, false);
 
-    let quill = Quill::from_path(&quill_path).expect("from_path failed");
+    let quill = quillmark::quill_from_path(&quill_path).expect("from_path failed");
 
     let markdown =
         "~~~card-yaml\n$quill: test_quill\n$kind: main\nrandom_field: anything\n~~~\n\n# Content\n";
