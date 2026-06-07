@@ -33,7 +33,7 @@ No registry consumes the selector — there is no collection of installed versio
 - **`quill::name_mismatch`** — the reference *name* differs from the loaded Quill. The name is the prerequisite (a selector belongs to a *named* Quill), so a name mismatch short-circuits and the version is left unevaluated.
 - **`quill::version_mismatch`** — names agree but the Quill's `version` falls outside the selector (e.g. `name@2` against `3.0.0`). `VersionSelector::matches` decides: `Exact` the identical version, `Minor` any patch in the `MAJOR.MINOR` series, `Major` any version in the `MAJOR` series, `Latest` (the default) anything.
 
-Both are hard errors, applied consistently: rendering a (valid) document against a Quill it was not written for — a different format, or an incompatible version of one — yields undefined output, so it is rejected rather than warned. The check runs before schema validation and compilation, where diagnostics computed against the wrong Quill would be noise. `QuillMismatch` is distinct from `ValidationFailed` (a malformed document): the remedy is to render with the referenced Quill or amend `$quill`, not to edit a field. A bare name or `@latest` matches any version, so correctly-targeted documents never trip either check.
+`QuillMismatch` is distinct from `ValidationFailed` (a malformed document): here the document is well-formed but paired with the wrong Quill, so the remedy is to render with the referenced Quill or amend `$quill`. A bare name or `@latest` matches any version, so correctly-targeted documents never trip either check.
 
 ## Quill.yaml
 

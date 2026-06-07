@@ -12,15 +12,18 @@ guides in order.
 
 ## Available guides
 
+- [0.88 → 0.89](0.88-to-0.89.md) — `$quill` mismatches become hard errors: a
+  document rendered against a quill whose name differs, or whose version falls
+  outside the `$quill` selector, now fails (`quill::name_mismatch` /
+  `quill::version_mismatch` via the new `RenderError::QuillMismatch`) instead of
+  warning.
 - [0.87 → 0.88](0.87-to-0.88.md) — the schema-aware form view (`quill.form`,
   `blankMain`, `blankCard`) is removed in favor of `quill.validate(doc)`; the
   absence diagnostic is renamed `must_fill_absent` → `field_absent` (cell axis
   "Must Fill" → **Unendorsed**); the `example` reference document folds into
-  `seedDocument()`; a single `Card` shape flows in and out — the flat
+  `seedDocument()`; and a single `Card` shape flows in and out — the flat
   `CardInput` is replaced by `Document.makeCard`, and `pushCard` / `insertCard`
-  accept the shape they return; and `$quill` mismatches become hard errors
-  (`quill::name_mismatch` / `quill::version_mismatch` via
-  `RenderError::QuillMismatch`).
+  accept the shape they return.
 - [0.86 → 0.87](0.86-to-0.87.md) — array fields require an `items` element
   schema, `type: date` folds into a unified `type: datetime`, and schema load
   rejects empty `properties` maps and deeper array nesting.

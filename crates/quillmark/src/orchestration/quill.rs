@@ -150,22 +150,17 @@ impl Quill {
         Ok(coerced_doc)
     }
 
-    /// Enforce the document's `$quill` reference against the loaded quill.
+    /// Enforce the document's `$quill` reference (`name@selector`) against the
+    /// loaded quill, failing with [`RenderError::QuillMismatch`] if either
+    /// component diverges. The document is well-formed; it was paired with the
+    /// wrong quill — a different format, or an incompatible version of one —
+    /// which yields undefined output, so it errors rather than warns.
     ///
-    /// The reference is `name@selector`; both components must be satisfied or the
-    /// render is rejected. The document is well-formed — it was just paired with
-    /// the wrong quill, which is a footgun: a different schema, or an
-    /// incompatible format version, produces undefined output. So this fails
-    /// with [`RenderError::QuillMismatch`] rather than warning, and runs before
-    /// schema validation and compilation, where diagnostics computed against the
-    /// wrong quill would be noise.
-    ///
-    /// The name is the prerequisite — a selector belongs to a *named* quill, so
-    /// comparing it against a differently-named quill is meaningless. A name
-    /// mismatch short-circuits (`quill::name_mismatch`) and the version is left
+    /// Name is the prerequisite (a selector belongs to a *named* quill): a name
+    /// mismatch (`quill::name_mismatch`) short-circuits and the version is left
     /// unevaluated; otherwise the selector is checked (`quill::version_mismatch`).
-    /// The version is validated at load, so parsing is infallible in practice;
-    /// on the off chance it fails, the version check is skipped.
+    /// The version parses infallibly in practice (validated at load); if it
+    /// somehow doesn't, the version check is skipped.
     fn check_quill_reference(&self, doc: &Document) -> Result<(), RenderError> {
         let doc_ref = doc.quill_reference();
 
@@ -277,9 +272,8 @@ impl Quill {
     }
 }
 
-/// Build a [`RenderError::QuillMismatch`] from a single message/code/hint.
-/// `Diagnostic::path` is unset — the mismatch is about the root `$quill` line,
-/// not a field.
+/// A single-diagnostic [`RenderError::QuillMismatch`]. `path` is unset — the
+/// mismatch is the root `$quill` line, not a field.
 fn quill_mismatch(message: String, code: &str, hint: &str) -> RenderError {
     RenderError::QuillMismatch {
         diags: vec![Diagnostic::new(Severity::Error, message)

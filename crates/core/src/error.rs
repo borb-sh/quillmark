@@ -357,10 +357,9 @@ pub enum RenderError {
     /// reference — a different *name* (`quill::name_mismatch`) or a `version`
     /// outside the selector (`quill::version_mismatch`). Distinct from
     /// [`ValidationFailed`](RenderError::ValidationFailed): the document is
-    /// well-formed; it was paired with the wrong quill. The remedy is to render
-    /// with the referenced quill or amend `$quill`, not to edit a field.
+    /// well-formed; it was paired with the wrong quill.
     QuillMismatch {
-        /// The single mismatch diagnostic. Always non-empty.
+        /// The mismatch diagnostic. Always non-empty.
         diags: Vec<Diagnostic>,
     },
 }
