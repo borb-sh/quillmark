@@ -12,7 +12,8 @@ use std::sync::Arc;
 /// ([`supported_formats`](Self::supported_formats) /
 /// [`supports_canvas`](Self::supports_canvas)) and rendering
 /// ([`open`](Self::open) / [`render`](Self::render)). It no longer loads
-/// quills; construct those with [`Quill::from_tree`] / [`Quill::from_path`].
+/// quills; construct those with [`Quill::from_tree`] or
+/// [`quill_from_path`](crate::quill_from_path).
 pub struct Quillmark {
     backends: HashMap<String, Arc<dyn Backend>>,
 }

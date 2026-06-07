@@ -159,8 +159,8 @@ impl Quill {
     /// declared composable card kind, each committing its fields' `example`
     /// values and leaving all other fields absent (interpolated at render:
     /// `default` → type-empty zero). The committed, structured "filled-out" twin
-    /// of the [`blueprint`](crate::quill::QuillConfig::blueprint). See
-    /// [`seed`].
+    /// of the [`blueprint`](crate::quill::QuillConfig::blueprint). See the
+    /// `seed` module.
     pub fn seed_document(&self) -> Document {
         seed::seed_document(self)
     }
