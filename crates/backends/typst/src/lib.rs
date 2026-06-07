@@ -160,6 +160,10 @@ impl Backend for TypstBackend {
         SUPPORTED_FORMATS
     }
 
+    fn supports_canvas(&self) -> bool {
+        true
+    }
+
     fn open(
         &self,
         plate_content: &str,

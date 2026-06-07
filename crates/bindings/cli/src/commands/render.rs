@@ -2,7 +2,7 @@ use crate::commands::load_quill;
 use crate::errors::{CliError, Result};
 use crate::output::{derive_output_path, OutputWriter};
 use clap::Parser;
-use quillmark::Document;
+use quillmark::{Document, Quillmark};
 use quillmark_core::{OutputFormat, RenderOptions};
 use std::fs;
 use std::path::PathBuf;
@@ -138,7 +138,9 @@ pub fn execute(args: RenderArgs) -> Result<()> {
     }
 
     // Render
-    let mut result = quill.render(
+    let engine = Quillmark::new();
+    let mut result = engine.render(
+        &quill,
         &parsed,
         &RenderOptions {
             output_format: Some(output_format),

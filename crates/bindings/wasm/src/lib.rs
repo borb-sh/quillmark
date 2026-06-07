@@ -34,7 +34,9 @@ mod engine;
 mod error;
 mod types;
 
-pub use engine::{Document, Quill, Quillmark, RenderSession};
+pub use engine::{Document, Quill};
+#[cfg(feature = "render")]
+pub use engine::{Quillmark, RenderSession};
 pub use error::WasmError;
 pub use types::*;
 

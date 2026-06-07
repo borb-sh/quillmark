@@ -1,6 +1,6 @@
 use crate::errors::{CliError, Result};
 use clap::Parser;
-use quillmark::Quillmark;
+use quillmark::Quill;
 use quillmark_core::quill::{CardSchema, FieldSchema, QuillConfig};
 use std::collections::BTreeMap;
 use std::fs;
@@ -151,8 +151,7 @@ pub fn execute(args: ValidateArgs) -> Result<()> {
     }
 
     // Step 5: Try to load the full Quill (this validates schema generation)
-    let engine = Quillmark::new();
-    match engine.quill_from_path(&args.quill_path) {
+    match Quill::from_path(&args.quill_path) {
         Ok(quill) => {
             if args.verbose {
                 println!("  Schema generated successfully");

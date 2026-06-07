@@ -1,6 +1,6 @@
 //! # Backend Registration Tests
 
-use quillmark::{Document, OutputFormat, Quillmark, RenderError};
+use quillmark::{Document, OutputFormat, Quill, Quillmark, RenderError};
 use quillmark_core::{
     session::SessionHandle, Artifact, Backend, QuillSource, RenderOptions, RenderResult,
 };
@@ -97,19 +97,21 @@ fn test_render_with_custom_backend() {
     ).unwrap();
     fs::write(quill_path.join("plate.txt"), "Test template: {{ title }}").unwrap();
 
-    let quill = engine
-        .quill_from_path(&quill_path)
-        .expect("quill_from_path failed");
+    let quill = Quill::from_path(&quill_path).expect("Quill::from_path failed");
 
     assert_eq!(quill.backend_id(), "mock-txt");
     assert_eq!(quill.name(), "custom_backend_quill");
-    assert!(quill.supported_formats().contains(&OutputFormat::Txt));
+    assert!(engine
+        .supported_formats(&quill)
+        .expect("supported_formats failed")
+        .contains(&OutputFormat::Txt));
 
     let markdown =
         "~~~card-yaml\n$quill: custom_backend_quill\n$kind: main\ntitle: Hello Custom Backend\n~~~\n\n# Test\n";
     let parsed = Document::from_markdown(markdown).expect("parse failed");
-    let result = quill
+    let result = engine
         .render(
+            &quill,
             &parsed,
             &RenderOptions {
                 output_format: Some(OutputFormat::Txt),

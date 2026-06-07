@@ -10,7 +10,7 @@
 
 #![cfg(feature = "typst")]
 
-use quillmark::{OutputFormat, Quillmark, RenderError, RenderOptions};
+use quillmark::{OutputFormat, Quill, Quillmark, RenderError, RenderOptions};
 use quillmark_fixtures::quills_path;
 
 const PT_PER_IN: f32 = 72.0;
@@ -55,16 +55,15 @@ fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 #[test]
 fn usaf_memo_signature_widget_aligns_with_signature_block() {
     let engine = Quillmark::new();
-    let quill = engine
-        .quill_from_path(quills_path("usaf_memo"))
-        .expect("usaf_memo should load");
+    let quill = Quill::from_path(quills_path("usaf_memo")).expect("usaf_memo should load");
 
     // The seeded document exercises the main memo *and* a representative
     // indorsement card (one instance per declared kind), so both the
     // `Signature` and `Ind_0_Signature` widgets are emitted.
     let parsed = quill.seed_document();
 
-    let result = quill.render(
+    let result = engine.render(
+        &quill,
         &parsed,
         &RenderOptions {
             output_format: Some(OutputFormat::Pdf),

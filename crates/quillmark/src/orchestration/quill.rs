@@ -1,78 +1,67 @@
-//! Renderable `Quill` — the engine-constructed composition of a
-//! [`QuillSource`] with a resolved backend.
+//! Engine-free `Quill` — portable, validated quill data.
+//!
+//! A [`Quill`] is a [`QuillSource`] tagged with its *declared* backend id; it
+//! holds no backend and needs no engine to construct or use. Every method here
+//! is a pure `source.config()` read (parse / validate / schema / seed /
+//! blueprint / compile). Rendering is the engine's job — see
+//! [`crate::Quillmark`].
 
 use indexmap::IndexMap;
+use std::collections::HashMap;
+use std::error::Error as StdError;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::Arc;
 
 use quillmark_core::{
-    normalize::normalize_document, quill::CardSchema, zero_value, Backend, Card, Diagnostic,
-    Document, OutputFormat, Payload, QuillSource, QuillValue, RenderError, RenderOptions,
-    RenderResult, RenderSession, Severity, Version,
+    normalize::normalize_document, quill::CardSchema, zero_value, Card, Diagnostic, Document,
+    FileTreeNode, Payload, QuillIgnore, QuillSource, QuillValue, RenderError, Severity, Version,
 };
 
 use crate::seed;
 
-/// Renderable quill: an [`Arc<QuillSource>`] paired with a resolved [`Backend`].
-/// Constructed by the engine; immutable once created.
+/// Portable, validated quill data: a [`QuillSource`] plus its declared backend
+/// id. Engine-free — construct with [`Quill::from_tree`] / [`Quill::from_path`]
+/// and render through [`crate::Quillmark`].
 #[derive(Clone)]
 pub struct Quill {
-    source: Arc<QuillSource>,
-    backend: Arc<dyn Backend>,
+    source: QuillSource,
 }
 
 impl Quill {
-    /// Engine-internal; external callers use [`crate::Quillmark::quill`] or
-    /// [`crate::Quillmark::quill_from_path`].
-    pub(crate) fn new(source: Arc<QuillSource>, backend: Arc<dyn Backend>) -> Self {
-        Self { source, backend }
+    /// Build a quill from an in-memory file tree. Pure — no backend, no engine;
+    /// the declared backend is resolved later, at render time.
+    pub fn from_tree(tree: FileTreeNode) -> Result<Quill, RenderError> {
+        let source =
+            QuillSource::from_tree(tree).map_err(|diags| RenderError::QuillConfig { diags })?;
+        Ok(Self { source })
+    }
+
+    /// Load a quill from a filesystem directory. Honours a root `.quillignore`,
+    /// else a default ignore set. (The fs walk lives in `quillmark`; core stays
+    /// fs-agnostic.)
+    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Quill, RenderError> {
+        let tree = load_tree_from_path(path.as_ref()).map_err(|e| RenderError::QuillConfig {
+            diags: vec![
+                Diagnostic::new(Severity::Error, format!("Failed to load quill: {}", e))
+                    .with_code("quill::load_failed".to_string()),
+            ],
+        })?;
+        Self::from_tree(tree)
     }
 
     pub fn source(&self) -> &QuillSource {
         &self.source
     }
 
-    /// The resolved backend identifier (e.g. `"typst"`).
+    /// The *declared* backend identifier (`config.backend`, e.g. `"typst"`).
+    /// Intent, not a resolved capability — any engine with a matching backend
+    /// can render this quill.
     pub fn backend_id(&self) -> &str {
-        self.backend.id()
-    }
-
-    pub fn supported_formats(&self) -> &'static [OutputFormat] {
-        self.backend.supported_formats()
+        self.source.backend_id()
     }
 
     pub fn name(&self) -> &str {
         self.source.name()
-    }
-
-    /// Render a document. Pass `&RenderOptions::default()` for backend defaults.
-    pub fn render(
-        &self,
-        doc: &Document,
-        opts: &RenderOptions,
-    ) -> Result<RenderResult, RenderError> {
-        let session = self.open(doc)?;
-        let resolved = RenderOptions {
-            output_format: opts
-                .output_format
-                .or_else(|| self.backend.supported_formats().first().copied()),
-            ppi: opts.ppi,
-            pages: opts.pages.clone(),
-            producer: opts.producer.clone(),
-        };
-        session.render(&resolved)
-    }
-
-    pub fn open(&self, doc: &Document) -> Result<RenderSession, RenderError> {
-        self.check_quill_reference(doc)?;
-        let json_data = self.compile_data(doc)?;
-        let plate_content = self
-            .source
-            .plate()
-            .filter(|s| !s.is_empty())
-            .unwrap_or("")
-            .to_string();
-        self.backend.open(&plate_content, &self.source, &json_data)
     }
 
     /// Compile a document to JSON wire format for the backend.
@@ -161,7 +150,7 @@ impl Quill {
     /// unevaluated; otherwise the selector is checked (`quill::version_mismatch`).
     /// The version parses infallibly in practice (validated at load); if it
     /// somehow doesn't, the version check is skipped.
-    fn check_quill_reference(&self, doc: &Document) -> Result<(), RenderError> {
+    pub(crate) fn check_quill_reference(&self, doc: &Document) -> Result<(), RenderError> {
         let doc_ref = doc.quill_reference();
 
         if doc_ref.name.as_str() != self.source.name() {
@@ -227,19 +216,19 @@ impl Quill {
     /// twin of the [`blueprint`](quillmark_core::quill::QuillConfig::blueprint).
     /// See [`crate::seed`].
     pub fn seed_document(&self) -> Document {
-        seed::seed_document(self)
+        seed::seed_document(&self.source)
     }
 
     /// Seed a starter main [`Card`] (carries `$quill`). Use as the main card
     /// of a fresh document. See [`Quill::seed_document`].
     pub fn seed_main(&self) -> Card {
-        seed::seed_main(self)
+        seed::seed_main(&self.source)
     }
 
     /// Seed a starter composable [`Card`] of the given kind (carries `$kind`);
     /// `None` if the kind is not declared. Use to add a new card to a document.
     pub fn seed_card(&self, card_kind: &str) -> Option<Card> {
-        seed::seed_card_for_kind(self, card_kind)
+        seed::seed_card_for_kind(&self.source, card_kind)
     }
 
     fn validate_document(&self, doc: &Document) -> Result<(), RenderError> {
@@ -334,7 +323,71 @@ impl std::fmt::Debug for Quill {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Quill")
             .field("name", &self.source.name())
-            .field("backend", &self.backend.id())
+            .field("backend", &self.source.backend_id())
             .finish()
     }
+}
+
+/// Walk a filesystem path into an in-memory [`FileTreeNode`].
+///
+/// Honours a `.quillignore` file at the root; otherwise applies a default
+/// ignore set (`.git/`, `target/`, `node_modules/`, etc.).
+fn load_tree_from_path(path: &Path) -> Result<FileTreeNode, Box<dyn StdError + Send + Sync>> {
+    use std::fs;
+
+    let quillignore_path = path.join(".quillignore");
+    let ignore = if quillignore_path.exists() {
+        let content = fs::read_to_string(&quillignore_path)
+            .map_err(|e| format!("Failed to read .quillignore: {}", e))?;
+        QuillIgnore::from_content(&content)
+    } else {
+        QuillIgnore::default()
+    };
+
+    load_dir(path, path, &ignore)
+}
+
+fn load_dir(
+    current_dir: &Path,
+    base_dir: &Path,
+    ignore: &QuillIgnore,
+) -> Result<FileTreeNode, Box<dyn StdError + Send + Sync>> {
+    use std::fs;
+
+    if !current_dir.exists() {
+        return Ok(FileTreeNode::Directory {
+            files: HashMap::new(),
+        });
+    }
+
+    let mut files = HashMap::new();
+    for entry in fs::read_dir(current_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        let relative_path: PathBuf = path
+            .strip_prefix(base_dir)
+            .map_err(|e| format!("Failed to get relative path: {}", e))?
+            .to_path_buf();
+
+        if ignore.is_ignored(&relative_path) {
+            continue;
+        }
+
+        let filename = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| format!("Invalid filename: {}", path.display()))?
+            .to_string();
+
+        if path.is_file() {
+            let contents = fs::read(&path)
+                .map_err(|e| format!("Failed to read file '{}': {}", path.display(), e))?;
+            files.insert(filename, FileTreeNode::File { contents });
+        } else if path.is_dir() {
+            let subdir_tree = load_dir(&path, base_dir, ignore)?;
+            files.insert(filename, subdir_tree);
+        }
+    }
+
+    Ok(FileTreeNode::Directory { files })
 }

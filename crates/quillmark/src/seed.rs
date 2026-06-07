@@ -27,9 +27,7 @@
 use indexmap::IndexMap;
 
 use quillmark_core::quill::CardSchema;
-use quillmark_core::{Card, Document, Payload, QuillReference, QuillValue};
-
-use crate::Quill;
+use quillmark_core::{Card, Document, Payload, QuillReference, QuillSource, QuillValue};
 
 /// Build the seeded `(payload, body)` for one card schema: each field that
 /// declares an `example` is committed, ordered by `ui.order` (matching the
@@ -64,16 +62,16 @@ fn seed_parts(schema: &CardSchema) -> (Payload, String) {
 /// `$quill` reference for the main card, as `name@version`. Falls back to a
 /// versionless reference if the configured version is unparseable (it is
 /// validated at quill load, so the fallback is defensive only).
-fn main_reference(quill: &Quill) -> QuillReference {
-    let config = quill.source().config();
+fn main_reference(source: &QuillSource) -> QuillReference {
+    let config = source.config();
     format!("{}@{}", config.name, config.version)
         .parse()
         .unwrap_or_else(|_| QuillReference::latest(config.name.clone()))
 }
 
-pub(crate) fn seed_main(quill: &Quill) -> Card {
-    let (mut payload, body) = seed_parts(&quill.source().config().main);
-    payload.set_quill(main_reference(quill));
+pub(crate) fn seed_main(source: &QuillSource) -> Card {
+    let (mut payload, body) = seed_parts(&source.config().main);
+    payload.set_quill(main_reference(source));
     // The root block carries `$kind: main` alongside `$quill` (see the
     // markdown spec); set it so a seeded main card round-trips through
     // `to_markdown()` exactly as the parser and blueprint emit it.
@@ -81,8 +79,8 @@ pub(crate) fn seed_main(quill: &Quill) -> Card {
     Card::from_parts(payload, body)
 }
 
-pub(crate) fn seed_card_for_kind(quill: &Quill, card_kind: &str) -> Option<Card> {
-    let schema = quill.source().config().card_kind(card_kind)?;
+pub(crate) fn seed_card_for_kind(source: &QuillSource, card_kind: &str) -> Option<Card> {
+    let schema = source.config().card_kind(card_kind)?;
     Some(seed_composable(schema))
 }
 
@@ -93,10 +91,9 @@ fn seed_composable(schema: &CardSchema) -> Card {
     Card::from_parts(payload, body)
 }
 
-pub(crate) fn seed_document(quill: &Quill) -> Document {
-    let main = seed_main(quill);
-    let cards = quill
-        .source()
+pub(crate) fn seed_document(source: &QuillSource) -> Document {
+    let main = seed_main(source);
+    let cards = source
         .config()
         .card_kinds
         .iter()
