@@ -2,12 +2,13 @@
 //! [`QuillSource`] with a resolved backend.
 
 use indexmap::IndexMap;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use quillmark_core::{
     normalize::normalize_document, quill::CardSchema, zero_value, Backend, Card, Diagnostic,
     Document, OutputFormat, Payload, QuillSource, QuillValue, RenderError, RenderOptions,
-    RenderResult, RenderSession, Severity,
+    RenderResult, RenderSession, Severity, Version,
 };
 
 use crate::seed;
@@ -151,10 +152,16 @@ impl Quill {
         Ok(coerced_doc)
     }
 
+    /// At most one informational warning on a `$quill` mismatch — the engine
+    /// renders with the quill it was handed regardless:
+    /// - `quill::ref_mismatch`: the reference names a different quill. Checked
+    ///   first; the selector is moot when names disagree.
+    /// - `quill::version_mismatch`: names agree but the loaded `version` fails
+    ///   the selector (e.g. `name@2` against a `3.0.0` quill).
     fn ref_mismatch_warning(&self, doc: &Document) -> Option<Diagnostic> {
         let doc_ref = doc.quill_reference();
         if doc_ref.name.as_str() != self.source.name() {
-            Some(
+            return Some(
                 Diagnostic::new(
                     Severity::Warning,
                     format!(
@@ -168,10 +175,30 @@ impl Quill {
                     "the $quill reference is informational; ensure you are rendering with the intended quill"
                         .to_string(),
                 ),
-            )
-        } else {
-            None
+            );
         }
+
+        // Validated at load, so parsing is infallible in practice; on the off
+        // chance it fails, skip the check rather than emit a confusing warning.
+        let quill_version = Version::from_str(&self.source.config().version).ok()?;
+        if !doc_ref.selector.matches(quill_version) {
+            return Some(
+                Diagnostic::new(
+                    Severity::Warning,
+                    format!(
+                        "document declares $quill '{}' but the loaded quill is version '{}'",
+                        doc_ref, quill_version
+                    ),
+                )
+                .with_code("quill::version_mismatch".to_string())
+                .with_hint(
+                    "the version selector is informational, not a hard constraint; the engine still renders with the loaded quill"
+                        .to_string(),
+                ),
+            );
+        }
+
+        None
     }
 
     /// Validate `doc` against this quill's schema, returning every diagnostic

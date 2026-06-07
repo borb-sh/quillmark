@@ -40,6 +40,19 @@ Supported selectors:
 | `my_quill@1.2` | Latest 1.2.x |
 | `my_quill@1.2.0` | Exact version |
 
+## Compatibility Warnings
+
+A selector is an **informational pin**, not a hard constraint: Quillmark always
+renders with the Quill it was handed and never picks among versions. At render
+time it compares that Quill against the reference and flags a mismatch. If the
+`version` fails the selector (e.g. `my_quill@2` against a `3.0.0` Quill), the
+result carries a non-fatal `quill::version_mismatch` warning; if the *name*
+differs, `quill::ref_mismatch` fires instead and the selector goes unchecked.
+Either way rendering succeeds and an artifact is produced.
+
+Both warnings are advisory — useful for catching a stale pin when you control
+which Quill loads, and safe to ignore where tooling always loads the latest.
+
 ## Practical Guidelines
 
 1. Start at `1.0.0` for your first stable internal format release.

@@ -4,7 +4,7 @@
 
 ## TL;DR
 
-Quills declare a semantic `version` in `Quill.yaml`, and documents carry an optional `$quill: name@selector` reference. The version selector is parsed and stored on `QuillReference` but is **not** resolved at runtime — the engine loads exactly one Quill from a path or in-memory file tree, and the only runtime check on `$quill` compares the *name* against the loaded Quill.
+Quills declare a semantic `version` in `Quill.yaml`, and documents carry an optional `$quill: name@selector` reference. The selector is parsed and stored on `QuillReference`, but never **resolved** — the engine loads exactly one Quill from a path or in-memory file tree, never picking among versions. It is **checked**: at render time the loaded Quill's name and version are compared against the reference, and a mismatch yields an informational warning.
 
 ## Version Format
 
@@ -28,7 +28,12 @@ $quill: my_format@latest   # latest (explicit)
 $quill: my_format          # latest (default)
 ```
 
-The selector parses into the `VersionSelector` on `QuillReference`. No registry consumes it: there is no collection of installed versions to match against, and the selector is never compared at render time. Treat it as an informational pin. The engine emits a `quill::ref_mismatch` warning only when the reference *name* differs from the loaded Quill; the selector is ignored.
+No registry consumes the selector — there is no collection of installed versions to pick from, so it is a pin, not a resolver. At render time the engine compares the reference against the one loaded Quill and emits at most one non-fatal warning:
+
+- **`quill::ref_mismatch`** — the reference *name* differs from the loaded Quill. Checked first; the selector is then moot.
+- **`quill::version_mismatch`** — names agree but the Quill's `version` fails the selector (e.g. `name@2` against `3.0.0`). `VersionSelector::matches` decides: `Exact` the identical version, `Minor` any patch in the `MAJOR.MINOR` series, `Major` any version in the `MAJOR` series, `Latest` (the default) anything.
+
+Both are advisory — render still succeeds with the loaded Quill. The copy says so, since that Quill may be externally controlled (e.g. tooling that always loads the latest).
 
 ## Quill.yaml
 
