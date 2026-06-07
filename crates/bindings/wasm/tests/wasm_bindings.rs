@@ -44,9 +44,9 @@ fn test_quill_from_tree() {
 }
 
 /// Rendering with a `$quill` ref that differs from the quill name must yield
-/// exactly one warning with code `quill::ref_mismatch` and still produce an artifact.
+/// exactly one warning with code `quill::name_mismatch` and still produce an artifact.
 #[wasm_bindgen_test]
-fn test_render_ref_mismatch_warning() {
+fn test_render_name_mismatch_warning() {
     let engine = Quillmark::new();
     let quill = engine.quill(small_quill_tree()).expect("quill failed");
 
@@ -60,8 +60,8 @@ fn test_render_ref_mismatch_warning() {
     assert_eq!(result.warnings.len(), 1, "expected exactly one warning");
     assert_eq!(
         result.warnings[0].code.as_deref(),
-        Some("quill::ref_mismatch"),
-        "warning code should be quill::ref_mismatch"
+        Some("quill::name_mismatch"),
+        "warning code should be quill::name_mismatch"
     );
     assert!(!result.artifacts.is_empty(), "artifact must be produced");
 }

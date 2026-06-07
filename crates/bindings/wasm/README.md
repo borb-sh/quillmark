@@ -356,7 +356,7 @@ try {
   the legacy `~~~card-yaml` opener is still accepted but non-canonical)
   with a `$quill` system-metadata line. Empty input surfaces a dedicated
   "Empty markdown input cannot be parsed" message.
-- QUILL mismatch during `quill.render(parsed)` is a warning (`quill::ref_mismatch`), not an error.
+- A `$quill` *name* mismatch during `quill.render(parsed)` is a warning (`quill::name_mismatch`); a *version* mismatch (the loaded quill falls outside the `$quill` selector) is a hard error (`quill::version_mismatch`).
 - Output schema APIs are no longer engine-level in WASM.
 
 ## Changelog

@@ -4,7 +4,7 @@
 
 ## TL;DR
 
-Quills declare a semantic `version` in `Quill.yaml`, and documents carry an optional `$quill: name@selector` reference. The selector is parsed and stored on `QuillReference`, but never **resolved** — the engine loads exactly one Quill from a path or in-memory file tree, never picking among versions. It is **checked**: at render time the loaded Quill's name and version are compared against the reference, and a mismatch yields an informational warning.
+Quills declare a semantic `version` in `Quill.yaml`, and documents carry an optional `$quill: name@selector` reference. The selector is parsed and stored on `QuillReference`, but never **resolved** — the engine loads exactly one Quill from a path or in-memory file tree, never picking among versions. It is **enforced**: at render time the reference's two components are checked against the loaded Quill. A *name* mismatch is advisory (warning); a *version* mismatch — the loaded Quill falling outside the selector — is a hard error.
 
 ## Version Format
 
@@ -28,12 +28,10 @@ $quill: my_format@latest   # latest (explicit)
 $quill: my_format          # latest (default)
 ```
 
-No registry consumes the selector — there is no collection of installed versions to pick from, so it is a pin, not a resolver. At render time the engine compares the reference against the one loaded Quill and emits at most one non-fatal warning:
+No registry consumes the selector — there is no collection of installed versions to pick from, so it is a pin, not a resolver. Resolution (matching `name@selector` against a set of installed versions) belongs to a higher layer; the engine loads one Quill and *enforces* the reference against it. `render` and `dry_run` both check, in order:
 
-- **`quill::ref_mismatch`** — the reference *name* differs from the loaded Quill. Checked first; the selector is then moot.
-- **`quill::version_mismatch`** — names agree but the Quill's `version` fails the selector (e.g. `name@2` against `3.0.0`). `VersionSelector::matches` decides: `Exact` the identical version, `Minor` any patch in the `MAJOR.MINOR` series, `Major` any version in the `MAJOR` series, `Latest` (the default) anything.
-
-Both are advisory — render still succeeds with the loaded Quill. The copy says so, since that Quill may be externally controlled (e.g. tooling that always loads the latest).
+- **`quill::name_mismatch`** (warning) — the reference *name* differs from the loaded Quill. The selector is then moot, so the version check is skipped and render proceeds: the engine renders with the Quill it was handed, which may be a deliberately different one.
+- **`quill::version_mismatch`** (error) — names agree but the Quill's `version` falls outside the selector (e.g. `name@2` against `3.0.0`). `VersionSelector::matches` decides: `Exact` the identical version, `Minor` any patch in the `MAJOR.MINOR` series, `Major` any version in the `MAJOR` series, `Latest` (the default) anything. This fails the render (`RenderError::ValidationFailed`) rather than warning — rendering against an incompatible format is a footgun, so the contract is enforced.
 
 ## Quill.yaml
 
@@ -52,10 +50,11 @@ quill:
 
 ## Error Handling
 
-Two distinct failure paths:
+Three distinct failure paths:
 
 - **`Quill.yaml` version invalid** → `quill::invalid_version` diagnostic → surfaces as `RenderError::QuillConfig` at Quill load.
 - **Document `$quill` reference invalid** (e.g. `my_format@bad`) → `ParseError::InvalidQuillReference`, returned directly by the parser, never as `RenderError::QuillConfig`.
+- **Loaded Quill outside the selector** (e.g. `my_format@2` against a `3.0.0` Quill) → `quill::version_mismatch` diagnostic → surfaces as `RenderError::ValidationFailed` from `render`/`dry_run`.
 
 See [ERROR.md](ERROR.md) for error patterns.
 

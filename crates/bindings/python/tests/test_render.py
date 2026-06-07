@@ -56,8 +56,8 @@ def test_render_result_carries_render_time(taro_quill_dir, taro_md):
     assert result.render_time_ms >= 0.0
 
 
-def test_quill_render_ref_mismatch_warning(taro_quill_dir):
-    """Rendering a Document with a mismatched QUILL ref emits a warning."""
+def test_quill_render_name_mismatch_warning(taro_quill_dir):
+    """Rendering a Document whose $quill names a different quill emits a warning."""
     engine = Quillmark()
     quill = engine.quill_from_path(str(taro_quill_dir))
 
@@ -75,7 +75,7 @@ def test_quill_render_ref_mismatch_warning(taro_quill_dir):
     result = quill.render(parsed)
 
     codes = [w.code for w in result.warnings]
-    assert "quill::ref_mismatch" in codes, f"expected ref_mismatch warning, got: {codes}"
+    assert "quill::name_mismatch" in codes, f"expected name_mismatch warning, got: {codes}"
     assert len(result.artifacts) > 0, "artifact must still be produced"
 
 

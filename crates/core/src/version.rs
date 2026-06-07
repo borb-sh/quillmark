@@ -106,7 +106,7 @@ impl VersionSelector {
     /// Whether `v` satisfies this selector: `Exact` the identical version,
     /// `Minor` any patch in the `MAJOR.MINOR` series, `Major` any version in the
     /// `MAJOR` series, `Latest` anything. A compatibility check, not resolution
-    /// — drives the informational `quill::version_mismatch` warning.
+    /// — a `false` is the `quill::version_mismatch` render error.
     pub fn matches(&self, v: Version) -> bool {
         match self {
             VersionSelector::Exact(want) => *want == v,

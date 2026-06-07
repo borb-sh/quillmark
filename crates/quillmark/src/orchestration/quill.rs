@@ -64,6 +64,7 @@ impl Quill {
     }
 
     pub fn open(&self, doc: &Document) -> Result<RenderSession, RenderError> {
+        self.check_version_compatibility(doc)?;
         let json_data = self.compile_data(doc)?;
         let plate_content = self
             .source
@@ -71,7 +72,7 @@ impl Quill {
             .filter(|s| !s.is_empty())
             .unwrap_or("")
             .to_string();
-        let warnings: Vec<_> = self.ref_mismatch_warning(doc).into_iter().collect();
+        let warnings: Vec<_> = self.name_mismatch_warning(doc).into_iter().collect();
         let session = self
             .backend
             .open(&plate_content, &self.source, &json_data)?;
@@ -120,6 +121,7 @@ impl Quill {
 
     /// Validate without backend compilation.
     pub fn dry_run(&self, doc: &Document) -> Result<(), RenderError> {
+        self.check_version_compatibility(doc)?;
         self.coerce_and_validate(doc).map(|_| ())
     }
 
@@ -152,53 +154,64 @@ impl Quill {
         Ok(coerced_doc)
     }
 
-    /// At most one informational warning on a `$quill` mismatch — the engine
-    /// renders with the quill it was handed regardless:
-    /// - `quill::ref_mismatch`: the reference names a different quill. Checked
-    ///   first; the selector is moot when names disagree.
-    /// - `quill::version_mismatch`: names agree but the loaded `version` fails
-    ///   the selector (e.g. `name@2` against a `3.0.0` quill).
-    fn ref_mismatch_warning(&self, doc: &Document) -> Option<Diagnostic> {
+    /// Warn when the document's `$quill` *name* differs from the loaded quill —
+    /// it was rendered with a different quill than declared. Advisory: the
+    /// engine renders with the quill it was handed. The *version* component is a
+    /// hard constraint instead — see [`Quill::check_version_compatibility`].
+    fn name_mismatch_warning(&self, doc: &Document) -> Option<Diagnostic> {
+        let doc_ref = doc.quill_reference();
+        if doc_ref.name.as_str() == self.source.name() {
+            return None;
+        }
+        Some(
+            Diagnostic::new(
+                Severity::Warning,
+                format!(
+                    "document declares $quill '{}' but was rendered with '{}'",
+                    doc_ref,
+                    self.source.name()
+                ),
+            )
+            .with_code("quill::name_mismatch".to_string())
+            .with_hint(
+                "the $quill name is informational; ensure you are rendering with the intended quill"
+                    .to_string(),
+            ),
+        )
+    }
+
+    /// Hard-fail when the loaded quill's version does not satisfy the document's
+    /// `$quill` selector (e.g. `name@2` against a `3.0.0` quill): rendering a
+    /// document against an incompatible format is a footgun, so it errors rather
+    /// than warns. Only enforced when the names agree — a name mismatch is the
+    /// separate, advisory [`name_mismatch_warning`](Quill::name_mismatch_warning)
+    /// and makes the selector moot. The version is validated at load, so parsing
+    /// is infallible in practice; on the off chance it fails, the check is skipped.
+    fn check_version_compatibility(&self, doc: &Document) -> Result<(), RenderError> {
         let doc_ref = doc.quill_reference();
         if doc_ref.name.as_str() != self.source.name() {
-            return Some(
-                Diagnostic::new(
-                    Severity::Warning,
-                    format!(
-                        "document declares $quill '{}' but was rendered with '{}'",
-                        doc_ref,
-                        self.source.name()
-                    ),
-                )
-                .with_code("quill::ref_mismatch".to_string())
-                .with_hint(
-                    "the $quill reference is informational; ensure you are rendering with the intended quill"
-                        .to_string(),
-                ),
-            );
+            return Ok(());
         }
-
-        // Validated at load, so parsing is infallible in practice; on the off
-        // chance it fails, skip the check rather than emit a confusing warning.
-        let quill_version = Version::from_str(&self.source.config().version).ok()?;
-        if !doc_ref.selector.matches(quill_version) {
-            return Some(
-                Diagnostic::new(
-                    Severity::Warning,
-                    format!(
-                        "document declares $quill '{}' but the loaded quill is version '{}'",
-                        doc_ref, quill_version
-                    ),
-                )
-                .with_code("quill::version_mismatch".to_string())
-                .with_hint(
-                    "the version selector is informational, not a hard constraint; the engine still renders with the loaded quill"
-                        .to_string(),
-                ),
-            );
+        let Ok(quill_version) = Version::from_str(&self.source.config().version) else {
+            return Ok(());
+        };
+        if doc_ref.selector.matches(quill_version) {
+            return Ok(());
         }
-
-        None
+        Err(RenderError::ValidationFailed {
+            diags: vec![Diagnostic::new(
+                Severity::Error,
+                format!(
+                    "document declares $quill '{}' but the loaded quill is version '{}'",
+                    doc_ref, quill_version
+                ),
+            )
+            .with_code("quill::version_mismatch".to_string())
+            .with_hint(
+                "render with a quill whose version satisfies the selector, or update the $quill selector"
+                    .to_string(),
+            )],
+        })
     }
 
     /// Validate `doc` against this quill's schema, returning every diagnostic
