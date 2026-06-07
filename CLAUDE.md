@@ -6,7 +6,7 @@ Design docs: [`prose/canon/INDEX.md`](prose/canon/INDEX.md)
 
 Released migration guides in [`docs/migrations/`](docs/migrations/) are era-accurate and immutable; only the working (unreleased) one is mutable.
 
-The version in `Cargo.toml` is the *last released* version, not a working one — a breaking change bumps it (minor, pre-1.0) and adds a **new** migration guide for that step; never edit the guide of an already-released version.
+The version in `Cargo.toml` is the *last released* version, not a working one. A CI/CD workflow will automatically bump the version on the next release. 
 
 In a cloud environment, commit early and often to leverage CI/CD builds and tests.
 
