@@ -5,9 +5,9 @@
 //! Two artifacts ship from this one crate (see
 //! `prose/proposals/wasm-bindings-split.md`): a Typst-less **core**
 //! (`@quillmark/wasm/core`) for load / validate / schema / seed / blueprint, and
-//! a Typst-backed **render** superset (`@quillmark/wasm/render`) that adds the
-//! engine and canvas preview. The `render` cargo feature (default) gates the
-//! engine half.
+//! a Typst-backed **render** superset (the root `@quillmark/wasm` import) that
+//! adds the engine and canvas preview. The `render` cargo feature (default)
+//! gates the engine half.
 //!
 //! ## API
 //!
@@ -27,7 +27,7 @@
 //! ## Example
 //!
 //! ```javascript
-//! import { Document, Quill, Quillmark } from '@quillmark/wasm/render';
+//! import { Document, Quill, Quillmark } from '@quillmark/wasm';
 //!
 //! const quill = Quill.fromTree(tree);
 //! const engine = new Quillmark();
