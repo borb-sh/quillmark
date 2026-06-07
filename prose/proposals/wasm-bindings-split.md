@@ -146,10 +146,44 @@ being portable data.
 - Update `ARCHITECTURE.md`, `QUILL.md` (the `QuillSource` vs `Quill`
   split: `Quill` no longer holds a backend; engine no longer constructs
   it), and `PREVIEW.md`. Document the data-not-handles handoff.
+- Write the working (unreleased) migration guide under `docs/migrations/`
+  for the 0.89 → next breaking step: the removed `engine.quill` /
+  `quill_from_path` factory (→ `Quill.fromTree` / `from_path`), `render` /
+  `open` / `supported_formats` moving off `Quill` onto the engine, and the
+  backend now resolved at render time. Add its `docs/migrations/index.md`
+  entry. (Released guides are immutable; only this working one is mutable.)
+
+## Follow-up: collapse `Quill` / `QuillSource`
+
+> **Sequenced after the split lands — not part of this PR.**
+
+Once `Quill` holds no backend it is `Arc<QuillSource>` + config-read
+methods; the only difference from `QuillSource` is the method set and a
+wrapper. That is accidental duplication, not a concept boundary, so the
+two types should collapse into one. This is the logical completion of the
+decouple, not a speculative simplification — but it is deferred so the
+size-win PR is not coupled to a core public-API rename, and so the
+decoupled shape can settle before a type is deleted (defer until maximum
+information, then collapse).
+
+**Constraint — collapse goes *into* core.** The reason `QuillSource`
+exists is the `Backend` trait: `open(plate, &QuillSource, json)`. Backends
+live in crates that depend on `quillmark-core`, not on `quillmark`, so the
+unified type must live in core and be the value handed to backends. That
+rules out merging upward into `quillmark::Quill`.
+
+**Resulting shape.** One core type, `Backend::open(&Quill)`,
+`Quill::from_tree` in core, `from_path` as a `quillmark` free function (fs
+stays out of core). Bindings already expose only `Quill` and hide
+`QuillSource`, so JS/Python consumers see no change from the rename.
+
+**Two forks to decide then (not now):**
+- **Name** — keep `Quill`, drop `QuillSource` (recommended: matches the
+  domain noun and the existing binding surface), or the reverse.
+- **`Arc`** — post-decouple the `Arc<QuillSource>` may be vestigial
+  (nothing else shares the source); drop it and let multi-thread consumers
+  wrap, or keep it for cheap clones.
 
 ## Out of scope
 - Python / CLI changes (best-effort follow-up).
-- Collapsing `Quill` into `QuillSource` (possible once `Quill` is
-  backend-free, but churns core's public API and the canon split for
-  little extra payoff — defer).
 - Sharing one linear memory across modules; new render features.
