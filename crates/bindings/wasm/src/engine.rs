@@ -83,7 +83,6 @@ export interface QuillSchema {
  * The schema lives on `Quill.schema`; the backend's output formats are a
  * resolved-backend capability read from the engine (`Quillmark.supportedFormats`),
  * not part of this pure-config snapshot.
- * Extra `quill:` keys appear as `unknown`.
  */
 export interface QuillMetadata {
     name: string;
@@ -91,7 +90,6 @@ export interface QuillMetadata {
     backend: string;
     author: string;
     description: string;
-    [key: string]: unknown;
 }
 "#;
 

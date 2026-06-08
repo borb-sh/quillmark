@@ -15,6 +15,11 @@
   `supports_canvas()` capability method (default `false`; Typst `true`),
   retiring the `backend_id == "typst"` magic string. See
   [migration guide](docs/migrations/0.89-to-0.90.md).
+- **Breaking (WASM/JS types):** `QuillMetadata` drops its `[key: string]: unknown`
+  index signature. Code reading removed or unknown metadata properties (e.g.
+  `quill.metadata.supportedFormats`) now fails at compile time with "Property
+  does not exist" instead of silently returning `undefined` at runtime. Cast to
+  `Record<string, unknown>` to reach extra `quill:` YAML keys if needed.
 - **Breaking (Rust API):** `QuillSource` and the orchestration `Quill` collapse
   into one core type, `quillmark_core::Quill` (held by value; the vestigial
   `Arc` is dropped). `Backend::open` now takes `&Quill`; the consumer methods
