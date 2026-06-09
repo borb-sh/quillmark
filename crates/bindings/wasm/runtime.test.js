@@ -152,7 +152,7 @@ main:
       backends: {
         typst: () => {
           loaded++
-          return import('../../../pkg/render/wasm.js')
+          return import('../../../pkg/backends/typst/wasm.js')
         }
       }
     })
@@ -169,7 +169,7 @@ main:
       backends: {
         typst: () => {
           loaded++
-          return import('../../../pkg/render/wasm.js')
+          return import('../../../pkg/backends/typst/wasm.js')
         }
       }
     })

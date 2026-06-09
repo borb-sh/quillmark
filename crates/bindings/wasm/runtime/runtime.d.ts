@@ -10,7 +10,7 @@
 // `/runtime` handle are therefore one type; no convert/adopt API exists or is
 // needed. Replacing this with a wrapper is a breaking design change (consumers
 // would then need an explicit `adopt`), not a refactor. See runtime.js.
-export { Quill, Document, init } from '../core/wasm';
+export { Quill, Document, init } from '../core/wasm.js';
 
 // Core-build types consumers read off `Quill`/`Document`.
 export type {
@@ -26,7 +26,7 @@ export type {
 	QuillFieldUi,
 	QuillCardUi,
 	QuillMetadata
-} from '../core/wasm';
+} from '../core/wasm.js';
 
 // Render-side types — TYPE-ONLY (erased; no backend binary is pulled eagerly).
 export type {
@@ -37,9 +37,9 @@ export type {
 	PageSize,
 	PaintOptions,
 	PaintResult
-} from '../render/wasm';
+} from '../backends/typst/wasm.js';
 
-import type { Quill, Document } from '../core/wasm';
+import type { Quill, Document } from '../core/wasm.js';
 import type {
 	RenderResult,
 	RenderOptions,
@@ -48,7 +48,7 @@ import type {
 	PageSize,
 	PaintOptions,
 	PaintResult
-} from '../render/wasm';
+} from '../backends/typst/wasm.js';
 
 /** A backend loader: returns the dynamically-imported backend build module. */
 export type BackendLoader = () => Promise<unknown>;

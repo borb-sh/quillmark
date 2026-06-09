@@ -5,9 +5,10 @@
 // Consumers import `Quill`, `Document`, and `Engine` from here and never touch
 // the build-specific subpaths. The package ships multiple WASM binaries with
 // SEPARATE linear memories — a Typst-less `core` build (small, eager) that is
-// the canonical home of `Quill`/`Document`, and one backend build per backend
-// (`render` = Typst today; more later) that carries an engine. A handle from
-// one memory cannot be used by another. This module hides that seam:
+// the canonical home of `Quill`/`Document`, and one private backend binary per
+// backend (`backends/typst/` today; more later) that carries an engine. A
+// handle from one memory cannot be used by another. This module hides that seam
+// and is exposed at the package root (`@quillmark/wasm`):
 //
 //   - `Quill` and `Document` ARE the core build's classes, re-exported. They
 //     hold the canonical data and the full sync surface (schema / validate /
@@ -50,7 +51,7 @@ export { Quill, Document, init } from '../core/wasm.js';
 // thunk returning a dynamic `import()`, so a backend's chunk is fetched only
 // when something actually renders against that backend.
 const DEFAULT_BACKENDS = {
-	typst: () => import('../render/wasm.js')
+	typst: () => import('../backends/typst/wasm.js')
 };
 
 /**
@@ -149,7 +150,7 @@ export class Engine {
 	 * @param {Quill} quill
 	 * @param {Document} doc
 	 * @param {object} [options] render options (`{ format, ppi, pages, producer }`)
-	 * @returns {Promise<import('../render/wasm').RenderResult>}
+	 * @returns {Promise<import('../backends/typst/wasm').RenderResult>}
 	 */
 	async render(quill, doc, options) {
 		return this.#withClones(quill.backendId, quill, doc, ({ engine, quill: q, doc: d }) =>
@@ -179,7 +180,7 @@ export class Engine {
 	 * The output formats `quill`'s backend can emit. Resolves the backend but
 	 * compiles nothing.
 	 * @param {Quill} quill
-	 * @returns {Promise<import('../render/wasm').OutputFormat[]>}
+	 * @returns {Promise<import('../backends/typst/wasm').OutputFormat[]>}
 	 */
 	async supportedFormats(quill) {
 		return this.#withClones(quill.backendId, quill, null, ({ engine, quill: q }) =>
@@ -204,7 +205,7 @@ export class Engine {
  * snapshot; the quill/document it was opened from have already been freed.
  */
 export class RenderSession {
-	/** @param {import('../render/wasm').RenderSession} inner */
+	/** @param {import('../backends/typst/wasm').RenderSession} inner */
 	constructor(inner) {
 		this.#inner = inner;
 	}

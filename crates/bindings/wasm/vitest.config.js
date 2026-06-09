@@ -7,11 +7,13 @@ import { fileURLToPath } from 'url'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
-// Centralized workspace root and bundle paths. The split ships two artifacts;
-// `@quillmark-wasm` aliases the render build (the API superset the existing
-// suite exercises), and `@quillmark-wasm/core` the Typst-less core build.
+// Centralized workspace root and bundle paths. `@quillmark-wasm` aliases the
+// Typst backend binary directly (the API superset the basic/canvas suites
+// exercise — it is NOT a public package export), `@quillmark-wasm/core` the
+// Typst-less core build, and `@quillmark-wasm/runtime` the hand-written
+// canonical layer (the package's public root).
 export const WORKSPACE_ROOT = path.resolve(__dirname, '..', '..', '..')
-export const WASM_BUNDLE_PATH = path.join(WORKSPACE_ROOT, 'pkg', 'render', 'wasm.js')
+export const WASM_BUNDLE_PATH = path.join(WORKSPACE_ROOT, 'pkg', 'backends', 'typst', 'wasm.js')
 export const WASM_CORE_BUNDLE_PATH = path.join(WORKSPACE_ROOT, 'pkg', 'core', 'wasm.js')
 export const WASM_RUNTIME_BUNDLE_PATH = path.join(WORKSPACE_ROOT, 'pkg', 'runtime', 'runtime.js')
 

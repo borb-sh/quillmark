@@ -9,11 +9,15 @@ set -o pipefail
 # Builds TWO wasm artifacts from the one crate (see
 # prose/proposals/wasm-bindings-split.md):
 #
-#   pkg/core/    — no Typst: parse / load / validate / schema / seed / blueprint
-#   pkg/render/  — Typst-backed engine + RenderSession + canvas (API superset)
+#   pkg/core/           — no Typst: parse / load / validate / schema / seed / blueprint
+#   pkg/backends/typst/ — Typst-backed engine + RenderSession + canvas (a private
+#                         backend binary, NOT a public export)
 #
-# shipped as one npm package with subpath exports `@quillmark/wasm/core` and
-# `@quillmark/wasm/render` (the root `.` export is render, the superset).
+# These two generated artifacts plus the hand-written canonical layer ship as
+# one npm package. Public surface: the root `.` export (`@quillmark/wasm`) is the
+# canonical `Quill`/`Document`/`Engine` API (see pkg/runtime/), and `./core` is
+# the render-free escape hatch. The Typst backend is reached only internally, by
+# the canonical layer's lazy `import("../backends/typst/wasm.js")`.
 #
 # Profile selection. Default is the size-optimized release build used for
 # npm publish. `--ci` switches to a fast-compiling profile for PR validation
@@ -80,8 +84,8 @@ build_variant() {
         --weak-refs
 }
 
-# render = default features (Typst). core = no features (Typst excluded).
-build_variant render
+# backends/typst = default features (Typst). core = no features (Typst excluded).
+build_variant backends/typst
 build_variant core --no-default-features
 
 # runtime = the canonical consumer API: a hand-written JS layer (NOT generated
@@ -132,7 +136,7 @@ EOF
 
 echo ""
 echo "WASM build complete!"
-echo "Output directory: pkg/  (core/ + render/)"
+echo "Output directory: pkg/  (core/ + backends/typst/ + runtime/)"
 echo "Package version: $VERSION"
 
 # Show sizes — transport size (gzip/brotli) is what matters for delivery.
@@ -149,8 +153,8 @@ report_size() {
         echo "WASM size ($label): raw=$raw gzip=$gz"
     fi
 }
-report_size "core"   pkg/core/wasm_bg.wasm
-report_size "render" pkg/render/wasm_bg.wasm
+report_size "core"          pkg/core/wasm_bg.wasm
+report_size "typst backend"  pkg/backends/typst/wasm_bg.wasm
 
 # Size budget on the core artifact: the split only pays off if core stays
 # Typst-free. Typst is megabytes, so a leak back into the no-features build

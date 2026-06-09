@@ -8,18 +8,20 @@ Maintained by [TTQ](https://tonguetoquill.com).
 
 Use Quillmark in browsers/Node.js with explicit in-memory trees (`Map<string, Uint8Array>` / `Record<string, Uint8Array>`).
 
-The package ships **two bundles**:
+The package exposes **two import surfaces**:
 
-- `@quillmark/wasm/core` — Typst-less. Load, validate, schema, seed, and
-  blueprint a `Quill`, plus the full `Document` editing API.
-- `@quillmark/wasm` (the root import) — the superset: everything in core
-  **plus** the `Quillmark` engine, `RenderSession`, and canvas painting. This is
-  where Typst lives (~8 MB gzip), so an editor that only validates should import
-  `/core` and lazy-load the root on preview.
+- `@quillmark/wasm` (the root) — the **canonical API**: `Quill`, `Document`, and
+  an `Engine` that renders them. This is what most consumers want.
+- `@quillmark/wasm/core` — the render-free escape hatch: `Quill` and `Document`
+  only (no engine, no Typst, ~0.6 MB gzip). Import this from editor/validation
+  code that never renders, so it never pays for a backend binary.
 
-The two bundles have **separate WASM linear memories**: a `Quill` / `Document`
-handle from one is not usable in the other. Cross as data — re-feed the `tree`
-to `Quill.fromTree`, round-trip the document through `doc.toJson()`.
+`Quill` and `Document` are the **same classes** in both surfaces — the root
+re-exports core's. The `Engine` hides everything else: each backend (Typst
+today) is a separate, private WASM binary with its own linear memory, lazily
+loaded on the first render. The Engine clones a `Quill` / `Document` into the
+backend's memory as data and frees the clones — you never hold a backend object
+or cross a memory boundary yourself.
 
 ## Build
 
@@ -42,10 +44,10 @@ npm test
 ## Usage
 
 ```ts
-import { Document, Quill, Quillmark } from "@quillmark/wasm";
+import { Document, Quill, Engine } from "@quillmark/wasm";
 
 const quill = Quill.fromTree(tree);   // engine-free: build + validate
-const engine = new Quillmark();       // needed only to render
+const engine = new Engine();          // loads a backend lazily on first render
 
 const markdown = `~~~
 $quill: my_quill
@@ -56,13 +58,18 @@ title: My Document
 # Hello`;
 
 const parsed = Document.fromMarkdown(markdown);
-const result = engine.render(quill, parsed, { format: "pdf" });
+const result = await engine.render(quill, parsed, { format: "pdf" });
 ```
 
 ## API
 
-### `new Quillmark()`
-Create the render engine. Holds the backends and renders; does **not** load quills.
+### `new Engine(options?)`
+Create the render dispatcher. Routes each quill to its backend by
+`quill.backendId`, lazily loads that backend binary, and renders — cloning the
+quill/document into the backend's memory and freeing the clones internally.
+`render`, `open`, `supportedFormats`, and `supportsCanvas` are **async** (the
+first call may load a backend). Pass `{ backends }` to register or override
+backend loaders (`{ [backendId]: () => Promise<module> }`).
 
 ### `Quill.fromTree(tree)`
 Build + validate a `Quill` from an in-memory tree. Pure — the declared backend
