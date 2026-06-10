@@ -54,6 +54,24 @@
 // (`Quill === CoreQuill`) is the executable guard for this invariant.
 export { Quill, Document, init } from '../core/wasm.js';
 
+/**
+ * Narrow an unknown caught value to a `QuillmarkError` — the error every
+ * fallible method in this package throws: a real `Error` with a non-empty
+ * `diagnostics` array attached (same entry shape as `RenderResult.warnings`).
+ *
+ * Structural by necessity AND by design: the WASM layer constructs a plain
+ * `Error` and attaches the property (there is no error class to `instanceof`),
+ * and a structural check works on errors from any build or WASM instance in
+ * the page — consistent with the duck-typed handling of handles elsewhere in
+ * this layer.
+ *
+ * @param {unknown} e
+ * @returns {e is Error & { diagnostics: import('../core/wasm.js').Diagnostic[] }}
+ */
+export function isQuillmarkError(e) {
+	return e instanceof Error && Array.isArray(/** @type {any} */ (e).diagnostics);
+}
+
 // Backend builds are NEVER statically imported here — that would pull a
 // multi-MB binary into the eager graph and defeat lazy loading. Each entry is a
 // DESCRIPTOR: `load` is a thunk returning a dynamic `import()` (a backend's

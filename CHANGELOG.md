@@ -65,6 +65,14 @@
   README: they ship ahead of their first production consumer (the designed
   canvas live-preview path) and may change shape in any 0.x release.
   `Engine.render` and `supportedFormats` are the stable surface.
+- **WASM (typed error contract):** the root exports `QuillmarkError` — a
+  structural interface (`Error & { diagnostics: Diagnostic[] }`) naming the
+  shape every fallible method already throws — and an `isQuillmarkError(e)`
+  guard to narrow caught `unknown`s. No runtime behavior change: the WASM
+  layer still throws a plain `Error` with `diagnostics` attached (there is
+  deliberately no error class — a structural check works across builds and
+  WASM instances). Consumers can delete their hand-rolled
+  `.diagnostics`-extraction casts.
 - **Breaking (Rust API + bindings):** a document's `$quill` reference is now
   **enforced** against the loaded quill. Rendering with a quill whose *name*
   differs (`quill::name_mismatch`) or whose *version* falls outside the selector

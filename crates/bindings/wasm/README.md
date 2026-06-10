@@ -335,11 +335,27 @@ code covers unreplaced sentinels.
 
 ### Errors
 
-Every method that can fail throws a JS `Error` with `.diagnostics` attached:
+Every method that can fail throws a **`QuillmarkError`** — a JS `Error` with
+`.diagnostics` attached. The type and a guard are exported from the root:
 
 ```ts
-{ message: string, diagnostics: Diagnostic[] }
+import { isQuillmarkError, type QuillmarkError } from "@quillmark/wasm";
+
+try {
+  const result = await engine.render(quill, doc);
+} catch (e) {
+  if (isQuillmarkError(e)) {
+    for (const d of e.diagnostics) console.error(d.severity, d.message);
+  } else {
+    throw e; // not a quillmark failure — programming error, re-throw
+  }
+}
 ```
+
+`QuillmarkError` is a **structural interface, not a class** — the WASM layer
+throws a real `Error` and attaches the property, so there is no constructor to
+`instanceof` against; narrow with `isQuillmarkError` (which also works on
+errors from any build or WASM instance in the page).
 
 `diagnostics` is always non-empty — length 1 for most failures, length N for
 backend compilation errors. `message` is derived from `diagnostics`

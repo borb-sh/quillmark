@@ -31,6 +31,34 @@ export type {
 	QuillMetadata
 } from '../core/wasm.js';
 
+// ── Error contract ──────────────────────────────────────────────────────────
+
+/**
+ * The error every fallible method in this package throws — parse
+ * (`Document.fromMarkdown`), document mutation, validation
+ * (`Quill.fromTree`, `quill.validate`), and rendering (`engine.render`,
+ * `engine.open`, `session.render`).
+ *
+ * This is a STRUCTURAL interface, not a class: the WASM layer throws a real
+ * `Error` and attaches `diagnostics` to it, so there is no constructor to
+ * `instanceof` against — narrow with {@link isQuillmarkError}. `diagnostics`
+ * is always non-empty; `message` is the first diagnostic's message (or an
+ * `"N error(s): …"` aggregate for multi-diagnostic failures), so iterate
+ * `diagnostics` for per-error detail. The shape is identical to
+ * `RenderResult.warnings` entries.
+ */
+export interface QuillmarkError extends Error {
+	diagnostics: Diagnostic[];
+}
+
+/**
+ * Narrow an unknown caught value to {@link QuillmarkError}. Structural
+ * (`Error` carrying a `diagnostics` array), so it works on errors from any
+ * build or WASM instance in the page — consistent with the package's
+ * duck-typed handling of handles.
+ */
+export declare function isQuillmarkError(e: unknown): e is QuillmarkError;
+
 // ── Canonical render-side types ─────────────────────────────────────────────
 // These are the BACKEND-NEUTRAL render contract of the plural-backend API. They
 // are defined HERE (not re-exported from one private backend) because no single

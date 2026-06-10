@@ -11,7 +11,7 @@
  * Aliased to pkg/runtime/runtime.js in vitest.config.js.
  */
 import { describe, it, expect } from 'vitest'
-import { Quill, Document, Engine } from '@quillmark-wasm/runtime'
+import { Quill, Document, Engine, isQuillmarkError } from '@quillmark-wasm/runtime'
 // Pin that the runtime's Quill IS the internal core build's class (re-export,
 // not a parallel wrapper). This imports the internal core artifact directly —
 // `pkg/core` is NOT a public package subpath, it is the build the root
@@ -69,6 +69,37 @@ describe('@quillmark/wasm/runtime — surface', () => {
   it('parses a Document via the re-exported core class', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     expect(doc.quillRef).toBe('test_quill')
+  })
+
+  // ERROR CONTRACT: every fallible method throws a real Error carrying a
+  // non-empty `diagnostics` array (the QuillmarkError structural interface).
+  // isQuillmarkError is the exported narrowing guard for it.
+  it('throws satisfy isQuillmarkError with non-empty structured diagnostics', () => {
+    let caught
+    try {
+      Document.fromMarkdown('~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: [unclosed\n~~~\n\nbody')
+    } catch (e) {
+      caught = e
+    }
+    expect(caught).toBeInstanceOf(Error)
+    expect(isQuillmarkError(caught)).toBe(true)
+    expect(caught.diagnostics.length).toBeGreaterThan(0)
+    const d = caught.diagnostics[0]
+    expect(typeof d.message).toBe('string')
+    expect(d.severity).toBeDefined()
+    // message derives from the diagnostics (first message or an aggregate)
+    expect(caught.message.length).toBeGreaterThan(0)
+  })
+
+  it('isQuillmarkError rejects non-quillmark values', () => {
+    expect(isQuillmarkError(new Error('plain'))).toBe(false) // no diagnostics
+    expect(isQuillmarkError({ diagnostics: [] })).toBe(false) // not an Error
+    expect(isQuillmarkError(undefined)).toBe(false)
+    expect(isQuillmarkError('boom')).toBe(false)
+    // structural acceptance: any Error carrying a diagnostics array narrows,
+    // regardless of which build or WASM instance constructed it
+    const foreign = Object.assign(new Error('x'), { diagnostics: [] })
+    expect(isQuillmarkError(foreign)).toBe(true)
   })
 })
 
