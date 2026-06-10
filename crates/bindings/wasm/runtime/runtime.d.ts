@@ -9,11 +9,10 @@
 // mutually assignable with the Typst backend's generated declarations. `Engine`
 // is the render dispatcher that hides the cross-WASM-memory seam.
 
-// CANONICAL INVARIANT: `/runtime` re-exports `/core`'s `Quill`/`Document`
-// verbatim — they are the SAME classes, never wrappers. A `/core` handle and a
-// `/runtime` handle are therefore one type; no convert/adopt API exists or is
-// needed. Replacing this with a wrapper is a breaking design change (consumers
-// would then need an explicit `adopt`), not a refactor. See runtime.js.
+// CANONICAL INVARIANT: the root re-exports the core build's `Quill`/`Document`
+// verbatim — they are the SAME classes, never wrappers. There is exactly one
+// public entry point, so this is a structural fact. Replacing the re-export
+// with a wrapper is a breaking design change, not a refactor. See runtime.js.
 export { Quill, Document, init } from '../core/wasm.js';
 
 // Core-build types consumers read off `Quill`/`Document`.
@@ -70,19 +69,28 @@ export interface RenderResult {
 /** Canonical contract every backend build must satisfy. The emittable formats. */
 export type OutputFormat = 'pdf' | 'svg' | 'txt' | 'png';
 
-/** Canonical contract every backend build must satisfy. Page geometry in pt. */
+/**
+ * Canonical contract every backend build must satisfy. Page geometry in pt.
+ * @experimental Part of the iterative-session/canvas surface — see {@link RenderSession}.
+ */
 export interface PageSize {
 	widthPt: number;
 	heightPt: number;
 }
 
-/** Canonical contract every backend build must satisfy. Inputs to `paint`. */
+/**
+ * Canonical contract every backend build must satisfy. Inputs to `paint`.
+ * @experimental Part of the iterative-session/canvas surface — see {@link RenderSession}.
+ */
 export interface PaintOptions {
 	layoutScale?: number;
 	densityScale?: number;
 }
 
-/** Canonical contract every backend build must satisfy. Output of `paint`. */
+/**
+ * Canonical contract every backend build must satisfy. Output of `paint`.
+ * @experimental Part of the iterative-session/canvas surface — see {@link RenderSession}.
+ */
 export interface PaintResult {
 	layoutWidth: number;
 	layoutHeight: number;
@@ -90,33 +98,30 @@ export interface PaintResult {
 	pixelHeight: number;
 }
 
-/** A backend loader: returns the dynamically-imported backend build module. */
-export type BackendLoader = () => Promise<unknown>;
-
 /**
- * Descriptor form of a backend registry entry. `load` is the lazy thunk; the
- * optional `formats`/`canvas` are a STATIC capability manifest. When present,
- * `Engine.supportedFormats`/`Engine.supportsCanvas` answer from them directly —
- * FREE: no backend binary is loaded and no quill is cloned into backend memory.
- * Omit them (or pass a bare `BackendLoader` thunk) and those probes fall back to
- * loading the binary and cloning the quill to ask the backend.
+ * A backend registry entry. `load` is the lazy thunk returning the dynamically-
+ * imported backend build module; `formats`/`canvas` are the REQUIRED static
+ * capability manifest. That manifest is what makes
+ * `Engine.supportedFormats`/`Engine.supportsCanvas` always FREE: they answer
+ * from it directly — no backend binary is loaded and no quill is cloned into
+ * backend memory. A malformed descriptor throws at `new Engine(...)`.
  */
 export interface BackendDescriptor {
-	load: BackendLoader;
-	formats?: OutputFormat[];
-	canvas?: boolean;
+	load: () => Promise<unknown>;
+	formats: OutputFormat[];
+	canvas: boolean;
 }
 
 export interface EngineOptions {
 	/**
-	 * Extra or overriding backend loaders, merged over the built-ins. Keys are
+	 * Extra or overriding backend descriptors, merged over the built-ins. Keys are
 	 * backend ids (as declared by `Quill.yaml`'s `backend:` and reported by
-	 * `Quill.backendId`). Each value is either a bare `BackendLoader` thunk or a
-	 * `BackendDescriptor`. Use the descriptor form with `formats`/`canvas` to make
-	 * capability probes free (no binary load). The default registry maps
-	 * `"typst"` to the bundled Typst build in descriptor form.
+	 * `Quill.backendId`). Each value is a `BackendDescriptor` — `formats`/`canvas`
+	 * are required, so capability probes are ALWAYS free (no binary load, no quill
+	 * clone). Malformed entries throw at construction. The default registry maps
+	 * `"typst"` to the bundled Typst build.
 	 */
-	backends?: Record<string, BackendLoader | BackendDescriptor>;
+	backends?: Record<string, BackendDescriptor>;
 }
 
 /**
@@ -131,46 +136,37 @@ export declare class Engine {
 	/** Render `doc` against `quill` in one shot. */
 	render(quill: Quill, doc: Document, options?: RenderOptions): Promise<RenderResult>;
 
-	/** Open an iterative render session (canvas preview / per-page paint). */
+	/**
+	 * Open an iterative render session (canvas preview / per-page paint).
+	 * @experimental Ships ahead of its first production consumer (the designed
+	 * canvas live-preview path — see `prose/canon/PREVIEW.md`). The session/paint
+	 * surface may change in any 0.x release; `render()` is the stable path.
+	 */
 	open(quill: Quill, doc: Document): Promise<RenderSession>;
 
 	/**
-	 * Output formats `quill`'s backend can emit. A cheap pre-render probe: for a
-	 * descriptor-form backend with a `formats` manifest (the default Typst entry)
-	 * it answers WITHOUT loading the backend binary or cloning the quill; for a
-	 * bare-thunk backend it loads + clones to ask the backend. Async either way.
+	 * Output formats `quill`'s backend can emit. An ALWAYS-free pre-render probe:
+	 * it answers from the descriptor's required `formats` manifest WITHOUT loading
+	 * the backend binary or cloning the quill. Async for API stability.
 	 */
 	supportedFormats(quill: Quill): Promise<OutputFormat[]>;
 
 	/**
-	 * Whether `quill`'s backend can paint sessions to a canvas. Same cheap-probe
-	 * contract as `supportedFormats`: free for descriptor-form backends carrying a
-	 * `canvas` manifest, load+clone fallback for bare-thunk backends.
+	 * Whether `quill`'s backend can paint sessions to a canvas. Same always-free
+	 * probe as `supportedFormats`: answered from the descriptor's required
+	 * `canvas` manifest, no binary load and no quill clone.
+	 * @experimental Probes the experimental session/canvas surface — see {@link RenderSession}.
 	 */
 	supportsCanvas(quill: Quill): Promise<boolean>;
-
-	/**
-	 * Drop and free this engine's cached backend-memory clone of `quill` (across
-	 * every backend).
-	 *
-	 * CACHING CONTRACT: to avoid re-serializing + re-validating a quill bundle on
-	 * every `render`/`open`, the `Engine` caches the backend-memory clone of each
-	 * `Quill` instance and assumes that instance's contents NEVER change after
-	 * construction. Honour this by mutating-by-replacing-the-instance. If you must
-	 * republish changed contents under the same `Quill` instance, call
-	 * `invalidate(quill)` afterwards so the next render re-materializes it.
-	 */
-	invalidate(quill: Quill): void;
-
-	/**
-	 * Drop and free every cached backend-memory quill clone in this engine, for
-	 * every backend. Coarse counterpart to `invalidate` — see its caching
-	 * contract.
-	 */
-	invalidateAll(): void;
 }
 
-/** Iterative render session over a compiled snapshot. `free()` when done. */
+/**
+ * Iterative render session over a compiled snapshot. `free()` when done.
+ * @experimental The whole session/canvas-paint surface (`Engine.open`,
+ * `RenderSession`, `PaintOptions`, `PaintResult`, `PageSize`) ships ahead of
+ * its first production consumer and may change shape in any 0.x release.
+ * The stable render path is `Engine.render`.
+ */
 export declare class RenderSession {
 	private constructor();
 	readonly pageCount: number;

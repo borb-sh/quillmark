@@ -12,9 +12,11 @@
  */
 import { describe, it, expect } from 'vitest'
 import { Quill, Document, Engine } from '@quillmark-wasm/runtime'
-// Cross-check that the runtime's Quill IS the core build's class (re-export,
-// not a parallel wrapper).
-import { Quill as CoreQuill, Document as CoreDocument } from '@quillmark-wasm/core'
+// Pin that the runtime's Quill IS the internal core build's class (re-export,
+// not a parallel wrapper). This imports the internal core artifact directly —
+// `pkg/core` is NOT a public package subpath, it is the build the root
+// re-exports.
+import { Quill as CoreQuill, Document as CoreDocument } from '../../../pkg/core/wasm.js'
 import { makeQuill } from './test-helpers.js'
 
 const TEST_PLATE = `#import "@local/quillmark-helper:0.1.0": data
@@ -41,11 +43,12 @@ function makeRuntimeQuill() {
 }
 
 describe('@quillmark/wasm/runtime — surface', () => {
-  // CANONICAL INVARIANT GUARD: `/runtime` re-exports `/core`'s classes verbatim
-  // (never wraps). This identity is what lets a `/core` handle pass straight to
-  // `Engine` with no convert/adopt. If this fails, the re-export was replaced by
-  // a wrapper — a breaking design change, not a refactor. See runtime.js.
-  it('re-exports the core build classes verbatim (no parallel wrappers)', () => {
+  // IMPLEMENTATION PIN: the root re-exports the internal core build's classes
+  // verbatim (never wraps). There is exactly one public entry point, so this is
+  // an internal structural fact rather than a cross-entry-point contract. If it
+  // fails, the re-export was replaced by a wrapper — a breaking change, not a
+  // refactor. See runtime.js.
+  it('re-exports the internal core build classes verbatim (no parallel wrappers)', () => {
     expect(Quill).toBe(CoreQuill)
     expect(Document).toBe(CoreDocument)
   })
@@ -156,28 +159,21 @@ describe('@quillmark/wasm/runtime — Engine (hidden core→backend crossing)', 
     }
   })
 
-  it('bare-thunk custom loaders still work end to end (probe falls back to load)', async () => {
-    let loaded = 0
-    const engine = new Engine({
-      backends: {
-        // BARE THUNK form (no manifest) — must still resolve and render.
-        typst: () => {
-          loaded++
-          return import('../../../pkg/backends/typst/wasm.js')
-        }
-      }
-    })
-    const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-
-    // Probe with no manifest must load the backend to answer (load+clone path).
-    const formats = await engine.supportedFormats(quill)
-    expect(formats).toContain('pdf')
-    expect(loaded).toBe(1)
-
-    // And rendering works against the same bare-thunk backend.
-    const result = await engine.render(quill, doc, { format: 'svg' })
-    expect(result.outputFormat).toBe('svg')
+  it('throws at construction for a malformed backend descriptor (names the id)', () => {
+    // Bare thunk is no longer accepted — descriptors are required.
+    expect(() => new Engine({ backends: { typst: () => import('../../../pkg/backends/typst/wasm.js') } })).toThrow(
+      /typst/
+    )
+    // Missing/invalid manifest fields also fail fast at construction.
+    expect(
+      () => new Engine({ backends: { mybackend: { load: () => Promise.resolve({}), canvas: true } } })
+    ).toThrow(/mybackend/)
+    expect(
+      () =>
+        new Engine({
+          backends: { mybackend: { load: () => Promise.resolve({}), formats: ['pdf'], canvas: 'yes' } }
+        })
+    ).toThrow(/mybackend/)
   })
 
   // A loader that wraps the real backend module so `Quill.fromTree` calls are
@@ -239,18 +235,6 @@ describe('@quillmark/wasm/runtime — Engine (hidden core→backend crossing)', 
     expect(fromTreeCalls()).toBe(2)
   })
 
-  it('invalidate(quill) re-materializes the clone on the next render', async () => {
-    const { engine, fromTreeCalls } = fromTreeCountingEngine()
-    const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-
-    await engine.render(quill, doc, { format: 'svg' })
-    expect(fromTreeCalls()).toBe(1)
-    engine.invalidate(quill)
-    await engine.render(quill, doc, { format: 'svg' })
-    expect(fromTreeCalls()).toBe(2)
-  })
-
   it('opens an iterative session, renders pages, and frees it', async () => {
     const engine = new Engine()
     const quill = makeRuntimeQuill()
@@ -297,13 +281,17 @@ main:
     await expect(engine.render(quill, doc)).rejects.toThrow(/no backend registered/)
   })
 
-  it('accepts a custom backend loader override', async () => {
+  it('accepts a custom backend descriptor override', async () => {
     let loaded = 0
     const engine = new Engine({
       backends: {
-        typst: () => {
-          loaded++
-          return import('../../../pkg/backends/typst/wasm.js')
+        typst: {
+          load: () => {
+            loaded++
+            return import('../../../pkg/backends/typst/wasm.js')
+          },
+          formats: ['pdf', 'svg', 'png'],
+          canvas: true
         }
       }
     })
@@ -313,14 +301,18 @@ main:
     expect(loaded).toBe(1)
   })
 
-  // A counting loader for the lazy-load / coalescing invariants below.
+  // A counting descriptor loader for the lazy-load / coalescing invariants below.
   function countingEngine() {
     let loaded = 0
     const engine = new Engine({
       backends: {
-        typst: () => {
-          loaded++
-          return import('../../../pkg/backends/typst/wasm.js')
+        typst: {
+          load: () => {
+            loaded++
+            return import('../../../pkg/backends/typst/wasm.js')
+          },
+          formats: ['pdf', 'svg', 'png'],
+          canvas: true
         }
       }
     })

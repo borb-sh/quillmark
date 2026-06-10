@@ -8,16 +8,15 @@ Maintained by [TTQ](https://tonguetoquill.com).
 
 Use Quillmark in browsers/Node.js with explicit in-memory trees (`Map<string, Uint8Array>` / `Record<string, Uint8Array>`).
 
-The package exposes **two import surfaces**:
+The package exposes **one import surface**:
 
 - `@quillmark/wasm` (the root) — the **canonical API**: `Quill`, `Document`, and
-  an `Engine` that renders them. This is what most consumers want.
-- `@quillmark/wasm/core` — the render-free escape hatch: `Quill` and `Document`
-  only (no engine, no Typst, ~0.6 MB gzip). Import this from editor/validation
-  code that never renders, so it never pays for a backend binary.
+  an `Engine` that renders them.
 
-`Quill` and `Document` are the **same classes** in both surfaces — the root
-re-exports core's. The `Engine` hides everything else: each backend (Typst
+`Quill` and `Document` are re-exported verbatim from the internal Typst-less
+core build, so engine-free editor/validation code (`Quill.fromTree`,
+`Document.fromMarkdown`) loads only that small core binary — no backend is
+loaded until you render. The `Engine` hides everything else: each backend (Typst
 today) is a separate, private WASM binary with its own linear memory, lazily
 loaded on the first render. The Engine clones a `Quill` / `Document` into the
 backend's memory as data and frees the clones — you never hold a backend object
@@ -69,20 +68,20 @@ Create the render dispatcher. Routes each quill to its backend by
 quill/document into the backend's memory and freeing the clones internally.
 `render`, `open`, `supportedFormats`, and `supportsCanvas` are **async** (the
 first call may load a backend). Pass `{ backends }` to register or override
-backend loaders. Each entry is either a bare thunk
-(`{ [backendId]: () => Promise<module> }`) or a descriptor
-(`{ [backendId]: { load, formats?, canvas? } }`).
+backend descriptors. Each entry is a descriptor
+(`{ [backendId]: { load, formats, canvas } }`) where `load` is the lazy thunk
+returning the backend module and `formats`/`canvas` are the **required** static
+capability manifest. A malformed descriptor throws at `new Engine(...)`, naming
+the backend id.
 
-**Capability probes are free.** `supportedFormats` and `supportsCanvas` depend
-only on `quill.backendId`, so for a **descriptor**-form backend that carries a
-static `formats`/`canvas` manifest (the bundled Typst entry does) they answer
-WITHOUT loading the multi-MB backend binary or cloning the quill. Use them as
-non-failing pre-render probes. A **bare-thunk** backend has no manifest, so its
-probes fall back to loading the binary and cloning the quill to ask the backend.
+**Capability probes are always free.** `supportedFormats` and `supportsCanvas`
+depend only on `quill.backendId`, and answer from the descriptor's required
+`formats`/`canvas` manifest — never loading the multi-MB backend binary and
+never cloning the quill. Use them as non-failing pre-render probes.
 
 ### `Quill.fromTree(tree)`
 Build + validate a `Quill` from an in-memory tree. Pure — the declared backend
-is resolved at render time, not here. In both the `core` and `render` bundles.
+is resolved at render time, not here. Loads no backend binary.
 
 ### `Document.fromMarkdown(markdown)`
 Parse markdown to a parsed document. Throws a JS `Error` (with `.diagnostics`
@@ -237,6 +236,11 @@ exactly what `cards` / `removeCard` / `seedCard` return. Build a fresh card
 from a flat field map with `Document.makeCard(kind, fields?, body?)`.
 
 ### `engine.render(quill, parsed, opts?)` vs. `engine.open(quill, parsed)`
+
+> **Experimental:** the entire session surface — `engine.open`,
+> `RenderSession`, `paint`, `PaintOptions`, `PaintResult`, `PageSize`, and the
+> `supportsCanvas` probe — ships ahead of its first production consumer and
+> may change shape in any 0.x release. `engine.render` is the stable path.
 
 Use **`engine.render`** for one-shot exports (PDF/SVG/PNG) — compiles, emits
 artifacts, done. Use **`RenderSession`** (returned by `engine.open`) for

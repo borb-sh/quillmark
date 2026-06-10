@@ -43,9 +43,10 @@
     ## Basic Usage
 
     ```javascript
-    // Root import is the canonical API: Quill/Document (re-exported from core)
-    // plus the Engine render dispatcher. For an editor that only validates,
-    // import Quill/Document from "@quillmark/wasm/core" to skip Typst entirely.
+    // The single root import is the canonical API: Quill/Document (re-exported
+    // from the internal Typst-less core build) plus the Engine render
+    // dispatcher. An editor that only validates uses Quill/Document and loads
+    // no backend — Typst loads lazily on the first render.
     import { Document, Quill, Engine } from "@quillmark/wasm";
 
     const enc = new TextEncoder();

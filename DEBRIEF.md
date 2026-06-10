@@ -45,11 +45,27 @@ crossing into a backend's memory (the counterpart to `Quill.fromTree`).
 
 - the `Engine`'s **capability manifest** — `supportedFormats` / `supportsCanvas`
   are free, non-compiling probes answered from a static per-backend manifest
-  (no binary load, no quill clone) for descriptor-form backends; bare-thunk
-  backends fall back to the load+clone route;
+  (no binary load, no quill clone). Followup S2 made the registry
+  **descriptor-only**: each backend entry is `{ load, formats, canvas }` with
+  `formats`/`canvas` REQUIRED, validated at `new Engine(...)` (a malformed entry
+  throws, naming the id). This deleted the bare-thunk loader form and its whole
+  fallback machine — `normalizeBackend`, the load+clone fallback branch in both
+  probes, the `doc: null` probe mode of `#withClones`, and the
+  `BackendLoader | BackendDescriptor` union — so the capability probes are now
+  ALWAYS free and `#withClones` has one job (render/open). The bare-thunk form
+  existed only for hypothetical third-party backends and the package is
+  unreleased; an explicit loader form can return WITH a real such backend. The
+  drift-guard test (manifest vs the loaded backend's real formats) survives as
+  the safety net that keeps the now-required manifest honest;
 - **quill-clone caching** in the engine (a per-backend `WeakMap` keyed on the
-  canonical `Quill` instance), plus `invalidate` / `invalidateAll` to evict and
-  free cached backend-side clones;
+  canonical `Quill` instance). The earlier `invalidate` / `invalidateAll`
+  eviction methods have since been **removed** (followup S1): a workspace audit
+  found zero callers (web-app's only candidate, `invalidateQuill`, was itself
+  unused and is deleted by web-app W3), and the WeakMap keyed on the canonical
+  instance already provides the only invalidation semantic consumers can reach —
+  drop/replace the `Quill` instance and the clone follows via wasm-bindgen
+  weak-refs. An explicit invalidation API should arrive WITH its first real
+  consumer (republish-at-same-ref), not before;
 - **backend-neutral canonical render types** (`RenderResult`, `RenderOptions`,
   `Artifact`, `OutputFormat`, `PageSize`, `PaintOptions`, `PaintResult`) defined
   directly in `runtime.d.ts`, with a type-level drift guard

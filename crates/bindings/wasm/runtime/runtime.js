@@ -31,45 +31,40 @@
 //     instance) in a `WeakMap` keyed on the canonical `Quill`: when the consumer
 //     drops the core quill the cache entry becomes collectable and wasm-bindgen
 //     weak-refs (`--weak-refs`) free the backend handle. The CONTRACT this buys:
-//     a `Quill` instance's contents are assumed never to change after
-//     construction — mutate by replacing the instance, or call `engine.invalidate
-//     (quill)` / `engine.invalidateAll()` to evict and free a stale clone.
+//     a `Quill` instance's contents never change after construction — mutate by
+//     replacing the instance (the clone is dropped with it via WeakMap +
+//     weak-refs).
 //
 // The cross-memory crossing is therefore invisible: a consumer hands canonical
 // `Quill`/`Document` to `engine.render(...)` and gets a `RenderResult` back.
 
-// ── CANONICAL INVARIANT: re-export `/core`, never wrap ──────────────────────
-// `/runtime`'s `Quill`/`Document` ARE the core build's classes, re-exported
-// verbatim — NOT subclasses or wrappers. This is load-bearing, not incidental:
+// ── CANONICAL INVARIANT: re-export the core build, never wrap ───────────────
+// The root re-exports the core build's `Quill`/`Document` classes verbatim —
+// NOT subclasses or wrappers. There is exactly ONE public entry point (this
+// module), so this identity is a structural fact: `Quill`/`Document` ARE the
+// core classes, and the only boundary that needs crossing is core→backend (a
+// separate WASM memory), which `Engine` does internally as data
+// (`toTree`/`toJson`).
 //
-//   * A `/core` Quill and a `/runtime` Quill are the SAME class and the SAME
-//     object — identical at runtime and to TypeScript. So a core handle passes
-//     to `Engine` with no convert/adopt step, and a render-less consumer
-//     (quiver, an SSR service) can stay on `/core` while its handles flow into
-//     a `/runtime` `Engine` unchanged. There is deliberately NO core→runtime
-//     conversion API, because there is nothing to convert.
-//   * The ONLY boundary that needs crossing is core→backend (a separate WASM
-//     memory), and `Engine` does that internally as data (`toTree`/`toJson`).
-//
-// Do NOT replace this with a wrapper class. If a future requirement forces
-// per-instance wrapper handles, the identity above breaks and every consumer
-// then needs an explicit `adopt(coreHandle)` — so that is a deliberate,
-// breaking design change, not a refactor. Keep `Engine` duck-typed on
-// `.toTree()`/`.backendId`/`.toJson()` (it is) so it tolerates handles from any
-// `/core` instance regardless. The `runtime.test.js` "re-exports … verbatim"
-// case (`Quill === CoreQuill`) is the executable guard for this invariant.
+// Do NOT replace this with a wrapper class — that breaks the identity and turns
+// a structural fact into a converted type (a breaking design change, not a
+// refactor). Keep `Engine` duck-typed on `.toTree()`/`.backendId`/`.toJson()`
+// (it is) so it tolerates handles from any core instance. The `runtime.test.js`
+// "re-exports the internal core build classes verbatim" case
+// (`Quill === CoreQuill`) is the executable guard for this invariant.
 export { Quill, Document, init } from '../core/wasm.js';
 
 // Backend builds are NEVER statically imported here — that would pull a
 // multi-MB binary into the eager graph and defeat lazy loading. Each entry is a
 // DESCRIPTOR: `load` is a thunk returning a dynamic `import()` (a backend's
 // chunk is fetched only when something actually renders against that backend),
-// and `formats`/`canvas` are the STATIC capability manifest so the cheap probes
-// (`supportedFormats`/`supportsCanvas`) answer without loading the binary or
-// cloning the quill. The manifest values are verified against the backend's
-// Rust source (`crates/backends/typst/src/lib.rs` `SUPPORTED_FORMATS` and
-// `supports_canvas`) and pinned by the `runtime.test.js` drift-guard test, which
-// renders once and asserts the loaded backend reports the same list.
+// and `formats`/`canvas` are the REQUIRED static capability manifest so the
+// cheap probes (`supportedFormats`/`supportsCanvas`) ALWAYS answer without
+// loading the binary or cloning the quill. The manifest values are verified
+// against the backend's Rust source (`crates/backends/typst/src/lib.rs`
+// `SUPPORTED_FORMATS` and `supports_canvas`) and pinned by the `runtime.test.js`
+// drift-guard test, which renders once and asserts the loaded backend reports
+// the same list.
 const DEFAULT_BACKENDS = {
 	typst: {
 		load: () => import('../backends/typst/wasm.js'),
@@ -79,18 +74,32 @@ const DEFAULT_BACKENDS = {
 };
 
 /**
- * Normalize a backend registry entry into a descriptor. Accepts BOTH forms:
- *   - bare thunk: `() => import(...)` — a loader with NO static manifest. The
- *     cheap probes cannot answer from it, so they fall back to the load+clone
- *     `#withClones` route (see `supportedFormats`/`supportsCanvas`).
- *   - descriptor: `{ load, formats?, canvas? }` — `load` is the thunk; when
- *     `formats`/`canvas` are present, the probes answer from them with no load
- *     and no clone.
- * @param {(() => Promise<unknown>) | { load: () => Promise<unknown>, formats?: string[], canvas?: boolean }} entry
- * @returns {{ load: () => Promise<unknown>, formats?: string[], canvas?: boolean }}
+ * Validate a backend registry descriptor, throwing a clear error naming the
+ * backend id on any malformed entry. Descriptors are the ONLY accepted form:
+ * `{ load, formats, canvas }` with a callable `load`, a `formats` array, and a
+ * boolean `canvas`. Failing at construction (not deep inside a render) keeps the
+ * capability probes free — they can answer from the manifest unconditionally.
+ * @param {string} id
+ * @param {unknown} entry
+ * @returns {{ load: () => Promise<unknown>, formats: string[], canvas: boolean }}
  */
-function normalizeBackend(entry) {
-	return typeof entry === 'function' ? { load: entry } : entry;
+function validateBackend(id, entry) {
+	if (!entry || typeof entry !== 'object') {
+		throw new Error(
+			`Engine: backend '${id}' must be a descriptor { load, formats, canvas }.`
+		);
+	}
+	const { load, formats, canvas } = /** @type {any} */ (entry);
+	if (typeof load !== 'function') {
+		throw new Error(`Engine: backend '${id}' descriptor needs a callable 'load'.`);
+	}
+	if (!Array.isArray(formats)) {
+		throw new Error(`Engine: backend '${id}' descriptor needs a 'formats' array.`);
+	}
+	if (typeof canvas !== 'boolean') {
+		throw new Error(`Engine: backend '${id}' descriptor needs a boolean 'canvas'.`);
+	}
+	return { load, formats, canvas };
 }
 
 /**
@@ -103,7 +112,7 @@ export class Engine {
 	#modules = new Map();
 	/** backendId → that backend's engine instance (the WASM backend registry). */
 	#engines = new Map();
-	/** backendId → descriptor `{ load, formats?, canvas? }`. */
+	/** backendId → descriptor `{ load, formats, canvas }`. */
 	#loaders;
 	/**
 	 * backendId → WeakMap<canonical Quill, backend-memory Quill clone>. Caches
@@ -115,20 +124,20 @@ export class Engine {
 	#quillClones = new Map();
 
 	/**
-	 * @param {{ backends?: Record<string, (() => Promise<unknown>) | { load: () => Promise<unknown>, formats?: string[], canvas?: boolean }> }} [options]
-	 *   Extra or overriding backend loaders, merged over the built-ins. Each
-	 *   entry is either a bare thunk (`() => import(...)`, no static manifest) or
-	 *   a descriptor (`{ load, formats?, canvas? }`). Descriptor-form entries make
-	 *   `supportedFormats`/`supportsCanvas` free — no binary load, no quill clone.
-	 *   The default registry maps `"typst"` to the bundled Typst build (descriptor
-	 *   form). Bare thunks keep working but their probes fall back to load+clone.
+	 * @param {{ backends?: Record<string, { load: () => Promise<unknown>, formats: string[], canvas: boolean }> }} [options]
+	 *   Extra or overriding backend descriptors, merged over the built-ins. Each
+	 *   entry is a descriptor (`{ load, formats, canvas }`) with `formats` and
+	 *   `canvas` REQUIRED — that static manifest is what makes
+	 *   `supportedFormats`/`supportsCanvas` always free (no binary load, no quill
+	 *   clone). Malformed entries throw here, at construction. The default
+	 *   registry maps `"typst"` to the bundled Typst build.
 	 */
 	constructor(options) {
 		const merged = { ...DEFAULT_BACKENDS, ...(options?.backends ?? {}) };
-		/** @type {Record<string, { load: () => Promise<unknown>, formats?: string[], canvas?: boolean }>} */
+		/** @type {Record<string, { load: () => Promise<unknown>, formats: string[], canvas: boolean }>} */
 		const loaders = {};
 		for (const [id, entry] of Object.entries(merged)) {
-			loaders[id] = normalizeBackend(entry);
+			loaders[id] = validateBackend(id, entry);
 		}
 		this.#loaders = loaders;
 	}
@@ -137,7 +146,7 @@ export class Engine {
 	 * Look up the registered descriptor for `backendId`, throwing the canonical
 	 * "no backend registered" error if none. Pure — touches no binary.
 	 * @param {string} backendId
-	 * @returns {{ load: () => Promise<unknown>, formats?: string[], canvas?: boolean }}
+	 * @returns {{ load: () => Promise<unknown>, formats: string[], canvas: boolean }}
 	 */
 	#descriptorFor(backendId) {
 		const descriptor = this.#loaders[backendId];
@@ -208,18 +217,19 @@ export class Engine {
 
 	/**
 	 * Materialize the backend-memory clones for `quill` + `doc` in `backendId`'s
-	 * memory and run `fn` against the backend engine. `doc` is optional
-	 * (capability probes need only the quill).
+	 * memory and run `fn` against the backend engine. Only `render`/`open` call
+	 * this, so `doc` is always present.
 	 *
 	 * Clone lifetimes differ by design: the `doc` clone is TRANSIENT — freed in
 	 * the `finally` of every call. The `quill` clone is CACHED per (engine,
-	 * backend, canonical quill instance) and is NOT freed here; it is dropped
-	 * with the canonical quill (WeakMap collection → wasm-bindgen weak-ref free)
-	 * or explicitly via `invalidate`/`invalidateAll`. A cache miss materializes
-	 * it once; subsequent calls reuse it.
+	 * backend, canonical quill instance) and is NOT freed here; a `Quill`
+	 * instance's contents never change after construction, so it is dropped with
+	 * the canonical quill (WeakMap collection → wasm-bindgen weak-ref free) when
+	 * the consumer replaces the instance. A cache miss materializes it once;
+	 * subsequent calls reuse it.
 	 * @param {string} backendId
 	 * @param {{ toTree(): Map<string, Uint8Array> }} quill
-	 * @param {{ toJson(): string } | null} doc
+	 * @param {{ toJson(): string }} doc
 	 * @param {(ctx: { mod: any, engine: any, quill: any, doc: any }) => any} fn
 	 */
 	async #withClones(backendId, quill, doc, fn) {
@@ -233,40 +243,11 @@ export class Engine {
 		const backendQuill = this.#cachedQuillClone(mod, backendId, quill);
 		let backendDoc = null;
 		try {
-			backendDoc = doc ? mod.Document.fromJson(doc.toJson()) : null;
+			backendDoc = mod.Document.fromJson(doc.toJson());
 			return fn({ mod, engine, quill: backendQuill, doc: backendDoc });
 		} finally {
 			backendDoc?.free();
 		}
-	}
-
-	/**
-	 * Drop the cached backend-memory clone(s) of `quill` across ALL backends,
-	 * freeing each immediately. Escape hatch for the "same `Quill` instance,
-	 * republished contents" staleness the caching contract otherwise forbids:
-	 * the `Engine` assumes a `Quill` instance never changes after construction,
-	 * so mutate-by-replacing-the-instance, or call this after an in-place change.
-	 * @param {Quill} quill
-	 */
-	invalidate(quill) {
-		for (const perQuill of this.#quillClones.values()) {
-			const backendQuill = perQuill.get(quill);
-			if (backendQuill) {
-				perQuill.delete(quill);
-				backendQuill.free();
-			}
-		}
-	}
-
-	/**
-	 * Drop and free every cached backend-memory quill clone in this engine, for
-	 * every backend. Coarse counterpart to `invalidate`.
-	 */
-	invalidateAll() {
-		// WeakMaps aren't enumerable, so we can't iterate the cached clones to free
-		// them; replacing each map drops our strong refs so the entries (and their
-		// backend handles, via wasm-bindgen weak-refs) become collectable.
-		this.#quillClones = new Map();
 	}
 
 	/**
@@ -287,6 +268,9 @@ export class Engine {
 	 * The session is a self-contained compiled snapshot, so the transient quill
 	 * and document clones are freed before this returns; the caller owns the
 	 * returned session and must `.free()` it.
+	 * @experimental Ships ahead of its first production consumer (the designed
+	 * canvas live-preview path); the session/paint surface may change in any
+	 * 0.x release. `render()` is the stable path.
 	 * @param {Quill} quill
 	 * @param {Document} doc
 	 * @returns {Promise<RenderSession>}
@@ -301,46 +285,29 @@ export class Engine {
 	}
 
 	/**
-	 * The output formats `quill`'s backend can emit. A cheap, non-failing
-	 * pre-render probe: it depends only on `quill.backendId`.
-	 *
-	 * For a descriptor-form backend with a `formats` manifest (the default Typst
-	 * entry), this answers directly — NO binary load and NO quill clone. For a
-	 * bare-thunk backend (no manifest), it falls back to the load+clone
-	 * `#withClones` route, because the backend FFI is `supportedFormats(&Quill)`
-	 * (see `crates/bindings/wasm/src/engine.rs`) and so requires a backend-memory
-	 * quill to ask. Stays `async` either way; the manifest path just never awaits
-	 * a real load.
+	 * The output formats `quill`'s backend can emit. A cheap, non-failing,
+	 * ALWAYS-free pre-render probe: it answers from the descriptor's required
+	 * `formats` manifest — NO binary load and NO quill clone — depending only on
+	 * `quill.backendId`. Stays `async` for API stability (it never awaits a load).
 	 * @param {Quill} quill
 	 * @returns {Promise<import('./runtime.js').OutputFormat[]>}
 	 */
 	async supportedFormats(quill) {
 		const descriptor = this.#descriptorFor(quill.backendId);
-		if (descriptor.formats) {
-			// Defensive copy so callers can't mutate the shared manifest.
-			return descriptor.formats.slice();
-		}
-		return this.#withClones(quill.backendId, quill, null, ({ engine, quill: q }) =>
-			engine.supportedFormats(q)
-		);
+		// Defensive copy so callers can't mutate the shared manifest.
+		return descriptor.formats.slice();
 	}
 
 	/**
-	 * Whether `quill`'s backend can paint sessions to a canvas. Cheap probe: see
-	 * `supportedFormats` — answers from the descriptor's `canvas` manifest when
-	 * present (no load, no clone), else falls back to `#withClones` for the same
-	 * FFI-shape reason (`supportsCanvas(&Quill)`).
+	 * Whether `quill`'s backend can paint sessions to a canvas. Same ALWAYS-free
+	 * probe as `supportedFormats`: answered from the descriptor's required
+	 * `canvas` manifest, no load and no clone.
 	 * @param {Quill} quill
 	 * @returns {Promise<boolean>}
 	 */
 	async supportsCanvas(quill) {
 		const descriptor = this.#descriptorFor(quill.backendId);
-		if (descriptor.canvas !== undefined) {
-			return descriptor.canvas;
-		}
-		return this.#withClones(quill.backendId, quill, null, ({ engine, quill: q }) =>
-			engine.supportsCanvas(q)
-		);
+		return descriptor.canvas;
 	}
 }
 

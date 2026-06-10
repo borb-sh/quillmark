@@ -25,11 +25,6 @@
       "types": "./runtime/runtime.d.ts",
       "import": "./runtime/runtime.js",
       "default": "./runtime/runtime.js"
-    },
-    "./core": {
-      "types": "./core/wasm.d.ts",
-      "import": "./core/wasm.js",
-      "default": "./core/wasm.js"
     }
   },
   "sideEffects": [
