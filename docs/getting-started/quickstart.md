@@ -11,10 +11,10 @@
     ## Basic Usage
 
     ```python
-    from quillmark import Document, Quillmark, OutputFormat
+    from quillmark import Document, Quill, Quillmark, OutputFormat
 
-    engine = Quillmark()
-    quill = engine.quill_from_path("path/to/quill")
+    engine = Quillmark()                       # backend registry + render dispatcher
+    quill = Quill.from_path("path/to/quill")   # engine-free, validated config data
 
     markdown = """~~~
     $quill: my_quill
@@ -26,7 +26,7 @@
     """
 
     doc = Document.from_markdown(markdown)
-    result = quill.render(doc, OutputFormat.PDF)
+    result = engine.render(quill, doc, OutputFormat.PDF)
 
     with open("output.pdf", "wb") as f:
         f.write(result.artifacts[0].bytes)

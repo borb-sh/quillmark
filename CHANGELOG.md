@@ -20,6 +20,17 @@
   `quill.metadata.supportedFormats`) now fails at compile time with "Property
   does not exist" instead of silently returning `undefined` at runtime. Cast to
   `Record<string, unknown>` to reach extra `quill:` YAML keys if needed.
+- **Breaking (Python API):** the Python binding adopts the engine-free shape.
+  Render and capability move onto the `Quillmark` engine, taking a quill:
+  `engine.render(quill, doc)` / `engine.open(quill, doc)` /
+  `engine.supported_formats(quill)` / `engine.supports_canvas(quill)` (were
+  `quill.render(doc)` etc.). `Quill.from_path(path)` replaces
+  `Quillmark.quill_from_path(path)` — the engine is no longer a loader, and the
+  loaded `Quill` is engine-free. `quill.metadata` no longer contains
+  `supportedFormats` (read `engine.supported_formats(quill)`) and is now a pure,
+  infallible config read. Backend resolution moves from load to render time:
+  `UnsupportedBackend` surfaces from the first engine call, not from `from_path`.
+  See the [migration guide](docs/migrations/0.89-to-0.90.md#python).
 - **Breaking (Rust API):** `QuillSource` and the orchestration `Quill` collapse
   into one core type, `quillmark_core::Quill` (held by value; the vestigial
   `Arc` is dropped). `Backend::open` now takes `&Quill`; the consumer methods
