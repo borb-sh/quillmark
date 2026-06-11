@@ -1323,6 +1323,16 @@ impl RenderSession {
         };
 
         let render_scale = (layout_scale as f64) * effective_density;
+        // `layout_scale` and `density` are each validated finite/positive, but
+        // their product (or the f64->f32 cast) can still overflow to infinity
+        // for extreme inputs — e.g. a zero-dimension page bypasses the
+        // MAX_BACKING_DIMENSION clamp. Guard before handing it to the renderer.
+        if !render_scale.is_finite() || render_scale <= 0.0 || render_scale > f32::MAX as f64 {
+            return Err(WasmError::from(
+                "paint: computed render scale is non-finite or out of range",
+            )
+            .to_js_value());
+        }
 
         let (pixel_w, pixel_h, mut rgba) = typst
             .render_rgba(page, render_scale as f32)

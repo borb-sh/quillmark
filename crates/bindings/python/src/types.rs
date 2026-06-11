@@ -204,9 +204,8 @@ impl PyQuill {
         doc: PyRef<'_, PyDocument>,
     ) -> PyResult<Bound<'py, PyList>> {
         let diags = self.inner.validate(&doc.inner);
-        let json_value = serde_json::to_value(&diags).map_err(|e| {
-            PyValueError::new_err(format!("validate: serialization failed: {e}"))
-        })?;
+        let json_value = serde_json::to_value(&diags)
+            .map_err(|e| PyValueError::new_err(format!("validate: serialization failed: {e}")))?;
         let py_obj = json_to_py(py, &json_value)?;
         let list = py_obj
             .downcast::<PyList>()
@@ -509,7 +508,9 @@ impl PyDocument {
         index: usize,
         namespace: &str,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let removed = self.card_mut_or_raise(index)?.remove_ext_namespace(namespace);
+        let removed = self
+            .card_mut_or_raise(index)?
+            .remove_ext_namespace(namespace);
         ext_value_to_py(py, removed)
     }
 
@@ -557,8 +558,8 @@ impl PyDocument {
             payload_items,
             body: body.unwrap_or_default(),
         };
-        let card =
-            quillmark_core::Card::try_from(wire).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let card = quillmark_core::Card::try_from(wire)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
         card_to_pydict(py, &card)
     }
 
@@ -901,7 +902,10 @@ fn card_to_pydict<'py>(
 
     match &wire.ext {
         Some(ext_map) => {
-            d.set_item("ext", json_to_py(py, &serde_json::Value::Object(ext_map.clone()))?)?;
+            d.set_item(
+                "ext",
+                json_to_py(py, &serde_json::Value::Object(ext_map.clone()))?,
+            )?;
         }
         None => d.set_item("ext", py.None())?,
     }
@@ -961,11 +965,28 @@ fn py_to_json(value: &Bound<'_, PyAny>) -> PyResult<serde_json::Value> {
         return Ok(serde_json::Value::Bool(b));
     }
     if value.is_instance_of::<PyInt>() {
-        let i: i64 = value.extract()?;
-        return Ok(serde_json::json!(i));
+        // Python ints are unbounded; map to i64, then u64, before giving up so
+        // large positive values still convert losslessly. Report overflow as a
+        // ValueError rather than letting PyO3's raw OverflowError leak across
+        // the binding boundary.
+        if let Ok(i) = value.extract::<i64>() {
+            return Ok(serde_json::json!(i));
+        }
+        if let Ok(u) = value.extract::<u64>() {
+            return Ok(serde_json::json!(u));
+        }
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "integer value is out of range for JSON conversion (exceeds 64-bit)",
+        ));
     }
     if value.is_instance_of::<PyFloat>() {
         let f: f64 = value.extract()?;
+        if !f.is_finite() {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "non-finite float value '{}' cannot be represented in JSON",
+                f
+            )));
+        }
         return Ok(serde_json::json!(f));
     }
     if value.is_instance_of::<PyString>() {
