@@ -17,13 +17,10 @@ guides in order.
   block-scalar values containing tilde fences); data-field names
   (`[a-z_][a-z0-9_]*`) and the 100-level nesting limit are enforced on every
   input path (parse, storage, wire, mutators — `set_ext` now returns
-  `Result`); trailing-comment detection follows YAML 1.2 (apostrophes in
-  plain scalars no longer eat comments); WASM getters throw on serialization
-  failure instead of yielding `undefined`; image alt text is preserved as
-  `#image(alt:)`; nested map keys are quoted on emit when YAML requires it;
-  quill loading skips symlinks and caps file size; Python binding rejects
-  non-finite floats, out-of-range integers, and over-deep values with
-  `ValueError`.
+  `Result`); quill loading skips symlinks and caps file size; Python binding
+  raises `ValueError` for non-finite floats, out-of-64-bit integers, and
+  over-deep values. Plus no-action round-trip/output fixes (YAML 1.2 comment
+  handling, image alt text, nested-key quoting).
 - [0.89 → 0.90](0.89-to-0.90.md) — `Quill` becomes engine-free data: the engine
   no longer loads quills (`Quill.fromTree` / `quillmark::quill_from_path`
   replace the factory) and now owns rendering and capability
