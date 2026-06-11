@@ -344,7 +344,7 @@ where
                     Tag::Image {
                         dest_url, title: _, ..
                     } => {
-                        // Spec §6.3: images are required for v1. Defer emission to the
+                        // Spec §6.3: image markup renders to #image. Defer emission to the
                         // intercept above: alt-text events are collected until
                         // TagEnd::Image, then `#image("url")` / `#image("url", alt: "…")`
                         // is emitted. (The link-style title has no Typst counterpart

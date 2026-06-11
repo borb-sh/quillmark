@@ -387,16 +387,17 @@ No other syntax deviates from CommonMark. Delimiter-run semantics for `*`,
 `_`, `**`, `__`, and `~~` follow CommonMark and GFM exactly — in particular,
 `__text__` renders as strong emphasis, identical to `**text**`.
 
-### 6.3 Out of Scope
+### 6.3 Limited or Out of Scope
 
 The following are parsed where CommonMark or pulldown-cmark already
-handles them, but produce no Quillmark-specific output and may be
-implemented in a future revision:
+handles them, but produce limited or no Quillmark-specific output; fuller
+support may come in a future revision:
 
-- Images (`![alt](src)`) — rendered by the Typst backend as
+- Images (`![alt](src)`) — the markup *is* rendered by the Typst backend as
   `#image("src", alt: "alt")`, with the alt text preserved as the output's
-  accessibility alternate text; full asset-resolver integration is a future
-  revision.
+  accessibility alternate text. What remains future work is asset-resolver
+  integration: `src` is emitted verbatim and resolved by the backend's
+  virtual filesystem, with no dedicated asset-resolution layer yet.
 - Math (`$…$`, `$$…$$`), footnotes, task lists, definition lists — not
   supported. In markdown body text `$` is literal; inside a `~~~` card-yaml
   payload `$` is reserved as the prefix for system-metadata keys (§3.3).
