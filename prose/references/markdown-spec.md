@@ -393,8 +393,10 @@ The following are parsed where CommonMark or pulldown-cmark already
 handles them, but produce no Quillmark-specific output and may be
 implemented in a future revision:
 
-- Images (`![alt](src)`) — reserved for the asset-resolver integration;
-  not yet implemented.
+- Images (`![alt](src)`) — rendered by the Typst backend as
+  `#image("src", alt: "alt")`, with the alt text preserved as the output's
+  accessibility alternate text; full asset-resolver integration is a future
+  revision.
 - Math (`$…$`, `$$…$$`), footnotes, task lists, definition lists — not
   supported. In markdown body text `$` is literal; inside a `~~~` card-yaml
   payload `$` is reserved as the prefix for system-metadata keys (§3.3).

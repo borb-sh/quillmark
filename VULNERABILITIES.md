@@ -36,106 +36,13 @@ The real issues are concentrated in **core parsing/emit** and in
 | Typst backend | 0 | 0 | 0 | 2 | 3 |
 | Orchestration / bindings | 0 | 0 | 2 | 6 | 2 |
 
-**11 findings resolved** on this branch. **5 substantive findings** plus several
-info items are left open for your review — they involve deserialization
-architecture or binding API breaks.
+**16 findings resolved** on this branch — including every High-severity item.
+**1 substantive finding** (TYPST-2, warnings dropped to stderr) plus several
+info items remain open.
 
 ---
 
 ## Open findings (await your review)
-
-### CORE-2 — Unbounded recursion → stack-overflow abort via deserialization / value conversion (DoS)
-
-- **Severity:** High
-- **Files:** `crates/core/src/document/dto.rs`, `wire.rs`, `emit.rs:406+`,
-  `value.rs`; binding converters `crates/bindings/python/src/types.rs`
-  (`py_to_json`), `crates/bindings/wasm/src/engine.rs` (`serde_wasm_bindgen::from_value`).
-- **Verified:** Yes (depth ~5000 aborts the process).
-
-**Description.** Spec §8 mandates a YAML nesting limit of **100**, but it is
-enforced **only on the markdown parse path** (via `serde_saphyr::Budget` in
-`limits.rs`). Other entry points have **no depth bound**:
-
-- `serde_json::from_value::<Document>` (used when a binding already holds a
-  `serde_json::Value`) does **not** apply serde_json's recursion limit (`from_str`
-  does, ~128; `from_value` does not). Depth 500 succeeds; ~5000 overflows the
-  stack *inside* `from_value` — before any code we control runs.
-- The recursive value converters `py_to_json` (Python) and
-  `serde_wasm_bindgen::from_value` (WASM) walk arbitrarily nested input with no
-  depth guard.
-- The recursive emitters (`to_markdown`, `to_plate_json`, `flat_nested_comments`)
-  are likewise unbounded.
-
-The JSON-**string** paths (`Document::from_json` → `serde_json::from_str`) are
-protected by serde_json's default limit, so this is reachable specifically
-through the in-memory-`Value` / native-object conversion paths.
-
-**Why not auto-fixed.** A depth check in `PayloadItem::try_from` cannot help,
-because the overflow happens *during* `from_value`, before that code runs. A real
-fix needs depth-bounding **at the deserialization/conversion boundary** — e.g. a
-shared bounded-depth `Value`-walk used by the bindings before handing off to
-`from_value`, plus an explicit depth guard in `py_to_json` and the emitters. This
-spans core + both bindings and is a contract change (previously-"working" deep
-inputs would now be rejected with a clean error instead of aborting). **Recommended:**
-add a `MAX_VALUE_DEPTH` (reuse the §8 limit of 100) enforced in the recursive
-converters and a pre-deserialization depth check in the bindings.
-
----
-
-### CORE-4 — Top-level data-field names not validated against `[a-z_][a-z0-9_]*` at parse time
-
-- **Severity:** Medium
-- **Files:** `crates/core/src/document/assemble.rs` (`build_payload`); spec §3.4, §10.
-- **Verified:** Yes.
-
-**Description.** The parser never enforces the field-name charset on the
-*markdown-parse* path. `Title:`, `"my key":`, `"a: b":` all parse successfully.
-The charset is only enforced on the *mutator* path (`edit.rs::is_valid_field_name`),
-not on `from_markdown`. Spec §10 lists "a data-field name failing
-`/^[a-z_][a-z0-9_]*$/`" as a parse error. This breaks the invariant that field
-names can't collide with `$`-keys or carry structural characters, and downstream
-code (e.g. `to_plate_json`) assumes conforming names.
-
-**Why not auto-fixed.** Tightens accepted input — previously-accepted documents
-with non-conforming top-level keys would now error. That is the spec-intended
-behavior, but it is a compatibility change you should sign off on. **Recommended:**
-validate each non-`$` user key in `build_payload` and return
-`ParseError::InvalidStructure`. (Note: with CORE-3 resolved, the emitter already
-round-trips nested keys safely; CORE-4 is about *top-level* names specifically.)
-
----
-
-### CORE-5 — Trailing comment silently dropped when a plain scalar value contains `'` or `"`
-
-- **Severity:** Medium
-- **Files:** `crates/core/src/document/prescan.rs:424-459` (`split_trailing_comment`)
-- **Verified:** Yes.
-
-**Description.** `split_trailing_comment` enters quoted-string state on *any* `'`
-or `"` anywhere in the value. In a YAML **plain** scalar an apostrophe is an
-ordinary character (`it's`), and a real trailing comment can follow. The function
-treats the `'` as an unterminated open quote, never matches the `#`, and the
-comment is **silently dropped**, violating the §3.4 comment-preservation guarantee.
-
-**Trigger:** `x: it's a test # note` → the `# note` comment is lost.
-
-**Why not auto-fixed.** The fix (only enter quote state when the quote *begins*
-the scalar, mirroring `yaml_hints.rs::first_field_with_unquoted_colon`) changes
-comment-attachment heuristics and must be careful not to regress the legitimate
-`x: 'a # b'` quoted case. Worth a focused change + test pass. **Recommended:** as
-above, gated on a regression test for the quoted-scalar case.
-
----
-
-### CORE-6 — `from_value` / DTO paths inherit no `serde_json` recursion guard (sub-note to CORE-2)
-
-- **Severity:** Info
-- **Description.** Explicitly: `serde_json::from_str` enforces a recursion limit
-  (~128) but `from_value` of an already-parsed `Value` does **not**. Any binding
-  that builds a `serde_json::Value` first and then calls `from_value::<Document>`
-  loses even that protection. Folded into the CORE-2 fix.
-
----
 
 ### TYPST-2 — Markdown→Typst compile warnings and package-load problems are discarded to stderr
 
@@ -154,28 +61,10 @@ API expectation change. **Recommended:** collect warnings into the returned
 
 ---
 
-### WASM-1 — Nine silent `.unwrap_or(JsValue::UNDEFINED)` on serialization failures
-
-- **Severity:** Low
-- **Files:** `crates/bindings/wasm/src/engine.rs:338, 389, 600, 625, 673, 920, 987, 1006, 1225`
-- **Verified:** Yes.
-
-**Description.** Nine getters degrade silently to `undefined` if
-`serde_wasm_bindgen::serialize` fails. The notable cases are the `Quill.schema`
-getter (an editor would render an empty form), the `Document.cards` getter
-(`undefined` where `Card[]` is expected crashes iterating callers), and the
-`warnings` getters. In practice unlikely (all types are serde-derived), but the
-pattern is dangerous if non-serializable types are added later.
-
-**Why not auto-fixed.** The right fix changes getter signatures from `JsValue`
-to `Result<JsValue, JsValue>` (throw on failure) for at least `schema`/`cards`,
-which is a public WASM API break. **Recommended:** throw for collection/struct
-getters; at minimum fall back to `JsValue::NULL` (explicit "no data") rather than
-`UNDEFINED` (property absent) elsewhere.
-
----
-
 ### Info-level / accepted notes (no change recommended now)
+
+- **CORE-6** (`from_value` lacks serde's recursion guard) — folded into the
+  CORE-2 resolution; see its residual-risk note in the resolved section.
 
 - **TYPST-3** (`convert.rs:55-71`) — `escape_markup` omits line-start `=`/`-`/`+`.
   Unreachable today (pulldown soft-breaks become spaces; hard breaks emit inline
@@ -227,6 +116,92 @@ getters; at minimum fall back to `JsValue::NULL` (explicit "no data") rather tha
   `card_fence_tests.rs::indented_tilde_inside_block_scalar_is_payload_not_closer`,
   `card_fence_tests.rs::indented_tilde_line_never_closes_a_card_fence`.
 - **Migration note:** `docs/migrations/0.90-to-0.91.md`.
+
+### ~~CORE-2 — Unbounded recursion → stack-overflow abort via deserialization / value conversion (DoS)~~
+
+- **Severity:** High · **Files:** `crates/core/src/value.rs`, `document/edit.rs`,
+  `document/dto.rs`, `document/wire.rs`, `document/assemble.rs`,
+  `bindings/python/src/types.rs`
+- ✅ **Resolved.** The spec §8 nesting limit (100) is now enforced at **every
+  payload ingestion boundary**, not just the markdown parse path: an iterative
+  (explicit-stack) `json_depth_exceeds` walker in `value.rs` backs a single
+  shared validator (`edit::validate_field`), called by the parse path, the
+  storage-DTO path, the live-wire path, and the typed mutators (`set_field` /
+  `set_fill` / `set_ext` / `set_ext_namespace` — the `$ext` mutators now return
+  `Result` and carry the same bound, since `$ext` flows through the recursive
+  emit and DTO paths). The Python converter `py_to_json` bounds its own
+  recursion at the same limit. Because no constructed `Document` can hold a
+  value deeper than 100 levels, the recursive consumers (`to_markdown`,
+  `to_plate_json`, DTO serialization) are bounded by construction.
+- **Residual (documented):** `serde_wasm_bindgen::from_value`'s own recursion
+  while converting a pathologically deep JS object can still exhaust the WASM
+  stack before our checks run — a JS caller DoS-ing its own tab; and a native
+  embedder that programmatically builds a >~5000-deep `serde_json::Value` and
+  calls `serde_json::from_value::<Document>` overflows inside serde_json
+  itself (the JSON *string* entry points are protected by serde_json's
+  recursion limit, and both binding converters are now bounded, so no
+  untrusted-input route reaches that state).
+- **Regression tests:** `edit_tests.rs::set_field_rejects_value_past_depth_limit`,
+  `storage_dto_rejects_value_past_depth_limit`,
+  `wire_card_rejects_value_past_depth_limit_and_bad_names`.
+
+### ~~CORE-4 — Top-level data-field names not validated against `[a-z_][a-z0-9_]*` at parse time~~
+
+- **Severity:** Medium · **Files:** `crates/core/src/document/assemble.rs`,
+  `edit.rs`, `dto.rs`, `wire.rs`
+- ✅ **Resolved — via the same unification as CORE-2.** The shared
+  `edit::validate_field` enforces the spec §3.4/§10 name rule on the markdown
+  parse path (previously mutator-only), the storage-DTO path, and the wire
+  path. This closes the half of the emit round-trip hole CORE-3 couldn't: a
+  non-conforming *top-level* key (e.g. `"a: b": 1`) can no longer enter a
+  `Document` and emit as broken YAML — it is a parse/storage/wire error naming
+  the key. Two tests that encoded the old spec-violating behavior
+  (`test_uppercase_payload_keys_pass_parser`, `test_unicode_in_yaml_keys`)
+  were updated to assert the spec rule; Unicode remains fully supported in
+  *values*.
+
+### ~~CORE-5 — Trailing comment silently dropped when a plain scalar value contains `'` or `"`~~
+
+- **Severity:** Medium · **Files:** `crates/core/src/document/prescan.rs`
+- ✅ **Resolved — by conforming to YAML 1.2** rather than tuning the old
+  heuristic. `split_trailing_comment` now determines scalar style from the
+  *first* character of the value, per YAML: a quote opens a quoted scalar only
+  at the start of the scalar (or inside a flow collection `[`/`{`, where the
+  old anywhere-tracking remains correct and is retained); inside a plain
+  scalar `'` and `"` are ordinary characters. `x: it's a test # note` now
+  preserves the comment; `x: 'a # b'` still treats the `#` as content;
+  `''`-escaped and `\"`-escaped quotes and unterminated (multi-line) quoted
+  scalars are handled.
+- **Regression tests:** seven YAML-conformance cases in
+  `prescan.rs::tests` (apostrophe/double-quote in plain scalars, quoted-scalar
+  comments, escapes, flow collections, unterminated quotes, `a#b`).
+
+### ~~WASM-1 — Nine silent `.unwrap_or(JsValue::UNDEFINED)` on serialization failures~~
+
+- **Severity:** Low · **Files:** `crates/bindings/wasm/src/engine.rs`
+- ✅ **Resolved.** All nine sites route through one `serialize_or_throw`
+  helper: serialization failure now throws a `WasmError` naming the surface
+  (`schema`, `metadata`, `cards`, `warnings`, `removeField`, card/ext reads)
+  instead of silently yielding `undefined`. Getters changed from `JsValue` to
+  `Result<JsValue, JsValue>` — the success path is byte-identical for JS
+  callers; only the (previously silent) failure mode changes.
+
+### ~~TYPST-6 — Image alt text dropped in Markdown→Typst conversion (accessibility loss)~~
+
+- **Severity:** Low (CommonMark fidelity / PDF accessibility) · **Files:**
+  `crates/backends/typst/src/convert.rs`, `prose/canon/CONVERT.md`,
+  `prose/references/markdown-spec.md` §6.3
+- ✅ **Resolved.** `![alt](src)` now emits `#image("src", alt: "…")` — Typst's
+  `alt:` parameter flows into the PDF as accessibility alternate text, which
+  the old conversion discarded. Alt-text events are collected until
+  `TagEnd::Image` and flattened to text (`alt:` is a string), which also fixes
+  a latent leak where markup *inside* alt text (`![a *b*](x)`) emitted stray
+  `#emph[]` into the output. The link-style title is still dropped for both
+  links and images (Typst has no counterpart), now with the rationale recorded
+  in `CONVERT.md`; the stale spec §6.3 claim that images are "not yet
+  implemented" was corrected.
+- **Regression tests:** four image tests in `convert.rs` (alt emission, empty
+  alt, markup flattening + no leakage, quote/backslash escaping).
 
 ### ~~CORE-3 — Map keys emitted unescaped → invalid YAML / broken round-trip~~
 
