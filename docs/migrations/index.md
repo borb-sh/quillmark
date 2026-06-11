@@ -12,6 +12,12 @@ guides in order.
 
 ## Available guides
 
+- [0.90 → 0.91](0.90-to-0.91.md) — the closing `~~~` of a card-yaml block must
+  be at column zero (an indented `~~~` is payload, fixing silent truncation of
+  block-scalar values containing tilde fences); nested map keys are quoted on
+  emit when YAML requires it; quill loading skips symlinks and caps file size;
+  Python binding rejects non-finite floats and out-of-range integers with
+  `ValueError`.
 - [0.89 → 0.90](0.89-to-0.90.md) — `Quill` becomes engine-free data: the engine
   no longer loads quills (`Quill.fromTree` / `quillmark::quill_from_path`
   replace the factory) and now owns rendering and capability

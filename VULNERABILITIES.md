@@ -36,62 +36,13 @@ The real issues are concentrated in **core parsing/emit** and in
 | Typst backend | 0 | 0 | 0 | 2 | 3 |
 | Orchestration / bindings | 0 | 0 | 2 | 6 | 2 |
 
-**10 findings resolved** on this branch (all low-risk). **6 substantive findings**
-plus several info items are left open for your review — they involve spec
-changes, deserialization architecture, or binding API breaks.
+**11 findings resolved** on this branch. **5 substantive findings** plus several
+info items are left open for your review — they involve deserialization
+architecture or binding API breaks.
 
 ---
 
 ## Open findings (await your review)
-
-### CORE-1 — Indented `~~~` inside a YAML block scalar prematurely closes the card block (silent data corruption)
-
-- **Severity:** High
-- **Files:** `crates/core/src/document/fences.rs:277-297` (closer scan),
-  `fences.rs:75-108` (`code_fence_on_line`)
-- **Verified:** Yes.
-
-**Description.** The closing-fence scan calls `code_fence_on_line(.., Some((b'~',
-open_run)))`, which — per CommonMark's closing-fence rule — accepts a fence with
-**1–3 leading spaces**. The scanner is *not* aware of YAML block scalars (`|` /
-`>`). So any payload line of the form `␣␣~~~` (0–3 spaces, run ≥ opener) **inside a
-multi-line block-scalar value** is mistaken for the block's closer. The field is
-truncated and the rest of the payload + body is silently absorbed into the body.
-**No error or warning is produced.**
-
-**Trigger** (an LLM embeds a tilde code fence in a `|` field):
-
-```
-~~~
-$quill: q@1.0
-$kind: main
-snippet: |
-  Here is code:
-  ~~~
-  let x = 1;
-  ~~~
-  done
-~~~
-
-The body.
-```
-
-Result: `snippet == "Here is code:\n"`, everything from `let x = 1;` onward is
-swallowed into the body, no diagnostic.
-
-**Why not auto-fixed.** The narrow fix (accept only a **column-zero** closer for
-card-yaml blocks) directly **contradicts the spec**: `prose/references/markdown-spec.md`
-§3.2 (line 116) explicitly documents *"The closing `~~~` may carry up to three
-leading spaces, matching CommonMark's closing-fence rule."* The correct,
-spec-preserving fix is to make the closer scan **block-scalar-aware** — track
-`block_scalar_indent` the way `prescan.rs` already does, and skip lines that are
-part of a `key: |` / `key: >` scalar — but the fence scanner deliberately runs
-*before* YAML structure is known, so this is an architecturally significant
-change that needs your design call. **Recommended:** block-scalar-aware closer
-scan; alternatively, change the spec to require column-zero closers (simpler, but
-a spec/behavior change).
-
----
 
 ### CORE-2 — Unbounded recursion → stack-overflow abort via deserialization / value conversion (DoS)
 
@@ -253,6 +204,29 @@ getters; at minimum fall back to `JsValue::NULL` (explicit "no data") rather tha
 ---
 
 ## Resolved on this branch
+
+### ~~CORE-1 — Indented `~~~` inside a YAML block scalar prematurely closes the card block (silent data corruption)~~
+
+- **Severity:** High · **Files:** `crates/core/src/document/fences.rs` (closer
+  scan), `prose/references/markdown-spec.md` §3.2 / §4 D2
+- ✅ **Resolved — by spec amendment.** The spec previously allowed the closing
+  `~~~` to carry 1–3 leading spaces (inherited from CommonMark's closing-fence
+  rule). That leniency exists in CommonMark for indented openers and list
+  contexts — neither applies to card-yaml blocks, whose openers are required to
+  be column-zero — and the payload between the fences is YAML, where an
+  indented `~~~` is structurally payload (a block-scalar line), not a closer.
+  The spec now requires the closing fence at **column zero** (§3.2, D2), the
+  scanner enforces it, and the corruption case parses intact: a tilde code
+  fence inside a `|` block-scalar value stays in the field. A document whose
+  only closer was indented now falls through to CommonMark as an unclosed code
+  block with the existing `parse::unclosed_code_block` warning — a diagnostic
+  instead of silent truncation. A column-zero `~~~` can never be block-scalar
+  content (YAML requires scalar content indented past its key), so the closer
+  is unambiguous and no block-scalar-aware scanner is needed.
+- **Regression tests:**
+  `card_fence_tests.rs::indented_tilde_inside_block_scalar_is_payload_not_closer`,
+  `card_fence_tests.rs::indented_tilde_line_never_closes_a_card_fence`.
+- **Migration note:** `docs/migrations/0.90-to-0.91.md`.
 
 ### ~~CORE-3 — Map keys emitted unescaped → invalid YAML / broken round-trip~~
 
