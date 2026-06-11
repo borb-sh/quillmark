@@ -293,11 +293,36 @@ API expectation change. **Recommended:** collect warnings into the returned
 
 ## Verification
 
-- `cargo test --workspace` — **green** (baseline and after all fixes).
-- `cargo build -p quillmark-python` — compiles.
-- WASM crate (`quillmark-wasm`) — verified on CI (no local `wasm32` target).
-- New regression tests added: CORE-3 nested-key quoting, LOAD-1 symlink skip,
-  LOAD-3 traversal rejection.
+- `cargo test --workspace` — **green** (~945 tests; baseline and after all fixes).
+- CI on PR #719 — **green**: `test`, `lint`, `wasm` (runs the binding tests where
+  the `Result<JsValue>` getter changes land), and `build`.
+- `cargo build -p quillmark-python` — compiles; clippy clean on changed crates.
+- WASM/Python binding test suites run on CI (no local `wasm32`/maturin target).
+- **Empirical depth-boundary probe:** documents that parse from markdown
+  (serde_saphyr `Budget` rejects at nesting level 101) all survive
+  `to_markdown`→`from_markdown` and JSON-storage round-trips — `json_depth_exceeds`
+  shares the exact level-101 cutoff, so it never rejects a markdown-parsed
+  document. No round-trip regression.
+- Regression tests added across all fixes: CORE-1 (indented-tilde payload),
+  CORE-2 (depth bound at mutator/DTO/wire boundaries), CORE-3 (nested-key
+  quoting), CORE-5 (seven YAML-1.2 comment cases), TYPST-6 (image alt/escaping),
+  LOAD-1 (symlink skip), LOAD-3 (traversal rejection).
+
+### Independent diff review (Opus, read-only)
+
+A second agent reviewed the full `crates/` diff. **Verdict: SHIP** — no
+Critical/High issues; the three highest-risk areas (depth-semantics match,
+`validate_field` never applied to nested keys, image-depth bookkeeping) all
+verified clean empirically. Three Low/informational notes, all resolved or
+accepted:
+- The Python value converter's depth guard was off-by-one *looser* than core
+  (no invariant escape, since core re-checks at the boundary). **Fixed** —
+  aligned to the exact level-101 cutoff with a corrected docstring.
+- Nested-image events bypass `MAX_NESTING_DEPTH` (iterative, O(events), input-size
+  bounded — not exploitable). **Accepted**, now documented in a code comment.
+- `split_trailing_comment` treats `#` immediately after a closing quote (`'a'#x`,
+  itself invalid YAML) as a comment. Heuristic-only; serde_saphyr does the
+  authoritative parse. **Accepted** (no correctness impact).
 
 ## Areas audited and found sound (no findings)
 

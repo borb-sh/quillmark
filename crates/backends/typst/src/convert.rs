@@ -179,6 +179,12 @@ where
         // flattened to its text content; a nested image contributes its own
         // alt text to the outer image's.
         if image_depth > 0 {
+            // Nested images bump only `image_depth`, not `depth`, so they
+            // bypass the MAX_NESTING_DEPTH guard. That's intentional and safe:
+            // alt collection is an iterative O(events) walk over an
+            // already-materialized event stream (itself bounded by the input
+            // size cap), with no recursion or per-level allocation beyond the
+            // linear alt string.
             match &event {
                 Event::Start(Tag::Image { .. }) => image_depth += 1,
                 Event::End(TagEnd::Image) => {

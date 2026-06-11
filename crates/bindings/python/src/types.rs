@@ -968,14 +968,15 @@ fn py_to_json(value: &Bound<'_, PyAny>) -> PyResult<serde_json::Value> {
 }
 
 /// Recursive worker for [`py_to_json`], depth-bounded at the core §8 nesting
-/// limit. The bound serves twice: this function's own recursion cannot
+/// limit. The bound serves two purposes: this function's own recursion cannot
 /// overflow the native stack on an adversarially deep Python object, and the
-/// produced value satisfies the depth invariant the core payload boundary
-/// enforces.
+/// produced value is rejected at the same nesting level the core payload
+/// boundary would reject it (`depth` is 0-based — the outermost container is
+/// visited at `depth == 0` — so the `>=` mirrors core's level-101 cutoff).
 fn py_to_json_at(value: &Bound<'_, PyAny>, depth: usize) -> PyResult<serde_json::Value> {
     use pyo3::types::{PyBool, PyFloat, PyInt, PyList, PyString};
 
-    if depth > quillmark_core::document::limits::MAX_YAML_DEPTH {
+    if depth >= quillmark_core::document::limits::MAX_YAML_DEPTH {
         return Err(PyValueError::new_err(format!(
             "value nests deeper than the maximum of {} levels",
             quillmark_core::document::limits::MAX_YAML_DEPTH
