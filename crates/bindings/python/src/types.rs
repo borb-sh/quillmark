@@ -291,6 +291,28 @@ impl PyDocument {
         quillmark_core::document::SCHEMA_V0_82_0
     }
 
+    /// Canonical card-yaml authoring rules — the core text every surface shows.
+    /// Mirrors WASM `Document.formatRules`. Cache it; the value never changes.
+    #[staticmethod]
+    fn format_rules() -> &'static str {
+        quillmark_core::document::FORMAT_RULES
+    }
+
+    /// Authoring-ergonomics header introducing a blueprint to an LLM/MCP
+    /// consumer for `quill_name`. Mirrors WASM `Document.blueprintInstruction`.
+    #[staticmethod]
+    fn blueprint_instruction(quill_name: &str) -> String {
+        quillmark_core::document::blueprint_instruction(quill_name)
+    }
+
+    /// The canonical `$quill` reference grammar as author-facing text — matches
+    /// the `hint` on `parse::invalid_quill_reference`. Mirrors WASM
+    /// `Document.quillRefHint`. Cache it; the value never changes.
+    #[staticmethod]
+    fn quill_ref_hint() -> &'static str {
+        quillmark_core::quill_ref_hint()
+    }
+
     /// Emit canonical Quillmark Markdown. Round-trip safe.
     fn to_markdown(&self) -> String {
         self.inner.to_markdown()
@@ -725,6 +747,20 @@ pub struct PyDiagnostic {
 
 #[pymethods]
 impl PyDiagnostic {
+    /// Canonical pretty-printed diagnostic text — the same rendering the CLI
+    /// and WASM (`Document.formatDiagnostic`) emit, so a diagnostic reads
+    /// identically no matter which surface shows it.
+    fn __str__(&self) -> String {
+        self.inner.fmt_pretty()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Diagnostic(severity={:?}, code={:?}, message={:?})",
+            self.inner.severity, self.inner.code, self.inner.message,
+        )
+    }
+
     #[getter]
     fn severity(&self) -> PySeverity {
         self.inner.severity.into()

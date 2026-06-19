@@ -308,3 +308,31 @@ def test_remove_card_field_legacy_uppercase_rejected():
     doc = Document.from_markdown(md)
     with pytest.raises(QuillmarkError, match="InvalidFieldName"):
         doc.remove_card_field(0, "BODY")
+
+
+def test_diagnostic_str_is_canonical_pretty_text():
+    """str(diagnostic) is the canonical pretty-printed text; repr is concise."""
+    warn_md = (
+        "~~~card-yaml\n$quill: my_quill\n$kind: main\ntitle: Hi\n"
+        "weird: !custom value\n~~~\n\nBody\n"
+    )
+    doc = Document.from_markdown(warn_md)
+    assert len(doc.warnings) > 0, "source document should have a parse warning"
+
+    diag = doc.warnings[0]
+    pretty = str(diag)
+    assert isinstance(pretty, str) and pretty.strip() != ""
+    assert diag.message in pretty
+    assert "Diagnostic(" in repr(diag)
+
+
+def test_document_authoring_text_helpers():
+    """Document exposes the canonical core authoring texts (WASM parity)."""
+    rules = Document.format_rules()
+    assert isinstance(rules, str) and rules.strip() != ""
+
+    hint = Document.quill_ref_hint()
+    assert isinstance(hint, str) and hint.strip() != ""
+
+    instr = Document.blueprint_instruction("taro")
+    assert isinstance(instr, str) and "taro" in instr

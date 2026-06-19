@@ -99,6 +99,10 @@ maybe    = Document.try_from_json(blob)          # None when not a DTO
 Document.schema_version_of(blob)                 # raw tag (incl. unknown futures)
 Document.current_schema_version()                # what this build writes
 
+Document.format_rules()                          # card-yaml authoring rules (static text)
+Document.quill_ref_hint()                        # $quill reference grammar (static text)
+Document.blueprint_instruction("taro")           # LLM/MCP blueprint header for a quill
+
 doc.clone()
 doc.equals(other)
 doc.card_count
@@ -138,6 +142,7 @@ try:
 except QuillmarkError as exc:
     for d in exc.diagnostics:
         print(d.severity, d.code, d.message, d.path)
+        print(str(d))   # canonical pretty-printed text (matches CLI / WASM)
 ```
 
 `EditError`-shaped failures (invalid field names, kind names, out-of-range
