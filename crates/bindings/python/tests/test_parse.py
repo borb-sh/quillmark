@@ -94,7 +94,7 @@ def test_cards_empty_when_none():
 def test_quill_ref(taro_md):
     """Test that quill_ref returns the QUILL reference, including version."""
     doc = Document.from_markdown(taro_md)
-    assert doc.quill_ref() == "taro@0.1"
+    assert doc.quill_ref == "taro@0.1"
 
 
 def test_warnings_empty_on_clean_doc(taro_md):
@@ -120,7 +120,7 @@ def test_json_dto_round_trip(taro_md):
     assert "quillmark/document@0.82.0" in dto
 
     restored = Document.from_json(dto)
-    assert restored.quill_ref() == doc.quill_ref()
+    assert restored.quill_ref == doc.quill_ref
     assert restored.to_markdown() == doc.to_markdown()
 
 
@@ -150,7 +150,7 @@ def test_try_from_json_round_trip(taro_md):
 
     restored = Document.try_from_json(dto)
     assert restored is not None
-    assert restored.quill_ref() == doc.quill_ref()
+    assert restored.quill_ref == doc.quill_ref
 
 
 def test_try_from_json_returns_none_on_markdown(taro_md):
@@ -197,7 +197,7 @@ def test_clone_preserves_state(taro_md):
     doc = Document.from_markdown(taro_md)
     cloned = doc.clone()
 
-    assert cloned.quill_ref() == doc.quill_ref()
+    assert cloned.quill_ref == doc.quill_ref
     assert cloned == doc
 
 

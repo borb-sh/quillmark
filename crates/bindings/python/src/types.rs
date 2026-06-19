@@ -301,6 +301,7 @@ impl PyDocument {
         serde_json::to_string(&self.inner).expect("Document serialization is infallible")
     }
 
+    #[getter]
     fn quill_ref(&self) -> String {
         self.inner.quill_reference().to_string()
     }
