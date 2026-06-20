@@ -17,7 +17,32 @@ internal static class Interop
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         PropertyNameCaseInsensitive = true,
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull,
+        // Don't let System.Text.Json's default depth (64) reject values the core
+        // accepts — core's nesting limit is 100 (MAX_YAML_DEPTH) and is the real
+        // boundary, enforced Rust-side with a proper diagnostic. A generous cap
+        // here keeps that the single source of truth while still guarding against
+        // pathologically deep input (which surfaces as a QuillmarkException via
+        // SerializeValue, not a raw JsonException).
+        MaxDepth = 256,
     };
+
+    /// <summary>
+    /// Serialize a user-supplied value, translating a serializer failure (a graph
+    /// deeper than <see cref="JsonSerializerOptions.MaxDepth"/>, or a cycle) into a
+    /// <see cref="QuillmarkException"/> so callers only ever see the single binding
+    /// exception type — never a raw <c>System.Text.Json.JsonException</c>.
+    /// </summary>
+    internal static string SerializeValue(object? value, string context)
+    {
+        try
+        {
+            return JsonSerializer.Serialize(value, Json);
+        }
+        catch (JsonException ex)
+        {
+            throw new QuillmarkException($"{context}: {ex.Message}");
+        }
+    }
 
     /// <summary>NUL-terminated UTF-8 bytes for passing a string into the ABI.</summary>
     internal static byte[] ToUtf8(string s)

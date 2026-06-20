@@ -123,4 +123,45 @@ public class BindingTests
         Assert.False(string.IsNullOrEmpty(Document.QuillRefHint()));
         Assert.Contains("taro", Document.BlueprintInstruction("taro"));
     }
+
+    [Fact]
+    public void Equals_Null_IsFalse()
+    {
+        using var doc = Document.FromMarkdown(Fixtures.SampleMarkdown);
+        Assert.False(doc.Equals(null));
+        Assert.False(doc.Equals((object?)null));
+        // Equal documents hash identically (consistent with Equals).
+        using var copy = doc.Clone();
+        Assert.True(doc.Equals(copy));
+        Assert.Equal(doc.GetHashCode(), copy.GetHashCode());
+    }
+
+    [Fact]
+    public void SetField_DeepValue_WithinCoreLimit_Accepted()
+    {
+        // System.Text.Json's default depth (64) must not pre-empt core's limit
+        // of 100; a value ~50 deep is valid and should round-trip.
+        using var doc = Document.FromMarkdown(Fixtures.SampleMarkdown);
+        doc.SetField("notes", BuildNested(50));
+        Assert.Contains("notes", doc.ToMarkdown());
+    }
+
+    [Fact]
+    public void SetField_DeepValue_BeyondCoreLimit_ThrowsQuillmarkException()
+    {
+        // A value past core's depth limit must surface as the single binding
+        // exception type — never a raw System.Text.Json.JsonException.
+        using var doc = Document.FromMarkdown(Fixtures.SampleMarkdown);
+        Assert.Throws<QuillmarkException>(() => doc.SetField("notes", BuildNested(200)));
+    }
+
+    private static object BuildNested(int depth)
+    {
+        object value = "x";
+        for (int i = 0; i < depth; i++)
+        {
+            value = new List<object> { value };
+        }
+        return value;
+    }
 }

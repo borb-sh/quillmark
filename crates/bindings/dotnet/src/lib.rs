@@ -40,9 +40,32 @@ use quillmark::{quill_from_path, Document, OutputFormat, Quill, Quillmark, Rende
 use quillmark_core::{Card, CardWire, Diagnostic, EditError, PayloadItemWire, RenderError};
 
 use abi::{
-    borrow_mut, borrow_ref, borrow_str, clear_error, drop_handle, set_error, set_error_message,
-    to_c_string, QmBytes,
+    borrow_mut, borrow_ref, borrow_str, clear_error, drop_handle, panic_message, set_error,
+    set_error_message, to_c_string, QmBytes,
 };
+
+/// Run a fallible entry point's body under `catch_unwind`, converting a panic
+/// into the binding's error contract (a parked diagnostic plus `$default`
+/// sentinel) instead of letting it cross the `extern "C"` boundary and abort
+/// the host process. This is the hand-rolled-FFI analogue of the panic trapping
+/// PyO3 and the WASM panic hook provide, so a backend panic surfaces to .NET as
+/// a `QuillmarkException` rather than killing the host. The body is wrapped in
+/// `unsafe` because every guarded entry point is itself `unsafe extern "C"` and
+/// dereferences caller pointers.
+macro_rules! ffi_try {
+    ($default:expr, $body:block) => {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { $body })) {
+            Ok(value) => value,
+            Err(payload) => {
+                set_error_message(format!(
+                    "internal error: panic caught at FFI boundary: {}",
+                    panic_message(payload.as_ref())
+                ));
+                $default
+            }
+        }
+    };
+}
 
 // ── Handle wrappers ─────────────────────────────────────────────────────────
 
@@ -175,37 +198,41 @@ pub unsafe extern "C" fn qm_engine_render(
     doc: *mut DocHandle,
     opts_json: *const c_char,
 ) -> *mut RenderResultHandle {
-    clear_error();
-    let (Some(engine), Some(quill), Some(doc)) =
-        (borrow_ref(engine), borrow_ref(quill), borrow_ref(doc))
-    else {
-        set_error_message("render: null engine, quill, or document handle");
-        return std::ptr::null_mut();
-    };
-
-    let opts = match parse_render_options(opts_json) {
-        Ok(o) => o,
-        Err(()) => return std::ptr::null_mut(),
-    };
-
-    let start = Instant::now();
-    let mut result = match engine.render(quill, &doc.inner, &opts) {
-        Ok(r) => r,
-        Err(e) => {
-            report_render_error(e);
+    // The Typst backend is not panic-free, so this is the entry point most
+    // likely to unwind; guard it so a backend panic becomes a QuillmarkException.
+    ffi_try!(std::ptr::null_mut(), {
+        clear_error();
+        let (Some(engine), Some(quill), Some(doc)) =
+            (borrow_ref(engine), borrow_ref(quill), borrow_ref(doc))
+        else {
+            set_error_message("render: null engine, quill, or document handle");
             return std::ptr::null_mut();
-        }
-    };
-    let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
-    // Parse-time warnings lead, mirroring the Python/WASM splice.
-    result
-        .warnings
-        .splice(0..0, doc.parse_warnings.iter().cloned());
+        };
 
-    Box::into_raw(Box::new(RenderResultHandle {
-        inner: result,
-        render_time_ms: elapsed_ms,
-    }))
+        let opts = match parse_render_options(opts_json) {
+            Ok(o) => o,
+            Err(()) => return std::ptr::null_mut(),
+        };
+
+        let start = Instant::now();
+        let mut result = match engine.render(quill, &doc.inner, &opts) {
+            Ok(r) => r,
+            Err(e) => {
+                report_render_error(e);
+                return std::ptr::null_mut();
+            }
+        };
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
+        // Parse-time warnings lead, mirroring the Python/WASM splice.
+        result
+            .warnings
+            .splice(0..0, doc.parse_warnings.iter().cloned());
+
+        Box::into_raw(Box::new(RenderResultHandle {
+            inner: result,
+            render_time_ms: elapsed_ms,
+        }))
+    })
 }
 
 unsafe fn parse_render_options(
@@ -288,18 +315,20 @@ pub unsafe extern "C" fn qm_engine_registered_backends(engine: *mut Quillmark) -
 
 #[no_mangle]
 pub unsafe extern "C" fn qm_quill_from_path(path: *const c_char) -> *mut Quill {
-    clear_error();
-    let Some(path) = borrow_str(path) else {
-        set_error_message("Quill.from_path: null or non-UTF-8 path");
-        return std::ptr::null_mut();
-    };
-    match quill_from_path(&PathBuf::from(path)) {
-        Ok(q) => Box::into_raw(Box::new(q)),
-        Err(e) => {
-            report_render_error(e);
-            std::ptr::null_mut()
+    ffi_try!(std::ptr::null_mut(), {
+        clear_error();
+        let Some(path) = borrow_str(path) else {
+            set_error_message("Quill.from_path: null or non-UTF-8 path");
+            return std::ptr::null_mut();
+        };
+        match quill_from_path(&PathBuf::from(path)) {
+            Ok(q) => Box::into_raw(Box::new(q)),
+            Err(e) => {
+                report_render_error(e);
+                std::ptr::null_mut()
+            }
         }
-    }
+    })
 }
 
 #[no_mangle]
@@ -379,38 +408,44 @@ pub unsafe extern "C" fn qm_quill_validate_json(
     quill: *mut Quill,
     doc: *mut DocHandle,
 ) -> *mut c_char {
-    clear_error();
-    let (Some(q), Some(doc)) = (borrow_ref(quill), borrow_ref(doc)) else {
-        set_error_message("validate: null handle");
-        return std::ptr::null_mut();
-    };
-    let diags = q.validate(&doc.inner);
-    match serde_json::to_string(&diags) {
-        Ok(s) => to_c_string(s),
-        Err(e) => {
-            set_error_message(format!("validate: serialization failed: {e}"));
-            std::ptr::null_mut()
+    ffi_try!(std::ptr::null_mut(), {
+        clear_error();
+        let (Some(q), Some(doc)) = (borrow_ref(quill), borrow_ref(doc)) else {
+            set_error_message("validate: null handle");
+            return std::ptr::null_mut();
+        };
+        let diags = q.validate(&doc.inner);
+        match serde_json::to_string(&diags) {
+            Ok(s) => to_c_string(s),
+            Err(e) => {
+                set_error_message(format!("validate: serialization failed: {e}"));
+                std::ptr::null_mut()
+            }
         }
-    }
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn qm_quill_seed_document(quill: *mut Quill) -> *mut DocHandle {
-    let Some(q) = borrow_ref(quill) else {
-        return std::ptr::null_mut();
-    };
-    Box::into_raw(Box::new(DocHandle {
-        inner: q.seed_document(),
-        parse_warnings: Vec::new(),
-    }))
+    ffi_try!(std::ptr::null_mut(), {
+        let Some(q) = borrow_ref(quill) else {
+            return std::ptr::null_mut();
+        };
+        Box::into_raw(Box::new(DocHandle {
+            inner: q.seed_document(),
+            parse_warnings: Vec::new(),
+        }))
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn qm_quill_seed_main_json(quill: *mut Quill) -> *mut c_char {
-    match borrow_ref(quill) {
-        Some(q) => card_to_json(&q.seed_main()),
-        None => std::ptr::null_mut(),
-    }
+    ffi_try!(std::ptr::null_mut(), {
+        match borrow_ref(quill) {
+            Some(q) => card_to_json(&q.seed_main()),
+            None => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// Card JSON for a starter composable card of `kind`, or JSON `null` when the
@@ -420,13 +455,15 @@ pub unsafe extern "C" fn qm_quill_seed_card_json(
     quill: *mut Quill,
     kind: *const c_char,
 ) -> *mut c_char {
-    let (Some(q), Some(kind)) = (borrow_ref(quill), borrow_str(kind)) else {
-        return std::ptr::null_mut();
-    };
-    match q.seed_card(kind) {
-        Some(card) => card_to_json(&card),
-        None => to_c_string("null"),
-    }
+    ffi_try!(std::ptr::null_mut(), {
+        let (Some(q), Some(kind)) = (borrow_ref(quill), borrow_str(kind)) else {
+            return std::ptr::null_mut();
+        };
+        match q.seed_card(kind) {
+            Some(card) => card_to_json(&card),
+            None => to_c_string("null"),
+        }
+    })
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -435,58 +472,64 @@ pub unsafe extern "C" fn qm_quill_seed_card_json(
 
 #[no_mangle]
 pub unsafe extern "C" fn qm_document_from_markdown(markdown: *const c_char) -> *mut DocHandle {
-    clear_error();
-    let Some(markdown) = borrow_str(markdown) else {
-        set_error_message("from_markdown: null or non-UTF-8 input");
-        return std::ptr::null_mut();
-    };
-    match Document::from_markdown_with_warnings(markdown) {
-        Ok(output) => Box::into_raw(Box::new(DocHandle {
-            inner: output.document,
-            parse_warnings: output.warnings,
-        })),
-        Err(e) => {
-            let diag = e.to_diagnostic();
-            set_error(vec![diag.clone()], diag.message);
-            std::ptr::null_mut()
+    ffi_try!(std::ptr::null_mut(), {
+        clear_error();
+        let Some(markdown) = borrow_str(markdown) else {
+            set_error_message("from_markdown: null or non-UTF-8 input");
+            return std::ptr::null_mut();
+        };
+        match Document::from_markdown_with_warnings(markdown) {
+            Ok(output) => Box::into_raw(Box::new(DocHandle {
+                inner: output.document,
+                parse_warnings: output.warnings,
+            })),
+            Err(e) => {
+                let diag = e.to_diagnostic();
+                set_error(vec![diag.clone()], diag.message);
+                std::ptr::null_mut()
+            }
         }
-    }
+    })
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn qm_document_from_json(json: *const c_char) -> *mut DocHandle {
-    clear_error();
-    let Some(json) = borrow_str(json) else {
-        set_error_message("from_json: null or non-UTF-8 input");
-        return std::ptr::null_mut();
-    };
-    match serde_json::from_str::<Document>(json) {
-        Ok(inner) => Box::into_raw(Box::new(DocHandle {
-            inner,
-            parse_warnings: Vec::new(),
-        })),
-        Err(e) => {
-            set_error_message(format!("invalid storage DTO: {e}"));
-            std::ptr::null_mut()
+    ffi_try!(std::ptr::null_mut(), {
+        clear_error();
+        let Some(json) = borrow_str(json) else {
+            set_error_message("from_json: null or non-UTF-8 input");
+            return std::ptr::null_mut();
+        };
+        match serde_json::from_str::<Document>(json) {
+            Ok(inner) => Box::into_raw(Box::new(DocHandle {
+                inner,
+                parse_warnings: Vec::new(),
+            })),
+            Err(e) => {
+                set_error_message(format!("invalid storage DTO: {e}"));
+                std::ptr::null_mut()
+            }
         }
-    }
+    })
 }
 
 /// Like `from_json` but returns null (with **no** pending error) when `json`
 /// is not a storage DTO. Matches `PyDocument.try_from_json`.
 #[no_mangle]
 pub unsafe extern "C" fn qm_document_try_from_json(json: *const c_char) -> *mut DocHandle {
-    clear_error();
-    let Some(json) = borrow_str(json) else {
-        return std::ptr::null_mut();
-    };
-    match serde_json::from_str::<Document>(json) {
-        Ok(inner) => Box::into_raw(Box::new(DocHandle {
-            inner,
-            parse_warnings: Vec::new(),
-        })),
-        Err(_) => std::ptr::null_mut(),
-    }
+    ffi_try!(std::ptr::null_mut(), {
+        clear_error();
+        let Some(json) = borrow_str(json) else {
+            return std::ptr::null_mut();
+        };
+        match serde_json::from_str::<Document>(json) {
+            Ok(inner) => Box::into_raw(Box::new(DocHandle {
+                inner,
+                parse_warnings: Vec::new(),
+            })),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
 }
 
 /// The `schema` version tag of a raw DTO string as JSON (a string or `null`).
@@ -614,11 +657,20 @@ pub unsafe extern "C" fn qm_document_to_markdown(doc: *mut DocHandle) -> *mut c_
 
 #[no_mangle]
 pub unsafe extern "C" fn qm_document_to_json(doc: *mut DocHandle) -> *mut c_char {
-    match borrow_ref(doc) {
-        Some(doc) => to_c_string(
-            serde_json::to_string(&doc.inner).expect("Document serialization is infallible"),
-        ),
-        None => std::ptr::null_mut(),
+    clear_error();
+    let Some(doc) = borrow_ref(doc) else {
+        set_error_message("to_json: null handle");
+        return std::ptr::null_mut();
+    };
+    // Document serialization is infallible in practice; surface the
+    // theoretical error as a QuillmarkException rather than panicking across
+    // the FFI boundary.
+    match serde_json::to_string(&doc.inner) {
+        Ok(s) => to_c_string(s),
+        Err(e) => {
+            set_error_message(format!("to_json: serialization failed: {e}"));
+            std::ptr::null_mut()
+        }
     }
 }
 

@@ -52,6 +52,18 @@ pub(crate) fn clear_error() {
     LAST_ERROR.with(|slot| *slot.borrow_mut() = None);
 }
 
+/// Extract a human-readable message from a `catch_unwind` payload (the common
+/// `&str` / `String` panic shapes), falling back to a generic label.
+pub(crate) fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "panic".to_string()
+    }
+}
+
 /// Drain the pending error payload, transferring ownership to the caller (free
 /// with [`qm_free_string`]). Null when no error is pending.
 #[no_mangle]

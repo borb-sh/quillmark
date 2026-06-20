@@ -41,7 +41,7 @@ public sealed class Card
     [JsonPropertyName("payloadItems")] public List<PayloadItem> PayloadItems { get; set; } = new();
     [JsonPropertyName("body")] public string Body { get; set; } = "";
 
-    internal string ToJson() => JsonSerializer.Serialize(this, Interop.Json);
+    internal string ToJson() => Interop.SerializeValue(this, "card");
 
     internal static Card FromJson(string json) =>
         JsonSerializer.Deserialize<Card>(json, Interop.Json)!;

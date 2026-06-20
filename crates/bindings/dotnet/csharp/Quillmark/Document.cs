@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Text.Json;
 using System.Text.Json.Nodes;
 
 namespace Quillmark;
@@ -11,7 +10,7 @@ namespace Quillmark;
 /// for the card model, and the full mutator surface. Field values cross the
 /// boundary as JSON, so any <see cref="JsonNode"/> / scalar may be passed.
 /// </summary>
-public sealed class Document : NativeObject
+public sealed class Document : NativeObject, IEquatable<Document>
 {
     internal Document(IntPtr handle) : base(handle)
     {
@@ -67,7 +66,7 @@ public sealed class Document : NativeObject
     public static Card MakeCard(string kind, IReadOnlyDictionary<string, object?>? fields = null,
         string? body = null)
     {
-        string? fieldsJson = fields is null ? null : JsonSerializer.Serialize(fields, Interop.Json);
+        string? fieldsJson = fields is null ? null : Interop.SerializeValue(fields, "make_card");
         string json = Interop.CallString(
             NativeMethods.qm_document_make_card_json(
                 Interop.ToUtf8(kind), Interop.ToUtf8OrNull(fieldsJson), Interop.ToUtf8OrNull(body)),
@@ -81,9 +80,18 @@ public sealed class Document : NativeObject
     public Document Clone() =>
         new(Interop.CallHandle(NativeMethods.qm_document_clone(Handle), "clone"));
 
-    /// <summary>Structural equality (parse warnings excluded).</summary>
-    public bool Equals(Document other)
+    /// <summary>Structural equality (parse warnings excluded). A null other is
+    /// never equal, mirroring the Python binding's <c>__eq__</c>.</summary>
+    public bool Equals(Document? other)
     {
+        if (other is null)
+        {
+            return false;
+        }
+        if (ReferenceEquals(this, other))
+        {
+            return true;
+        }
         int r = NativeMethods.qm_document_equals(Handle, other.Handle);
         return r switch
         {
@@ -92,6 +100,12 @@ public sealed class Document : NativeObject
             _ => throw new QuillmarkException("equals: null handle"),
         };
     }
+
+    public override bool Equals(object? obj) => obj is Document other && Equals(other);
+
+    /// <summary>Consistent with <see cref="Equals(Document)"/>: equal documents
+    /// serialize to byte-identical storage JSON, so they hash identically.</summary>
+    public override int GetHashCode() => ToJson().GetHashCode();
 
     /// <summary>Emit canonical Quillmark Markdown. Round-trip safe.</summary>
     public string ToMarkdown() =>
@@ -261,13 +275,8 @@ public sealed class Document : NativeObject
     // ── Marshaling helpers ──────────────────────────────────────────────────
 
     private static byte[] ValueJson(object? value) =>
-        Interop.ToUtf8(JsonSerializer.Serialize(value, Interop.Json));
+        Interop.ToUtf8(Interop.SerializeValue(value, "value"));
 
-    private static byte[] ObjectJson(IReadOnlyDictionary<string, object?> map, string context)
-    {
-        // A dictionary always serializes to a JSON object; the Rust side
-        // re-validates and rejects non-objects, so context is for symmetry.
-        _ = context;
-        return Interop.ToUtf8(JsonSerializer.Serialize(map, Interop.Json));
-    }
+    private static byte[] ObjectJson(IReadOnlyDictionary<string, object?> map, string context) =>
+        Interop.ToUtf8(Interop.SerializeValue(map, context));
 }
