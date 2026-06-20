@@ -101,9 +101,26 @@ export interface QuillMetadata {
 /// by `pushCard` / `insertCard` / `Document.makeCard`.
 #[wasm_bindgen(typescript_custom_section)]
 const CARD_TS: &'static str = r#"
+/**
+ * A path to a value nested inside a field `value`: `string` keys and
+ * `number` array indices, e.g. `["addr", "street"]` or `["recipients", 0, "name"]`.
+ */
+export type PathStep = string | number;
+
 /** A field or comment entry in a `Card.payloadItems` list. */
 export type PayloadItem =
-    | { type: "field"; key: string; value: unknown; fill?: boolean }
+    | {
+          type: "field";
+          key: string;
+          value: unknown;
+          fill?: boolean;
+          /**
+           * Paths to `!must_fill` markers nested *inside* `value` (the `value`
+           * projection itself is fill-free). Absent when the field has no nested
+           * placeholders. Preserved across `pushCard` / `makeCard`.
+           */
+          nestedFills?: PathStep[][];
+      }
     | { type: "comment"; text: string; inline?: boolean };
 
 /**
@@ -818,6 +835,7 @@ impl Document {
                 key,
                 value,
                 fill: false,
+                nested_fills: Vec::new(),
             })
             .collect();
         let wire = quillmark_core::CardWire {

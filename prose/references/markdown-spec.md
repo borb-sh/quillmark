@@ -242,11 +242,16 @@ data payload.
   the value tree and survive markdown, live-wire, and storage round-trips.
   `!must_fill` may be applied to scalars (string, integer, float, bool, null)
   and sequences; it is rejected on a mapping (tag the leaves, not the
-  container). `!must_fill` may not be applied to a `$` metadata key. The older
-  spelling `!fill` is accepted as a deprecated input alias and normalised to
-  `!must_fill` on emit. Any other custom tag (`!include`, `!env`, …) is
-  dropped with a `parse::unsupported_yaml_tag` warning; the scalar value is
-  kept but the tag does not round-trip.
+  container). `!must_fill` may not be applied to a `$` metadata key. The marker
+  is preserved only in **block style** — `key: !must_fill` at any depth. A
+  marker written inside a **flow collection** (`{…}` / `[…]`) or on a **bare
+  sequence element** (`- !must_fill`) cannot be round-tripped and is reported
+  with a `parse::fill_marker_unsupported_position` warning (the value is kept,
+  the marker is not); markers under YAML **anchors/merge keys** are likewise
+  not preserved. The older spelling `!fill` is accepted as a deprecated input
+  alias and normalised to `!must_fill` on emit. Any other custom tag
+  (`!include`, `!env`, …) is dropped with a `parse::unsupported_yaml_tag`
+  warning; the scalar value is kept but the tag does not round-trip.
 
 ### 3.5 Version Selectors
 

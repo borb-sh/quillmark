@@ -198,6 +198,43 @@ fn legacy_fill_alias_normalizes_to_must_fill() {
     );
 }
 
+/// `!must_fill` in a position prescan cannot lift — inside a flow collection
+/// or on a bare sequence element — would be silently dropped by the YAML
+/// parser, so it is reported with a warning rather than lost quietly.
+/// Block-style nested markers (the supported form) do not warn.
+#[test]
+fn unsupported_fill_position_warns_not_silently_dropped() {
+    let code = "parse::fill_marker_unsupported_position";
+    let warns = |src: &str| {
+        Document::from_markdown_with_warnings(src)
+            .unwrap()
+            .warnings
+            .iter()
+            .any(|w| w.code.as_deref() == Some(code))
+    };
+
+    // Flow collection containing a marker.
+    assert!(
+        warns("~~~card-yaml\n$quill: q\n$kind: main\naddr: {street: !must_fill, city: x}\n~~~\n"),
+        "flow-collection marker must warn"
+    );
+    // Bare sequence element.
+    assert!(
+        warns("~~~card-yaml\n$quill: q\n$kind: main\ntags:\n  - !must_fill\n  - a\n~~~\n"),
+        "bare sequence-element marker must warn"
+    );
+    // Supported block-style nested marker must NOT warn.
+    assert!(
+        !warns("~~~card-yaml\n$quill: q\n$kind: main\naddr:\n  street: !must_fill\n  city: x\n~~~\n"),
+        "block-style nested marker must not warn"
+    );
+    // A quoted scalar that merely contains the literal text must NOT warn.
+    assert!(
+        !warns("~~~card-yaml\n$quill: q\n$kind: main\nnote: \"see !must_fill docs\"\n~~~\n"),
+        "quoted literal must not warn"
+    );
+}
+
 /// `!must_fill` on a nested mapping leaf is captured on that leaf's tree
 /// node and round-trips at the correct depth.
 #[test]

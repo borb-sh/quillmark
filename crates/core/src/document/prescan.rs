@@ -400,8 +400,63 @@ pub fn prescan_fence_content(content: &str) -> PreScan {
         cleaned_lines.push(line.to_string());
     }
 
+    // Catch-all: prescan lifts every `!must_fill` it can preserve (block-style
+    // `key: !must_fill` and `- key: !must_fill`), stripping the tag from the
+    // cleaned text. Any tag that survives here sits in a position we cannot
+    // round-trip — inside a flow collection (`{…}` / `[…]`) or on a bare
+    // sequence element — where serde_saphyr would silently drop it. Warn rather
+    // than lose the marker quietly.
+    if cleaned_lines.iter().any(|l| line_has_unsupported_fill_tag(l)) {
+        out.warnings.push(
+            Diagnostic::new(
+                Severity::Warning,
+                "a `!must_fill` marker appears in a flow collection or on a bare \
+                 sequence element and is not preserved; use block style \
+                 (`key: !must_fill`) to mark a placeholder"
+                    .to_string(),
+            )
+            .with_code("parse::fill_marker_unsupported_position".to_string()),
+        );
+    }
+
     out.cleaned_yaml = cleaned_lines.join("\n");
     out
+}
+
+/// True when `line` still carries a `!must_fill` / `!fill` tag in a value or
+/// element position that prescan could not lift. Block-style markers are
+/// stripped before this runs, so a survivor means an unsupported position.
+/// The boundary checks keep a quoted scalar that merely contains the literal
+/// text (e.g. `note: "see !must_fill"`) from matching.
+fn line_has_unsupported_fill_tag(line: &str) -> bool {
+    for tag in FILL_TAGS {
+        let mut from = 0;
+        while let Some(rel) = line[from..].find(tag) {
+            let at = from + rel;
+            let after = at + tag.len();
+            // Trailing boundary: a real tag ends at whitespace, flow
+            // punctuation, or end of line — not mid-word (`!fillet`).
+            let trailing_ok = line[after..]
+                .chars()
+                .next()
+                .is_none_or(|c| c.is_whitespace() || matches!(c, ',' | '}' | ']'));
+            // Leading boundary: the tag sits in value/element position —
+            // directly after `{` / `[` / `,`, or after whitespace following
+            // `:` / `-` / `,` / `{` / `[`.
+            let before = line[..at].trim_end_matches([' ', '\t']);
+            let had_ws = before.len() != at;
+            let leading_ok = match before.chars().last() {
+                Some('{') | Some('[') | Some(',') => true,
+                Some(':') | Some('-') => had_ws,
+                _ => false,
+            };
+            if trailing_ok && leading_ok {
+                return true;
+            }
+            from = after;
+        }
+    }
+    false
 }
 
 /// Return the index of the deepest frame matching `indent` and `kind`,
