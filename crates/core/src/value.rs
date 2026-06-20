@@ -46,6 +46,66 @@ enum Kind {
     Object(IndexMap<String, Node>),
 }
 
+/// One step of a path into a value tree: an object key or an array index.
+///
+/// This is the canonical path-segment type for the whole crate; the document
+/// layer aliases it as `CommentPathSegment` for nested-comment paths.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum PathSegment {
+    Key(String),
+    Index(usize),
+}
+
+fn collect_fill_paths(node: &Node, prefix: &mut Vec<PathSegment>, out: &mut Vec<Vec<PathSegment>>) {
+    if node.fill {
+        out.push(prefix.clone());
+    }
+    match &node.kind {
+        Kind::Array(items) => {
+            for (i, child) in items.iter().enumerate() {
+                prefix.push(PathSegment::Index(i));
+                collect_fill_paths(child, prefix, out);
+                prefix.pop();
+            }
+        }
+        Kind::Object(entries) => {
+            for (k, child) in entries {
+                prefix.push(PathSegment::Key(k.clone()));
+                collect_fill_paths(child, prefix, out);
+                prefix.pop();
+            }
+        }
+        _ => {}
+    }
+}
+
+fn node_at_mut<'a>(node: &'a mut Node, path: &[PathSegment]) -> Option<&'a mut Node> {
+    let mut cur = node;
+    for seg in path {
+        cur = match (&mut cur.kind, seg) {
+            (Kind::Object(entries), PathSegment::Key(k)) => entries.get_mut(k)?,
+            (Kind::Array(items), PathSegment::Index(i)) => items.get_mut(*i)?,
+            _ => return None,
+        };
+    }
+    Some(cur)
+}
+
+fn node_is_object(node: &Node, path: &[PathSegment]) -> bool {
+    fn at<'a>(node: &'a Node, path: &[PathSegment]) -> Option<&'a Node> {
+        let mut cur = node;
+        for seg in path {
+            cur = match (&cur.kind, seg) {
+                (Kind::Object(entries), PathSegment::Key(k)) => entries.get(k)?,
+                (Kind::Array(items), PathSegment::Index(i)) => items.get(*i)?,
+                _ => return None,
+            };
+        }
+        Some(cur)
+    }
+    matches!(at(node, path).map(|n| &n.kind), Some(Kind::Object(_)))
+}
+
 impl Node {
     fn from_json(value: &JsonValue) -> Node {
         let kind = match value {
@@ -190,6 +250,35 @@ impl QuillValue {
     /// Does not invalidate the JSON projection: `fill` is never part of it.
     pub fn set_fill(&mut self, fill: bool) {
         self.node.fill = fill;
+    }
+
+    /// Paths (relative to this value's root) of every node carrying the
+    /// `!must_fill` marker. The root, if filled, is reported as the empty
+    /// path. The JSON projection carries no fill, so this is the only way to
+    /// observe nested fill markers.
+    pub fn fill_paths(&self) -> Vec<Vec<PathSegment>> {
+        let mut out = Vec::new();
+        let mut prefix = Vec::new();
+        collect_fill_paths(&self.node, &mut prefix, &mut out);
+        out
+    }
+
+    /// Set `fill = true` on the node at `path` (relative to the root).
+    /// Returns `false` if the path does not resolve to a node.
+    pub fn set_fill_at(&mut self, path: &[PathSegment]) -> bool {
+        match node_at_mut(&mut self.node, path) {
+            Some(n) => {
+                n.fill = true;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// Whether the node at `path` (relative to the root) is a mapping.
+    /// Used to reject `!must_fill` on object-valued nodes.
+    pub fn is_object_at(&self, path: &[PathSegment]) -> bool {
+        node_is_object(&self.node, path)
     }
 }
 

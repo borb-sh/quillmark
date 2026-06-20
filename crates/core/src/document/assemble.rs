@@ -28,7 +28,7 @@ use crate::Diagnostic;
 use super::fences::find_metadata_blocks;
 use super::meta::{extract_meta_items, meta_key};
 use super::payload::{Payload, PayloadItem};
-use super::prescan::{prescan_fence_content, NestedComment, PreItem};
+use super::prescan::{prescan_fence_content, CommentPathSegment, NestedComment, PreItem};
 use super::{Card, Document};
 
 /// Build a `MissingQuill` message that names the specific malformation when
@@ -88,6 +88,8 @@ pub(super) struct MetadataBlock {
     pub(super) pre_items: Vec<PreItem>,
     /// Pre-scan nested comments (with structural paths).
     pub(super) pre_nested_comments: Vec<NestedComment>,
+    /// Pre-scan nested `!must_fill` paths (rooted at the owning top-level key).
+    pub(super) pre_nested_fills: Vec<Vec<CommentPathSegment>>,
     /// Pre-scan warnings (unknown-tag strips, ...).
     pub(super) pre_warnings: Vec<Diagnostic>,
 }
@@ -179,6 +181,7 @@ pub(super) fn build_block(
         meta_items,
         pre_items: pre.items,
         pre_nested_comments: pre.nested_comments,
+        pre_nested_fills: pre.nested_fills,
         pre_warnings: pre.warnings,
     })
 }
@@ -265,6 +268,7 @@ pub(super) fn decompose_with_warnings(
         &root_block.meta_items,
         &root_block.pre_items,
         &root_block.pre_nested_comments,
+        &root_block.pre_nested_fills,
         &root_block.yaml_value,
     )?;
     if main_payload.kind().is_none() {
@@ -327,6 +331,7 @@ pub(super) fn decompose_with_warnings(
             &block.meta_items,
             &block.pre_items,
             &block.pre_nested_comments,
+            &block.pre_nested_fills,
             &block.yaml_value,
         )
         .map_err(|e| match e {
@@ -391,6 +396,7 @@ fn build_payload(
     meta_items: &[PayloadItem],
     pre_items: &[PreItem],
     pre_nested_comments: &[NestedComment],
+    pre_nested_fills: &[Vec<CommentPathSegment>],
     yaml_value: &Option<serde_json::Value>,
 ) -> Result<Payload, ParseError> {
     let mapping = match yaml_value {
@@ -445,9 +451,11 @@ fn build_payload(
                         )));
                     }
                     validate_parsed_field(key, &value)?;
+                    let mut qv = QuillValue::from_json(value);
+                    apply_nested_fills(key, &mut qv, pre_nested_fills)?;
                     items.push(PayloadItem::Field {
                         key: key.clone(),
-                        value: QuillValue::from_json(value),
+                        value: qv,
                         fill: *fill,
                         nested_comments: Vec::new(),
                     });
@@ -474,9 +482,11 @@ fn build_payload(
             continue;
         }
         validate_parsed_field(key, value)?;
+        let mut qv = QuillValue::from_json(value.clone());
+        apply_nested_fills(key, &mut qv, pre_nested_fills)?;
         items.push(PayloadItem::Field {
             key: key.clone(),
-            value: QuillValue::from_json(value.clone()),
+            value: qv,
             fill: false,
             nested_comments: Vec::new(),
         });
@@ -488,4 +498,53 @@ fn build_payload(
         items,
         pre_nested_comments.to_vec(),
     ))
+}
+
+/// Apply the nested `!must_fill` markers rooted at `key` onto `value`'s tree.
+///
+/// Paths in `pre_nested_fills` are rooted at the owning top-level key; the
+/// first segment is stripped and the remainder addresses a node within
+/// `value`. `!must_fill` on a mapping node is rejected, mirroring the
+/// top-level rule.
+fn apply_nested_fills(
+    key: &str,
+    value: &mut QuillValue,
+    pre_nested_fills: &[Vec<CommentPathSegment>],
+) -> Result<(), ParseError> {
+    for path in pre_nested_fills {
+        let Some((CommentPathSegment::Key(first), rest)) = path.split_first() else {
+            continue;
+        };
+        if first != key {
+            continue;
+        }
+        if value.is_object_at(rest) {
+            return Err(ParseError::InvalidStructure(format!(
+                "`!must_fill` on `{}` targets a mapping; `!must_fill` is supported on scalars and sequences only",
+                render_path(path)
+            )));
+        }
+        value.set_fill_at(rest);
+    }
+    Ok(())
+}
+
+/// Render a structural path as a dotted/bracketed string for diagnostics,
+/// e.g. `addr.street` or `recipients[0].name`.
+fn render_path(path: &[CommentPathSegment]) -> String {
+    let mut out = String::new();
+    for seg in path {
+        match seg {
+            CommentPathSegment::Key(k) => {
+                if !out.is_empty() {
+                    out.push('.');
+                }
+                out.push_str(k);
+            }
+            CommentPathSegment::Index(i) => {
+                out.push_str(&format!("[{}]", i));
+            }
+        }
+    }
+    out
 }

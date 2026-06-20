@@ -38,11 +38,10 @@ pub enum PreItem {
 }
 
 /// One segment of a path into the parsed YAML structure.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum CommentPathSegment {
-    Key(String),
-    Index(usize),
-}
+///
+/// Aliased to the crate-wide [`crate::value::PathSegment`] so prescan,
+/// emit, and the value tree all speak one path type.
+pub use crate::value::PathSegment as CommentPathSegment;
 
 /// A comment inside a nested mapping or sequence.
 ///
@@ -67,6 +66,10 @@ pub struct PreScan {
     /// Top-level fields and comments in source order.
     pub items: Vec<PreItem>,
     pub nested_comments: Vec<NestedComment>,
+    /// Paths of nested fields tagged `!must_fill`, relative to the fence root
+    /// (the first segment is the owning top-level key). Applied onto the
+    /// value tree by the assembler. Top-level fills ride on `PreItem::Field`.
+    pub nested_fills: Vec<Vec<CommentPathSegment>>,
     pub warnings: Vec<Diagnostic>,
     /// `!must_fill` on mappings — turned into `ParseError::InvalidStructure` by the parser.
     pub fill_target_errors: Vec<String>,
@@ -307,20 +310,44 @@ pub fn prescan_fence_content(content: &str) -> PreScan {
             }
 
             let (value_part, trailing_comment) = split_trailing_comment(&after_colon);
-            if let Some(c) = trailing_comment {
-                out.nested_comments.push(NestedComment {
-                    container_path: parent_path,
-                    position: key_index,
-                    text: strip_comment_marker(&c).to_string(),
-                    inline: true,
-                });
+
+            let (fill, value_without_tag, had_non_fill_tag, fill_target_err) =
+                inspect_fill_and_tags(&value_part, &key);
+            if had_non_fill_tag {
+                out.warnings.push(
+                    Diagnostic::new(
+                        Severity::Warning,
+                        format!(
+                            "YAML tag on key `{}` is not supported; the tag has been dropped and the value kept",
+                            key
+                        ),
+                    )
+                    .with_code("parse::unsupported_yaml_tag".to_string()),
+                );
+            }
+            if let Some(err) = fill_target_err {
+                out.fill_target_errors.push(err);
+            }
+            if fill {
+                out.nested_fills.push(key_path.clone());
+            }
+
+            if trailing_comment.is_some() || fill {
+                if let Some(c) = trailing_comment {
+                    out.nested_comments.push(NestedComment {
+                        container_path: parent_path,
+                        position: key_index,
+                        text: strip_comment_marker(&c).to_string(),
+                        inline: true,
+                    });
+                }
                 let head = format!("{:width$}", "", width = indent);
-                cleaned_lines.push(format!("{}{}:{}", head, key, value_part));
+                cleaned_lines.push(format!("{}{}:{}", head, key, value_without_tag));
             } else {
                 cleaned_lines.push(line.to_string());
             }
 
-            if has_empty_inline_value(&after_colon) {
+            if has_empty_inline_value(&value_without_tag) {
                 stack.push(Frame {
                     indent: indent + 2,
                     path: key_path,
@@ -329,7 +356,7 @@ pub fn prescan_fence_content(content: &str) -> PreScan {
                 });
             }
 
-            if is_block_scalar_header(&value_part) {
+            if is_block_scalar_header(&value_without_tag) {
                 block_scalar_indent = Some(indent);
             }
             continue;

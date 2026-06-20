@@ -198,6 +198,54 @@ fn legacy_fill_alias_normalizes_to_must_fill() {
     );
 }
 
+/// `!must_fill` on a nested mapping leaf is captured on that leaf's tree
+/// node and round-trips at the correct depth.
+#[test]
+fn nested_must_fill_round_trips() {
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\naddr:\n  street: !must_fill\n  city: Springfield\n~~~\n";
+    let doc = Document::from_markdown(src).unwrap();
+
+    let fm = doc.main().payload();
+    let addr = fm.get("addr").unwrap();
+    assert!(
+        addr.get("street").unwrap().fill(),
+        "nested `street` must carry the fill marker"
+    );
+    assert!(!addr.get("city").unwrap().fill(), "`city` must not");
+    assert_eq!(addr.get("city").unwrap().as_str(), Some("Springfield"));
+    // The marker is on the leaf node, not the parent object.
+    assert!(!addr.fill());
+
+    let emitted = doc.to_markdown();
+    assert!(
+        emitted.contains("street: !must_fill") && emitted.contains("city: Springfield"),
+        "nested fill must round-trip at depth\nGot:\n{}",
+        emitted
+    );
+
+    let doc2 = Document::from_markdown(&emitted).unwrap();
+    assert!(doc2
+        .main()
+        .payload()
+        .get("addr")
+        .unwrap()
+        .get("street")
+        .unwrap()
+        .fill());
+}
+
+/// `!must_fill` on a nested mapping (object-valued node) is rejected, the
+/// same as at the top level.
+#[test]
+fn nested_must_fill_on_mapping_is_rejected() {
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\nouter:\n  inner: !must_fill\n    leaf: 1\n~~~\n";
+    let err = Document::from_markdown(src);
+    assert!(
+        err.is_err(),
+        "`!must_fill` on an object-valued nested key must be rejected"
+    );
+}
+
 /// `!must_fill` on a bare key (no value) emits `key: !must_fill` and preserves null.
 #[test]
 fn fill_tag_bare_null_round_trip() {
