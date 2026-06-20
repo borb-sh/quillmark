@@ -12,11 +12,13 @@
 //!    ordinal indicating where in the container they sit. The emitter
 //!    re-injects them at the matching position. See [`NestedComment`].
 //!
-//! 3. **`!fill` tags.** Custom YAML tags are accepted and dropped by
+//! 3. **`!must_fill` tags.** Custom YAML tags are accepted and dropped by
 //!    serde_saphyr; the value survives but the tag annotation is lost. We
-//!    detect `!fill` on top-level scalar fields, strip the tag from the
+//!    detect `!must_fill` on top-level scalar fields, strip the tag from the
 //!    cleaned YAML (so serde_saphyr sees a plain scalar), and record a
-//!    `fill: true` marker on the resulting `Field` item.
+//!    `fill: true` marker on the resulting `Field` item. The legacy spelling
+//!    `!fill` is accepted as a deprecated alias and normalized to
+//!    `!must_fill` on emit.
 //!
 //! Other custom tags (`!include`, `!env`, …) are stripped with a
 //! `parse::unsupported_yaml_tag` warning.
@@ -60,13 +62,13 @@ pub struct NestedComment {
 /// Output of [`prescan_fence_content`].
 #[derive(Debug, Clone, Default)]
 pub struct PreScan {
-    /// YAML with `!fill` tags stripped and comment lines removed; fed to serde_saphyr.
+    /// YAML with `!must_fill` tags stripped and comment lines removed; fed to serde_saphyr.
     pub cleaned_yaml: String,
     /// Top-level fields and comments in source order.
     pub items: Vec<PreItem>,
     pub nested_comments: Vec<NestedComment>,
     pub warnings: Vec<Diagnostic>,
-    /// `!fill` on mappings — turned into `ParseError::InvalidStructure` by the parser.
+    /// `!must_fill` on mappings — turned into `ParseError::InvalidStructure` by the parser.
     pub fill_target_errors: Vec<String>,
 }
 
@@ -526,10 +528,32 @@ fn split_flow_trailing_comment(value: &str) -> (String, Option<String>) {
     (value.to_string(), None)
 }
 
-/// Inspect a field value for `!fill` and other tags.
+/// Fill tags, in canonical-first order. `!fill` is a deprecated alias for
+/// `!must_fill`; both are accepted on input and normalized to `!must_fill`
+/// on emit.
+const FILL_TAGS: [&str; 2] = ["!must_fill", "!fill"];
+
+/// If `trimmed` begins with a fill tag (either the bare tag or the tag
+/// followed by whitespace), return the remainder after the tag. A tag that
+/// is merely a prefix of a longer word (e.g. `!fillet`) does not match.
+fn strip_fill_tag(trimmed: &str) -> Option<&str> {
+    for tag in FILL_TAGS {
+        if trimmed == tag {
+            return Some("");
+        }
+        if let Some(rest) = trimmed.strip_prefix(tag) {
+            if rest.starts_with(' ') || rest.starts_with('\t') {
+                return Some(rest);
+            }
+        }
+    }
+    None
+}
+
+/// Inspect a field value for `!must_fill` (or the `!fill` alias) and other tags.
 ///
 /// Returns `(fill, value_without_tag, had_other_tag, fill_target_err)`.
-/// `fill_target_err` is set when `!fill` targets a mapping (rejected;
+/// `fill_target_err` is set when the fill tag targets a mapping (rejected;
 /// scalars and sequences are allowed).
 fn inspect_fill_and_tags(value: &str, key: &str) -> (bool, String, bool, Option<String>) {
     let trimmed = value.trim_start();
@@ -539,29 +563,22 @@ fn inspect_fill_and_tags(value: &str, key: &str) -> (bool, String, bool, Option<
         return (false, value.to_string(), false, None);
     }
 
-    if trimmed == "!fill" {
-        let reconstructed = value[..leading_ws_len].to_string();
-        return (true, reconstructed, false, None);
-    }
-
-    if let Some(rest) = trimmed.strip_prefix("!fill") {
-        if rest.starts_with(' ') || rest.starts_with('\t') || rest.is_empty() {
-            let rest_trim = rest.trim_start();
-            let err = if rest_trim.starts_with('{') {
-                Some(format!(
-                    "`!fill` on key `{}` targets a mapping; `!fill` is supported on scalars and sequences only",
-                    key
-                ))
-            } else {
-                None
-            };
-            let reconstructed = if rest_trim.is_empty() {
-                value[..leading_ws_len].to_string()
-            } else {
-                format!(" {}", rest_trim)
-            };
-            return (true, reconstructed, false, err);
-        }
+    if let Some(rest) = strip_fill_tag(trimmed) {
+        let rest_trim = rest.trim_start();
+        let err = if rest_trim.starts_with('{') {
+            Some(format!(
+                "`!must_fill` on key `{}` targets a mapping; `!must_fill` is supported on scalars and sequences only",
+                key
+            ))
+        } else {
+            None
+        };
+        let reconstructed = if rest_trim.is_empty() {
+            value[..leading_ws_len].to_string()
+        } else {
+            format!(" {}", rest_trim)
+        };
+        return (true, reconstructed, false, err);
     }
 
     if trimmed.starts_with('!') {
@@ -651,6 +668,50 @@ mod tests {
             }]
         );
         assert!(!out.cleaned_yaml.contains("!fill"));
+    }
+
+    #[test]
+    fn detects_must_fill_on_scalar() {
+        let input = "dept: !must_fill Department\n";
+        let out = prescan_fence_content(input);
+        assert_eq!(
+            out.items,
+            vec![PreItem::Field {
+                key: "dept".to_string(),
+                fill: true,
+            }]
+        );
+        assert!(out.cleaned_yaml.contains("dept: Department"));
+        assert!(!out.cleaned_yaml.contains("!must_fill"));
+        assert!(!out.cleaned_yaml.contains("!fill"));
+    }
+
+    #[test]
+    fn detects_bare_must_fill() {
+        let input = "dept: !must_fill\n";
+        let out = prescan_fence_content(input);
+        assert_eq!(
+            out.items,
+            vec![PreItem::Field {
+                key: "dept".to_string(),
+                fill: true,
+            }]
+        );
+        assert!(!out.cleaned_yaml.contains("!must_fill"));
+    }
+
+    #[test]
+    fn fillet_is_not_a_fill_tag() {
+        // A tag that merely starts with `!fill` must not be treated as fill.
+        let input = "x: !fillet value\n";
+        let out = prescan_fence_content(input);
+        assert_eq!(
+            out.items,
+            vec![PreItem::Field {
+                key: "x".to_string(),
+                fill: false,
+            }]
+        );
     }
 
     #[test]

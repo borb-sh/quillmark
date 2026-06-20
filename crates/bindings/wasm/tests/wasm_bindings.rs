@@ -157,7 +157,7 @@ fn test_to_markdown_round_trip() {
 /// round-trips it back to an equal `Document`.
 #[wasm_bindgen_test]
 fn test_json_dto_round_trip() {
-    let md = "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Hello\nsubject: !fill A Subject\n~~~\n\n# Hello\n\n~~~card-yaml\n$kind: note\nfor: someone\n~~~\n\nNote body.\n";
+    let md = "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Hello\nsubject: !must_fill A Subject\n~~~\n\n# Hello\n\n~~~card-yaml\n$kind: note\nfor: someone\n~~~\n\nNote body.\n";
     let doc = Document::from_markdown(md).expect("fromMarkdown failed");
 
     // toJson yields a string carrying the schema version.

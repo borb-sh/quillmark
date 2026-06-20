@@ -162,19 +162,19 @@ title: My Document  # an inline comment
 Comments adjacent to `$` metadata keys — own-line or inline — round-trip
 identically to comments on data fields.
 
-## Placeholder Fields (`!fill`)
+## Placeholder Fields (`!must_fill`)
 
-A top-level field tagged `!fill` marks the value as a placeholder awaiting
+A top-level field tagged `!must_fill` marks the value as a placeholder awaiting
 input. The tag round-trips through parsing and emit, so editors and bindings
 can detect and update placeholders without losing them.
 
 ```yaml
-recipient: !fill
-department: !fill Department Here
-tags: !fill []
+recipient: !must_fill
+department: !must_fill Department Here
+tags: !must_fill []
 ```
 
-`!fill` is valid on scalars (string, number, bool, null) and sequences. It is
+`!must_fill` is valid on scalars (string, number, bool, null) and sequences. It is
 rejected on mappings. Other custom YAML tags (`!include`, `!env`, …) are
 dropped with a warning.
 
@@ -196,7 +196,7 @@ opener, the `$` metadata lines in the canonical order `$quill`, `$kind`,
 `$id`, `$ext`, the remaining data fields, and a `~~~` closer. The root
 block emits both `$quill` and `$kind: main`; composable cards emit
 `$kind: <kind>` plus any `$id` / `$ext` they declared. Fence markers,
-key ordering, and YAML quoting are normalised; `!fill` tags and YAML
+key ordering, and YAML quoting are normalised; `!must_fill` tags and YAML
 comments (own-line and inline trailing, including those adjacent to `$`
 lines) survive the round-trip.
 

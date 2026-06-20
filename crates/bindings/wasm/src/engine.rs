@@ -625,7 +625,7 @@ impl Document {
 
     // ── Mutators ──────────────────────────────────────────────────────────────
 
-    /// Update a payload field on the main card. Clears any existing `!fill` marker.
+    /// Update a payload field on the main card. Clears any existing `!must_fill` marker.
     ///
     /// Throws if `name` does not match `[a-z_][a-z0-9_]*`.
     #[wasm_bindgen(js_name = setField)]
@@ -640,7 +640,7 @@ impl Document {
             .map_err(|e| edit_error_to_js(&e))
     }
 
-    /// Update a payload field on the main card and mark it as `!fill`.
+    /// Update a payload field on the main card and mark it as `!must_fill`.
     /// Throws on invalid name (see [`setField`](Document::set_field)).
     #[wasm_bindgen(js_name = setFill)]
     pub fn set_fill(&mut self, name: &str, value: JsValue) -> Result<(), JsValue> {

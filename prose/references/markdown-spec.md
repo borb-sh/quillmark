@@ -235,11 +235,11 @@ data payload.
   (arrays, maps) are also preserved: the pre-scan captures each nested
   comment with a structural path and the emitter re-injects it at the
   matching position.
-- **The `!fill` tag.** `!fill` is the single supported YAML tag; it marks a
+- **The `!must_fill` tag.** `!must_fill` is the single supported YAML tag; it marks a
   top-level data field as a placeholder awaiting user input and round-trips
-  through emit. `!fill` may be applied to scalars (string, integer, float,
+  through emit. `!must_fill` may be applied to scalars (string, integer, float,
   bool, null) and sequences; it is rejected on mappings because Quillmark's
-  schema has no top-level `type: object`. `!fill` may not be applied to a
+  schema has no top-level `type: object`. `!must_fill` may not be applied to a
   `$` metadata key. Any other custom tag (`!include`, `!env`, …) is
   dropped with a `parse::unsupported_yaml_tag` warning; the scalar value is
   kept but the tag does not round-trip.
@@ -461,7 +461,7 @@ it when the input omitted the line (see §3.3). Composable cards must
 declare `$kind: <kind>`. A document round-trips to this canonical
 shape — fence markers and YAML quoting are normalised; the `~~~card-yaml`
 alias and the `---`-fenced root alias (§3.2.1) both re-emit as bare `~~~`.
-`!fill` tags and YAML comments
+`!must_fill` tags and YAML comments
 (own-line and inline, including those adjacent to `$` lines) survive the
 round-trip.
 

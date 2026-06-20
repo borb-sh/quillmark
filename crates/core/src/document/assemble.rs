@@ -122,13 +122,13 @@ pub(super) fn build_block(
         return Err(ParseError::InvalidStructure(err.clone()));
     }
 
-    // `!fill` is not permitted on `$` metadata keys — those are extracted into
+    // `!must_fill` is not permitted on `$` metadata keys — those are extracted into
     // typed values and have no placeholder semantics.
     for item in &pre.items {
         if let PreItem::Field { key, fill: true } = item {
             if key.starts_with('$') {
                 return Err(ParseError::InvalidStructure(format!(
-                    "`!fill` on `{}` is not permitted — system-metadata keys \
+                    "`!must_fill` on `{}` is not permitted — system-metadata keys \
                      cannot be placeholders",
                     key
                 )));
@@ -440,7 +440,7 @@ fn build_payload(
                 if let Some(value) = mapping.get(key).cloned() {
                     if *fill && value.is_object() {
                         return Err(ParseError::InvalidStructure(format!(
-                            "`!fill` on key `{}` targets a mapping; `!fill` is supported on scalars and sequences only",
+                            "`!must_fill` on key `{}` targets a mapping; `!must_fill` is supported on scalars and sequences only",
                             key
                         )));
                     }

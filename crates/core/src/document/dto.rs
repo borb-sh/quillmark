@@ -665,7 +665,7 @@ $kind: main
 memo_for:
   - ORG/SYMBOL # inline comment inside a sequence
 date: 2504-10-05
-subject: !fill Subject of the Memorandum
+subject: !must_fill Subject of the Memorandum
 ~~~
 
 The body of the memorandum.

@@ -85,7 +85,7 @@ impl Document {
     ///   (empty-mapping omission, programmatic field removal) degrade to
     ///   own-line comments at the same indent so the comment text is preserved
     ///   even when its position shifts.
-    /// - **`!fill` tags**: round-trip via the `fill` flag on `PayloadItem::Field`.
+    /// - **`!must_fill` tags**: round-trip via the `fill` flag on `PayloadItem::Field`.
     ///
     /// # What is lost
     ///
@@ -311,8 +311,8 @@ fn push_trailer(out: &mut String, trailer: Option<&str>) {
 /// `path` is the container path for nested-comment interleaving. Empty objects
 /// are omitted; their inline trailer degrades to an own-line comment to
 /// preserve the text. Empty arrays emit `key: []\n`. When `fill` is `true`:
-/// scalars → `key: !fill <value>`, empty seqs → `key: !fill []`, null →
-/// `key: !fill`, non-empty seqs → `key: !fill\n  - …`. Mappings with `fill`
+/// scalars → `key: !must_fill <value>`, empty seqs → `key: !must_fill []`, null →
+/// `key: !must_fill`, non-empty seqs → `key: !must_fill\n  - …`. Mappings with `fill`
 /// are rejected at parse and never reach this path.
 #[allow(clippy::too_many_arguments)]
 fn emit_field(
@@ -330,23 +330,23 @@ fn emit_field(
         emit_key_at(out, key, indent);
         match value {
             JsonValue::Null => {
-                out.push_str(": !fill");
+                out.push_str(": !must_fill");
                 push_trailer(out, inline_trailer);
                 out.push('\n');
             }
             JsonValue::Bool(_) | JsonValue::Number(_) | JsonValue::String(_) => {
-                out.push_str(": !fill ");
+                out.push_str(": !must_fill ");
                 emit_scalar(out, value);
                 push_trailer(out, inline_trailer);
                 out.push('\n');
             }
             JsonValue::Array(items) if items.is_empty() => {
-                out.push_str(": !fill []");
+                out.push_str(": !must_fill []");
                 push_trailer(out, inline_trailer);
                 out.push('\n');
             }
             JsonValue::Array(items) => {
-                out.push_str(": !fill");
+                out.push_str(": !must_fill");
                 push_trailer(out, inline_trailer);
                 out.push('\n');
                 emit_sequence_children(out, items, indent + 2, path, nested);
@@ -857,7 +857,7 @@ mod tests {
             &[],
             None,
         );
-        assert_eq!(out, "recipient: !fill\n");
+        assert_eq!(out, "recipient: !must_fill\n");
     }
 
     #[test]
@@ -874,7 +874,7 @@ mod tests {
             &[],
             None,
         );
-        assert_eq!(out, "dept: !fill placeholder\n");
+        assert_eq!(out, "dept: !must_fill placeholder\n");
     }
 
     #[test]
@@ -891,7 +891,7 @@ mod tests {
             &[],
             Some("note"),
         );
-        assert_eq!(out, "dept: !fill placeholder # note\n");
+        assert_eq!(out, "dept: !must_fill placeholder # note\n");
     }
 
     #[test]
@@ -908,6 +908,6 @@ mod tests {
             &[],
             None,
         );
-        assert_eq!(out, "count: !fill 42\n");
+        assert_eq!(out, "count: !must_fill 42\n");
     }
 }

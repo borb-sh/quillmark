@@ -41,7 +41,7 @@ pub enum PayloadItemWire {
     Field {
         key: String,
         value: JsonValue,
-        /// `true` when written as `key: !fill <value>` in source / marked fill.
+        /// `true` when written as `key: !must_fill <value>` in source / marked fill.
         #[serde(default)]
         fill: bool,
     },

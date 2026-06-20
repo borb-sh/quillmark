@@ -226,11 +226,11 @@ mod tests {
     #[test]
     fn test_yaml_custom_tags_ignored_at_value_level() {
         // At the raw `QuillValue::from_yaml_str` layer, custom YAML tags
-        // (including `!fill`) pass through serde_saphyr which drops the
+        // (including `!must_fill`) pass through serde_saphyr which drops the
         // tag and returns the underlying scalar.  The tag is recovered at
         // the `Document` layer by `document::prescan`: see
         // `document::tests::lossiness_tests::custom_tags_lose_tag_but_keep_value`.
-        let yaml_str = "memo_from: !fill 2d lt example";
+        let yaml_str = "memo_from: !must_fill 2d lt example";
         let quill_val = QuillValue::from_yaml_str(yaml_str).unwrap();
 
         assert_eq!(
