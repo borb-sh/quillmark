@@ -184,6 +184,12 @@ pub fn prescan_fence_content(content: &str) -> PreScan {
             let after_dash_trimmed = after_dash.trim_start();
             let inline_indent_offset = indent + 2 + (after_dash.len() - after_dash_trimmed.len());
 
+            // The first key of a sequence-item mapping (`- key: value`) sits on
+            // the dash line, so Case 4 never sees it. Inspect it here for a fill
+            // marker / unsupported tag, mirroring Case 4. `dash_body_clean`, when
+            // set, is the tag-stripped `key:value` rewritten onto the dash line
+            // so serde_saphyr parses the bare value.
+            let mut dash_body_clean: Option<String> = None;
             if after_dash_trimmed.is_empty() {
                 stack.push(Frame {
                     indent: indent + 2,
@@ -191,7 +197,32 @@ pub fn prescan_fence_content(content: &str) -> PreScan {
                     kind: None,
                     child_count: 0,
                 });
-            } else if split_key(after_dash_trimmed).is_some() {
+            } else if let Some((key, after_colon)) = split_key(after_dash_trimmed) {
+                let (fill, value_without_tag, had_non_fill_tag, fill_target_err) =
+                    inspect_fill_and_tags(&after_colon, &key);
+                if had_non_fill_tag {
+                    out.warnings.push(
+                        Diagnostic::new(
+                            Severity::Warning,
+                            format!(
+                                "YAML tag on key `{}` is not supported; the tag has been dropped and the value kept",
+                                key
+                            ),
+                        )
+                        .with_code("parse::unsupported_yaml_tag".to_string()),
+                    );
+                }
+                if let Some(err) = fill_target_err {
+                    out.fill_target_errors.push(err);
+                }
+                if fill {
+                    let mut key_path = item_path.clone();
+                    key_path.push(CommentPathSegment::Key(key.clone()));
+                    out.nested_fills.push(key_path);
+                }
+                if fill || had_non_fill_tag {
+                    dash_body_clean = Some(format!("{}:{}", key, value_without_tag));
+                }
                 stack.push(Frame {
                     indent: inline_indent_offset,
                     path: item_path,
@@ -200,18 +231,22 @@ pub fn prescan_fence_content(content: &str) -> PreScan {
                 });
             }
 
-            if let Some(c) = trailing_comment {
+            if let Some(c) = &trailing_comment {
                 out.nested_comments.push(NestedComment {
                     container_path: parent_path,
                     position: item_index,
-                    text: strip_comment_marker(&c).to_string(),
+                    text: strip_comment_marker(c).to_string(),
                     inline: true,
                 });
+            }
+            // Rewrite the dash line when a tag was stripped and/or a trailing
+            // comment was lifted off; otherwise pass the original through.
+            if dash_body_clean.is_some() || trailing_comment.is_some() {
                 let head = format!("{:width$}", "", width = indent);
-                let body = if after_dash.trim_end().is_empty() {
-                    "-".to_string()
-                } else {
-                    format!("- {}", after_dash.trim_end())
+                let body = match dash_body_clean {
+                    Some(b) => format!("- {}", b),
+                    None if after_dash.trim_end().is_empty() => "-".to_string(),
+                    None => format!("- {}", after_dash.trim_end()),
                 };
                 cleaned_lines.push(format!("{}{}", head, body));
             } else {

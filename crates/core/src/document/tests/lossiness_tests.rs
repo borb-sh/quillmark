@@ -724,3 +724,22 @@ fn own_line_then_inline_round_trip() {
     let emitted2 = doc2.to_markdown();
     assert_eq!(emitted, emitted2, "round-trip must be idempotent");
 }
+
+/// A `!must_fill` marker on the *first* key of a sequence-item mapping
+/// (`- key: !must_fill`) sits on the dash line, which Case 4 never sees.
+/// Prescan inspects it inline so the marker survives parse and round-trips.
+#[test]
+fn seq_item_inline_first_key_fill_round_trips() {
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\nrecipients:\n  - name: !must_fill\n    role: lead\n~~~\n\nBody.\n";
+    let doc = Document::from_markdown(src).unwrap();
+    let emitted = doc.to_markdown();
+    assert!(
+        emitted.contains("- name: !must_fill"),
+        "first-key fill marker must survive round-trip\nGot:\n{}",
+        emitted
+    );
+    // Non-fill sibling keys are unaffected.
+    assert!(emitted.contains("role: lead"), "Got:\n{}", emitted);
+    let emitted2 = Document::from_markdown(&emitted).unwrap().to_markdown();
+    assert_eq!(emitted, emitted2, "round-trip must be idempotent");
+}
