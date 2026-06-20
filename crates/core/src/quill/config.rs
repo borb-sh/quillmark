@@ -90,7 +90,8 @@ impl QuillConfig {
     pub fn schema(&self) -> serde_json::Value {
         let mut obj = serde_json::Map::new();
 
-        let main_value = serde_json::to_value(&self.main).unwrap_or(serde_json::Value::Null);
+        let main_value =
+            serde_json::to_value(&self.main).expect("CardSchema is always serializable");
         obj.insert("main".to_string(), main_value);
 
         if !self.card_kinds.is_empty() {
@@ -98,13 +99,14 @@ impl QuillConfig {
                 .card_kinds
                 .iter()
                 .map(|card| {
-                    let card_value = serde_json::to_value(card).unwrap_or(serde_json::Value::Null);
+                    let card_value =
+                        serde_json::to_value(card).expect("CardSchema is always serializable");
                     (card.name.clone(), card_value)
                 })
                 .collect();
             obj.insert(
                 "card_kinds".to_string(),
-                serde_json::to_value(&card_kinds).unwrap_or(serde_json::Value::Null),
+                serde_json::to_value(&card_kinds).expect("card_kinds map is always serializable"),
             );
         }
 

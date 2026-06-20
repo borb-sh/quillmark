@@ -240,8 +240,8 @@ impl TryFrom<CardWire> for Card {
             .collect::<Result<Vec<_>, WireError>>()?;
 
         // Build the user fields/comments, then apply each `$` entry through its
-        // setter so the canonical `$quill < $kind < $id < $ext` ordering holds
-        // regardless of input order.
+        // setter so the canonical `$quill < $kind < $id < $ext < $seed` ordering
+        // holds regardless of input order.
         let mut payload = Payload::from_items(items);
         if let Some(value) = wire.quill {
             let reference = QuillReference::from_str(&value)

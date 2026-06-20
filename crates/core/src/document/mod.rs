@@ -62,7 +62,7 @@ pub const FORMAT_RULES: &str = "Document format rules:
 /// Authoring-ergonomics header that introduces a blueprint to an LLM/MCP
 /// consumer. The `{quill}` placeholder is substituted with the quill name.
 /// Designed to be shown above [`FORMAT_RULES`], which covers field-level
-/// semantics like `; omit-ok` — keep the wording tight here so the two
+/// semantics like `; delete-ok` — keep the wording tight here so the two
 /// strings do not duplicate guidance.
 const BLUEPRINT_INSTRUCTION_TEMPLATE: &str =
     "Fill in the `{quill}` blueprint below: replace each `<must-fill>` sentinel and edit the \
@@ -141,7 +141,8 @@ impl Card {
 /// entry of the main card's [`Card::seed`] map via [`SeedOverlay::from_json`],
 /// and layered over the quill's schema-example seed by
 /// [`crate::Quill::seed_card`] (overlay › example › absent). The reserved inner
-/// key `$body` carries the body override; every other key is a user field.
+/// key `$body` carries the body override; every other user field becomes an
+/// entry, while any other `$`-prefixed key is reserved and dropped.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SeedOverlay {
     /// Field-value overrides, keyed by field name.
@@ -161,9 +162,10 @@ impl SeedOverlay {
     }
 
     /// Build an overlay from a single `$seed[<kind>]` JSON map: the reserved
-    /// `$body` string becomes [`body`](Self::body); every other entry becomes
-    /// a field. A non-string `$body` is silently ignored (no body override) —
-    /// the editor-surface validator skips `$body`, so it is not flagged.
+    /// `$body` string becomes [`body`](Self::body); every other user-field entry
+    /// becomes a field. A non-string `$body` is ignored (no body override). Any
+    /// other `$`-prefixed key is reserved and dropped — never stored as a user
+    /// field — since an overlay only ever carries user fields plus `$body`.
     fn from_json_map(map: &serde_json::Map<String, serde_json::Value>) -> Self {
         let mut fields = indexmap::IndexMap::new();
         let mut body = None;
@@ -172,6 +174,10 @@ impl SeedOverlay {
                 if let Some(s) = value.as_str() {
                     body = Some(s.to_string());
                 }
+            } else if key.starts_with('$') {
+                // Reserved key other than `$body`: not a user field. Drop it
+                // rather than smuggle a `$`-key into the field set.
+                continue;
             } else {
                 fields.insert(key.clone(), crate::value::QuillValue::from_json(value.clone()));
             }
