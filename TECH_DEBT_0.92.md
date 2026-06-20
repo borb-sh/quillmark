@@ -19,6 +19,37 @@ any time, but is cheapest to batch with the break). Effort S/M/L, Payoff H/M/L.
 
 ---
 
+## Status — paid off in this branch
+
+The low-risk / high-leverage subset has been applied here (correctness fixes,
+risk-free `$seed` hardening since the key is unreleased, additive de-duplication
+validated by `cargo check --workspace`, and docs hygiene):
+
+- **Correctness:** C1 (`__meta__` no longer leaks into card objects), C6
+  (serialization failure → diagnostic, not silent `"{}"`), B2 (`schema()`
+  `expect` over silent null).
+- **`$seed` hardening:** A7 (drop reserved `$`-keys), A10 (validate seed kind),
+  A8 (comment).
+- **De-duplication (core now owns the tables):** E1 (`OutputFormat`
+  `as_str`/`mime_type`/`ALL`/`Display`/`FromStr`), E2 (`EditError::variant_name`),
+  E9 (`STANDARD_METADATA_KEYS`). F3 (`; delete-ok` doc).
+- **Docs / hygiene:** F1 (migration nav), F2 (changelog), F4/F5/F7 (stale refs,
+  landed-proposal banner, dead workspace metadata).
+
+Regression tests added (card `__meta__`, seed-overlay reserved keys, seed-kind
+validation, `OutputFormat` round-trip). `cargo test` green for
+core/typst/cli/quillmark; bindings (wasm/python/.NET) type-check and rely on CI
+for their runtime suites.
+
+**Deliberately deferred** (need focused, separately-reviewed changes — larger
+breaks or behavior changes that can't be locally test-verified): the
+`RenderError` flatten (SIMPL #1), `Quill::from_tree` warnings channel (B1), the
+.NET `ffi_try!` panic-guard sweep (D3), the binding error-contract fixes
+(E3/D2/D4), `convert`/world warning plumbing (C2/C5), the dead-`pub`-API
+removals (A2/A4/C3/C4), and the `quill_reference()` field promotion (A6).
+
+---
+
 ## Executive summary — five cross-cutting themes
 
 The individual findings cluster into five systemic patterns. The patterns, not
