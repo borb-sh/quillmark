@@ -78,7 +78,11 @@ pub fn execute(args: RenderArgs) -> Result<()> {
             if args.verbose {
                 println!("Markdown parsed successfully");
             }
-            (output.document, output.warnings, Some(markdown_path.clone()))
+            (
+                output.document,
+                output.warnings,
+                Some(markdown_path.clone()),
+            )
         } else {
             // No input file: render the seeded document — the committed
             // "filled-out one" (each field's `example:`, with `default:`/zero
@@ -94,19 +98,11 @@ pub fn execute(args: RenderArgs) -> Result<()> {
         println!("Render-ready quill for backend: {}", quill.backend_id());
     }
 
-    // Parse output format
-    let output_format = match args.format.to_lowercase().as_str() {
-        "pdf" => OutputFormat::Pdf,
-        "svg" => OutputFormat::Svg,
-        "png" => OutputFormat::Png,
-        "txt" => OutputFormat::Txt,
-        _ => {
-            return Err(CliError::InvalidArgument(format!(
-                "Invalid output format: {}. Must be one of: pdf, svg, png, txt",
-                args.format
-            )));
-        }
-    };
+    // Parse output format (format ↔ string mapping lives in quillmark_core).
+    let output_format = args
+        .format
+        .parse::<OutputFormat>()
+        .map_err(|e| CliError::InvalidArgument(e.to_string()))?;
 
     if args.verbose {
         println!("Rendering to format: {:?}", output_format);
@@ -114,9 +110,7 @@ pub fn execute(args: RenderArgs) -> Result<()> {
 
     // Handle output-data
     if let Some(data_path) = args.output_data {
-        let json_data = quill
-            .compile_data(&parsed)
-            .map_err(CliError::Render)?;
+        let json_data = quill.compile_data(&parsed).map_err(CliError::Render)?;
         let f = std::fs::File::create(&data_path).map_err(|e| {
             CliError::Io(std::io::Error::new(
                 e.kind(),
@@ -128,9 +122,10 @@ pub fn execute(args: RenderArgs) -> Result<()> {
             ))
         })?;
         serde_json::to_writer_pretty(f, &json_data).map_err(|e| {
-            CliError::Io(std::io::Error::other(
-                format!("Failed to write JSON data: {}", e),
-            ))
+            CliError::Io(std::io::Error::other(format!(
+                "Failed to write JSON data: {}",
+                e
+            )))
         })?;
         if args.verbose && !args.quiet {
             println!("JSON data written to: {}", data_path.display());

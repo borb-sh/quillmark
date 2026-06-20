@@ -5,9 +5,9 @@ use crate::types::Diagnostic;
 #[cfg(feature = "render")]
 use crate::types::{RenderOptions, RenderResult};
 use js_sys::{Array, Uint8Array};
-use serde::Serialize;
 #[cfg(feature = "render")]
 use serde::Deserialize;
+use serde::Serialize;
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
 
@@ -390,10 +390,7 @@ impl Quill {
         // Unstructured keys declared under `quill:` (excluding fields already
         // surfaced above or now living under `schema`).
         for (key, value) in source.metadata() {
-            if matches!(
-                key.as_str(),
-                "name" | "backend" | "description" | "version" | "author"
-            ) {
+            if quillmark_core::STANDARD_METADATA_KEYS.contains(&key.as_str()) {
                 continue;
             }
             if obj.contains_key(key) {
@@ -463,7 +460,8 @@ impl Quill {
     pub fn seed_card(
         &self,
         card_kind: &str,
-        #[wasm_bindgen(unchecked_param_type = "Record<string, unknown> | undefined")] overlay: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "Record<string, unknown> | undefined")]
+        overlay: JsValue,
     ) -> Result<JsValue, JsValue> {
         let overlay = if overlay.is_undefined() || overlay.is_null() {
             None
@@ -855,8 +853,9 @@ impl Document {
     #[wasm_bindgen(js_name = makeCard, unchecked_return_type = "Card")]
     pub fn make_card(
         kind: String,
-        #[wasm_bindgen(unchecked_optional_param_type = "Record<string, unknown>")]
-        fields: Option<JsValue>,
+        #[wasm_bindgen(unchecked_optional_param_type = "Record<string, unknown>")] fields: Option<
+            JsValue,
+        >,
         #[wasm_bindgen(unchecked_optional_param_type = "string")] body: Option<String>,
     ) -> Result<JsValue, JsValue> {
         let field_map: serde_json::Map<String, serde_json::Value> = match fields {
@@ -887,8 +886,9 @@ impl Document {
             body: body.unwrap_or_default(),
         };
         let serializer = serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
-        wire.serialize(&serializer)
-            .map_err(|e| WasmError::from(format!("makeCard: serialization failed: {e}")).to_js_value())
+        wire.serialize(&serializer).map_err(|e| {
+            WasmError::from(format!("makeCard: serialization failed: {e}")).to_js_value()
+        })
     }
 
     /// Append a card to the end of the card list. Accepts a `Card` (the shape
@@ -1001,14 +1001,7 @@ impl Document {
 
 /// Maps `EditError` to a JS `Error` with the variant name and details in the message.
 fn edit_error_to_js(err: &quillmark_core::EditError) -> JsValue {
-    let variant = match err {
-        quillmark_core::EditError::InvalidFieldName(_) => "InvalidFieldName",
-        quillmark_core::EditError::InvalidKindName(_) => "InvalidKindName",
-        quillmark_core::EditError::ReservedKind => "ReservedKind",
-        quillmark_core::EditError::IndexOutOfRange { .. } => "IndexOutOfRange",
-        quillmark_core::EditError::ValueTooDeep { .. } => "ValueTooDeep",
-    };
-    WasmError::from(format!("[EditError::{}] {}", variant, err)).to_js_value()
+    WasmError::from(format!("[EditError::{}] {}", err.variant_name(), err)).to_js_value()
 }
 
 /// Deserialize a JS value into an arbitrary JSON value. The namespaced `$ext`

@@ -24,16 +24,15 @@
 //! ## Modules
 //!
 //! - [`convert`] - Markdown to Typst conversion utilities
-//! - [`compile`] - Typst to PDF/SVG compilation functions
 //!
-//! Note: The `error_mapping` module provides internal utilities for converting Typst
-//! diagnostics to Quillmark diagnostics and is not part of the public API.
+//! Note: the `compile` and `error_mapping` modules are internal (compilation
+//! and Typst-diagnostic mapping) and are not part of the public API.
 
-pub mod compile;
+mod compile;
 pub mod convert;
 mod error_mapping;
 
-pub mod helper;
+mod helper;
 mod overlay;
 mod pdf_scan;
 mod world;
@@ -192,7 +191,16 @@ impl Backend for TypstBackend {
         );
 
         let json_str =
-            serde_json::to_string(&transformed_json).unwrap_or_else(|_| "{}".to_string());
+            serde_json::to_string(&transformed_json).map_err(|e| RenderError::EngineCreation {
+                diags: vec![Diagnostic::new(
+                    Severity::Error,
+                    format!(
+                        "failed to serialize document data for the typst backend: {}",
+                        e
+                    ),
+                )
+                .with_code("backend::data_serialization_failed".to_string())],
+            })?;
         let document = compile::compile_to_document(source, plate_content, &json_str)?;
         let page_count = document.pages().len();
         let sig_placements = overlay::extract(&document)?;
@@ -418,11 +426,16 @@ fn transform_cards_array(
                         card_fields.insert(k.clone(), QuillValue::from_json(v.clone()));
                     }
 
-                    // Recursively transform this card's fields
-                    let transformed_card_fields = transform_markdown_fields(
+                    // Recursively transform this card's fields. `transform_markdown_fields`
+                    // appends a `__meta__` entry for the top-level eval pass; the template
+                    // drives card processing from the top-level `meta.card_*` maps and
+                    // iterates each card directly, so strip the per-card `__meta__` rather
+                    // than leak the sentinel into every card object plate authors see.
+                    let mut transformed_card_fields = transform_markdown_fields(
                         &card_fields,
                         &QuillValue::from_json(card_schema_json.clone()),
                     );
+                    transformed_card_fields.remove("__meta__");
 
                     // Convert back to JSON Value
                     let mut transformed_card_obj = serde_json::Map::new();
@@ -659,6 +672,37 @@ mod tests {
         let result = transform_markdown_fields(&fields, &schema);
         let meta = result.get("__meta__").expect("missing __meta__").as_json();
 
-        assert_eq!(meta["card_date_fields"]["indorsement"], json!(["signed_on"]));
+        assert_eq!(
+            meta["card_date_fields"]["indorsement"],
+            json!(["signed_on"])
+        );
+    }
+
+    #[test]
+    fn test_transform_cards_array_strips_per_card_meta() {
+        let schema = QuillValue::from_json(json!({
+            "type": "object",
+            "properties": {},
+            "$defs": {
+                "indorsement_card": {
+                    "type": "object",
+                    "properties": {
+                        "$body": { "type": "string", "contentMediaType": "text/markdown" }
+                    }
+                }
+            }
+        }));
+
+        let cards = vec![json!({ "$kind": "indorsement", "$body": "**hi**" })];
+        let transformed = transform_cards_array(&schema, &cards);
+
+        // The per-card `__meta__` sentinel must not leak into card objects;
+        // card eval is driven by the top-level `meta.card_*` maps.
+        let card = transformed[0].as_object().unwrap();
+        assert!(
+            !card.contains_key("__meta__"),
+            "card object leaked a __meta__ key: {:?}",
+            card.keys().collect::<Vec<_>>()
+        );
     }
 }

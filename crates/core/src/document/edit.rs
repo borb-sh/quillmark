@@ -61,6 +61,21 @@ pub enum EditError {
     ValueTooDeep { max: usize },
 }
 
+impl EditError {
+    /// The bare variant name (e.g. `"InvalidFieldName"`). Each binding surfaces
+    /// it as the `[EditError::<Variant>]` message prefix; defined once here so a
+    /// new variant cannot drift across the three binding error mappers.
+    pub fn variant_name(&self) -> &'static str {
+        match self {
+            EditError::InvalidFieldName(_) => "InvalidFieldName",
+            EditError::InvalidKindName(_) => "InvalidKindName",
+            EditError::ReservedKind => "ReservedKind",
+            EditError::IndexOutOfRange { .. } => "IndexOutOfRange",
+            EditError::ValueTooDeep { .. } => "ValueTooDeep",
+        }
+    }
+}
+
 /// A field-level invariant violation, shared by every payload ingestion path.
 ///
 /// Each boundary maps it to its own error type (`ParseError`,
@@ -291,11 +306,7 @@ impl Card {
         namespace: impl Into<String>,
         value: serde_json::Value,
     ) -> Result<(), EditError> {
-        let mut map = self
-            .payload_mut()
-            .ext()
-            .cloned()
-            .unwrap_or_default();
+        let mut map = self.payload_mut().ext().cloned().unwrap_or_default();
         map.insert(namespace.into(), value);
         check_meta_depth(&map)?;
         self.payload_mut().take_ext();
@@ -333,7 +344,10 @@ impl Card {
     /// under `card_kind`, creating the map when absent and replacing any
     /// existing overlay for that kind. Sibling kinds are preserved — this is
     /// the per-kind-safe writer, the seed analogue of
-    /// [`Card::set_ext_namespace`]. Returns [`EditError::ValueTooDeep`] when
+    /// [`Card::set_ext_namespace`]. `card_kind` must be a valid, non-reserved
+    /// composable kind ([`EditError::InvalidKindName`] / [`EditError::ReservedKind`]
+    /// otherwise) — `$seed` is keyed by composable card-kind, unlike the
+    /// free-form namespaces of `$ext`. Returns [`EditError::ValueTooDeep`] when
     /// the merged map nests past the §8 depth limit; the card is unchanged on
     /// error.
     pub fn set_seed_namespace(
@@ -341,8 +355,13 @@ impl Card {
         card_kind: impl Into<String>,
         value: serde_json::Value,
     ) -> Result<(), EditError> {
+        let card_kind = card_kind.into();
+        validate_composable_kind(&card_kind).map_err(|e| match e {
+            CardKindError::InvalidName => EditError::InvalidKindName(card_kind.clone()),
+            CardKindError::Reserved => EditError::ReservedKind,
+        })?;
         let mut map = self.payload_mut().seed().cloned().unwrap_or_default();
-        map.insert(card_kind.into(), value);
+        map.insert(card_kind, value);
         check_meta_depth(&map)?;
         self.payload_mut().take_seed();
         self.payload_mut().set_seed(map);

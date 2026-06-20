@@ -90,7 +90,8 @@ impl QuillConfig {
     pub fn schema(&self) -> serde_json::Value {
         let mut obj = serde_json::Map::new();
 
-        let main_value = serde_json::to_value(&self.main).unwrap_or(serde_json::Value::Null);
+        let main_value =
+            serde_json::to_value(&self.main).expect("CardSchema is always serializable");
         obj.insert("main".to_string(), main_value);
 
         if !self.card_kinds.is_empty() {
@@ -98,13 +99,14 @@ impl QuillConfig {
                 .card_kinds
                 .iter()
                 .map(|card| {
-                    let card_value = serde_json::to_value(card).unwrap_or(serde_json::Value::Null);
+                    let card_value =
+                        serde_json::to_value(card).expect("CardSchema is always serializable");
                     (card.name.clone(), card_value)
                 })
                 .collect();
             obj.insert(
                 "card_kinds".to_string(),
-                serde_json::to_value(&card_kinds).unwrap_or(serde_json::Value::Null),
+                serde_json::to_value(&card_kinds).expect("card_kinds map is always serializable"),
             );
         }
 
@@ -669,7 +671,11 @@ impl QuillConfig {
                     let declared = schema.r#type.as_str();
                     // validation.rs uses "number" for all non-integer JSON numbers;
                     // display as "float" so messages match the YAML author's mental model.
-                    let display_actual = if actual == "number" { "float" } else { actual.as_str() };
+                    let display_actual = if actual == "number" {
+                        "float"
+                    } else {
+                        actual.as_str()
+                    };
                     // Show the offending value's content. A top-level mismatch
                     // renders the original literal (so arrays/objects show their
                     // contents); a nested mismatch is always a scalar, whose
@@ -680,7 +686,11 @@ impl QuillConfig {
                         Self::truncate_preview(source_token)
                     };
                     let hint = if actual == "number" || actual == "integer" {
-                        let schema_type = if actual == "integer" { "integer" } else { "number" };
+                        let schema_type = if actual == "integer" {
+                            "integer"
+                        } else {
+                            "number"
+                        };
                         format!(
                             "Quote the {slot} as \"{raw}\" if the value is intentionally a \
                              string, or change the field type to '{schema_type}'.",
@@ -704,7 +714,11 @@ impl QuillConfig {
                     .with_code(format!("quill::{slot}_type_mismatch"))
                     .with_hint(hint)
                 }
-                ValidationError::EnumViolation { path, value: val, allowed } => {
+                ValidationError::EnumViolation {
+                    path,
+                    value: val,
+                    allowed,
+                } => {
                     let values_str = allowed
                         .iter()
                         .map(|v| format!("\"{}\"", v))
@@ -719,14 +733,12 @@ impl QuillConfig {
                     .with_code(format!("quill::{slot}_not_in_enum"))
                     .with_hint(format!("Set the {slot} to one of: {values_str}."))
                 }
-                ValidationError::FormatViolation { path, format } => {
-                    Diagnostic::new(
-                        Severity::Error,
-                        format!("{path} {slot} has an invalid {format} format."),
-                    )
-                    .with_code(format!("quill::{slot}_format_violation"))
-                    .with_hint(format!("Provide a valid {format} value for the {slot}."))
-                }
+                ValidationError::FormatViolation { path, format } => Diagnostic::new(
+                    Severity::Error,
+                    format!("{path} {slot} has an invalid {format} format."),
+                )
+                .with_code(format!("quill::{slot}_format_violation"))
+                .with_hint(format!("Provide a valid {format} value for the {slot}.")),
                 // FieldAbsent, UnknownCard, BodyDisabled do not apply to schema literals.
                 _ => continue,
             };
@@ -808,11 +820,9 @@ impl QuillConfig {
                     // containers carry the right child schema (`object` →
                     // `properties`, `array` → `items`), and nesting stops after
                     // one structural level (a typed table is the deepest shape).
-                    if let Some(diag) = Self::validate_field_schema_shape(
-                        &schema,
-                        field_name,
-                        ShapePosition::Top,
-                    ) {
+                    if let Some(diag) =
+                        Self::validate_field_schema_shape(&schema, field_name, ShapePosition::Top)
+                    {
                         errors.push(diag);
                         continue;
                     }

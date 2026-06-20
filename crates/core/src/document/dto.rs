@@ -45,16 +45,6 @@ use super::{Card, Document};
 use crate::value::QuillValue;
 use crate::version::QuillReference;
 
-/// Schema version for the V0_81_0 wire format. Documents written by
-/// `quillmark-core` `0.81.x` carry this tag and are migrated forward on
-/// read.
-pub const SCHEMA_V0_81_0: &str = "quillmark/document@0.81.0";
-
-/// Schema version for the V0_82_0 wire format. Read-only legacy as of
-/// V0_92_0; documents written by `0.82.x`–`0.91.x` carry this tag and are
-/// migrated forward on read.
-pub const SCHEMA_V0_82_0: &str = "quillmark/document@0.82.0";
-
 /// Schema version for the V0_92_0 wire format. Newly serialized documents
 /// carry this tag. Adds per-field `nested_fills` (so `!must_fill` markers
 /// nested inside a field value survive a storage round-trip) and the `$seed`
@@ -547,9 +537,9 @@ impl TryFrom<PayloadItemV0_92_0> for PayloadItem {
                 use super::edit::{validate_field, FieldViolation};
                 validate_field(&key, &value).map_err(|v| {
                     StorageError::Malformed(match v {
-                        FieldViolation::InvalidName => format!(
-                            "invalid field name {key:?}: must match [a-z_][a-z0-9_]*"
-                        ),
+                        FieldViolation::InvalidName => {
+                            format!("invalid field name {key:?}: must match [a-z_][a-z0-9_]*")
+                        }
                         FieldViolation::TooDeep => format!(
                             "field {key:?} nests deeper than the maximum of {} levels",
                             crate::document::limits::MAX_YAML_DEPTH
@@ -1234,8 +1224,7 @@ title: Hi
             overlay.fields.get("from").and_then(|v| v.as_str()),
             Some("49 FW/CC")
         );
-        let reser: Document =
-            serde_json::from_str(&serde_json::to_string(&doc).unwrap()).unwrap();
+        let reser: Document = serde_json::from_str(&serde_json::to_string(&doc).unwrap()).unwrap();
         assert_eq!(doc, reser);
     }
 }

@@ -106,7 +106,10 @@ $bogus: x
     )
     .unwrap_err()
     .to_string();
-    assert!(err.contains("$seed"), "closed-set message should list $seed: {err}");
+    assert!(
+        err.contains("$seed"),
+        "closed-set message should list $seed: {err}"
+    );
 }
 
 #[test]
@@ -329,6 +332,56 @@ $kind: main
     assert!(card.seed().is_none());
 }
 
+#[test]
+fn set_seed_namespace_rejects_invalid_and_reserved_kinds() {
+    // `$seed` is keyed by composable card-kind, so the writer must reject
+    // names that could never name a composable card (unlike free-form `$ext`).
+    let mut doc = parse(
+        "\
+~~~card-yaml
+$quill: q@1.0
+$kind: main
+~~~
+",
+    );
+    let card = doc.main_mut();
+
+    assert!(matches!(
+        card.set_seed_namespace("main", json!({ "from": "A" })),
+        Err(crate::document::EditError::ReservedKind)
+    ));
+    assert!(matches!(
+        card.set_seed_namespace("Bad-Kind", json!({ "from": "A" })),
+        Err(crate::document::EditError::InvalidKindName(_))
+    ));
+
+    // A rejected write leaves the card untouched — no `$seed` map appears.
+    assert!(card.seed().is_none());
+}
+
+#[test]
+fn seed_overlay_drops_reserved_keys_other_than_body() {
+    // An overlay only ever carries user fields plus the reserved `$body`;
+    // any other `$`-key must be dropped, never smuggled in as a user field.
+    let overlay = crate::SeedOverlay::from_json(&json!({
+        "from": "49 FW/CC",
+        "$body": "Body override.",
+        "$kind": "smuggled",
+        "$quill": "x@1.0",
+    }))
+    .expect("overlay is an object");
+
+    assert_eq!(overlay.body.as_deref(), Some("Body override."));
+    assert!(overlay.fields.contains_key("from"));
+    assert!(!overlay.fields.contains_key("$kind"));
+    assert!(!overlay.fields.contains_key("$quill"));
+    assert_eq!(
+        overlay.fields.len(),
+        1,
+        "only the user field should survive"
+    );
+}
+
 // ── Plate JSON ─────────────────────────────────────────────────────────────
 
 #[test]
@@ -348,8 +401,14 @@ title: Hi
     );
     let plate = doc.to_plate_json();
     let obj = plate.as_object().expect("plate is an object");
-    assert!(!obj.contains_key("$seed"), "plate must not contain `$seed`: {plate}");
-    assert!(!obj.contains_key("seed"), "plate must not contain `seed`: {plate}");
+    assert!(
+        !obj.contains_key("$seed"),
+        "plate must not contain `$seed`: {plate}"
+    );
+    assert!(
+        !obj.contains_key("seed"),
+        "plate must not contain `seed`: {plate}"
+    );
     assert_eq!(obj.get("title").and_then(|v| v.as_str()), Some("Hi"));
     assert!(obj.contains_key("$quill"));
     assert!(obj.contains_key("$cards"));
@@ -380,7 +439,10 @@ Body.
     assert_eq!(doc.to_markdown(), restored.to_markdown());
 
     // The DTO carries `"type": "seed"` under the current 0.92.0 schema tag.
-    assert!(json.contains("\"type\":\"seed\""), "expected seed variant in DTO: {json}");
+    assert!(
+        json.contains("\"type\":\"seed\""),
+        "expected seed variant in DTO: {json}"
+    );
     assert!(
         json.contains("quillmark/document@0.92.0"),
         "expected 0.92.0 schema tag: {json}",

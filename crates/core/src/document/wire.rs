@@ -240,8 +240,8 @@ impl TryFrom<CardWire> for Card {
             .collect::<Result<Vec<_>, WireError>>()?;
 
         // Build the user fields/comments, then apply each `$` entry through its
-        // setter so the canonical `$quill < $kind < $id < $ext` ordering holds
-        // regardless of input order.
+        // setter so the canonical `$quill < $kind < $id < $ext < $seed` ordering
+        // holds regardless of input order.
         let mut payload = Payload::from_items(items);
         if let Some(value) = wire.quill {
             let reference = QuillReference::from_str(&value)
@@ -334,7 +334,10 @@ mod tests {
             json!([["street"]]),
             "nested fill path rides the wire as a JS array; JSON value stays fill-free"
         );
-        assert_eq!(as_json["payloadItems"][0]["value"], json!({"street": null, "city": "Anytown"}));
+        assert_eq!(
+            as_json["payloadItems"][0]["value"],
+            json!({"street": null, "city": "Anytown"})
+        );
 
         let back = Card::try_from(wire).expect("wire → card");
         assert_eq!(back, card, "nested fill must survive Card → wire → Card");
