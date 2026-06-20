@@ -51,9 +51,9 @@
   <!--
     Local dev/test convenience: copy the cargo-built native library next to the
     managed assembly so the default P/Invoke resolver finds it. Build the native
-    side first: `cargo build -p quillmark-dotnet` (add `CargoProfile=release`
-    here and `--release` to cargo for release). Skipped during `dotnet pack`,
-    which uses the staged `runtimes/` instead.
+    side first: `cargo build -p quillmark-dotnet` (set CargoProfile=release here
+    and pass the release flag to cargo for a release build). Skipped during
+    `dotnet pack`, which uses the staged `runtimes/` instead.
   -->
   <Target Name="CopyNativeLibrary" BeforeTargets="Build;Publish" Condition="'$(_IsPacking)' != 'true'">
     <PropertyGroup>
