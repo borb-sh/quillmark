@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>Quillmark</AssemblyName>
+    <RootNamespace>Quillmark</RootNamespace>
+    <PackageId>Quillmark</PackageId>
+    <Description>.NET bindings for Quillmark — format-first Markdown rendering.</Description>
+    <Authors>Quillmark Contributors</Authors>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- The native cdylib built by `cargo build -p quillmark-dotnet`. -->
+    <NativeLibraryName Condition="$([MSBuild]::IsOSPlatform('Linux'))">libquillmark_dotnet.so</NativeLibraryName>
+    <NativeLibraryName Condition="$([MSBuild]::IsOSPlatform('OSX'))">libquillmark_dotnet.dylib</NativeLibraryName>
+    <NativeLibraryName Condition="$([MSBuild]::IsOSPlatform('Windows'))">quillmark_dotnet.dll</NativeLibraryName>
+    <CargoProfile Condition="'$(CargoProfile)' == ''">debug</CargoProfile>
+    <CargoTargetDir>$(MSBuildThisFileDirectory)../../../../../target/$(CargoProfile)</CargoTargetDir>
+  </PropertyGroup>
+
+  <!--
+    Copy the cargo-built native library next to the managed assembly so the
+    default P/Invoke resolver finds it. Build the native side first:
+        cargo build -p quillmark-dotnet
+    (add `CargoProfile=release` here and `--release` to cargo for release).
+  -->
+  <Target Name="CopyNativeLibrary" BeforeTargets="Build;Publish">
+    <PropertyGroup>
+      <NativeLibrarySource>$(CargoTargetDir)/$(NativeLibraryName)</NativeLibrarySource>
+    </PropertyGroup>
+    <Warning
+      Condition="!Exists('$(NativeLibrarySource)')"
+      Text="Native library not found at $(NativeLibrarySource). Run `cargo build -p quillmark-dotnet` first." />
+    <ItemGroup Condition="Exists('$(NativeLibrarySource)')">
+      <None Include="$(NativeLibrarySource)">
+        <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        <Link>$(NativeLibraryName)</Link>
+      </None>
+    </ItemGroup>
+  </Target>
+
+</Project>
