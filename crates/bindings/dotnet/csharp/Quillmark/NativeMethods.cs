@@ -82,6 +82,8 @@ internal static class NativeMethods
     [DllImport(Lib)] internal static extern IntPtr qm_document_remove_ext(IntPtr doc);
     [DllImport(Lib)] internal static extern int qm_document_set_ext_namespace(IntPtr doc, byte[] ns, byte[] valueJson);
     [DllImport(Lib)] internal static extern IntPtr qm_document_remove_ext_namespace(IntPtr doc, byte[] ns);
+    [DllImport(Lib)] internal static extern int qm_document_set_seed_namespace(IntPtr doc, byte[] cardKind, byte[] overlayJson);
+    [DllImport(Lib)] internal static extern IntPtr qm_document_remove_seed_namespace(IntPtr doc, byte[] cardKind);
 
     // ── Document: composable-card mutators ──────────────────────────────────
     [DllImport(Lib)] internal static extern int qm_document_push_card(IntPtr doc, byte[] cardJson);

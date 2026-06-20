@@ -55,6 +55,8 @@ wrap them in `using` (or `Dispose()`).
   `RemoveCard`, `MoveCard`, `SetCardKind`, `UpdateCardField`, `RemoveCardField`,
   `UpdateCardBody`.
 - Consumer state: `SetExt*` / `RemoveExt*` (and `Card`-indexed variants).
+- Seed overlays: `SetSeedNamespace(kind, overlay)` / `RemoveSeedNamespace(kind)`
+  (root-only; feeds `Quill.SeedCard`).
 
 **`RenderResult`** — `Artifacts`, `Warnings`, `Format`, `RenderTimeMs`.
 **`Artifact`** — `Bytes`, `Format`, `MimeType`, `Save(path)`.

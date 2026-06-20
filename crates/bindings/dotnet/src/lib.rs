@@ -951,6 +951,47 @@ pub unsafe extern "C" fn qm_document_remove_ext_namespace(
     }
 }
 
+/// Merge a card-kind's seed `overlay` into the main card's `$seed` map under
+/// `card_kind`, preserving sibling kinds. `$seed` is root-only, so this only
+/// targets the main card. Matches `PyDocument.set_seed_namespace`.
+#[no_mangle]
+pub unsafe extern "C" fn qm_document_set_seed_namespace(
+    doc: *mut DocHandle,
+    card_kind: *const c_char,
+    overlay_json: *const c_char,
+) -> i32 {
+    clear_error();
+    let (Some(doc), Some(card_kind)) = (borrow_mut(doc), borrow_str(card_kind)) else {
+        return set_error_message("set_seed_namespace: null handle or card_kind");
+    };
+    let value = match json_value_arg(overlay_json, "set_seed_namespace") {
+        Ok(v) => v,
+        Err(()) => return -1,
+    };
+    match doc.inner.main_mut().set_seed_namespace(card_kind, value) {
+        Ok(()) => 0,
+        Err(e) => report_edit_error(e),
+    }
+}
+
+/// Remove `card_kind` from the main card's `$seed` map, returning the overlay
+/// JSON stored there (or JSON `null`). Matches `PyDocument.remove_seed_namespace`.
+#[no_mangle]
+pub unsafe extern "C" fn qm_document_remove_seed_namespace(
+    doc: *mut DocHandle,
+    card_kind: *const c_char,
+) -> *mut c_char {
+    clear_error();
+    let (Some(doc), Some(card_kind)) = (borrow_mut(doc), borrow_str(card_kind)) else {
+        set_error_message("remove_seed_namespace: null handle or card_kind");
+        return std::ptr::null_mut();
+    };
+    match doc.inner.main_mut().remove_seed_namespace(card_kind) {
+        Some(v) => to_c_string(v.to_string()),
+        None => to_c_string("null"),
+    }
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // Document — composable card mutators
 // ══════════════════════════════════════════════════════════════════════════

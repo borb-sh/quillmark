@@ -210,6 +210,23 @@ public sealed class Document : NativeObject, IEquatable<Document>
             NativeMethods.qm_document_remove_ext_namespace(Handle, Interop.ToUtf8(ns)),
             "remove_ext_namespace"));
 
+    /// <summary>Merge a card-kind's seed <paramref name="overlay"/> into the main
+    /// card's <c>$seed</c> map under <paramref name="cardKind"/>, preserving
+    /// sibling kinds — the starting values new cards of that kind spawn with.
+    /// <c>$seed</c> is root-only, so this targets the main card.</summary>
+    public void SetSeedNamespace(string cardKind, object? overlay) =>
+        Interop.CallStatus(
+            NativeMethods.qm_document_set_seed_namespace(Handle, Interop.ToUtf8(cardKind), ValueJson(overlay)),
+            "set_seed_namespace");
+
+    /// <summary>Remove <paramref name="cardKind"/> from the main card's
+    /// <c>$seed</c> map, returning the overlay stored there (or <c>null</c>).
+    /// Emptying the map drops the <c>$seed</c> entry entirely.</summary>
+    public JsonNode? RemoveSeedNamespace(string cardKind) =>
+        JsonNode.Parse(Interop.CallString(
+            NativeMethods.qm_document_remove_seed_namespace(Handle, Interop.ToUtf8(cardKind)),
+            "remove_seed_namespace"));
+
     // ── Composable-card mutators ────────────────────────────────────────────
 
     public void PushCard(Card card) =>

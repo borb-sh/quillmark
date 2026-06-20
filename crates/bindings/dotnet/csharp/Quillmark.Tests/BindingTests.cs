@@ -93,6 +93,21 @@ public class BindingTests
     }
 
     [Fact]
+    public void Document_SeedNamespace_RoundTrips()
+    {
+        // Mirrors the Python set/remove_seed_namespace round-trip: the overlay
+        // written under a kind is read back off main.Seed and cleared on remove.
+        using var doc = Document.FromMarkdown(Fixtures.SampleMarkdown);
+
+        doc.SetSeedNamespace("note", new Dictionary<string, object?> { ["author"] = "Seed Author" });
+        Assert.Contains("Seed Author", doc.Main.Seed!["note"].ToString());
+
+        var removed = doc.RemoveSeedNamespace("note");
+        Assert.Contains("Seed Author", removed!.ToString());
+        Assert.True(doc.Main.Seed is null || !doc.Main.Seed.ContainsKey("note"));
+    }
+
+    [Fact]
     public void Quill_Validate_ReturnsList()
     {
         using var quill = Quill.FromPath(Fixtures.TaroQuill());
