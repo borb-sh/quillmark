@@ -342,7 +342,8 @@ fn test_quill_seed_main_and_card() {
     );
 
     // seed_card: a known kind seeds its example; an unknown kind is undefined.
-    let note = quill.seed_card("note").unwrap();
+    // `None`/undefined overlay → the bare schema seed.
+    let note = quill.seed_card("note", JsValue::UNDEFINED).unwrap();
     assert_eq!(get(&note, "kind").as_string().as_deref(), Some("note"));
     assert!(
         json(&note).contains("NOTE EXAMPLE"),
@@ -350,7 +351,10 @@ fn test_quill_seed_main_and_card() {
         json(&note)
     );
     assert!(
-        quill.seed_card("missing").unwrap().is_undefined(),
+        quill
+            .seed_card("missing", JsValue::UNDEFINED)
+            .unwrap()
+            .is_undefined(),
         "unknown kind must be undefined"
     );
 }

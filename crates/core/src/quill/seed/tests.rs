@@ -162,7 +162,7 @@ fn seeded_document_compiles_with_default_then_zero_for_absent_fields() {
 fn seed_card_for_known_and_unknown_kind() {
     let quill = quill_from_yaml(QUILL);
 
-    let note = quill.seed_card("note").expect("known kind");
+    let note = quill.seed_card("note", None).expect("known kind");
     assert_eq!(note.kind(), Some("note"));
     assert_eq!(
         note.payload().get("author").and_then(|v| v.as_str()),
@@ -170,7 +170,7 @@ fn seed_card_for_known_and_unknown_kind() {
     );
 
     assert!(
-        quill.seed_card("missing").is_none(),
+        quill.seed_card("missing", None).is_none(),
         "unknown kind must return None"
     );
 }
@@ -201,7 +201,7 @@ card_kinds:
 "#,
     );
 
-    let card = quill.seed_card("data").expect("known kind");
+    let card = quill.seed_card("data", None).expect("known kind");
     assert_eq!(
         card.body(),
         "",
