@@ -45,6 +45,12 @@ Ships **multiple artifacts from one crate** behind a single public root export. 
 
 In addition to the byte-output verbs (`engine.render`, `RenderSession.render`), the Typst backend build exposes a Typst-only **canvas preview** path on `RenderSession`: `pageCount`, `pageSize(page)`, `paint(ctx, page, opts?)`, plus `backendId`, `supportsCanvas`, and `warnings`. Capability lives on the engine (`engine.supportedFormats(quill)`, `engine.supportsCanvas(quill)`); the session mirrors it. The painter rasterizes pages directly from the cached `PagedDocument` into a `CanvasRenderingContext2D` or `OffscreenCanvasRenderingContext2D`, sizes the canvas backing store itself, and returns the chosen layout/pixel dimensions. Skips PNG/SVG round-trips. See [PREVIEW.md](PREVIEW.md).
 
+### `bindings/quillmark-dotnet`
+
+C-ABI `cdylib` consumed from C# via P/Invoke, published as `Quillmark` on NuGet — the .NET analogue of the PyO3 module. A flat `qm_*` C ABI over `quillmark` plus a hand-written managed layer (`csharp/`) that reassembles the typed surface, deliberately **symmetrical with the Python binding** method-for-method. Structured data (cards, schema, metadata, diagnostics, field values) crosses as `serde` JSON from the same core types the other bindings use; stateful objects cross as opaque handles; panics are trapped at the boundary (the analogue of PyO3's trapping / the WASM panic hook) and surface as the single `QuillmarkException`. The NuGet package carries the native library per RID under `runtimes/<rid>/native/`.
+
+> **Status: experimental, second-class binding.** Mirrors the Python surface and shares its footing — render-only (no canvas preview), best-effort parity, not a release gate.
+
 ### `bindings/quillmark-cli`
 
 Standalone binary. See [CLI.md](CLI.md).

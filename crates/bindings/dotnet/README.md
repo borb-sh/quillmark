@@ -6,7 +6,10 @@ same method names (in .NET casing), and the same single-exception error
 contract.
 
 Tested in CI (the `dotnet` job) and published to NuGet as the `Quillmark`
-package. For the interop design and trade-offs, see [`DESIGN.md`](DESIGN.md).
+package. The interop design and error contract are documented in the
+crate-level rustdoc (`src/lib.rs`); the binding's place in the workspace is
+covered by the `bindings/quillmark-dotnet` section of the canon architecture
+doc (`prose/canon/ARCHITECTURE.md`).
 
 ## Architecture
 
@@ -117,6 +120,20 @@ dotnet test Quillmark.Tests/Quillmark.Tests.csproj
 The managed `Quillmark.csproj` copies the cargo-built native library
 (`libquillmark_dotnet.so` / `.dylib` / `.dll`) next to its output so the
 default P/Invoke resolver finds it; build the native crate first.
+
+## Known limitations
+
+- **Render-only.** Same scope as the Python binding — one-shot `engine.Render`;
+  the iterative `RenderSession`/canvas-preview surface stays WASM-only.
+- **Release RIDs.** The NuGet package ships native libraries for `linux-x64`,
+  `win-x64`, `osx-x64`, and `osx-arm64`. `linux-arm64` is not yet in the matrix
+  (add via cross-compilation or an arm runner when needed).
+- **`QmBytes` by-value return.** Artifact bytes cross as a blittable 16-byte
+  `{ ptr, len }` struct returned by value; correct on every shipped RID and
+  exercised end-to-end by the render test (which checks the `%PDF` header), so a
+  future ABI mismatch fails CI loudly rather than corrupting silently.
+- **Hand-written P/Invoke.** `NativeMethods.cs` is maintained by hand; consider
+  `csbindgen` codegen over the C ABI once the surface stabilizes.
 
 ## License
 

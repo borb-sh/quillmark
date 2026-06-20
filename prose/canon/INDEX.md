@@ -28,6 +28,7 @@
 - **[PREVIEW.md](PREVIEW.md)** - WASM-only Typst canvas preview path
 - Python bindings (PyO3): see `crates/bindings/python/` rustdoc
 - WebAssembly bindings: see `crates/bindings/wasm/` rustdoc
+- .NET bindings (P/Invoke over a C ABI, symmetrical with Python): see `crates/bindings/dotnet/` rustdoc + README
 
 ## Infrastructure
 
