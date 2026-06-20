@@ -1,39 +1,16 @@
-# Quillmark — .NET bindings
+# Quillmark for .NET
 
-.NET bindings for Quillmark's format-first Markdown rendering engine,
-**symmetrical with the [Python binding](../python)**: the same concepts, the
-same method names (in .NET casing), and the same single-exception error
-contract.
+Format-first Markdown rendering: Markdown + YAML card metadata → **PDF / SVG / PNG**
+via a Typst backend. The managed surface mirrors the Python and WASM bindings.
 
-Tested in CI (the `dotnet` job) and published to NuGet as the `Quillmark`
-package. The interop design and error contract are documented in the
-crate-level rustdoc (`src/lib.rs`); the binding's place among the language
-surfaces is covered by the canon bindings doc (`prose/canon/BINDINGS.md`).
+## Install
 
-## Architecture
-
-```
-┌────────────────────┐   P/Invoke    ┌──────────────────────────┐   Rust    ┌───────────┐
-│  Quillmark (C#)     │ ───────────▶ │  quillmark_dotnet (cdylib) │ ───────▶ │ quillmark │
-│  idiomatic surface  │   qm_* C ABI  │  C-ABI marshaling layer    │           │  (core)   │
-└────────────────────┘               └──────────────────────────┘           └───────────┘
+```bash
+dotnet add package Quillmark
 ```
 
-This is the .NET analogue of how the Python binding ships a PyO3 extension
-module: one Rust crate (`crates/bindings/dotnet`) exposing a flat C ABI, plus a
-hand-written managed layer (`csharp/Quillmark`) that reassembles the idiomatic,
-typed API. Structured data (cards, schema, metadata, diagnostics, field values)
-crosses the boundary as JSON produced by the **same `serde` types** the other
-bindings use, so the shapes never drift.
-
-## Layout
-
-| Path | What |
-|------|------|
-| `Cargo.toml`, `src/` | The native `cdylib` and its C ABI (`qm_*`). |
-| `csharp/Quillmark/` | The managed `Quillmark` assembly (public API). |
-| `csharp/QuillDemo/` | Console demo mirroring `python/examples/quill_demo.py`. |
-| `csharp/Quillmark.Tests/` | xUnit suite mirroring the Python `tests/`. |
+Native libraries for `linux-x64`, `win-x64`, `osx-x64`, and `osx-arm64` ship in
+the package; no extra setup. Targets .NET 8+.
 
 ## Quick start
 
@@ -57,82 +34,59 @@ using RenderResult result = engine.Render(quill, doc, OutputFormat.Pdf);
 result.Artifacts[0].Save("output.pdf");
 ```
 
-## API mapping (Python → .NET)
+`Quillmark`, `Quill`, `Document`, and `RenderResult` own native resources —
+wrap them in `using` (or `Dispose()`).
 
-| Python | .NET |
-|--------|------|
-| `Quillmark()` | `new Quillmark()` |
-| `engine.render(quill, doc, OutputFormat.PDF, ppi=, pages=, producer=)` | `engine.Render(quill, doc, OutputFormat.Pdf, ppi:, pages:, producer:)` |
-| `engine.supported_formats(quill)` | `engine.SupportedFormats(quill)` |
-| `engine.registered_backends()` | `engine.RegisteredBackends()` |
-| `Quill.from_path(p)` | `Quill.FromPath(p)` |
-| `quill.metadata` / `.schema` | `quill.Metadata` / `.Schema` (`JsonElement`) |
-| `quill.backend_id` / `.blueprint` / `.quill_ref` | `quill.BackendId` / `.Blueprint` / `.QuillRef` |
-| `quill.validate(doc)` | `quill.Validate(doc)` |
-| `quill.seed_document()` / `seed_main()` / `seed_card(k)` | `quill.SeedDocument()` / `SeedMain()` / `SeedCard(k)` |
-| `Document.from_markdown` / `from_json` / `try_from_json` | `Document.FromMarkdown` / `FromJson` / `TryFromJson` |
-| `Document.make_card(kind, fields, body)` | `Document.MakeCard(kind, fields, body)` |
-| `doc.to_markdown()` / `to_json()` / `clone()` / `equals()` | `doc.ToMarkdown()` / `ToJson()` / `Clone()` / `Equals()` |
-| `doc.main` / `cards` / `body` / `card_count` / `warnings` | `doc.Main` / `Cards` / `Body` / `CardCount` / `Warnings` |
-| `doc.set_field` / `set_fill` / `remove_field` | `doc.SetField` / `SetFill` / `RemoveField` |
-| `doc.push_card` / `insert_card` / `remove_card` / `move_card` | `doc.PushCard` / `InsertCard` / `RemoveCard` / `MoveCard` |
-| `doc.set_ext*` / `remove_ext*` (+ card variants) | `doc.SetExt*` / `RemoveExt*` (+ `Card` variants) |
-| `result.artifacts[0].save(...)` / `.bytes` / `.mime_type` | `result.Artifacts[0].Save(...)` / `.Bytes` / `.MimeType` |
-| `QuillmarkError` (`.diagnostics`) | `QuillmarkException` (`.Diagnostics`) |
+## API
 
-## Error contract
+**`Quillmark`** (engine) — `Render(quill, doc, format?, ppi?, pages?, producer?)`,
+`SupportedFormats(quill)`, `RegisteredBackends()`.
 
-A single exception type — `QuillmarkException` — is thrown for every failure
-mode, always carrying a non-empty `.Diagnostics` list, exactly like Python's
-`QuillmarkError.diagnostics` and the WASM binding's thrown error.
+**`Quill`** — `FromPath(path)`; then `BackendId`, `QuillRef`, `Metadata`,
+`Schema` (`JsonElement`), `Blueprint`, `Validate(doc)`, `SeedDocument()`,
+`SeedMain()`, `SeedCard(kind)`.
+
+**`Document`**
+- Construct: `FromMarkdown`, `FromJson`, `TryFromJson` (null when not a stored doc).
+- Persist: `ToMarkdown()`, `ToJson()` (versioned, byte-deterministic).
+- Read: `Main`, `Cards`, `Body`, `CardCount`, `Warnings`, `QuillRef`.
+- Edit main card: `SetField`, `SetFill`, `RemoveField`, `ReplaceBody`, `SetQuillRef`.
+- Edit cards: `MakeCard(kind, fields?, body?)`, `PushCard`, `InsertCard`,
+  `RemoveCard`, `MoveCard`, `SetCardKind`, `UpdateCardField`, `RemoveCardField`,
+  `UpdateCardBody`.
+- Consumer state: `SetExt*` / `RemoveExt*` (and `Card`-indexed variants).
+
+**`RenderResult`** — `Artifacts`, `Warnings`, `Format`, `RenderTimeMs`.
+**`Artifact`** — `Bytes`, `Format`, `MimeType`, `Save(path)`.
+
+Field values accept any JSON-serializable object; `Metadata`, `Schema`, and card
+payloads surface as `System.Text.Json` values.
+
+## Error handling
+
+Every failure throws `QuillmarkException`, always carrying a non-empty
+`.Diagnostics` list.
 
 ```csharp
 try
 {
-    Document.FromMarkdown(badMarkdown);
+    using var doc = Document.FromMarkdown(badMarkdown);
 }
 catch (QuillmarkException ex)
 {
     foreach (Diagnostic d in ex.Diagnostics)
     {
-        Console.WriteLine($"{d.Severity} {d.Code} {d.Message} {d.Path}");
-        Console.WriteLine(d.ToString());
+        Console.WriteLine(d);                      // pretty-printed
+        // d.Severity, d.Code, d.Message, d.Path, d.Location, d.Hint
     }
 }
 ```
 
-## Build & test
+## Notes
 
-```bash
-./scripts/build-dotnet.sh            # native cdylib + managed build + tests
-./scripts/build-dotnet.sh --release  # release variant
-```
-
-Or manually:
-
-```bash
-cargo build -p quillmark-dotnet
-cd crates/bindings/dotnet/csharp
-dotnet test Quillmark.Tests/Quillmark.Tests.csproj
-```
-
-The managed `Quillmark.csproj` copies the cargo-built native library
-(`libquillmark_dotnet.so` / `.dylib` / `.dll`) next to its output so the
-default P/Invoke resolver finds it; build the native crate first.
-
-## Known limitations
-
-- **Render-only.** Same scope as the Python binding — one-shot `engine.Render`;
-  the iterative `RenderSession`/canvas-preview surface stays WASM-only.
-- **Release RIDs.** The NuGet package ships native libraries for `linux-x64`,
-  `win-x64`, `osx-x64`, and `osx-arm64`. `linux-arm64` is not yet in the matrix
-  (add via cross-compilation or an arm runner when needed).
-- **`QmBytes` by-value return.** Artifact bytes cross as a blittable 16-byte
-  `{ ptr, len }` struct returned by value; correct on every shipped RID and
-  exercised end-to-end by the render test (which checks the `%PDF` header), so a
-  future ABI mismatch fails CI loudly rather than corrupting silently.
-- **Hand-written P/Invoke.** `NativeMethods.cs` is maintained by hand; consider
-  `csbindgen` codegen over the C ABI once the surface stabilizes.
+- **Render-only.** One-shot `engine.Render`; the iterative canvas-preview surface
+  is WASM-only.
+- Building from source: `./scripts/build-dotnet.sh` (native cdylib + `dotnet test`).
 
 ## License
 
