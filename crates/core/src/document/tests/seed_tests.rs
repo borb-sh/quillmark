@@ -109,6 +109,33 @@ $bogus: x
     assert!(err.contains("$seed"), "closed-set message should list $seed: {err}");
 }
 
+#[test]
+fn seed_on_composable_card_is_rejected() {
+    // `$seed` is root-only (like `$quill`): a composable block carrying it is a
+    // parse error, not silently-inert data.
+    let err = Document::from_markdown(
+        "\
+~~~card-yaml
+$quill: q@1.0
+$kind: main
+~~~
+
+~~~card-yaml
+$kind: indorsement
+$seed:
+  note:
+    from: X
+~~~
+",
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        err.contains("must not carry `$seed`"),
+        "expected composable-$seed rejection, got: {err}",
+    );
+}
+
 // ── Emit / round-trip ──────────────────────────────────────────────────────
 
 #[test]

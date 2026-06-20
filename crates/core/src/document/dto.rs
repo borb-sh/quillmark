@@ -429,6 +429,11 @@ impl TryFrom<DocumentV0_92_0> for Document {
                     "composable cards must not carry a $quill entry".into(),
                 ));
             }
+            if card.seed().is_some() {
+                return Err(StorageError::Malformed(
+                    "composable cards must not carry a $seed entry".into(),
+                ));
+            }
             if let Some(kind) = card.kind() {
                 match validate_composable_kind(kind) {
                     Ok(()) => {}
@@ -1093,6 +1098,32 @@ title: Hi
             "cards": []
         }"#;
         assert!(serde_json::from_str::<Document>(json).is_err());
+    }
+
+    #[test]
+    fn rejects_composable_card_with_seed() {
+        // `$seed` is root-only (like `$quill`): a stored composable card
+        // carrying it fails to load.
+        let json = r#"{
+            "schema": "quillmark/document@0.92.0",
+            "main": {
+                "payload": {"items": [
+                    {"type": "quill", "value": "q@1.0"},
+                    {"type": "kind", "value": "main"}
+                ]},
+                "body": ""
+            },
+            "cards": [
+                {"payload": {"items": [
+                    {"type": "kind", "value": "indorsement"},
+                    {"type": "seed", "value": {"note": {"from": "X"}}}
+                ]}, "body": ""}
+            ]
+        }"#;
+        let err = serde_json::from_str::<Document>(json).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("composable cards must not carry a $seed entry"));
     }
 
     #[test]

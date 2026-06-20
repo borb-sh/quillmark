@@ -206,6 +206,10 @@ impl Document {
             cards.iter().all(|c| c.quill().is_none()),
             "composable cards must not carry `$quill`"
         );
+        debug_assert!(
+            cards.iter().all(|c| c.seed().is_none()),
+            "composable cards must not carry `$seed`"
+        );
         Self {
             main,
             cards,

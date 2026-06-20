@@ -199,7 +199,8 @@ author wrote the line.
   map — e.g. `$ext.presentation.title` for an editor-side card rename.
   An empty `$ext: {}` is preserved as a distinct, explicit declaration.
 - **`$seed: <mapping>`** — an optional **mapping keyed by composable
-  card-kind**, present on the **root block only**. Each entry is a *sparse
+  card-kind**, present on the **root block only**; a composable block carrying
+  `$seed` is a parse error, exactly like `$quill`. Each entry is a *sparse
   overlay* — the user fields (plus an optional reserved `$body` string) that a
   newly-added card of that kind starts with, layered over the quill's
   schema-`example:` seed (`overlay › example › absent`). Required to be a YAML
