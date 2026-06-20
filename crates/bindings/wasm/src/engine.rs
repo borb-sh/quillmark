@@ -390,10 +390,7 @@ impl Quill {
         // Unstructured keys declared under `quill:` (excluding fields already
         // surfaced above or now living under `schema`).
         for (key, value) in source.metadata() {
-            if matches!(
-                key.as_str(),
-                "name" | "backend" | "description" | "version" | "author"
-            ) {
+            if quillmark_core::STANDARD_METADATA_KEYS.contains(&key.as_str()) {
                 continue;
             }
             if obj.contains_key(key) {
@@ -1001,14 +998,7 @@ impl Document {
 
 /// Maps `EditError` to a JS `Error` with the variant name and details in the message.
 fn edit_error_to_js(err: &quillmark_core::EditError) -> JsValue {
-    let variant = match err {
-        quillmark_core::EditError::InvalidFieldName(_) => "InvalidFieldName",
-        quillmark_core::EditError::InvalidKindName(_) => "InvalidKindName",
-        quillmark_core::EditError::ReservedKind => "ReservedKind",
-        quillmark_core::EditError::IndexOutOfRange { .. } => "IndexOutOfRange",
-        quillmark_core::EditError::ValueTooDeep { .. } => "ValueTooDeep",
-    };
-    WasmError::from(format!("[EditError::{}] {}", variant, err)).to_js_value()
+    WasmError::from(format!("[EditError::{}] {}", err.variant_name(), err)).to_js_value()
 }
 
 /// Deserialize a JS value into an arbitrary JSON value. The namespaced `$ext`

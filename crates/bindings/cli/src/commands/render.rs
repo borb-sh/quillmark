@@ -94,19 +94,11 @@ pub fn execute(args: RenderArgs) -> Result<()> {
         println!("Render-ready quill for backend: {}", quill.backend_id());
     }
 
-    // Parse output format
-    let output_format = match args.format.to_lowercase().as_str() {
-        "pdf" => OutputFormat::Pdf,
-        "svg" => OutputFormat::Svg,
-        "png" => OutputFormat::Png,
-        "txt" => OutputFormat::Txt,
-        _ => {
-            return Err(CliError::InvalidArgument(format!(
-                "Invalid output format: {}. Must be one of: pdf, svg, png, txt",
-                args.format
-            )));
-        }
-    };
+    // Parse output format (format ↔ string mapping lives in quillmark_core).
+    let output_format = args
+        .format
+        .parse::<OutputFormat>()
+        .map_err(|e| CliError::InvalidArgument(e.to_string()))?;
 
     if args.verbose {
         println!("Rendering to format: {:?}", output_format);

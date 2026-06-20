@@ -140,10 +140,7 @@ impl PyQuill {
         // Forward unstructured keys declared under `quill:` (excluding the
         // typed ones already populated above).
         for (key, value) in source.metadata() {
-            if matches!(
-                key.as_str(),
-                "name" | "backend" | "description" | "version" | "author"
-            ) {
+            if quillmark_core::STANDARD_METADATA_KEYS.contains(&key.as_str()) {
                 continue;
             }
             if dict.contains(key)? {
@@ -765,12 +762,7 @@ impl PyArtifact {
 
     #[getter]
     fn mime_type(&self) -> &'static str {
-        match self.format {
-            OutputFormat::Pdf => "application/pdf",
-            OutputFormat::Svg => "image/svg+xml",
-            OutputFormat::Txt => "text/plain",
-            OutputFormat::Png => "image/png",
-        }
+        self.format.mime_type()
     }
 }
 

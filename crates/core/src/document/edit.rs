@@ -61,6 +61,21 @@ pub enum EditError {
     ValueTooDeep { max: usize },
 }
 
+impl EditError {
+    /// The bare variant name (e.g. `"InvalidFieldName"`). Each binding surfaces
+    /// it as the `[EditError::<Variant>]` message prefix; defined once here so a
+    /// new variant cannot drift across the three binding error mappers.
+    pub fn variant_name(&self) -> &'static str {
+        match self {
+            EditError::InvalidFieldName(_) => "InvalidFieldName",
+            EditError::InvalidKindName(_) => "InvalidKindName",
+            EditError::ReservedKind => "ReservedKind",
+            EditError::IndexOutOfRange { .. } => "IndexOutOfRange",
+            EditError::ValueTooDeep { .. } => "ValueTooDeep",
+        }
+    }
+}
+
 /// A field-level invariant violation, shared by every payload ingestion path.
 ///
 /// Each boundary maps it to its own error type (`ParseError`,

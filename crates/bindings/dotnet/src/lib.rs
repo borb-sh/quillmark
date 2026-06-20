@@ -115,14 +115,7 @@ fn mime_for(f: OutputFormat) -> &'static str {
 // ── Error conversion (mirrors Python errors.rs) ─────────────────────────────
 
 fn report_edit_error(err: EditError) -> i32 {
-    let variant = match &err {
-        EditError::InvalidFieldName(_) => "InvalidFieldName",
-        EditError::InvalidKindName(_) => "InvalidKindName",
-        EditError::ReservedKind => "ReservedKind",
-        EditError::IndexOutOfRange { .. } => "IndexOutOfRange",
-        EditError::ValueTooDeep { .. } => "ValueTooDeep",
-    };
-    set_error_message(format!("[EditError::{}] {}", variant, err))
+    set_error_message(format!("[EditError::{}] {}", err.variant_name(), err))
 }
 
 fn report_render_error(err: RenderError) -> i32 {
@@ -373,11 +366,7 @@ pub unsafe extern "C" fn qm_quill_metadata_json(quill: *mut Quill) -> *mut c_cha
     obj.insert("author".into(), config.author.clone().into());
     obj.insert("description".into(), config.description.clone().into());
     for (key, value) in q.metadata() {
-        if matches!(
-            key.as_str(),
-            "name" | "backend" | "description" | "version" | "author"
-        ) || obj.contains_key(key)
-        {
+        if quillmark_core::STANDARD_METADATA_KEYS.contains(&key.as_str()) || obj.contains_key(key) {
             continue;
         }
         obj.insert(key.clone(), value.as_json().clone());

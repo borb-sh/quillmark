@@ -12,14 +12,7 @@ use quillmark_core::{Diagnostic, EditError, RenderError, Severity};
 create_exception!(_quillmark, QuillmarkError, PyException);
 
 pub fn convert_edit_error(err: EditError) -> PyErr {
-    let variant = match &err {
-        EditError::InvalidFieldName(_) => "InvalidFieldName",
-        EditError::InvalidKindName(_) => "InvalidKindName",
-        EditError::ReservedKind => "ReservedKind",
-        EditError::IndexOutOfRange { .. } => "IndexOutOfRange",
-        EditError::ValueTooDeep { .. } => "ValueTooDeep",
-    };
-    let message = format!("[EditError::{}] {}", variant, err);
+    let message = format!("[EditError::{}] {}", err.variant_name(), err);
     raise_with_diagnostics(vec![Diagnostic::new(Severity::Error, message.clone())], message)
 }
 

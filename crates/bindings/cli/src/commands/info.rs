@@ -3,9 +3,10 @@ use crate::errors::{CliError, Result};
 use clap::Parser;
 use std::path::PathBuf;
 
-/// Standard metadata keys that are surfaced as top-level fields in the output.
-/// These are excluded from the "additional metadata" section.
-const STANDARD_METADATA_KEYS: &[&str] = &["backend", "version", "author", "description"];
+// Standard metadata keys surfaced as top-level fields in `info` output and
+// excluded from the "additional metadata" section. Sourced from
+// `quillmark_core` so the set cannot drift from the other bindings.
+use quillmark_core::STANDARD_METADATA_KEYS;
 
 #[derive(Parser)]
 pub struct InfoArgs {

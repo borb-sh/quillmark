@@ -173,12 +173,9 @@ pub struct Artifact {
 #[cfg(feature = "render")]
 impl Artifact {
     fn mime_type_for_format(format: OutputFormat) -> String {
-        match format {
-            OutputFormat::Pdf => "application/pdf".to_string(),
-            OutputFormat::Svg => "image/svg+xml".to_string(),
-            OutputFormat::Txt => "text/plain".to_string(),
-            OutputFormat::Png => "image/png".to_string(),
-        }
+        quillmark_core::OutputFormat::from(format)
+            .mime_type()
+            .to_string()
     }
 }
 

@@ -29,6 +29,13 @@ use std::collections::HashMap;
 
 use crate::value::QuillValue;
 
+/// The quill-config keys every binding surfaces as typed, top-level fields
+/// (`name` via [`Quill::name`]; the rest via [`Quill::metadata`]). Bindings
+/// exclude these from the "additional/unstructured metadata" passthrough so a
+/// typed field is never emitted twice. Single source of truth for that set.
+pub const STANDARD_METADATA_KEYS: &[&str] =
+    &["name", "backend", "description", "version", "author"];
+
 /// Portable, validated quill data: the file bundle, parsed config, and
 /// metadata of an authored quill, tagged with its *declared* backend id.
 ///
