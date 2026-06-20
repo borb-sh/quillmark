@@ -89,6 +89,7 @@
 
 /// Formats a date for the memo heading.
 ///
+/// - none / blank string: a horizontal fill-in line, to be dated by hand.
 /// - String: shown as-is (use for fixed text like placeholders).
 /// - datetime: USAF style `DD Month YYYY`; DAF style `Month DD, YYYY`.
 ///
@@ -100,7 +101,9 @@
     memo-style in ("usaf", "daf"),
     message: "memo-style for display-date must be \"usaf\" or \"daf\"",
   )
-  if type(date) == str {
+  if date == none or (type(date) == str and date.trim() == "") {
+    box(width: 1.5in, stroke: (bottom: 0.5pt))
+  } else if type(date) == str {
     date
   } else {
     let pattern = if memo-style == "daf" {

@@ -181,7 +181,7 @@ main:
       ui:
         group: Additional
         compact: true
-      description: YYYY-MM-DD. Leave blank to use today's date.
+      description: YYYY-MM-DD. Leave blank for a horizontal fill-in line, to be dated by hand.
 
     classification:
       type: string

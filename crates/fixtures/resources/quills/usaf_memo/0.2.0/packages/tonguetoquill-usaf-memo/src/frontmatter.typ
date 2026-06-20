@@ -37,7 +37,9 @@
     message: "memo_style must be \"usaf\" or \"daf\"",
   )
 
-  let actual_date = if date == none { datetime.today() } else { date }
+  // An empty date renders as a horizontal fill-in line (see display-date);
+  // pass it through rather than defaulting to today.
+  let actual_date = date
 
   let classification_marking = if classification_level == none or type(classification_level) != str {
     none
