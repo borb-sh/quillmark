@@ -121,11 +121,8 @@ fi
 if [ -f "CHANGELOG.md" ]; then
     cp CHANGELOG.md pkg/
 fi
-if [ -f "LICENSE-MIT" ]; then
-    cp LICENSE-MIT pkg/
-fi
-if [ -f "LICENSE-APACHE" ]; then
-    cp LICENSE-APACHE pkg/
+if [ -f "LICENSE" ]; then
+    cp LICENSE pkg/
 fi
 
 # .gitignore for pkg directory

@@ -3,7 +3,7 @@
   "version": "VERSION_PLACEHOLDER",
   "description": "WebAssembly bindings for quillmark",
   "type": "module",
-  "license": "MIT OR Apache-2.0",
+  "license": "Apache-2.0",
   "engines": {
     "node": ">=22"
   },
@@ -15,7 +15,8 @@
     "core",
     "backends",
     "runtime",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "LICENSE"
   ],
   "main": "./runtime/runtime.js",
   "module": "./runtime/runtime.js",
