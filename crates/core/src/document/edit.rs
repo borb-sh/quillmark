@@ -273,7 +273,9 @@ impl Card {
     /// Returns [`EditError::ValueTooDeep`] when the map nests past the §8
     /// depth limit — `$ext` never reaches the plate JSON, but it does flow
     /// through the recursive emit and DTO paths, so it carries the same
-    /// depth bound as user fields.
+    /// depth bound as user fields. By convention each consumer keys its
+    /// state under its own namespace (`$ext.editor`, `$ext.agent`, …);
+    /// `$ext.editor.title` is the canonical slot for a per-card display name.
     pub fn set_ext(
         &mut self,
         value: serde_json::Map<String, serde_json::Value>,
@@ -285,7 +287,7 @@ impl Card {
 
     /// Remove the card's `$ext` map *entirely*, returning the previous map if
     /// present. This is a blunt escape hatch — it discards every namespace
-    /// (`$ext.presentation`, `$ext.agent`, …) at once. To clear consumer
+    /// (`$ext.editor`, `$ext.agent`, …) at once. To clear consumer
     /// state, prefer [`Card::remove_ext_namespace`], which drops only your
     /// own slot and leaves sibling consumers' state intact.
     pub fn remove_ext(&mut self) -> Option<serde_json::Map<String, serde_json::Value>> {
@@ -297,7 +299,7 @@ impl Card {
     ///
     /// This is the recommended way to write `$ext`: it preserves sibling
     /// namespaces, so independent consumers keying on their own slot
-    /// (`$ext.presentation`, `$ext.agent`, …) don't clobber each other.
+    /// (`$ext.editor`, `$ext.agent`, …) don't clobber each other.
     /// Returns [`EditError::ValueTooDeep`] when the merged map nests past
     /// the §8 depth limit (see [`Card::set_ext`]); the card's `$ext` is
     /// unchanged on error.
