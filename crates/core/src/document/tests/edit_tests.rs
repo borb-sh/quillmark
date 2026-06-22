@@ -151,7 +151,10 @@ fn test_document_field_legacy_uppercase_accepted() {
         doc.main_mut()
             .set_field(name, qv("v"))
             .unwrap_or_else(|e| panic!("expected {name} to be accepted, got {e:?}"));
-        assert_eq!(doc.main().payload().get(name).unwrap().as_str().unwrap(), "v");
+        assert_eq!(
+            doc.main().payload().get(name).unwrap().as_str().unwrap(),
+            "v"
+        );
         let removed = doc.main_mut().remove_field(name).unwrap();
         assert_eq!(removed.unwrap().as_str().unwrap(), "v");
     }

@@ -299,7 +299,9 @@ fn validate_wire_field(key: &str, value: &JsonValue) -> Result<(), WireError> {
     validate_field(key, value).map_err(|v| WireError::InvalidField {
         key: key.to_string(),
         reason: match v {
-            FieldViolation::InvalidName => "field names must match [A-Za-z_][A-Za-z0-9_]*".to_string(),
+            FieldViolation::InvalidName => {
+                "field names must match [A-Za-z_][A-Za-z0-9_]*".to_string()
+            }
             FieldViolation::TooDeep => format!(
                 "nests deeper than the maximum of {} levels",
                 crate::document::limits::MAX_YAML_DEPTH
