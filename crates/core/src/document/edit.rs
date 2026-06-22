@@ -273,9 +273,7 @@ impl Card {
     /// Returns [`EditError::ValueTooDeep`] when the map nests past the §8
     /// depth limit — `$ext` never reaches the plate JSON, but it does flow
     /// through the recursive emit and DTO paths, so it carries the same
-    /// depth bound as user fields. By convention each consumer keys its
-    /// state under its own namespace (`$ext.editor`, `$ext.agent`, …);
-    /// `$ext.editor.title` is the canonical slot for a per-card display name.
+    /// depth bound as user fields.
     pub fn set_ext(
         &mut self,
         value: serde_json::Map<String, serde_json::Value>,

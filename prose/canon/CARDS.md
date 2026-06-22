@@ -117,17 +117,10 @@ namespace inside the map (`$ext.editor`, `$ext.agent`, …) to avoid
 collisions when more than one tool carries state on the same card. See
 [markdown-spec.md §3.3](../references/markdown-spec.md) for the full specification.
 
-**`$ext.editor.title`** is the canonical home for a per-card display
-name — the human-readable label an editing surface shows for a single
-card instance, set when a user renames a card in the UI. It is distinct
-from `ui.title` (the schema-level, per-*kind* label, optionally a
-`{field}` template) and from any user field: a display rename is editor
-state, so it lives in `$ext` and never reaches the backend. A consumer
-that needs a card's display name reads `$ext.editor.title` and falls
-back to the kind's `ui.title` when absent. The `editor` namespace is the
-blessed slot for the editing surface's state; the broader
-`$ext.<namespace>` convention still holds, so other tools keep their own
-namespaces.
+`$ext.editor.title` is the canonical slot for a per-card display name —
+the label an editing surface shows when a user renames one card
+instance. It overrides the per-*kind* `ui.title` and, being editor
+state, never reaches the backend.
 
 ## Per-kind Seed Overlays (`$seed`)
 
