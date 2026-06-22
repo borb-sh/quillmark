@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.92.1 - 2026-06-22
+
+- Accept uppercase field names; reserve only `$`-prefixed keys (#730)
+- docs: canonize $ext.editor.title as per-card display name slot (#729)
+
+
 ## Unreleased
 
 - docs(canon): canonize `$ext.editor.title` as the slot for a per-card display name
