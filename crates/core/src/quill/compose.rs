@@ -6,9 +6,10 @@ use std::str::FromStr;
 
 use indexmap::IndexMap;
 
-use super::{seed, CardSchema, Quill};
+use super::{seed, CardSchema, FieldSchema, FieldType, Quill};
 use crate::normalize::normalize_document;
 use crate::quill::zero_value;
+use crate::value::PathSegment;
 use crate::{
     Card, Diagnostic, Document, Payload, QuillValue, RenderError, SeedOverlay, Severity, Version,
 };
@@ -18,8 +19,9 @@ impl Quill {
     /// every absent schema field is resolved to its authored value, else its
     /// schema default, else its type-empty zero value — in this plate-JSON
     /// projection only, never in the persisted document. A merely *incomplete*
-    /// document compiles fine; only a *malformed* one (a surviving `<must-fill>`
-    /// sentinel or a value that won't coerce/validate) errors. See
+    /// document compiles fine; only a *malformed* one (a value that won't
+    /// coerce/validate) errors. A `!must_fill` placeholder never gates render —
+    /// it surfaces as a non-fatal warning from `validate`. See
     /// `prose/canon/SCHEMAS.md`.
     pub fn compile_data(&self, doc: &Document) -> Result<serde_json::Value, RenderError> {
         let coerced = self.coerce_and_validate(doc)?;
@@ -138,13 +140,13 @@ impl Quill {
     /// engine emits — so consumers can route on the code and navigate by path
     /// without parsing message text. It covers type mismatches, unknown card
     /// kinds (`validation::unknown_card`), body-on-disabled-body, and the
-    /// surviving-`<must-fill>`-sentinel error.
+    /// non-fatal `validation::must_fill` placeholder warning.
     ///
-    /// Unlike the render path, it *includes* the non-fatal
-    /// `validation::field_absent` signal that render demotes (an absent
-    /// Unendorsed field zero-fills rather than failing). Treat `field_absent` as
-    /// a per-field completeness hint and the remaining `error`-severity
-    /// diagnostics as blockers.
+    /// The per-field completeness signal (`validation::field_absent`) is
+    /// currently **deferred** (an absent Unendorsed field zero-fills at render
+    /// and raises nothing here). The `validation::must_fill` warning is the one
+    /// non-fatal diagnostic this surface emits today; the remaining
+    /// `error`-severity diagnostics are blockers.
     ///
     /// Field values, defaults, and presentation order are not part of this
     /// surface: a consumer reads them directly from the [`Document`] payload and
@@ -155,6 +157,7 @@ impl Quill {
             Ok(()) => Vec::new(),
             Err(errors) => errors.iter().map(|e| e.to_diagnostic()).collect(),
         };
+        diags.extend(validate_fills(doc));
         diags.extend(self.validate_seed(doc));
         diags
     }
@@ -167,7 +170,7 @@ impl Quill {
     /// name that is not a declared `card_kind` is flagged; otherwise each
     /// overlaid field is checked against that kind's schema with the same
     /// conformance core the schema's own `example:` / `default:` literals use
-    /// (partial values allowed, no `<must-fill>` sentinel or absence gating).
+    /// (partial values allowed, no null/absence gating).
     /// The reserved `$body` key is the body override, not a field, and is
     /// skipped.
     fn validate_seed(&self, doc: &Document) -> Vec<Diagnostic> {
@@ -261,12 +264,10 @@ impl Quill {
             Ok(_) => Ok(()),
             Err(errors) => {
                 // Zero-filled render: a merely *incomplete* document (Unendorsed
-                // fields absent) renders fine — each absent field is zero-filled
-                // in `resolve_fields`. Only *malformed* input is fatal: a
-                // surviving `<must-fill>` sentinel, or a value that won't
-                // coerce/validate. So `validation::field_absent` is demoted here
-                // (the editor-facing `Quill::validate` keeps it as the per-field
-                // doneness signal).
+                // fields absent, or `!must_fill` placeholders) renders fine —
+                // each absent/null field is zero-filled in `resolve_fields`, and
+                // the placeholder marker is render-irrelevant. Only *malformed*
+                // input is fatal: a value that won't coerce/validate.
                 //
                 // Each surviving ValidationError gets its own Diagnostic so
                 // consumers can use `path` for UI navigation via
@@ -324,19 +325,61 @@ fn coercion_error(e: impl std::fmt::Display) -> RenderError {
 /// This is the zero-filled render projection — the fill lives only here and is
 /// never persisted (see `prose/canon/SCHEMAS.md`). Non-schema fields already
 /// present are preserved untouched.
+///
+/// Null ≡ absent **at every level**: a null or absent value — top-level field,
+/// typed-dictionary property, or typed-table cell — carries no data and resolves
+/// like an omitted one (default, else zero) rather than projecting a bare null
+/// into the plate. A `!must_fill` placeholder is a present-null (or a suggested
+/// value) on this path; its marker is render-irrelevant.
 fn resolve_fields(
     fields: &IndexMap<String, QuillValue>,
     schema: &CardSchema,
 ) -> IndexMap<String, QuillValue> {
     let mut result = fields.clone();
     for (name, field) in &schema.fields {
-        if result.contains_key(name) {
-            continue;
-        }
-        let value = field.default.clone().unwrap_or_else(|| zero_value(field));
-        result.insert(name.clone(), value);
+        let resolved = resolve_value(result.get(name), field);
+        result.insert(name.clone(), resolved);
     }
     result
+}
+
+/// Resolve one (possibly absent or null) value against its field schema,
+/// applying null ≡ absent recursively so no bare null reaches the plate:
+///
+/// - A null or absent value becomes the schema `default:`, else the type-empty
+///   [`zero_value`].
+/// - A present **typed dictionary** is rebuilt from its declared properties so a
+///   null/absent property zero-fills and the projection matches the schema shape.
+/// - A present **typed array** resolves each element against the item schema, so
+///   a null element zero-fills in place.
+/// - Any other present value is returned unchanged.
+fn resolve_value(value: Option<&QuillValue>, field: &FieldSchema) -> QuillValue {
+    let present = value.filter(|v| !v.as_json().is_null());
+    let Some(v) = present else {
+        return field.default.clone().unwrap_or_else(|| zero_value(field));
+    };
+    match (&field.r#type, &field.properties, &field.items) {
+        (FieldType::Object, Some(props), _) => {
+            let obj = v.as_json().as_object();
+            let mut out = serde_json::Map::new();
+            for (pname, pschema) in props {
+                let pv = obj
+                    .and_then(|o| o.get(pname))
+                    .map(|j| QuillValue::from_json(j.clone()));
+                out.insert(pname.clone(), resolve_value(pv.as_ref(), pschema).into_json());
+            }
+            QuillValue::from_json(serde_json::Value::Object(out))
+        }
+        (FieldType::Array, _, Some(items)) => {
+            let arr = v.as_json().as_array().cloned().unwrap_or_default();
+            let out: Vec<serde_json::Value> = arr
+                .into_iter()
+                .map(|e| resolve_value(Some(&QuillValue::from_json(e)), items).into_json())
+                .collect();
+            QuillValue::from_json(serde_json::Value::Array(out))
+        }
+        _ => v.clone(),
+    }
 }
 
 /// Build a [`Payload`] from a coerced/defaulted field map, re-attaching `$quill`
@@ -354,4 +397,74 @@ fn rebuild_payload_with_meta(source: &Card, fields: IndexMap<String, QuillValue>
         payload.set_id(id.to_string());
     }
     payload
+}
+
+/// Surface every `!must_fill` placeholder marker as a non-fatal **warning**.
+///
+/// The marker is the explicit "fill me" flag a blueprint stamps (and an author
+/// may write by hand). It is orthogonal to the value layer — it fires whether
+/// the cell is empty/null or carries a suggested value (`!must_fill <value>`) —
+/// and it never gates render: a marked document still renders (the cell
+/// zero-fills, or uses its suggested value). A strict consumer (e.g. an LLM
+/// authoring loop) treats any outstanding marker as "not done". Markers are
+/// reported root-and-nested, across the main card and every composable card.
+fn validate_fills(doc: &Document) -> Vec<Diagnostic> {
+    let mut diags = Vec::new();
+    collect_fill_diags(doc.main(), "", &mut diags);
+    for (index, card) in doc.cards().iter().enumerate() {
+        let kind = card.kind().unwrap_or("");
+        let base = format!("cards.{kind}[{index}]");
+        collect_fill_diags(card, &base, &mut diags);
+    }
+    diags
+}
+
+/// Append a `validation::must_fill` warning for each marker in `card`'s fields.
+fn collect_fill_diags(card: &Card, base: &str, out: &mut Vec<Diagnostic>) {
+    let payload = card.payload();
+    for (key, value) in payload {
+        let field_path = if base.is_empty() {
+            key.clone()
+        } else {
+            format!("{base}.{key}")
+        };
+        // Root marker (the field-level `fill` flag) plus any nested markers
+        // carried on the value tree.
+        if payload.is_fill(key) {
+            out.push(fill_warning(&field_path));
+        }
+        for nested in value.nonroot_fill_paths() {
+            out.push(fill_warning(&render_fill_path(&field_path, &nested)));
+        }
+    }
+}
+
+/// Render `base` extended by a value-relative path into the document-model path
+/// grammar (`addr.street`, `recipients[0].name`).
+fn render_fill_path(base: &str, segs: &[PathSegment]) -> String {
+    let mut s = base.to_string();
+    for seg in segs {
+        match seg {
+            PathSegment::Key(k) => {
+                s.push('.');
+                s.push_str(k);
+            }
+            PathSegment::Index(i) => s.push_str(&format!("[{i}]")),
+        }
+    }
+    s
+}
+
+fn fill_warning(path: &str) -> Diagnostic {
+    Diagnostic::new(
+        Severity::Warning,
+        format!("Field `{path}` is marked `!must_fill` — a placeholder awaiting a value."),
+    )
+    .with_code("validation::must_fill".to_string())
+    .with_path(path.to_string())
+    .with_hint(
+        "Replace the value and drop the `!must_fill` marker, or remove the marker if the \
+         current value is intended."
+            .to_string(),
+    )
 }

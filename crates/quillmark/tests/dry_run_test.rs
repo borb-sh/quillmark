@@ -46,8 +46,7 @@ fn test_dry_run_success() {
 fn test_dry_run_missing_must_fill_field_is_tolerated() {
     // Zero-filled render: a merely *incomplete* document (Unendorsed `title`
     // absent) is not a hard error — `title` is zero-filled in the plate
-    // projection. Only a *malformed* document (a surviving `<must-fill>`
-    // sentinel) fails. See prose/canon/SCHEMAS.md.
+    // projection. See prose/canon/SCHEMAS.md.
     let temp_dir = TempDir::new().unwrap();
     let quill_path = make_test_quill_path(&temp_dir, true);
 
@@ -66,27 +65,24 @@ fn test_dry_run_missing_must_fill_field_is_tolerated() {
 }
 
 #[test]
-fn test_dry_run_surviving_sentinel_still_fails() {
-    // A surviving `<must-fill>` sentinel is *malformed* — it always errors,
-    // even though mere absence does not.
+fn test_dry_run_tolerates_must_fill_marker() {
+    // A `!must_fill` placeholder never gates render: the marked field zero-fills
+    // (null ≡ absent) and dry_run succeeds. The marker surfaces as a non-fatal
+    // warning from `validate`, not as a render error.
     let temp_dir = TempDir::new().unwrap();
     let quill_path = make_test_quill_path(&temp_dir, true);
 
     let quill = quillmark::quill_from_path(&quill_path).expect("from_path failed");
 
     let markdown =
-        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: <must-fill>\nauthor: Test\n~~~\n\n# Content\n";
+        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: !must_fill\nauthor: Test\n~~~\n\n# Content\n";
     let parsed = Document::from_markdown(markdown).expect("parse failed");
 
     let result = quill.dry_run(&parsed);
     assert!(
-        result.is_err(),
-        "dry_run should reject a surviving <must-fill> sentinel"
-    );
-    let err_str = format!("{:?}", result.unwrap_err());
-    assert!(
-        err_str.contains("must_fill_sentinel") || err_str.contains("sentinel"),
-        "error should be the sentinel diagnostic: {err_str}"
+        result.is_ok(),
+        "dry_run should tolerate a !must_fill placeholder (zero-filled): {:?}",
+        result
     );
 }
 

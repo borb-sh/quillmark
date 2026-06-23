@@ -11,9 +11,9 @@
 //!
 //! This is the **filled-out twin of the blueprint**
 //! ([`QuillConfig::blueprint`](crate::quill::QuillConfig::blueprint)): the
-//! blueprint is the annotated authoring surface (sentinels, `# e.g.` hints),
-//! while the seed is its `example`-first intent materialized as real
-//! [`Document`] content with no `<must-fill>` sentinels and no default/zero
+//! blueprint is the annotated authoring surface (`!must_fill` placeholders,
+//! `# e.g.` hints), while the seed is its `example`-first intent materialized as
+//! real [`Document`] content with no `!must_fill` markers and no default/zero
 //! values persisted. Because only `example` values are committed, the seed
 //! never collides with the render layer (no editor/preview drift) and
 //! preserves the absence-based completeness signal for fields that have no

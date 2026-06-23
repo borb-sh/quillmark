@@ -2,18 +2,16 @@
 
 A field's *cell* is determined by whether the schema declares a `default:`.
 
-- No `default:` -> **Unendorsed**: the blueprint renders `<must-fill>` and
-  validation reports ``validation::field_absent`` if the field
-  is absent at validate time and ``validation::must_fill_sentinel`` if
-  the `<must-fill>` sentinel survives into the rendered document.
+- No `default:` -> **Unendorsed**: the blueprint renders the ``!must_fill``
+  marker. A marker left in the document is non-fatal: validate reports a
+  ``validation::must_fill`` warning and render still succeeds (the field
+  zero-fills or uses its suggested value).
 - With `default:` -> **Endorsed**: the blueprint renders the default
-  value with a ``; delete-ok`` annotation; the field is optional and the
-  default is used when absent.
+  value with a type-only ``# <type>`` annotation; the field is optional and
+  the default is used when absent.
 """
 
-import pytest
-
-from quillmark import Document, OutputFormat, Quill, QuillmarkError
+from quillmark import Document, OutputFormat, Quill
 
 
 QUILL_YAML_CONTENT = """quill:
@@ -85,33 +83,34 @@ def test_schema_default_marks_endorsed(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Blueprint surface — annotations and sentinels
+# Blueprint surface — annotations and markers
 # ---------------------------------------------------------------------------
 
-def test_blueprint_must_fill_sentinel(tmp_path):
-    """Unendorsed cells render the literal `<must-fill>` sentinel."""
+def test_blueprint_must_fill_marker(tmp_path):
+    """Unendorsed cells render the `!must_fill` marker."""
     quill = make_quill(tmp_path)
     bp = quill.blueprint
 
-    # Unendorsed fields carry the sentinel
-    assert "title: <must-fill>" in bp, (
-        f"expected `title: <must-fill>` in blueprint; got:\n{bp}"
+    # Unendorsed fields carry the marker
+    assert "title: !must_fill" in bp, (
+        f"expected `title: !must_fill` in blueprint; got:\n{bp}"
     )
-    assert "count: <must-fill>" in bp, (
-        f"expected `count: <must-fill>` in blueprint; got:\n{bp}"
+    assert "count: !must_fill" in bp, (
+        f"expected `count: !must_fill` in blueprint; got:\n{bp}"
     )
 
 
-def test_blueprint_endorsed_delete_ok(tmp_path):
-    """Endorsed cells carry `; delete-ok` after the type annotation."""
+def test_blueprint_endorsed_value(tmp_path):
+    """Endorsed cells render the concrete default with a type-only annotation."""
     quill = make_quill(tmp_path)
     bp = quill.blueprint
 
-    # The Endorsed `status` field renders its default value with `; delete-ok`.
-    # The exact format is `status: draft  # string; delete-ok`.
+    # The Endorsed `status` field renders its default value with a type-only
+    # annotation. The exact format is `status: draft  # string`.
     assert "status: draft" in bp, f"expected default in blueprint; got:\n{bp}"
-    assert "delete-ok" in bp, (
-        f"expected `; delete-ok` annotation on Endorsed cell; got:\n{bp}"
+    # Shippability is the value cell — the `; delete-ok` tag is gone entirely.
+    assert "delete-ok" not in bp, (
+        f"expected no `; delete-ok` tag in blueprint; got:\n{bp}"
     )
 
 
@@ -133,18 +132,13 @@ def test_blueprint_no_legacy_required_optional_tags(tmp_path):
 # Validation surface — new diagnostic codes
 # ---------------------------------------------------------------------------
 
-def _diag_codes(exc):
-    return [d.code for d in exc.diagnostics]
-
-
-def test_absent_unendorsed_is_nonfatal_signal(engine, tmp_path):
-    """An absent Unendorsed field is a non-fatal completeness signal, not a
-    render gate.
+def test_absent_unendorsed_is_nonfatal(engine, tmp_path):
+    """An absent Unendorsed field is not a render gate.
 
     Per the zero-filled-render contract (``prose/canon/SCHEMAS.md``), render
     succeeds — each absent field is zero-filled in the ephemeral plate
-    projection — and ``validation::field_absent`` surfaces through
-    ``quill.validate``, which render demotes.
+    projection. Absence is silent: ``validation::field_absent`` is no longer
+    emitted by ``quill.validate``.
     """
     quill = make_quill(tmp_path)
     md = (
@@ -161,45 +155,55 @@ def test_absent_unendorsed_is_nonfatal_signal(engine, tmp_path):
     result = engine.render(quill, doc, OutputFormat.PDF)
     assert len(result.artifacts) > 0
 
-    # The completeness signal is surfaced by validate, not render.
+    # Absence is silent — field_absent is deferred and no longer surfaced.
     codes = [d.get("code") for d in quill.validate(doc)]
-    assert "validation::field_absent" in codes, (
-        f"expected validate to surface field_absent; got: {codes}"
+    assert "validation::field_absent" not in codes, (
+        f"field_absent is deferred and must not be surfaced; got: {codes}"
     )
 
 
-def test_render_reports_must_fill_sentinel(engine, tmp_path):
-    """A field whose value is still the literal `<must-fill>` sentinel
-    fails validation with ``validation::must_fill_sentinel``.
+def test_render_tolerates_must_fill_marker(engine, tmp_path):
+    """A ``!must_fill`` marker left in the document is non-fatal.
+
+    Render still succeeds (the field zero-fills or uses its suggested value),
+    and ``quill.validate`` surfaces a non-fatal ``validation::must_fill``
+    warning for the marker.
     """
     quill = make_quill(tmp_path)
     md = (
         "~~~card-yaml\n"
         "$quill: py_schema_smoke\n"
         "$kind: main\n"
-        "title: <must-fill>\n"      # sentinel left in place
+        "title: !must_fill\n"       # marker left in place
         "count: 1\n"
         "~~~\n"
     )
     doc = Document.from_markdown(md)
 
-    with pytest.raises(QuillmarkError) as exc_info:
-        engine.render(quill, doc, OutputFormat.PDF)
+    # The marker does not gate render.
+    result = engine.render(quill, doc, OutputFormat.PDF)
+    assert len(result.artifacts) > 0
 
-    codes = _diag_codes(exc_info.value)
-    assert "validation::must_fill_sentinel" in codes, (
-        f"expected validation::must_fill_sentinel; got: {codes}"
+    # validate surfaces a non-fatal warning for the marker.
+    diags = quill.validate(doc)
+    fill = [d for d in diags if d.get("code") == "validation::must_fill"]
+    assert any(d.get("path") == "title" for d in fill), (
+        f"expected a validation::must_fill warning on `title`; got: {diags}"
+    )
+    assert all(d.get("severity") == "warning" for d in fill), (
+        f"validation::must_fill must be a non-fatal warning; got: {fill}"
     )
 
 
 def test_absent_unendorsed_does_not_emit_legacy_codes(engine, tmp_path):
-    """An absent Unendorsed field surfaces ``validation::field_absent``.
+    """An absent Unendorsed field emits no completeness/required codes.
 
-    Absence is a non-fatal signal (zero-filled render —
-    ``prose/canon/SCHEMAS.md``) carried by ``quill.validate``, so the code is
-    checked there rather than on a render error. The assertions also pin that
-    ``validation::missing_required``, ``validation::required_field_absent``, and
-    ``validation::unfilled_placeholder`` never appear.
+    Absence is silent under zero-filled render (``prose/canon/SCHEMAS.md``):
+    render succeeds and ``quill.validate`` surfaces no ``field_absent`` or
+    legacy ``required`` codes. The deferred ``validation::field_absent`` and
+    the legacy ``validation::missing_required``,
+    ``validation::required_field_absent``, and
+    ``validation::unfilled_placeholder`` codes never appear.
     """
     quill = make_quill(tmp_path)
     md = (
@@ -210,14 +214,14 @@ def test_absent_unendorsed_does_not_emit_legacy_codes(engine, tmp_path):
     )
     doc = Document.from_markdown(md)
 
-    # render demotes field_absent → zero-fills and succeeds
+    # render zero-fills absent fields and succeeds
     result = engine.render(quill, doc, OutputFormat.PDF)
     assert len(result.artifacts) > 0
 
-    # the validate surface carries only the canonical code
+    # the validate surface carries none of these codes
     codes = [d.get("code") for d in quill.validate(doc)]
-    assert "validation::field_absent" in codes, (
-        f"expected canonical field_absent; got: {codes}"
+    assert "validation::field_absent" not in codes, (
+        f"`validation::field_absent` is deferred; got: {codes}"
     )
     assert "validation::missing_required" not in codes, (
         f"`validation::missing_required` must not appear; got: {codes}"

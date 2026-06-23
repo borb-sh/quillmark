@@ -23,8 +23,8 @@ $kind: main
 # <description>
 
 # <field description>
-# e.g. <example value>
-field: value  # <type>[<format>][; delete-ok]
+field: !must_fill <example>  # <type>
+endorsed: value  # <type>[<format>]
 ~~~
 
 Write main body here.
@@ -53,7 +53,7 @@ When `body.enabled` is false the marker is omitted entirely.
 | Slot | Form | Carries |
 |---|---|---|
 | **Leading `# …` lines** above a field | `# <prose>` or `# e.g. <value>` | description (single-line prose) and an illustrative example |
-| **Inline `# …`** at end of the value line | `# <type>[<format>][; delete-ok]` | structural metadata: type, optional format refinement, optional delete-ok tag |
+| **Inline `# …`** at end of the value line | `# <type>[<format>]` | structural metadata: the field's type and an optional format refinement |
 
 The two slots have disjoint purposes: leading is prose, inline is
 structural. No colon-separated `key: value` annotation syntax appears in
@@ -66,16 +66,19 @@ Per field, in order:
 1. `# <description>` — `description:` from `Quill.yaml`,
    whitespace-collapsed. **Single line only**; multi-line descriptions are
    rejected at `Quill.yaml` parse time.
-2. `# e.g. <value>` — emitted whenever `example:` is configured on a
-   field. Independent of cell and type. The example never becomes the
-   rendered value.
+2. `# e.g. <value>` — emitted on an **Endorsed** field whenever `example:`
+   is configured. Independent of type. On an Endorsed field the example
+   never becomes the rendered value, so it surfaces as a hint. On an
+   **Unendorsed** field there is no `# e.g.` line: the example inlines
+   directly as the `!must_fill` marker's suggested value (see "Placeholder
+   value precedence"), so a separate hint would be redundant.
 
 That's it. There is no leading `# required`, `# enum:`, `# default:`, or
 `# type:` — those collapse into the inline.
 
 ### Inline annotation
 
-Form: **`# <type>[<format>][; delete-ok]`**
+Form: **`# <type>[<format>]`**
 
 - **Type slot** (mandatory, first): one of
   `string`, `integer`, `number`, `boolean`, `array`, `object`,
@@ -91,11 +94,15 @@ Form: **`# <type>[<format>][; delete-ok]`**
   - `enum<a | b | c>`
   - omitted for `string`, `integer`, `number`, `boolean`, `object`,
     `markdown` (nothing meaningful to refine).
-- **`delete-ok` tag** (optional, after `;`): the single tag `delete-ok`. Present
-  on Endorsed fields (fields with a `default:` in the schema), signalling
-  "the rendered value is shippable as-is — keep or override". Absent on
-  Unendorsed fields (fields without a `default:`), which carry the
-  `<must-fill>` sentinel in the value cell instead.
+
+The inline annotation is **purely structural** — it carries the type (and
+optional format), nothing else. Shippability is conveyed by the **value cell**,
+not by the annotation: an Endorsed field (one with a `default:`) renders its
+concrete default value, which is shippable as-is — keep or override; an
+Unendorsed field (no `default:`) carries the `!must_fill` marker on its value
+instead. The reader's single rule is: a `!must_fill` marker present → fill it;
+a concrete value present → shippable as-is (delete or blank the line to fall
+back to the default).
 
 The `$`-prefixed system-metadata keys (`$quill`, `$kind`, …) have no
 inline-annotation slot — they are not user-defined data fields. (The YAML
@@ -117,89 +124,94 @@ Examples:
 
 | Line | Reading |
 |---|---|
-| `name: <must-fill>  # string` | Unendorsed string — replace `<must-fill>` before shipping |
-| `title: "Curriculum Vitae"  # string; delete-ok` | Endorsed string — keep or override |
-| `count: 0  # integer; delete-ok` | Endorsed integer (type-empty default, explicitly shippable) |
-| `active: false  # boolean; delete-ok` | Endorsed boolean (type-empty default, explicitly shippable) |
-| `notes: ""  # string; delete-ok` | Endorsed empty string (the "skippable" cell, now Endorsed) |
-| `bio: |-` followed by indented `<must-fill>`, then `# markdown` | Unendorsed markdown — see "Markdown fields render as block scalars" |
-| `recipient: <must-fill>  # array<string>` | Unendorsed array of strings |
-| `date: <must-fill>  # datetime<YYYY-MM-DD[Thh:mm:ss]>` | Unendorsed datetime |
-| `severity: <must-fill>  # enum<low \| medium \| high>` | Unendorsed enum |
+| `name: !must_fill  # string` | Unendorsed string, no example — bare marker, replace before shipping |
+| `name: !must_fill Jane Doe  # string` | Unendorsed string with an `example` — the example is the suggested value, still marked |
+| `title: "Curriculum Vitae"  # string` | Endorsed string — concrete value, shippable as-is (keep or override) |
+| `count: 0  # integer` | Endorsed integer (type-empty default, shippable as-is) |
+| `active: false  # boolean` | Endorsed boolean (type-empty default, shippable as-is) |
+| `notes: ""  # string` | Endorsed empty string (the "skippable" cell, now Endorsed) |
+| `bio: !must_fill  # markdown` | Unendorsed markdown — bare marker (see "Markdown fields") |
+| `recipient: !must_fill  # array<string>` | Unendorsed array of strings |
+| `date: !must_fill  # datetime<YYYY-MM-DD[Thh:mm:ss]>` | Unendorsed datetime |
+| `severity: !must_fill  # enum<low \| medium \| high>` | Unendorsed enum |
 | `$quill: cmu_letter@0.1.0` | quill binding metadata, emitted verbatim, do not modify |
 | `$kind: skill` followed by `# composable (0..N)` | repeat the entire `~~~` … `~~~` block per instance |
 
 ## Placeholder value precedence
 
-The rendered value follows a single cascade keyed on the cell:
+The blueprint emits along **two orthogonal axes**. The *value axis* decides
+what data the cell carries; the *marker axis* decides whether the cell is
+stamped `!must_fill`. They are independent — the marker never changes the
+value, and the value never implies the marker.
 
-| Field state | Value rendered | Cell |
+| Field state | Value rendered | Marker |
 |---|---|---|
-| Has `default` | default | Endorsed (carries `; delete-ok`) |
-| No `default` | `<must-fill>` sentinel | Unendorsed (no `; delete-ok`) |
+| Has `default` (Endorsed) | the default | none |
+| No `default`, no `example` (Unendorsed) | none (bare null/empty) | `!must_fill` |
+| No `default`, has `example` (Unendorsed) | the `example` | `!must_fill` |
 
-Examples never become the rendered value, regardless of cell or type —
-this holds uniformly for scalars, arrays, typed tables, and typed
-dictionaries. An example matches the *shape* of the desired value but is
-not the value most authors want, so it always surfaces in the `# e.g.`
-leading line while the value follows the cascade above.
+So an Unendorsed field is always stamped `!must_fill`; its *value* is the
+field's `example` when one exists (a reviewable suggested value), else bare
+(null for scalars, empty for the marked container). An Endorsed field renders
+its default with **no marker** — the concrete value cell is the shippability
+signal on its own.
 
-All fields render as **live YAML** — no commented-out fields. The
-sentinel in the value cell is the sole "must fill" signal: a reader's
-mental model is one rule — **`<must-fill>` in the value cell → replace
-before shipping; otherwise the value cell is shippable as-is**.
+An `example` on an **Endorsed** field never becomes the rendered value — it
+surfaces in the `# e.g.` leading line instead. Only **Unendorsed** fields
+inline the example as the marker's suggested value. This holds uniformly for
+scalars, arrays, typed tables, and typed dictionaries.
 
-The sentinel lives where the LLM types the value:
+All fields render as **live YAML** — no commented-out fields. The `!must_fill`
+marker is the sole "must fill" signal: a reader's mental model is one rule —
+**`!must_fill` on a field → replace before shipping; otherwise the value cell
+is shippable as-is**. A marked document still renders (the cell zero-fills, or
+uses its suggested value); the marker only drives the non-fatal
+`validation::must_fill` warning (see "Guarantees").
 
-| Type | Sentinel position | Example |
+The marker is stamped where the LLM types the value:
+
+| Type | Marker position | Example |
 |---|---|---|
-| `string`, `integer`, `number`, `boolean`, `datetime`, `enum` | Value cell | `name: <must-fill>  # string` |
-| `array<scalar>` | Value cell | `recipient: <must-fill>  # array<string>` |
-| `markdown` | Inside the block scalar | `bio: |-` then `<must-fill>` |
-| `object` (typed dict) | Per-property recursion | leaves carry sentinels |
-| `array<object>` (typed table) | Per-property recursion in one synthetic row | leaves carry sentinels |
+| `string`, `integer`, `number`, `boolean`, `datetime`, `enum` | On the field | `name: !must_fill  # string` |
+| `array<scalar>` | On the field | `recipient: !must_fill  # array<string>` |
+| `markdown` | On the field (bare; no block scalar) | `bio: !must_fill  # markdown` |
+| `object` (typed dict) | Per-property recursion | leaves carry `!must_fill` |
+| `array<object>` (typed table) | Per-property recursion in one synthetic row | leaves carry `!must_fill` |
 
-### Markdown fields render as block scalars
+### Markdown fields
 
-A `markdown` field renders as a YAML literal block scalar (`|-`). The
-block-scalar shape is type-driven — it's the only YAML form that
-cleanly accommodates multi-line markdown content. By rendering it from
-the start, the LLM consumer writes into the indented block without
-needing to switch shapes mid-fill.
+An **Unendorsed** `markdown` field renders as a bare marker on the field —
+no block scalar:
 
-For an Unendorsed markdown field, the block's content is exactly one line
-containing the sentinel:
+```
+bio: !must_fill  # markdown
+```
+
+The LLM replaces the marked field with its markdown content (a quoted scalar
+or a block scalar, the consumer's choice); the marker signals "fill me."
+
+When a `default:` is configured, the field is **Endorsed** and renders as a
+YAML literal block scalar (`|-`) whose content is the default — the block
+form cleanly accommodates multi-line markdown:
 
 ```
 bio: |-  # markdown
-  <must-fill>
-```
-
-The LLM replaces that single line with multi-line markdown; the block
-scalar's shape is unchanged.
-
-When a `default:` is configured, the field is Endorsed and the default's
-content fills the block:
-
-```
-bio: |-  # markdown; delete-ok
   ## About me
   
   <body>
 ```
 
-If the default is empty (`default: ""`), the block scalar still carries
-the `; delete-ok` tag and renders with one indented blank line — the
-"skippable" markdown cell.
+If the default is empty (`default: ""`), the block scalar renders with one
+indented blank line — the "skippable" markdown cell.
 
 ### Multi-element example arrays
 
-Examples on array fields render as a YAML flow sequence so
-multi-element shape information is preserved:
+The `example` of an Unendorsed array field inlines as the `!must_fill`
+marker's value, rendered as a YAML flow sequence so multi-element shape
+information is preserved:
 
 ```
-# e.g. [Mr. John Doe, 123 Main St, "Anytown, USA"]
-recipient: <must-fill>  # array<string>
+recipient: !must_fill [Mr. John Doe, 123 Main St, "Anytown, USA"]  # array<string>
 ```
 
 Items containing flow indicators (`,`, `[`, `]`, `{`, `}`) get quoted so
@@ -221,16 +233,18 @@ cell cascade — `default:` (any default, including `[]`) is Endorsed and
 shippable as-is; no `default:` is Unendorsed:
 
 - A non-empty `default:` renders as actual rows (no per-property
-  annotations on each row). The outer key carries `# array<object>; delete-ok`.
-- `default: []` renders inline as `[]` with `# array<object>; delete-ok` —
+  annotations on each row). The outer key carries `# array<object>`.
+- `default: []` renders inline as `[]` with `# array<object>` —
   shippable empty. Inline row shape is not surfaced under an empty
   default; use `example:` to document row shape. See
   `prose/BOOKMARKS.md` "Typed container empty default loses inline
   shape documentation."
 - No `default:` is Unendorsed: one synthetic row is emitted with each
-  property carrying its own description, inline annotation, and cell
-  signal (sentinel or `; delete-ok`). The outer key carries
-  `# array<object>` (no `; delete-ok`).
+  property carrying its own description, inline annotation, and the
+  `!must_fill` marker on its leaf value. The container key itself is
+  untagged — you tag the leaves, not the container (per
+  [markdown-spec.md](../references/markdown-spec.md) §3.4). The outer key
+  carries `# array<object>`.
 
 An `example:` never renders as rows. Like every other field type, it
 surfaces only in the `# e.g.` leading line — as a one-line flow
@@ -244,13 +258,15 @@ shippable as-is; no `default:` is Unendorsed:
 
 - A non-empty `default:` renders as a concrete block mapping (property
   values only, no annotations). The outer key carries
-  `# object; delete-ok`.
-- `default: {}` renders inline as `{}` with `# object; delete-ok` —
+  `# object`.
+- `default: {}` renders inline as `{}` with `# object` —
   shippable empty. Inline property shape is not surfaced under an empty
   default; use `example:` to document property shape.
 - No `default:` is Unendorsed: each property is emitted with its own
-  description, inline annotation, and cell signal. The outer key
-  carries `# object` (no `; delete-ok`).
+  description, inline annotation, and the `!must_fill` marker on its leaf
+  value. The container key itself is untagged — you tag the leaves, not the
+  container (per [markdown-spec.md](../references/markdown-spec.md) §3.4).
+  The outer key carries `# object`.
 
 An `example:` never renders as a concrete mapping. Like every other
 field type, it surfaces only in the `# e.g.` leading line — as a
@@ -261,17 +277,17 @@ Cupertino}`.
 # The sender's mailing address.
 address:  # object
   # Street address line.
-  street: <must-fill>  # string
+  street: !must_fill  # string
   # City name.
-  city: <must-fill>  # string
+  city: !must_fill  # string
   # ZIP or postal code.
-  zip: ""  # string; delete-ok
+  zip: ""  # string
 ```
 
 With a default:
 
 ```
-address:  # object; delete-ok
+address:  # object
   street: 5000 Forbes Avenue
   city: Pittsburgh
   zip: "15213"
@@ -314,22 +330,19 @@ $kind: main
 # Typeset letters that comply with Carnegie Mellon University letterhead standards.
 
 # The recipient's name and full mailing address.
-# e.g. [Mr. John Doe, 123 Main St, "Anytown, USA"]
-recipient: <must-fill>  # array<string>
+recipient: !must_fill [Mr. John Doe, 123 Main St, "Anytown, USA"]  # array<string>
 # The signer's information. Line 1: Name. Line 2: Title.
-# e.g. [First M. Last, Title]
-signature_block: <must-fill>  # array<string>
+signature_block: !must_fill [First M. Last, Title]  # array<string>
 # The department or organizational unit name for the letterhead.
 # e.g. Department of Electrical and Computer Engineering
-department: ""  # string; delete-ok
+department: ""  # string
 # The sender's institutional mailing address.
-# e.g. [5000 Forbes Avenue, "Pittsburgh, PA 15213-3890"]
-address: <must-fill>  # array<string>
+address: !must_fill [5000 Forbes Avenue, "Pittsburgh, PA 15213-3890"]  # array<string>
 # The department or university website URL.
 # e.g. www.ece.cmu.edu
-url: ""  # string; delete-ok
+url: ""  # string
 # The date to appear on the letter.
-date: <must-fill>  # datetime<YYYY-MM-DD[Thh:mm:ss]>
+date: !must_fill  # datetime<YYYY-MM-DD[Thh:mm:ss]>
 ~~~
 
 Write main body here.
@@ -337,18 +350,21 @@ Write main body here.
 
 ## Guarantees
 
-`blueprint()` guarantees the emitted document is **parseable**: every
-field key is present, every value is YAML-valid, the document round-trips
-through `Document::from_markdown` and back. Endorsed cells coerce and
-validate successfully; Unendorsed cells carry the `<must-fill>` sentinel
-in the value cell (or inside a markdown block scalar), which validation
-reports as `validation::must_fill_sentinel` until the LLM replaces it
-with a typed value.
+`blueprint()` guarantees the emitted document is **parseable** *and*
+**renders**: every field key is present, every value is YAML-valid, the
+document round-trips through `Document::from_markdown` and back, and every
+cell is type-valid. Endorsed cells coerce and validate against their default;
+Unendorsed cells carry the `!must_fill` marker on a value that is either the
+field's `example` (a real, type-valid suggested value) or bare null/empty —
+and because **null ≡ absent** (a present-null cell zero-fills at render, just
+like an omitted field), even a bare-marked cell renders cleanly. A surviving
+marker is surfaced by `Quill::validate` as the **non-fatal**
+`validation::must_fill` warning — never a render gate. A strict consumer
+(e.g. an LLM authoring loop) treats any outstanding marker as "not done."
 
-`blueprint()` does **not**, on its own, guarantee the document
-*renders*. Rendering depends on the quill's `plate.typ` and its
-packages, which `blueprint()` does not control. That is a separate
-**quill authoring contract**:
+Rendering still depends on the quill's `plate.typ` and its packages, which
+`blueprint()` does not control. That is a separate **quill authoring
+contract**:
 
 > A quill's `plate.typ` MUST render an **empty document** (just `$quill` /
 > `$kind: main`, no fields) to a successful (non-error) output. Under
@@ -365,15 +381,16 @@ requires:
   markdown body) as valid *present* input — read via `data.field`,
   `card.at("field", default: …)`, or guarded with `if "field" in data`.
 - No template asserts that an Unendorsed field is *non-empty*. The schema
-  guarantees *presence*, not non-emptiness; the `<must-fill>` sentinel
+  guarantees *presence*, not non-emptiness; the `!must_fill` marker
   is an authoring signal, not a render-time precondition.
 - "Renders successfully" means "compiles without error," not "produces
   meaningful output." An empty-string title is a blank title — that is
   acceptable.
 
-The contract is enforced by a fixture test that renders each bundled
-quill's empty document (zero-filled) and asserts success
-(`crates/quillmark/tests/quiver_test.rs::every_quill_in_quiver_renders`).
+The contract is enforced by fixture tests that render each bundled quill's
+empty document (`quiver_test.rs::every_quill_in_quiver_renders`) and, for the
+`blueprint()` guarantee above, parse, round-trip, and render each quill's
+generated blueprint (`quiver_test.rs::every_quill_blueprint_round_trips_and_renders`).
 
 ## The blueprint and its filled-out twin
 
@@ -385,15 +402,16 @@ annotated `example` *document*: nothing consumes a filled-out document for its
 annotations, so the filled-out projection is committed `Document` content, not
 prose.
 
-| Projection | Intent | Value precedence | Output | Sentinels? |
+| Projection | Intent | Value precedence | Output | Markers? |
 |---|---|---|---|---|
-| `blueprint` | *"give me the form to fill"* | `default:`, else `<must-fill>` | annotated string | yes |
+| `blueprint` | *"give me the form to fill"* | Endorsed: `default:`; Unendorsed: `example:` else bare | annotated string | yes (`!must_fill`) |
 | seeding | *"give me a filled-out one"* | `example:` › absent | committed `Document` | no |
 
 - The **blueprint** is the canonical authoring surface: an Endorsed field
-  (has a `default:`) renders its default; an Unendorsed field carries the
-  `<must-fill>` sentinel. An `example:` surfaces only as a `# e.g.` hint,
-  never as the rendered value.
+  (has a `default:`) renders its default with no marker; an Unendorsed field
+  is stamped `!must_fill`, carrying its `example` as the suggested value when
+  one exists (else bare null/empty). On an Endorsed field an `example:`
+  surfaces only as a `# e.g.` hint, never as the rendered value.
 - **Seeding** commits each field's `example:` and leaves every other field
   absent (`example: → absent`, *not* `example: › default: › zero`), so the
   compilation layer fills `default: → zero` underneath at render time. It is
@@ -432,12 +450,15 @@ Choosing **Unendorsed vs. Endorsed** per field (declare a `default:` or not)
 and **when to reach for `example:`** is schema-authoring guidance owned by
 [SCHEMAS.md](SCHEMAS.md) § "`default` and `example`" and § "Unendorsed vs.
 Endorsed fields". The blueprint is where that choice becomes visible: an
-Endorsed field renders its default tagged `; delete-ok`; an Unendorsed field
-renders the `<must-fill>` sentinel.
+Endorsed field renders its concrete default (shippable as-is); an Unendorsed
+field is stamped with the `!must_fill` marker.
 
-### Writing the literal string `<must-fill>` as content
+### Writing the literal text `!must_fill` as content
 
-The blueprint emitter detects the unquoted form `<must-fill>` as the
-sentinel. To write the literal string as a field value, quote it:
-`"<must-fill>"`. Exact-string-equality detection treats the unquoted
-form as the sentinel and the quoted form as content.
+The placeholder is a YAML **tag**, not a string sentinel, so there is no
+collision and no quoting escape-hatch to learn. The literal text `!must_fill`
+written as an ordinary *value* (`note: "!must_fill"`, or even an unquoted
+scalar that merely contains those characters) is just content; a real marker
+is the YAML tag attached to a field (`note: !must_fill`). The two are
+structurally distinct, so nothing special is required to author the literal
+text.

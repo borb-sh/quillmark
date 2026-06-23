@@ -12,6 +12,13 @@ guides in order.
 
 ## Available guides
 
+- [0.92 → 0.93](0.92-to-0.93.md) — the blueprint placeholder is rebuilt on two
+  orthogonal axes (value and marker): blueprints now stamp the `!must_fill` tag
+  instead of the `<must-fill>` string sentinel, and bare-null / `field:` now
+  falls back to default/zero instead of failing. The fatal
+  `validation::must_fill_sentinel` becomes the non-fatal `validation::must_fill`
+  warning (it never gates render), and `validation::field_absent` is no longer
+  emitted for now.
 - [0.91 → 0.92](0.91-to-0.92.md) — the additive `$seed` system key carries
   per-card-kind seed overlays (`seedCard` gains an optional overlay argument);
   **and** the placeholder tag `!fill` is renamed to `!must_fill` with no alias —

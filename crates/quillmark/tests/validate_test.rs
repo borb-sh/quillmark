@@ -95,37 +95,38 @@ fn validate_reports_unknown_card_kind() {
 }
 
 #[test]
-fn validate_includes_field_absent_completeness_signal() {
+fn validate_defers_field_absent_completeness_signal() {
     let quill = quill_from_yaml(SIMPLE);
-    // `title` and `count` are Unendorsed (no default) and absent. Unlike render
-    // (which demotes this to a non-fatal zero-fill), `validate` surfaces it as
-    // the per-field completeness hint.
+    // `title` and `count` are Unendorsed (no default) and absent. The
+    // completeness signal is deferred pending the authoring-feedback design, so
+    // an incomplete-but-well-formed document produces no diagnostics.
     let md = "~~~card-yaml\n$quill: validate_test\n$kind: main\n~~~\n";
     let doc = Document::from_markdown(md).unwrap();
 
-    let diags = quill.validate(&doc);
-    let absent: Vec<_> = diags
-        .iter()
-        .filter(|d| d.code.as_deref() == Some("validation::field_absent"))
-        .filter_map(|d| d.path.clone())
-        .collect();
     assert!(
-        absent.contains(&"title".to_string()) && absent.contains(&"count".to_string()),
-        "field_absent should flag both absent Unendorsed fields; got paths: {absent:?}"
+        quill.validate(&doc).is_empty(),
+        "absence is no longer surfaced; an incomplete document validates clean"
     );
 }
 
 #[test]
-fn validate_flags_surviving_must_fill_sentinel() {
+fn validate_warns_on_must_fill_marker() {
     let quill = quill_from_yaml(SIMPLE);
+    // The `!must_fill` placeholder surfaces as a non-fatal warning, regardless
+    // of whether it carries a suggested value.
     let md = "~~~card-yaml\n$quill: validate_test\n$kind: main\n\
-              title: <must-fill>\ncount: 1\n~~~\n";
+              title: !must_fill Draft\ncount: !must_fill\n~~~\n";
     let doc = Document::from_markdown(md).unwrap();
 
     let diags = quill.validate(&doc);
-    let diag = diags
+    let marked: Vec<_> = diags
         .iter()
-        .find(|d| d.code.as_deref() == Some("validation::must_fill_sentinel"))
-        .expect("expected must_fill_sentinel diagnostic");
-    assert_eq!(diag.path.as_deref(), Some("title"));
+        .filter(|d| d.code.as_deref() == Some("validation::must_fill"))
+        .inspect(|d| assert_eq!(d.severity, quillmark_core::Severity::Warning))
+        .filter_map(|d| d.path.clone())
+        .collect();
+    assert!(
+        marked.contains(&"title".to_string()) && marked.contains(&"count".to_string()),
+        "both !must_fill markers should warn; got paths: {marked:?}"
+    );
 }
