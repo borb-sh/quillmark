@@ -1137,13 +1137,13 @@ count: "nope"
 // ---------------------------------------------------------------------------
 //
 // The schema axis is implicit: a field with a `default:` is Endorsed (the
-// rendered default is shippable as-is and the blueprint emits the value +
-// `; delete-ok` annotation); a field without a `default:` is Unendorsed (the
-// blueprint emits the `!must_fill` marker).
+// rendered default is shippable as-is and the blueprint emits the concrete
+// value with a type-only `# <type>` annotation); a field without a `default:`
+// is Unendorsed (the blueprint emits the `!must_fill` marker).
 //
 // These tests pin the JS-facing contract:
 //   - `QuillFieldSchema` carries no `required` axis.
-//   - `quill.blueprint` carries `!must_fill` and `; delete-ok` annotations.
+//   - `quill.blueprint` carries the `!must_fill` marker on Unendorsed fields.
 //   - `quill.render(doc)` *tolerates* an absent Unendorsed field: zero-filled
 //     render fills it with its type-empty value in the plate projection
 //     (never persisted), so absence is not a render error.
@@ -1216,21 +1216,23 @@ main:
     expect(fields.subtitle.default).toBe('Untitled subtitle')
   })
 
-  it('blueprint carries `!must_fill` for Unendorsed fields and `; delete-ok` for Endorsed', () => {
+  it('blueprint carries `!must_fill` for Unendorsed fields and a type-only annotation for Endorsed', () => {
     const { quill } = buildQuill()
     const blueprint = quill.blueprint
 
     expect(typeof blueprint).toBe('string')
     expect(blueprint.length).toBeGreaterThan(0)
 
-    // Unendorsed: value cell is the `!must_fill` marker; no `; delete-ok` tag.
+    // Unendorsed: value cell is the `!must_fill` marker.
     expect(blueprint).toContain('title: !must_fill  # string')
-    expect(blueprint).not.toMatch(/title: !must_fill.*delete-ok/)
 
-    // Endorsed: rendered default + `; delete-ok` tag. The emitter does not
-    // quote strings that don't need quoting (`Untitled subtitle` has no YAML
-    // ambiguity), so the value cell is bare.
-    expect(blueprint).toContain('subtitle: Untitled subtitle  # string; delete-ok')
+    // Endorsed: rendered default with a type-only `# string` annotation. The
+    // emitter does not quote strings that don't need quoting (`Untitled
+    // subtitle` has no YAML ambiguity), so the value cell is bare.
+    expect(blueprint).toContain('subtitle: Untitled subtitle  # string')
+
+    // The `; delete-ok` tag is gone entirely — shippability is the value cell.
+    expect(blueprint).not.toContain('delete-ok')
 
     // The `; required` / `; optional` role tag must not appear anywhere.
     expect(blueprint).not.toContain('; required')

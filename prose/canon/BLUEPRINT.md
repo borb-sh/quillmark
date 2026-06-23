@@ -24,7 +24,7 @@ $kind: main
 
 # <field description>
 field: !must_fill <example>  # <type>
-endorsed: value  # <type>[<format>][; delete-ok]
+endorsed: value  # <type>[<format>]
 ~~~
 
 Write main body here.
@@ -53,7 +53,7 @@ When `body.enabled` is false the marker is omitted entirely.
 | Slot | Form | Carries |
 |---|---|---|
 | **Leading `# …` lines** above a field | `# <prose>` or `# e.g. <value>` | description (single-line prose) and an illustrative example |
-| **Inline `# …`** at end of the value line | `# <type>[<format>][; delete-ok]` | structural metadata: type, optional format refinement, optional delete-ok tag |
+| **Inline `# …`** at end of the value line | `# <type>[<format>]` | structural metadata: the field's type and an optional format refinement |
 
 The two slots have disjoint purposes: leading is prose, inline is
 structural. No colon-separated `key: value` annotation syntax appears in
@@ -78,7 +78,7 @@ That's it. There is no leading `# required`, `# enum:`, `# default:`, or
 
 ### Inline annotation
 
-Form: **`# <type>[<format>][; delete-ok]`**
+Form: **`# <type>[<format>]`**
 
 - **Type slot** (mandatory, first): one of
   `string`, `integer`, `number`, `boolean`, `array`, `object`,
@@ -94,14 +94,15 @@ Form: **`# <type>[<format>][; delete-ok]`**
   - `enum<a | b | c>`
   - omitted for `string`, `integer`, `number`, `boolean`, `object`,
     `markdown` (nothing meaningful to refine).
-- **`delete-ok` tag** (optional, after `;`): the single tag `delete-ok`. Present
-  on Endorsed fields (fields with a `default:` in the schema), signalling
-  "the rendered value is shippable as-is — keep or override". Absent on
-  Unendorsed fields (fields without a `default:`), which carry the `!must_fill`
-  marker on the value instead. (With the marker now carrying the
-  "replace before shipping" signal directly, `; delete-ok` is somewhat
-  redundant with "no marker present" and is a candidate for a future cleanup;
-  it is retained for now.)
+
+The inline annotation is **purely structural** — it carries the type (and
+optional format), nothing else. Shippability is conveyed by the **value cell**,
+not by the annotation: an Endorsed field (one with a `default:`) renders its
+concrete default value, which is shippable as-is — keep or override; an
+Unendorsed field (no `default:`) carries the `!must_fill` marker on its value
+instead. The reader's single rule is: a `!must_fill` marker present → fill it;
+a concrete value present → shippable as-is (delete or blank the line to fall
+back to the default).
 
 The `$`-prefixed system-metadata keys (`$quill`, `$kind`, …) have no
 inline-annotation slot — they are not user-defined data fields. (The YAML
@@ -125,10 +126,10 @@ Examples:
 |---|---|
 | `name: !must_fill  # string` | Unendorsed string, no example — bare marker, replace before shipping |
 | `name: !must_fill Jane Doe  # string` | Unendorsed string with an `example` — the example is the suggested value, still marked |
-| `title: "Curriculum Vitae"  # string; delete-ok` | Endorsed string — keep or override |
-| `count: 0  # integer; delete-ok` | Endorsed integer (type-empty default, explicitly shippable) |
-| `active: false  # boolean; delete-ok` | Endorsed boolean (type-empty default, explicitly shippable) |
-| `notes: ""  # string; delete-ok` | Endorsed empty string (the "skippable" cell, now Endorsed) |
+| `title: "Curriculum Vitae"  # string` | Endorsed string — concrete value, shippable as-is (keep or override) |
+| `count: 0  # integer` | Endorsed integer (type-empty default, shippable as-is) |
+| `active: false  # boolean` | Endorsed boolean (type-empty default, shippable as-is) |
+| `notes: ""  # string` | Endorsed empty string (the "skippable" cell, now Endorsed) |
 | `bio: !must_fill  # markdown` | Unendorsed markdown — bare marker (see "Markdown fields") |
 | `recipient: !must_fill  # array<string>` | Unendorsed array of strings |
 | `date: !must_fill  # datetime<YYYY-MM-DD[Thh:mm:ss]>` | Unendorsed datetime |
@@ -143,16 +144,17 @@ what data the cell carries; the *marker axis* decides whether the cell is
 stamped `!must_fill`. They are independent — the marker never changes the
 value, and the value never implies the marker.
 
-| Field state | Value rendered | Marker | Inline tag |
-|---|---|---|---|
-| Has `default` (Endorsed) | the default | none | `; delete-ok` |
-| No `default`, no `example` (Unendorsed) | none (bare null/empty) | `!must_fill` | — |
-| No `default`, has `example` (Unendorsed) | the `example` | `!must_fill` | — |
+| Field state | Value rendered | Marker |
+|---|---|---|
+| Has `default` (Endorsed) | the default | none |
+| No `default`, no `example` (Unendorsed) | none (bare null/empty) | `!must_fill` |
+| No `default`, has `example` (Unendorsed) | the `example` | `!must_fill` |
 
 So an Unendorsed field is always stamped `!must_fill`; its *value* is the
 field's `example` when one exists (a reviewable suggested value), else bare
 (null for scalars, empty for the marked container). An Endorsed field renders
-its default with **no marker**, tagged `; delete-ok`.
+its default with **no marker** — the concrete value cell is the shippability
+signal on its own.
 
 An `example` on an **Endorsed** field never becomes the rendered value — it
 surfaces in the `# e.g.` leading line instead. Only **Unendorsed** fields
@@ -193,15 +195,14 @@ YAML literal block scalar (`|-`) whose content is the default — the block
 form cleanly accommodates multi-line markdown:
 
 ```
-bio: |-  # markdown; delete-ok
+bio: |-  # markdown
   ## About me
   
   <body>
 ```
 
-If the default is empty (`default: ""`), the block scalar still carries
-the `; delete-ok` tag and renders with one indented blank line — the
-"skippable" markdown cell.
+If the default is empty (`default: ""`), the block scalar renders with one
+indented blank line — the "skippable" markdown cell.
 
 ### Multi-element example arrays
 
@@ -232,8 +233,8 @@ cell cascade — `default:` (any default, including `[]`) is Endorsed and
 shippable as-is; no `default:` is Unendorsed:
 
 - A non-empty `default:` renders as actual rows (no per-property
-  annotations on each row). The outer key carries `# array<object>; delete-ok`.
-- `default: []` renders inline as `[]` with `# array<object>; delete-ok` —
+  annotations on each row). The outer key carries `# array<object>`.
+- `default: []` renders inline as `[]` with `# array<object>` —
   shippable empty. Inline row shape is not surfaced under an empty
   default; use `example:` to document row shape. See
   `prose/BOOKMARKS.md` "Typed container empty default loses inline
@@ -243,7 +244,7 @@ shippable as-is; no `default:` is Unendorsed:
   `!must_fill` marker on its leaf value. The container key itself is
   untagged — you tag the leaves, not the container (per
   [markdown-spec.md](../references/markdown-spec.md) §3.4). The outer key
-  carries `# array<object>` (no `; delete-ok`).
+  carries `# array<object>`.
 
 An `example:` never renders as rows. Like every other field type, it
 surfaces only in the `# e.g.` leading line — as a one-line flow
@@ -257,15 +258,15 @@ shippable as-is; no `default:` is Unendorsed:
 
 - A non-empty `default:` renders as a concrete block mapping (property
   values only, no annotations). The outer key carries
-  `# object; delete-ok`.
-- `default: {}` renders inline as `{}` with `# object; delete-ok` —
+  `# object`.
+- `default: {}` renders inline as `{}` with `# object` —
   shippable empty. Inline property shape is not surfaced under an empty
   default; use `example:` to document property shape.
 - No `default:` is Unendorsed: each property is emitted with its own
   description, inline annotation, and the `!must_fill` marker on its leaf
   value. The container key itself is untagged — you tag the leaves, not the
   container (per [markdown-spec.md](../references/markdown-spec.md) §3.4).
-  The outer key carries `# object` (no `; delete-ok`).
+  The outer key carries `# object`.
 
 An `example:` never renders as a concrete mapping. Like every other
 field type, it surfaces only in the `# e.g.` leading line — as a
@@ -280,13 +281,13 @@ address:  # object
   # City name.
   city: !must_fill  # string
   # ZIP or postal code.
-  zip: ""  # string; delete-ok
+  zip: ""  # string
 ```
 
 With a default:
 
 ```
-address:  # object; delete-ok
+address:  # object
   street: 5000 Forbes Avenue
   city: Pittsburgh
   zip: "15213"
@@ -334,12 +335,12 @@ recipient: !must_fill [Mr. John Doe, 123 Main St, "Anytown, USA"]  # array<strin
 signature_block: !must_fill [First M. Last, Title]  # array<string>
 # The department or organizational unit name for the letterhead.
 # e.g. Department of Electrical and Computer Engineering
-department: ""  # string; delete-ok
+department: ""  # string
 # The sender's institutional mailing address.
 address: !must_fill [5000 Forbes Avenue, "Pittsburgh, PA 15213-3890"]  # array<string>
 # The department or university website URL.
 # e.g. www.ece.cmu.edu
-url: ""  # string; delete-ok
+url: ""  # string
 # The date to appear on the letter.
 date: !must_fill  # datetime<YYYY-MM-DD[Thh:mm:ss]>
 ~~~
@@ -448,8 +449,8 @@ Choosing **Unendorsed vs. Endorsed** per field (declare a `default:` or not)
 and **when to reach for `example:`** is schema-authoring guidance owned by
 [SCHEMAS.md](SCHEMAS.md) § "`default` and `example`" and § "Unendorsed vs.
 Endorsed fields". The blueprint is where that choice becomes visible: an
-Endorsed field renders its default tagged `; delete-ok`; an Unendorsed field
-is stamped with the `!must_fill` marker.
+Endorsed field renders its concrete default (shippable as-is); an Unendorsed
+field is stamped with the `!must_fill` marker.
 
 ### Writing the literal text `!must_fill` as content
 

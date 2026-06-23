@@ -327,8 +327,8 @@ A field's *cell* is inferred from whether its schema declares a `default:`:
   are first-class; `engine.render(quill, doc)` only throws for malformed
   input.
 - **Endorsed** (with `default:`) — `quill.blueprint` renders the
-  default value followed by a `; delete-ok` annotation, and the default
-  is used when the document omits the field.
+  default value with a type-only `# <type>` annotation (shippable as-is),
+  and the default is used when the document omits the field.
 
 `QuillFieldSchema` has no `required` axis. A `!must_fill` marker left in the
 document emits the non-fatal `validation::must_fill` warning.

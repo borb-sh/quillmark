@@ -7,8 +7,8 @@ A field's *cell* is determined by whether the schema declares a `default:`.
   ``validation::must_fill`` warning and render still succeeds (the field
   zero-fills or uses its suggested value).
 - With `default:` -> **Endorsed**: the blueprint renders the default
-  value with a ``; delete-ok`` annotation; the field is optional and the
-  default is used when absent.
+  value with a type-only ``# <type>`` annotation; the field is optional and
+  the default is used when absent.
 """
 
 from quillmark import Document, OutputFormat, Quill
@@ -100,16 +100,17 @@ def test_blueprint_must_fill_marker(tmp_path):
     )
 
 
-def test_blueprint_endorsed_delete_ok(tmp_path):
-    """Endorsed cells carry `; delete-ok` after the type annotation."""
+def test_blueprint_endorsed_value(tmp_path):
+    """Endorsed cells render the concrete default with a type-only annotation."""
     quill = make_quill(tmp_path)
     bp = quill.blueprint
 
-    # The Endorsed `status` field renders its default value with `; delete-ok`.
-    # The exact format is `status: draft  # string; delete-ok`.
+    # The Endorsed `status` field renders its default value with a type-only
+    # annotation. The exact format is `status: draft  # string`.
     assert "status: draft" in bp, f"expected default in blueprint; got:\n{bp}"
-    assert "delete-ok" in bp, (
-        f"expected `; delete-ok` annotation on Endorsed cell; got:\n{bp}"
+    # Shippability is the value cell — the `; delete-ok` tag is gone entirely.
+    assert "delete-ok" not in bp, (
+        f"expected no `; delete-ok` tag in blueprint; got:\n{bp}"
     )
 
 

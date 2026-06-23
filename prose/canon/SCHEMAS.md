@@ -94,7 +94,7 @@ the render path interpolates it into the plate-JSON projection only, and seeding
 deliberately omits it (persisting it would be redundant and would freeze it
 against a schema change). The lone way a default's *value* becomes document
 content is indirect: `blueprint()` emits it as literal text in its reference
-*string* (tagged `; delete-ok`), and if a consumer authors from it and saves
+*string* (the concrete default value, shippable as-is), and if a consumer authors from it and saves
 it, that value is now ordinary **authored** content — the consumer committed
 it, not the engine.
 
@@ -250,9 +250,10 @@ encode opposite author intents:
   default fills any field the document leaves out (an
   authored value always wins — `resolve_fields` in
   `quillmark::orchestration`). A field with a `default:` is **Endorsed** — the
-  rendered value is shippable as-is — and the blueprint tags it
-  `; delete-ok`. Type-empty defaults (`default: ""`, `[]`, `false`, `0`)
-  are the canonical way to mark a "skippable" cell.
+  rendered value is shippable as-is — and the blueprint renders that concrete
+  default value with a type-only annotation (no marker). Type-empty defaults
+  (`default: ""`, `[]`, `false`, `0`) are the canonical way to mark a
+  "skippable" cell.
 - **`example`** matches the semantic and type *shape* of the desired
   value but is *not* the value most authors want. It documents shape, not
   the choice — so it never becomes the rendered value; it only surfaces in

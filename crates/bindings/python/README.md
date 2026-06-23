@@ -125,8 +125,8 @@ A field's *cell* is inferred from whether the schema declares a `default:`:
   `validation::must_fill` warning and still renders. Partial documents are
   first-class; `engine.render(quill, doc)` only raises for malformed input.
 - **Endorsed** (with `default:`) — the blueprint renders the default
-  value with a `; delete-ok` annotation, and the default is used when
-  the document omits the field.
+  value with a type-only `# <type>` annotation (shippable as-is), and the
+  default is used when the document omits the field.
 
 There is no `required:` axis on `FieldSchema`.
 
