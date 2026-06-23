@@ -176,20 +176,14 @@ impl QuillConfig {
 
         let json_value = value.as_json();
 
-        // Sentinel pass-through: the literal `<must-fill>` string survives
-        // coercion unchanged so the validation layer can surface a
-        // placeholder diagnostic instead of a type-coercion error. For
-        // markdown the sentinel sits inside the block scalar, which already
-        // decodes as a string, so the same comparison covers both cases.
-        if let Some(s) = json_value.as_str() {
-            let candidate = if matches!(field_schema.r#type, FieldType::Markdown) {
-                s.trim()
-            } else {
-                s
-            };
-            if candidate == super::validation::MUST_FILL_SENTINEL {
-                return Ok(value.clone());
-            }
+        // Null ≡ absent: a present-null value (`field:`, `field: null`,
+        // `field: ~`) carries no data, so it passes through coercion unchanged
+        // for every type rather than failing as a mismatch. The render floor
+        // and the validation layer treat it the same as an omitted field. This
+        // also preserves a `!must_fill` marker riding on `value` (the fill flag
+        // is never part of the JSON projection).
+        if json_value.is_null() {
+            return Ok(value.clone());
         }
 
         match field_schema.r#type {

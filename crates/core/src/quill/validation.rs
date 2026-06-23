@@ -6,12 +6,6 @@ use crate::quill::formats::is_valid_datetime;
 use crate::quill::{CardSchema, FieldSchema, FieldType, QuillConfig};
 use crate::value::QuillValue;
 
-/// Literal sentinel string the blueprint emitter writes into the value
-/// cell of every Unendorsed field. Validation detects unreplaced sentinels
-/// and reports `validation::must_fill_sentinel` under the uniform
-/// validation message contract (see `ERROR.md`).
-pub const MUST_FILL_SENTINEL: &str = "<must-fill>";
-
 /// Validation error with a structured field path.
 ///
 /// Field-level type and presence errors carry the field path, the
@@ -19,33 +13,18 @@ pub const MUST_FILL_SENTINEL: &str = "<must-fill>";
 /// enough for the `Display` impl to render the uniform diagnostic message
 /// described in `ERROR.md` ("Validation message contract").
 ///
-/// Absence and the surviving blueprint sentinel are *separate* concerns with
-/// opposite fatality, so they get separate variants:
-/// [`FieldAbsent`](Self::FieldAbsent) is a non-fatal completeness signal (the
-/// render floor zero-fills the field), whereas
-/// [`MustFillSentinel`](Self::MustFillSentinel) is the blueprint↔author
-/// contract — a surviving `<must-fill>` sentinel is a fatal authoring error.
+/// `Placeholder` (the `!must_fill` marker) is **not** a well-formedness error
+/// and so is absent here — it is surfaced as a non-fatal warning by
+/// `Quill::validate`, independent of the value-layer checks below.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationError {
     /// A schema field with no `default:` was absent from the document.
     ///
-    /// This is a non-fatal *completeness* signal, **not** a fill requirement:
-    /// the render floor zero-fills the field (see `prose/canon/SCHEMAS.md`,
-    /// "Zero-filled render"), so render never gates on it. Consumers read the
-    /// code for doneness — e.g. the form view's per-field `Missing` state.
+    /// A non-fatal *completeness* signal, **not** a fill requirement: the render
+    /// floor zero-fills the field (see `prose/canon/SCHEMAS.md`, "Zero-filled
+    /// render"). Emission is currently **deferred** pending the authoring-feedback
+    /// design; the variant is retained for when that surface returns.
     FieldAbsent {
-        path: String,
-        /// Schema-declared type (`string`, `integer`, …).
-        expected: String,
-    },
-
-    /// The blueprint's `<must-fill>` sentinel survived into the document and
-    /// reached validation.
-    ///
-    /// The sentinel is the system's own "replace me" token, stamped into every
-    /// Unendorsed cell by the blueprint to signal LLMs and authors. A surviving
-    /// one is provably an authoring accident, so it is fatal on every path.
-    MustFillSentinel {
         path: String,
         /// Schema-declared type (`string`, `integer`, …).
         expected: String,
@@ -98,15 +77,6 @@ impl std::fmt::Display for ValidationError {
                 "Field `{path}` is missing, schema declares `{expected}` with no default. \
                  {hint}",
                 hint = field_absent_hint(expected),
-            ),
-            // The blueprint sentinel survived into the document. Single exit:
-            // there's no quote-or-omit alternative — the sentinel always means
-            // "replace me".
-            ValidationError::MustFillSentinel { path, expected } => write!(
-                f,
-                "Field `{path}` still carries the `{MUST_FILL_SENTINEL}` blueprint sentinel, \
-                 schema declares `{expected}`. {hint}",
-                hint = must_fill_sentinel_hint(expected),
             ),
             ValidationError::TypeMismatch {
                 path,
@@ -179,11 +149,6 @@ fn field_absent_hint(expected: &str) -> String {
     format!("Provide a value of type `{expected}`.")
 }
 
-/// Actionable exit clause for a surviving `<must-fill>` sentinel.
-fn must_fill_sentinel_hint(expected: &str) -> String {
-    format!("Replace `{MUST_FILL_SENTINEL}` with a value of type `{expected}`.")
-}
-
 /// Actionable exit clause for a TypeMismatch. Mirrors the (expected, actual,
 /// has_default) branching in `Display` so the structured hint and the prose
 /// message can never disagree.
@@ -194,20 +159,7 @@ fn type_mismatch_hint(
     source_token: &str,
     default: Option<&str>,
 ) -> String {
-    if default.is_some() && actual == "null" {
-        // `null` here means the YAML value parsed as null. That can be any of:
-        //   `field: null`   (explicit literal)
-        //   `field: ~`      (YAML shorthand for null)
-        //   `field:`        (bare key — a missing value also parses as null)
-        // In every case the LLM almost always meant "skip this field". The
-        // shortest fix is to remove the line entirely so the default applies.
-        format!(
-            "To use the default, delete this entire line (do NOT write \
-             `{path}:`, `{path}: null`, or `{path}: ~` — all three parse as \
-             null). To set an explicit value, replace the right-hand side \
-             with a {expected}."
-        )
-    } else if expected == "string" && quotable_actual(actual) {
+    if expected == "string" && quotable_actual(actual) {
         format!(
             "Either quote the value (`{path}: \"{source_token}\"`) or change the schema's `type:` to `{actual}`."
         )
@@ -235,7 +187,6 @@ impl ValidationError {
     pub fn path(&self) -> &str {
         match self {
             ValidationError::FieldAbsent { path, .. }
-            | ValidationError::MustFillSentinel { path, .. }
             | ValidationError::TypeMismatch { path, .. }
             | ValidationError::EnumViolation { path, .. }
             | ValidationError::FormatViolation { path, .. }
@@ -249,7 +200,6 @@ impl ValidationError {
     pub fn code(&self) -> &'static str {
         match self {
             ValidationError::FieldAbsent { .. } => "validation::field_absent",
-            ValidationError::MustFillSentinel { .. } => "validation::must_fill_sentinel",
             ValidationError::TypeMismatch { .. } => "validation::type_mismatch",
             ValidationError::EnumViolation { .. } => "validation::enum_violation",
             ValidationError::FormatViolation { .. } => "validation::format_violation",
@@ -266,9 +216,6 @@ impl ValidationError {
     pub fn hint(&self) -> Option<String> {
         match self {
             ValidationError::FieldAbsent { expected, .. } => Some(field_absent_hint(expected)),
-            ValidationError::MustFillSentinel { expected, .. } => {
-                Some(must_fill_sentinel_hint(expected))
-            }
             ValidationError::TypeMismatch {
                 path,
                 expected,
@@ -408,14 +355,11 @@ fn validate_fields_for_card_indexmap(
         let path = child_path(base_path, field_name);
         match fields.get(field_name) {
             Some(value) => errors.extend(validate_field(schema, value, &path)),
-            None if schema.default.is_none() => {
-                // Unendorsed (no `default:`) field absent from the document — a
-                // non-fatal completeness signal; the render floor zero-fills it.
-                errors.push(ValidationError::FieldAbsent {
-                    path,
-                    expected: expected_type_name(&schema.r#type).to_string(),
-                })
-            }
+            // Absence is a completeness concern, not a well-formedness one. The
+            // per-field completeness signal (`FieldAbsent`) is deferred until the
+            // authoring-feedback surface is designed per author type (LLM, GUI,
+            // markdown); for now an absent field — like a present-null one — is
+            // simply zero-filled at render and raises nothing here.
             None => {}
         }
     }
@@ -428,13 +372,12 @@ fn validate_fields_for_card_indexmap(
 /// identical; only the document-authoring concerns differ.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ValueContext {
-    /// A value parsed from an authored document. Detects the `<must-fill>`
-    /// sentinel, requires non-defaulted object properties to be present, and
-    /// reports the field's `default:` token alongside a type mismatch.
+    /// A value parsed from an authored document. Treats present-null as absent
+    /// and reports the field's `default:` token alongside a type mismatch.
     Document,
     /// An `example:` or `default:` literal declared in Quill.yaml. Partial
     /// objects are allowed (absent properties are not errors) and the
-    /// document-only sentinel / default semantics do not apply.
+    /// document-only null/default semantics do not apply.
     SchemaLiteral,
 }
 
@@ -448,24 +391,12 @@ fn validate_value(
     path: &str,
     ctx: ValueContext,
 ) -> Vec<ValidationError> {
-    // Sentinel detection is a document-only concern and runs before per-type
-    // validation. Scalar fields carry the sentinel in the value cell; markdown
-    // carries it as the trimmed content of the block scalar. On match, emit
-    // `MustFillSentinel` and skip per-type checks.
-    if ctx == ValueContext::Document {
-        if let Some(text) = value.as_str() {
-            let candidate = if matches!(field.r#type, FieldType::Markdown) {
-                text.trim()
-            } else {
-                text
-            };
-            if candidate == MUST_FILL_SENTINEL {
-                return vec![ValidationError::MustFillSentinel {
-                    path: path.to_string(),
-                    expected: expected_type_name(&field.r#type).to_string(),
-                }];
-            }
-        }
+    // Null ≡ absent: a present-null value carries no data, so in a document it
+    // is treated exactly like an omitted field — no type error. The `!must_fill`
+    // placeholder marker (when present) is surfaced separately as a non-fatal
+    // warning by `Quill::validate`; it is not a value-layer concern here.
+    if ctx == ValueContext::Document && value.as_json().is_null() {
+        return vec![];
     }
 
     let mut errors = Vec::new();
@@ -504,10 +435,7 @@ fn validate_value(
                 // Validate each element against the array's `items` schema.
                 // Scalar elements (`string[]`, `integer[]`, `markdown[]`, …)
                 // are type-checked element-wise; object elements recurse into
-                // their properties via the Object branch (in a document, a row
-                // collapsed to the `<must-fill>` sentinel surfaces a single
-                // Sentinel error at the row path through the sentinel detector
-                // above).
+                // their properties via the Object branch.
                 if let Some(item_schema) = &field.items {
                     for (idx, item) in items.iter().enumerate() {
                         let row_path = format!("{}[{}]", path, idx);
@@ -538,19 +466,10 @@ fn validate_value(
                                 &property_path,
                                 ctx,
                             )),
-                            // A missing non-defaulted (Unendorsed) property is a
-                            // completeness signal in a document; in a schema
-                            // literal, partial objects are intentional and
-                            // absence is not an error.
-                            None if ctx == ValueContext::Document
-                                && property_schema.default.is_none() =>
-                            {
-                                errors.push(ValidationError::FieldAbsent {
-                                    path: property_path,
-                                    expected: expected_type_name(&property_schema.r#type)
-                                        .to_string(),
-                                })
-                            }
+                            // Absent object property: completeness, not
+                            // well-formedness. Like a top-level absent field, the
+                            // `FieldAbsent` signal is deferred (see
+                            // `validate_fields_for_card_indexmap`).
                             None => {}
                         }
                     }
@@ -615,9 +534,8 @@ pub(crate) fn validate_field(
 ///
 /// Shares the type/enum/format/recursion core with [`validate_field`] (see
 /// [`validate_value`]) but omits the document-authoring concerns: it does not
-/// detect the `<must-fill>` sentinel, does not emit `FieldAbsent` for absent
-/// object properties (partial examples/defaults are intentional and valid), and
-/// never attaches a `default:` token to a type mismatch.
+/// apply null≡absent leniency, and never attaches a `default:` token to a type
+/// mismatch (partial examples/defaults are intentional and valid).
 pub(crate) fn validate_schema_literal(
     schema: &FieldSchema,
     value: &QuillValue,
@@ -745,15 +663,25 @@ main:
     }
 
     #[test]
-    fn reports_absent_must_fill_field() {
-        // A field with no `default:` is Unendorsed. Missing from the document
-        // → `FieldAbsent`.
+    fn absent_unendorsed_field_raises_nothing() {
+        // A field with no `default:` absent from the document is a completeness
+        // concern, not a well-formedness one. `FieldAbsent` emission is deferred,
+        // so validation is clean; the field zero-fills at render.
         let config = config_with("    memo_for:\n      type: string", "");
         let doc = doc_from_fm(&[]);
-        let errors = validate_typed_document(&config, &doc).unwrap_err();
-        assert!(has_error(&errors, |e| {
-            matches!(e, ValidationError::FieldAbsent { path, expected } if path == "memo_for" && expected == "string")
-        }));
+        assert!(validate_typed_document(&config, &doc).is_ok());
+    }
+
+    #[test]
+    fn present_null_is_treated_as_absent() {
+        // `memo_for:` (a bare/null value) carries no data, so it validates the
+        // same as an omitted field — no type mismatch — for every type.
+        let config = config_with("    memo_for:\n      type: string\n    n:\n      type: integer", "");
+        let doc = doc_from_fm(&[("memo_for", json!(null)), ("n", json!(null))]);
+        assert!(
+            validate_typed_document(&config, &doc).is_ok(),
+            "present-null must validate like absence"
+        );
     }
 
     #[test]
@@ -765,72 +693,16 @@ main:
     }
 
     #[test]
-    fn detects_must_fill_sentinel() {
-        let config = config_with("    memo_for:\n      type: string", "");
-        let doc = doc_from_fm(&[("memo_for", json!(MUST_FILL_SENTINEL))]);
-        let errors = validate_typed_document(&config, &doc).unwrap_err();
-        assert!(has_error(&errors, |e| {
-            matches!(e, ValidationError::MustFillSentinel { path, expected } if path == "memo_for" && expected == "string")
-        }));
-    }
-
-    #[test]
-    fn detects_must_fill_sentinel_in_markdown_block() {
-        // Markdown block scalars carry the sentinel inside the block; the
-        // detector trims whitespace before comparing.
-        let config = config_with("    body:\n      type: markdown", "");
-        let doc = doc_from_fm(&[("body", json!(format!("  {}\n", MUST_FILL_SENTINEL)))]);
-        let errors = validate_typed_document(&config, &doc).unwrap_err();
-        assert!(has_error(&errors, |e| {
-            matches!(e, ValidationError::MustFillSentinel { path, .. } if path == "body")
-        }));
-    }
-
-    #[test]
-    fn reports_must_fill_property_absent_in_array_object() {
-        // Property `name` is Unendorsed (no default); `org` is Endorsed.
-        // Missing `name` in a row → `FieldAbsent`.
+    fn absent_object_property_raises_nothing() {
+        // Property `name` is Unendorsed and absent from the row. Like a
+        // top-level absent field, this is a deferred completeness concern, not a
+        // validation error.
         let config = config_with(
             "    recipients:\n      type: array\n      default: []\n      items:\n        type: object\n        properties:\n          name:\n            type: string\n          org:\n            type: string\n            default: \"\"",
             "",
         );
         let doc = doc_from_fm(&[("recipients", json!([{ "org": "HQ" }]))]);
-        let errors = validate_typed_document(&config, &doc).unwrap_err();
-        assert!(has_error(&errors, |e| {
-            matches!(e, ValidationError::FieldAbsent { path, .. } if path == "recipients[0].name")
-        }));
-    }
-
-    #[test]
-    fn detects_must_fill_sentinel_as_typed_table_row() {
-        // Hand-edit edge case: the user collapses a synthetic row down to the
-        // literal sentinel string instead of expanding it into a mapping.
-        // One Sentinel error at the row path beats N noisy Absent errors per
-        // Unendorsed property.
-        let config = config_with(
-            "    recipients:\n      type: array\n      items:\n        type: object\n        properties:\n          name:\n            type: string\n          org:\n            type: string",
-            "",
-        );
-        let doc = doc_from_fm(&[("recipients", json!([MUST_FILL_SENTINEL]))]);
-        let errors = validate_typed_document(&config, &doc).unwrap_err();
-        assert!(
-            has_error(&errors, |e| matches!(
-                e,
-                ValidationError::MustFillSentinel { path, .. }
-                if path == "recipients[0]"
-            )),
-            "expected sentinel error at row path; got {errors:?}"
-        );
-        // And no per-property Absent errors for that row — the row-level
-        // sentinel diagnostic supersedes them.
-        assert!(
-            !has_error(&errors, |e| matches!(
-                e,
-                ValidationError::FieldAbsent { path, .. }
-                if path.starts_with("recipients[0].")
-            )),
-            "row-level sentinel should suppress per-property Absent errors; got {errors:?}"
-        );
+        assert!(validate_typed_document(&config, &doc).is_ok());
     }
 
     // NOTE: top-level typed-dictionary fields (`type: object` with `properties`)
@@ -839,22 +711,15 @@ main:
     // rejected at config parse time.
 
     #[test]
-    fn accumulates_multiple_absent_must_fill_errors() {
+    fn multiple_absent_fields_raise_nothing() {
+        // Completeness (`FieldAbsent`) is deferred, so several absent Unendorsed
+        // fields produce no validation errors.
         let config = config_with(
             "    memo_for:\n      type: string\n    memo_from:\n      type: string",
             "",
         );
         let doc = doc_from_fm(&[]);
-        let errors = validate_typed_document(&config, &doc).unwrap_err();
-        let missing_paths: Vec<&str> = errors
-            .iter()
-            .filter_map(|e| match e {
-                ValidationError::FieldAbsent { path, .. } => Some(path.as_str()),
-                _ => None,
-            })
-            .collect();
-        assert!(missing_paths.contains(&"memo_for"));
-        assert!(missing_paths.contains(&"memo_from"));
+        assert!(validate_typed_document(&config, &doc).is_ok());
     }
 
     #[test]
@@ -920,14 +785,20 @@ main:
 
     #[test]
     fn reports_card_field_paths_with_card_name_and_index() {
+        // A type-mismatched card field anchors the `cards.<kind>[<i>].<field>`
+        // path shape (absence no longer raises, so we exercise the path via a
+        // well-formedness error instead).
         let config = config_with(
             "    title:\n      type: string\n      default: \"\"",
             "card_kinds:\n  indorsement:\n    fields:\n      signature_block:\n        type: string",
         );
-        let doc = doc_with_typed_cards(&[], vec![typed_card("indorsement", &[])]);
+        let doc = doc_with_typed_cards(
+            &[],
+            vec![typed_card("indorsement", &[("signature_block", json!(42))])],
+        );
         let errors = validate_typed_document(&config, &doc).unwrap_err();
         assert!(has_error(&errors, |e| {
-            matches!(e, ValidationError::FieldAbsent { path, .. } if path == "cards.indorsement[0].signature_block")
+            matches!(e, ValidationError::TypeMismatch { path, .. } if path == "cards.indorsement[0].signature_block")
         }));
     }
 
@@ -984,26 +855,6 @@ main:
             hint.contains("string"),
             "hint missing expected type: {hint}"
         );
-        assert!(
-            !hint.contains(MUST_FILL_SENTINEL),
-            "absent-branch hint must not mention the sentinel: {hint}"
-        );
-    }
-
-    #[test]
-    fn must_fill_sentinel_diagnostic_carries_actionable_hint() {
-        let err = ValidationError::MustFillSentinel {
-            path: "title".to_string(),
-            expected: "string".to_string(),
-        };
-        let diag = err.to_diagnostic();
-        assert_eq!(diag.code.as_deref(), Some("validation::must_fill_sentinel"));
-        let hint = diag
-            .hint
-            .as_deref()
-            .expect("must_fill_sentinel diagnostic should carry a hint");
-        assert!(hint.contains(MUST_FILL_SENTINEL));
-        assert!(hint.contains("string"));
     }
 
     #[test]
@@ -1072,38 +923,6 @@ main:
         assert!(
             msg.contains("change the schema's `type:` to `integer`"),
             "missing schema-change exit: {msg}"
-        );
-    }
-
-    #[test]
-    fn type_mismatch_message_has_canonical_shape_default_exit() {
-        // Null under a `string` schema with a default → omit-the-line exit.
-        let config = config_with(
-            "    subtitle:\n      type: string\n      default: \"My Subtitle\"",
-            "",
-        );
-        let doc = doc_from_fm(&[("subtitle", json!(null))]);
-        let errors = validate_typed_document(&config, &doc).unwrap_err();
-        let msg = errors
-            .iter()
-            .find_map(|e| match e {
-                ValidationError::TypeMismatch { .. } => Some(e.to_string()),
-                _ => None,
-            })
-            .expect("expected TypeMismatch");
-        assert!(
-            msg.contains(
-                "Field `subtitle` got null `null`, schema declares `string` with default `\"My Subtitle\"`"
-            ),
-            "wrong head: {msg}"
-        );
-        assert!(
-            msg.contains("delete this entire line"),
-            "missing omit-line exit: {msg}"
-        );
-        assert!(
-            msg.contains("`subtitle: ~`"),
-            "expected message to name the `~` shorthand: {msg}"
         );
     }
 
