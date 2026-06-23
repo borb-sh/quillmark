@@ -173,7 +173,7 @@ impl Quill {
     /// name that is not a declared `card_kind` is flagged; otherwise each
     /// overlaid field is checked against that kind's schema with the same
     /// conformance core the schema's own `example:` / `default:` literals use
-    /// (partial values allowed, no `<must-fill>` sentinel or absence gating).
+    /// (partial values allowed, no null/absence gating).
     /// The reserved `$body` key is the body override, not a field, and is
     /// skipped.
     fn validate_seed(&self, doc: &Document) -> Vec<Diagnostic> {

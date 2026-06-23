@@ -35,9 +35,11 @@ Supported field types:
 - Coerces top-level fields and per-card fields to their declared types
 - Fails fast (`Err`) on the first value that cannot be coerced
 - Coercion rules per type: array wrapping plus element-wise coercion against the `items` schema (a bad element fails at its indexed path, e.g. `counts[1]`); boolean from string/int/float; number/integer from string or from boolean (`true→1`, `false→0`); string/markdown unwrap a length-1 string array into the bare string (else identity); date/datetime format validation; object property recursion
-- The blueprint's `<must-fill>` sentinel string passes through coercion
-  unchanged so the validation layer can surface a placeholder diagnostic
-  rather than a type-coercion error
+- **Null short-circuits coercion.** A null value (`field:`, `field: null`,
+  `field: ~`) passes coercion unchanged for *every* type — null ≡ absent, so
+  it carries no data to coerce. The value reaches the render floor and
+  zero-fills (authored › `default:` › type-zero) exactly like an omitted
+  field
 
 ## Native validation
 

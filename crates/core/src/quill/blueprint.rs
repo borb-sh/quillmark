@@ -16,9 +16,10 @@
 //!   `# <type>[<format>][; delete-ok]`. Type is mandatory on every field.
 //!   Format slot uses angle brackets (`array<string>`, `datetime<YYYY-MM-DD[Thh:mm:ss]>`,
 //!   `enum<a | b | c>`). The optional `; delete-ok` tag marks **Endorsed**
-//!   cells whose rendered default is shippable as-is; its absence marks
-//!   **Unendorsed** cells, which carry the `!must_fill` sentinel in the
-//!   value cell instead.
+//!   cells whose rendered default is shippable as-is. **Unendorsed** cells
+//!   (no `default:`) instead carry the `!must_fill` marker on the value line
+//!   (`field: !must_fill`, or `field: !must_fill <example>` when an example
+//!   supplies a suggested value).
 //! - **Metadata annotation.** The `$quill` / `$kind` system-metadata lines
 //!   have no inline-annotation slot. The root block emits no role
 //!   annotation — the `$` sigil marks its lines as fixed system metadata,
@@ -43,7 +44,7 @@ use serde_json::Value as JsonValue;
 impl QuillConfig {
     /// Generate the canonical annotated Markdown blueprint for this quill —
     /// the authoring surface handed to LLMs and humans, with Unendorsed cells
-    /// carrying the `!must_fill` sentinel. See module docs for the annotation
+    /// carrying the `!must_fill` marker. See module docs for the annotation
     /// grammar; the function is total over any valid `QuillConfig`.
     ///
     /// The "filled-out" twin of the blueprint is **seeding** (`seed_document`
@@ -273,7 +274,7 @@ fn sort_props(props: &BTreeMap<String, Box<FieldSchema>>) -> Vec<&FieldSchema> {
 /// Cell rule (uniform with scalars): a field with a `default:` is Endorsed
 /// — the outer key carries `; delete-ok`. A field without a `default:` is
 /// Unendorsed — the outer key drops `; delete-ok` and the blueprint emits one
-/// synthetic row with leaf-level sentinels. See `prose/BOOKMARKS.md` "Typed
+/// synthetic row with leaf-level markers. See `prose/BOOKMARKS.md` "Typed
 /// container empty default loses inline shape documentation" for the
 /// rendering-vs-symmetry trade-off.
 fn write_typed_table_field(
@@ -328,7 +329,7 @@ fn write_typed_table_field(
 /// — the outer key carries `; delete-ok` and the rendered value is the
 /// resolved mapping (a block mapping for non-empty, inline `{}` for `{}`).
 /// A field without a `default:` is Unendorsed — the blueprint recurses to
-/// per-property leaf-level sentinels. See `prose/BOOKMARKS.md` "Typed
+/// per-property leaf-level markers. See `prose/BOOKMARKS.md` "Typed
 /// container empty default loses inline shape documentation" for the trade-off.
 fn write_typed_object_field(
     out: &mut String,
@@ -416,7 +417,7 @@ fn type_expression(field: &FieldSchema) -> String {
 }
 
 /// The value to render for a field. Endorsed cells render their default;
-/// Unendorsed cells render the `!must_fill` sentinel in the value cell.
+/// Unendorsed cells render the `!must_fill` marker on the value line.
 enum FieldValue {
     Inline(String),
     Block(Vec<serde_json::Value>),
@@ -515,9 +516,9 @@ mod tests {
     }
 
     #[test]
-    fn must_fill_string_renders_sentinel_with_no_delete_ok() {
-        // No `default:` → Unendorsed. Sentinel sits in the value cell; the
-        // inline annotation drops `; delete-ok`.
+    fn must_fill_string_renders_bare_marker_with_no_delete_ok() {
+        // No `default:` → Unendorsed. The `!must_fill` marker sits on the value
+        // line; the inline annotation drops `; delete-ok`.
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -590,7 +591,7 @@ main:
     }
 
     #[test]
-    fn enum_must_fill_renders_sentinel_in_value_cell() {
+    fn enum_must_fill_renders_bare_marker() {
         // An enum field with no `default:` renders `!must_fill` rather than
         // the first enum value — the cell is Unendorsed regardless.
         let t = cfg(r#"
@@ -642,7 +643,7 @@ main:
     #[test]
     fn every_field_carries_inline_type_and_cell_signal() {
         // Endorsed cells carry `; delete-ok`; Unendorsed cells carry the
-        // sentinel in the value cell and drop the tag.
+        // `!must_fill` marker on the value line and drop `; delete-ok`.
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -854,7 +855,7 @@ main:
     }
 
     #[test]
-    fn typed_table_must_fill_emits_synthetic_row_with_leaf_sentinels() {
+    fn typed_table_must_fill_emits_synthetic_row_with_leaf_markers() {
         // Unendorsed container → outer key has no `; delete-ok` (state is a
         // leaf concern). Property leaves carry their own cell signals.
         let t = cfg(r#"
@@ -944,7 +945,7 @@ main:
             t.contains("refs: []  # array<object>; delete-ok\n"),
             "wrong rendering: {t}"
         );
-        assert!(!t.contains("!must_fill"), "no sentinels expected: {t}");
+        assert!(!t.contains("!must_fill"), "no markers expected: {t}");
     }
 
     #[test]
@@ -966,7 +967,7 @@ main:
             t.contains("address: {}  # object; delete-ok\n"),
             "wrong rendering: {t}"
         );
-        assert!(!t.contains("!must_fill"), "no sentinels expected: {t}");
+        assert!(!t.contains("!must_fill"), "no markers expected: {t}");
     }
 
     #[test]
