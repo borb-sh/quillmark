@@ -53,16 +53,16 @@ See `crates/backends/typst/src/error_mapping.rs`.
 
 ## Validation message contract
 
-Field-level validation diagnostics — `validation::type_mismatch`,
-`validation::field_absent`, and
-`validation::must_fill_sentinel` — emit a single canonical shape:
+Field-level validation diagnostics — `validation::type_mismatch` (fatal) and
+`validation::must_fill` (non-fatal, `Severity::Warning`) — emit a single
+canonical shape:
 
 - **Field path** — the document-model anchor of the offending field
   (`recipient`, `cards[2].author`).
 - **Source token** — the YAML scalar that triggered the error, rendered
-  verbatim in its YAML-canonical form (`42`, `null`, `true`, `""`). The
-  blueprint's `<must-fill>` sentinel renders verbatim. Strings appear quoted;
-  primitives appear bare. (Absent fields have no source token.)
+  verbatim in its YAML-canonical form (`42`, `null`, `true`, `""`). Strings
+  appear quoted; primitives appear bare. (Absent fields have no source
+  token.)
 - **Schema declaration** — the field's declared type and, when present,
   its default. Defaults render with the same verbatim formatting.
 - **Both exits when applicable** — the message names two ways out. The
@@ -77,23 +77,17 @@ Either quote the value (`build_number: "42"`) or change the schema's
 ```
 
 ```
-Field `subtitle` got `null`, schema declares `string` with default
-`"My Subtitle"`. To use the default, delete this entire line (do NOT
-write `subtitle:`, `subtitle: null`, or `subtitle: ~` — all three parse
-as null). To set an explicit value, replace the right-hand side with a
-string.
+Field `name` carries the `!must_fill` placeholder marker, schema declares
+`string`. Replace it with a value of type `string` (this is a warning, not
+an error — the field still renders).
 ```
 
-```
-Field `memo_for` is missing, schema declares `string` with no default.
-Provide a value of type `string`.
-```
-
-```
-Field `name` still carries the `<must-fill>` blueprint sentinel,
-schema declares `string`. Replace `<must-fill>` with a value of type
-`string`.
-```
+A present-null value (`subtitle:`, `subtitle: null`, `subtitle: ~`) is
+treated exactly like an omitted field — null ≡ absent. It validates clean
+and zero-fills at render (authored › `default:` › type-zero), so it produces
+no diagnostic. The completeness signal `validation::field_absent` is
+currently deferred (see [SCHEMAS.md](SCHEMAS.md) § "Native validation"), so a
+merely incomplete document also produces no field-level diagnostic.
 
 Implementation: `crates/core/src/quill/validation.rs` (the
 `ValidationError` `Display` impl).

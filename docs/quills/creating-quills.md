@@ -39,7 +39,7 @@ main:
 
 `name`, `backend`, `version`, and `description` are all required. `name` must be `snake_case`. Define your document's expected root-block fields under `main.fields`. Each field has a `type`, optional `default`, `description`, and validation constraints. Use `integer` for whole numbers only and `number` for values that may include decimals. For the full list of field types, UI hints, typed arrays, and enum constraints, see the [Quill.yaml Reference](quill-yaml-reference.md).
 
-Use `default` for the value most authors will accept as-is (the field becomes optional, filled in when omitted). Use `example` to document the expected shape without supplying a default. Fields with neither are flagged in the blueprint with a `<must-fill>` sentinel. See the [Quill.yaml Reference](quill-yaml-reference.md) for details.
+Use `default` for the value most authors will accept as-is (the field becomes optional, filled in when omitted). Use `example` to document the expected shape without supplying a default. Fields with neither are flagged in the blueprint with a `!must_fill` marker. See the [Quill.yaml Reference](quill-yaml-reference.md) for details.
 
 ## 3. Write `plate.typ`
 

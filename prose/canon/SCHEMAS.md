@@ -51,14 +51,25 @@ Validation is implemented by a native walker over `QuillConfig` in `quill/valida
 - Emits path-aware errors for top-level fields and card fields
 - Validates each card's `$kind` matches a known card kind
 - Enforces `body.enabled: false` on the main card and on each card kind — body content for a body-disabled card emits `ValidationError::BodyDisabled` (whitespace-only bodies are treated as empty)
-- **Sentinel detection runs first.** Before per-type checks, any value
-  equal to the literal string `<must-fill>` (for markdown, the trimmed
-  block-scalar content) fires `validation::must_fill_sentinel` and
-  skips the type check for that field.
-- **Absence semantics**: a missing field with a `default:` accepts
-  the default (no error). A missing field without a `default:` fires
-  `validation::field_absent` — a non-fatal signal at render, where the
-  field is zero-filled (see [Zero-filled render](#zero-filled-render)).
+- **Null ≡ absent.** A present-null value (`field:`, `field: null`,
+  `field: ~`) carries no data: it is treated exactly like an omitted field.
+  It validates clean (no `TypeMismatch`) and zero-fills at render
+  (authored › `default:` › type-zero — see
+  [Zero-filled render](#zero-filled-render)).
+- **`!must_fill` marker → non-fatal warning.** For every `!must_fill` marker
+  present — root or nested, main card or composable card —
+  `Quill::validate` emits `validation::must_fill` at **`Severity::Warning`**,
+  regardless of whether the marker carries a value. It **never gates render**:
+  a marked document renders fine (the cell zero-fills, or uses its suggested
+  value). A strict consumer (e.g. an LLM authoring loop) treats any
+  outstanding marker as "not done."
+- **Absence semantics**: a missing (or present-null) field with a `default:`
+  accepts the default; without a `default:` it zero-fills. Either way it
+  validates clean. The completeness signal `validation::field_absent` is
+  **deferred** — `Quill::validate` no longer emits it (the variant is
+  retained in code for when the authoring-feedback surface is designed per
+  author type — LLM / GUI / markdown). So a merely incomplete (or
+  present-null) document validates clean.
 
 Field-level type and presence errors render under a uniform shape —
 field path, verbatim source token, schema declaration, and both exits
@@ -76,7 +87,7 @@ Every field value comes from one of a small set of **sources**, ordered by
 | | `default:` | **never** by the engine — lives in the schema, interpolated only into the ephemeral render projection | yes — the fidelity value |
 | | `example:` | only by [seeding](#document-seeding) | yes — once committed by seeding |
 | floor | type-empty `zero` (`zero_value`) | never ([Non-persist invariant](#zero-filled-render)) | last resort |
-| (signal) | `<must-fill>` sentinel | never (error if it survives) | never |
+| (signal) | `!must_fill` marker | yes — rides on the value as a YAML tag | yes — the marked value (suggested value or zero-fill); raises the non-fatal `validation::must_fill` warning |
 
 A `default` is never written back into a document: it lives in `Quill.yaml`,
 the render path interpolates it into the plate-JSON projection only, and seeding
@@ -94,25 +105,30 @@ floor, `FieldSchema::ui_order` for ordering):
 | Projection | Per-field precedence | Floor | Output |
 |---|---|---|---|
 | render (fidelity) | authored › `default:` › zero | zero | plate JSON — [Zero-filled render](#zero-filled-render) |
-| `blueprint` document | `default:` › `<must-fill>` | sentinel | annotated string — [BLUEPRINT.md](BLUEPRINT.md) |
+| `blueprint` document | Endorsed: `default:`; Unendorsed: `example:` else zero, stamped `!must_fill` | zero (under the marker) | annotated string — [BLUEPRINT.md](BLUEPRINT.md) |
 | seeding | `example:` › absent | (deferred to render floor) | committed `Document` — [Document seeding](#document-seeding) |
 | add-card (into a document) | `$seed` overlay › `example:` › absent | (deferred to render floor) | a new composable `Card` — [Document seeding](#document-seeding) |
 | editor (consumer-side) | authored / `default:` / missing (uncollapsed; `example:` as guidance) | — | a `Document`-payload × schema join the UI consumer performs directly (no engine projection); completeness comes from `Quill::validate` |
 
-Two seams are deliberate, not uniform: the floor is `zero` on every projection
-except `blueprint`, which substitutes the `<must-fill>` *sentinel*; and `zero`
-is honestly blank for every type except `enum`, whose zero is the first declared
-variant (there is no empty enum member). Both are detailed below.
+Two seams are deliberate, not uniform: on `blueprint` the floor still
+zero-fills like every other projection (an Unendorsed cell with no `example`
+carries bare null/empty under its marker), but the projection additionally
+**stamps the `!must_fill` marker** on every Unendorsed field — the marker
+rides *alongside* the value rather than replacing it; and `zero` is honestly
+blank for every type except `enum`, whose zero is the first declared variant
+(there is no empty enum member). Both are detailed below.
 
 ## Zero-filled render
 
 **Partial documents are first-class citizens.** A document need not be
 complete to render — render success is not a completeness signal.
 Shippability is the author's judgment; the engine's only hard requirement
-is that the document be *well-formed* (values coerce, no surviving
-`<must-fill>` sentinel). Completeness is surfaced as a hint — the
-`validation::field_absent` diagnostic from `Quill::validate` — never
-enforced as a gate.
+is that the document be *well-formed* (values coerce). A `!must_fill` marker
+and a present-null cell are both renderable — neither gates render.
+Completeness is not currently surfaced as a diagnostic: `validation::field_absent`
+is deferred (see [Native validation](#native-validation)); the only authoring
+signal `Quill::validate` raises is the non-fatal `validation::must_fill`
+warning for each outstanding marker.
 
 Rendering and the *completeness verdict* are orthogonal. The render path
 (`compile_data` / `resolve_fields` in `quillmark::orchestration`) uses
@@ -122,14 +138,14 @@ Rendering and the *completeness verdict* are orthogonal. The render path
 backend **only, never in the persisted document**.
 
 - **Incomplete is renderable.** A document that merely omits an Unendorsed
-  field renders fine: the field is zero-filled in the projection, so
-  `validation::field_absent` is demoted from a render error to a
-  non-fatal signal. The `validate_document` layer still emits the code, and
-  `Quill::validate` forwards it to consumers, who read it for doneness.
-- **Malformed is fatal.** A value that cannot coerce to its declared type,
-  or a surviving `<must-fill>` sentinel, errors on every path. The sentinel
-  is the system's own "replace me" placeholder, so leaving it in is provably
-  an authoring accident — rendering it literally is never intended.
+  field — or leaves it present-null — renders fine: the field is zero-filled
+  in the projection. Such a document validates clean; completeness is not
+  currently surfaced (`validation::field_absent` is deferred).
+- **Malformed is fatal.** The only malformed case is a value that cannot
+  coerce to (or validate against) its declared type. Placeholders and null
+  are *not* malformed: a `!must_fill` marker renders (using its suggested
+  value or zero-filling) and raises only the non-fatal `validation::must_fill`
+  warning, and a present-null cell zero-fills like an absent field.
 - **Non-persist invariant.** The zero-fill lives only in the ephemeral
   projection and must never be written back. A type-empty value is
   indistinguishable from authored-empty, so persisting it would make
@@ -175,14 +191,15 @@ path's "`default:` wins" rule applies to authored and blank documents, where no
 - **The main card** carries `$quill` and `$kind: main`, so a seed round-trips
   through Markdown like an authored document.
 - **Provenance is deferred.** A seeded `example` is committed as ordinary
-  authored content, so `Quill::validate` emits no `field_absent` for it
-  — an Unendorsed field seeded with an `example` reads as done. Distinguishing an
+  authored content, indistinguishable from hand-authored input. Carrying no
+  `!must_fill` marker, it reads as done — an Unendorsed field seeded with an
+  `example` raises no `validation::must_fill` warning. Distinguishing an
   untouched seed from authored input is a future addition; correctness and
   renderability do not depend on it.
 
 Seeding is the **filled-out twin of the blueprint**
 ([BLUEPRINT.md](BLUEPRINT.md) § "The blueprint and its filled-out twin"): the
-blueprint shows the form to fill (sentinels, `# e.g.` hints), while the seed
+blueprint shows the form to fill (`!must_fill` markers, `# e.g.` hints), while the seed
 hands back a committed `Document` already carrying the `example:` values, the
 rest deferred to the render floor for fidelity. It is the only "filled-out"
 projection — there is no annotated `example` string. Implemented by
@@ -244,12 +261,13 @@ encode opposite author intents:
 ### Unendorsed vs. Endorsed fields
 
 A field is **Unendorsed** when no `default:` is declared — the quill author
-has endorsed no value, so the blueprint stamps the `<must-fill>` sentinel to
+has endorsed no value, so the blueprint stamps the `!must_fill` marker to
 ask an LLM or author to supply one. That is a *communication device on the
-blueprint surface*, not a requirement: a missing Unendorsed field zero-fills
-silently at render, and the non-fatal `validation::field_absent` is only a
-completeness hint, never a render gate. "Must-fill" therefore lives solely on
-the blueprint/sentinel surface; the schema axis is endorsement, not obligation.
+blueprint surface*, not a requirement: a missing (or present-null) Unendorsed
+field zero-fills silently at render, and a surviving marker raises only the
+non-fatal `validation::must_fill` warning, never a render gate. "Must-fill"
+therefore lives solely on the blueprint/marker surface; the schema axis is
+endorsement, not obligation.
 
 A field is **Endorsed** when `default:` is declared; the rendered default
 is shippable as-is (the author can keep or override it).

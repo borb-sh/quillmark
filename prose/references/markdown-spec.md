@@ -247,7 +247,11 @@ data payload.
   comment with a structural path and the emitter re-injects it at the
   matching position.
 - **The `!must_fill` tag.** `!must_fill` marks a data field as a placeholder
-  awaiting user input and round-trips through emit. It applies both to a
+  awaiting user input and round-trips through emit. It is what
+  `QuillConfig::blueprint` stamps into every Unendorsed cell — the canonical
+  authoring placeholder — and a marker that survives into a rendered document
+  is surfaced by `Quill::validate` as the non-fatal `validation::must_fill`
+  warning (it never gates render). It applies both to a
   top-level field and to a leaf nested inside an object or an array element
   (e.g. `addr.street`, `recipients[0].name`); nested markers are recorded on
   the value tree and survive markdown, live-wire, and storage round-trips.
