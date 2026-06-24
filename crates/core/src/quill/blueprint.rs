@@ -4,43 +4,53 @@
 //! for LLM consumers. The blueprint shows the document's shape — fields,
 //! constraints, examples — so a consumer can write a fresh document from it.
 //!
-//! Every block is a `~~~` card-yaml fence: the root block declares
-//! `$quill: <name>@<version>` and each composable card declares
-//! `$kind: <kind>` (see `prose/references/markdown-spec.md`).
+//! ## One emitter
 //!
-//! Annotation grammar:
-//! - **Leading `# …` lines** carry prose: `# <description>` (single line,
-//!   whitespace-collapsed) and `# e.g. <value>` (whenever an `example:` is
-//!   configured, regardless of cell or type).
-//! - **Inline `# …` annotation** on the value line is structural and purely
-//!   type information: `# <type>[<format>]`. Type is mandatory on every field.
-//!   Format slot uses angle brackets (`array<string>`, `datetime<YYYY-MM-DD[Thh:mm:ss]>`,
-//!   `enum<a | b | c>`). Shippability is carried by the value cell alone: an
-//!   **Endorsed** cell (the field has a `default:`) renders that concrete value,
-//!   shippable as-is; an **Unendorsed** cell (no `default:`) carries the
-//!   `!must_fill` marker on the value line (`field: !must_fill`, or
-//!   `field: !must_fill <example>` when an example supplies a suggested value).
-//! - **Metadata annotation.** The root `$quill` line carries an inline
-//!   `# keep verbatim` reminder: an in-band guard against the
-//!   `parse::missing_quill` failure where an LLM author omits the line.
-//!   `$kind` carries no such reminder; an omitted root `$kind: main` is
-//!   synthesised at parse time, so it is not a hard requirement. A composable
-//!   card emits its `composable (0..N)` role as an own-line `# …` comment
-//!   directly under the `$kind` line.
-//! - **Body regions** are signalled by `Write main body here.` after the main
-//!   fence and `Write <card kind> body here.` after each card fence. When
-//!   `body.example` is set, the example text is embedded verbatim instead.
-//!   Absent when `body.enabled` is false.
+//! `blueprint()` does not format YAML itself. It builds a [`Document`] — the
+//! same typed model a parsed `.md` produces — and emits it through the
+//! canonical [`Document::to_markdown`]. The annotation grammar maps cleanly
+//! onto the document model:
+//!
+//! - **Leading `# …` prose** (`# <description>`, `# e.g. <value>`) becomes
+//!   own-line [`PayloadItem::Comment`]s before the field (top-level) or
+//!   [`NestedComment`]s at the leaf's slot (typed-container properties).
+//! - **Inline `# <type>[<format>]` annotation** becomes the field's *trailing
+//!   inline* comment — a one-space ` # …` trailer on the value line.
+//! - **`!must_fill`** becomes the field's `fill` flag (top-level) or a nested
+//!   fill path on the value tree (per-property leaves).
+//! - The `$quill` / `$kind` lines are the document's typed `$` metadata; the
+//!   `# keep verbatim` reminder rides `$quill` as an inline comment.
+//!
+//! Because emission is shared with the parse/round-trip path, the blueprint
+//! round-trips through `Document::from_markdown` and back *by construction* —
+//! there is no second formatter to keep in sync.
+//!
+//! ## Rendering choices that follow from sharing `to_markdown`
+//!
+//! - **Markdown fields** carry no block scalar. An Unendorsed markdown field
+//!   is a bare `field: !must_fill # markdown`; an Endorsed one renders its
+//!   default as an inline (double-quoted, `\n`-escaped) string. `to_markdown`
+//!   emits no `|`/`>` block forms, so neither does the blueprint.
+//! - **Arrays** render in block style at every level — including an
+//!   Unendorsed array's `example`, which rides the `!must_fill` marker as
+//!   block items rather than an inline flow sequence.
+//! - **Typed dictionaries** with `default: {}` expand to the field's
+//!   zero-filled shape (every key present, type-empty value, all unmarked) —
+//!   so an empty endorsed object shows its structure instead of a bare `{}`.
+//!   A *non-empty* partial default is rendered verbatim (a deliberate
+//!   "already handled" signal); only `{}` expands.
 //!
 //! `ui.order` controls field ordering. `ui.group` clusters fields together
 //! within the document but emits no banner.
 
 use std::collections::BTreeMap;
 
-use super::{CardSchema, FieldSchema, FieldType, QuillConfig};
+use super::{zero_value, CardSchema, FieldSchema, FieldType, QuillConfig};
 use crate::document::emit::{saphyr_emit_flow, saphyr_emit_scalar};
-use crate::value::QuillValue;
-use serde_json::Value as JsonValue;
+use crate::document::prescan::NestedComment;
+use crate::document::{Card, Document, Payload, PayloadItem};
+use crate::value::{PathSegment, QuillValue};
+use serde_json::{Map as JsonMap, Value as JsonValue};
 
 impl QuillConfig {
     /// Generate the canonical annotated Markdown blueprint for this quill —
@@ -59,94 +69,90 @@ impl QuillConfig {
     ///
     /// [`Document`]: crate::Document
     pub fn blueprint(&self) -> String {
-        let mut out = String::new();
         let main_desc = self
             .main
             .description
             .as_deref()
             .filter(|s| !s.is_empty())
             .or_else(|| Some(self.description.as_str()).filter(|s| !s.is_empty()));
-        write_main_fence(
-            &mut out,
+
+        let main = build_main_card(
             &self.main,
             &format!("{}@{}", self.name, self.version),
             main_desc,
         );
-        if self.main.body_enabled() {
-            let example = self.main.body.as_ref().and_then(|b| b.example.as_deref());
-            let text = example.unwrap_or("Write main body here.");
-            out.push_str(&format!("\n{}\n", text));
-        }
-        for card in &self.card_kinds {
-            out.push('\n');
-            write_card_fence(&mut out, card);
-            if card.body_enabled() {
-                let example = card.body.as_ref().and_then(|b| b.example.as_deref());
-                let fallback = format!("Write {} body here.", card.name);
-                let text = example.unwrap_or(fallback.as_str());
-                out.push_str(&format!("\n{}\n", text));
-            }
-        }
-        out
+        let cards = self.card_kinds.iter().map(build_card).collect();
+
+        Document::from_main_and_cards(main, cards, Vec::new()).to_markdown()
     }
 }
 
-/// Emit a whitespace-collapsed `# <text>` comment line. No-op when `text`
-/// collapses to the empty string.
-fn write_comment(out: &mut String, text: &str) {
-    let clean = text.split_whitespace().collect::<Vec<_>>().join(" ");
-    if !clean.is_empty() {
-        out.push_str(&format!("# {}\n", clean));
-    }
+/// Whitespace-collapse a description into a single line; `None` when it
+/// collapses to empty.
+fn collapse(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Emit the root block:
-/// `~~~\n$quill: …  # keep verbatim\n$kind: main\n[# desc\n]<fields>~~~\n`.
-///
-/// The `$quill` system-metadata line leads the block, carrying an inline
-/// `# keep verbatim` reminder against the `parse::missing_quill`
-/// failure where an author drops it. The optional description follows as an
-/// own-line comment.
-fn write_main_fence(
-    out: &mut String,
-    card: &CardSchema,
-    quill_ref: &str,
-    description: Option<&str>,
-) {
-    out.push_str("~~~\n");
-    out.push_str("$quill: ");
-    out.push_str(&saphyr_emit_scalar(&JsonValue::String(
-        quill_ref.to_string(),
-    )));
-    out.push_str("  # keep verbatim\n");
-    out.push_str("$kind: main\n");
+fn collapse_opt(text: &Option<String>) -> Option<String> {
+    text.as_deref()
+        .map(collapse)
+        .filter(|clean| !clean.is_empty())
+}
+
+/// The text after `# ` for a body region (`Write … here.` placeholder or the
+/// configured `body.example`), wrapped so `to_markdown` emits it verbatim
+/// after the closing fence. Empty when the card has no body.
+fn body_text(card: &CardSchema, fallback_kind: &str) -> String {
+    if !card.body_enabled() {
+        return String::new();
+    }
+    let example = card.body.as_ref().and_then(|b| b.example.as_deref());
+    let fallback = format!("Write {} body here.", fallback_kind);
+    let text = example.unwrap_or(fallback.as_str());
+    format!("\n{}\n", text)
+}
+
+/// Build the root card: `$quill` (with the `# keep verbatim` inline reminder),
+/// `$kind: main`, the optional description own-line comment, then the fields.
+fn build_main_card(card: &CardSchema, quill_ref: &str, description: Option<&str>) -> Card {
+    let reference = quill_ref
+        .parse()
+        .expect("quill name@version is always a valid QuillReference");
+    let mut items = vec![
+        PayloadItem::Quill { reference },
+        PayloadItem::comment_inline("keep verbatim"),
+        PayloadItem::Kind {
+            value: "main".into(),
+        },
+    ];
     if let Some(desc) = description {
-        write_comment(out, desc);
+        items.push(PayloadItem::comment(collapse(desc)));
     }
-    write_card_fields(out, card);
-    out.push_str("~~~\n");
+    append_fields(&mut items, card);
+    Card::from_parts(Payload::from_items(items), body_text(card, "main"))
 }
 
-/// Emit a composable card as a `~~~` block declaring `$kind: <kind>`.
-/// The `composable (0..N)` role annotation and the optional description are
-/// emitted as own-line comments directly under the `$kind` header.
-fn write_card_fence(out: &mut String, card: &CardSchema) {
-    out.push_str("~~~\n");
-    out.push_str("$kind: ");
-    out.push_str(&saphyr_emit_scalar(&JsonValue::String(card.name.clone())));
-    out.push('\n');
-    out.push_str("# composable (0..N)\n");
-    if let Some(desc) = &card.description {
-        write_comment(out, desc);
+/// Build a composable card: `$kind: <kind>`, the `composable (0..N)` role
+/// comment, the optional description, then the fields.
+fn build_card(card: &CardSchema) -> Card {
+    let mut items = vec![
+        PayloadItem::Kind {
+            value: card.name.clone(),
+        },
+        PayloadItem::comment("composable (0..N)"),
+    ];
+    if let Some(desc) = collapse_opt(&card.description) {
+        items.push(PayloadItem::comment(desc));
     }
-    write_card_fields(out, card);
-    out.push_str("~~~\n");
+    append_fields(&mut items, card);
+    Card::from_parts(Payload::from_items(items), body_text(card, &card.name))
 }
 
-/// Emit a card's fields, clustered by `ui.group` and ordered by `ui.order`.
-fn write_card_fields(out: &mut String, card: &CardSchema) {
+/// Append every field of a card as payload items, clustered by `ui.group` and
+/// ordered by `ui.order`.
+fn append_fields(items: &mut Vec<PayloadItem>, card: &CardSchema) {
     for field in group_fields(card.fields.values()) {
-        write_field(out, field, 0);
+        append_field(items, field);
     }
 }
 
@@ -169,17 +175,16 @@ fn group_fields<'a, I: IntoIterator<Item = &'a FieldSchema>>(fields: I) -> Vec<&
     groups.into_iter().flat_map(|(_, fields)| fields).collect()
 }
 
-fn write_field(out: &mut String, field: &FieldSchema, indent: usize) {
-    let pad = "  ".repeat(indent);
-
+/// Append one top-level field. Dispatches typed tables (`array<object>`) and
+/// typed dictionaries (`object` with `properties`) to their per-property
+/// builders; everything else is a scalar/array cell.
+fn append_field(items: &mut Vec<PayloadItem>, field: &FieldSchema) {
     // Typed table: an array whose element is an object with properties.
-    // Scalar-element arrays (`string[]`, `integer[]`, `markdown[]`, …) fall
-    // through to the uniform scalar rendering below.
     if matches!(field.r#type, FieldType::Array) {
-        if let Some(items) = &field.items {
-            if matches!(items.r#type, FieldType::Object) {
-                if let Some(props) = &items.properties {
-                    write_typed_table_field(out, field, props, indent);
+        if let Some(elem) = &field.items {
+            if matches!(elem.r#type, FieldType::Object) {
+                if let Some(props) = &elem.properties {
+                    append_typed_table(items, field, props);
                     return;
                 }
             }
@@ -189,106 +194,61 @@ fn write_field(out: &mut String, field: &FieldSchema, indent: usize) {
     // Typed dictionary: standalone object with defined properties.
     if matches!(field.r#type, FieldType::Object) {
         if let Some(props) = &field.properties {
-            write_typed_object_field(out, field, props, indent);
+            append_typed_dict(items, field, props);
             return;
         }
     }
 
-    write_description(out, field, &pad);
-    // For Unendorsed scalar/array fields the `example` is inlined as the
-    // `!must_fill` value (a reviewable suggested value), so a separate `# e.g.`
-    // line would duplicate it. Endorsed fields render their default, so their
-    // `example` still surfaces as a distinct hint.
-    if field.default.is_some() {
-        write_eg_comment(out, field, &pad);
-    }
+    append_scalar(items, field);
+}
 
-    // Markdown fields render as a YAML block scalar so multi-line content has
-    // a consistent shape regardless of whether a default is configured.
+/// Push the leading prose comments for a *top-level* field: the description,
+/// then the `# e.g.` hint. `eg_when` gates the hint — scalars surface it only
+/// when Endorsed (an Unendorsed example inlines as the marker value instead),
+/// while typed containers always surface it (their example never inlines).
+fn push_leading(items: &mut Vec<PayloadItem>, field: &FieldSchema, eg_when: bool) {
+    if let Some(desc) = collapse_opt(&field.description) {
+        items.push(PayloadItem::comment(desc));
+    }
+    if eg_when {
+        if let Some(eg) = field.example.as_ref() {
+            items.push(PayloadItem::comment(format!("e.g. {}", eg_hint(eg))));
+        }
+    }
+}
+
+/// The cell's `(value, fill)` for a scalar/array/markdown leaf, per the value
+/// cascade. Endorsed → the default, no marker. Unendorsed → the `example` (when
+/// present) carried by the marker, else a bare null marker. Markdown never
+/// inlines an example: an Unendorsed markdown leaf is always a bare marker.
+fn scalar_cell(field: &FieldSchema) -> (JsonValue, bool) {
+    if let Some(default) = &field.default {
+        return (default.as_json().clone(), false);
+    }
     if matches!(field.r#type, FieldType::Markdown) {
-        let inline = inline_annotation(field);
-        write_markdown_block(out, field, &pad, &inline);
-        return;
+        return (JsonValue::Null, true);
     }
-
-    let inline = format!("  # {}", inline_annotation(field));
-    let value = field_value(field);
-    write_value(out, &field.name, &value, &inline, &pad);
-}
-
-fn write_description(out: &mut String, field: &FieldSchema, pad: &str) {
-    if let Some(desc) = &field.description {
-        let clean = desc.split_whitespace().collect::<Vec<_>>().join(" ");
-        if !clean.is_empty() {
-            out.push_str(&format!("{}# {}\n", pad, clean));
-        }
+    match field.example.as_ref() {
+        Some(eg) => (eg.as_json().clone(), true),
+        None => (JsonValue::Null, true),
     }
 }
 
-/// `# e.g. <value>` — emitted whenever `example:` is configured on the field.
-/// Independent of cell, type, or enum-ness; examples never become rendered
-/// values.
-fn write_eg_comment(out: &mut String, field: &FieldSchema, pad: &str) {
-    if let Some(eg) = field.example.as_ref().map(eg_hint) {
-        out.push_str(&format!("{}# e.g. {}\n", pad, eg));
-    }
-}
-
-fn write_markdown_block(out: &mut String, field: &FieldSchema, pad: &str, inline: &str) {
-    let content = field.default.as_ref().and_then(|v| match v.as_json() {
-        serde_json::Value::String(s) => Some(s),
-        _ => None,
+/// Append a scalar / scalar-array / markdown field as a single payload field
+/// plus its trailing inline type annotation.
+fn append_scalar(items: &mut Vec<PayloadItem>, field: &FieldSchema) {
+    // Scalars surface `# e.g.` only when Endorsed — an Unendorsed example
+    // inlines as the marker's suggested value, so a separate hint would
+    // duplicate it.
+    push_leading(items, field, field.default.is_some());
+    let (json, fill) = scalar_cell(field);
+    items.push(PayloadItem::Field {
+        key: field.name.clone(),
+        value: QuillValue::from_json(json),
+        fill,
+        nested_comments: Vec::new(),
     });
-    let body_pad = format!("{}  ", pad);
-    match content {
-        // Endorsed cell with content → render the default as a block scalar.
-        Some(text) if !text.is_empty() => {
-            out.push_str(&format!("{}{}: |-  # {}\n", pad, field.name, inline));
-            for line in text.lines() {
-                out.push_str(&format!("{}{}\n", body_pad, line));
-            }
-        }
-        // Endorsed cell with empty default → block scalar with one indented
-        // blank line (the "skippable" markdown cell).
-        Some(_) => {
-            out.push_str(&format!("{}{}: |-  # {}\n", pad, field.name, inline));
-            out.push_str(&format!("{}\n", body_pad));
-        }
-        // Unendorsed cell (no `default:`) → the bare `!must_fill` marker on the
-        // value line. Null ≡ absent, so it zero-fills to an empty body at render.
-        None => {
-            out.push_str(&format!("{}{}: !must_fill  # {}\n", pad, field.name, inline));
-        }
-    }
-}
-
-/// Emit the first property of a synthetic typed-table row onto the dash line,
-/// matching `to_markdown`'s canonical object-sequence-item shape: own-line
-/// comments sit at the dash indent *above* the dash, and the property's
-/// `key: value  # type` rides the dash (`  - key: …`). Without this the
-/// blueprint emits the dash on its own line, which re-emits differently and
-/// breaks the round-trip guarantee (see `prose/canon/BLUEPRINT.md` §Guarantees).
-fn write_synthetic_row_head(out: &mut String, first: &FieldSchema, indent: usize) {
-    let dash_pad = "  ".repeat(indent + 1);
-    let prop_pad = "  ".repeat(indent + 2);
-    let mut buf = String::new();
-    write_field(&mut buf, first, indent + 2);
-    let mut on_dash = false;
-    for line in buf.lines() {
-        if !on_dash && line.trim_start().starts_with('#') {
-            // Leading own-line comment (description / `# e.g.`) → dash indent.
-            out.push_str(&format!("{}{}\n", dash_pad, line.trim_start()));
-        } else if !on_dash {
-            // First non-comment line is the field line → splice in the dash.
-            let body = line.strip_prefix(prop_pad.as_str()).unwrap_or(line);
-            out.push_str(&format!("{}- {}\n", dash_pad, body));
-            on_dash = true;
-        } else {
-            // Trailing lines of a multi-line value keep their original indent.
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
+    items.push(PayloadItem::comment_inline(inline_annotation(field)));
 }
 
 fn sort_props(props: &BTreeMap<String, Box<FieldSchema>>) -> Vec<&FieldSchema> {
@@ -297,123 +257,146 @@ fn sort_props(props: &BTreeMap<String, Box<FieldSchema>>) -> Vec<&FieldSchema> {
     v
 }
 
-/// Emit a typed-table field: description + `# e.g.` line (whenever an
-/// example is configured), then the field key with its `array<object>`
-/// inline annotation, then the rendered rows. Rows come from the `default:`,
-/// or a synthetic template row otherwise.
-///
-/// Cell rule (uniform with scalars): a field with a `default:` is Endorsed
-/// — it renders concrete rows. A field without a `default:` is Unendorsed —
-/// the blueprint emits one synthetic row with leaf-level `!must_fill` markers.
-/// The container key itself is never tagged (you mark the leaves, not the
-/// container). See `prose/BOOKMARKS.md` "Typed container empty default loses
-/// inline shape documentation" for the rendering-vs-symmetry trade-off.
-fn write_typed_table_field(
-    out: &mut String,
-    field: &FieldSchema,
-    item_props: &BTreeMap<String, Box<FieldSchema>>,
-    indent: usize,
-) {
-    let pad = "  ".repeat(indent);
-
-    write_description(out, field, &pad);
-    write_eg_comment(out, field, &pad);
-
-    // Endorsement keys off `default:` alone, which also supplies the rendered
-    // rows.
-    let inline = inline_annotation(field);
-    let rows = field.default.as_ref().and_then(|v| match v.as_json() {
-        serde_json::Value::Array(items) => Some(items.clone()),
-        _ => None,
-    });
-
-    match rows {
-        Some(items) if items.is_empty() => {
-            out.push_str(&format!("{}{}: []  # {}\n", pad, field.name, inline));
+/// Build the per-property body of an Unendorsed typed container: the value
+/// mapping (each property at its own cell), the nested comments (description +
+/// `# e.g.` + inline type annotation, addressed by `container_path`/slot), and
+/// the nested fill paths. `prefix` is the container path of the mapping
+/// relative to the field value (`[]` for a typed dict, `[Index(0)]` for a typed
+/// table's synthetic row).
+fn build_property_mapping(
+    props: &BTreeMap<String, Box<FieldSchema>>,
+    prefix: &[PathSegment],
+) -> (JsonMap<String, JsonValue>, Vec<NestedComment>, Vec<Vec<PathSegment>>) {
+    let mut map = JsonMap::new();
+    let mut nested = Vec::new();
+    let mut fills = Vec::new();
+    for (slot, prop) in sort_props(props).into_iter().enumerate() {
+        if let Some(desc) = collapse_opt(&prop.description) {
+            nested.push(NestedComment {
+                container_path: prefix.to_vec(),
+                position: slot,
+                text: desc,
+                inline: false,
+            });
         }
-        Some(items) => {
-            out.push_str(&format!("{}{}:  # {}\n", pad, field.name, inline));
-            write_array_items(out, &items, &pad);
-        }
-        None if item_props.is_empty() => {
-            // Row type declares no properties: emit an empty (type-valid)
-            // array rather than a null synthetic row.
-            out.push_str(&format!("{}{}: []  # {}\n", pad, field.name, inline));
-        }
-        None => {
-            out.push_str(&format!("{}{}:  # {}\n", pad, field.name, inline));
-            let props = sort_props(item_props);
-            let dash_pad = "  ".repeat(indent + 1);
-            match props.split_first() {
-                None => out.push_str(&format!("{}-\n", dash_pad)),
-                Some((first, rest)) => {
-                    write_synthetic_row_head(out, first, indent);
-                    for prop in rest {
-                        write_field(out, prop, indent + 2);
-                    }
-                }
+        // A leaf surfaces `# e.g.` under the same rule as a top-level scalar:
+        // only when Endorsed (an Unendorsed example inlines as the marker).
+        if prop.default.is_some() {
+            if let Some(eg) = prop.example.as_ref() {
+                nested.push(NestedComment {
+                    container_path: prefix.to_vec(),
+                    position: slot,
+                    text: format!("e.g. {}", eg_hint(eg)),
+                    inline: false,
+                });
             }
         }
+        let (json, fill) = scalar_cell(prop);
+        map.insert(prop.name.clone(), json);
+        if fill {
+            let mut path = prefix.to_vec();
+            path.push(PathSegment::Key(prop.name.clone()));
+            fills.push(path);
+        }
+        nested.push(NestedComment {
+            container_path: prefix.to_vec(),
+            position: slot,
+            text: inline_annotation(prop),
+            inline: true,
+        });
     }
+    (map, nested, fills)
 }
 
-/// Emit a typed-dictionary field: description + `# e.g.` line (whenever an
-/// example is configured), then the field key with its `object` inline
-/// annotation, then the rendered mapping. The mapping comes from the
-/// `default:`, or per-property annotations otherwise.
-///
-/// Cell rule (uniform with scalars): a field with a `default:` is Endorsed
-/// — the rendered value is the resolved mapping (a block mapping for non-empty,
-/// inline `{}` for `{}`). A field without a `default:` is Unendorsed — the
-/// blueprint recurses to per-property leaf-level `!must_fill` markers; the
-/// container key itself is never tagged. See `prose/BOOKMARKS.md` "Typed
-/// container empty default loses inline shape documentation" for the trade-off.
-fn write_typed_object_field(
-    out: &mut String,
+/// Append a typed-dictionary field (`object` with `properties`). Endorsed:
+/// render the default mapping (`{}` expands to the zero-filled shape; a
+/// non-empty partial default is rendered verbatim, all unmarked). Unendorsed:
+/// recurse per property with leaf-level markers and annotations; the container
+/// key itself is untagged.
+fn append_typed_dict(
+    items: &mut Vec<PayloadItem>,
     field: &FieldSchema,
     props: &BTreeMap<String, Box<FieldSchema>>,
-    indent: usize,
 ) {
-    let pad = "  ".repeat(indent);
+    push_leading(items, field, true);
 
-    write_description(out, field, &pad);
-    write_eg_comment(out, field, &pad);
-
-    // Endorsement keys off `default:` alone, which also supplies the rendered
-    // mapping.
-    let inline = inline_annotation(field);
-    let mapping = field.default.as_ref().and_then(|v| match v.as_json() {
-        serde_json::Value::Object(map) => Some(map.clone()),
-        _ => None,
-    });
-
-    match mapping {
-        Some(map) if map.is_empty() => {
-            out.push_str(&format!("{}{}: {{}}  # {}\n", pad, field.name, inline));
+    let (value, nested, fills) = match field.default.as_ref().map(|d| d.as_json()) {
+        // `default: {}` → expand to the field's zero-filled shape so every key
+        // is shown; all leaves are Endorsed-by-the-container, hence unmarked
+        // and unannotated (uniform with a concrete default).
+        Some(JsonValue::Object(map)) if map.is_empty() => {
+            (zero_value(field).into_json(), Vec::new(), Vec::new())
         }
-        Some(map) => {
-            out.push_str(&format!("{}{}:  # {}\n", pad, field.name, inline));
-            let inner_pad = format!("{}  ", pad);
-            for (k, v) in &map {
-                out.push_str(&format!("{}{}: {}\n", inner_pad, k, render_scalar(v)));
-            }
-        }
-        None if props.is_empty() => {
-            // Empty typed object: no leaves to fill, so the value cell is an
-            // empty (type-valid) object rather than a bare null.
-            out.push_str(&format!("{}{}: {{}}  # {}\n", pad, field.name, inline));
-        }
+        // Concrete default (object or otherwise) → rendered verbatim, unmarked.
+        Some(default) => (default.clone(), Vec::new(), Vec::new()),
+        // Unendorsed → per-property recursion at the mapping root.
         None => {
-            out.push_str(&format!("{}{}:  # {}\n", pad, field.name, inline));
-            for prop in sort_props(props) {
-                write_field(out, prop, indent + 1);
-            }
+            let (map, nested, fills) = build_property_mapping(props, &[]);
+            (JsonValue::Object(map), nested, fills)
         }
+    };
+
+    push_container_field(items, &field.name, value, nested, fills, field);
+}
+
+/// Append a typed-table field (`array<object>`). Endorsed: render the default
+/// rows verbatim (including `default: []`, which stays inline `[]` — arrays do
+/// not expand). Unendorsed: emit one synthetic row carrying each property's
+/// leaf-level marker and annotation; the container key itself is untagged.
+fn append_typed_table(
+    items: &mut Vec<PayloadItem>,
+    field: &FieldSchema,
+    item_props: &BTreeMap<String, Box<FieldSchema>>,
+) {
+    push_leading(items, field, true);
+
+    let (value, nested, fills) = match field.default.as_ref().map(|d| d.as_json()) {
+        // Any default (including `[]`) is shippable as-is, rendered verbatim.
+        Some(default) => (default.clone(), Vec::new(), Vec::new()),
+        // Row type declares no properties (schema-invalid in practice): emit a
+        // type-valid empty array rather than a null synthetic row.
+        None if item_props.is_empty() => (JsonValue::Array(Vec::new()), Vec::new(), Vec::new()),
+        // Unendorsed → one synthetic row, per-property markers at `[Index(0)]`.
+        None => {
+            let (row, nested, fills) =
+                build_property_mapping(item_props, &[PathSegment::Index(0)]);
+            (
+                JsonValue::Array(vec![JsonValue::Object(row)]),
+                nested,
+                fills,
+            )
+        }
+    };
+
+    push_container_field(items, &field.name, value, nested, fills, field);
+}
+
+/// Push a typed-container field (value + nested comments + nested fills) and
+/// its trailing inline type annotation. The top-level `fill` flag is always
+/// `false`: typed containers are tagged on their leaves, never the container.
+fn push_container_field(
+    items: &mut Vec<PayloadItem>,
+    key: &str,
+    value: JsonValue,
+    nested_comments: Vec<NestedComment>,
+    fills: Vec<Vec<PathSegment>>,
+    field: &FieldSchema,
+) {
+    let mut quill_value = QuillValue::from_json(value);
+    for path in &fills {
+        quill_value.set_fill_at(path);
     }
+    items.push(PayloadItem::Field {
+        key: key.to_string(),
+        value: quill_value,
+        fill: false,
+        nested_comments,
+    });
+    items.push(PayloadItem::comment_inline(inline_annotation(field)));
 }
 
 /// Build the inline annotation body (without the leading `# `): purely the
-/// structural type expression `# <type>[<format>]`. Shippability is carried by
+/// structural type expression `<type>[<format>]`. Shippability is carried by
 /// the value cell alone — a concrete value is shippable as-is, a `!must_fill`
 /// marker asks to be filled — so the annotation needs no cell-state tag.
 fn inline_annotation(field: &FieldSchema) -> String {
@@ -446,76 +429,6 @@ fn type_expression(field: &FieldSchema) -> String {
     }
 }
 
-/// The value to render for a field. Endorsed cells render their default;
-/// Unendorsed cells render the `!must_fill` marker on the value line.
-enum FieldValue {
-    Inline(String),
-    Block(Vec<serde_json::Value>),
-}
-
-fn field_value(field: &FieldSchema) -> FieldValue {
-    // Endorsed value: the `default:`, when present.
-    if let Some(v) = &field.default {
-        return json_to_value(v.as_json());
-    }
-    // Unendorsed cell → the `!must_fill` marker. When the field carries an
-    // `example`, it rides along as a reviewable suggested value
-    // (`field: !must_fill <example>`); otherwise the marker is bare
-    // (`field: !must_fill`). Either way the marker — not the value — is what a
-    // consumer (and the non-fatal `validation::must_fill` warning) keys on.
-    // Markdown is special-cased in `write_markdown_block` and never reaches here.
-    let marker = match field.example.as_ref() {
-        Some(eg) => format!("!must_fill {}", eg_hint(eg)),
-        None => "!must_fill".to_string(),
-    };
-    FieldValue::Inline(marker)
-}
-
-fn json_to_value(val: &serde_json::Value) -> FieldValue {
-    match val {
-        serde_json::Value::Array(items) if items.is_empty() => FieldValue::Inline("[]".into()),
-        serde_json::Value::Array(items) => FieldValue::Block(items.clone()),
-        serde_json::Value::String(s) if s.is_empty() => FieldValue::Inline("\"\"".into()),
-        other => FieldValue::Inline(render_scalar(other)),
-    }
-}
-
-fn write_value(out: &mut String, key: &str, val: &FieldValue, comment: &str, pad: &str) {
-    match val {
-        FieldValue::Inline(s) => {
-            out.push_str(&format!("{}{}: {}{}\n", pad, key, s, comment));
-        }
-        FieldValue::Block(items) => {
-            out.push_str(&format!("{}{}:{}\n", pad, key, comment));
-            write_array_items(out, items, pad);
-        }
-    }
-}
-
-fn write_array_items(out: &mut String, items: &[serde_json::Value], pad: &str) {
-    let item_pad = format!("{}  ", pad);
-    for item in items {
-        match item {
-            serde_json::Value::Object(map) => {
-                let mut entries = map.iter();
-                if let Some((first_key, first_val)) = entries.next() {
-                    out.push_str(&format!(
-                        "{}- {}: {}\n",
-                        item_pad,
-                        first_key,
-                        render_scalar(first_val)
-                    ));
-                    let inner = format!("{}  ", item_pad);
-                    for (k, v) in entries {
-                        out.push_str(&format!("{}{}: {}\n", inner, k, render_scalar(v)));
-                    }
-                }
-            }
-            _ => out.push_str(&format!("{}- {}\n", item_pad, render_scalar(item))),
-        }
-    }
-}
-
 /// Format an example value as a compact one-line hint. Arrays and objects
 /// render as YAML flow collections (`[a, b, c]`, `{k: v}`) so multi-element
 /// shape information is preserved without expanding into multiple comment
@@ -523,17 +436,8 @@ fn write_array_items(out: &mut String, items: &[serde_json::Value], pad: &str) {
 fn eg_hint(example: &QuillValue) -> String {
     match example.as_json() {
         v @ (serde_json::Value::Array(_) | serde_json::Value::Object(_)) => saphyr_emit_flow(v),
-        val => render_scalar(val),
+        val => saphyr_emit_scalar(val),
     }
-}
-
-/// Emit a scalar (or fallback container) as a single-line YAML value
-/// using saphyr's quoting heuristics. Saphyr decides between plain
-/// (`hello`, `42`), double-quoted (`"on"`, `"01234"`), and single-quoted
-/// forms based on whether the unquoted form would re-parse to the same
-/// `QuillValue`.
-fn render_scalar(val: &serde_json::Value) -> String {
-    saphyr_emit_scalar(val)
 }
 
 #[cfg(test)]
@@ -556,7 +460,7 @@ main:
     author: { type: string }
 "#)
         .blueprint();
-        assert!(t.contains("author: !must_fill  # string\n"));
+        assert!(t.contains("author: !must_fill # string\n"));
     }
 
     #[test]
@@ -569,7 +473,7 @@ main:
     status: { type: string, default: draft, example: final }
 "#)
         .blueprint();
-        assert!(t.contains("# e.g. final\nstatus: draft  # string\n"));
+        assert!(t.contains("# e.g. final\nstatus: draft # string\n"));
     }
 
     #[test]
@@ -581,11 +485,11 @@ main:
     classification: { type: string, default: "", example: CONFIDENTIAL }
 "#)
         .blueprint();
-        assert!(t.contains("# e.g. CONFIDENTIAL\nclassification: \"\"  # string\n"));
+        assert!(t.contains("# e.g. CONFIDENTIAL\nclassification: \"\" # string\n"));
     }
 
     #[test]
-    fn must_fill_array_example_renders_as_flow_sequence_with_context_quoting() {
+    fn must_fill_array_example_renders_as_block_sequence_with_context_quoting() {
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -599,10 +503,10 @@ main:
         - "Anytown, USA"
 "#)
         .blueprint();
-        // Unendorsed field with an example: the example inlines as the
-        // `!must_fill` suggested value, so no separate `# e.g.` line.
+        // Unendorsed field with an example: the example rides the `!must_fill`
+        // marker as block-style items (no inline flow), so no separate `# e.g.`.
         assert!(t.contains(
-            "recipient: !must_fill [Mr. John Doe, 123 Main St, \"Anytown, USA\"]  # array<string>\n"
+            "recipient: !must_fill # array<string>\n  - Mr. John Doe\n  - 123 Main St\n  - Anytown, USA\n"
         ));
         assert!(!t.contains("# e.g."));
     }
@@ -616,7 +520,7 @@ main:
     format: { type: string, enum: [standard, informal], default: standard }
 "#)
         .blueprint();
-        assert!(t.contains("format: standard  # enum<standard | informal>\n"));
+        assert!(t.contains("format: standard # enum<standard | informal>\n"));
         assert!(!t.contains("e.g."));
     }
 
@@ -631,13 +535,13 @@ main:
     severity: { type: string, enum: [low, medium, high] }
 "#)
         .blueprint();
-        assert!(t.contains("severity: !must_fill  # enum<low | medium | high>\n"));
+        assert!(t.contains("severity: !must_fill # enum<low | medium | high>\n"));
     }
 
     #[test]
-    fn must_fill_array_with_example_inlines_example_as_marker_value() {
+    fn must_fill_array_with_example_renders_example_as_block_items() {
         // Plain (non-typed-table) Unendorsed array with an example: the example
-        // rides along as the `!must_fill` suggested value (flow form), no `# e.g.`.
+        // rides along as the `!must_fill` suggested value (block items), no `# e.g.`.
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -651,7 +555,7 @@ main:
 "#)
         .blueprint();
         assert!(t.contains(
-            "memo_from: !must_fill [ORG/SYMBOL, City ST 12345]  # array<string>\n"
+            "memo_from: !must_fill # array<string>\n  - ORG/SYMBOL\n  - City ST 12345\n"
         ));
         assert!(!t.contains("# e.g."));
     }
@@ -667,7 +571,7 @@ main:
       description: Be brief and clear.
 "#)
         .blueprint();
-        assert!(t.contains("# Be brief and clear.\nsubject: !must_fill  # string\n"));
+        assert!(t.contains("# Be brief and clear.\nsubject: !must_fill # string\n"));
     }
 
     #[test]
@@ -686,12 +590,12 @@ main:
     refs: { type: array, default: [], items: { type: string } }
 "#)
         .blueprint();
-        assert!(t.contains("title: !must_fill  # string\n"));
-        assert!(t.contains("size: 11  # number\n"));
-        assert!(t.contains("flag: false  # boolean\n"));
-        assert!(t.contains("issued: !must_fill  # datetime<YYYY-MM-DD[Thh:mm:ss]>\n"));
-        assert!(t.contains("published: !must_fill  # datetime<YYYY-MM-DD[Thh:mm:ss]>\n"));
-        assert!(t.contains("refs: []  # array<string>\n"));
+        assert!(t.contains("title: !must_fill # string\n"));
+        assert!(t.contains("size: 11 # number\n"));
+        assert!(t.contains("flag: false # boolean\n"));
+        assert!(t.contains("issued: !must_fill # datetime<YYYY-MM-DD[Thh:mm:ss]>\n"));
+        assert!(t.contains("published: !must_fill # datetime<YYYY-MM-DD[Thh:mm:ss]>\n"));
+        assert!(t.contains("refs: [] # array<string>\n"));
     }
 
     #[test]
@@ -707,12 +611,12 @@ main:
     tags:     { type: array, items: { type: string } }
 "#)
         .blueprint();
-        assert!(t.contains("counts: !must_fill  # array<integer>\n"), "{t}");
+        assert!(t.contains("counts: !must_fill # array<integer>\n"), "{t}");
         assert!(
-            t.contains("sections: !must_fill  # array<markdown>\n"),
+            t.contains("sections: !must_fill # array<markdown>\n"),
             "{t}"
         );
-        assert!(t.contains("tags: !must_fill  # array<string>\n"), "{t}");
+        assert!(t.contains("tags: !must_fill # array<string>\n"), "{t}");
     }
 
     #[test]
@@ -726,12 +630,14 @@ main:
     bio: { type: markdown }
 "#)
         .blueprint();
-        assert!(t.contains("bio: !must_fill  # markdown\n"));
+        assert!(t.contains("bio: !must_fill # markdown\n"));
         assert!(!t.contains("|-"));
     }
 
     #[test]
-    fn endorsed_empty_markdown_renders_blank_line() {
+    fn endorsed_empty_markdown_renders_empty_string() {
+        // Endorsed empty markdown default → an inline empty-string cell (no
+        // block scalar): the "skippable" markdown cell, shippable as-is.
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -739,12 +645,15 @@ main:
     bio: { type: markdown, default: "" }
 "#)
         .blueprint();
-        assert!(t.contains("bio: |-  # markdown\n  \n"));
+        assert!(t.contains("bio: \"\" # markdown\n"));
+        assert!(!t.contains("|-"));
         assert!(!t.contains("!must_fill"));
     }
 
     #[test]
-    fn endorsed_markdown_default_fills_block() {
+    fn endorsed_markdown_default_inlines_quoted() {
+        // Endorsed multi-line markdown default → an inline double-quoted scalar
+        // with `\n` escapes (no block scalar): the canonical `to_markdown` form.
         let t = cfg(r###"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -754,7 +663,8 @@ main:
       default: "## About me\n\nHello."
 "###)
         .blueprint();
-        assert!(t.contains("bio: |-  # markdown\n  ## About me\n  \n  Hello.\n"));
+        assert!(t.contains("bio: \"## About me\\n\\nHello.\" # markdown\n"));
+        assert!(!t.contains("|-"));
     }
 
     #[test]
@@ -770,7 +680,7 @@ main:
         // `$kind: main` then goes straight to the description with no own-line
         // role comment (the root has no `composable` cardinality).
         assert!(t.starts_with(
-            "~~~\n$quill: taro@0.1.0  # keep verbatim\n$kind: main\n# x\n"
+            "~~~\n$quill: taro@0.1.0 # keep verbatim\n$kind: main\n# x\n"
         ));
         assert!(t.contains("\nWrite main body here.\n"));
     }
@@ -907,9 +817,9 @@ main:
         // The first property rides the dash line (matching `to_markdown`), with
         // its description lifted to the dash indent above it.
         assert!(t.contains(
-            "# Cited works.\nreferences:  # array<object>\n  # Citing organization.\n  - org: !must_fill  # string\n"
+            "# Cited works.\nreferences: # array<object>\n  # Citing organization.\n  - org: !must_fill # string\n"
         ));
-        assert!(t.contains("    # Publication year.\n    year: 0  # integer\n"));
+        assert!(t.contains("    # Publication year.\n    year: 0 # integer\n"));
     }
 
     #[test]
@@ -932,8 +842,8 @@ main:
 "#)
         .blueprint();
         assert!(t.contains("# e.g. [{org: ACME, year: 2020}]\n"));
-        assert!(t.contains("refs:  # array<object>\n  - org: !must_fill  # string\n"));
-        assert!(t.contains("    year: 0  # integer\n"));
+        assert!(t.contains("refs: # array<object>\n  - org: !must_fill # string\n"));
+        assert!(t.contains("    year: 0 # integer\n"));
     }
 
     #[test]
@@ -952,15 +862,15 @@ main:
           org: { type: string }
 "#)
         .blueprint();
-        assert!(t.contains("refs:  # array<object>\n  - org: ACME\n"));
-        assert!(!t.contains("refs:  # array<object>\n  -\n"));
+        assert!(t.contains("refs: # array<object>\n  - org: ACME\n"));
+        assert!(!t.contains("refs: # array<object>\n  -\n"));
     }
 
     #[test]
     fn typed_table_with_empty_default_renders_inline() {
         // `default: []` means shippable as-is — the value renders inline as `[]`
         // (no marker). Inline row shape under an empty default belongs in
-        // `example:`; see prose/BOOKMARKS.md.
+        // `example:` (deferred cleanup: quillmark-org/quillmark#736).
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -975,16 +885,18 @@ main:
 "#)
         .blueprint();
         assert!(
-            t.contains("refs: []  # array<object>\n"),
+            t.contains("refs: [] # array<object>\n"),
             "wrong rendering: {t}"
         );
         assert!(!t.contains("!must_fill"), "no markers expected: {t}");
     }
 
     #[test]
-    fn typed_dict_with_empty_default_renders_inline() {
-        // Same uniform rule as typed tables: `default: {}` is Endorsed and
-        // renders inline as `{}` (no marker).
+    fn typed_dict_with_empty_default_expands_to_zero_filled() {
+        // `default: {}` is Endorsed (the whole object ships as-is) and expands
+        // to the field's zero-filled shape: every key shown with its type-empty
+        // value, all unmarked and unannotated — so the structure is visible
+        // instead of a bare `{}`. (Arrays do not expand; only `{}` does.)
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -994,13 +906,17 @@ main:
       default: {}
       properties:
         street: { type: string }
+        zip:    { type: integer }
 "#)
         .blueprint();
         assert!(
-            t.contains("address: {}  # object\n"),
+            t.contains("address: # object\n  street: \"\"\n  zip: 0\n"),
             "wrong rendering: {t}"
         );
+        assert!(!t.contains("{}"), "no bare empty object expected: {t}");
         assert!(!t.contains("!must_fill"), "no markers expected: {t}");
+        // No per-property annotations on the endorsed (expanded) form.
+        assert!(!t.contains("# string"), "no leaf annotations expected: {t}");
     }
 
     #[test]
@@ -1020,10 +936,10 @@ main:
         zip:    { type: string, default: "" }
 "#)
         .blueprint();
-        assert!(t.contains("# Mailing address.\naddress:  # object\n"));
-        assert!(t.contains("  # Street line.\n  street: !must_fill  # string\n"));
-        assert!(t.contains("  city: !must_fill  # string\n"));
-        assert!(t.contains("  zip: \"\"  # string\n"));
+        assert!(t.contains("# Mailing address.\naddress: # object\n"));
+        assert!(t.contains("  # Street line.\n  street: !must_fill # string\n"));
+        assert!(t.contains("  city: !must_fill # string\n"));
+        assert!(t.contains("  zip: \"\" # string\n"));
     }
 
     #[test]
@@ -1040,7 +956,7 @@ main:
         city:   { type: string }
 "#)
         .blueprint();
-        assert!(t.contains("address:  # object\n"));
+        assert!(t.contains("address: # object\n"));
         assert!(
             t.contains("  street: 5000 Forbes Ave\n")
                 || t.contains("  street: \"5000 Forbes Ave\"\n")
@@ -1066,13 +982,13 @@ main:
         city:   { type: string, default: "" }
 "#)
         .blueprint();
-        assert!(t.contains("address:  # object\n"));
+        assert!(t.contains("address: # object\n"));
         assert!(
             t.contains("# e.g. {street: 1 Infinite Loop, city: Cupertino}\n")
                 || t.contains("# e.g. {city: Cupertino, street: 1 Infinite Loop}\n")
         );
-        assert!(t.contains("  street: !must_fill  # string\n"));
-        assert!(t.contains("  city: \"\"  # string\n"));
+        assert!(t.contains("  street: !must_fill # string\n"));
+        assert!(t.contains("  city: \"\" # string\n"));
     }
 
     const LETTER_QUILL: &str = r#"
@@ -1129,9 +1045,10 @@ main:
 
     #[test]
     fn must_fill_markers_round_trip_and_survive_as_fill() {
-        // An Unendorsed array with an example (inlined as `!must_fill [flow]`),
-        // a bare-marker scalar, and a bare-marker datetime must all round-trip
-        // through parse → emit → parse, and the `fill` flag must survive on each.
+        // An Unendorsed array with an example (carried as block items under the
+        // `!must_fill` marker), a bare-marker scalar, and a bare-marker datetime
+        // must all round-trip through parse → emit → parse, and the `fill` flag
+        // must survive on each.
         let bp = cfg(r#"
 quill: { name: letter, version: 1.0.0, backend: typst, description: A letter. }
 main:
@@ -1189,7 +1106,7 @@ main:
 "#)
         .blueprint();
         assert!(
-            blueprint.contains("status: draft  # string\n"),
+            blueprint.contains("status: draft # string\n"),
             "blueprint should render the default value: {blueprint}"
         );
         assert!(
@@ -1264,3 +1181,4 @@ main:
         }
     }
 }
+

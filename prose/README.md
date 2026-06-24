@@ -12,9 +12,10 @@ Long-form project documentation, in two tiers by maturity:
   without forming a cycle.
 - **`proposals/`** — fleshed-out proposed changes, not yet implemented. Each is
   a concrete plan. Removed once landed or abandoned.
-- **`BOOKMARKS.md`** — known simplifications and refactors deliberately
-  deferred. Lighter-weight than a proposal: just a placeholder so the
-  insight isn't lost between releases.
 
 Canonical docs never reference proposals or plans. References never link
 out to other prose docs.
+
+Deferred cleanups and simplifications are tracked as GitHub issues, not in a
+checked-in markdown file.
+

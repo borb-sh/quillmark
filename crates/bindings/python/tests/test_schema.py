@@ -106,7 +106,7 @@ def test_blueprint_endorsed_value(tmp_path):
     bp = quill.blueprint
 
     # The Endorsed `status` field renders its default value with a type-only
-    # annotation. The exact format is `status: draft  # string`.
+    # annotation. The exact format is `status: draft # string`.
     assert "status: draft" in bp, f"expected default in blueprint; got:\n{bp}"
     # Shippability is the value cell — the `; delete-ok` tag is gone entirely.
     assert "delete-ok" not in bp, (
