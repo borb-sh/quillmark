@@ -17,7 +17,7 @@ free.
 
 ````
 ~~~
-$quill: <name>@<version>  # keep verbatim — do not drop
+$quill: <name>@<version>  # keep verbatim
 $kind: main
 # <description>
 
@@ -111,7 +111,7 @@ comment parse and round-trip faithfully, exactly like comments on data
 fields — see [markdown-spec.md](../references/markdown-spec.md) §3.3.)
 
 The root block's `$quill` line is emitted verbatim and carries an inline
-**`# keep verbatim — do not drop`** reminder — an in-band guard against the
+**`# keep verbatim`** reminder — an in-band guard against the
 `parse::missing_quill` failure, where an LLM author omits the `$quill` line
 entirely and the document fails to bind to a quill. The reminder rides only
 on `$quill`: it is the one line whose omission is a hard error. `$kind: main`
@@ -138,7 +138,7 @@ Examples:
 | `recipient: !must_fill  # array<string>` | Unendorsed array of strings |
 | `date: !must_fill  # datetime<YYYY-MM-DD[Thh:mm:ss]>` | Unendorsed datetime |
 | `severity: !must_fill  # enum<low \| medium \| high>` | Unendorsed enum |
-| `$quill: cmu_letter@0.1.0  # keep verbatim — do not drop` | quill binding metadata, emitted verbatim; the inline reminder guards against dropping the line |
+| `$quill: cmu_letter@0.1.0  # keep verbatim` | quill binding metadata, emitted verbatim; the inline reminder guards against dropping the line |
 | `$kind: skill` followed by `# composable (0..N)` | repeat the entire `~~~` … `~~~` block per instance |
 
 ## Placeholder value precedence
@@ -328,7 +328,7 @@ to prevent corrupting the blueprint's document structure.
 
 ```
 ~~~
-$quill: cmu_letter@0.1.0  # keep verbatim — do not drop
+$quill: cmu_letter@0.1.0  # keep verbatim
 $kind: main
 # Typeset letters that comply with Carnegie Mellon University letterhead standards.
 

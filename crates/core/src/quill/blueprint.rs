@@ -21,7 +21,7 @@
 //!   `!must_fill` marker on the value line (`field: !must_fill`, or
 //!   `field: !must_fill <example>` when an example supplies a suggested value).
 //! - **Metadata annotation.** The root `$quill` line carries an inline
-//!   `# keep verbatim — do not drop` reminder: an in-band guard against the
+//!   `# keep verbatim` reminder: an in-band guard against the
 //!   `parse::missing_quill` failure where an LLM author omits the line.
 //!   `$kind` carries no such reminder; an omitted root `$kind: main` is
 //!   synthesised at parse time, so it is not a hard requirement. A composable
@@ -101,10 +101,10 @@ fn write_comment(out: &mut String, text: &str) {
 }
 
 /// Emit the root block:
-/// `~~~\n$quill: …  # keep verbatim — do not drop\n$kind: main\n[# desc\n]<fields>~~~\n`.
+/// `~~~\n$quill: …  # keep verbatim\n$kind: main\n[# desc\n]<fields>~~~\n`.
 ///
 /// The `$quill` system-metadata line leads the block, carrying an inline
-/// `# keep verbatim — do not drop` reminder against the `parse::missing_quill`
+/// `# keep verbatim` reminder against the `parse::missing_quill`
 /// failure where an author drops it. The optional description follows as an
 /// own-line comment.
 fn write_main_fence(
@@ -118,7 +118,7 @@ fn write_main_fence(
     out.push_str(&saphyr_emit_scalar(&JsonValue::String(
         quill_ref.to_string(),
     )));
-    out.push_str("  # keep verbatim — do not drop\n");
+    out.push_str("  # keep verbatim\n");
     out.push_str("$kind: main\n");
     if let Some(desc) = description {
         write_comment(out, desc);
@@ -770,7 +770,7 @@ main:
         // `$kind: main` then goes straight to the description with no own-line
         // role comment (the root has no `composable` cardinality).
         assert!(t.starts_with(
-            "~~~\n$quill: taro@0.1.0  # keep verbatim — do not drop\n$kind: main\n# x\n"
+            "~~~\n$quill: taro@0.1.0  # keep verbatim\n$kind: main\n# x\n"
         ));
         assert!(t.contains("\nWrite main body here.\n"));
     }
