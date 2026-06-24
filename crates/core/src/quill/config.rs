@@ -359,7 +359,7 @@ impl QuillConfig {
                 // especially) who write `verified: true` or `build_number: 47`
                 // for a `string` field. Null (≡ absent) is handled above;
                 // collections fall through unchanged.
-                if let Some(text) = scalar_as_string(&json_value) {
+                if let Some(text) = scalar_as_string(json_value) {
                     return Ok(QuillValue::from_json(serde_json::Value::String(text)));
                 }
                 Ok(value.clone())
@@ -761,7 +761,7 @@ impl QuillConfig {
                 )
                 .with_code(format!("quill::{slot}_format_violation"))
                 .with_hint(format!("Provide a valid {format} value for the {slot}.")),
-                // FieldAbsent, UnknownCard, BodyDisabled do not apply to schema literals.
+                // UnknownCard, BodyDisabled do not apply to schema literals.
                 _ => continue,
             };
             errors.push(diag);

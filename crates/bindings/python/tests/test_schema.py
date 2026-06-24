@@ -137,8 +137,8 @@ def test_absent_unendorsed_is_nonfatal(engine, tmp_path):
 
     Per the zero-filled-render contract (``prose/canon/SCHEMAS.md``), render
     succeeds — each absent field is zero-filled in the ephemeral plate
-    projection. Absence is silent: ``validation::field_absent`` is no longer
-    emitted by ``quill.validate``.
+    projection. Absence is silent: ``validation::field_absent`` is not emitted by
+    ``quill.validate``.
     """
     quill = make_quill(tmp_path)
     md = (
@@ -155,10 +155,10 @@ def test_absent_unendorsed_is_nonfatal(engine, tmp_path):
     result = engine.render(quill, doc, OutputFormat.PDF)
     assert len(result.artifacts) > 0
 
-    # Absence is silent — field_absent is deferred and no longer surfaced.
+    # Absence is silent — field_absent is removed and never surfaced.
     codes = [d.get("code") for d in quill.validate(doc)]
     assert "validation::field_absent" not in codes, (
-        f"field_absent is deferred and must not be surfaced; got: {codes}"
+        f"field_absent is removed and must not be surfaced; got: {codes}"
     )
 
 
@@ -200,7 +200,7 @@ def test_absent_unendorsed_does_not_emit_legacy_codes(engine, tmp_path):
 
     Absence is silent under zero-filled render (``prose/canon/SCHEMAS.md``):
     render succeeds and ``quill.validate`` surfaces no ``field_absent`` or
-    legacy ``required`` codes. The deferred ``validation::field_absent`` and
+    legacy ``required`` codes. The removed ``validation::field_absent`` and
     the legacy ``validation::missing_required``,
     ``validation::required_field_absent``, and
     ``validation::unfilled_placeholder`` codes never appear.
@@ -221,7 +221,7 @@ def test_absent_unendorsed_does_not_emit_legacy_codes(engine, tmp_path):
     # the validate surface carries none of these codes
     codes = [d.get("code") for d in quill.validate(doc)]
     assert "validation::field_absent" not in codes, (
-        f"`validation::field_absent` is deferred; got: {codes}"
+        f"`validation::field_absent` is removed; got: {codes}"
     )
     assert "validation::missing_required" not in codes, (
         f"`validation::missing_required` must not appear; got: {codes}"

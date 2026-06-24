@@ -17,8 +17,8 @@ guides in order.
   instead of the `<must-fill>` string sentinel, and bare-null / `field:` now
   falls back to default/zero instead of failing. The fatal
   `validation::must_fill_sentinel` becomes the non-fatal `validation::must_fill`
-  warning (it never gates render), and `validation::field_absent` is no longer
-  emitted for now.
+  warning (it never gates render), `validation::field_absent` is removed, and
+  bare scalars (`true`, `47`, `1.0`) coerce into `string` fields.
 - [0.91 → 0.92](0.91-to-0.92.md) — the additive `$seed` system key carries
   per-card-kind seed overlays (`seedCard` gains an optional overlay argument);
   **and** the placeholder tag `!fill` is renamed to `!must_fill` with no alias —

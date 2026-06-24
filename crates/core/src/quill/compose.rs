@@ -142,10 +142,9 @@ impl Quill {
     /// kinds (`validation::unknown_card`), body-on-disabled-body, and the
     /// non-fatal `validation::must_fill` placeholder warning.
     ///
-    /// The per-field completeness signal (`validation::field_absent`) is
-    /// currently **deferred** (an absent Unendorsed field zero-fills at render
-    /// and raises nothing here). The `validation::must_fill` warning is the one
-    /// non-fatal diagnostic this surface emits today; the remaining
+    /// Field absence is not surfaced: an absent Unendorsed field zero-fills at
+    /// render and raises nothing here. The `validation::must_fill` warning is
+    /// the one non-fatal diagnostic this surface emits; the remaining
     /// `error`-severity diagnostics are blockers.
     ///
     /// Field values, defaults, and presentation order are not part of this
@@ -269,14 +268,9 @@ impl Quill {
                 // the placeholder marker is render-irrelevant. Only *malformed*
                 // input is fatal: a value that won't coerce/validate.
                 //
-                // Each surviving ValidationError gets its own Diagnostic so
-                // consumers can use `path` for UI navigation via
-                // `RenderError::diagnostics()`.
-                let diags: Vec<Diagnostic> = errors
-                    .iter()
-                    .filter(|e| e.code() != "validation::field_absent")
-                    .map(|e| e.to_diagnostic())
-                    .collect();
+                // Each ValidationError gets its own Diagnostic so consumers can
+                // use `path` for UI navigation via `RenderError::diagnostics()`.
+                let diags: Vec<Diagnostic> = errors.iter().map(|e| e.to_diagnostic()).collect();
                 if diags.is_empty() {
                     Ok(())
                 } else {

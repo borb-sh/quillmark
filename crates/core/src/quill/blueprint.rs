@@ -248,7 +248,7 @@ fn append_scalar(items: &mut Vec<PayloadItem>, field: &FieldSchema) {
         fill,
         nested_comments: Vec::new(),
     });
-    items.push(PayloadItem::comment_inline(inline_annotation(field)));
+    items.push(PayloadItem::comment_inline(type_expression(field)));
 }
 
 fn sort_props(props: &BTreeMap<String, Box<FieldSchema>>) -> Vec<&FieldSchema> {
@@ -301,7 +301,7 @@ fn build_property_mapping(
         nested.push(NestedComment {
             container_path: prefix.to_vec(),
             position: slot,
-            text: inline_annotation(prop),
+            text: type_expression(prop),
             inline: true,
         });
     }
@@ -392,17 +392,13 @@ fn push_container_field(
         fill: false,
         nested_comments,
     });
-    items.push(PayloadItem::comment_inline(inline_annotation(field)));
+    items.push(PayloadItem::comment_inline(type_expression(field)));
 }
 
 /// Build the inline annotation body (without the leading `# `): purely the
 /// structural type expression `<type>[<format>]`. Shippability is carried by
 /// the value cell alone — a concrete value is shippable as-is, a `!must_fill`
 /// marker asks to be filled — so the annotation needs no cell-state tag.
-fn inline_annotation(field: &FieldSchema) -> String {
-    type_expression(field)
-}
-
 fn type_expression(field: &FieldSchema) -> String {
     if let Some(values) = &field.enum_values {
         return format!("enum<{}>", values.join(" | "));

@@ -72,11 +72,10 @@ Validation is implemented by a native walker over `QuillConfig` in `quill/valida
   outstanding marker as "not done."
 - **Absence semantics**: a missing (or present-null) field with a `default:`
   accepts the default; without a `default:` it zero-fills. Either way it
-  validates clean. The completeness signal `validation::field_absent` is
-  **deferred** — `Quill::validate` no longer emits it (the variant is
-  retained in code for when the authoring-feedback surface is designed per
-  author type — LLM / GUI / markdown). So a merely incomplete (or
-  present-null) document validates clean.
+  validates clean. Field absence is **not surfaced as a diagnostic** —
+  `Quill::validate` raises no completeness/`field_absent` code — so a merely
+  incomplete (or present-null) document validates clean. The only authoring
+  signal it raises is the non-fatal `validation::must_fill` warning.
 
 Field-level type and presence errors render under a uniform shape —
 field path, verbatim source token, schema declaration, and both exits
@@ -132,9 +131,9 @@ complete to render — render success is not a completeness signal.
 Shippability is the author's judgment; the engine's only hard requirement
 is that the document be *well-formed* (values coerce). A `!must_fill` marker
 and a present-null cell are both renderable — neither gates render.
-Completeness is not currently surfaced as a diagnostic: `validation::field_absent`
-is deferred (see [Native validation](#native-validation)); the only authoring
-signal `Quill::validate` raises is the non-fatal `validation::must_fill`
+Completeness is not surfaced as a diagnostic — `Quill::validate` raises no
+completeness/`field_absent` code (see [Native validation](#native-validation));
+the only authoring signal it raises is the non-fatal `validation::must_fill`
 warning for each outstanding marker.
 
 Rendering and the *completeness verdict* are orthogonal. The render path
@@ -147,7 +146,7 @@ backend **only, never in the persisted document**.
 - **Incomplete is renderable.** A document that merely omits an Unendorsed
   field — or leaves it present-null — renders fine: the field is zero-filled
   in the projection. Such a document validates clean; completeness is not
-  currently surfaced (`validation::field_absent` is deferred).
+  surfaced as a diagnostic.
 - **Malformed is fatal.** The only malformed case is a value that cannot
   coerce to (or validate against) its declared type. Placeholders and null
   are *not* malformed: a `!must_fill` marker renders (using its suggested
@@ -155,8 +154,8 @@ backend **only, never in the persisted document**.
   warning, and a present-null cell zero-fills like an absent field.
 - **Non-persist invariant.** The zero-fill lives only in the ephemeral
   projection and must never be written back. A type-empty value is
-  indistinguishable from authored-empty, so persisting it would make
-  `field_absent` (which keys on absence) vacuous and blind a future
+  indistinguishable from authored-empty, so persisting it would erase the
+  absence signal (which keys on a field being unwritten) and blind a future
   schema migration to author intent.
 
 The per-field zero value is honestly blank for every scalar type except

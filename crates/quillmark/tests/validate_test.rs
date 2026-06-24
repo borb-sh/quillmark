@@ -95,17 +95,17 @@ fn validate_reports_unknown_card_kind() {
 }
 
 #[test]
-fn validate_defers_field_absent_completeness_signal() {
+fn validate_does_not_surface_field_absence() {
     let quill = quill_from_yaml(SIMPLE);
-    // `title` and `count` are Unendorsed (no default) and absent. The
-    // completeness signal is deferred pending the authoring-feedback design, so
-    // an incomplete-but-well-formed document produces no diagnostics.
+    // `title` and `count` are Unendorsed (no default) and absent. Field absence
+    // is not a well-formedness error — it zero-fills at render — so an
+    // incomplete-but-well-formed document produces no diagnostics.
     let md = "~~~card-yaml\n$quill: validate_test\n$kind: main\n~~~\n";
     let doc = Document::from_markdown(md).unwrap();
 
     assert!(
         quill.validate(&doc).is_empty(),
-        "absence is no longer surfaced; an incomplete document validates clean"
+        "absence is not surfaced; an incomplete document validates clean"
     );
 }
 
