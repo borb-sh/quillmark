@@ -39,7 +39,7 @@ main:
 card_kinds:
   note:
     fields:
-      body:
+      label:
         type: string
 "#;
 
@@ -113,9 +113,11 @@ fn validate_defers_field_absent_completeness_signal() {
 fn validate_warns_on_must_fill_marker() {
     let quill = quill_from_yaml(SIMPLE);
     // The `!must_fill` placeholder surfaces as a non-fatal warning, regardless
-    // of whether it carries a suggested value.
+    // of whether it carries a suggested value — and across the main card and
+    // every composable card (the contract is "root and nested, main and cards").
     let md = "~~~card-yaml\n$quill: validate_test\n$kind: main\n\
-              title: !must_fill Draft\ncount: !must_fill\n~~~\n";
+              title: !must_fill Draft\ncount: !must_fill\n~~~\n\n\
+              ~~~card-yaml\n$kind: note\nlabel: !must_fill\n~~~\n";
     let doc = Document::from_markdown(md).unwrap();
 
     let diags = quill.validate(&doc);
@@ -126,7 +128,10 @@ fn validate_warns_on_must_fill_marker() {
         .filter_map(|d| d.path.clone())
         .collect();
     assert!(
-        marked.contains(&"title".to_string()) && marked.contains(&"count".to_string()),
-        "both !must_fill markers should warn; got paths: {marked:?}"
+        marked.contains(&"title".to_string())
+            && marked.contains(&"count".to_string())
+            && marked.contains(&"cards.note[0].label".to_string()),
+        "main-card and composable-card !must_fill markers should all warn; \
+         got paths: {marked:?}"
     );
 }

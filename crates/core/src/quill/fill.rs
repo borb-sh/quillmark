@@ -25,9 +25,9 @@ use crate::value::QuillValue;
 ///
 /// An `object` with `properties` is *shape-valid only when every property is
 /// present*, so its zero value is the object whose each property carries that
-/// property's zero value (recursively). A bare `{}` would fail validation —
-/// the validator reports every absent property as a `FieldAbsent`. Only a
-/// property-less object (schema-invalid in practice) degrades to `{}`.
+/// property's zero value (recursively). A bare `{}` would omit the declared
+/// properties, leaving the projection out of shape; only a property-less object
+/// (schema-invalid in practice) degrades to `{}`.
 pub fn zero_value(field: &FieldSchema) -> QuillValue {
     if let Some(values) = &field.enum_values {
         let first = values.first().cloned().unwrap_or_default();

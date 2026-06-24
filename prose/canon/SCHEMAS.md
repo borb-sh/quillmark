@@ -40,6 +40,13 @@ Supported field types:
   it carries no data to coerce. The value reaches the render floor and
   zero-fills (authored › `default:` › type-zero) exactly like an omitted
   field
+- **Bare scalars stringify into `string`/`markdown` fields.** A bare boolean,
+  integer, or number written where a `string` is expected adopts its canonical
+  scalar token (`true`, `47`, `1.0`) instead of failing — it is unambiguously
+  text (null and collections are excluded). The leniency is scoped to
+  *document* payloads via the shared `scalar_as_string` predicate; a quill
+  author's own `default:`/`example:` literals stay strict, so the blueprint
+  keeps quoting ambiguous string literals
 
 ## Native validation
 

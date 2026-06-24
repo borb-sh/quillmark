@@ -92,8 +92,10 @@ no diagnostic. The completeness signal `validation::field_absent` is
 currently deferred (see [SCHEMAS.md](SCHEMAS.md) § "Native validation"), so a
 merely incomplete document also produces no field-level diagnostic.
 
-Implementation: `crates/core/src/quill/validation.rs` (the
-`ValidationError` `Display` impl).
+Implementation: `crates/core/src/quill/validation.rs` (the `ValidationError`
+`Display` impl, for `validation::type_mismatch`) and
+`crates/core/src/quill/compose.rs` (`validate_fills`/`fill_warning`, for
+`validation::must_fill`).
 
 ## Error Presentation
 

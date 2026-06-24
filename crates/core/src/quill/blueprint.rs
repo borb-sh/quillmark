@@ -157,9 +157,9 @@ fn append_fields(items: &mut Vec<PayloadItem>, card: &CardSchema) {
 }
 
 /// Order fields by `ui.group` (ungrouped lead, then groups in first-appearance
-/// order) with `ui.order` sorting within each cluster. The grouping is purely
-/// positional now — no banner is emitted — so the clusters are flattened into a
-/// single field stream.
+/// order) with `ui.order` sorting within each cluster. Grouping is purely
+/// positional (no banner); the clusters are flattened into a single field
+/// stream.
 fn group_fields<'a, I: IntoIterator<Item = &'a FieldSchema>>(fields: I) -> Vec<&'a FieldSchema> {
     let mut sorted: Vec<&FieldSchema> = fields.into_iter().collect();
     sorted.sort_by_key(|f| f.ui_order());
