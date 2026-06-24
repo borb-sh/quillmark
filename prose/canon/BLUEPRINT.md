@@ -17,9 +17,8 @@ free.
 
 ````
 ~~~
-$quill: <name>@<version>
+$quill: <name>@<version>  # keep verbatim
 $kind: main
-# system metadata; verbatim
 # <description>
 
 # <field description>
@@ -104,21 +103,26 @@ instead. The reader's single rule is: a `!must_fill` marker present → fill it;
 a concrete value present → shippable as-is (delete or blank the line to fall
 back to the default).
 
-The `$`-prefixed system-metadata keys (`$quill`, `$kind`, …) have no
-inline-annotation slot — they are not user-defined data fields. (The YAML
-parser accepts a trailing ` # comment` on a `$` line, but the blueprint
-emitter does not attach one, and the canonical form drops every comment
-attached to a `$` line.) The root block's `$quill` line is emitted
-verbatim; its value is fixed and must not be modified. The root block
-emits **no role-annotation comment** of its own — the `$` sigil marks its
-lines as system metadata, and this document carries the "do not modify"
-rule, so a `# …` line in that slot would only read as a leading
-annotation for the field below it. A composable
-card's kind is carried in its `$kind: <card_kind>` metadata line. Its
-`composable (0..N)` role is emitted as an own-line `# composable (0..N)`
-comment directly under the `$kind` line, ahead of the card description —
-that comment carries the card's cardinality, which is structural
-information rather than a redundant instruction.
+The `$`-prefixed system-metadata keys (`$quill`, `$kind`, …) carry no
+inline type annotation — they are not user-defined data fields, so there
+is no `# <type>` slot to fill. (A `$` line *can* carry an ordinary YAML
+comment: both an inline trailing ` # comment` and an adjacent own-line
+comment parse and round-trip faithfully, exactly like comments on data
+fields — see [markdown-spec.md](../references/markdown-spec.md) §3.3.)
+
+The root block's `$quill` line is emitted verbatim and carries an inline
+**`# keep verbatim`** reminder — an in-band guard against the
+`parse::missing_quill` failure, where an LLM author omits the `$quill` line
+entirely and the document fails to bind to a quill. The reminder rides only
+on `$quill`: it is the one line whose omission is a hard error. `$kind: main`
+carries no reminder — an omitted root `$kind` is synthesised at parse time,
+so dropping it is not an error, and a `# …` line in that slot would only
+read as a leading annotation for the field below it. A composable card's kind is carried in its
+`$kind: <card_kind>` metadata line. Its `composable (0..N)` role is
+emitted as an own-line `# composable (0..N)` comment directly under the
+`$kind` line, ahead of the card description — that comment carries the
+card's cardinality, which is structural information rather than a
+redundant instruction.
 
 Examples:
 
@@ -134,7 +138,7 @@ Examples:
 | `recipient: !must_fill  # array<string>` | Unendorsed array of strings |
 | `date: !must_fill  # datetime<YYYY-MM-DD[Thh:mm:ss]>` | Unendorsed datetime |
 | `severity: !must_fill  # enum<low \| medium \| high>` | Unendorsed enum |
-| `$quill: cmu_letter@0.1.0` | quill binding metadata, emitted verbatim, do not modify |
+| `$quill: cmu_letter@0.1.0  # keep verbatim` | quill binding metadata, emitted verbatim; the inline reminder guards against dropping the line |
 | `$kind: skill` followed by `# composable (0..N)` | repeat the entire `~~~` … `~~~` block per instance |
 
 ## Placeholder value precedence
@@ -324,9 +328,8 @@ to prevent corrupting the blueprint's document structure.
 
 ```
 ~~~
-$quill: cmu_letter@0.1.0
+$quill: cmu_letter@0.1.0  # keep verbatim
 $kind: main
-# system metadata; verbatim
 # Typeset letters that comply with Carnegie Mellon University letterhead standards.
 
 # The recipient's name and full mailing address.
