@@ -1104,7 +1104,7 @@ body: "B"
     expect(diags.some((d) => d.code === 'validation::unknown_card')).toBe(true)
   })
 
-  it('does not emit field_absent for absent Unendorsed fields (deferred signal)', () => {
+  it('does not emit field_absent for absent Unendorsed fields (removed signal)', () => {
     const quill = buildQuill()
     const md = `~~~card-yaml
 $quill: validate_smoke_test

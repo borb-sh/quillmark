@@ -157,9 +157,9 @@ fn append_fields(items: &mut Vec<PayloadItem>, card: &CardSchema) {
 }
 
 /// Order fields by `ui.group` (ungrouped lead, then groups in first-appearance
-/// order) with `ui.order` sorting within each cluster. The grouping is purely
-/// positional now — no banner is emitted — so the clusters are flattened into a
-/// single field stream.
+/// order) with `ui.order` sorting within each cluster. Grouping is purely
+/// positional (no banner); the clusters are flattened into a single field
+/// stream.
 fn group_fields<'a, I: IntoIterator<Item = &'a FieldSchema>>(fields: I) -> Vec<&'a FieldSchema> {
     let mut sorted: Vec<&FieldSchema> = fields.into_iter().collect();
     sorted.sort_by_key(|f| f.ui_order());
@@ -237,9 +237,6 @@ fn scalar_cell(field: &FieldSchema) -> (JsonValue, bool) {
 /// Append a scalar / scalar-array / markdown field as a single payload field
 /// plus its trailing inline type annotation.
 fn append_scalar(items: &mut Vec<PayloadItem>, field: &FieldSchema) {
-    // Scalars surface `# e.g.` only when Endorsed — an Unendorsed example
-    // inlines as the marker's suggested value, so a separate hint would
-    // duplicate it.
     push_leading(items, field, field.default.is_some());
     let (json, fill) = scalar_cell(field);
     items.push(PayloadItem::Field {
@@ -248,7 +245,7 @@ fn append_scalar(items: &mut Vec<PayloadItem>, field: &FieldSchema) {
         fill,
         nested_comments: Vec::new(),
     });
-    items.push(PayloadItem::comment_inline(inline_annotation(field)));
+    items.push(PayloadItem::comment_inline(type_expression(field)));
 }
 
 fn sort_props(props: &BTreeMap<String, Box<FieldSchema>>) -> Vec<&FieldSchema> {
@@ -279,8 +276,7 @@ fn build_property_mapping(
                 inline: false,
             });
         }
-        // A leaf surfaces `# e.g.` under the same rule as a top-level scalar:
-        // only when Endorsed (an Unendorsed example inlines as the marker).
+        // `# e.g.` only when Endorsed (see `push_leading`).
         if prop.default.is_some() {
             if let Some(eg) = prop.example.as_ref() {
                 nested.push(NestedComment {
@@ -301,7 +297,7 @@ fn build_property_mapping(
         nested.push(NestedComment {
             container_path: prefix.to_vec(),
             position: slot,
-            text: inline_annotation(prop),
+            text: type_expression(prop),
             inline: true,
         });
     }
@@ -392,17 +388,13 @@ fn push_container_field(
         fill: false,
         nested_comments,
     });
-    items.push(PayloadItem::comment_inline(inline_annotation(field)));
+    items.push(PayloadItem::comment_inline(type_expression(field)));
 }
 
 /// Build the inline annotation body (without the leading `# `): purely the
 /// structural type expression `<type>[<format>]`. Shippability is carried by
 /// the value cell alone — a concrete value is shippable as-is, a `!must_fill`
 /// marker asks to be filled — so the annotation needs no cell-state tag.
-fn inline_annotation(field: &FieldSchema) -> String {
-    type_expression(field)
-}
-
 fn type_expression(field: &FieldSchema) -> String {
     if let Some(values) = &field.enum_values {
         return format!("enum<{}>", values.join(" | "));

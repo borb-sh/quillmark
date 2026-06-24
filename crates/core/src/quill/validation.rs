@@ -13,23 +13,12 @@ use crate::value::QuillValue;
 /// enough for the `Display` impl to render the uniform diagnostic message
 /// described in `ERROR.md` ("Validation message contract").
 ///
-/// `Placeholder` (the `!must_fill` marker) is **not** a well-formedness error
-/// and so is absent here — it is surfaced as a non-fatal warning by
-/// `Quill::validate`, independent of the value-layer checks below.
+/// Two concerns are deliberately *not* well-formedness errors and so have no
+/// variant here: the `!must_fill` marker (surfaced as a non-fatal warning by
+/// `Quill::validate`) and field absence (an absent or present-null field
+/// zero-fills at render). Both are handled outside the value-layer checks below.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationError {
-    /// A schema field with no `default:` was absent from the document.
-    ///
-    /// A non-fatal *completeness* signal, **not** a fill requirement: the render
-    /// floor zero-fills the field (see `prose/canon/SCHEMAS.md`, "Zero-filled
-    /// render"). Emission is currently **deferred** pending the authoring-feedback
-    /// design; the variant is retained for when that surface returns.
-    FieldAbsent {
-        path: String,
-        /// Schema-declared type (`string`, `integer`, …).
-        expected: String,
-    },
-
     TypeMismatch {
         path: String,
         /// Schema-declared type (`string`, `integer`, …).
@@ -72,12 +61,6 @@ impl std::error::Error for ValidationError {}
 impl std::fmt::Display for ValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ValidationError::FieldAbsent { path, expected } => write!(
-                f,
-                "Field `{path}` is missing, schema declares `{expected}` with no default. \
-                 {hint}",
-                hint = field_absent_hint(expected),
-            ),
             ValidationError::TypeMismatch {
                 path,
                 expected,
@@ -129,12 +112,6 @@ impl std::fmt::Display for ValidationError {
     }
 }
 
-/// Actionable exit clause for an absent field. Used by both `Display` and
-/// `hint()` so the recommended action lives in exactly one place.
-fn field_absent_hint(expected: &str) -> String {
-    format!("Provide a value of type `{expected}`.")
-}
-
 /// Actionable exit clause for a TypeMismatch. Mirrors the (expected, actual,
 /// has_default) branching in `Display` so the structured hint and the prose
 /// message can never disagree.
@@ -162,8 +139,7 @@ impl ValidationError {
     /// See [`crate::error`] module docs for the path grammar and conventions.
     pub fn path(&self) -> &str {
         match self {
-            ValidationError::FieldAbsent { path, .. }
-            | ValidationError::TypeMismatch { path, .. }
+            ValidationError::TypeMismatch { path, .. }
             | ValidationError::EnumViolation { path, .. }
             | ValidationError::FormatViolation { path, .. }
             | ValidationError::UnknownCard { path, .. }
@@ -175,7 +151,6 @@ impl ValidationError {
     /// instead of the message text.
     pub fn code(&self) -> &'static str {
         match self {
-            ValidationError::FieldAbsent { .. } => "validation::field_absent",
             ValidationError::TypeMismatch { .. } => "validation::type_mismatch",
             ValidationError::EnumViolation { .. } => "validation::enum_violation",
             ValidationError::FormatViolation { .. } => "validation::format_violation",
@@ -184,14 +159,11 @@ impl ValidationError {
         }
     }
 
-    /// Actionable hint for this error, when one is well-defined for the
-    /// variant. The hint restates the recommended exit so consumers (LLM
-    /// agents, IDEs, MCP clients) can surface it next to the message
-    /// without re-parsing prose. The hint text is the same string the
-    /// `Display` impl bakes into the message.
+    /// Actionable hint for this error, when defined for the variant — the same
+    /// string the `Display` impl bakes in, exposed so consumers can surface it
+    /// without re-parsing prose.
     pub fn hint(&self) -> Option<String> {
         match self {
-            ValidationError::FieldAbsent { expected, .. } => Some(field_absent_hint(expected)),
             ValidationError::TypeMismatch {
                 expected,
                 actual,
@@ -322,11 +294,9 @@ fn validate_fields_for_card_indexmap(
     for field_name in field_names {
         let schema = &card.fields[field_name];
         let path = child_path(base_path, field_name);
-        // Absence is a completeness concern, not a well-formedness one. The
-        // per-field completeness signal (`FieldAbsent`) is deferred until the
-        // authoring-feedback surface is designed per author type (LLM, GUI,
-        // markdown); for now an absent field — like a present-null one — is
-        // simply zero-filled at render and raises nothing here.
+        // Absence is a completeness concern, not a well-formedness one: an
+        // absent field — like a present-null one — is zero-filled at render and
+        // raises nothing here.
         if let Some(value) = fields.get(field_name) {
             errors.extend(validate_field(schema, value, &path));
         }
@@ -359,10 +329,9 @@ fn validate_value(
     path: &str,
     ctx: ValueContext,
 ) -> Vec<ValidationError> {
-    // Null ≡ absent: a present-null value carries no data, so in a document it
-    // is treated exactly like an omitted field — no type error. The `!must_fill`
-    // placeholder marker (when present) is surfaced separately as a non-fatal
-    // warning by `Quill::validate`; it is not a value-layer concern here.
+    // Null ≡ absent: a present-null value in a document is treated as omitted
+    // (no type error). The `!must_fill` marker is surfaced separately as a
+    // warning by `Quill::validate`, not here.
     if ctx == ValueContext::Document && value.as_json().is_null() {
         return vec![];
     }
@@ -370,17 +339,14 @@ fn validate_value(
     let mut errors = Vec::new();
 
     let type_valid = match field.r#type {
-        // In a *document*, a bare boolean/integer/number is unambiguously
-        // representable as a string, so the coercion layer adopts its canonical
-        // text and the value is type-valid here too — kept in lockstep with
-        // `coerce_value_strict` via the shared `scalar_as_string` predicate.
-        // Schema literals (a quill author's own `default:`/`example:`) stay
-        // strict: they are never coerced, and the blueprint relies on ambiguous
-        // string literals being quoted at authoring time.
+        // In a document a bare bool/number is type-valid as a string (the
+        // coercion layer adopts it) — in lockstep with `coerce_value_strict`
+        // via `scalar_as_string`. Schema literals stay strict so the blueprint
+        // keeps quoting ambiguous string literals.
         FieldType::String | FieldType::Markdown => {
             value.as_str().is_some()
                 || (ctx == ValueContext::Document
-                    && super::config::scalar_as_string(&value.as_json()).is_some())
+                    && super::config::scalar_as_string(value.as_json()).is_some())
         }
         FieldType::Integer => {
             let json = value.as_json();
@@ -439,9 +405,8 @@ fn validate_value(
                         let property_schema = &properties[property_name];
                         let property_path = child_path(path, property_name);
                         // Absent object property: completeness, not
-                        // well-formedness. Like a top-level absent field, the
-                        // `FieldAbsent` signal is deferred (see
-                        // `validate_fields_for_card_indexmap`).
+                        // well-formedness. Like a top-level absent field, it
+                        // zero-fills at render and raises nothing here.
                         if let Some(property_value) = object.get(property_name) {
                             errors.extend(validate_value(
                                 property_schema,
@@ -645,8 +610,8 @@ main:
     #[test]
     fn absent_unendorsed_field_raises_nothing() {
         // A field with no `default:` absent from the document is a completeness
-        // concern, not a well-formedness one. `FieldAbsent` emission is deferred,
-        // so validation is clean; the field zero-fills at render.
+        // concern, not a well-formedness one: validation is clean and the field
+        // zero-fills at render.
         let config = config_with("    memo_for:\n      type: string", "");
         let doc = doc_from_fm(&[]);
         assert!(validate_typed_document(&config, &doc).is_ok());
@@ -675,7 +640,7 @@ main:
     #[test]
     fn absent_object_property_raises_nothing() {
         // Property `name` is Unendorsed and absent from the row. Like a
-        // top-level absent field, this is a deferred completeness concern, not a
+        // top-level absent field, this is a completeness concern, not a
         // validation error.
         let config = config_with(
             "    recipients:\n      type: array\n      default: []\n      items:\n        type: object\n        properties:\n          name:\n            type: string\n          org:\n            type: string\n            default: \"\"",
@@ -692,8 +657,8 @@ main:
 
     #[test]
     fn multiple_absent_fields_raise_nothing() {
-        // Completeness (`FieldAbsent`) is deferred, so several absent Unendorsed
-        // fields produce no validation errors.
+        // Absence is a completeness concern, not a well-formedness one, so
+        // several absent Unendorsed fields produce no validation errors.
         let config = config_with(
             "    memo_for:\n      type: string\n    memo_from:\n      type: string",
             "",
@@ -806,35 +771,26 @@ main:
     }
 
     #[test]
-    fn to_diagnostic_carries_path_and_code() {
-        let err = ValidationError::FieldAbsent {
+    fn to_diagnostic_carries_path_code_and_hint() {
+        let err = ValidationError::TypeMismatch {
             path: "cards.indorsement[0].signature_block".to_string(),
             expected: "string".to_string(),
+            actual: "integer".to_string(),
+            source_token: "42".to_string(),
+            default: None,
         };
         let diag = err.to_diagnostic();
-        assert_eq!(diag.code.as_deref(), Some("validation::field_absent"));
+        assert_eq!(diag.code.as_deref(), Some("validation::type_mismatch"));
         assert_eq!(
             diag.path.as_deref(),
             Some("cards.indorsement[0].signature_block")
         );
         assert_eq!(diag.severity, Severity::Error);
-    }
-
-    #[test]
-    fn field_absent_diagnostic_carries_actionable_hint() {
-        let err = ValidationError::FieldAbsent {
-            path: "title".to_string(),
-            expected: "string".to_string(),
-        };
-        let diag = err.to_diagnostic();
         let hint = diag
             .hint
             .as_deref()
-            .expect("field_absent diagnostic should carry a hint");
-        assert!(
-            hint.contains("string"),
-            "hint missing expected type: {hint}"
-        );
+            .expect("type_mismatch diagnostic should carry a hint");
+        assert!(hint.contains("string"), "hint missing expected type: {hint}");
     }
 
     #[test]

@@ -88,12 +88,14 @@ value).
 A present-null value (`subtitle:`, `subtitle: null`, `subtitle: ~`) is
 treated exactly like an omitted field — null ≡ absent. It validates clean
 and zero-fills at render (authored › `default:` › type-zero), so it produces
-no diagnostic. The completeness signal `validation::field_absent` is
-currently deferred (see [SCHEMAS.md](SCHEMAS.md) § "Native validation"), so a
-merely incomplete document also produces no field-level diagnostic.
+no diagnostic. Field absence is likewise not surfaced as a diagnostic (see
+[SCHEMAS.md](SCHEMAS.md) § "Native validation"), so a merely incomplete
+document also produces no field-level diagnostic.
 
-Implementation: `crates/core/src/quill/validation.rs` (the
-`ValidationError` `Display` impl).
+Implementation: `crates/core/src/quill/validation.rs` (the `ValidationError`
+`Display` impl, for `validation::type_mismatch`) and
+`crates/core/src/quill/compose.rs` (`validate_fills`/`fill_warning`, for
+`validation::must_fill`).
 
 ## Error Presentation
 

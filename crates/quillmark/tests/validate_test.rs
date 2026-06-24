@@ -39,7 +39,7 @@ main:
 card_kinds:
   note:
     fields:
-      body:
+      label:
         type: string
 "#;
 
@@ -95,17 +95,17 @@ fn validate_reports_unknown_card_kind() {
 }
 
 #[test]
-fn validate_defers_field_absent_completeness_signal() {
+fn validate_does_not_surface_field_absence() {
     let quill = quill_from_yaml(SIMPLE);
-    // `title` and `count` are Unendorsed (no default) and absent. The
-    // completeness signal is deferred pending the authoring-feedback design, so
-    // an incomplete-but-well-formed document produces no diagnostics.
+    // `title` and `count` are Unendorsed (no default) and absent. Field absence
+    // is not a well-formedness error — it zero-fills at render — so an
+    // incomplete-but-well-formed document produces no diagnostics.
     let md = "~~~card-yaml\n$quill: validate_test\n$kind: main\n~~~\n";
     let doc = Document::from_markdown(md).unwrap();
 
     assert!(
         quill.validate(&doc).is_empty(),
-        "absence is no longer surfaced; an incomplete document validates clean"
+        "absence is not surfaced; an incomplete document validates clean"
     );
 }
 
@@ -113,9 +113,11 @@ fn validate_defers_field_absent_completeness_signal() {
 fn validate_warns_on_must_fill_marker() {
     let quill = quill_from_yaml(SIMPLE);
     // The `!must_fill` placeholder surfaces as a non-fatal warning, regardless
-    // of whether it carries a suggested value.
+    // of whether it carries a suggested value — and across the main card and
+    // every composable card (the contract is "root and nested, main and cards").
     let md = "~~~card-yaml\n$quill: validate_test\n$kind: main\n\
-              title: !must_fill Draft\ncount: !must_fill\n~~~\n";
+              title: !must_fill Draft\ncount: !must_fill\n~~~\n\n\
+              ~~~card-yaml\n$kind: note\nlabel: !must_fill\n~~~\n";
     let doc = Document::from_markdown(md).unwrap();
 
     let diags = quill.validate(&doc);
@@ -126,7 +128,10 @@ fn validate_warns_on_must_fill_marker() {
         .filter_map(|d| d.path.clone())
         .collect();
     assert!(
-        marked.contains(&"title".to_string()) && marked.contains(&"count".to_string()),
-        "both !must_fill markers should warn; got paths: {marked:?}"
+        marked.contains(&"title".to_string())
+            && marked.contains(&"count".to_string())
+            && marked.contains(&"cards.note[0].label".to_string()),
+        "main-card and composable-card !must_fill markers should all warn; \
+         got paths: {marked:?}"
     );
 }

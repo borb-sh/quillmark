@@ -64,7 +64,11 @@ main:
 }
 
 #[test]
-fn test_default_values_applied_via_dry_run() {
+fn test_defaults_applied_when_absent() {
+    // An absent Endorsed field (one with a `default:`) resolves to its default
+    // in the plate projection — across string and number types — while an
+    // authored value still wins over the default. dry_run tolerates the
+    // partially-authored document (nothing gates on absence).
     let temp_dir = TempDir::new().unwrap();
     let quill_path = create_test_quill(
         &temp_dir,
@@ -79,6 +83,7 @@ main:
   fields:
     title:
       type: "string"
+      default: "Untitled"
     status:
       type: "string"
       default: "draft"
@@ -90,84 +95,33 @@ main:
 
     let quill = quillmark::quill_from_path(&quill_path).expect("from_path failed");
 
+    // `status` is authored; `title` and `version` fall back to their defaults.
     let markdown =
-        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: My Document\n~~~\n\n# Content\n";
+        "~~~card-yaml\n$quill: test_quill\n$kind: main\nstatus: published\n~~~\n\n# Content\n";
     let parsed = Document::from_markdown(markdown).expect("parse failed");
 
-    let result = quill.dry_run(&parsed);
     assert!(
-        result.is_ok(),
-        "Dry run should succeed - optional fields have defaults"
-    );
-}
-
-#[test]
-fn test_default_values_not_overriding_existing_fields() {
-    let temp_dir = TempDir::new().unwrap();
-    let quill_path = create_test_quill(
-        &temp_dir,
-        r#"quill:
-  name: "test_quill"
-  version: "1.0"
-  backend: "typst"
-  plate_file: "plate.typ"
-  description: "Test quill with defaults"
-
-main:
-  fields:
-    title:
-      type: "string"
-    status:
-      type: "string"
-      default: "draft"
-"#,
+        quill.dry_run(&parsed).is_ok(),
+        "dry_run should tolerate absent Endorsed fields (defaults apply)"
     );
 
-    let quill = quillmark::quill_from_path(&quill_path).expect("from_path failed");
-
-    let markdown =
-        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: My Document\nstatus: published\n~~~\n\n# Content\n";
-    let parsed = Document::from_markdown(markdown).expect("parse failed");
-
-    let result = quill.dry_run(&parsed);
-    assert!(
-        result.is_ok(),
-        "Dry run should succeed with explicit values"
+    let data = quill
+        .compile_data(&parsed)
+        .expect("compile_data should succeed");
+    assert_eq!(
+        data.get("title").and_then(|v| v.as_str()),
+        Some("Untitled"),
+        "absent Endorsed `title` should resolve to its default: {data}"
     );
-}
-
-#[test]
-fn test_validation_with_defaults() {
-    let temp_dir = TempDir::new().unwrap();
-    let quill_path = create_test_quill(
-        &temp_dir,
-        r#"quill:
-  name: "test_quill"
-  version: "1.0"
-  backend: "typst"
-  plate_file: "plate.typ"
-  description: "Test quill with optional fields"
-
-main:
-  fields:
-    title:
-      type: "string"
-      default: "Untitled"
-    status:
-      type: "string"
-      default: "draft"
-"#,
+    assert_eq!(
+        data.get("version").and_then(|v| v.as_f64()),
+        Some(1.0),
+        "absent Endorsed `version` should resolve to its numeric default: {data}"
     );
-
-    let quill = quillmark::quill_from_path(&quill_path).expect("from_path failed");
-
-    let markdown = "~~~card-yaml\n$quill: test_quill\n$kind: main\n~~~\n\n# Content";
-    let parsed = Document::from_markdown(markdown).expect("parse failed");
-
-    let dry_run_result = quill.dry_run(&parsed);
-    assert!(
-        dry_run_result.is_ok(),
-        "Dry run should pass - fields have defaults"
+    assert_eq!(
+        data.get("status").and_then(|v| v.as_str()),
+        Some("published"),
+        "authored value should win over the default: {data}"
     );
 }
 
