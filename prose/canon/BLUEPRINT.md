@@ -111,16 +111,13 @@ comment parse and round-trip faithfully, exactly like comments on data
 fields — see [markdown-spec.md](../references/markdown-spec.md) §3.3.)
 
 The root block's `$quill` line is emitted verbatim and carries an inline
-**`# keep verbatim — do not drop`** reminder. This is an in-band nudge
-against the `parse::missing_quill` failure, where an LLM author omits the
-`$quill` line entirely and the document fails to bind to a quill. It is
-**experimental** — added under evaluation (issue #734) and kept only if it
-measurably reduces the omission rate; the eval is the gate, not this doc.
-The reminder rides only on `$quill`: it is the one line whose omission is
-a hard error. `$kind: main` carries no reminder — an omitted root
-`$kind` is synthesised at parse time, so dropping it is not an error, and
-a `# …` line in that slot would only read as a leading annotation for the
-field below it. A composable card's kind is carried in its
+**`# keep verbatim — do not drop`** reminder — an in-band guard against the
+`parse::missing_quill` failure, where an LLM author omits the `$quill` line
+entirely and the document fails to bind to a quill. The reminder rides only
+on `$quill`: it is the one line whose omission is a hard error. `$kind: main`
+carries no reminder — an omitted root `$kind` is synthesised at parse time,
+so dropping it is not an error, and a `# …` line in that slot would only
+read as a leading annotation for the field below it. A composable card's kind is carried in its
 `$kind: <card_kind>` metadata line. Its `composable (0..N)` role is
 emitted as an own-line `# composable (0..N)` comment directly under the
 `$kind` line, ahead of the card description — that comment carries the
@@ -141,7 +138,7 @@ Examples:
 | `recipient: !must_fill  # array<string>` | Unendorsed array of strings |
 | `date: !must_fill  # datetime<YYYY-MM-DD[Thh:mm:ss]>` | Unendorsed datetime |
 | `severity: !must_fill  # enum<low \| medium \| high>` | Unendorsed enum |
-| `$quill: cmu_letter@0.1.0  # keep verbatim — do not drop` | quill binding metadata, emitted verbatim; the inline reminder guards against dropping the line (issue #734) |
+| `$quill: cmu_letter@0.1.0  # keep verbatim — do not drop` | quill binding metadata, emitted verbatim; the inline reminder guards against dropping the line |
 | `$kind: skill` followed by `# composable (0..N)` | repeat the entire `~~~` … `~~~` block per instance |
 
 ## Placeholder value precedence

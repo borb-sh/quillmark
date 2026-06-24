@@ -21,12 +21,12 @@
 //!   `!must_fill` marker on the value line (`field: !must_fill`, or
 //!   `field: !must_fill <example>` when an example supplies a suggested value).
 //! - **Metadata annotation.** The root `$quill` line carries an inline
-//!   `# keep verbatim — do not drop` reminder: an in-band nudge against the
-//!   `parse::missing_quill` failure where an LLM author omits the line
-//!   (experimental — see issue #734). `$kind` carries no such reminder; an
-//!   omitted root `$kind: main` is synthesised at parse time, so it is not a
-//!   hard requirement. A composable card emits its `composable (0..N)` role
-//!   as an own-line `# …` comment directly under the `$kind` line.
+//!   `# keep verbatim — do not drop` reminder: an in-band guard against the
+//!   `parse::missing_quill` failure where an LLM author omits the line.
+//!   `$kind` carries no such reminder; an omitted root `$kind: main` is
+//!   synthesised at parse time, so it is not a hard requirement. A composable
+//!   card emits its `composable (0..N)` role as an own-line `# …` comment
+//!   directly under the `$kind` line.
 //! - **Body regions** are signalled by `Write main body here.` after the main
 //!   fence and `Write <card kind> body here.` after each card fence. When
 //!   `body.example` is set, the example text is embedded verbatim instead.
@@ -105,8 +105,8 @@ fn write_comment(out: &mut String, text: &str) {
 ///
 /// The `$quill` system-metadata line leads the block, carrying an inline
 /// `# keep verbatim — do not drop` reminder against the `parse::missing_quill`
-/// failure where an author drops it (experimental — see issue #734). The
-/// optional description follows as an own-line comment.
+/// failure where an author drops it. The optional description follows as an
+/// own-line comment.
 fn write_main_fence(
     out: &mut String,
     card: &CardSchema,
@@ -766,9 +766,9 @@ main:
     flavor: { type: string, default: taro }
 "#)
         .blueprint();
-        // The root `$quill` line carries the inline "keep verbatim" reminder
-        // (issue #734); `$kind: main` then goes straight to the description with
-        // no own-line role comment (the root has no `composable` cardinality).
+        // The root `$quill` line carries the inline "keep verbatim" reminder;
+        // `$kind: main` then goes straight to the description with no own-line
+        // role comment (the root has no `composable` cardinality).
         assert!(t.starts_with(
             "~~~\n$quill: taro@0.1.0  # keep verbatim — do not drop\n$kind: main\n# x\n"
         ));
