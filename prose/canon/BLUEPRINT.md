@@ -17,13 +17,14 @@ free.
 
 ````
 ~~~
-$quill: <name>@<version>  # keep verbatim
+$quill: <name>@<version> # keep verbatim
 $kind: main
 # <description>
 
 # <field description>
-field: !must_fill <example>  # <type>
-endorsed: value  # <type>[<format>]
+field: !must_fill # <type>
+  - <example item>
+endorsed: value # <type>[<format>]
 ~~~
 
 Write main body here.
@@ -46,6 +47,21 @@ the `$quill` system-metadata line; each composable card carries a
 
 When `body.example` is set, its text replaces the body marker entirely.
 When `body.enabled` is false the marker is omitted entirely.
+
+## One emitter, by construction
+
+`blueprint()` does not format YAML itself. It builds a `Document` — the same
+typed model a parsed `.md` produces, with prose annotations as comments and
+`!must_fill` as fill flags — and emits it through the **canonical
+`Document::to_markdown`**. There is no second formatter. Two consequences
+follow:
+
+- The blueprint round-trips through `Document::from_markdown` and back **by
+  construction** — the emitter that produced it is the same one round-trip uses.
+- The blueprint inherits `to_markdown`'s representation choices: a **one-space**
+  ` # ` inline-comment gap, **block-style** sequences at every level (no inline
+  flow), and **inline double-quoted** multi-line strings (no `|`/`>` block
+  scalars). The sections below reflect those choices.
 
 ## Annotation grammar
 
@@ -128,17 +144,17 @@ Examples:
 
 | Line | Reading |
 |---|---|
-| `name: !must_fill  # string` | Unendorsed string, no example — bare marker, replace before shipping |
-| `name: !must_fill Jane Doe  # string` | Unendorsed string with an `example` — the example is the suggested value, still marked |
-| `title: "Curriculum Vitae"  # string` | Endorsed string — concrete value, shippable as-is (keep or override) |
-| `count: 0  # integer` | Endorsed integer (type-empty default, shippable as-is) |
-| `active: false  # boolean` | Endorsed boolean (type-empty default, shippable as-is) |
-| `notes: ""  # string` | Endorsed empty string (the "skippable" cell, now Endorsed) |
-| `bio: !must_fill  # markdown` | Unendorsed markdown — bare marker (see "Markdown fields") |
-| `recipient: !must_fill  # array<string>` | Unendorsed array of strings |
-| `date: !must_fill  # datetime<YYYY-MM-DD[Thh:mm:ss]>` | Unendorsed datetime |
-| `severity: !must_fill  # enum<low \| medium \| high>` | Unendorsed enum |
-| `$quill: cmu_letter@0.1.0  # keep verbatim` | quill binding metadata, emitted verbatim; the inline reminder guards against dropping the line |
+| `name: !must_fill # string` | Unendorsed string, no example — bare marker, replace before shipping |
+| `name: !must_fill Jane Doe # string` | Unendorsed string with an `example` — the example is the suggested value, still marked |
+| `title: "Curriculum Vitae" # string` | Endorsed string — concrete value, shippable as-is (keep or override) |
+| `count: 0 # integer` | Endorsed integer (type-empty default, shippable as-is) |
+| `active: false # boolean` | Endorsed boolean (type-empty default, shippable as-is) |
+| `notes: "" # string` | Endorsed empty string (the "skippable" cell, now Endorsed) |
+| `bio: !must_fill # markdown` | Unendorsed markdown — bare marker (see "Markdown fields") |
+| `recipient: !must_fill # array<string>` | Unendorsed array of strings |
+| `date: !must_fill # datetime<YYYY-MM-DD[Thh:mm:ss]>` | Unendorsed datetime |
+| `severity: !must_fill # enum<low \| medium \| high>` | Unendorsed enum |
+| `$quill: cmu_letter@0.1.0 # keep verbatim` | quill binding metadata, emitted verbatim; the inline reminder guards against dropping the line |
 | `$kind: skill` followed by `# composable (0..N)` | repeat the entire `~~~` … `~~~` block per instance |
 
 ## Placeholder value precedence
@@ -176,9 +192,9 @@ The marker is stamped where the LLM types the value:
 
 | Type | Marker position | Example |
 |---|---|---|
-| `string`, `integer`, `number`, `boolean`, `datetime`, `enum` | On the field | `name: !must_fill  # string` |
-| `array<scalar>` | On the field | `recipient: !must_fill  # array<string>` |
-| `markdown` | On the field (bare; no block scalar) | `bio: !must_fill  # markdown` |
+| `string`, `integer`, `number`, `boolean`, `datetime`, `enum` | On the field | `name: !must_fill # string` |
+| `array<scalar>` | On the field | `recipient: !must_fill # array<string>` |
+| `markdown` | On the field (bare; no block scalar) | `bio: !must_fill # markdown` |
 | `object` (typed dict) | Per-property recursion | leaves carry `!must_fill` |
 | `array<object>` (typed table) | Per-property recursion in one synthetic row | leaves carry `!must_fill` |
 
@@ -188,38 +204,39 @@ An **Unendorsed** `markdown` field renders as a bare marker on the field —
 no block scalar:
 
 ```
-bio: !must_fill  # markdown
+bio: !must_fill # markdown
 ```
 
 The LLM replaces the marked field with its markdown content (a quoted scalar
 or a block scalar, the consumer's choice); the marker signals "fill me."
 
-When a `default:` is configured, the field is **Endorsed** and renders as a
-YAML literal block scalar (`|-`) whose content is the default — the block
-form cleanly accommodates multi-line markdown:
+When a `default:` is configured, the field is **Endorsed** and renders its
+default as an **inline double-quoted scalar** with `\n` escapes — the canonical
+`to_markdown` string form (no `|`/`>` block scalars):
 
 ```
-bio: |-  # markdown
-  ## About me
-  
-  <body>
+bio: "## About me\n\n<body>" # markdown
 ```
 
-If the default is empty (`default: ""`), the block scalar renders with one
-indented blank line — the "skippable" markdown cell.
+If the default is empty (`default: ""`), the cell is the inline empty string
+`bio: "" # markdown` — the "skippable" markdown cell.
 
 ### Multi-element example arrays
 
-The `example` of an Unendorsed array field inlines as the `!must_fill`
-marker's value, rendered as a YAML flow sequence so multi-element shape
-information is preserved:
+The `example` of an Unendorsed array field rides the `!must_fill` marker as a
+**block-style sequence** — the canonical `to_markdown` form at every nesting
+level:
 
 ```
-recipient: !must_fill [Mr. John Doe, 123 Main St, "Anytown, USA"]  # array<string>
+recipient: !must_fill # array<string>
+  - Mr. John Doe
+  - 123 Main St
+  - Anytown, USA
 ```
 
-Items containing flow indicators (`,`, `[`, `]`, `{`, `}`) get quoted so
-the flow form round-trips.
+Items are quoted only when their plain form would re-parse differently
+(`to_markdown`'s scalar rule); in block context a leading/embedded comma does
+not force quoting.
 
 ### Reserved characters in format and enum literals
 
@@ -261,16 +278,23 @@ cell cascade — `default:` (any default, including `{}`) is Endorsed and
 shippable as-is; no `default:` is Unendorsed:
 
 - A non-empty `default:` renders as a concrete block mapping (property
-  values only, no annotations). The outer key carries
-  `# object`.
-- `default: {}` renders inline as `{}` with `# object` —
-  shippable empty. Inline property shape is not surfaced under an empty
-  default; use `example:` to document property shape.
+  values only, no annotations). Only the keys present in the default are
+  shown — a *partial* default is a deliberate "already handled, ignore the
+  rest" signal and is rendered verbatim. The outer key carries `# object`.
+- `default: {}` **expands** to the field's zero-filled shape: every property
+  shown with its type-empty value (`""`, `0`, `false`, `[]`, …), all
+  unmarked and unannotated (uniform with a concrete default, since the
+  container is Endorsed). The bare `{}` is never emitted — an empty endorsed
+  object shows its structure. The outer key carries `# object`.
 - No `default:` is Unendorsed: each property is emitted with its own
   description, inline annotation, and the `!must_fill` marker on its leaf
   value. The container key itself is untagged — you tag the leaves, not the
   container (per [markdown-spec.md](../references/markdown-spec.md) §3.4).
   The outer key carries `# object`.
+
+The `{}` expansion (and not partial defaults, and not arrays) makes the object
+rule a single statement: **show every key, fill from default-over-zero, mark
+per endorsement.** Arrays are unchanged — `default: []` stays inline `[]`.
 
 An `example:` never renders as a concrete mapping. Like every other
 field type, it surfaces only in the `# e.g.` leading line — as a
@@ -279,22 +303,31 @@ Cupertino}`.
 
 ```
 # The sender's mailing address.
-address:  # object
+address: # object
   # Street address line.
-  street: !must_fill  # string
+  street: !must_fill # string
   # City name.
-  city: !must_fill  # string
+  city: !must_fill # string
   # ZIP or postal code.
-  zip: ""  # string
+  zip: "" # string
 ```
 
 With a default:
 
 ```
-address:  # object
+address: # object
   street: 5000 Forbes Avenue
   city: Pittsburgh
   zip: "15213"
+```
+
+With `default: {}` (expanded to the zero-filled shape, all unmarked):
+
+```
+address: # object
+  street: ""
+  city: ""
+  zip: ""
 ```
 
 Properties of a typed dictionary may not themselves be objects (nesting
@@ -328,24 +361,30 @@ to prevent corrupting the blueprint's document structure.
 
 ```
 ~~~
-$quill: cmu_letter@0.1.0  # keep verbatim
+$quill: cmu_letter@0.1.0 # keep verbatim
 $kind: main
 # Typeset letters that comply with Carnegie Mellon University letterhead standards.
-
 # The recipient's name and full mailing address.
-recipient: !must_fill [Mr. John Doe, 123 Main St, "Anytown, USA"]  # array<string>
+recipient: !must_fill # array<string>
+  - Mr. John Doe
+  - 123 Main St
+  - Anytown, USA
 # The signer's information. Line 1: Name. Line 2: Title.
-signature_block: !must_fill [First M. Last, Title]  # array<string>
+signature_block: !must_fill # array<string>
+  - First M. Last
+  - Title
 # The department or organizational unit name for the letterhead.
 # e.g. Department of Electrical and Computer Engineering
-department: ""  # string
+department: "" # string
 # The sender's institutional mailing address.
-address: !must_fill [5000 Forbes Avenue, "Pittsburgh, PA 15213-3890"]  # array<string>
+address: !must_fill # array<string>
+  - 5000 Forbes Avenue
+  - Pittsburgh, PA 15213-3890
 # The department or university website URL.
 # e.g. www.ece.cmu.edu
-url: ""  # string
+url: "" # string
 # The date to appear on the letter.
-date: !must_fill  # datetime<YYYY-MM-DD[Thh:mm:ss]>
+date: !must_fill # datetime<YYYY-MM-DD[Thh:mm:ss]>
 ~~~
 
 Write main body here.

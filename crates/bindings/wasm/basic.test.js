@@ -1224,12 +1224,12 @@ main:
     expect(blueprint.length).toBeGreaterThan(0)
 
     // Unendorsed: value cell is the `!must_fill` marker.
-    expect(blueprint).toContain('title: !must_fill  # string')
+    expect(blueprint).toContain('title: !must_fill # string')
 
     // Endorsed: rendered default with a type-only `# string` annotation. The
     // emitter does not quote strings that don't need quoting (`Untitled
     // subtitle` has no YAML ambiguity), so the value cell is bare.
-    expect(blueprint).toContain('subtitle: Untitled subtitle  # string')
+    expect(blueprint).toContain('subtitle: Untitled subtitle # string')
 
     // The `; delete-ok` tag is gone entirely — shippability is the value cell.
     expect(blueprint).not.toContain('delete-ok')
