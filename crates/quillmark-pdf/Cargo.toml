@@ -1,0 +1,18 @@
+[package]
+name = "quillmark-pdf"
+version.workspace = true
+edition.workspace = true
+include = ["src/**", "Cargo.toml", "README*", "LICENSE*"]
+readme.workspace = true
+description = "Shared AcroForm widget stamping for Quillmark backends"
+license.workspace = true
+documentation = "https://docs.rs/quillmark-pdf"
+homepage.workspace = true
+repository = "https://github.com/quillmark-org/quillmark"
+
+[dependencies]
+quillmark-core = { workspace = true }
+
+[dev-dependencies]
+# Acceptance tests parse the stamped PDF to validate AcroForm structure.
+lopdf = "0.36"

@@ -2317,6 +2317,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "quillmark-pdf"
+version = "0.92.1"
+dependencies = [
+ "lopdf",
+ "quillmark-core",
+]
+
+[[package]]
 name = "quillmark-python"
 version = "0.92.1"
 dependencies = [
