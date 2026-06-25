@@ -71,7 +71,7 @@ fn all_fields() -> Vec<FieldSpec> {
     ]
 }
 
-fn acroform<'a>(doc: &'a lopdf::Document) -> &'a lopdf::Dictionary {
+fn acroform(doc: &lopdf::Document) -> &lopdf::Dictionary {
     let cat = doc.catalog().expect("catalog");
     let af_ref = cat
         .get(b"AcroForm")

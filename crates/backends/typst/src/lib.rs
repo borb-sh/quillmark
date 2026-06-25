@@ -34,7 +34,6 @@ mod error_mapping;
 
 mod helper;
 mod overlay;
-mod pdf_scan;
 mod world;
 
 /// Utilities exposed for fuzzing tests.

@@ -63,11 +63,10 @@ fn compile(plate: &str) -> Result<Vec<u8>, RenderError> {
 
 // ─── regression: each widget has exactly one /Subtype entry ──────────────────
 
-/// `pdf-writer::Field::into_annotation` already emits `/Subtype /Widget`; an
-/// earlier draft called `.subtype()` on the resulting Annotation too,
-/// producing a malformed widget dict with `/Subtype` written twice. lopdf
-/// silently tolerates the duplication; stricter validators (qpdf, MuPDF)
-/// reject it. This test fences the regression at the byte level.
+/// A widget dict must declare `/Subtype /Widget` exactly once. lopdf silently
+/// tolerates a duplicated key; stricter validators (qpdf, MuPDF) reject it, so
+/// `quillmark-pdf`'s widget writer must emit it a single time. This test fences
+/// that invariant at the byte level.
 #[test]
 fn regression_widget_dict_has_exactly_one_subtype() {
     let plate = r#"
