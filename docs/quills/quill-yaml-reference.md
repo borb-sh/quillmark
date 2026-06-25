@@ -14,7 +14,7 @@ main:         # Optional — main entry-point card: field schemas and optional u
   fields:
     ...
   ui:         # optional UI hints (e.g. title)
-  body:       # optional body-region config (e.g. enabled, description)
+  body:       # optional body-region config (e.g. enabled, example)
 
 card_kinds:   # Optional — additional composable card kinds
   ...
@@ -324,7 +324,7 @@ Invalid card-kind names include:
 | Property  | Type   | Description |
 |-----------|--------|-------------|
 | `enabled`     | bool   | Whether the body editor is enabled (default: true). When false, consumers must not accept or store body content for this card kind. |
-| `example`     | string | Example text shown in the body editor placeholder when the body is empty. |
+| `example`     | string | Default body text used when seeding a card of this kind and shown in the blueprint body region; falls back to `Write <kind> body here.` when absent. |
 
 #### `title`
 
@@ -386,7 +386,7 @@ card_kinds:
 
 #### `body.example`
 
-Optional example text displayed in the body editor placeholder area when the body is empty. Has no effect when `body.enabled` is false.
+Default body text seeded into a card of this kind and shown verbatim in the blueprint body region (it falls back to `Write <kind> body here.` when absent). Has no effect when `body.enabled` is false.
 
 ```yaml
 card_kinds:

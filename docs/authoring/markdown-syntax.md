@@ -6,7 +6,7 @@ For the authoritative grammar, block-detection rules, normalization, and limits,
 
 ## Foundation
 
-Body content (the prose after each [card-yaml block](card-yaml.md), including any [card](cards.md)) is parsed as CommonMark 0.31.2. Headings, emphasis, links, lists, code blocks, blockquotes, thematic breaks, and inline code all behave exactly as the [CommonMark spec](https://spec.commonmark.org/0.31.2/) defines them.
+Body content (the prose after each [card-yaml block](card-yaml.md), including any [card](cards.md)) is parsed as CommonMark 0.31.2. Headings, emphasis, links, images, lists, code blocks, blockquotes, thematic breaks, and inline code all behave exactly as the [CommonMark spec](https://spec.commonmark.org/0.31.2/) defines them. (Images render to a Typst `#image`; the `src` must resolve against the backend's file system.)
 
 For the conventional syntax of these elements, refer to:
 
@@ -51,8 +51,6 @@ The following are recognised by the parser (so they will not corrupt surrounding
 
 - **Math** (`$…$`, `$$…$$`) — `$` is treated as a literal character.
 - **Footnotes**, **task lists**, **definition lists** — not supported.
-
-**Images** (`![alt](src)`) *are* rendered: the Typst backend emits `#image("src", alt: "alt")`, with `src` resolved against the backend's virtual file system. A dedicated asset-resolver layer (for non-local sources) is still future work.
 
 Some constructs (like link titles) are accepted by the parser but may be dropped during rendering when the active backend has no target for them. Those losses are backend-specific — see each backend's documentation.
 
