@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-Apache--2.0-lightgray.svg)](LICENSE)
 
 **Quillmark: a schema-driven document engine.**  
-Turn Markdown into a fully typeset document with a Quill.
+Turns Markdown into fully typeset documents defined by Quills.
 
 Maintained by [quillmark-org](https://github.com/quillmark-org).
 
