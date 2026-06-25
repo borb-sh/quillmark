@@ -13,7 +13,7 @@ which extras they expose (canvas preview is WASM-only).
 
 ## Shared model
 
-- **Capability principle.** A `Quill` is engine-free, validated config data.
+- **Capability principle.** A `Quill` is portable, declarative config data.
   Its format capability (`supportedFormats`) and rendering are resolved by the
   `Quillmark` engine *against* a quill at render time — never by the quill
   itself. So `quill.metadata` is a pure, infallible config snapshot, while

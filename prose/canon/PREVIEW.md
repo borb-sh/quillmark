@@ -80,7 +80,7 @@ pub fn typst_session_of(s: &RenderSession) -> Option<&TypstSession>;
 ### TypeScript (WASM)
 
 Capability and rendering live on the **engine** (it holds the resolved
-backend); `Quill` is engine-free data. Canvas preview is in the **render**
+backend); `Quill` is declarative data. Canvas preview is in the **render**
 build only.
 
 ```ts

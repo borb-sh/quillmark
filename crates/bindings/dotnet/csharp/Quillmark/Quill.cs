@@ -5,7 +5,7 @@ using System.Text.Json;
 namespace Quillmark;
 
 /// <summary>
-/// Engine-free, validated quill config data. The declared backend is resolved
+/// Portable, declarative quill config data. The declared backend is resolved
 /// later, at render time, by a <see cref="QuillmarkEngine"/> engine — never here.
 /// The .NET analogue of the Python <c>Quill</c> class.
 /// </summary>

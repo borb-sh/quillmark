@@ -4,7 +4,7 @@
 
 ## TL;DR
 
-Quillmark is a schema-driven document engine: it turns Markdown with card-yaml blocks into a fully typeset document (PDF, SVG, PNG, TXT). A `Quill` is portable, engine-free data whose schema drives validation and scaffolding (parse / validate / schema / seed / blueprint / compile); the `Quillmark` engine is the thin-but-mandatory core every render routes through — a backend registry + render dispatcher; backends do the heavy compilation.
+Quillmark is a schema-driven document engine: it turns Markdown with card-yaml blocks into a fully typeset document (PDF, SVG, PNG, TXT). A `Quill` is portable, declarative data whose schema drives validation and scaffolding (parse / validate / schema / seed / blueprint / compile); the `Quillmark` engine is the thin-but-mandatory core every render routes through — a backend registry + render dispatcher; backends do the heavy compilation.
 
 ## Data Flow
 
@@ -45,7 +45,7 @@ Property-based fuzz tests (proptest): `parse_fuzz` (YAML/Markdown parsing), `con
 ## Core Interfaces
 
 - **`Quillmark`** — Engine: a backend registry + render dispatcher. Auto-registers `TypstBackend` when the `typst` feature is enabled. Resolves a quill's declared backend at render time (erroring `UnsupportedBackend` on no match) and owns the backend-dependent surface — `render`, `open`, `supported_formats(&quill)`, `supports_canvas(&quill)`. It no longer constructs quills
-- **`Quill`** — The single quill type in `quillmark-core`: portable, validated, engine-free data (file bundle + config + metadata, tagged with a declared backend id). Held by value. Exposes the pure config-read operations: `dry_run`, `compile_data`, `backend_id`, plus `validate` (editor-facing: returns every schema diagnostic, including the non-fatal `validation::must_fill` warning raised for each `!must_fill` marker) and the `seed_document` / `seed_main` / `seed_card` starters that emit committed example documents and cards. Construct with `Quill::from_tree` or `quillmark::quill_from_path`
+- **`Quill`** — The single quill type in `quillmark-core`: portable, declarative data (file bundle + config + metadata, tagged with a declared backend id). Held by value. Exposes the pure config-read operations: `dry_run`, `compile_data`, `backend_id`, plus `validate` (editor-facing: returns every schema diagnostic, including the non-fatal `validation::must_fill` warning raised for each `!must_fill` marker) and the `seed_document` / `seed_main` / `seed_card` starters that emit committed example documents and cards. Construct with `Quill::from_tree` or `quillmark::quill_from_path`
 - **`Backend`** — Trait for output formats (`Send + Sync`): `id()`, `supported_formats()`, `supports_canvas()` (default `false`), `open(plate, &Quill, json)`
 - **`RenderSession`** — Opaque handle returned by `Backend::open()`; call `render(opts)` to produce artifacts. Exposes `page_count()` and `warnings()` for consumers (e.g. canvas previews) that don't go through `render()`. Backends with richer typed surfaces expose them via a downcast helper that goes through `RenderSession::handle()` + `SessionHandle::as_any` (Typst uses this for canvas preview — see `quillmark_typst::typst_session_of`).
 - **`Document`** — Typed in-memory representation of a Quillmark Markdown file (root block, body, cards). Serializes via `serde` to a versioned JSON envelope (`StoredDocument`) for database persistence, decoupled from the evolving Markdown syntax — see [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)

@@ -19,7 +19,7 @@
 //! ```
 
 // Re-export core types for convenience. `Quill` is the single quill type
-// (engine-free, validated data); construct it from an in-memory tree with
+// (portable, declarative data); construct it from an in-memory tree with
 // `Quill::from_tree`, or from disk with the `quill_from_path` helper below.
 pub use quillmark_core::{
     Artifact, Backend, Card, Diagnostic, Document, Location, OutputFormat, ParseError, ParseOutput,

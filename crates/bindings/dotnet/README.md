@@ -18,7 +18,7 @@ the package; no extra setup. Targets .NET 8+.
 using Quillmark;
 
 using var engine = new QuillmarkEngine();              // backend registry + dispatcher
-using var quill  = Quill.FromPath("path/to/quill");    // engine-free, validated config
+using var quill  = Quill.FromPath("path/to/quill");    // portable, declarative config
 
 using var doc = Document.FromMarkdown("""
 ~~~

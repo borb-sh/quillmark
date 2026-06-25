@@ -8,7 +8,7 @@ namespace Quillmark;
 /// Render engine: a backend registry and render dispatcher. The .NET analogue
 /// of the Python <c>Quillmark</c> class (named <c>QuillmarkEngine</c> here to
 /// avoid colliding with the <c>Quillmark</c> namespace). A <see cref="Quill"/>
-/// is engine-free config data; the declared backend is resolved here, at render
+/// is portable, declarative config data; the declared backend is resolved here, at render
 /// time.
 /// </summary>
 public sealed class QuillmarkEngine : NativeObject

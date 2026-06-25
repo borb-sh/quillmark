@@ -16,7 +16,7 @@ pip install quillmark
 from quillmark import Quillmark, Quill, Document, OutputFormat
 
 engine = Quillmark()                       # backend registry + render dispatcher
-quill = Quill.from_path("path/to/quill")   # engine-free, validated config data
+quill = Quill.from_path("path/to/quill")   # portable, declarative config data
 
 markdown = """~~~
 $quill: my_quill
@@ -40,7 +40,7 @@ concepts (and shapes of return values) are the same. Python renders in one
 shot via `engine.render`; the iterative render-session and canvas-preview
 surface is WASM-only (see `prose/canon/PREVIEW.md`).
 
-**Capability principle:** a `Quill` is engine-free, validated config data —
+**Capability principle:** a `Quill` is portable, declarative config data —
 `quill.metadata` is a pure, infallible snapshot of the `quill:` section.
 The format probe (`supported_formats`) and rendering (`render`) are resolved
 by the engine, against a quill; they raise `QuillmarkError`

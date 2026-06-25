@@ -14,7 +14,7 @@ The package exposes **one import surface**:
   an `Engine` that renders them.
 
 `Quill` and `Document` are re-exported verbatim from the internal Typst-less
-core build, so engine-free editor/validation code (`Quill.fromTree`,
+core build, so editor/validation code (`Quill.fromTree`,
 `Document.fromMarkdown`) loads only that small core binary — no backend is
 loaded until you render. The `Engine` hides everything else: each backend (Typst
 today) is a separate, private WASM binary with its own linear memory, lazily
@@ -46,7 +46,7 @@ npm test
 ```ts
 import { Document, Quill, Engine } from "@quillmark/wasm";
 
-const quill = Quill.fromTree(tree);   // engine-free: build + validate
+const quill = Quill.fromTree(tree);   // no engine needed: build + validate
 const engine = new Engine();          // loads a backend lazily on first render
 
 const markdown = `~~~
