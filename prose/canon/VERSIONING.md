@@ -8,7 +8,7 @@ Quills declare a semantic `version` in `Quill.yaml`, and documents carry an opti
 
 ## Version Format
 
-Semantic versioning: `MAJOR.MINOR.PATCH`. Two-segment `MAJOR.MINOR` passes validation in `Quill.yaml` (the raw string is stored as-is; no normalization occurs).
+Semantic versioning: `MAJOR.MINOR.PATCH`. Two-segment `MAJOR.MINOR` passes validation in `Quill.yaml`. A quoted version string is stored verbatim; an *unquoted* numeric like `1.0` is parsed by YAML as a number and stringified (becoming `"1"`, which then fails validation) — always quote the `version` value.
 
 | Increment | When |
 |-----------|------|

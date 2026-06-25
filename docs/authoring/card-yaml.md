@@ -27,8 +27,8 @@ A card-yaml block has three parts, in order:
    input but is non-canonical; it parses identically and re-emits as a bare
    `~~~`.
 2. **YAML payload** — a standard YAML mapping. The reserved keys `$quill`,
-   `$kind`, `$id`, and `$ext` carry system metadata (see below); every other
-   key is a user-defined data field.
+   `$kind`, `$id`, `$ext`, and `$seed` carry system metadata (see below); every
+   other key is a user-defined data field.
 3. **Closing fence** — a tilde run at least as long as the opener. The canonical opener and closer are both `~~~`; a longer opener (e.g. `~~~~`) requires an equally long closer.
 
 The unstructured Markdown body begins immediately after the closing `~~~`
@@ -48,7 +48,7 @@ the legacy `card-yaml` stays an ordinary code block.
 
 ## System Metadata (`$`)
 
-The block's YAML payload may contain four reserved `$`-prefixed keys.
+The block's YAML payload may contain up to five reserved `$`-prefixed keys.
 After parsing, these keys are extracted from the user field set and exposed
 on the block's typed metadata.
 
@@ -69,11 +69,16 @@ on the block's typed metadata.
   by backends. The value must be a mapping (scalars and sequences are
   parse errors); an empty `$ext: {}` is preserved as a distinct, explicit
   declaration.
+- **`$seed: <mapping>`** is a **root-only** mapping of per-kind seed overlays,
+  keyed by card-kind. Like `$ext` it round-trips through Markdown and storage
+  but **never** appears in the plate JSON; the seeding layer interprets it (see
+  [CARDS.md](https://github.com/quillmark-org/quillmark/blob/main/prose/canon/CARDS.md)
+  "Per-kind Seed Overlays"). A composable card carrying `$seed` is rejected.
 
 `$` metadata entries may appear anywhere in the block's payload (the
 canonical emission puts them first, in the order `$quill`, `$kind`,
-`$id`, `$ext`). Any other `$`-prefixed key is a parse error — the set is
-closed.
+`$id`, `$ext`, `$seed`). Any other `$`-prefixed key is a parse error — the set
+is closed.
 
 ### Version Selectors
 
@@ -198,7 +203,7 @@ warning so the loss is never silent.
 
 User field names match `[a-z_][a-z0-9_]*`. Uppercase, hyphens, and the
 `$` sigil are not allowed — the `$` prefix is reserved for system
-metadata (`$quill`, `$kind`, `$id`, `$ext`, plus the plate-JSON keys
+metadata (`$quill`, `$kind`, `$id`, `$ext`, `$seed`, plus the plate-JSON keys
 `$body` and `$cards`).
 
 ## Card Blocks
@@ -209,9 +214,9 @@ Every block after the root is a card — see [Cards](cards.md) for syntax and st
 
 `toMarkdown` always emits the canonical block form — a bare `~~~`
 opener, the `$` metadata lines in the canonical order `$quill`, `$kind`,
-`$id`, `$ext`, the remaining data fields, and a `~~~` closer. The root
-block emits both `$quill` and `$kind: main`; composable cards emit
-`$kind: <kind>` plus any `$id` / `$ext` they declared. Fence markers,
+`$id`, `$ext`, `$seed`, the remaining data fields, and a `~~~` closer. The root
+block emits both `$quill` and `$kind: main` (plus `$seed` when declared);
+composable cards emit `$kind: <kind>` plus any `$id` / `$ext` they declared. Fence markers,
 key ordering, and YAML quoting are normalised; `!must_fill` tags and YAML
 comments (own-line and inline trailing, including those adjacent to `$`
 lines) survive the round-trip.

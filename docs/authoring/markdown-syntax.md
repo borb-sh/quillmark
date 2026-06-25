@@ -49,9 +49,10 @@ Consequences:
 
 The following are recognised by the parser (so they will not corrupt surrounding content) but produce no output in the current version:
 
-- **Images** (`![alt](src)`) — reserved for the asset-resolver integration.
 - **Math** (`$…$`, `$$…$$`) — `$` is treated as a literal character.
 - **Footnotes**, **task lists**, **definition lists** — not supported.
+
+**Images** (`![alt](src)`) *are* rendered: the Typst backend emits `#image("src", alt: "alt")`, with `src` resolved against the backend's virtual file system. A dedicated asset-resolver layer (for non-local sources) is still future work.
 
 Some constructs (like link titles) are accepted by the parser but may be dropped during rendering when the active backend has no target for them. Those losses are backend-specific — see each backend's documentation.
 
