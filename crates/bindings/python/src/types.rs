@@ -88,7 +88,7 @@ impl PyQuillmark {
 #[pyclass(name = "Quill")]
 #[derive(Clone)]
 pub struct PyQuill {
-    /// Engine-free, portable, validated config data. The declared backend is
+    /// Portable, declarative config data. The declared backend is
     /// resolved later, at render time, by the `Quillmark` engine — never here.
     pub(crate) inner: Quill,
 }

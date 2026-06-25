@@ -1,7 +1,7 @@
 {
   "name": "@quillmark/wasm",
   "version": "VERSION_PLACEHOLDER",
-  "description": "WebAssembly bindings for quillmark",
+  "description": "WebAssembly bindings for Quillmark, a schema-driven document engine",
   "type": "module",
   "license": "MIT OR Apache-2.0",
   "engines": {

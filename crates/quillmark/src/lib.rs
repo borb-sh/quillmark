@@ -1,7 +1,7 @@
 //! # Quillmark
 //!
-//! Quillmark is a flexible, format-first Markdown rendering system that converts Markdown
-//! with card-yaml metadata blocks into various output artifacts (PDF, SVG, TXT, etc.).
+//! Quillmark is a schema-driven document engine that turns Markdown
+//! with card-yaml metadata blocks into a fully typeset document (PDF, SVG, PNG, TXT).
 //!
 //! ## Quick Start
 //!
@@ -19,7 +19,7 @@
 //! ```
 
 // Re-export core types for convenience. `Quill` is the single quill type
-// (engine-free, validated data); construct it from an in-memory tree with
+// (portable, declarative data); construct it from an in-memory tree with
 // `Quill::from_tree`, or from disk with the `quill_from_path` helper below.
 pub use quillmark_core::{
     Artifact, Backend, Card, Diagnostic, Document, Location, OutputFormat, ParseError, ParseOutput,

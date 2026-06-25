@@ -6,7 +6,7 @@
 ## The `Quill` type
 
 One type models a loaded quill: **`Quill`** (in `quillmark-core`) — portable,
-validated data. It is the authored input (file bundle, parsed config, metadata)
+declarative data. It is the authored input (file bundle, parsed config, metadata)
 tagged with its *declared* backend id, and it carries the pure config-read
 operations (`validate`, `schema`, `metadata`, `blueprint`, `seed_*`,
 `compile_data`, `dry_run`). It holds **no backend** and needs **no engine** to

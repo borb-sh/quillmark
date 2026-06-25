@@ -7,7 +7,7 @@ use std::process;
 
 #[derive(Parser)]
 #[command(name = "quillmark")]
-#[command(about = "Command-line interface for Quillmark", long_about = None)]
+#[command(about = "Command-line interface for Quillmark — a schema-driven document engine", long_about = None)]
 #[command(version)]
 struct Cli {
     #[command(subcommand)]

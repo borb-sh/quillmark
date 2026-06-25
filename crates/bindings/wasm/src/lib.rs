@@ -18,7 +18,7 @@
 //!
 //! ## API
 //!
-//! - [`Quill`] - engine-free, validated quill data (`fromTree` constructor;
+//! - [`Quill`] - portable, declarative quill data (`fromTree` constructor;
 //!   validate / schema / metadata / seed / blueprint). Present in both builds.
 //! - [`Quillmark`] - render engine: `open` / `render` / `supportedFormats` /
 //!   `supportsCanvas`. Render build only.

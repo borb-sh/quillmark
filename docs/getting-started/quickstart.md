@@ -14,7 +14,7 @@
     from quillmark import Document, Quill, Quillmark, OutputFormat
 
     engine = Quillmark()                       # backend registry + render dispatcher
-    quill = Quill.from_path("path/to/quill")   # engine-free, validated config data
+    quill = Quill.from_path("path/to/quill")   # portable, declarative config data
 
     markdown = """~~~
     $quill: my_quill
@@ -51,7 +51,7 @@
 
     const enc = new TextEncoder();
 
-    // A Quill is engine-free, validated data — no engine needed to load it.
+    // A Quill is portable, declarative data — no engine needed to load it.
     const quill = Quill.fromTree(new Map([
       ["Quill.yaml", enc.encode("quill:\n  name: my_quill\n  backend: typst\n  version: 1.0.0\n  description: Demo\n  plate_file: plate.typ\n")],
       ["plate.typ", enc.encode("#import \"@local/quillmark-helper:0.1.0\": data\n#data.at(\"$body\")\n")],
