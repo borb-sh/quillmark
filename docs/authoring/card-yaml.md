@@ -3,7 +3,7 @@
 Quillmark documents carry structured metadata in **card-yaml blocks** —
 explicitly delimited blocks that isolate YAML data from the surrounding
 Markdown prose. The first such block (the *root block*) names the format used
-to render the document; later blocks are composable [cards](cards.md).
+to render the document; later blocks are composable [cards](#card-blocks).
 
 ```
 ~~~
@@ -68,7 +68,9 @@ on the block's typed metadata.
   Markdown and the storage DTO; **never** appears in the plate JSON consumed
   by backends. The value must be a mapping (scalars and sequences are
   parse errors); an empty `$ext: {}` is preserved as a distinct, explicit
-  declaration.
+  declaration. Consumers namespace inside the map (`$ext.editor`, `$ext.agent`,
+  …) to avoid collisions; `$ext.editor.title` is the canonical slot for a
+  per-card display name (an editor-side rename).
 - **`$seed: <mapping>`** is a **root-only** mapping of per-kind seed overlays,
   keyed by card-kind. Like `$ext` it round-trips through Markdown and storage
   but **never** appears in the plate JSON; the seeding layer interprets it (see
@@ -201,7 +203,45 @@ warning so the loss is never silent.
 
 ## Card Blocks
 
-Every block after the root is a card — see [Cards](cards.md) for syntax and structural rules.
+Every block after the root is a *card* — a composable, repeatable record. A card
+declares `$kind: <kind>` (matching `[a-z_][a-z0-9_]*`, never `main`) alongside its
+data fields; the Markdown after its closing `~~~` fence is the card's body.
+
+```
+~~~
+$quill: my_quill@1.0
+$kind: main
+title: Main Document
+~~~
+
+# Introduction
+
+Some content here.
+
+~~~
+$kind: products
+name: Widget
+price: 19.99
+~~~
+
+Widget description.
+
+~~~
+$kind: products
+name: Gadget
+price: 29.99
+~~~
+
+Gadget description.
+```
+
+Each card is collected into the plate JSON's `$cards` array. Its body Markdown —
+everything between that card's closing `~~~` fence and the next block's opener
+(or document end) — is carried as the card's `$body` value.
+
+Card kinds and their field schemas are declared in `Quill.yaml` under
+`card_kinds`; see the
+[Quill.yaml Reference](../quills/quill-yaml-reference.md#card_kinds-section).
 
 ## Emission
 

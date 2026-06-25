@@ -398,7 +398,7 @@ card_kinds:
 
 ### Using Cards in Markdown
 
-Card kinds defined here are authored as `~~~` blocks (with a `$kind: <kind>` line) in the document body. See [Cards](../authoring/cards.md) for the markdown syntax.
+Card kinds defined here are authored as `~~~` blocks (with a `$kind: <kind>` line) in the document body. See [card-yaml Blocks](../authoring/card-yaml.md#card-blocks) for the markdown syntax.
 
 ---
 
