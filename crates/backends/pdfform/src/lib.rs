@@ -142,6 +142,14 @@ impl Backend for PdfformBackend {
         SUPPORTED_FORMATS
     }
 
+    /// With `preview`, the session implements the raster capability
+    /// (`render_rgba`), so the canvas paint path is reachable; without it the
+    /// background can't be rasterized and canvas is unavailable.
+    #[cfg(feature = "preview")]
+    fn supports_canvas(&self) -> bool {
+        true
+    }
+
     fn open(
         &self,
         _plate_content: &str,
