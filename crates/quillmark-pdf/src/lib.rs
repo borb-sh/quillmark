@@ -31,14 +31,15 @@ pub use stamp::{regions_of, stamp, StampOptions, StampResult, CHECKBOX_ON_STATE}
 // spine consumers reach it without a second `quillmark-core` import.
 pub use quillmark_core::{RegionKind, RenderedRegion};
 
-/// Page dimensions `(width_pt, height_pt)` for every page of `base`, in
-/// document order.
+/// The `/MediaBox` of every page of `base`, normalized to `[x0, y0, x1, y1]`
+/// (lower-left, upper-right), in document order.
 ///
 /// The geometry source for a backend that owns top-left page-relative rects
-/// (e.g. `pdfform` reading `form.json`): read the page height here, flip to the
-/// bottom-left origin the spine consumes, then build the [`FieldSpec`].
-pub fn page_sizes(base: &[u8]) -> Result<Vec<(f32, f32)>, PdfError> {
-    reader::page_sizes(base)
+/// (e.g. `pdfform` reading `form.json`): read the page box here, flip to the
+/// bottom-left origin the spine consumes (honouring a non-zero page origin),
+/// then build the [`FieldSpec`].
+pub fn page_media_boxes(base: &[u8]) -> Result<Vec<[f32; 4]>, PdfError> {
+    reader::page_media_boxes(base)
 }
 
 /// The backend-agnostic currency of the stamp spine: one form field, fully

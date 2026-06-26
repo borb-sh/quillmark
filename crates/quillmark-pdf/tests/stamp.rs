@@ -241,6 +241,32 @@ fn no_producer_no_fields_is_identity() {
 }
 
 #[test]
+fn implausible_size_errors_cleanly_without_panic() {
+    // A base PDF whose trailer declares a near-u32::MAX /Size must yield a clean
+    // PdfError (id space exhausted) rather than panic on overflow (debug) or
+    // silently wrap into colliding object ids (release).
+    let base = build_base_pdf(1);
+    // Byte-level splice (the PDF binary-marker comment isn't valid UTF-8).
+    let needle = b"/Size 5";
+    let at = base
+        .windows(needle.len())
+        .position(|w| w == needle)
+        .expect("trailer /Size");
+    let mut tampered = base[..at].to_vec();
+    tampered.extend_from_slice(b"/Size 4294967295");
+    tampered.extend_from_slice(&base[at + needle.len()..]);
+    let err = stamp(
+        tampered,
+        &[],
+        &StampOptions {
+            producer: Some("Quillmark test".into()),
+        },
+    )
+    .expect_err("near-u32::MAX /Size should error");
+    assert!(err.message.contains("id space"), "{}", err.message);
+}
+
+#[test]
 fn field_targeting_missing_page_errors() {
     let base = build_base_pdf(1);
     let fields = vec![FieldSpec {

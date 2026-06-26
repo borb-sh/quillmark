@@ -14,22 +14,30 @@ use serde_json::Value;
 use crate::form::{FieldKind, FormField, Rect};
 
 /// Build a [`FieldSpec`] for `field`, flipping its top-left rect to bottom-left
-/// against `page_height` and resolving its bound value from `data`.
-pub fn field_spec(field: &FormField, page_height: f32, data: &Value) -> FieldSpec {
+/// against the page's `media_box` and resolving its bound value from `data`.
+///
+/// `media_box` is the normalized `[x0, y0, x1, y1]` of the target page.
+pub fn field_spec(field: &FormField, media_box: [f32; 4], data: &Value) -> FieldSpec {
     FieldSpec {
         name: field.name.clone(),
         page: field.page,
-        rect: flip_rect(field.rect, page_height),
+        rect: flip_rect(field.rect, media_box),
         field_type: field_type(&field.kind),
         value: resolve_value(&field.kind, field.schema_field.as_deref(), data),
         tooltip: field.tooltip.clone(),
     }
 }
 
-/// Top-left `{x,y,w,h}` → spine bottom-left `[x0, y0, x1, y1]`. This is the
-/// single biggest hand-authoring footgun, defused structurally in one place.
-fn flip_rect(r: Rect, page_height: f32) -> [f32; 4] {
-    [r.x, page_height - (r.y + r.h), r.x + r.w, page_height - r.y]
+/// Page-relative top-left `{x,y,w,h}` → spine bottom-left `[x0, y0, x1, y1]` in
+/// PDF user space. Honours a non-zero page origin: the left edge is the
+/// MediaBox `x0` and `y` is measured down from the top edge (MediaBox `y1`), so
+/// a translated MediaBox (e.g. `[10 20 622 812]`) places widgets correctly
+/// rather than shifting them by the origin. This is the single biggest
+/// hand-authoring footgun, defused structurally in one place.
+fn flip_rect(r: Rect, media_box: [f32; 4]) -> [f32; 4] {
+    let left = media_box[0];
+    let top = media_box[3];
+    [left + r.x, top - (r.y + r.h), left + r.x + r.w, top - r.y]
 }
 
 fn field_type(kind: &FieldKind) -> FieldType {
@@ -211,7 +219,7 @@ mod tests {
 
     #[test]
     fn rect_flip_is_bottom_left() {
-        // A 14×14 box at top-left (180, 90) on an 800-tall page.
+        // A 14×14 box at top-left (180, 90) on an 800-tall, zero-origin page.
         let r = Rect {
             x: 180.0,
             y: 90.0,
@@ -219,8 +227,25 @@ mod tests {
             h: 14.0,
         };
         assert_eq!(
-            flip_rect(r, 800.0),
+            flip_rect(r, [0.0, 0.0, 600.0, 800.0]),
             [180.0, 800.0 - 104.0, 194.0, 800.0 - 90.0]
+        );
+    }
+
+    #[test]
+    fn rect_flip_honours_nonzero_origin() {
+        // Same box on a page whose MediaBox is translated to [10 20 622 812].
+        // Widgets must land offset by the origin, not at a (0,0) origin.
+        let r = Rect {
+            x: 180.0,
+            y: 100.0,
+            w: 14.0,
+            h: 14.0,
+        };
+        let mb = [10.0, 20.0, 622.0, 812.0]; // top edge y1 = 812
+        assert_eq!(
+            flip_rect(r, mb),
+            [10.0 + 180.0, 812.0 - 114.0, 10.0 + 194.0, 812.0 - 100.0]
         );
     }
 }

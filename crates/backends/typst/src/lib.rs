@@ -68,7 +68,9 @@ const SUPPORTED_FORMATS: &[OutputFormat] =
 pub struct TypstSession {
     document: typst_layout::PagedDocument,
     page_count: usize,
-    /// Extracted once at `open`. Consumed by PDF inject; unused for SVG/PNG.
+    /// Extracted once at `open`. Converted to spine `FieldSpec`s on every
+    /// render; PDF stamps them as AcroForm widgets, and every format carries
+    /// the resulting regions.
     sig_placements: Vec<overlay::SigPlacement>,
 }
 

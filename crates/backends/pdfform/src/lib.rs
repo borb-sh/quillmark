@@ -73,14 +73,15 @@ impl Backend for PdfformBackend {
         let spec = FormSpec::parse(form_json)
             .map_err(|e| engine_err("pdfform::invalid_form_json", e.to_string()))?;
 
-        // Page heights drive the top-left → bottom-left flip; reading them from
-        // the background also surfaces a malformed/out-of-contract base early.
-        let page_sizes = quillmark_pdf::page_sizes(&base_pdf).map_err(map_pdf_err)?;
-        let page_count = page_sizes.len();
+        // Page boxes drive the top-left → bottom-left flip (honouring a
+        // non-zero page origin); reading them from the background also surfaces
+        // a malformed/out-of-contract base early.
+        let page_boxes = quillmark_pdf::page_media_boxes(&base_pdf).map_err(map_pdf_err)?;
+        let page_count = page_boxes.len();
 
         let mut field_specs: Vec<FieldSpec> = Vec::with_capacity(spec.fields.len());
         for field in &spec.fields {
-            let page_height = page_sizes.get(field.page).map(|(_, h)| *h).ok_or_else(|| {
+            let media_box = page_boxes.get(field.page).copied().ok_or_else(|| {
                 engine_err(
                     "pdfform::field_page_out_of_range",
                     format!(
@@ -89,7 +90,7 @@ impl Backend for PdfformBackend {
                     ),
                 )
             })?;
-            field_specs.push(resolve::field_spec(field, page_height, json_data));
+            field_specs.push(resolve::field_spec(field, media_box, json_data));
         }
 
         Ok(RenderSession::new(Box::new(PdfformSession {

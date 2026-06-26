@@ -95,9 +95,22 @@ pub fn stamp(
         .ok_or_else(|| err(CODE_PARSE, "/Size missing or malformed in trailer"))?;
     let info_ref = find_dict_value(trailer, "Info").and_then(parse_indirect_ref);
 
-    // Object ids are handed out from a single counter so created objects never
-    // collide with the base's, nor with each other.
+    // Object ids are handed out from a single counter (seeded at the trailer
+    // `/Size`) so created objects never collide with the base's, nor with each
+    // other. Allocation is checked: a malformed near-`u32::MAX` `/Size` yields a
+    // clean error rather than an overflow panic (debug) or a silently-wrapped,
+    // colliding id (release) — matching the reader's hard-error contract.
     let mut next_id = size;
+    let alloc_id = |next: &mut u32| -> Result<u32, PdfError> {
+        let id = *next;
+        *next = id.checked_add(1).ok_or_else(|| {
+            err(
+                CODE_PARSE,
+                "PDF object id space exhausted (/Size too large)",
+            )
+        })?;
+        Ok(id)
+    };
     let mut objects: Vec<UpdatedObject> = Vec::new();
     let mut extra_info_ref = None;
 
@@ -113,8 +126,7 @@ pub fn stamp(
                 objects.push(dict_object(info_id, &upsert_producer(info_dict, &literal)));
             }
             None => {
-                let info_id = next_id;
-                next_id += 1;
+                let info_id = alloc_id(&mut next_id)?;
                 let mut inner = b"/Producer ".to_vec();
                 inner.extend_from_slice(&literal);
                 objects.push(dict_object(info_id, &inner));
@@ -139,18 +151,12 @@ pub fn stamp(
             }
         }
 
-        let font_id = next_id;
-        next_id += 1;
+        let font_id = alloc_id(&mut next_id)?;
         let widget_ids: Vec<u32> = fields
             .iter()
-            .map(|_| {
-                let id = next_id;
-                next_id += 1;
-                id
-            })
-            .collect();
-        let acroform_id = next_id;
-        next_id += 1;
+            .map(|_| alloc_id(&mut next_id))
+            .collect::<Result<_, _>>()?;
+        let acroform_id = alloc_id(&mut next_id)?;
 
         // Widgets, grouped by page for the page-side `/Annots`.
         let mut widgets_by_page: Vec<Vec<u32>> = vec![Vec::new(); page_count];
@@ -288,12 +294,13 @@ fn write_widget_object(spec: &FieldSpec, wid: Ref, page_ref: Ref) -> Vec<u8> {
                 field.field_type(PwFieldType::Button);
                 let on = spec.value.is_some();
                 checkbox_on = Some(on);
-                let on_name = spec.value.as_deref().unwrap_or(CHECKBOX_ON_STATE);
-                // /V is the on-state name when checked, else /Off.
+                // The on-state is the engine's fixed export name; the bound
+                // value only signals checked vs unchecked, so `/V` and the
+                // annotation `/AS` (below) stay consistent by construction.
                 field.pair(
                     Name(b"V"),
                     if on {
-                        Name(on_name.as_bytes())
+                        Name(CHECKBOX_ON_STATE.as_bytes())
                     } else {
                         Name(b"Off")
                     },

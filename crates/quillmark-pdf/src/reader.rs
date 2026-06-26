@@ -38,10 +38,17 @@ pub(crate) fn find_startxref(pdf: &[u8]) -> Result<usize, PdfError> {
     while end < after.len() && after[end].is_ascii_digit() {
         end += 1;
     }
-    std::str::from_utf8(&after[..end])
+    let offset: usize = std::str::from_utf8(&after[..end])
         .ok()
         .and_then(|s| s.parse().ok())
-        .ok_or_else(|| err(CODE_PARSE, "startxref offset is not a valid integer"))
+        .ok_or_else(|| err(CODE_PARSE, "startxref offset is not a valid integer"))?;
+    // Bound the offset so every downstream `pdf[offset..]` / `offset + N` slice
+    // is in range — an out-of-range value (e.g. a ~20-digit near-usize::MAX
+    // offset) becomes a clean parse error rather than an overflow/panic.
+    if offset >= pdf.len() {
+        return Err(err(CODE_PARSE, "startxref offset is past end of file"));
+    }
+    Ok(offset)
 }
 
 /// Bail if the base PDF stores an xref stream instead of a traditional table.
@@ -540,11 +547,27 @@ fn parse_rect_array(bytes: &[u8]) -> Option<[f32; 4]> {
     (count == 4).then_some(nums)
 }
 
-/// Page dimensions `(width_pt, height_pt)` for every page, in document order.
+/// Normalize a `/MediaBox` to `[x0, y0, x1, y1]` with `x0 <= x1` and
+/// `y0 <= y1`, so `(x0, y0)` is the page's lower-left and `(x1, y1)` its
+/// upper-right regardless of which corners the array listed.
+fn normalize_rect(mb: [f32; 4]) -> [f32; 4] {
+    [
+        mb[0].min(mb[2]),
+        mb[1].min(mb[3]),
+        mb[0].max(mb[2]),
+        mb[1].max(mb[3]),
+    ]
+}
+
+/// The `/MediaBox` of every page, normalized to `[x0, y0, x1, y1]`, in document
+/// order.
 ///
 /// Reads each page's `/MediaBox`, falling back to the root `/Pages` node's
-/// `/MediaBox` (the common inheritance case) when a page declares none.
-pub(crate) fn page_sizes(pdf: &[u8]) -> Result<Vec<(f32, f32)>, PdfError> {
+/// `/MediaBox` (the common inheritance case) when a page declares none. The
+/// full rect — not just width/height — is returned so a caller that owns
+/// page-relative top-left geometry can honour a non-zero page origin when
+/// flipping to bottom-left PDF user space.
+pub(crate) fn page_media_boxes(pdf: &[u8]) -> Result<Vec<[f32; 4]>, PdfError> {
     let xref_offset = find_startxref(pdf)?;
     assert_traditional_xref(pdf, xref_offset)?;
     let trailer = find_trailer_dict(pdf, xref_offset)?;
@@ -564,7 +587,7 @@ pub(crate) fn page_sizes(pdf: &[u8]) -> Result<Vec<(f32, f32)>, PdfError> {
             .and_then(parse_rect_array)
             .or(inherited)
             .ok_or_else(|| err(CODE_PARSE, format!("page {id} has no resolvable /MediaBox")))?;
-        out.push(((mb[2] - mb[0]).abs(), (mb[3] - mb[1]).abs()));
+        out.push(normalize_rect(mb));
     }
     Ok(out)
 }
@@ -615,5 +638,19 @@ mod tests {
         assert_eq!(parse_rect_array(b"[0 0 612]"), None);
         assert_eq!(parse_rect_array(b"[0 0 612 792 1]"), None);
         assert_eq!(parse_rect_array(b"0 0 612 792"), None);
+    }
+
+    #[test]
+    fn normalize_rect_orders_corners() {
+        // Already lower-left/upper-right: unchanged.
+        assert_eq!(
+            normalize_rect([10.0, 20.0, 622.0, 812.0]),
+            [10.0, 20.0, 622.0, 812.0]
+        );
+        // Swapped corners normalize so (x0,y0) is lower-left.
+        assert_eq!(
+            normalize_rect([622.0, 812.0, 10.0, 20.0]),
+            [10.0, 20.0, 622.0, 812.0]
+        );
     }
 }
