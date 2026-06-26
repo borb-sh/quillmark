@@ -102,6 +102,7 @@ impl Quillmark {
             ppi: opts.ppi,
             pages: opts.pages.clone(),
             producer: opts.producer.clone(),
+            flatten: opts.flatten,
         };
         session.render(&resolved)
     }

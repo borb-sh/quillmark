@@ -47,6 +47,7 @@ impl PyQuillmark {
             ppi,
             pages,
             producer,
+            flatten: false,
         };
         let start = Instant::now();
         let mut result = self

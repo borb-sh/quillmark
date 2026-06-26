@@ -20,12 +20,12 @@ const CODE_XREF_STREAM: &str = "pdf::xref_stream";
 
 /// Build a `PdfError` with `code`. Every fail site here just needs a code plus
 /// a message, so this is the whole error-construction surface.
-pub(crate) fn err(code: &'static str, msg: impl Into<String>) -> PdfError {
+pub fn err(code: &'static str, msg: impl Into<String>) -> PdfError {
     PdfError::new(code, msg)
 }
 
 /// The offset stored after the last `startxref` marker.
-pub(crate) fn find_startxref(pdf: &[u8]) -> Result<usize, PdfError> {
+pub fn find_startxref(pdf: &[u8]) -> Result<usize, PdfError> {
     let needle = b"startxref";
     let from = pdf.len().saturating_sub(1024);
     let tail = &pdf[from..];
@@ -52,7 +52,7 @@ pub(crate) fn find_startxref(pdf: &[u8]) -> Result<usize, PdfError> {
 }
 
 /// Bail if the base PDF stores an xref stream instead of a traditional table.
-pub(crate) fn assert_traditional_xref(pdf: &[u8], xref_offset: usize) -> Result<(), PdfError> {
+pub fn assert_traditional_xref(pdf: &[u8], xref_offset: usize) -> Result<(), PdfError> {
     if pdf.get(xref_offset..xref_offset + 4) != Some(b"xref") {
         return Err(err(
             CODE_XREF_STREAM,
@@ -65,7 +65,7 @@ pub(crate) fn assert_traditional_xref(pdf: &[u8], xref_offset: usize) -> Result<
 /// Return the trailer dictionary bytes for the xref section at `xref_offset`.
 /// The slice is the inner dict (between `<<` and `>>`) and may be queried with
 /// [`find_dict_value`].
-pub(crate) fn find_trailer_dict(pdf: &[u8], xref_offset: usize) -> Result<&[u8], PdfError> {
+pub fn find_trailer_dict(pdf: &[u8], xref_offset: usize) -> Result<&[u8], PdfError> {
     let needle = b"trailer";
     let pos = pdf[xref_offset..]
         .windows(needle.len())
@@ -92,7 +92,7 @@ fn write_preserved_trailer_keys(out: &mut Vec<u8>, prior_trailer: &[u8]) {
 
 /// One object emitted into an incremental update: its number and full
 /// serialized form (`<id> 0 obj … endobj`).
-pub(crate) struct UpdatedObject {
+pub struct UpdatedObject {
     pub id: u32,
     pub bytes: Vec<u8>,
 }
@@ -106,7 +106,7 @@ pub(crate) struct UpdatedObject {
 /// `/Info <id> 0 R` for the case where the prior trailer had none (a fresh
 /// `/Info` object was created). `new_size` is the updated `/Size` (highest
 /// object number + 1) and `root_id` the document catalog.
-pub(crate) fn append_incremental_update(
+pub fn append_incremental_update(
     mut pdf: Vec<u8>,
     prev_xref: usize,
     root_id: u32,
@@ -171,7 +171,7 @@ pub(crate) fn append_incremental_update(
 /// Matches only at a token boundary so `19 0 obj` isn't found inside `519 0
 /// obj`. Callers scan the original PDF before appending, so the first match is
 /// the only copy.
-pub(crate) fn find_object_bytes(pdf: &[u8], id: u32) -> Option<(usize, usize)> {
+pub fn find_object_bytes(pdf: &[u8], id: u32) -> Option<(usize, usize)> {
     let header = format!("{} 0 obj", id);
     let h = header.as_bytes();
     let mut i = 0;
@@ -191,7 +191,7 @@ pub(crate) fn find_object_bytes(pdf: &[u8], id: u32) -> Option<(usize, usize)> {
 /// Within a dict's inner bytes, locate `/Key` and return its raw value slice.
 /// Value-terminating tokenisation handles Name values like `/Pages` so they
 /// aren't mis-read as the next entry.
-pub(crate) fn find_dict_value<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
+pub fn find_dict_value<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
     let key_marker = format!("/{}", key);
     let km = key_marker.as_bytes();
     let mut i = 0;
@@ -387,7 +387,7 @@ fn is_pdf_delim(c: u8) -> bool {
     )
 }
 
-pub(crate) fn parse_indirect_ref(s: &[u8]) -> Option<(u32, u16)> {
+pub fn parse_indirect_ref(s: &[u8]) -> Option<(u32, u16)> {
     let s = skip_ws(s);
     let mut i = 0;
     while i < s.len() && s[i].is_ascii_digit() {
@@ -412,7 +412,7 @@ pub(crate) fn parse_indirect_ref(s: &[u8]) -> Option<(u32, u16)> {
 }
 
 /// Slice between the outermost `<< ... >>` of an indirect object's body.
-pub(crate) fn extract_outer_dict(obj_bytes: &[u8]) -> Option<&[u8]> {
+pub fn extract_outer_dict(obj_bytes: &[u8]) -> Option<&[u8]> {
     let open = obj_bytes.windows(2).position(|w| w == b"<<")?;
     let mut depth = 0i32;
     let mut i = open;
@@ -449,7 +449,7 @@ fn skip_ws(s: &[u8]) -> &[u8] {
 /// Resolve the catalog's `/Pages` tree into a flat list of page object IDs,
 /// in document order. The recursion is defensive and capped to prevent runaway
 /// on a pathological PDF.
-pub(crate) fn resolve_page_ids(pdf: &[u8], catalog_id: u32) -> Result<Vec<u32>, PdfError> {
+pub fn resolve_page_ids(pdf: &[u8], catalog_id: u32) -> Result<Vec<u32>, PdfError> {
     let root_pages_id = root_pages_id(pdf, catalog_id)?;
 
     const MAX_NODES: usize = 100_000;
@@ -567,7 +567,7 @@ fn normalize_rect(mb: [f32; 4]) -> [f32; 4] {
 /// full rect — not just width/height — is returned so a caller that owns
 /// page-relative top-left geometry can honour a non-zero page origin when
 /// flipping to bottom-left PDF user space.
-pub(crate) fn page_media_boxes(pdf: &[u8]) -> Result<Vec<[f32; 4]>, PdfError> {
+pub fn page_media_boxes(pdf: &[u8]) -> Result<Vec<[f32; 4]>, PdfError> {
     let xref_offset = find_startxref(pdf)?;
     assert_traditional_xref(pdf, xref_offset)?;
     let trailer = find_trailer_dict(pdf, xref_offset)?;

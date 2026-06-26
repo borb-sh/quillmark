@@ -14,6 +14,7 @@
 //! backends collapse to the same `&[FieldSpec]` seam; they differ only in where
 //! geometry and values come from.
 
+mod flatten;
 mod form;
 mod resolve;
 
@@ -27,6 +28,7 @@ use quillmark_core::{
     RenderSession, Severity,
 };
 use quillmark_pdf::{stamp, FieldSpec, PdfError, StampOptions};
+use flatten::flatten as flatten_to_pdf;
 
 /// Conventional filenames a `pdfform` quill ships at its root.
 const FORM_PDF: &str = "form.pdf";
@@ -126,11 +128,12 @@ impl SessionHandle for PdfformSession {
 
         // The producer threads from the product layer, else the backend default.
         let producer = Some(opts.producer.clone().unwrap_or_else(default_producer));
-        let stamped = stamp(
-            self.base_pdf.clone(),
-            &self.field_specs,
-            &StampOptions { producer },
-        )
+        let stamp_opts = StampOptions { producer };
+        let stamped = if opts.flatten {
+            flatten_to_pdf(self.base_pdf.clone(), &self.field_specs, &stamp_opts)
+        } else {
+            stamp(self.base_pdf.clone(), &self.field_specs, &stamp_opts)
+        }
         .map_err(map_pdf_err)?;
 
         Ok(RenderResult::new(
