@@ -20,10 +20,14 @@
 //! It knows AcroForm dictionaries and nothing about Typst, `form.json`, or
 //! field maps. See issue #744 for the surrounding architecture.
 
+#[cfg(feature = "compose")]
+mod compose;
 mod scan;
 mod spec;
 mod stamp;
 
+#[cfg(feature = "compose")]
+pub use compose::compose;
 pub use spec::{Appearance, ChoiceOption, FieldSpec, FieldType};
 pub use stamp::{default_producer, page_count, stamp, StampOptions, StampResult};
 

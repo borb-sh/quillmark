@@ -2345,7 +2345,9 @@ dependencies = [
 name = "quillmark-pdf"
 version = "0.92.1"
 dependencies = [
+ "hayro-write",
  "lopdf",
+ "pdf-writer",
  "quillmark-core",
 ]
 

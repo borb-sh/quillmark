@@ -13,6 +13,16 @@ repository = "https://github.com/quillmark-org/quillmark"
 [dependencies]
 quillmark-core = { workspace = true }
 
+# Page composition (continuation/overflow pages): merge page content from
+# multiple PDFs into one field-free base, to be stamped last. Heavy tree, so
+# it's opt-in and off by default. pdf-writer is pinned to hayro-write's version.
+hayro-write = { version = "0.7", optional = true }
+pdf-writer = { version = "0.15", optional = true }
+
+[features]
+# Adds compose(): "compose first, stamp last" page merging via hayro-write.
+compose = ["dep:hayro-write", "dep:pdf-writer"]
+
 [dev-dependencies]
 # Acceptance tests parse the stamped PDF to validate AcroForm structure.
 lopdf = "0.36"
