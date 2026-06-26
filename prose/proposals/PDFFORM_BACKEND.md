@@ -580,20 +580,27 @@ supports every field type, exercised through `pdfform`.
 
 ### Way forward (priority order)
 
-The full backlog is §7. Suggested sequencing:
+The full backlog is §7; each item below is filed as a tracking issue.
 
 1. **Value flattening** (PNG/SVG-with-values) — the single biggest new piece and
    the only path to values in flat output; unblocks regions presentation
    enrichment and the `pdfform` `preview` raster. Lives in `pdfform`'s render
-   feature, never the spine.
+   feature, never the spine. → **#752**
 2. **The qualification layer** (decrypt/strip/extract/verify → `form.pdf` +
    `form.json`) — the upstream dependency for *real* gov-form quills; today's
-   fixture is hand-authored.
-3. **Surface `regions` in the WASM typed API**, then the canvas contract inside
-   `@quillmark/wasm` + golden-image fixtures.
-4. **`form.json` → `Quill.yaml` scaffold** (CLI subcommand).
-5. **Continuation/overflow pages + card-instance addressing** (land together).
-6. **General `form-field(...)` in the Typst plate API.**
+   fixture is hand-authored. → **#753**
+3. **`pdfform` preview raster** (hayro background, the `preview` stub) **+
+   typst-free WASM bundle.** → **#754**
+4. **Surface `regions` in the bindings + the `@quillmark/wasm` canvas contract**
+   (value compositing + golden-image fixtures). → **#755**
+5. **`form.json` → `Quill.yaml` scaffold** (CLI subcommand). → **#756**
+6. **Continuation/overflow pages + card-instance addressing** (land together).
+   → **#757**
+7. **General `form-field(...)` in the Typst plate API.** → **#758**
+
+Longer-term, acknowledged-but-unscheduled items stay in §8 (508/PDF-UA
+accessibility, `form.json` ↔ Quill.yaml normalization, radio groups, comb
+fields).
 
 ### Open verification (not possible headless)
 
