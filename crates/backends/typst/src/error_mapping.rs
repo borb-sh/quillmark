@@ -19,11 +19,22 @@ fn map_single_diagnostic(error: &SourceDiagnostic, world: &QuillWorld) -> Diagno
         typst::diag::Severity::Warning => Severity::Warning,
     };
 
-    // Extract location from span
     let location = resolve_span_to_location(error.span, world);
 
-    // Get first hint if available
-    let hint = error.hints.first().map(|h| h.v.to_string());
+    let mut hint = error.hints.first().map(|h| h.v.to_string());
+
+    // An unresolvable span with no Typst hint almost always means the error
+    // originated in dynamically-evaluated content (a quill `eval` of a field
+    // value), whose ephemeral source is never registered in the world. Give the
+    // caller a direction rather than a context-free message.
+    if location.is_none() && hint.is_none() {
+        hint = Some(
+            "This error originated in dynamically evaluated content (a quill `eval` of a \
+             field value); check field values for unescaped Typst-significant characters \
+             (`#`, `@`, `$`, unmatched brackets)."
+                .to_string(),
+        );
+    }
 
     // Extract error code from message (simple heuristic)
     let code = Some(format!(
@@ -68,6 +79,96 @@ fn resolve_span_to_location(span: typst::syntax::DiagSpan, world: &QuillWorld) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quillmark_core::{FileTreeNode, Quill};
+    use std::collections::HashMap;
+    use std::fs;
+    use std::path::{Path, PathBuf};
+    use typst::diag::SourceDiagnostic;
+    use typst::syntax::Span;
+
+    /// A `QuillWorld` with a valid main source to resolve spans against.
+    fn fixture_world() -> Option<QuillWorld> {
+        fn walk(dir: &Path) -> std::io::Result<FileTreeNode> {
+            let mut files = HashMap::new();
+            for entry in fs::read_dir(dir)? {
+                let entry = entry?;
+                let p: PathBuf = entry.path();
+                let name = p.file_name().unwrap().to_string_lossy().into_owned();
+                if p.is_file() {
+                    files.insert(
+                        name,
+                        FileTreeNode::File {
+                            contents: fs::read(&p)?,
+                        },
+                    );
+                } else if p.is_dir() {
+                    files.insert(name, walk(&p)?);
+                }
+            }
+            Ok(FileTreeNode::Directory { files })
+        }
+
+        let quill_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("fixtures")
+            .join("resources")
+            .join("quills")
+            .join("usaf_memo")
+            .join("0.2.0");
+        if !quill_path.exists() {
+            return None;
+        }
+        let tree = walk(&quill_path).expect("walk fixture");
+        let source = Quill::from_tree(tree).expect("load source");
+        Some(QuillWorld::new(&source, "// Test").expect("create world"))
+    }
+
+    /// An unresolvable span (a detached span here, like the ephemeral source
+    /// from `eval(string, ...)`) must degrade to the generic eval hint.
+    #[test]
+    fn unresolvable_span_gets_generic_hint() {
+        let Some(world) = fixture_world() else {
+            return;
+        };
+
+        let diag = SourceDiagnostic::error(Span::detached(), "unknown variable: general");
+        let mapped = map_single_diagnostic(&diag, &world);
+
+        assert!(
+            mapped.location.is_none(),
+            "detached span should not resolve to a location"
+        );
+        let hint = mapped
+            .hint
+            .expect("unresolvable diagnostic must carry a hint");
+        assert!(
+            hint.contains("dynamically evaluated content"),
+            "hint should point at dynamically-evaluated field content, got: {hint:?}"
+        );
+        assert_eq!(mapped.message, "unknown variable: general");
+    }
+
+    /// A hint Typst already supplied is kept, not overwritten.
+    #[test]
+    fn unresolvable_span_keeps_existing_typst_hint() {
+        let Some(world) = fixture_world() else {
+            return;
+        };
+
+        let diag = SourceDiagnostic::error(Span::detached(), "unexpected closing bracket")
+            .with_hint("try using a backslash escape: \\]");
+        let mapped = map_single_diagnostic(&diag, &world);
+
+        assert!(mapped.location.is_none());
+        assert_eq!(
+            mapped.hint.as_deref(),
+            Some("try using a backslash escape: \\]"),
+            "an existing Typst hint must not be overwritten"
+        );
+    }
 
     #[test]
     fn test_severity_mapping() {
