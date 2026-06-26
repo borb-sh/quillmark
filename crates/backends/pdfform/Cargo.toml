@@ -16,5 +16,14 @@ quillmark-pdf = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 
+# Preview: pure-Rust PDF rasterization (PNG/canvas) + vector SVG of the stripped
+# background. Heavy dependency tree, so it's opt-in and off by default.
+hayro = { version = "0.7", optional = true }
+hayro-svg = { version = "0.7", optional = true }
+
+[features]
+# Adds SVG output and the raster-preview capability (canvas paint) via hayro.
+preview = ["dep:hayro", "dep:hayro-svg"]
+
 [dev-dependencies]
 lopdf = "0.36"

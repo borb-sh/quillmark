@@ -20,6 +20,8 @@
 //! See issue #744 for the surrounding architecture.
 
 mod form;
+#[cfg(feature = "preview")]
+mod preview;
 
 pub use form::{FormField, FormFieldKind, FormSpec};
 
@@ -28,23 +30,29 @@ use std::any::Any;
 use quillmark_core::session::SessionHandle;
 use quillmark_core::{
     Artifact, Backend, Diagnostic, OutputFormat, Quill, RenderError, RenderOptions, RenderResult,
-    RenderSession, Severity,
+    RenderSession, RenderedRegion, Severity,
 };
 use quillmark_pdf::{stamp, FieldSpec, StampOptions};
 
+/// Without the `preview` feature pdfform produces only the filled PDF. With it,
+/// hayro adds SVG output and the raster-preview capability (canvas paint).
+#[cfg(not(feature = "preview"))]
 const SUPPORTED_FORMATS: &[OutputFormat] = &[OutputFormat::Pdf];
+#[cfg(feature = "preview")]
+const SUPPORTED_FORMATS: &[OutputFormat] = &[OutputFormat::Pdf, OutputFormat::Svg];
 
 /// The `pdfform` backend.
 #[derive(Debug)]
 pub struct PdfformBackend;
 
 /// A prepared form: the stripped background plus the field specs (geometry +
-/// bound values) ready to stamp. Built once in [`Backend::open`]; cheap to
-/// re-render across output requests.
+/// bound values) ready to stamp, and the regions sidecar reported on every
+/// render. Built once in [`Backend::open`]; cheap to re-render across requests.
 #[derive(Debug)]
 pub struct PdfformSession {
     background: Vec<u8>,
     fields: Vec<FieldSpec>,
+    regions: Vec<RenderedRegion>,
     page_count: usize,
 }
 
@@ -61,21 +69,46 @@ impl SessionHandle for PdfformSession {
             });
         }
 
-        let result = stamp(
-            self.background.clone(),
-            &self.fields,
-            &StampOptions {
-                producer: opts.producer.clone(),
-            },
-        )?;
-        Ok(RenderResult::new(
-            vec![Artifact {
-                bytes: result.pdf,
-                output_format: OutputFormat::Pdf,
-            }],
-            OutputFormat::Pdf,
-        )
-        .with_regions(result.regions))
+        let result = match format {
+            OutputFormat::Pdf => {
+                let stamped = stamp(
+                    self.background.clone(),
+                    &self.fields,
+                    &StampOptions {
+                        producer: opts.producer.clone(),
+                    },
+                )?;
+                RenderResult::new(
+                    vec![Artifact {
+                        bytes: stamped.pdf,
+                        output_format: OutputFormat::Pdf,
+                    }],
+                    OutputFormat::Pdf,
+                )
+            }
+            #[cfg(feature = "preview")]
+            OutputFormat::Svg => {
+                // SVG is the *stripped background* (vector). Field values are
+                // not painted — hayro doesn't render NeedAppearances fields —
+                // so the GUI composites them from the regions sidecar.
+                let artifacts = preview::background_svgs(&self.background, opts.pages.as_deref())?;
+                RenderResult::new(artifacts, OutputFormat::Svg)
+            }
+            // Unreachable: SUPPORTED_FORMATS gates `format` above.
+            other => {
+                return Err(RenderError::FormatNotSupported {
+                    diags: vec![Diagnostic::new(
+                        Severity::Error,
+                        format!("pdfform backend does not support {other:?} output"),
+                    )
+                    .with_code("pdfform::format_not_supported".to_string())],
+                })
+            }
+        };
+
+        // The regions sidecar rides on every render, regardless of format — the
+        // GUI overlay needs field geometry whether it shows the PDF or the raster.
+        Ok(result.with_regions(self.regions.clone()))
     }
 
     fn page_count(&self) -> usize {
@@ -84,6 +117,19 @@ impl SessionHandle for PdfformSession {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    /// Render the stripped background (not the stamped PDF) to a
+    /// non-premultiplied RGBA8 pixmap via hayro. Field values are composited by
+    /// the GUI from the regions sidecar.
+    #[cfg(feature = "preview")]
+    fn render_rgba(&self, page: usize, scale: f32) -> Option<(u32, u32, Vec<u8>)> {
+        preview::render_rgba(&self.background, page, scale)
+    }
+
+    #[cfg(feature = "preview")]
+    fn page_size_pt(&self, page: usize) -> Option<(f32, f32)> {
+        preview::page_size_pt(&self.background, page)
     }
 }
 
@@ -134,11 +180,13 @@ impl Backend for PdfformBackend {
             })
             .collect();
 
+        let regions = fields.iter().map(FieldSpec::to_region).collect();
         let page_count = quillmark_pdf::page_count(&background)?;
 
         Ok(RenderSession::new(Box::new(PdfformSession {
             background,
             fields,
+            regions,
             page_count,
         })))
     }
