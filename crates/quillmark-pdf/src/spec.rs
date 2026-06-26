@@ -2,6 +2,8 @@
 //! space. Both backends reduce to a `&[FieldSpec]` — the only thing they differ
 //! on is where the geometry comes from (Typst introspection vs `form.json`).
 
+use quillmark_core::{RegionKind, RenderedRegion};
+
 /// One AcroForm field to stamp onto a base PDF.
 ///
 /// Geometry is final: `rect` is in PDF user-space points, bottom-left origin,
@@ -138,27 +140,4 @@ pub struct Appearance {
     pub border_color: Option<[f32; 3]>,
     /// `/MK /BG` background color, RGB in 0..=1.
     pub background_color: Option<[f32; 3]>,
-}
-
-/// A field's geometry as reported back to the GUI for its interactivity overlay
-/// (field↔region navigation, click-to-field). Phase 1 of the regions sidecar:
-/// fields only.
-#[derive(Debug, Clone, PartialEq)]
-pub struct RenderedRegion {
-    pub name: String,
-    pub page: usize,
-    /// `[x0, y0, x1, y1]` in PDF points, bottom-left origin.
-    pub rect: [f32; 4],
-    pub kind: RegionKind,
-}
-
-/// Discriminated region kind. Only [`RegionKind::Field`] exists today; the enum
-/// shape is deliberate so later phases (named markup regions) extend it without
-/// breaking consumers.
-#[derive(Debug, Clone, PartialEq)]
-pub enum RegionKind {
-    Field {
-        field_type: String,
-        value: Option<String>,
-    },
 }

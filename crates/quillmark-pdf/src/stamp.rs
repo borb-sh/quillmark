@@ -23,7 +23,8 @@ use crate::scan::{
     find_object_bytes, find_startxref, find_trailer_dict, parse_indirect_ref, resolve_page_ids,
     rewrite_page_with_annots, UpdatedObject,
 };
-use crate::spec::{FieldSpec, FieldType, RenderedRegion};
+use crate::spec::{FieldSpec, FieldType};
+use quillmark_core::RenderedRegion;
 
 const CODE_PARSE: &str = "pdf::parse";
 

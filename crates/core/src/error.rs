@@ -442,6 +442,9 @@ pub struct RenderResult {
     pub artifacts: Vec<crate::Artifact>,
     pub warnings: Vec<Diagnostic>,
     pub output_format: OutputFormat,
+    /// Phase-1 regions sidecar: field geometry for a GUI interactivity overlay.
+    /// Empty for backends/formats that report none. See [`crate::RenderedRegion`].
+    pub regions: Vec<crate::RenderedRegion>,
 }
 
 impl RenderResult {
@@ -450,11 +453,19 @@ impl RenderResult {
             artifacts,
             warnings: Vec::new(),
             output_format,
+            regions: Vec::new(),
         }
     }
 
     pub fn with_warning(mut self, warning: Diagnostic) -> Self {
         self.warnings.push(warning);
+        self
+    }
+
+    /// Attach the regions sidecar. Backends that report field geometry chain
+    /// this onto the result they return from `render`.
+    pub fn with_regions(mut self, regions: Vec<crate::RenderedRegion>) -> Self {
+        self.regions = regions;
         self
     }
 }

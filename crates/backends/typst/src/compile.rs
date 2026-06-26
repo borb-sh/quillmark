@@ -167,7 +167,7 @@ pub(crate) fn render_document_pages(
                 }
             })?;
             let default_producer = overlay::default_producer();
-            let pdf = overlay::inject(
+            let (pdf, regions) = overlay::inject(
                 pdf,
                 document,
                 sig_placements,
@@ -179,7 +179,8 @@ pub(crate) fn render_document_pages(
                     output_format: OutputFormat::Pdf,
                 }],
                 OutputFormat::Pdf,
-            ))
+            )
+            .with_regions(regions))
         }
         OutputFormat::Txt => Err(RenderError::FormatNotSupported {
             diags: vec![Diagnostic::new(

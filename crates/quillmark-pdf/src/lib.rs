@@ -24,5 +24,9 @@ mod scan;
 mod spec;
 mod stamp;
 
-pub use spec::{Appearance, ChoiceOption, FieldSpec, FieldType, RegionKind, RenderedRegion};
+pub use spec::{Appearance, ChoiceOption, FieldSpec, FieldType};
 pub use stamp::{default_producer, page_count, stamp, StampOptions, StampResult};
+
+// The regions sidecar types live in core (they ride on `RenderResult`); re-export
+// for callers that work through this crate's stamping API.
+pub use quillmark_core::{RegionKind, RenderedRegion};

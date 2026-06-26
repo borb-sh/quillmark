@@ -68,15 +68,14 @@ impl SessionHandle for PdfformSession {
                 producer: opts.producer.clone(),
             },
         )?;
-        // `result.regions` is the phase-1 sidecar; it rides alongside the
-        // artifact until the engine's render result grows a regions channel.
         Ok(RenderResult::new(
             vec![Artifact {
                 bytes: result.pdf,
                 output_format: OutputFormat::Pdf,
             }],
             OutputFormat::Pdf,
-        ))
+        )
+        .with_regions(result.regions))
     }
 
     fn page_count(&self) -> usize {

@@ -61,6 +61,9 @@ pub use types::{Artifact, OutputFormat, RenderOptions};
 pub mod session;
 pub use session::RenderSession;
 
+pub mod region;
+pub use region::{RegionKind, RenderedRegion};
+
 pub mod quill;
 pub use quill::{zero_value, FileTreeNode, Quill, QuillIgnore, STANDARD_METADATA_KEYS};
 

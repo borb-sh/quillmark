@@ -7,7 +7,7 @@
 //! and hands them to `quillmark_pdf::stamp`, which writes the AcroForm and the
 //! `/Producer` stamp in one incremental update.
 
-use quillmark_core::{Diagnostic, RenderError, Severity};
+use quillmark_core::{Diagnostic, RenderError, RenderedRegion, Severity};
 use quillmark_pdf::{stamp, FieldSpec, FieldType, StampOptions};
 use typst_layout::PagedDocument;
 
@@ -37,15 +37,17 @@ pub(crate) fn extract(doc: &PagedDocument) -> Result<Vec<SigPlacement>, RenderEr
 }
 
 /// Stamp the `/Producer` metadata plus one signature widget per placement onto
-/// `pdf`. `producer` is the already-resolved `/Producer` string (default or a
-/// caller override). Placements convert top-left Typst points to bottom-left
-/// PDF points using each page's height from the compiled document.
+/// `pdf`, returning the stamped bytes and the phase-1 regions sidecar (one
+/// region per signature field). `producer` is the already-resolved `/Producer`
+/// string (default or a caller override). Placements convert top-left Typst
+/// points to bottom-left PDF points using each page's height from the compiled
+/// document.
 pub(crate) fn inject(
     pdf: Vec<u8>,
     doc: &PagedDocument,
     placements: &[SigPlacement],
     producer: &str,
-) -> Result<Vec<u8>, RenderError> {
+) -> Result<(Vec<u8>, Vec<RenderedRegion>), RenderError> {
     let page_heights_pt: Vec<f32> = doc
         .pages()
         .iter()
@@ -75,5 +77,5 @@ pub(crate) fn inject(
             producer: Some(producer.to_string()),
         },
     )?;
-    Ok(result.pdf)
+    Ok((result.pdf, result.regions))
 }

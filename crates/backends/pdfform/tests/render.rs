@@ -161,3 +161,37 @@ fn reports_single_page() {
         .expect("open");
     assert_eq!(session.page_count(), 1);
 }
+
+#[test]
+fn render_result_carries_regions_sidecar() {
+    let quill = fixture_quill();
+    let session = PdfformBackend
+        .open(
+            "",
+            &quill,
+            &serde_json::json!({ "full_name": "Ada Lovelace", "favorite_color": "blue" }),
+        )
+        .expect("open");
+    let result = session
+        .render(&RenderOptions {
+            output_format: Some(OutputFormat::Pdf),
+            ..Default::default()
+        })
+        .expect("render");
+
+    // One region per form.json field, geometry + value reported for the GUI overlay.
+    assert_eq!(result.regions.len(), 4);
+    let name = result
+        .regions
+        .iter()
+        .find(|r| r.name == "FullName")
+        .expect("FullName region");
+    assert_eq!(name.page, 0);
+    assert_eq!(name.rect, [180.0, 715.0, 520.0, 735.0]);
+    match &name.kind {
+        quillmark_core::RegionKind::Field { field_type, value } => {
+            assert_eq!(field_type, "text");
+            assert_eq!(value.as_deref(), Some("Ada Lovelace"));
+        }
+    }
+}
