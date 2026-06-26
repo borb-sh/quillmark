@@ -19,19 +19,14 @@ fn map_single_diagnostic(error: &SourceDiagnostic, world: &QuillWorld) -> Diagno
         typst::diag::Severity::Warning => Severity::Warning,
     };
 
-    // Extract location from span
     let location = resolve_span_to_location(error.span, world);
 
-    // Get first hint if available
     let mut hint = error.hints.first().map(|h| h.v.to_string());
 
-    // When the span can't be resolved to a location, the error almost always
+    // An unresolvable span with no Typst hint almost always means the error
     // originated in dynamically-evaluated content (a quill `eval` of a field
-    // value), whose ephemeral source was never registered in the world. The
-    // bare Typst message (e.g. "unclosed label", "unknown variable: general")
-    // is then a dead end: no file, no line, no anchor. If Typst gave us no
-    // hint of its own, attach a generic one that points the caller at the
-    // likely culprit so the diagnostic stays actionable.
+    // value), whose ephemeral source is never registered in the world. Give the
+    // caller a direction rather than a context-free message.
     if location.is_none() && hint.is_none() {
         hint = Some(
             "This error originated in dynamically evaluated content (a quill `eval` of a \
@@ -91,8 +86,7 @@ mod tests {
     use typst::diag::SourceDiagnostic;
     use typst::syntax::Span;
 
-    /// Build a `QuillWorld` from the `usaf_memo` fixture so we have a valid main
-    /// source to resolve (or fail to resolve) spans against.
+    /// A `QuillWorld` with a valid main source to resolve spans against.
     fn fixture_world() -> Option<QuillWorld> {
         fn walk(dir: &Path) -> std::io::Result<FileTreeNode> {
             let mut files = HashMap::new();
@@ -132,17 +126,14 @@ mod tests {
         Some(QuillWorld::new(&source, "// Test").expect("create world"))
     }
 
-    /// A diagnostic whose span can't be resolved to a location — the case
-    /// behind errors from `eval`'d runtime strings (issue #745) — must degrade
-    /// to a generic hint pointing at dynamically-evaluated field content.
+    /// An unresolvable span (a detached span here, like the ephemeral source
+    /// from `eval(string, ...)`) must degrade to the generic eval hint.
     #[test]
     fn unresolvable_span_gets_generic_hint() {
         let Some(world) = fixture_world() else {
             return;
         };
 
-        // A detached span carries no file id and no resolvable range, exactly
-        // like the ephemeral source produced by `eval(string, ...)`.
         let diag = SourceDiagnostic::error(Span::detached(), "unknown variable: general");
         let mapped = map_single_diagnostic(&diag, &world);
 
@@ -157,12 +148,10 @@ mod tests {
             hint.contains("dynamically evaluated content"),
             "hint should point at dynamically-evaluated field content, got: {hint:?}"
         );
-        // The original Typst message is preserved verbatim.
         assert_eq!(mapped.message, "unknown variable: general");
     }
 
-    /// When Typst already supplied a hint, we keep it rather than overwriting
-    /// it with the generic one — even if the span doesn't resolve.
+    /// A hint Typst already supplied is kept, not overwritten.
     #[test]
     fn unresolvable_span_keeps_existing_typst_hint() {
         let Some(world) = fixture_world() else {

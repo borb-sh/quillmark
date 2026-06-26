@@ -1,11 +1,5 @@
-//! Acceptance test for issue #745: Typst errors from `eval`'d runtime strings.
-//!
-//! When a plate runs `eval(..., mode: "markup")` on a runtime string and the
-//! Typst compiler errors inside it, the diagnostic span points at an ephemeral
-//! source that was never registered in the world, so it can't resolve to a
-//! file/line. Such a diagnostic must still carry an actionable `hint` pointing
-//! the caller at dynamically-evaluated field content, rather than surfacing the
-//! bare Typst message with no anchor.
+//! Issue #745: a Typst error whose span *does* resolve must be left unchanged
+//! by the eval-hint fallback.
 
 use std::collections::HashMap;
 use std::fs;
@@ -47,15 +41,13 @@ fn host_source() -> Quill {
     Quill::from_tree(walk(&quill_path).expect("walk fixture")).expect("load source")
 }
 
-/// A plate that `eval`s a runtime string referencing an unknown variable. In
-/// the current Typst version this error's span resolves back to the `eval`
-/// call site in `main.typ`, so it is the "resolvable span (common case)" that
-/// must be left unchanged by the fix for issue #745.
+/// `eval`s an unknown variable; the error resolves to the call site in
+/// `main.typ`, so it is the resolvable common case.
 const EVAL_ERROR_PLATE: &str =
     "#set page(width: 400pt, height: 300pt)\n#eval(\"#general\", mode: \"markup\")\n";
 
-/// Run the plate and return the resulting diagnostics. Compilation happens
-/// during `open`, so the error may surface from either `open` or `render`.
+/// Compilation happens during `open`, so the error may surface from either
+/// `open` or `render`.
 fn diagnostics_for(plate: &str) -> Vec<quillmark_core::Diagnostic> {
     match TypstBackend.open(plate, &host_source(), &serde_json::json!({})) {
         Ok(session) => session
@@ -69,9 +61,7 @@ fn diagnostics_for(plate: &str) -> Vec<quillmark_core::Diagnostic> {
     }
 }
 
-/// Regression guard for issue #745's second acceptance criterion: a Typst
-/// error whose span *does* resolve must be left untouched — it keeps its
-/// location and does not get the generic dynamically-evaluated-content hint.
+/// A resolvable diagnostic keeps its location and does not get the generic hint.
 #[test]
 fn resolvable_eval_error_is_unchanged() {
     let diags = diagnostics_for(EVAL_ERROR_PLATE);
