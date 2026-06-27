@@ -106,9 +106,15 @@ fn yaml_quote_if_needed(s: &str) -> String {
     }
 }
 
-/// Always wrap `s` in double-quotes, escaping `"` and `\` inside.
+/// Always wrap `s` in double-quotes, escaping `"`, `\`, and the C0 control
+/// characters a literal newline/tab/CR would otherwise break the scalar with.
 fn yaml_quote_scalar(s: &str) -> String {
-    let escaped = s.replace('\\', "\\\\").replace('"', "\\\"");
+    let escaped = s
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+        .replace('\r', "\\r")
+        .replace('\t', "\\t");
     format!("\"{}\"", escaped)
 }
 
@@ -137,6 +143,10 @@ fn needs_quoting(s: &str) -> bool {
         || s.contains('%')
         || s.contains('@')
         || s.contains('`')
+        || s.contains('\n')
+        || s.contains('\r')
+        || s.contains('\t')
+        || s != s.trim()
         || s.starts_with(|c: char| c.is_ascii_digit() || c == '-' || c == '+' || c == '.')
 }
 

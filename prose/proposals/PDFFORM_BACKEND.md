@@ -547,21 +547,24 @@ supports every field type, exercised through `pdfform`.
    bound value only signals checked/unchecked), plus `/MK /CA (4)` for the
    ZapfDingbats check the viewer synthesizes under `NeedAppearances`.
 
-### Deferred but partially scaffolded — read before picking up
+### Deferred but partially scaffolded — now landed (see dated note 2026-06-27)
 
-- **`pdfform`'s `preview` feature exists but is an empty stub.** No hayro raster
-  yet; `pdfform` reports `supports_canvas() == false` and
-  `SUPPORTED_FORMATS == [Pdf]`. The seam is already generalized, so implementing
-  it is: override `SessionHandle::{render_rgba, page_size_pt}` on the pdfform
-  session behind `preview`, return *background-only* raster (values composite
-  from `regions`), and have the backend report canvas support. See §5.
-- **wasm `pdfform` feature builds on `render`** (so it pulls Typst). The
-  typst-free tiny bundle needs the engine/`RenderSession` surface — currently
-  `#[cfg(feature = "render")]` — reachable without Typst; that split is the
-  fast-follow, not done here.
-- **`regions` are not yet surfaced in any binding's typed API.** They ride on
-  every `RenderResult` (core), but wasm/python/.NET don't expose them yet (wasm
-  first, per §7).
+The three items below were scaffolded-but-incomplete at V1 (PR #750) and have
+since shipped on this branch; kept here for the historical trail.
+
+- **`pdfform`'s `preview` raster.** *Landed.* Under the `preview` feature
+  `pdfform` wires real `hayro`/`hayro-svg` deps, implements
+  `SessionHandle::{render_rgba, page_size_pt}` plus `render_svg`, reports
+  `supports_canvas() == true`, and `SUPPORTED_FORMATS == [Pdf, Svg]`. The session
+  pre-flattens values into the page (see `flatten.rs` / `typography.rs`), so the
+  raster is *complete* rather than background-only.
+- **Typst-free wasm `pdfform` bundle.** *Landed.* `wasm` Cargo.toml splits
+  `typst` / `pdfform` / `pdfform-preview` features (the old `render` feature is
+  now `typst`); `build-wasm.sh` builds the Typst-free artifact and `runtime.js`
+  registers it.
+- **`regions` surfaced in a binding's typed API.** *Landed (wasm).* `wasm`
+  exposes `FieldRegion`/`FieldRegionKind` (`From<RenderedRegion>`), populated on
+  `RenderResult.regions` in both render paths. python/.NET still pending.
 
 ### Extension-point / file map
 

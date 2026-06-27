@@ -13,6 +13,10 @@
   `regions` sidecar through `RenderResult` and generalize the raster-preview
   seam (#749, #750). See `prose/proposals/PDFFORM_BACKEND.md` §9 for the V1
   handover.
+- feat(cli): add `quillmark scaffold` to generate a starter `Quill.yaml` from a
+  `form.json` field spec (#756)
+- feat(core): add `RenderOptions.flatten` to drive the pdfform value-flattening
+  render path
 - docs(canon): canonize `$ext.editor.title` as the slot for a per-card display name
 
 ## v0.92.0 - 2026-06-22

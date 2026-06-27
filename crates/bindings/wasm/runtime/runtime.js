@@ -278,7 +278,7 @@ export class Engine {
 	 * Render `doc` against `quill` in one shot, returning a `RenderResult`.
 	 * @param {Quill} quill
 	 * @param {Document} doc
-	 * @param {object} [options] render options (`{ format, ppi, pages, producer }`)
+	 * @param {object} [options] render options (`{ format, ppi, pages, producer, flatten }`)
 	 * @returns {Promise<import('./runtime.js').RenderResult>}
 	 */
 	async render(quill, doc, options) {

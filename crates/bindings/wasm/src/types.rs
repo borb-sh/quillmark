@@ -205,15 +205,16 @@ pub struct RenderResult {
     /// Form-field regions from stamped AcroForm backends (`pdfform`;
     /// Typst signature overlay). Ordered by page then field-spec order.
     /// Always an array — empty for backends / formats that produce no
-    /// field geometry. The only path to field values in non-interactive
-    /// flat output; consumers composite values from here.
+    /// field geometry. Geometry for interactive overlays drawn on top of
+    /// the complete raster; consumers never need them to composite a value
+    /// (the canvas backends pre-flatten values into the page).
     #[serde(default)]
     pub regions: Vec<FieldRegion>,
 }
 
 /// A form-field region: geometry and bound value from a stamped AcroForm.
-/// Emitted by backends that stamp form fields. Consumers use this to
-/// composite values onto flat (non-interactive) render targets.
+/// Emitted by backends that stamp form fields. Consumers use this geometry
+/// to position interactive overlays on top of an already-complete raster.
 #[cfg(any(feature = "typst", feature = "pdfform"))]
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]

@@ -169,23 +169,26 @@ pub fn append_incremental_update(
 
 /// Locate object `id` via linear scan and return `(obj_start, endobj_end)`.
 /// Matches only at a token boundary so `19 0 obj` isn't found inside `519 0
-/// obj`. Callers scan the original PDF before appending, so the first match is
-/// the only copy.
+/// obj`. When a base PDF carries prior incremental updates the same id can be
+/// serialized more than once; the live copy is the *last* one (xref liveness),
+/// so this returns the last match. For the common single-revision input there
+/// is exactly one match and last == only.
 pub fn find_object_bytes(pdf: &[u8], id: u32) -> Option<(usize, usize)> {
     let header = format!("{} 0 obj", id);
     let h = header.as_bytes();
+    let needle = b"endobj";
+    let mut last_start = None;
     let mut i = 0;
-    while i + h.len() < pdf.len() {
+    while i + h.len() <= pdf.len() {
         if pdf[i..].starts_with(h) && (i == 0 || matches!(pdf[i - 1], b'\n' | b'\r' | b' ')) {
-            let needle = b"endobj";
-            let from = i + h.len();
-            let rest = &pdf[from..];
-            let end_rel = rest.windows(needle.len()).position(|w| w == needle)?;
-            return Some((i, from + end_rel + needle.len()));
+            last_start = Some(i);
         }
         i += 1;
     }
-    None
+    let start = last_start?;
+    let from = start + h.len();
+    let end_rel = pdf[from..].windows(needle.len()).position(|w| w == needle)?;
+    Some((start, from + end_rel + needle.len()))
 }
 
 /// Within a dict's inner bytes, locate `/Key` and return its raw value slice.
@@ -519,7 +522,7 @@ pub(crate) fn parse_ref_array(bytes: &[u8]) -> Vec<(u32, u16)> {
             Some((id, gen)) => {
                 out.push((id, gen));
                 // Advance past the parsed ref: find " R" and step past it.
-                if let Some(pos) = cur.windows(1).position(|w| w == b"R") {
+                if let Some(pos) = cur.iter().position(|&b| b == b'R') {
                     cur = &cur[pos + 1..];
                 } else {
                     break;
@@ -541,7 +544,7 @@ fn parse_rect_array(bytes: &[u8]) -> Option<[f32; 4]> {
         if count >= 4 {
             return None;
         }
-        nums[count] = tok.parse().ok()?;
+        nums[count] = tok.parse().ok().filter(|f: &f32| f.is_finite())?;
         count += 1;
     }
     (count == 4).then_some(nums)

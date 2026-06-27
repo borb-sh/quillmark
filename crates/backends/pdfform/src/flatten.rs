@@ -187,7 +187,7 @@ fn build_content_stream(fields: &[&FieldSpec]) -> Vec<u8> {
                 // same glyph the AcroForm stamp path declares via /MK /CA (4).
                 let size = typography::check_size(h);
                 // ZapfDingbats check glyphs are roughly square; centre in the box.
-                let x_pos = x0 + (w - size * 0.6) * 0.5;
+                let x_pos = x0 + (w - size * typography::CHECK_GLYPH_WIDTH_FACTOR) * 0.5;
                 let y_pos = y0 + (h - size) * 0.5;
                 write_zadb_char(&mut out, b'4', x_pos, y_pos, size);
             }
