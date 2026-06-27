@@ -6,6 +6,7 @@
 
 use lopdf::Document as PdfDoc;
 use quillmark::{Document, OutputFormat, Quillmark, RenderOptions};
+use quillmark_core::RegionKind;
 
 const FILLED: &str = "~~~\n\
 $quill: gov_form\n\
@@ -19,6 +20,10 @@ favorite_color: green\n\
 ~~~\n";
 
 fn render(markdown: &str) -> quillmark::RenderResult {
+    render_with(markdown, false)
+}
+
+fn render_with(markdown: &str, flatten: bool) -> quillmark::RenderResult {
     let quill = quillmark::quill_from_path(quillmark_fixtures::quills_path("gov_form"))
         .expect("load gov_form quill");
     let engine = Quillmark::new();
@@ -29,6 +34,7 @@ fn render(markdown: &str) -> quillmark::RenderResult {
             &doc,
             &RenderOptions {
                 output_format: Some(OutputFormat::Pdf),
+                flatten,
                 ..Default::default()
             },
         )
@@ -177,4 +183,65 @@ favorite_color: red\n\
     // Absent comments → blank multiline field.
     let comments = widget(&doc, af, "Comments");
     assert!(comments.get(b"V").is_err(), "absent array → no /V");
+}
+
+#[test]
+fn flatten_produces_no_acroform_and_structurally_valid_pdf() {
+    let result = render_with(FILLED, true);
+    assert_eq!(result.output_format, OutputFormat::Pdf);
+    let pdf = &result.artifacts[0].bytes;
+
+    let doc = PdfDoc::load_mem(pdf).expect("lopdf reparse — structurally valid");
+    let cat = doc.catalog().expect("catalog");
+
+    // Flatten path MUST NOT produce an AcroForm — values are in content streams.
+    assert!(
+        cat.get(b"AcroForm").is_err(),
+        "flat PDF must not contain /AcroForm"
+    );
+
+    // Regions sidecar still present (same geometry, same values).
+    assert_eq!(result.regions.len(), 5);
+    let r_full = result
+        .regions
+        .iter()
+        .find(|r| r.name == "FullName")
+        .unwrap();
+    match &r_full.kind {
+        RegionKind::Field { field_type, value } => {
+            assert_eq!(field_type, "text");
+            assert_eq!(value.as_deref(), Some("Ada Lovelace"));
+        }
+    }
+}
+
+#[test]
+fn flatten_pdf_contains_helv_font_and_content_streams() {
+    let result = render_with(FILLED, true);
+    let pdf = &result.artifacts[0].bytes;
+
+    // The flat PDF must contain Helvetica and ZapfDingbats font objects and at
+    // least one content stream with PDF text operators.
+    let pdf_text = String::from_utf8_lossy(pdf);
+    assert!(
+        pdf_text.contains("/Helvetica"),
+        "flat PDF must declare Helvetica"
+    );
+    assert!(
+        pdf_text.contains("/ZapfDingbats"),
+        "flat PDF must declare ZapfDingbats (for checkbox glyph)"
+    );
+    assert!(
+        pdf_text.contains("BT\n") || pdf_text.contains("BT "),
+        "flat PDF must contain BT (begin text) operator"
+    );
+    assert!(
+        pdf_text.contains("Tj\n") || pdf_text.contains("Tj "),
+        "flat PDF must contain Tj (show text) operator"
+    );
+    // The field value must appear in the stream.
+    assert!(
+        pdf_text.contains("Ada Lovelace"),
+        "flat PDF must contain the FullName value"
+    );
 }

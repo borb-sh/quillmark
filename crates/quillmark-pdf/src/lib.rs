@@ -21,7 +21,7 @@
 //! `crate::reader`'s docs for the input contract the base PDF must satisfy.
 
 mod error;
-mod reader;
+pub mod reader;
 mod stamp;
 
 pub use error::PdfError;

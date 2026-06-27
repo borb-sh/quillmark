@@ -6,9 +6,10 @@ use wasm_bindgen::prelude::*;
 
 /// Output formats supported by backends.
 ///
-/// Gated behind `render` so tsify omits its `.d.ts` interface from the core
-/// bundle (`pkg/core/wasm.d.ts`), which has no rendering surface.
-#[cfg(feature = "render")]
+/// Gated behind the engine surface (`render` or `pdfform`) so tsify omits
+/// its `.d.ts` interface from the core bundle (`pkg/core/wasm.d.ts`), which
+/// has no rendering surface.
+#[cfg(any(feature = "typst", feature = "pdfform"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "lowercase")]
@@ -19,7 +20,7 @@ pub enum OutputFormat {
     Png,
 }
 
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform"))]
 impl From<OutputFormat> for quillmark_core::OutputFormat {
     fn from(format: OutputFormat) -> Self {
         match format {
@@ -31,7 +32,7 @@ impl From<OutputFormat> for quillmark_core::OutputFormat {
     }
 }
 
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform"))]
 impl From<quillmark_core::OutputFormat> for OutputFormat {
     fn from(format: quillmark_core::OutputFormat) -> Self {
         match format {
@@ -155,7 +156,7 @@ impl From<Diagnostic> for quillmark_core::Diagnostic {
 }
 
 /// Rendered artifact (PDF, SVG, etc.).
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform"))]
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
@@ -170,7 +171,7 @@ pub struct Artifact {
     pub mime_type: String,
 }
 
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform"))]
 impl Artifact {
     fn mime_type_for_format(format: OutputFormat) -> String {
         quillmark_core::OutputFormat::from(format)
@@ -179,7 +180,7 @@ impl Artifact {
     }
 }
 
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform"))]
 impl From<quillmark_core::Artifact> for Artifact {
     fn from(artifact: quillmark_core::Artifact) -> Self {
         let format = artifact.output_format.into();
@@ -192,7 +193,7 @@ impl From<quillmark_core::Artifact> for Artifact {
 }
 
 /// Result of a render operation.
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform"))]
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
@@ -201,10 +202,75 @@ pub struct RenderResult {
     pub warnings: Vec<Diagnostic>,
     pub output_format: OutputFormat,
     pub render_time_ms: f64,
+    /// Form-field regions from stamped AcroForm backends (`pdfform`;
+    /// Typst signature overlay). Ordered by page then field-spec order.
+    /// Always an array — empty for backends / formats that produce no
+    /// field geometry. The only path to field values in non-interactive
+    /// flat output; consumers composite values from here.
+    #[serde(default)]
+    pub regions: Vec<FieldRegion>,
+}
+
+/// A form-field region: geometry and bound value from a stamped AcroForm.
+/// Emitted by backends that stamp form fields. Consumers use this to
+/// composite values onto flat (non-interactive) render targets.
+#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldRegion {
+    /// Fully-qualified field name (matches the AcroForm widget `/T`).
+    pub name: String,
+    /// 0-based page index.
+    pub page: usize,
+    /// `[x0, y0, x1, y1]` in PDF points (1/72″), bottom-left origin.
+    pub rect: [f32; 4],
+    pub kind: FieldRegionKind,
+}
+
+/// The kind and payload of a [`FieldRegion`]. An open enum — future region
+/// types extend here without breaking existing consumers.
+#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum FieldRegionKind {
+    /// An interactive form field stamped onto the page.
+    Field {
+        /// Lowercase type id: `"text"`, `"checkbox"`, `"choice"`, or `"signature"`.
+        #[serde(rename = "fieldType")]
+        field_type: String,
+        /// The bound value, or `undefined` for a blank / unbound field.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        value: Option<String>,
+    },
+}
+
+#[cfg(any(feature = "typst", feature = "pdfform"))]
+impl From<quillmark_core::RenderedRegion> for FieldRegion {
+    fn from(r: quillmark_core::RenderedRegion) -> Self {
+        FieldRegion {
+            name: r.name,
+            page: r.page,
+            rect: r.rect,
+            kind: r.kind.into(),
+        }
+    }
+}
+
+#[cfg(any(feature = "typst", feature = "pdfform"))]
+impl From<quillmark_core::RegionKind> for FieldRegionKind {
+    fn from(k: quillmark_core::RegionKind) -> Self {
+        match k {
+            quillmark_core::RegionKind::Field { field_type, value } => {
+                FieldRegionKind::Field { field_type, value }
+            }
+        }
+    }
 }
 
 /// Options for rendering.
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform"))]
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
 #[serde(rename_all = "camelCase")]
@@ -228,9 +294,14 @@ pub struct RenderOptions {
     /// the default (`Quillmark <version>`). Applies to PDF output only.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub producer: Option<String>,
+    /// Draw field values as PDF content streams (visible in all viewers,
+    /// including non-interactive rasterizers) instead of AcroForm widgets.
+    /// Only the `pdfform` backend uses this; other backends ignore it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flatten: Option<bool>,
 }
 
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform"))]
 impl Default for RenderOptions {
     fn default() -> Self {
         RenderOptions {
@@ -238,11 +309,12 @@ impl Default for RenderOptions {
             ppi: None,
             pages: None,
             producer: None,
+            flatten: None,
         }
     }
 }
 
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform"))]
 impl From<RenderOptions> for quillmark_core::RenderOptions {
     fn from(opts: RenderOptions) -> Self {
         Self {
@@ -250,6 +322,7 @@ impl From<RenderOptions> for quillmark_core::RenderOptions {
             ppi: opts.ppi,
             pages: opts.pages,
             producer: opts.producer,
+            flatten: opts.flatten.unwrap_or(false),
         }
     }
 }
@@ -261,7 +334,7 @@ mod tests {
     // ── OutputFormat ──────────────────────────────────────────────────────────
 
     #[test]
-    #[cfg(feature = "render")]
+    #[cfg(any(feature = "typst", feature = "pdfform"))]
     fn test_output_format_serialization() {
         let pdf = OutputFormat::Pdf;
         let json_pdf = serde_json::to_string(&pdf).unwrap();
@@ -277,7 +350,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "render")]
+    #[cfg(any(feature = "typst", feature = "pdfform"))]
     fn test_output_format_deserialization() {
         let pdf: OutputFormat = serde_json::from_str("\"pdf\"").unwrap();
         assert_eq!(pdf, OutputFormat::Pdf);
@@ -363,13 +436,14 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "render")]
+    #[cfg(any(feature = "typst", feature = "pdfform"))]
     fn test_render_options_with_format() {
         let options = RenderOptions {
             format: Some(OutputFormat::Pdf),
             ppi: None,
             pages: None,
             producer: None,
+            flatten: None,
         };
         let json = serde_json::to_string(&options).unwrap();
         assert!(json.contains("\"format\":\"pdf\""));
@@ -417,5 +491,69 @@ mod tests {
 
         assert!(!js_value.is_undefined());
         assert!(!js_value.is_null());
+    }
+
+    // ── FieldRegion / FieldRegionKind ─────────────────────────────────────────
+
+    #[test]
+    #[cfg(any(feature = "typst", feature = "pdfform"))]
+    fn field_region_serializes_to_expected_shape() {
+        let region = FieldRegion {
+            name: "FullName".to_string(),
+            page: 0,
+            rect: [180.0, 672.0, 520.0, 692.0],
+            kind: FieldRegionKind::Field {
+                field_type: "text".to_string(),
+                value: Some("Ada Lovelace".to_string()),
+            },
+        };
+        let json = serde_json::to_string(&region).unwrap();
+        assert!(json.contains("\"name\":\"FullName\""));
+        assert!(json.contains("\"page\":0"));
+        assert!(json.contains("\"rect\":[180.0,672.0,520.0,692.0]"));
+        assert!(json.contains("\"type\":\"field\""));
+        assert!(json.contains("\"fieldType\":\"text\""));
+        assert!(json.contains("\"value\":\"Ada Lovelace\""));
+    }
+
+    #[test]
+    #[cfg(any(feature = "typst", feature = "pdfform"))]
+    fn field_region_blank_value_omitted() {
+        let region = FieldRegion {
+            name: "Signature".to_string(),
+            page: 0,
+            rect: [180.0, 422.0, 520.0, 462.0],
+            kind: FieldRegionKind::Field {
+                field_type: "signature".to_string(),
+                value: None,
+            },
+        };
+        let json = serde_json::to_string(&region).unwrap();
+        // value:None → absent from JSON (skip_serializing_if)
+        assert!(!json.contains("\"value\""));
+        assert!(json.contains("\"fieldType\":\"signature\""));
+    }
+
+    #[test]
+    #[cfg(any(feature = "typst", feature = "pdfform"))]
+    fn field_region_from_core_conversion() {
+        use quillmark_core::{RegionKind, RenderedRegion};
+
+        let core_region = RenderedRegion {
+            name: "Agree".to_string(),
+            page: 0,
+            rect: [180.0, 538.0, 194.0, 552.0],
+            kind: RegionKind::Field {
+                field_type: "checkbox".to_string(),
+                value: Some("Yes".to_string()),
+            },
+        };
+        let wasm_region: FieldRegion = core_region.into();
+        assert_eq!(wasm_region.name, "Agree");
+        assert_eq!(wasm_region.page, 0);
+        assert_eq!(wasm_region.rect, [180.0, 538.0, 194.0, 552.0]);
+        let FieldRegionKind::Field { field_type, value } = wasm_region.kind;
+        assert_eq!(field_type, "checkbox");
+        assert_eq!(value.as_deref(), Some("Yes"));
     }
 }
