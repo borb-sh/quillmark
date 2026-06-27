@@ -274,8 +274,8 @@ describe('RenderSession canvas preview (pdfform backend)', () => {
     expect(result.layoutWidth).toBeCloseTo(widthPt * layoutScale, 4)
     expect(result.layoutHeight).toBeCloseTo(heightPt * layoutScale, 4)
 
-    // Pixel dimensions reflect layoutScale * densityScale, rounded (±1 px for
-    // the rasterizer's per-axis rounding).
+    // Pixel dimensions reflect layoutScale * densityScale, rounded (toBeCloseTo
+    // precision -1 tolerates the rasterizer's per-axis rounding).
     expect(result.pixelWidth).toBeCloseTo(Math.round(widthPt * layoutScale * densityScale), -1)
     expect(result.pixelHeight).toBeCloseTo(Math.round(heightPt * layoutScale * densityScale), -1)
 

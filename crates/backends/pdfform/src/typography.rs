@@ -58,6 +58,10 @@ pub(crate) fn check_size(h: f32) -> f32 {
     (h * 0.75).clamp(MIN_SIZE, MAX_SIZE)
 }
 
+/// Approximate advance width of the ZapfDingbats check glyph (`'4'`) as a
+/// fraction of its point size, used to horizontally centre it in the box.
+pub(crate) const CHECK_GLYPH_WIDTH_FACTOR: f32 = 0.6;
+
 #[cfg(test)]
 mod tests {
     use super::*;

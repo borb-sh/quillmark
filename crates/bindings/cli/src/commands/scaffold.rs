@@ -16,7 +16,9 @@ pub struct ScaffoldArgs {
 }
 
 pub fn execute(args: ScaffoldArgs) -> Result<()> {
-    let bytes = std::fs::read(&args.form_json)?;
+    let bytes = std::fs::read(&args.form_json).map_err(|e| {
+        CliError::InvalidArgument(format!("Failed to read {}: {}", args.form_json.display(), e))
+    })?;
 
     let spec = FormSpec::parse(&bytes).map_err(|e| {
         CliError::InvalidArgument(format!(

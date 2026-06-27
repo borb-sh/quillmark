@@ -6,6 +6,11 @@
 //! Technique A (AcroForm with `/NeedAppearances`), which requires an
 //! interactive viewer to synthesize appearances.
 //!
+//! Because the values are drawn directly (no viewer appearance synthesis), this
+//! path commits to a byte encoding: text is transcoded to WinAnsi
+//! ([`winansi_encode`](quillmark_pdf::writer::winansi_encode)) and shown with a
+//! `WinAnsiEncoding` Helvetica, and each value is clipped to its field box.
+//!
 //! Entry point: [`flatten`].
 
 use quillmark_pdf::{
@@ -14,7 +19,9 @@ use quillmark_pdf::{
         find_dict_value, find_object_bytes, find_startxref, find_trailer_dict, parse_indirect_ref,
         resolve_page_ids, UpdatedObject,
     },
-    regions_of, FieldSpec, FieldType, PdfError, StampOptions, StampResult, CHECKBOX_ON_STATE,
+    regions_of,
+    writer::{alloc_id, apply_producer_stamp, dict_object, pdf_escape, winansi_encode},
+    FieldSpec, FieldType, PdfError, StampOptions, StampResult, CHECKBOX_ON_STATE,
 };
 
 use crate::typography;
@@ -63,23 +70,8 @@ pub fn flatten(
 
     // ─── /Info /Producer (when requested) ────────────────────────────────────
     if let Some(producer) = opts.producer.as_deref() {
-        let literal = pdf_text_string(producer);
-        match info_ref {
-            Some((info_id, _)) => {
-                let (s, e) = find_object_bytes(&pdf, info_id)
-                    .ok_or_else(|| err(CODE_PARSE, format!("/Info object {info_id} not found")))?;
-                let info_dict = extract_outer_dict(&pdf[s..e])
-                    .ok_or_else(|| err(CODE_PARSE, "/Info dict not parseable"))?;
-                objects.push(dict_object(info_id, &upsert_producer(info_dict, &literal)));
-            }
-            None => {
-                let info_id = alloc_id(&mut next_id)?;
-                let mut inner = b"/Producer ".to_vec();
-                inner.extend_from_slice(&literal);
-                objects.push(dict_object(info_id, &inner));
-                extra_info_ref = Some(info_id);
-            }
-        }
+        extra_info_ref =
+            apply_producer_stamp(&pdf, info_ref, producer, &mut next_id, &mut objects)?;
     }
 
     if fields.is_empty() {
@@ -114,8 +106,12 @@ pub fn flatten(
     // Both are among the 14 standard PDF fonts every conforming reader provides.
     let helv_id = alloc_id(&mut next_id)?;
     let zadb_id = alloc_id(&mut next_id)?;
-    objects.push(type1_font_object(helv_id, typography::TEXT_FONT));
-    objects.push(type1_font_object(zadb_id, typography::CHECK_FONT));
+    objects.push(type1_font_object(
+        helv_id,
+        typography::TEXT_FONT,
+        Some("WinAnsiEncoding"),
+    ));
+    objects.push(type1_font_object(zadb_id, typography::CHECK_FONT, None));
 
     // Group fields by page.
     let mut fields_by_page: Vec<Vec<&FieldSpec>> = vec![Vec::new(); page_count];
@@ -187,7 +183,7 @@ fn build_content_stream(fields: &[&FieldSpec]) -> Vec<u8> {
                 // same glyph the AcroForm stamp path declares via /MK /CA (4).
                 let size = typography::check_size(h);
                 // ZapfDingbats check glyphs are roughly square; centre in the box.
-                let x_pos = x0 + (w - size * 0.6) * 0.5;
+                let x_pos = x0 + (w - size * typography::CHECK_GLYPH_WIDTH_FACTOR) * 0.5;
                 let y_pos = y0 + (h - size) * 0.5;
                 write_zadb_char(&mut out, b'4', x_pos, y_pos, size);
             }
@@ -198,7 +194,7 @@ fn build_content_stream(fields: &[&FieldSpec]) -> Vec<u8> {
                     // First baseline just inside the top edge.
                     let y_top = y1 - size - typography::TEXT_TOP_INSET;
                     let lines: Vec<&str> = value.lines().collect();
-                    write_text_block(&mut out, &lines, x_pos, y_top, size);
+                    write_text_block(&mut out, &lines, x_pos, y_top, size, spec.rect);
                 }
             }
             FieldType::Choice { .. } => {
@@ -206,7 +202,7 @@ fn build_content_stream(fields: &[&FieldSpec]) -> Vec<u8> {
                     let size = typography::value_size(h);
                     let x_pos = x0 + typography::TEXT_INSET;
                     let y_pos = y0 + (h - size) * 0.5;
-                    write_text_block(&mut out, &[value.as_str()], x_pos, y_pos, size);
+                    write_text_block(&mut out, &[value.as_str()], x_pos, y_pos, size, spec.rect);
                 }
             }
         }
@@ -214,13 +210,28 @@ fn build_content_stream(fields: &[&FieldSpec]) -> Vec<u8> {
     out
 }
 
-/// Write a `q/Q`-wrapped `BT/ET` block for one or more lines of text using `/Helv`.
-fn write_text_block(out: &mut Vec<u8>, lines: &[&str], x: f32, y: f32, size: f32) {
+/// Write a `q/Q`-wrapped `BT/ET` block for one or more lines of text using
+/// `/Helv`. The block is clipped to `clip` (`[x0, y0, x1, y1]`, the field box)
+/// so an over-long or multiline value can't paint outside its box and over
+/// neighbouring content. Line bytes are transcoded to WinAnsi to match the
+/// `/Helv` font's `/Encoding /WinAnsiEncoding`.
+fn write_text_block(out: &mut Vec<u8>, lines: &[&str], x: f32, y: f32, size: f32, clip: [f32; 4]) {
     if lines.is_empty() {
         return;
     }
     let line_h = size * typography::LINE_SPACING;
-    out.extend_from_slice(b"q\nBT\n/Helv ");
+    let [cx0, cy0, cx1, cy1] = clip;
+    out.extend_from_slice(b"q\n");
+    // Clip to the field box: `x y w h re W n`.
+    push_f32(out, cx0);
+    out.push(b' ');
+    push_f32(out, cy0);
+    out.push(b' ');
+    push_f32(out, cx1 - cx0);
+    out.push(b' ');
+    push_f32(out, cy1 - cy0);
+    out.extend_from_slice(b" re W n\n");
+    out.extend_from_slice(b"BT\n/Helv ");
     push_f32(out, size);
     out.extend_from_slice(b" Tf\n");
     push_f32(out, x);
@@ -234,7 +245,7 @@ fn write_text_block(out: &mut Vec<u8>, lines: &[&str], x: f32, y: f32, size: f32
             out.extend_from_slice(b" Td\n");
         }
         out.push(b'(');
-        pdf_escape(out, line.as_bytes());
+        pdf_escape(out, &winansi_encode(line));
         out.extend_from_slice(b") Tj\n");
     }
     out.extend_from_slice(b"ET\nQ\n");
@@ -387,11 +398,19 @@ fn add_font_resource(pg_dict: &[u8], name: &str, font_id: u32) -> Result<Vec<u8>
 
 // ── PDF object builders ───────────────────────────────────────────────────────
 
-fn type1_font_object(id: u32, base_font: &str) -> UpdatedObject {
+/// Build a base-14 Type1 font object. `encoding`, when given, is emitted as
+/// `/Encoding /<name>` — text fonts use `WinAnsiEncoding` so the content stream's
+/// WinAnsi bytes render correctly; symbol fonts (ZapfDingbats) pass `None` and
+/// keep their built-in encoding.
+fn type1_font_object(id: u32, base_font: &str, encoding: Option<&str>) -> UpdatedObject {
+    let enc = match encoding {
+        Some(name) => format!(" /Encoding /{name}"),
+        None => String::new(),
+    };
     UpdatedObject {
         id,
         bytes: format!(
-            "{id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /{base_font} >>\nendobj\n"
+            "{id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /{base_font}{enc} >>\nendobj\n"
         )
         .into_bytes(),
     }
@@ -404,24 +423,6 @@ fn content_stream_object(id: u32, content: &[u8]) -> UpdatedObject {
     UpdatedObject { id, bytes }
 }
 
-fn dict_object(id: u32, inner: &[u8]) -> UpdatedObject {
-    let mut bytes = format!("{id} 0 obj\n<< ").into_bytes();
-    bytes.extend_from_slice(inner);
-    bytes.extend_from_slice(b" >>\nendobj\n");
-    UpdatedObject { id, bytes }
-}
-
-fn alloc_id(next: &mut u32) -> Result<u32, PdfError> {
-    let id = *next;
-    *next = id.checked_add(1).ok_or_else(|| {
-        err(
-            CODE_PARSE,
-            "PDF object id space exhausted (/Size too large)",
-        )
-    })?;
-    Ok(id)
-}
-
 // ── PDF text helpers ──────────────────────────────────────────────────────────
 
 /// Append `v` as a compact `%.2f` float, stripping trailing zeros and dot.
@@ -429,62 +430,4 @@ fn push_f32(out: &mut Vec<u8>, v: f32) {
     let s = format!("{v:.2}");
     let s = s.trim_end_matches('0').trim_end_matches('.');
     out.extend_from_slice(s.as_bytes());
-}
-
-/// Escape bytes for a PDF literal string `( … )`: `(`, `)`, `\` → `\x`.
-fn pdf_escape(out: &mut Vec<u8>, bytes: &[u8]) {
-    for &b in bytes {
-        if matches!(b, b'(' | b')' | b'\\') {
-            out.push(b'\\');
-        }
-        out.push(b);
-    }
-}
-
-/// Encode `s` as a PDF text string: ASCII → literal `(…)`, else UTF-16BE `<FEFF…>`.
-fn pdf_text_string(s: &str) -> Vec<u8> {
-    if s.is_ascii() {
-        let mut out = Vec::with_capacity(s.len() + 2);
-        out.push(b'(');
-        for &b in s.as_bytes() {
-            if matches!(b, b'(' | b')' | b'\\') {
-                out.push(b'\\');
-            }
-            out.push(b);
-        }
-        out.push(b')');
-        out
-    } else {
-        let mut out = Vec::new();
-        out.push(b'<');
-        out.extend_from_slice(b"FEFF");
-        for unit in s.encode_utf16() {
-            out.extend_from_slice(format!("{unit:04X}").as_bytes());
-        }
-        out.push(b'>');
-        out
-    }
-}
-
-fn upsert_producer(info_dict: &[u8], literal: &[u8]) -> Vec<u8> {
-    let key = b"/Producer";
-    match find_dict_value(info_dict, "Producer") {
-        None => {
-            let mut out = info_dict.to_vec();
-            out.extend_from_slice(b" /Producer ");
-            out.extend_from_slice(literal);
-            out
-        }
-        Some(value) => {
-            let value_start = value.as_ptr() as usize - info_dict.as_ptr() as usize;
-            let value_end = value_start + value.len();
-            let key_at = value_start - key.len();
-            let mut out = Vec::new();
-            out.extend_from_slice(&info_dict[..key_at]);
-            out.extend_from_slice(b"/Producer ");
-            out.extend_from_slice(literal);
-            out.extend_from_slice(&info_dict[value_end..]);
-            out
-        }
-    }
 }
