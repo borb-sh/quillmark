@@ -34,10 +34,7 @@ use flatten::flatten as flatten_to_pdf;
 
 #[cfg(feature = "preview")]
 use {
-    hayro::hayro_interpret::{
-        InterpreterSettings,
-        font::{FontQuery, StandardFont},
-    },
+    hayro::hayro_interpret::{InterpreterSettings, font::FontQuery},
     hayro::hayro_syntax::Pdf as HayroPdf,
     hayro::{RenderCache, RenderSettings, render as hayro_render},
     hayro_svg::{RenderCache as SvgCache, SvgRenderSettings, convert as hayro_svg_convert},
@@ -221,7 +218,7 @@ impl SessionHandle for PdfformSession {
     /// the raster without any regions-compositing by the caller.
     #[cfg(feature = "preview")]
     fn render_rgba(&self, page: usize, scale: f32) -> Option<(u32, u32, Vec<u8>)> {
-        use vello_cpu::color::palette::css::WHITE;
+        use hayro::vello_cpu::color::palette::css::WHITE;
 
         let pdf = HayroPdf::new(self.flat_pdf.clone()).ok()?;
         let p = pdf.pages().get(page)?;
