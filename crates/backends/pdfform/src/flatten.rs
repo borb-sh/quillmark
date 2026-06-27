@@ -17,6 +17,8 @@ use quillmark_pdf::{
     regions_of, FieldSpec, FieldType, PdfError, StampOptions, StampResult, CHECKBOX_ON_STATE,
 };
 
+use crate::typography;
+
 const CODE_PARSE: &str = "pdf::flatten_parse";
 
 /// Flatten `fields` onto `base` PDF by drawing values as PDF content stream
@@ -112,8 +114,8 @@ pub fn flatten(
     // Both are among the 14 standard PDF fonts every conforming reader provides.
     let helv_id = alloc_id(&mut next_id)?;
     let zadb_id = alloc_id(&mut next_id)?;
-    objects.push(type1_font_object(helv_id, "Helvetica"));
-    objects.push(type1_font_object(zadb_id, "ZapfDingbats"));
+    objects.push(type1_font_object(helv_id, typography::TEXT_FONT));
+    objects.push(type1_font_object(zadb_id, typography::CHECK_FONT));
 
     // Group fields by page.
     let mut fields_by_page: Vec<Vec<&FieldSpec>> = vec![Vec::new(); page_count];
@@ -183,7 +185,7 @@ fn build_content_stream(fields: &[&FieldSpec]) -> Vec<u8> {
             FieldType::Checkbox => {
                 // Glyph 0x34 ("4") in ZapfDingbats is the filled check mark — the
                 // same glyph the AcroForm stamp path declares via /MK /CA (4).
-                let size = (h * 0.75).clamp(4.0, 12.0);
+                let size = typography::check_size(h);
                 // ZapfDingbats check glyphs are roughly square; centre in the box.
                 let x_pos = x0 + (w - size * 0.6) * 0.5;
                 let y_pos = y0 + (h - size) * 0.5;
@@ -191,18 +193,18 @@ fn build_content_stream(fields: &[&FieldSpec]) -> Vec<u8> {
             }
             FieldType::Text { .. } => {
                 if let Some(value) = &spec.value {
-                    let size = (h * 0.65).clamp(4.0, 12.0);
-                    let x_pos = x0 + 2.0;
+                    let size = typography::value_size(h);
+                    let x_pos = x0 + typography::TEXT_INSET;
                     // First baseline just inside the top edge.
-                    let y_top = y1 - size - 1.0;
+                    let y_top = y1 - size - typography::TEXT_TOP_INSET;
                     let lines: Vec<&str> = value.lines().collect();
                     write_text_block(&mut out, &lines, x_pos, y_top, size);
                 }
             }
             FieldType::Choice { .. } => {
                 if let Some(value) = &spec.value {
-                    let size = (h * 0.65).clamp(4.0, 12.0);
-                    let x_pos = x0 + 2.0;
+                    let size = typography::value_size(h);
+                    let x_pos = x0 + typography::TEXT_INSET;
                     let y_pos = y0 + (h - size) * 0.5;
                     write_text_block(&mut out, &[value.as_str()], x_pos, y_pos, size);
                 }
@@ -217,7 +219,7 @@ fn write_text_block(out: &mut Vec<u8>, lines: &[&str], x: f32, y: f32, size: f32
     if lines.is_empty() {
         return;
     }
-    let line_h = size * 1.2;
+    let line_h = size * typography::LINE_SPACING;
     out.extend_from_slice(b"q\nBT\n/Helv ");
     push_f32(out, size);
     out.extend_from_slice(b" Tf\n");
