@@ -109,9 +109,12 @@ pub fn flatten(
         }
     }
 
-    // Shared Helvetica Type1 font object (one of the 14 standard PDF fonts).
-    let font_id = alloc_id(&mut next_id)?;
-    objects.push(helvetica_font_object(font_id));
+    // Standard Type1 fonts: Helvetica for text/choice, ZapfDingbats for checkboxes.
+    // Both are among the 14 standard PDF fonts every conforming reader provides.
+    let helv_id = alloc_id(&mut next_id)?;
+    let zadb_id = alloc_id(&mut next_id)?;
+    objects.push(type1_font_object(helv_id, "Helvetica"));
+    objects.push(type1_font_object(zadb_id, "ZapfDingbats"));
 
     // Group fields by page.
     let mut fields_by_page: Vec<Vec<&FieldSpec>> = vec![Vec::new(); page_count];
@@ -139,7 +142,7 @@ pub fn flatten(
         let pg_dict = extract_outer_dict(&pdf[s..e])
             .ok_or_else(|| err(CODE_PARSE, "page dict not parseable"))?;
 
-        let new_pg = rewrite_page_for_flatten(pg_dict, font_id, stream_id)?;
+        let new_pg = rewrite_page_for_flatten(pg_dict, helv_id, zadb_id, stream_id)?;
         objects.push(dict_object(page_obj_id, &new_pg));
     }
 
@@ -176,12 +179,13 @@ fn build_content_stream(fields: &[&FieldSpec]) -> Vec<u8> {
         match &spec.field_type {
             FieldType::Signature => {}
             FieldType::Checkbox => {
-                // Draw a centred "X" for a checked box.
+                // Glyph 0x34 ("4") in ZapfDingbats is the filled check mark — the
+                // same glyph the AcroForm stamp path declares via /MK /CA (4).
                 let size = (h * 0.75).clamp(4.0, 12.0);
-                let glyph_w = size * 0.55;
-                let x_pos = x0 + (w - glyph_w) * 0.5;
-                let y_pos = y0 + (h - size) * 0.5 + size * 0.1;
-                write_text_block(&mut out, &["X"], x_pos, y_pos, size);
+                // ZapfDingbats check glyphs are roughly square; centre in the box.
+                let x_pos = x0 + (w - size * 0.6) * 0.5;
+                let y_pos = y0 + (h - size) * 0.5;
+                write_zadb_char(&mut out, b'4', x_pos, y_pos, size);
             }
             FieldType::Text { .. } => {
                 if let Some(value) = &spec.value {
@@ -232,17 +236,37 @@ fn write_text_block(out: &mut Vec<u8>, lines: &[&str], x: f32, y: f32, size: f32
     out.extend_from_slice(b"ET\nQ\n");
 }
 
+/// Write a single ZapfDingbats character (as its raw byte code) in a `BT/ET` block.
+/// Glyph 0x34 (`'4'`) is the filled check mark — identical to the `/MK /CA (4)`
+/// glyph the AcroForm stamp path declares for checked checkboxes.
+fn write_zadb_char(out: &mut Vec<u8>, glyph: u8, x: f32, y: f32, size: f32) {
+    out.extend_from_slice(b"q\nBT\n/ZaDb ");
+    push_f32(out, size);
+    out.extend_from_slice(b" Tf\n");
+    push_f32(out, x);
+    out.push(b' ');
+    push_f32(out, y);
+    out.extend_from_slice(b" Td\n(");
+    if matches!(glyph, b'(' | b')' | b'\\') {
+        out.push(b'\\');
+    }
+    out.push(glyph);
+    out.extend_from_slice(b") Tj\nET\nQ\n");
+}
+
 // ── Page dict rewriting ───────────────────────────────────────────────────────
 
-/// Rewrite the page's inner dict bytes to (a) add `/Helv` to `/Resources /Font`
-/// and (b) append `stream_id` to `/Contents`.
+/// Rewrite the page's inner dict bytes to (a) add `/Helv` and `/ZaDb` to
+/// `/Resources /Font` and (b) append `stream_id` to `/Contents`.
 fn rewrite_page_for_flatten(
     pg_dict: &[u8],
-    font_id: u32,
+    helv_id: u32,
+    zadb_id: u32,
     stream_id: u32,
 ) -> Result<Vec<u8>, PdfError> {
     let with_stream = add_content_stream(pg_dict, stream_id)?;
-    add_font_resource(&with_stream, font_id)
+    let with_helv = add_font_resource(&with_stream, "Helv", helv_id)?;
+    add_font_resource(&with_helv, "ZaDb", zadb_id)
 }
 
 /// Append `stream_id` to the page's `/Contents` (wrapping a bare ref in an array
@@ -282,14 +306,14 @@ fn add_content_stream(pg_dict: &[u8], stream_id: u32) -> Result<Vec<u8>, PdfErro
     }
 }
 
-/// Inject `/Helv <font_id> 0 R` into the page's `/Resources /Font` dict,
-/// creating the intermediate dicts as needed.
+/// Inject `/<name> <font_id> 0 R` into the page's `/Resources /Font` dict,
+/// creating intermediate dicts as needed.
 ///
 /// When `/Resources` is an indirect reference (uncommon in our fixture
-/// contract), font injection is skipped — Helvetica is one of the 14 standard
-/// PDF fonts that conforming readers provide without explicit declaration.
-fn add_font_resource(pg_dict: &[u8], font_id: u32) -> Result<Vec<u8>, PdfError> {
-    let helv_entry = format!("/Helv {font_id} 0 R");
+/// contract), font injection is skipped — the 14 standard PDF Type1 fonts
+/// are available to conforming readers without explicit resource declaration.
+fn add_font_resource(pg_dict: &[u8], name: &str, font_id: u32) -> Result<Vec<u8>, PdfError> {
+    let helv_entry = format!("/{name} {font_id} 0 R");
 
     match find_dict_value(pg_dict, "Resources") {
         None => {
@@ -361,11 +385,11 @@ fn add_font_resource(pg_dict: &[u8], font_id: u32) -> Result<Vec<u8>, PdfError> 
 
 // ── PDF object builders ───────────────────────────────────────────────────────
 
-fn helvetica_font_object(id: u32) -> UpdatedObject {
+fn type1_font_object(id: u32, base_font: &str) -> UpdatedObject {
     UpdatedObject {
         id,
         bytes: format!(
-            "{id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n"
+            "{id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /{base_font} >>\nendobj\n"
         )
         .into_bytes(),
     }

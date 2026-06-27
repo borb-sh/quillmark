@@ -220,12 +220,16 @@ fn flatten_pdf_contains_helv_font_and_content_streams() {
     let result = render_with(FILLED, true);
     let pdf = &result.artifacts[0].bytes;
 
-    // The flat PDF must contain a Helvetica font object and at least one new
-    // content stream with PDF text operators (BT/ET).
+    // The flat PDF must contain Helvetica and ZapfDingbats font objects and at
+    // least one content stream with PDF text operators.
     let pdf_text = String::from_utf8_lossy(pdf);
     assert!(
         pdf_text.contains("/Helvetica"),
         "flat PDF must declare Helvetica"
+    );
+    assert!(
+        pdf_text.contains("/ZapfDingbats"),
+        "flat PDF must declare ZapfDingbats (for checkbox glyph)"
     );
     assert!(
         pdf_text.contains("BT\n") || pdf_text.contains("BT "),
