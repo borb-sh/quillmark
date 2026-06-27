@@ -85,9 +85,9 @@ const DEFAULT_PPI: f32 = 144.0;
 
 /// Render selected pages from an already-compiled Typst document.
 ///
-/// `sig_placements` become spine `FieldSpec`s; only PDF stamps them as AcroForm
-/// widgets, but every format carries the resulting field regions. Pass an empty
-/// slice for documents with no `signature-field` calls.
+/// `field_placements` become spine `FieldSpec`s; only PDF stamps them as
+/// AcroForm widgets, but every format carries the resulting field regions. Pass
+/// an empty slice for documents with no `form-field` calls.
 ///
 /// `producer` overrides the PDF `/Info` `/Producer` string (PDF output only);
 /// `None` uses [`overlay::default_producer`] (`Quillmark <version>`).
@@ -96,7 +96,7 @@ pub(crate) fn render_document_pages(
     pages: Option<&[usize]>,
     format: OutputFormat,
     ppi: Option<f32>,
-    sig_placements: &[overlay::SigPlacement],
+    field_placements: &[overlay::FieldPlacement],
     producer: Option<&str>,
 ) -> Result<RenderResult, RenderError> {
     // PDF does not support selective page rendering
@@ -132,10 +132,10 @@ pub(crate) fn render_document_pages(
         None => (0..page_count).collect(),
     };
 
-    // Signature placements → spine field specs (Typst top-left → PDF
+    // Form-field placements → spine field specs (Typst top-left → PDF
     // bottom-left). Regions ride on every render regardless of format, so the
     // GUI overlay has the geometry whether it shows the PDF or a raster.
-    let field_specs = overlay::build_field_specs(document, sig_placements)?;
+    let field_specs = overlay::build_field_specs(document, field_placements)?;
     let regions = quillmark_pdf::regions_of(&field_specs);
 
     match format {

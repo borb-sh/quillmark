@@ -15,9 +15,9 @@
 //! - Compiles Typst documents to PDF and SVG formats
 //! - Provides template filters for YAML data transformation
 //! - Manages fonts, assets, and packages dynamically
-//! - Embeds unsigned AcroForm signature widgets via the
-//!   `signature-field` helper (see `signature-field` in the `lib.typ`
-//!   helper package; only the PDF output carries the widget — SVG and
+//! - Embeds unsigned AcroForm form widgets (text, checkbox, choice, signature)
+//!   via the `form-field` helper (and the `signature-field` wrapper) in the
+//!   `lib.typ` helper package; only the PDF output carries the widget — SVG and
 //!   PNG render an invisible placeholder)
 //! - Thread-safe for concurrent rendering
 //!
@@ -71,7 +71,7 @@ pub struct TypstSession {
     /// Extracted once at `open`. Converted to spine `FieldSpec`s on every
     /// render; PDF stamps them as AcroForm widgets, and every format carries
     /// the resulting regions.
-    sig_placements: Vec<overlay::SigPlacement>,
+    field_placements: Vec<overlay::FieldPlacement>,
 }
 
 impl SessionHandle for TypstSession {
@@ -94,7 +94,7 @@ impl SessionHandle for TypstSession {
             opts.pages.as_deref(),
             format,
             opts.ppi,
-            &self.sig_placements,
+            &self.field_placements,
             opts.producer.as_deref(),
         )
     }
@@ -199,11 +199,11 @@ impl Backend for TypstBackend {
             })?;
         let document = compile::compile_to_document(source, plate_content, &json_str)?;
         let page_count = document.pages().len();
-        let sig_placements = overlay::extract(&document)?;
+        let field_placements = overlay::extract(&document)?;
         let session = TypstSession {
             document,
             page_count,
-            sig_placements,
+            field_placements,
         };
         Ok(RenderSession::new(Box::new(session)))
     }
