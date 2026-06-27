@@ -21,10 +21,12 @@
 //! `crate::reader`'s docs for the input contract the base PDF must satisfy.
 
 mod error;
+mod flatten;
 mod reader;
 mod stamp;
 
 pub use error::PdfError;
+pub use flatten::flatten;
 pub use stamp::{regions_of, stamp, StampOptions, StampResult, CHECKBOX_ON_STATE};
 
 // The region sidecar lives in core (it rides on `RenderResult`); re-export so

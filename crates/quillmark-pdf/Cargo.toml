@@ -18,3 +18,8 @@ thiserror = { workspace = true }
 [dev-dependencies]
 # Acceptance tests reparse the stamped PDF to validate AcroForm structure.
 lopdf = "0.36"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "preview_vs_stamp"
+harness = false
