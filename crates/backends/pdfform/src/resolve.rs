@@ -7,23 +7,6 @@
 //! is a shallow path: a root field name, optionally followed by an array index
 //! or nested key (`field`, `field.0`, `field.sub`). Coercion is type-directed;
 //! unbound or absent/null both render a blank field.
-//!
-//! ## Card-instance addressing
-//!
-//! A `schema_field` rooted at the reserved `$cards` key binds to one card
-//! instance in the document's `$cards` array (the same array the Typst plate
-//! iterates). Two forms, so a fixed-capacity form can lay out repeated card
-//! slots:
-//!
-//! - **By absolute index:** `$cards.<i>.<field>` — the `i`-th card overall
-//!   (e.g. `$cards.0.from`).
-//! - **By kind + index:** `$cards.<kind>.<i>.<field>` — the `i`-th card whose
-//!   `$kind` is `<kind>` (e.g. `$cards.indorsement.1.from` is the second
-//!   indorsement). This survives reordering and intervening cards of other
-//!   kinds, which absolute indexing does not.
-//!
-//! Either form descends the remaining path into the chosen card object exactly
-//! as a top-level binding would.
 
 use quillmark_pdf::{FieldSpec, FieldType, CHECKBOX_ON_STATE};
 use serde_json::Value;
@@ -86,40 +69,12 @@ fn resolve_value(kind: &FieldKind, schema_field: Option<&str>, data: &Value) -> 
     }
 }
 
-/// Dereference a shallow `field[.<index-or-key>]*` path against `data`. A path
-/// rooted at the reserved `$cards` key resolves a card instance (by absolute
-/// index, or by `$kind` + index) before descending the rest. Returns `None` for
-/// any missing segment.
+/// Dereference a shallow `field[.<index-or-key>]*` path against `data`. Returns
+/// `None` for any missing segment.
 fn lookup<'a>(data: &'a Value, path: &str) -> Option<&'a Value> {
     let mut parts = path.split('.');
     let root = parts.next()?;
-    if root == "$cards" {
-        return lookup_card(data, parts);
-    }
     descend(data.get(root)?, parts)
-}
-
-/// Resolve a `$cards`-rooted path: select one card from the `$cards` array
-/// either by absolute index (`$cards.<i>...`) or by kind + index
-/// (`$cards.<kind>.<i>...`), then descend the remaining segments into it.
-fn lookup_card<'a, 'p, I>(data: &'a Value, mut parts: I) -> Option<&'a Value>
-where
-    I: Iterator<Item = &'p str>,
-{
-    let cards = data.get("$cards")?.as_array()?;
-    let first = parts.next()?;
-    let card = if let Ok(i) = first.parse::<usize>() {
-        // `$cards.<i>...` — absolute index.
-        cards.get(i)?
-    } else {
-        // `$cards.<kind>.<i>...` — the i-th card of that `$kind`.
-        let i: usize = parts.next()?.parse().ok()?;
-        cards
-            .iter()
-            .filter(|c| c.get("$kind").and_then(Value::as_str) == Some(first))
-            .nth(i)?
-    };
-    descend(card, parts)
 }
 
 /// Walk the remaining `[.<index-or-key>]*` segments from `start`.
@@ -269,114 +224,6 @@ mod tests {
             resolve_value(&FieldKind::Signature, Some("full_name"), &data()),
             None
         );
-    }
-
-    /// A mixed-kind `$cards` array: two indorsements with a note between them,
-    /// so by-kind indexing must skip the note that absolute indexing would not.
-    fn card_data() -> Value {
-        json!({
-            "$cards": [
-                { "$kind": "indorsement", "from": "Alice", "agree": true },
-                { "$kind": "note",        "from": "ignored" },
-                { "$kind": "indorsement", "from": "Bob",   "agree": false }
-            ]
-        })
-    }
-
-    fn card_text(path: &str) -> Option<String> {
-        resolve_value(
-            &FieldKind::Text { multiline: false },
-            Some(path),
-            &card_data(),
-        )
-    }
-
-    #[test]
-    fn card_absolute_index() {
-        assert_eq!(card_text("$cards.0.from"), Some("Alice".into()));
-        assert_eq!(card_text("$cards.1.from"), Some("ignored".into()));
-        assert_eq!(card_text("$cards.2.from"), Some("Bob".into()));
-        // Past the end → blank.
-        assert_eq!(card_text("$cards.3.from"), None);
-    }
-
-    #[test]
-    fn card_by_kind_index() {
-        // The i-th card OF THAT KIND, skipping intervening cards of other kinds.
-        assert_eq!(card_text("$cards.indorsement.0.from"), Some("Alice".into()));
-        assert_eq!(card_text("$cards.indorsement.1.from"), Some("Bob".into()));
-        assert_eq!(card_text("$cards.note.0.from"), Some("ignored".into()));
-        // Only two indorsements exist.
-        assert_eq!(card_text("$cards.indorsement.2.from"), None);
-        // No card of this kind.
-        assert_eq!(card_text("$cards.memo.0.from"), None);
-    }
-
-    #[test]
-    fn card_coercion_runs_per_field_kind() {
-        // A checkbox bound to a card field coerces truthiness like any other.
-        let agree = |path| resolve_value(&FieldKind::Checkbox, Some(path), &card_data());
-        assert_eq!(
-            agree("$cards.indorsement.0.agree"),
-            Some(CHECKBOX_ON_STATE.to_string())
-        );
-        assert_eq!(agree("$cards.indorsement.1.agree"), None); // Bob: false
-    }
-
-    #[test]
-    fn card_malformed_paths_are_blank() {
-        // Missing index after a kind, a bare `$cards`, and a missing field.
-        assert_eq!(card_text("$cards.indorsement"), None);
-        assert_eq!(card_text("$cards"), None);
-        assert_eq!(card_text("$cards.0.missing"), None);
-    }
-
-    /// Fixed-capacity overflow, end-to-end through `field_spec` (no new engine
-    /// code): a form with card slots laid out across pages binds each card
-    /// INSTANCE to its own page via card-instance addressing. Two cards of one
-    /// kind, two slots on two different pages — instance 0's value must land on
-    /// page 0 and instance 1's on page 1, each as a full `FieldSpec`. This is the
-    /// validated proof that fixed-capacity overflow already works today.
-    #[test]
-    fn fixed_capacity_overflow_binds_instances_to_their_pages() {
-        // ≥2 cards of one kind in `$cards` (the same array the Typst plate reads).
-        let data = json!({
-            "$cards": [
-                { "$kind": "indorsement", "from": "Alice" },
-                { "$kind": "indorsement", "from": "Bob" }
-            ]
-        });
-
-        // Two card slots, one per page, each bound to a distinct instance index.
-        let mb = [0.0, 0.0, 612.0, 792.0];
-        let slot = |name: &str, page: usize, schema_field: &str| FormField {
-            name: name.into(),
-            schema_field: Some(schema_field.into()),
-            page,
-            rect: Rect {
-                x: 100.0,
-                y: 100.0,
-                w: 200.0,
-                h: 20.0,
-            },
-            tooltip: None,
-            kind: FieldKind::Text { multiline: false },
-        };
-        let slot0 = slot("Indorsement0From", 0, "$cards.indorsement.0.from");
-        let slot1 = slot("Indorsement1From", 1, "$cards.indorsement.1.from");
-
-        let spec0 = field_spec(&slot0, mb, &data);
-        let spec1 = field_spec(&slot1, mb, &data);
-
-        // Instance 0's value on page 0; instance 1's value on page 1.
-        assert_eq!(spec0.page, 0, "first slot is on page 0");
-        assert_eq!(spec0.value.as_deref(), Some("Alice"), "instance 0 value");
-        assert_eq!(spec1.page, 1, "second slot is on page 1");
-        assert_eq!(spec1.value.as_deref(), Some("Bob"), "instance 1 value");
-
-        // The names carry through unchanged (the spine writes them to /T).
-        assert_eq!(spec0.name, "Indorsement0From");
-        assert_eq!(spec1.name, "Indorsement1From");
     }
 
     #[test]
