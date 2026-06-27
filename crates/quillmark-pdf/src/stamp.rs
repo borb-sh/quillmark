@@ -25,6 +25,7 @@ use crate::reader::{
     find_object_bytes, find_startxref, find_trailer_dict, parse_indirect_ref, resolve_page_ids,
     UpdatedObject,
 };
+use crate::writer::{alloc_id, apply_producer_stamp, dict_object};
 use crate::{FieldSpec, FieldType};
 
 const CODE_PARSE: &str = "pdf::stamp_parse";
@@ -97,42 +98,18 @@ pub fn stamp(
 
     // Object ids are handed out from a single counter (seeded at the trailer
     // `/Size`) so created objects never collide with the base's, nor with each
-    // other. Allocation is checked: a malformed near-`u32::MAX` `/Size` yields a
-    // clean error rather than an overflow panic (debug) or a silently-wrapped,
-    // colliding id (release) — matching the reader's hard-error contract.
+    // other. Allocation is checked (`alloc_id`): a malformed near-`u32::MAX`
+    // `/Size` yields a clean error rather than an overflow panic (debug) or a
+    // silently-wrapped, colliding id (release) — matching the reader's
+    // hard-error contract.
     let mut next_id = size;
-    let alloc_id = |next: &mut u32| -> Result<u32, PdfError> {
-        let id = *next;
-        *next = id.checked_add(1).ok_or_else(|| {
-            err(
-                CODE_PARSE,
-                "PDF object id space exhausted (/Size too large)",
-            )
-        })?;
-        Ok(id)
-    };
     let mut objects: Vec<UpdatedObject> = Vec::new();
     let mut extra_info_ref = None;
 
     // ─── /Info /Producer (when requested) ────────────────────────────────────
     if let Some(producer) = opts.producer.as_deref() {
-        let literal = pdf_text_string(producer);
-        match info_ref {
-            Some((info_id, _)) => {
-                let (s, e) = find_object_bytes(&pdf, info_id)
-                    .ok_or_else(|| err(CODE_PARSE, format!("/Info object {info_id} not found")))?;
-                let info_dict = extract_outer_dict(&pdf[s..e])
-                    .ok_or_else(|| err(CODE_PARSE, "/Info dict not parseable"))?;
-                objects.push(dict_object(info_id, &upsert_producer(info_dict, &literal)));
-            }
-            None => {
-                let info_id = alloc_id(&mut next_id)?;
-                let mut inner = b"/Producer ".to_vec();
-                inner.extend_from_slice(&literal);
-                objects.push(dict_object(info_id, &inner));
-                extra_info_ref = Some(info_id);
-            }
-        }
+        extra_info_ref =
+            apply_producer_stamp(&pdf, info_ref, producer, &mut next_id, &mut objects)?;
     }
 
     // ─── AcroForm + widgets (when there are fields) ──────────────────────────
@@ -353,69 +330,6 @@ fn write_widget_object(spec: &FieldSpec, wid: Ref, page_ref: Ref) -> Vec<u8> {
         ann.finish();
     }
     chunk.as_bytes().to_vec()
-}
-
-/// Serialize one indirect object from its inner dict bytes:
-/// `<id> 0 obj\n<< <inner> >>\nendobj\n`.
-fn dict_object(id: u32, inner: &[u8]) -> UpdatedObject {
-    let mut bytes = format!("{id} 0 obj\n<< ").into_bytes();
-    bytes.extend_from_slice(inner);
-    bytes.extend_from_slice(b" >>\nendobj\n");
-    UpdatedObject { id, bytes }
-}
-
-/// Replace `/Producer`'s value if present, else append the entry.
-fn upsert_producer(info_dict: &[u8], literal: &[u8]) -> Vec<u8> {
-    let key = b"/Producer";
-    match find_dict_value(info_dict, "Producer") {
-        None => {
-            let mut out = info_dict.to_vec();
-            out.extend_from_slice(b" /Producer ");
-            out.extend_from_slice(literal);
-            out
-        }
-        Some(value) => {
-            // `value` starts exactly after the matched `/Producer` key, so the
-            // key span is `[value_start - key.len, value_end)` — derived, not
-            // re-scanned, so a `/Producer` token inside another value can't be
-            // matched by accident.
-            let value_start = value.as_ptr() as usize - info_dict.as_ptr() as usize;
-            let value_end = value_start + value.len();
-            let key_at = value_start - key.len();
-            let mut out = Vec::new();
-            out.extend_from_slice(&info_dict[..key_at]);
-            out.extend_from_slice(b"/Producer ");
-            out.extend_from_slice(literal);
-            out.extend_from_slice(&info_dict[value_end..]);
-            out
-        }
-    }
-}
-
-/// Encode `s` as a PDF text string. ASCII uses a literal `( … )` with `(`, `)`
-/// and `\` escaped; anything else uses a UTF-16BE hex string with a BOM.
-fn pdf_text_string(s: &str) -> Vec<u8> {
-    if s.is_ascii() {
-        let mut out = Vec::with_capacity(s.len() + 2);
-        out.push(b'(');
-        for &b in s.as_bytes() {
-            if matches!(b, b'(' | b')' | b'\\') {
-                out.push(b'\\');
-            }
-            out.push(b);
-        }
-        out.push(b')');
-        out
-    } else {
-        let mut out = Vec::new();
-        out.push(b'<');
-        out.extend_from_slice(b"FEFF");
-        for unit in s.encode_utf16() {
-            out.extend_from_slice(format!("{unit:04X}").as_bytes());
-        }
-        out.push(b'>');
-        out
-    }
 }
 
 /// Three cases for the existing `/Annots`: absent (write a fresh array);

@@ -168,27 +168,53 @@ pub fn append_incremental_update(
 }
 
 /// Locate object `id` via linear scan and return `(obj_start, endobj_end)`.
-/// Matches only at a token boundary so `19 0 obj` isn't found inside `519 0
-/// obj`. When a base PDF carries prior incremental updates the same id can be
-/// serialized more than once; the live copy is the *last* one (xref liveness),
-/// so this returns the last match. For the common single-revision input there
-/// is exactly one match and last == only.
+///
+/// Matches the object header `<id> <gen> obj` at a token boundary (so `19 0 obj`
+/// isn't found inside `519 0 obj`) for *any* generation — re-saved PDFs can
+/// carry non-zero generations. When a base PDF carries prior incremental updates
+/// the same id can be serialized more than once; the live copy is the *last* one
+/// (xref liveness), so this returns the last match. For the common
+/// single-revision, generation-0 input there is exactly one match.
 pub fn find_object_bytes(pdf: &[u8], id: u32) -> Option<(usize, usize)> {
-    let header = format!("{} 0 obj", id);
-    let h = header.as_bytes();
+    let prefix = format!("{id} ");
+    let p = prefix.as_bytes();
     let needle = b"endobj";
     let mut last_start = None;
     let mut i = 0;
-    while i + h.len() <= pdf.len() {
-        if pdf[i..].starts_with(h) && (i == 0 || matches!(pdf[i - 1], b'\n' | b'\r' | b' ')) {
+    while i + p.len() <= pdf.len() {
+        if pdf[i..].starts_with(p)
+            && (i == 0 || matches!(pdf[i - 1], b'\n' | b'\r' | b' '))
+            && is_obj_header_tail(&pdf[i + p.len()..])
+        {
             last_start = Some(i);
         }
         i += 1;
     }
     let start = last_start?;
-    let from = start + h.len();
-    let end_rel = pdf[from..].windows(needle.len()).position(|w| w == needle)?;
+    let from = start + p.len();
+    let end_rel = pdf[from..]
+        .windows(needle.len())
+        .position(|w| w == needle)?;
     Some((start, from + end_rel + needle.len()))
+}
+
+/// After the `<id> ` prefix, confirm an object header continues as `<gen> obj`:
+/// one or more digits, whitespace, then the `obj` keyword as a whole token.
+fn is_obj_header_tail(rest: &[u8]) -> bool {
+    let gen_digits = rest.iter().take_while(|b| b.is_ascii_digit()).count();
+    if gen_digits == 0 {
+        return false;
+    }
+    let after_gen = &rest[gen_digits..];
+    let ws = after_gen
+        .iter()
+        .take_while(|b| matches!(b, b' ' | b'\t' | b'\r' | b'\n'))
+        .count();
+    if ws == 0 {
+        return false;
+    }
+    let after_ws = &after_gen[ws..];
+    after_ws.starts_with(b"obj") && after_ws.get(3).is_none_or(|b| !b.is_ascii_alphanumeric())
 }
 
 /// Within a dict's inner bytes, locate `/Key` and return its raw value slice.
@@ -655,5 +681,35 @@ mod tests {
             normalize_rect([622.0, 812.0, 10.0, 20.0]),
             [10.0, 20.0, 622.0, 812.0]
         );
+    }
+
+    #[test]
+    fn rect_array_rejects_non_finite() {
+        assert_eq!(parse_rect_array(b"[0 0 inf 792]"), None);
+        assert_eq!(parse_rect_array(b"[0 0 612 nan]"), None);
+        assert_eq!(parse_rect_array(b"[-inf 0 612 792]"), None);
+    }
+
+    #[test]
+    fn find_object_at_token_boundary() {
+        let pdf = b"%PDF\n519 0 obj\n<< /A 1 >>\nendobj\n19 0 obj\n<< /B 2 >>\nendobj\n";
+        let (s, e) = find_object_bytes(pdf, 19).expect("found object 19");
+        assert_eq!(&pdf[s..e], b"19 0 obj\n<< /B 2 >>\nendobj");
+    }
+
+    #[test]
+    fn find_object_matches_nonzero_generation() {
+        let pdf = b"%PDF\n7 2 obj\n<< /C 3 >>\nendobj\n";
+        let (s, e) = find_object_bytes(pdf, 7).expect("found object 7 gen 2");
+        assert_eq!(&pdf[s..e], b"7 2 obj\n<< /C 3 >>\nendobj");
+    }
+
+    #[test]
+    fn find_object_returns_last_revision() {
+        // Same id serialized twice (an incremental update): the live copy is the
+        // later one.
+        let pdf = b"%PDF\n4 0 obj\n<< /V (old) >>\nendobj\n4 0 obj\n<< /V (new) >>\nendobj\n";
+        let (s, e) = find_object_bytes(pdf, 4).expect("found object 4");
+        assert_eq!(&pdf[s..e], b"4 0 obj\n<< /V (new) >>\nendobj");
     }
 }

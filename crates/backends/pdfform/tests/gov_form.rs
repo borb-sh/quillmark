@@ -244,4 +244,63 @@ fn flatten_pdf_contains_helv_font_and_content_streams() {
         pdf_text.contains("Ada Lovelace"),
         "flat PDF must contain the FullName value"
     );
+    // The text font declares WinAnsiEncoding so the drawn bytes render correctly.
+    assert!(
+        pdf_text.contains("/Encoding /WinAnsiEncoding"),
+        "flat text font must declare WinAnsiEncoding"
+    );
+    // Text blocks clip to their field box (`re W n`) so values can't overflow.
+    assert!(
+        pdf_text.contains(" re W n"),
+        "flat text must clip to the field box"
+    );
+}
+
+#[test]
+fn flatten_transcodes_non_ascii_to_winansi() {
+    // Accented Latin-1, a CP1252-block em-dash, and a curly quote must reach the
+    // flat content stream as their WinAnsi bytes (not raw UTF-8), so a flat
+    // rasterizer renders them with the WinAnsi-encoded Helvetica.
+    let markdown = "~~~\n\
+        $quill: gov_form\n\
+        $kind: main\n\
+        full_name: \"Caf\u{e9} \u{2014} Se\u{f1}or \u{2019}A\u{2019}\"\n\
+        comments: []\n\
+        agree: false\n\
+        favorite_color: green\n\
+        ~~~\n";
+    let result = render_with(markdown, true);
+    let pdf = &result.artifacts[0].bytes;
+
+    // WinAnsi bytes: é→0xE9, —→0x97, ñ→0xF1, ’→0x92. The drawn literal is
+    // `Caf<E9> <97> Se<F1>or <92>A<92>`.
+    let want: &[u8] = &[
+        b'C', b'a', b'f', 0xE9, b' ', 0x97, b' ', b'S', b'e', 0xF1, b'o', b'r', b' ', 0x92, b'A',
+        0x92,
+    ];
+    assert!(
+        pdf.windows(want.len()).any(|w| w == want),
+        "flat PDF must contain the WinAnsi-encoded value bytes"
+    );
+    // The raw UTF-8 multi-byte sequence for é (0xC3 0xA9) must NOT appear in a
+    // drawn text literal — that would be the pre-fix corruption.
+    assert!(
+        !pdf.windows(4).any(|w| w == [b'f', 0xC3, 0xA9, b' ']),
+        "value must not be drawn as raw UTF-8"
+    );
+
+    // The region sidecar keeps the original Unicode value intact.
+    let r = result
+        .regions
+        .iter()
+        .find(|r| r.name == "FullName")
+        .unwrap();
+    match &r.kind {
+        RegionKind::Field { value, .. } => {
+            assert_eq!(
+                value.as_deref(),
+                Some("Caf\u{e9} \u{2014} Se\u{f1}or \u{2019}A\u{2019}")
+            );
+        }
+    }
 }

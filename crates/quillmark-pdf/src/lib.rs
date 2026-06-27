@@ -23,6 +23,7 @@
 mod error;
 pub mod reader;
 mod stamp;
+pub mod writer;
 
 pub use error::PdfError;
 pub use stamp::{regions_of, stamp, StampOptions, StampResult, CHECKBOX_ON_STATE};

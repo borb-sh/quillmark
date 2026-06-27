@@ -17,6 +17,13 @@
   `form.json` field spec (#756)
 - feat(core): add `RenderOptions.flatten` to drive the pdfform value-flattening
   render path
+- fix(pdfform): flatten path transcodes values to WinAnsi (with a
+  `WinAnsiEncoding` font) so accented/Latin-1 text renders correctly in flat
+  output, and clips each value to its field box so long values can't overflow
+- refactor(quillmark-pdf): hoist the shared PDF byte-serialization (object/text
+  writers, `/Info /Producer` stamp) into `quillmark_pdf::writer`, consumed by
+  both the stamp and flatten paths; `find_object_bytes` now matches any object
+  generation and returns the live (last) revision
 - docs(canon): canonize `$ext.editor.title` as the slot for a per-card display name
 
 ## v0.92.0 - 2026-06-22
