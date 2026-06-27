@@ -56,12 +56,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("gov_form render");
 
     write_example_output("gov_form_filled.pdf", &gf_result.artifacts[0].bytes)?;
-    println!(
-        "Written: {}",
-        out_dir.join("gov_form_filled.pdf").display()
-    );
+    println!("Written: {}", out_dir.join("gov_form_filled.pdf").display());
 
-    println!("\nField regions sidecar ({} fields):", gf_result.regions.len());
+    println!(
+        "\nField regions sidecar ({} fields):",
+        gf_result.regions.len()
+    );
     for region in &gf_result.regions {
         let quillmark_core::RegionKind::Field { field_type, value } = &region.kind;
         let val_display = value.as_deref().unwrap_or("<blank>");
@@ -95,10 +95,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     write_example_output("taro_preview.svg", &taro_result.artifacts[0].bytes)?;
     println!("Written: {}", out_dir.join("taro_preview.svg").display());
-    println!(
-        "SVG size: {} bytes",
-        taro_result.artifacts[0].bytes.len()
-    );
+    println!("SVG size: {} bytes", taro_result.artifacts[0].bytes.len());
 
     println!("\nDone. Open the files in the output directory to review:");
     println!("  PDF: {}", out_dir.join("gov_form_filled.pdf").display());

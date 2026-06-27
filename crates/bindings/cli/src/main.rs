@@ -30,6 +30,12 @@ enum Commands {
 
     /// Display metadata and information about a quill
     Info(commands::info::InfoArgs),
+
+    /// Scaffold a Quill.yaml from a pdfform form.json
+    Scaffold(commands::scaffold::ScaffoldArgs),
+
+    /// Qualify an AcroForm PDF into a pdfform quill's form.pdf + form.json + Quill.yaml
+    Qualify(commands::qualify::QualifyArgs),
 }
 
 fn main() {
@@ -41,6 +47,8 @@ fn main() {
         Commands::Blueprint(args) => commands::blueprint::execute(args),
         Commands::Validate(args) => commands::validate::execute(args),
         Commands::Info(args) => commands::info::execute(args),
+        Commands::Scaffold(args) => commands::scaffold::execute(args),
+        Commands::Qualify(args) => commands::qualify::execute(args),
     };
 
     if let Err(e) = result {

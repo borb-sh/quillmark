@@ -82,7 +82,7 @@ fn resolvable_eval_error_is_unchanged() {
     assert!(
         diag.hint
             .as_deref()
-            .map_or(true, |h| !h.contains("dynamically evaluated content")),
+            .is_none_or(|h| !h.contains("dynamically evaluated content")),
         "a resolvable diagnostic must not receive the generic eval hint, got: {:?}",
         diag.hint
     );
