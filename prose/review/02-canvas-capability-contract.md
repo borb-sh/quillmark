@@ -1,6 +1,46 @@
 # 02 — Canvas capability contract not closed by construction
 
-**Severity:** major **Category:** architecture **Status:** Open — design proposed
+**Severity:** major **Category:** architecture **Status:** Resolved (capability
+derived) — shared PDF→canvas extraction deferred
+
+## Resolution
+
+The disagreement class is closed by **deleting** the hand-set flag rather than
+deriving it from a parallel impl. `Backend::supports_canvas()` is removed;
+capability is derived from the one canvas seam:
+
+- `RenderSession::supports_canvas()` — authoritative, session-level, true
+  exactly when the session exposes `page_size_pt` for its pages (and has ≥1
+  page). It is the same seam `paint` dispatches through, so the gate cannot
+  drift from the paint.
+- `quillmark_core::formats_support_canvas(formats)` — pre-session hint for the
+  GUI affordance (keeps the cheap, no-session query the finding flagged as
+  load-bearing), derived from output formats (PNG/SVG ⇒ canvas).
+
+This removes the "two separately-defaultable methods must agree" problem at its
+root — there is no second declaration to disagree. The per-backend
+`supports_canvas` overrides (typst, pdfform) are gone, and the WASM session no
+longer caches a flag — `ensure_canvas` and the `supportsCanvas` getter read the
+same derived seam. Breaking change for out-of-tree `Backend` impls (migration:
+`docs/migrations/0.92-to-0.93.md`).
+
+The `paint` mislabel the finding called out is **also** hardened directly: a
+`None` from `render_rgba` after the canvas gate passed and `page_size_pt`
+succeeded now reports a distinct "reported canvas but produced no raster" error
+rather than a misleading page-out-of-range — correct even for an out-of-tree
+backend whose seam is internally inconsistent across pages.
+
+**Deferred (not done here):** the larger "automatic canvas for any
+PDF-producing backend" extraction (shared `quillmark-pdf-raster` path +
+`raster_pdf` seam) is *not* part of this change. It was judged to add more
+coupling than it removed (core→hayro dependency, two features that must agree, a
+second canvas seam with precedence). The capability contract is now closed
+without it; the extraction remains an optional future dedup if a third PDF
+backend appears. The original design discussion is retained below for reference.
+
+---
+
+**Original finding (design proposed):**
 
 **Location:**
 - `crates/core/src/backend.rs:19-28` (`supports_canvas`, default `false`, with the

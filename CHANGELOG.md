@@ -28,6 +28,12 @@
   both the stamp and flatten paths; `find_object_bytes` now matches any object
   generation and returns the live (last) revision
 - docs(canon): canonize `$ext.editor.title` as the slot for a per-card display name
+- refactor(core)!: remove the hand-set `Backend::supports_canvas()`; derive
+  canvas capability from the one seam instead. `RenderSession::supports_canvas()`
+  (authoritative, from `page_size_pt`) and `formats_support_canvas()`
+  (pre-session hint, from output formats) replace it, so the capability can no
+  longer disagree with what `paint` does. The engine and WASM `supportsCanvas`
+  surfaces are unchanged in shape. See `docs/migrations/0.92-to-0.93.md`
 
 ## v0.92.0 - 2026-06-22
 

@@ -48,11 +48,16 @@ pub trait SessionHandle: Any + Send + Sync {
 }
 ```
 
-A backend opts into canvas by overriding both methods AND reporting
-`Backend::supports_canvas() == true`. The WASM binding captures
-`supportsCanvas` at session-open time, so the capability flag and the painter
-agree by construction — `paint`/`pageSize` succeed exactly when the manifest
-says canvas is supported.
+A backend opts into canvas simply by overriding the two seam methods; there is
+no separate capability flag. Capability is **derived** from the seam:
+`RenderSession::supports_canvas()` is true exactly when the session exposes
+`page_size_pt` for its pages, so `paint`/`pageSize` succeed precisely when the
+session reports canvas — the gate cannot drift from the implementation because
+there is nothing to keep in sync. For a pre-session estimate (a GUI deciding
+whether to mount a canvas UI before opening a session), the engine's
+`supportsCanvas(quill)` derives a hint from the backend's output formats
+(`quillmark_core::formats_support_canvas`: a backend that emits a visual-page
+format, PNG or SVG, can paint); the session-level answer is authoritative.
 
 ### Complete-raster contract
 

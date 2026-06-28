@@ -45,9 +45,11 @@ pub trait SessionHandle: Any + Send + Sync {
     /// per-field geometry (and bound value) for *overlay* UIs regardless; it is
     /// never required to make the raster complete.
     ///
-    /// A backend with no painter returns `None` (the default) and reports
-    /// [`Backend::supports_canvas`](crate::Backend::supports_canvas)` == false`;
-    /// the two answers always agree by construction.
+    /// A backend with no painter overrides neither this nor
+    /// [`page_size_pt`](Self::page_size_pt); the defaults mark the session as
+    /// non-canvas, which is exactly what [`RenderSession::supports_canvas`]
+    /// reports. Capability is derived from this seam, not declared separately,
+    /// so the two cannot disagree.
     fn render_rgba(&self, _page: usize, _scale: f32) -> Option<(u32, u32, Vec<u8>)> {
         None
     }
@@ -100,6 +102,20 @@ impl RenderSession {
         self.inner.page_count()
     }
 
+    /// Whether this session can paint pages to a canvas — the authoritative,
+    /// session-level capability. Derived directly from the canvas seam (a
+    /// painter exposes [`page_size_pt`](SessionHandle::page_size_pt) for its
+    /// pages), so it cannot disagree with what [`render_rgba`](Self::render_rgba)
+    /// will do: there is no separate capability flag to keep in sync. A
+    /// canvas-capable backend with zero pages reports `false` (nothing to
+    /// paint).
+    ///
+    /// For a pre-session estimate (no open session yet), see
+    /// [`formats_support_canvas`](crate::formats_support_canvas).
+    pub fn supports_canvas(&self) -> bool {
+        self.inner.page_count() > 0 && self.inner.page_size_pt(0).is_some()
+    }
+
     /// Page dimensions in points, or `None` if `page` is out of range or the
     /// backend has no canvas painter. Generalized canvas-preview seam — see
     /// [`SessionHandle::page_size_pt`].
@@ -127,5 +143,56 @@ impl RenderSession {
         let mut result = self.inner.render(opts)?;
         result.warnings.extend(self.warnings.iter().cloned());
         Ok(result)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A canvas-capable session: overrides the seam for `pages` pages.
+    struct CanvasHandle {
+        pages: usize,
+    }
+    impl SessionHandle for CanvasHandle {
+        fn render(&self, _: &RenderOptions) -> Result<RenderResult, RenderError> {
+            unimplemented!("render is not exercised by capability tests")
+        }
+        fn page_count(&self) -> usize {
+            self.pages
+        }
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+        fn page_size_pt(&self, page: usize) -> Option<(f32, f32)> {
+            (page < self.pages).then_some((612.0, 792.0))
+        }
+    }
+
+    /// A non-canvas session: leaves the seam at its `None` defaults.
+    struct PlainHandle;
+    impl SessionHandle for PlainHandle {
+        fn render(&self, _: &RenderOptions) -> Result<RenderResult, RenderError> {
+            unimplemented!("render is not exercised by capability tests")
+        }
+        fn page_count(&self) -> usize {
+            1
+        }
+        fn as_any(&self) -> &dyn Any {
+            self
+        }
+    }
+
+    #[test]
+    fn supports_canvas_derives_from_seam() {
+        // A session that exposes page geometry is canvas-capable…
+        let canvas = RenderSession::new(Box::new(CanvasHandle { pages: 2 }));
+        assert!(canvas.supports_canvas());
+        // …one that leaves the seam at its defaults is not…
+        let plain = RenderSession::new(Box::new(PlainHandle));
+        assert!(!plain.supports_canvas());
+        // …and a canvas backend with no pages has nothing to paint.
+        let empty = RenderSession::new(Box::new(CanvasHandle { pages: 0 }));
+        assert!(!empty.supports_canvas());
     }
 }
