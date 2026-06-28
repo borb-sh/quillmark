@@ -372,3 +372,184 @@ fn push_f32(out: &mut Vec<u8>, v: f32) {
     let s = s.trim_end_matches('0').trim_end_matches('.');
     out.extend_from_slice(s.as_bytes());
 }
+
+// ── Tests ───────────────────────────────────────────────────────────────────
+//
+// This module inherits the whole file's `#[cfg(feature = "preview")]` gate, so
+// it only compiles/runs under `--features preview`. It restores the byte-level
+// coverage of the flatten output that the (now-removed) public `flatten: true`
+// integration tests used to provide, exercised here at the `flatten()` unit
+// level (plus the internal `build_content_stream` for the focused
+// transcoding/clipping byte windows) — no public render-option knob involved.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lopdf::Document as PdfDoc;
+    use quillmark_pdf::CHECKBOX_ON_STATE;
+
+    /// A stripped single-page US-Letter background PDF ([0 0 612 792], no
+    /// AcroForm, no annots) — the perfect flatten base.
+    const BASE: &[u8] =
+        include_bytes!("../../../fixtures/resources/quills/sample_form/0.1.0/form.pdf");
+
+    fn text_field(name: &str, value: &str) -> FieldSpec {
+        FieldSpec {
+            name: name.to_string(),
+            page: 0,
+            rect: [72.0, 700.0, 300.0, 720.0],
+            field_type: FieldType::Text { multiline: false },
+            value: Some(value.to_string()),
+            tooltip: None,
+        }
+    }
+
+    fn checkbox_field(name: &str, checked: bool) -> FieldSpec {
+        FieldSpec {
+            name: name.to_string(),
+            page: 0,
+            rect: [72.0, 660.0, 90.0, 678.0],
+            field_type: FieldType::Checkbox,
+            value: checked.then(|| CHECKBOX_ON_STATE.to_string()),
+            tooltip: None,
+        }
+    }
+
+    fn flatten_ok(fields: &[FieldSpec]) -> Vec<u8> {
+        flatten(BASE.to_vec(), fields, &StampOptions::default())
+            .expect("flatten succeeds")
+            .pdf
+    }
+
+    fn contains_window(haystack: &[u8], needle: &[u8]) -> bool {
+        haystack.windows(needle.len()).any(|w| w == needle)
+    }
+
+    /// 1. The flat output reparses cleanly and its catalog carries NO
+    ///    `/AcroForm` — values live in content streams, not widgets.
+    #[test]
+    fn flatten_produces_no_acroform() {
+        let pdf = flatten_ok(&[text_field("FullName", "Ada Lovelace")]);
+
+        let doc = PdfDoc::load_mem(&pdf).expect("lopdf reparse — structurally valid");
+        let cat = doc.catalog().expect("catalog");
+        assert!(
+            cat.get(b"AcroForm").is_err(),
+            "flat PDF must not contain /AcroForm"
+        );
+    }
+
+    /// 2. The flat output declares both standard fonts, a WinAnsi-encoded text
+    ///    font, the `BT`/`Tj` text operators, and the literal field value.
+    #[test]
+    fn flatten_has_fonts_and_text_operators() {
+        let pdf = flatten_ok(&[text_field("FullName", "Ada Lovelace")]);
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(text.contains("/Helvetica"), "must declare Helvetica");
+        assert!(
+            text.contains("/ZapfDingbats"),
+            "must declare ZapfDingbats (checkbox glyph font)"
+        );
+        assert!(
+            text.contains("/Encoding /WinAnsiEncoding"),
+            "text font must declare WinAnsiEncoding"
+        );
+        assert!(
+            text.contains("BT\n") || text.contains("BT "),
+            "must contain BT (begin text) operator"
+        );
+        assert!(
+            text.contains("Tj\n") || text.contains("Tj "),
+            "must contain Tj (show text) operator"
+        );
+        assert!(
+            text.contains("Ada Lovelace"),
+            "must contain the field value literal"
+        );
+    }
+
+    /// 3. Each text value clips to its field rect (`re W n`) so it can't
+    ///    overflow over neighbouring content.
+    #[test]
+    fn flatten_clips_to_field_box() {
+        let pdf = flatten_ok(&[text_field("FullName", "Ada Lovelace")]);
+        let text = String::from_utf8_lossy(&pdf);
+        assert!(
+            text.contains(" re W n"),
+            "text must clip to the field box (re W n)"
+        );
+    }
+
+    /// 4. Non-ASCII CP1252 chars are transcoded to their WinAnsi bytes in the
+    ///    content stream (not drawn as raw UTF-8). Asserted directly on
+    ///    `build_content_stream` — the closest seam to the original byte-window
+    ///    test — and also that the value reaches the full `flatten()` output.
+    #[test]
+    fn build_content_stream_transcodes_non_ascii_to_winansi() {
+        // é(U+00E9) — (U+2014) ñ(U+00F1) ’(U+2019)
+        let value = "Caf\u{e9} \u{2014} Se\u{f1}or \u{2019}A\u{2019}";
+        let spec = text_field("FullName", value);
+        let stream = build_content_stream(&[&spec]);
+
+        // WinAnsi bytes: é→0xE9, —→0x97, ñ→0xF1, ’→0x92. Drawn literal:
+        // `Caf<E9> <97> Se<F1>or <92>A<92>`.
+        let want: &[u8] = &[
+            b'C', b'a', b'f', 0xE9, b' ', 0x97, b' ', b'S', b'e', 0xF1, b'o', b'r', b' ', 0x92,
+            b'A', 0x92,
+        ];
+        assert!(
+            contains_window(&stream, want),
+            "content stream must carry the WinAnsi-encoded value bytes"
+        );
+        // The raw UTF-8 sequence for é (0xC3 0xA9) must NOT appear as a drawn
+        // literal — that would be the pre-fix corruption.
+        assert!(
+            !contains_window(&stream, &[b'f', 0xC3, 0xA9, b' ']),
+            "value must not be drawn as raw UTF-8"
+        );
+
+        // And the same bytes survive the full flatten() envelope.
+        let pdf = flatten_ok(&[spec]);
+        assert!(
+            contains_window(&pdf, want),
+            "flat PDF must carry the WinAnsi-encoded value bytes"
+        );
+    }
+
+    /// 5. A checked checkbox wires the ZapfDingbats font and draws the check
+    ///    glyph via the `write_zadb_char` path (`/ZaDb` + the `'4'` glyph).
+    #[test]
+    fn flatten_checked_checkbox_emits_zapfdingbats_glyph() {
+        let spec = checkbox_field("Agree", true);
+        let stream = build_content_stream(&[&spec]);
+        let text = String::from_utf8_lossy(&stream);
+
+        assert!(
+            text.contains("/ZaDb"),
+            "checked checkbox must select the ZapfDingbats font (/ZaDb)"
+        );
+        // The check glyph is ZapfDingbats byte 0x34 ('4'), drawn as `(4) Tj`.
+        assert!(
+            contains_window(&stream, b"(4) Tj"),
+            "checked checkbox must draw the check glyph"
+        );
+
+        // The font object is wired in the full flatten() output.
+        let pdf = flatten_ok(&[spec]);
+        assert!(
+            String::from_utf8_lossy(&pdf).contains("/ZapfDingbats"),
+            "flat PDF must declare the ZapfDingbats font"
+        );
+
+        // Value-gating lives in flatten() (via `has_drawable_value`), not in
+        // `build_content_stream`: an unchecked checkbox is filtered out before
+        // it reaches the stream, so the check glyph is never drawn.
+        assert!(has_drawable_value(&checkbox_field("Agree", true)));
+        assert!(!has_drawable_value(&checkbox_field("Agree", false)));
+        let unchecked = flatten_ok(&[checkbox_field("Agree", false)]);
+        assert!(
+            !contains_window(&unchecked, b"(4) Tj"),
+            "unchecked checkbox must not draw the check glyph"
+        );
+    }
+}
