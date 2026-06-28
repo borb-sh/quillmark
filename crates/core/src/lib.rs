@@ -50,7 +50,7 @@ pub use document::{
 };
 
 pub mod backend;
-pub use backend::Backend;
+pub use backend::{formats_support_canvas, Backend};
 
 pub mod error;
 pub use error::{Diagnostic, Location, ParseError, RenderError, RenderResult, Severity};

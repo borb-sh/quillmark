@@ -48,11 +48,16 @@ pub trait SessionHandle: Any + Send + Sync {
 }
 ```
 
-A backend opts into canvas by overriding both methods AND reporting
-`Backend::supports_canvas() == true`. The WASM binding captures
-`supportsCanvas` at session-open time, so the capability flag and the painter
-agree by construction — `paint`/`pageSize` succeed exactly when the manifest
-says canvas is supported.
+A backend opts into canvas simply by overriding the two seam methods; there is
+no separate capability flag. Capability is **derived** from the seam:
+`RenderSession::supports_canvas()` is true exactly when the session exposes
+`page_size_pt` for its pages, so `paint`/`pageSize` succeed precisely when the
+session reports canvas — the gate cannot drift from the implementation because
+there is nothing to keep in sync. For a pre-session estimate (a GUI deciding
+whether to mount a canvas UI before opening a session), the engine's
+`supportsCanvas(quill)` derives a hint from the backend's output formats
+(`quillmark_core::formats_support_canvas`: a backend that emits a visual-page
+format, PNG or SVG, can paint); the session-level answer is authoritative.
 
 ### Complete-raster contract
 
@@ -139,14 +144,17 @@ paint is always a full repaint — consumers never call `clearRect`.
 
 ### Regions overlay transform
 
-A consumer drawing overlays from `regions` must flip the Y axis: region `rect`
-is in PDF points with a **bottom-left** origin, a canvas is **top-left** in
-device pixels. For a page `pageHeightPt` tall (from `pageSize`) painted at
-`renderScale`:
+A consumer drawing overlays from `regions` must flip the Y axis: region
+`rect = [x0, y0, x1, y1]` is in PDF points with a **bottom-left** origin, a
+canvas is **top-left** in device pixels. For a page `pageHeightPt` tall (from
+`pageSize`) painted at `renderScale`, the box's top-left canvas corner is the
+PDF rect's *upper* edge (`y1 = rect[3]`), not its lower edge (`y0 = rect[1]`):
 
 ```
-y_canvas = (pageHeightPt − y_pdf) × renderScale
-x_canvas = x_pdf × renderScale
+x_canvas_left = rect[0] × renderScale
+y_canvas_top  = (pageHeightPt − rect[3]) × renderScale
+width_canvas  = (rect[2] − rect[0]) × renderScale
+height_canvas = (rect[3] − rect[1]) × renderScale
 ```
 
 ## Feature / build mapping
