@@ -13,8 +13,6 @@
   `regions` sidecar through `RenderResult` and generalize the raster-preview
   seam (#749, #750). See `prose/proposals/PDFFORM_BACKEND.md` §9 for the V1
   handover.
-- feat(cli): add `quillmark scaffold` to generate a starter `Quill.yaml` from a
-  `form.json` field spec (#756)
 - feat(core): add `RenderOptions.flatten` to drive the pdfform value-flattening
   render path
 - fix(pdfform): flatten path transcodes values to WinAnsi (with a

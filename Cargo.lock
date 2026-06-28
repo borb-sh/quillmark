@@ -2298,7 +2298,6 @@ dependencies = [
  "clap",
  "quillmark",
  "quillmark-core",
- "quillmark-pdfform",
  "serde_json",
 ]
 
