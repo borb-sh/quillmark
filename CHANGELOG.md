@@ -8,6 +8,13 @@
 
 ## Unreleased
 
+- refactor(core)!: remove the hand-set `Backend::supports_canvas()` trait
+  method; canvas capability is now derived from the session seam
+  (`RenderSession::supports_canvas()`, authoritative) with a pre-session hint
+  from output formats (`quillmark_core::formats_support_canvas`). This closes
+  the disagreement class where the flag and the `page_size_pt`/`render_rgba`
+  seam could drift. Engine and WASM `supportsCanvas` surfaces are unchanged in
+  shape. See `docs/migrations/0.92-to-0.93.md`.
 - feat(pdfform): add the Typst-free `pdfform` backend + shared `quillmark-pdf`
   AcroForm stamping spine; rewire Typst signatures onto the spine; thread a
   `regions` sidecar through `RenderResult` and generalize the raster-preview

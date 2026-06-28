@@ -67,11 +67,6 @@ impl Backend for PdfformBackend {
         SUPPORTED_FORMATS
     }
 
-    #[cfg(feature = "preview")]
-    fn supports_canvas(&self) -> bool {
-        true
-    }
-
     fn open(
         &self,
         _plate_content: &str,

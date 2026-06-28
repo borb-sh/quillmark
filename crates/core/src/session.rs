@@ -45,9 +45,11 @@ pub trait SessionHandle: Any + Send + Sync {
     /// per-field geometry (and bound value) for *overlay* UIs regardless; it is
     /// never required to make the raster complete.
     ///
-    /// A backend with no painter returns `None` (the default) and reports
-    /// [`Backend::supports_canvas`](crate::Backend::supports_canvas)` == false`;
-    /// the two answers always agree by construction.
+    /// A backend with no painter overrides neither this nor
+    /// [`page_size_pt`](Self::page_size_pt); the defaults mark the session as
+    /// non-canvas, which is exactly what [`RenderSession::supports_canvas`]
+    /// reports. Capability is derived from this seam, not declared separately,
+    /// so the two cannot disagree.
     fn render_rgba(&self, _page: usize, _scale: f32) -> Option<(u32, u32, Vec<u8>)> {
         None
     }
@@ -92,6 +94,18 @@ impl RenderSession {
 
     pub fn page_count(&self) -> usize {
         self.inner.page_count()
+    }
+
+    /// Whether this session can paint pages to a canvas — the authoritative,
+    /// session-level capability. Derived directly from the canvas seam (a
+    /// painter exposes [`page_size_pt`](SessionHandle::page_size_pt) for its
+    /// pages), so it cannot disagree with what [`render_rgba`](Self::render_rgba)
+    /// will do: there is no separate capability flag to keep in sync.
+    ///
+    /// For a pre-session estimate (no open session yet), see
+    /// [`formats_support_canvas`](crate::formats_support_canvas).
+    pub fn supports_canvas(&self) -> bool {
+        self.inner.page_count() > 0 && self.inner.page_size_pt(0).is_some()
     }
 
     /// Page dimensions in points, or `None` if `page` is out of range or the

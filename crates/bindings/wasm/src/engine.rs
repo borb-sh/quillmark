@@ -197,9 +197,6 @@ pub struct Quill {
 pub struct RenderSession {
     inner: quillmark_core::RenderSession,
     backend_id: String,
-    /// Canvas capability of the backend that produced this session, captured
-    /// at open time. Mirrors the engine's `supportsCanvas`.
-    supports_canvas: bool,
 }
 
 /// Typed in-memory Quillmark document.
@@ -237,7 +234,6 @@ impl Quillmark {
         Ok(RenderSession {
             inner: session,
             backend_id: quill.inner.backend_id().to_string(),
-            supports_canvas: self.inner.supports_canvas(&quill.inner),
         })
     }
 
@@ -1263,11 +1259,12 @@ impl RenderSession {
         self.backend_id.clone()
     }
 
-    /// `true` iff `paint` and `pageSize` will succeed for this session. The
-    /// backend's canvas capability, captured at open time.
+    /// `true` iff `paint` and `pageSize` will succeed for this session. Derived
+    /// from the session's canvas seam, so it reflects exactly what `paint` will
+    /// do — no separately captured flag.
     #[wasm_bindgen(getter, js_name = supportsCanvas)]
     pub fn supports_canvas(&self) -> bool {
-        self.supports_canvas
+        self.inner.supports_canvas()
     }
 
     /// Non-fatal diagnostics emitted when opening the session. Also appended
@@ -1432,12 +1429,12 @@ impl RenderSession {
 
 #[cfg(any(feature = "typst", feature = "pdfform-preview"))]
 impl RenderSession {
-    /// Gate a canvas operation on the backend's honest canvas capability,
-    /// captured at open time. The painter now dispatches generically through
-    /// the core `SessionHandle` seam (`page_size_pt` / `render_rgba`) rather
-    /// than downcasting to a backend-specific session type.
+    /// Gate a canvas operation on the session's canvas capability, derived from
+    /// the core `SessionHandle` seam (`page_size_pt` / `render_rgba`) — the same
+    /// seam the painter dispatches through, so the gate cannot disagree with the
+    /// paint.
     fn ensure_canvas(&self, op: &str) -> Result<(), JsValue> {
-        if self.supports_canvas {
+        if self.inner.supports_canvas() {
             Ok(())
         } else {
             Err(WasmError::from(format!(

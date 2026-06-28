@@ -12,22 +12,6 @@ pub trait Backend: Send + Sync + std::fmt::Debug {
     /// Get supported output formats.
     fn supported_formats(&self) -> &'static [OutputFormat];
 
-    /// Whether this backend can paint sessions to a canvas (iterative
-    /// `pageSize` / `paint`). The honest capability the engine reports as
-    /// `supports_canvas`, asked of the real backend rather than guessed from
-    /// the id. Defaults to `false`; canvas-capable backends override it.
-    ///
-    /// This is the static, pre-session half of the raster-preview seam; the
-    /// dynamic half is `SessionHandle::page_size_pt` / `render_rgba`, which
-    /// default to `None`. The two must agree by construction: a backend that
-    /// returns `true` here **must** override both session methods, and one that
-    /// leaves them `None` must return `false` here. The painter dispatches
-    /// generically through the session seam, so a mismatch surfaces as a canvas
-    /// that reports itself available yet paints nothing.
-    fn supports_canvas(&self) -> bool {
-        false
-    }
-
     /// Open an iterative render session from plate + compiled JSON data.
     fn open(
         &self,
@@ -35,4 +19,25 @@ pub trait Backend: Send + Sync + std::fmt::Debug {
         source: &Quill,
         json_data: &serde_json::Value,
     ) -> Result<RenderSession, RenderError>;
+}
+
+/// Pre-session hint for whether a backend with these `formats` can paint pages
+/// to a canvas, used before a session exists (e.g. a GUI deciding whether to
+/// mount a canvas preview without first paying to open one).
+///
+/// Canvas paint needs a per-page *visual image* of the laid-out page, so the
+/// predicate keys off the visual-page output formats — [`OutputFormat::Png`]
+/// (raster) and [`OutputFormat::Svg`] (vector) — as opposed to
+/// [`OutputFormat::Pdf`] (a document) or [`OutputFormat::Txt`]. A backend that
+/// can rasterize a page advertises one of these.
+///
+/// This is only a hint. The **authoritative** answer is
+/// [`RenderSession::supports_canvas`], which is derived from the session's
+/// actual canvas seam ([`SessionHandle::page_size_pt`](crate::session::SessionHandle::page_size_pt))
+/// and so cannot disagree with what `paint` will do — there is no separately
+/// maintained capability flag to drift from the implementation.
+pub fn formats_support_canvas(formats: &[OutputFormat]) -> bool {
+    formats
+        .iter()
+        .any(|f| matches!(f, OutputFormat::Png | OutputFormat::Svg))
 }

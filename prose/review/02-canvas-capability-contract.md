@@ -1,6 +1,38 @@
 # 02 — Canvas capability contract not closed by construction
 
-**Severity:** major **Category:** architecture **Status:** Open — design proposed
+**Severity:** major **Category:** architecture **Status:** Resolved (capability
+derived) — shared PDF→canvas extraction deferred
+
+## Resolution
+
+The disagreement class is closed by **deleting** the hand-set flag rather than
+deriving it from a parallel impl. `Backend::supports_canvas()` is removed;
+capability is derived from the one canvas seam:
+
+- `RenderSession::supports_canvas()` — authoritative, session-level, true
+  exactly when the session exposes `page_size_pt` for its pages. It is the same
+  seam `paint` dispatches through, so the gate cannot drift from the paint.
+- `quillmark_core::formats_support_canvas(formats)` — pre-session hint for the
+  GUI affordance (keeps the cheap, no-session query the finding flagged as
+  load-bearing), derived from output formats.
+
+This removes the "two separately-defaultable methods must agree" problem at its
+root — there is no second declaration to disagree. The `paint` mislabel is moot
+under this model: `ensure_canvas` and `paint` read the same seam, so a `None`
+from `render_rgba` for a valid page can no longer follow a passing capability
+check for the in-tree backends.
+
+**Deferred (not done here):** the larger "automatic canvas for any PDF-producing
+backend" extraction (shared `quillmark-pdf-raster` path + `raster_pdf` seam) is
+*not* part of this change. It was judged to add more coupling than it removed
+(core→hayro dependency, two features that must agree, a second canvas seam with
+precedence). The capability contract is now closed without it; the extraction
+remains an optional future dedup if a third PDF backend appears. The original
+design discussion is retained below for reference.
+
+---
+
+**Original finding (design proposed):**
 
 **Location:**
 - `crates/core/src/backend.rs:19-28` (`supports_canvas`, default `false`, with the
