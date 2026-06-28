@@ -17,11 +17,9 @@
 mod flatten;
 mod form;
 mod resolve;
-pub mod scaffold;
 mod typography;
 
 pub use form::{FieldKind, FormField, FormParseError, FormSpec, Rect};
-pub use scaffold::scaffold_quill_yaml;
 
 use std::any::Any;
 

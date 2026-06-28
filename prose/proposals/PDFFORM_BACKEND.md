@@ -467,7 +467,9 @@ supports every field type, exercised through `pdfform`.
   (no PDF work): `schema_field`→key, `type`→Quill.yaml type, `options`→`enum`,
   `tooltip`→`description`, geometry→field order. A one-time scaffold (then
   hand-owned), guaranteeing `schema_field`↔schema consistency by construction.
-  Natural home for a future `quillmark` CLI subcommand.
+  **Belongs in the quillification pipeline (separate repo) alongside the
+  qualification layer that produces `form.json`, not in this engine** — a brief
+  `quillmark` CLI subcommand for it was prototyped here (#756) and removed.
 - **Card-instance value addressing** (`$cards.<i>.<field>`, `$cards.<kind>.<i>.<field>`)
   — landed in `resolve.rs`. Binds one card instance per form field, so a *static*
   multi-page form can lay out a bounded number of card slots across its existing
@@ -598,7 +600,9 @@ The full backlog is §7; each item below is filed as a tracking issue.
    typst-free WASM bundle.** → **#754**
 4. **Surface `regions` in the bindings + the `@quillmark/wasm` canvas contract**
    (value compositing + golden-image fixtures). → **#755**
-5. **`form.json` → `Quill.yaml` scaffold** (CLI subcommand). → **#756**
+5. **`form.json` → `Quill.yaml` scaffold** (#756) — prototyped as a `quillmark`
+   CLI subcommand, then removed: it belongs in the quillification pipeline
+   (separate repo) with the qualification layer, not this engine.
 6. **Card-instance addressing** (`$cards.<i>` / `$cards.<kind>.<i>`) → **#757** —
    *landed; see the dated note below.* Continuation/overflow pages, page
    composition, and PDF merging are **out of scope** (§7): `pdfform` fills static
