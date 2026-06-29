@@ -1,5 +1,5 @@
 //! Regression coverage for the "string index N is not a character boundary"
-//! panic class (BACKLOG.md B1).
+//! panic class.
 //!
 //! `Document::from_markdown` must not panic on multibyte-character inputs.
 //! The vulnerable input shape is a `markdown`-typed field containing a mix of:
