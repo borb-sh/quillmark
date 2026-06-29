@@ -576,8 +576,8 @@ main:
 
     #[test]
     fn rejects_simple_string_type_mismatch() {
-        // A bare scalar now coerces into a string; an array does not, so it
-        // still raises a string TypeMismatch.
+        // A bare scalar coerces into a string; an array does not, so it
+        // raises a string TypeMismatch.
         let config = config_with("    title:\n      type: string\n      default: \"\"", "");
         let doc = doc_from_fm(&[("title", json!([1, 2, 3]))]);
         let errors = validate_typed_document(&config, &doc).unwrap_err();
@@ -734,7 +734,7 @@ main:
     #[test]
     fn reports_card_field_paths_with_card_name_and_index() {
         // A type-mismatched card field anchors the `cards.<kind>[<i>].<field>`
-        // path shape (absence no longer raises, so we exercise the path via a
+        // path shape (absence does not raise, so we exercise the path via a
         // well-formedness error instead).
         let config = config_with(
             "    title:\n      type: string\n      default: \"\"",

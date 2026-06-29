@@ -66,9 +66,9 @@ fn test_malformed_quill_reference_carries_code_and_grammar_hint() {
 
 #[test]
 fn test_root_dash_frontmatter_without_quill_reports_missing_quill() {
-    // `---` opener is now accepted for the root block. A `---` block without
-    // `$quill` should surface the standard MissingQuill error — not the old
-    // "use `~~~card-yaml` instead of `---`" hint, which is now misleading.
+    // `---` is an accepted opener for the root block. A `---` block without
+    // `$quill` surfaces the standard MissingQuill error — not a
+    // "use `~~~card-yaml` instead of `---`" hint, which would be misleading.
     let err = decompose("---\nquill: usaf_memo\ntitle: Memo\n---\n\nBody\n").unwrap_err();
     let msg = err.to_string();
     assert!(msg.contains("must declare `$quill: <name>`"), "got: {msg}");
@@ -279,7 +279,7 @@ Content here.";
 
     let result = decompose(markdown);
     assert!(result.is_err());
-    // Error message now includes location context
+    // Error message includes location context
     assert!(result.unwrap_err().to_string().contains("YAML error"));
 }
 
@@ -484,7 +484,7 @@ Item body";
 
 #[test]
 fn test_card_name_collision_with_array_field() {
-    // Card kind names CAN now conflict with payload field names.
+    // Card kind names CAN conflict with payload field names.
     let markdown = "~~~card-yaml
 $quill: test_quill
 $kind: main
@@ -535,11 +535,10 @@ Item 1 body";
 
 #[test]
 fn test_uppercase_payload_keys_accepted_at_parse() {
-    // Spec §3.4: data-field names match [A-Za-z_][A-Za-z0-9_]*. The legacy
-    // uppercase reservation is gone (only `$`-prefixed keys are system
-    // metadata since the 0.83 plate-JSON cutover), so uppercase user fields
-    // parse, are preserved verbatim (case is significant), and round-trip
-    // bare through emit.
+    // Spec §3.4: data-field names match [A-Za-z_][A-Za-z0-9_]*. Only
+    // `$`-prefixed keys are system metadata, so uppercase user fields parse,
+    // are preserved verbatim (case is significant), and round-trip bare
+    // through emit.
     let markdown = "~~~card-yaml
 $quill: test_quill
 $kind: main

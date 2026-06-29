@@ -13,7 +13,7 @@ quillmark render [OPTIONS] <QUILL_PATH> [MARKDOWN_FILE]
 
 `QUILL_PATH` provides the local quill bundle used for rendering. `MARKDOWN_FILE` requires a root bare `~~~` block (`~~~card-yaml` is also accepted) with a `$quill` system-metadata line because parsing enforces it.
 
-When `MARKDOWN_FILE` is omitted, the quill's seeded document is rendered instead (each field's `example:` with `default:`/zero interpolated), so the quill renders out of the box. Output defaults to `example.{format}`.
+When `MARKDOWN_FILE` is omitted, the quill's seeded document is rendered instead (each field's `example:` with `default:`/zero interpolated), so the quill renders with no input file. Output defaults to `example.{format}`.
 
 Options:
 - `-o, --output <FILE>` — output file path (default: derived from input filename)

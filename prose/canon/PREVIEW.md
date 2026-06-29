@@ -48,7 +48,7 @@ pub trait SessionHandle: Any + Send + Sync {
 }
 ```
 
-A backend opts into canvas simply by overriding the two seam methods; there is
+A backend opts into canvas by overriding the two seam methods; there is
 no separate capability flag. Capability is **derived** from the seam:
 `RenderSession::supports_canvas()` is true exactly when the session exposes
 `page_size_pt` for its pages, so `paint`/`pageSize` succeed precisely when the
@@ -170,7 +170,7 @@ painter cannot disagree:
 | (`pdfform`, no `web-sys`)                 | pdfform  | no     | renders PDF + SVG + PNG, but no canvas painter           |
 
 The pdfform backend always links its hayro raster seam, so it renders PDF, SVG,
-and PNG out of the box (`supports_canvas() == true`). The wasm `pdfform-preview`
+and PNG without any preview feature (`supports_canvas() == true`). The wasm `pdfform-preview`
 feature is a strict superset of `pdfform` that only adds the `web-sys` canvas
 *painter*, so the in-browser `paint()` surface ships; a `pdfform` build without
 `web-sys` still renders SVG/PNG but carries no painter. `build-wasm.sh` builds
@@ -183,9 +183,8 @@ sequentially; `runtime/runtime.js` maps each backend id to its build with a
 - Native (CLI / Python) exposure. Capability is WASM-only.
 - Text selection, find-in-page, accessibility. Canvas has none of these by
   design — if you need them, keep an SVG/PDF export path alongside.
-- Click-to-jump or cursor-to-region mapping. Investigated as a Typst spike
-  (jump_from_click / jump_from_cursor + an OriginMap) but deferred — not
-  needed for the preview itself.
+- Click-to-jump or cursor-to-region mapping. Not supported; the preview does
+  not require it.
 
 ## Decisions and rationale
 

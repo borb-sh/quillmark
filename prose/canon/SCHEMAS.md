@@ -126,8 +126,8 @@ blank for every type except `enum`, whose zero is the first declared variant
 
 ## Zero-filled render
 
-**Partial documents are first-class citizens.** A document need not be
-complete to render — render success is not a completeness signal.
+**A document need not be complete to render** — render success is not a
+completeness signal.
 Shippability is the author's judgment; the engine's only hard requirement
 is that the document be *well-formed* (values coerce). A `!must_fill` marker
 and a present-null cell are both renderable — neither gates render.

@@ -1,14 +1,4 @@
-//! # Markdown to Typst Conversion
-//!
-//! This module transforms CommonMark markdown into Typst markup language.
-//!
-//! ## Key Functions
-//!
-//! - [`mark_to_typst()`] - Primary conversion function for Markdown to Typst
-//! - [`escape_markup()`] - Escapes text for safe use in Typst markup context
-//! - [`escape_string()`] - Escapes text for embedding in Typst string literals
-//!
-//! ## Quick Example
+//! Transforms CommonMark markdown into Typst markup.
 //!
 //! ```
 //! use quillmark_typst::convert::mark_to_typst;
@@ -18,15 +8,7 @@
 //! // Output: "This is #strong[bold] and #emph[italic].\n\n"
 //! ```
 //!
-//! ## Detailed Documentation
-//!
-//! For comprehensive conversion details including:
-//! - Character escaping strategies
-//! - CommonMark feature coverage  
-//! - Event-based conversion flow
-//! - Implementation notes
-//!
-//! See [CONVERT.md](https://github.com/quillmark-org/quillmark/blob/main/prose/canon/CONVERT.md) for the complete specification.
+//! See [CONVERT.md](https://github.com/quillmark-org/quillmark/blob/main/prose/canon/CONVERT.md) for the full specification.
 
 use pulldown_cmark::{Event, Parser, Tag, TagEnd};
 use quillmark_core::error::MAX_NESTING_DEPTH;

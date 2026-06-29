@@ -94,7 +94,7 @@ $seed:
 
 #[test]
 fn unknown_dollar_key_message_lists_seed() {
-    // The closed-set rejection now advertises `$seed` as accepted.
+    // The closed-set rejection lists `$seed` among the accepted keys.
     let err = Document::from_markdown(
         "\
 ~~~card-yaml
