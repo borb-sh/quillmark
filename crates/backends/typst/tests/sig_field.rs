@@ -556,10 +556,10 @@ fn form_field_value_binding_from_data() {
     );
 }
 
-/// case: the `RenderResult.regions` sidecar carries the right `field_type` and
-/// case: the `RenderResult.regions` sidecar is keyed on the plate-authored field
-/// address (a Typst form-field's name is its schema address — no widget/schema
-/// split), one region per field of any type, each carrying page+geometry.
+/// case: `session.regions()` is keyed on the plate-authored field address (a
+/// Typst form-field's name is its schema address — no widget/schema split), one
+/// region per field of any type, each carrying page+geometry. A session-level
+/// query, not a render output.
 #[test]
 fn form_field_regions_key_on_field_address() {
     let plate = r#"
@@ -574,15 +574,10 @@ fn form_field_regions_key_on_field_address() {
     let session = TypstBackend
         .open(&source, &serde_json::json!({}))
         .expect("open");
-    let result = session
-        .render(&RenderOptions {
-            output_format: Some(OutputFormat::Pdf),
-            ..Default::default()
-        })
-        .expect("render");
+    let regions = session.regions();
 
     let fields: std::collections::HashMap<&str, &quillmark_core::RenderedRegion> =
-        result.regions.iter().map(|r| (r.field.as_str(), r)).collect();
+        regions.iter().map(|r| (r.field.as_str(), r)).collect();
 
     for name in ["txt", "chk", "cho", "sig"] {
         let r = fields

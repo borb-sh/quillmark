@@ -136,13 +136,6 @@ export interface RenderResult {
 	warnings: Diagnostic[];
 	outputFormat: OutputFormat;
 	renderTimeMs: number;
-	/**
-	 * Schema-field regions, each keyed on the quill schema field path. Always
-	 * an array — empty for backends / formats that produce no field geometry,
-	 * and for fields with no schema address. Geometry for overlays /
-	 * cross-navigation, never a compositing input.
-	 */
-	regions: FieldRegion[];
 }
 
 /** Canonical contract every backend build must satisfy. The emittable formats. */
@@ -249,9 +242,10 @@ export declare class Engine {
  * pixels, with NO compositing required by the caller. Both backends that
  * support canvas satisfy this: Typst rasterizes its laid-out page natively;
  * pdfform pre-flattens bound field values into the page content and rasterizes
- * that, so field values appear in the raster on their own. The
- * {@link FieldRegion} sidecar carries field geometry for interactive overlays
- * drawn on top of the raster; it is never needed to complete the picture.
+ * that, so field values appear in the raster on their own.
+ * {@link RenderSession.regions} carries schema-field geometry for interactive
+ * overlays / cross-navigation drawn on top of the raster; it is never needed to
+ * complete the picture.
  *
  * @experimental The whole session/canvas-paint surface (`Engine.open`,
  * `RenderSession`, `PaintOptions`, `PaintResult`, `PageSize`) ships ahead of
@@ -265,6 +259,14 @@ export declare class RenderSession {
 	readonly supportsCanvas: boolean;
 	readonly warnings: Diagnostic[];
 	render(options?: RenderOptions): RenderResult;
+	/**
+	 * Schema-field geometry for this compiled session — one {@link FieldRegion}
+	 * per schema-bound field, keyed on its quill schema field path. A
+	 * session-level query: no render, no byte artifact. Read it to place field
+	 * overlays / cross-navigation over a `paint`-ed canvas. Empty for backends
+	 * that place no schema fields.
+	 */
+	regions(): FieldRegion[];
 	/** Page geometry in points (1/72″). Report-only; the painter sizes the canvas. */
 	pageSize(page: number): PageSize;
 	/**

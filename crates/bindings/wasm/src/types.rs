@@ -202,14 +202,6 @@ pub struct RenderResult {
     pub warnings: Vec<Diagnostic>,
     pub output_format: OutputFormat,
     pub render_time_ms: f64,
-    /// Schema-field regions (`pdfform` AcroForm widgets; Typst form-fields),
-    /// each keyed on the quill schema field path. Ordered by page then
-    /// field-spec order. Always an array — empty for backends / formats that
-    /// produce no field geometry, and for fields with no schema address.
-    /// Geometry for interactive overlays / cross-navigation drawn on top of the
-    /// complete raster; never a compositing input.
-    #[serde(default)]
-    pub regions: Vec<FieldRegion>,
 }
 
 /// A rendered field region: the quill schema field address plus its geometry on

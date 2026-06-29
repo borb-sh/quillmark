@@ -3,7 +3,7 @@
 use crate::error::WasmError;
 use crate::types::Diagnostic;
 #[cfg(any(feature = "typst", feature = "pdfform"))]
-use crate::types::{RenderOptions, RenderResult};
+use crate::types::{FieldRegion, RenderOptions, RenderResult};
 use js_sys::{Array, Uint8Array};
 #[cfg(any(feature = "typst", feature = "pdfform-preview"))]
 use serde::Deserialize;
@@ -261,7 +261,6 @@ impl Quillmark {
             warnings,
             output_format: result.output_format.into(),
             render_time_ms: now_ms() - start,
-            regions: result.regions.into_iter().map(Into::into).collect(),
         })
     }
 
@@ -1298,8 +1297,18 @@ impl RenderSession {
             warnings: result.warnings.into_iter().map(Into::into).collect(),
             output_format: result.output_format.into(),
             render_time_ms: now_ms() - start,
-            regions: result.regions.into_iter().map(Into::into).collect(),
         })
+    }
+
+    /// Schema-field geometry for this compiled session — one region per
+    /// schema-bound field, keyed on its quill schema field path. A session-level
+    /// query: no render, no byte artifact. An interactive preview reads it to
+    /// place field overlays / cross-navigation over a `paint`-ed canvas. Empty
+    /// for backends that place no schema fields.
+    #[wasm_bindgen(js_name = regions, unchecked_return_type = "FieldRegion[]")]
+    pub fn regions(&self) -> Result<JsValue, JsValue> {
+        let regions: Vec<FieldRegion> = self.inner.regions().into_iter().map(Into::into).collect();
+        serialize_or_throw(&regions, "regions")
     }
 }
 

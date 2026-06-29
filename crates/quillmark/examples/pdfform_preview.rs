@@ -58,11 +58,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     write_example_output("sample_form_filled.pdf", &gf_result.artifacts[0].bytes)?;
     println!("Written: {}", out_dir.join("sample_form_filled.pdf").display());
 
-    println!(
-        "\nField regions sidecar ({} fields):",
-        gf_result.regions.len()
-    );
-    for region in &gf_result.regions {
+    // Region geometry is a session-level query, not on the render result: open
+    // a session and read it without producing another byte artifact.
+    let gf_session = engine.open(&gf_quill, &gf_doc).expect("open sample_form session");
+    let regions = gf_session.regions();
+    println!("\nField regions ({} fields):", regions.len());
+    for region in &regions {
         // A region carries the schema field address + geometry, for mapping a
         // page rectangle to the editor field (cross-navigation).
         println!(

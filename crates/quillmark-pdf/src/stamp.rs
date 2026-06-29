@@ -47,16 +47,10 @@ pub struct StampOptions {
     pub producer: Option<String>,
 }
 
-/// Result of [`stamp`](crate::stamp): the stamped PDF and the region sidecar.
-#[derive(Debug, Clone)]
-pub struct StampResult {
-    pub pdf: Vec<u8>,
-    pub regions: Vec<RenderedRegion>,
-}
-
 /// Stamp `fields` onto `base` as a fresh AcroForm via one incremental update,
-/// optionally stamping `/Info` `/Producer`. Returns the stamped bytes plus a
-/// [`RenderedRegion`] per field.
+/// optionally stamping `/Info` `/Producer`. Returns the stamped bytes. Field
+/// geometry is not produced here — it is a session-level query (see
+/// [`regions_of`]).
 ///
 /// `base` must satisfy the reader's input contract (traditional-xref,
 /// unencrypted, inline-annots, flat-tree). Each field's `rect` is final
@@ -66,13 +60,11 @@ pub fn stamp(
     base: Vec<u8>,
     fields: &[FieldSpec],
     opts: &StampOptions,
-) -> Result<StampResult, PdfError> {
-    let regions = regions_of(fields);
-
+) -> Result<Vec<u8>, PdfError> {
     // Nothing to write: no producer stamp and no fields. Return the base as-is
     // rather than append an empty revision.
     if opts.producer.is_none() && fields.is_empty() {
-        return Ok(StampResult { pdf: base, regions });
+        return Ok(base);
     }
 
     let pdf = base;
@@ -167,11 +159,7 @@ pub fn stamp(
         }
     }
 
-    let stamped = up.finish(pdf)?;
-    Ok(StampResult {
-        pdf: stamped,
-        regions,
-    })
+    up.finish(pdf)
 }
 
 /// Build the [`RenderedRegion`] geometry sidecar — one region per field that

@@ -1,6 +1,6 @@
 use std::any::Any;
 
-use crate::{Diagnostic, RenderError, RenderOptions, RenderResult};
+use crate::{Diagnostic, RenderError, RenderOptions, RenderResult, RenderedRegion};
 
 /// Backend-specific session implementation.
 ///
@@ -41,10 +41,9 @@ pub trait SessionHandle: Any + Send + Sync {
     ///   streams at session-open, then rasterizes that flat PDF — so field
     ///   values appear in the raster without the caller drawing them.
     ///
-    /// The `regions` sidecar on [`RenderResult`](crate::RenderResult) carries
-    /// per-field geometry keyed on the quill schema field path, for *overlay* /
-    /// cross-navigation UIs regardless; it is never required to make the raster
-    /// complete.
+    /// The [`regions`](Self::regions) accessor carries per-field geometry keyed
+    /// on the quill schema field path, for *overlay* / cross-navigation UIs
+    /// regardless; it is never required to make the raster complete.
     ///
     /// A backend with no painter overrides neither this nor
     /// [`page_size_pt`](Self::page_size_pt); the defaults mark the session as
@@ -54,6 +53,19 @@ pub trait SessionHandle: Any + Send + Sync {
     /// expected to pair this method with `page_size_pt` over the same page set.
     fn render_rgba(&self, _page: usize, _scale: f32) -> Option<(u32, u32, Vec<u8>)> {
         None
+    }
+
+    /// Schema-field geometry for the compiled session — one [`RenderedRegion`]
+    /// per field that carries a quill schema address, keyed on that address.
+    ///
+    /// A session-level query, not a render output: the geometry is a property of
+    /// the compiled snapshot, computed from already-resolved field placements
+    /// with no rasterization and no byte artifact. An interactive preview reads
+    /// it to lay out overlays / field cross-navigation over a `paint`-ed canvas;
+    /// a one-shot byte render never needs it. Default empty — a backend that
+    /// places schema fields overrides this.
+    fn regions(&self) -> Vec<RenderedRegion> {
+        Vec::new()
     }
 }
 
@@ -132,6 +144,16 @@ impl RenderSession {
     /// [`SessionHandle::render_rgba`].
     pub fn render_rgba(&self, page: usize, scale: f32) -> Option<(u32, u32, Vec<u8>)> {
         self.inner.render_rgba(page, scale)
+    }
+
+    /// Schema-field geometry for the compiled session — one [`RenderedRegion`]
+    /// per schema-bound field, keyed on its quill schema field path. A
+    /// session-level query computed without rendering bytes; an interactive
+    /// preview reads it to place overlays / field cross-navigation over a
+    /// `paint`-ed canvas. Empty for backends that place no schema fields. See
+    /// [`SessionHandle::regions`].
+    pub fn regions(&self) -> Vec<RenderedRegion> {
+        self.inner.regions()
     }
 
     /// Session-level warnings attached at `Backend::open` time, also appended

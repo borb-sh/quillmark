@@ -27,7 +27,7 @@ use flatten::flatten as flatten_to_pdf;
 use quillmark_core::session::SessionHandle;
 use quillmark_core::{
     Artifact, Backend, Diagnostic, OutputFormat, Quill, RenderError, RenderOptions, RenderResult,
-    RenderSession, Severity,
+    RenderSession, RenderedRegion, Severity,
 };
 use quillmark_pdf::regions_of;
 use quillmark_pdf::{stamp, FieldSpec, PdfError, StampOptions};
@@ -113,13 +113,8 @@ impl Backend for PdfformBackend {
         // ready-to-rasterize flat PDF without re-running flatten on every
         // paint call. The producer string only goes in the PDF Info dict and
         // doesn't affect rasterisation, so None is fine here.
-        let flat_pdf = flatten_to_pdf(
-            base_pdf.clone(),
-            &field_specs,
-            &StampOptions { producer: None },
-        )
-        .map(|r| r.pdf)
-        .map_err(map_pdf_err)?;
+        let flat_pdf = flatten_to_pdf(base_pdf.clone(), &field_specs, &StampOptions { producer: None })
+            .map_err(map_pdf_err)?;
 
         Ok(RenderSession::new(Box::new(PdfformSession {
             base_pdf,
@@ -182,12 +177,11 @@ impl SessionHandle for PdfformSession {
 
         Ok(RenderResult::new(
             vec![Artifact {
-                bytes: stamped.pdf,
+                bytes: stamped,
                 output_format: OutputFormat::Pdf,
             }],
             OutputFormat::Pdf,
-        )
-        .with_regions(stamped.regions))
+        ))
     }
 
     fn page_count(&self) -> usize {
@@ -230,6 +224,12 @@ impl SessionHandle for PdfformSession {
             .collect();
         Some((w, h, bytes))
     }
+
+    /// Schema-field geometry from the resolved specs — keyed on the schema path,
+    /// skipping unbound widgets. Computed from cached state, no rasterization.
+    fn regions(&self) -> Vec<RenderedRegion> {
+        regions_of(&self.field_specs)
+    }
 }
 
 impl PdfformSession {
@@ -258,8 +258,7 @@ impl PdfformSession {
             })
             .collect();
 
-        let regions = regions_of(&self.field_specs);
-        Ok(RenderResult::new(artifacts, OutputFormat::Svg).with_regions(regions))
+        Ok(RenderResult::new(artifacts, OutputFormat::Svg))
     }
 
     /// Render all pages as PNG via hayro, using the pre-flattened PDF. `scale`
@@ -298,8 +297,7 @@ impl PdfformSession {
             });
         }
 
-        let regions = regions_of(&self.field_specs);
-        Ok(RenderResult::new(artifacts, OutputFormat::Png).with_regions(regions))
+        Ok(RenderResult::new(artifacts, OutputFormat::Png))
     }
 }
 

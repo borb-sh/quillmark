@@ -18,7 +18,7 @@
 //! top-left origin in device pixels, so the test applies the canonical
 //! `y_canvas = (pageHeightPt - y_pdf) × scale` flip to locate a field box.
 
-use quillmark::{Document, OutputFormat, Quillmark, RenderOptions};
+use quillmark::{Document, Quillmark};
 
 const FILLED: &str = "~~~\n\
 $quill: sample_form\n\
@@ -70,19 +70,14 @@ fn pdfform_canvas_raster_is_complete() {
         "RGBA buffer must be w*h*4 bytes"
     );
 
-    // 2. Field-value ink: locate a bound text field via the regions sidecar and
-    //    prove the flat raster has non-white opaque pixels inside its rect.
-    let result = session
-        .render(&RenderOptions {
-            output_format: Some(OutputFormat::Pdf),
-            ..Default::default()
-        })
-        .expect("render to obtain regions geometry");
+    // 2. Field-value ink: locate a bound text field via the session's region
+    //    geometry and prove the flat raster has non-white opaque pixels inside
+    //    its rect. Geometry is a session-level query — no second byte render.
+    let regions = session.regions();
 
     // Pick the bound text field (schema path `full_name` = "Ada Lovelace") on
-    // page 0 via the regions sidecar, keyed on the schema path.
-    let region = result
-        .regions
+    // page 0, keyed on the schema path.
+    let region = regions
         .iter()
         .find(|r| r.page == 0 && r.field == "full_name")
         .expect("a region for the bound text field on page 0");

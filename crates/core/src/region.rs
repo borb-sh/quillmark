@@ -1,4 +1,6 @@
-//! Rendered-region sidecar carried on every [`RenderResult`](crate::RenderResult).
+//! Schema-field geometry, queried from a compiled
+//! [`RenderSession`](crate::RenderSession) via
+//! [`regions`](crate::RenderSession::regions).
 //!
 //! A region ties a rectangle on the rendered page to the **quill schema field**
 //! that produced it — the address the document author already uses to refer to
@@ -14,12 +16,14 @@
 //! (`Signature`). A region is emitted only for a field with a schema address —
 //! an unbound decorative widget produces none.
 //!
-//! Regions ride on *every* render regardless of output format — a GUI overlay
-//! needs the geometry whether it shows the PDF or a rastered background — and
-//! default to empty for backends that produce none. They are an overlay
-//! sidecar, never a compositing input: both canvas backends hand back a
-//! complete page raster, so nothing about the picture depends on reading a
-//! region.
+//! Regions are a session-level query, not a render output: the geometry is a
+//! property of the compiled snapshot, read once from the session without
+//! producing any byte artifact. Only the interactive-preview path wants it (to
+//! lay out overlays over a `paint`-ed canvas); a one-shot byte render
+//! (PDF/PNG/SVG) never does. They are an overlay sidecar, never a compositing
+//! input: both canvas backends hand back a complete page raster, so nothing
+//! about the picture depends on reading a region. Empty for backends that place
+//! no schema fields.
 
 /// One schema field's placement on a rendered page.
 ///

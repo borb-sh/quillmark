@@ -27,7 +27,7 @@ mod update;
 pub mod writer;
 
 pub use error::PdfError;
-pub use stamp::{regions_of, stamp, StampOptions, StampResult, CHECKBOX_ON_STATE};
+pub use stamp::{regions_of, stamp, StampOptions, CHECKBOX_ON_STATE};
 pub use update::PdfUpdate;
 
 // The region sidecar lives in core (it rides on `RenderResult`); re-export so

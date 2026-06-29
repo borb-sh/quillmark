@@ -72,12 +72,15 @@ compositing of its own. Backends satisfy it differently:
   values appear in the raster on their own, with no regions-compositing by the
   caller.
 
-The `regions` sidecar (on `RenderResult`, see [SCHEMAS.md](SCHEMAS.md) and the
-region type in `crates/core/src/region.rs`) carries per-field geometry keyed on
-the **quill schema field path** — the address the editor uses — for interactive
-**overlays** and **cross-navigation** (click a rendered field → focus it in the
-editor, or highlight the page rectangle for the focused field). It carries
-geometry only, never a value or a backend widget name, and is never needed to
+Field geometry is a **session-level query**, `RenderSession::regions()` (see
+[SCHEMAS.md](SCHEMAS.md) and the region type in `crates/core/src/region.rs`) —
+not a field on `RenderResult`. Only the interactive-preview path wants it, and
+that path holds a session; a one-shot byte render (PDF/PNG/SVG) never does, so it
+is read once off the compiled session with no render. Each region carries
+per-field geometry keyed on the **quill schema field path** — the address the
+editor uses — for **overlays** and **cross-navigation** (click a rendered field →
+focus it in the editor, or highlight the page rectangle for the focused field).
+Geometry only, never a value or a backend widget name, and never needed to
 complete the picture.
 
 ## TypeScript surface
@@ -100,6 +103,7 @@ class RenderSession {
   readonly warnings: Diagnostic[];
 
   render(opts?: RenderOptions): RenderResult;
+  regions(): FieldRegion[];             // schema-field geometry; session query, no render
   pageSize(page: number): PageSize;     // { widthPt, heightPt } in pt; report-only
   paint(
     ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
@@ -241,6 +245,14 @@ sequentially; `runtime/runtime.js` maps each backend id to its build with a
 - **`warnings` accessor on `RenderSession`.** Session-level diagnostics attached
   at `Backend::open` are otherwise invisible to canvas consumers (only surfaced
   via `render()`'s `RenderResult`).
+- **`regions()` on `RenderSession`, not `RenderResult`.** Field geometry is a
+  property of the compiled snapshot, and only the interactive-preview path wants
+  it — that path holds a session (it `paint()`s) and produces no byte artifact.
+  Hanging regions off `RenderResult` forced an export-only consumer to receive
+  geometry it never reads, and forced a paint-only consumer to run a throwaway
+  byte render just to harvest the sidecar. A session method computes it from
+  already-resolved placements with no rasterization, serving both the canvas and
+  SVG-overlay previews from the one handle they already hold.
 
 ## Lifecycle and consumer flow
 
