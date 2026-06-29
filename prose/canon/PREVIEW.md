@@ -1,14 +1,15 @@
-# Canvas Preview (WASM, Typst)
+# Canvas Preview (WASM)
 
-> **Implementation**: `crates/backends/typst/src/`, `crates/bindings/wasm/src/`
+> **Implementation**: `crates/core/src/session.rs`, `crates/backends/typst/src/`, `crates/backends/pdfform/src/`, `crates/bindings/wasm/src/`
 
 ## TL;DR
 
-A Typst-only, WASM-only path that paints rasterized pages directly into a
-`CanvasRenderingContext2d`. Sits alongside the existing byte-output verbs
-(`render` for PDF/PNG/SVG); does not replace them. Both paths share the
-cached `PagedDocument` produced by `Backend::open`, so one compile feeds
-both.
+A WASM path that paints a rasterized page directly into a
+`CanvasRenderingContext2d`, alongside the byte-output verbs (`render` for
+PDF/PNG/SVG) without replacing them. It is multi-backend: any backend whose
+session can rasterize a page (Typst, and pdfform under its preview seam) paints
+through one generic painter. Each `paint` writes a **complete** raster — every
+piece of page content already visible — so the consumer never composites.
 
 ## Why
 
@@ -22,31 +23,17 @@ sub-optimal:
 - **PNG**: pays zlib encode + decode on every render, and you typically
   hold N decoded bitmaps.
 
-A canvas painter skips the encode/decode round-trip entirely:
+A canvas painter skips the encode/decode round-trip entirely — pixels go
+straight from the rasterizer into the canvas backing store. No PNG
+compression, no SVG XML parse, no second layout pass in the browser. For long
+documents the consumer can keep memory bounded to the visible viewport — only
+paint pages near it, repaint as the user scrolls.
 
-```
-typst-render → tiny_skia::Pixmap → unpremultiply → ImageData → putImageData
-```
+## The seam
 
-Pixels go straight from the rasterizer into the canvas backing store. No
-PNG compression, no SVG XML parse, no second layout pass in the browser.
-
-For long documents, the consumer can keep memory bounded to the visible
-viewport — only paint pages near the viewport, repaint as the user
-scrolls.
-
-## Non-goals
-
-- Native (CLI / Python) exposure. Capability is WASM-only.
-- Text selection, find-in-page, accessibility. Canvas has none of these by
-  design — if you need them, keep an SVG/PDF export path alongside.
-- Click-to-jump or cursor-to-region mapping. Investigated as a Typst spike
-  (jump_from_click / jump_from_cursor + an OriginMap) but deferred — not
-  needed for the preview itself.
-
-## API
-
-### Rust
+`core` carries a backend-neutral canvas seam on `SessionHandle`; the WASM
+painter dispatches through it generically, never downcasting to a backend
+session type:
 
 ```rust
 // quillmark-core
@@ -54,43 +41,50 @@ pub trait SessionHandle: Any + Send + Sync {
     fn render(&self, opts: &RenderOptions) -> Result<RenderResult, RenderError>;
     fn page_count(&self) -> usize;
     fn as_any(&self) -> &dyn Any;
-}
 
-impl RenderSession {
-    pub fn page_count(&self) -> usize;
-    pub fn warnings(&self) -> &[Diagnostic];
-    pub fn render(&self, opts: &RenderOptions) -> Result<RenderResult, RenderError>;
-    #[doc(hidden)]
-    pub fn handle(&self) -> &dyn SessionHandle;
+    // Canvas seam — default None = "no painter".
+    fn page_size_pt(&self, page: usize) -> Option<(f32, f32)> { None }
+    fn render_rgba(&self, page: usize, scale: f32) -> Option<(u32, u32, Vec<u8>)> { None }
 }
 ```
 
-```rust
-// quillmark-typst
-pub struct TypstSession { /* PagedDocument + page_count */ }
+A backend opts into canvas simply by overriding the two seam methods; there is
+no separate capability flag. Capability is **derived** from the seam:
+`RenderSession::supports_canvas()` is true exactly when the session exposes
+`page_size_pt` for its pages, so `paint`/`pageSize` succeed precisely when the
+session reports canvas — the gate cannot drift from the implementation because
+there is nothing to keep in sync. For a pre-session estimate (a GUI deciding
+whether to mount a canvas UI before opening a session), the engine's
+`supportsCanvas(quill)` derives a hint from the backend's output formats
+(`quillmark_core::formats_support_canvas`: a backend that emits a visual-page
+format, PNG or SVG, can paint); the session-level answer is authoritative.
 
-impl TypstSession {
-    pub fn page_size_pt(&self, page: usize) -> Option<(f32, f32)>;
-    pub fn render_rgba(&self, page: usize, scale: f32) -> Option<(u32, u32, Vec<u8>)>;
-}
+### Complete-raster contract
 
-pub fn typst_session_of(s: &RenderSession) -> Option<&TypstSession>;
-```
+`render_rgba` returning `Some` guarantees a **complete** page raster: all
+content is visible in the returned pixels and the caller paints them with no
+compositing of its own. Backends satisfy it differently:
 
-### TypeScript (WASM)
+- **Typst** rasterizes its laid-out page natively (`typst-render` →
+  `tiny_skia::Pixmap` → unpremultiply → RGBA8).
+- **pdfform** pre-flattens the bound field values into the page content
+  streams at session-open, then rasterizes that flat PDF via hayro — so field
+  values appear in the raster on their own, with no regions-compositing by the
+  caller.
+
+The `regions` sidecar (on `RenderResult`, see [SCHEMAS.md](SCHEMAS.md) and the
+region type in `crates/core/src/region.rs`) carries per-field geometry and
+bound value for interactive **overlays** drawn on top of the raster. It is
+never needed to complete the picture.
+
+## TypeScript surface
 
 Capability and rendering live on the **engine** (it holds the resolved
-backend); `Quill` is declarative data. Canvas preview is in the **render**
-build only.
+backend); `Quill` is declarative data. Canvas is in the backend builds only.
 
 ```ts
-class Quill {
-  static fromTree(tree: Map<string, Uint8Array> | Record<string, Uint8Array>): Quill;
-  readonly backendId: string;          // declared intent; not a resolved capability
-}
-
 class Engine {
-  supportsCanvas(quill: Quill): Promise<boolean>;        // probe before mounting canvas UI / open()
+  supportsCanvas(quill: Quill): Promise<boolean>;     // probe before mounting canvas UI / open()
   supportedFormats(quill: Quill): Promise<OutputFormat[]>;
   open(quill: Quill, doc: Document): Promise<RenderSession>;
   render(quill: Quill, doc: Document, opts?: RenderOptions): Promise<RenderResult>;
@@ -112,7 +106,7 @@ class RenderSession {
 }
 
 interface PaintOptions {
-  layoutScale?: number;   // layout px per Typst pt; layout decision; default 1
+  layoutScale?: number;   // layout px per pt; layout decision; default 1
   densityScale?: number;  // backing-store density multiplier; default 1
 }
 
@@ -124,145 +118,127 @@ interface PaintResult {
 }
 ```
 
-The painter owns `canvas.width` / `canvas.height` — it sizes the backing
-store on every call. Consumers own `canvas.style.*` (or layout) and read
-`layoutWidth` / `layoutHeight` from the result. `layoutScale * densityScale`
-is the effective rasterization scale; the painter clamps `densityScale`
-if the largest backing dimension would exceed 16384 px.
+### DPR / clamp math
 
-## Architecture
-
-The canvas path is a typed side channel — `core` stays output-format-only,
-the typst crate owns the typed surface, the WASM binding wires it to
-`web-sys`.
+The painter owns `canvas.width` / `canvas.height` and sizes the backing store
+on every call; consumers own `canvas.style.*` and read `layoutWidth` /
+`layoutHeight` from the result. The effective rasterization scale is:
 
 ```
-core::RenderSession            ← Box<dyn SessionHandle>
-  └─ TypstSession              ← typst-only; holds PagedDocument
-       └─ typst-render::render ← PagedDocument + scale → tiny_skia::Pixmap
-            └─ Pixmap.demultiply() → RGBA8 buffer
-                 └─ ImageData → ctx.putImageData
+renderScale = layoutScale × densityScale
 ```
 
-The seam in `core` is minimal: `SessionHandle: Any + as_any(&self)` plus a
-`#[doc(hidden)]` `RenderSession::handle()` accessor. The typst crate owns
-the downcast in one place (`typst_session_of`). Native bindings never
-link the WASM side and never call the typed accessor; their behavior is
-byte-identical.
+Fold `window.devicePixelRatio`, in-app zoom, and `visualViewport.scale` into
+`densityScale`. If the largest backing dimension would exceed
+**`MAX_BACKING_DIMENSION` (16384 px per side)** — the floor that works across
+browsers (Chrome/Firefox ~32k, Safari 16k, lower on memory-constrained mobile)
+— the painter clamps `densityScale` proportionally and reports the actual
+backing dimensions. Detect a clamp via:
+
+```
+pixelWidth < round(layoutWidth × densityScale)
+```
+
+Each `paint` resets the backing store (writing `canvas.width` clears it), so
+paint is always a full repaint — consumers never call `clearRect`.
+
+### Regions overlay transform
+
+A consumer drawing overlays from `regions` must flip the Y axis: region
+`rect = [x0, y0, x1, y1]` is in PDF points with a **bottom-left** origin, a
+canvas is **top-left** in device pixels. For a page `pageHeightPt` tall (from
+`pageSize`) painted at `renderScale`, the box's top-left canvas corner is the
+PDF rect's *upper* edge (`y1 = rect[3]`), not its lower edge (`y0 = rect[1]`):
+
+```
+x_canvas_left = rect[0] × renderScale
+y_canvas_top  = (pageHeightPt − rect[3]) × renderScale
+width_canvas  = (rect[2] − rect[0]) × renderScale
+height_canvas = (rect[3] − rect[1]) × renderScale
+```
+
+## Feature / build mapping
+
+Canvas ships per-backend, compile-time aligned so the capability flag and the
+painter cannot disagree:
+
+| Build                                     | Backend  | Canvas | Notes                                                    |
+| ----------------------------------------- | -------- | ------ | -------------------------------------------------------- |
+| `pkg/core/` (no features)                 | —        | no     | `Document` + `Quill` only; no engine, no Typst           |
+| `pkg/backends/typst/` (`typst`)           | typst    | yes    | native page raster                                       |
+| `pkg/backends/pdfform/` (`pdfform-preview`) | pdfform | yes    | pre-flatten + hayro raster/SVG/PNG; adds the `web-sys` painter |
+| (`pdfform`, no `web-sys`)                 | pdfform  | no     | renders PDF + SVG + PNG, but no canvas painter           |
+
+The pdfform backend always links its hayro raster seam, so it renders PDF, SVG,
+and PNG out of the box (`supports_canvas() == true`). The wasm `pdfform-preview`
+feature is a strict superset of `pdfform` that only adds the `web-sys` canvas
+*painter*, so the in-browser `paint()` surface ships; a `pdfform` build without
+`web-sys` still renders SVG/PNG but carries no painter. `build-wasm.sh` builds
+the three artifacts (core, typst, pdfform — the last with `pdfform-preview`)
+sequentially; `runtime/runtime.js` maps each backend id to its build with a
+`{ formats, canvas }` manifest, drift-guarded by `runtime.test.js`.
+
+## Non-goals
+
+- Native (CLI / Python) exposure. Capability is WASM-only.
+- Text selection, find-in-page, accessibility. Canvas has none of these by
+  design — if you need them, keep an SVG/PDF export path alongside.
+- Click-to-jump or cursor-to-region mapping. Investigated as a Typst spike
+  (jump_from_click / jump_from_cursor + an OriginMap) but deferred — not
+  needed for the preview itself.
+
+## Decisions and rationale
+
+- **One generic painter over the `SessionHandle` seam, not a per-backend
+  downcast.** `paint` calls `page_size_pt` / `render_rgba` on the opaque
+  session; every canvas backend implements the same two methods. Adding a
+  canvas backend is overriding the two seam methods (`page_size_pt` /
+  `render_rgba`) — capability is then derived from the seam, with no separate
+  flag to flip and no binding to touch.
+- **Complete raster, never compose-from-regions.** Both backends hand back a
+  finished page (Typst natively, pdfform by pre-flattening values into content
+  streams before rasterizing). Regions are an overlay sidecar, not a
+  compositing input — the painter stays a dumb blit.
+- **Method on `RenderSession`, not a sub-handle.** A `Preview` sub-handle would
+  be justified only if paint shipped with `click()` / `locate_cursor()` (shared
+  state). With paint alone the sub-handle is ceremony.
+- **Not an `OutputFormat`.** Canvas is a side-effecting paint into a JS object,
+  not a serializable byte stream. Forcing it into the enum would leak
+  `wasm_bindgen` into `core` or make `Artifact` dishonest.
+- **Coalesce at the session, not the format.** One compile feeds bytes
+  (`render`), pixels (`paint`), and metadata (`pageSize`, `warnings`).
+- **`layoutScale` and `densityScale` separated, both optional.** A single
+  scalar conflated layout (how big on screen) with sharpness (how many backing
+  pixels). The split mirrors how editor consumers think: `layoutScale` is a
+  layout decision, `densityScale` a sharpness decision folding `devicePixelRatio`
+  + zoom + `visualViewport.scale`. Both default to 1 because the painter cannot
+  know the consumer's DPR (SSR, tests, off-screen).
+- **Painter owns `canvas.width`/`height`; consumer owns `canvas.style.*`.**
+  Folding backing-store math into the painter eliminates a class of "blurry on
+  retina" bugs and lets the 16384-px clamp live in one place.
+- **Unpremultiplied RGBA on the wire.** Rasterizers produce premultiplied
+  alpha; `ImageData` expects non-premultiplied. The backend unpremultiplies
+  before handing back the buffer. One allocation per repaint; fine for edit
+  cadence.
+- **`warnings` accessor on `RenderSession`.** Session-level diagnostics attached
+  at `Backend::open` are otherwise invisible to canvas consumers (only surfaced
+  via `render()`'s `RenderResult`).
 
 ## Lifecycle and consumer flow
 
 ```js
-import { Engine } from '@quillmark/wasm';      // single root export; canvas is a Typst-backend-only path
+import { Engine } from '@quillmark/wasm';      // single root export
 const engine = new Engine();
 
-if (!(await engine.supportsCanvas(quill))) return;   // non-typst backends have no painter
-const session = await engine.open(quill, doc);       // compiles once, caches PagedDocument
+if (!(await engine.supportsCanvas(quill))) return;   // non-canvas backends have no painter
+const session = await engine.open(quill, doc);       // compiles once, caches the snapshot
 const densityScale = (window.devicePixelRatio || 1) * userZoom;  // userZoom is a UI control
 
 const result = session.paint(canvas.getContext('2d'), page, {
-  layoutScale: 1,                             // layout px per Typst pt
+  layoutScale: 1,                             // layout px per pt
   densityScale,                               // includes devicePixelRatio + zoom
 });
 
 canvas.style.width  = `${result.layoutWidth}px`;   // CSS box, layout px
 canvas.style.height = `${result.layoutHeight}px`;
 ```
-
-Each `paint` call resets the backing store (writing `canvas.width`
-clears it), so paint is always a full repaint. Consumers don't call
-`clearRect`. If `layoutScale * densityScale` would push either dimension
-past 16384 px, the painter clamps `densityScale` proportionally and
-reports the actual backing dimensions in the result.
-
-## Decisions and rationale
-
-- **Method on `RenderSession`, not a sub-handle.** A `Preview` sub-handle
-  returned by `session.preview()` would be justified only if paint shipped
-  with `click()` and `locate_cursor()` (they share state). With paint alone,
-  the sub-handle is ceremony — keep the verb on `RenderSession`.
-- **Not an `OutputFormat`.** Canvas is a side-effecting paint into a JS
-  object, not a serializable byte stream. Forcing it into the enum
-  either leaks `wasm_bindgen` into `core` or makes `Artifact` dishonest.
-- **Coalesce at the session, not at the format.** One compile feeds
-  bytes (`render`), pixels (`paint`), and metadata (`pageSize`,
-  `warnings`).
-- **`Any` downcast over a generic capability registry.** Canvas is
-  Typst-only and WASM-only; pushing it through a generic core trait would
-  force every backend to implement or stub it and would drag `web-sys`
-  toward `core`. The downcast is the standard escape hatch.
-- **`layoutScale` and `densityScale` separated, both optional.** A
-  single scalar conflated layout (how big on screen) with sharpness
-  (how many backing pixels). The split mirrors how editor consumers
-  think about it — `layoutScale` is a layout decision, `densityScale`
-  is a sharpness decision they fold `devicePixelRatio` + zoom +
-  `visualViewport.scale` into. Both default to 1 because the painter
-  alone cannot know the consumer's DPR (e.g. SSR contexts, tests,
-  off-screen previews); the cost of the silent default is one missed
-  `densityScale` ⇒ blurry retina, the benefit is a usable
-  `paint(ctx, page)` for the simple case.
-- **Painter owns `canvas.width` / `canvas.height`; consumer owns
-  `canvas.style.*`.** The alternative — pushing backing-store math onto every
-  consumer ("size your canvas like X before calling paint") — makes
-  `devicePixelRatio` and the rounding rule callable-side state, which
-  means every consumer has to get them right. Folding the math into the
-  painter eliminates a class of "blurry on retina" bugs and lets the
-  painter clamp at the 16384-px browser limit centrally.
-- **Hard 16384-px backing-store clamp.** Real browser limits vary
-  (Chrome/Firefox ~32k, Safari 16k, lower on memory-constrained mobile);
-  16384 is the floor that works everywhere. `PaintResult` reports the
-  actual backing dimensions, so a consumer that cares can detect the
-  clamp and surface "max zoom reached" UI.
-- **Unpremultiplied RGBA on the wire.** `tiny_skia` produces premultiplied
-  alpha; `ImageData` expects non-premultiplied. We unpremultiply pixel-by-
-  pixel before constructing `ImageData`. One allocation per repaint;
-  fine for typical edit cadence.
-- **`warnings` accessor on `RenderSession`.** The session-level diagnostic
-  attached at `Backend::open` time is otherwise invisible to canvas
-  consumers (it was only surfaced via `render()`'s `RenderResult`).
-
-## Crate layout
-
-```
-crates/
-├── core/src/session.rs              extended  — Any + handle()
-├── backends/typst/src/lib.rs        extended  — TypstSession is pub;
-│                                                page_size_pt, render_rgba;
-│                                                typst_session_of accessor
-└── bindings/wasm/
-    ├── Cargo.toml                   extended  — web-sys features
-    │                                            (CanvasRenderingContext2d,
-    │                                             HtmlCanvasElement,
-    │                                             ImageData,
-    │                                             OffscreenCanvas,
-    │                                             OffscreenCanvasRenderingContext2d)
-    └── src/engine.rs                extended  — paint, pageSize,
-                                                  backendId, supportsCanvas,
-                                                  warnings; CanvasCtx enum
-                                                  dispatches OnScreen vs
-                                                  OffScreen contexts (calls
-                                                  typst_session_of directly;
-                                                  no separate adapter file)
-```
-
-## Future work (not in V1)
-
-- **Direct `CanvasRenderingContext2d` adapter.** V1 allocates an RGBA
-  `Vec<u8>` per repaint. A direct path that hands tiny_skia's pixmap to
-  the canvas (or a typed-array view backed by linear memory) would
-  remove the allocation. Optimize only if profiling demands.
-- **Click → editor and cursor → preview mapping.** Out of scope for the
-  preview itself. If/when added, would slot in via the same
-  `TypstSession` accessor by exposing `IdeWorld` + an `OriginMap` from
-  MD→Typst conversion.
-
-## Feature gate (implemented)
-
-The whole canvas/render surface — the `Engine`, `RenderSession`,
-`paint` / `pageSize`, `CanvasCtx`, the `web-sys` dependency, and
-`quillmark_typst` — is gated behind the wasm crate's `render` feature
-(default). The **core** build (`--no-default-features`) excludes Typst and
-the entire render surface, leaving `Document` + `Quill` for load / validate /
-schema / seed / blueprint. This core build is the internal artifact the
-canonical runtime layer re-exports at the package root; it is not a public
-`/core` subpath. See [docs/migrations/0.89-to-0.90.md](../../docs/migrations/0.89-to-0.90.md).

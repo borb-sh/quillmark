@@ -15,9 +15,9 @@
 //! - Compiles Typst documents to PDF and SVG formats
 //! - Provides template filters for YAML data transformation
 //! - Manages fonts, assets, and packages dynamically
-//! - Embeds unsigned AcroForm signature widgets via the
-//!   `signature-field` helper (see `signature-field` in the `lib.typ`
-//!   helper package; only the PDF output carries the widget — SVG and
+//! - Embeds unsigned AcroForm form widgets (text, checkbox, choice, signature)
+//!   via the `form-field` helper (and the `signature-field` wrapper) in the
+//!   `lib.typ` helper package; only the PDF output carries the widget — SVG and
 //!   PNG render an invisible placeholder)
 //! - Thread-safe for concurrent rendering
 //!
@@ -34,7 +34,6 @@ mod error_mapping;
 
 mod helper;
 mod overlay;
-mod pdf_scan;
 mod world;
 
 /// Utilities exposed for fuzzing tests.
@@ -69,47 +68,10 @@ const SUPPORTED_FORMATS: &[OutputFormat] =
 pub struct TypstSession {
     document: typst_layout::PagedDocument,
     page_count: usize,
-    /// Extracted once at `open`. Consumed by PDF inject; unused for SVG/PNG.
-    sig_placements: Vec<overlay::SigPlacement>,
-}
-
-impl TypstSession {
-    /// Page dimensions in Typst points (1 pt = 1/72 inch).
-    ///
-    /// Returns `None` if `page` is out of range.
-    pub fn page_size_pt(&self, page: usize) -> Option<(f32, f32)> {
-        let frame = &self.document.pages().get(page)?.frame;
-        let size = frame.size();
-        Some((size.x.to_pt() as f32, size.y.to_pt() as f32))
-    }
-
-    /// Render `page` to a non-premultiplied RGBA8 buffer at `scale`× the
-    /// natural 72 ppi (i.e. `scale = 1` → 1 device pixel per Typst pt).
-    ///
-    /// Returns `(width_px, height_px, rgba)`. The buffer is `width_px *
-    /// height_px * 4` bytes, row-major, ready to hand to `ImageData` or any
-    /// other RGBA consumer. Returns `None` if `page` is out of range.
-    pub fn render_rgba(&self, page: usize, scale: f32) -> Option<(u32, u32, Vec<u8>)> {
-        let p = self.document.pages().get(page)?;
-        let pixmap = typst_render::render(
-            p,
-            &typst_render::RenderOptions {
-                pixel_per_pt: typst::utils::Scalar::new(scale as f64),
-                ..Default::default()
-            },
-        );
-        let width = pixmap.width();
-        let height = pixmap.height();
-        let mut rgba = Vec::with_capacity((width as usize) * (height as usize) * 4);
-        for px in pixmap.pixels() {
-            let c = px.demultiply();
-            rgba.push(c.red());
-            rgba.push(c.green());
-            rgba.push(c.blue());
-            rgba.push(c.alpha());
-        }
-        Some((width, height, rgba))
-    }
+    /// Extracted once at `open`. Converted to spine `FieldSpec`s on every
+    /// render; PDF stamps them as AcroForm widgets, and every format carries
+    /// the resulting regions.
+    field_placements: Vec<overlay::FieldPlacement>,
 }
 
 impl SessionHandle for TypstSession {
@@ -132,7 +94,7 @@ impl SessionHandle for TypstSession {
             opts.pages.as_deref(),
             format,
             opts.ppi,
-            &self.sig_placements,
+            &self.field_placements,
             opts.producer.as_deref(),
         )
     }
@@ -143,6 +105,40 @@ impl SessionHandle for TypstSession {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    /// Page dimensions in Typst points (1 pt = 1/72 inch). `None` if `page` is
+    /// out of range. Overrides the default-`None` canvas seam.
+    fn page_size_pt(&self, page: usize) -> Option<(f32, f32)> {
+        let frame = &self.document.pages().get(page)?.frame;
+        let size = frame.size();
+        Some((size.x.to_pt() as f32, size.y.to_pt() as f32))
+    }
+
+    /// Render `page` to a non-premultiplied RGBA8 buffer at `scale`× the
+    /// natural 72 ppi (`scale = 1` → 1 device pixel per Typst pt). Returns
+    /// `(width_px, height_px, rgba)` (`w * h * 4` bytes, row-major), or `None`
+    /// if `page` is out of range. Overrides the default-`None` canvas seam.
+    fn render_rgba(&self, page: usize, scale: f32) -> Option<(u32, u32, Vec<u8>)> {
+        let p = self.document.pages().get(page)?;
+        let pixmap = typst_render::render(
+            p,
+            &typst_render::RenderOptions {
+                pixel_per_pt: typst::utils::Scalar::new(scale as f64),
+                ..Default::default()
+            },
+        );
+        let width = pixmap.width();
+        let height = pixmap.height();
+        let mut rgba = Vec::with_capacity((width as usize) * (height as usize) * 4);
+        for px in pixmap.pixels() {
+            let c = px.demultiply();
+            rgba.push(c.red());
+            rgba.push(c.green());
+            rgba.push(c.blue());
+            rgba.push(c.alpha());
+        }
+        Some((width, height, rgba))
     }
 }
 
@@ -165,16 +161,13 @@ impl Backend for TypstBackend {
         SUPPORTED_FORMATS
     }
 
-    fn supports_canvas(&self) -> bool {
-        true
-    }
-
     fn open(
         &self,
-        plate_content: &str,
         source: &Quill,
         json_data: &serde_json::Value,
     ) -> Result<RenderSession, RenderError> {
+        let plate_content = read_plate(source)?;
+
         let fields = json_data.as_object().map_or_else(HashMap::new, |obj| {
             obj.iter()
                 .map(|(key, value)| (key.clone(), QuillValue::from_json(value.clone())))
@@ -201,13 +194,13 @@ impl Backend for TypstBackend {
                 )
                 .with_code("backend::data_serialization_failed".to_string())],
             })?;
-        let document = compile::compile_to_document(source, plate_content, &json_str)?;
+        let document = compile::compile_to_document(source, &plate_content, &json_str)?;
         let page_count = document.pages().len();
-        let sig_placements = overlay::extract(&document)?;
+        let field_placements = overlay::extract(&document)?;
         let session = TypstSession {
             document,
             page_count,
-            sig_placements,
+            field_placements,
         };
         Ok(RenderSession::new(Box::new(session)))
     }
@@ -217,6 +210,47 @@ impl Default for TypstBackend {
     /// Creates a new [`TypstBackend`] instance.
     fn default() -> Self {
         Self
+    }
+}
+
+/// Read the Typst plate (template) this quill renders through.
+///
+/// The plate is a Typst-only notion, not a universal backend input: its
+/// filename is declared under the `typst:` backend-config section as
+/// `plate_file`, and the source lives in the quill's file bundle. The backend
+/// resolves it here, the same way `pdfform` resolves its own `form.pdf` /
+/// `form.json`. A quill that declares no `plate_file` renders through an empty
+/// plate (`""`).
+fn read_plate(source: &Quill) -> Result<String, RenderError> {
+    let plate_file = source
+        .config()
+        .backend_config
+        .get("plate_file")
+        .and_then(|v| v.as_str());
+
+    let Some(plate_file) = plate_file else {
+        return Ok(String::new());
+    };
+
+    let bytes = source.files().get_file(plate_file).ok_or_else(|| {
+        engine_err(
+            "typst::plate_missing",
+            format!("plate file '{plate_file}' not found in the quill's file tree"),
+        )
+    })?;
+
+    String::from_utf8(bytes.to_vec()).map_err(|e| {
+        engine_err(
+            "typst::invalid_utf8",
+            format!("plate file '{plate_file}' is not valid UTF-8: {e}"),
+        )
+    })
+}
+
+/// A single-diagnostic [`RenderError::EngineCreation`] carrying `code`.
+fn engine_err(code: &str, message: impl Into<String>) -> RenderError {
+    RenderError::EngineCreation {
+        diags: vec![Diagnostic::new(Severity::Error, message.into()).with_code(code.to_string())],
     }
 }
 

@@ -16,7 +16,11 @@ use quillmark_typst::TypstBackend;
 /// — `signature-field` doesn't depend on any quill-specific config so we
 /// just need a valid quill skeleton, and `usaf_memo` is the fixture the
 /// spikes validated.
-fn host_source() -> Quill {
+/// Walk the `usaf_memo@0.2.0` fixture into an in-memory tree. Reused as a host
+/// — `signature-field` doesn't depend on any quill-specific config, so we just
+/// need a valid quill skeleton (fonts, packages), and `usaf_memo` is the
+/// fixture the spikes validated.
+fn host_tree() -> FileTreeNode {
     fn walk(dir: &Path) -> std::io::Result<FileTreeNode> {
         let mut files = HashMap::new();
         for entry in fs::read_dir(dir)? {
@@ -46,19 +50,72 @@ fn host_source() -> Quill {
         .join("quills")
         .join("usaf_memo")
         .join("0.2.0");
-    let tree = walk(&quill_path).expect("walk fixture");
+    walk(&quill_path).expect("walk fixture")
+}
+
+/// Build the host quill with its `plate.typ` replaced by `plate`. The fixture
+/// declares `typst.plate_file: plate.typ`, so the backend reads this override.
+fn source_with_plate(plate: &str) -> Quill {
+    let mut tree = host_tree();
+    if let FileTreeNode::Directory { files } = &mut tree {
+        files.insert(
+            "plate.typ".to_string(),
+            FileTreeNode::File {
+                contents: plate.as_bytes().to_vec(),
+            },
+        );
+    }
     Quill::from_tree(tree).expect("load source")
 }
 
 fn compile(plate: &str) -> Result<Vec<u8>, RenderError> {
     // Our plates don't reference data fields, so an empty payload suffices.
-    let source = host_source();
-    let session = TypstBackend.open(plate, &source, &serde_json::json!({}))?;
+    compile_with_data(plate, &serde_json::json!({}))
+}
+
+/// Like [`compile`] but threads `json_data` to the plate's `data` binding, so a
+/// plate can exercise value binding via `data.*`.
+fn compile_with_data(plate: &str, json_data: &serde_json::Value) -> Result<Vec<u8>, RenderError> {
+    let source = source_with_plate(plate);
+    let session = TypstBackend.open(&source, json_data)?;
     let result = session.render(&RenderOptions {
         output_format: Some(OutputFormat::Pdf),
         ..Default::default()
     })?;
     Ok(result.artifacts[0].bytes.clone())
+}
+
+/// Render `plate` (with optional `json_data`) and return the parsed lopdf
+/// document plus a map from field name (`/T`) to its AcroForm widget dict.
+fn acroform_widgets(
+    plate: &str,
+    json_data: &serde_json::Value,
+) -> (
+    lopdf::Document,
+    std::collections::HashMap<String, lopdf::Dictionary>,
+) {
+    let pdf = compile_with_data(plate, json_data).expect("compile ok");
+    let doc = lopdf::Document::load_mem(&pdf).expect("reparse");
+    let cat = doc.catalog().expect("catalog");
+    let af_ref = cat
+        .get(b"AcroForm")
+        .expect("/AcroForm")
+        .as_reference()
+        .expect("AcroForm indirect");
+    let af = doc.get_object(af_ref).unwrap().as_dict().unwrap();
+    let fields = af.get(b"Fields").unwrap().as_array().unwrap();
+    let mut by_name = std::collections::HashMap::new();
+    for f in fields {
+        let widget = doc
+            .get_object(f.as_reference().unwrap())
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        let name =
+            String::from_utf8_lossy(widget.get(b"T").unwrap().as_str().unwrap()).into_owned();
+        by_name.insert(name, widget.clone());
+    }
+    (doc, by_name)
 }
 
 // ─── regression: each widget has exactly one /Subtype entry ──────────────────
@@ -216,13 +273,13 @@ fn acceptance_duplicate_name_errors() {
     assert!(
         diags
             .iter()
-            .any(|d| d.code.as_deref() == Some("typst::duplicate_signature_field")),
-        "expected typst::duplicate_signature_field diagnostic, got {:?}",
+            .any(|d| d.code.as_deref() == Some("typst::duplicate_form_field")),
+        "expected typst::duplicate_form_field diagnostic, got {:?}",
         diags
     );
     let msg = diags
         .iter()
-        .find(|d| d.code.as_deref() == Some("typst::duplicate_signature_field"))
+        .find(|d| d.code.as_deref() == Some("typst::duplicate_form_field"))
         .unwrap()
         .message
         .as_str();
@@ -234,15 +291,15 @@ fn acceptance_duplicate_name_errors() {
 
 // ─── case: user metadata with same label is ignored, real field still found ──
 
-/// A user could plausibly attach their own `<__qm_sig__>` label to unrelated
+/// A user could plausibly attach their own `<__qm_field__>` label to unrelated
 /// metadata. The extractor's `kind` field check should filter such metadata
-/// out without raising and without losing the real signature-field call.
+/// out without raising and without losing the real form-field call.
 #[test]
 fn user_metadata_on_reserved_label_does_not_clobber() {
     let plate = r#"
 #import "@local/quillmark-helper:0.1.0": signature-field
 #set page(width: 600pt, height: 400pt, margin: 50pt)
-#metadata((kind: "something-else", note: "user's own metadata")) <__qm_sig__>
+#metadata((kind: "something-else", note: "user's own metadata")) <__qm_field__>
 #signature-field("real_field")
 "#;
     let pdf = compile(plate).expect("compile ok");
@@ -306,4 +363,247 @@ Just a doc.
         1,
         "expected exactly one /Prev (the Producer-metadata incremental update)"
     );
+}
+
+// ─── generalized form-field types ────────────────────────────────────────────
+
+const MULTILINE_BIT: i64 = 0x1000; // FieldFlags::MULTILINE
+const COMBO_BIT: i64 = 0x20000; // FieldFlags::COMBO
+
+/// Read `/Ff` (field flags) as an i64, defaulting to 0 when absent.
+fn field_flags(w: &lopdf::Dictionary) -> i64 {
+    w.get(b"Ff").and_then(|o| o.as_i64()).unwrap_or(0)
+}
+
+/// case: text fields — single-line and multiline; the bound `/V` string and the
+/// MULTILINE flag bit set iff `multiline: true`.
+#[test]
+fn form_field_text_single_and_multiline() {
+    let plate = r#"
+#import "@local/quillmark-helper:0.1.0": form-field
+#set page(width: 600pt, height: 400pt, margin: 50pt)
+#form-field("single", type: "text", value: "hello")
+#form-field("multi", type: "text", value: "a\nb", multiline: true)
+"#;
+    let (_doc, widgets) = acroform_widgets(plate, &serde_json::json!({}));
+
+    let single = widgets.get("single").expect("single field");
+    assert_eq!(single.get(b"FT").unwrap().as_name().unwrap(), b"Tx");
+    assert_eq!(single.get(b"V").unwrap().as_str().unwrap(), b"hello");
+    assert_eq!(
+        field_flags(single) & MULTILINE_BIT,
+        0,
+        "single-line text must not set the MULTILINE bit"
+    );
+
+    let multi = widgets.get("multi").expect("multi field");
+    assert_eq!(multi.get(b"FT").unwrap().as_name().unwrap(), b"Tx");
+    assert_eq!(
+        field_flags(multi) & MULTILINE_BIT,
+        MULTILINE_BIT,
+        "multiline text must set the MULTILINE bit"
+    );
+}
+
+/// case: checkbox — `/FT /Btn`; `/V` and `/AS` are `/Yes` when bound truthy and
+/// `/Off` when not; `/MK /CA (4)` present on both.
+#[test]
+fn form_field_checkbox_checked_and_unchecked() {
+    let plate = r#"
+#import "@local/quillmark-helper:0.1.0": form-field
+#set page(width: 600pt, height: 400pt, margin: 50pt)
+#form-field("agree", type: "checkbox", value: true)
+#form-field("decline", type: "checkbox", value: false)
+"#;
+    let (_doc, widgets) = acroform_widgets(plate, &serde_json::json!({}));
+
+    let on = widgets.get("agree").expect("agree field");
+    assert_eq!(on.get(b"FT").unwrap().as_name().unwrap(), b"Btn");
+    assert_eq!(on.get(b"V").unwrap().as_name().unwrap(), b"Yes");
+    assert_eq!(on.get(b"AS").unwrap().as_name().unwrap(), b"Yes");
+    let mk = on.get(b"MK").unwrap().as_dict().unwrap();
+    assert_eq!(mk.get(b"CA").unwrap().as_str().unwrap(), b"4");
+
+    let off = widgets.get("decline").expect("decline field");
+    assert_eq!(off.get(b"FT").unwrap().as_name().unwrap(), b"Btn");
+    assert_eq!(off.get(b"V").unwrap().as_name().unwrap(), b"Off");
+    assert_eq!(off.get(b"AS").unwrap().as_name().unwrap(), b"Off");
+    let mk_off = off.get(b"MK").unwrap().as_dict().unwrap();
+    assert_eq!(mk_off.get(b"CA").unwrap().as_str().unwrap(), b"4");
+}
+
+/// case: choice — `/FT /Ch`; `/Opt` carries the options; COMBO flag set; `/V`
+/// carries the chosen option when it matches, and is absent when it does not.
+#[test]
+fn form_field_choice_options_and_value_matching() {
+    let plate = r#"
+#import "@local/quillmark-helper:0.1.0": form-field
+#set page(width: 600pt, height: 400pt, margin: 50pt)
+#form-field("color", type: "choice", options: ("Red", "Green", "Blue"), value: "Green")
+#form-field("bad", type: "choice", options: ("Red", "Green", "Blue"), value: "Purple")
+"#;
+    let (_doc, widgets) = acroform_widgets(plate, &serde_json::json!({}));
+
+    let color = widgets.get("color").expect("color field");
+    assert_eq!(color.get(b"FT").unwrap().as_name().unwrap(), b"Ch");
+    assert_eq!(
+        field_flags(color) & COMBO_BIT,
+        COMBO_BIT,
+        "choice must set the COMBO bit"
+    );
+    let opts = color.get(b"Opt").unwrap().as_array().unwrap();
+    let opt_strs: Vec<String> = opts
+        .iter()
+        .map(|o| String::from_utf8_lossy(o.as_str().unwrap()).into_owned())
+        .collect();
+    assert_eq!(opt_strs, vec!["Red", "Green", "Blue"]);
+    assert_eq!(color.get(b"V").unwrap().as_str().unwrap(), b"Green");
+
+    // A value matching no option is dropped: no /V (or an empty one).
+    let bad = widgets.get("bad").expect("bad field");
+    assert_eq!(bad.get(b"FT").unwrap().as_name().unwrap(), b"Ch");
+    match bad.get(b"V") {
+        Err(_) => {}
+        Ok(lopdf::Object::String(s, _)) => assert!(
+            s.is_empty(),
+            "non-matching choice value should be blank, got {:?}",
+            String::from_utf8_lossy(s)
+        ),
+        Ok(other) => panic!("unexpected /V on non-matching choice: {other:?}"),
+    }
+}
+
+/// case: signature via the general helper — `/FT /Sig`, value-free, unchanged
+/// from the dedicated `signature-field`.
+#[test]
+fn form_field_signature_via_general_helper() {
+    let plate = r#"
+#import "@local/quillmark-helper:0.1.0": form-field
+#set page(width: 600pt, height: 400pt, margin: 50pt)
+#form-field("sig", type: "signature")
+"#;
+    let (doc, widgets) = acroform_widgets(plate, &serde_json::json!({}));
+    let sig = widgets.get("sig").expect("sig field");
+    assert_eq!(sig.get(b"FT").unwrap().as_name().unwrap(), b"Sig");
+    assert!(sig.get(b"V").is_err(), "signature field must carry no /V");
+
+    // /SigFlags still asserted on the form when a signature is present.
+    let cat = doc.catalog().unwrap();
+    let af_ref = cat.get(b"AcroForm").unwrap().as_reference().unwrap();
+    let af = doc.get_object(af_ref).unwrap().as_dict().unwrap();
+    assert_eq!(af.get(b"SigFlags").unwrap().as_i64().unwrap(), 1);
+}
+
+/// case: value binding from real `json_data` — the plate reads `data.*` and the
+/// bound values land in each widget's `/V`.
+#[test]
+fn form_field_value_binding_from_data() {
+    let plate = r#"
+#import "@local/quillmark-helper:0.1.0": data, form-field
+#set page(width: 600pt, height: 400pt, margin: 50pt)
+#form-field("name", type: "text", value: data.full_name)
+#form-field("agree", type: "checkbox", value: data.agreed)
+#form-field("color", type: "choice", options: ("Red", "Green", "Blue"), value: data.color)
+#form-field("count", type: "text", value: str(data.count))
+"#;
+    let json = serde_json::json!({
+        "full_name": "Ada Lovelace",
+        "agreed": true,
+        "color": "Blue",
+        "count": 7,
+    });
+    let (_doc, widgets) = acroform_widgets(plate, &json);
+
+    assert_eq!(
+        widgets
+            .get("name")
+            .unwrap()
+            .get(b"V")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        b"Ada Lovelace"
+    );
+    assert_eq!(
+        widgets
+            .get("agree")
+            .unwrap()
+            .get(b"V")
+            .unwrap()
+            .as_name()
+            .unwrap(),
+        b"Yes"
+    );
+    assert_eq!(
+        widgets
+            .get("color")
+            .unwrap()
+            .get(b"V")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        b"Blue"
+    );
+    assert_eq!(
+        widgets
+            .get("count")
+            .unwrap()
+            .get(b"V")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        b"7"
+    );
+}
+
+/// case: the `RenderResult.regions` sidecar carries the right `field_type` and
+/// `value` per field, for every type.
+#[test]
+fn form_field_regions_carry_type_and_value() {
+    use quillmark_core::RegionKind;
+
+    let plate = r#"
+#import "@local/quillmark-helper:0.1.0": form-field
+#set page(width: 600pt, height: 400pt, margin: 50pt)
+#form-field("txt", type: "text", value: "hi")
+#form-field("chk", type: "checkbox", value: true)
+#form-field("cho", type: "choice", options: ("A", "B"), value: "B")
+#form-field("sig", type: "signature")
+"#;
+    let source = source_with_plate(plate);
+    let session = TypstBackend
+        .open(&source, &serde_json::json!({}))
+        .expect("open");
+    let result = session
+        .render(&RenderOptions {
+            output_format: Some(OutputFormat::Pdf),
+            ..Default::default()
+        })
+        .expect("render");
+
+    let mut got: std::collections::HashMap<String, (String, Option<String>)> =
+        std::collections::HashMap::new();
+    for r in &result.regions {
+        // Refutable `if let` (not an irrefutable `let`) so a future `RegionKind`
+        // variant stays non-breaking here; the `allow` covers the
+        // single-variant-today warning and lapses once a second variant exists.
+        #[allow(irrefutable_let_patterns)]
+        if let RegionKind::Field { field_type, value } = &r.kind {
+            got.insert(r.name.clone(), (field_type.clone(), value.clone()));
+        }
+    }
+
+    assert_eq!(
+        got.get("txt"),
+        Some(&("text".to_string(), Some("hi".to_string())))
+    );
+    assert_eq!(
+        got.get("chk"),
+        Some(&("checkbox".to_string(), Some("Yes".to_string())))
+    );
+    assert_eq!(
+        got.get("cho"),
+        Some(&("choice".to_string(), Some("B".to_string())))
+    );
+    assert_eq!(got.get("sig"), Some(&("signature".to_string(), None)));
 }

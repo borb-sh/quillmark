@@ -13,13 +13,19 @@ repository = "https://github.com/quillmark-org/quillmark"
 [dependencies]
 quillmark-core = { workspace = true }
 quillmark-typst = { workspace = true, optional = true }
+quillmark-pdfform = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
 quillmark-typst = { workspace = true }
+quillmark-pdfform = { workspace = true }
 quillmark-fixtures = { workspace = true }
 serde_json = { workspace = true }
 
 [features]
-default = ["typst"]
+default = ["typst", "pdfform"]
 typst = ["dep:quillmark-typst"]
+# The pdfform backend renders forms → PDF, plus SVG/PNG/canvas raster via its
+# always-linked hayro seam — so the pdfform session reports
+# `supports_canvas() == true` and a canvas binding can paint pdfform quills.
+pdfform = ["dep:quillmark-pdfform"]

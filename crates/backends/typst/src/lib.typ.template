@@ -1,34 +1,72 @@
 // Auto-generated quillmark-helper package
 // Version: {version}
 
-/// Emit an unsigned signature field. PDF: a clickable AcroForm SigField
-/// widget here. SVG/PNG: same invisible layout space.
-/// `name` must be unique and match `[A-Za-z0-9_]+`. `width` / `height` must
-/// be absolute lengths (pt/mm/cm/in).
-/// `<__qm_sig__>` and `kind: "__qm_sig__"` are reserved for this hand-off.
+/// Emit an unsigned form field. PDF: a clickable AcroForm widget here (a text
+/// box, checkbox, dropdown, or signature). SVG/PNG: same invisible layout
+/// space.
+///
+/// `name` must be unique and match `[A-Za-z0-9_.]+` ('.' allowed for
+/// fully-qualified names). `type` is one of `"text"`, `"checkbox"`, `"choice"`,
+/// `"signature"`. `width` / `height` must be absolute lengths (pt/mm/cm/in).
+///
+/// Value binding is the plate author's job: pass `value:` from your data, e.g.
+/// `form-field("Agree", type: "checkbox", value: data.agree)`. There is no
+/// resolver on the Typst side — the helper forwards the value verbatim and the
+/// Rust adapter maps it to the AcroForm value:
+///   - text:      `value` is a string (numbers stringify); blank ⇒ no `/V`.
+///   - checkbox:  `value` is a bool; `true` ⇒ checked.
+///   - choice:    `value` is a string; bound only if it matches an `options` entry.
+///   - signature: `value` is ignored.
+/// `options` is an array of display strings for `type: "choice"`. `multiline`
+/// toggles the multi-line flag for `type: "text"`.
+///
+/// `<__qm_field__>` and `kind: "__qm_field__"` are reserved for this hand-off.
 /// Note: this emits a `metadata` element, so plates/packages that read their
 /// own config via an unfiltered `query(metadata)` (e.g. `.last()`) must query
 /// by a dedicated label or filter on a key they own, or they will read this
 /// field's metadata by accident.
-#let signature-field(name, width: 200pt, height: 50pt) = {
-  assert(type(name) == str,
-    message: "signature-field: name must be a string, got " + repr(type(name)))
-  assert(name.match(regex("^[A-Za-z0-9_]+$")) != none,
-    message: "signature-field: name must match [A-Za-z0-9_]+, got " + repr(name))
+#let form-field(
+  name,
+  type: "text",
+  value: none,
+  options: (),
+  multiline: false,
+  width: 200pt,
+  height: 20pt,
+) = {
+  assert(std.type(name) == str,
+    message: "form-field: name must be a string, got " + repr(std.type(name)))
+  assert(name.match(regex("^[A-Za-z0-9_.]+$")) != none,
+    message: "form-field: name must match [A-Za-z0-9_.]+, got " + repr(name))
+  assert(type in ("text", "checkbox", "choice", "signature"),
+    message: "form-field: type must be one of text/checkbox/choice/signature, got " + repr(type))
   let abs-pt(field, l) = {
     let r = repr(l)
     assert(not (r.contains("em") or r.ends-with("%")),
-      message: "signature-field: " + field + " must be an absolute length, got " + r)
+      message: "form-field: " + field + " must be an absolute length, got " + r)
     l / 1pt
   }
   [#metadata((
-    kind: "__qm_sig__",
+    kind: "__qm_field__",
     name: name,
+    field-type: type,
+    value: value,
+    options: options,
+    multiline: multiline,
     width: abs-pt("width", width),
     height: abs-pt("height", height),
-  )) <__qm_sig__>]
+  )) <__qm_field__>]
   box(width: width, height: height, stroke: none, fill: none)
 }
+
+/// Emit an unsigned signature field. A thin wrapper over `form-field` with
+/// `type: "signature"` (value-free). Retained so existing plates keep working.
+#let signature-field(name, width: 200pt, height: 50pt) = form-field(
+  name,
+  type: "signature",
+  width: width,
+  height: height,
+)
 
 /// Parse an ISO 8601 date string (YYYY-MM-DD) to a Typst datetime
 /// Handles both pure dates (2024-01-15) and datetime strings (2024-01-15T10:30:00)

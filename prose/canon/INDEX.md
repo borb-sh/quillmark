@@ -21,12 +21,13 @@
 
 - **[CONVERT.md](CONVERT.md)** - How the Typst backend renders markdown body content to Typst markup
 - Typst backend internals: see `crates/backends/typst/` rustdoc
+- **[../../docs/quills/pdfform-backend.md](../../docs/quills/pdfform-backend.md)** - The `pdfform` backend: fill an existing AcroForm PDF (real interactive fields, Technique A), built on the `quillmark-pdf` stamp spine
 
 ## Bindings
 
 - **[BINDINGS.md](BINDINGS.md)** - Language surfaces (Python, WASM, .NET, CLI) over the one core engine
 - **[CLI.md](CLI.md)** - Command-line interface
-- **[PREVIEW.md](PREVIEW.md)** - WASM-only Typst canvas preview path
+- **[PREVIEW.md](PREVIEW.md)** - WASM multi-backend canvas preview path (Typst, pdfform)
 
 ## Infrastructure
 

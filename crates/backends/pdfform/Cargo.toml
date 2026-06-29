@@ -1,0 +1,28 @@
+[package]
+name = "quillmark-pdfform"
+version.workspace = true
+edition.workspace = true
+include = ["src/**", "Cargo.toml", "README*", "LICENSE*"]
+readme.workspace = true
+description = "Typst-free PDF-form backend for Quillmark: fills existing PDF forms via the quillmark-pdf stamping spine"
+license.workspace = true
+documentation = "https://docs.rs/quillmark-pdfform"
+homepage.workspace = true
+repository = "https://github.com/quillmark-org/quillmark"
+
+[dependencies]
+quillmark-core = { workspace = true }
+quillmark-pdf = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# PDF-flatten → hayro raster, backing the SVG and PNG render outputs. Always
+# linked: the backend supports SVG/PNG out of the box, so the raster tree is
+# not feature-gated. (The no-features WASM `core` build excludes the whole
+# pdfform crate, so hayro never reaches it.)
+hayro = "0.7.1"
+hayro-svg = "0.7.0"
+
+[dev-dependencies]
+quillmark-fixtures = { workspace = true }
+quillmark = { workspace = true }
+lopdf = "0.36"

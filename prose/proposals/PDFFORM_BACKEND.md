@@ -1,15 +1,16 @@
 # Proposal: `pdfform` backend + shared AcroForm stamping spine
 
-> **Status**: Proposed, not yet implemented. Tracks issue #744.
-> **Buildout**: a fresh branch from `main`; the spike `claude/spike-744-yp1sot`
-> is reference only, not the base.
+> **Status**: **V1 implemented** — issue #749, PR #750 (integration branch
+> `feat/pdfform`). §1–§8 are the design and remain the source of truth; **§9
+> records what actually shipped, the deviations, and the handover for the
+> fast-follows.** Read §9 first if you are picking this up.
 > **Scope of this doc**: the V1 engine work. The upstream *qualification* layer
 > that produces a quill's `form.pdf` + `form.json` is a separate effort and is
 > explicitly out of scope.
 
 ## 1. Thesis & scope
 
-Quillmark gains a second backend, `pdfform`, dedicated to filling government PDF
+Quillmark gains a second backend, `pdfform`, dedicated to filling existing PDF
 forms — something the Typst backend fundamentally cannot do (Typst 0.15's
 `image()` cannot embed a PDF page, so any Typst path would rasterize the form
 and lose fidelity).
@@ -33,14 +34,14 @@ base PDF + a list of field specs*; the shared spine stamps. They differ in
 | **Typst** | introspection (dynamic, reflow) | the plate *template* (Typst code) | typst-pdf output |
 | **`pdfform`** | `form.json` (fixed, page-relative) | a declarative *resolver* | the stripped background |
 
-We do **not** route gov forms through Typst, and we do **not** make `pdfform` a
+We do **not** route forms through Typst, and we do **not** make `pdfform` a
 Typst "mode." The unification is *exactly at the seam*, not above it.
 
 ### The two-asset model (strip-and-rebuild)
 
 A `pdfform` quill ships two assets the qualification layer produced upstream:
 
-- **`form.pdf`** — the *stripped background*: the normalized gov form with its
+- **`form.pdf`** — the *stripped background*: the normalized form with its
   `/AcroForm`, widget annotations, and page `/Annots` removed (pure pages +
   content streams).
 - **`form.json`** — the complete, value-free field reconstruction spec.
@@ -56,7 +57,7 @@ operation.
 - `quillmark-pdf` spine: `&[FieldSpec]` → stamped PDF + regions, all field types.
 - `quillmark-pdfform` backend (Typst-free), with the `form.json` resolver.
 - Typst **rewired** onto the spine — signatures only; `usaf_memo` stays green.
-- One hand-authored gov-form quill fixture (`form.pdf` + `Quill.yaml` + `form.json`).
+- One hand-authored form quill fixture (`form.pdf` + `Quill.yaml` + `form.json`).
 - `regions` threaded through `RenderResult`.
 - The generalized raster-preview seam in core.
 - Per-backend feature-gated engine registration.
@@ -321,7 +322,7 @@ brings back `max_len`).
 The reader/appender is a deliberately-minimal byte scanner (lifted from the
 Typst crate's `pdf_scan.rs`, not `hayro-syntax` — which is read-only and exposes
 no byte spans, so it cannot drive a byte-splice append). It **hard-errors** on
-shapes a modern gov PDF can have: xref *streams*, encryption, indirect
+shapes a modern PDF can have: xref *streams*, encryption, indirect
 `/Annots`, deeply nested page trees. The V1 contract is therefore that the
 background is **traditional-xref, unencrypted, inline-annots, flat-tree**. The
 qualification layer guarantees this (its mandatory `qpdf --decrypt` already
@@ -434,7 +435,7 @@ supports every field type, exercised through `pdfform`.
 1. `quillmark-pdf` spine (`stamp`, all field types, `PdfError`, `pdf-writer`).
 2. Typst rewired onto it; legacy deleted; `usaf_memo` green.
 3. `quillmark-pdfform` backend + `form.json` resolver.
-4. One hand-authored gov-form quill fixture (`form.pdf` + `Quill.yaml` + `form.json`).
+4. One hand-authored form quill fixture (`form.pdf` + `Quill.yaml` + `form.json`).
 5. `regions` threaded through `RenderResult` (types in core).
 6. Generalized raster-preview seam; `supports_canvas` reconciled with the impl.
 7. Per-backend feature-gated engine registration; wasm can render `pdfform`→PDF
@@ -450,11 +451,13 @@ supports every field type, exercised through `pdfform`.
 
 ### Fast-follow / tooling backlog (deferred, not V1)
 
-- **Value flattening** for PNG/SVG-with-values (and an optional flattened-PDF):
-  draw values into page content via `pdf-writer` over the background, then
-  hayro/hayro-svg render them. This is the appearance-synthesis the issue
-  punted on (text layout, `0 Tf` auto-size emulation) — the single biggest *new*
-  piece of work. Lives in `pdfform`'s render feature, **never** in the spine.
+- **Value flattening** for PNG/SVG-with-values: draw values into page content
+  via `pdf-writer` over the background, then hayro/hayro-svg render them. This is
+  the appearance-synthesis the issue punted on (text layout, `0 Tf` auto-size
+  emulation) — the single biggest *new* piece of work. It is **internal
+  preview-only machinery, not a PDF-output deliverable**: PDF output is always an
+  interactive AcroForm (Technique A). Lives in `pdfform`'s `preview` feature,
+  **never** in the spine.
 - **Regions presentation enrichment** (font/size/align) — rides with flattening.
 - **Surface `regions` in the WASM typed API** (then Python/.NET) — opt-in,
   additive; wasm first as the GUI consumer.
@@ -466,14 +469,18 @@ supports every field type, exercised through `pdfform`.
   (no PDF work): `schema_field`→key, `type`→Quill.yaml type, `options`→`enum`,
   `tooltip`→`description`, geometry→field order. A one-time scaffold (then
   hand-owned), guaranteeing `schema_field`↔schema consistency by construction.
-  Natural home for a future `quillmark` CLI subcommand.
-- **Continuation/overflow pages** — compose *content* first (gov background +
-  Typst-typeset continuation via `hayro-write::extract`), **stamp last** over the
-  combined page set with mixed geometry sources (`form.json` + introspection) in
-  one `stamp()` call. Kept *above* both backends so `pdfform` never gains a Typst
-  dep.
-- **Card-instance value addressing** (`$cards.<i>.<field>`) — lands with
-  continuation, its first real consumer.
+  **Belongs in the quillification pipeline (separate repo) alongside the
+  qualification layer that produces `form.json`, not in this engine** — a brief
+  `quillmark` CLI subcommand for it was prototyped here (#756) and removed.
+- **Card-instance value addressing** (`$cards.<i>.<field>`, `$cards.<kind>.<i>.<field>`)
+  — landed in `resolve.rs`. Binds one card instance per form field, so a *static*
+  multi-page form can lay out a bounded number of card slots across its existing
+  pages and place each instance's value on its page.
+- **Continuation/overflow pages, page composition, and PDF merging are out of
+  scope.** `pdfform` fills *static* forms only: it stamps over a fixed,
+  pre-existing page set and never composes content, appends continuation pages,
+  or merges PDFs. A document carrying more card instances than the form has slots
+  is the author's concern, not the engine's.
 
 ## 8. Decisions ratified & deferred
 
@@ -500,3 +507,141 @@ supports every field type, exercised through `pdfform`.
 - `form.json` ↔ Quill.yaml normalization (a single source of truth for overlaps).
 - Radio groups (reintroduce `on_state`); comb fields (reintroduce `max_len`).
 - Adding general `form-field(...)` to the Typst plate API.
+
+## 9. V1 implementation notes & handover
+
+> Post-implementation record (issue #749 / PR #750). The design above shipped
+> essentially as specified; this section captures **what landed**, the
+> **deviations** a future contributor must know, the **partially-scaffolded
+> deferrals** (so nobody re-discovers them), an **extension-point map**, and the
+> **way forward**.
+
+### What shipped
+
+- `quillmark-pdf` — the Typst-free stamp spine (`stamp`, all four field types,
+  `/DR` Helvetica, Technique A, own `PdfError`, lifted byte reader/appender).
+- `quillmark-pdfform` — the backend (`form.json` parse → `compile_data`-bound
+  resolver → `&[FieldSpec]` → `stamp`).
+- Typst rewired onto the spine; `pdf_scan.rs` + `overlay/inject.rs` deleted;
+  `usaf_memo` signatures green (the regression proof).
+- `regions` threaded through `RenderResult` (`RenderedRegion`/`RegionKind` in
+  core); the generalized raster-preview seam; per-backend feature-gated
+  registration; the `sample_form` fixture.
+- Gates: `cargo test --workspace --all-features --locked` green; `cargo doc
+  -Dwarnings` clean; new crates clippy-clean; all four bindings compile.
+
+### Deviations & decisions made during implementation
+
+1. **`pdf-writer` pinned to `0.15`** in `[workspace.dependencies]`. The proposal
+   named `pdf-writer` without a version; the Typst toolchain transitively forces
+   `0.15` (via `typst-pdf → krilla`), so the spine adopts `0.15` to link a single
+   copy rather than a second `0.14` one.
+2. **Non-zero `/MediaBox` origin is honoured.** The proposal's flip
+   (`y0 = pageH - (y+h)`) assumed a `(0,0)` page origin. The reader returns full
+   normalized boxes (`page_media_boxes`) and the flip offsets by the box origin,
+   so a translated background (`[10 20 622 812]`) places widgets correctly.
+3. **Robustness hard-errors** were added to match the reader's "reject
+   out-of-contract input cleanly" stance: checked object-id allocation (a
+   near-`u32::MAX` `/Size` → clean `PdfError`, not an overflow panic / silent
+   xref corruption) and a bounded `startxref` offset.
+4. **Multiline / newline-bearing text `/V` serializes as UTF-16BE** (pdf-writer's
+   encoding for values outside the literal-safe set) — valid, viewer-decoded. The
+   flattening fast-follow must decode it accordingly.
+5. **Checkbox**: the fixed on-state (`Yes`) drives **both** `/V` and `/AS` (the
+   bound value only signals checked/unchecked), plus `/MK /CA (4)` for the
+   ZapfDingbats check the viewer synthesizes under `NeedAppearances`.
+
+### Deferred but partially scaffolded — now landed (see dated note 2026-06-27)
+
+The three items below were scaffolded-but-incomplete at V1 (PR #750) and have
+since shipped on this branch; kept here for the historical trail.
+
+- **`pdfform`'s `preview` raster.** *Landed.* Under the `preview` feature
+  `pdfform` wires real `hayro`/`hayro-svg` deps, implements
+  `SessionHandle::{render_rgba, page_size_pt}` plus `render_svg`, reports
+  `supports_canvas() == true`, and `SUPPORTED_FORMATS == [Pdf, Svg]`. The session
+  pre-flattens values into the page (see `flatten.rs` / `typography.rs`), so the
+  raster is *complete* rather than background-only.
+- **Typst-free wasm `pdfform` bundle.** *Landed.* `wasm` Cargo.toml splits
+  `typst` / `pdfform` / `pdfform-preview` features (the old `render` feature is
+  now `typst`); `build-wasm.sh` builds the Typst-free artifact and `runtime.js`
+  registers it.
+- **`regions` surfaced in a binding's typed API.** *Landed (wasm).* `wasm`
+  exposes `FieldRegion`/`FieldRegionKind` (`From<RenderedRegion>`), populated on
+  `RenderResult.regions` in both render paths. python/.NET still pending.
+
+### Extension-point / file map
+
+- Spine `crates/quillmark-pdf/`: `stamp.rs` (the op, per-field-type widget
+  writers, Technique A, id allocation), `reader.rs` (byte scanner + input
+  contract + `page_media_boxes`), `lib.rs` (`FieldSpec`/`FieldType`,
+  `page_media_boxes`), `error.rs` (`PdfError`). House-style policy constants
+  (`CHECKBOX_ON_STATE`, `DEFAULT_APPEARANCE`) live in `stamp.rs`.
+- Backend `crates/backends/pdfform/`: `form.rs` (`form.json` wire types +
+  schema-tag check), `resolve.rs` (binding, coercion, top-left→bottom-left
+  flip), `lib.rs` (`Backend` + session).
+- Core: `crates/core/src/region.rs` (sidecar types), `session.rs` (the canvas
+  seam), `backend.rs` (`supports_canvas` static/dynamic contract).
+- Registration: `crates/quillmark/src/orchestration/engine.rs`
+  (`#[cfg(feature = "pdfform")]`); features in `quillmark` + `wasm` Cargo.toml.
+- Fixture: `crates/fixtures/resources/quills/sample_form/0.1.0/`
+  (`form.pdf` + `Quill.yaml` + `form.json`, all four field types).
+
+### Way forward (priority order)
+
+The full backlog is §7; each item below is filed as a tracking issue.
+
+1. **Value flattening** (PNG/SVG-with-values) — the single biggest new piece and
+   the only path to values in flat output; unblocks regions presentation
+   enrichment and the `pdfform` `preview` raster. Lives in `pdfform`'s render
+   feature, never the spine. → **#752**
+2. **The qualification layer** (decrypt/strip/extract/verify → `form.pdf` +
+   `form.json`) — the upstream dependency for *real* PDF-form quills; today's
+   fixture is hand-authored. → **#753**
+3. **`pdfform` preview raster** (hayro background, the `preview` stub) **+
+   typst-free WASM bundle.** → **#754**
+4. **Surface `regions` in the bindings + the `@quillmark/wasm` canvas contract**
+   (value compositing + golden-image fixtures). → **#755**
+5. **`form.json` → `Quill.yaml` scaffold** (#756) — prototyped as a `quillmark`
+   CLI subcommand, then removed: it belongs in the quillification pipeline
+   (separate repo) with the qualification layer, not this engine.
+6. **Card-instance addressing** (`$cards.<i>` / `$cards.<kind>.<i>`) → **#757** —
+   *landed; see the dated note below.* Continuation/overflow pages, page
+   composition, and PDF merging are **out of scope** (§7): `pdfform` fills static
+   forms only.
+7. **General `form-field(...)` in the Typst plate API.** → **#758**
+
+Longer-term, acknowledged-but-unscheduled items stay in §8 (508/PDF-UA
+accessibility, `form.json` ↔ Quill.yaml normalization, radio groups, comb
+fields).
+
+### Card-instance addressing (2026-06-27, #757)
+
+**Card-instance addressing landed; page composition / continuation is out of
+scope.** `pdfform` fills *static* forms only.
+
+- **Card-instance addressing** is in `resolve.rs`: a `schema_field` rooted at
+  `$cards` binds one card instance, by absolute index (`$cards.<i>.<field>`) or
+  by kind + index (`$cards.<kind>.<i>.<field>`). It binds against the same
+  `$cards` array the Typst plate iterates, so it inherits zero-fill, validation,
+  and coercion.
+- A **static multi-page form** can therefore lay out a bounded number of card
+  slots across its existing pages — each slot a `form.json` field with its own
+  `page`, bound to a distinct instance — and each instance's value lands on its
+  page. No new engine code: per-field `page` + card-instance addressing carry it
+  (proven through `field_spec` in `resolve.rs`'s tests).
+- **Continuation/overflow pages, page composition, and PDF merging are out of
+  scope and not implemented.** The engine stamps over a fixed, pre-existing page
+  set; it never composes content, appends continuation pages, or merges PDFs. A
+  document with more card instances than the form has slots is the author's
+  concern, not the engine's. (`pdfform` consequently has **no** `lopdf` / page-
+  merge dependency — it is `pdf-writer`-only for stamping.)
+
+### Open verification (not possible headless)
+
+Field styling and `0 Tf` auto-size must be eyeballed in appearance-synthesizing
+viewers — render the `sample_form` fixture and confirm in **Acrobat, Chrome
+(pdfium), and Preview.app**: the text/choice values are visible and auto-sized
+inside their boxes, the checkbox shows a check, and every widget lands on its
+printed box. Flat/non-interactive renderers show the fields blank by design
+(Technique A); that is expected, not a regression.

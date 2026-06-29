@@ -33,6 +33,11 @@ impl Quillmark {
             engine.register_backend(Box::new(quillmark_typst::TypstBackend));
         }
 
+        #[cfg(feature = "pdfform")]
+        {
+            engine.register_backend(Box::new(quillmark_pdfform::PdfformBackend));
+        }
+
         engine
     }
 
@@ -73,12 +78,7 @@ impl Quillmark {
         let backend = self.resolve_backend(quill)?;
         quill.check_quill_reference(doc)?;
         let json_data = quill.compile_data(doc)?;
-        let plate_content = quill
-            .plate()
-            .filter(|s| !s.is_empty())
-            .unwrap_or("")
-            .to_string();
-        backend.open(&plate_content, quill, &json_data)
+        backend.open(quill, &json_data)
     }
 
     /// Render `doc` against `quill` in one shot. Convenience over
@@ -107,11 +107,17 @@ impl Quillmark {
         Ok(self.resolve_backend(quill)?.supported_formats())
     }
 
-    /// Whether `quill`'s backend can paint sessions to a canvas. Asked of the
-    /// real backend; `false` when the backend is unsupported or non-canvas.
+    /// Pre-session hint for whether `quill`'s backend can paint sessions to a
+    /// canvas, derived from the backend's output formats (see
+    /// [`quillmark_core::formats_support_canvas`]); `false` when the backend is
+    /// unsupported. Resolves the backend but compiles nothing — use it to decide
+    /// whether to offer a canvas preview before opening a session. The
+    /// authoritative answer is
+    /// [`RenderSession::supports_canvas`](quillmark_core::RenderSession::supports_canvas)
+    /// once a session exists.
     pub fn supports_canvas(&self, quill: &Quill) -> bool {
         self.resolve_backend(quill)
-            .map(|b| b.supports_canvas())
+            .map(|b| quillmark_core::formats_support_canvas(b.supported_formats()))
             .unwrap_or(false)
     }
 }

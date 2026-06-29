@@ -2,10 +2,10 @@
 
 use crate::error::WasmError;
 use crate::types::Diagnostic;
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform"))]
 use crate::types::{RenderOptions, RenderResult};
 use js_sys::{Array, Uint8Array};
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform-preview"))]
 use serde::Deserialize;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -153,10 +153,10 @@ export interface Card {
 /// `densityScale` proportionally and surfaces the actual backing
 /// dimensions in the returned `PaintResult` so consumers can detect the
 /// clamp.
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform-preview"))]
 const MAX_BACKING_DIMENSION: u32 = 16384;
 
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform"))]
 fn now_ms() -> f64 {
     #[cfg(target_arch = "wasm32")]
     {
@@ -175,7 +175,7 @@ fn now_ms() -> f64 {
 
 /// Render engine: a backend registry and render dispatcher. Render build only —
 /// the core build constructs and validates quills without it.
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform"))]
 #[wasm_bindgen]
 pub struct Quillmark {
     inner: quillmark::Quillmark,
@@ -192,14 +192,11 @@ pub struct Quill {
 /// (`pageCount === 0`); `paint(ctx, 0)` or `pageSize(0)` throws with
 /// `"page index 0 out of range (pageCount=0)"`. Branch on `pageCount === 0`
 /// rather than catching the error.
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform"))]
 #[wasm_bindgen]
 pub struct RenderSession {
     inner: quillmark_core::RenderSession,
     backend_id: String,
-    /// Canvas capability of the backend that produced this session, captured
-    /// at open time. Mirrors the engine's `supportsCanvas`.
-    supports_canvas: bool,
 }
 
 /// Typed in-memory Quillmark document.
@@ -210,14 +207,14 @@ pub struct Document {
     parse_warnings: Vec<quillmark_core::Diagnostic>,
 }
 
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform"))]
 impl Default for Quillmark {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform"))]
 #[wasm_bindgen]
 impl Quillmark {
     #[wasm_bindgen(constructor)]
@@ -237,7 +234,6 @@ impl Quillmark {
         Ok(RenderSession {
             inner: session,
             backend_id: quill.inner.backend_id().to_string(),
-            supports_canvas: self.inner.supports_canvas(&quill.inner),
         })
     }
 
@@ -265,6 +261,7 @@ impl Quillmark {
             warnings,
             output_format: result.output_format.into(),
             render_time_ms: now_ms() - start,
+            regions: result.regions.into_iter().map(Into::into).collect(),
         })
     }
 
@@ -284,9 +281,11 @@ impl Quillmark {
         })
     }
 
-    /// `true` iff `quill`'s backend can paint sessions to a canvas. Asked of
-    /// the real backend; `false` when the backend is unsupported or non-canvas.
-    /// Use as a precondition probe before mounting a canvas-based preview UI.
+    /// Pre-session hint: `true` iff `quill`'s backend can paint sessions to a
+    /// canvas, derived from the backend's output formats; `false` when the
+    /// backend is unsupported. Use as a cheap precondition probe before mounting
+    /// a canvas-based preview UI; the authoritative answer is the session's
+    /// `supportsCanvas` getter once `open()` has been called.
     #[wasm_bindgen(js_name = supportsCanvas)]
     pub fn supports_canvas(&self, quill: &Quill) -> bool {
         self.inner.supports_canvas(&quill.inner)
@@ -1173,11 +1172,12 @@ fn js_bytes_for_tree_entry(path: &str, value: JsValue) -> Result<Vec<u8>, JsValu
 }
 
 /// TypeScript declarations for the canvas-preview surface.
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform-preview"))]
 #[wasm_bindgen(typescript_custom_section)]
 const CANVAS_PREVIEW_TS: &'static str = r#"
 /**
- * Page dimensions in Typst points (1 pt = 1/72 inch).
+ * Page dimensions in points (1 pt = 1/72 inch). Typst measures in Typst
+ * points; pdfform measures in PDF points — the same unit.
  *
  * Report-only: the painter sizes the canvas itself based on
  * `PaintOptions`. `pageSize` is exposed for callers that need page
@@ -1193,7 +1193,8 @@ export interface PageSize {
  * Inputs to `RenderSession.paint`. Both fields are optional and default
  * to `1`.
  *
- * - `layoutScale` — layout-space pixels per Typst point. For on-screen
+ * - `layoutScale` — layout-space pixels per point (Typst point / PDF
+ *   point — the same 1/72″ unit). For on-screen
  *   canvases this is CSS pixels per pt; the page's layout-pixel size is
  *   `widthPt * layoutScale × heightPt * layoutScale`. The painter
  *   surfaces these dimensions as `layoutWidth` / `layoutHeight` so
@@ -1246,7 +1247,7 @@ export interface PaintResult {
 }
 "#;
 
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform"))]
 #[wasm_bindgen]
 impl RenderSession {
     #[wasm_bindgen(getter, js_name = pageCount)]
@@ -1260,11 +1261,12 @@ impl RenderSession {
         self.backend_id.clone()
     }
 
-    /// `true` iff `paint` and `pageSize` will succeed for this session. The
-    /// backend's canvas capability, captured at open time.
+    /// `true` iff `paint` and `pageSize` will succeed for this session. Derived
+    /// from the session's canvas seam, so it reflects exactly what `paint` will
+    /// do — no separately captured flag.
     #[wasm_bindgen(getter, js_name = supportsCanvas)]
     pub fn supports_canvas(&self) -> bool {
-        self.supports_canvas
+        self.inner.supports_canvas()
     }
 
     /// Non-fatal diagnostics emitted when opening the session. Also appended
@@ -1296,15 +1298,21 @@ impl RenderSession {
             warnings: result.warnings.into_iter().map(Into::into).collect(),
             output_format: result.output_format.into(),
             render_time_ms: now_ms() - start,
+            regions: result.regions.into_iter().map(Into::into).collect(),
         })
     }
+}
 
-    /// Page dimensions in Typst points (1 pt = 1/72 inch).
+#[cfg(any(feature = "typst", feature = "pdfform-preview"))]
+#[wasm_bindgen]
+impl RenderSession {
+    /// Page dimensions in points (1 pt = 1/72 inch).
     /// Throws if the backend has no canvas painter or `page` is out of range.
     #[wasm_bindgen(js_name = pageSize, unchecked_return_type = "PageSize")]
     pub fn page_size(&self, page: usize) -> Result<JsValue, JsValue> {
-        let typst = self.typst_session("pageSize")?;
-        let (width_pt, height_pt) = typst
+        self.ensure_canvas("pageSize")?;
+        let (width_pt, height_pt) = self
+            .inner
             .page_size_pt(page)
             .ok_or_else(|| self.page_oob_error("pageSize", page))?;
         let serializer = serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
@@ -1334,10 +1342,11 @@ impl RenderSession {
         page: usize,
         #[wasm_bindgen(unchecked_param_type = "PaintOptions | undefined")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let typst = self.typst_session("paint")?;
+        self.ensure_canvas("paint")?;
         let canvas_ctx = CanvasCtx::from_js(&ctx)?;
 
-        let (width_pt, height_pt) = typst
+        let (width_pt, height_pt) = self
+            .inner
             .page_size_pt(page)
             .ok_or_else(|| self.page_oob_error("paint", page))?;
 
@@ -1390,9 +1399,22 @@ impl RenderSession {
             .to_js_value());
         }
 
-        let (pixel_w, pixel_h, mut rgba) = typst
+        // `page_size_pt(page)` already succeeded above, so `page` is in range;
+        // a `None` here therefore means the backend reported a canvas
+        // (`ensure_canvas` passed) but produced no raster — a capability/impl
+        // disagreement, not a bad page index. Label it as such instead of
+        // mislabelling it page-out-of-range.
+        let (pixel_w, pixel_h, mut rgba) = self
+            .inner
             .render_rgba(page, render_scale as f32)
-            .ok_or_else(|| self.page_oob_error("paint", page))?;
+            .ok_or_else(|| {
+                WasmError::from(format!(
+                    "paint: backend '{}' reported a canvas painter but produced no raster \
+                     for page {page} (render_rgba returned None on an in-range page)",
+                    self.backend_id
+                ))
+                .to_js_value()
+            })?;
 
         canvas_ctx.set_canvas_dims(pixel_w, pixel_h)?;
 
@@ -1419,16 +1441,22 @@ impl RenderSession {
     }
 }
 
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform-preview"))]
 impl RenderSession {
-    fn typst_session(&self, op: &str) -> Result<&quillmark_typst::TypstSession, JsValue> {
-        quillmark_typst::typst_session_of(&self.inner).ok_or_else(|| {
-            WasmError::from(format!(
+    /// Gate a canvas operation on the session's canvas capability, derived from
+    /// the core `SessionHandle` seam (`page_size_pt` / `render_rgba`) — the same
+    /// seam the painter dispatches through, so the gate cannot disagree with the
+    /// paint.
+    fn ensure_canvas(&self, op: &str) -> Result<(), JsValue> {
+        if self.inner.supports_canvas() {
+            Ok(())
+        } else {
+            Err(WasmError::from(format!(
                 "{op}: backend '{}' has no canvas painter",
                 self.backend_id
             ))
-            .to_js_value()
-        })
+            .to_js_value())
+        }
     }
 
     fn page_oob_error(&self, op: &str, page: usize) -> JsValue {
@@ -1440,13 +1468,13 @@ impl RenderSession {
     }
 }
 
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform-preview"))]
 enum CanvasCtx<'a> {
     OnScreen(&'a web_sys::CanvasRenderingContext2d),
     OffScreen(&'a web_sys::OffscreenCanvasRenderingContext2d),
 }
 
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform-preview"))]
 impl<'a> CanvasCtx<'a> {
     fn from_js(ctx: &'a JsValue) -> Result<Self, JsValue> {
         if let Some(c) = ctx.dyn_ref::<web_sys::CanvasRenderingContext2d>() {
@@ -1488,7 +1516,7 @@ impl<'a> CanvasCtx<'a> {
     }
 }
 
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform-preview"))]
 #[derive(Serialize)]
 struct PageSize {
     #[serde(rename = "widthPt")]
@@ -1497,7 +1525,7 @@ struct PageSize {
     height_pt: f32,
 }
 
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform-preview"))]
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PaintOptions {
@@ -1507,7 +1535,7 @@ struct PaintOptions {
     density_scale: Option<f32>,
 }
 
-#[cfg(feature = "render")]
+#[cfg(any(feature = "typst", feature = "pdfform-preview"))]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PaintResult {

@@ -79,15 +79,22 @@ export function isQuillmarkError(e) {
 // and `formats`/`canvas` are the REQUIRED static capability manifest so the
 // cheap probes (`supportedFormats`/`supportsCanvas`) ALWAYS answer without
 // loading the binary or cloning the quill. The manifest values are verified
-// against the backend's Rust source (`crates/backends/typst/src/lib.rs`
-// `SUPPORTED_FORMATS` and `supports_canvas`) and pinned by the `runtime.test.js`
-// drift-guard test, which renders once and asserts the loaded backend reports
-// the same list.
+// against each backend's Rust source (`crates/backends/<id>/src/lib.rs`
+// `SUPPORTED_FORMATS`) and pinned by the `runtime.test.js` drift-guard test,
+// which renders once and asserts the loaded backend reports the same list.
+// `canvas` mirrors `quillmark_core::formats_support_canvas`: true iff the
+// format list includes a visual-page format (`svg` or `png`).
 const DEFAULT_BACKENDS = {
 	typst: {
 		load: () => import('../backends/typst/wasm.js'),
 		formats: ['pdf', 'svg', 'png'], // crates/backends/typst/src/lib.rs SUPPORTED_FORMATS
-		canvas: true // crates/backends/typst/src/lib.rs supports_canvas() == true
+		canvas: true // has svg/png → formats_support_canvas == true
+	},
+	pdfform: {
+		load: () => import('../backends/pdfform/wasm.js'),
+		// crates/backends/pdfform/src/lib.rs SUPPORTED_FORMATS == [Pdf, Svg, Png]
+		formats: ['pdf', 'svg', 'png'],
+		canvas: true // has svg/png → formats_support_canvas == true
 	}
 };
 
@@ -332,9 +339,13 @@ export class Engine {
 /**
  * Thin wrapper over a backend's iterative render session. Holds the compiled
  * snapshot; the quill/document it was opened from have already been freed.
+ *
+ * `paint` writes a COMPLETE page raster — all content visible, no caller-side
+ * compositing — for every backend that supports canvas (Typst rasterizes
+ * natively; pdfform rasterizes its pre-flattened page). See `runtime.d.ts`.
  */
 export class RenderSession {
-	/** @param {import('../backends/typst/wasm').RenderSession} inner */
+	/** @param {{ pageCount: number, backendId: string, supportsCanvas: boolean, warnings: any[], render: Function, pageSize: Function, paint: Function, free: Function }} inner backend-build RenderSession (typst or pdfform) */
 	constructor(inner) {
 		this.#inner = inner;
 	}
@@ -364,6 +375,10 @@ export class RenderSession {
 	}
 
 	/**
+	 * Paint `page` into a 2D canvas context. The painted raster is COMPLETE —
+	 * all page content visible, no caller-side compositing — for both the Typst
+	 * and pdfform backends. See `runtime.d.ts` for the DPR/clamp math and the
+	 * region-overlay coordinate transform.
 	 * @param {CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D} ctx
 	 * @param {number} page
 	 * @param {object} [options]

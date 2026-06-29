@@ -8,7 +8,48 @@
 
 ## Unreleased
 
+- feat(pdfform)!: the `pdfform` backend now exports PNG and SVG as first-class
+  `render()` output formats (`SUPPORTED_FORMATS == [Pdf, Svg, Png]`); PNG
+  rasters at `RenderOptions::ppi` (default 144). The `preview` cargo feature is
+  removed — the hayro raster/SVG/PNG seam is always linked, so SVG/PNG/canvas
+  work out of the box rather than behind a flag. The `quillmark` crate's
+  `pdfform-preview` feature is dropped (folded into `pdfform`); the wasm
+  `pdfform-preview` feature now gates only the `web-sys` canvas painter
+- fix(quillmark-pdf): `find_dict_value` now walks the dict as strict
+  key→value pairs, so a Name in *value* position (e.g. `/Subtype /Producer`)
+  is no longer mis-matched as a key; the object/dict scanners also skip
+  `%`-comments, so `endobj` or a key token inside a comment can't derail
+  parsing of an untrusted base PDF
+- feat(pdfform): add the Typst-free `pdfform` backend + shared `quillmark-pdf`
+  AcroForm stamping spine; rewire Typst signatures onto the spine; thread a
+  `regions` sidecar through `RenderResult` and generalize the raster-preview
+  seam (#749, #750). See `prose/proposals/PDFFORM_BACKEND.md` §9 for the V1
+  handover.
+- refactor(pdfform): PDF output is always an interactive AcroForm (Technique A).
+  Value-flattening is internal machinery backing the SVG/PNG/canvas raster
+  outputs, never a PDF deliverable. The public `RenderOptions.flatten` knob is
+  removed across core and all four bindings (it was wired only in wasm, hardcoded
+  `false` in Python, and ignored in .NET)
+- fix(pdfform): the flatten path transcodes values to WinAnsi (with a
+  `WinAnsiEncoding` font) so accented/Latin-1 text renders correctly in the
+  raster output, and clips each value to its field box so long values can't
+  overflow
+- refactor(quillmark-pdf): hoist the shared PDF byte-serialization (object/text
+  writers, `/Info /Producer` stamp) into `quillmark_pdf::writer`, consumed by
+  both the stamp and flatten paths; `find_object_bytes` now matches any object
+  generation and returns the live (last) revision
 - docs(canon): canonize `$ext.editor.title` as the slot for a per-card display name
+- refactor(core)!: remove the hand-set `Backend::supports_canvas()`; derive
+  canvas capability from the one seam instead. `RenderSession::supports_canvas()`
+  (authoritative, from `page_size_pt`) and `formats_support_canvas()`
+  (pre-session hint, from output formats) replace it, so the capability can no
+  longer disagree with what `paint` does. The engine and WASM `supportsCanvas`
+  surfaces are unchanged in shape. See `docs/migrations/0.92-to-0.93.md`
+- build(wasm)!: rename the WASM engine feature `render` → `typst` (now the
+  default) and add `pdfform` / `pdfform-preview` build variants, so a Typst-free
+  PDF-form bundle can ship without Typst. From-source builders pass
+  `--features typst` where they used `--features render`; the published JS API is
+  unchanged. See `docs/migrations/0.92-to-0.93.md`
 
 ## v0.92.0 - 2026-06-22
 
