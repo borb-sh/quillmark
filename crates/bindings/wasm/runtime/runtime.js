@@ -345,7 +345,7 @@ export class Engine {
  * natively; pdfform rasterizes its pre-flattened page). See `runtime.d.ts`.
  */
 export class RenderSession {
-	/** @param {{ pageCount: number, backendId: string, supportsCanvas: boolean, warnings: any[], render: Function, pageSize: Function, paint: Function, free: Function }} inner backend-build RenderSession (typst or pdfform) */
+	/** @param {{ pageCount: number, backendId: string, supportsCanvas: boolean, warnings: any[], render: Function, regions: Function, pageSize: Function, paint: Function, free: Function }} inner backend-build RenderSession (typst or pdfform) */
 	constructor(inner) {
 		this.#inner = inner;
 	}
@@ -367,6 +367,17 @@ export class RenderSession {
 	/** @param {object} [options] */
 	render(options) {
 		return this.#inner.render(options ?? undefined);
+	}
+
+	/**
+	 * Schema-field geometry for this compiled session — one region per
+	 * schema-bound field, keyed on its quill schema field path. A session-level
+	 * query (no render); read it to place field overlays / cross-navigation over
+	 * a `paint`-ed canvas.
+	 * @returns {import('./runtime.d.ts').FieldRegion[]}
+	 */
+	regions() {
+		return this.#inner.regions();
 	}
 
 	/** @param {number} page */

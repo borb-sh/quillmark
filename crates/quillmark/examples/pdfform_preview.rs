@@ -58,31 +58,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     write_example_output("sample_form_filled.pdf", &gf_result.artifacts[0].bytes)?;
     println!("Written: {}", out_dir.join("sample_form_filled.pdf").display());
 
-    println!(
-        "\nField regions sidecar ({} fields):",
-        gf_result.regions.len()
-    );
-    for region in &gf_result.regions {
-        // `RegionKind` is an enum so new kinds can be added later; use a
-        // refutable `if let` (not an irrefutable `let`) so a future variant is
-        // non-breaking at this site. The `allow` silences the
-        // single-variant-today warning; it lapses on its own once a second
-        // variant exists.
-        #[allow(irrefutable_let_patterns)]
-        if let quillmark_core::RegionKind::Field { field_type, value } = &region.kind {
-            let val_display = value.as_deref().unwrap_or("<blank>");
-            println!(
-                "  {:20}  page={:<2}  rect=[{:.1},{:.1},{:.1},{:.1}]  type={:<10}  value={:?}",
-                region.name,
-                region.page,
-                region.rect[0],
-                region.rect[1],
-                region.rect[2],
-                region.rect[3],
-                field_type,
-                val_display,
-            );
-        }
+    // Region geometry is a session-level query, not on the render result: open
+    // a session and read it without producing another byte artifact.
+    let gf_session = engine.open(&gf_quill, &gf_doc).expect("open sample_form session");
+    let regions = gf_session.regions();
+    println!("\nField regions ({} fields):", regions.len());
+    for region in &regions {
+        // A region carries the schema field address + geometry, for mapping a
+        // page rectangle to the editor field (cross-navigation).
+        println!(
+            "  {:20}  page={:<2}  rect=[{:.1},{:.1},{:.1},{:.1}]",
+            region.field,
+            region.page,
+            region.rect[0],
+            region.rect[1],
+            region.rect[2],
+            region.rect[3],
+        );
     }
 
     // --- Typst backend: taro → SVG ---

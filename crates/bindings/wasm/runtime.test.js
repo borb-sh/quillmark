@@ -134,15 +134,18 @@ describe('@quillmark/wasm/runtime — Engine (hidden core→backend crossing)', 
     expect(typeof (await engine.supportsCanvas(quill))).toBe('boolean')
   })
 
-  it('regions is always a non-null array on the Engine render path', async () => {
-    // Typst renders without AcroForm stamps → regions is empty, never undefined.
+  it('session.regions() is always a non-null array', async () => {
+    // Regions are a session-level query, not on the render result. A Typst plate
+    // with no form-fields has no schema-field regions → empty, never undefined.
     const engine = new Engine()
     const quill = makeRuntimeQuill()
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
 
-    const result = await engine.render(quill, doc, { format: 'pdf' })
-    expect(Array.isArray(result.regions)).toBe(true)
-    expect(result.regions.length).toBe(0)
+    const session = await engine.open(quill, doc)
+    const regions = session.regions()
+    expect(Array.isArray(regions)).toBe(true)
+    expect(regions.length).toBe(0)
+    session.free()
   })
 
   it('manifest-backed capability probes do NOT load the backend', async () => {

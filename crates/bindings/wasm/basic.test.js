@@ -416,19 +416,18 @@ describe('Quillmark.quill', () => {
     expect(svg.artifacts[0].mimeType).toBe('image/svg+xml')
   })
 
-  it('regions is always a non-null array on every render result', () => {
-    // Typst renders without AcroForm stamps → regions is empty, never undefined.
+  it('session.regions() is always a non-null array', () => {
+    // Regions are a session-level query, not on the render result. A Typst plate
+    // with no form-fields has no schema-field regions → empty, never undefined.
     const engine = new Quillmark()
     const quill = Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
 
-    const pdf = engine.render(quill, doc, { format: 'pdf' })
-    expect(Array.isArray(pdf.regions)).toBe(true)
-    expect(pdf.regions.length).toBe(0)
-
-    const svg = engine.render(quill, doc, { format: 'svg' })
-    expect(Array.isArray(svg.regions)).toBe(true)
-    expect(svg.regions.length).toBe(0)
+    const session = engine.open(quill, doc)
+    const regions = session.regions()
+    expect(Array.isArray(regions)).toBe(true)
+    expect(regions.length).toBe(0)
+    session.free()
   })
 
   it('should throw a quill::name_mismatch error when the document quill ref differs from the quill name', () => {

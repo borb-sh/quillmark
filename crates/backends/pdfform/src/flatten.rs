@@ -23,9 +23,8 @@
 
 use quillmark_pdf::{
     reader::{err, extract_outer_dict, find_dict_value, find_object_bytes, UpdatedObject},
-    regions_of,
     writer::{alloc_id, dict_object, pdf_escape, winansi_encode},
-    FieldSpec, FieldType, PdfError, PdfUpdate, StampOptions, StampResult, CHECKBOX_ON_STATE,
+    FieldSpec, FieldType, PdfError, PdfUpdate, StampOptions, CHECKBOX_ON_STATE,
 };
 
 use crate::typography;
@@ -34,17 +33,10 @@ const CODE_PARSE: &str = "pdf::flatten_parse";
 
 /// Flatten `fields` onto `base` PDF by drawing values as PDF content stream
 /// operators. Unlike the stamp/Technique-A path, the result is visible in all
-/// rasterizers. Returns the flat PDF bytes and the same [`RenderedRegion`]
-/// sidecar the stamp path produces.
-pub fn flatten(
-    base: Vec<u8>,
-    fields: &[FieldSpec],
-    opts: &StampOptions,
-) -> Result<StampResult, PdfError> {
-    let regions = regions_of(fields);
-
+/// rasterizers. Returns the flat PDF bytes.
+pub fn flatten(base: Vec<u8>, fields: &[FieldSpec], opts: &StampOptions) -> Result<Vec<u8>, PdfError> {
     if fields.is_empty() && opts.producer.is_none() {
-        return Ok(StampResult { pdf: base, regions });
+        return Ok(base);
     }
 
     let pdf = base;
@@ -103,8 +95,7 @@ pub fn flatten(
         }
     }
 
-    let flat = up.finish(pdf)?;
-    Ok(StampResult { pdf: flat, regions })
+    up.finish(pdf)
 }
 
 // ── Drawing helpers ───────────────────────────────────────────────────────────
@@ -412,6 +403,7 @@ mod tests {
     fn text_field(name: &str, value: &str) -> FieldSpec {
         FieldSpec {
             name: name.to_string(),
+            schema_field: Some(name.to_string()),
             page: 0,
             rect: [72.0, 700.0, 300.0, 720.0],
             field_type: FieldType::Text { multiline: false },
@@ -423,6 +415,7 @@ mod tests {
     fn checkbox_field(name: &str, checked: bool) -> FieldSpec {
         FieldSpec {
             name: name.to_string(),
+            schema_field: Some(name.to_string()),
             page: 0,
             rect: [72.0, 660.0, 90.0, 678.0],
             field_type: FieldType::Checkbox,
@@ -432,9 +425,7 @@ mod tests {
     }
 
     fn flatten_ok(fields: &[FieldSpec]) -> Vec<u8> {
-        flatten(BASE.to_vec(), fields, &StampOptions::default())
-            .expect("flatten succeeds")
-            .pdf
+        flatten(BASE.to_vec(), fields, &StampOptions::default()).expect("flatten succeeds")
     }
 
     fn contains_window(haystack: &[u8], needle: &[u8]) -> bool {

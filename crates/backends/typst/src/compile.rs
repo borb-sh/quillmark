@@ -132,12 +132,6 @@ pub(crate) fn render_document_pages(
         None => (0..page_count).collect(),
     };
 
-    // Form-field placements → spine field specs (Typst top-left → PDF
-    // bottom-left). Regions ride on every render regardless of format, so the
-    // GUI overlay has the geometry whether it shows the PDF or a raster.
-    let field_specs = overlay::build_field_specs(document, field_placements)?;
-    let regions = quillmark_pdf::regions_of(&field_specs);
-
     match format {
         OutputFormat::Svg => {
             let artifacts = selected_indices
@@ -148,7 +142,7 @@ pub(crate) fn render_document_pages(
                     output_format: OutputFormat::Svg,
                 })
                 .collect();
-            Ok(RenderResult::new(artifacts, OutputFormat::Svg).with_regions(regions))
+            Ok(RenderResult::new(artifacts, OutputFormat::Svg))
         }
         OutputFormat::Png => {
             let scale = ppi.unwrap_or(DEFAULT_PPI) / 72.0;
@@ -170,7 +164,7 @@ pub(crate) fn render_document_pages(
                     output_format: OutputFormat::Png,
                 });
             }
-            Ok(RenderResult::new(artifacts, OutputFormat::Png).with_regions(regions))
+            Ok(RenderResult::new(artifacts, OutputFormat::Png))
         }
         OutputFormat::Pdf => {
             let pdf = typst_pdf::pdf(document, &PdfOptions::default()).map_err(|e| {
@@ -182,6 +176,11 @@ pub(crate) fn render_document_pages(
                     .with_code("typst::pdf_generation".to_string())],
                 }
             })?;
+            // Form-field placements → spine field specs (Typst top-left → PDF
+            // bottom-left), stamped as AcroForm widgets. Only the PDF path needs
+            // them; SVG/PNG render the pages directly, and field geometry is a
+            // session-level query (`TypstSession::regions`), not a render output.
+            let field_specs = overlay::build_field_specs(document, field_placements)?;
             // The producer is always stamped (the always-on `/Info` pass); the
             // override threads from the product layer, else the backend default.
             let producer = Some(
@@ -193,12 +192,11 @@ pub(crate) fn render_document_pages(
                 stamp(pdf, &field_specs, &StampOptions { producer }).map_err(map_pdf_err)?;
             Ok(RenderResult::new(
                 vec![Artifact {
-                    bytes: stamped.pdf,
+                    bytes: stamped,
                     output_format: OutputFormat::Pdf,
                 }],
                 OutputFormat::Pdf,
-            )
-            .with_regions(stamped.regions))
+            ))
         }
         OutputFormat::Txt => Err(RenderError::FormatNotSupported {
             diags: vec![Diagnostic::new(
