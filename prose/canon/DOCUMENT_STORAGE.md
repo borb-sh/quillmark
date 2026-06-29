@@ -79,7 +79,7 @@ format.
 Documents written by `quillmark-core` `0.81.x` carry
 `"schema": "quillmark/document@0.81.0"` and a separate `sentinel` + `frontmatter`
 shape. Readers accept them and migrate forward to V0_82_0 on load via
-`From<DocumentV0_81_0> for DocumentV0_82_0`; writers no longer produce this
+`From<DocumentV0_81_0> for DocumentV0_82_0`; writers do not produce this
 shape. The migration is structural — no defaults are invented and no
 field-level information is dropped — so a `0.81.x`-stored document and the
 same document re-parsed from its Markdown source produce equal `Document`
@@ -120,7 +120,7 @@ round-trip (the JSON `value` projection is fill-free), and the `seed`
 payload-item variant (the `$seed` per-card-kind overlay map). The
 V0_82_0 → V0_92_0 migration is structural — old payload items map 1:1,
 `nested_fills` defaults to empty (no 0.82.0 document carried nested
-markers) and the new `seed` variant is simply never produced from an
+markers) and the new `seed` variant is never produced from an
 older blob. Migrations chain on read (`V0_81_0 → V0_82_0 → V0_92_0`),
 with only the newest DTO converting to the live `Document`.
 
