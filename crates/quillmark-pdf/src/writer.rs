@@ -230,4 +230,31 @@ mod tests {
         // U+1F600 (😀) is outside the BMP → a UTF-16 surrogate pair D83D DE00.
         assert_eq!(pdf_text_string("😀"), b"<FEFFD83DDE00>");
     }
+
+    #[test]
+    fn upsert_producer_replaces_existing_value() {
+        let info = b"/Title (Hi) /Producer (Old) /Creator (X)";
+        let out = upsert_producer(info, b"(New)");
+        assert_eq!(&out, b"/Title (Hi) /Producer (New) /Creator (X)");
+    }
+
+    #[test]
+    fn upsert_producer_appends_when_absent() {
+        let info = b"/Title (Hi)";
+        let out = upsert_producer(info, b"(New)");
+        assert_eq!(&out, b"/Title (Hi) /Producer (New)");
+    }
+
+    #[test]
+    fn upsert_producer_ignores_producer_name_in_value_position() {
+        // A `/Producer` Name in *value* position (here as the value of
+        // `/Marker`) must not be overwritten as if it were the key — doing so
+        // would clobber the wrong token and drop a trailing entry. Regression
+        // for the key/value-position bug in `find_dict_value`.
+        let info = b"/Title (Hi) /Marker /Producer /Creator (X)";
+        let out = upsert_producer(info, b"(New)");
+        // No real /Producer key exists, so the entry is appended; the /Marker
+        // value and /Creator entry are left intact.
+        assert_eq!(&out, b"/Title (Hi) /Marker /Producer /Creator (X) /Producer (New)");
+    }
 }
