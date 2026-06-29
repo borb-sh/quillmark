@@ -8,6 +8,11 @@
 
 ## Unreleased
 
+- fix(quillmark-pdf): `find_dict_value` now walks the dict as strict
+  key→value pairs, so a Name in *value* position (e.g. `/Subtype /Producer`)
+  is no longer mis-matched as a key; the object/dict scanners also skip
+  `%`-comments, so `endobj` or a key token inside a comment can't derail
+  parsing of an untrusted base PDF
 - feat(pdfform): add the Typst-free `pdfform` backend + shared `quillmark-pdf`
   AcroForm stamping spine; rewire Typst signatures onto the spine; thread a
   `regions` sidecar through `RenderResult` and generalize the raster-preview

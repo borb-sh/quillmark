@@ -197,16 +197,18 @@ pub fn find_object_bytes(pdf: &[u8], id: u32) -> Option<(usize, usize)> {
 }
 
 /// Find the `endobj` keyword that closes the object body starting at `from`,
-/// returning the index just past it. Literal `( … )` strings are skipped so a
-/// string value containing the bytes `endobj` (e.g. an `/Info` `/Title`) cannot
-/// truncate the object mid-string — the same string-aware skip
-/// [`extract_outer_dict`] already relies on.
+/// returning the index just past it. Literal `( … )` strings and `%`-comments
+/// are skipped so the bytes `endobj` appearing inside a string value (e.g. an
+/// `/Info` `/Title`) or a comment cannot truncate the object early — the same
+/// string-aware skip [`extract_outer_dict`] already relies on.
 fn find_endobj_end(pdf: &[u8], from: usize) -> Option<usize> {
     let needle = b"endobj";
     let mut i = from;
     while i < pdf.len() {
         if pdf[i] == b'(' {
             i = skip_pdf_string(pdf, i);
+        } else if pdf[i] == b'%' {
+            i = skip_ws_and_comments(pdf, i);
         } else if pdf[i..].starts_with(needle) {
             return Some(i + needle.len());
         } else {
@@ -273,65 +275,61 @@ fn is_obj_header_tail(rest: &[u8]) -> bool {
 }
 
 /// Within a dict's inner bytes, locate `/Key` and return its raw value slice.
-/// Value-terminating tokenisation handles Name values like `/Pages` so they
-/// aren't mis-read as the next entry.
+///
+/// `dict_bytes` is the *inner* content of one dict (between its `<<` / `>>`),
+/// where entries strictly alternate `key value key value …` and every key is a
+/// Name. The scan walks that key→value rhythm: at each step it reads the key
+/// Name, then consumes its value wholesale via [`read_value_end`] (which steps
+/// over nested `<<>>` / `[]` / `()` / `<>` as a unit). Because every value is
+/// consumed as a value, a Name that appears in *value* position (e.g.
+/// `/Subtype /Producer`) is never mistaken for a key — only keys are tested
+/// against `km`. The returned slice begins exactly after the matched key token
+/// (callers such as `upsert_producer` derive the key span by subtraction).
 pub fn find_dict_value<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
     let key_marker = format!("/{}", key);
     let km = key_marker.as_bytes();
     let mut i = 0;
-    let mut depth_dict = 0i32;
-    let mut depth_array = 0i32;
-    while i < dict_bytes.len() {
-        if dict_bytes[i] == b'(' {
-            i = skip_pdf_string(dict_bytes, i);
-            continue;
+    loop {
+        i = skip_ws_and_comments(dict_bytes, i);
+        // A well-formed flat dict yields a Name key here. Anything else (end of
+        // input, or a stray token) means there is no further key to match.
+        if dict_bytes.get(i) != Some(&b'/') {
+            return None;
         }
-        if dict_bytes[i..].starts_with(b"<<") {
-            depth_dict += 1;
-            i += 2;
-            continue;
+        let key_start = i;
+        i += 1;
+        while i < dict_bytes.len() && !is_pdf_delim(dict_bytes[i]) {
+            i += 1;
         }
-        if dict_bytes[i..].starts_with(b">>") {
-            depth_dict -= 1;
-            i += 2;
-            continue;
+        let after_key = i;
+        let matched = &dict_bytes[key_start..after_key] == km;
+        let value_start = skip_ws_and_comments(dict_bytes, after_key);
+        let value_end = read_value_end(dict_bytes, value_start)?;
+        if matched {
+            // Slice from immediately after the key (not `value_start`) so the
+            // key span is `[after_key - km.len, value_end)` by subtraction.
+            return Some(&dict_bytes[after_key..value_end]);
         }
-        if dict_bytes[i] == b'<' {
-            i = skip_pdf_hex_string(dict_bytes, i);
-            continue;
-        }
-        match dict_bytes[i] {
-            b'[' => {
-                depth_array += 1;
-                i += 1;
-            }
-            b']' => {
-                depth_array -= 1;
-                i += 1;
-            }
-            _ if depth_dict == 0 && depth_array == 0 && dict_bytes[i..].starts_with(km) => {
-                let next = dict_bytes.get(i + km.len()).copied();
-                if matches!(
-                    next,
-                    Some(b' ')
-                        | Some(b'\t')
-                        | Some(b'\n')
-                        | Some(b'\r')
-                        | Some(b'/')
-                        | Some(b'[')
-                        | Some(b'<')
-                        | Some(b'(')
-                ) {
-                    let start = i + km.len();
-                    let end = read_value_end(dict_bytes, start)?;
-                    return Some(&dict_bytes[start..end]);
-                }
-                i += 1;
-            }
-            _ => i += 1,
-        }
+        i = value_end;
     }
-    None
+}
+
+/// Skip PDF whitespace and `%`-comments (which run to end-of-line) starting at
+/// `start`; returns the index of the first significant byte at or after it.
+fn skip_ws_and_comments(b: &[u8], start: usize) -> usize {
+    let mut i = start;
+    loop {
+        while i < b.len() && matches!(b[i], b' ' | b'\t' | b'\n' | b'\r' | b'\x0c') {
+            i += 1;
+        }
+        if b.get(i) == Some(&b'%') {
+            while i < b.len() && b[i] != b'\n' && b[i] != b'\r' {
+                i += 1;
+            }
+            continue;
+        }
+        return i;
+    }
 }
 
 /// Find the byte index where a value beginning at `start` ends. Returns the
@@ -747,6 +745,43 @@ mod tests {
         let dict = b" /MediaBox [0 0 612 792] /Other 1 ";
         let v = find_dict_value(dict, "MediaBox").expect("found");
         assert_eq!(parse_rect_array(v), Some([0.0, 0.0, 612.0, 792.0]));
+    }
+
+    #[test]
+    fn dict_value_ignores_name_in_value_position() {
+        // A Name that appears as a *value* (`/Subtype /Producer`) must not be
+        // mistaken for the `/Producer` key. The real key wins.
+        let dict = b" /Subtype /Producer /Producer (real) /Creator (X) ";
+        let v = find_dict_value(dict, "Producer").expect("found the key, not the value");
+        assert_eq!(v.trim_ascii(), b"(real)");
+    }
+
+    #[test]
+    fn dict_value_absent_key_with_matching_name_value_is_none() {
+        // The key is genuinely absent; the only occurrence of the token is a
+        // value Name. The walk must report None, not the spurious value.
+        let dict = b" /Subtype /Producer /Creator (X) ";
+        assert!(find_dict_value(dict, "Producer").is_none());
+    }
+
+    #[test]
+    fn dict_value_skips_comments_between_entries() {
+        // A `%`-comment between entries must not derail the key→value walk, and
+        // a `/Producer` token sitting inside that comment must not be matched.
+        let dict = b" /A 1 %decoy /Producer (decoy)\n /Producer (real) ";
+        let v = find_dict_value(dict, "Producer").expect("found");
+        assert_eq!(v.trim_ascii(), b"(real)");
+    }
+
+    #[test]
+    fn endobj_inside_comment_does_not_truncate_object() {
+        // `endobj` appearing inside a `%`-comment must not close the object at
+        // the in-comment occurrence.
+        let pdf = b"%PDF\n3 0 obj\n<< /A 1 >> %endobj in a comment\n/B 2 >>\nendobj\n";
+        let (s, e) = find_object_bytes(pdf, 3).expect("found object 3");
+        assert_eq!(&pdf[e - 6..e], b"endobj");
+        // The real terminator is the standalone `endobj`, past the comment.
+        assert!(&pdf[s..e].ends_with(b"/B 2 >>\nendobj"));
     }
 
     #[test]
