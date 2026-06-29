@@ -1,32 +1,17 @@
-//! # Typst Backend for Quillmark
+//! Typst backend for Quillmark: converts CommonMark markdown + card-YAML data
+//! to PDF, SVG, and PNG via the Typst typesetting system.
 //!
-//! This crate provides a complete Typst backend implementation that converts Markdown
-//! documents to PDF and SVG formats via the Typst typesetting system.
+//! [`TypstBackend`] implements the [`Backend`] trait from `quillmark-core`.
+//! Callers typically reach it through the `quillmark` crate's `Quill` API.
 //!
-//! ## Overview
+//! Markdown fields are converted to Typst markup before compilation; the plate
+//! accesses them via the `@local/quillmark-helper` virtual package. Unsigned
+//! AcroForm widgets (text, checkbox, choice, signature) are embedded via the
+//! `form-field` helper in `lib.typ`; only PDF output carries the interactive
+//! widget — SVG and PNG render an invisible placeholder.
 //!
-//! The primary entry point is the [`TypstBackend`] struct, which implements the
-//! [`Backend`] trait from `quillmark-core`. Users typically interact with this backend
-//! through the high-level `Quill` API from the `quillmark` crate.
-//!
-//! ## Features
-//!
-//! - Converts CommonMark Markdown to Typst markup
-//! - Compiles Typst documents to PDF and SVG formats
-//! - Provides template filters for YAML data transformation
-//! - Manages fonts, assets, and packages dynamically
-//! - Embeds unsigned AcroForm form widgets (text, checkbox, choice, signature)
-//!   via the `form-field` helper (and the `signature-field` wrapper) in the
-//!   `lib.typ` helper package; only the PDF output carries the widget — SVG and
-//!   PNG render an invisible placeholder)
-//! - Thread-safe for concurrent rendering
-//!
-//! ## Modules
-//!
-//! - [`convert`] - Markdown to Typst conversion utilities
-//!
-//! Note: the `compile` and `error_mapping` modules are internal (compilation
-//! and Typst-diagnostic mapping) and are not part of the public API.
+//! The `compile` and `error_mapping` modules are internal and not part of the
+//! public API. The public conversion surface is [`convert`].
 
 mod compile;
 pub mod convert;

@@ -23,11 +23,11 @@ static FALLBACK_REGULAR: &[u8] = include_bytes!("fonts/Figtree-Regular.ttf");
 static FALLBACK_BOLD: &[u8] = include_bytes!("fonts/Figtree-Bold.ttf");
 static FALLBACK_ITALIC: &[u8] = include_bytes!("fonts/Figtree-Italic.ttf");
 
-/// Typst World implementation for quill-based compilation.
+/// Typst `World` implementation for quill-based compilation.
 ///
-/// Implements the Typst `World` trait to provide dynamic package loading,
-/// virtual path handling, and asset management for quill templates.
-/// Packages are loaded from `{quill}/packages/` and assets from `{quill}/assets/`.
+/// Provides package loading, virtual-path handling, and asset management for
+/// quill templates. Packages are loaded from `{quill}/packages/` and assets
+/// from `{quill}/assets/`.
 pub struct QuillWorld {
     library: LazyHash<Library>,
     book: LazyHash<FontBook>,
@@ -96,17 +96,9 @@ impl QuillWorld {
         })
     }
 
-    /// Create a new QuillWorld with JSON data injected as a helper package.
-    ///
-    /// This method creates a virtual `@local/quillmark-helper:0.1.0` package
-    /// containing the JSON data and helper functions. Plates can import this
-    /// package to access document data.
-    ///
-    /// # Arguments
-    ///
-    /// * `quill` - The quill template
-    /// * `main` - The main Typst content to compile
-    /// * `json_data` - JSON string containing document data
+    /// Like [`new`](Self::new), but injects `json_data` as a virtual
+    /// `@local/quillmark-helper:0.1.0` package. Plates import that package to
+    /// access document data and auto-evaluated markup fields.
     pub fn new_with_data(
         source: &Quill,
         main: &str,

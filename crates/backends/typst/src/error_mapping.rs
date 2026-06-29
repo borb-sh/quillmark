@@ -1,10 +1,10 @@
-//! Error mapping utilities for converting Typst diagnostics to Quillmark diagnostics.
+//! Translates Typst diagnostics into Quillmark [`Diagnostic`](quillmark_core::Diagnostic) values.
 
 use crate::world::QuillWorld;
 use quillmark_core::{Diagnostic, Location, Severity};
 use typst::diag::SourceDiagnostic;
 
-/// Converts Typst diagnostics to Quillmark diagnostics.
+/// Maps a slice of Typst diagnostics to Quillmark diagnostics.
 pub fn map_typst_errors(errors: &[SourceDiagnostic], world: &QuillWorld) -> Vec<Diagnostic> {
     errors
         .iter()
@@ -12,7 +12,6 @@ pub fn map_typst_errors(errors: &[SourceDiagnostic], world: &QuillWorld) -> Vec<
         .collect()
 }
 
-/// Converts a single Typst diagnostic to a Quillmark diagnostic.
 fn map_single_diagnostic(error: &SourceDiagnostic, world: &QuillWorld) -> Diagnostic {
     let severity = match error.severity {
         typst::diag::Severity::Error => Severity::Error,
@@ -53,7 +52,6 @@ fn map_single_diagnostic(error: &SourceDiagnostic, world: &QuillWorld) -> Diagno
     }
 }
 
-/// Resolves a Typst diagnostic span to a Quillmark Location.
 fn resolve_span_to_location(span: typst::syntax::DiagSpan, world: &QuillWorld) -> Option<Location> {
     use typst::{World, WorldExt};
 
