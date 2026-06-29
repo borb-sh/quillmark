@@ -1,18 +1,9 @@
-//! # Quillmark Core Overview
+//! # Quillmark Core
 //!
-//! Core types and functionality for the Quillmark schema-driven document engine.
-//!
-//! ## Features
-//!
-//! This crate provides the foundational types and traits for Quillmark:
-//!
-//! - **Parsing**: card-yaml block extraction (`~~~` metadata blocks)
-//! - **Format model**: [`Quill`] type for managing format bundles with in-memory file system
-//! - **Backend trait**: Extensible interface for implementing output format backends
-//! - **Error handling**: Structured diagnostics with source location tracking
-//! - **Utilities**: TOML⇄YAML conversion helpers
-//!
-//! ## Quick Start
+//! Foundational types and traits for the Quillmark schema-driven document
+//! engine: card-yaml block parsing (`~~~` metadata blocks), the [`Quill`]
+//! format bundle and its in-memory file tree, the [`Backend`] trait for output
+//! backends, and structured diagnostics with source-location tracking.
 //!
 //! ```no_run
 //! use quillmark_core::Document;
@@ -27,16 +18,6 @@
 //!     .unwrap_or("Untitled");
 //! assert_eq!(title, "Example");
 //! ```
-//!
-//! ## Architecture
-//!
-//! The crate is organized into modules:
-//!
-//! - [`document`]: Markdown parsing with card-yaml block support
-//! - [`backend`]: Backend trait for output format implementations
-//! - [`error`]: Structured error handling and diagnostics
-//! - [`types`]: Core rendering types (OutputFormat, Artifact, RenderOptions)
-//! - [`quill`]: Quill bundle and related types
 //!
 //! ## Further Reading
 //!

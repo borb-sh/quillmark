@@ -160,7 +160,7 @@ impl FieldType {
 /// is **Endorsed** (the rendered value is shippable as-is), while a field
 /// without a `default:` is **Unendorsed** (the author endorsed no value, so
 /// the blueprint carries a `!must_fill` placeholder to ask for one). Absence is
-/// not a requirement: a missing or null Unendorsed field simply zero-fills at
+/// not a requirement: a missing or null Unendorsed field zero-fills at
 /// render. A surviving `!must_fill` placeholder is surfaced as the non-fatal
 /// `validation::must_fill` warning. There is no separate `required:` axis.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -189,9 +189,9 @@ pub struct FieldSchema {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub properties: Option<BTreeMap<String, Box<FieldSchema>>>,
     /// Element schema for `array` types. Required on every `array` field:
-    /// the element type makes the array first-class (`string[]`, `integer[]`,
-    /// `markdown[]`, …). For a typed table the element is an `object` carrying
-    /// its own `properties`.
+    /// the element type gives the array a concrete element type (`string[]`,
+    /// `integer[]`, `markdown[]`, …). For a typed table the element is an
+    /// `object` carrying its own `properties`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Box<FieldSchema>>,
 }

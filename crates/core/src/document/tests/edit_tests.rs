@@ -43,7 +43,7 @@ fn test_valid_field_names() {
     assert!(is_valid_field_name("x"));
     assert!(is_valid_field_name("_"));
     // Uppercase is accepted (lowercase is canonical but not enforced); case
-    // is significant. The legacy uppercase metadata keys are ordinary fields.
+    // is significant. Uppercase names like `Title`/`BODY` are ordinary fields.
     assert!(is_valid_field_name("Title"));
     assert!(is_valid_field_name("BODY"));
     assert!(is_valid_field_name("MixedCase_1"));
@@ -88,8 +88,8 @@ fn test_edit_error_display() {
 
 #[test]
 fn test_document_set_field_rejects_dollar_prefixed_names() {
-    // `$`-prefixed keys are reserved for system metadata — the surviving
-    // field-name reservation (uppercase is now accepted).
+    // `$`-prefixed keys are reserved for system metadata — the only
+    // field-name reservation (uppercase is accepted).
     for name in ["$body", "$cards", "$quill", "$kind"] {
         let mut doc = make_doc();
         let result = doc.main_mut().set_field(name, qv("value"));
@@ -143,9 +143,9 @@ fn test_document_remove_field_absent() {
 
 #[test]
 fn test_document_field_legacy_uppercase_accepted() {
-    // The legacy uppercase metadata keys are now ordinary valid field names:
-    // set them, read them back verbatim, and remove them. Only `$`-prefixed
-    // keys remain reserved.
+    // Uppercase names like `BODY`/`CARDS`/`QUILL`/`CARD` are ordinary valid
+    // field names: set them, read them back verbatim, and remove them. Only
+    // `$`-prefixed keys are reserved.
     let mut doc = make_doc();
     for name in ["BODY", "CARDS", "QUILL", "CARD"] {
         doc.main_mut()

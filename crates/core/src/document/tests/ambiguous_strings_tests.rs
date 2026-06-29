@@ -167,7 +167,7 @@ fn ambiguous_yaml_syntax_round_trip() {
     ]);
 }
 
-// ── Comprehensive: all fields in one pass ────────────────────────────────────
+// ── All fields in one pass ───────────────────────────────────────────────────
 
 /// Smoke test: every field in the ambiguous_strings fixture is a string.
 #[test]

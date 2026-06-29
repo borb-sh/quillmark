@@ -1074,7 +1074,7 @@ impl QuillConfig {
             }
         };
 
-        // Extract optional fields (now version is required)
+        // Extract the required `version` field.
         let version = match quill_section.get("version") {
             Some(version_val) => {
                 // Handle version as string or number (YAML might parse 1.0 as number)

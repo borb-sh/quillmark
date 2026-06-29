@@ -305,7 +305,7 @@ fn test_from_tree() {
     // Validate the quill
     assert_eq!(quill.name(), "test_from_tree");
     // Non-manifest files (e.g. a backend's template) round-trip into the file
-    // tree verbatim; core no longer reads any of them at load time.
+    // tree verbatim; core does not read any of them at load time.
     assert_eq!(
         quill.files().get_file("plate.typ"),
         Some(plate_content.as_bytes())
@@ -741,7 +741,7 @@ main:
     assert_eq!(config.author, "Test Author");
 
     // Verify backend-specific config (parsed from the [typst] section). The
-    // Typst plate now lives here alongside `packages`, not as a top-level key.
+    // Typst plate lives here alongside `packages`, not as a top-level key.
     assert_eq!(
         config.backend_config.get("plate_file").and_then(|v| v.as_str()),
         Some("plate.typ")
@@ -1917,7 +1917,7 @@ main:
 #[test]
 fn test_coerce_scalar_array_elements() {
     // A primitive `integer[]` coerces each element (string → integer), the
-    // same first-class treatment scalar fields already get.
+    // same coercion scalar fields get.
     let yaml_content = r#"
 quill:
   name: scalar_array_coerce

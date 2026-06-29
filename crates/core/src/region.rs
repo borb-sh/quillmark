@@ -43,15 +43,13 @@ pub enum RegionKind {
     /// value, `None` for a blank/unbound field.
     ///
     /// Carries geometry + value but **not** resolved typography (font/size/
-    /// align). Surfacing typography here was the deferred half of value
-    /// flattening, and it stays deferred by design: both canvas backends now
-    /// produce a *complete* raster (the pdfform session pre-flattens values into
-    /// the page before rasterizing), so no consumer composites a value from a
-    /// region — there is nothing to typeset client-side. The one place that
-    /// decides a flattened value's font/size is `quillmark-pdfform`'s
-    /// `typography` module; if a font-accurate-compositing consumer ever
-    /// appears, it reads sizes from there and these fields become an additive
-    /// extension.
+    /// align), by design: both canvas backends produce a *complete* raster (the
+    /// pdfform session pre-flattens values into the page before rasterizing), so
+    /// no consumer composites a value from a region — there is nothing to
+    /// typeset client-side. The one place that decides a flattened value's
+    /// font/size is `quillmark-pdfform`'s `typography` module; a
+    /// font-accurate-compositing consumer would read sizes from there, and these
+    /// fields would become an additive extension.
     Field {
         #[serde(rename = "fieldType")]
         field_type: String,
