@@ -80,8 +80,13 @@ is read once off the compiled session with no render. Each region carries
 per-field geometry keyed on the **quill schema field path** — the address the
 editor uses — for **overlays** and **cross-navigation** (click a rendered field →
 focus it in the editor, or highlight the page rectangle for the focused field).
-Geometry only, never a value or a backend widget name, and never needed to
-complete the picture.
+Two producers: **content fields** (a markdown body) auto-tag from their content
+at the Typst eval site and recover their true rendered extent from the laid-out
+frames; **form-field widgets** carry the path explicitly (pdfform from the form
+mapping, a Typst `form-field` from its `field:` argument, falling back to the
+`/T` widget name when unbound). A field that breaks across pages emits **one
+region per page-fragment**, all sharing the field — consumers group by `field`.
+Geometry only, never a value, and never needed to complete the picture.
 
 ## TypeScript surface
 

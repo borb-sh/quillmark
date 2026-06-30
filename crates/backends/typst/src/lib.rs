@@ -126,14 +126,23 @@ impl SessionHandle for TypstSession {
         Some((width, height, rgba))
     }
 
-    /// Schema-field geometry for the compiled document — the placements resolved
-    /// to bottom-left PDF-point rects, keyed on the plate-authored field name.
-    /// Geometry math over the laid-out frames, no rasterization. Empty if the
-    /// placements fail to resolve (a render would surface the same error).
+    /// Schema-field geometry for the compiled document — bottom-left PDF-point
+    /// rects keyed on the schema-field path. Two sources, concatenated: form-field
+    /// widgets (one fixed-size box each) and auto-tagged content fields (markdown
+    /// bodies, geometry read from the laid-out frames, one entry per page-fragment
+    /// so a page-spanning field repeats its `field`). Geometry math over the
+    /// frames, no rasterization. Widget regions are empty if the placements fail
+    /// to resolve (a render would surface the same error).
     fn regions(&self) -> Vec<quillmark_core::RenderedRegion> {
-        overlay::build_field_specs(&self.document, &self.field_placements)
+        // Form-field widgets: fixed-size boxes, keyed on the bound schema field
+        // (`field:`) or the plate-authored name.
+        let mut regions = overlay::build_field_specs(&self.document, &self.field_placements)
             .map(|specs| quillmark_pdf::regions_of(&specs))
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // Auto-tagged content fields: keyed on the schema path, one region per
+        // page the field occupies.
+        regions.extend(overlay::scan_content_regions(&self.document));
+        regions
     }
 }
 
