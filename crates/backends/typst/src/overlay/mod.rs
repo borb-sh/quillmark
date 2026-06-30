@@ -13,6 +13,15 @@ use quillmark_pdf::{FieldSpec, FieldType, CHECKBOX_ON_STATE};
 use typst_layout::PagedDocument;
 
 mod extract;
+mod region_scan;
+
+/// SPIKE (#773): regions for auto-tagged content fields, read from the frame
+/// tree. See [`region_scan`].
+pub(crate) fn scan_content_regions(
+    doc: &typst_layout::PagedDocument,
+) -> Vec<quillmark_core::RenderedRegion> {
+    region_scan::scan(doc)
+}
 
 /// The kind of form field a placement declares, plus its per-kind payload.
 /// Mirrors the spine's [`FieldType`] but carries the *resolved* Typst value so

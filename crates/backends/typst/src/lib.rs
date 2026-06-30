@@ -131,9 +131,14 @@ impl SessionHandle for TypstSession {
     /// Geometry math over the laid-out frames, no rasterization. Empty if the
     /// placements fail to resolve (a render would surface the same error).
     fn regions(&self) -> Vec<quillmark_core::RenderedRegion> {
-        overlay::build_field_specs(&self.document, &self.field_placements)
+        // Form-field widgets: fixed-size boxes, keyed on the plate-authored name.
+        let mut regions = overlay::build_field_specs(&self.document, &self.field_placements)
             .map(|specs| quillmark_pdf::regions_of(&specs))
-            .unwrap_or_default()
+            .unwrap_or_default();
+        // SPIKE (#773): auto-tagged content fields (markdown bodies), keyed on
+        // the schema path, geometry read from the laid-out frames.
+        regions.extend(overlay::scan_content_regions(&self.document));
+        regions
     }
 }
 

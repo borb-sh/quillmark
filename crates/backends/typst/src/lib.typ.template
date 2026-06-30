@@ -104,17 +104,29 @@
     card_date_fields: (:),
   ))
 
+  // SPIKE (#773): auto-region tagging. Wrap content between two zero-size
+  // metadata markers carrying the schema-field `path`; the Rust backend reads
+  // their frame positions back into a region rect. Zero-size = layout-neutral
+  // (same property the form-field metadata relies on).
+  let qm-region(path, body) = {
+    [#metadata((kind: "qm-region", role: "start", field: path)) <__qm_region__>]
+    body
+    [#metadata((kind: "qm-region", role: "end", field: path)) <__qm_region__>]
+  }
+
   // Eval the named content fields of `dict` into Typst content. A markdown
   // field is a string; a `markdown[]` field is an array whose string elements
   // are each eval'd. Used uniformly for the top-level data and for each card.
-  let eval-content(dict, keys) = {
+  // `prefix` is the schema-path prefix for region tags ("" at top level,
+  // "$cards.<i>." for a card), so each content field auto-tags with its address.
+  let eval-content(dict, keys, prefix) = {
     for key in keys {
       if key in dict {
         let val = dict.at(key)
         if type(val) == str and val != "" {
-          dict.insert(key, eval(val, mode: "markup"))
+          dict.insert(key, qm-region(prefix + key, eval(val, mode: "markup")))
         } else if type(val) == array {
-          dict.insert(key, val.map(v => if type(v) == str and v != "" { eval(v, mode: "markup") } else { v }))
+          dict.insert(key, val.enumerate().map(((idx, v)) => if type(v) == str and v != "" { qm-region(prefix + key + "." + str(idx), eval(v, mode: "markup")) } else { v }))
         }
       }
     }
@@ -134,15 +146,15 @@
     dict
   }
 
-  d = eval-content(d, meta.content_fields)
+  d = eval-content(d, meta.content_fields, "")
   d = parse-dates(d, meta.date_fields)
 
   // Apply the same passes to each card under `$cards`, keyed by `$kind`.
   if "$cards" in d {
     let cards = ()
-    for card in d.at("$cards") {
+    for (i, card) in d.at("$cards").enumerate() {
       let card-type = card.at("$kind", default: none)
-      card = eval-content(card, meta.card_content_fields.at(card-type, default: ()))
+      card = eval-content(card, meta.card_content_fields.at(card-type, default: ()), "$cards." + str(i) + ".")
       card = parse-dates(card, meta.card_date_fields.at(card-type, default: ()))
       cards.push(card)
     }
