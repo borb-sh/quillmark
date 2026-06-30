@@ -19,10 +19,10 @@
 //!   it produces no region.
 //! - **Form-field widgets** carry a schema path explicitly: pdfform binds it
 //!   from the form mapping; a Typst `form-field` binds it from its `field:`
-//!   argument. **Caveat:** a Typst widget that omits `field:` falls back to its
-//!   `/T` widget name, which is the schema address only when the two coincide —
-//!   bind `field:` when they differ. A pdfform widget with no schema binding
-//!   (`schema_field: null`) is decorative and produces no region.
+//!   argument. A widget that binds none produces **no** region — its backend
+//!   identifier (the `/T` widget name) is not a schema address, so there is
+//!   nothing for a consumer to route to. Only schema-addressable fields surface
+//!   a region.
 //!
 //! **A field may produce more than one region.** Content that breaks across
 //! pages emits one region per page-fragment, all sharing the same `field` (the

@@ -51,7 +51,8 @@ pub(crate) enum FieldKind {
 pub(crate) struct FieldPlacement {
     pub name: String,
     /// Schema-field path the region keys on (the `field:` argument). `None`
-    /// when the plate omits it — the region then falls back to `name`.
+    /// when the plate omits it — the widget then exposes no region (its `/T`
+    /// `name` is not a schema address).
     pub schema_field: Option<String>,
     pub page: usize,
     pub rect_typst_pt: [f32; 4],
@@ -141,10 +142,11 @@ pub(crate) fn build_field_specs(
             };
             Ok(FieldSpec {
                 name: p.name.clone(),
-                // The region keys on the explicit `field:` schema path when the
-                // plate binds one, else falls back to the `/T` widget name —
-                // correct only when the name doubles as the schema address.
-                schema_field: Some(p.schema_field.clone().unwrap_or_else(|| p.name.clone())),
+                // The region keys on the explicit `field:` schema path. A widget
+                // that binds none is not a schema-addressable field — its `/T`
+                // name is a backend identifier, never a schema address — so it
+                // carries no `schema_field` and `regions_of` exposes no region.
+                schema_field: p.schema_field.clone(),
                 page: p.page,
                 // Typst top-left → PDF bottom-left.
                 rect: [x0, page_h - y1, x1, page_h - y0],

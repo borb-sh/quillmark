@@ -179,10 +179,11 @@ card_kinds:
 }
 
 #[test]
-fn form_field_field_arg_binds_region_schema_key() {
-    // `field:` keys the widget region on a schema path; omitting it falls back to
-    // the `/T` widget name. So a signature widget named "Signature" can route to
-    // the schema field `signature_block`.
+fn form_field_region_needs_a_schema_binding() {
+    // Only a schema-addressable widget surfaces a region. `field:` keys it on a
+    // schema path (so a signature widget named "Signature" routes to
+    // `signature_block`); a widget that binds none has only a `/T` name and
+    // exposes nothing.
     const YAML: &str = r#"
 quill:
   name: field_binding
@@ -207,12 +208,12 @@ main:
         session.regions().into_iter().map(|r| r.field).collect();
 
     assert!(
-        fields.contains("Plain"),
-        "an unbound widget keys on its name: {fields:?}"
-    );
-    assert!(
         fields.contains("signature_block"),
         "a `field:`-bound widget keys on the schema path: {fields:?}"
+    );
+    assert!(
+        !fields.contains("Plain"),
+        "an unbound widget is not schema-addressable and exposes no region: {fields:?}"
     );
     assert!(
         !fields.contains("Signature"),

@@ -24,8 +24,8 @@
 /// (`session.regions()`), e.g. `signature-field("Signature", field:
 /// "signature_block")` so a click routes to the schema field rather than the
 /// AcroForm `/T`. It is region-only: the `/T` widget name stays `name`. Omitted
-/// (`none`), the region falls back to `name` — the widget name doubles as the
-/// schema address, correct only when they coincide.
+/// (`none`), the widget exposes **no** region — its `/T` name is not a schema
+/// address, so there is nothing for a consumer to route to.
 ///
 /// `<__qm_field__>` and `kind: "__qm_field__"` are reserved for this hand-off.
 /// Note: this emits a `metadata` element, so plates/packages that read their
