@@ -212,9 +212,11 @@ pub struct RenderResult {
 /// focused field. Geometry only: the raster is already complete, so a region is
 /// never a compositing input.
 ///
-/// `field` is not unique: a content field that breaks across pages emits one
-/// entry per page-fragment, all sharing `field`. Group by `(field, page)` to
-/// recover a field's full footprint.
+/// `field` is not unique. Group by `field` to collect a field's placements, and
+/// keep each entry as its own rectangle — do not union them. A field repeats per
+/// page when content breaks across pages, and can repeat on one page when two
+/// placements share its address (a content field and a `field:`-bound widget, or
+/// the same field placed twice), so `(field, page)` is not a unique key either.
 #[cfg(any(feature = "typst", feature = "pdfform"))]
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]

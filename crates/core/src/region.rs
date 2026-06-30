@@ -14,9 +14,11 @@
 //!
 //! - **Content fields** (a markdown body) auto-tag from their content — the
 //!   Typst eval site brackets each one with its schema address, so the key is
-//!   carried by construction with no plate-author effort. A computed scalar
-//!   (`data.from + ", " + rank`) cannot be tagged (a string has no label), so
-//!   it produces no region.
+//!   carried by construction with no plate-author effort. Two cases produce no
+//!   region: a computed scalar (`data.from + ", " + rank`) cannot be tagged at
+//!   all (a string has no label), and a field that is blank or draws nothing
+//!   (an empty or whitespace-only body) is tagged but has no inked extent to
+//!   bound — present-but-empty is not the same as placed.
 //! - **Form-field widgets** carry a schema path explicitly: pdfform binds it
 //!   from the form mapping; a Typst `form-field` binds it from its `field:`
 //!   argument. A widget that binds none produces **no** region — its backend
@@ -46,9 +48,14 @@
 /// the same final geometry the stamp spine writes to the widget `/Rect`, so the
 /// region and the rendered field describe the identical box.
 ///
-/// `field` is not unique across a `Vec<RenderedRegion>`: a content field that
-/// breaks across pages repeats it, one entry per page-fragment. Group by
-/// `(field, page)` to recover a field's full footprint.
+/// `field` is not unique across a `Vec<RenderedRegion>`. **Group by `field`** to
+/// collect a field's placements; treat each entry as one rectangle and **do not
+/// union them** — that is the point of the per-fragment shape (a single bbox over
+/// a line-broken span would cover the whole paragraph). A field repeats when its
+/// content breaks across pages (one rect per page), and can repeat *on the same
+/// page* when more than one placement shares its address — e.g. a content field
+/// and a `field:`-bound widget both keyed `signature_block`, or the same field
+/// placed twice. So `(field, page)` is **not** a unique key.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RenderedRegion {

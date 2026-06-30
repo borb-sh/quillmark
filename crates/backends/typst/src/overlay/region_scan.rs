@@ -165,6 +165,10 @@ fn walk(
 ) {
     for (pos, item) in frame.items() {
         match item {
+            // Each `metadata` element emits both a `Tag::Start` and a `Tag::End`
+            // with the *same* location hash, so every marker fires twice here.
+            // `insert`/`remove` are idempotent and the body is zero-size (the two
+            // tags are adjacent), so the double-fire is a no-op.
             FrameItem::Tag(tag) => {
                 if let Some((role, field)) = by_loc.get(&tag_loc(tag)) {
                     match role {

@@ -121,7 +121,9 @@
   // metadata markers carrying its schema-field `path`; the backend reads their
   // frame positions back into a region rect (`session.regions()`). Zero-size is
   // layout-neutral — the same property the form-field metadata relies on — so a
-  // content field tags its own page geometry with no plate-author effort.
+  // content field tags its own page geometry with no plate-author effort. Like
+  // `form-field`, this emits `metadata`; a plate/package reading its own config
+  // via an unfiltered `query(metadata)` must filter by label or an owned key.
   let qm-region(path, body) = {
     [#metadata((kind: "qm-region", role: "start", field: path)) <__qm_region__>]
     body
