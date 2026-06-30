@@ -35,6 +35,16 @@ fn render(markdown: &str) -> quillmark::RenderResult {
         .expect("render ok")
 }
 
+/// Open a compiled session — the surface that carries schema-field geometry
+/// (`session.regions()`), independent of any byte render.
+fn open_session(markdown: &str) -> quillmark::RenderSession {
+    let quill = quillmark::quill_from_path(quillmark_fixtures::quills_path("sample_form"))
+        .expect("load sample_form quill");
+    let engine = Quillmark::new();
+    let doc = Document::from_markdown(markdown).expect("parse markdown");
+    engine.open(&quill, &doc).expect("open ok")
+}
+
 /// Decode a PDF text string: UTF-16BE when it carries a BOM (pdf-writer picks
 /// this for values with characters outside the literal-safe set, e.g. a
 /// newline in a multiline field), else treat the bytes as Latin-1/ASCII.
@@ -122,20 +132,18 @@ fn fixture_renders_structurally_valid_filled_pdf() {
     assert_eq!(sig.get(b"FT").unwrap().as_name().unwrap(), b"Sig");
     assert!(sig.get(b"V").is_err());
 
-    // Regions sidecar: one per field, carrying bound values.
-    assert_eq!(result.regions.len(), 5);
-    let r_full = result
-        .regions
-        .iter()
-        .find(|r| r.name == "FullName")
-        .unwrap();
-    match &r_full.kind {
-        quillmark_core::RegionKind::Field { field_type, value } => {
-            assert_eq!(field_type, "text");
-            assert_eq!(value.as_deref(), Some("Ada Lovelace"));
-        }
-    }
-    // Geometry rides the sidecar too: a real page and a non-degenerate rect.
+    // Region geometry is a session-level query (`session.regions()`), not on the
+    // render result: one per *schema-bound* field, keyed on the schema path. The
+    // fixture's Signature widget carries no `schema_field`, so it is a
+    // backend-only artifact and emits no region — four regions, not five.
+    let regions = open_session(FILLED).regions();
+    assert_eq!(regions.len(), 4);
+    assert!(
+        regions.iter().all(|r| r.field != "Signature"),
+        "the unbound signature widget produces no region"
+    );
+    let r_full = regions.iter().find(|r| r.field == "full_name").unwrap();
+    // Geometry rides the sidecar: a real page and a non-degenerate rect.
     assert!(r_full.page < doc.get_pages().len().max(1));
     assert!(
         r_full.rect[2] > r_full.rect[0] && r_full.rect[3] > r_full.rect[1],
@@ -184,17 +192,12 @@ favorite_color: green\n\
         decode_pdf_text(full.get(b"V").unwrap().as_str().unwrap()),
         "Café — Señor 'Ünïcøde'"
     );
-    // The regions sidecar carries the same value verbatim.
-    let r_full = result
-        .regions
-        .iter()
-        .find(|r| r.name == "FullName")
-        .unwrap();
-    match &r_full.kind {
-        quillmark_core::RegionKind::Field { value, .. } => {
-            assert_eq!(value.as_deref(), Some("Café — Señor 'Ünïcøde'"));
-        }
-    }
+    // The session's region geometry is keyed on the schema path, not the bound
+    // value (the value lives in the AcroForm `/V`, asserted above).
+    assert!(
+        open_session(md).regions().iter().any(|r| r.field == "full_name"),
+        "a region is keyed on the schema path"
+    );
 }
 
 #[test]

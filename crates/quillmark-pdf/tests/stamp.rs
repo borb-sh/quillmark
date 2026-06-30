@@ -4,7 +4,7 @@
 //! land in `/V` and the viewer synthesizes appearances.
 
 use pdf_writer::{Content, Pdf, Rect, Ref};
-use quillmark_pdf::{stamp, FieldSpec, FieldType, StampOptions};
+use quillmark_pdf::{regions_of, stamp, FieldSpec, FieldType, StampOptions};
 
 /// Build an `n`-page base PDF (612×792, traditional xref) with a trivial
 /// content stream per page. This is exactly the input contract the spine
@@ -57,6 +57,7 @@ fn all_four_fields() -> Vec<FieldSpec> {
     vec![
         FieldSpec {
             name: "FullName".into(),
+            schema_field: Some("full_name".into()),
             page: 0,
             rect: [180.0, 700.0, 520.0, 720.0],
             field_type: FieldType::Text { multiline: false },
@@ -65,6 +66,7 @@ fn all_four_fields() -> Vec<FieldSpec> {
         },
         FieldSpec {
             name: "Comments".into(),
+            schema_field: Some("comments".into()),
             page: 0,
             rect: [180.0, 600.0, 520.0, 680.0],
             field_type: FieldType::Text { multiline: true },
@@ -73,6 +75,7 @@ fn all_four_fields() -> Vec<FieldSpec> {
         },
         FieldSpec {
             name: "Agree".into(),
+            schema_field: Some("agree".into()),
             page: 0,
             rect: [180.0, 560.0, 194.0, 574.0],
             field_type: FieldType::Checkbox,
@@ -81,6 +84,7 @@ fn all_four_fields() -> Vec<FieldSpec> {
         },
         FieldSpec {
             name: "FavoriteColor".into(),
+            schema_field: Some("favorite_color".into()),
             page: 0,
             rect: [180.0, 520.0, 520.0, 540.0],
             field_type: FieldType::Choice {
@@ -104,7 +108,7 @@ fn stamps_all_four_field_types_into_valid_acroform() {
     )
     .expect("stamp ok");
 
-    let doc = lopdf::Document::load_mem(&result.pdf).expect("lopdf reparse");
+    let doc = lopdf::Document::load_mem(&result).expect("lopdf reparse");
     let cat = doc.catalog().expect("catalog");
     let af_ref = cat
         .get(b"AcroForm")
@@ -170,20 +174,21 @@ fn stamps_all_four_field_types_into_valid_acroform() {
         let r = f.as_reference().unwrap();
         let header = format!("{} 0 obj", r.0);
         let start = result
-            .pdf
             .windows(header.len())
             .position(|w| w == header.as_bytes())
             .expect("widget header");
-        let after = &result.pdf[start..];
+        let after = &result[start..];
         let endobj = after.windows(6).position(|w| w == b"endobj").unwrap();
         let body = &after[..endobj];
         let count = body.windows(8).filter(|w| *w == b"/Subtype").count();
         assert_eq!(count, 1, "exactly one /Subtype in widget {}", r.0);
     }
 
-    // Regions sidecar: one per field, geometry matches.
-    assert_eq!(result.regions.len(), 4);
-    let agree_region = result.regions.iter().find(|r| r.name == "Agree").unwrap();
+    // Region geometry (a session-level query over the same specs): one per
+    // field, keyed on the schema path, geometry matches.
+    let regions = regions_of(&all_four_fields());
+    assert_eq!(regions.len(), 4);
+    let agree_region = regions.iter().find(|r| r.field == "agree").unwrap();
     assert_eq!(agree_region.rect, [180.0, 560.0, 194.0, 574.0]);
 }
 
@@ -192,6 +197,7 @@ fn signature_field_sets_sigflags() {
     let base = build_base_pdf(2);
     let fields = vec![FieldSpec {
         name: "Signature".into(),
+        schema_field: Some("signature".into()),
         page: 1,
         rect: [180.0, 100.0, 520.0, 140.0],
         field_type: FieldType::Signature,
@@ -200,7 +206,7 @@ fn signature_field_sets_sigflags() {
     }];
     let result = stamp(base, &fields, &StampOptions::default()).expect("stamp ok");
 
-    let doc = lopdf::Document::load_mem(&result.pdf).expect("reparse");
+    let doc = lopdf::Document::load_mem(&result).expect("reparse");
     let cat = doc.catalog().unwrap();
     let af = doc
         .get_object(cat.get(b"AcroForm").unwrap().as_reference().unwrap())
@@ -236,8 +242,8 @@ fn no_producer_no_fields_is_identity() {
     let base = build_base_pdf(1);
     let before = base.clone();
     let result = stamp(base, &[], &StampOptions::default()).expect("stamp ok");
-    assert_eq!(result.pdf, before, "no-op stamp returns base unchanged");
-    assert!(result.regions.is_empty());
+    assert_eq!(result, before, "no-op stamp returns base unchanged");
+    assert!(regions_of(&[]).is_empty(), "no fields → no regions");
 }
 
 #[test]
@@ -254,9 +260,8 @@ fn producer_only_no_fields_stamps_info_producer() {
         },
     )
     .expect("stamp ok");
-    assert!(result.regions.is_empty());
 
-    let doc = lopdf::Document::load_mem(&result.pdf).expect("lopdf reparse");
+    let doc = lopdf::Document::load_mem(&result).expect("lopdf reparse");
     assert!(
         doc.catalog().unwrap().get(b"AcroForm").is_err(),
         "producer-only stamp must not add an /AcroForm"
@@ -307,6 +312,7 @@ fn rotated_page_rejected_cleanly() {
 
     let fields = vec![FieldSpec {
         name: "FullName".into(),
+        schema_field: Some("full_name".into()),
         page: 0,
         rect: [180.0, 700.0, 520.0, 720.0],
         field_type: FieldType::Text { multiline: false },
@@ -348,6 +354,7 @@ fn field_targeting_missing_page_errors() {
     let base = build_base_pdf(1);
     let fields = vec![FieldSpec {
         name: "X".into(),
+        schema_field: Some("x".into()),
         page: 5,
         rect: [0.0, 0.0, 10.0, 10.0],
         field_type: FieldType::Signature,
@@ -493,6 +500,7 @@ fn nonzero_generation_page_rejected_cleanly() {
     replace_first(&mut base, b"3 0 obj", b"3 4 obj");
     let fields = vec![FieldSpec {
         name: "X".into(),
+        schema_field: Some("x".into()),
         page: 0,
         rect: [10.0, 10.0, 100.0, 30.0],
         field_type: FieldType::Text { multiline: false },
@@ -556,6 +564,7 @@ fn inline_annots_are_merged_not_replaced() {
     let (base, existing) = build_base_with_inline_annot();
     let fields = vec![FieldSpec {
         name: "X".into(),
+        schema_field: Some("x".into()),
         page: 0,
         rect: [10.0, 10.0, 100.0, 30.0],
         field_type: FieldType::Text { multiline: false },
@@ -564,7 +573,7 @@ fn inline_annots_are_merged_not_replaced() {
     }];
     let result = stamp(base, &fields, &StampOptions::default()).expect("stamp ok");
 
-    let doc = lopdf::Document::load_mem(&result.pdf).expect("reparse");
+    let doc = lopdf::Document::load_mem(&result).expect("reparse");
     let pages = doc.get_pages();
     let page = doc
         .get_object(*pages.get(&1).unwrap())
@@ -618,6 +627,7 @@ fn indirect_annots_rejected_cleanly() {
     }
     let fields = vec![FieldSpec {
         name: "X".into(),
+        schema_field: Some("x".into()),
         page: 0,
         rect: [10.0, 10.0, 100.0, 30.0],
         field_type: FieldType::Text { multiline: false },
@@ -649,13 +659,12 @@ fn xref_emits_multiple_subsections_when_ids_have_gaps() {
     // (two numeric tokens) up to the trailer; entries have three tokens.
     let table_marker = b"\nxref\n";
     let pos = result
-        .pdf
         .windows(table_marker.len())
         .rposition(|w| w == table_marker)
         .expect("appended xref")
         + table_marker.len();
-    let section_end = pos + find_sub(&result.pdf[pos..], b"trailer");
-    let headers = result.pdf[pos..section_end]
+    let section_end = pos + find_sub(&result[pos..], b"trailer");
+    let headers = result[pos..section_end]
         .split(|&b| b == b'\n')
         .filter(|line| {
             let toks: Vec<&[u8]> = line.split(|&b| b == b' ').filter(|t| !t.is_empty()).collect();
