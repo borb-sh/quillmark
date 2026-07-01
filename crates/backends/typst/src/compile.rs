@@ -44,7 +44,7 @@ fn render_options(pixel_per_pt: f32) -> RenderOptions {
     }
 }
 
-fn compile_document(world: &QuillWorld) -> Result<PagedDocument, RenderError> {
+pub(crate) fn compile_document(world: &QuillWorld) -> Result<PagedDocument, RenderError> {
     let Warned { output, warnings } = typst::compile::<PagedDocument>(world);
 
     for warning in warnings {

@@ -16,6 +16,10 @@
 mod compile;
 pub mod convert;
 mod error_mapping;
+/// **Experimental spike (issue #778).** Persistent-World incremental preview
+/// compiler; not part of the stable API and gated out of the normal build path.
+#[doc(hidden)]
+pub mod live;
 
 mod helper;
 mod overlay;

@@ -32,3 +32,5 @@ wasm-bindgen = "^0.2"
 tempfile = { workspace = true }
 # Acceptance tests parse the injected PDF to validate AcroForm structure.
 lopdf = "0.36"
+# Spike (#778) live_incremental test drives comemo cache state directly.
+comemo = "0.5"

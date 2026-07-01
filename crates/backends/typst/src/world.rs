@@ -112,16 +112,50 @@ impl QuillWorld {
         Ok(world)
     }
 
-    /// Inject the quillmark-helper package with JSON data.
-    fn inject_helper_package(&mut self, json_data: &str) {
-        // Create the package spec
-        let spec = PackageSpec {
+    /// The virtual `@local/quillmark-helper` package spec.
+    pub(crate) fn helper_spec() -> PackageSpec {
+        PackageSpec {
             namespace: helper::HELPER_NAMESPACE.into(),
             name: helper::HELPER_NAME.into(),
             version: helper::HELPER_VERSION
                 .parse()
                 .expect("Invalid helper version"),
-        };
+        }
+    }
+
+    /// A [`FileId`] for `rel` inside the helper package — e.g. `lib.typ`,
+    /// `content/body.typ`.
+    pub(crate) fn helper_fid(rel: &str) -> FileId {
+        file_id(
+            Some(Self::helper_spec()),
+            VirtualPath::new(rel).expect("valid helper vpath"),
+        )
+    }
+
+    /// Spike (#778): incremental replace-or-insert of a source. An existing
+    /// source is edited via [`Source::replace`] (prefix/suffix diff →
+    /// incremental reparse, preserving spans on the untouched regions so
+    /// `comemo` constraints keep matching); a new one is inserted whole.
+    /// Returns the byte length of the reparsed range (0 on insert of new).
+    pub(crate) fn set_source(&mut self, id: FileId, text: &str) -> usize {
+        match self.sources.get_mut(&id) {
+            Some(s) => s.replace(text).len(),
+            None => {
+                self.sources.insert(id, Source::new(id, text.to_string()));
+                0
+            }
+        }
+    }
+
+    /// Spike (#778): set a binary file (e.g. the helper `typst.toml`).
+    pub(crate) fn set_binary(&mut self, id: FileId, bytes: Vec<u8>) {
+        self.binaries.insert(id, Bytes::new(bytes));
+    }
+
+    /// Inject the quillmark-helper package with JSON data.
+    fn inject_helper_package(&mut self, json_data: &str) {
+        // Create the package spec
+        let spec = Self::helper_spec();
 
         // Generate and inject lib.typ
         let lib_content = helper::generate_lib_typ(json_data);
