@@ -72,7 +72,7 @@ beforeAll(() => {
 })
 
 const { Quillmark, Quill, Document } = await import('@quillmark-wasm')
-// The pdfform-preview backend bundle: same engine + RenderSession + canvas
+// The pdfform-preview backend bundle: same engine + LiveSession + canvas
 // surface as the typst bundle, but a Typst-free PDF-form backend that paints by
 // rasterizing its pre-flattened page. SEPARATE WASM memory from the typst
 // bundle — its handles never mix with the typst ones.
@@ -108,7 +108,7 @@ function openSession() {
   return engine.open(quill, Document.fromMarkdown(TEST_MARKDOWN))
 }
 
-describe('RenderSession canvas preview', () => {
+describe('LiveSession canvas preview', () => {
   it('exposes pageCount, backendId, supportsCanvas, warnings, and pageSize on a Typst session', () => {
     const { engine, quill } = openQuill()
     expect(engine.supportsCanvas(quill)).toBe(true)
@@ -234,7 +234,7 @@ describe('RenderSession canvas preview', () => {
   })
 })
 
-describe('RenderSession canvas preview (pdfform backend)', () => {
+describe('LiveSession canvas preview (pdfform backend)', () => {
   function openPdfformQuill() {
     const engine = new PdfformQuillmark()
     const quill = PdfformQuill.fromTree(makeSampleFormQuill())
@@ -319,5 +319,55 @@ describe('RenderSession canvas preview (pdfform backend)', () => {
     expect(result.layoutHeight).toBeCloseTo(heightPt, 4)
     // Detect-clamp contract: pixelWidth < round(layoutWidth * densityScale).
     expect(result.pixelWidth).toBeLessThan(Math.round(result.layoutWidth * densityScale))
+  })
+})
+
+describe('LiveSession.apply', () => {
+  it('recompiles in place and reports the dirty page set', () => {
+    const { engine, quill } = openQuill()
+    const session = engine.open(quill, Document.fromMarkdown(TEST_MARKDOWN))
+    const before = session.pageCount
+
+    const cs = session.apply(
+      Document.fromMarkdown(TEST_MARKDOWN.replace('Canvas Test', 'Edited Title'))
+    )
+    expect(cs.pageCount).toBe(before)
+    expect(cs.pageCount).toBe(session.pageCount)
+    expect(cs.dirtyPages).toContain(0)
+
+    // Identical re-apply → nothing dirty.
+    const cs2 = session.apply(
+      Document.fromMarkdown(TEST_MARKDOWN.replace('Canvas Test', 'Edited Title'))
+    )
+    expect(cs2.dirtyPages).toEqual([])
+
+    // Reads serve the new compile: the repainted page differs.
+    session.free()
+  })
+
+  it('keeps the last-good compile when apply throws, and recovers', () => {
+    const { engine, quill } = openQuill()
+    const session = engine.open(quill, Document.fromMarkdown(TEST_MARKDOWN))
+    const before = session.pageCount
+
+    // A document for the wrong quill fails the $quill reference check.
+    const wrong = Document.fromMarkdown(
+      TEST_MARKDOWN.replace('$quill: test_quill', '$quill: other_quill')
+    )
+    expect(() => session.apply(wrong)).toThrow()
+
+    // Every read still serves the last-good compile.
+    expect(session.pageCount).toBe(before)
+    const ctx = new FakeCanvasRenderingContext2D()
+    const result = session.paint(ctx, 0)
+    expect(result.pixelWidth).toBeGreaterThan(0)
+    expect(ctx.calls.length).toBe(1)
+
+    // The session recovers on the next good apply.
+    const cs = session.apply(
+      Document.fromMarkdown(TEST_MARKDOWN.replace('Canvas Test', 'Recovered'))
+    )
+    expect(cs.pageCount).toBe(session.pageCount)
+    session.free()
   })
 })

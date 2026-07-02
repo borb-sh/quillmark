@@ -1,6 +1,6 @@
 use quillmark_core::{
-    Backend, Diagnostic, Document, OutputFormat, Quill, RenderError, RenderOptions, RenderResult,
-    RenderSession, Severity,
+    Backend, Diagnostic, Document, LiveSession, OutputFormat, Quill, RenderError, RenderOptions,
+    RenderResult, Severity,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -73,8 +73,8 @@ impl Quillmark {
             })
     }
 
-    /// Open an iterative render session for `doc` against `quill`'s backend.
-    pub fn open(&self, quill: &Quill, doc: &Document) -> Result<RenderSession, RenderError> {
+    /// Open a live render session for `doc` against `quill`'s backend.
+    pub fn open(&self, quill: &Quill, doc: &Document) -> Result<LiveSession, RenderError> {
         let backend = self.resolve_backend(quill)?;
         quill.check_quill_reference(doc)?;
         let json_data = quill.compile_data(doc)?;
@@ -82,7 +82,7 @@ impl Quillmark {
     }
 
     /// Render `doc` against `quill` in one shot. Convenience over
-    /// [`open`](Self::open) + [`RenderSession::render`]: an unset
+    /// [`open`](Self::open) + [`LiveSession::render`]: an unset
     /// `output_format` falls back to the backend's first supported format.
     pub fn render(
         &self,
@@ -113,7 +113,7 @@ impl Quillmark {
     /// unsupported. Resolves the backend but compiles nothing — use it to decide
     /// whether to offer a canvas preview before opening a session. The
     /// authoritative answer is
-    /// [`RenderSession::supports_canvas`](quillmark_core::RenderSession::supports_canvas)
+    /// [`LiveSession::supports_canvas`](quillmark_core::LiveSession::supports_canvas)
     /// once a session exists.
     pub fn supports_canvas(&self, quill: &Quill) -> bool {
         self.resolve_backend(quill)

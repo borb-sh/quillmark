@@ -204,6 +204,19 @@ pub struct RenderResult {
     pub render_time_ms: f64,
 }
 
+/// What a committed `LiveSession.apply` changed. `dirtyPages` lists the pages
+/// whose rendered content differs from the previous compile, including pages
+/// the edit added; removed pages are implied by `pageCount`. A preview
+/// repaints `dirty ∩ visible` and nothing else.
+#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct ChangeSet {
+    pub page_count: usize,
+    pub dirty_pages: Vec<usize>,
+}
+
 /// A rendered field region: the quill schema field address plus its geometry on
 /// the page. Emitted for schema-bound fields — auto-tagged content (markdown
 /// bodies) and form-field widgets (pdfform AcroForm, Typst `form-field`).
@@ -259,7 +272,7 @@ pub struct RenderOptions {
     /// Optional 0-based page indices to render (e.g., `[0, 2]` for the
     /// first and third pages). `undefined` renders all pages. Any index
     /// `>= pageCount` causes the render to throw — read
-    /// `RenderSession.pageCount` first if validation is needed.
+    /// `LiveSession.pageCount` first if validation is needed.
     /// **Not supported for PDF output** — passing `pages` with
     /// `format: "pdf"` yields a `FormatNotSupported` error.
     #[serde(skip_serializing_if = "Option::is_none")]

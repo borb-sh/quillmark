@@ -1,6 +1,6 @@
 //! Schema-field geometry, queried from a compiled
-//! [`RenderSession`](crate::RenderSession) via
-//! [`regions`](crate::RenderSession::regions).
+//! [`LiveSession`](crate::LiveSession) via
+//! [`regions`](crate::LiveSession::regions).
 //!
 //! A region ties a rectangle on the rendered page to the **quill schema field**
 //! that produced it — the address the document author already uses to refer to
@@ -28,14 +28,14 @@
 //!
 //! **One region per logical field.** A field can arise from more than one
 //! source — a content auto-tag *and* a `field:`-bound widget — or as several
-//! page-fragments of a body that breaks across pages. [`RenderSession::regions`](crate::RenderSession::regions)
+//! page-fragments of a body that breaks across pages. [`LiveSession::regions`](crate::LiveSession::regions)
 //! collapses these to one entry per `field`: a bound widget wins over a content
 //! tag (the explicit binding is the author's deliberate mapping), and a
 //! page-spanning body keeps the first page it occupies as its anchor. A consumer
 //! looks a field up and gets exactly one rectangle.
 //!
 //! Regions are a session-level query, not a render output: the geometry is a
-//! property of the compiled snapshot, read once from the session without
+//! property of the current compile, re-read from the session per edit without
 //! producing any byte artifact. Only the interactive-preview path wants it (to
 //! lay out overlays over a `paint`-ed canvas); a one-shot byte render
 //! (PDF/PNG/SVG) never does. They are an overlay sidecar, never a compositing
@@ -49,7 +49,7 @@
 /// the same final geometry the stamp spine writes to the widget `/Rect`, so the
 /// region and the rendered field describe the identical box.
 ///
-/// `field` is unique within the `Vec` that [`RenderSession::regions`](crate::RenderSession::regions) returns —
+/// `field` is unique within the `Vec` that [`LiveSession::regions`](crate::LiveSession::regions) returns —
 /// one region per logical schema field. (A backend's
 /// [`SessionHandle::regions`](crate::session::SessionHandle::regions) may emit a
 /// field more than once in precedence order; the session wrapper keeps the

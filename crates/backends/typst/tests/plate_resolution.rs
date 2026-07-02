@@ -34,7 +34,10 @@ const YAML: &str = "quill:\n  name: t\n  version: \"1.0\"\n  backend: typst\n  \
 fn plate_file_is_resolved_from_the_typst_section() {
     let q = quill(
         YAML,
-        &[("plate.typ", b"#set page(width: 100pt, height: 100pt)\n= Hi\n")],
+        &[(
+            "plate.typ",
+            b"#set page(width: 100pt, height: 100pt)\n= Hi\n",
+        )],
     );
     let session = TypstBackend
         .open(&q, &serde_json::json!({}))

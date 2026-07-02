@@ -458,7 +458,11 @@ fn find_sub(haystack: &[u8], needle: &[u8]) -> usize {
 
 /// Equal-length in-place replacement of the first `needle`.
 fn replace_first(pdf: &mut [u8], needle: &[u8], replacement: &[u8]) {
-    assert_eq!(needle.len(), replacement.len(), "in-place replace keeps length");
+    assert_eq!(
+        needle.len(),
+        replacement.len(),
+        "in-place replace keeps length"
+    );
     let at = find_sub(pdf, needle);
     pdf[at..at + needle.len()].copy_from_slice(replacement);
 }
@@ -590,7 +594,10 @@ fn inline_annots_are_merged_not_replaced() {
         ids.contains(&(existing as u32)),
         "existing annot {existing} preserved, got {ids:?}"
     );
-    assert!(ids.len() >= 2, "widget appended alongside existing: {ids:?}");
+    assert!(
+        ids.len() >= 2,
+        "widget appended alongside existing: {ids:?}"
+    );
 }
 
 #[test]
@@ -618,7 +625,10 @@ fn indirect_annots_rejected_cleanly() {
         while end < tampered.len() && tampered[end].is_ascii_digit() {
             end += 1;
         }
-        let off: usize = std::str::from_utf8(&tampered[pos..end]).unwrap().parse().unwrap();
+        let off: usize = std::str::from_utf8(&tampered[pos..end])
+            .unwrap()
+            .parse()
+            .unwrap();
         let fixed = (off + insertion.len()).to_string();
         let mut out = tampered[..pos].to_vec();
         out.extend_from_slice(fixed.as_bytes());
@@ -667,7 +677,10 @@ fn xref_emits_multiple_subsections_when_ids_have_gaps() {
     let headers = result[pos..section_end]
         .split(|&b| b == b'\n')
         .filter(|line| {
-            let toks: Vec<&[u8]> = line.split(|&b| b == b' ').filter(|t| !t.is_empty()).collect();
+            let toks: Vec<&[u8]> = line
+                .split(|&b| b == b' ')
+                .filter(|t| !t.is_empty())
+                .collect();
             toks.len() == 2 && toks.iter().all(|t| t.iter().all(u8::is_ascii_digit))
         })
         .count();

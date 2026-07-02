@@ -67,7 +67,8 @@ fn renders_png_per_page() {
         assert_eq!(art.output_format, OutputFormat::Png);
         // PNG 8-byte signature.
         assert!(
-            art.bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]),
+            art.bytes
+                .starts_with(&[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]),
             "artifact must carry the PNG signature"
         );
     }

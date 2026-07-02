@@ -39,14 +39,14 @@ web-sys = { version = "0.3", optional = true, features = [
 # feature-gated methods inside a shared type (see
 # prose/proposals/wasm-bindings-split.md).
 default = ["typst"]
-# Typst build: the Typst-backed engine, RenderSession, and canvas preview.
+# Typst build: the Typst-backed engine, LiveSession, and canvas preview.
 # Strict API superset of core; ~8MB of Typst is ~96% of the artifact. The
 # canvas painter dispatches through the core `SessionHandle` seam, so the
 # binding depends on `quillmark-typst` only transitively.
 typst = ["quillmark/typst", "dep:web-sys"]
 # pdfform build: add the Typst-free PDF-form backend so the engine can render
 # `pdfform` quills → PDF (and SVG/PNG). Does NOT require `typst` — the engine /
-# RenderSession surface is available with `pdfform` alone, giving a Typst-free
+# LiveSession surface is available with `pdfform` alone, giving a Typst-free
 # WASM bundle. NO canvas painter (no `web-sys`): this build reports
 # `supportsCanvas == false`.
 pdfform = ["quillmark/pdfform"]

@@ -2372,6 +2372,7 @@ dependencies = [
 name = "quillmark-typst"
 version = "0.92.1"
 dependencies = [
+ "comemo",
  "js-sys",
  "lopdf",
  "pulldown-cmark",

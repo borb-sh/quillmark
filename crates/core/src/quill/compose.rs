@@ -6,7 +6,7 @@ use std::str::FromStr;
 
 use indexmap::IndexMap;
 
-use super::{seed, CardSchema, FieldSchema, FieldType, Quill};
+use super::{seed, CardSchema, FieldSchema, FieldType, Quill, QuillConfig};
 use crate::normalize::normalize_document;
 use crate::quill::zero_value;
 use crate::value::PathSegment;
@@ -15,6 +15,28 @@ use crate::{
 };
 
 impl Quill {
+    /// [`QuillConfig::compile_data`] on this quill's config.
+    pub fn compile_data(&self, doc: &Document) -> Result<serde_json::Value, RenderError> {
+        self.config().compile_data(doc)
+    }
+
+    /// Validate without backend compilation.
+    pub fn dry_run(&self, doc: &Document) -> Result<(), RenderError> {
+        self.config().dry_run(doc)
+    }
+
+    /// [`QuillConfig::check_quill_reference`] on this quill's config.
+    pub fn check_quill_reference(&self, doc: &Document) -> Result<(), RenderError> {
+        self.config().check_quill_reference(doc)
+    }
+}
+
+/// The document→data compile is a pure config read: coercion, validation,
+/// normalization, and zero-fill consult only the parsed schemas — never the
+/// quill's file tree. Living on [`QuillConfig`] lets a consumer that only
+/// compiles data (e.g. a live session's `apply`) retain the config alone
+/// rather than the whole quill with its font/package bytes.
+impl QuillConfig {
     /// Applies coercion, validation, normalization, and **zero-filled render**:
     /// every absent schema field is resolved to its authored value, else its
     /// schema default, else its type-empty zero value — in this plate-JSON
@@ -26,15 +48,13 @@ impl Quill {
     pub fn compile_data(&self, doc: &Document) -> Result<serde_json::Value, RenderError> {
         let coerced = self.coerce_and_validate(doc)?;
         let normalized = normalize_document(coerced)?;
-        let config = self.config();
 
-        let main_resolved =
-            resolve_fields(&normalized.main().payload().to_index_map(), &config.main);
+        let main_resolved = resolve_fields(&normalized.main().payload().to_index_map(), &self.main);
         let cards_resolved: Vec<Card> = normalized
             .cards()
             .iter()
             .map(|card| {
-                let fields = match config.card_kind(card.kind().unwrap_or("")) {
+                let fields = match self.card_kind(card.kind().unwrap_or("")) {
                     Some(schema) => resolve_fields(&card.payload().to_index_map(), schema),
                     None => card.payload().to_index_map(),
                 };
@@ -61,15 +81,13 @@ impl Quill {
     }
 
     fn coerce_and_validate(&self, doc: &Document) -> Result<Document, RenderError> {
-        let config = self.config();
-
-        let coerced_payload = config
+        let coerced_payload = self
             .coerce_payload(&doc.main().payload().to_index_map())
             .map_err(coercion_error)?;
 
         let mut coerced_cards: Vec<Card> = Vec::with_capacity(doc.cards().len());
         for card in doc.cards() {
-            let coerced_fields = config
+            let coerced_fields = self
                 .coerce_card(card.kind().unwrap_or(""), &card.payload().to_index_map())
                 .map_err(coercion_error)?;
             coerced_cards.push(Card::from_parts(
@@ -84,7 +102,16 @@ impl Quill {
         );
         let coerced_doc = Document::from_main_and_cards(coerced_main, coerced_cards, Vec::new());
 
-        self.validate_document(&coerced_doc)?;
+        if let Err(errors) = self.validate_document(&coerced_doc) {
+            // Only *malformed* input is fatal (a value that won't
+            // coerce/validate). An incomplete document — absent fields or
+            // `!must_fill` placeholders — renders fine via zero-fill. Each
+            // error keeps its own `path` for UI navigation.
+            let diags: Vec<Diagnostic> = errors.iter().map(|e| e.to_diagnostic()).collect();
+            if !diags.is_empty() {
+                return Err(RenderError::ValidationFailed { diags });
+            }
+        }
 
         Ok(coerced_doc)
     }
@@ -103,19 +130,18 @@ impl Quill {
     pub fn check_quill_reference(&self, doc: &Document) -> Result<(), RenderError> {
         let doc_ref = doc.quill_reference();
 
-        if doc_ref.name.as_str() != self.name() {
+        if doc_ref.name.as_str() != self.name {
             return Err(quill_mismatch(
                 format!(
                     "document declares $quill '{}' but was rendered with '{}'",
-                    doc_ref,
-                    self.name()
+                    doc_ref, self.name
                 ),
                 "quill::name_mismatch",
                 "render with the quill named by $quill, or update the $quill name",
             ));
         }
 
-        let Ok(quill_version) = Version::from_str(&self.config().version) else {
+        let Ok(quill_version) = Version::from_str(&self.version) else {
             return Ok(());
         };
         if !doc_ref.selector.matches(quill_version) {
@@ -131,7 +157,9 @@ impl Quill {
 
         Ok(())
     }
+}
 
+impl Quill {
     /// Validate `doc` against this quill's schema, returning every diagnostic
     /// (an empty `Vec` when the document is valid).
     ///
@@ -250,24 +278,6 @@ impl Quill {
     /// starting values, and `None` for the bare schema seed.
     pub fn seed_card(&self, card_kind: &str, overlay: Option<&SeedOverlay>) -> Option<Card> {
         seed::seed_card_for_kind(self, card_kind, overlay)
-    }
-
-    fn validate_document(&self, doc: &Document) -> Result<(), RenderError> {
-        match self.config().validate_document(doc) {
-            Ok(_) => Ok(()),
-            Err(errors) => {
-                // Only *malformed* input is fatal (a value that won't
-                // coerce/validate). An incomplete document — absent fields or
-                // `!must_fill` placeholders — renders fine via zero-fill. Each
-                // error keeps its own `path` for UI navigation.
-                let diags: Vec<Diagnostic> = errors.iter().map(|e| e.to_diagnostic()).collect();
-                if diags.is_empty() {
-                    Ok(())
-                } else {
-                    Err(RenderError::ValidationFailed { diags })
-                }
-            }
-        }
     }
 }
 

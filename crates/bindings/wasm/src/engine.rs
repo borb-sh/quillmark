@@ -3,7 +3,7 @@
 use crate::error::WasmError;
 use crate::types::Diagnostic;
 #[cfg(any(feature = "typst", feature = "pdfform"))]
-use crate::types::{FieldRegion, RenderOptions, RenderResult};
+use crate::types::{ChangeSet, FieldRegion, RenderOptions, RenderResult};
 use js_sys::{Array, Uint8Array};
 #[cfg(any(feature = "typst", feature = "pdfform-preview"))]
 use serde::Deserialize;
@@ -186,7 +186,9 @@ pub struct Quill {
     inner: quillmark::Quill,
 }
 
-/// Iterative render handle backed by an immutable compiled snapshot.
+/// Live render session: reads (`render`, `paint`, `pageSize`, `regions`)
+/// serve the current compile; `apply(doc)` recompiles in place. Apply is
+/// transactional — on throw, every read keeps serving the last-good compile.
 ///
 /// **Empty documents.** A zero-page document yields a valid session
 /// (`pageCount === 0`); `paint(ctx, 0)` or `pageSize(0)` throws with
@@ -194,9 +196,13 @@ pub struct Quill {
 /// rather than catching the error.
 #[cfg(any(feature = "typst", feature = "pdfform"))]
 #[wasm_bindgen]
-pub struct RenderSession {
-    inner: quillmark_core::RenderSession,
+pub struct LiveSession {
+    inner: quillmark_core::LiveSession,
     backend_id: String,
+    /// Retained for `apply`: recompiles `doc` → data through the same schema
+    /// pipeline as `open`. The config alone — schemas, not the quill's
+    /// font/package bytes, which the backend session already owns.
+    config: quillmark_core::quill::QuillConfig,
 }
 
 /// Typed in-memory Quillmark document.
@@ -224,21 +230,22 @@ impl Quillmark {
         }
     }
 
-    /// Open an iterative render session for `doc` against `quill`'s backend.
+    /// Open a live render session for `doc` against `quill`'s backend.
     #[wasm_bindgen(js_name = open)]
-    pub fn open(&self, quill: &Quill, doc: &Document) -> Result<RenderSession, JsValue> {
+    pub fn open(&self, quill: &Quill, doc: &Document) -> Result<LiveSession, JsValue> {
         let session = self
             .inner
             .open(&quill.inner, &doc.inner)
             .map_err(|e| WasmError::from(e).to_js_value())?;
-        Ok(RenderSession {
+        Ok(LiveSession {
             inner: session,
             backend_id: quill.inner.backend_id().to_string(),
+            config: quill.inner.config().clone(),
         })
     }
 
     /// Render `doc` against `quill` in one shot. Convenience over `open` +
-    /// `RenderSession.render`: an unset `output_format` falls back to the
+    /// `LiveSession.render`: an unset `output_format` falls back to the
     /// backend's first supported format.
     #[wasm_bindgen(js_name = render)]
     pub fn render(
@@ -1080,9 +1087,7 @@ fn js_value_to_field_batch(
             .into_iter()
             .map(|(name, v)| (name, quillmark_core::QuillValue::from_json(v)))
             .collect()),
-        _ => {
-            Err(WasmError::from(format!("{}: fields must be a plain object", ctx)).to_js_value())
-        }
+        _ => Err(WasmError::from(format!("{}: fields must be a plain object", ctx)).to_js_value()),
     }
 }
 
@@ -1274,7 +1279,7 @@ export interface PageSize {
 }
 
 /**
- * Inputs to `RenderSession.paint`. Both fields are optional and default
+ * Inputs to `LiveSession.paint`. Both fields are optional and default
  * to `1`.
  *
  * - `layoutScale` — layout-space pixels per point (Typst point / PDF
@@ -1300,7 +1305,7 @@ export interface PaintOptions {
 }
 
 /**
- * Returned by `RenderSession.paint`.
+ * Returned by `LiveSession.paint`.
  *
  * - `layoutWidth` / `layoutHeight` — layout-pixel dimensions of the
  *   canvas's display box. For on-screen canvases this is CSS pixels:
@@ -1333,7 +1338,7 @@ export interface PaintResult {
 
 #[cfg(any(feature = "typst", feature = "pdfform"))]
 #[wasm_bindgen]
-impl RenderSession {
+impl LiveSession {
     #[wasm_bindgen(getter, js_name = pageCount)]
     pub fn page_count(&self) -> usize {
         self.inner.page_count()
@@ -1365,6 +1370,31 @@ impl RenderSession {
             .map(Into::into)
             .collect();
         serialize_or_throw(&diags, "warnings")
+    }
+
+    /// Recompile the session against `doc` — the edit verb of a live preview.
+    /// The document is compiled through the same schema pipeline as `open`
+    /// (same quill), then applied transactionally: on throw every read
+    /// (`render`, `paint`, `pageSize`, `regions`) keeps serving the last-good
+    /// compile, and the session recovers on the next successful `apply`. On
+    /// success reads serve the new compile; repaint `dirtyPages ∩ visible`.
+    #[wasm_bindgen(js_name = apply)]
+    pub fn apply(&mut self, doc: &Document) -> Result<ChangeSet, JsValue> {
+        self.config
+            .check_quill_reference(&doc.inner)
+            .map_err(|e| WasmError::from(e).to_js_value())?;
+        let json_data = self
+            .config
+            .compile_data(&doc.inner)
+            .map_err(|e| WasmError::from(e).to_js_value())?;
+        let cs = self
+            .inner
+            .apply(&json_data)
+            .map_err(|e| WasmError::from(e).to_js_value())?;
+        Ok(ChangeSet {
+            page_count: cs.page_count,
+            dirty_pages: cs.dirty_pages,
+        })
     }
 
     #[wasm_bindgen(js_name = render)]
@@ -1399,7 +1429,7 @@ impl RenderSession {
 
 #[cfg(any(feature = "typst", feature = "pdfform-preview"))]
 #[wasm_bindgen]
-impl RenderSession {
+impl LiveSession {
     /// Page dimensions in points (1 pt = 1/72 inch).
     /// Throws if the backend has no canvas painter or `page` is out of range.
     #[wasm_bindgen(js_name = pageSize, unchecked_return_type = "PageSize")]
@@ -1536,7 +1566,7 @@ impl RenderSession {
 }
 
 #[cfg(any(feature = "typst", feature = "pdfform-preview"))]
-impl RenderSession {
+impl LiveSession {
     /// Gate a canvas operation on the session's canvas capability, derived from
     /// the core `SessionHandle` seam (`page_size_pt` / `render_rgba`) — the same
     /// seam the painter dispatches through, so the gate cannot disagree with the

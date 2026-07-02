@@ -1,6 +1,17 @@
 use std::any::Any;
 
-use crate::{Diagnostic, RenderError, RenderOptions, RenderResult, RenderedRegion};
+use crate::{Diagnostic, RenderError, RenderOptions, RenderResult, RenderedRegion, Severity};
+
+/// What a committed [`LiveSession::apply`] changed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChangeSet {
+    /// Page count after the edit.
+    pub page_count: usize,
+    /// Pages whose rendered content differs from the previous compile,
+    /// including pages the edit added. Pages the edit removed are implied by
+    /// `page_count`. A preview repaints `dirty ∩ visible` and nothing else.
+    pub dirty_pages: Vec<usize>,
+}
 
 /// Backend-specific session implementation.
 ///
@@ -12,6 +23,24 @@ pub trait SessionHandle: Any + Send + Sync {
     fn render(&self, opts: &RenderOptions) -> Result<RenderResult, RenderError>;
     fn page_count(&self) -> usize;
     fn as_any(&self) -> &dyn Any;
+
+    /// Recompile the session against new document data.
+    ///
+    /// Transactional: on `Err` the previous compile stays live — every read
+    /// (`render`, `render_rgba`, `page_size_pt`, `regions`) keeps serving it.
+    /// A backend with a persistent compilation environment recompiles
+    /// incrementally; one whose compile is cheap recompiles fully. Either way
+    /// the returned [`ChangeSet`] reports the pages the edit visibly changed.
+    /// Default: apply is unsupported.
+    fn apply(&mut self, _json_data: &serde_json::Value) -> Result<ChangeSet, RenderError> {
+        Err(RenderError::ApplyUnsupported {
+            diags: vec![Diagnostic::new(
+                Severity::Error,
+                "this backend's session does not support apply".to_string(),
+            )
+            .with_code("backend::apply_unsupported".to_string())],
+        })
+    }
 
     /// Page dimensions in points (1 pt = 1/72"), or `None` if `page` is out of
     /// range. The canvas-preview seam: a backend that can rasterize pages
@@ -47,7 +76,7 @@ pub trait SessionHandle: Any + Send + Sync {
     ///
     /// A backend with no painter overrides neither this nor
     /// [`page_size_pt`](Self::page_size_pt); the defaults mark the session as
-    /// non-canvas, which is exactly what [`RenderSession::supports_canvas`]
+    /// non-canvas, which is exactly what [`LiveSession::supports_canvas`]
     /// reports. Capability is derived from the `page_size_pt` half of this seam,
     /// not declared as a separate flag — a canvas backend is contractually
     /// expected to pair this method with `page_size_pt` over the same page set.
@@ -59,7 +88,7 @@ pub trait SessionHandle: Any + Send + Sync {
     /// keyed on the quill schema address each field carries.
     ///
     /// A session-level query, not a render output: the geometry is a property of
-    /// the compiled snapshot, computed from already-resolved field placements
+    /// the current compile, computed from already-resolved field placements
     /// with no rasterization and no byte artifact. An interactive preview reads
     /// it to lay out overlays / field cross-navigation over a `paint`-ed canvas;
     /// a one-shot byte render never needs it. Default empty — a backend that
@@ -67,20 +96,24 @@ pub trait SessionHandle: Any + Send + Sync {
     ///
     /// A backend may return a field more than once (several page-fragments, or a
     /// content tag plus a bound widget); emit them in precedence order, as
-    /// [`RenderSession::regions`] keeps the first per `field` to present one
+    /// [`LiveSession::regions`] keeps the first per `field` to present one
     /// region per logical field.
     fn regions(&self) -> Vec<RenderedRegion> {
         Vec::new()
     }
 }
 
-/// Opaque, backend-backed iterative render session.
-pub struct RenderSession {
+/// Opaque, backend-backed live render session: a persistent compiler that
+/// serves reads (`render`, `paint` seams, `regions`) from its current compile
+/// and takes edits via [`apply`](LiveSession::apply). Reads between edits see
+/// a stable document — `apply` is transactional, swapping the compile only on
+/// success — so immutability is an invariant between commits, not a type.
+pub struct LiveSession {
     inner: Box<dyn SessionHandle>,
     warnings: Vec<Diagnostic>,
 }
 
-impl RenderSession {
+impl LiveSession {
     #[doc(hidden)]
     pub fn new(inner: Box<dyn SessionHandle>) -> Self {
         Self {
@@ -92,22 +125,21 @@ impl RenderSession {
     /// Borrow the underlying [`SessionHandle`].
     ///
     /// The canonical canvas-preview path does **not** go through here: it
-    /// dispatches generically through [`page_size_pt`](RenderSession::page_size_pt)
-    /// / [`render_rgba`](RenderSession::render_rgba) on the session, with no
+    /// dispatches generically through [`page_size_pt`](LiveSession::page_size_pt)
+    /// / [`render_rgba`](LiveSession::render_rgba) on the session, with no
     /// downcast. This accessor exists only as a last-resort escape hatch for a
     /// backend that exposes a richer *typed* surface — reach it by downcasting
-    /// via [`SessionHandle::as_any`]. (No in-tree caller currently does;
-    /// `typst_session_of` is callerless and a candidate for removal.)
-    /// Intentionally `#[doc(hidden)]` — the shape of this accessor is not part
-    /// of the stable public API.
+    /// via [`SessionHandle::as_any`]. No in-tree caller does. Intentionally
+    /// `#[doc(hidden)]` — the shape of this accessor is not part of the stable
+    /// public API.
     #[doc(hidden)]
     pub fn handle(&self) -> &dyn SessionHandle {
         &*self.inner
     }
 
-    /// Attach session-level warnings, surfaced by [`RenderSession::warnings`]
+    /// Attach session-level warnings, surfaced by [`LiveSession::warnings`]
     /// and appended to [`RenderResult::warnings`] on every
-    /// [`RenderSession::render`] call.
+    /// [`LiveSession::render`] call.
     ///
     /// A [`Backend`](crate::Backend) chains this onto the session it returns
     /// from `open` to carry non-fatal open-time diagnostics. The built-in Typst
@@ -172,7 +204,7 @@ impl RenderSession {
     }
 
     /// Session-level warnings attached at `Backend::open` time, also appended
-    /// to [`RenderResult::warnings`] on each [`RenderSession::render`] call.
+    /// to [`RenderResult::warnings`] on each [`LiveSession::render`] call.
     /// Exposed for consumers (e.g. canvas previews) that never call `render()`.
     pub fn warnings(&self) -> &[Diagnostic] {
         &self.warnings
@@ -182,6 +214,19 @@ impl RenderSession {
         let mut result = self.inner.render(opts)?;
         result.warnings.extend(self.warnings.iter().cloned());
         Ok(result)
+    }
+
+    /// Recompile the session against new document data — the edit verb of a
+    /// live preview. Transactional: on `Err` the previous compile stays live,
+    /// so every read keeps serving the last-good document; on `Ok` the session
+    /// serves the new compile and the [`ChangeSet`] reports what changed. Pass
+    /// data compiled by the same schema pipeline as `Backend::open`'s
+    /// `json_data` (`Quill::compile_data`) — and from the *same quill*: the
+    /// `$quill` reference check lives at the layer that still holds a
+    /// `Document` (`Quillmark::open`, the WASM `apply`); compiled data no
+    /// longer carries the reference, so this seam cannot re-check it.
+    pub fn apply(&mut self, json_data: &serde_json::Value) -> Result<ChangeSet, RenderError> {
+        self.inner.apply(json_data)
     }
 }
 
@@ -225,13 +270,13 @@ mod tests {
     #[test]
     fn supports_canvas_derives_from_seam() {
         // A session that exposes page geometry is canvas-capable…
-        let canvas = RenderSession::new(Box::new(CanvasHandle { pages: 2 }));
+        let canvas = LiveSession::new(Box::new(CanvasHandle { pages: 2 }));
         assert!(canvas.supports_canvas());
         // …one that leaves the seam at its defaults is not…
-        let plain = RenderSession::new(Box::new(PlainHandle));
+        let plain = LiveSession::new(Box::new(PlainHandle));
         assert!(!plain.supports_canvas());
         // …and a canvas backend with no pages has nothing to paint.
-        let empty = RenderSession::new(Box::new(CanvasHandle { pages: 0 }));
+        let empty = LiveSession::new(Box::new(CanvasHandle { pages: 0 }));
         assert!(!empty.supports_canvas());
     }
 }

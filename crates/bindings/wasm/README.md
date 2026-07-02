@@ -252,16 +252,19 @@ name).
 ### `engine.render(quill, parsed, opts?)` vs. `engine.open(quill, parsed)`
 
 > **Experimental:** the entire session surface — `engine.open`,
-> `RenderSession`, `paint`, `PaintOptions`, `PaintResult`, `PageSize`, and the
-> `supportsCanvas` probe — ships ahead of its first production consumer and
-> may change shape in any 0.x release. `engine.render` is the stable path.
+> `LiveSession`, `apply`, `ChangeSet`, `paint`, `PaintOptions`, `PaintResult`,
+> `PageSize`, and the `supportsCanvas` probe — ships ahead of its first
+> production consumer and may change shape in any 0.x release. `engine.render`
+> is the stable path.
 
 Use **`engine.render`** for one-shot exports (PDF/SVG/PNG) — compiles, emits
-artifacts, done. Use **`RenderSession`** (returned by `engine.open`) for
-reactive previews where
-you'll paint or re-emit pages multiple times: the session retains the compiled
-snapshot so subsequent `paint` / `render` calls skip recompilation. Don't open
-a session per export.
+artifacts, done. Use **`LiveSession`** (returned by `engine.open`) for
+reactive previews: the session is a persistent compiler. `paint` / `render` /
+`regions` read its current compile without recompiling, and `apply(doc)`
+recompiles in place on each edit, returning a `ChangeSet` whose `dirtyPages`
+tells you which pages to repaint (`dirty ∩ visible`). Apply is transactional —
+on throw, every read keeps serving the last-good compile. Don't open a session
+per export, and don't re-open per edit — `apply` instead.
 
 ### `engine.render(quill, parsed, opts?)`
 Render a pre-parsed `Document` against `quill`. Throws `UnsupportedBackend` if
@@ -271,9 +274,9 @@ no registered backend matches the quill's declared backend.
 Open once, render all or selected pages (`opts.pages`).
 
 The session also exposes `pageCount`, `backendId`, `supportsCanvas`,
-`warnings` (snapshot of session-level diagnostics attached at `open` time),
-`pageSize(page)`, and `paint(ctx, page, opts?)` for canvas previews. See
-below.
+`warnings` (session-level diagnostics attached at `open` time),
+`apply(doc)` for in-place recompiles, `pageSize(page)`, and
+`paint(ctx, page, opts?)` for canvas previews. See below.
 
 A document that compiles to zero pages still produces a valid session
 (`pageCount === 0`); `paint(ctx, 0)` and `pageSize(0)` then throw
@@ -390,7 +393,7 @@ compilation failures. The same shape applies to every throw site:
 ### Lifecycle
 
 The wasm bindings are built with `--weak-refs`, so dropped `Document`,
-`Quill`, and `RenderSession` handles are reclaimed by `FinalizationRegistry`
+`Quill`, and `LiveSession` handles are reclaimed by `FinalizationRegistry`
 without manual `.free()` discipline. `.free()` is still emitted as an eager
 teardown hook for callers that want deterministic release.
 

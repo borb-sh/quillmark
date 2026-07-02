@@ -63,7 +63,7 @@ fn source_with_plate(plate: &str) -> Quill {
 
 const PLATE: &str = "#set page(width: 400pt, height: 300pt)\n= Hello\n";
 
-/// Render a plate to PDF bytes via the public `Backend`/`RenderSession` path.
+/// Render a plate to PDF bytes via the public `Backend`/`LiveSession` path.
 fn render_pdf(plate: &str) -> Vec<u8> {
     let source = source_with_plate(plate);
     let session = TypstBackend
