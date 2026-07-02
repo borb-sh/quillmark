@@ -240,10 +240,13 @@ impl Card {
     }
 
     /// Set a payload field, clearing any `!must_fill` marker on that key.
+    /// Scalars convert in place (`set_field("qty", 3)`); see the `From`
+    /// impls on [`QuillValue`].
     ///
     /// Returns [`EditError::InvalidFieldName`] when `name` does not match
     /// `[A-Za-z_][A-Za-z0-9_]*`.
-    pub fn set_field(&mut self, name: &str, value: QuillValue) -> Result<(), EditError> {
+    pub fn set_field(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
+        let value = value.into();
         check_field(name, value.as_json())?;
         self.payload_mut().insert(name.to_string(), value);
         Ok(())
@@ -252,7 +255,8 @@ impl Card {
     /// Set a payload field and mark it as a `!must_fill` placeholder.
     /// `Null` emits as `key: !must_fill`; scalars/sequences as `key: !must_fill <value>`.
     /// Same validation as [`Card::set_field`].
-    pub fn set_fill(&mut self, name: &str, value: QuillValue) -> Result<(), EditError> {
+    pub fn set_fill(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
+        let value = value.into();
         check_field(name, value.as_json())?;
         self.payload_mut().insert_fill(name.to_string(), value);
         Ok(())
@@ -267,11 +271,16 @@ impl Card {
     /// [`Card::set_field`]; insertion order follows the iterator, and a
     /// repeated name behaves like repeated `set_field` calls (last value
     /// wins, first position kept).
-    pub fn set_fields<I>(&mut self, fields: I) -> Result<(), Vec<(String, EditError)>>
+    pub fn set_fields<K, V, I>(&mut self, fields: I) -> Result<(), Vec<(String, EditError)>>
     where
-        I: IntoIterator<Item = (String, QuillValue)>,
+        K: Into<String>,
+        V: Into<QuillValue>,
+        I: IntoIterator<Item = (K, V)>,
     {
-        let fields: Vec<(String, QuillValue)> = fields.into_iter().collect();
+        let fields: Vec<(String, QuillValue)> = fields
+            .into_iter()
+            .map(|(k, v)| (k.into(), v.into()))
+            .collect();
         let errors: Vec<(String, EditError)> = fields
             .iter()
             .filter_map(|(name, value)| {

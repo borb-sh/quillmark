@@ -462,6 +462,23 @@ fn test_card_set_fields_clears_fill_and_repeated_name_last_wins() {
     assert_eq!(value.as_str(), Some("final"));
 }
 
+#[test]
+fn test_set_field_scalar_conversions() {
+    // The `From` impls let scalars pass straight through `impl Into<QuillValue>`.
+    let mut card = Card::new("note").unwrap();
+    card.set_field("name", "Alice").unwrap();
+    card.set_field("qty", 3).unwrap();
+    card.set_field("price", 2.5).unwrap();
+    card.set_field("active", true).unwrap();
+    card.set_field("tags", serde_json::json!(["a", "b"])).unwrap();
+    card.set_fields([("count", 1), ("total", 2)]).unwrap();
+    assert_eq!(card.payload().get("name").unwrap().as_str(), Some("Alice"));
+    assert_eq!(card.payload().get("qty").unwrap().as_i64(), Some(3));
+    assert_eq!(card.payload().get("price").unwrap().as_f64(), Some(2.5));
+    assert_eq!(card.payload().get("active").unwrap().as_bool(), Some(true));
+    assert_eq!(card.payload().get("total").unwrap().as_i64(), Some(2));
+}
+
 // ── Card::remove_field ───────────────────────────────────────────────────────
 
 #[test]
