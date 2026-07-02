@@ -82,6 +82,18 @@ public class BindingTests
     }
 
     [Fact]
+    public void Document_BlankConstructor_StartsEmpty()
+    {
+        using var doc = new Document("test_quill");
+        Assert.Equal("test_quill", doc.QuillRef);
+        Assert.Equal(0, doc.CardCount);
+        Assert.Equal("", doc.Body);
+        doc.SetFields(new Dictionary<string, object?> { ["title"] = "Hello" });
+        Assert.Contains("Hello", doc.ToMarkdown());
+        Assert.Throws<QuillmarkException>(() => new Document("not a valid ref!!"));
+    }
+
+    [Fact]
     public void Document_SetFields_AppliesBatch()
     {
         using var doc = Document.FromMarkdown(Fixtures.SampleMarkdown);

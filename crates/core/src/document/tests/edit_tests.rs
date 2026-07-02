@@ -392,6 +392,26 @@ fn test_card_set_field_invalid_name() {
     );
 }
 
+// ── Document::new (blank canvas) ─────────────────────────────────────────────
+
+#[test]
+fn test_document_new_blank_canvas() {
+    let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
+    assert_eq!(doc.quill_reference().to_string(), "test_quill");
+    assert!(doc.cards().is_empty());
+    assert_eq!(doc.main().body(), "");
+    assert!(doc.warnings().is_empty());
+
+    doc.main_mut().set_fields([("title", "Hello")]).unwrap();
+    let mut card = Card::new("note").unwrap();
+    card.set_field("qty", 3).unwrap();
+    doc.push_card(card).unwrap();
+
+    // A built-from-blank document round-trips the canonical emitter.
+    let reparsed = Document::from_markdown(&doc.to_markdown()).unwrap();
+    assert_eq!(doc, reparsed);
+}
+
 // ── Card::set_fields ─────────────────────────────────────────────────────────
 
 #[test]

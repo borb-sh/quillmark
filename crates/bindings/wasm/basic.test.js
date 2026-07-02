@@ -512,6 +512,21 @@ describe('Document editor surface — setField / removeField', () => {
   })
 })
 
+describe('Document blank-canvas constructor', () => {
+  it('new Document(quillRef) starts blank and builds up', () => {
+    const doc = new Document('test_quill')
+    expect(doc.quillRef).toBe('test_quill')
+    expect(doc.cards.length).toBe(0)
+    expect(doc.main.body).toBe('')
+    doc.setFields({ title: 'Hello' })
+    expect(field(doc.main, 'title')).toBe('Hello')
+  })
+
+  it('throws on an invalid quill reference', () => {
+    expect(() => new Document('not a valid ref!!')).toThrow(/QuillReference/)
+  })
+})
+
 describe('Document editor surface — setFields / updateCardFields', () => {
   it('setFields applies every entry, in object order', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)

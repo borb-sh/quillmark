@@ -81,6 +81,33 @@ def test_full_workflow(engine):
     assert len(result.artifacts[0].bytes) > 0
 
 
+def test_blank_document_constructor():
+    """Document(quill_ref) starts blank: main card only, no fields, no cards."""
+    doc = Document("test_quill")
+    assert doc.quill_ref == "test_quill"
+    assert doc.card_count == 0
+    assert doc.body == ""
+    assert field_keys(doc.main) == []
+    doc.set_fields({"title": "Hello"})
+    assert field(doc.main, "title") == "Hello"
+    with pytest.raises(ValueError, match="QuillReference"):
+        Document("not a valid ref!!")
+
+
+def test_blank_document_renders(engine):
+    """The programmatic flow end-to-end: blank canvas → set_fields → render."""
+    taro_dir = QUILLS_PATH / "taro"
+    quill = Quill.from_path(str(_latest_version(taro_dir)))
+
+    doc = Document("taro")
+    doc.set_fields({"title": "Test", "author": "Test Author", "ice_cream": "Chocolate"})
+    doc.replace_body("Content.")
+
+    result = engine.render(quill, doc, OutputFormat.PDF)
+    assert len(result.artifacts) > 0
+    assert len(result.artifacts[0].bytes) > 0
+
+
 # ---------------------------------------------------------------------------
 # Editor surface tests
 # ---------------------------------------------------------------------------

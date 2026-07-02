@@ -475,6 +475,23 @@ impl Quill {
 
 #[wasm_bindgen]
 impl Document {
+    /// `new Document(quillRef)` — a blank document: a main card carrying only
+    /// `$quill`, an empty body, and no composable cards. The programmatic
+    /// blank canvas: absent fields resolve at render time (`default`, else
+    /// type-empty zero), so nothing the caller did not set reaches the
+    /// output. For an example-filled starter use `Quill.seedDocument()`.
+    /// Throws on an invalid quill reference. Mirrors Python `Document(quill_ref)`.
+    #[wasm_bindgen(constructor)]
+    pub fn new(quill_ref: &str) -> Result<Document, JsValue> {
+        let qr: quillmark_core::QuillReference = quill_ref.parse().map_err(|e| {
+            WasmError::from(format!("invalid QuillReference '{quill_ref}': {e}")).to_js_value()
+        })?;
+        Ok(Document {
+            inner: quillmark_core::Document::new(qr),
+            parse_warnings: Vec::new(),
+        })
+    }
+
     /// Parse markdown into a typed Document. Throws on parse errors.
     #[wasm_bindgen(js_name = fromMarkdown)]
     pub fn from_markdown(markdown: &str) -> Result<Document, JsValue> {

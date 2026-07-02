@@ -20,6 +20,17 @@ public sealed class Document : NativeObject, IEquatable<Document>
 
     // ── Constructors & statics ──────────────────────────────────────────────
 
+    /// <summary>A blank document: a main card carrying only <c>$quill</c>, an
+    /// empty body, and no composable cards. The programmatic blank canvas —
+    /// absent fields resolve at render time (schema <c>default</c>, else
+    /// type-empty zero), so nothing the caller did not set reaches the output.
+    /// For an example-filled starter use <c>Quill.SeedDocument()</c>. Throws on
+    /// an invalid quill reference. Mirrors Python <c>Document(quill_ref)</c>.</summary>
+    public Document(string quillRef)
+        : base(Interop.CallHandle(NativeMethods.qm_document_new(Interop.ToUtf8(quillRef)), "new"))
+    {
+    }
+
     /// <summary>Parse Markdown into a typed document. Throws on parse errors.</summary>
     public static Document FromMarkdown(string markdown) =>
         new(Interop.CallHandle(NativeMethods.qm_document_from_markdown(Interop.ToUtf8(markdown)),

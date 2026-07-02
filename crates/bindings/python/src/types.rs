@@ -243,6 +243,24 @@ pub struct PyDocument {
 
 #[pymethods]
 impl PyDocument {
+    /// `Document(quill_ref)` — a blank document: a main card carrying only
+    /// `$quill`, an empty body, and no composable cards. The programmatic
+    /// blank canvas: absent fields resolve at render time (`default`, else
+    /// type-empty zero), so nothing the caller did not set reaches the
+    /// output. For an example-filled starter use `Quill.seed_document()`.
+    /// Raises `ValueError` on an invalid quill reference. Mirrors WASM
+    /// `new Document(quillRef)`.
+    #[new]
+    fn new(quill_ref: &str) -> PyResult<Self> {
+        let qr: quillmark_core::QuillReference = quill_ref.parse().map_err(|e| {
+            PyValueError::new_err(format!("invalid QuillReference '{}': {}", quill_ref, e))
+        })?;
+        Ok(PyDocument {
+            inner: Document::new(qr),
+            parse_warnings: Vec::new(),
+        })
+    }
+
     #[staticmethod]
     fn from_markdown(markdown: &str) -> PyResult<Self> {
         let output = Document::from_markdown_with_warnings(markdown).map_err(|e| {

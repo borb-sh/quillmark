@@ -508,6 +508,31 @@ pub unsafe extern "C" fn qm_quill_seed_card_json(
 // ══════════════════════════════════════════════════════════════════════════
 
 #[no_mangle]
+/// A blank document: a main card carrying only `$quill`, an empty body, and
+/// no composable cards — the programmatic blank canvas. Mirrors Python
+/// `Document(quill_ref)` / WASM `new Document(quillRef)`.
+#[no_mangle]
+pub unsafe extern "C" fn qm_document_new(quill_ref: *const c_char) -> *mut DocHandle {
+    ffi_try!(std::ptr::null_mut(), {
+        clear_error();
+        let Some(quill_ref) = borrow_str(quill_ref) else {
+            set_error_message("new: null or non-UTF-8 quill reference");
+            return std::ptr::null_mut();
+        };
+        match quill_ref.parse::<quillmark_core::QuillReference>() {
+            Ok(qr) => Box::into_raw(Box::new(DocHandle {
+                inner: Document::new(qr),
+                parse_warnings: Vec::new(),
+            })),
+            Err(e) => {
+                set_error_message(format!("invalid QuillReference '{quill_ref}': {e}"));
+                std::ptr::null_mut()
+            }
+        }
+    })
+}
+
+#[no_mangle]
 pub unsafe extern "C" fn qm_document_from_markdown(markdown: *const c_char) -> *mut DocHandle {
     ffi_try!(std::ptr::null_mut(), {
         clear_error();
