@@ -10,9 +10,9 @@ set -o pipefail
 # documented in docs/migrations/0.89-to-0.90.md):
 #
 #   pkg/core/             — no Typst: parse / load / validate / schema / seed / blueprint
-#   pkg/backends/typst/   — Typst-backed engine + RenderSession + canvas (a private
+#   pkg/backends/typst/   — Typst-backed engine + LiveSession + canvas (a private
 #                           backend binary, NOT a public export)
-#   pkg/backends/pdfform/ — Typst-free PDF-form backend (engine + RenderSession +
+#   pkg/backends/pdfform/ — Typst-free PDF-form backend (engine + LiveSession +
 #                           canvas; the pdfform-preview feature adds the web-sys
 #                           canvas painter over the always-linked hayro raster;
 #                           private backend binary, NOT a public export)

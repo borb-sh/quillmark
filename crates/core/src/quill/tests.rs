@@ -743,7 +743,10 @@ main:
     // Verify backend-specific config (parsed from the [typst] section). The
     // Typst plate lives here alongside `packages`, not as a top-level key.
     assert_eq!(
-        config.backend_config.get("plate_file").and_then(|v| v.as_str()),
+        config
+            .backend_config
+            .get("plate_file")
+            .and_then(|v| v.as_str()),
         Some("plate.typ")
     );
     assert!(config.backend_config.contains_key("packages"));

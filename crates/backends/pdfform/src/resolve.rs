@@ -413,9 +413,7 @@ mod tests {
                 { "$kind": "2",    "from": "numeric-kind" }
             ]
         });
-        let by = |path| {
-            resolve_value(&FieldKind::Text { multiline: false }, Some(path), &data)
-        };
+        let by = |path| resolve_value(&FieldKind::Text { multiline: false }, Some(path), &data);
         // `$cards.2.from` is read as absolute index 2 (out of range) — NOT as
         // "kind \"2\", index <next>".
         assert_eq!(by("$cards.2.from"), None);

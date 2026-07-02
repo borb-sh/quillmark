@@ -1,4 +1,4 @@
-//! Acceptance tests for `RenderSession::apply` — the incremental edit verb of
+//! Acceptance tests for `LiveSession::apply` — the incremental edit verb of
 //! a live preview (#778).
 //!
 //! The session persists its `QuillWorld`; `apply` swaps new document data into

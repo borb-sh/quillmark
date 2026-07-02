@@ -1,6 +1,6 @@
 //! End-to-end acceptance tests for the unsigned-SigField overlay feature.
 //!
-//! Compiles each plate through the public `Backend`/`RenderSession` path,
+//! Compiles each plate through the public `Backend`/`LiveSession` path,
 //! parses the output with lopdf, and asserts the AcroForm structure. Manual
 //! Acrobat verification still required per the spec — see `prose/...` or the
 //! PR description.

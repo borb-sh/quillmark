@@ -26,8 +26,8 @@ use std::any::Any;
 use flatten::flatten as flatten_to_pdf;
 use quillmark_core::session::SessionHandle;
 use quillmark_core::{
-    Artifact, Backend, ChangeSet, Diagnostic, OutputFormat, Quill, RenderError, RenderOptions,
-    RenderResult, RenderSession, RenderedRegion, Severity,
+    Artifact, Backend, ChangeSet, Diagnostic, LiveSession, OutputFormat, Quill, RenderError,
+    RenderOptions, RenderResult, RenderedRegion, Severity,
 };
 use quillmark_pdf::regions_of;
 use quillmark_pdf::{stamp, FieldSpec, PdfError, StampOptions};
@@ -68,7 +68,7 @@ impl Backend for PdfformBackend {
         &self,
         source: &Quill,
         json_data: &serde_json::Value,
-    ) -> Result<RenderSession, RenderError> {
+    ) -> Result<LiveSession, RenderError> {
         let files = source.files();
         let base_pdf = files
             .get_file(FORM_PDF)
@@ -100,10 +100,14 @@ impl Backend for PdfformBackend {
         // ready-to-rasterize flat PDF without re-running flatten on every
         // paint call. The producer string only goes in the PDF Info dict and
         // doesn't affect rasterisation, so None is fine here.
-        let flat_pdf = flatten_to_pdf(base_pdf.clone(), &field_specs, &StampOptions { producer: None })
-            .map_err(map_pdf_err)?;
+        let flat_pdf = flatten_to_pdf(
+            base_pdf.clone(),
+            &field_specs,
+            &StampOptions { producer: None },
+        )
+        .map_err(map_pdf_err)?;
 
-        Ok(RenderSession::new(Box::new(PdfformSession {
+        Ok(LiveSession::new(Box::new(PdfformSession {
             base_pdf,
             spec,
             field_specs,

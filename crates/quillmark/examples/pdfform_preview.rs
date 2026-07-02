@@ -56,11 +56,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("sample_form render");
 
     write_example_output("sample_form_filled.pdf", &gf_result.artifacts[0].bytes)?;
-    println!("Written: {}", out_dir.join("sample_form_filled.pdf").display());
+    println!(
+        "Written: {}",
+        out_dir.join("sample_form_filled.pdf").display()
+    );
 
     // Region geometry is a session-level query, not on the render result: open
     // a session and read it without producing another byte artifact.
-    let gf_session = engine.open(&gf_quill, &gf_doc).expect("open sample_form session");
+    let gf_session = engine
+        .open(&gf_quill, &gf_doc)
+        .expect("open sample_form session");
     let regions = gf_session.regions();
     println!("\nField regions ({} fields):", regions.len());
     for region in &regions {
@@ -97,7 +102,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("SVG size: {} bytes", taro_result.artifacts[0].bytes.len());
 
     println!("\nDone. Open the files in the output directory to review:");
-    println!("  PDF: {}", out_dir.join("sample_form_filled.pdf").display());
+    println!(
+        "  PDF: {}",
+        out_dir.join("sample_form_filled.pdf").display()
+    );
     println!("  SVG: {}", out_dir.join("taro_preview.svg").display());
 
     Ok(())

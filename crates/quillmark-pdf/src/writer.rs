@@ -255,6 +255,9 @@ mod tests {
         let out = upsert_producer(info, b"(New)");
         // No real /Producer key exists, so the entry is appended; the /Marker
         // value and /Creator entry are left intact.
-        assert_eq!(&out, b"/Title (Hi) /Marker /Producer /Creator (X) /Producer (New)");
+        assert_eq!(
+            &out,
+            b"/Title (Hi) /Marker /Producer /Creator (X) /Producer (New)"
+        );
     }
 }

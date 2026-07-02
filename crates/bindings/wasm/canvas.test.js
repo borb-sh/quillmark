@@ -72,7 +72,7 @@ beforeAll(() => {
 })
 
 const { Quillmark, Quill, Document } = await import('@quillmark-wasm')
-// The pdfform-preview backend bundle: same engine + RenderSession + canvas
+// The pdfform-preview backend bundle: same engine + LiveSession + canvas
 // surface as the typst bundle, but a Typst-free PDF-form backend that paints by
 // rasterizing its pre-flattened page. SEPARATE WASM memory from the typst
 // bundle — its handles never mix with the typst ones.
@@ -108,7 +108,7 @@ function openSession() {
   return engine.open(quill, Document.fromMarkdown(TEST_MARKDOWN))
 }
 
-describe('RenderSession canvas preview', () => {
+describe('LiveSession canvas preview', () => {
   it('exposes pageCount, backendId, supportsCanvas, warnings, and pageSize on a Typst session', () => {
     const { engine, quill } = openQuill()
     expect(engine.supportsCanvas(quill)).toBe(true)
@@ -234,7 +234,7 @@ describe('RenderSession canvas preview', () => {
   })
 })
 
-describe('RenderSession canvas preview (pdfform backend)', () => {
+describe('LiveSession canvas preview (pdfform backend)', () => {
   function openPdfformQuill() {
     const engine = new PdfformQuillmark()
     const quill = PdfformQuill.fromTree(makeSampleFormQuill())

@@ -239,12 +239,12 @@ from a flat field map with `Document.makeCard(kind, fields?, body?)`.
 ### `engine.render(quill, parsed, opts?)` vs. `engine.open(quill, parsed)`
 
 > **Experimental:** the entire session surface — `engine.open`,
-> `RenderSession`, `paint`, `PaintOptions`, `PaintResult`, `PageSize`, and the
+> `LiveSession`, `paint`, `PaintOptions`, `PaintResult`, `PageSize`, and the
 > `supportsCanvas` probe — ships ahead of its first production consumer and
 > may change shape in any 0.x release. `engine.render` is the stable path.
 
 Use **`engine.render`** for one-shot exports (PDF/SVG/PNG) — compiles, emits
-artifacts, done. Use **`RenderSession`** (returned by `engine.open`) for
+artifacts, done. Use **`LiveSession`** (returned by `engine.open`) for
 reactive previews where
 you'll paint or re-emit pages multiple times: the session retains the compiled
 snapshot so subsequent `paint` / `render` calls skip recompilation. Don't open
@@ -377,7 +377,7 @@ compilation failures. The same shape applies to every throw site:
 ### Lifecycle
 
 The wasm bindings are built with `--weak-refs`, so dropped `Document`,
-`Quill`, and `RenderSession` handles are reclaimed by `FinalizationRegistry`
+`Quill`, and `LiveSession` handles are reclaimed by `FinalizationRegistry`
 without manual `.free()` discipline. `.free()` is still emitted as an eager
 teardown hook for callers that want deterministic release.
 

@@ -42,7 +42,7 @@ describe('@quillmark/wasm/core surface', () => {
     expect(typeof core.Document).toBe('function')
     // The engine and session live only in the render build.
     expect(core.Quillmark).toBeUndefined()
-    expect(core.RenderSession).toBeUndefined()
+    expect(core.LiveSession).toBeUndefined()
   })
 
   it('loads a quill via Quill.fromTree with no engine', () => {

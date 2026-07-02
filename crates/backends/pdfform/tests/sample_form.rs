@@ -37,7 +37,7 @@ fn render(markdown: &str) -> quillmark::RenderResult {
 
 /// Open a compiled session — the surface that carries schema-field geometry
 /// (`session.regions()`), independent of any byte render.
-fn open_session(markdown: &str) -> quillmark::RenderSession {
+fn open_session(markdown: &str) -> quillmark::LiveSession {
     let quill = quillmark::quill_from_path(quillmark_fixtures::quills_path("sample_form"))
         .expect("load sample_form quill");
     let engine = Quillmark::new();
@@ -195,7 +195,10 @@ favorite_color: green\n\
     // The session's region geometry is keyed on the schema path, not the bound
     // value (the value lives in the AcroForm `/V`, asserted above).
     assert!(
-        open_session(md).regions().iter().any(|r| r.field == "full_name"),
+        open_session(md)
+            .regions()
+            .iter()
+            .any(|r| r.field == "full_name"),
         "a region is keyed on the schema path"
     );
 }

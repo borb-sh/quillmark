@@ -34,7 +34,11 @@ const CODE_PARSE: &str = "pdf::flatten_parse";
 /// Flatten `fields` onto `base` PDF by drawing values as PDF content stream
 /// operators. Unlike the stamp/Technique-A path, the result is visible in all
 /// rasterizers. Returns the flat PDF bytes.
-pub fn flatten(base: Vec<u8>, fields: &[FieldSpec], opts: &StampOptions) -> Result<Vec<u8>, PdfError> {
+pub fn flatten(
+    base: Vec<u8>,
+    fields: &[FieldSpec],
+    opts: &StampOptions,
+) -> Result<Vec<u8>, PdfError> {
     if fields.is_empty() && opts.producer.is_none() {
         return Ok(base);
     }

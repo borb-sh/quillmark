@@ -31,7 +31,7 @@ pub mod fuzz_utils {
 use convert::mark_to_typst;
 use quillmark_core::{
     quill::build_transform_schema, session::SessionHandle, Backend, ChangeSet, Diagnostic,
-    OutputFormat, Quill, QuillValue, RenderError, RenderOptions, RenderResult, RenderSession,
+    LiveSession, OutputFormat, Quill, QuillValue, RenderError, RenderOptions, RenderResult,
     Severity,
 };
 use std::any::Any;
@@ -249,7 +249,7 @@ impl SessionHandle for TypstSession {
     /// widgets (one fixed-size box each) first, then auto-tagged content fields
     /// (markdown bodies, geometry read from the laid-out frames). The
     /// widgets-first order sets the precedence for the one-region-per-field
-    /// dedup that [`RenderSession::regions`](quillmark_core::RenderSession::regions)
+    /// dedup that [`LiveSession::regions`](quillmark_core::LiveSession::regions)
     /// applies: an explicit `field:`-bound widget wins over a content auto-tag of
     /// the same path, and a page-spanning body keeps its first page-fragment
     /// (content arrives sorted by `(page, field)`, so the lowest page leads).
@@ -262,16 +262,6 @@ impl SessionHandle for TypstSession {
         regions.extend(overlay::scan_content_regions(&self.document));
         regions
     }
-}
-
-/// Borrow the [`TypstSession`] underlying a [`RenderSession`], if the session
-/// was opened by the Typst backend.
-///
-/// Returns `None` for any other backend. Bindings that need Typst-only
-/// capabilities (canvas paint, page geometry) call this to access them
-/// without forcing core to know about backend specifics.
-pub fn typst_session_of(session: &RenderSession) -> Option<&TypstSession> {
-    session.handle().as_any().downcast_ref::<TypstSession>()
 }
 
 impl Backend for TypstBackend {
@@ -287,19 +277,21 @@ impl Backend for TypstBackend {
         &self,
         source: &Quill,
         json_data: &serde_json::Value,
-    ) -> Result<RenderSession, RenderError> {
+    ) -> Result<LiveSession, RenderError> {
         let plate_content = read_plate(source)?;
 
         let transform_schema = build_transform_schema(source.config());
         let json_str = transformed_json_str(&transform_schema, json_data)?;
-        let world = world::QuillWorld::new_with_data(source, &plate_content, &json_str)
-            .map_err(|e| RenderError::EngineCreation {
-                diags: vec![Diagnostic::new(
-                    Severity::Error,
-                    format!("Failed to create Typst compilation environment: {}", e),
-                )
-                .with_code("typst::world_creation".to_string())
-                .with_source(e.as_ref())],
+        let world =
+            world::QuillWorld::new_with_data(source, &plate_content, &json_str).map_err(|e| {
+                RenderError::EngineCreation {
+                    diags: vec![Diagnostic::new(
+                        Severity::Error,
+                        format!("Failed to create Typst compilation environment: {}", e),
+                    )
+                    .with_code("typst::world_creation".to_string())
+                    .with_source(e.as_ref())],
+                }
             })?;
         let document = compile::compile_document(&world)?;
         let page_count = document.pages().len();
@@ -313,7 +305,7 @@ impl Backend for TypstBackend {
             transform_schema,
             page_hashes: hashes,
         };
-        Ok(RenderSession::new(Box::new(session)))
+        Ok(LiveSession::new(Box::new(session)))
     }
 }
 

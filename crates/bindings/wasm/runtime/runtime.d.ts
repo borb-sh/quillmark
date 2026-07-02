@@ -95,8 +95,8 @@ export interface RenderOptions {
  *
  * Use it to map between a place on the page and a field in the editor: click a
  * rendered field → focus `field` in the editor, or highlight the rect for the
- * focused field. Geometry only — `RenderSession.paint` already bakes every
- * value into the raster (see {@link RenderSession}), so a region is never a
+ * focused field. Geometry only — `LiveSession.paint` already bakes every
+ * value into the raster (see {@link LiveSession}), so a region is never a
  * compositing input.
  *
  * COORDINATE TRANSFORM. `rect` is in PDF points with a **bottom-left** origin.
@@ -143,7 +143,7 @@ export type OutputFormat = 'pdf' | 'svg' | 'txt' | 'png';
 
 /**
  * Canonical contract every backend build must satisfy. Page geometry in pt.
- * @experimental Part of the iterative-session/canvas surface — see {@link RenderSession}.
+ * @experimental Part of the iterative-session/canvas surface — see {@link LiveSession}.
  */
 export interface PageSize {
 	widthPt: number;
@@ -152,7 +152,7 @@ export interface PageSize {
 
 /**
  * Canonical contract every backend build must satisfy. Inputs to `paint`.
- * @experimental Part of the iterative-session/canvas surface — see {@link RenderSession}.
+ * @experimental Part of the iterative-session/canvas surface — see {@link LiveSession}.
  */
 export interface PaintOptions {
 	layoutScale?: number;
@@ -161,7 +161,7 @@ export interface PaintOptions {
 
 /**
  * Canonical contract every backend build must satisfy. Output of `paint`.
- * @experimental Part of the iterative-session/canvas surface — see {@link RenderSession}.
+ * @experimental Part of the iterative-session/canvas surface — see {@link LiveSession}.
  */
 export interface PaintResult {
 	layoutWidth: number;
@@ -214,7 +214,7 @@ export declare class Engine {
 	 * canvas live-preview path — see `prose/canon/PREVIEW.md`). The session/paint
 	 * surface may change in any 0.x release; `render()` is the stable path.
 	 */
-	open(quill: Quill, doc: Document): Promise<RenderSession>;
+	open(quill: Quill, doc: Document): Promise<LiveSession>;
 
 	/**
 	 * Output formats `quill`'s backend can emit. An ALWAYS-free pre-render probe:
@@ -228,8 +228,8 @@ export declare class Engine {
 	 * probe as `supportedFormats`: answered from the descriptor's required
 	 * `canvas` manifest, no binary load and no quill clone. Both the Typst and
 	 * pdfform backends report `true`; each paints a complete page raster (see
-	 * {@link RenderSession.paint}).
-	 * @experimental Probes the experimental session/canvas surface — see {@link RenderSession}.
+	 * {@link LiveSession.paint}).
+	 * @experimental Probes the experimental session/canvas surface — see {@link LiveSession}.
 	 */
 	supportsCanvas(quill: Quill): Promise<boolean>;
 }
@@ -237,22 +237,22 @@ export declare class Engine {
 /**
  * Iterative render session over a compiled snapshot. `free()` when done.
  *
- * CANVAS PAINT IS COMPLETE. {@link RenderSession.paint} writes a complete page
+ * CANVAS PAINT IS COMPLETE. {@link LiveSession.paint} writes a complete page
  * raster — every piece of page content is already visible in the painted
  * pixels, with NO compositing required by the caller. Both backends that
  * support canvas satisfy this: Typst rasterizes its laid-out page natively;
  * pdfform pre-flattens bound field values into the page content and rasterizes
  * that, so field values appear in the raster on their own.
- * {@link RenderSession.regions} carries schema-field geometry for interactive
+ * {@link LiveSession.regions} carries schema-field geometry for interactive
  * overlays / cross-navigation drawn on top of the raster; it is never needed to
  * complete the picture.
  *
  * @experimental The whole session/canvas-paint surface (`Engine.open`,
- * `RenderSession`, `PaintOptions`, `PaintResult`, `PageSize`) ships ahead of
+ * `LiveSession`, `PaintOptions`, `PaintResult`, `PageSize`) ships ahead of
  * its first production consumer and may change shape in any 0.x release.
  * The stable render path is `Engine.render`.
  */
-export declare class RenderSession {
+export declare class LiveSession {
 	private constructor();
 	readonly pageCount: number;
 	readonly backendId: string;

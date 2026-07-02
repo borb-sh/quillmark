@@ -14,7 +14,7 @@
 //! package's public root (`@quillmark/wasm`) is a hand-written canonical layer
 //! (`pkg/runtime/`) exposing `Quill` / `Document` (re-exported from core) and an
 //! `Engine` that lazily loads a backend and renders through it; `/core` is the
-//! render-free escape hatch. The FFI types below (`Quillmark`, `RenderSession`)
+//! render-free escape hatch. The FFI types below (`Quillmark`, `LiveSession`)
 //! are the backend binding the canonical `Engine` wraps.
 //!
 //! ## API
@@ -51,7 +51,7 @@ mod types;
 
 pub use engine::{Document, Quill};
 #[cfg(any(feature = "typst", feature = "pdfform"))]
-pub use engine::{Quillmark, RenderSession};
+pub use engine::{LiveSession, Quillmark};
 pub use error::WasmError;
 pub use types::*;
 

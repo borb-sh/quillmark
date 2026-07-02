@@ -364,7 +364,7 @@ pub enum RenderError {
     },
 
     /// The backend's session does not support incremental
-    /// [`apply`](crate::RenderSession::apply). Both built-in backends support
+    /// [`apply`](crate::LiveSession::apply). Both built-in backends support
     /// it; this is the default for a backend that does not override the seam.
     ApplyUnsupported {
         /// Diagnostics describing the failure. Always non-empty.

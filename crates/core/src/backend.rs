@@ -2,7 +2,7 @@
 
 use crate::error::RenderError;
 use crate::quill::Quill;
-use crate::{OutputFormat, RenderSession};
+use crate::{LiveSession, OutputFormat};
 
 /// Backend trait for rendering different output formats.
 pub trait Backend: Send + Sync + std::fmt::Debug {
@@ -12,7 +12,7 @@ pub trait Backend: Send + Sync + std::fmt::Debug {
     /// Get supported output formats.
     fn supported_formats(&self) -> &'static [OutputFormat];
 
-    /// Open an iterative render session from a quill and compiled JSON data.
+    /// Open a live render session from a quill and compiled JSON data.
     ///
     /// The backend pulls whatever static inputs it needs straight from
     /// `source` ([`Quill::files`] for assets, [`Quill::config`] for
@@ -23,7 +23,7 @@ pub trait Backend: Send + Sync + std::fmt::Debug {
         &self,
         source: &Quill,
         json_data: &serde_json::Value,
-    ) -> Result<RenderSession, RenderError>;
+    ) -> Result<LiveSession, RenderError>;
 }
 
 /// Pre-session hint for whether a backend with these `formats` can paint pages
@@ -37,7 +37,7 @@ pub trait Backend: Send + Sync + std::fmt::Debug {
 /// advertises one of these in [`Backend::supported_formats`].
 ///
 /// This is only a hint. The **authoritative** answer is
-/// [`RenderSession::supports_canvas`](crate::RenderSession::supports_canvas),
+/// [`LiveSession::supports_canvas`](crate::LiveSession::supports_canvas),
 /// which is derived from the session's actual canvas seam
 /// ([`SessionHandle::page_size_pt`](crate::session::SessionHandle::page_size_pt))
 /// — there is no separately maintained capability flag to drift from the

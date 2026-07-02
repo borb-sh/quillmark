@@ -189,7 +189,11 @@ fn validate_file_references(
     // filesystem: `Path::join` with an absolute path replaces the base
     // entirely, and `..` escapes the quill root, either of which would turn
     // `plate_path.exists()` into a host path-probing oracle.
-    if let Some(plate_file) = config.backend_config.get("plate_file").and_then(|v| v.as_str()) {
+    if let Some(plate_file) = config
+        .backend_config
+        .get("plate_file")
+        .and_then(|v| v.as_str())
+    {
         let rel = Path::new(plate_file);
         if rel
             .components()

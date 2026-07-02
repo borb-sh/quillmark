@@ -23,9 +23,7 @@ use typst_svg::SvgOptions;
 use crate::error_mapping::map_typst_errors;
 use crate::overlay;
 use crate::world::QuillWorld;
-use quillmark_core::{
-    Artifact, Diagnostic, OutputFormat, RenderError, RenderResult, Severity,
-};
+use quillmark_core::{Artifact, Diagnostic, OutputFormat, RenderError, RenderResult, Severity};
 use quillmark_pdf::{stamp, PdfError, StampOptions};
 
 /// Map a stamp-spine [`PdfError`] to the backend's `RenderError`. The spine owns
@@ -108,7 +106,7 @@ pub(crate) fn render_document_pages(
                     diags: vec![Diagnostic::new(
                         Severity::Error,
                         format!(
-                            "Page index out of bounds (page_count={}); offending indices: {:?}. Check `RenderSession.pageCount` before requesting pages.",
+                            "Page index out of bounds (page_count={}); offending indices: {:?}. Check `LiveSession.pageCount` before requesting pages.",
                             page_count, out_of_bounds
                         ),
                     )

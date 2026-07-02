@@ -298,14 +298,14 @@ export class Engine {
 	 * 0.x release. `render()` is the stable path.
 	 * @param {Quill} quill
 	 * @param {Document} doc
-	 * @returns {Promise<RenderSession>}
+	 * @returns {Promise<LiveSession>}
 	 */
 	async open(quill, doc) {
 		return this.#withClones(
 			quill.backendId,
 			quill,
 			doc,
-			({ engine, quill: q, doc: d }) => new RenderSession(engine.open(q, d))
+			({ engine, quill: q, doc: d }) => new LiveSession(engine.open(q, d))
 		);
 	}
 
@@ -344,8 +344,8 @@ export class Engine {
  * compositing — for every backend that supports canvas (Typst rasterizes
  * natively; pdfform rasterizes its pre-flattened page). See `runtime.d.ts`.
  */
-export class RenderSession {
-	/** @param {{ pageCount: number, backendId: string, supportsCanvas: boolean, warnings: any[], render: Function, regions: Function, pageSize: Function, paint: Function, free: Function }} inner backend-build RenderSession (typst or pdfform) */
+export class LiveSession {
+	/** @param {{ pageCount: number, backendId: string, supportsCanvas: boolean, warnings: any[], render: Function, regions: Function, pageSize: Function, paint: Function, free: Function }} inner backend-build LiveSession (typst or pdfform) */
 	constructor(inner) {
 		this.#inner = inner;
 	}
