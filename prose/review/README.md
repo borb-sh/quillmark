@@ -1,3 +1,11 @@
+# Reviews
+
+Standalone review artifacts:
+
+- **[wasm-0.93-webapp-spike.md](wasm-0.93-webapp-spike.md)** — friction report
+  from migrating `tonguetoquill/web-app` onto the unreleased wasm 0.93
+  surface (`LiveSession` preview controller + `regions()` cross-navigation).
+
 # Branch review — open items
 
 Findings from the swarm review of `claude/branch-review-agent-swarm-h9rbk4`
