@@ -200,8 +200,9 @@ pub struct LiveSession {
     inner: quillmark_core::LiveSession,
     backend_id: String,
     /// Retained for `apply`: recompiles `doc` → data through the same schema
-    /// pipeline as `open`.
-    quill: quillmark::Quill,
+    /// pipeline as `open`. The config alone — schemas, not the quill's
+    /// font/package bytes, which the backend session already owns.
+    config: quillmark_core::quill::QuillConfig,
 }
 
 /// Typed in-memory Quillmark document.
@@ -239,7 +240,7 @@ impl Quillmark {
         Ok(LiveSession {
             inner: session,
             backend_id: quill.inner.backend_id().to_string(),
-            quill: quill.inner.clone(),
+            config: quill.inner.config().clone(),
         })
     }
 
@@ -1296,11 +1297,11 @@ impl LiveSession {
     /// success reads serve the new compile; repaint `dirtyPages ∩ visible`.
     #[wasm_bindgen(js_name = apply)]
     pub fn apply(&mut self, doc: &Document) -> Result<ChangeSet, JsValue> {
-        self.quill
+        self.config
             .check_quill_reference(&doc.inner)
             .map_err(|e| WasmError::from(e).to_js_value())?;
         let json_data = self
-            .quill
+            .config
             .compile_data(&doc.inner)
             .map_err(|e| WasmError::from(e).to_js_value())?;
         let cs = self
