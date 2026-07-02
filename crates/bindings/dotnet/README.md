@@ -47,13 +47,15 @@ wrap them in `using` (or `Dispose()`).
 `SeedMain()`, `SeedCard(kind)`.
 
 **`Document`**
-- Construct: `FromMarkdown`, `FromJson`, `TryFromJson` (null when not a stored doc).
+- Construct: `new Document(quillRef)` (blank canvas — `$quill` only, no fields,
+  no cards), `FromMarkdown`, `FromJson`, `TryFromJson` (null when not a stored doc).
 - Persist: `ToMarkdown()`, `ToJson()` (versioned, byte-deterministic).
 - Read: `Main`, `Cards`, `Body`, `CardCount`, `Warnings`, `QuillRef`.
-- Edit main card: `SetField`, `SetFill`, `RemoveField`, `ReplaceBody`, `SetQuillRef`.
+- Edit main card: `SetField`, `SetFields` (atomic batch; one diagnostic per bad
+  field), `SetFill`, `RemoveField`, `ReplaceBody`, `SetQuillRef`.
 - Edit cards: `MakeCard(kind, fields?, body?)`, `PushCard`, `InsertCard`,
-  `RemoveCard`, `MoveCard`, `SetCardKind`, `UpdateCardField`, `RemoveCardField`,
-  `UpdateCardBody`.
+  `RemoveCard`, `MoveCard`, `SetCardKind`, `UpdateCardField`, `UpdateCardFields`,
+  `RemoveCardField`, `UpdateCardBody`.
 - Consumer state: `SetExt*` / `RemoveExt*` (and `Card`-indexed variants).
 - Seed overlays: `SetSeedNamespace(kind, overlay)` / `RemoveSeedNamespace(kind)`
   (root-only; feeds `Quill.SeedCard`).
