@@ -41,7 +41,7 @@ and example values would pollute it.
 
 ## The flow
 
-Python shown; Rust, WASM, and .NET mirror it method-for-method:
+Python shown; Rust and WASM mirror it method-for-method:
 
 ```python
 doc = Document("invoice")
@@ -51,8 +51,8 @@ for item in row.items:
 result = engine.render(quill, doc, OutputFormat.PDF)
 ```
 
-Values convert in place at each boundary (Python objects, JS values, C# JSON,
-Rust scalars via `Into<QuillValue>`); no surface asks the caller to serialize
+Values convert in place at each boundary (Python objects, JS values, Rust
+scalars via `Into<QuillValue>`); no surface asks the caller to serialize
 YAML or Markdown.
 
 ## Validation: batched, atomic, at the boundary

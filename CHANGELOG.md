@@ -8,6 +8,10 @@
 
 ## Unreleased
 
+- remove(dotnet)!: drop the .NET binding (`crates/bindings/dotnet`, the
+  `quillmark-dotnet` crate, its `csharp/` managed layer, CI job, and NuGet
+  publish workflow). Second-class and unmaintained relative to WASM/Python;
+  removed rather than carried as bloat. Python and WASM are unaffected.
 - refactor(core)!: field regions move from `RenderResult` to a session-level
   query, `RenderSession::regions()` (WASM `session.regions()`), and are keyed on
   the quill schema field path, not the backend widget. Only the interactive

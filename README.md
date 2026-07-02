@@ -5,9 +5,8 @@
 [![npm](https://img.shields.io/npm/v/@quillmark/wasm.svg?color=CB3837)](https://www.npmjs.com/package/@quillmark/wasm)
 [![CI](https://github.com/quillmark-org/quillmark/workflows/CI/badge.svg)](https://github.com/quillmark-org/quillmark/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-lightgray.svg)](LICENSE)
-
-**Quillmark: a schema-first document generator.**  
-Turns Markdown into fully formatted documents or forms defined by Quills.
+ 
+In a nutshell: quills define document presentation and schema. Use quills to generate fully formatted documents from markdown or code.
 
 Maintained by [quillmark-org](https://github.com/quillmark-org).
 
