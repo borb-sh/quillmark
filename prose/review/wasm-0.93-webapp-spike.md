@@ -24,96 +24,110 @@
   suite (open / apply / ChangeSet / transactional failure / regions)
   plus a browser drive of the live app (incremental apply repaints,
   both navigation directions).
+- Filed findings as #782; rebased onto the resolutions
+  (#783/#784/#785/#788) once landed and re-verified against the
+  production catalog a second time (this pass).
 
 The surface holds together: apply is transactional as documented,
 dirty-page math is correct (edit → `[0]`, no-op edit → `[]`), a
 failed apply keeps every read serving the last-good compile, and the
 canvas paint/DPR contract needed no changes on the consumer side.
 
-## Friction, by severity
+## Resolved (#782)
 
-### 1. `plate_file` hard error bricks every published quill
+### `Document` lifetime across `engine.open`/`render` was a footgun — fixed (#785)
 
-`quill::unknown_key` on `plate_file` under `quill:` makes 0.93 refuse
-to LOAD every quill published before it — all four production quills
-(`usaf_memo`, `af4141`, `daf1206`, `daf4392`) fail at
-`Quill.fromTree` until their `Quill.yaml` moves the key into `typst:`.
-Published bundles are content-addressed and immutable, and documents
-pin quill refs, so a deployment cannot roll wasm 0.93 without
-re-publishing its entire catalog in the same release. The spike
-patched the quill sources locally to proceed.
+`runtime.js` now snapshots `doc.toJson()` (and `quill.toTree()` on a
+clone-cache miss) synchronously, before the first await. The natural
+`try { return engine.open(quill, doc); } finally { doc.free(); }`
+shape is safe again; web-app's integration test comment claiming
+otherwise is corrected.
 
-**Ask:** accept `quill.plate_file` for one era (warning diagnostic,
-value treated as `typst.plate_file`) so engine and catalog can roll
-independently.
+### `apply` had no warnings channel — fixed (#784/#790)
 
-### 2. Region coverage on the real catalog is one field
+`LiveSession.warnings` now reflects the *current* compile (Typst
+compile warnings — font fallback, overfull pages — threaded through
+same as errors), refreshed on every committed `apply` and held at
+last-good on a failed one. `validation::must_fill` deliberately does
+**not** ride this channel — it stays a `quill.validate(doc)` concern,
+per the #782 rescope. Web-app's `QuillmarkPreviewController` now
+re-reads `session.warnings` in `#readCompileState()` (previously only
+read at open), so an edit that introduces or clears a compile warning
+updates the preview's warnings overlay without a re-open.
 
-`session.regions()` on the flagship `usaf_memo` template returns
-exactly `[tag_line]`. Two independent causes:
+### From-source builds claimed the previous version — fixed (#785)
 
-- **Content auto-tag does not survive content-transforming packages.**
-  The memo package's `render-body` rebuilds body paragraphs through a
-  state buffer (AFH 33-337 auto-numbering) and re-emits them; the
-  zero-size `qm-region` metadata markers wrapping `$body` are not
-  re-emitted, so the body — the field a user most wants to click —
-  produces no region. The "no plate-author effort" contract holds only
-  for plates that place content verbatim.
-- **Scalar fields never tag.** `subject`, `memo_for`,
-  `signature_block`, … are strings/arrays-of-strings; a string carries
-  no label, so only an explicit `form-field`/`signature-field` binding
-  can region them — and no production plate binds any.
+`build-wasm.sh` stamps `<next-patch>-dev.<short-sha>` on dev builds
+(verified: this rebuild produced `0.92.2-dev.ee01902`, not `0.92.1`);
+`release.yml` passes `--release-stamp` and asserts the stamp matches
+the tag before publish. The `wasm-bindgen-cli` version check also now
+runs before the cargo build, not after.
 
-Net: the cross-navigation feature works mechanically but is inert on
-the shipped catalog. **Asks:** document the marker-preservation
-contract for package authors (re-emit non-par children when rebuilding
-content); a build/validate-time probe that warns when a quill's
-content field yields no region for its seeded document; consider
-helper-level scalar tagging (e.g. `tagged(data.subject, "subject")`
-wrappers a plate opts into) so scalars can region without full
-form-field widgets.
+### Region coverage on the real catalog — the escape hatch landed and is in production use (#788)
 
-### 3. `Document` lifetime across `engine.open`/`render` is a footgun
+The generated helper now exports `tagged(field)[body]`: it brackets
+whatever a plate places at a site, validated against the schema
+address table at compile time (a typo'd path is a compile error), and
+survives a package's internal content-rebuild (the original gap —
+`render-body`'s AFH-numbering rebuild dropped verbatim auto-tag
+markers) because the wrap sits *outside* the package call. Each card
+dict carries its `$path` prefix so plates compose card addresses
+without hand-rolling the kind+ordinal grammar.
 
-The runtime clones the document (`doc.toJson()`) AFTER awaiting the
-backend load, so the natural ownership shape
+The fixture `usaf_memo` plate was tagged upstream (`$body`,
+`signature_block`, indorsement card addresses via `$path`); this pass
+ported the same three edits into web-app's `@airmark/quiver` copy of
+`usaf_memo` (a plate that had already diverged from the fixture —
+CUI fields, a different date-default — so the port is hand-applied,
+not a file copy). Confirmed live: `session.regions()` on the shipped
+USAF template now returns `$body`, `signature_block`, and `tag_line`
+(previously `tag_line` alone), and a synthetic multi-page +
+indorsement document confirms the full contract — one `$body`
+fragment per page it spans, `$cards.indorsement.0.$body` and
+`$cards.indorsement.0.signature_block` addressed by kind-scoped
+ordinal, not loop index.
 
-```js
-try { return engine.open(quill, doc); } finally { doc.free(); }
-```
+**Residual scope, not a regression:** `af4141` and `daf4392` disable
+`main.body` entirely (form-fill quills, nothing to tag). `daf1206`
+bypasses the standard content-eval pipeline — its plate stuffs field
+values into a generated form template's parameter dict rather than
+placing them as Typst content — so neither auto-tag nor `tagged()`
+reaches it without a deeper plate rework; out of scope for this pass.
 
-is a use-after-free — an uncatchable-looking
-`null pointer passed to rust` panic on the first render (later
-renders hit the already-loaded backend and a narrower race). The docs
-do say the caller owns the handle, but nothing says "…until the
-promise resolves."
+**Consumer breaking change, handled:** `field` is no longer unique —
+`regions()` returns one entry per (placement, page fragment); a
+page-spanning `$body` now yields one fragment per page. Web-app's
+region-hotspot render loop keyed its `{#each}` block on `region.field`
+alone, which breaks the moment two regions share a field on one page;
+fixed to key on `field + index` and grouped consumers (the
+integration test, the hotspot-per-page map) accordingly.
 
-**Ask:** snapshot `doc.toJson()` synchronously (before the first
-await) in `runtime.js` `render`/`open`/`LiveSession.apply`. Documents
-are small; the copy makes the obvious calling pattern correct.
+### `plate_file` — scope decision, not a fix (#782 discussion)
 
-### 4. `apply` has no warnings channel
+Rejected as an alias: pre-1.0, hard cutovers stand (same policy as
+`!fill` → `!must_fill`), and an alias would only defer the load
+failure by one release since documents pin quill refs. The catalog
+republishes alongside the 0.93 release; web-app's branch carries a
+hand-migrated local copy of `@airmark/quiver`'s `Quill.yaml`s in the
+interim (unchanged from the original spike).
 
-`LiveSession.warnings` is attached at `Backend::open` and never
-refreshed; `ChangeSet` carries no diagnostics. An edit that introduces
-a non-fatal condition mid-session (font fallback, overfull page, a new
-`validation::must_fill`) has no path to the preview — web-app's
-warnings overlay silently shows open-time state forever. Consumers
-must run a separate `quill.validate(doc)` per edit to fake it.
+## New, minor: canonical `runtime.d.ts` drifted from the per-placement region contract
 
-**Ask:** either `ChangeSet.warnings` (per-compile diagnostics) or
-define `session.warnings` as "warnings of the current compile" and
-refresh it on every committed apply.
+`runtime.d.ts`'s hand-written `FieldRegion` doc comment still reads
+"click a rendered field → focus `field`… or highlight the rect for the
+focused field" with no mention of grouping, and its `RenderOptions`
+interface has no `regions?: boolean` — the generated Typst backend's
+`RenderOptions` gained one (opt-in region population on one-shot
+renders). `runtime.types.test-d.ts`'s mutual-assignability check
+doesn't catch either: an *optional* field missing from one side is
+still structurally assignable both directions, so the drift guard is
+silent on it. Low severity — no consumer code is affected, since
+web-app reads regions off `LiveSession` (which delegates to the
+already-correct generated backend), never off the canonical
+`RenderOptions` type. Worth a doc pass whenever `runtime.d.ts` is next
+touched.
 
-### 5. From-source builds claim the previous version
-
-`pkg/package.json` stamps the workspace version — the *last released*
-0.92.1 — onto a build containing 0.93 semantics. npm dedupe/peer
-checks and humans debugging a spike both read the wrong number.
-**Ask:** `build-wasm.sh` stamps a prerelease marker (e.g.
-`0.92.1-dev.<sha>`) for non-release builds.
-
-## Notes (no action asked)
+## Notes (no action asked, unchanged from the original spike)
 
 - `apply` is synchronous on the main thread. Keystroke-cadence Typst
   compiles block the UI for their duration; web-app yields a macrotask
@@ -121,24 +135,28 @@ checks and humans debugging a spike both read the wrong number.
   consumer's problem — fine for now, worth a canon note.
 - The editor re-derives the `$cards.<kind>.<n>.` prefix (kind-scoped
   ordinal) from its card list on every focus/reorder; the grammar is
-  now implemented three times (Typst prefix builder, pdfform resolver,
-  web-app `field-path.ts`). A `document.fieldPath(cardIndex, field)`
-  accessor would collapse the drift surface.
+  now implemented four times (Typst prefix builder, the new `tagged`
+  helper's `$path` injection, pdfform resolver, web-app
+  `field-path.ts`). A `document.fieldPath(cardIndex, field)` accessor
+  would collapse the drift surface.
 - The DAF form quills are Typst recreations, not `pdfform` quills, so
   the pdfform widget-region path has no production consumer yet.
-- Toolchain: the build script's pinned `wasm-bindgen-cli 0.2.118`
-  no longer matches ambient installs (0.2.122 here); the version check
-  fires late (after a full cargo build). Cheap improvement: check the
-  CLI version before compiling.
 
 ## Web-app branch caveats
 
 - `package.json` depends on `file:../quillmark/pkg`; CI cannot
   `npm ci` until `@quillmark/wasm@0.93.0` publishes. Swap the dep and
   delete this caveat at release.
-- `static/quills` on that branch is repacked from locally-migrated
-  `Quill.yaml`s (friction #1); the published `@airmark/quiver` package
-  still carries the 0.92 layout and must be re-released alongside.
-- `live-session.integration.test.ts` pins today's region coverage
-  (`tag_line` only, no `$body`) — it starts failing the moment
-  friction #2 improves, which is the point.
+- `static/quills` on that branch is repacked from a locally-migrated
+  and locally-tagged `usaf_memo` (`plate_file` moved under `typst:`,
+  `$body`/`signature_block`/indorsement addresses wrapped in
+  `tagged()`). The published `@airmark/quiver` package still carries
+  neither change and must be re-released alongside 0.93 — at that
+  point this local patch should be dropped in favor of the real
+  upstream content package.
+- `live-session.integration.test.ts` now pins the *resolved* coverage
+  (`$body`, `signature_block`, `tag_line` on the shipped template) plus
+  the per-placement/group-by contract on a synthetic multi-page +
+  indorsement document. It starts failing if a future catalog or
+  wasm-side change silently drops tagging or reintroduces a
+  unique-`field` assumption — which is the point.
