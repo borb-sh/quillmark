@@ -15,8 +15,6 @@
 
 mod compile;
 pub mod convert;
-#[cfg(test)]
-mod data_literal_spike;
 mod error_mapping;
 
 mod helper;
