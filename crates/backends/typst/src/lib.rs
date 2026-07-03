@@ -373,10 +373,11 @@ impl SessionHandle for TypstSession {
 
     /// The schema field under a point on `page` (PDF points, bottom-left
     /// origin) — the forward click→field direction, answered from the same
-    /// span data as [`regions`](Self::regions). Every placement answers, not
-    /// just the first: one concrete point identifies one frame item, whose
-    /// span is unambiguous however many times its field is placed. Overrides
-    /// the default-`None` seam.
+    /// span data as [`regions`](Self::regions), falling back to the
+    /// `field:`-bound widget boxes (a widget draws no spanned ink of its
+    /// own). Every placement answers, not just the first: one concrete point
+    /// identifies one frame item, whose span is unambiguous however many
+    /// times its field is placed. Overrides the default-`None` seam.
     fn field_at(&self, page: usize, x: f32, y: f32) -> Option<String> {
         overlay::field_at(
             &self.document,
@@ -386,6 +387,20 @@ impl SessionHandle for TypstSession {
             x,
             y,
         )
+        .or_else(|| {
+            overlay::build_field_specs(&self.document, &self.field_placements)
+                .map(|specs| quillmark_pdf::regions_of(&specs))
+                .unwrap_or_default()
+                .into_iter()
+                .find(|r| {
+                    r.page == page
+                        && r.rect[0] <= x
+                        && x <= r.rect[2]
+                        && r.rect[1] <= y
+                        && y <= r.rect[3]
+                })
+                .map(|r| r.field)
+        })
     }
 }
 
@@ -575,12 +590,11 @@ fn date_field_names(properties: &serde_json::Map<String, serde_json::Value>) -> 
 
 /// Names of the array-typed fields in a schema `properties` map — the fields
 /// whose elements are addressable by index suffix (`field.0`, `field.1`, ...).
-/// `tagged`/`form-field`'s path validator uses this to reject an index suffix
-/// on a scalar field, where no element exists for the address to resolve to.
-/// Any array qualifies, matching the pdfform resolver's shallow-path grammar:
-/// the auto-tagger only *produces* indexed markers for `markdown[]` elements,
-/// but an explicit `tagged()` placement or widget binding of a plain array
-/// element is a real, routable address.
+/// `form-field`'s path validator uses this to reject an index suffix on a
+/// scalar field, where no element exists for the address to resolve to. Any
+/// array qualifies, matching the pdfform resolver's shallow-path grammar:
+/// the content codegen only *produces* eval sites for `markdown[]` elements,
+/// but a widget binding of a plain array element is a real, routable address.
 fn array_field_names(properties: &serde_json::Map<String, serde_json::Value>) -> Vec<String> {
     properties
         .iter()
@@ -615,7 +629,7 @@ fn convert_content_value(value: &QuillValue) -> Option<QuillValue> {
     }
 }
 
-/// Schema-derived tables backing `tagged`/`form-field` path validation and
+/// Schema-derived tables backing `form-field` path validation and
 /// the helper's content/date auto-eval — a pure function of a transform
 /// schema. `TypstSession` builds this once from `transform_schema` at `open`
 /// and reuses it on every `apply`, since the schema never changes for the
@@ -652,7 +666,7 @@ impl SchemaMeta {
 
         // Collect per-card-kind content/date/array field names from schema
         // $defs, plus the full per-kind property-name lists that back
-        // `tagged`/`form-field` path validation.
+        // `form-field` path validation.
         let mut card_content_fields = serde_json::Map::new();
         let mut card_date_fields = serde_json::Map::new();
         let mut card_field_names = serde_json::Map::new();
@@ -710,7 +724,7 @@ impl SchemaMeta {
     /// The `__meta__` object injected into document data for the helper
     /// package: content/date auto-eval field lists, plus the schema address
     /// tables (`fields` / `card_fields` / `array_fields` / `card_array_fields`)
-    /// that `tagged`/`form-field` validate explicit region paths against.
+    /// that `form-field` validates explicit `field:` paths against.
     fn to_json(&self) -> serde_json::Value {
         serde_json::json!({
             "content_fields": self.content_fields,
