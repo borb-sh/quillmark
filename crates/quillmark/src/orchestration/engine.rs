@@ -99,6 +99,7 @@ impl Quillmark {
             ppi: opts.ppi,
             pages: opts.pages.clone(),
             producer: opts.producer.clone(),
+            regions: opts.regions,
         };
         session.render(&resolved)
     }

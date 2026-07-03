@@ -364,6 +364,12 @@ pub struct RenderResult {
     pub artifacts: Vec<crate::Artifact>,
     pub warnings: Vec<Diagnostic>,
     pub output_format: OutputFormat,
+    /// Schema-field geometry sidecar, populated only when
+    /// [`RenderOptions::regions`](crate::RenderOptions) is set (empty
+    /// otherwise). The same entries [`LiveSession::regions`](crate::LiveSession::regions)
+    /// serves, for consumers without a live session. Whole-document geometry:
+    /// page indices are document-space even under a `pages` subset render.
+    pub regions: Vec<crate::RenderedRegion>,
 }
 
 impl RenderResult {
@@ -372,6 +378,7 @@ impl RenderResult {
             artifacts,
             warnings: Vec::new(),
             output_format,
+            regions: Vec::new(),
         }
     }
 
