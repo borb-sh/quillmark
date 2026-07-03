@@ -66,6 +66,16 @@ pub struct TypstSession {
     /// and reused on every `apply` rather than rebuilt from
     /// `transform_schema`'s `$defs` each time.
     schema_meta: SchemaMeta,
+    /// Byte windows of the generated per-field eval call sites in the helper
+    /// `lib.typ` — one per content field / `markdown[]` element / card content
+    /// field present in the live compile's data. Regenerated with the helper
+    /// on every committed `apply`; the span scan classifies frame items
+    /// against them.
+    content_windows: Vec<overlay::FieldWindow>,
+    /// Byte windows of the plate's direct `data.<field>` scalar reference
+    /// sites. The plate is static for the session's lifetime, so these are
+    /// computed once at `open`.
+    scalar_windows: Vec<overlay::FieldWindow>,
     /// Per-page content fingerprints of the live compile; diffed against the
     /// next compile's to produce `ChangeSet::dirty_pages`.
     page_hashes: Vec<u128>,
@@ -122,13 +132,14 @@ fn page_hashes(document: &typst_layout::PagedDocument) -> Vec<u128> {
 }
 
 /// Run the schema's markdown/date transform over raw document data and
-/// serialize it for helper-package injection. `meta` is the session's cached
-/// [`SchemaMeta`].
-fn transformed_json_str(
+/// serialize it for helper-package injection, plus the content entries the
+/// helper codegen turns into per-field eval call sites. `meta` is the
+/// session's cached [`SchemaMeta`].
+fn transformed_data(
     schema: &QuillValue,
     meta: &SchemaMeta,
     json_data: &serde_json::Value,
-) -> Result<String, RenderError> {
+) -> Result<(String, Vec<(String, String)>), RenderError> {
     let fields = json_data.as_object().map_or_else(HashMap::new, |obj| {
         obj.iter()
             .map(|(key, value)| (key.clone(), QuillValue::from_json(value.clone())))
@@ -143,7 +154,8 @@ fn transformed_json_str(
             .collect(),
     );
 
-    serde_json::to_string(&transformed_json).map_err(|e| {
+    let entries = content_entries(meta, &transformed_json);
+    let json_str = serde_json::to_string(&transformed_json).map_err(|e| {
         RenderError::from_diag(
             Diagnostic::new(
                 Severity::Error,
@@ -154,7 +166,78 @@ fn transformed_json_str(
             )
             .with_code("backend::data_serialization_failed".to_string()),
         )
-    })
+    })?;
+    Ok((json_str, entries))
+}
+
+/// The `(schema address, converted markup)` pairs the helper codegen turns
+/// into distinct eval call sites — one per content field, `markdown[]`
+/// element, and card content field carrying a non-empty string in the
+/// *transformed* data. Mirrors the template's `insert-content` lookups
+/// exactly (same non-empty-string guards, same `<key>.<i>` element and
+/// `$cards.<kind>.<n>.` card addressing, ordinals counted per kind), so every
+/// key the template asks `_qm-content` for exists.
+fn content_entries(meta: &SchemaMeta, data: &serde_json::Value) -> Vec<(String, String)> {
+    fn collect(
+        keys: &[String],
+        dict: &serde_json::Map<String, serde_json::Value>,
+        prefix: &str,
+        out: &mut Vec<(String, String)>,
+    ) {
+        for key in keys {
+            match dict.get(key) {
+                Some(serde_json::Value::String(s)) if !s.is_empty() => {
+                    out.push((format!("{prefix}{key}"), s.clone()));
+                }
+                Some(serde_json::Value::Array(arr)) => {
+                    for (i, elem) in arr.iter().enumerate() {
+                        if let Some(s) = elem.as_str() {
+                            if !s.is_empty() {
+                                out.push((format!("{prefix}{key}.{i}"), s.to_string()));
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    let Some(obj) = data.as_object() else {
+        return out;
+    };
+    collect(&meta.content_fields, obj, "", &mut out);
+
+    if let Some(cards) = obj.get("$cards").and_then(|v| v.as_array()) {
+        // Ordinals count per kind in document order — every string kind
+        // increments its counter (matching the template's kind-ordinals pass),
+        // whether or not that kind declares content fields.
+        let mut ordinals: HashMap<&str, usize> = HashMap::new();
+        for card in cards {
+            let Some(card_obj) = card.as_object() else {
+                continue;
+            };
+            let Some(kind) = card_obj.get("$kind").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let n = ordinals.entry(kind).or_insert(0);
+            let prefix = format!("$cards.{kind}.{n}.");
+            *n += 1;
+            let names: Vec<String> = meta
+                .card_content_fields
+                .get(kind)
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|s| s.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default();
+            collect(&names, card_obj, &prefix, &mut out);
+        }
+    }
+    out
 }
 
 impl SessionHandle for TypstSession {
@@ -199,8 +282,9 @@ impl SessionHandle for TypstSession {
     /// read keeps serving the last-good compile and its warnings (the world
     /// may hold the failed source; the next `apply` overwrites it).
     fn apply(&mut self, json_data: &serde_json::Value) -> Result<ChangeSet, RenderError> {
-        let json_str = transformed_json_str(&self.transform_schema, &self.schema_meta, json_data)?;
-        self.world.inject_helper_package(&json_str);
+        let (json_str, entries) =
+            transformed_data(&self.transform_schema, &self.schema_meta, json_data)?;
+        let content_windows = self.world.inject_helper_package(&json_str, &entries);
 
         let (document, compile_warnings) = compile::compile_document(&self.world)?;
         let field_placements = overlay::extract(&document)?;
@@ -212,6 +296,7 @@ impl SessionHandle for TypstSession {
 
         self.document = document;
         self.field_placements = field_placements;
+        self.content_windows = content_windows;
         self.page_count = new_hashes.len();
         self.page_hashes = new_hashes;
         self.compile_warnings = compile_warnings;
@@ -262,23 +347,55 @@ impl SessionHandle for TypstSession {
     }
 
     /// Schema-field geometry for the compiled document — bottom-left PDF-point
-    /// rects keyed on the schema-field path, one per (placement, page
-    /// fragment). Two sources, deterministically ordered: form-field widgets
-    /// (one fixed-size box each) first, then marker-tagged content (auto-tagged
-    /// fields and explicit `tagged(..)` placements, geometry read from the
-    /// laid-out frames) in (page, field, placement) order. Entries pass through
+    /// rects keyed on the schema-field path. Two sources, deterministically
+    /// ordered: form-field widgets (one fixed-size box each) first, then
+    /// span-tracked content in (page, field, site) order — each content
+    /// field's / scalar reference site's **first placement**, one region per
+    /// page it touches, geometry read from the laid-out frames' glyph spans.
+    /// Entries pass through
     /// [`LiveSession::regions`](quillmark_core::LiveSession::regions) as-is —
-    /// a field appearing several times (multiple placements, page fragments, or
-    /// tagged content plus a bound widget) surfaces every appearance; consumers
-    /// group by field. Geometry math over the frames, no rasterization. Widget
-    /// regions are empty if the placements fail to resolve (a render would
-    /// surface the same error).
+    /// `field` is still not unique (page fragments, several scalar reference
+    /// sites, or tracked content plus a bound widget); consumers group by
+    /// field. Geometry math over the frames, no rasterization. Widget regions
+    /// are empty if the placements fail to resolve (a render would surface
+    /// the same error).
     fn regions(&self) -> Vec<quillmark_core::RenderedRegion> {
         let mut regions = overlay::build_field_specs(&self.document, &self.field_placements)
             .map(|specs| quillmark_pdf::regions_of(&specs))
             .unwrap_or_default();
-        regions.extend(overlay::scan_content_regions(&self.document));
+        regions.extend(overlay::scan_content_regions(
+            &self.document,
+            &self.world,
+            &self.span_windows(),
+        ));
         regions
+    }
+
+    /// The schema field under a point on `page` (PDF points, bottom-left
+    /// origin) — the forward click→field direction, answered from the same
+    /// span data as [`regions`](Self::regions). Every placement answers, not
+    /// just the first: one concrete point identifies one frame item, whose
+    /// span is unambiguous however many times its field is placed. Overrides
+    /// the default-`None` seam.
+    fn field_at(&self, page: usize, x: f32, y: f32) -> Option<String> {
+        overlay::field_at(
+            &self.document,
+            &self.world,
+            &self.span_windows(),
+            page,
+            x,
+            y,
+        )
+    }
+}
+
+impl TypstSession {
+    /// The live compile's full span-classification table: content-field eval
+    /// windows (helper file) plus the plate's scalar reference-site windows.
+    fn span_windows(&self) -> Vec<overlay::FieldWindow> {
+        let mut windows = self.content_windows.clone();
+        windows.extend(self.scalar_windows.iter().cloned());
+        windows
     }
 }
 
@@ -300,18 +417,39 @@ impl Backend for TypstBackend {
 
         let transform_schema = build_transform_schema(source.config());
         let schema_meta = SchemaMeta::from_schema_json(transform_schema.as_json());
-        let json_str = transformed_json_str(&transform_schema, &schema_meta, json_data)?;
-        let world =
-            world::QuillWorld::new_with_data(source, &plate_content, &json_str).map_err(|e| {
-                RenderError::from_diag(
-                    Diagnostic::new(
-                        Severity::Error,
-                        format!("Failed to create Typst compilation environment: {}", e),
+        let (json_str, entries) = transformed_data(&transform_schema, &schema_meta, json_data)?;
+        let (world, content_windows) =
+            world::QuillWorld::new_with_data(source, &plate_content, &json_str, &entries)
+                .map_err(|e| {
+                    RenderError::from_diag(
+                        Diagnostic::new(
+                            Severity::Error,
+                            format!("Failed to create Typst compilation environment: {}", e),
+                        )
+                        .with_code("typst::world_creation".to_string())
+                        .with_source(e.as_ref()),
                     )
-                    .with_code("typst::world_creation".to_string())
-                    .with_source(e.as_ref()),
-                )
-            })?;
+                })?;
+        // The plate is static for the session, so its direct scalar
+        // reference sites are windowed once here.
+        let scalar_windows = {
+            use typst::World as _;
+            let main_id = world.main();
+            world
+                .source(main_id)
+                .ok()
+                .map(|src| {
+                    overlay::scalar_windows(&src, &schema_meta.fields)
+                        .into_iter()
+                        .map(|(path, range)| overlay::FieldWindow {
+                            path,
+                            file: main_id,
+                            range,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
         let (document, compile_warnings) = compile::compile_document(&world)?;
         let page_count = document.pages().len();
         let field_placements = overlay::extract(&document)?;
@@ -323,6 +461,8 @@ impl Backend for TypstBackend {
             field_placements,
             transform_schema,
             schema_meta,
+            content_windows,
+            scalar_windows,
             page_hashes: hashes,
             compile_warnings,
         };
