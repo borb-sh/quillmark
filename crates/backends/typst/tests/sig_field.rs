@@ -553,20 +553,57 @@ fn form_field_value_binding_from_data() {
 /// keyed on that schema path (of any field type), each carrying page+geometry. A
 /// widget that binds no schema field has only a `/T` name — not a schema
 /// address — and surfaces nothing. A session-level query, not a render output.
-/// `field:` validates against the schema like `tagged`, so each binding below
-/// is a field the `usaf_memo` host fixture actually declares.
+/// `field:` validates against the schema like `tagged`, so the test owns its
+/// schema (declaring every bound field) rather than borrowing the host
+/// fixture's field inventory — a fixture edit cannot break a widget test.
 #[test]
 fn form_field_regions_key_on_bound_schema_field() {
+    const YAML: &str = r#"
+quill:
+  name: widget_regions
+  version: 0.1.0
+  backend: typst
+  description: form-field region binding test
+typst:
+  plate_file: plate.typ
+main:
+  fields:
+    f_txt:
+      type: string
+      description: text widget binding
+    f_chk:
+      type: boolean
+      description: checkbox widget binding
+    f_cho:
+      type: string
+      description: choice widget binding
+    f_sig:
+      type: string
+      description: signature widget binding
+"#;
     let plate = r#"
 #import "@local/quillmark-helper:0.1.0": form-field
 #set page(width: 600pt, height: 400pt, margin: 50pt)
-#form-field("txt", type: "text", value: "hi", field: "subject")
-#form-field("chk", type: "checkbox", value: true, field: "dissemination")
-#form-field("cho", type: "choice", options: ("A", "B"), value: "B", field: "memo_style")
-#form-field("sig", type: "signature", field: "tag_line")
+#form-field("txt", type: "text", value: "hi", field: "f_txt")
+#form-field("chk", type: "checkbox", value: true, field: "f_chk")
+#form-field("cho", type: "choice", options: ("A", "B"), value: "B", field: "f_cho")
+#form-field("sig", type: "signature", field: "f_sig")
 #form-field("unbound", type: "text", value: "x")
 "#;
-    let source = source_with_plate(plate);
+    let mut files = HashMap::new();
+    files.insert(
+        "Quill.yaml".to_string(),
+        FileTreeNode::File {
+            contents: YAML.as_bytes().to_vec(),
+        },
+    );
+    files.insert(
+        "plate.typ".to_string(),
+        FileTreeNode::File {
+            contents: plate.as_bytes().to_vec(),
+        },
+    );
+    let source = Quill::from_tree(FileTreeNode::Directory { files }).expect("load quill");
     let session = TypstBackend
         .open(&source, &serde_json::json!({}))
         .expect("open");
@@ -575,7 +612,7 @@ fn form_field_regions_key_on_bound_schema_field() {
     let fields: std::collections::HashMap<&str, &quillmark_core::RenderedRegion> =
         regions.iter().map(|r| (r.field.as_str(), r)).collect();
 
-    for field in ["subject", "dissemination", "memo_style", "tag_line"] {
+    for field in ["f_txt", "f_chk", "f_cho", "f_sig"] {
         let r = fields
             .get(field)
             .unwrap_or_else(|| panic!("region keyed on bound schema field {field:?}"));
