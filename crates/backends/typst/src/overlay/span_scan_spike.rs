@@ -14,17 +14,32 @@
 //! [] }`, `render-body`'s exact shape) because the rebuild repositions the
 //! *same* content value rather than re-tokenizing new text.
 //!
-//! Caveat surfaced along the way: Typst's `eval(string, mode: "markup")`
-//! collapses every span in the parsed result to ONE uniform value — the
-//! span of the `source` argument at the call site
-//! (`typst-library/src/foundations/mod.rs`, `eval_string`'s
-//! `SpanMode::Uniform(span)`). A shared per-field loop (today's
-//! `eval-content` in `lib.typ.template`) would give every field the *same*
-//! span (the one `dict.at(key)` call-site expression, executed N times) —
-//! useless for distinguishing fields. Field-level discrimination would need
-//! either N textually distinct call sites (fine — content codegen already
-//! knows the field set) or `SpanMode::Mapped`, not the shared-loop shape
-//! used today. Tested directly below via two distinct literal call sites.
+//! Caveat #1 (solved): Typst's `eval(string, mode: "markup")` collapses every
+//! span in the parsed result to ONE uniform value — the span of the `source`
+//! argument at the call site (`typst-library/src/foundations/mod.rs`,
+//! `eval_string`'s `SpanMode::Uniform(span)`). A shared per-field loop
+//! (today's `eval-content` in `lib.typ.template`) would give every field the
+//! *same* span (the one `dict.at(key)` call-site expression, executed N
+//! times) — useless for distinguishing fields. Fixed by using N textually
+//! distinct call sites (fine — content codegen already knows the field set),
+//! confirmed by `eval_call_sites_are_span_distinguishable_and_survive_rebuild`.
+//!
+//! Caveat #2 (NOT solved — a real conflict, not just an open task): spans
+//! identify *origin* (which field this ink came from), not *placement site*.
+//! The existing region contract requires the latter too — placing the same
+//! field twice must surface two independent regions
+//! (`content_regions.rs::field_placed_twice_yields_independent_regions`), not
+//! a spanning union that claims whatever sits between them. Distinguishing
+//! "two real placements separated by other content" from "one placement
+//! whose sub-parts a rebuild package decorated with its own foreign-spanned
+//! chrome in between" turns out to look *identical* from pure span/order
+//! data — see `adjacency_grouping_correctly_splits_two_placements_of_the_same_field`
+//! vs. `adjacency_grouping_incorrectly_fragments_one_placement_through_render_body`,
+//! which reach opposite correct answers using the same heuristic on the same
+//! shape of input. No file- or order-based rule tried here resolves both at
+//! once. Verdict: span tracking is solid for single-placement attribution —
+//! which is exactly what reproduces #789's zero-regions bug — but doesn't by
+//! itself replace the marker system's placement-counting guarantee.
 
 use std::collections::HashMap;
 
@@ -133,6 +148,53 @@ fn union_by_window(
             .or_insert(hit.rect);
     }
     boxes
+}
+
+/// Group hits matching `(file, range)` into separate **placement instances**
+/// by walk-order adjacency: two matching hits are the same placement only if
+/// nothing *else* (any other origin, matching or not) appears between them in
+/// `hits`' global order. This is what a real implementation would need
+/// instead of blind unioning — `union_by_window` above merges every matching
+/// hit into one box regardless of what's between them, which is wrong the
+/// moment the same field is placed at two separate sites (see
+/// `field_placed_twice_is_not_merged_into_one_box` below, which is exactly
+/// `region_scan.rs`'s existing `field_placed_twice_yields_independent_regions`
+/// contract, TDD'd against this new mechanism).
+fn placements_by_window(
+    hits: &[SpanHit],
+    file: FileId,
+    range: std::ops::Range<usize>,
+) -> Vec<HashMap<usize, [f64; 4]>> {
+    let matches = |h: &SpanHit| {
+        h.file == Some(file)
+            && h.range
+                .as_ref()
+                .is_some_and(|r| range.start <= r.start && r.end <= range.end)
+    };
+
+    let mut placements: Vec<HashMap<usize, [f64; 4]>> = Vec::new();
+    let mut in_run = false;
+    for hit in hits {
+        if matches(hit) {
+            if !in_run {
+                placements.push(HashMap::new());
+                in_run = true;
+            }
+            let boxes = placements.last_mut().unwrap();
+            boxes
+                .entry(hit.page)
+                .and_modify(|b: &mut [f64; 4]| {
+                    b[0] = b[0].min(hit.rect[0]);
+                    b[1] = b[1].min(hit.rect[1]);
+                    b[2] = b[2].max(hit.rect[2]);
+                    b[3] = b[3].max(hit.rect[3]);
+                })
+                .or_insert(hit.rect);
+        } else {
+            in_run = false;
+        }
+    }
+    placements
 }
 
 /// Build a minimal in-memory quill (no packages) for span-survival probes
@@ -380,4 +442,231 @@ THIRDFIELD seven eight nine, forcing AFH numbering with three paragraphs.]
             hits.len()
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Derisk #1 (the ranked top risk): does span identity distinguish two
+// SEPARATE placements of the same field, the way `region_scan.rs`'s
+// `field_placed_twice_yields_independent_regions` contract requires? The
+// same eval() result, referenced twice, is the same content value with the
+// SAME uniform span both times — blind window-matching can't tell them
+// apart. `placements_by_window` is the proposed fix: group by walk-order
+// adjacency instead of blindly unioning every match.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn diagnostic_lorem_span_file() {
+    // Does the intervening `lorem(40)` content resolve to our plate file
+    // (main.typ) or somewhere untracked (Typst's embedded corpus data)? This
+    // decides whether "only break on a hit in a tracked content file"
+    // (rather than "any non-matching hit") could distinguish "another
+    // placement interrupting" from "package chrome decorating the same
+    // placement" (the render-body number-text case).
+    let plate = r#"
+#set page(width: 400pt, height: 700pt, margin: 40pt)
+#let content = eval("FIRSTFIELD placed here.", mode: "markup")
+#content
+
+#lorem(10)
+
+#content
+"#;
+    let (doc, world) = compile(plate);
+    let hits = collect_span_hits(&doc, &world);
+    for h in &hits {
+        let text = h.file.and_then(|f| {
+            let r = h.range.as_ref()?;
+            let src = world.source(f).ok()?;
+            Some(src.text().get(r.clone())?.to_string())
+        });
+        eprintln!("file={:?} range={:?} text={:?}", h.file, h.range, text);
+    }
+}
+
+#[test]
+fn naive_union_incorrectly_merges_two_placements_of_the_same_field() {
+    // Reproduces the risk: `content` is ONE eval() result (one uniform span,
+    // exactly how auto-tagging would bind a field once), placed twice with
+    // unrelated content between — mirroring
+    // `content_regions.rs::field_placed_twice_yields_independent_regions`.
+    let plate = r#"
+#set page(width: 400pt, height: 700pt, margin: 40pt)
+#let content = eval("FIRSTFIELD placed here.", mode: "markup")
+#content
+
+#lorem(40)
+
+#content
+"#;
+    let (doc, world) = compile(plate);
+    let hits = collect_span_hits(&doc, &world);
+
+    let call = plate.find("\"FIRSTFIELD placed here.\"").unwrap();
+    let call_end = call + "\"FIRSTFIELD placed here.\"".len();
+
+    let merged = union_by_window(&hits, world.main(), call..call_end);
+    eprintln!("naive merged boxes (expected to wrongly collapse to 1): {merged:?}");
+    // Confirms the risk: exactly one page, one box — the two placements'
+    // vertical extents got unioned into a single spanning rect that also
+    // claims the `lorem(40)` ink sitting between them. This is the wrong
+    // answer region_scan.rs's marker-based open/close was built to avoid.
+    assert_eq!(
+        merged.len(),
+        1,
+        "naive window union collapses both placements onto one page entry: {merged:?}"
+    );
+}
+
+#[test]
+fn adjacency_grouping_correctly_splits_two_placements_of_the_same_field() {
+    let plate = r#"
+#set page(width: 400pt, height: 700pt, margin: 40pt)
+#let content = eval("FIRSTFIELD placed here.", mode: "markup")
+#content
+
+#lorem(40)
+
+#content
+"#;
+    let (doc, world) = compile(plate);
+    let hits = collect_span_hits(&doc, &world);
+
+    let call = plate.find("\"FIRSTFIELD placed here.\"").unwrap();
+    let call_end = call + "\"FIRSTFIELD placed here.\"".len();
+
+    let placements = placements_by_window(&hits, world.main(), call..call_end);
+    eprintln!("adjacency-grouped placements: {placements:?}");
+    assert_eq!(
+        placements.len(),
+        2,
+        "two separate placements of the same field must stay independent: {placements:?}"
+    );
+    let p0 = &placements[0][&0];
+    let p1 = &placements[1][&0];
+    assert!(
+        p0[1] > p1[3] || p1[1] > p0[3],
+        "the two placements must not vertically overlap/union: {p0:?} vs {p1:?}"
+    );
+}
+
+#[test]
+fn adjacency_grouping_incorrectly_fragments_one_placement_through_render_body() {
+    // VERDICT: adjacency grouping does NOT generalize — this is the
+    // counter-finding to the previous test, and it's a genuine conflict, not
+    // a fixable implementation gap. render-body decorates each paragraph
+    // with an auto-number prefix (`number-text` in the *package's own*
+    // `body.typ`) between one field's own paragraphs. That prefix's glyphs
+    // carry a span into `body.typ` — foreign to our field's window — so the
+    // "break on any non-matching hit" rule (needed to correctly SPLIT two
+    // real placements in the test above) also WRONGLY splits one field's own
+    // paragraphs into 3 fragments here.
+    //
+    // A tighter rule — "only break on a hit that matches a *different known
+    // field's* window, tolerate everything else" — fixes this specific case
+    // (body.typ isn't a tracked field-content file) but then *regresses* the
+    // test above: `lorem(40)`'s span there also resolves outside any tracked
+    // field window (to the plate's own `main.typ`, at the `lorem()` call
+    // site — see `diagnostic_lorem_span_file`), so it would be tolerated
+    // too, re-merging two genuinely separate placements — reproducing
+    // exactly the bug `region_scan.rs`'s marker-based open/close exists to
+    // avoid, and regressing `content_regions.rs`'s existing
+    // `field_placed_twice_yields_independent_regions` contract.
+    //
+    // Both scenarios present identically from pure span/file/order data: a
+    // run of matching hits, a gap of non-matching hits, another run of
+    // matching hits. Nothing in that data distinguishes "gap is package
+    // chrome decorating the same placement" from "gap is the plate's own
+    // unrelated content separating two placements" — that requires a signal
+    // outside span/order (e.g. an explicit boundary marker, which reintroduces
+    // exactly the fragility the marker approach has against rebuilds; or a
+    // geometry heuristic like gap size relative to line height, which is
+    // fuzzy and has its own edge cases). Conclusion: span tracking is solid
+    // for single-placement attribution (the common case, and the one that
+    // actually reproduces #789's zero-regions bug), but does not by itself
+    // extend to safely disambiguating repeated placements of the same field.
+    fn host_tree() -> FileTreeNode {
+        fn walk(dir: &std::path::Path) -> std::io::Result<FileTreeNode> {
+            let mut files = HashMap::new();
+            for entry in std::fs::read_dir(dir)? {
+                let entry = entry?;
+                let p = entry.path();
+                let name = p.file_name().unwrap().to_string_lossy().into_owned();
+                if p.is_file() {
+                    files.insert(
+                        name,
+                        FileTreeNode::File {
+                            contents: std::fs::read(&p)?,
+                        },
+                    );
+                } else if p.is_dir() {
+                    files.insert(name, walk(&p)?);
+                }
+            }
+            Ok(FileTreeNode::Directory { files })
+        }
+        let quill_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("fixtures")
+            .join("resources")
+            .join("quills")
+            .join("usaf_memo")
+            .join("0.2.0");
+        walk(&quill_path).expect("walk fixture")
+    }
+
+    let plate = r#"
+#import "@local/tonguetoquill-usaf-memo:3.0.0": frontmatter, mainmatter
+
+#show: frontmatter.with(subject: "Spike Memo", memo_for: ("TEST/SYMB",))
+
+#mainmatter[FIELDBODY paragraph one.
+
+FIELDBODY paragraph two.
+
+FIELDBODY paragraph three, forcing AFH numbering.]
+"#;
+    let quill = host_tree();
+    let quill = Quill::from_tree(quill).expect("load usaf_memo host quill");
+    let world = QuillWorld::new(&quill, plate).expect("build world");
+    let (doc, _warnings) = compile_document(&world).expect("compile");
+    let hits = collect_span_hits(&doc, &world);
+
+    // The whole body is one field in the real system (one eval() call over
+    // the full markdown value) — so its window spans the *entire* literal
+    // text block, all three paragraphs included, not per-paragraph.
+    let start = plate.find("FIELDBODY paragraph one.").unwrap();
+    let end = plate.find("forcing AFH numbering.").unwrap() + "forcing AFH numbering.".len();
+
+    // Diagnostic: dump what actually sits between matching hits in the full
+    // walk order, to see what's breaking adjacency.
+    let matches = |h: &SpanHit| {
+        h.file == Some(world.main())
+            && h.range.as_ref().is_some_and(|r| start <= r.start && r.end <= end)
+    };
+    let mut prev_match = false;
+    for h in &hits {
+        let m = matches(h);
+        if m != prev_match {
+            let text_range = h.range.as_ref().map(|r| {
+                let src = world.source(h.file.unwrap()).unwrap();
+                src.text()[r.clone()].to_string()
+            });
+            eprintln!(
+                "transition matches={m} file={:?} range={:?} text={:?} rect={:?}",
+                h.file, h.range, text_range, h.rect
+            );
+        }
+        prev_match = m;
+    }
+
+    let placements = placements_by_window(&hits, world.main(), start..end);
+    eprintln!("single-field multi-paragraph placements: {placements:?}");
+    assert_eq!(
+        placements.len(),
+        3,
+        "documents the conflict: walk-order adjacency wrongly fragments one placement into \
+         one-per-paragraph because render-body's own number-text prefix (body.typ) sits between \
+         them with a foreign span: {placements:?}"
+    );
 }
