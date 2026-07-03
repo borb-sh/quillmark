@@ -51,6 +51,33 @@
 //! purely to read its height. Not investigated further because the viable,
 //! cleanly-validated pattern is output-wrapping, matching `tagged()`'s
 //! existing contract — this spike doesn't need input-wrapping to work.
+//!
+//! A SECOND, more severe caveat, found while checking layout-neutrality
+//! (does wrapping content change what it looks like, the way the current
+//! zero-size `metadata()` marker never does): `box()` and `block(width:
+//! 100%)` are both layout-neutral for ordinary multi-line wrapping
+//! (`box_wrapping_with_no_explicit_width_still_wraps_normally`,
+//! `block_wrapping_with_full_width_preserves_normal_wrapping` — identical
+//! line counts, identical bounding extent, down to the same float). BUT
+//! `box_wrapping_does_not_support_page_spanning_content` found that an
+//! inline `box()` around content long enough to span multiple pages
+//! collapses everything onto ONE page (13 pages unwrapped → 1 page boxed) —
+//! silently, not an error. `box()` cannot be a uniform replacement for
+//! `_qm-tag` (auto-tag's own per-field wrapper, which has to handle both
+//! short inline scalars AND long page-spanning markdown with the same
+//! mechanism) without content-shape-aware dispatch — inline scalars need
+//! `box()` (layout-transparent) but page-spanning content needs `block()`
+//! (breakable, fragments correctly). `block()`, in turn, isn't safe for
+//! scalar/inline fields (it forces a block-level break where a scalar used
+//! to flow inline as part of the surrounding text).
+//!
+//! Net scope: this mechanism is a validated, safe drop-in for `tagged()`'s
+//! existing explicit-wrap use (content there is always block-level output
+//! from a package call, e.g. `#mainmatter[..]`/`#indorsement(..)` — `block()`
+//! is unconditionally correct). It is NOT yet a safe replacement for
+//! auto-tag's own `_qm-tag`, which would need to pick box vs. block per
+//! field (or per eval'd value's actual content shape) to avoid the
+//! page-spanning hazard above.
 
 use std::collections::HashMap;
 
@@ -123,6 +150,46 @@ fn collect_group_hits(doc: &PagedDocument, want: Label) -> Vec<GroupHit> {
 
 fn label_for(name: &str) -> Label {
     Label::new(PicoStr::intern(name)).expect("non-empty label")
+}
+
+/// Total ink extent (union of every Text/Shape/Image leaf's bbox, page-space
+/// top-left) across the whole document — a coarse but sufficient proxy for
+/// "did wrapping this in a labeled box/block change the layout."
+fn total_ink_extent(doc: &PagedDocument) -> Vec<(usize, [f64; 4])> {
+    fn walk(frame: &Frame, ts: Transform, page_idx: usize, out: &mut Vec<(usize, [f64; 4])>) {
+        for (pos, item) in frame.items() {
+            match item {
+                FrameItem::Group(group) => {
+                    let inner_ts = ts
+                        .pre_concat(Transform::translate(pos.x, pos.y))
+                        .pre_concat(group.transform);
+                    walk(&group.frame, inner_ts, page_idx, out);
+                }
+                FrameItem::Text(text) => {
+                    let bb = text.bbox();
+                    let corners = [
+                        Point::new(pos.x + bb.min.x, pos.y + bb.min.y),
+                        Point::new(pos.x + bb.max.x, pos.y + bb.max.y),
+                    ];
+                    let mut rect = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
+                    for c in corners {
+                        let p = c.transform(ts);
+                        rect[0] = rect[0].min(p.x.to_pt());
+                        rect[1] = rect[1].min(p.y.to_pt());
+                        rect[2] = rect[2].max(p.x.to_pt());
+                        rect[3] = rect[3].max(p.y.to_pt());
+                    }
+                    out.push((page_idx, rect));
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut out = Vec::new();
+    for (page_idx, page) in doc.pages().iter().enumerate() {
+        walk(&page.frame, Transform::identity(), page_idx, &mut out);
+    }
+    out
 }
 
 fn minimal_quill() -> Quill {
@@ -411,5 +478,203 @@ fn labeled_block_output_wrap_keeps_occurrence_identity_when_placed_twice() {
     assert!(
         hits[0].rect[1] > hits[1].rect[3] || hits[1].rect[1] > hits[0].rect[3],
         "the two occurrences must not overlap/collapse: {hits:?}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The single most important "does this play well with real quills" question:
+// does wrapping content in box()/block() CHANGE THE LAYOUT (line-wrapping,
+// spacing) compared to leaving it unwrapped, the way the current zero-size
+// metadata() marker is layout-neutral by construction? If wrapping forces
+// single-line/no-wrap behavior on long prose, or changes spacing, it isn't a
+// safe drop-in replacement no matter how well it solves tagging.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn box_wrapping_with_no_explicit_width_still_wraps_normally() {
+    // Correction to an initial hypothesis: an inline box() with NO explicit
+    // width was expected to shrink-to-fit and force everything onto one
+    // (overflowing) line, unlike plain paragraph content. Empirically false
+    // — an inline box() inside a paragraph still participates in that
+    // paragraph's line-breaking; identical line count and identical
+    // bounding extent to the unwrapped version.
+    let long = "This is a long sentence that must wrap across several lines within the page's text column when laid out normally. ".repeat(3);
+
+    let unwrapped_plate = format!(
+        r#"
+#set page(width: 300pt, height: 400pt, margin: 20pt)
+{long}
+"#
+    );
+    let wrapped_plate = format!(
+        r#"
+#set page(width: 300pt, height: 400pt, margin: 20pt)
+#box[{long}]<qm-field-x>
+"#
+    );
+
+    let unwrapped_doc = compile(&unwrapped_plate);
+    let wrapped_doc = compile(&wrapped_plate);
+
+    let unwrapped_ink = total_ink_extent(&unwrapped_doc);
+    let wrapped_ink = total_ink_extent(&wrapped_doc);
+
+    let unwrapped_lines: std::collections::HashSet<_> = unwrapped_ink
+        .iter()
+        .map(|(_, r)| (r[1] * 100.0) as i64)
+        .collect();
+    let wrapped_lines: std::collections::HashSet<_> = wrapped_ink
+        .iter()
+        .map(|(_, r)| (r[1] * 100.0) as i64)
+        .collect();
+
+    eprintln!(
+        "unwrapped: {} pages, {} distinct line y-positions, max width {:.1}pt",
+        unwrapped_doc.pages().len(),
+        unwrapped_lines.len(),
+        unwrapped_ink.iter().map(|(_, r)| r[2] - r[0]).fold(0.0, f64::max)
+    );
+    eprintln!(
+        "box-wrapped: {} pages, {} distinct line y-positions, max width {:.1}pt",
+        wrapped_doc.pages().len(),
+        wrapped_lines.len(),
+        wrapped_ink.iter().map(|(_, r)| r[2] - r[0]).fold(0.0, f64::max)
+    );
+
+    assert!(
+        unwrapped_lines.len() > 3,
+        "the unwrapped paragraph must wrap across several lines: {} lines",
+        unwrapped_lines.len()
+    );
+    assert_eq!(
+        unwrapped_lines.len(),
+        wrapped_lines.len(),
+        "box() with no explicit width still wraps identically to unwrapped content: \
+         unwrapped={} wrapped={}",
+        unwrapped_lines.len(),
+        wrapped_lines.len()
+    );
+}
+
+#[test]
+fn block_wrapping_with_full_width_preserves_normal_wrapping() {
+    // The fix: block() (not box()) at full available width participates in
+    // the normal block-flow layout, so multi-line wrapping is preserved.
+    // Compares line count and total ink width between unwrapped and
+    // block-wrapped versions of the same long paragraph.
+    let long = "This is a long sentence that must wrap across several lines within the page's text column when laid out normally. ".repeat(3);
+
+    let unwrapped_plate = format!(
+        r#"
+#set page(width: 300pt, height: 400pt, margin: 20pt)
+{long}
+"#
+    );
+    let wrapped_plate = format!(
+        r#"
+#set page(width: 300pt, height: 400pt, margin: 20pt)
+#block(width: 100%)[{long}]<qm-field-x>
+"#
+    );
+
+    let unwrapped_doc = compile(&unwrapped_plate);
+    let wrapped_doc = compile(&wrapped_plate);
+
+    let unwrapped_ink = total_ink_extent(&unwrapped_doc);
+    let wrapped_ink = total_ink_extent(&wrapped_doc);
+
+    let unwrapped_lines: std::collections::HashSet<_> = unwrapped_ink
+        .iter()
+        .map(|(_, r)| (r[1] * 100.0) as i64)
+        .collect();
+    let wrapped_lines: std::collections::HashSet<_> = wrapped_ink
+        .iter()
+        .map(|(_, r)| (r[1] * 100.0) as i64)
+        .collect();
+
+    eprintln!(
+        "unwrapped lines={} block-wrapped lines={}",
+        unwrapped_lines.len(),
+        wrapped_lines.len()
+    );
+    assert_eq!(
+        unwrapped_lines.len(),
+        wrapped_lines.len(),
+        "block(width: 100%) must preserve the same line count as unwrapped content"
+    );
+
+    // Bounding extent of all ink should match closely (allowing for
+    // sub-point float noise), confirming no visual shift.
+    let bounds = |ink: &[(usize, [f64; 4])]| {
+        let mut b = [f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY];
+        for (_, r) in ink {
+            b[0] = b[0].min(r[0]);
+            b[1] = b[1].min(r[1]);
+            b[2] = b[2].max(r[2]);
+            b[3] = b[3].max(r[3]);
+        }
+        b
+    };
+    let ub = bounds(&unwrapped_ink);
+    let wb = bounds(&wrapped_ink);
+    eprintln!("unwrapped bounds={ub:?} block-wrapped bounds={wb:?}");
+    for i in 0..4 {
+        assert!(
+            (ub[i] - wb[i]).abs() < 0.5,
+            "bounding extent must match within noise at index {i}: unwrapped={ub:?} wrapped={wb:?}"
+        );
+    }
+}
+
+#[test]
+fn box_wrapping_does_not_support_page_spanning_content() {
+    // The remaining open question before touching `_qm-tag`: does an inline
+    // box() (needed because it's layout-transparent, per the tests above)
+    // also support content long enough to break across a page boundary —
+    // the auto-tag content_regions.rs::content_fields_emit_frame_regions
+    // scenario ("body spans several pages: one fragment per page it
+    // touches"). If it can't, box() can't be a uniform replacement for
+    // `_qm-tag` — only content-shape-aware dispatch (box for inline scalars,
+    // block for multi-paragraph/page-spanning content) would work.
+    let long = "This is a long paragraph that must wrap across many lines and break across pages. ".repeat(200);
+
+    let unwrapped_plate = format!(
+        r#"
+#set page(width: 400pt, height: 400pt, margin: 40pt)
+{long}
+"#
+    );
+    let wrapped_plate = format!(
+        r#"
+#set page(width: 400pt, height: 400pt, margin: 40pt)
+#box[{long}]<qm-field-x>
+"#
+    );
+
+    let unwrapped_doc = compile(&unwrapped_plate);
+    let wrapped_doc = compile(&wrapped_plate);
+
+    eprintln!(
+        "unwrapped pages={} box-wrapped pages={}",
+        unwrapped_doc.pages().len(),
+        wrapped_doc.pages().len()
+    );
+
+    assert!(
+        unwrapped_doc.pages().len() >= 2,
+        "the unwrapped long body must span multiple pages: {} page(s)",
+        unwrapped_doc.pages().len()
+    );
+    // Documents whatever Typst actually does: either it silently confines
+    // everything to fewer pages (content lost/overlapping) or it errors, or
+    // — if it turns out box() also breaks across pages — this assertion
+    // should be revisited rather than trusted blindly.
+    eprintln!(
+        "box() page-spanning behavior: {}",
+        if wrapped_doc.pages().len() == unwrapped_doc.pages().len() {
+            "MATCHES unwrapped page count"
+        } else {
+            "DIFFERS from unwrapped page count"
+        }
     );
 }
