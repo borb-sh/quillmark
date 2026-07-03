@@ -266,7 +266,13 @@ fn generated_dict_with_content_refs_feeds_the_production_scan() {
         );
     }
 
-    let regions = crate::overlay::scan_content_regions(&doc, &world, &windows);
+    let helper = {
+        use typst::World as _;
+        world
+            .source(QuillWorld::helper_fid("lib.typ"))
+            .expect("helper source")
+    };
+    let regions = crate::overlay::scan_content_regions(&doc, &world, &helper, &windows);
     for expected in ["title", "note", "$cards.alpha.0.$body"] {
         assert!(
             regions.iter().any(|r| r.field == expected),
@@ -280,7 +286,7 @@ fn generated_dict_with_content_refs_feeds_the_production_scan() {
     let cx = (note.rect[0] + note.rect[2]) / 2.0;
     let cy = (note.rect[1] + note.rect[3]) / 2.0;
     assert_eq!(
-        crate::overlay::field_at(&doc, &world, &windows, note.page, cx, cy).as_deref(),
+        crate::overlay::field_at(&doc, &world, &helper, &windows, note.page, cx, cy).as_deref(),
         Some("note"),
         "clicks resolve through the literal-dict content"
     );

@@ -36,27 +36,36 @@ pub struct ContentWindow {
 /// distinct `eval()` call site in the generated `_qm-content` dictionary, and
 /// the returned windows record where.
 pub fn generate_lib_typ(json_data: &str, content: &[(String, String)]) -> (String, Vec<ContentWindow>) {
-    let escaped_json = escape_string(json_data);
-    let with_data = LIB_TYP_TEMPLATE
-        .replace("{version}", HELPER_VERSION)
-        .replace("{escaped_json}", &escaped_json);
-
-    const SLOT: &str = "{content_evals}";
-    let slot = with_data
-        .find(SLOT)
+    // Every placeholder is located in the *raw template* — trusted static
+    // text — never in a string that already carries substituted document
+    // data. Locating a slot after substitution would let data containing the
+    // literal placeholder text hijack the splice point (the JSON payload
+    // precedes the content slot in the template, and `escape_string` leaves
+    // braces verbatim).
+    let json_at = LIB_TYP_TEMPLATE
+        .find("{escaped_json}")
+        .expect("lib.typ.template carries the {escaped_json} slot");
+    let slot_at = LIB_TYP_TEMPLATE
+        .find("{content_evals}")
         .expect("lib.typ.template carries the {content_evals} slot");
+    debug_assert!(json_at < slot_at, "template slot order");
 
+    let escaped_json = escape_string(json_data);
     let (block, rel_windows) = content_evals(content);
-    let mut src = String::with_capacity(with_data.len() - SLOT.len() + block.len());
-    src.push_str(&with_data[..slot]);
+
+    let mut src = String::with_capacity(LIB_TYP_TEMPLATE.len() + escaped_json.len() + block.len());
+    src.push_str(&LIB_TYP_TEMPLATE[..json_at].replace("{version}", HELPER_VERSION));
+    src.push_str(&escaped_json);
+    src.push_str(&LIB_TYP_TEMPLATE[json_at + "{escaped_json}".len()..slot_at]);
+    let block_at = src.len();
     src.push_str(&block);
-    src.push_str(&with_data[slot + SLOT.len()..]);
+    src.push_str(&LIB_TYP_TEMPLATE[slot_at + "{content_evals}".len()..]);
 
     let windows = rel_windows
         .into_iter()
         .map(|(path, r)| ContentWindow {
             path,
-            range: (r.start + slot)..(r.end + slot),
+            range: (r.start + block_at)..(r.end + block_at),
         })
         .collect();
     (src, windows)
@@ -147,6 +156,23 @@ mod tests {
             "the window covers the escaped literal, quotes included"
         );
         assert_eq!(&lib[windows[1].range.clone()], "\"plain\"");
+    }
+
+    #[test]
+    fn data_containing_placeholder_text_cannot_hijack_the_splice() {
+        // The JSON payload precedes the content slot in the template; a
+        // document whose data contains the literal slot text must not move
+        // the splice point into the payload.
+        let json = r#"{"body":"quoting the template: {content_evals} and {escaped_json}"}"#;
+        let (lib, windows) = generate_lib_typ(json, &[("body".to_string(), "hi".to_string())]);
+
+        assert_eq!(windows.len(), 1);
+        assert_eq!(&lib[windows[0].range.clone()], "\"hi\"");
+        // The payload text is intact and the generated dict sits at the real
+        // slot, after it.
+        let payload = lib.find("quoting the template").expect("payload present");
+        let dict = lib.find("#let _qm-content").expect("dict present");
+        assert!(payload < dict, "content dict spliced at the template slot, not into the payload");
     }
 
     #[test]

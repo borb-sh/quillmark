@@ -10,34 +10,51 @@
 //! window** at generation time ([`FieldWindow`]) and the scan classifies a
 //! frame item by which window its resolved range nests inside. A scalar the
 //! plate interpolates directly (`#data.subject`) needs no codegen: its glyphs
-//! carry the reference expression's own span in the plate, and
+//! carry a span at or around the reference expression in the plate, and
 //! [`scalar_windows`] recovers those windows from the plate's syntax tree.
 //! Spans survive *any* content rebuild (a `show`-rule pass that captures
 //! paragraphs into a state buffer and re-emits them) because they are a
 //! property of the glyph, not a sibling element a rebuild can drop.
 //!
+//! **Resolution goes through the compile's own helper source.** The session
+//! serves reads from its last-good compile even after a failed `apply`, but a
+//! failed apply has already written the *next* injection's helper text into
+//! the world — resolving the served document's spans against that text would
+//! shift or drop every byte range. The scan therefore resolves helper-file
+//! spans against the [`Source`] snapshot the served document was compiled
+//! from, and only non-helper spans (the plate, vendored packages — sources
+//! that never change within a session) through the live world.
+//!
 //! **First placement only.** A window's region is its first maximal run of
 //! consecutive matching frame items in document order — one region per page
 //! that run touches, in page order. Span data cannot distinguish "package
-//! chrome between two paragraphs of one placement" from "a second placement of
-//! the same value" (both are a gap of foreign spans), so later runs are not
-//! enumerated; the first run is provably the true start of the field's
-//! content, and shrinks (never lies) when foreign ink interrupts it. A scalar
-//! referenced at several distinct plate sites is the exception that costs
-//! nothing: each site is its own window, so each surfaces independently.
+//! chrome between two paragraphs of one placement" from "a second placement
+//! of the same value" (both are a gap of foreign spans), so later runs are
+//! not enumerated; the first run is the true start of the field's content,
+//! and shrinks (never lies) when foreign ink interrupts it mid-page. One
+//! tolerance keeps continuation pages covered: page marginals (headers,
+//! footers, page numbers) walk between one page's body and the next's, so a
+//! run interrupted by foreign ink may resume on the **immediately following
+//! page** — a same-page gap still ends the run (that is exactly the
+//! twice-placed case), at the cost that a *second* placement opening at the
+//! top of the next page reads as a continuation (an over-report of that
+//! field's own ink, never another field's). A scalar referenced at several
+//! distinct plate sites costs nothing: each site is its own window, so each
+//! surfaces independently.
 //!
-//! Resolution uses [`WorldExt::range`] — the same helper `error_mapping.rs`
-//! uses for diagnostics. Geometry composes the group-transform stack exactly
-//! like `typst_layout::introspect::discover_frame`, transforming all four
-//! corners of each item box (the stack may rotate or scale).
+//! Geometry composes the group-transform stack exactly like
+//! `typst_layout::introspect::discover_frame`, transforming all four corners
+//! of each item box (the stack may rotate or scale). Boxes are computed only
+//! for classified ink — foreign items matter to the scan solely as
+//! run-breakers.
 
 use std::collections::HashMap;
 use std::ops::Range;
 
 use typst::layout::{Frame, FrameItem, Point, Transform};
 use typst::syntax::ast::{self, AstNode};
-use typst::syntax::{FileId, LinkedNode, Source, Span, SyntaxKind};
-use typst::WorldExt;
+use typst::syntax::{DiagSpan, DiagSpanKind, FileId, LinkedNode, Source, Span, SyntaxKind};
+use typst::World;
 use typst_layout::PagedDocument;
 
 use quillmark_core::RenderedRegion;
@@ -96,18 +113,21 @@ impl Aabb {
 }
 
 /// One drawn frame item, classified: which tracked window (if any) its span
-/// resolved into, and its page-space box.
+/// resolved into, and — for classified ink only — its page-space box.
 struct Hit {
     page: usize,
     window: Option<usize>,
-    rect: Aabb,
+    rect: Option<Aabb>,
 }
 
 /// Memoizing span → window-index classifier. Uniform eval spans repeat across
-/// every glyph of a field's content, so the `world.range` lookup runs once per
-/// distinct span, not once per glyph.
+/// every glyph of a field's content, so the range lookup runs once per
+/// distinct span, not once per glyph. Helper-file spans resolve against the
+/// served compile's own source snapshot (see the module doc); everything else
+/// against the world.
 struct Classifier<'a> {
     world: &'a QuillWorld,
+    helper: &'a Source,
     windows: &'a [FieldWindow],
     memo: HashMap<Span, Option<usize>>,
 }
@@ -117,7 +137,24 @@ impl Classifier<'_> {
         if let Some(&w) = self.memo.get(&span) {
             return w;
         }
-        let resolved = span.id().zip(self.world.range(span));
+        // The same unpack `WorldExt::range` performs, with the helper file
+        // routed to the served compile's snapshot instead of the world.
+        let resolved = match DiagSpan::from(span).get() {
+            DiagSpanKind::Detached => None,
+            DiagSpanKind::Number {
+                id,
+                num,
+                sub_range,
+            } => {
+                let range = if id == self.helper.id() {
+                    self.helper.range(num, sub_range)
+                } else {
+                    self.world.source(id).ok().and_then(|s| s.range(num, sub_range))
+                };
+                range.map(|r| (id, r))
+            }
+            DiagSpanKind::Range { id, range } => Some((id, range)),
+        };
         let w = resolved.and_then(|(file, range)| {
             self.windows.iter().position(|win| {
                 win.file == file && win.range.start <= range.start && range.end <= win.range.end
@@ -128,10 +165,16 @@ impl Classifier<'_> {
     }
 }
 
-/// Walk every page in document order, emitting one [`Hit`] per drawn item —
-/// per glyph for text (a text run may mix spans), per item for shapes and
-/// images (each carries a single span).
-fn collect_hits(doc: &PagedDocument, cls: &mut Classifier, out: &mut Vec<Hit>) {
+/// Walk one page frame in document order, emitting one [`Hit`] per drawn item
+/// — per glyph for text (a text run may mix spans), per item for shapes and
+/// images (each carries a single span). Boxes are computed for classified
+/// ink only.
+fn collect_page_hits(
+    frame: &Frame,
+    page: usize,
+    cls: &mut Classifier,
+    out: &mut Vec<Hit>,
+) {
     fn walk(frame: &Frame, ts: Transform, page: usize, cls: &mut Classifier, out: &mut Vec<Hit>) {
         for (pos, item) in frame.items() {
             match item {
@@ -149,42 +192,41 @@ fn collect_hits(doc: &PagedDocument, cls: &mut Classifier, out: &mut Vec<Hit>) {
                             glyph.x_advance.at(text.size),
                             glyph.y_advance.at(text.size),
                         );
-                        let offset =
-                            Point::new(glyph.x_offset.at(text.size), glyph.y_offset.at(text.size));
-                        let lo = Point::new(cursor.x + offset.x, cursor.y + bb.min.y);
-                        let hi =
-                            Point::new(cursor.x + offset.x + advance.x, cursor.y + bb.max.y);
-                        out.push(Hit {
-                            page,
-                            window: cls.classify(glyph.span.0),
-                            rect: item_aabb(*pos, lo, hi, ts),
+                        let window = cls.classify(glyph.span.0);
+                        let rect = window.is_some().then(|| {
+                            let offset = Point::new(
+                                glyph.x_offset.at(text.size),
+                                glyph.y_offset.at(text.size),
+                            );
+                            let lo = Point::new(cursor.x + offset.x, cursor.y + bb.min.y);
+                            let hi =
+                                Point::new(cursor.x + offset.x + advance.x, cursor.y + bb.max.y);
+                            item_aabb(*pos, lo, hi, ts)
                         });
+                        out.push(Hit { page, window, rect });
                         cursor += advance;
                     }
                 }
                 FrameItem::Shape(shape, span) => {
-                    let bb = shape.geometry.bbox(shape.stroke.as_ref());
-                    out.push(Hit {
-                        page,
-                        window: cls.classify(*span),
-                        rect: item_aabb(*pos, bb.min, bb.max, ts),
+                    let window = cls.classify(*span);
+                    let rect = window.is_some().then(|| {
+                        let bb = shape.geometry.bbox(shape.stroke.as_ref());
+                        item_aabb(*pos, bb.min, bb.max, ts)
                     });
+                    out.push(Hit { page, window, rect });
                 }
                 FrameItem::Image(_, size, span) => {
-                    out.push(Hit {
-                        page,
-                        window: cls.classify(*span),
-                        rect: item_aabb(*pos, Point::zero(), size.to_point(), ts),
-                    });
+                    let window = cls.classify(*span);
+                    let rect = window
+                        .is_some()
+                        .then(|| item_aabb(*pos, Point::zero(), size.to_point(), ts));
+                    out.push(Hit { page, window, rect });
                 }
                 _ => {}
             }
         }
     }
-
-    for (page, p) in doc.pages().iter().enumerate() {
-        walk(&p.frame, Transform::identity(), page, cls, out);
-    }
+    walk(frame, Transform::identity(), page, cls, out);
 }
 
 /// An item box (corners `lo`..`hi` relative to the item anchor `pos`, in local
@@ -202,11 +244,15 @@ fn item_aabb(pos: Point, lo: Point, hi: Point, ts: Transform) -> Aabb {
     )
 }
 
-/// Per-window first-run tracking state.
+/// Per-window first-run state. The run currently accruing is not represented
+/// here — at most one window can be in-run at a time (any hit forecloses
+/// every other window's run), so the scan tracks it as a single cursor and
+/// this enum carries only the out-of-run states.
 #[derive(Clone, Copy, PartialEq)]
 enum Run {
     NotSeen,
-    InRun,
+    /// Interrupted by foreign ink; may resume on page `last_page + 1` only.
+    Suspended { last_page: usize },
     Done,
 }
 
@@ -217,6 +263,7 @@ enum Run {
 pub(crate) fn scan(
     doc: &PagedDocument,
     world: &QuillWorld,
+    helper: &Source,
     windows: &[FieldWindow],
 ) -> Vec<RenderedRegion> {
     if windows.is_empty() {
@@ -224,32 +271,50 @@ pub(crate) fn scan(
     }
     let mut cls = Classifier {
         world,
+        helper,
         windows,
         memo: HashMap::new(),
     };
-    let mut hits = Vec::new();
-    collect_hits(doc, &mut cls, &mut hits);
 
-    // First maximal run per window: any intervening foreign item closes it.
-    // Pages within a run stay in walk order (nondecreasing), so per-page boxes
-    // are pushed, not keyed.
+    // Single pass in document order: `current` is the one window whose first
+    // run is accruing. A hit for another window (or untracked ink) suspends
+    // it; a suspended run resumes only on the immediately following page
+    // (page-marginal tolerance — see the module doc), otherwise it is done.
     let mut state = vec![Run::NotSeen; windows.len()];
     let mut boxes: Vec<Vec<(usize, Aabb)>> = vec![Vec::new(); windows.len()];
+    let mut current: Option<(usize, usize)> = None; // (window, last_page)
+
+    let mut hits = Vec::new();
+    for (page, p) in doc.pages().iter().enumerate() {
+        collect_page_hits(&p.frame, page, &mut cls, &mut hits);
+    }
     for hit in &hits {
-        for (i, st) in state.iter_mut().enumerate() {
-            if hit.window == Some(i) {
-                match *st {
-                    Run::NotSeen | Run::InRun => {
-                        *st = Run::InRun;
-                        match boxes[i].last_mut() {
-                            Some((page, b)) if *page == hit.page => b.union(hit.rect),
-                            _ => boxes[i].push((hit.page, hit.rect)),
-                        }
+        match hit.window {
+            Some(i) if current.map(|(c, _)| c) == Some(i) => {
+                accrue(&mut boxes[i], hit);
+                current = Some((i, hit.page));
+            }
+            Some(i) => {
+                if let Some((c, last_page)) = current.take() {
+                    state[c] = Run::Suspended { last_page };
+                }
+                match state[i] {
+                    Run::NotSeen => {
+                        accrue(&mut boxes[i], hit);
+                        current = Some((i, hit.page));
                     }
+                    Run::Suspended { last_page } if hit.page == last_page + 1 => {
+                        accrue(&mut boxes[i], hit);
+                        current = Some((i, hit.page));
+                    }
+                    Run::Suspended { .. } => state[i] = Run::Done,
                     Run::Done => {}
                 }
-            } else if *st == Run::InRun {
-                *st = Run::Done;
+            }
+            None => {
+                if let Some((c, last_page)) = current.take() {
+                    state[c] = Run::Suspended { last_page };
+                }
             }
         }
     }
@@ -279,15 +344,27 @@ pub(crate) fn scan(
     out.into_iter().map(|(r, _)| r).collect()
 }
 
+/// Union `hit` into the run's box for its page, opening a new per-page box at
+/// a page transition (pages are nondecreasing in walk order).
+fn accrue(boxes: &mut Vec<(usize, Aabb)>, hit: &Hit) {
+    let rect = hit.rect.expect("classified hits carry a box");
+    match boxes.last_mut() {
+        Some((page, b)) if *page == hit.page => b.union(rect),
+        _ => boxes.push((hit.page, rect)),
+    }
+}
+
 /// The schema field under a point — the forward (click → field) direction.
 /// `x`/`y` are PDF points with a **bottom-left** origin, the same convention
-/// as [`RenderedRegion::rect`]. Later-painted items win when boxes overlap.
-/// Unlike [`scan`], every placement answers, not just the first: a concrete
-/// point identifies one frame item, whose span is unambiguous however many
-/// times its field is placed.
+/// as [`RenderedRegion::rect`]. Unlike [`scan`], every placement answers, not
+/// just the first: a concrete point identifies one frame item, whose span is
+/// unambiguous however many times its field is placed. Among tracked ink the
+/// later-painted item wins; untracked ink never occludes — a decorative
+/// overlay does not swallow clicks on the field beneath it.
 pub(crate) fn field_at(
     doc: &PagedDocument,
     world: &QuillWorld,
+    helper: &Source,
     windows: &[FieldWindow],
     page: usize,
     x: f32,
@@ -296,62 +373,109 @@ pub(crate) fn field_at(
     if windows.is_empty() {
         return None;
     }
-    let page_h = doc.pages().get(page)?.frame.size().y.to_pt();
+    let frame = &doc.pages().get(page)?.frame;
+    let page_h = frame.size().y.to_pt();
     let (x, y) = (x as f64, page_h - y as f64);
 
     let mut cls = Classifier {
         world,
+        helper,
         windows,
         memo: HashMap::new(),
     };
     let mut hits = Vec::new();
-    collect_hits(doc, &mut cls, &mut hits);
+    collect_page_hits(frame, page, &mut cls, &mut hits);
 
     hits.iter()
         .rev()
-        .find(|h| h.page == page && h.window.is_some() && h.rect.contains(x, y))
+        .find(|h| h.rect.is_some_and(|r| r.contains(x, y)))
         .and_then(|h| h.window)
         .map(|w| windows[w].path.clone())
 }
 
-/// Byte windows for the plate's direct scalar references: every
-/// `data.<field>` / `data.at("<field>")` expression whose field is a declared
-/// schema field, widened to the outermost postfix chain it heads
-/// (`data.refs.at(0)`, `data.name.upper()` — the produced value carries the
-/// chain's span, not the inner access's). Each site is its own window, so a
-/// field referenced in both a header and a footer surfaces both sites.
-/// Content-field references also match harmlessly: their glyphs carry the
-/// helper eval-site span, which no plate window contains.
+/// Byte windows for the plate's direct scalar references. Two windows per
+/// reference site where they differ:
 ///
-/// Indirection is not chased: a value laundered through `#let s = data.x`
-/// carries the binding's span, not a `data.x` site. Card fields read from the
-/// per-card loop variable (`card.from`) have one shared expression site across
-/// every card instance — no per-instance identity exists in span data — so
-/// they are not tracked; a card *content* field is covered by its per-instance
-/// generated eval site instead.
+/// - the **chain** window — the `data.<field>` / `data.at("<field>")` access
+///   widened to the outermost postfix chain it heads (`data.refs.at(0)`,
+///   `data.name.upper()`) — matching ink whose span is the reference
+///   expression itself; and
+/// - the **enclosing-expression** window — widened through surrounding call
+///   arguments and operators (`#upper(data.subject)`, `#str(data.count)`) —
+///   matching ink stamped with the whole wrapping expression's span. Emitted
+///   only when exactly one reference sits inside it: an expression mixing two
+///   fields (`data.a + data.b`) has no single owner and is not attributed.
+///
+/// Chain windows sort first, so ink resolving to the reference itself is
+/// never claimed by a wider window. Each reference site is independent — a
+/// field shown in both header and footer surfaces both sites. Not chased: a
+/// value laundered through `#let s = data.x` carries the binding's span, and
+/// card fields read from the per-card loop variable (`card.from`) have one
+/// shared expression site across every card instance — no per-instance
+/// identity exists in span data; a card *content* field is covered by its
+/// per-instance generated eval site instead. Content-field references also
+/// match harmlessly: their glyphs carry the helper eval-site span, which no
+/// plate window contains.
 pub(crate) fn scalar_windows(source: &Source, fields: &[String]) -> Vec<(String, Range<usize>)> {
-    let mut out = Vec::new();
-    walk_scalars(&LinkedNode::new(source.root()), fields, &mut out);
+    let mut anchors: Vec<(String, Range<usize>, Range<usize>)> = Vec::new();
+    collect_anchors(&LinkedNode::new(source.root()), fields, &mut anchors);
+
+    let mut out: Vec<(String, Range<usize>)> = anchors
+        .iter()
+        .map(|(path, chain, _)| (path.clone(), chain.clone()))
+        .collect();
+    for (path, chain, wide) in &anchors {
+        if wide == chain {
+            continue;
+        }
+        let inside = anchors
+            .iter()
+            .filter(|(_, c, _)| wide.start <= c.start && c.end <= wide.end)
+            .count();
+        if inside == 1 {
+            out.push((path.clone(), wide.clone()));
+        }
+    }
     out
 }
 
-fn walk_scalars(node: &LinkedNode, fields: &[String], out: &mut Vec<(String, Range<usize>)>) {
+/// Recurse the whole tree collecting `(path, chain range, enclosing range)`
+/// per reference site. Recursion continues into matched subtrees — a
+/// reference nested in another chain's arguments is its own site.
+fn collect_anchors(
+    node: &LinkedNode,
+    fields: &[String],
+    out: &mut Vec<(String, Range<usize>, Range<usize>)>,
+) {
     if let Some((path, anchor)) = data_access(node, fields) {
-        let mut window = anchor;
-        // Widen to the outermost postfix chain headed by this access: climb
-        // while the parent is a field access / method call / call on it.
-        while let Some(parent) = window.parent() {
+        // Chain: the outermost postfix chain headed by this access.
+        let mut chain = anchor.clone();
+        while let Some(parent) = chain.parent() {
             match parent.kind() {
-                SyntaxKind::FieldAccess | SyntaxKind::FuncCall => window = parent.clone(),
+                SyntaxKind::FieldAccess | SyntaxKind::FuncCall => chain = parent.clone(),
                 _ => break,
             }
         }
-        out.push((path, window.range()));
-        // Children of a matched access cannot head another `data.` chain.
-        return;
+        // Enclosing expression: widened through argument and operator
+        // context, stopping at any statement/markup boundary.
+        let mut wide = chain.clone();
+        while let Some(parent) = wide.parent() {
+            match parent.kind() {
+                SyntaxKind::FieldAccess
+                | SyntaxKind::FuncCall
+                | SyntaxKind::Args
+                | SyntaxKind::Named
+                | SyntaxKind::Spread
+                | SyntaxKind::Parenthesized
+                | SyntaxKind::Unary
+                | SyntaxKind::Binary => wide = parent.clone(),
+                _ => break,
+            }
+        }
+        out.push((path, chain.range(), wide.range()));
     }
     for child in node.children() {
-        walk_scalars(&child, fields, out);
+        collect_anchors(&child, fields, out);
     }
 }
 
@@ -423,12 +547,10 @@ mod tests {
         Quill::from_tree(FileTreeNode::Directory { files }).expect("load quill")
     }
 
-    /// The premise the whole mechanism stands on: content produced by an
-    /// `eval(.., mode: "markup")` call site *inside the generated helper
-    /// package file* carries that call site's span, and `world.range`
-    /// resolves it into the helper `lib.typ`'s byte space. (The spike
-    /// validated plate-file call sites; the helper is a package source, which
-    /// this pins down.)
+    /// The premise the whole mechanism stands on: content produced by a
+    /// generated `eval(.., mode: "markup")` call site resolves to that site's
+    /// recorded byte window in the helper `lib.typ` — a *package* source, not
+    /// a plate file — through the production classifier.
     #[test]
     fn eval_output_spans_resolve_into_the_helper_file() {
         const YAML: &str = r#"
@@ -460,55 +582,33 @@ main:
         let mut world = QuillWorld::new(&q, &plate).expect("world");
         let windows = world.inject_helper_package(&json_str, &entries);
         let (doc, _) = compile_document(&world).expect("compile");
+        let helper = world
+            .source(QuillWorld::helper_fid("lib.typ"))
+            .expect("helper source");
 
-        let helper_id = QuillWorld::helper_fid("lib.typ");
-        let helper_src = world.source(helper_id).expect("helper source");
-
-        // Some glyph resolves into the helper file, inside the recorded eval
-        // window for `intro`.
-        let win = windows
+        let intro_idx = windows
             .iter()
-            .find(|w| w.path == "intro")
+            .position(|w| w.path == "intro")
             .expect("intro window");
-        let mut resolved_in_window = false;
-        for (_, page) in doc.pages().iter().enumerate() {
-            let mut stack = vec![&page.frame];
-            while let Some(frame) = stack.pop() {
-                for (_, item) in frame.items() {
-                    match item {
-                        FrameItem::Group(g) => stack.push(&g.frame),
-                        FrameItem::Text(text) => {
-                            for glyph in &text.glyphs {
-                                let span = glyph.span.0;
-                                if span.id() == Some(helper_id) {
-                                    if let Some(range) = world.range(span) {
-                                        if win.range.start <= range.start
-                                            && range.end <= win.range.end
-                                        {
-                                            resolved_in_window = true;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
+        let mut cls = Classifier {
+            world: &world,
+            helper: &helper,
+            windows: &windows,
+            memo: HashMap::new(),
+        };
+        let mut hits = Vec::new();
+        for (page, p) in doc.pages().iter().enumerate() {
+            collect_page_hits(&p.frame, page, &mut cls, &mut hits);
         }
         assert!(
-            resolved_in_window,
-            "eval output glyphs must resolve into the helper file's recorded window \
-             {:?}; helper source around it: {:?}",
-            win.range,
-            helper_src
-                .text()
-                .get(win.range.start.saturating_sub(20)..(win.range.end + 20).min(helper_src.text().len()))
+            hits.iter().any(|h| h.window == Some(intro_idx)),
+            "eval output glyphs must classify into the helper file's recorded window {:?}",
+            windows[intro_idx].range
         );
     }
 
     #[test]
-    fn scalar_windows_find_direct_and_at_references_widened_to_chains() {
+    fn scalar_windows_track_chains_and_single_owner_enclosing_expressions() {
         let src = Source::detached(
             r#"
 #import "@local/quillmark-helper:0.1.0": data
@@ -516,6 +616,7 @@ main:
 #data.at("subject")
 #data.refs.at(0)
 #upper(data.subject)
+#(data.subject + data.other)
 #let s = data.other
 "#,
         );
@@ -530,27 +631,36 @@ main:
             .iter()
             .map(|(p, r)| (p.as_str(), &text[r.clone()]))
             .collect();
+        for expected in [
+            ("subject", "data.subject"),
+            ("subject", "data.at(\"subject\")"),
+            ("refs", "data.refs.at(0)"),
+            ("other", "data.other"),
+            // A wrapping call with a single reference owns its whole
+            // expression: ink stamped with the outer call's span attributes
+            // to the field.
+            ("subject", "upper(data.subject)"),
+        ] {
+            assert!(spans.contains(&expected), "missing {expected:?}: {spans:?}");
+        }
+        // An expression mixing two fields has no single owner — no enclosing
+        // window for either.
         assert!(
-            spans.contains(&("subject", "data.subject")),
-            "direct access tracked: {spans:?}"
+            !spans
+                .iter()
+                .any(|(_, t)| t.contains("data.subject + data.other")),
+            "multi-reference expressions are not attributed: {spans:?}"
         );
-        assert!(
-            spans.contains(&("subject", "data.at(\"subject\")")),
-            ".at() access tracked: {spans:?}"
-        );
-        assert!(
-            spans.contains(&("refs", "data.refs.at(0)")),
-            "postfix chain widened: {spans:?}"
-        );
-        // Two direct `data.subject` sites (bare + inside upper()) both track.
-        assert_eq!(
-            spans.iter().filter(|(p, _)| *p == "subject").count(),
-            3,
-            "every reference site is its own window: {spans:?}"
-        );
-        assert!(
-            spans.contains(&("other", "data.other")),
-            "a let-bound access still tracks its own site: {spans:?}"
-        );
+        // Chain windows precede enclosing-expression windows, so ink at the
+        // reference itself is never claimed by a wider window.
+        let chain_pos = spans
+            .iter()
+            .position(|s| *s == ("subject", "data.subject"))
+            .unwrap();
+        let wide_pos = spans
+            .iter()
+            .position(|s| *s == ("subject", "upper(data.subject)"))
+            .unwrap();
+        assert!(chain_pos < wide_pos, "chains sort before wides: {spans:?}");
     }
 }

@@ -22,14 +22,17 @@ pub(crate) use span_scan::FieldWindow;
 
 /// Regions for content fields and direct scalar references, read from the
 /// laid-out frames' glyph spans and keyed on the schema path — each tracked
-/// window's first placement, one region per page it touches. See
-/// [`span_scan`].
+/// window's first placement, one region per page it touches. `helper` is the
+/// helper `lib.typ` [`Source`](typst::syntax::Source) snapshot the served
+/// document was compiled from — never the world's live copy, which a failed
+/// apply may have already replaced. See [`span_scan`].
 pub(crate) fn scan_content_regions(
     doc: &PagedDocument,
     world: &crate::world::QuillWorld,
+    helper: &typst::syntax::Source,
     windows: &[FieldWindow],
 ) -> Vec<quillmark_core::RenderedRegion> {
-    span_scan::scan(doc, world, windows)
+    span_scan::scan(doc, world, helper, windows)
 }
 
 /// The schema field under a point (PDF points, bottom-left origin) — the
@@ -38,12 +41,13 @@ pub(crate) fn scan_content_regions(
 pub(crate) fn field_at(
     doc: &PagedDocument,
     world: &crate::world::QuillWorld,
+    helper: &typst::syntax::Source,
     windows: &[FieldWindow],
     page: usize,
     x: f32,
     y: f32,
 ) -> Option<String> {
-    span_scan::field_at(doc, world, windows, page, x, y)
+    span_scan::field_at(doc, world, helper, windows, page, x, y)
 }
 
 /// Byte windows for the plate's direct `data.<field>` scalar references. See

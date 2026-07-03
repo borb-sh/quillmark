@@ -68,16 +68,20 @@ pub struct TypstSession {
     /// and reused on every `apply` rather than rebuilt from
     /// `transform_schema`'s `$defs` each time.
     schema_meta: SchemaMeta,
-    /// Byte windows of the generated per-field eval call sites in the helper
-    /// `lib.typ` — one per content field / `markdown[]` element / card content
-    /// field present in the live compile's data. Regenerated with the helper
-    /// on every committed `apply`; the span scan classifies frame items
-    /// against them.
-    content_windows: Vec<overlay::FieldWindow>,
+    /// The span scan's full classification table for the live compile:
+    /// generated eval-site windows in the helper `lib.typ` (regenerated with
+    /// the helper on every committed `apply`) followed by the plate's scalar
+    /// reference-site windows. Swapped transactionally with the document.
+    windows: Vec<overlay::FieldWindow>,
     /// Byte windows of the plate's direct `data.<field>` scalar reference
     /// sites. The plate is static for the session's lifetime, so these are
-    /// computed once at `open`.
+    /// computed once at `open` and re-appended into `windows` per apply.
     scalar_windows: Vec<overlay::FieldWindow>,
+    /// The helper `lib.typ` source the live compile was built from. Span
+    /// resolution for regions/`field_at` goes through this snapshot, not the
+    /// world: a failed `apply` leaves the *next* injection's text in the
+    /// world while every read keeps serving this compile.
+    helper_source: typst::syntax::Source,
     /// Per-page content fingerprints of the live compile; diffed against the
     /// next compile's to produce `ChangeSet::dirty_pages`.
     page_hashes: Vec<u128>,
@@ -286,9 +290,11 @@ impl SessionHandle for TypstSession {
     fn apply(&mut self, json_data: &serde_json::Value) -> Result<ChangeSet, RenderError> {
         let (json_str, entries) =
             transformed_data(&self.transform_schema, &self.schema_meta, json_data)?;
-        let content_windows = self.world.inject_helper_package(&json_str, &entries);
+        let mut windows = self.world.inject_helper_package(&json_str, &entries);
+        windows.extend(self.scalar_windows.iter().cloned());
 
         let (document, compile_warnings) = compile::compile_document(&self.world)?;
+        let helper_source = helper_source(&self.world)?;
         let field_placements = overlay::extract(&document)?;
         let new_hashes = page_hashes(&document);
 
@@ -298,7 +304,8 @@ impl SessionHandle for TypstSession {
 
         self.document = document;
         self.field_placements = field_placements;
-        self.content_windows = content_windows;
+        self.windows = windows;
+        self.helper_source = helper_source;
         self.page_count = new_hashes.len();
         self.page_hashes = new_hashes;
         self.compile_warnings = compile_warnings;
@@ -362,58 +369,62 @@ impl SessionHandle for TypstSession {
     /// are empty if the placements fail to resolve (a render would surface
     /// the same error).
     fn regions(&self) -> Vec<quillmark_core::RenderedRegion> {
-        let mut regions = overlay::build_field_specs(&self.document, &self.field_placements)
-            .map(|specs| quillmark_pdf::regions_of(&specs))
-            .unwrap_or_default();
+        let mut regions = self.widget_regions();
         regions.extend(overlay::scan_content_regions(
             &self.document,
             &self.world,
-            &self.span_windows(),
+            &self.helper_source,
+            &self.windows,
         ));
         regions
     }
 
     /// The schema field under a point on `page` (PDF points, bottom-left
-    /// origin) — the forward click→field direction, answered from the same
-    /// span data as [`regions`](Self::regions), falling back to the
-    /// `field:`-bound widget boxes (a widget draws no spanned ink of its
-    /// own). Every placement answers, not just the first: one concrete point
-    /// identifies one frame item, whose span is unambiguous however many
-    /// times its field is placed. Overrides the default-`None` seam.
+    /// origin) — the forward click→field direction. `field:`-bound widget
+    /// boxes answer first: a widget is a deliberate click target that draws
+    /// no spanned ink of its own, so content ink beneath it must not swallow
+    /// the click. Otherwise the span data answers, over every placement, not
+    /// just the first: one concrete point identifies one frame item, whose
+    /// span is unambiguous however many times its field is placed. Overrides
+    /// the regions-hit-testing default.
     fn field_at(&self, page: usize, x: f32, y: f32) -> Option<String> {
-        overlay::field_at(
-            &self.document,
-            &self.world,
-            &self.span_windows(),
-            page,
-            x,
-            y,
-        )
-        .or_else(|| {
-            overlay::build_field_specs(&self.document, &self.field_placements)
-                .map(|specs| quillmark_pdf::regions_of(&specs))
-                .unwrap_or_default()
-                .into_iter()
-                .find(|r| {
-                    r.page == page
-                        && r.rect[0] <= x
-                        && x <= r.rect[2]
-                        && r.rect[1] <= y
-                        && y <= r.rect[3]
-                })
-                .map(|r| r.field)
-        })
+        self.widget_regions()
+            .into_iter()
+            .find(|r| r.contains(page, x, y))
+            .map(|r| r.field)
+            .or_else(|| {
+                overlay::field_at(
+                    &self.document,
+                    &self.world,
+                    &self.helper_source,
+                    &self.windows,
+                    page,
+                    x,
+                    y,
+                )
+            })
     }
 }
 
 impl TypstSession {
-    /// The live compile's full span-classification table: content-field eval
-    /// windows (helper file) plus the plate's scalar reference-site windows.
-    fn span_windows(&self) -> Vec<overlay::FieldWindow> {
-        let mut windows = self.content_windows.clone();
-        windows.extend(self.scalar_windows.iter().cloned());
-        windows
+    /// Regions for the `field:`-bound form-field widgets of the live compile.
+    /// The single derivation `regions` and `field_at` both read, so widget
+    /// geometry cannot drift between the two queries.
+    fn widget_regions(&self) -> Vec<quillmark_core::RenderedRegion> {
+        overlay::build_field_specs(&self.document, &self.field_placements)
+            .map(|specs| quillmark_pdf::regions_of(&specs))
+            .unwrap_or_default()
     }
+}
+
+/// The world's current helper `lib.typ` [`Source`](typst::syntax::Source),
+/// snapshotted right after a successful compile — the text the served
+/// document's spans resolve against.
+fn helper_source(world: &world::QuillWorld) -> Result<typst::syntax::Source, RenderError> {
+    use typst::World as _;
+    world
+        .source(world::QuillWorld::helper_fid("lib.typ"))
+        .map_err(|e| engine_err("typst::helper_source", format!("helper lib.typ unreadable: {e}")))
 }
 
 impl Backend for TypstBackend {
@@ -435,7 +446,7 @@ impl Backend for TypstBackend {
         let transform_schema = build_transform_schema(source.config());
         let schema_meta = SchemaMeta::from_schema_json(transform_schema.as_json());
         let (json_str, entries) = transformed_data(&transform_schema, &schema_meta, json_data)?;
-        let (world, content_windows) =
+        let (world, mut windows) =
             world::QuillWorld::new_with_data(source, &plate_content, &json_str, &entries)
                 .map_err(|e| {
                     RenderError::from_diag(
@@ -449,7 +460,7 @@ impl Backend for TypstBackend {
                 })?;
         // The plate is static for the session, so its direct scalar
         // reference sites are windowed once here.
-        let scalar_windows = {
+        let scalar_windows: Vec<overlay::FieldWindow> = {
             use typst::World as _;
             let main_id = world.main();
             world
@@ -467,7 +478,9 @@ impl Backend for TypstBackend {
                 })
                 .unwrap_or_default()
         };
+        windows.extend(scalar_windows.iter().cloned());
         let (document, compile_warnings) = compile::compile_document(&world)?;
+        let helper_src = helper_source(&world)?;
         let page_count = document.pages().len();
         let field_placements = overlay::extract(&document)?;
         let hashes = page_hashes(&document);
@@ -478,8 +491,9 @@ impl Backend for TypstBackend {
             field_placements,
             transform_schema,
             schema_meta,
-            content_windows,
+            windows,
             scalar_windows,
+            helper_source: helper_src,
             page_hashes: hashes,
             compile_warnings,
         };

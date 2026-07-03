@@ -26,11 +26,14 @@
 //!   placed.
 //! - **Direct scalar references** — every `data.<field>` / `data.at("field")`
 //!   expression in the plate is its own tracked site: the interpolated
-//!   value's glyphs carry that reference expression's span. A scalar shown in
-//!   both a header and a footer surfaces both sites, because two source
-//!   expressions are two origins. Not tracked: a value laundered through an
-//!   intermediate binding (`#let s = data.x` … `#s`), a computed expression
-//!   (`data.from + ", " + rank`), and card scalars read from the per-card
+//!   value's glyphs carry a span at or around that reference expression. A
+//!   scalar shown in both a header and a footer surfaces both sites, because
+//!   two source expressions are two origins; a reference wrapped in an
+//!   expression (`#upper(data.subject)`) attributes the whole expression's
+//!   ink to the field as long as it is the expression's only reference. Not
+//!   tracked: an expression mixing several fields (`data.from + ", " + rank`
+//!   has no single owner), a value laundered through an intermediate binding
+//!   (`#let s = data.x` … `#s`), and card scalars read from the per-card
 //!   loop variable (`card.from` is *one* expression site shared by every card
 //!   instance — span data holds no per-instance identity; bind a widget for
 //!   those).
@@ -46,9 +49,11 @@
 //! "package chrome interrupting one placement" from "a second placement of
 //! the same value", and a spanning union would claim the ink between them.
 //! The first placement is one region per page it touches, in page order, so
-//! highlighting covers continuation pages; foreign ink interrupting it (a
-//! rebuild's numbering chrome) shrinks the region to the placement's true
-//! start rather than lying about extent. `field` is still not unique in the
+//! highlighting covers continuation pages — page marginals (headers, footers,
+//! page numbers) between one page's body and the next's do not end it, only a
+//! same-page interruption does: foreign ink within a page (a rebuild's
+//! numbering chrome) shrinks the region to the placement's true start rather
+//! than lying about extent. `field` is still not unique in the
 //! result: page fragments, several scalar reference sites, or tracked content
 //! plus a bound widget each surface independently.
 //! [`LiveSession::regions`](crate::LiveSession::regions) passes the backend's
@@ -92,6 +97,20 @@ pub struct RenderedRegion {
     pub page: usize,
     /// `[x0, y0, x1, y1]`, PDF points, bottom-left origin.
     pub rect: [f32; 4],
+}
+
+impl RenderedRegion {
+    /// Whether the point (`x`, `y`, PDF points, bottom-left origin) on `page`
+    /// falls inside this region, edges inclusive. The one point-in-region
+    /// predicate every `field_at` hit-test shares, so a click at a region
+    /// border resolves identically everywhere.
+    pub fn contains(&self, page: usize, x: f32, y: f32) -> bool {
+        self.page == page
+            && self.rect[0] <= x
+            && x <= self.rect[2]
+            && self.rect[1] <= y
+            && y <= self.rect[3]
+    }
 }
 
 #[cfg(test)]

@@ -523,6 +523,194 @@ main:
 }
 
 #[test]
+fn failed_apply_keeps_serving_last_good_regions() {
+    // apply is transactional for regions too: a failed compile has already
+    // written the next injection's helper source into the world, but the
+    // served document's spans must keep resolving against the compile they
+    // came from — regions and clicks may not shift or vanish.
+    const YAML: &str = r#"
+quill:
+  name: failed_apply_regions
+  version: 0.1.0
+  backend: typst
+  description: transactional regions test
+typst:
+  plate_file: plate.typ
+main:
+  fields:
+    intro:
+      type: markdown
+      description: a paragraph
+    when:
+      type: datetime
+      description: a date the template parses at data-assembly time
+"#;
+    const PLATE: &str = r#"
+#import "@local/quillmark-helper:0.1.0": data
+#set page(width: 612pt, height: 792pt, margin: 72pt)
+
+#data.intro
+"#;
+    let good = serde_json::json!({
+        "intro": "A stable paragraph the session keeps serving.",
+        "when": "2026-07-03",
+    });
+    let mut session = TypstBackend.open(&quill(YAML, PLATE), &good).expect("open");
+    let before = session.regions();
+    assert!(
+        before.iter().any(|r| r.field == "intro"),
+        "baseline intro region: {before:?}"
+    );
+
+    // Shorter content shifts every byte offset in the regenerated helper,
+    // and the unparseable date fails the compile at data-assembly time.
+    let bad = serde_json::json!({ "intro": "X", "when": "not-a-date" });
+    session.apply(&bad).expect_err("the bad date must fail the compile");
+
+    assert_eq!(
+        session.regions(),
+        before,
+        "a failed apply must not move or drop the served compile's regions"
+    );
+    let intro = before.iter().find(|r| r.field == "intro").unwrap();
+    let cx = (intro.rect[0] + intro.rect[2]) / 2.0;
+    let cy = (intro.rect[1] + intro.rect[3]) / 2.0;
+    assert_eq!(
+        session.field_at(intro.page, cx, cy).as_deref(),
+        Some("intro"),
+        "clicks keep resolving against the served compile"
+    );
+}
+
+#[test]
+fn continuation_fragments_survive_page_marginals() {
+    // Headers and footers walk between one page's body and the next's. That
+    // foreign ink suspends a placement's run at the page boundary; the run
+    // resumes on the immediately following page, so a page-spanning body on
+    // a chrome-bearing plate still surfaces its continuation fragments.
+    const YAML: &str = r#"
+quill:
+  name: marginal_fragments
+  version: 0.1.0
+  backend: typst
+  description: continuation fragments under page chrome
+typst:
+  plate_file: plate.typ
+main:
+  fields:
+    body:
+      type: markdown
+      description: a long body under headers and footers
+"#;
+    const PLATE: &str = r#"
+#import "@local/quillmark-helper:0.1.0": data
+#set page(
+  width: 612pt,
+  height: 300pt,
+  margin: 60pt,
+  header: [Running Header],
+  footer: [Running Footer],
+)
+#set text(size: 11pt)
+
+#data.body
+"#;
+    let long = "A paragraph that wraps and flows across pages. ".repeat(120);
+    let data = serde_json::json!({ "body": long });
+
+    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let regions = session.regions();
+    let body: Vec<_> = regions.iter().filter(|r| r.field == "body").collect();
+    assert!(
+        body.len() >= 2,
+        "page chrome must not truncate the placement to its first page: {body:?}"
+    );
+    let pages: Vec<usize> = body.iter().map(|r| r.page).collect();
+    assert_eq!(pages[0], 0);
+    assert!(
+        pages.windows(2).all(|w| w[1] == w[0] + 1),
+        "fragments cover consecutive pages: {pages:?}"
+    );
+}
+
+#[test]
+fn wrapped_scalar_expression_attributes_to_its_field() {
+    // A reference wrapped in an expression (`#upper(data.subject)`) stamps
+    // its ink with the whole expression's span; the enclosing-expression
+    // window attributes it as long as the field is the expression's only
+    // reference.
+    const YAML: &str = r#"
+quill:
+  name: wrapped_scalar
+  version: 0.1.0
+  backend: typst
+  description: wrapped scalar attribution test
+main:
+  fields:
+    subject:
+      type: string
+      description: a scalar shown through a wrapping call
+typst:
+  plate_file: plate.typ
+"#;
+    const PLATE: &str = r#"
+#import "@local/quillmark-helper:0.1.0": data
+#set page(width: 612pt, height: 792pt, margin: 72pt)
+
+#upper(data.subject)
+"#;
+    let data = serde_json::json!({ "subject": "request for quarters" });
+
+    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let regions = session.regions();
+    let subject: Vec<_> = regions.iter().filter(|r| r.field == "subject").collect();
+    assert_eq!(
+        subject.len(),
+        1,
+        "a single-reference wrapping expression attributes to the field: {regions:?}"
+    );
+    let cx = (subject[0].rect[0] + subject[0].rect[2]) / 2.0;
+    let cy = (subject[0].rect[1] + subject[0].rect[3]) / 2.0;
+    assert_eq!(
+        session.field_at(subject[0].page, cx, cy).as_deref(),
+        Some("subject"),
+        "clicks on the wrapped ink route to the field"
+    );
+}
+
+#[test]
+fn form_field_path_rejected_when_address_tables_are_empty() {
+    // `__meta__` present with empty address tables (a body-disabled main
+    // with no fields and no cards) validates against the empty set — every
+    // address rejects. Only `__meta__` *absent* is permissive.
+    const YAML: &str = r#"
+quill:
+  name: empty_tables
+  version: 0.1.0
+  backend: typst
+  description: empty-tables-vs-absent-meta guard test
+typst:
+  plate_file: plate.typ
+main:
+  body:
+    enabled: false
+"#;
+    const PLATE: &str = r#"
+#import "@local/quillmark-helper:0.1.0": form-field
+#form-field("S", type: "text", value: "x", field: "subject")
+"#;
+    let err = TypstBackend
+        .open(&quill(YAML, PLATE), &serde_json::json!({}))
+        .err()
+        .expect("an address must still fail when the tables are empty, not absent");
+    let msg = format!("{err:?}");
+    assert!(
+        msg.contains("subject"),
+        "the compile error names the bad path: {msg}"
+    );
+}
+
+#[test]
 fn field_at_resolves_every_placement_not_just_the_first() {
     // The forward direction: a click identifies one drawn item, so *both*
     // placements of a twice-placed value resolve — including the second one

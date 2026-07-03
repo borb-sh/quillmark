@@ -151,11 +151,13 @@ site's byte window, so the rendered ink resolves back to its field through
 `show`-rule pass that buffers and re-emits paragraphs): the origin rides the
 glyph, not a marker a rebuild could drop. **Direct scalar references** — each
 `data.<field>` / `data.at("field")` expression in the plate is its own
-tracked site; a scalar shown in header and footer surfaces both sites. Not
-tracked: values laundered through intermediate bindings, computed expressions
-(`data.from + ", " + rank`), and card scalars read from the per-card loop
-variable (one shared expression site carries no per-instance identity — bind
-a widget for those). **Form-field widgets** carry the path explicitly
+tracked site; a scalar shown in header and footer surfaces both sites, and a
+reference wrapped in an expression (`#upper(data.subject)`) attributes the
+whole expression's ink to the field when it is the only reference inside it.
+Not tracked: expressions mixing several fields (`data.from + ", " + rank` has
+no single owner), values laundered through intermediate bindings, and card
+scalars read from the per-card loop variable (one shared expression site
+carries no per-instance identity — bind a widget for those). **Form-field widgets** carry the path explicitly
 (pdfform from the form mapping, a Typst `form-field` from its `field:`
 argument, validated against schema address tables baked into the generated
 helper — cards carry their canonical prefix as `$path`, so plates compose
@@ -164,12 +166,14 @@ region only when they bind one — a widget with no schema field is a backend
 artifact, not a routable field.
 
 `regions()` returns each content field's **first placement** — one region per
-page it touches, so highlighting covers continuation pages — not every
-placement: span data cannot distinguish package chrome interrupting one
-placement from a second placement of the same value, and a spanning union
-would claim the ink between them. Foreign ink interrupting the first
-placement (a rebuild's numbering chrome) shrinks the region to the
-placement's true start rather than lying about extent. `field` is still not
+page it touches, so highlighting covers continuation pages (page marginals
+between one page's body and the next's do not end a placement; a same-page
+interruption does) — not every placement: span data cannot distinguish
+package chrome interrupting one placement from a second placement of the same
+value, and a spanning union would claim the ink between them. Foreign ink
+interrupting the first placement within a page (a rebuild's numbering chrome)
+shrinks the region to the placement's true start rather than lying about
+extent. `field` is still not
 unique in the result — page fragments, several scalar sites, or content plus
 a bound widget each surface independently; consumers group by `field`. Later
 placements of one content value stay reachable through `fieldAt`, where a
