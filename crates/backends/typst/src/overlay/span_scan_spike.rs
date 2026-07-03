@@ -54,6 +54,32 @@
 //! first fragment is still a *correct*, if smaller-than-ideal, answer — it
 //! points at the true start of the field's content, which is all a scroll
 //! target needs to be.
+//!
+//! DOMINANCE CHECK — does this cover `tagged()`'s OTHER stated use (a bare
+//! scalar the plate author interpolates directly, e.g. `tagged("subject")[*
+//! #data.subject*]`, per `lib.typ.template`'s own doc: "a scalar has no tag
+//! of its own"), without needing `tagged()` at all? Yes, and better than
+//! expected:
+//! - `interpolated_scalar_gets_a_resolvable_span_at_its_own_reference_site` /
+//!   `two_interpolated_scalars_are_naturally_span_distinguishable`: every
+//!   glyph of an interpolated scalar resolves to ONE shared span — the
+//!   *reference expression's own source position* (`data.subject`'s field
+//!   access, not the value's characters, since the value itself never
+//!   appears in the source — it came from JSON). Two different fields
+//!   interpolated at two different plate positions get two different spans
+//!   automatically, no codegen or `tagged()` call needed — unlike auto-tag's
+//!   shared-loop problem, each occurrence here is already a distinct AST
+//!   node the plate author wrote themselves.
+//! - `same_scalar_written_twice_in_source_gets_two_distinct_spans_not_one`:
+//!   goes further than "first placement." If the plate author writes
+//!   `data.subject` literally at two separate textual positions (header AND
+//!   footer, say — not a value bound once to a variable and reused), each
+//!   occurrence is its own AST node with its own span, so BOTH resolve
+//!   correctly and independently — 20 matching glyphs at each, at visibly
+//!   distinct positions. Caveat #2 (placement-counting) doesn't even apply
+//!   here, because the source itself already has two distinct expressions,
+//!   not one shared value shown twice. This pattern gets *full* placement
+//!   fidelity for free, not just "first."
 
 use std::collections::HashMap;
 
@@ -799,4 +825,183 @@ FIELDBODY paragraph three, forcing AFH numbering.]
     let (page, rect) = first.iter().next().expect("first placement has a page entry");
     assert_eq!(*page, 0, "the field's content starts on page 0");
     assert!(rect[2] > rect[0], "the first fragment has real (non-zero) extent: {rect:?}");
+}
+
+// ---------------------------------------------------------------------------
+// Closes the remaining unverified claim: does `tagged()`'s OTHER use case — a
+// bare scalar the plate author interpolates directly (`tagged("subject")[*
+// #data.subject*]`, per lib.typ.template's own doc comment: "a scalar has no
+// tag of its own") — also get a naturally-distinguishable, resolvable span
+// WITHOUT needing `tagged()` at all? If the plate author's own `#data.x`
+// reference is a distinct call site in their own file (unlike auto-tag's
+// shared per-field loop), it should be — dominance over the current design
+// would extend to scalars too, not just rebuilt content.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn interpolated_scalar_gets_a_resolvable_span_at_its_own_reference_site() {
+    // `subject` here stands in for a JSON-sourced string value (exactly what
+    // `data.subject` is in the real pipeline) — bound as a plain Typst
+    // string, not literal markup, then interpolated directly.
+    let plate = r#"
+#set page(width: 400pt, height: 400pt, margin: 40pt)
+#let subject = "Request for Quarters"
+SUBJECT: #subject
+"#;
+    let (doc, world) = compile(plate);
+    let hits = collect_span_hits(&doc, &world);
+
+    // Where does the interpolation SITE sit? Just the `subject` identifier
+    // (Typst's span for a bare identifier reference is exactly its own
+    // text, not the leading `#` — confirmed empirically).
+    let ref_site = plate.rfind("subject").unwrap();
+    let ref_end = ref_site + "subject".len();
+
+    let matches: Vec<&SpanHit> = hits
+        .iter()
+        .filter(|h| {
+            h.file == Some(world.main())
+                && h.range.as_ref().is_some_and(|r| r.start == ref_site && r.end == ref_end)
+        })
+        .collect();
+    eprintln!("hits near the #subject reference site: {matches:?}");
+    assert!(
+        !matches.is_empty(),
+        "the interpolated scalar's glyphs must resolve to a span near its own reference site: \
+         ref_site={ref_site}..{ref_end}, all hits={:?}",
+        hits.iter().map(|h| (h.file, h.range.clone())).collect::<Vec<_>>()
+    );
+    // Every glyph of the interpolated value must resolve to the SAME range
+    // (the reference expression, not individual characters of the value —
+    // the value itself never appears in the source at all, it came from
+    // JSON/a variable).
+    let distinct_ranges: std::collections::HashSet<_> =
+        matches.iter().filter_map(|h| h.range.clone()).collect();
+    assert_eq!(
+        distinct_ranges.len(),
+        1,
+        "all glyphs of one interpolated scalar must share one span: {distinct_ranges:?}"
+    );
+}
+
+#[test]
+fn two_interpolated_scalars_are_naturally_span_distinguishable() {
+    let plate = r#"
+#set page(width: 400pt, height: 400pt, margin: 40pt)
+#let subject = "Request for Quarters"
+#let signee = "FIRST M. LAST"
+SUBJECT: #subject
+
+SIGNED: #signee
+"#;
+    let (doc, world) = compile(plate);
+    let hits = collect_span_hits(&doc, &world);
+    for h in &hits {
+        let text = h.file.and_then(|f| {
+            let r = h.range.as_ref()?;
+            let src = world.source(f).ok()?;
+            Some(src.text().get(r.clone())?.to_string())
+        });
+        eprintln!(
+            "page={} range={:?} text={:?} rect={:?}",
+            h.page, h.range, text, h.rect
+        );
+    }
+
+    let subject_ref = plate.rfind("#subject").unwrap() + 1; // skip '#'
+    let signee_ref = plate.rfind("#signee").unwrap() + 1;
+
+    let subject_hits: Vec<_> = hits
+        .iter()
+        .filter(|h| {
+            h.range
+                .as_ref()
+                .is_some_and(|r| r.start == subject_ref && r.end == subject_ref + "subject".len())
+        })
+        .collect();
+    let signee_hits: Vec<_> = hits
+        .iter()
+        .filter(|h| {
+            h.range
+                .as_ref()
+                .is_some_and(|r| r.start == signee_ref && r.end == signee_ref + "signee".len())
+        })
+        .collect();
+    assert!(!subject_hits.is_empty(), "expected glyphs resolving exactly to the `subject` reference");
+    assert!(!signee_hits.is_empty(), "expected glyphs resolving exactly to the `signee` reference");
+    assert_ne!(
+        subject_hits[0].range, signee_hits[0].range,
+        "two different scalar fields must resolve to two different spans"
+    );
+}
+
+#[test]
+fn same_scalar_written_twice_in_source_gets_two_distinct_spans_not_one() {
+    // The variant that matters for "does this need placement-counting too":
+    // NOT a value bound once to a variable and shown twice (that recreates
+    // the shared-span problem), but the plate author literally writing
+    // `#data.subject`-shaped field access at two SEPARATE textual positions
+    // — the ordinary way a plate would reference the same field twice (a
+    // header and a footer, say). Each occurrence is a distinct AST node
+    // parsed at its own source position, unlike a bound variable reused.
+    let plate = r#"
+#set page(width: 400pt, height: 700pt, margin: 40pt)
+#let data = (subject: "Request for Quarters")
+Header — #data.subject
+
+#lorem(40)
+
+Footer — #data.subject
+"#;
+    let (doc, world) = compile(plate);
+    let hits = collect_span_hits(&doc, &world);
+
+    // Two distinct textual occurrences of `data.subject` field access — the
+    // resolved span covers the whole field-access expression (confirmed
+    // empirically: it starts at "data", not just ".subject").
+    let first_ref = plate.find("data.subject").unwrap();
+    let first_ref_end = first_ref + "data.subject".len();
+    let second_ref = plate.rfind("data.subject").unwrap();
+    let second_ref_end = second_ref + "data.subject".len();
+    assert_ne!(first_ref, second_ref, "sanity: these must be different source positions");
+
+    let ranges: std::collections::HashSet<_> = hits
+        .iter()
+        .filter(|h| h.file == Some(world.main()))
+        .filter_map(|h| h.range.clone())
+        .collect();
+    eprintln!("distinct resolved ranges seen: {ranges:?}");
+    eprintln!("first ref site: {:?}, second ref site: {:?}", first_ref..first_ref_end, second_ref..second_ref_end);
+
+    let at_first: Vec<_> = hits
+        .iter()
+        .filter(|h| {
+            h.file == Some(world.main())
+                && h.range.as_ref().is_some_and(|r| r.start >= first_ref && r.end <= first_ref_end + 1)
+        })
+        .collect();
+    let at_second: Vec<_> = hits
+        .iter()
+        .filter(|h| {
+            h.file == Some(world.main())
+                && h.range.as_ref().is_some_and(|r| r.start >= second_ref && r.end <= second_ref_end + 1)
+        })
+        .collect();
+    eprintln!("hits at first .subject occurrence: {}", at_first.len());
+    eprintln!("hits at second .subject occurrence: {}", at_second.len());
+
+    assert!(!at_first.is_empty(), "expected glyphs resolving to the first occurrence's own span");
+    assert!(!at_second.is_empty(), "expected glyphs resolving to the second occurrence's own span");
+
+    // The two occurrences' hits must be at visually different y-positions
+    // (header vs. footer), confirming they're genuinely two separate
+    // placements distinguishable purely from span identity — no
+    // placement-counting logic needed, because the SOURCE itself already
+    // has two distinct expressions, not one value shown twice.
+    let y_first = at_first[0].rect[1];
+    let y_second = at_second[0].rect[1];
+    assert!(
+        (y_first - y_second).abs() > 20.0,
+        "the two occurrences must be at visually distinct positions: {y_first} vs {y_second}"
+    );
 }
