@@ -270,11 +270,10 @@ typst:
 
 #[test]
 fn content_survives_a_rebuilding_show_rule() {
-    // The class of bug that killed the marker system: a `show`-rule pass that
-    // captures paragraphs into a state buffer and re-emits them (the shape of
-    // render-body's auto-numbering). Markers were dropped by the rebuild;
-    // spans are a property of the glyphs and survive it — the field surfaces
-    // with no plate-author recovery step.
+    // A `show`-rule pass that captures paragraphs into a state buffer and
+    // re-emits them (the shape of render-body's auto-numbering) must not
+    // lose the field: spans are a property of the glyphs and ride through
+    // the rebuild, so the field surfaces with no plate-author recovery step.
     const YAML: &str = r#"
 quill:
   name: rebuild_survival
@@ -492,8 +491,8 @@ main:
 
 #[test]
 fn form_field_unknown_path_fails_the_compile() {
-    // `field:` still validates against the schema address tables — the loud
-    // failure for a typo'd path moved nowhere when `tagged()` was removed.
+    // `field:` validates against the schema address tables — a typo'd path
+    // is a loud compile error, not a silent no-region widget.
     const YAML: &str = r#"
 quill:
   name: widget_typo

@@ -113,10 +113,24 @@ pub trait SessionHandle: Any + Send + Sync {
     /// [`RenderedRegion::rect`]. Unlike [`regions`](Self::regions), *every*
     /// placement answers, not just the first: one concrete point identifies
     /// one drawn item, whose origin is unambiguous however many times its
-    /// field is placed. Default `None` — a backend that places schema fields
-    /// overrides this alongside `regions`.
-    fn field_at(&self, _page: usize, _x: f32, _y: f32) -> Option<String> {
-        None
+    /// field is placed.
+    ///
+    /// Default: hit-test [`regions`](Self::regions) — complete for a backend
+    /// whose regions enumerate every placement (widget-only backends like
+    /// pdfform), and empty when `regions` is. A backend whose regions
+    /// under-enumerate (Typst surfaces first placements only) overrides this
+    /// with a real document hit-test.
+    fn field_at(&self, page: usize, x: f32, y: f32) -> Option<String> {
+        self.regions()
+            .into_iter()
+            .find(|r| {
+                r.page == page
+                    && r.rect[0] <= x
+                    && x <= r.rect[2]
+                    && r.rect[1] <= y
+                    && y <= r.rect[3]
+            })
+            .map(|r| r.field)
     }
 
     /// Non-fatal diagnostics of the **current compile**. A backend whose

@@ -1,5 +1,5 @@
 //! Recover schema-field regions from *glyph spans* — the origin every drawn
-//! frame item already carries — instead of injected markers.
+//! frame item already carries.
 //!
 //! Every `Text` glyph (and `Shape`/`Image` item) in the laid-out frames
 //! carries a [`Span`] pointing at the source expression that produced it.

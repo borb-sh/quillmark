@@ -185,7 +185,7 @@ pub struct Quill {
     inner: quillmark::Quill,
 }
 
-/// Live render session: reads (`render`, `paint`, `pageSize`, `regions`)
+/// Live render session: reads (`render`, `paint`, `pageSize`, `regions`, `fieldAt`)
 /// serve the current compile; `apply(doc)` recompiles in place. Apply is
 /// transactional — on throw, every read keeps serving the last-good compile.
 ///
@@ -1377,7 +1377,7 @@ impl LiveSession {
     /// Recompile the session against `doc` — the edit verb of a live preview.
     /// The document is compiled through the same schema pipeline as `open`
     /// (same quill), then applied transactionally: on throw every read
-    /// (`render`, `paint`, `pageSize`, `regions`) keeps serving the last-good
+    /// (`render`, `paint`, `pageSize`, `regions`, `fieldAt`) keeps serving the last-good
     /// compile, and the session recovers on the next successful `apply`. On
     /// success reads serve the new compile; repaint `dirtyPages ∩ visible`.
     #[wasm_bindgen(js_name = apply)]

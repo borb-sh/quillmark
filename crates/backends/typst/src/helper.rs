@@ -120,8 +120,9 @@ mod tests {
         assert!(!lib.contains("#let parse-date(s)"));
         assert!(lib.contains("meta.date_fields"));
         assert!(lib.contains("meta.card_date_fields"));
-        // The marker system is gone: no `tagged`, no `_qm-tag`; cards still
-        // carry their `$path` prefix for form-field address composition.
+        // The template exports no tagging surface — no `tagged`, no
+        // `_qm-tag`; cards carry their `$path` prefix for form-field
+        // address composition.
         assert!(!lib.contains("#let tagged"));
         assert!(!lib.contains("_qm-tag"));
         assert!(lib.contains("card.insert(\"$path\", prefix)"));

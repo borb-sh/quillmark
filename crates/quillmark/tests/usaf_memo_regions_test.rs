@@ -1,13 +1,13 @@
 //! Region coverage on the flagship `usaf_memo` quill.
 //!
 //! The memo package's `render-body` rebuilds body paragraphs through a state
-//! buffer (AFH 33-337 auto-numbering) — the adversary that killed the old
-//! marker system. Span tracking rides the rebuilt glyphs' own origins, so the
-//! main `$body` and each indorsement card's body stay addressable with no
-//! recovery step in the plate; the signature widgets bind schema paths
-//! explicitly. This renders the real plate end-to-end and pins that coverage,
-//! plus the one-shot regions sidecar and the forward `field_at` direction
-//! through the rebuild.
+//! buffer (AFH 33-337 auto-numbering) — the hardest placement context a
+//! shipped quill exercises. Span tracking rides the rebuilt glyphs' own
+//! origins, so the main `$body` and each indorsement card's body stay
+//! addressable with no recovery step in the plate; the signature widgets bind
+//! schema paths explicitly. This renders the real plate end-to-end and pins
+//! that coverage, plus the one-shot regions sidecar and the forward
+//! `field_at` direction through the rebuild.
 
 #![cfg(feature = "typst")]
 

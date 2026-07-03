@@ -7,7 +7,7 @@
 The preview surface is two verbs: `render(quill, doc, opts)` — stateless
 one-shot bytes for CLI / server / export — and `open(quill, doc)` →
 **`LiveSession`**, a persistent, incremental compiler that owns preview. Reads
-(`render`, `paint`, `pageSize`, `regions`) serve the session's current
+(`render`, `paint`, `pageSize`, `regions`, `fieldAt`) serve the session's current
 compile; `apply(doc)` recompiles in place and returns a `ChangeSet` naming the
 dirty pages. `paint` writes a rasterized page directly into a
 `CanvasRenderingContext2d`; each paint is a **complete** raster — every piece
@@ -136,37 +136,46 @@ for consumers without a live session — static overlays over an exported SVG,
 PDF post-processing, CI coverage probes. The sidecar always describes the
 whole document: page indices are document-space even under a `pages` subset
 render. Each region carries per-field geometry keyed on the **quill schema
-field path** — the address the editor uses — for **overlays** and
-**cross-navigation** (click a rendered field → focus it in the editor, or
-highlight the page rectangle for the focused field).
+field path** — the address the editor uses. The two navigation directions get
+two queries: `regions()` answers *field → rectangle* (scroll to / highlight
+the focused field); `fieldAt(page, x, y)` answers *point → field* (click a
+rendered field → focus it in the editor), hit-testing the compiled document
+directly so **every** placement resolves, not just the ones `regions()`
+surfaces.
 
-Three producers: **content fields** (a markdown body) auto-tag from their
-*value* at the Typst eval site and recover their rendered extent from the
-laid-out frames — carried by construction when the plate places the value
-verbatim, and lost when a package rebuilds the content (a `show`-rule pass
-that buffers and re-emits paragraphs drops the markers; the auto-tag contract
-is *verbatim placement*, not arbitrary Typst). **Explicit `tagged(field)[..]`
-placements** bracket whatever the plate places at that site — the recovery for
-both auto-tag gaps: scalars (a plain string carries no tag of its own) and
-package-rebuilt content (markers around the package's *output* survive its
-internals); the region covers the placement's ink, package chrome included,
-and an unknown path is a compile error (validated against schema address
-tables baked into the generated helper; cards carry their canonical prefix as
-`$path`, so plates compose card addresses without reimplementing the
-kind+ordinal grammar). **Form-field widgets** carry the path explicitly
+Three producers: **content fields** (a markdown body, a `markdown[]` element,
+a card's content field) are tracked by the spans their glyphs carry — the
+backend evaluates each value at its own generated call site and records the
+site's byte window, so the rendered ink resolves back to its field through
+*any* placement context, including a package that rebuilds the content (a
+`show`-rule pass that buffers and re-emits paragraphs): the origin rides the
+glyph, not a marker a rebuild could drop. **Direct scalar references** — each
+`data.<field>` / `data.at("field")` expression in the plate is its own
+tracked site; a scalar shown in header and footer surfaces both sites. Not
+tracked: values laundered through intermediate bindings, computed expressions
+(`data.from + ", " + rank`), and card scalars read from the per-card loop
+variable (one shared expression site carries no per-instance identity — bind
+a widget for those). **Form-field widgets** carry the path explicitly
 (pdfform from the form mapping, a Typst `form-field` from its `field:`
-argument) and surface a region only when they bind one — a widget with no
-schema field is a backend artifact, not a routable field.
+argument, validated against schema address tables baked into the generated
+helper — cards carry their canonical prefix as `$path`, so plates compose
+card addresses without reimplementing the kind+ordinal grammar) and surface a
+region only when they bind one — a widget with no schema field is a backend
+artifact, not a routable field.
 
-The result is **one region per (placement, page fragment)**, not one per
-field: a field placed at two sites surfaces two regions (a spanning union
-would claim the ink between them); a page-spanning body surfaces one fragment
-per page it touches, so highlighting a focused field covers its continuation
-pages; tagged content plus a bound widget surfaces both, overlapping rects
-that route to the same field. Consumers group by `field`. Nested markers for
-the same field collapse into their outer placement — double-tagging one
-placement is not placing it twice. Geometry only, never a value, and never
-needed to complete the picture.
+`regions()` returns each content field's **first placement** — one region per
+page it touches, so highlighting covers continuation pages — not every
+placement: span data cannot distinguish package chrome interrupting one
+placement from a second placement of the same value, and a spanning union
+would claim the ink between them. Foreign ink interrupting the first
+placement (a rebuild's numbering chrome) shrinks the region to the
+placement's true start rather than lying about extent. `field` is still not
+unique in the result — page fragments, several scalar sites, or content plus
+a bound widget each surface independently; consumers group by `field`. Later
+placements of one content value stay reachable through `fieldAt`, where a
+concrete point identifies one drawn item unambiguously. A blank field (empty
+or whitespace-only body) draws nothing and surfaces no region. Geometry only,
+never a value, and never needed to complete the picture.
 
 ## TypeScript surface
 
@@ -189,7 +198,9 @@ class LiveSession {
 
   apply(doc: Document): ChangeSet;      // in-place recompile; transactional
   render(opts?: RenderOptions): RenderResult;
-  regions(): FieldRegion[];             // schema-field geometry; session query, no render
+  regions(): FieldRegion[];             // field → rects; session query, no render
+  fieldAt(page: number, x: number, y: number): string | undefined;
+                                        // point → field; PDF pt, bottom-left
   pageSize(page: number): PageSize;     // { widthPt, heightPt } in pt; report-only
   paint(
     ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
@@ -295,10 +306,12 @@ sequentially; `runtime/runtime.js` maps each backend id to its build with a
 - Native (CLI / Python) exposure. Capability is WASM-only.
 - Text selection, find-in-page, accessibility. Canvas has none of these by
   design — if you need them, keep an SVG/PDF export path alongside.
-- Built-in click→region hit-testing in the painter. The painter is a dumb
-  blit; it maps no clicks itself. A consumer builds field cross-navigation on
-  top, hit-testing a click against the `regions` sidecar (keyed on the schema
-  field path) — see [SCHEMAS.md](SCHEMAS.md).
+- Click handling in the painter. The painter is a dumb blit; it maps no
+  clicks itself. Click→field lives on the **session** (`fieldAt`, hit-testing
+  the compiled document) — a consumer converts the canvas click to PDF-pt
+  page coordinates (the inverse of the regions overlay transform) and asks
+  the session, keeping the painter free of interaction state — see
+  [SCHEMAS.md](SCHEMAS.md).
 
 ## Decisions and rationale
 
@@ -323,9 +336,10 @@ sequentially; `runtime/runtime.js` maps each backend id to its build with a
   finished page (Typst natively, pdfform by pre-flattening values into content
   streams before rasterizing). Regions are an overlay sidecar, not a
   compositing input — the painter stays a dumb blit.
-- **Method on `LiveSession`, not a sub-handle.** A `Preview` sub-handle would
-  be justified only if paint shipped with `click()` / `locate_cursor()` (shared
-  state). With paint alone the sub-handle is ceremony.
+- **Method on `LiveSession`, not a sub-handle.** Even with click resolution
+  shipped (`fieldAt`), it shares no state with `paint` beyond the compile the
+  whole session already owns — a `Preview` sub-handle grouping them is
+  ceremony.
 - **Not an `OutputFormat`.** Canvas is a side-effecting paint into a JS object,
   not a serializable byte stream. Forcing it into the enum would leak
   `wasm_bindgen` into `core` or make `Artifact` dishonest.
