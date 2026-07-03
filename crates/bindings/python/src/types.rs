@@ -35,6 +35,7 @@ impl PyQuillmark {
     /// first supported format. Raises `QuillmarkError` (`UnsupportedBackend`)
     /// when the backend is not registered. Mirrors WASM `Engine.render`.
     #[pyo3(signature = (quill, doc, format=None, ppi=None, pages=None, producer=None, regions=false))]
+    #[allow(clippy::too_many_arguments)] // kwargs mirror RenderOptions 1:1; the signature IS the Python API
     fn render(
         &self,
         quill: &PyQuill,

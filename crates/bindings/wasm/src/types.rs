@@ -438,6 +438,7 @@ mod tests {
             ppi: None,
             pages: None,
             producer: None,
+            regions: None,
         };
         let json = serde_json::to_string(&options).unwrap();
         assert!(json.contains("\"format\":\"pdf\""));
