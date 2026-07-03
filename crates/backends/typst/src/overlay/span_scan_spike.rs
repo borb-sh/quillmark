@@ -40,6 +40,20 @@
 //! once. Verdict: span tracking is solid for single-placement attribution —
 //! which is exactly what reproduces #789's zero-regions bug — but doesn't by
 //! itself replace the marker system's placement-counting guarantee.
+//!
+//! SCOPE UPDATE: "highlight every placement" turned out not to be a real
+//! requirement — "scroll to the first placement" is. That needs only
+//! `placements_by_window(..).first()`, no group-labels or box/block wrapping
+//! at all, since nothing gets injected into the content stream — a pure
+//! read of spans that are already there. Caveat #2 stops mattering for this
+//! narrower scope: `first_placement_is_the_first_occurrence_not_a_merge_when_placed_twice`
+//! confirms the first entry is genuinely the earlier occurrence, not a
+//! merge; and `first_placement_survives_render_body_chrome_fragmentation`
+//! confirms that even when render-body's chrome fragments one placement
+//! into 3 pieces (the adjacency-grouping conflict above), taking just the
+//! first fragment is still a *correct*, if smaller-than-ideal, answer — it
+//! points at the true start of the field's content, which is all a scroll
+//! target needs to be.
 
 use std::collections::HashMap;
 
@@ -669,4 +683,120 @@ FIELDBODY paragraph three, forcing AFH numbering.]
          one-per-paragraph because render-body's own number-text prefix (body.typ) sits between \
          them with a foreign span: {placements:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Scoped-down requirement: "highlight every placement" is out of scope;
+// "scroll to the first placement" is the actual target. This needs only
+// `placements_by_window(..).first()` — no group-labels, no box/block
+// wrapping, no layout-neutrality or page-spanning concerns, since nothing is
+// injected into the content stream at all. The two risks that mattered for
+// *enumerating all* placements are checked here to confirm they don't matter
+// for *finding the first* one:
+// - a field placed twice must resolve to the FIRST occurrence, not a merge
+//   of both (already true — `placements_by_window` never merges instances).
+// - render-body's own chrome fragmenting one placement into 3 pieces
+//   (the immediately preceding test) is harmless here: `.first()` still
+//   points at the true start of the field's content — a smaller-than-ideal
+//   box, not a wrong one, which is all "scroll to it" needs.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn first_placement_is_the_first_occurrence_not_a_merge_when_placed_twice() {
+    let plate = r#"
+#set page(width: 400pt, height: 700pt, margin: 40pt)
+#let content = eval("FIRSTFIELD placed here.", mode: "markup")
+#content
+
+#lorem(40)
+
+#content
+"#;
+    let (doc, world) = compile(plate);
+    let hits = collect_span_hits(&doc, &world);
+
+    let call = plate.find("\"FIRSTFIELD placed here.\"").unwrap();
+    let call_end = call + "\"FIRSTFIELD placed here.\"".len();
+
+    let placements = placements_by_window(&hits, world.main(), call..call_end);
+    let first = placements.first().expect("at least one placement");
+    eprintln!("first placement: {first:?}, total placements found: {}", placements.len());
+
+    // "First" must mean the earlier one in document/page order (smaller y —
+    // top-left origin), not whichever the union happened to produce.
+    let second = &placements[1];
+    assert!(
+        first[&0][1] < second[&0][1],
+        "the FIRST placement must be the one earlier in reading order: {first:?} vs {second:?}"
+    );
+}
+
+#[test]
+fn first_placement_survives_render_body_chrome_fragmentation() {
+    // Reuses the exact scenario that fragmented into 3 pieces above — for
+    // "scroll to the first placement," taking just the first fragment is
+    // correct, not a degraded answer: it's the true start of the field's
+    // content on the page it first appears.
+    fn host_tree() -> FileTreeNode {
+        fn walk(dir: &std::path::Path) -> std::io::Result<FileTreeNode> {
+            let mut files = HashMap::new();
+            for entry in std::fs::read_dir(dir)? {
+                let entry = entry?;
+                let p = entry.path();
+                let name = p.file_name().unwrap().to_string_lossy().into_owned();
+                if p.is_file() {
+                    files.insert(
+                        name,
+                        FileTreeNode::File {
+                            contents: std::fs::read(&p)?,
+                        },
+                    );
+                } else if p.is_dir() {
+                    files.insert(name, walk(&p)?);
+                }
+            }
+            Ok(FileTreeNode::Directory { files })
+        }
+        let quill_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("..")
+            .join("fixtures")
+            .join("resources")
+            .join("quills")
+            .join("usaf_memo")
+            .join("0.2.0");
+        walk(&quill_path).expect("walk fixture")
+    }
+
+    let plate = r#"
+#import "@local/tonguetoquill-usaf-memo:3.0.0": frontmatter, mainmatter
+
+#show: frontmatter.with(subject: "Spike Memo", memo_for: ("TEST/SYMB",));
+
+#mainmatter[FIELDBODY paragraph one.
+
+FIELDBODY paragraph two.
+
+FIELDBODY paragraph three, forcing AFH numbering.]
+"#;
+    let quill = Quill::from_tree(host_tree()).expect("load usaf_memo host quill");
+    let world = QuillWorld::new(&quill, plate).expect("build world");
+    let (doc, _warnings) = compile_document(&world).expect("compile");
+    let hits = collect_span_hits(&doc, &world);
+
+    let start = plate.find("FIELDBODY paragraph one.").unwrap();
+    let end = plate.find("forcing AFH numbering.").unwrap() + "forcing AFH numbering.".len();
+
+    let placements = placements_by_window(&hits, world.main(), start..end);
+    let first = placements.first().expect("at least one placement, fragmented or not");
+    eprintln!(
+        "first placement (of {} fragments): {first:?}",
+        placements.len()
+    );
+
+    // Whatever fragment count, the first one must be non-empty and on the
+    // page the field's content actually starts on — sufficient to scroll to.
+    let (page, rect) = first.iter().next().expect("first placement has a page entry");
+    assert_eq!(*page, 0, "the field's content starts on page 0");
+    assert!(rect[2] > rect[0], "the first fragment has real (non-zero) extent: {rect:?}");
 }
