@@ -3,7 +3,8 @@
 > Branch pair: `claude/quillmark-wasm-migration-pscq14` here and in
 > `tonguetoquill/web-app`. The web-app branch consumes this tree's
 > `pkg/` as a `file:` dependency and rebuilds its preview on the
-> `Engine.open` → `LiveSession.apply`/`paint`/`regions` surface.
+> `Engine.open` → `LiveSession.apply`/`paint`/`regions`/`fieldAt`
+> surface.
 
 ## What the spike did
 
@@ -14,149 +15,215 @@
   `QuillmarkPreviewController`: one `LiveSession` per (document ×
   quill), `apply(doc)` per edit, repaint of `dirtyPages` only; a
   quill swap re-opens.
-- Wired editor ↔ preview cross-navigation over `regions()`: hotspot
-  overlays per region (the percent transform in
-  `prose/canon/PREVIEW.md` works verbatim), click → expand the owning
-  form group and focus the field, editor focus → highlight the region.
-  Editor-side addresses use the same `$cards.<kind>.<n>.<field>`
-  grammar regions carry.
+- Wired editor ↔ preview cross-navigation: preview → editor clicks
+  resolve through `LiveSession.fieldAt(page, x, y)` (a document
+  hit-test), not by rendering per-region hotspot buttons; editor →
+  preview focus highlights the focused field's `regions()` geometry
+  (decorative only, not a click target). Editor-side addresses use the
+  same `$cards.<kind>.<n>.<field>` grammar regions carry.
 - Verified against the production quill catalog: a real-wasm vitest
-  suite (open / apply / ChangeSet / transactional failure / regions)
-  plus a browser drive of the live app (incremental apply repaints,
-  both navigation directions).
-- Filed findings as #782; rebased onto the resolutions
-  (#783/#784/#785/#788) once landed and re-verified against the
-  production catalog a second time (this pass).
+  suite (open / apply / ChangeSet / transactional failure / regions /
+  `fieldAt`) plus a browser drive of the live app.
+- Three passes so far: filed findings as #782 (resolved by
+  #783/#784/#785/#788); pulled again onto the span-based region rework
+  (#795, superseding #788) and a helper-codegen rewrite (#800), which
+  is the pass this report now describes.
 
-The surface holds together: apply is transactional as documented,
-dirty-page math is correct (edit → `[0]`, no-op edit → `[]`), a
-failed apply keeps every read serving the last-good compile, and the
-canvas paint/DPR contract needed no changes on the consumer side.
+The surface holds together: `apply` is transactional as documented, a
+failed apply keeps every read serving the last-good compile, the
+canvas paint/DPR contract needed no consumer-side changes, and
+`fieldAt` — once its own gap below was fixed — resolves clicks
+correctly everywhere content is drawn, including where `regions()`
+under-enumerates.
 
-## Resolved (#782)
+## New this pass
 
-### `Document` lifetime across `engine.open`/`render` was a footgun — fixed (#785)
+### `fieldAt` was typed but not implemented — found and fixed here
 
-`runtime.js` now snapshots `doc.toJson()` (and `quill.toTree()` on a
-clone-cache miss) synchronously, before the first await. The natural
-`try { return engine.open(quill, doc); } finally { doc.free(); }`
-shape is safe again; web-app's integration test comment claiming
-otherwise is corrected.
+`dbcd553` added `fieldAt(page, x, y)` to the generated Typst/pdfform
+backends and to the canonical `runtime.d.ts` type declaration, but
+never added a delegation method to the canonical `LiveSession` wrapper
+class in the hand-written `runtime.js`. Every other method on that
+class (`regions`, `pageSize`, `paint`, `render`, …) forwards to
+`#inner`; `fieldAt` simply had no such forward. Result: `@quillmark/wasm`
+type-checks `session.fieldAt(...)` cleanly (the `.d.ts` says it exists)
+but throws `session.fieldAt is not a function` at runtime — the method
+is unreachable through the package's actual public surface.
 
-### `apply` had no warnings channel — fixed (#784/#790)
+The type-level drift guard (`runtime.types.test-d.ts`) does not catch
+this class of bug — it checks structural type compatibility between
+the canonical and generated interfaces, not whether the hand-written
+JS implementation actually has a matching method. Nothing in the test
+suite calls `fieldAt` on the canonical `LiveSession` instance.
 
-`LiveSession.warnings` now reflects the *current* compile (Typst
-compile warnings — font fallback, overfull pages — threaded through
-same as errors), refreshed on every committed `apply` and held at
-last-good on a failed one. `validation::must_fill` deliberately does
-**not** ride this channel — it stays a `quill.validate(doc)` concern,
-per the #782 rescope. Web-app's `QuillmarkPreviewController` now
-re-reads `session.warnings` in `#readCompileState()` (previously only
-read at open), so an edit that introduces or clears a compile warning
-updates the preview's warnings overlay without a re-open.
+**Fixed directly on this branch** (`crates/bindings/wasm/runtime/runtime.js`):
+added the missing three-line delegation, matching every sibling
+method's style. Trivial and unambiguous, so fixed rather than just
+reported. **Ask:** land the same fix on `main`, and add a smoke test
+that calls every canonical `LiveSession` method (not just type-checks
+it) against a live session — the gap this bug fell through.
 
-### From-source builds claimed the previous version — fixed (#785)
+### Dirty-page tracking no longer converges to empty on a no-op apply, for any quill with content fields
 
-`build-wasm.sh` stamps `<next-patch>-dev.<short-sha>` on dev builds
-(verified: this rebuild produced `0.92.2-dev.ee01902`, not `0.92.1`);
-`release.yml` passes `--release-stamp` and asserts the stamp matches
-the tag before publish. The `wasm-bindgen-cli` version check also now
-runs before the cargo build, not after.
+**Severity: high — undermines the incremental-repaint value proposition
+`apply`/`ChangeSet` exists for.**
 
-### Region coverage on the real catalog — the escape hatch landed and is in production use (#788)
+Reapplying byte-identical markdown to an already-open `usaf_memo`
+session reports `dirtyPages: [0]` — every time, including a *second*
+consecutive no-op apply of the same content (not a one-time settling
+artifact). Isolated the cause with a differential test:
 
-The generated helper now exports `tagged(field)[body]`: it brackets
-whatever a plate places at a site, validated against the schema
-address table at compile time (a typo'd path is a compile error), and
-survives a package's internal content-rebuild (the original gap —
-`render-body`'s AFH-numbering rebuild dropped verbatim auto-tag
-markers) because the wrap sits *outside* the package call. Each card
-dict carries its `$path` prefix so plates compose card addresses
-without hand-rolling the kind+ordinal grammar.
+- `usaf_memo` (has a `$body` markdown content field): reapplying
+  identical content → `[0]`, every time.
+- `af4141` (a form-fill quill with `main.body.enabled: false`, no
+  markdown content fields at all): reapplying identical content →
+  `[]`, correctly.
 
-The fixture `usaf_memo` plate was tagged upstream (`$body`,
-`signature_block`, indorsement card addresses via `$path`); this pass
-ported the same three edits into web-app's `@airmark/quiver` copy of
-`usaf_memo` (a plate that had already diverged from the fixture —
-CUI fields, a different date-default — so the port is hand-applied,
-not a file copy). Confirmed live: `session.regions()` on the shipped
-USAF template now returns `$body`, `signature_block`, and `tag_line`
-(previously `tag_line` alone), and a synthetic multi-page +
-indorsement document confirms the full contract — one `$body`
-fragment per page it spans, `$cards.indorsement.0.$body` and
-`$cards.indorsement.0.signature_block` addressed by kind-scoped
-ordinal, not loop index.
+The difference tracks content fields specifically, which points at
+`page_hashes` (`crates/backends/typst/src/lib.rs`): it hashes every
+non-`Tag` `FrameItem` via that item's own `Hash` impl, and a `Text`
+item's hash transitively includes each glyph's Typst `Span` — data the
+span-based region-tracking rework (#795) now depends on for content
+fields. If `Span` identity is not guaranteed stable across two separate
+compiles of byte-identical source (plausible if spans are allocated
+from a per-parse arena rather than derived purely from content), a
+content-bearing page's hash differs between compiles even when nothing
+about the rendered pixels changed, so `dirty_pages` reports it dirty
+unconditionally.
 
-**Residual scope, not a regression:** `af4141` and `daf4392` disable
-`main.body` entirely (form-fill quills, nothing to tag). `daf1206`
-bypasses the standard content-eval pipeline — its plate stuffs field
-values into a generated form template's parameter dict rather than
-placing them as Typst content — so neither auto-tag nor `tagged()`
-reaches it without a deeper plate rework; out of scope for this pass.
+**Consequence for consumers:** any quill with a markdown content field
+loses the `dirty ∩ visible` optimization for that field's page(s) —
+expect a same-page repaint on *every* keystroke, not just ones that
+touch that page. For a single-page memo this is a full-page repaint
+per keystroke (functionally correct, no longer incremental); for a
+multi-page document only the page(s) actually carrying tracked content
+are affected. Web-app's `QuillmarkPreviewController` still works
+correctly (repainting an unnecessarily-dirtied page is wasted work,
+not a correctness bug) but the perf story is weaker than `apply`
+advertises for the common case.
 
-**Consumer breaking change, handled:** `field` is no longer unique —
-`regions()` returns one entry per (placement, page fragment); a
-page-spanning `$body` now yields one fragment per page. Web-app's
-region-hotspot render loop keyed its `{#each}` block on `region.field`
-alone, which breaks the moment two regions share a field on one page;
-fixed to key on `field + index` and grouped consumers (the
-integration test, the hotspot-per-page map) accordingly.
+**Not fixed here** — this is a Typst-`Span`-semantics question deeper
+than a delegation bug, and needs proper investigation (does `Span`
+have a stable, content-derived identity across separate `Source`
+instances, or does page-hashing need a different fingerprint for
+content-field frame items — e.g., hash the item's *rendered output*
+sans span, or hash span *ranges relative to the field's own window*
+rather than raw `Span` values) rather than a guess from this pass.
+**Ask:** reproduce against a minimal quill (one markdown field, two
+identical `apply` calls, assert `dirtyPages` converges to `[]`) and
+trace whether `Span` truly varies between compiles of identical
+source, or whether the bug is elsewhere in the hash walk.
 
-### `plate_file` — scope decision, not a fix (#782 discussion)
+`live-session.integration.test.ts`'s "no-op apply" case now pins the
+observed `[0]` behavior with a comment explaining why, rather than
+asserting the correct-but-false `[]` — so this regression is visible
+and testable, not silently normalized.
 
-Rejected as an alias: pre-1.0, hard cutovers stand (same policy as
-`!fill` → `!must_fill`), and an alias would only defer the load
-failure by one release since documents pin quill refs. The catalog
-republishes alongside the 0.93 release; web-app's branch carries a
-hand-migrated local copy of `@airmark/quiver`'s `Quill.yaml`s in the
-interim (unchanged from the original spike).
+## Superseded from the previous pass: `tagged()` is gone, replaced by span tracking (#795)
 
-## New, minor: canonical `runtime.d.ts` drifted from the per-placement region contract
+The `tagged()` escape hatch from #788 (which the previous pass ported
+into web-app's `usaf_memo` plate) is **removed** — calling it is now a
+compile error. Region tracking for content fields is span-based:
+each content field's markup is codegen'd as its own markup-block
+binding (`helper-codegen-v2`, #800), so every glyph carries a span
+inside that field's byte window regardless of what package reprocesses
+it afterward — including the exact case `tagged()` existed to patch
+(the memo package's AFH-numbering rebuild). Direct scalar references
+(`data.subject`) are now tracked per reference site too, with no
+wrapper needed.
 
-`runtime.d.ts`'s hand-written `FieldRegion` doc comment still reads
-"click a rendered field → focus `field`… or highlight the rect for the
-focused field" with no mention of grouping, and its `RenderOptions`
-interface has no `regions?: boolean` — the generated Typst backend's
-`RenderOptions` gained one (opt-in region population on one-shot
-renders). `runtime.types.test-d.ts`'s mutual-assignability check
-doesn't catch either: an *optional* field missing from one side is
-still structurally assignable both directions, so the drift guard is
-silent on it. Low severity — no consumer code is affected, since
-web-app reads regions off `LiveSession` (which delegates to the
-already-correct generated backend), never off the canonical
-`RenderOptions` type. Worth a doc pass whenever `runtime.d.ts` is next
-touched.
+**Reverted on this branch**: unwrapped both `tagged()` calls in
+web-app's `usaf_memo` plate back to plain placement, matching the
+fixture's own revert (`2a9d516`). Confirmed live: `session.regions()`
+coverage is unchanged from the tagged version (`$body`,
+`signature_block`, `tag_line` on the shipped template;
+`$cards.indorsement.0.$body` / `.signature_block` on a card) — the
+span mechanism reaches everything the marker mechanism did, with no
+plate-author effort at all now.
 
-## Notes (no action asked, unchanged from the original spike)
+**New consumer-visible nuance**: `regions()` reports only a value's
+*first maximal run* of ink — a run ends at any foreign-ink interruption
+on the same page (the "twice-placed" ambiguity span data can't resolve
+any other way), so a body broken up by per-paragraph auto-numbering
+(every paragraph in `usaf_memo`) reports exactly one region, on its
+first page, not one per page it actually spans. Verified: a 12-paragraph,
+8-page body yields a single `$body` region on page 0. `fieldAt`,
+which hit-tests the compiled document directly rather than reading the
+sidecar, still resolves correctly on every later page. Web-app's
+highlight-on-focus overlay is downstream of `regions()` and inherits
+this: focusing a long body highlights only its first page's worth of
+ink, not the full extent. Click resolution is unaffected since it goes
+through `fieldAt`, never the region list — see the `Preview.svelte`
+rewrite below.
 
-- `apply` is synchronous on the main thread. Keystroke-cadence Typst
-  compiles block the UI for their duration; web-app yields a macrotask
-  first and lives with it. A worker/OffscreenCanvas story stays the
-  consumer's problem — fine for now, worth a canon note.
-- The editor re-derives the `$cards.<kind>.<n>.` prefix (kind-scoped
-  ordinal) from its card list on every focus/reorder; the grammar is
-  now implemented four times (Typst prefix builder, the new `tagged`
-  helper's `$path` injection, pdfform resolver, web-app
-  `field-path.ts`). A `document.fieldPath(cardIndex, field)` accessor
-  would collapse the drift surface.
+**Consumer breaking change, handled:** with hit-testing now the
+documented click path, web-app's per-region hotspot-button overlay
+(one absolutely-positioned clickable `<button>` per enumerated region)
+is gone. `Preview.svelte` now has one click surface per page (the
+existing whole-canvas mask) that converts the click point to PDF pt
+and calls `fieldAt`; `regions()` is read only to draw a non-interactive
+highlight box for the editor's currently-focused field.
+
+## Resolved from the previous pass (recap)
+
+- **`Document` lifetime footgun** (#785) — fixed; the natural
+  `try { return engine.open(...) } finally { doc.free() }` shape is
+  safe.
+- **`apply` warnings channel** (#784/#790) — fixed; `session.warnings`
+  reflects the current compile, refreshed per committed apply.
+- **From-source version stamping** (#785) — fixed; this rebuild
+  produced `0.92.2-dev.d2d2d46`, not `0.92.1`.
+- **Canonical `runtime.d.ts` drift** (flagged last pass, `b1b5438`) —
+  fixed; `RenderOptions.regions` and the per-placement `regions()` doc
+  are synced, and a `typecheck` step is now wired into CI so this class
+  of drift fails the build going forward.
+- **`plate_file`** — still a deliberate scope decision, not a fix
+  (pre-1.0 hard cutover policy); web-app's branch still carries a
+  hand-migrated local copy of `@airmark/quiver`'s `Quill.yaml`s.
+
+## Notes (no action asked)
+
+- `apply` is synchronous on the main thread; a worker/OffscreenCanvas
+  story stays the consumer's problem.
+- The `$cards.<kind>.<n>.` address grammar is now implemented four
+  times (Typst prefix builder, the removed `tagged` helper's `$path`
+  injection — still used by `form-field`/`signature-field` — pdfform
+  resolver, web-app `field-path.ts`). A `document.fieldPath(cardIndex,
+  field)` accessor would collapse the drift surface.
+- `fieldAt` returns a field path only, no geometry — a "highlight
+  under cursor on hover" feature (as opposed to click-to-navigate) has
+  no API to build on without either a rect back from `fieldAt` or a
+  separate placement-rect-at-point query. Not requested; noting the
+  gap since the click-anywhere model invites the question.
 - The DAF form quills are Typst recreations, not `pdfform` quills, so
   the pdfform widget-region path has no production consumer yet.
+- `daf1206`'s plate bypasses the content-eval pipeline entirely (stuffs
+  field values into a generated form template's parameter dict, not
+  Typst content), so neither auto-tag nor span-tracking reaches it
+  without a deeper plate rework. Out of scope for this pass, unchanged
+  from the previous one.
 
 ## Web-app branch caveats
 
 - `package.json` depends on `file:../quillmark/pkg`; CI cannot
-  `npm ci` until `@quillmark/wasm@0.93.0` publishes. Swap the dep and
-  delete this caveat at release.
-- `static/quills` on that branch is repacked from a locally-migrated
-  and locally-tagged `usaf_memo` (`plate_file` moved under `typst:`,
-  `$body`/`signature_block`/indorsement addresses wrapped in
-  `tagged()`). The published `@airmark/quiver` package still carries
-  neither change and must be re-released alongside 0.93 — at that
-  point this local patch should be dropped in favor of the real
-  upstream content package.
-- `live-session.integration.test.ts` now pins the *resolved* coverage
-  (`$body`, `signature_block`, `tag_line` on the shipped template) plus
-  the per-placement/group-by contract on a synthetic multi-page +
-  indorsement document. It starts failing if a future catalog or
-  wasm-side change silently drops tagging or reintroduces a
-  unique-`field` assumption — which is the point.
+  `npm ci` until `@quillmark/wasm@0.93.0` publishes.
+- `static/quills` is repacked from a locally-migrated `usaf_memo`
+  (`plate_file` moved under `typst:`, `tagged()` calls added then
+  reverted per the supersession above) living in
+  `node_modules/@airmark/quiver` — untracked by git, and NOT
+  regenerated by any install/build hook (`pack:quills` is a standalone
+  script), so it only goes stale on an explicit re-pack without
+  reapplying the patch. The published `@airmark/quiver` package still
+  carries neither the `plate_file` move nor benefits from span
+  tracking (it never needed `tagged()` to begin with) and should
+  replace this local patch once it re-releases alongside 0.93.
+- `live-session.integration.test.ts` pins: current region coverage
+  (`$body`/`signature_block`/`tag_line`, span-tracked, no `tagged()`);
+  `fieldAt` resolving both at region centers and past what `regions()`
+  enumerates; kind-scoped card addressing; and the dirty-page
+  regression's actual (`[0]`, not `[]`) behavior on a no-op apply, with
+  a comment pointing back here. Several of these assertions are
+  designed to start failing the moment the underlying issue is fixed
+  upstream — that's the point for the regression pin; the coverage/
+  `fieldAt` pins guard against silent regressions in the other
+  direction.

@@ -364,7 +364,7 @@ export class Engine {
  */
 export class LiveSession {
 	/**
-	 * @param {{ pageCount: number, backendId: string, supportsCanvas: boolean, warnings: any[], apply: Function, render: Function, regions: Function, pageSize: Function, paint: Function, free: Function }} inner backend-build LiveSession (typst or pdfform)
+	 * @param {{ pageCount: number, backendId: string, supportsCanvas: boolean, warnings: any[], apply: Function, render: Function, regions: Function, fieldAt: Function, pageSize: Function, paint: Function, free: Function }} inner backend-build LiveSession (typst or pdfform)
 	 * @param {{ Document: { fromJson(json: string): any } }} mod the session's backend build, used to materialize `apply` documents in its linear memory
 	 */
 	constructor(inner, mod) {
@@ -421,13 +421,11 @@ export class LiveSession {
 	}
 
 	/**
-	 * The schema field whose content is under a point on `page` — the forward
-	 * (click → field) direction, resolving *every* placement, not just the first
-	 * that `regions` enumerates. `x`/`y` are PDF points with a bottom-left origin
-	 * (the `FieldRegion.rect` space). See `runtime.d.ts` for the click-to-point
-	 * inverse transform.
+	 * The schema field whose content is under a point on `page` — the click
+	 * direction. Resolves *every* placement, including later ones `regions()`
+	 * does not enumerate.
 	 * @param {number} page
-	 * @param {number} x
+	 * @param {number} x PDF pt, bottom-left origin — same space as `FieldRegion.rect`
 	 * @param {number} y
 	 * @returns {string | undefined}
 	 */
