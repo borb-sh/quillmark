@@ -1,3 +1,11 @@
+# Reviews
+
+Standalone review documents:
+
+- **[issue-830-grounding.md](issue-830-grounding.md)** — verification of the
+  #830 content-block-tree proposal against the tree at `28b29ea`: claims
+  checked, corrections, unpriced costs, sequencing critique.
+
 # Branch review — open items
 
 Findings from the swarm review of `claude/branch-review-agent-swarm-h9rbk4`
