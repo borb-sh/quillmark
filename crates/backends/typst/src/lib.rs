@@ -88,9 +88,48 @@ pub struct TypstSession {
 /// *other* pages (a page-spanning paragraph's tag sits on its first page and
 /// covers the whole text, so hashing it dirties page 0 on an end-of-document
 /// edit the page never shows).
+///
+/// PIXELS, NOT SPANS. Every hashed item drops its source-location `Span` — the
+/// glyph `span` on a `Text` run, the trailing `Span` on `Shape`/`Image`. A
+/// `Span` is a `FileId` plus a parse-numbering index; it locates source, it does
+/// not paint. This fingerprint's whole contract is *visible content*, so folding
+/// in a span is a category error: two compiles whose pages rasterize
+/// pixel-for-pixel identically must hash identically, and only render-affecting
+/// data (font, size, paint, glyph geometry, position) may enter the hash.
+///
+/// The hazard is #795-specific and #801 flagged it: the span rework routes
+/// content-field glyphs' spans into the helper `lib.typ`, regenerated and
+/// reparsed on every committed `apply`. Typst assigns glyph spans by parse
+/// numbering, which is deterministic across separate compiles of byte-identical
+/// source *today* — so this is not observed to misfire on the Rust path — but a
+/// content fingerprint has no business depending on that guarantee. Excluding
+/// spans makes the invariant structural instead of incidental: a page cannot be
+/// reported dirty for a source-location shift that moved no ink.
 fn page_hashes(document: &typst_layout::PagedDocument) -> Vec<u128> {
     use std::hash::{Hash, Hasher};
     use typst::layout::FrameItem;
+
+    // A text run's rendered content: font, size, paint, and per-glyph geometry —
+    // but not each glyph's `span` (see the fn doc). Everything that moves a pixel
+    // is retained, so a genuine content change still re-hashes.
+    fn hash_text<H: Hasher>(text: &typst::text::TextItem, state: &mut H) {
+        text.font.hash(state);
+        text.size.hash(state);
+        text.fill.hash(state);
+        text.stroke.hash(state);
+        text.lang.hash(state);
+        text.region.hash(state);
+        text.text.hash(state);
+        for g in &text.glyphs {
+            g.id.hash(state);
+            g.x_advance.hash(state);
+            g.x_offset.hash(state);
+            g.y_advance.hash(state);
+            g.y_offset.hash(state);
+            g.range.hash(state);
+            // g.span deliberately omitted — source location, not pixels.
+        }
+    }
 
     fn walk<H: Hasher>(frame: &typst::layout::Frame, state: &mut H) {
         frame.size().hash(state);
@@ -103,9 +142,26 @@ fn page_hashes(document: &typst_layout::PagedDocument) -> Vec<u128> {
                     g.clip.hash(state);
                     walk(&g.frame, state);
                 }
-                other => {
+                FrameItem::Text(text) => {
                     pos.hash(state);
-                    other.hash(state);
+                    hash_text(text, state);
+                }
+                // Shape/Image carry a trailing `Span` their derived `Hash` would
+                // fold in; destructure to hash the visible parts and drop it, same
+                // reason as glyph spans above.
+                FrameItem::Shape(shape, _span) => {
+                    pos.hash(state);
+                    shape.hash(state);
+                }
+                FrameItem::Image(image, size, _span) => {
+                    pos.hash(state);
+                    image.hash(state);
+                    size.hash(state);
+                }
+                FrameItem::Link(dest, size) => {
+                    pos.hash(state);
+                    dest.hash(state);
+                    size.hash(state);
                 }
             }
         }

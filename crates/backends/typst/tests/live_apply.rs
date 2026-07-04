@@ -84,6 +84,85 @@ fn apply_commits_and_dirties_only_the_touched_suffix() {
     assert!(cs.dirty_pages.is_empty(), "dirty: {:?}", cs.dirty_pages);
 }
 
+/// A quill whose sole content-bearing field is a *markdown* field placed
+/// through the span-tracked helper path (`#data.body`), not a scalar reference
+/// into the static plate. This is the shape #801 was reported against: content
+/// fields route glyph spans into the helper `lib.typ`, which is regenerated per
+/// `apply` — the frame data `page_hashes` must fingerprint without folding in
+/// those spans.
+fn markdown_quill() -> Quill {
+    const YAML: &str = r#"quill:
+  name: live_markdown
+  version: 0.1.0
+  backend: typst
+  description: markdown-content no-op reapply quill
+typst:
+  plate_file: plate.typ
+main:
+  fields:
+    body:
+      type: markdown
+      description: a markdown body
+"#;
+    const PLATE: &str = r#"#import "@local/quillmark-helper:0.1.0": data
+#set page(width: 300pt, height: 200pt, margin: 20pt)
+#set text(size: 11pt)
+#data.body
+"#;
+    let mut files = HashMap::new();
+    files.insert(
+        "Quill.yaml".to_string(),
+        FileTreeNode::File {
+            contents: YAML.as_bytes().to_vec(),
+        },
+    );
+    files.insert(
+        "plate.typ".to_string(),
+        FileTreeNode::File {
+            contents: PLATE.as_bytes().to_vec(),
+        },
+    );
+    Quill::from_tree(FileTreeNode::Directory { files }).expect("quill")
+}
+
+#[test]
+fn identical_reapply_of_markdown_content_is_clean() {
+    // #801: a page's fingerprint must not fold in glyph/shape/image `Span`s
+    // (source-location metadata, not pixels), so reapplying byte-identical
+    // markdown to a content-field session reports NOTHING dirty — every time,
+    // including a second consecutive no-op (not a one-time settling artifact).
+    let backend = TypstBackend;
+    let q = markdown_quill();
+    let body = "This is a **markdown** paragraph that renders some real ink. ".repeat(3);
+
+    let mut session = backend
+        .open(&q, &json!({ "body": body }))
+        .expect("open");
+    let pages = session.page_count();
+    assert!(pages >= 1);
+
+    for round in 0..3 {
+        let cs = session
+            .apply(&json!({ "body": body }))
+            .expect("apply identical");
+        assert_eq!(cs.page_count, pages);
+        assert!(
+            cs.dirty_pages.is_empty(),
+            "round {round}: identical markdown reapply must be clean, got {:?}",
+            cs.dirty_pages
+        );
+    }
+
+    // A real content change still dirties — the fingerprint didn't go blind.
+    let cs = session
+        .apply(&json!({ "body": format!("{body} plus a genuinely new sentence.") }))
+        .expect("apply changed");
+    assert!(
+        !cs.dirty_pages.is_empty(),
+        "a real edit must still dirty a page"
+    );
+}
+
 #[test]
 fn apply_is_transactional_on_compile_failure() {
     let backend = TypstBackend;
