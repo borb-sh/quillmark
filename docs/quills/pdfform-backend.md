@@ -198,6 +198,15 @@ The PDF is the real deliverable. By design (Technique A — real fields plus `Ne
 
 To get values into the SVG/PNG/canvas output, the backend pre-flattens them: it bakes each value into the page content stream (via a raster tree, hayro) so the raster is complete rather than background-only. This flattening backs the SVG/PNG/canvas surfaces only — never the AcroForm PDF deliverable, which is always stamped.
 
+### Flatten fidelity limits
+
+The stamped PDF is always faithful; the **flattened preview surfaces (SVG/PNG/canvas) are a lossy approximation** in two cases, because the flatten path bakes a fixed Helvetica appearance clipped to the field box rather than deferring to a viewer's form renderer. In both, the delivered PDF is correct — only the preview differs, and no diagnostic is raised.
+
+- **Non-WinAnsi characters render as `?`.** The flatten path encodes text as WinAnsi (CP1252). Any code point outside that range — CJK, emoji, and many symbols — is substituted with `?` in the preview, while the stamped PDF keeps full Unicode (UTF-16BE `/V`). A field whose value is `日本語` shows correctly in Acrobat but as `???` in the SVG/PNG/canvas.
+- **Multi-line overflow is clipped.** A multi-line value taller than its field box has its overflow lines clipped in the preview (the content is masked to the box), whereas the stamped PDF keeps the full value and lets the viewer wrap or scroll it. A preview can therefore look truncated where the delivered PDF is complete.
+
+Treat the stamped PDF, not the raster preview, as the source of truth for what a field actually contains.
+
 ### Regions sidecar
 
 Field geometry is a session-level query, not part of `RenderResult`: open a session and call `regions()` to get one entry per schema-bound field, keyed on its schema field path:

@@ -341,6 +341,20 @@ impl RenderError {
     pub fn into_diagnostics(self) -> Vec<Diagnostic> {
         self.diags
     }
+
+    /// The count-based summary line shared by `Display` and every binding's
+    /// exception message: the sole diagnostic's `message` for one, an
+    /// `"<N> error(s): <first message>"` aggregate for more. The single source
+    /// of truth for this rule — bindings delegate here rather than re-deriving
+    /// it. An empty slice yields `"render error"` defensively (see
+    /// [`RenderError::new`]'s debug-only non-empty invariant).
+    pub fn summary_message(diags: &[Diagnostic]) -> String {
+        match diags {
+            [d] => d.message.clone(),
+            [first, ..] => format!("{} error(s): {}", diags.len(), first.message),
+            [] => "render error".to_string(),
+        }
+    }
 }
 
 /// The primary message for a single diagnostic; an
@@ -348,11 +362,7 @@ impl RenderError {
 /// WASM binding applies to thrown `Error.message`.
 impl std::fmt::Display for RenderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.diags.as_slice() {
-            [d] => write!(f, "{}", d.message),
-            [first, ..] => write!(f, "{} error(s): {}", self.diags.len(), first.message),
-            [] => write!(f, "render error"),
-        }
+        write!(f, "{}", Self::summary_message(&self.diags))
     }
 }
 

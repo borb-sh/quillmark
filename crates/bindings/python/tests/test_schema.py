@@ -11,6 +11,8 @@ A field's *cell* is determined by whether the schema declares a `default:`.
   the default is used when absent.
 """
 
+import pytest
+
 from quillmark import Document, OutputFormat, Quill
 
 
@@ -134,34 +136,49 @@ def test_blueprint_no_legacy_required_optional_tags(tmp_path):
 # Validation surface — new diagnostic codes
 # ---------------------------------------------------------------------------
 
-def test_absent_unendorsed_is_nonfatal(engine, tmp_path):
-    """An absent Unendorsed field is not a render gate.
+@pytest.mark.parametrize(
+    "supplied_fields",
+    [
+        # Partial: an Endorsed override present, both Unendorsed fields omitted.
+        pytest.param("status: ready\n", id="partial"),
+        # Empty: nothing supplied at all.
+        pytest.param("", id="empty"),
+    ],
+)
+def test_absent_unendorsed_emits_no_completeness_codes(engine, tmp_path, supplied_fields):
+    """An absent Unendorsed field is not a render gate, and its absence is silent.
 
     Per the zero-filled-render contract (``prose/canon/SCHEMAS.md``), render
     succeeds — each absent field is zero-filled in the ephemeral plate
-    projection. Absence is silent: ``validation::field_absent`` is not emitted by
-    ``quill.validate``.
+    projection — and ``quill.validate`` surfaces neither the removed
+    ``validation::field_absent`` nor any legacy ``required`` code, whether the
+    document is partially filled or fully empty.
     """
     quill = make_quill(tmp_path)
     md = (
         "~~~card-yaml\n"
         "$quill: py_schema_smoke\n"
         "$kind: main\n"
-        "status: ready\n"          # Endorsed override
-        # title and count omitted — Unendorsed, no defaults
+        f"{supplied_fields}"
         "~~~\n"
     )
     doc = Document.from_markdown(md)
 
-    # Absence does not gate render: a merely incomplete document renders fine.
+    # Absence does not gate render: an incomplete (or empty) document renders fine.
     result = engine.render(quill, doc, OutputFormat.PDF)
     assert len(result.artifacts) > 0
 
-    # Absence is silent — field_absent is removed and never surfaced.
+    # Absence is silent — none of the removed/legacy completeness codes surface.
     codes = [d.get("code") for d in quill.validate(doc)]
-    assert "validation::field_absent" not in codes, (
-        f"field_absent is removed and must not be surfaced; got: {codes}"
-    )
+    for legacy in (
+        "validation::field_absent",
+        "validation::missing_required",
+        "validation::required_field_absent",
+        "validation::unfilled_placeholder",
+    ):
+        assert legacy not in codes, (
+            f"`{legacy}` must not be surfaced; got: {codes}"
+        )
 
 
 def test_render_tolerates_must_fill_marker(engine, tmp_path):
@@ -194,45 +211,6 @@ def test_render_tolerates_must_fill_marker(engine, tmp_path):
     )
     assert all(d.get("severity") == "warning" for d in fill), (
         f"validation::must_fill must be a non-fatal warning; got: {fill}"
-    )
-
-
-def test_absent_unendorsed_does_not_emit_legacy_codes(engine, tmp_path):
-    """An absent Unendorsed field emits no completeness/required codes.
-
-    Absence is silent under zero-filled render (``prose/canon/SCHEMAS.md``):
-    render succeeds and ``quill.validate`` surfaces no ``field_absent`` or
-    legacy ``required`` codes. The removed ``validation::field_absent`` and
-    the legacy ``validation::missing_required``,
-    ``validation::required_field_absent``, and
-    ``validation::unfilled_placeholder`` codes never appear.
-    """
-    quill = make_quill(tmp_path)
-    md = (
-        "~~~card-yaml\n"
-        "$quill: py_schema_smoke\n"
-        "$kind: main\n"
-        "~~~\n"
-    )
-    doc = Document.from_markdown(md)
-
-    # render zero-fills absent fields and succeeds
-    result = engine.render(quill, doc, OutputFormat.PDF)
-    assert len(result.artifacts) > 0
-
-    # the validate surface carries none of these codes
-    codes = [d.get("code") for d in quill.validate(doc)]
-    assert "validation::field_absent" not in codes, (
-        f"`validation::field_absent` is removed; got: {codes}"
-    )
-    assert "validation::missing_required" not in codes, (
-        f"`validation::missing_required` must not appear; got: {codes}"
-    )
-    assert "validation::required_field_absent" not in codes, (
-        f"`validation::required_field_absent` must not appear; got: {codes}"
-    )
-    assert "validation::unfilled_placeholder" not in codes, (
-        f"`validation::unfilled_placeholder` must not appear; got: {codes}"
     )
 
 

@@ -1066,10 +1066,7 @@ fn pydict_to_field_batch(
         }
     }
     if !diags.is_empty() {
-        let message = match diags.as_slice() {
-            [only] => only.message.clone(),
-            _ => format!("{} error(s): {}", diags.len(), diags[0].message),
-        };
+        let message = quillmark_core::RenderError::summary_message(&diags);
         return Err(raise_with_diagnostics(diags, message));
     }
     Ok(batch)
