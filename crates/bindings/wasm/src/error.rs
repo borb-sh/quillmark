@@ -28,10 +28,9 @@ impl WasmError {
     /// `"… N error(s)"` summary; callers should iterate `diagnostics` for
     /// the per-error details.
     pub fn message(&self) -> String {
-        match self.diagnostics.len() {
-            0 => "Unknown error".to_string(),
-            1 => self.diagnostics[0].message.clone(),
-            n => format!("{} error(s): {}", n, self.diagnostics[0].message),
+        match self.diagnostics.as_slice() {
+            [] => "Unknown error".to_string(),
+            diags => RenderError::summary_message(diags),
         }
     }
 

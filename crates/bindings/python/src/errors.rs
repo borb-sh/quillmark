@@ -35,10 +35,7 @@ pub fn convert_edit_errors(errors: Vec<(String, EditError)>) -> PyErr {
             .with_path(name)
         })
         .collect();
-    let message = match diags.as_slice() {
-        [only] => only.message.clone(),
-        _ => format!("{} error(s): {}", diags.len(), diags[0].message),
-    };
+    let message = RenderError::summary_message(&diags);
     raise_with_diagnostics(diags, message)
 }
 

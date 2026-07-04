@@ -1,5 +1,7 @@
-//! Issue #745: a Typst error whose span *does* resolve must be left unchanged
-//! by the eval-hint fallback.
+//! Issue #745: a Typst error raised from inside `#eval` whose span *does*
+//! resolve keeps its real source location. (The former eval-specific synthetic
+//! hint is retired — that no-synthetic-hint contract is covered directly by
+//! `error_mapping`'s `unresolvable_span_without_typst_hint_carries_no_hint`.)
 
 use std::collections::HashMap;
 use std::fs;
@@ -76,7 +78,7 @@ fn diagnostics_for(plate: &str) -> Vec<quillmark_core::Diagnostic> {
     }
 }
 
-/// A resolvable diagnostic keeps its location and does not get the generic hint.
+/// A resolvable eval error keeps its real source location.
 #[test]
 fn resolvable_eval_error_is_unchanged() {
     let diags = diagnostics_for(EVAL_ERROR_PLATE);
@@ -93,12 +95,5 @@ fn resolvable_eval_error_is_unchanged() {
     assert!(
         diag.location.is_some(),
         "this eval error resolves to the call site; expected a location, got None"
-    );
-    assert!(
-        diag.hint
-            .as_deref()
-            .is_none_or(|h| !h.contains("dynamically evaluated content")),
-        "a resolvable diagnostic must not receive the generic eval hint, got: {:?}",
-        diag.hint
     );
 }
