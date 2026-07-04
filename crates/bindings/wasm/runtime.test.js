@@ -357,9 +357,24 @@ describe('@quillmark/wasm/runtime — Engine (hidden core→backend crossing)', 
     globalThis.ImageData = FakeImageData
     globalThis.CanvasRenderingContext2D = FakeCanvasRenderingContext2D
 
+    // A SINGLE-LINE $body, deliberately. `fieldAt` hit-tests per-glyph ink
+    // boxes, so the probe point below (the region rect's centre) must land on
+    // ink: a one-line body's region rect IS that line's contiguous glyph
+    // boxes, so its centre is ink by construction. TEST_MARKDOWN's
+    // heading+paragraph body has an inter-line gap at the union rect's
+    // centre, where fieldAt correctly answers undefined.
+    const SMOKE_MARKDOWN = `~~~card-yaml
+$quill: test_quill
+$kind: main
+title: Smoke Test
+author: Smoke Author
+~~~
+
+A single line of body ink.`
+
     const engine = new Engine()
     const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = Document.fromMarkdown(SMOKE_MARKDOWN)
     const session = await engine.open(quill, doc)
     try {
       // Getters.
@@ -383,13 +398,16 @@ describe('@quillmark/wasm/runtime — Engine (hidden core→backend crossing)', 
       expect(size.widthPt).toBeGreaterThan(0)
       expect(size.heightPt).toBeGreaterThan(0)
 
-      // fieldAt — the delegation that was missing (#801). Hit-test the centre of
-      // the $body region's rect ([x0, y0, x1, y1], bottom-left PDF points) and
-      // expect it to resolve back to that field through the wrapper.
+      // fieldAt — the delegation that was missing (#801). Hit-test the centre
+      // of the $body region's rect ([x0, y0, x1, y1], bottom-left PDF points)
+      // — guaranteed ink for the single-line body (see SMOKE_MARKDOWN above) —
+      // and expect it to resolve back through the wrapper. Off any field's ink
+      // (the page corner) the contract is undefined.
       expect(typeof session.fieldAt).toBe('function')
       const [x0, y0, x1, y1] = body.rect
       const hit = session.fieldAt(body.page, (x0 + x1) / 2, (y0 + y1) / 2)
       expect(hit).toBe('$body')
+      expect(session.fieldAt(body.page, 1, 1)).toBeUndefined()
 
       // paint.
       expect(typeof session.paint).toBe('function')
@@ -399,7 +417,7 @@ describe('@quillmark/wasm/runtime — Engine (hidden core→backend crossing)', 
 
       // apply — recompile in place.
       expect(typeof session.apply).toBe('function')
-      const cs = session.apply(Document.fromMarkdown(TEST_MARKDOWN))
+      const cs = session.apply(Document.fromMarkdown(SMOKE_MARKDOWN))
       expect(Array.isArray(cs.dirtyPages)).toBe(true)
     } finally {
       session.free()
