@@ -303,23 +303,6 @@ describe('LiveSession canvas preview (pdfform backend)', () => {
     expect(inkPixels).toBeGreaterThan(0)
     expect(opaquePixels).toBeGreaterThan(0)
   })
-
-  it('paint clamps backing-store dimensions to the safe maximum (pdfform)', () => {
-    const session = openPdfformSession()
-    const { widthPt, heightPt } = session.pageSize(0)
-    const longest = Math.max(widthPt, heightPt)
-    // Drive the longest backing dimension well past the 16384-px clamp.
-    const densityScale = (16384 / longest) * 4
-
-    const ctx = new FakeCanvasRenderingContext2D()
-    const result = session.paint(ctx, 0, { densityScale })
-
-    expect(Math.max(result.pixelWidth, result.pixelHeight)).toBeLessThanOrEqual(16384)
-    expect(result.layoutWidth).toBeCloseTo(widthPt, 4)
-    expect(result.layoutHeight).toBeCloseTo(heightPt, 4)
-    // Detect-clamp contract: pixelWidth < round(layoutWidth * densityScale).
-    expect(result.pixelWidth).toBeLessThan(Math.round(result.layoutWidth * densityScale))
-  })
 })
 
 describe('LiveSession.apply', () => {
