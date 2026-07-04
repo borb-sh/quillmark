@@ -27,7 +27,6 @@ use quillmark_core::{
     LiveSession, OutputFormat, Quill, QuillValue, RenderError, RenderOptions, RenderResult,
     Severity,
 };
-use std::any::Any;
 use std::collections::HashMap;
 
 /// Typst backend implementation for Quillmark.
@@ -42,9 +41,10 @@ const SUPPORTED_FORMATS: &[OutputFormat] =
 /// Holds the compiled `PagedDocument` *and* the `QuillWorld` it was compiled
 /// through. Persisting the world keeps fonts, packages, and assets parsed once
 /// per session rather than once per compile — the substrate for incremental
-/// recompiles. Exposes Typst-only operations (page geometry, raster rendering)
-/// used by the WASM canvas painter.
-pub struct TypstSession {
+/// recompiles. Typst-only operations (page geometry, raster rendering) are
+/// served generically through the `SessionHandle` trait; callers never name
+/// this type.
+struct TypstSession {
     world: world::QuillWorld,
     document: typst_layout::PagedDocument,
     page_count: usize,
@@ -303,10 +303,6 @@ impl SessionHandle for TypstSession {
 
     fn page_count(&self) -> usize {
         self.page_count
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 
     /// Incremental recompile against new document data. The persistent world

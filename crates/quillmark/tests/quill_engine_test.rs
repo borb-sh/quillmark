@@ -114,11 +114,6 @@ fn test_quill_render_succeeds_with_engine_loaded_quill() {
         },
     );
 
-    if let Err(e) = &result {
-        if e.diagnostics()[0].message.contains("No fonts found") {
-            return;
-        }
-    }
     assert!(
         result.is_ok(),
         "render should succeed for engine-loaded quill"
