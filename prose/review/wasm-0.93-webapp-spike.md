@@ -24,11 +24,12 @@
 - Verified against the production quill catalog: a real-wasm vitest
   suite (open / apply / ChangeSet / transactional failure / regions /
   `fieldAt`) plus a browser drive of the live app.
-- Four passes so far: filed findings as #782 (resolved by
+- Five passes so far: filed findings as #782 (resolved by
   #783/#784/#785/#788); pulled onto the span-based region rework (#795,
   superseding #788) and a helper-codegen rewrite (#800), filing the two
-  findings below as #801; pulled again onto #801's fix (landed as
-  #813) plus an unrelated correctness fix (#814), which is the pass
+  findings below as #801; pulled onto #801's fix (#813) plus an
+  unrelated correctness fix (#814); pulled onto two further backlog-
+  cleanup commits (#815, #816) with no findings — see below, the pass
   this report now describes.
 
 The surface holds together: `apply` is transactional as documented, a
@@ -111,6 +112,63 @@ system rework (no behavioral change).
 **No web-app action**: confirmed none of the four production quills
 (`usaf_memo`, `af4141`, `daf1206`, `daf4392`) declare a `type: object`
 field, so this bug had no surface to affect in the current catalog.
+
+## This pass: two backlog-cleanup commits reviewed line-by-line, no findings (#815, #816)
+
+Read every changed file in both commits rather than trusting the
+titles — the last three passes each turned up something the changelog
+didn't mention, so "cleanup, no consumer impact" got the same scrutiny
+as a breaking change would.
+
+**#816** ("Ground #809/#810"): `content_field_names`/`date_field_names`/
+`array_field_names` (`crates/backends/typst/src/lib.rs`) now share one
+`field_names_where(properties, predicate)` filter — confirmed
+byte-identical map-order iteration to the three separate loops it
+replaced, so `regions()`'s enumeration order (which the region tests
+and this branch's `fieldAt`/widget-ordering assertions depend on) is
+unaffected. `quillmark-pdf`'s `splice_dict_value` deduplicates a
+pointer-arithmetic dict-rewrite that already existed, verbatim, at two
+call sites (`stamp.rs`, `writer.rs`) — not a new pattern, just one copy
+instead of two; both existing call sites already upheld the "value
+must be a subslice `find_dict_value` returned from this exact buffer"
+contract the function's doc comment states. `PdfUpdate::resolve_pages`
+now memoizes its per-page generation/rotation checks — sound, because
+those checks are pure validity predicates over a fixed byte buffer
+within one call; skipping a repeat check for an already-validated page
+cannot let an invalid page through. A new doc comment on
+`COMEMO_EVICT_MAX_AGE` (`crates/backends/typst/src/compile.rs`) honestly
+notes the eviction clock is process-global, not per-`QuillWorld` — cache
+reuse degrades under concurrent-session use (a multi-tenant server, not
+web-app's one-session-per-tab preview), never a wrong render.
+
+**#815** ("Tidy deferred backlog"): the count-based error-summary rule
+(`"<N> error(s): <first message>"` / bare message / `"render error"`)
+is now one function, `RenderError::summary_message`, with `Display`,
+the WASM binding, and both Python error paths delegating to it instead
+of re-deriving it. Traced the WASM path specifically since it's what
+web-app's `diagnostic-utils.ts` consumes: `WasmError::message()` still
+short-circuits its own `[] → "Unknown error"` case before ever calling
+`summary_message` (whose own empty-case default, `"render error"`, is
+therefore unreachable from WASM) — the one- and many-diagnostic cases
+delegate and produce byte-identical strings to before. Zero
+consumer-visible change. A test file (`eval_error_hint.rs`) dropped an
+assertion for a retired synthetic-hint feature; confirmed the claimed
+replacement coverage (`error_mapping::unresolvable_span_without_typst_hint_carries_no_hint`)
+actually exists rather than taking the commit message's word for it.
+New `pdfform-backend.md` documentation of a real (pre-existing, not
+new) limitation — the flattened SVG/PNG/canvas preview renders
+non-WinAnsi characters as `?` and clips multi-line overflow, while the
+stamped PDF stays correct and complete — worth remembering if web-app
+ever adopts a genuine `pdfform` quill (today's DAF-form quills are
+Typst recreations, not pdfform, so this has no current surface either).
+
+**Outcome**: no web-app source changes this pass. Rebuilt `pkg/`
+(`0.92.2-dev.5d19050`), reran the full integration suite unchanged
+(4/4 pass, same assertions as last pass), and the rest of web-app's
+verification (svelte-check, lint, 594 server + 22 browser tests,
+production build) is clean without touching any consumer code — the
+first pull in this branch's history where "rebuild and reverify" was
+the entire task.
 
 ## Superseded from the previous pass: `tagged()` is gone, replaced by span tracking (#795)
 
