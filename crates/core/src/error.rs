@@ -397,10 +397,6 @@ impl RenderResult {
         }
     }
 
-    pub fn with_warning(mut self, warning: Diagnostic) -> Self {
-        self.warnings.push(warning);
-        self
-    }
 }
 
 pub fn print_errors(err: &RenderError) {
@@ -532,14 +528,4 @@ mod tests {
         assert!(output.contains("Underlying error"));
     }
 
-    #[test]
-    fn test_render_result_with_warnings() {
-        let artifacts = vec![];
-        let warning = Diagnostic::new(Severity::Warning, "Test warning".to_string());
-
-        let result = RenderResult::new(artifacts, OutputFormat::Pdf).with_warning(warning);
-
-        assert_eq!(result.warnings.len(), 1);
-        assert_eq!(result.warnings[0].message, "Test warning");
-    }
 }

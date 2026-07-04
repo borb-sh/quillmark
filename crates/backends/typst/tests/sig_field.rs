@@ -180,7 +180,6 @@ Page 2.
 #signature-field("b")
 "#;
     let pdf = compile(plate).expect("compile ok");
-    fs::write("/tmp/qm_sig_two_pages.pdf", &pdf).ok();
 
     let doc = lopdf::Document::load_mem(&pdf).expect("lopdf reparse");
     let cat = doc.catalog().expect("catalog");
