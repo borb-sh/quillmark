@@ -84,9 +84,12 @@ Per field, in order:
 2. `# e.g. <value>` — emitted on an **Endorsed** field whenever `example:`
    is configured. Independent of type. On an Endorsed field the example
    never becomes the rendered value, so it surfaces as a hint. On an
-   **Unendorsed** field there is no `# e.g.` line: the example inlines
+   **Unendorsed** field there is normally no `# e.g.` line: the example inlines
    directly as the `!must_fill` marker's suggested value (see "Placeholder
-   value precedence"), so a separate hint would be redundant.
+   value precedence"), so a separate hint would be redundant. The one exception
+   is `markdown`, which never inlines its example as the value — an Unendorsed
+   markdown field with an `example:` therefore keeps the `# e.g.` line (see
+   "Markdown fields").
 
 That's it. There is no leading `# required`, `# enum:`, `# default:`, or
 `# type:` — those collapse into the inline.
@@ -179,7 +182,9 @@ signal on its own.
 An `example` on an **Endorsed** field never becomes the rendered value — it
 surfaces in the `# e.g.` leading line instead. Only **Unendorsed** fields
 inline the example as the marker's suggested value. This holds uniformly for
-scalars, arrays, typed tables, and typed dictionaries.
+scalars, arrays, typed tables, and typed dictionaries — **except `markdown`**,
+which never inlines its example as a value in either endorsement state; its
+`example:` always surfaces as the `# e.g.` line (see "Markdown fields").
 
 All fields render as **live YAML** — no commented-out fields. The `!must_fill`
 marker is the sole "must fill" signal: a reader's mental model is one rule —
@@ -209,6 +214,15 @@ bio: !must_fill # markdown
 
 The LLM replaces the marked field with its markdown content (a quoted scalar
 or a block scalar, the consumer's choice); the marker signals "fill me."
+
+Unlike other scalars, markdown never inlines its `example:` as the marker's
+suggested value (a block-scalar placeholder would be indistinguishable from
+real content). Instead the `example:` surfaces as a `# e.g.` leading hint:
+
+```
+# e.g. Hello world
+bio: !must_fill # markdown
+```
 
 When a `default:` is configured, the field is **Endorsed** and renders its
 default as an **inline double-quoted scalar** with `\n` escapes — the canonical

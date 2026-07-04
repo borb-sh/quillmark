@@ -221,7 +221,8 @@ fn push_leading(items: &mut Vec<PayloadItem>, field: &FieldSchema, eg_when: bool
 /// The cell's `(value, fill)` for a scalar/array/markdown leaf, per the value
 /// cascade. Endorsed → the default, no marker. Unendorsed → the `example` (when
 /// present) carried by the marker, else a bare null marker. Markdown never
-/// inlines an example: an Unendorsed markdown leaf is always a bare marker.
+/// inlines an example: an Unendorsed markdown leaf is always a bare marker, but
+/// its `example:` still surfaces as a `# e.g.` hint (see `append_scalar`).
 fn scalar_cell(field: &FieldSchema) -> (JsonValue, bool) {
     if let Some(default) = &field.default {
         return (default.as_json().clone(), false);
@@ -238,7 +239,11 @@ fn scalar_cell(field: &FieldSchema) -> (JsonValue, bool) {
 /// Append a scalar / scalar-array / markdown field as a single payload field
 /// plus its trailing inline type annotation.
 fn append_scalar(items: &mut Vec<PayloadItem>, field: &FieldSchema) {
-    push_leading(items, field, field.default.is_some());
+    // Markdown never inlines its `example:` as the marker value, so — unlike
+    // other Unendorsed scalars — the example would vanish entirely. Surface it
+    // as a `# e.g.` hint instead (the hint no-ops when no `example:` is set).
+    let eg_when = field.default.is_some() || matches!(field.r#type, FieldType::Markdown);
+    push_leading(items, field, eg_when);
     let (json, fill) = scalar_cell(field);
     items.push(PayloadItem::Field {
         key: field.name.clone(),
@@ -457,6 +462,20 @@ main:
 "#)
         .blueprint();
         assert!(t.contains("author: !must_fill # string\n"));
+    }
+
+    #[test]
+    fn must_fill_markdown_example_surfaces_as_eg_hint_not_inline_value() {
+        // Markdown never inlines its example as the marker value, but the
+        // `example:` must still surface as a `# e.g.` hint (regression: #805).
+        let t = cfg(r#"
+quill: { name: x, version: 1.0.0, backend: typst, description: x }
+main:
+  fields:
+    bio: { type: markdown, example: "Hello world" }
+"#)
+        .blueprint();
+        assert!(t.contains("# e.g. Hello world\nbio: !must_fill # markdown\n"));
     }
 
     #[test]

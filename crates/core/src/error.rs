@@ -313,7 +313,11 @@ pub struct RenderError {
 }
 
 impl RenderError {
-    /// Wrap `diags` as a failure. `diags` must be non-empty.
+    /// Wrap `diags` as a failure. `diags` should be non-empty; the invariant is
+    /// enforced only by `debug_assert!`, so a release build can construct an
+    /// empty `RenderError`. That is deliberately non-fatal: the `Display` impl
+    /// carries an `[]` fallback branch rather than promising the invariant is
+    /// load-bearing. Every internal caller passes a non-empty vec.
     pub fn new(diags: Vec<Diagnostic>) -> Self {
         debug_assert!(
             !diags.is_empty(),
@@ -327,7 +331,8 @@ impl RenderError {
         Self { diags: vec![diag] }
     }
 
-    /// Returns all diagnostics for this error. Always non-empty.
+    /// Returns all diagnostics for this error. Non-empty by construction (see
+    /// [`RenderError::new`]'s debug-asserted invariant).
     pub fn diagnostics(&self) -> &[Diagnostic] {
         &self.diags
     }
