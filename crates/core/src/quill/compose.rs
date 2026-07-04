@@ -345,6 +345,10 @@ fn resolve_fields(
 ///   [`zero_value`].
 /// - A present **typed dictionary** is rebuilt from its declared properties so a
 ///   null/absent property zero-fills and the projection matches the schema shape.
+///   Source keys the schema does not declare pass through verbatim, matching
+///   `config::coerce_object_props`'s coercion-time behavior — the schema is a
+///   floor, not an allowlist, so an undeclared `note:` on a typed dict reaches
+///   the plate instead of being silently dropped.
 /// - A present **typed array** resolves each element against the item schema, so
 ///   a null element zero-fills in place.
 /// - Any other present value is returned unchanged.
@@ -365,6 +369,16 @@ fn resolve_value(value: Option<&QuillValue>, field: &FieldSchema) -> QuillValue 
                     pname.clone(),
                     resolve_value(pv.as_ref(), pschema).into_json(),
                 );
+            }
+            // Preserve undeclared keys verbatim; only rebuild the ones the
+            // schema names. Skips keys already emitted above so a declared
+            // property keeps its resolved (zero-filled) value.
+            if let Some(o) = obj {
+                for (k, v) in o {
+                    if !props.contains_key(k) {
+                        out.insert(k.clone(), v.clone());
+                    }
+                }
             }
             QuillValue::from_json(serde_json::Value::Object(out))
         }
@@ -462,4 +476,57 @@ fn fill_warning(path: &str) -> Diagnostic {
          current value is intended."
             .to_string(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn field(yaml: &str) -> FieldSchema {
+        let value = QuillValue::from_yaml_str(yaml).unwrap();
+        FieldSchema::from_quill_value("field".to_string(), &value).unwrap()
+    }
+
+    // A typed dictionary carrying a key the schema does not declare keeps that
+    // key in the resolved projection (regression guard for #803: the schema is
+    // a floor, not an allowlist). Declared-but-absent properties still zero-fill.
+    #[test]
+    fn typed_dict_preserves_undeclared_keys() {
+        let schema = field(
+            r#"
+type: object
+properties:
+  street: { type: string }
+  zip: { type: integer }
+"#,
+        );
+        let input = QuillValue::from_json(json!({ "street": "1 Infinite Loop", "note": "extra" }));
+
+        let resolved = resolve_value(Some(&input), &schema).into_json();
+
+        assert_eq!(
+            resolved,
+            json!({ "street": "1 Infinite Loop", "zip": 0, "note": "extra" })
+        );
+    }
+
+    // Same pass-through inside a typed-table row (the Array→Object recursion).
+    #[test]
+    fn typed_table_row_preserves_undeclared_keys() {
+        let schema = field(
+            r#"
+type: array
+items:
+  type: object
+  properties:
+    name: { type: string }
+"#,
+        );
+        let input = QuillValue::from_json(json!([{ "name": "ACME", "year": 2020 }]));
+
+        let resolved = resolve_value(Some(&input), &schema).into_json();
+
+        assert_eq!(resolved, json!([{ "name": "ACME", "year": 2020 }]));
+    }
 }

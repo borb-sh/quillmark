@@ -159,6 +159,77 @@ The label `<__qm_field__>` and metadata `kind: "__qm_field__"` are reserved for 
 > `query(metadata)`, filter to your own elements rather than assuming a single
 > or last metadata element.
 
+## Form Fields
+
+`signature-field` is a thin wrapper over the general `form-field` primitive, which backs all four widget kinds — text inputs, checkboxes, choice dropdowns, and signature boxes. Import it from the same helper package:
+
+```typst
+#import "@local/quillmark-helper:0.1.0": form-field
+```
+
+Each call drops an AcroForm widget at its call site (a clickable field in PDF; reserved invisible layout space in SVG/PNG, same as `signature-field`). Value binding is the plate author's job — pass `value:` straight from your data; there is no resolver on the Typst side.
+
+### Parameters
+
+| Name | Type | Default | Notes |
+|---|---|---|---|
+| `name` | `str` | required (positional) | Widget `/T` name — unique within the document, matching `[A-Za-z0-9_.]+`. Shares one uniqueness domain with `signature-field`. |
+| `type` | `str` | `"text"` | One of `"text"`, `"checkbox"`, `"choice"`, `"signature"`. |
+| `value` | per type | `none` | The delivered field value; interpretation depends on `type` (see below). |
+| `options` | `array` of `str` | `()` | Display strings for `type: "choice"`; ignored otherwise. |
+| `multiline` | `bool` | `false` | Toggles the multi-line flag for `type: "text"`; ignored otherwise. |
+| `width` | `length` | `200pt` | Absolute length (`pt`/`mm`/`cm`/`in`); relative lengths (`2em`, `50%`) are rejected. |
+| `height` | `length` | `20pt` | Same constraint as `width`. |
+| `field` | `str` or `none` | `none` | Schema-field address this widget's region is keyed on (see "Binding to a schema field"). |
+
+Positioning works exactly as for `signature-field` (in-flow reserves space; wrap in `#place(...)` to overlay without displacement) — see the "Positioning" notes above.
+
+### The four field types
+
+`value:` is forwarded verbatim; the Rust adapter maps it to the AcroForm value per `type`:
+
+**Text** — `value` is a string (numbers stringify). A blank value emits no `/V`. Set `multiline: true` for a multi-line box.
+
+```typst
+#form-field("full_name", type: "text", value: data.name)
+#form-field("bio", type: "text", value: data.bio, multiline: true, height: 80pt)
+```
+
+**Checkbox** — `value` is a bool; `true` renders checked.
+
+```typst
+#form-field("agree", type: "checkbox", value: data.agree)
+```
+
+**Choice** — `value` is a string, bound only if it matches an entry in `options`.
+
+```typst
+#form-field("size", type: "choice", options: ("S", "M", "L"), value: data.size)
+```
+
+**Signature** — `value` is ignored; the widget is an unsigned SigField (Quillmark performs no cryptography — sign the output with pyHanko, Acrobat, endesive, etc.). `signature-field(name, ...)` is exactly `form-field(name, type: "signature", ...)`.
+
+```typst
+#form-field("approver", type: "signature", height: 50pt)
+```
+
+### Binding to a schema field
+
+By default a widget's only identity is its `/T` name. Pass `field:` to additionally key the widget's region on a schema-field address, so it surfaces in the geometry sidecar (`session.regions()`) and resolves under `session.fieldAt(...)`:
+
+```typst
+#form-field("Signature", type: "signature", field: "signature_block")
+```
+
+`field:` is **region-only** — the `/T` widget name stays `name`; only the sidecar entry keys on `field:`. The address must be a real schema field: a bare field name, an array element like `"refs.2"`, or a card path built from the card's `$path` prefix (a bad address raises a Typst assert). Omit `field:` and the widget exposes no region — a click has no schema field to route to.
+
+### Errors
+
+- Duplicate `name` across any `form-field`/`signature-field` calls → `typst::duplicate_form_field`.
+- A non-absolute `width`/`height`, a `type` outside the four values, a name violating `[A-Za-z0-9_.]+`, or a `field:` that is not a known schema address → a Typst assert pointing at `form-field`.
+
+The label `<__qm_field__>` and metadata `kind: "__qm_field__"` are reserved for this hand-off — the same `query(metadata)` caveat noted for `signature-field` applies.
+
 ## Output Formats
 
 PDF and SVG render as a single artifact. PNG renders one artifact per page.

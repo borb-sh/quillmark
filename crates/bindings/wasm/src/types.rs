@@ -275,10 +275,11 @@ pub struct RenderOptions {
     pub ppi: Option<f32>,
     /// Optional 0-based page indices to render (e.g., `[0, 2]` for the
     /// first and third pages). `undefined` renders all pages. Any index
-    /// `>= pageCount` causes the render to throw — read
-    /// `LiveSession.pageCount` first if validation is needed.
+    /// `>= pageCount` throws with the `typst::page_index_out_of_bounds`
+    /// code — read `LiveSession.pageCount` first if validation is needed.
     /// **Not supported for PDF output** — passing `pages` with
-    /// `format: "pdf"` yields a `FormatNotSupported` error.
+    /// `format: "pdf"` throws with the
+    /// `typst::pdf_page_selection_not_supported` code.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pages: Option<Vec<usize>>,
     /// Override for the PDF `/Info` `/Producer` metadata string. Omit to use
