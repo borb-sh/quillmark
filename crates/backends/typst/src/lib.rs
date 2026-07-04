@@ -97,14 +97,17 @@ pub struct TypstSession {
 /// pixel-for-pixel identically must hash identically, and only render-affecting
 /// data (font, size, paint, glyph geometry, position) may enter the hash.
 ///
-/// The hazard is #795-specific and #801 flagged it: the span rework routes
-/// content-field glyphs' spans into the helper `lib.typ`, regenerated and
-/// reparsed on every committed `apply`. Typst assigns glyph spans by parse
-/// numbering, which is deterministic across separate compiles of byte-identical
-/// source *today* — so this is not observed to misfire on the Rust path — but a
-/// content fingerprint has no business depending on that guarantee. Excluding
-/// spans makes the invariant structural instead of incidental: a page cannot be
-/// reported dirty for a source-location shift that moved no ink.
+/// This is the #801 dirty-every-reapply bug, and it is real, not theoretical.
+/// The span rework (#795) routes content-field glyphs' spans into the helper
+/// `lib.typ`, which is regenerated per `apply` with a `data` literal whose keys
+/// serialize in field order (`serde_json` is built with `preserve_order`). An
+/// editor's mutate path can hand `apply` the SAME content in a different field
+/// order than `open` saw; that shifts the helper's byte layout, hence every
+/// content block's glyph spans below it — with no change to a single rendered
+/// pixel. Folding those spans into the hash reported the content page dirty on
+/// every such reapply (see `reapply_with_reordered_fields_same_content_is_clean`
+/// in `tests/live_apply.rs`). Excluding spans makes the invariant structural: a
+/// page cannot be reported dirty for a source-location shift that moved no ink.
 fn page_hashes(document: &typst_layout::PagedDocument) -> Vec<u128> {
     use std::hash::{Hash, Hasher};
     use typst::layout::FrameItem;

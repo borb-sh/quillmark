@@ -135,9 +135,7 @@ fn identical_reapply_of_markdown_content_is_clean() {
     let q = markdown_quill();
     let body = "This is a **markdown** paragraph that renders some real ink. ".repeat(3);
 
-    let mut session = backend
-        .open(&q, &json!({ "body": body }))
-        .expect("open");
+    let mut session = backend.open(&q, &json!({ "body": body })).expect("open");
     let pages = session.page_count();
     assert!(pages >= 1);
 
@@ -161,6 +159,87 @@ fn identical_reapply_of_markdown_content_is_clean() {
         !cs.dirty_pages.is_empty(),
         "a real edit must still dirty a page"
     );
+}
+
+/// A two-content-field quill whose plate places both fields, so the generated
+/// helper `lib.typ` carries both a data literal and two content blocks.
+fn two_field_quill() -> Quill {
+    const YAML: &str = r#"quill:
+  name: live_two_field
+  version: 0.1.0
+  backend: typst
+  description: two markdown fields
+typst:
+  plate_file: plate.typ
+main:
+  fields:
+    body:
+      type: markdown
+      description: a markdown body
+    note:
+      type: markdown
+      description: a markdown note
+"#;
+    const PLATE: &str = r#"#import "@local/quillmark-helper:0.1.0": data
+#set page(width: 300pt, height: 200pt, margin: 20pt)
+#set text(size: 11pt)
+#data.body
+
+#data.note
+"#;
+    let mut files = HashMap::new();
+    files.insert(
+        "Quill.yaml".to_string(),
+        FileTreeNode::File {
+            contents: YAML.as_bytes().to_vec(),
+        },
+    );
+    files.insert(
+        "plate.typ".to_string(),
+        FileTreeNode::File {
+            contents: PLATE.as_bytes().to_vec(),
+        },
+    );
+    Quill::from_tree(FileTreeNode::Directory { files }).expect("quill")
+}
+
+#[test]
+fn reapply_with_reordered_fields_same_content_is_clean() {
+    // The web-app's #801 `[0]`, reproduced at the backend. `serde_json` is built
+    // with `preserve_order`, so field insertion order survives on the wire, and
+    // the helper codegen emits the `data` literal in that order. An editor's
+    // mutate path can hand `apply` a document with the SAME content but a
+    // different field order than `open` saw — which shifts the byte layout of
+    // the helper `lib.typ`, hence every content block's glyph `Span`s below it.
+    // The old page fingerprint folded those spans in and reported the page dirty
+    // for a source-location shift that moved no ink; hashing only rendered
+    // content keeps a reorder clean.
+    let backend = TypstBackend;
+    let q = two_field_quill();
+
+    // Same values, opposite key order.
+    let opened: serde_json::Value = serde_json::from_str(
+        r#"{"body":"**Body** paragraph with real ink.","note":"A note with ink too."}"#,
+    )
+    .unwrap();
+    let reordered: serde_json::Value = serde_json::from_str(
+        r#"{"note":"A note with ink too.","body":"**Body** paragraph with real ink."}"#,
+    )
+    .unwrap();
+
+    let mut session = backend.open(&q, &opened).expect("open");
+    let cs = session.apply(&reordered).expect("apply reordered");
+    assert!(
+        cs.dirty_pages.is_empty(),
+        "same content in a different field order moved no ink; got dirty {:?}",
+        cs.dirty_pages
+    );
+
+    // And a genuine edit through the same reordered document still dirties.
+    let mut edited = reordered.clone();
+    edited["body"] = json!("**Body** paragraph with real ink, now extended further.");
+    let cs = session.apply(&edited).expect("apply edited");
+    assert!(!cs.dirty_pages.is_empty(), "a real edit must still dirty");
 }
 
 #[test]
