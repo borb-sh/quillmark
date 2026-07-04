@@ -165,7 +165,7 @@ pub(crate) fn winansi_byte(c: char) -> Option<u8> {
 }
 
 /// Transcode `s` to WinAnsi (CP1252) bytes, substituting `?` for any code point
-/// WinAnsi cannot represent. See [`winansi_byte`].
+/// WinAnsi cannot represent. Per-char via the crate-private `winansi_byte`.
 pub fn winansi_encode(s: &str) -> Vec<u8> {
     s.chars().map(|c| winansi_byte(c).unwrap_or(b'?')).collect()
 }
