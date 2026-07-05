@@ -220,8 +220,11 @@ fn emit_richtext(rt: &RichText) -> Result<EmittedContent, EmitError>
   nothing.
 - **Islands are mandatory here, not Phase 4.** Migrated bodies carry tables and
   images; skipping them regresses rendering. `table` props → `#table(columns:,
-  align:, table.header(…), …)` (today's grammar); `image` → `#image("url", alt:)`;
-  unknown island types emit nothing (documented, parallel to the HTML rule).
+  align:, table.header(…), …)`; each cell is structured `{text, marks}` (Option A,
+  landed), so its inline marks lower through the same mark sweep — `**bold**` in a
+  cell renders `#strong[bold]`, not an escaped source slice. `image` →
+  `#image("url", alt:)`; unknown island types emit nothing (documented, parallel
+  to the HTML rule).
 - **The 2→4 coupling and recomputation.** Each run records only its `(corpus, gen)`
   pair; per-char spans are **recomputed** (Spike B: invertible, no stored tables)
   by a one-scan that treats `//`→`\/\/` as a 2-char/4-byte cluster and every other
