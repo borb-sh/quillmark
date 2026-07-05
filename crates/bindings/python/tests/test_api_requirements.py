@@ -231,7 +231,7 @@ def test_replace_body():
     """replace_body replaces the global Markdown body."""
     doc = Document.from_markdown(SIMPLE_MD)
     doc.replace_body("New body content.")
-    assert doc.body == "New body content."
+    assert doc.body == "New body content.\n"
 
 
 def test_push_card():
@@ -240,7 +240,7 @@ def test_push_card():
     doc.push_card({"kind": "note", "body": "Card body."})
     assert len(doc.cards) == 1
     assert doc.cards[0]["kind"] == "note"
-    assert doc.cards[0]["body"] == "Card body."
+    assert doc.cards[0]["body"] == "Card body.\n"
 
 
 def test_push_card_invalid_kind():
@@ -266,7 +266,7 @@ def test_remove_card_then_push_card_round_trips_fields():
     assert len(doc.cards) == 1
     assert doc.cards[0]["kind"] == "note"
     assert field(doc.cards[0], "author") == "Alice"  # field survived the round-trip
-    assert doc.cards[0]["body"] == "Body"
+    assert doc.cards[0]["body"] == "Body\n"
 
 
 def test_make_card_accepts_any_kind_push_card_is_the_gate():
@@ -361,7 +361,7 @@ def test_update_card_body():
     """update_card_body replaces the card body."""
     doc = Document.from_markdown(MD_WITH_CARDS)
     doc.update_card_body(0, "New card body.")
-    assert doc.cards[0]["body"] == "New card body."
+    assert doc.cards[0]["body"] == "New card body.\n"
 
 
 def test_update_card_body_out_of_range():
@@ -529,7 +529,7 @@ def test_to_markdown_general_round_trip():
     assert len(doc2.cards) == original_card_count + 1
     assert doc2.cards[0]["kind"] == "note"
     assert field(doc2.cards[0], "author") == "Alice"
-    assert doc2.cards[0]["body"] == "Hello"
+    assert doc2.cards[0]["body"] == "Hello\n"
 
 
 def test_to_markdown_ambiguous_string_survival():

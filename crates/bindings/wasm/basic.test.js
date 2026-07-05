@@ -180,7 +180,7 @@ describe('Document.toMarkdown — fromMarkdown → mutate → emit → re-parse'
     expect(doc2.cards.length).toBe(originalCardCount + 1)
     expect(doc2.cards[0].kind).toBe('note')
     expect(field(doc2.cards[0], 'author')).toBe('Alice')
-    expect(doc2.cards[0].body).toBe('Hello')
+    expect(doc2.cards[0].body).toBe('Hello\n')
   })
 
   it('ambiguous-string survival: YAML-keyword values are preserved as strings', () => {
@@ -243,7 +243,7 @@ describe('Document JSON DTO — toJson / fromJson', () => {
     expect(field(restored.main, 'title')).toBe('New Title')
     expect(restored.cards[0].kind).toBe('note')
     expect(field(restored.cards[0], 'author')).toBe('Alice')
-    expect(restored.cards[0].body).toBe('Hello')
+    expect(restored.cards[0].body).toBe('Hello\n')
   })
 
   it('toJson output is standard JSON parseable by the JSON global', () => {
@@ -577,7 +577,7 @@ describe('Document editor surface — setQuillRef / replaceBody', () => {
   it('replaceBody changes the body', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     doc.replaceBody('Brand new body.')
-    expect(doc.main.body).toBe('Brand new body.')
+    expect(doc.main.body).toBe('Brand new body.\n')
   })
 })
 
@@ -608,7 +608,7 @@ Card two.
     doc.pushCard(Document.makeCard('note', {}, 'My card.'))
     expect(doc.cards.length).toBe(1)
     expect(doc.cards[0].kind).toBe('note')
-    expect(doc.cards[0].body).toBe('My card.')
+    expect(doc.cards[0].body).toBe('My card.\n')
   })
 
   it('pushCard throws on invalid kind', () => {
@@ -827,7 +827,7 @@ Card body.
   it('updateCardBody replaces card body', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARD)
     doc.updateCardBody(0, 'New card body.')
-    expect(doc.cards[0].body).toBe('New card body.')
+    expect(doc.cards[0].body).toBe('New card body.\n')
   })
 
   it('updateCardBody throws IndexOutOfRange when card absent', () => {
@@ -848,10 +848,10 @@ describe('Document editor surface — parse→mutate→read round-trip', () => {
 
     // Assert state
     expect(field(doc.main, 'author')).toBe('Bob')
-    expect(doc.main.body).toBe('New body text.')
+    expect(doc.main.body).toBe('New body text.\n')
     expect(doc.cards.length).toBe(1)
     expect(doc.cards[0].kind).toBe('note')
-    expect(doc.cards[0].body).toBe('Card content.')
+    expect(doc.cards[0].body).toBe('Card content.\n')
     expect(doc.quillRef).toBe('updated_quill')
 
     // Original title still present
