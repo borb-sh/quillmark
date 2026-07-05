@@ -113,9 +113,9 @@ pub struct Card {
 
 impl Card {
     /// Create a `Card` from its parts without validation. `body` is the corpus
-    /// form; to build from an authored markdown string, import it first via
-    /// [`import_body`]. For user-facing construction of composable cards use
-    /// [`Card::new`].
+    /// form; to build from an authored markdown string, import it first via the
+    /// crate-internal `import_body` boundary. For user-facing construction of
+    /// composable cards use [`Card::new`].
     pub fn from_parts(payload: Payload, body: RichText) -> Self {
         Self { payload, body }
     }

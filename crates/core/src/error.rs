@@ -245,8 +245,7 @@ pub enum ParseError {
 
     /// A card body's markdown could not be imported into the corpus model —
     /// today only when container nesting exceeds
-    /// [`MAX_NESTING_DEPTH`](crate::error::MAX_NESTING_DEPTH). Code
-    /// `parse::body_import`.
+    /// [`MAX_NESTING_DEPTH`]. Code `parse::body_import`.
     #[error("{0}")]
     BodyImport(String),
 
