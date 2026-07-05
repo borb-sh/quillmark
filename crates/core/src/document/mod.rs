@@ -12,9 +12,34 @@
 
 use serde::{Deserialize, Serialize};
 
+use quillmark_richtext::import::{from_markdown as import_markdown, ImportError};
+use quillmark_richtext::RichText;
+
 use crate::error::ParseError;
 use crate::version::QuillReference;
 use crate::Diagnostic;
+
+/// The single markdown→corpus boundary for card bodies. Every construction path
+/// that starts from an authored markdown string ([`Document::from_markdown`],
+/// wire/storage deserialization, seeding, blueprint) routes through it, so the
+/// markdown parser is reached from exactly one helper. An empty string yields
+/// the empty corpus without invoking the parser.
+pub(crate) fn import_body(md: &str) -> Result<RichText, ImportError> {
+    if md.is_empty() {
+        Ok(RichText::empty())
+    } else {
+        import_markdown(md)
+    }
+}
+
+/// Import a body string, degrading a pathological over-nested input to the empty
+/// corpus rather than erroring. Used by the infallible construction paths
+/// (seeding, blueprint) whose inputs are trusted quill-author examples; the
+/// `> MAX_NESTING_DEPTH` case is unreachable for real examples. PR-G moves
+/// example import to quill-load time where it validates and caches.
+pub(crate) fn import_body_lossy(md: &str) -> RichText {
+    import_body(md).unwrap_or_else(|_| RichText::empty())
+}
 
 pub mod assemble;
 pub mod dto;
@@ -76,18 +101,22 @@ pub struct ParseOutput {
     pub warnings: Vec<Diagnostic>,
 }
 
-/// A single card-yaml block (root or composable). `body` is `""` when no
-/// content follows the closing fence; check `card.body().is_empty()`.
+/// A single card-yaml block (root or composable). `body` is the corpus
+/// ([`RichText`]) form of the prose after the closing fence — the empty corpus
+/// when none follows; check `card.body().is_blank()`. Markdown is a projection:
+/// [`Card::body_markdown`] re-emits it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Card {
     payload: Payload,
-    body: String,
+    body: RichText,
 }
 
 impl Card {
-    /// Create a `Card` from its parts without validation. For user-facing
-    /// construction of composable cards use [`Card::new`].
-    pub fn from_parts(payload: Payload, body: String) -> Self {
+    /// Create a `Card` from its parts without validation. `body` is the corpus
+    /// form; to build from an authored markdown string, import it first via
+    /// [`import_body`]. For user-facing construction of composable cards use
+    /// [`Card::new`].
+    pub fn from_parts(payload: Payload, body: RichText) -> Self {
         Self { payload, body }
     }
 
@@ -119,11 +148,20 @@ impl Card {
         &mut self.payload
     }
 
-    pub fn body(&self) -> &str {
+    /// The card body as a [`RichText`] corpus — the canonical content model.
+    /// For the markdown projection use [`Card::body_markdown`].
+    pub fn body(&self) -> &RichText {
         &self.body
     }
 
-    pub(crate) fn overwrite_body(&mut self, body: String) {
+    /// The card body rendered back to its markdown projection. This is a
+    /// derived view (`export ∘ body`), not stored state; a `.qmd` round-trip
+    /// therefore canonicalizes the body (e.g. `__b__` → `**b**`).
+    pub fn body_markdown(&self) -> String {
+        quillmark_richtext::export::to_markdown(&self.body)
+    }
+
+    pub(crate) fn overwrite_body(&mut self, body: RichText) {
         self.body = body;
     }
 }
@@ -213,7 +251,7 @@ impl Document {
         // it in); match that shape so a blank document round-trips equal.
         payload.set_kind("main");
         Self {
-            main: Card::from_parts(payload, String::new()),
+            main: Card::from_parts(payload, RichText::empty()),
             cards: Vec::new(),
             warnings: Vec::new(),
         }
@@ -306,9 +344,11 @@ impl Document {
             serde_json::Value::String(self.quill_reference().to_string()),
         );
 
+        // The seam still carries the markdown projection (PR-E flips `$body` to
+        // canonical corpus JSON once the typst backend consumes the corpus).
         map.insert(
             "$body".to_string(),
-            serde_json::Value::String(self.main.body.clone()),
+            serde_json::Value::String(self.main.body_markdown()),
         );
 
         let cards_array: Vec<serde_json::Value> = self
@@ -322,7 +362,7 @@ impl Document {
                 );
                 card_map.insert(
                     "$body".to_string(),
-                    serde_json::Value::String(card.body.clone()),
+                    serde_json::Value::String(card.body_markdown()),
                 );
                 for (key, value) in card.payload.iter() {
                     card_map.insert(key.clone(), value.as_json().clone());

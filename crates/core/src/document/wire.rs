@@ -163,7 +163,7 @@ impl From<&Card> for CardWire {
             ext: None,
             seed: None,
             payload_items: Vec::new(),
-            body: card.body().to_string(),
+            body: card.body_markdown(),
         };
         for item in card.payload().items() {
             match item {
@@ -288,7 +288,11 @@ impl TryFrom<CardWire> for Card {
             };
             payload.set_seed(seed);
         }
-        Ok(Card::from_parts(payload, wire.body))
+        let body = super::import_body(&wire.body).map_err(|e| WireError::InvalidField {
+            key: "$body".to_string(),
+            reason: e.to_string(),
+        })?;
+        Ok(Card::from_parts(payload, body))
     }
 }
 
@@ -327,7 +331,7 @@ mod tests {
             fill: false,
             nested_comments: Vec::new(),
         }]);
-        let card = Card::from_parts(payload, String::new());
+        let card = Card::from_parts(payload, quillmark_richtext::RichText::empty());
 
         let wire = CardWire::from(&card);
         let as_json = serde_json::to_value(&wire).unwrap();
@@ -359,7 +363,7 @@ mod tests {
             },
         ]);
         payload.set_kind("note");
-        let card = Card::from_parts(payload, "body text".to_string());
+        let card = Card::from_parts(payload, crate::document::import_body("body text").unwrap());
 
         let wire = CardWire::from(&card);
         assert_eq!(wire.kind, "note");
@@ -375,7 +379,7 @@ mod tests {
         let mut payload = Payload::from_index_map(Default::default());
         payload.set_quill("memo@1.2.3".parse().unwrap());
         payload.set_kind("main");
-        let card = Card::from_parts(payload, String::new());
+        let card = Card::from_parts(payload, quillmark_richtext::RichText::empty());
 
         let wire = CardWire::from(&card);
         assert_eq!(wire.quill.as_deref(), Some("memo@1.2.3"));

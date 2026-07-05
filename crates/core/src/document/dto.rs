@@ -305,9 +305,12 @@ impl From<&Document> for DocumentV0_92_0 {
 
 impl From<&Card> for CardV0_92_0 {
     fn from(card: &Card) -> Self {
+        // Branch-private bridge: the V0_92_0 envelope still stores the body as a
+        // markdown string, so write the corpus back through its export. PR-C cuts
+        // storage over to a V0_93_0 envelope that embeds the canonical corpus.
         CardV0_92_0 {
             payload: PayloadV0_92_0::from(card.payload()),
-            body: card.body().to_string(),
+            body: card.body_markdown(),
         }
     }
 }
@@ -479,7 +482,12 @@ impl TryFrom<CardV0_92_0> for Card {
     fn try_from(card: CardV0_92_0) -> Result<Self, Self::Error> {
         let payload = Payload::try_from(card.payload)?;
         validate_dto_payload(&payload)?;
-        Ok(Card::from_parts(payload, card.body))
+        // Cold-import the stored markdown body into the corpus. Over-nested
+        // bodies (> MAX_NESTING_DEPTH) never rendered, so rejecting them here
+        // loses nothing renderable.
+        let body = super::import_body(&card.body)
+            .map_err(|e| StorageError::Malformed(format!("card body: {e}")))?;
+        Ok(Card::from_parts(payload, body))
     }
 }
 

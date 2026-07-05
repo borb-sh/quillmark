@@ -185,7 +185,7 @@ fn test_document_set_quill_ref() {
 fn test_document_replace_body() {
     let mut doc = make_doc();
     doc.main_mut().replace_body("New body content.");
-    assert_eq!(doc.main().body(), "New body content.");
+    assert_eq!(doc.main().body_markdown(), "New body content.\n");
 }
 
 // ── Document::push_card ──────────────────────────────────────────────────────
@@ -256,7 +256,7 @@ fn test_document_card_mut() {
         let card = doc.card_mut(0).unwrap();
         card.replace_body("Updated card body.");
     }
-    assert_eq!(doc.cards()[0].body(), "Updated card body.");
+    assert_eq!(doc.cards()[0].body_markdown(), "Updated card body.\n");
 }
 
 #[test]
@@ -399,7 +399,7 @@ fn test_document_new_blank_canvas() {
     let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
     assert_eq!(doc.quill_reference().to_string(), "test_quill");
     assert!(doc.cards().is_empty());
-    assert_eq!(doc.main().body(), "");
+    assert_eq!(doc.main().body_markdown(), "");
     assert!(doc.warnings().is_empty());
 
     doc.main_mut().set_fields([("title", "Hello")]).unwrap();
@@ -533,7 +533,7 @@ fn test_card_remove_field_invalid_name_throws() {
 fn test_card_set_body() {
     let mut card = Card::new("note").unwrap();
     card.replace_body("Card body text.");
-    assert_eq!(card.body(), "Card body text.");
+    assert_eq!(card.body_markdown(), "Card body text.\n");
 }
 
 // ── Invariant check: sequence of mutations ───────────────────────────────────
@@ -599,7 +599,7 @@ fn test_invariants_after_mutation_sequence() {
     assert!(json.is_object());
     assert_eq!(json["$quill"].as_str(), Some("test_quill"));
     assert!(json["$cards"].is_array());
-    assert_eq!(json["$body"].as_str(), Some("Updated body."));
+    assert_eq!(json["$body"].as_str(), Some("Updated body.\n"));
 
     // Payload still has expected keys
     assert_eq!(

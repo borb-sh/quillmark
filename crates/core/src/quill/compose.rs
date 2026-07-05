@@ -60,14 +60,14 @@ impl QuillConfig {
                 };
                 Card::from_parts(
                     rebuild_payload_with_meta(card, fields),
-                    card.body().to_string(),
+                    card.body().clone(),
                 )
             })
             .collect();
 
         let final_main = Card::from_parts(
             rebuild_payload_with_meta(normalized.main(), main_resolved),
-            normalized.main().body().to_string(),
+            normalized.main().body().clone(),
         );
         let final_doc = Document::from_main_and_cards(final_main, cards_resolved, Vec::new());
 
@@ -92,13 +92,13 @@ impl QuillConfig {
                 .map_err(coercion_error)?;
             coerced_cards.push(Card::from_parts(
                 rebuild_payload_with_meta(card, coerced_fields),
-                card.body().to_string(),
+                card.body().clone(),
             ));
         }
 
         let coerced_main = Card::from_parts(
             rebuild_payload_with_meta(doc.main(), coerced_payload),
-            doc.main().body().to_string(),
+            doc.main().body().clone(),
         );
         let coerced_doc = Document::from_main_and_cards(coerced_main, coerced_cards, Vec::new());
 

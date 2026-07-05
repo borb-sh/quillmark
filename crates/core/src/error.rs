@@ -243,6 +243,13 @@ pub enum ParseError {
         reason: String,
     },
 
+    /// A card body's markdown could not be imported into the corpus model —
+    /// today only when container nesting exceeds
+    /// [`MAX_NESTING_DEPTH`](crate::error::MAX_NESTING_DEPTH). Code
+    /// `parse::body_import`.
+    #[error("{0}")]
+    BodyImport(String),
+
     #[error("YAML error at line {line}: {message}")]
     YamlErrorWithLocation {
         message: String,
@@ -271,6 +278,8 @@ impl ParseError {
                 .with_code("parse::empty_input".to_string()),
             ParseError::MissingQuill(msg) => Diagnostic::new(Severity::Error, msg.clone())
                 .with_code("parse::missing_quill".to_string()),
+            ParseError::BodyImport(msg) => Diagnostic::new(Severity::Error, msg.clone())
+                .with_code("parse::body_import".to_string()),
             ParseError::InvalidQuillReference { value, reason } => Diagnostic::new(
                 Severity::Error,
                 format!("Invalid $quill reference '{}': {}", value, reason),

@@ -98,8 +98,12 @@ impl Document {
         let mut out = String::new();
 
         // ── Root block (card-yaml fence + global body) ────────────────────────
+        // Bodies are corpora; the markdown surface is their export projection,
+        // so a `.qmd` round-trip canonicalizes the body markdown (leading blank
+        // lines dropped, a single trailing `\n`). A blank line separates the
+        // closing fence from a non-empty body, the conventional card-yaml shape.
         emit_block(&mut out, self.main());
-        out.push_str(self.main().body());
+        append_body(&mut out, &self.main().body_markdown());
 
         // ── Composable cards ──────────────────────────────────────────────────
         // `ensure_blank_before_fence` normalises the separator before each
@@ -108,12 +112,20 @@ impl Document {
         for card in self.cards() {
             ensure_blank_before_fence(&mut out);
             emit_block(&mut out, card);
-            if !card.body().is_empty() {
-                out.push_str(card.body());
-            }
+            append_body(&mut out, &card.body_markdown());
         }
 
         out
+    }
+}
+
+/// Append a card's markdown body after its closing fence, separated by one
+/// blank line (the conventional card-yaml shape). Empty bodies append nothing —
+/// the fence closes and the next block (or EOF) follows.
+fn append_body(out: &mut String, body: &str) {
+    if !body.is_empty() {
+        out.push('\n');
+        out.push_str(body);
     }
 }
 
