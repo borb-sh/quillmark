@@ -136,6 +136,13 @@ priority order:
    (grounding §3.2) is Phase-2 work, out of scope for navigation.
 6. **Storage cutover** — new `StoredDocument` version; migration is a
    deterministic cold import (legacy bodies hold no islands → mint-free).
+7. **Block-quote emit decision.** RichText captures block quotes as
+   `Container::Quote`, but the current `mark_to_typst` has no `BlockQuote` arm —
+   it **flattens** quotes to plain paragraphs. So the superset is real: Phase-2
+   emit must *choose* to render quotes (a deliberate behavior change) or keep
+   flattening for bug-for-bug parity. Recommend rendering them, since the
+   structure is now first-class; land it as an explicit, tested decision, not a
+   silent consequence of consuming the corpus.
 
 Already done here, so Phase 2 inherits it: **island `props` keys are recursively
 sorted before serialization** (Spike-C carry — otherwise `preserve_order` leaks
