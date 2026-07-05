@@ -21,6 +21,8 @@ main:
     let yaml = config.schema_yaml().unwrap();
     let value: serde_json::Value = serde_saphyr::from_str(&yaml).unwrap();
 
+    // `type: markdown` is a deprecated alias; the config re-serializes it as its
+    // canonical spelling, `richtext`.
     assert_eq!(
         value
             .get("main")
@@ -28,7 +30,7 @@ main:
             .and_then(|v| v.get("description"))
             .and_then(|v| v.get("type"))
             .and_then(|v| v.as_str()),
-        Some("markdown")
+        Some("richtext")
     );
 }
 

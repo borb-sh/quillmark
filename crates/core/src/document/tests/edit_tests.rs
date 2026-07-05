@@ -599,7 +599,8 @@ fn test_invariants_after_mutation_sequence() {
     assert!(json.is_object());
     assert_eq!(json["$quill"].as_str(), Some("test_quill"));
     assert!(json["$cards"].is_array());
-    assert_eq!(json["$body"].as_str(), Some("Updated body.\n"));
+    // `$body` is canonical corpus JSON; its `text` is the content-only string.
+    assert_eq!(json["$body"]["text"].as_str(), Some("Updated body."));
 
     // Payload still has expected keys
     assert_eq!(

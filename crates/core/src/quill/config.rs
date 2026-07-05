@@ -334,7 +334,7 @@ impl QuillConfig {
                     reason: "value is not coercible to integer".to_string(),
                 })
             }
-            FieldType::String | FieldType::Markdown => {
+            FieldType::String => {
                 if json_value.is_string() {
                     return Ok(value.clone());
                 }
@@ -355,6 +355,55 @@ impl QuillConfig {
                     return Ok(QuillValue::from_json(serde_json::Value::String(text)));
                 }
                 Ok(value.clone())
+            }
+            FieldType::RichText { .. } => {
+                // The seam carries the corpus, so coercion commits the corpus
+                // form: an already-structured value (editor / re-render) is
+                // validated and re-canonicalized; an authored markdown string is
+                // imported. Determinism is inherited from `import` being pure.
+                if json_value.is_object() {
+                    let rt = quillmark_richtext::serial::from_canonical_value(json_value)
+                        .map_err(|e| CoercionError::Uncoercible {
+                            path: path.to_string(),
+                            value: "<object>".to_string(),
+                            target: "richtext".to_string(),
+                            reason: format!("not a valid richtext corpus: {e}"),
+                        })?;
+                    return Ok(QuillValue::from_json(
+                        quillmark_richtext::serial::to_canonical_value(&rt),
+                    ));
+                }
+                // Reduce to the authored markdown string — a bare string, a
+                // length-1 array of one (the shared array-unwrap leniency), or a
+                // bare scalar (the shared scalar→string leniency) — then import.
+                let markdown = if let Some(s) = json_value.as_str() {
+                    Some(s.to_string())
+                } else if let Some(s) = json_value
+                    .as_array()
+                    .filter(|a| a.len() == 1)
+                    .and_then(|a| a[0].as_str())
+                {
+                    Some(s.to_string())
+                } else {
+                    scalar_as_string(json_value)
+                };
+                let Some(markdown) = markdown else {
+                    // A shape that is neither corpus nor stringifiable (e.g. a
+                    // multi-element array): leave it for the validation layer to
+                    // report, matching the String branch's fall-through.
+                    return Ok(value.clone());
+                };
+                let rt = quillmark_richtext::import::from_markdown(&markdown).map_err(|e| {
+                    CoercionError::Uncoercible {
+                        path: path.to_string(),
+                        value: markdown.clone(),
+                        target: "richtext".to_string(),
+                        reason: format!("markdown import failed: {e}"),
+                    }
+                })?;
+                Ok(QuillValue::from_json(
+                    quillmark_richtext::serial::to_canonical_value(&rt),
+                ))
             }
             FieldType::DateTime => {
                 if json_value.is_null() {

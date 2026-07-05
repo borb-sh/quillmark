@@ -343,8 +343,18 @@ fn validate_value(
         // coercion layer adopts it) — in lockstep with `coerce_value_strict`
         // via `scalar_as_string`. Schema literals stay strict so the blueprint
         // keeps quoting ambiguous string literals.
-        FieldType::String | FieldType::Markdown => {
+        FieldType::String => {
             value.as_str().is_some()
+                || (ctx == ValueContext::Document
+                    && super::config::scalar_as_string(value.as_json()).is_some())
+        }
+        // Post-coercion (Document) a richtext value is a canonical corpus
+        // object; an authored `default`/`example` (Schema) is a markdown string.
+        // Accept both shapes — the corpus's own invariants were enforced at
+        // coercion (`from_canonical_value`), and a bare scalar still stringifies.
+        FieldType::RichText { .. } => {
+            value.as_json().is_object()
+                || value.as_str().is_some()
                 || (ctx == ValueContext::Document
                     && super::config::scalar_as_string(value.as_json()).is_some())
         }
@@ -489,7 +499,8 @@ pub(crate) fn validate_schema_literal(
 
 fn expected_type_name(field_type: &FieldType) -> &'static str {
     match field_type {
-        FieldType::String | FieldType::Markdown | FieldType::DateTime => "string",
+        FieldType::String | FieldType::DateTime => "string",
+        FieldType::RichText { .. } => "richtext",
         FieldType::Integer => "integer",
         FieldType::Number => "number",
         FieldType::Boolean => "boolean",

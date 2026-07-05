@@ -78,9 +78,13 @@ impl CardSchema {
     }
 }
 
-/// Field type hint enum for type-safe field type definitions
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
+/// Field type hint enum for type-safe field type definitions.
+///
+/// Serializes as its type expression (`FieldType::as_str`) and deserializes by
+/// parsing that string (`FieldType::from_str`), so a YAML `type:` value round-
+/// trips as the one token that names it — including the parenthesized refinement
+/// `richtext(inline)`, which a plain serde enum could not carry.
+#[derive(Debug, Clone, PartialEq)]
 pub enum FieldType {
     String,
     /// Integers and decimals
@@ -92,14 +96,25 @@ pub enum FieldType {
     /// Formatted as string; validates against the YAML 1.1 timestamp grammar
     /// (bare `YYYY-MM-DD` through full RFC 3339 with offset).
     DateTime,
-    /// String with markdown content, `contentMediaType: text/markdown`
-    Markdown,
+    /// Rich text — the canonical corpus content model ([`RichText`]). Surfaced
+    /// as `type: richtext` (block) or `richtext(inline)` (exactly one `Para`
+    /// line); the transform schema marks it `contentMediaType:
+    /// application/quillmark-richtext+json`. `markdown` is a deprecated alias for
+    /// block `richtext`. `inline` is parsed and carried here; its single-line
+    /// constraint is enforced in a later phase.
+    ///
+    /// [`RichText`]: quillmark_richtext::RichText
+    RichText {
+        /// Single-`Para`-line variant (`richtext(inline)`); editors mount a
+        /// one-line editor and the emitter may lower without block wrapping.
+        inline: bool,
+    },
 }
 
 impl FieldType {
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
-        match s {
+        match s.trim() {
             "string" => Some(FieldType::String),
             "number" => Some(FieldType::Number),
             "integer" => Some(FieldType::Integer),
@@ -107,7 +122,11 @@ impl FieldType {
             "array" => Some(FieldType::Array),
             "object" => Some(FieldType::Object),
             "datetime" => Some(FieldType::DateTime),
-            "markdown" => Some(FieldType::Markdown),
+            "richtext" => Some(FieldType::RichText { inline: false }),
+            "richtext(inline)" => Some(FieldType::RichText { inline: true }),
+            // `markdown` is the pre-richtext spelling — a deprecated alias for
+            // block richtext, kept so existing Quill.yaml keeps loading.
+            "markdown" => Some(FieldType::RichText { inline: false }),
             _ => None,
         }
     }
@@ -121,8 +140,23 @@ impl FieldType {
             FieldType::Array => "array",
             FieldType::Object => "object",
             FieldType::DateTime => "datetime",
-            FieldType::Markdown => "markdown",
+            FieldType::RichText { inline: false } => "richtext",
+            FieldType::RichText { inline: true } => "richtext(inline)",
         }
+    }
+}
+
+impl Serialize for FieldType {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for FieldType {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        FieldType::from_str(&s)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown field type: {s:?}")))
     }
 }
 

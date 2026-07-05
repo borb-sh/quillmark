@@ -72,6 +72,12 @@ pub(crate) struct FieldWindow {
     pub path: String,
     pub file: FileId,
     pub range: Range<usize>,
+    /// The content block's per-segment source map (`gen` ranges index the helper
+    /// `lib.typ`), empty for scalar reference sites. Produced by the emitter and
+    /// carried here for the Phase-3 region/nav rework, which keys regions to
+    /// corpus ranges through these — no reader in Phase 2 yet.
+    #[allow(dead_code)]
+    pub segments: Vec<crate::emit::SegmentMap>,
 }
 
 /// An axis-aligned box accumulated in page-space (top-left origin) pt.
@@ -566,7 +572,7 @@ typst:
 main:
   fields:
     intro:
-      type: markdown
+      type: richtext
       description: a probe field
 "#;
         const PLATE: &str = r#"
@@ -578,10 +584,16 @@ main:
         let plate = crate::read_plate(&q).expect("plate");
         let schema = quillmark_core::quill::build_transform_schema(q.config());
         let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
-        let data = serde_json::json!({ "intro": "A probe paragraph, PROBETOKEN." });
-        let transformed = crate::transformed_data(&schema, &meta, &data).expect("transform");
+        // The seam carries the corpus, not markdown.
+        let rt = quillmark_richtext::import::from_markdown("A probe paragraph, PROBETOKEN.")
+            .expect("import");
+        let data =
+            serde_json::json!({ "intro": quillmark_richtext::serial::to_canonical_value(&rt) });
+        let transformed = crate::transformed_data(&meta, &data).expect("transform");
         let mut world = QuillWorld::new(&q, &plate).expect("world");
-        let windows = world.inject_helper_package(&transformed, &meta);
+        let windows = world
+            .inject_helper_package(&transformed, &meta)
+            .expect("inject");
         let (doc, _) = compile_document(&world).expect("compile");
         let helper = world
             .source(QuillWorld::helper_fid("lib.typ"))

@@ -233,7 +233,7 @@ fn scalar_cell(field: &FieldSchema) -> (JsonValue, bool) {
     if let Some(default) = &field.default {
         return (default.as_json().clone(), false);
     }
-    if matches!(field.r#type, FieldType::Markdown) {
+    if matches!(field.r#type, FieldType::RichText { .. }) {
         return (JsonValue::Null, true);
     }
     match field.example.as_ref() {
@@ -248,7 +248,7 @@ fn append_scalar(items: &mut Vec<PayloadItem>, field: &FieldSchema) {
     // Markdown never inlines its `example:` as the marker value, so — unlike
     // other Unendorsed scalars — the example would vanish entirely. Surface it
     // as a `# e.g.` hint instead (the hint no-ops when no `example:` is set).
-    let eg_when = field.default.is_some() || matches!(field.r#type, FieldType::Markdown);
+    let eg_when = field.default.is_some() || matches!(field.r#type, FieldType::RichText { .. });
     push_leading(items, field, eg_when);
     let (json, fill) = scalar_cell(field);
     items.push(PayloadItem::Field {
@@ -420,7 +420,10 @@ fn type_expression(field: &FieldSchema) -> String {
         FieldType::Integer => "integer".into(),
         FieldType::Boolean => "boolean".into(),
         FieldType::Object => "object".into(),
-        FieldType::Markdown => "markdown".into(),
+        // The type names the role; the `<markdown>` format slot names the
+        // surface encoding an author writes (and `to_markdown` re-emits).
+        FieldType::RichText { inline: false } => "richtext<markdown>".into(),
+        FieldType::RichText { inline: true } => "richtext(inline)<markdown>".into(),
         FieldType::DateTime => "datetime<YYYY-MM-DD[Thh:mm:ss]>".into(),
         // The element type comes from `items`; a scalar element gives
         // `array<string>`/`array<integer>`/`array<markdown>`, an object
@@ -481,7 +484,7 @@ main:
     bio: { type: markdown, example: "Hello world" }
 "#)
         .blueprint();
-        assert!(t.contains("# e.g. Hello world\nbio: !must_fill # markdown\n"));
+        assert!(t.contains("# e.g. Hello world\nbio: !must_fill # richtext<markdown>\n"));
     }
 
     #[test]
@@ -612,7 +615,7 @@ main:
         .blueprint();
         assert!(t.contains("counts: !must_fill # array<integer>\n"), "{t}");
         assert!(
-            t.contains("sections: !must_fill # array<markdown>\n"),
+            t.contains("sections: !must_fill # array<richtext<markdown>>\n"),
             "{t}"
         );
         assert!(t.contains("tags: !must_fill # array<string>\n"), "{t}");
@@ -629,7 +632,7 @@ main:
     bio: { type: markdown }
 "#)
         .blueprint();
-        assert!(t.contains("bio: !must_fill # markdown\n"));
+        assert!(t.contains("bio: !must_fill # richtext<markdown>\n"));
         assert!(!t.contains("|-"));
     }
 
@@ -644,7 +647,7 @@ main:
     bio: { type: markdown, default: "" }
 "#)
         .blueprint();
-        assert!(t.contains("bio: \"\" # markdown\n"));
+        assert!(t.contains("bio: \"\" # richtext<markdown>\n"));
         assert!(!t.contains("|-"));
         assert!(!t.contains("!must_fill"));
     }
@@ -662,7 +665,7 @@ main:
       default: "## About me\n\nHello."
 "###)
         .blueprint();
-        assert!(t.contains("bio: \"## About me\\n\\nHello.\" # markdown\n"));
+        assert!(t.contains("bio: \"## About me\\n\\nHello.\" # richtext<markdown>\n"));
         assert!(!t.contains("|-"));
     }
 
