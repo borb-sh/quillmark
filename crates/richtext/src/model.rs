@@ -355,7 +355,7 @@ impl RichText {
 
     /// Mark `type` names the projection reserves; an [`MarkKind::Unknown`] may
     /// not reuse one (its serialization would parse back as the built-in,
-    /// silently dropping its attrs — non-injective). Checked by [`validate`].
+    /// silently dropping its attrs — non-injective). Checked by [`RichText::validate`].
     pub const RESERVED_MARK_TYPES: [&'static str; 7] =
         ["strong", "emph", "underline", "strike", "code", "link", "anchor"];
 
