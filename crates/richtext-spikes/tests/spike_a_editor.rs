@@ -1,5 +1,5 @@
 //! Spike A — editor binding / mark semantics + annotation rebase. Each test is
-//! a claim in `phase-0-finding-a-editor.md`.
+//! a claim in `prose/plans/richtext/phase-0.md` (§ Spike A).
 //!
 //! The JS editors (ProseMirror/Lexical/Quill/CodeMirror) can't run in a Rust
 //! test, so this spike encodes the *model-side* contract those editors must

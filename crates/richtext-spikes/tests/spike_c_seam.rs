@@ -1,5 +1,6 @@
 //! Spike C — seam encoding + determinism (confirms Option A, gates phase-2
-//! storage). Each test is a claim in `phase-0-finding-c-seam.md`.
+//! storage). Each test is a claim in `prose/plans/richtext/phase-0.md`
+//! (§ Spike C).
 //!
 //! Questions answered:
 //! 1. Does canonical RichText-JSON serialize byte-deterministically?

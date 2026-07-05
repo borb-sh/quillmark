@@ -9,11 +9,14 @@ crate when the phases it de-risks land.
 Each spike leaves an executable finding: every claim in a finding doc maps to an
 assertion in the matching test file.
 
-| Spike | Question | Finding | Tests |
-|-------|----------|---------|-------|
-| A | mark semantics + annotation rebase | [`phase-0-finding-a-editor.md`](../../prose/plans/richtext/phase-0-finding-a-editor.md) | `tests/spike_a_editor.rs` |
-| B | source-map inversion + navigation | [`phase-0-finding-b-sourcemap.md`](../../prose/plans/richtext/phase-0-finding-b-sourcemap.md) | `tests/spike_b_sourcemap.rs` |
-| C | seam encoding + determinism | [`phase-0-finding-c-seam.md`](../../prose/plans/richtext/phase-0-finding-c-seam.md) | `tests/spike_c_seam.rs` |
+All three findings live in one place —
+[`prose/plans/richtext/phase-0.md`](../../prose/plans/richtext/phase-0.md).
+
+| Spike | Question | Tests |
+|-------|----------|-------|
+| A | mark semantics + annotation rebase | `tests/spike_a_editor.rs` |
+| B | source-map inversion + navigation | `tests/spike_b_sourcemap.rs` |
+| C | seam encoding + determinism | `tests/spike_c_seam.rs` |
 
 ```
 cargo test -p quillmark-richtext-spikes

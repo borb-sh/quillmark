@@ -1,5 +1,5 @@
 //! Spike B — source-map inversion + navigation. Each test is a claim in
-//! `phase-0-finding-b-sourcemap.md`.
+//! `prose/plans/richtext/phase-0.md` (§ Spike B).
 //!
 //! Two halves:
 //!  - **B1 (pure)** proves the corpus↔generated map for one text run is

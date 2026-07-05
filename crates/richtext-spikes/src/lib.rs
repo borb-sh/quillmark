@@ -4,8 +4,7 @@
 //! questions a `RichText` schema freeze cannot cheaply revise — mark semantics,
 //! source-map inversion, seam determinism — and to leave each answer as an
 //! executable finding. Delete it when the phases it de-risks land. See
-//! `prose/plans/richtext/phase-0-spikes.md` and the sibling `phase-0-finding-*`
-//! docs.
+//! `prose/plans/richtext/phase-0.md`.
 //!
 //! Layout:
 //! - [`model`] — the `RichText` prototype (corpus + lines + marks + islands).
