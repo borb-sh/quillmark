@@ -405,10 +405,10 @@ impl PyDocument {
             .collect()
     }
 
-    /// Main card's global Markdown body.
+    /// Main card's global Markdown body (the corpus body's markdown projection).
     #[getter]
-    fn body(&self) -> &str {
-        self.inner.main().body()
+    fn body(&self) -> String {
+        self.inner.main().body_markdown()
     }
 
     /// Main (entry) card as a dict with `kind`, `quill`, `id`, `payload_items`,

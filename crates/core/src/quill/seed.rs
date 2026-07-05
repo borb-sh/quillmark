@@ -103,7 +103,7 @@ pub(crate) fn seed_main(quill: &Quill) -> Card {
     // markdown spec); set it so a seeded main card round-trips through
     // `to_markdown()` exactly as the parser and blueprint emit it.
     payload.set_kind("main");
-    Card::from_parts(payload, body)
+    Card::from_parts(payload, crate::document::import_body_lossy(&body))
 }
 
 pub(crate) fn seed_card_for_kind(
@@ -120,7 +120,7 @@ pub(crate) fn seed_card_for_kind(
 fn seed_composable(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> Card {
     let (mut payload, body) = seed_parts(schema, overlay);
     payload.set_kind(schema.name.clone());
-    Card::from_parts(payload, body)
+    Card::from_parts(payload, crate::document::import_body_lossy(&body))
 }
 
 pub(crate) fn seed_document(quill: &Quill) -> Document {

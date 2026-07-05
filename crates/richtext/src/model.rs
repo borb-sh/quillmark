@@ -306,6 +306,15 @@ impl RichText {
         self.text.chars().count()
     }
 
+    /// Whether the corpus carries no renderable content: the text is empty or
+    /// whitespace-only. An island slot ([`ISLAND_SLOT`], U+FFFC) is not
+    /// whitespace, so an island-bearing corpus is never blank. This is the
+    /// corpus analogue of the old `body.trim().is_empty()` string check —
+    /// body-disabled validation and round-trip emit key on it.
+    pub fn is_blank(&self) -> bool {
+        self.text.trim().is_empty()
+    }
+
     /// Number of `\n`-separated segments — the required `lines.len()`.
     pub fn segment_count(&self) -> usize {
         self.text.chars().filter(|c| *c == '\n').count() + 1
@@ -491,6 +500,36 @@ mod tests {
 
     fn f(start: Usv, end: Usv, kind: MarkKind) -> Mark {
         Mark { start, end, kind }
+    }
+
+    #[test]
+    fn is_blank_tracks_whitespace_and_islands() {
+        assert!(RichText::empty().is_blank());
+        let mut ws = RichText::empty();
+        ws.text = "  \n\t ".to_string();
+        ws.lines = vec![
+            Line {
+                kind: LineKind::Para,
+                containers: Vec::new(),
+                continues: false,
+            },
+            Line {
+                kind: LineKind::Para,
+                containers: Vec::new(),
+                continues: false,
+            },
+        ];
+        assert!(ws.is_blank(), "whitespace-only text is blank");
+
+        let mut has_text = RichText::empty();
+        has_text.text = "x".to_string();
+        assert!(!has_text.is_blank());
+
+        // An island slot is not whitespace, so an island-bearing corpus is
+        // never blank even with no other text.
+        let mut island_only = RichText::empty();
+        island_only.text = ISLAND_SLOT.to_string();
+        assert!(!island_only.is_blank());
     }
 
     #[test]

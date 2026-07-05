@@ -130,7 +130,10 @@ fn build_main_card(card: &CardSchema, quill_ref: &str, description: Option<&str>
         items.push(PayloadItem::comment(collapse(desc)));
     }
     append_fields(&mut items, card);
-    Card::from_parts(Payload::from_items(items), body_text(card, "main"))
+    Card::from_parts(
+        Payload::from_items(items),
+        crate::document::import_body_lossy(&body_text(card, "main")),
+    )
 }
 
 /// Build a composable card: `$kind: <kind>`, the `composable (0..N)` role
@@ -146,7 +149,10 @@ fn build_card(card: &CardSchema) -> Card {
         items.push(PayloadItem::comment(desc));
     }
     append_fields(&mut items, card);
-    Card::from_parts(Payload::from_items(items), body_text(card, &card.name))
+    Card::from_parts(
+        Payload::from_items(items),
+        crate::document::import_body_lossy(&body_text(card, &card.name)),
+    )
 }
 
 /// Append every field of a card as payload items, clustered by `ui.group` and

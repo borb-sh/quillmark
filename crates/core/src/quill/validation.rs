@@ -236,7 +236,7 @@ pub fn validate_typed_document(
 
     // Enforce body.enabled on the main card. Whitespace-only bodies are
     // treated as empty — only meaningful prose triggers the diagnostic.
-    if !config.main.body_enabled() && !doc.main().body().trim().is_empty() {
+    if !config.main.body_enabled() && !doc.main().body().is_blank() {
         errors.push(ValidationError::BodyDisabled {
             path: "main.body".to_string(),
             card: "main".to_string(),
@@ -267,7 +267,7 @@ pub fn validate_typed_document(
             &card_path,
         ));
 
-        if !card_schema.body_enabled() && !card.body().trim().is_empty() {
+        if !card_schema.body_enabled() && !card.body().is_blank() {
             errors.push(ValidationError::BodyDisabled {
                 path: format!("{card_path}.body"),
                 card: card_name,
@@ -548,7 +548,7 @@ main:
         let mut p = Payload::from_index_map(payload);
         p.set_quill("test_quill".parse().unwrap());
         p.set_kind("main");
-        let main = Card::from_parts(p, String::new());
+        let main = Card::from_parts(p, quillmark_richtext::RichText::empty());
         Document::from_main_and_cards(main, cards, vec![])
     }
 
@@ -885,7 +885,7 @@ main:
         let mut p = Payload::from_index_map(IndexMap::new());
         p.set_quill("test_quill".parse().unwrap());
         p.set_kind("main");
-        let main = Card::from_parts(p, "Body content that should not be here.".to_string());
+        let main = Card::from_parts(p, crate::document::import_body("Body content that should not be here.").unwrap());
         let doc = Document::from_main_and_cards(main, vec![], vec![]);
         let errors = validate_typed_document(&config, &doc).unwrap_err();
         assert!(has_error(&errors, |e| matches!(

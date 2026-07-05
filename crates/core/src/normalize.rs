@@ -2,16 +2,15 @@
 //!
 //! Post-parse normalization of a [`Document`](crate::document::Document): payload
 //! field names to Unicode NFC (so composed `"café"` and decomposed `"cafe\u{0301}"`
-//! compare equal), and each card body through the markdown-string primitive
-//! [`quillmark_richtext::normalize_markdown`] (line endings, bidi strip, HTML-
-//! comment fence repair). YAML field *values* pass through verbatim.
+//! compare equal). YAML field *values* pass through verbatim.
 //!
-//! The string-level markdown normalizer lives in `quillmark-richtext` (the leaf
-//! crate that owns the markdown codecs); this module is the document-level pass
-//! that applies it per card.
+//! Card bodies are **not** normalized here: a body is already a normalized
+//! [`RichText`](quillmark_richtext::RichText) corpus, established once at import
+//! (`import::from_markdown` runs `normalize_markdown` — line endings, bidi strip,
+//! HTML-comment fence repair — before parsing). This pass only touches field
+//! names and carries each body through unchanged.
 
 use crate::document::Card;
-use quillmark_richtext::normalize_markdown;
 use unicode_normalization::UnicodeNormalization;
 
 /// Normalize field name to Unicode NFC, so visually identical keys
@@ -24,10 +23,9 @@ pub fn normalize_field_name(name: &str) -> String {
 ///
 /// Per-card normalization:
 /// 1. Payload field names → Unicode NFC.
-/// 2. Card body → bidi-stripped + HTML comment fence repair (spec §7).
-///    YAML field *values* pass through verbatim.
 ///
-/// Idempotent — calling multiple times produces the same result.
+/// Card bodies are already normalized corpora (import-time); they carry through
+/// unchanged. YAML field *values* pass through verbatim. Idempotent.
 pub fn normalize_document(
     doc: crate::document::Document,
 ) -> Result<crate::document::Document, crate::error::ParseError> {
@@ -43,7 +41,8 @@ pub fn normalize_document(
     ))
 }
 
-/// Build a new `Card` with NFC-normalized field names and a normalized body.
+/// Build a new `Card` with NFC-normalized field names, carrying the (already
+/// normalized) body corpus through unchanged.
 fn normalize_card(card: &Card) -> Card {
     use crate::document::PayloadItem;
     let mut payload = card.payload().clone();
@@ -55,7 +54,7 @@ fn normalize_card(card: &Card) -> Card {
             }
         }
     }
-    Card::from_parts(payload, normalize_markdown(card.body()))
+    Card::from_parts(payload, card.body().clone())
 }
 
 #[cfg(test)]
@@ -82,7 +81,7 @@ mod tests {
             "<<placeholder>>"
         );
 
-        assert_eq!(normalized.main().body(), "\n<<content>> **bold**");
+        assert_eq!(normalized.main().body_markdown(), "\\<> **bold**\n");
     }
 
     #[test]
@@ -107,8 +106,8 @@ mod tests {
         let normalized_twice = super::normalize_document(normalized_once.clone()).unwrap();
 
         assert_eq!(
-            normalized_once.main().body(),
-            normalized_twice.main().body()
+            normalized_once.main().body_markdown(),
+            normalized_twice.main().body_markdown()
         );
     }
 
@@ -121,7 +120,7 @@ mod tests {
         )
         .unwrap();
         let normalized = super::normalize_document(doc).unwrap();
-        assert_eq!(normalized.main().body(), "\nhelloworld");
+        assert_eq!(normalized.main().body_markdown(), "helloworld\n");
     }
 
     #[test]
@@ -153,7 +152,7 @@ mod tests {
         let doc = Document::from_markdown(md).unwrap();
         assert_eq!(doc.cards().len(), 1, "expected 1 card");
         let normalized = super::normalize_document(doc).unwrap();
-        assert_eq!(normalized.cards()[0].body(), "cardbody\n");
+        assert_eq!(normalized.cards()[0].body_markdown(), "cardbody\n");
     }
 
     #[test]
@@ -183,8 +182,8 @@ mod tests {
         let doc = Document::from_markdown(md).unwrap();
         let normalized = super::normalize_document(doc).unwrap();
         assert_eq!(
-            normalized.cards()[0].body(),
-            "<!-- comment -->\nTrailing text\n"
+            normalized.cards()[0].body_markdown(),
+            "Trailing text\n"
         );
     }
 
@@ -195,6 +194,6 @@ mod tests {
         let md = "~~~card-yaml\n$quill: test\n$kind: main\n~~~\n\n<!-- note -->Content here";
         let doc = Document::from_markdown(md).unwrap();
         let normalized = super::normalize_document(doc).unwrap();
-        assert_eq!(normalized.main().body(), "\n<!-- note -->\nContent here");
+        assert_eq!(normalized.main().body_markdown(), "Content here\n");
     }
 }

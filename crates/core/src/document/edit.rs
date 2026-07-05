@@ -236,7 +236,7 @@ impl Card {
         })?;
         let mut payload = Payload::new();
         payload.set_kind(kind);
-        Ok(Card::from_parts(payload, String::new()))
+        Ok(Card::from_parts(payload, quillmark_richtext::RichText::empty()))
     }
 
     /// Set a payload field, clearing any `!must_fill` marker on that key.
@@ -426,7 +426,11 @@ impl Card {
         removed
     }
 
+    /// Replace the body from an authored markdown string, importing it into the
+    /// corpus. A pathologically over-nested input (`> MAX_NESTING_DEPTH`)
+    /// degrades to the empty corpus rather than erroring; the fallible edit
+    /// surface is Phase 3.
     pub fn replace_body(&mut self, body: impl Into<String>) {
-        self.overwrite_body(body.into());
+        self.overwrite_body(super::import_body_lossy(&body.into()));
     }
 }
