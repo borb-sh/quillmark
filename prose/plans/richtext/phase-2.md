@@ -22,27 +22,35 @@ decomposition (§ Sub-PRs) is the landing order.
 
 Five of the seven decisions hinge on one move: **the markdown parse crosses from
 render time to ingest time, and the corpus is the only in-memory content model.**
-`crates/richtext` dissolves into `core::richtext`; `import` (and therefore
-`pulldown-cmark`) moves with it, because two core entry points need it — the
-storage migration and `Document::from_markdown`, which every binding (including
-the parser-free `pkg/core` WASM build) uses to turn a `.qmd` body into the live
-model. The `typst` backend **drops** its `pulldown-cmark` dependency; markup is
-produced by walking the corpus, never by re-parsing.
+`crates/richtext` stays a **separate crate** — `quillmark-richtext`, the leaf
+holding the model, canonical serialization, edit deltas, and the markdown codecs
+— but the dependency arrow **inverts**: phase 1 had richtext depend on core; now
+**core depends on richtext**. `import` (and `pulldown-cmark`) live in that leaf,
+reachable from the two core entry points that need it — the storage migration and
+`Document::from_markdown`, which every binding (including the no-feature `pkg/core`
+WASM build) uses to turn a `.qmd` body into the live model. The `typst` backend
+**drops** its `pulldown-cmark` dependency; markup is produced by walking the
+corpus, never by re-parsing.
 
-Phase 1's handover item 1 ("re-home the *type*, keep the codecs parser-side")
-is **superseded**: parser-side *is* core once the corpus is canonical. The
+Phase 1's handover item 1 ("re-home the *type* into core, keep the codecs
+parser-side") is **superseded**: the type does *not* move into core — the codecs'
+crate becomes the leaf core depends on, which places the model and its frozen
+wire format one layer *below* the document engine (rationale in
+[Crate re-homing](#crate-re-homing--keep-a-leaf-crate-core-depends-on)). The
 "markdown-engine-free core" invariant (asserted only in a comment,
-`core/Cargo.toml:28`) is not relaxed — it **inverts** into a stronger one:
+`core/Cargo.toml`) is not relaxed — it **inverts** into a stronger one:
 
 > The markdown engine appears exactly once in the workspace, in
-> `core::richtext::import`. No render path parses markdown.
+> `quillmark-richtext::import`. No render path parses markdown.
 
-Net parser count in the workspace is unchanged (one), moved from every render to
-each ingest; `pulldown-cmark` promotes from a `core` dev-dependency (today a
-fence-conformance cross-check, `core/Cargo.toml:24-29`) to a production one, and
-that file's comment flips. The invariant lived only in that comment and in
-`phase-1.md`'s prose — no canon doc states it — so recording the flip is additive
-(ARCHITECTURE.md gains the statement; nothing is retracted).
+Net parser count is unchanged (one), moved from every render to each ingest.
+**Landed on this branch** (the arrow-inversion groundwork): `normalize_markdown`
+and `MAX_NESTING_DEPTH` are relocated into `quillmark-richtext`, `core` depends
+on it, and richtext is `publish = true`. `pulldown` now sits in core's dependency
+graph but is tree-shaken from the no-feature `pkg/core` build until a body/import
+path is reachable (the phase-2 body cutover). The invariant lived only in that
+comment and in `phase-1.md`'s prose — no canon doc states it — so recording the
+flip is additive (ARCHITECTURE.md gains the statement; nothing is retracted).
 
 ## Locked decisions
 
@@ -96,7 +104,8 @@ byte-equality aligned.
 ### Migration — a fallible cold-import hop inside core
 
 The new version's read hop cold-imports the legacy body:
-`TryFrom<CardV0_92_0> for CardV0_NN_0` runs `richtext::import::from_markdown(&card.body)`.
+`TryFrom<CardV0_92_0> for CardV0_NN_0` runs `quillmark_richtext::import::from_markdown(&card.body)`
+(reachable because richtext is the leaf `core` depends on).
 Import is a pure function (`normalize → pulldown → corpus → normalize`), so the
 migration is deterministic. The reader chain (`dto.rs:413`) gains a `?` per hop —
 a one-line amendment to the DOCUMENT_STORAGE.md "Adding a Schema Version" playbook
@@ -125,8 +134,9 @@ and images — today's `mark_to_typst` renders both — which import as islands 
 "migration introduces no mint nondeterminism" conclusion survives in substance;
 INDEX.md's phrasing "legacy bodies hold no islands" is wrong and is corrected
 (real per-creation minting is still Phase 4). `NestingTooDeep` (> `MAX_NESTING_DEPTH`,
-`core/src/error.rs:48`) → `StorageError::Malformed`: such a document never
-rendered (`mark_to_typst` rejected the same depth), so nothing renderable is lost.
+now owned by `quillmark-richtext`, re-exported by `core::error`) →
+`StorageError::Malformed`: such a document never rendered (`mark_to_typst` rejected
+the same depth), so nothing renderable is lost.
 
 `Document::from_markdown` imports per card after the unchanged `assemble::decompose`
 (fence/YAML only); an empty body ⇒ `RichText::empty()`; body-disabled validation
@@ -136,24 +146,37 @@ rendered (`mark_to_typst` rejected the same depth), so nothing renderable is los
 `**b**`, fence-adjacent whitespace normalizes) — inherent to demoting markdown to
 a projection; documented in markdown-spec and release notes.
 
-### Crate re-homing — delete `crates/richtext`
+### Crate re-homing — keep a leaf crate core depends on
 
-`model`, `serial`, `import`, `export`, `delta`, `usv` all become
-`core/src/richtext/`, re-exported as `quillmark_core::richtext::*`. The golden-
-bytes, property, and fixture suites move verbatim (the freeze is the bytes, not
-the path). Final crate graph: `core` (+`pulldown-cmark`) ← `quillmark`,
-`backends/typst` (−`pulldown-cmark`), `backends/pdfform`, bindings. No new crates.
+`quillmark-richtext` stays a **separate crate** — `model`, `serial`, `import`,
+`export`, `delta`, `usv`, and the relocated `normalize` — and `core` **depends on
+it**. The freeze (canonical serialization, golden-bytes pinned) and the RichText
+primitive sit one layer *below* the document engine. `quillmark-richtext` is
+`publish = true` because the published `quillmark-core` publicly depends on it.
+Final crate graph: `quillmark-richtext` (+`pulldown-cmark`) ← `core` ←
+`quillmark`, `backends/typst` (−`pulldown-cmark`), `backends/pdfform`, bindings.
 
-- Rejected — **keep `quillmark-richtext`, have core depend on it**: circular —
-  richtext already depends on `core::normalize`.
-- Rejected — **move only model+serial to core, keep a codec crate** (the phase-1
-  plan): both the `TryFrom` chain and `from_markdown` need import inside core, and
-  `delta::diff_import` (the shipped stale-text writer) cold-parses too — so
-  `import`, `export`, and `delta` all follow. The residual crate has no distinct
-  consumer once the backend stops touching markdown.
+- Rejected — **dissolve richtext into `core::richtext`** (an earlier pick): loses
+  the layering — RichText + delta are a rich-text primitive with no need for
+  cards/quills/schemas/documents — and puts the *frozen wire contract* (a
+  schema-version-bumping golden) inside the large engine crate, where its blast
+  radius and test surface are no longer isolated. Dissolving buys one fewer crate;
+  it does **not** buy a parser-free core (core needs `import` for migration +
+  `from_markdown` regardless), so the only saving is a public-crate commitment —
+  which, for a wire format, is a home worth having.
+- Rejected — **move only model+serial to core, keep a codec crate above** (the
+  phase-1 plan): both the `TryFrom` chain and `from_markdown` need import *inside
+  or below* core; a codec crate *above* core is circular.
+- The circularity that made a leaf crate look impossible ("richtext depends on
+  `core::normalize`") **dissolves by relocating `normalize_markdown`** — a pure
+  string primitive that belongs with the codecs, not the engine — into
+  `quillmark-richtext` (**landed**; `MAX_NESTING_DEPTH` moved with it,
+  re-exported by `core::error` for the backend). richtext no longer touches core;
+  the arrow is now core → richtext.
 
 `MarkdownFixer` unification (handover item 4) resolves by **deleting the backend
-copy** with `mark_to_typst`, leaving one fixer at `import.rs` — one parse site.
+copy** with `mark_to_typst`, leaving one fixer at `quillmark-richtext`'s
+`import.rs` — one parse site.
 
 ### Typst emit — a corpus walker that records the source map
 
@@ -346,10 +369,13 @@ corpus; Phase-3 form editors write corpus-JSON and get it directly.
 The phase merges to `main` atomically off `integration/richtext`; intermediate
 wire states below are branch-private.
 
-1. **PR-A — re-home richtext into core.** Move six modules + tests; core promotes
-   `pulldown-cmark` dev→prod and gains `proptest` (dev); delete `crates/richtext`;
-   re-pin golden-bytes at the new path; measure `pkg/core` WASM delta. *Discharges
-   handover 1 (revised); stages the seam/storage freeze.*
+1. **PR-A — leaf-crate arrow inversion (landed).** Relocate `normalize_markdown`
+   + `MAX_NESTING_DEPTH` into `quillmark-richtext` (re-export the latter from
+   `core::error`); `core` depends on `quillmark-richtext`; richtext drops its
+   `core` dep and flips `publish = true`. Retire the "Quill-Delta" framing on the
+   edit surface (doc-only). *Discharges handover 1 (revised); stages the
+   seam/storage freeze.* Measured `pkg/core` cost of the eventual parser reach:
+   ~75 KB gzipped (see risk 4).
 2. **PR-B — live model `Card.body: RichText`.** `from_markdown` imports /
    `to_markdown` exports; `is_blank()`; wasm/python accessors (`body` → corpus,
    `bodyMarkdown` via export). Wire format held at V0_92_0 by writing through
@@ -408,9 +434,12 @@ no render path in the workspace parses markdown.
    table-alignment corners). The parity suite is the gate; intentional diffs (block
    quotes render; import canonicalizations) are enumerated, everything else matches
    byte-for-byte.
-4. **`pkg/core` WASM growth** from pulldown — measured in PR-A. Feature-gating import
-   out of core builds is rejected (`fromMarkdown` is that build's purpose); accept
-   or slim.
+4. **`pkg/core` WASM growth** from pulldown — **measured: ~75 KB gzipped** (the
+   pulldown crate; the import codec adds ~9 KB more), ~+24% on the ~0.34 MB core
+   bundle, well inside the 1.5 MB `CORE_MAX_GZIP_BYTES` guard. It lands only when a
+   body/import path becomes reachable from `pkg/core` (the PR-B/E cutover), tree-
+   shaken until then. Feature-gating import out of core builds is rejected
+   (`fromMarkdown` is that build's purpose); accept or slim.
 5. **`.qmd` body canonicalization** on round-trip — author-visible git churn on save;
    document in markdown-spec and release notes.
 6. **String-authored richtext *fields*** keep a per-`compile_data` import and get
@@ -423,7 +452,12 @@ no render path in the workspace parses markdown.
 ## Canon + phase-1 rework this forces
 
 - **ARCHITECTURE.md** — record the inverted invariant (markdown engine appears once,
-  in `core::richtext::import`).
+  in `quillmark-richtext::import`), and the crate layering (`quillmark-richtext` is
+  the leaf primitive `core` depends on).
+- **Edit-language framing** — the "Quill-Delta semantics" label is retired
+  (**landed**): the `Delta` is `retain`/`insert`/`delete` text splices (CodeMirror
+  `ChangeSet`), not attributed Quill-Delta ops; marks/lines are separate op channels
+  (phase 3), not op attributes. Carry the corrected framing into any phase-3 doc.
 - **DOCUMENT_STORAGE.md** — two-discipline byte-stability paragraph; the fallible-hop
   playbook amendment; the migrated-row conditional-stability caveat + read-repair.
 - **PREVIEW.md** — `regions()` rewritten (segment regions, `span` key, union
@@ -435,8 +469,10 @@ no render path in the workspace parses markdown.
   the slot grammar, the seed-commits-corpus note.
 - **INDEX.md** — revision-defer amendment; the "legacy bodies hold no islands"
   correction; phase-2 line updated to `(field, corpus range)`.
-- **`core/Cargo.toml`** — `pulldown-cmark` dev→prod; flip the comment at line 28.
-- **Phase-1 handover** — items 1 and 4 are superseded/discharged by this design.
+- **`core/Cargo.toml`** — **done**: `core` depends on `quillmark-richtext`; the
+  dev-dep comment reflects that the production parser lives in that dependency.
+- **Phase-1 handover** — item 1 is superseded (leaf crate, not dissolve-into-core;
+  the arrow-inversion groundwork landed here); item 4 is discharged by PR-E.
 
 ## Related
 
