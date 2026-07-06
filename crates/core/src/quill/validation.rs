@@ -413,7 +413,7 @@ fn validate_value(
         FieldType::Array => match value.as_array() {
             Some(items) => {
                 // Validate each element against the array's `items` schema.
-                // Scalar elements (`string[]`, `integer[]`, `markdown[]`, …)
+                // Scalar elements (`string[]`, `integer[]`, `richtext[]`, …)
                 // are type-checked element-wise; object elements recurse into
                 // their properties via the Object branch.
                 if let Some(item_schema) = &field.items {

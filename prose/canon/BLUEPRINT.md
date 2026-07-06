@@ -439,7 +439,7 @@ degrades gracefully on every type-valid input shape. The contract
 requires:
 
 - Templates treat type-empty values (`""`, `0`, `false`, `[]`, empty
-  markdown body) as valid *present* input — read via `data.field`,
+  richtext body) as valid *present* input — read via `data.field`,
   `card.at("field", default: …)`, or guarded with `if "field" in data`.
 - No template asserts that an Unendorsed field is *non-empty*. The schema
   guarantees *presence*, not non-emptiness; the `!must_fill` marker

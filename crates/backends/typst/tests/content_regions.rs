@@ -371,14 +371,14 @@ quill:
   name: array_regions
   version: 0.1.0
   backend: typst
-  description: markdown[] element region test
+  description: richtext[] element region test
 main:
   fields:
     refs:
       type: array
       items:
         type: richtext
-      description: a markdown[] field
+      description: a richtext[] field
 typst:
   plate_file: plate.typ
 "#;
@@ -398,7 +398,7 @@ typst:
     for expected in ["refs.0", "refs.1"] {
         assert!(
             regions.iter().any(|r| r.field == expected),
-            "each markdown[] element gets its own eval site and region {expected:?}: {regions:?}"
+            "each richtext[] element gets its own eval site and region {expected:?}: {regions:?}"
         );
     }
     // Elements are distinct placements, not one unioned `refs` blob.

@@ -209,7 +209,7 @@ impl QuillConfig {
 
                 // Every array carries an element schema (`items`). Coerce each
                 // element against it: scalar items (`string[]`, `integer[]`,
-                // `markdown[]`) coerce element-wise; object items recurse into
+                // `richtext[]`) coerce element-wise; object items recurse into
                 // the element's `properties` via the Object branch.
                 if let Some(items) = &field_schema.items {
                     let mut out = Vec::with_capacity(arr.len());

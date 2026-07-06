@@ -230,10 +230,10 @@ fn push_leading(items: &mut Vec<PayloadItem>, field: &FieldSchema, eg_when: bool
     }
 }
 
-/// The cell's `(value, fill)` for a scalar/array/markdown leaf, per the value
+/// The cell's `(value, fill)` for a scalar/array/richtext leaf, per the value
 /// cascade. Endorsed → the default, no marker. Unendorsed → the `example` (when
-/// present) carried by the marker, else a bare null marker. Markdown never
-/// inlines an example: an Unendorsed markdown leaf is always a bare marker, but
+/// present) carried by the marker, else a bare null marker. A richtext leaf never
+/// inlines an example: an Unendorsed richtext leaf is always a bare marker, but
 /// its `example:` still surfaces as a `# e.g.` hint (see `append_scalar`).
 fn scalar_cell(field: &FieldSchema) -> (JsonValue, bool) {
     if let Some(default) = &field.default {
@@ -248,12 +248,12 @@ fn scalar_cell(field: &FieldSchema) -> (JsonValue, bool) {
     }
 }
 
-/// Append a scalar / scalar-array / markdown field as a single payload field
+/// Append a scalar / scalar-array / richtext field as a single payload field
 /// plus its trailing inline type annotation.
 fn append_scalar(items: &mut Vec<PayloadItem>, field: &FieldSchema) {
-    // Markdown never inlines its `example:` as the marker value, so — unlike
-    // other Unendorsed scalars — the example would vanish entirely. Surface it
-    // as a `# e.g.` hint instead (the hint no-ops when no `example:` is set).
+    // A richtext field never inlines its `example:` as the marker value, so —
+    // unlike other Unendorsed scalars — the example would vanish entirely.
+    // Surface it as a `# e.g.` hint instead (no-ops when no `example:` is set).
     let eg_when = field.default.is_some() || matches!(field.r#type, FieldType::RichText { .. });
     push_leading(items, field, eg_when);
     let (json, fill) = scalar_cell(field);
