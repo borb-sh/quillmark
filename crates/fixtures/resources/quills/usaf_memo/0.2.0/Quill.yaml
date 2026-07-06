@@ -94,7 +94,7 @@ main:
       description: Bold-caps line below the seal; blank to omit.
 
     tag_line:
-      type: markdown
+      type: richtext(inline)
       default: ""
       ui:
         group: Letterhead
@@ -159,7 +159,7 @@ main:
     references:
       type: array
       items:
-        type: markdown
+        type: richtext(inline)
       default: []
       example:
         - "AFMAN 33-326, 25 November 2011, *Preparing Official Communications*"

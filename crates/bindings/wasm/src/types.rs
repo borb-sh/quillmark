@@ -220,8 +220,8 @@ pub struct ChangeSet {
 }
 
 /// A rendered field region: the quill schema field address plus its geometry on
-/// the page. Emitted for schema-bound fields — span-tracked content (markdown
-/// bodies, `markdown[]` elements, card content fields, direct scalar
+/// the page. Emitted for schema-bound fields — span-tracked content (richtext
+/// bodies, `richtext[]` elements, card content fields, direct scalar
 /// references) and form-field widgets (pdfform AcroForm, Typst `form-field`).
 /// Consumers use it to scroll to / highlight the focused field; for the
 /// reverse click direction use `LiveSession.fieldAt`, which answers over any

@@ -140,7 +140,7 @@ fn region_quill_tree() -> wasm_bindgen::JsValue {
     common::tree(&[
         (
             "Quill.yaml",
-            b"quill:\n  name: region_quill\n  version: 0.1.0\n  backend: typst\n  description: region + navigation wasm surface test\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    body:\n      type: markdown\n      description: a two-paragraph body\n",
+            b"quill:\n  name: region_quill\n  version: 0.1.0\n  backend: typst\n  description: region + navigation wasm surface test\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    body:\n      type: richtext\n      description: a two-paragraph body\n",
         ),
         (
             "plate.typ",

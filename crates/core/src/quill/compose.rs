@@ -353,7 +353,16 @@ fn resolve_fields(
 fn resolve_value(value: Option<&QuillValue>, field: &FieldSchema) -> QuillValue {
     let present = value.filter(|v| !v.as_json().is_null());
     let Some(v) = present else {
-        return field.default.clone().unwrap_or_else(|| zero_value(field));
+        // For a richtext-bearing field the render floor commits the *corpus* form
+        // of the default (cached at load), so the seam carries canonical
+        // RichText-JSON rather than a re-imported markdown string. `default_corpus`
+        // is `None` for a non-richtext field, so those fall through to the raw
+        // `default`, then to the type-empty zero.
+        return field
+            .default_corpus
+            .clone()
+            .or_else(|| field.default.clone())
+            .unwrap_or_else(|| zero_value(field));
     };
     match (&field.r#type, &field.properties, &field.items) {
         (FieldType::Object, Some(props), _) => {

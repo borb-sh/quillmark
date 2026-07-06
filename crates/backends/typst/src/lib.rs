@@ -650,7 +650,7 @@ fn is_date_field(field_schema: &serde_json::Value) -> bool {
         .unwrap_or(false)
 }
 
-/// Names of the markdown / `markdown[]` fields in a schema `properties` map —
+/// Names of the richtext / `richtext[]` fields in a schema `properties` map —
 /// the fields whose values carry backend markup for the helper to `eval`.
 /// Names of the schema `properties` whose field schema satisfies `predicate`,
 /// in map order. Shared spine of the field-class selectors below.
@@ -681,7 +681,7 @@ fn date_field_names(properties: &serde_json::Map<String, serde_json::Value>) -> 
 /// `form-field`'s path validator uses this to reject an index suffix on a
 /// scalar field, where no element exists for the address to resolve to. Any
 /// array qualifies, matching the pdfform resolver's shallow-path grammar:
-/// the content codegen only *produces* eval sites for `markdown[]` elements,
+/// the content codegen only *produces* eval sites for `richtext[]` elements,
 /// but a widget binding of a plain array element is a real, routable address.
 fn array_field_names(properties: &serde_json::Map<String, serde_json::Value>) -> Vec<String> {
     field_names_where(properties, |fs| {

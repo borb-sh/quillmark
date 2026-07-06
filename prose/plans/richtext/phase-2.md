@@ -11,8 +11,12 @@ regions — as the degenerate case of the segment map, not a special path.
 Gated on the [phase-0 spikes](phase-0.md) (all reported, no red flag) and the
 [phase-1 freeze](phase-1.md) (landed).
 
-**Status: PR-A through PR-F landed and merged into `integration/richtext`**
-(#838, #839). **PR-G is the only remaining work** — see § PR-G below.
+**Status: complete.** PR-A through PR-F landed and merged into
+`integration/richtext` (#838, #839); PR-G lands the final piece
+(`richtext(inline)` enforcement, load-time example import + corpus cache,
+seed-commits-corpus, hard `markdown`-alias cutover). The behavior lives in canon
+(SCHEMAS.md); Phase 3 (edit surface) is the next open work — see
+[INDEX.md](INDEX.md).
 
 ## Landed
 
@@ -37,7 +41,7 @@ Gated on the [phase-0 spikes](phase-0.md) (all reported, no red flag) and the
    JSON; the typst backend consumes it via `emit_richtext`; **`mark_to_typst`,
    `convert.rs`, and the backend's `pulldown-cmark` dependency are deleted**;
    `FieldType::Markdown` → `RichText { inline }` (`markdown` kept as a
-   deprecated alias — PR-G retires it); bindings flip `card.body` to corpus
+   deprecated alias, retired in PR-G); bindings flip `card.body` to corpus
    JSON and add `card.bodyMarkdown`; pdfform lowers to plaintext.
 7. **PR-F — regions + navigation (#829).** Two-tier `(window, segment)` scan;
    `RenderedRegion.span`; `position_at` / `locate`. Landed carrying two
@@ -51,6 +55,17 @@ Gated on the [phase-0 spikes](phase-0.md) (all reported, no red flag) and the
    one node wider than any per-line run, so per-run inversion is a structural
    non-starter there (not merely imprecise), and node-start would point at
    bytes outside every line's own text.
+8. **PR-G — `richtext(inline)`, load-time example cache, alias cutover.**
+   `RichText::is_inline()` (one `Para` line, no container, no islands),
+   enforced at coercion, validation (`richtext::not_inline`, `TypeMismatch`
+   fatality), and load-time example import. `QuillConfig::from_yaml` imports
+   every richtext `default`/`example`/`body.example` once into `#[serde(skip)]`
+   corpus companions (a pure function of the Quill.yaml bytes) — the authored
+   markdown literal is retained as the canonical projection, the corpus is the
+   derived cache. Seed-commits-corpus: seeding and the render floor read the
+   cache, so seeded documents and zero-fills are corpus (retires
+   `import_body_lossy`; `zero_value` for richtext is the empty corpus). Hard
+   cutover: `type: markdown` is a schema **load error**, not a silent alias.
 
 All landed code and its rationale now live in canon (ARCHITECTURE.md,
 DOCUMENT_STORAGE.md, CONVERT.md, PLATE_DATA.md, PREVIEW.md, SCHEMAS.md,
@@ -73,7 +88,7 @@ corpus.
 
 Net parser count is unchanged (one), moved from every render to each ingest.
 This is the invariant every later PR had to preserve, and the one PR-G's
-alias cutover finishes closing off.
+alias cutover closed off.
 
 ### Seam + storage — one canonical form, three consumers
 
@@ -143,40 +158,6 @@ numbers are needed again).
    field-level until the field is stored structurally. Watch `usaf_memo`'s
    `references: array<richtext>` field for cost and correctness as a first
    real user of this path.
-
-## PR-G — richtext(inline), load-time import, hard alias cutover (next)
-
-The only remaining phase-2 work. Three pieces, one of them newly sharpened to
-a hard cutover.
-
-1. **Enforce `richtext(inline)`.** Against the corpus: exactly one `Para`
-   line, empty `containers`, no islands (`continues` impossible); marks
-   unrestricted. Enforce in `validation.rs` as a type error
-   (`richtext::not_inline`, the `TypeMismatch` fatality class) and in
-   coercion. Editors read the constraint to mount single-line editors; the
-   emitter may skip block wrapping for an inline field (headers).
-2. **Load-time schema-example import + cache.** `QuillConfig::from_yaml`
-   imports every richtext `default` / `example` / `body.example` once into
-   `#[serde(skip)]` companions (`default_corpus` / `example_corpus:
-   Option<QuillValue>` on `FieldSchema` and `BodyCardSchema`) — the cache
-   lives on the schema object, keyed structurally, a pure function of the
-   Quill.yaml bytes. This retires `import_body_lossy`, the
-   over-nesting-degrades-to-empty bridge PR-B left on seed / blueprint /
-   `replace_body`: those paths read a pre-validated corpus instead.
-   **Seed-commits-corpus**: `resolve_fields` and seeding commit the corpus
-   form, so seeded documents are canonical from birth. `blueprint()` keeps
-   reading the authored markdown (its output *is* the markdown surface) — it
-   currently canonicalizes example bodies through `to_markdown`/
-   `body_markdown`; if byte-exact authored examples in the blueprint turn out
-   to matter, special-case it there rather than reworking the general path.
-3. **Hard cutover — retire the `markdown` type alias.** Today `type:
-   markdown` is a silently-accepted deprecated alias for `RichText { inline:
-   false }` (load-time warning only, per PR-E). Remove the alias outright:
-   `type: markdown` becomes a schema **load error**, not a warning. No
-   parallel accepted spelling survives — every Quill.yaml must declare
-   `richtext` / `richtext(inline)` explicitly. Grep the workspace (Quill.yaml
-   + fixtures) for `type: markdown` and convert every hit before landing;
-   update SCHEMAS.md / BLUEPRINT.md's alias line in the same PR.
 
 ## Related
 

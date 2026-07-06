@@ -27,9 +27,9 @@
 //!
 //! ## Rendering choices that follow from sharing `to_markdown`
 //!
-//! - **Markdown fields** carry no block scalar. An Unendorsed markdown field
-//!   is a bare `field: !must_fill # markdown`; an Endorsed one renders its
-//!   default as an inline (double-quoted, `\n`-escaped) string. `to_markdown`
+//! - **Richtext fields** carry no block scalar. An Unendorsed richtext field
+//!   is a bare `field: !must_fill # richtext<markdown>`; an Endorsed one renders
+//!   its default as an inline (double-quoted, `\n`-escaped) string. `to_markdown`
 //!   emits no `|`/`>` block forms, so neither does the blueprint.
 //! - **Arrays** render in block style at every level — including an
 //!   Unendorsed array's `example`, which rides the `!must_fill` marker as
@@ -132,7 +132,12 @@ fn build_main_card(card: &CardSchema, quill_ref: &str, description: Option<&str>
     append_fields(&mut items, card);
     Card::from_parts(
         Payload::from_items(items),
-        crate::document::import_body_lossy(&body_text(card, "main")),
+        // The blueprint's output *is* the markdown surface, so it imports the
+        // body text (a trusted example or a generated placeholder) here and
+        // re-emits it via `to_markdown`. The empty-corpus fallback is defensive —
+        // a placeholder or a load-validated example never over-nests.
+        crate::document::import_body(&body_text(card, "main"))
+            .unwrap_or_else(|_| quillmark_richtext::RichText::empty()),
     )
 }
 
@@ -151,7 +156,8 @@ fn build_card(card: &CardSchema) -> Card {
     append_fields(&mut items, card);
     Card::from_parts(
         Payload::from_items(items),
-        crate::document::import_body_lossy(&body_text(card, &card.name)),
+        crate::document::import_body(&body_text(card, &card.name))
+            .unwrap_or_else(|_| quillmark_richtext::RichText::empty()),
     )
 }
 
@@ -224,10 +230,10 @@ fn push_leading(items: &mut Vec<PayloadItem>, field: &FieldSchema, eg_when: bool
     }
 }
 
-/// The cell's `(value, fill)` for a scalar/array/markdown leaf, per the value
+/// The cell's `(value, fill)` for a scalar/array/richtext leaf, per the value
 /// cascade. Endorsed → the default, no marker. Unendorsed → the `example` (when
-/// present) carried by the marker, else a bare null marker. Markdown never
-/// inlines an example: an Unendorsed markdown leaf is always a bare marker, but
+/// present) carried by the marker, else a bare null marker. A richtext leaf never
+/// inlines an example: an Unendorsed richtext leaf is always a bare marker, but
 /// its `example:` still surfaces as a `# e.g.` hint (see `append_scalar`).
 fn scalar_cell(field: &FieldSchema) -> (JsonValue, bool) {
     if let Some(default) = &field.default {
@@ -242,12 +248,12 @@ fn scalar_cell(field: &FieldSchema) -> (JsonValue, bool) {
     }
 }
 
-/// Append a scalar / scalar-array / markdown field as a single payload field
+/// Append a scalar / scalar-array / richtext field as a single payload field
 /// plus its trailing inline type annotation.
 fn append_scalar(items: &mut Vec<PayloadItem>, field: &FieldSchema) {
-    // Markdown never inlines its `example:` as the marker value, so — unlike
-    // other Unendorsed scalars — the example would vanish entirely. Surface it
-    // as a `# e.g.` hint instead (the hint no-ops when no `example:` is set).
+    // A richtext field never inlines its `example:` as the marker value, so —
+    // unlike other Unendorsed scalars — the example would vanish entirely.
+    // Surface it as a `# e.g.` hint instead (no-ops when no `example:` is set).
     let eg_when = field.default.is_some() || matches!(field.r#type, FieldType::RichText { .. });
     push_leading(items, field, eg_when);
     let (json, fill) = scalar_cell(field);
@@ -481,7 +487,7 @@ main:
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
   fields:
-    bio: { type: markdown, example: "Hello world" }
+    bio: { type: richtext, example: "Hello world" }
 "#)
         .blueprint();
         assert!(t.contains("# e.g. Hello world\nbio: !must_fill # richtext<markdown>\n"));
@@ -609,7 +615,7 @@ quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
   fields:
     counts:   { type: array, items: { type: integer } }
-    sections: { type: array, items: { type: markdown } }
+    sections: { type: array, items: { type: richtext } }
     tags:     { type: array, items: { type: string } }
 "#)
         .blueprint();
@@ -629,7 +635,7 @@ main:
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
   fields:
-    bio: { type: markdown }
+    bio: { type: richtext }
 "#)
         .blueprint();
         assert!(t.contains("bio: !must_fill # richtext<markdown>\n"));
@@ -644,7 +650,7 @@ main:
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
   fields:
-    bio: { type: markdown, default: "" }
+    bio: { type: richtext, default: "" }
 "#)
         .blueprint();
         assert!(t.contains("bio: \"\" # richtext<markdown>\n"));
@@ -661,7 +667,7 @@ quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
   fields:
     bio:
-      type: markdown
+      type: richtext
       default: "## About me\n\nHello."
 "###)
         .blueprint();

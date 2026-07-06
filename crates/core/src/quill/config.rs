@@ -209,7 +209,7 @@ impl QuillConfig {
 
                 // Every array carries an element schema (`items`). Coerce each
                 // element against it: scalar items (`string[]`, `integer[]`,
-                // `markdown[]`) coerce element-wise; object items recurse into
+                // `richtext[]`) coerce element-wise; object items recurse into
                 // the element's `properties` via the Object branch.
                 if let Some(items) = &field_schema.items {
                     let mut out = Vec::with_capacity(arr.len());
@@ -356,11 +356,28 @@ impl QuillConfig {
                 }
                 Ok(value.clone())
             }
-            FieldType::RichText { .. } => {
+            FieldType::RichText { inline } => {
                 // The seam carries the corpus, so coercion commits the corpus
                 // form: an already-structured value (editor / re-render) is
                 // validated and re-canonicalized; an authored markdown string is
                 // imported. Determinism is inherited from `import` being pure.
+                // An `inline` field additionally requires the resulting corpus to
+                // be single-`Para` (`richtext(inline)`): editors mount a one-line
+                // surface, so multi-block content is a coercion error here, in
+                // lockstep with the validation-layer `richtext::not_inline` check.
+                let inline_check = |rt: &quillmark_richtext::RichText| -> Result<(), CoercionError> {
+                    if inline && !rt.is_inline() {
+                        return Err(CoercionError::Uncoercible {
+                            path: path.to_string(),
+                            value: "<richtext>".to_string(),
+                            target: "richtext(inline)".to_string(),
+                            reason: "richtext(inline) requires a single paragraph line \
+                                     with no list/quote container and no islands"
+                                .to_string(),
+                        });
+                    }
+                    Ok(())
+                };
                 if json_value.is_object() {
                     let rt = quillmark_richtext::serial::from_canonical_value(json_value)
                         .map_err(|e| CoercionError::Uncoercible {
@@ -369,6 +386,7 @@ impl QuillConfig {
                             target: "richtext".to_string(),
                             reason: format!("not a valid richtext corpus: {e}"),
                         })?;
+                    inline_check(&rt)?;
                     return Ok(QuillValue::from_json(
                         quillmark_richtext::serial::to_canonical_value(&rt),
                     ));
@@ -401,6 +419,7 @@ impl QuillConfig {
                         reason: format!("markdown import failed: {e}"),
                     }
                 })?;
+                inline_check(&rt)?;
                 Ok(QuillValue::from_json(
                     quillmark_richtext::serial::to_canonical_value(&rt),
                 ))
@@ -1315,7 +1334,7 @@ impl QuillConfig {
         Self::validate_description_singleline(main_description.as_deref(), "main", &mut errors);
 
         // The main entry-point card.
-        let main = CardSchema {
+        let mut main = CardSchema {
             name: "main".to_string(),
             description: main_description,
             fields,
@@ -1473,6 +1492,18 @@ impl QuillConfig {
             }
         }
 
+        // Import every richtext `default` / `example` / `body.example` literal
+        // once into its canonical-corpus companion cache — a pure function of the
+        // Quill.yaml bytes, never serialized. This is where `richtext(inline)`
+        // violations and malformed richtext literals surface as load errors, and
+        // where seeding and the render floor later read a pre-validated corpus
+        // instead of re-importing the markdown per document.
+        populate_card_corpus(&mut main, "main", &mut errors);
+        for card in &mut card_kinds {
+            let label = format!("card_kinds.{}", card.name);
+            populate_card_corpus(card, &label, &mut errors);
+        }
+
         if !errors.is_empty() {
             return Err(errors);
         }
@@ -1508,4 +1539,182 @@ fn example_contains_fence_line(text: &str) -> bool {
         let line = line.strip_suffix('\r').unwrap_or(line);
         crate::document::fences::is_card_yaml_opener_line(line)
     })
+}
+
+/// Whether a field's type tree contains any richtext leaf — the gate for
+/// caching a corpus companion. A scalar (`string`, `integer`, …) never carries
+/// one; an `array<richtext>` or an `object` with a richtext property does.
+fn field_contains_richtext(field: &FieldSchema) -> bool {
+    match &field.r#type {
+        FieldType::RichText { .. } => true,
+        FieldType::Array => field
+            .items
+            .as_deref()
+            .is_some_and(field_contains_richtext),
+        FieldType::Object => field
+            .properties
+            .as_ref()
+            .is_some_and(|p| p.values().any(|f| field_contains_richtext(f))),
+        _ => false,
+    }
+}
+
+/// Populate a field's `default_corpus` / `example_corpus` companion caches from
+/// its markdown literals. No-op for a non-richtext field; a failed import or a
+/// `richtext(inline)` violation is appended to `errors` as a load diagnostic.
+fn populate_field_corpus(field: &mut FieldSchema, owner: &str, errors: &mut Vec<Diagnostic>) {
+    if !field_contains_richtext(field) {
+        return;
+    }
+    if let Some(default) = field.default.clone() {
+        match literal_corpus(&default, field, &format!("{owner} `default`")) {
+            Ok(corpus) => field.default_corpus = corpus,
+            Err(d) => errors.push(d),
+        }
+    }
+    if let Some(example) = field.example.clone() {
+        match literal_corpus(&example, field, &format!("{owner} `example`")) {
+            Ok(corpus) => field.example_corpus = corpus,
+            Err(d) => errors.push(d),
+        }
+    }
+}
+
+/// Populate every richtext corpus companion on a card: each field's
+/// `default`/`example`, and the card's `body.example` (block richtext — no
+/// inline constraint; skipped when the body is disabled, since its example is
+/// inert).
+fn populate_card_corpus(card: &mut CardSchema, label: &str, errors: &mut Vec<Diagnostic>) {
+    for (name, field) in card.fields.iter_mut() {
+        populate_field_corpus(field, &format!("{label} field `{name}`"), errors);
+    }
+    let body_enabled = card.body.as_ref().is_none_or(|b| b.enabled != Some(false));
+    if body_enabled {
+        if let Some(body) = card.body.as_mut() {
+            if let Some(example) = body.example.clone() {
+                match crate::document::import_body(&example) {
+                    Ok(rt) => {
+                        body.example_corpus = Some(QuillValue::from_json(
+                            quillmark_richtext::serial::to_canonical_value(&rt),
+                        ));
+                    }
+                    Err(e) => errors.push(
+                        Diagnostic::new(
+                            Severity::Error,
+                            format!("Failed to import {label} `body.example`: {e}"),
+                        )
+                        .with_code("quill::richtext_example_import".to_string()),
+                    ),
+                }
+            }
+        }
+    }
+}
+
+/// Compute the canonical-corpus form of a richtext-bearing schema literal
+/// (`default` / `example`), importing every markdown leaf once and enforcing
+/// `richtext(inline)`. Recurses through `array` / `object` shapes, converting
+/// only their richtext leaves and passing other elements through unchanged.
+/// `Ok(None)` when the literal carries no importable richtext (a null value, or
+/// a field the gate already cleared as non-richtext); `Err` is a load error.
+fn literal_corpus(
+    value: &QuillValue,
+    field: &FieldSchema,
+    label: &str,
+) -> Result<Option<QuillValue>, Diagnostic> {
+    let json = value.as_json();
+    // Null ≡ absent — no data to import, so no companion is cached.
+    if json.is_null() {
+        return Ok(None);
+    }
+    match &field.r#type {
+        FieldType::RichText { inline } => {
+            let rt = if let Some(s) = json.as_str() {
+                quillmark_richtext::import::from_markdown(s).map_err(|e| {
+                    richtext_literal_error(label, &format!("markdown import failed: {e}"))
+                })?
+            } else if json.is_object() {
+                quillmark_richtext::serial::from_canonical_value(json).map_err(|e| {
+                    richtext_literal_error(label, &format!("not a valid richtext corpus: {e}"))
+                })?
+            } else {
+                return Err(richtext_literal_error(
+                    label,
+                    "expected a markdown string (richtext literals are authored as markdown)",
+                ));
+            };
+            if *inline && !rt.is_inline() {
+                return Err(richtext_inline_error(label));
+            }
+            Ok(Some(QuillValue::from_json(
+                quillmark_richtext::serial::to_canonical_value(&rt),
+            )))
+        }
+        FieldType::Array => {
+            let Some(items) = field.items.as_deref() else {
+                return Ok(None);
+            };
+            if !field_contains_richtext(items) {
+                return Ok(None);
+            }
+            let arr = json.as_array().cloned().unwrap_or_default();
+            let mut out = Vec::with_capacity(arr.len());
+            for (idx, elem) in arr.iter().enumerate() {
+                let elem_v = QuillValue::from_json(elem.clone());
+                let corpus = literal_corpus(&elem_v, items, &format!("{label}[{idx}]"))?
+                    .unwrap_or(elem_v);
+                out.push(corpus.into_json());
+            }
+            Ok(Some(QuillValue::from_json(serde_json::Value::Array(out))))
+        }
+        FieldType::Object => {
+            let Some(props) = field.properties.as_ref() else {
+                return Ok(None);
+            };
+            if !props.values().any(|f| field_contains_richtext(f)) {
+                return Ok(None);
+            }
+            let obj = json.as_object().cloned().unwrap_or_default();
+            let mut out = serde_json::Map::new();
+            for (k, v) in &obj {
+                let converted = match props.get(k) {
+                    Some(pschema) => {
+                        let pv = QuillValue::from_json(v.clone());
+                        literal_corpus(&pv, pschema, &format!("{label}.{k}"))?
+                            .map(QuillValue::into_json)
+                            .unwrap_or_else(|| v.clone())
+                    }
+                    None => v.clone(),
+                };
+                out.insert(k.clone(), converted);
+            }
+            Ok(Some(QuillValue::from_json(serde_json::Value::Object(out))))
+        }
+        _ => Ok(None),
+    }
+}
+
+/// A load diagnostic for a richtext schema literal that failed to import.
+fn richtext_literal_error(label: &str, reason: &str) -> Diagnostic {
+    Diagnostic::new(
+        Severity::Error,
+        format!("Failed to import richtext {label}: {reason}"),
+    )
+    .with_code("quill::richtext_example_import".to_string())
+}
+
+/// A load diagnostic for a `richtext(inline)` schema literal whose corpus spans
+/// more than a single paragraph.
+fn richtext_inline_error(label: &str) -> Diagnostic {
+    Diagnostic::new(
+        Severity::Error,
+        format!(
+            "richtext(inline) {label} must be a single paragraph (no blank lines, \
+             headings, lists, quotes, or tables)"
+        ),
+    )
+    .with_code("richtext::not_inline".to_string())
+    .with_hint(
+        "Reduce the value to one paragraph, or change the field `type:` to `richtext`.".to_string(),
+    )
 }

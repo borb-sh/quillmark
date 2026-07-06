@@ -13,7 +13,7 @@
 //!
 //! Three producers feed regions, all keyed on the schema path:
 //!
-//! - **Content fields** (a markdown body, a `markdown[]` element, a card's
+//! - **Content fields** (a richtext body, a `richtext[]` element, a card's
 //!   content field) are tracked by the **spans** their glyphs carry: the
 //!   backend evaluates each one's value at its own generated call site and
 //!   records the site's byte window, so every glyph of that content resolves

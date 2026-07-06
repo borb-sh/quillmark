@@ -158,7 +158,7 @@ four queries, two coarse and two fine:
 - `locate(field, pos)` answers *corpus position → caret rect* — the reverse of
   `positionAt`, the box to draw a caret at.
 
-Three producers: **content fields** (a markdown body, a `markdown[]` element,
+Three producers: **content fields** (a richtext body, a `richtext[]` element,
 a card's content field) are tracked by the spans their glyphs carry — the
 backend evaluates each value at its own generated call site and records the
 site's byte window, so the rendered ink resolves back to its field through

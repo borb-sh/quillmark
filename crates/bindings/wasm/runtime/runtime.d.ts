@@ -137,6 +137,13 @@ export interface FieldRegion {
 	page: number;
 	/** `[x0, y0, x1, y1]` in PDF points (1/72″), bottom-left origin. */
 	rect: [number, number, number, number];
+	/**
+	 * The corpus slice this box covers — USV `[start, end)` into the field's
+	 * `RichText` for content ink (one segment), absent for a scalar reference
+	 * site or widget. Consumers key segment highlights on it and union same-page
+	 * segments for the whole-field box.
+	 */
+	span?: [number, number];
 }
 
 /** Canonical contract every backend build must satisfy. Result of one render. */

@@ -32,15 +32,6 @@ pub(crate) fn import_body(md: &str) -> Result<RichText, ImportError> {
     }
 }
 
-/// Import a body string, degrading a pathological over-nested input to the empty
-/// corpus rather than erroring. Used by the infallible construction paths
-/// (seeding, blueprint) whose inputs are trusted quill-author examples; the
-/// `> MAX_NESTING_DEPTH` case is unreachable for real examples. PR-G moves
-/// example import to quill-load time where it validates and caches.
-pub(crate) fn import_body_lossy(md: &str) -> RichText {
-    import_body(md).unwrap_or_else(|_| RichText::empty())
-}
-
 pub mod assemble;
 pub mod dto;
 pub mod edit;

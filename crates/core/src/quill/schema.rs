@@ -74,8 +74,8 @@ pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
                     serde_json::Value::String("array".to_string()),
                 );
                 // The element schema is emitted recursively, so a scalar
-                // element yields `items: {type: string}` (and markdown carries
-                // its `contentMediaType`), while an object element yields
+                // element yields `items: {type: string}` (and a richtext element
+                // carries its `contentMediaType`), while an object element yields
                 // `items: {type: object, properties: …}`.
                 if let Some(items) = &field.items {
                     schema.insert("items".to_string(), field_to_schema(items));
@@ -216,7 +216,7 @@ main:
   fields:
     sections:
       type: array
-      items: { type: markdown }
+      items: { type: richtext }
 "#;
         let schema = build_from_yaml(yaml);
         let json = schema.as_json();

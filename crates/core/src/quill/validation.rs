@@ -54,6 +54,14 @@ pub enum ValidationError {
         path: String,
         card: String,
     },
+
+    /// A `richtext(inline)` field whose corpus is not single-`Para` (a block, a
+    /// list/quote container, or an island). Same fatality class as
+    /// `TypeMismatch` — the value is well-typed richtext but the wrong *shape*
+    /// for an inline field.
+    NotInline {
+        path: String,
+    },
 }
 
 impl std::error::Error for ValidationError {}
@@ -108,6 +116,14 @@ impl std::fmt::Display for ValidationError {
                     hint = body_disabled_hint(),
                 )
             }
+            ValidationError::NotInline { path } => {
+                write!(
+                    f,
+                    "field `{path}` is `richtext(inline)` but its content is not a single \
+                     paragraph — {hint}",
+                    hint = not_inline_hint(),
+                )
+            }
         }
     }
 }
@@ -133,6 +149,12 @@ fn body_disabled_hint() -> &'static str {
     "remove the body content or set `body.enabled: true` on the card kind"
 }
 
+/// Actionable exit clause for a `NotInline` error.
+fn not_inline_hint() -> &'static str {
+    "keep the value to a single paragraph (no blank lines, headings, lists, \
+     quotes, or tables), or change the schema's `type:` to `richtext`"
+}
+
 impl ValidationError {
     /// Document-model path anchor for this error.
     ///
@@ -143,7 +165,8 @@ impl ValidationError {
             | ValidationError::EnumViolation { path, .. }
             | ValidationError::FormatViolation { path, .. }
             | ValidationError::UnknownCard { path, .. }
-            | ValidationError::BodyDisabled { path, .. } => path,
+            | ValidationError::BodyDisabled { path, .. }
+            | ValidationError::NotInline { path, .. } => path,
         }
     }
 
@@ -156,6 +179,7 @@ impl ValidationError {
             ValidationError::FormatViolation { .. } => "validation::format_violation",
             ValidationError::UnknownCard { .. } => "validation::unknown_card",
             ValidationError::BodyDisabled { .. } => "validation::body_disabled",
+            ValidationError::NotInline { .. } => "richtext::not_inline",
         }
     }
 
@@ -171,6 +195,7 @@ impl ValidationError {
                 ..
             } => Some(type_mismatch_hint(expected, actual, default.as_deref())),
             ValidationError::BodyDisabled { .. } => Some(body_disabled_hint().to_string()),
+            ValidationError::NotInline { .. } => Some(not_inline_hint().to_string()),
             ValidationError::EnumViolation { .. }
             | ValidationError::FormatViolation { .. }
             | ValidationError::UnknownCard { .. } => None,
@@ -388,7 +413,7 @@ fn validate_value(
         FieldType::Array => match value.as_array() {
             Some(items) => {
                 // Validate each element against the array's `items` schema.
-                // Scalar elements (`string[]`, `integer[]`, `markdown[]`, …)
+                // Scalar elements (`string[]`, `integer[]`, `richtext[]`, …)
                 // are type-checked element-wise; object elements recurse into
                 // their properties via the Object branch.
                 if let Some(item_schema) = &field.items {
@@ -432,6 +457,32 @@ fn validate_value(
             None => false,
         },
     };
+
+    // `richtext(inline)` shape check: a well-typed richtext value (corpus object,
+    // or a markdown string on a schema literal) must lower to a single `Para`.
+    // Runs only when the value is type-valid — a mistyped value already raises
+    // TypeMismatch below, and a null/absent inline field zero-fills to the empty
+    // corpus (which is inline). Mirrors the coercion-layer check so a corpus that
+    // bypassed coercion (e.g. a direct `validate_document`) is still caught.
+    if type_valid {
+        if let FieldType::RichText { inline: true } = field.r#type {
+            let json = value.as_json();
+            let parsed = if json.is_object() {
+                quillmark_richtext::serial::from_canonical_value(json).ok()
+            } else if let Some(s) = json.as_str() {
+                quillmark_richtext::import::from_markdown(s).ok()
+            } else {
+                None
+            };
+            if let Some(rt) = parsed {
+                if !rt.is_inline() {
+                    errors.push(ValidationError::NotInline {
+                        path: path.to_string(),
+                    });
+                }
+            }
+        }
+    }
 
     // A DateTime with a string value already emitted a FormatViolation;
     // skip the redundant TypeMismatch in that case.
@@ -904,5 +955,29 @@ main:
             ValidationError::BodyDisabled { path, card }
             if card == "main" && path == "main.body"
         )));
+    }
+
+    #[test]
+    fn rejects_richtext_inline_with_multi_block_corpus() {
+        // A pre-built two-paragraph corpus reaches the validator directly (no
+        // coercion), so the validation-layer NotInline backstop must fire.
+        let config = config_with("    tag:\n      type: richtext(inline)", "");
+        let rt = quillmark_richtext::import::from_markdown("one\n\ntwo").unwrap();
+        let corpus = quillmark_richtext::serial::to_canonical_value(&rt);
+        let doc = doc_from_fm(&[("tag", corpus)]);
+        let errors = validate_typed_document(&config, &doc).unwrap_err();
+        assert!(has_error(&errors, |e| matches!(
+            e,
+            ValidationError::NotInline { path } if path == "tag"
+        )));
+    }
+
+    #[test]
+    fn accepts_richtext_inline_single_para_corpus() {
+        let config = config_with("    tag:\n      type: richtext(inline)", "");
+        let rt = quillmark_richtext::import::from_markdown("one line only").unwrap();
+        let corpus = quillmark_richtext::serial::to_canonical_value(&rt);
+        let doc = doc_from_fm(&[("tag", corpus)]);
+        assert!(validate_typed_document(&config, &doc).is_ok());
     }
 }
