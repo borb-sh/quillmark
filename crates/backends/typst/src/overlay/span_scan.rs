@@ -72,6 +72,12 @@ pub(crate) struct FieldWindow {
     pub path: String,
     pub file: FileId,
     pub range: Range<usize>,
+    /// The content block's per-segment source map (`gen` ranges index the helper
+    /// `lib.typ`), empty for scalar reference sites. Produced by the emitter and
+    /// carried here for the Phase-3 region/nav rework, which keys regions to
+    /// corpus ranges through these — no reader in Phase 2 yet.
+    #[allow(dead_code)]
+    pub segments: Vec<crate::emit::SegmentMap>,
 }
 
 /// An axis-aligned box accumulated in page-space (top-left origin) pt.
@@ -143,15 +149,14 @@ impl Classifier<'_> {
         // routed to the served compile's snapshot instead of the world.
         let resolved = match DiagSpan::from(span).get() {
             DiagSpanKind::Detached => None,
-            DiagSpanKind::Number {
-                id,
-                num,
-                sub_range,
-            } => {
+            DiagSpanKind::Number { id, num, sub_range } => {
                 let range = if id == self.helper.id() {
                     self.helper.range(num, sub_range)
                 } else {
-                    self.world.source(id).ok().and_then(|s| s.range(num, sub_range))
+                    self.world
+                        .source(id)
+                        .ok()
+                        .and_then(|s| s.range(num, sub_range))
                 };
                 range.map(|r| (id, r))
             }
@@ -171,12 +176,7 @@ impl Classifier<'_> {
 /// — per glyph for text (a text run may mix spans), per item for shapes and
 /// images (each carries a single span). Boxes are computed for classified
 /// ink only.
-fn collect_page_hits(
-    frame: &Frame,
-    page: usize,
-    cls: &mut Classifier,
-    out: &mut Vec<Hit>,
-) {
+fn collect_page_hits(frame: &Frame, page: usize, cls: &mut Classifier, out: &mut Vec<Hit>) {
     fn walk(frame: &Frame, ts: Transform, page: usize, cls: &mut Classifier, out: &mut Vec<Hit>) {
         for (pos, item) in frame.items() {
             match item {
@@ -254,7 +254,9 @@ fn item_aabb(pos: Point, lo: Point, hi: Point, ts: Transform) -> Aabb {
 enum Run {
     NotSeen,
     /// Interrupted by foreign ink; may resume on page `last_page + 1` only.
-    Suspended { last_page: usize },
+    Suspended {
+        last_page: usize,
+    },
     Done,
 }
 
@@ -483,10 +485,7 @@ fn collect_anchors(
 
 /// If `node` is a `data.<field>` access or a `data.at("<field>")` call head
 /// with a declared field, its schema path and the node to widen from.
-fn data_access<'a>(
-    node: &LinkedNode<'a>,
-    fields: &[String],
-) -> Option<(String, LinkedNode<'a>)> {
+fn data_access<'a>(node: &LinkedNode<'a>, fields: &[String]) -> Option<(String, LinkedNode<'a>)> {
     if node.kind() != SyntaxKind::FieldAccess {
         return None;
     }
@@ -566,7 +565,7 @@ typst:
 main:
   fields:
     intro:
-      type: markdown
+      type: richtext
       description: a probe field
 "#;
         const PLATE: &str = r#"
@@ -578,10 +577,16 @@ main:
         let plate = crate::read_plate(&q).expect("plate");
         let schema = quillmark_core::quill::build_transform_schema(q.config());
         let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
-        let data = serde_json::json!({ "intro": "A probe paragraph, PROBETOKEN." });
-        let transformed = crate::transformed_data(&schema, &meta, &data).expect("transform");
+        // The seam carries the corpus, not markdown.
+        let rt = quillmark_richtext::import::from_markdown("A probe paragraph, PROBETOKEN.")
+            .expect("import");
+        let data =
+            serde_json::json!({ "intro": quillmark_richtext::serial::to_canonical_value(&rt) });
+        let transformed = crate::transformed_data(&meta, &data).expect("transform");
         let mut world = QuillWorld::new(&q, &plate).expect("world");
-        let windows = world.inject_helper_package(&transformed, &meta);
+        let windows = world
+            .inject_helper_package(&transformed, &meta)
+            .expect("inject");
         let (doc, _) = compile_document(&world).expect("compile");
         let helper = world
             .source(QuillWorld::helper_fid("lib.typ"))

@@ -328,11 +328,15 @@ impl Document {
     /// ```json
     /// {
     ///   "$quill": "<ref>",
-    ///   "$body": "<global-body>",
-    ///   "$cards": [{ "$kind": "<tag>", "$body": "<card-body>", "<field>": <value>, ... }],
+    ///   "$body": { "text": "…", "lines": [...], "marks": [...], "islands": [...] },
+    ///   "$cards": [{ "$kind": "<tag>", "$body": <corpus>, "<field>": <value>, ... }],
     ///   "<field>": <value>, ...
     /// }
     /// ```
+    ///
+    /// `$body` (global and per-card) is canonical RichText-JSON — the corpus as
+    /// a nested object, not a markdown string. Richtext payload fields likewise
+    /// cross as corpus objects (committed at coercion time).
     ///
     /// `$`-prefixed keys carry document-level metadata (quill ref, body
     /// text, card list, card kind). User payload fields stay flat at the
@@ -346,11 +350,13 @@ impl Document {
             serde_json::Value::String(self.quill_reference().to_string()),
         );
 
-        // The seam still carries the markdown projection (PR-E flips `$body` to
-        // canonical corpus JSON once the typst backend consumes the corpus).
+        // The seam carries the body as canonical RichText-JSON (Option A): a
+        // nested corpus object, byte-identical to `content_key`, never a lossy
+        // markdown string. Backends lower the corpus (typst → markup + source
+        // map; pdfform → `.text`); the markdown projection is `body_markdown`.
         map.insert(
             "$body".to_string(),
-            serde_json::Value::String(self.main.body_markdown()),
+            quillmark_richtext::serial::to_canonical_value(self.main.body()),
         );
 
         let cards_array: Vec<serde_json::Value> = self
@@ -364,7 +370,7 @@ impl Document {
                 );
                 card_map.insert(
                     "$body".to_string(),
-                    serde_json::Value::String(card.body_markdown()),
+                    quillmark_richtext::serial::to_canonical_value(card.body()),
                 );
                 for (key, value) in card.payload.iter() {
                     card_map.insert(key.clone(), value.as_json().clone());

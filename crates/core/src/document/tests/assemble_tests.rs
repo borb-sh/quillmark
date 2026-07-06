@@ -2093,7 +2093,9 @@ fn test_to_plate_json_simple() {
 
     assert_eq!(json["$quill"], "my_quill");
     assert_eq!(json["title"], "Hello");
-    assert_eq!(json["$body"], "Body text.\n");
+    // `$body` crosses the seam as canonical corpus JSON, not a markdown string.
+    assert_eq!(json["$body"]["text"], "Body text.");
+    assert!(json["$body"]["lines"].is_array());
     assert!(json["$cards"].is_array());
     assert_eq!(json["$cards"].as_array().unwrap().len(), 0);
 }
@@ -2122,15 +2124,15 @@ Card body here.
 
     assert_eq!(json["$quill"], "usaf_memo");
     assert_eq!(json["title"], "Test");
-    // Blank-line separator stripped on parse; plate `$body` reflects the same
-    // content-only string as `Document::body()`.
-    assert_eq!(json["$body"], "Global body.\n");
+    // `$body` (global and per-card) crosses as canonical corpus JSON; its `text`
+    // is the content-only string (blank-line separator stripped on parse).
+    assert_eq!(json["$body"]["text"], "Global body.");
 
     let cards = json["$cards"].as_array().unwrap();
     assert_eq!(cards.len(), 1);
     assert_eq!(cards[0]["$kind"], "indorsement");
     assert_eq!(cards[0]["for"], "ORG");
-    assert_eq!(cards[0]["$body"], "Card body here.\n");
+    assert_eq!(cards[0]["$body"]["text"], "Card body here.");
 }
 
 /// to_plate_json parity: the `$quill` key appears first.

@@ -4,30 +4,36 @@
 //! [`TypstBackend`] implements the [`Backend`] trait from `quillmark-core`.
 //! Callers typically reach it through the `quillmark` crate's `Quill` API.
 //!
-//! Markdown fields are converted to Typst markup before compilation; the plate
-//! accesses them via the `@local/quillmark-helper` virtual package. Unsigned
-//! AcroForm widgets (text, checkbox, choice, signature) are embedded via the
-//! `form-field` helper in `lib.typ`; only PDF output carries the interactive
-//! widget — SVG and PNG render an invisible placeholder.
+//! Richtext fields cross the seam as canonical corpus JSON and are lowered to
+//! Typst markup by [`emit`] at codegen time — the only markup-producing path,
+//! never a markdown re-parse. The plate accesses fields via the
+//! `@local/quillmark-helper` virtual package. Unsigned AcroForm widgets (text,
+//! checkbox, choice, signature) are embedded via the `form-field` helper in
+//! `lib.typ`; only PDF output carries the interactive widget — SVG and PNG
+//! render an invisible placeholder.
 //!
 //! The `compile` and `error_mapping` modules are internal and not part of the
-//! public API. The public conversion surface is [`convert`].
+//! public API. The public lowering surface is [`emit`].
 
 mod compile;
-pub mod convert;
+/// The corpus → Typst-markup lowering + its per-segment source map (the codegen
+/// tier of the richtext seam, Option A). The one place that both lowers a
+/// [`RichText`](quillmark_richtext::RichText) and knows the resulting byte
+/// layout, so the only place a source map can be produced. This is the sole
+/// markup-producing path in the render engine — no code parses markdown.
+pub mod emit;
 mod error_mapping;
 
 mod helper;
 mod overlay;
 mod world;
 
-use convert::mark_to_typst;
 use quillmark_core::{
-    quill::build_transform_schema, session::SessionHandle, Backend, ChangeSet, Diagnostic,
-    LiveSession, OutputFormat, Quill, QuillValue, RenderError, RenderOptions, RenderResult,
-    Severity,
+    quill::{build_transform_schema, RICHTEXT_MEDIA_TYPE},
+    session::SessionHandle,
+    Backend, ChangeSet, Diagnostic, LiveSession, OutputFormat, Quill, RenderError, RenderOptions,
+    RenderResult, Severity,
 };
-use std::collections::HashMap;
 
 /// Typst backend implementation for Quillmark.
 #[derive(Debug)]
@@ -52,12 +58,10 @@ struct TypstSession {
     /// on every render; PDF stamps them as AcroForm widgets, and every format
     /// carries the resulting regions.
     field_placements: Vec<overlay::FieldPlacement>,
-    /// The quill schema's markdown/date transform, applied to the raw document
-    /// data on `open` and every `apply`.
-    transform_schema: QuillValue,
-    /// `transform_schema`'s address/auto-eval tables, built once at `open`
-    /// and reused on every `apply` rather than rebuilt from
-    /// `transform_schema`'s `$defs` each time.
+    /// The transform schema's address/date/content classification tables, built
+    /// once at `open` from `build_transform_schema` and reused on every `apply`
+    /// (the schema never changes for the session's lifetime). The schema itself
+    /// is not retained — codegen and date validation read only these tables.
     schema_meta: SchemaMeta,
     /// The span scan's full classification table for the live compile:
     /// generated content-block windows in the helper `lib.typ` (regenerated
@@ -187,40 +191,27 @@ fn page_hashes(document: &typst_layout::PagedDocument) -> Vec<u128> {
         .collect()
 }
 
-/// Run the schema's markdown/date transform over raw document data, returning
-/// the transformed data object the helper codegen turns into a Typst literal
-/// (markdown fields already converted to markup; `__meta__` sentinel stripped,
-/// since the codegen reads classification from `meta` directly). `meta` is the
-/// session's cached [`SchemaMeta`].
+/// Prepare raw document data for the helper codegen. The seam already carries
+/// the render shape — richtext fields are canonical corpus JSON (lowered to
+/// markup at codegen via [`emit::emit_richtext`]), dates are strings (lowered to
+/// `datetime(..)` at codegen) — so there is no per-field transform here: content
+/// no longer round-trips through a markdown re-parse. `meta` is the session's
+/// cached [`SchemaMeta`].
+///
+/// The one check kept is a defensive date validation: the coercion layer already
+/// rejects malformed dates before render, but a direct `apply` can hand the
+/// backend uncoerced data, and a bad date surfaces a real diagnostic here rather
+/// than a silent `none` or a cryptic Typst error deep in the compile.
 fn transformed_data(
-    schema: &QuillValue,
     meta: &SchemaMeta,
     json_data: &serde_json::Value,
 ) -> Result<serde_json::Value, RenderError> {
-    let fields = json_data.as_object().map_or_else(HashMap::new, |obj| {
-        obj.iter()
-            .map(|(key, value)| (key.clone(), QuillValue::from_json(value.clone())))
-            .collect::<HashMap<_, _>>()
-    });
-
-    let transformed_fields = transform_markdown_fields(&fields, schema, meta);
-    let mut transformed_json: serde_json::Map<String, serde_json::Value> = transformed_fields
-        .into_iter()
-        .map(|(key, value)| (key, value.into_json()))
-        .collect();
-    // The codegen reads content/date classification and address tables from
-    // `meta`; the `__meta__` sentinel the transform injects for its own use is
-    // never emitted into `data`.
-    transformed_json.remove("__meta__");
-
-    // A date field the codegen emits as `datetime(..)` must parse. The
-    // coercion layer already rejects malformed dates before render, so this is
-    // a defensive backend invariant — but when data reaches the backend
-    // uncoerced (a direct `apply`), a bad date produces a real diagnostic here
-    // rather than a silent `none` or a cryptic Typst error deep in the compile.
-    validate_date_fields(meta, &transformed_json)?;
-
-    Ok(serde_json::Value::Object(transformed_json))
+    let obj = json_data
+        .as_object()
+        .cloned()
+        .unwrap_or_else(serde_json::Map::new);
+    validate_date_fields(meta, &obj)?;
+    Ok(serde_json::Value::Object(obj))
 }
 
 /// Reject any date field whose value is a non-empty string the shared
@@ -268,7 +259,11 @@ fn validate_date_fields(
                 .card_date_fields
                 .get(kind)
                 .and_then(|v| v.as_array())
-                .map(|a| a.iter().filter_map(|s| s.as_str().map(str::to_string)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|s| s.as_str().map(str::to_string))
+                        .collect()
+                })
                 .unwrap_or_default();
             check(&names, card_obj, &format!("$cards.{kind}."))?;
         }
@@ -314,8 +309,11 @@ impl SessionHandle for TypstSession {
     /// read keeps serving the last-good compile and its warnings (the world
     /// may hold the failed source; the next `apply` overwrites it).
     fn apply(&mut self, json_data: &serde_json::Value) -> Result<ChangeSet, RenderError> {
-        let data = transformed_data(&self.transform_schema, &self.schema_meta, json_data)?;
-        let mut windows = self.world.inject_helper_package(&data, &self.schema_meta);
+        let data = transformed_data(&self.schema_meta, json_data)?;
+        let mut windows = self
+            .world
+            .inject_helper_package(&data, &self.schema_meta)
+            .map_err(|e| engine_err("typst::emit", e.to_string()))?;
         windows.extend(self.scalar_windows.iter().cloned());
 
         let (document, compile_warnings) = compile::compile_document(&self.world)?;
@@ -452,7 +450,12 @@ fn helper_source(world: &world::QuillWorld) -> Result<typst::syntax::Source, Ren
     use typst::World as _;
     world
         .source(world::QuillWorld::helper_fid("lib.typ"))
-        .map_err(|e| engine_err("typst::helper_source", format!("helper lib.typ unreadable: {e}")))
+        .map_err(|e| {
+            engine_err(
+                "typst::helper_source",
+                format!("helper lib.typ unreadable: {e}"),
+            )
+        })
 }
 
 impl Backend for TypstBackend {
@@ -473,10 +476,10 @@ impl Backend for TypstBackend {
 
         let transform_schema = build_transform_schema(source.config());
         let schema_meta = SchemaMeta::from_schema_json(transform_schema.as_json());
-        let data = transformed_data(&transform_schema, &schema_meta, json_data)?;
+        let data = transformed_data(&schema_meta, json_data)?;
         let (world, mut windows) =
-            world::QuillWorld::new_with_data(source, &plate_content, &data, &schema_meta)
-                .map_err(|e| {
+            world::QuillWorld::new_with_data(source, &plate_content, &data, &schema_meta).map_err(
+                |e| {
                     RenderError::from_diag(
                         Diagnostic::new(
                             Severity::Error,
@@ -485,7 +488,8 @@ impl Backend for TypstBackend {
                         .with_code("typst::world_creation".to_string())
                         .with_source(e.as_ref()),
                     )
-                })?;
+                },
+            )?;
         // The plate is static for the session, so its direct scalar
         // reference sites are windowed once here.
         let scalar_windows: Vec<overlay::FieldWindow> = {
@@ -501,6 +505,7 @@ impl Backend for TypstBackend {
                             path,
                             file: main_id,
                             range,
+                            segments: Vec::new(),
                         })
                         .collect()
                 })
@@ -517,7 +522,6 @@ impl Backend for TypstBackend {
             document,
             page_count,
             field_placements,
-            transform_schema,
             schema_meta,
             windows,
             scalar_windows,
@@ -577,22 +581,23 @@ fn engine_err(code: &str, message: impl Into<String>) -> RenderError {
     )
 }
 
-/// Check if a field schema indicates markdown content: `contentMediaType =
-/// "text/markdown"`.
-fn is_markdown_field(field_schema: &serde_json::Value) -> bool {
+/// Check if a field schema indicates richtext content: `contentMediaType =
+/// application/quillmark-richtext+json` (the value crossing the seam is a
+/// canonical corpus object, lowered to markup at codegen).
+fn is_richtext_field(field_schema: &serde_json::Value) -> bool {
     field_schema
         .get("contentMediaType")
         .and_then(|v| v.as_str())
-        .map(|s| s == "text/markdown")
+        .map(|s| s == RICHTEXT_MEDIA_TYPE)
         .unwrap_or(false)
 }
 
-/// Check if a field schema indicates an array of markdown elements.
+/// Check if a field schema indicates an array of richtext elements.
 ///
 /// True when the field is `{type: array, items: {contentMediaType:
-/// text/markdown}}` — i.e. a `markdown[]` field. Each element is markdown
-/// text that must be converted to backend markup individually.
-fn is_markdown_array_field(field_schema: &serde_json::Value) -> bool {
+/// application/quillmark-richtext+json}}` — i.e. an `array<richtext>` field. Each
+/// element is a corpus object lowered to a content block individually.
+fn is_richtext_array_field(field_schema: &serde_json::Value) -> bool {
     field_schema
         .get("type")
         .and_then(|v| v.as_str())
@@ -600,7 +605,7 @@ fn is_markdown_array_field(field_schema: &serde_json::Value) -> bool {
         .unwrap_or(false)
         && field_schema
             .get("items")
-            .map(is_markdown_field)
+            .map(is_richtext_field)
             .unwrap_or(false)
 }
 
@@ -630,7 +635,7 @@ fn field_names_where(
 
 fn content_field_names(properties: &serde_json::Map<String, serde_json::Value>) -> Vec<String> {
     field_names_where(properties, |fs| {
-        is_markdown_field(fs) || is_markdown_array_field(fs)
+        is_richtext_field(fs) || is_richtext_array_field(fs)
     })
 }
 
@@ -652,44 +657,16 @@ fn array_field_names(properties: &serde_json::Map<String, serde_json::Value>) ->
     })
 }
 
-/// Convert a content field's value to backend markup: a markdown string is
-/// converted in place; a `markdown[]` array converts each string element.
-/// Returns `None` when the value is neither (e.g. a string that fails to
-/// convert), leaving it untouched.
-fn convert_content_value(value: &QuillValue) -> Option<QuillValue> {
-    match value.as_json() {
-        serde_json::Value::String(s) => mark_to_typst(s)
-            .ok()
-            .map(|markup| QuillValue::from_json(serde_json::json!(markup))),
-        serde_json::Value::Array(arr) => {
-            let converted = arr
-                .iter()
-                .map(|elem| match elem.as_str() {
-                    Some(s) => match mark_to_typst(s) {
-                        Ok(markup) => serde_json::json!(markup),
-                        Err(_) => elem.clone(),
-                    },
-                    None => elem.clone(),
-                })
-                .collect();
-            Some(QuillValue::from_json(serde_json::Value::Array(converted)))
-        }
-        _ => None,
-    }
-}
-
-/// Schema-derived tables backing `form-field` path validation and
-/// the helper's content/date auto-eval — a pure function of a transform
-/// schema. `TypstSession` builds this once from `transform_schema` at `open`
-/// and reuses it on every `apply`, since the schema never changes for the
-/// session's lifetime; the recursive per-card pass in
-/// [`transform_cards_array`] still builds one fresh per call (each card's own
-/// schema is a different, and already cheap, computation).
+/// Schema-derived tables backing `form-field` path validation and the helper's
+/// content/date classification — a pure function of a transform schema.
+/// `TypstSession` builds this once from `transform_schema` at `open` and reuses
+/// it on every `apply`, since the schema never changes for the session's
+/// lifetime; the recursive per-card codegen pass builds each card's field lists
+/// from these tables.
 ///
 /// A schema with no top-level `properties` yields the default (all tables
 /// empty) — `build_transform_schema` always emits `properties`, so that case
-/// only arises for hand-built schemas in tests. The template treats an empty
-/// `__meta__` the same as an absent one.
+/// only arises for hand-built schemas in tests.
 #[derive(Default)]
 pub(crate) struct SchemaMeta {
     pub(crate) content_fields: Vec<String>,
@@ -769,145 +746,20 @@ impl SchemaMeta {
             fields,
         }
     }
-
-    /// The `__meta__` object injected into document data for the helper
-    /// package: content/date auto-eval field lists, plus the schema address
-    /// tables (`fields` / `card_fields` / `array_fields` / `card_array_fields`)
-    /// that `form-field` validates explicit `field:` paths against.
-    fn to_json(&self) -> serde_json::Value {
-        serde_json::json!({
-            "content_fields": self.content_fields,
-            "card_content_fields": self.card_content_fields,
-            "date_fields": self.date_fields,
-            "card_date_fields": self.card_date_fields,
-            "fields": self.fields,
-            "card_fields": self.card_field_names,
-            "array_fields": self.array_fields,
-            "card_array_fields": self.card_array_fields,
-        })
-    }
-}
-
-/// Transform markdown fields to Typst markup based on schema.
-///
-/// Identifies fields with `contentMediaType = "text/markdown"` and converts
-/// their content using `mark_to_typst()`. This includes recursive handling
-/// of the `$cards` array.
-///
-/// Also injects a `__meta__` key into the result containing the names of
-/// converted fields, which the quillmark-helper package uses to auto-evaluate
-/// markup strings into Typst content objects. `meta` is `schema`'s
-/// [`SchemaMeta`] — the session passes its per-open cache; the recursive
-/// per-card pass builds one fresh per card.
-fn transform_markdown_fields(
-    fields: &HashMap<String, QuillValue>,
-    schema: &QuillValue,
-    meta: &SchemaMeta,
-) -> HashMap<String, QuillValue> {
-    let mut result = fields.clone();
-
-    // Convert every markdown / markdown[] field the schema declares; the
-    // helper package maps `eval(.., mode: "markup")` over these names.
-    for field_name in &meta.content_fields {
-        if let Some(value) = fields.get(field_name) {
-            if let Some(converted) = convert_content_value(value) {
-                result.insert(field_name.clone(), converted);
-            }
-        }
-    }
-
-    // Handle `$cards` array recursively
-    if let Some(cards_value) = result.get("$cards") {
-        if let Some(cards_array) = cards_value.as_array() {
-            let transformed_cards = transform_cards_array(schema, cards_array);
-            result.insert(
-                "$cards".to_string(),
-                QuillValue::from_json(serde_json::Value::Array(transformed_cards)),
-            );
-        }
-    }
-
-    result.insert(
-        "__meta__".to_string(),
-        QuillValue::from_json(meta.to_json()),
-    );
-
-    result
-}
-
-/// Transform markdown fields in `$cards` array items.
-fn transform_cards_array(
-    document_schema: &QuillValue,
-    cards_array: &[serde_json::Value],
-) -> Vec<serde_json::Value> {
-    let mut transformed_cards = Vec::new();
-
-    // Get definitions for card schemas
-    let defs = document_schema
-        .as_json()
-        .get("$defs")
-        .and_then(|v| v.as_object());
-
-    for card in cards_array {
-        if let Some(card_obj) = card.as_object() {
-            if let Some(card_kind) = card_obj.get("$kind").and_then(|v| v.as_str()) {
-                // Construct the definition name: {kind}_card
-                let def_name = format!("{}_card", card_kind);
-
-                // Look up the schema for this card kind
-                if let Some(card_schema_json) = defs.and_then(|d| d.get(&def_name)) {
-                    // Convert the card object to HashMap<String, QuillValue>
-                    let mut card_fields: HashMap<String, QuillValue> = HashMap::new();
-                    for (k, v) in card_obj {
-                        card_fields.insert(k.clone(), QuillValue::from_json(v.clone()));
-                    }
-
-                    // Recursively transform this card's fields. `transform_markdown_fields`
-                    // appends a `__meta__` entry for the top-level eval pass; the template
-                    // drives card processing from the top-level `meta.card_*` maps and
-                    // iterates each card directly, so strip the per-card `__meta__` rather
-                    // than leak the sentinel into every card object plate authors see.
-                    let card_schema = QuillValue::from_json(card_schema_json.clone());
-                    let card_meta = SchemaMeta::from_schema_json(card_schema.as_json());
-                    let mut transformed_card_fields =
-                        transform_markdown_fields(&card_fields, &card_schema, &card_meta);
-                    transformed_card_fields.remove("__meta__");
-
-                    // Convert back to JSON Value
-                    let mut transformed_card_obj = serde_json::Map::new();
-                    for (k, v) in transformed_card_fields {
-                        transformed_card_obj.insert(k, v.into_json());
-                    }
-
-                    transformed_cards.push(serde_json::Value::Object(transformed_card_obj));
-                    continue;
-                }
-            }
-        }
-
-        // If not an object, no `$kind`, or no matching schema, keep as-is
-        transformed_cards.push(card.clone());
-    }
-
-    transformed_cards
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quillmark_core::QuillValue;
     use serde_json::json;
+    use std::collections::HashMap;
 
-    /// [`transform_markdown_fields`] with `schema`'s meta built inline — the
-    /// session's cache is irrelevant to these unit cases.
-    fn transform(
-        fields: &HashMap<String, QuillValue>,
-        schema: &QuillValue,
-    ) -> HashMap<String, QuillValue> {
-        transform_markdown_fields(
-            fields,
-            schema,
-            &SchemaMeta::from_schema_json(schema.as_json()),
-        )
+    /// A field's canonical corpus JSON, the shape the seam carries for a richtext
+    /// field — `import(markdown)` then the canonical serializer.
+    fn corpus(markdown: &str) -> serde_json::Value {
+        let rt = quillmark_richtext::import::from_markdown(markdown).expect("import");
+        quillmark_richtext::serial::to_canonical_value(&rt)
     }
 
     #[test]
@@ -936,7 +788,7 @@ mod tests {
 "#;
         let quill_with = |extra_field: bool| {
             let mut yaml = String::from(
-                "quill:\n  name: shift\n  version: 0.1.0\n  backend: typst\n  description: span shift probe\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    body:\n      type: markdown\n      description: body\n",
+                "quill:\n  name: shift\n  version: 0.1.0\n  backend: typst\n  description: span shift probe\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    body:\n      type: richtext\n      description: body\n",
             );
             if extra_field {
                 yaml.push_str(
@@ -959,12 +811,14 @@ mod tests {
             Quill::from_tree(FileTreeNode::Directory { files }).expect("quill")
         };
 
-        let json = serde_json::json!({ "body": "A **markdown** body with real ink to lay out." });
+        // The body crosses the seam as canonical corpus JSON, not markdown.
+        let json =
+            serde_json::json!({ "body": corpus("A **markdown** body with real ink to lay out.") });
         let hashes_of = |quill: &Quill| {
             let plate_content = read_plate(quill).expect("plate");
             let transform_schema = build_transform_schema(quill.config());
             let schema_meta = SchemaMeta::from_schema_json(transform_schema.as_json());
-            let data = transformed_data(&transform_schema, &schema_meta, &json).expect("data");
+            let data = transformed_data(&schema_meta, &json).expect("data");
             let (world, _windows) =
                 world::QuillWorld::new_with_data(quill, &plate_content, &data, &schema_meta)
                     .expect("world");
@@ -980,87 +834,74 @@ mod tests {
     }
 
     #[test]
-    fn test_is_markdown_field() {
-        let markdown_schema = json!({
-            "type": "string",
-            "contentMediaType": "text/markdown"
+    fn test_is_richtext_field() {
+        let richtext_schema = json!({
+            "type": "object",
+            "contentMediaType": RICHTEXT_MEDIA_TYPE
         });
-        assert!(is_markdown_field(&markdown_schema));
+        assert!(is_richtext_field(&richtext_schema));
 
-        let string_schema = json!({
-            "type": "string"
-        });
-        assert!(!is_markdown_field(&string_schema));
+        let string_schema = json!({ "type": "string" });
+        assert!(!is_richtext_field(&string_schema));
 
-        let other_media_type = json!({
-            "type": "string",
-            "contentMediaType": "text/plain"
-        });
-        assert!(!is_markdown_field(&other_media_type));
+        // The pre-richtext media type is no longer classified as content.
+        let old_media_type = json!({ "type": "string", "contentMediaType": "text/markdown" });
+        assert!(!is_richtext_field(&old_media_type));
     }
 
     #[test]
-    fn test_is_markdown_array_field() {
-        let md_array = json!({
+    fn test_is_richtext_array_field() {
+        let rt_array = json!({
             "type": "array",
-            "items": { "type": "string", "contentMediaType": "text/markdown" }
+            "items": { "type": "object", "contentMediaType": RICHTEXT_MEDIA_TYPE }
         });
-        assert!(is_markdown_array_field(&md_array));
+        assert!(is_richtext_array_field(&rt_array));
 
         let string_array = json!({
             "type": "array",
             "items": { "type": "string" }
         });
-        assert!(!is_markdown_array_field(&string_array));
+        assert!(!is_richtext_array_field(&string_array));
 
-        // A plain markdown scalar is not a markdown array.
-        let md_scalar = json!({ "type": "string", "contentMediaType": "text/markdown" });
-        assert!(!is_markdown_array_field(&md_scalar));
+        // A plain richtext scalar is not a richtext array.
+        let rt_scalar = json!({ "type": "object", "contentMediaType": RICHTEXT_MEDIA_TYPE });
+        assert!(!is_richtext_array_field(&rt_scalar));
     }
 
     #[test]
-    fn test_transform_markdown_array_field() {
+    fn schema_meta_classifies_richtext_content_fields() {
+        // The content-field selector keys on the richtext media type — a scalar
+        // richtext field and an `array<richtext>` both count.
         let schema = QuillValue::from_json(json!({
             "type": "object",
             "properties": {
+                "title": { "type": "string" },
+                "intro": { "type": "object", "contentMediaType": RICHTEXT_MEDIA_TYPE },
                 "sections": {
                     "type": "array",
-                    "items": { "type": "string", "contentMediaType": "text/markdown" }
+                    "items": { "type": "object", "contentMediaType": RICHTEXT_MEDIA_TYPE }
                 }
             }
         }));
-
-        let mut fields = HashMap::new();
-        fields.insert(
-            "sections".to_string(),
-            QuillValue::from_json(json!(["This is **bold** text.", "Plain line."])),
-        );
-
-        let result = transform(&fields, &schema);
-
-        // Each element is converted to Typst markup.
-        let sections = result.get("sections").unwrap().as_array().unwrap();
-        assert!(sections[0].as_str().unwrap().contains("#strong[bold]"));
-        assert!(sections[1].as_str().unwrap().contains("Plain line."));
-
-        // The field is registered for auto-eval in __meta__.
-        let meta = result.get("__meta__").unwrap().as_json();
-        let content_fields = meta["content_fields"].as_array().unwrap();
-        assert!(content_fields.iter().any(|v| v == "sections"));
+        let meta = SchemaMeta::from_schema_json(schema.as_json());
+        assert!(meta.content_fields.contains(&"intro".to_string()));
+        assert!(meta.content_fields.contains(&"sections".to_string()));
+        assert!(!meta.content_fields.contains(&"title".to_string()));
     }
 
     #[test]
     fn schema_meta_array_fields_distinguish_scalar_from_array() {
-        // Any array is element-addressable (`field.N`) — markdown[] and plain
-        // string arrays alike, matching the pdfform resolver's grammar. Only
-        // scalars are excluded: no element exists for the address to resolve to.
+        // Any array is element-addressable (`field.N`) — `array<richtext>` and
+        // plain string arrays alike, matching the pdfform resolver's grammar.
+        // Only scalars are excluded: no element exists for the address to
+        // resolve to.
         let schema = QuillValue::from_json(json!({
             "type": "object",
             "properties": {
-                "subject": { "type": "string", "contentMediaType": "text/markdown" },
+                "subject": { "type": "object", "contentMediaType": RICHTEXT_MEDIA_TYPE },
                 "sections": {
                     "type": "array",
-                    "items": { "type": "string", "contentMediaType": "text/markdown" }
+                    "items": { "type": "object", "contentMediaType": RICHTEXT_MEDIA_TYPE }
                 },
                 "signature_block": {
                     "type": "array",
@@ -1071,7 +912,7 @@ mod tests {
                 "indorsement_card": {
                     "type": "object",
                     "properties": {
-                        "$body": { "type": "string", "contentMediaType": "text/markdown" },
+                        "$body": { "type": "object", "contentMediaType": RICHTEXT_MEDIA_TYPE },
                         "refs": {
                             "type": "array",
                             "items": { "type": "string" }
@@ -1092,6 +933,30 @@ mod tests {
     }
 
     #[test]
+    fn schema_meta_collects_date_fields() {
+        let schema = QuillValue::from_json(json!({
+            "type": "object",
+            "properties": {
+                "title": { "type": "string" },
+                "issued": { "type": "string", "format": "date-time" },
+                "created_at": { "type": "string", "format": "date-time" }
+            },
+            "$defs": {
+                "indorsement_card": {
+                    "type": "object",
+                    "properties": {
+                        "signed_on": { "type": "string", "format": "date-time" }
+                    }
+                }
+            }
+        }));
+        let meta = SchemaMeta::from_schema_json(schema.as_json());
+        assert!(meta.date_fields.contains(&"issued".to_string()));
+        assert!(meta.date_fields.contains(&"created_at".to_string()));
+        assert_eq!(meta.card_date_fields["indorsement"], json!(["signed_on"]));
+    }
+
+    #[test]
     fn test_is_date_field() {
         let datetime_schema = json!({
             "type": "string",
@@ -1101,160 +966,5 @@ mod tests {
 
         let no_format_schema = json!({ "type": "string" });
         assert!(!is_date_field(&no_format_schema));
-    }
-
-    #[test]
-    fn test_transform_markdown_fields_basic() {
-        let schema = QuillValue::from_json(json!({
-            "type": "object",
-            "properties": {
-                "title": { "type": "string" },
-                "$body": { "type": "string", "contentMediaType": "text/markdown" }
-            }
-        }));
-
-        let mut fields = HashMap::new();
-        fields.insert(
-            "title".to_string(),
-            QuillValue::from_json(json!("My Title")),
-        );
-        fields.insert(
-            "$body".to_string(),
-            QuillValue::from_json(json!("This is **bold** text.")),
-        );
-
-        let result = transform(&fields, &schema);
-
-        // title should be unchanged
-        assert_eq!(result.get("title").unwrap().as_str(), Some("My Title"));
-
-        // `$body` should be converted to Typst markup
-        let body = result.get("$body").unwrap().as_str().unwrap();
-        assert!(body.contains("#strong[bold]"));
-    }
-
-    #[test]
-    fn test_transform_markdown_fields_no_markdown() {
-        let schema = QuillValue::from_json(json!({
-            "type": "object",
-            "properties": {
-                "title": { "type": "string" },
-                "count": { "type": "number" }
-            }
-        }));
-
-        let mut fields = HashMap::new();
-        fields.insert(
-            "title".to_string(),
-            QuillValue::from_json(json!("My Title")),
-        );
-        fields.insert("count".to_string(), QuillValue::from_json(json!(42)));
-
-        let result = transform(&fields, &schema);
-
-        // All fields should be unchanged
-        assert_eq!(result.get("title").unwrap().as_str(), Some("My Title"));
-        assert_eq!(result.get("count").unwrap().as_i64(), Some(42));
-    }
-
-    #[test]
-    fn test_transform_markdown_fields_wrapper() {
-        let schema = QuillValue::from_json(json!({
-            "type": "object",
-            "properties": {
-                "$body": { "type": "string", "contentMediaType": "text/markdown" }
-            }
-        }));
-
-        let mut fields = HashMap::new();
-        fields.insert(
-            "$body".to_string(),
-            QuillValue::from_json(json!("_italic_ text")),
-        );
-
-        let result = transform(&fields, &schema);
-
-        let body = result.get("$body").unwrap().as_str().unwrap();
-        assert!(body.contains("#emph[italic]"));
-    }
-
-    #[test]
-    fn test_transform_markdown_fields_collects_top_level_date_metadata() {
-        let schema = QuillValue::from_json(json!({
-            "type": "object",
-            "properties": {
-                "title": { "type": "string" },
-                "issued": { "type": "string", "format": "date-time" },
-                "created_at": { "type": "string", "format": "date-time" }
-            }
-        }));
-
-        let mut fields = HashMap::new();
-        fields.insert(
-            "title".to_string(),
-            QuillValue::from_json(json!("My Title")),
-        );
-
-        let result = transform(&fields, &schema);
-        let meta = result.get("__meta__").expect("missing __meta__").as_json();
-
-        let date_fields = meta["date_fields"].as_array().unwrap();
-        assert_eq!(date_fields.len(), 2);
-        assert!(date_fields.iter().any(|v| v == "issued"));
-        assert!(date_fields.iter().any(|v| v == "created_at"));
-    }
-
-    #[test]
-    fn test_transform_markdown_fields_collects_card_date_metadata() {
-        let schema = QuillValue::from_json(json!({
-            "type": "object",
-            "properties": {},
-            "$defs": {
-                "indorsement_card": {
-                    "type": "object",
-                    "properties": {
-                        "signed_on": { "type": "string", "format": "date-time" },
-                        "$body": { "type": "string", "contentMediaType": "text/markdown" }
-                    }
-                }
-            }
-        }));
-
-        let fields = HashMap::new();
-        let result = transform(&fields, &schema);
-        let meta = result.get("__meta__").expect("missing __meta__").as_json();
-
-        assert_eq!(
-            meta["card_date_fields"]["indorsement"],
-            json!(["signed_on"])
-        );
-    }
-
-    #[test]
-    fn test_transform_cards_array_strips_per_card_meta() {
-        let schema = QuillValue::from_json(json!({
-            "type": "object",
-            "properties": {},
-            "$defs": {
-                "indorsement_card": {
-                    "type": "object",
-                    "properties": {
-                        "$body": { "type": "string", "contentMediaType": "text/markdown" }
-                    }
-                }
-            }
-        }));
-
-        let cards = vec![json!({ "$kind": "indorsement", "$body": "**hi**" })];
-        let transformed = transform_cards_array(&schema, &cards);
-
-        // The per-card `__meta__` sentinel must not leak into card objects;
-        // card eval is driven by the top-level `meta.card_*` maps.
-        let card = transformed[0].as_object().unwrap();
-        assert!(
-            !card.contains_key("__meta__"),
-            "card object leaked a __meta__ key: {:?}",
-            card.keys().collect::<Vec<_>>()
-        );
     }
 }

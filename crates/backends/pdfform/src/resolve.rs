@@ -164,21 +164,48 @@ fn coerce_text(v: &Value) -> Option<String> {
         Value::String(s) => s.clone(),
         Value::Number(n) => number_to_string(n),
         Value::Bool(b) => b.to_string(),
-        // An array (e.g. a `markdown[]` or `string[]` field) joins its string
-        // elements with newlines — the multiline text fill.
+        // A richtext field crosses the seam as canonical corpus JSON. pdfform has
+        // no rich-text form field (Adobe-only `/RV` is deferred), so it lowers to
+        // plaintext: the corpus text minus island slots (tables/images have no
+        // plaintext form). A non-corpus object binds nothing.
+        Value::Object(_) => return richtext_plaintext(v),
+        // An array (e.g. an `array<richtext>`, richtext-corpus elements, or a
+        // `string[]` field) joins its element texts with newlines — the
+        // multiline text fill.
         Value::Array(arr) => arr
             .iter()
-            .filter_map(|e| match e {
-                Value::String(s) => Some(s.clone()),
-                Value::Number(n) => Some(number_to_string(n)),
-                Value::Bool(b) => Some(b.to_string()),
-                _ => None,
-            })
+            .filter_map(element_text)
             .collect::<Vec<_>>()
             .join("\n"),
-        Value::Null | Value::Object(_) => return None,
+        Value::Null => return None,
     };
     (!s.is_empty()).then_some(s)
+}
+
+/// One array element's display text: a scalar directly, or a richtext corpus via
+/// its plaintext. `None` elements (and non-corpus objects) drop out.
+fn element_text(e: &Value) -> Option<String> {
+    match e {
+        Value::String(s) => Some(s.clone()),
+        Value::Number(n) => Some(number_to_string(n)),
+        Value::Bool(b) => Some(b.to_string()),
+        Value::Object(_) => richtext_plaintext(e),
+        _ => None,
+    }
+}
+
+/// A richtext corpus's plaintext: `RichText.text` with island slots
+/// ([`ISLAND_SLOT`](quillmark_richtext::model::ISLAND_SLOT)) stripped — islands
+/// (tables, images) have no plaintext projection. `None` for a non-corpus object
+/// or an empty result.
+fn richtext_plaintext(v: &Value) -> Option<String> {
+    let rt = quillmark_richtext::serial::from_canonical_value(v).ok()?;
+    let text: String = rt
+        .text
+        .chars()
+        .filter(|c| *c != quillmark_richtext::model::ISLAND_SLOT)
+        .collect();
+    (!text.is_empty()).then_some(text)
 }
 
 /// Truthiness for a checkbox binding. A boolean schema field coerces to a JSON
@@ -268,6 +295,41 @@ mod tests {
     fn empty_and_absent_are_blank() {
         assert_eq!(text("empty"), None);
         assert_eq!(text("does_not_exist"), None);
+    }
+
+    #[test]
+    fn richtext_corpus_lowers_to_plaintext() {
+        // A richtext field crosses the seam as canonical corpus JSON; the widget
+        // value is its plaintext — markup dropped (marks live off the text),
+        // island slots stripped.
+        let rt =
+            quillmark_richtext::import::from_markdown("A **bold** claim.\n\nSecond line.").unwrap();
+        let corpus = quillmark_richtext::serial::to_canonical_value(&rt);
+        assert_eq!(
+            coerce_text(&corpus).as_deref(),
+            Some("A bold claim.\nSecond line.")
+        );
+        // A blank corpus binds nothing.
+        let blank =
+            quillmark_richtext::serial::to_canonical_value(&quillmark_richtext::RichText::empty());
+        assert_eq!(coerce_text(&blank), None);
+        // A non-corpus object binds nothing.
+        assert_eq!(coerce_text(&json!({ "x": 1 })), None);
+    }
+
+    #[test]
+    fn richtext_array_joins_element_plaintext() {
+        // An `array<richtext>` joins each element's plaintext with newlines.
+        let el = |md: &str| {
+            quillmark_richtext::serial::to_canonical_value(
+                &quillmark_richtext::import::from_markdown(md).unwrap(),
+            )
+        };
+        let arr = Value::Array(vec![el("First **ref**."), el("Second _ref_.")]);
+        assert_eq!(
+            coerce_text(&arr).as_deref(),
+            Some("First ref.\nSecond ref.")
+        );
     }
 
     #[test]

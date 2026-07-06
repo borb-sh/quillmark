@@ -2229,12 +2229,13 @@ main:
 
     let config = QuillConfig::from_yaml(yaml_content).unwrap();
 
+    // `type: markdown` is the deprecated alias for block richtext.
     let summary = config.main.fields.get("summary").unwrap();
-    assert_eq!(summary.r#type, FieldType::Markdown);
+    assert_eq!(summary.r#type, FieldType::RichText { inline: false });
     assert_eq!(summary.ui.as_ref().unwrap().multiline, Some(true));
 
     let notes = config.main.fields.get("notes").unwrap();
-    assert_eq!(notes.r#type, FieldType::Markdown);
+    assert_eq!(notes.r#type, FieldType::RichText { inline: false });
     assert_eq!(notes.ui.as_ref().unwrap().multiline, None);
 }
 
@@ -3012,16 +3013,18 @@ fn datetime_type_mismatch_reports_datetime_not_string() {
 }
 
 #[test]
-fn markdown_type_mismatch_reports_markdown_not_string() {
-    let yaml = example_default_yaml("    body:\n      type: markdown\n      default: 42\n");
+fn richtext_type_mismatch_reports_richtext_not_string() {
+    // The mismatch names the declared type verbatim (`richtext`), not the
+    // internal string-family collapse — a non-string, non-corpus default fails.
+    let yaml = example_default_yaml("    body:\n      type: richtext\n      default: 42\n");
     let errors = QuillConfig::from_yaml_with_warnings(&yaml).unwrap_err();
     let diag = errors
         .iter()
         .find(|d| d.code.as_deref() == Some("quill::default_type_mismatch"))
         .expect("expected default_type_mismatch error");
     assert!(
-        diag.message.contains("declares type 'markdown'"),
-        "message should name the markdown type, got: {}",
+        diag.message.contains("declares type 'richtext'"),
+        "message should name the richtext type, got: {}",
         diag.message
     );
 }

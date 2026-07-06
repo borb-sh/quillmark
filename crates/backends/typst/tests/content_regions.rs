@@ -35,6 +35,15 @@ fn quill(yaml: &str, plate: &str) -> Quill {
     Quill::from_tree(FileTreeNode::Directory { files }).expect("load quill")
 }
 
+/// The canonical corpus JSON the render seam carries for a richtext field —
+/// these tests drive `Backend::open` directly, so they build the corpus the way
+/// `compile_data` would (`import` then the canonical serializer) rather than
+/// passing a raw markdown string.
+fn corpus(markdown: &str) -> serde_json::Value {
+    let rt = quillmark_richtext::import::from_markdown(markdown).expect("import");
+    quillmark_richtext::serial::to_canonical_value(&rt)
+}
+
 #[test]
 fn content_fields_emit_frame_regions() {
     const YAML: &str = r#"
@@ -68,8 +77,8 @@ main:
     // placement should surface one region per page it touches.
     let long = "This is a markdown paragraph that wraps across several lines. ".repeat(200);
     let data = serde_json::json!({
-        "intro": "A **short** intro paragraph on the first page.",
-        "body": long,
+        "intro": corpus("A **short** intro paragraph on the first page."),
+        "body": corpus(&long),
     });
 
     let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
@@ -142,7 +151,7 @@ main:
 
 #data.intro
 "#;
-    let data = serde_json::json!({ "intro": "The same intro, placed twice." });
+    let data = serde_json::json!({ "intro": corpus("The same intro, placed twice.") });
 
     let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
     let regions = session.regions();
@@ -345,7 +354,7 @@ main:
   }
 }
 "#;
-    let data = serde_json::json!({ "body": "A body paragraph the package rebuilds." });
+    let data = serde_json::json!({ "body": corpus("A body paragraph the package rebuilds.") });
 
     let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
     let regions = session.regions();
@@ -381,7 +390,8 @@ typst:
   block(r)
 }
 "#;
-    let data = serde_json::json!({ "refs": ["First reference.", "Second reference."] });
+    let data =
+        serde_json::json!({ "refs": [corpus("First reference."), corpus("Second reference.")] });
 
     let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
     let regions = session.regions();
@@ -443,11 +453,11 @@ card_kinds:
 }
 "#;
     let data = serde_json::json!({
-        "intro": "Top-level intro.",
+        "intro": corpus("Top-level intro."),
         "$cards": [
-            {"$kind": "alpha", "note": "Alpha one."},
-            {"$kind": "beta",  "note": "Beta one."},
-            {"$kind": "alpha", "note": "Alpha two."},
+            {"$kind": "alpha", "note": corpus("Alpha one.")},
+            {"$kind": "beta",  "note": corpus("Beta one.")},
+            {"$kind": "alpha", "note": corpus("Alpha two.")},
         ],
     });
 
@@ -498,7 +508,10 @@ main:
 #form-field("S", type: "text", value: "x", field: "subjcet")
 "#;
     let err = TypstBackend
-        .open(&quill(YAML, PLATE), &serde_json::json!({ "subject": "typo'd" }))
+        .open(
+            &quill(YAML, PLATE),
+            &serde_json::json!({ "subject": "typo'd" }),
+        )
         .err()
         .expect("a typo'd field binding must fail the compile");
     let msg = format!("{err:?}");
@@ -538,7 +551,7 @@ main:
 #data.intro
 "#;
     let good = serde_json::json!({
-        "intro": "A stable paragraph the session keeps serving.",
+        "intro": corpus("A stable paragraph the session keeps serving."),
         "when": "2026-07-03",
     });
     let mut session = TypstBackend.open(&quill(YAML, PLATE), &good).expect("open");
@@ -550,8 +563,10 @@ main:
 
     // Shorter content shifts every byte offset in the regenerated helper,
     // and the unparseable date fails the compile at data-assembly time.
-    let bad = serde_json::json!({ "intro": "X", "when": "not-a-date" });
-    session.apply(&bad).expect_err("the bad date must fail the compile");
+    let bad = serde_json::json!({ "intro": corpus("X"), "when": "not-a-date" });
+    session
+        .apply(&bad)
+        .expect_err("the bad date must fail the compile");
 
     assert_eq!(
         session.regions(),
@@ -602,7 +617,7 @@ main:
 #data.body
 "#;
     let long = "A paragraph that wraps and flows across pages. ".repeat(120);
-    let data = serde_json::json!({ "body": long });
+    let data = serde_json::json!({ "body": corpus(&long) });
 
     let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
     let regions = session.regions();
@@ -727,7 +742,9 @@ main:
 #data.body
 "#;
     let data = serde_json::json!({
-        "body": "Please <u>sign here",   // unterminated <u>
+        // Import balances the unterminated `<u>` into a closed underline mark, so
+        // the emitter's `#underline[ .. ]` is bracket-balanced by construction.
+        "body": corpus("Please <u>sign here"),
         "n": i64::MIN,
     });
     // Compile success is the assertion: a broken literal or unbalanced block
