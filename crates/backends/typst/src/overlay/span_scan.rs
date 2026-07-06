@@ -141,13 +141,13 @@ struct Classifier<'a> {
 }
 
 impl Classifier<'_> {
-    fn classify(&mut self, span: Span) -> Option<usize> {
-        if let Some(&w) = self.memo.get(&span) {
-            return w;
-        }
-        // The same unpack `WorldExt::range` performs, with the helper file
-        // routed to the served compile's snapshot instead of the world.
-        let resolved = match DiagSpan::from(span).get() {
+    /// Resolve `span` to its byte range in whichever file it came from — the
+    /// same unpack `WorldExt::range` performs, with the helper file routed to
+    /// the served compile's snapshot instead of the world. Shared by
+    /// [`classify`](Self::classify) and the PR-F two-tier segment probe
+    /// (`classify_two_tier`, spike-prototype only, `#[cfg(test)]`).
+    fn resolve_range(&self, span: Span) -> Option<(FileId, Range<usize>)> {
+        match DiagSpan::from(span).get() {
             DiagSpanKind::Detached => None,
             DiagSpanKind::Number { id, num, sub_range } => {
                 let range = if id == self.helper.id() {
@@ -161,8 +161,14 @@ impl Classifier<'_> {
                 range.map(|r| (id, r))
             }
             DiagSpanKind::Range { id, range } => Some((id, range)),
-        };
-        let w = resolved.and_then(|(file, range)| {
+        }
+    }
+
+    fn classify(&mut self, span: Span) -> Option<usize> {
+        if let Some(&w) = self.memo.get(&span) {
+            return w;
+        }
+        let w = self.resolve_range(span).and_then(|(file, range)| {
             self.windows.iter().position(|win| {
                 win.file == file && win.range.start <= range.start && range.end <= win.range.end
             })
@@ -668,5 +674,691 @@ main:
             .position(|s| *s == ("subject", "upper(data.subject)"))
             .unwrap();
         assert!(chain_pos < wide_pos, "chains sort before wides: {spans:?}");
+    }
+
+    // -----------------------------------------------------------------
+    // PR-F spike probe (Unknown 1) — two-tier `(window, Option<segment>)`
+    // classification and the run-machine transparency question.
+    //
+    // Not wired into `scan`/`field_at`: a standalone proof that (a) the real
+    // `Classifier`, extended to search a window's `segments`, produces the
+    // three-way outcome PR-F needs, and (b) the single-cursor run machine
+    // needs exactly one new arm — a transparent `(window, None)` case scoped
+    // to the *same* window as whatever segment is currently accruing — to
+    // stay correct. See `prose/plans/richtext/pr-f-spike-findings.md`.
+    // -----------------------------------------------------------------
+
+    /// Two-tier classification of a resolved span: which field window it
+    /// falls in, and — if it also nests inside one of that window's
+    /// `segments` — which one. `Some((w, None))` is block ink between
+    /// segments (list markers, container-open syntax): the field's own ink,
+    /// attributable to no specific segment.
+    fn classify_two_tier(cls: &Classifier, span: Span) -> Option<(usize, Option<usize>)> {
+        cls.resolve_range(span).and_then(|(file, range)| {
+            cls.windows
+                .iter()
+                .position(|w| {
+                    w.file == file && w.range.start <= range.start && range.end <= w.range.end
+                })
+                .map(|i| {
+                    let seg = cls.windows[i]
+                        .segments
+                        .iter()
+                        .position(|s| s.gen.start <= range.start && range.end <= s.gen.end);
+                    (i, seg)
+                })
+        })
+    }
+
+    /// Every drawn item's span in a frame, geometry dropped — classification
+    /// is all this probe needs.
+    fn collect_spans(frame: &Frame, out: &mut Vec<Span>) {
+        for (_, item) in frame.items() {
+            match item {
+                FrameItem::Group(group) => collect_spans(&group.frame, out),
+                FrameItem::Text(text) => out.extend(text.glyphs.iter().map(|g| g.span.0)),
+                FrameItem::Shape(_, span) => out.push(*span),
+                FrameItem::Image(_, _, span) => out.push(*span),
+                _ => {}
+            }
+        }
+    }
+
+    /// A real two-item list lowers to two segments (`segment_shape` in
+    /// `emit.rs` pins this). Proves the two-tier construction classifies real
+    /// compiled output correctly on the half that *is* exercised: each
+    /// item's own ink resolves to its own segment.
+    ///
+    /// The other half — genuine `(window, None)` ink from container-open
+    /// syntax — does **not** materialize here: Typst's synthesized list
+    /// marker carries a **detached** span (`DiagSpanKind::Detached`, printed
+    /// as `Span(1)` below), not one resolving into the helper file, so it
+    /// lands in the plain "no window at all" bucket alongside package
+    /// chrome — already-correct, unchanged behavior. A block-quote wrapper
+    /// (`#quote(block: true)[...]`) draws no extra ink at all by default. Both
+    /// were probed by hand (temporarily swapping this test's markdown input
+    /// and eyeballing `Classifier::resolve_range` per glyph) before writing
+    /// this comment; see the findings doc for the transcript. The
+    /// `(window, None)` *mechanism* is still real and still needed — proved
+    /// directly, independent of whichever container syntax does or doesn't
+    /// exercise it today, by
+    /// [`classify_two_tier_resolves_field_only_ink_between_segments`].
+    #[test]
+    fn two_tier_classification_resolves_each_segment_independently() {
+        const YAML: &str = r#"
+quill:
+  name: two_tier_probe
+  version: 0.1.0
+  backend: typst
+  description: PR-F Unknown-1 two-tier classification probe
+typst:
+  plate_file: plate.typ
+main:
+  fields:
+    body:
+      type: richtext
+      description: a two-item list
+"#;
+        const PLATE: &str = r#"
+#import "@local/quillmark-helper:0.1.0": data
+#set page(width: 400pt, height: 400pt, margin: 40pt)
+#data.body
+"#;
+        let q = quill(YAML, PLATE);
+        let plate = crate::read_plate(&q).expect("plate");
+        let schema = quillmark_core::quill::build_transform_schema(q.config());
+        let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
+        let rt =
+            quillmark_richtext::import::from_markdown("- Item ONE\n- Item TWO").expect("import");
+        let data =
+            serde_json::json!({ "body": quillmark_richtext::serial::to_canonical_value(&rt) });
+        let transformed = crate::transformed_data(&meta, &data).expect("transform");
+        let mut world = QuillWorld::new(&q, &plate).expect("world");
+        let windows = world
+            .inject_helper_package(&transformed, &meta)
+            .expect("inject");
+        let (doc, _) = compile_document(&world).expect("compile");
+        let helper = world
+            .source(QuillWorld::helper_fid("lib.typ"))
+            .expect("helper source");
+
+        let win_idx = windows
+            .iter()
+            .position(|w| w.path == "body")
+            .expect("body window");
+        assert_eq!(
+            windows[win_idx].segments.len(),
+            2,
+            "one segment per list item"
+        );
+
+        let cls = Classifier {
+            world: &world,
+            helper: &helper,
+            windows: &windows,
+            memo: HashMap::new(),
+        };
+        let mut spans = Vec::new();
+        for p in doc.pages().iter() {
+            collect_spans(&p.frame, &mut spans);
+        }
+
+        let mut seg_hits = [0usize; 2];
+        let mut field_only_hits = 0usize;
+        let mut untracked_hits = 0usize;
+        for span in spans {
+            match classify_two_tier(&cls, span) {
+                Some((w, Some(s))) if w == win_idx => seg_hits[s] += 1,
+                Some((w, None)) if w == win_idx => field_only_hits += 1,
+                _ => untracked_hits += 1,
+            }
+        }
+        assert!(
+            seg_hits[0] > 0 && seg_hits[1] > 0,
+            "each list item's own ink resolves to its own segment: {seg_hits:?}"
+        );
+        assert_eq!(
+            field_only_hits, 0,
+            "list markers do not produce (window, None) ink — see the doc comment"
+        );
+        assert!(
+            untracked_hits > 0,
+            "the two markers are hit but resolve to no window (detached span)"
+        );
+    }
+
+    /// The mechanism itself, independent of whether any *current* `emit.rs`
+    /// container produces it: a real, resolvable span strictly between two
+    /// recorded segments, but still inside the block window, must classify
+    /// `(window, None)`.
+    ///
+    /// A real compile of "before **BOLD** after" gives three distinct,
+    /// genuinely resolvable spans in one paragraph (a bold run is its own
+    /// content child, so it and its plain-text neighbors carry different
+    /// spans — unlike the undifferentiated multi-word prose in the sibling
+    /// test above, which Typst folds into one span per paragraph). This test
+    /// takes those three real spans and re-windows them by hand — segment 0
+    /// = "before", segment 1 = "after", the bold run deliberately excluded —
+    /// so the excluded span must classify `(window, None)`: real Typst spans,
+    /// a synthetic window, proving `classify_two_tier`'s containment logic
+    /// without depending on which container syntax does or doesn't produce
+    /// such ink today.
+    #[test]
+    fn classify_two_tier_resolves_field_only_ink_between_segments() {
+        const YAML: &str = r#"
+quill:
+  name: two_tier_mechanism_probe
+  version: 0.1.0
+  backend: typst
+  description: PR-F Unknown-1 classify_two_tier mechanism probe
+typst:
+  plate_file: plate.typ
+main:
+  fields:
+    body:
+      type: richtext
+      description: one paragraph, one bold run
+"#;
+        const PLATE: &str = r#"
+#import "@local/quillmark-helper:0.1.0": data
+#set page(width: 400pt, height: 400pt, margin: 40pt)
+#data.body
+"#;
+        let q = quill(YAML, PLATE);
+        let plate = crate::read_plate(&q).expect("plate");
+        let schema = quillmark_core::quill::build_transform_schema(q.config());
+        let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
+        let rt =
+            quillmark_richtext::import::from_markdown("before **BOLD** after").expect("import");
+        let data =
+            serde_json::json!({ "body": quillmark_richtext::serial::to_canonical_value(&rt) });
+        let transformed = crate::transformed_data(&meta, &data).expect("transform");
+        let mut world = QuillWorld::new(&q, &plate).expect("world");
+        let windows = world
+            .inject_helper_package(&transformed, &meta)
+            .expect("inject");
+        let (doc, _) = compile_document(&world).expect("compile");
+        let helper = world
+            .source(QuillWorld::helper_fid("lib.typ"))
+            .expect("helper source");
+        let real_win = windows
+            .iter()
+            .find(|w| w.path == "body")
+            .expect("body window");
+        assert_eq!(real_win.segments.len(), 1, "one paragraph, one segment");
+
+        let cls = Classifier {
+            world: &world,
+            helper: &helper,
+            windows: &windows,
+            memo: HashMap::new(),
+        };
+        let mut spans = Vec::new();
+        for p in doc.pages().iter() {
+            collect_spans(&p.frame, &mut spans);
+        }
+        // Group by resolved (file, range) in first-seen (document) order —
+        // one entry per distinct real Typst node inside the field's window.
+        let mut nodes: Vec<(Span, Range<usize>)> = Vec::new();
+        for span in spans {
+            if let Some((file, range)) = cls.resolve_range(span) {
+                if file == real_win.file
+                    && real_win.range.start <= range.start
+                    && range.end <= real_win.range.end
+                    && !nodes.iter().any(|(_, r)| *r == range)
+                {
+                    nodes.push((span, range));
+                }
+            }
+        }
+        nodes.sort_by_key(|(_, r)| r.start);
+        // Word-level granularity: plain text and the space beside it are
+        // separate nodes too (an empirical Unknown-2 finding — see the
+        // findings doc), so "before" contributes more than one node. Split
+        // on the node whose text is exactly "BOLD".
+        let text = helper.text();
+        let bold_idx = nodes
+            .iter()
+            .position(|(_, r)| &text[r.clone()] == "BOLD")
+            .expect("a node holding exactly \"BOLD\": {nodes:?}");
+        assert!(
+            bold_idx > 0 && bold_idx + 1 < nodes.len(),
+            "ink on both sides of BOLD: {nodes:?}"
+        );
+        let before = &nodes[..bold_idx];
+        let (bold_span, _) = nodes[bold_idx].clone();
+        let after = &nodes[bold_idx + 1..];
+
+        // Re-window by hand: segment 0 spans the "before" nodes, segment 1
+        // spans the "after" nodes, the bold run deliberately excluded from
+        // both — the boundaries a real two-tier classifier would compute
+        // from `emit.rs`'s recorded segment range, reconstructed here from
+        // the real node ranges either side of it.
+        let synthetic = vec![FieldWindow {
+            path: "body".to_string(),
+            file: real_win.file,
+            range: real_win.range.clone(),
+            segments: vec![
+                crate::emit::SegmentMap {
+                    corpus: 0..0,
+                    gen: before.first().unwrap().1.start..before.last().unwrap().1.end,
+                    runs: vec![],
+                },
+                crate::emit::SegmentMap {
+                    corpus: 0..0,
+                    gen: after.first().unwrap().1.start..after.last().unwrap().1.end,
+                    runs: vec![],
+                },
+            ],
+        }];
+        let synthetic_cls = Classifier {
+            world: &world,
+            helper: &helper,
+            windows: &synthetic,
+            memo: HashMap::new(),
+        };
+        for (span, range) in before {
+            assert_eq!(
+                classify_two_tier(&synthetic_cls, *span),
+                Some((0, Some(0))),
+                "a \"before\"-side node ({range:?}) -> segment 0"
+            );
+        }
+        for (span, range) in after {
+            assert_eq!(
+                classify_two_tier(&synthetic_cls, *span),
+                Some((0, Some(1))),
+                "an \"after\"-side node ({range:?}) -> segment 1"
+            );
+        }
+        assert_eq!(
+            classify_two_tier(&synthetic_cls, bold_span),
+            Some((0, None)),
+            "the excluded bold run sits inside the block window but outside every segment"
+        );
+    }
+
+    /// One classified hit in the flattened run machine's synthetic replay —
+    /// the three outcomes `classify_two_tier` can produce, paired with the
+    /// page the ink falls on.
+    #[derive(Clone, Copy, PartialEq, Debug)]
+    enum TierHit {
+        /// `(window, Some(segment))` — a genuine segment hit.
+        Segment(usize, usize),
+        /// `(window, None)` — block ink between segments: the field's own
+        /// ink, not attributable to any one segment.
+        FieldOnly(usize),
+        /// No window at all — untracked ink (today's plain `None` arm).
+        Foreign,
+    }
+
+    /// The flattened two-tier run machine: same states (`Run::NotSeen` /
+    /// `Suspended` / `Done`), same single global cursor, same page-`+1`
+    /// continuation tolerance as `scan`'s loop above — plus the one arm
+    /// `scan` today has no path for. `FieldOnly(w)` is a genuine no-op
+    /// (`current` is untouched) exactly when `current` already belongs to
+    /// window `w`; otherwise it is indistinguishable from foreign ink and
+    /// must still suspend, or a second placement of an *unrelated* running
+    /// field could merge across the gap into one lying box (the invariant
+    /// `content_regions.rs::field_placed_twice_surfaces_first_region_...`
+    /// pins for the whole-field case). Returns, per `(window, segment)` key,
+    /// the pages each of its accruals landed on, in order — a stand-in for
+    /// `scan`'s per-page box union, since geometry is irrelevant here.
+    fn run_two_tier(hits: &[(usize, TierHit)]) -> HashMap<(usize, usize), Vec<usize>> {
+        let mut state: HashMap<(usize, usize), Run> = HashMap::new();
+        let mut boxes: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
+        let mut current: Option<((usize, usize), usize)> = None;
+
+        for &(page, hit) in hits {
+            match hit {
+                TierHit::Segment(w, s) => {
+                    let key = (w, s);
+                    if current.map(|(c, _)| c) == Some(key) {
+                        boxes.entry(key).or_default().push(page);
+                        current = Some((key, page));
+                    } else {
+                        if let Some((c, last_page)) = current.take() {
+                            state.insert(c, Run::Suspended { last_page });
+                        }
+                        match state.get(&key).copied().unwrap_or(Run::NotSeen) {
+                            Run::NotSeen => {
+                                boxes.entry(key).or_default().push(page);
+                                current = Some((key, page));
+                            }
+                            Run::Suspended { last_page } if page == last_page + 1 => {
+                                boxes.entry(key).or_default().push(page);
+                                current = Some((key, page));
+                            }
+                            Run::Suspended { .. } => {
+                                state.insert(key, Run::Done);
+                            }
+                            Run::Done => {}
+                        }
+                    }
+                }
+                TierHit::FieldOnly(w) => match current {
+                    Some((c, _)) if c.0 == w => {} // transparent: same field, no segment
+                    _ => {
+                        if let Some((c, last_page)) = current.take() {
+                            state.insert(c, Run::Suspended { last_page });
+                        }
+                    }
+                },
+                TierHit::Foreign => {
+                    if let Some((c, last_page)) = current.take() {
+                        state.insert(c, Run::Suspended { last_page });
+                    }
+                }
+            }
+        }
+        boxes
+    }
+
+    /// The crux: `FieldOnly` ink between two hits of the *same* segment must
+    /// not break its run, while genuinely untracked ink in the identical
+    /// shape still does — proving the new arm is exactly the missing
+    /// non-suspending path, without weakening suspension for ink that is not
+    /// this field's own.
+    #[test]
+    fn field_only_ink_is_transparent_but_foreign_ink_is_not() {
+        let fixed = vec![
+            (0, TierHit::Segment(0, 0)),
+            (0, TierHit::FieldOnly(0)),
+            (0, TierHit::Segment(0, 0)),
+        ];
+        let boxes = run_two_tier(&fixed);
+        assert_eq!(
+            boxes[&(0, 0)],
+            vec![0, 0],
+            "field-only ink never breaks segment 0's run"
+        );
+
+        let foreign = vec![
+            (0, TierHit::Segment(0, 0)),
+            (0, TierHit::Foreign),
+            (0, TierHit::Segment(0, 0)),
+        ];
+        let boxes = run_two_tier(&foreign);
+        assert_eq!(
+            boxes[&(0, 0)],
+            vec![0],
+            "genuinely untracked ink on the same page still ends the run, unresumed \
+             (no page turn to satisfy the marginal tolerance) — exactly today's rule"
+        );
+    }
+
+    /// Two adjacent segments of one field: the first segment's run and the
+    /// second segment's run are tracked independently, exactly as two
+    /// distinct top-level fields are today.
+    #[test]
+    fn adjacent_segments_of_one_field_run_independently() {
+        let hits = vec![
+            (0, TierHit::Segment(0, 0)),
+            (0, TierHit::FieldOnly(0)), // e.g. the second item's bullet marker
+            (0, TierHit::Segment(0, 1)),
+        ];
+        let boxes = run_two_tier(&hits);
+        assert_eq!(boxes[&(0, 0)], vec![0]);
+        assert_eq!(boxes[&(0, 1)], vec![0]);
+    }
+
+    /// The scoping the plan text does not spell out: transparency is
+    /// relative to a *same-window* current run only. A different field's
+    /// segment mid-run, interrupted by *this* field's own field-only ink,
+    /// must still suspend — otherwise an interleaved second placement of the
+    /// running field could merge across the gap into one lying box.
+    #[test]
+    fn field_only_ink_still_suspends_a_different_fields_current_run() {
+        let hits = vec![
+            (0, TierHit::Segment(1, 0)), // field 1's segment 0 starts, page 0
+            (0, TierHit::FieldOnly(0)),  // field 0's own structural ink
+            (1, TierHit::Segment(1, 0)), // field 1's segment 0 resumes, page 1
+        ];
+        let boxes = run_two_tier(&hits);
+        assert_eq!(
+            boxes[&(1, 0)],
+            vec![0, 1],
+            "a foreign field's field-only ink suspends the running field \
+             (the page-turn tolerance still lets it resume)"
+        );
+
+        let same_page = vec![
+            (0, TierHit::Segment(1, 0)),
+            (0, TierHit::FieldOnly(0)),
+            (0, TierHit::Segment(1, 0)),
+        ];
+        let boxes = run_two_tier(&same_page);
+        assert_eq!(
+            boxes[&(1, 0)],
+            vec![0],
+            "no same-page resume — field-only ink is not a wildcard exception \
+             to the foreign-ink suspension rule"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // PR-F spike probe (Unknown 2, risk register risk 2) — does
+    // `glyph.span.1` give usable per-character intra-node offsets, and
+    // where does it degrade (raw string literals, list/enum numbering,
+    // shaping clusters)? See `prose/plans/richtext/pr-f-spike-findings.md`
+    // for the full write-up; this test pins the empirical findings so a
+    // future Typst upgrade cannot silently change them unnoticed.
+    // -----------------------------------------------------------------
+
+    /// One glyph's classification-relevant facts: the resolved node range
+    /// (`glyph.span.0`, unpacked), the intra-node offset (`glyph.span.1`),
+    /// and the glyph's own text slice (via `glyph.range()` into the
+    /// `TextItem`'s text) — enough to check whether `node.start + offset`
+    /// lands on the right generated byte, without needing the geometry
+    /// `collect_page_hits` computes.
+    struct GlyphProbe {
+        node: Range<usize>,
+        offset: u16,
+        text: String,
+    }
+
+    fn collect_glyph_probes(
+        frame: &Frame,
+        cls: &Classifier,
+        win: &FieldWindow,
+        out: &mut Vec<GlyphProbe>,
+    ) {
+        for (_, item) in frame.items() {
+            match item {
+                FrameItem::Group(group) => collect_glyph_probes(&group.frame, cls, win, out),
+                FrameItem::Text(text) => {
+                    for g in &text.glyphs {
+                        if let Some((file, range)) = cls.resolve_range(g.span.0) {
+                            if file == win.file
+                                && win.range.start <= range.start
+                                && range.end <= win.range.end
+                            {
+                                out.push(GlyphProbe {
+                                    node: range,
+                                    offset: g.span.1,
+                                    text: text.text[g.range()].to_string(),
+                                });
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// A formatted paragraph (plain text + one `#strong[...]` run) plus a
+    /// multi-line code fence, in one field — the two constructs the plan's
+    /// risk 2 names. Findings pinned here (see the module-level comment
+    /// above for the full write-up):
+    ///
+    /// - **Plain / bold markup text**: `glyph.span.1` is exact, byte-
+    ///   granular, per character. Every resolved node nests inside exactly
+    ///   one recorded `run`, and `run.gen.start + offset` (which for markup
+    ///   text equals `node.start + offset`, since Typst's own node range is
+    ///   already tight around that specific run) lands on the correct
+    ///   generated byte, for every glyph tested.
+    /// - **A multi-line `#raw(block: true, "...")` string literal**: every
+    ///   line's glyphs resolve to the **identical** node range (the whole
+    ///   call expression, not the string literal or any one line), and
+    ///   `span.1` **resets to 0 at each physical line**. Two consequences,
+    ///   pinned below: (a) `span.0` alone cannot tell which of the fence's N
+    ///   lines a hit belongs to — the same `(node, offset)` pair is
+    ///   ambiguous between lines; (b) the resolved node range does not fit
+    ///   inside *any* recorded run's `gen` range (it is wider than every one
+    ///   of them), so per-run inversion structurally fails — not just loses
+    ///   precision. It *does* still fit inside the segment's `gen` range, so
+    ///   segment-level classification (which segment, i.e. which field's
+    ///   code fence) remains correct; only the finer run/line/char answer is
+    ///   unavailable.
+    #[test]
+    fn glyph_span_1_precision_findings() {
+        const YAML: &str = r#"
+quill:
+  name: span_precision_probe
+  version: 0.1.0
+  backend: typst
+  description: PR-F Unknown-2 glyph.span.1 precision probe
+typst:
+  plate_file: plate.typ
+main:
+  fields:
+    body:
+      type: richtext
+      description: a formatted paragraph plus a multi-line code fence
+"#;
+        const PLATE: &str = r#"
+#import "@local/quillmark-helper:0.1.0": data
+#set page(width: 400pt, height: 400pt, margin: 40pt)
+#data.body
+"#;
+        // "difficult fickle" carries two "fi"/"ff"-adjacent clusters, probing
+        // (inconclusively, see the findings doc) for shaping-ligature
+        // collapse under Typst's default font.
+        let md = "This is **bold** difficult fickle text.\n\n```\nfn add(a, b) {\n    return a + b;\n}\n```";
+        let q = quill(YAML, PLATE);
+        let plate = crate::read_plate(&q).expect("plate");
+        let schema = quillmark_core::quill::build_transform_schema(q.config());
+        let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
+        let rt = quillmark_richtext::import::from_markdown(md).expect("import");
+        let data =
+            serde_json::json!({ "body": quillmark_richtext::serial::to_canonical_value(&rt) });
+        let transformed = crate::transformed_data(&meta, &data).expect("transform");
+        let mut world = QuillWorld::new(&q, &plate).expect("world");
+        let windows = world
+            .inject_helper_package(&transformed, &meta)
+            .expect("inject");
+        let (doc, _) = compile_document(&world).expect("compile");
+        let helper = world
+            .source(QuillWorld::helper_fid("lib.typ"))
+            .expect("helper source");
+        let win = windows
+            .iter()
+            .find(|w| w.path == "body")
+            .expect("body window");
+        assert_eq!(
+            win.segments.len(),
+            2,
+            "one paragraph segment, one code segment"
+        );
+        let (para_seg, code_seg) = (&win.segments[0], &win.segments[1]);
+        assert!(
+            code_seg.runs.len() >= 2,
+            "the fence's multiple lines each recorded their own run: {:?}",
+            code_seg.runs
+        );
+
+        let cls = Classifier {
+            world: &world,
+            helper: &helper,
+            windows: &windows,
+            memo: HashMap::new(),
+        };
+        let mut probes = Vec::new();
+        for p in doc.pages().iter() {
+            collect_glyph_probes(&p.frame, &cls, win, &mut probes);
+        }
+        assert!(!probes.is_empty(), "the field must place some glyphs");
+
+        // ---- plain/bold markup text: node.start + offset is exact ----
+        let mut checked_para_glyph = false;
+        for probe in &probes {
+            if probe.node.start >= para_seg.gen.start && probe.node.end <= para_seg.gen.end {
+                // The node nests inside exactly one recorded run, and that
+                // run's own `gen.start` is what `offset` is relative to.
+                let owning_run = para_seg
+                    .runs
+                    .iter()
+                    .find(|(_, gen, _)| gen.start <= probe.node.start && probe.node.end <= gen.end)
+                    .unwrap_or_else(|| {
+                        panic!("markup node {:?} must nest inside some run", probe.node)
+                    });
+                let absolute = probe.node.start + probe.offset as usize;
+                assert!(
+                    absolute >= owning_run.1.start && absolute < owning_run.1.end + 1,
+                    "node.start + offset ({absolute}) must land inside the owning run {:?} for {:?}",
+                    owning_run.1,
+                    probe.text,
+                );
+                // Byte-exact: the character at `absolute` in the generated
+                // source is exactly this glyph's own text.
+                assert_eq!(
+                    &helper.text()[absolute..absolute + probe.text.len()],
+                    probe.text,
+                    "node.start + offset must point at this glyph's own bytes"
+                );
+                checked_para_glyph = true;
+            }
+        }
+        assert!(
+            checked_para_glyph,
+            "at least one paragraph glyph must be checked"
+        );
+
+        // ---- multi-line #raw string literal: the per-line collapse ----
+        let code_probes: Vec<&GlyphProbe> = probes
+            .iter()
+            .filter(|p| p.node.start >= code_seg.gen.start && p.node.end <= code_seg.gen.end)
+            .collect();
+        assert!(!code_probes.is_empty(), "the code fence must place glyphs");
+
+        // (a) every line shares the identical resolved node — span.0 alone
+        // cannot disambiguate which line a hit belongs to.
+        let distinct_nodes: std::collections::HashSet<Range<usize>> =
+            code_probes.iter().map(|p| p.node.clone()).collect();
+        assert_eq!(
+            distinct_nodes.len(),
+            1,
+            "every raw-block glyph shares one node range regardless of physical line: {distinct_nodes:?}"
+        );
+        let raw_node = distinct_nodes.into_iter().next().unwrap();
+
+        // (b) offset resets to 0 more than once — once per physical line,
+        // not once for the whole multi-line literal.
+        let resets = code_probes
+            .windows(2)
+            .filter(|w| w[1].offset == 0 && w[0].offset != 0)
+            .count();
+        assert!(
+            resets >= 1,
+            "offset must reset at a line boundary at least once across 3 lines: {:?}",
+            code_probes.iter().map(|p| p.offset).collect::<Vec<_>>()
+        );
+
+        // (c) the shared node does not fit inside any single run's `gen`
+        // range (it is wider than every one of them) — per-run inversion by
+        // containment structurally fails here, though the node still fits
+        // the *segment's* gen range (segment-level classification holds).
+        assert!(
+            raw_node.start >= code_seg.gen.start && raw_node.end <= code_seg.gen.end,
+            "the raw call's node still nests inside the code segment"
+        );
+        assert!(
+            !code_seg
+                .runs
+                .iter()
+                .any(|(_, gen, _)| gen.start <= raw_node.start && raw_node.end <= gen.end),
+            "no single run should contain the whole-call node — it is coarser than every run"
+        );
     }
 }
