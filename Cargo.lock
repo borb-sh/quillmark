@@ -2357,6 +2357,7 @@ dependencies = [
  "quillmark-core",
  "quillmark-fixtures",
  "quillmark-pdf",
+ "quillmark-richtext",
  "serde",
  "serde_json",
 ]
