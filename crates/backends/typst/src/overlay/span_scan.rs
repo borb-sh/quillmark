@@ -1050,7 +1050,7 @@ main:
     // -----------------------------------------------------------------
     // Two-tier `(window, Option<segment>)` classification and the run-machine
     // transparency arm (#829). These evolved from the PR-F spike's probes
-    // (`prose/plans/richtext/pr-f-spike-findings.md`): the classifier is now
+    // (folded into `prose/plans/richtext/phase-2.md` § PR-F): the classifier is now
     // the production `Classifier::classify_seg`, and the machine tests drive
     // the production `run_scan_machine` directly, so the crux the spike proved
     // — a transparent same-window arm, still-suspending across fields — is
@@ -1451,7 +1451,7 @@ main:
     // PR-F spike probe (Unknown 2, risk register risk 2) — does
     // `glyph.span.1` give usable per-character intra-node offsets, and
     // where does it degrade (raw string literals, list/enum numbering,
-    // shaping clusters)? See `prose/plans/richtext/pr-f-spike-findings.md`
+    // shaping clusters)? See `prose/plans/richtext/phase-2.md` § PR-F
     // for the full write-up; this test pins the empirical findings so a
     // future Typst upgrade cannot silently change them unnoticed.
     // -----------------------------------------------------------------
