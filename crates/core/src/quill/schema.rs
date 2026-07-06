@@ -216,7 +216,7 @@ main:
   fields:
     sections:
       type: array
-      items: { type: markdown }
+      items: { type: richtext }
 "#;
         let schema = build_from_yaml(yaml);
         let json = schema.as_json();

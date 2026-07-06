@@ -7,11 +7,12 @@ behind their spike gates, not on `main` piecemeal.
 
 ## Status
 
-Phases 0–2 are landed. The only remaining work is **PR-G**: `richtext(inline)`
-enforcement, load-time schema-example import + cache, seed-commits-corpus, and
-retiring the `markdown` type alias as a hard load-time error (today it is a
-silent alias). PR-G's spec lives in [phase-2.md](phase-2.md) — this doc does
-not duplicate it.
+Phases 0–2 are landed, **including PR-G** — `richtext(inline)` enforcement
+(coercion + validation + load-time), load-time schema-example import into a
+`#[serde(skip)]` corpus cache, seed-commits-corpus, and the hard `markdown`-alias
+cutover (`type: markdown` is now a schema load error, not a silent alias).
+PR-G's spec lives in [phase-2.md](phase-2.md); the landed behavior lives in
+`prose/canon/` (SCHEMAS.md). Phase 3 (edit surface) is the next open work.
 
 For how the system works *today* — the `RichText` corpus, the seam, storage,
 schema surface, navigation — see `prose/canon/` (ARCHITECTURE, CONVERT,
@@ -56,9 +57,9 @@ not restate the model.
   engine untouched.
 - **[Phase 2 — engine consumes RichText](phase-2.md) (delivered
   [#829](https://github.com/quillmark-org/quillmark/issues/829)).** Landed
-  through PR-F: seam flip to corpus JSON, typst emitter + segment maps,
-  storage cutover, regions + navigation (`locate`/`position_at`). **PR-G is
-  open** — see phase-2.md.
+  through PR-G: seam flip to corpus JSON, typst emitter + segment maps,
+  storage cutover, regions + navigation (`locate`/`position_at`), and PR-G's
+  `richtext(inline)` + load-time example cache + `markdown`-alias cutover.
 - **Phase 3 — edit surface.** Per-field delta (`retain`/`insert`/`delete` text
   splices, CodeMirror `ChangeSet` semantics, not attributed Quill-Delta) +
   monotonic revision + bounded change log; form-editor binding on phase-0's

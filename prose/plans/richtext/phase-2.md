@@ -12,7 +12,9 @@ Gated on the [phase-0 spikes](phase-0.md) (all reported, no red flag) and the
 [phase-1 freeze](phase-1.md) (landed).
 
 **Status: PR-A through PR-F landed and merged into `integration/richtext`**
-(#838, #839). **PR-G is the only remaining work** — see § PR-G below.
+(#838, #839). **PR-G is implemented** (`richtext(inline)` enforcement, load-time
+example import + corpus cache, seed-commits-corpus, hard `markdown`-alias
+cutover) — see § PR-G below; its landed behavior lives in canon (SCHEMAS.md).
 
 ## Landed
 
@@ -144,10 +146,10 @@ numbers are needed again).
    `references: array<richtext>` field for cost and correctness as a first
    real user of this path.
 
-## PR-G — richtext(inline), load-time import, hard alias cutover (next)
+## PR-G — richtext(inline), load-time import, hard alias cutover (implemented)
 
-The only remaining phase-2 work. Three pieces, one of them newly sharpened to
-a hard cutover.
+Three pieces, one of them a hard cutover. All three landed as described below;
+the canonical account of the resulting behavior is in SCHEMAS.md.
 
 1. **Enforce `richtext(inline)`.** Against the corpus: exactly one `Para`
    line, empty `containers`, no islands (`continues` impossible); marks

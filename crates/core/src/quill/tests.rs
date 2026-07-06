@@ -2218,18 +2218,18 @@ quill:
 main:
   fields:
     summary:
-      type: markdown
+      type: richtext
       description: Document summary
       ui:
         multiline: true
     notes:
-      type: markdown
+      type: richtext
       description: Short notes
 "#;
 
     let config = QuillConfig::from_yaml(yaml_content).unwrap();
 
-    // `type: markdown` is the deprecated alias for block richtext.
+    // `richtext` (block) carries the `multiline` ui hint like `string` does.
     let summary = config.main.fields.get("summary").unwrap();
     assert_eq!(summary.r#type, FieldType::RichText { inline: false });
     assert_eq!(summary.ui.as_ref().unwrap().multiline, Some(true));
@@ -3070,5 +3070,118 @@ fn type_mismatch_preview_shows_array_contents() {
         diag.message.contains("one") && diag.message.contains("two"),
         "preview should render array contents, got: {}",
         diag.message
+    );
+}
+
+// ── PR-G: richtext(inline), load-time example import + cache ─────────────────
+
+/// A minimal quill declaring one field, for the richtext PR-G tests.
+fn quill_with_field(field_yaml: &str) -> Result<QuillConfig, Vec<Diagnostic>> {
+    let yaml = format!(
+        "quill:\n  name: rt\n  version: \"1.0\"\n  backend: typst\n  description: rt\nmain:\n  fields:\n{field_yaml}"
+    );
+    QuillConfig::from_yaml_with_warnings(&yaml).map(|(c, _)| c)
+}
+
+#[test]
+fn markdown_type_is_unknown_at_load() {
+    let err = quill_with_field("    body:\n      type: markdown\n").unwrap_err();
+    assert!(
+        err.iter().any(|d| d.code.as_deref() == Some("quill::field_parse_error")
+            && d.message.contains("markdown")),
+        "type: markdown should be a load error naming the type, got: {err:?}"
+    );
+}
+
+#[test]
+fn inline_richtext_example_over_one_para_is_a_load_error() {
+    let err = quill_with_field(
+        "    tag:\n      type: richtext(inline)\n      example: \"one\\n\\ntwo\"\n",
+    )
+    .unwrap_err();
+    assert!(
+        err.iter().any(|d| d.code.as_deref() == Some("richtext::not_inline")),
+        "a two-paragraph inline example should fail load with richtext::not_inline, got: {err:?}"
+    );
+}
+
+#[test]
+fn inline_richtext_single_line_example_loads_and_caches_corpus() {
+    let config =
+        quill_with_field("    tag:\n      type: richtext(inline)\n      example: \"a *bold* motto\"\n")
+            .expect("single-line inline example loads");
+    let field = config.main.fields.get("tag").unwrap();
+    assert_eq!(field.r#type, FieldType::RichText { inline: true });
+    // The load pass imports the markdown example into its corpus companion; the
+    // authored `example` string is retained untouched (Alternative A).
+    let corpus = field.example_corpus.as_ref().expect("example_corpus cached");
+    assert!(corpus.as_json().is_object(), "cached example is a corpus object");
+    assert_eq!(field.example.as_ref().unwrap().as_str(), Some("a *bold* motto"));
+}
+
+#[test]
+fn block_richtext_default_caches_corpus() {
+    let config = quill_with_field(
+        "    body:\n      type: richtext\n      default: \"## Heading\\n\\nBody.\"\n",
+    )
+    .expect("block richtext default loads");
+    let field = config.main.fields.get("body").unwrap();
+    let corpus = field.default_corpus.as_ref().expect("default_corpus cached");
+    assert!(corpus.as_json().is_object(), "cached default is a corpus object");
+}
+
+#[test]
+fn array_of_inline_richtext_caches_each_element() {
+    let config = quill_with_field(
+        "    refs:\n      type: array\n      items:\n        type: richtext(inline)\n      example:\n        - \"first *ref*\"\n        - \"second ref\"\n",
+    )
+    .expect("array<richtext(inline)> loads");
+    let field = config.main.fields.get("refs").unwrap();
+    let corpus = field.example_corpus.as_ref().expect("example_corpus cached");
+    let arr = corpus.as_json().as_array().expect("array of corpus");
+    assert_eq!(arr.len(), 2);
+    assert!(arr.iter().all(|e| e.is_object()), "each element is a corpus object");
+}
+
+#[test]
+fn inline_coercion_rejects_multi_block_document_value() {
+    let config =
+        quill_with_field("    tag:\n      type: richtext(inline)\n").expect("loads");
+    let mut fields: indexmap::IndexMap<String, QuillValue> = indexmap::IndexMap::new();
+    fields.insert(
+        "tag".to_string(),
+        QuillValue::from_json(serde_json::json!("one\n\ntwo")),
+    );
+    let err = config.coerce_payload(&fields).unwrap_err();
+    assert!(
+        err.to_string().contains("richtext(inline)"),
+        "coercion should reject a two-paragraph value for an inline field, got: {err}"
+    );
+}
+
+#[test]
+fn inline_coercion_accepts_single_line_document_value() {
+    let config =
+        quill_with_field("    tag:\n      type: richtext(inline)\n").expect("loads");
+    let mut fields: indexmap::IndexMap<String, QuillValue> = indexmap::IndexMap::new();
+    fields.insert(
+        "tag".to_string(),
+        QuillValue::from_json(serde_json::json!("just one line")),
+    );
+    let coerced = config.coerce_payload(&fields).expect("single line coerces");
+    assert!(
+        coerced.get("tag").unwrap().as_json().is_object(),
+        "coerced inline value is a corpus object"
+    );
+}
+
+#[test]
+fn richtext_zero_value_is_empty_corpus() {
+    let field = FieldSchema::new("x".to_string(), FieldType::RichText { inline: false }, None);
+    let zero = zero_value(&field);
+    assert!(
+        zero.as_json().is_object(),
+        "richtext zero-fill is the empty corpus, not a string: {:?}",
+        zero.as_json()
     );
 }

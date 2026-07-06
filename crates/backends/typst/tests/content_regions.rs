@@ -57,10 +57,10 @@ typst:
 main:
   fields:
     intro:
-      type: markdown
+      type: richtext
       description: a short intro paragraph
     body:
-      type: markdown
+      type: richtext
       description: a long body that wraps and breaks across pages
 "#;
     const PLATE: &str = r#"
@@ -138,7 +138,7 @@ typst:
 main:
   fields:
     intro:
-      type: markdown
+      type: richtext
       description: a short paragraph placed twice
 "#;
     const PLATE: &str = r#"
@@ -330,7 +330,7 @@ typst:
 main:
   fields:
     body:
-      type: markdown
+      type: richtext
       description: a body piped through a capture-and-replay package shape
 "#;
     const PLATE: &str = r#"
@@ -377,7 +377,7 @@ main:
     refs:
       type: array
       items:
-        type: markdown
+        type: richtext
       description: a markdown[] field
 typst:
   plate_file: plate.typ
@@ -424,20 +424,20 @@ typst:
 main:
   fields:
     intro:
-      type: markdown
+      type: richtext
       description: a top-level intro
 card_kinds:
   alpha:
     description: alpha card
     fields:
       note:
-        type: markdown
+        type: richtext
         description: alpha note
   beta:
     description: beta card
     fields:
       note:
-        type: markdown
+        type: richtext
         description: beta note
 "#;
     const PLATE: &str = r#"
@@ -538,7 +538,7 @@ typst:
 main:
   fields:
     intro:
-      type: markdown
+      type: richtext
       description: a paragraph
     when:
       type: datetime
@@ -600,7 +600,7 @@ typst:
 main:
   fields:
     body:
-      type: markdown
+      type: richtext
       description: a long body under headers and footers
 "#;
     const PLATE: &str = r#"
@@ -730,7 +730,7 @@ typst:
 main:
   fields:
     body:
-      type: markdown
+      type: richtext
       description: a body that may carry malformed inline markup
 "#;
     // The plate proves the int round-tripped: a wrong `i64::MIN` literal makes
@@ -826,7 +826,7 @@ typst:
 main:
   fields:
     body:
-      type: markdown
+      type: richtext
       description: a two-paragraph body
 "#;
     const PLATE: &str = r#"
@@ -895,7 +895,7 @@ typst:
 main:
   fields:
     body:
-      type: markdown
+      type: richtext
       description: one paragraph
 "#;
     const PLATE: &str = r#"
@@ -971,7 +971,7 @@ typst:
 main:
   fields:
     body:
-      type: markdown
+      type: richtext
       description: a paragraph plus a multi-line code fence
 "#;
     const PLATE: &str = r#"

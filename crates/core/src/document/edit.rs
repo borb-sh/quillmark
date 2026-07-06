@@ -431,6 +431,8 @@ impl Card {
     /// degrades to the empty corpus rather than erroring; the fallible edit
     /// surface is Phase 3.
     pub fn replace_body(&mut self, body: impl Into<String>) {
-        self.overwrite_body(super::import_body_lossy(&body.into()));
+        let corpus =
+            super::import_body(&body.into()).unwrap_or_else(|_| quillmark_richtext::RichText::empty());
+        self.overwrite_body(corpus);
     }
 }

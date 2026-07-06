@@ -306,6 +306,18 @@ impl RichText {
         self.text.chars().count()
     }
 
+    /// Whether this corpus satisfies the `richtext(inline)` constraint: exactly
+    /// one `Para` line, sitting in no container, with no islands. A single line
+    /// can never `continues` (line 0 is always `false`), so that dimension is
+    /// implied. [`RichText::empty`] is inline (one empty `Para`), so a blank or
+    /// zero-filled inline field passes.
+    pub fn is_inline(&self) -> bool {
+        self.islands.is_empty()
+            && self.lines.len() == 1
+            && self.lines[0].kind == LineKind::Para
+            && self.lines[0].containers.is_empty()
+    }
+
     /// Whether the corpus carries no renderable content: the text is empty or
     /// whitespace-only. An island slot ([`ISLAND_SLOT`], U+FFFC) is not
     /// whitespace, so an island-bearing corpus is never blank. This is the
@@ -628,6 +640,25 @@ mod tests {
     #[test]
     fn empty_is_valid() {
         assert_eq!(RichText::empty().validate(), Ok(()));
+    }
+
+    #[test]
+    fn is_inline_accepts_empty_and_single_para() {
+        assert!(RichText::empty().is_inline());
+        assert!(crate::import::from_markdown("just one line").unwrap().is_inline());
+        assert!(crate::import::from_markdown("a *bold* run")
+            .unwrap()
+            .is_inline());
+    }
+
+    #[test]
+    fn is_inline_rejects_blocks_containers_and_islands() {
+        // Two paragraphs → two Para lines.
+        assert!(!crate::import::from_markdown("one\n\ntwo").unwrap().is_inline());
+        // A heading is a non-Para line kind.
+        assert!(!crate::import::from_markdown("# heading").unwrap().is_inline());
+        // A list item sits in a container.
+        assert!(!crate::import::from_markdown("- item").unwrap().is_inline());
     }
 
     #[test]

@@ -25,7 +25,7 @@ Supported field types:
 | `array` | Ordered list; requires an `items:` element schema (e.g. `items: { type: string }` for `string[]`, `items: { type: object, properties: … }` for a typed table) |
 | `object` | Structured map; requires `properties:` |
 | `datetime` | YAML 1.1 timestamp: bare `YYYY-MM-DD` through full RFC 3339 with offset; seconds optional |
-| `richtext` | Rich prose over a canonical corpus (`RichText`); markdown is a projection of it. `richtext(inline)` is the single-line variant. `markdown` is a deprecated alias for block `richtext` |
+| `richtext` | Rich prose over a canonical corpus (`RichText`); markdown is a projection of it. `richtext(inline)` is the single-line variant (exactly one `Para` line, no container, no islands). The pre-richtext `markdown` spelling is no longer accepted — it is a schema load error (`quill::field_parse_error`) |
 
 ## Type coercion
 
@@ -35,6 +35,7 @@ Supported field types:
 - Coerces top-level fields and per-card fields to their declared types
 - Fails fast (`Err`) on the first value that cannot be coerced
 - Coercion rules per type: array wrapping plus element-wise coercion against the `items` schema (a bad element fails at its indexed path, e.g. `counts[1]`); boolean from string/int/float; number/integer from string or from boolean (`true→1`, `false→0`); string unwraps a length-1 string array into the bare string (else identity); richtext commits the canonical corpus form (the model) — an authored markdown string imports (via `quillmark-richtext::import`), an editor-supplied corpus object revalidates and re-canonicalizes, and the length-1-array-unwrap / bare-scalar-stringify leniencies feed the import; date/datetime format validation; object property recursion
+- **`richtext(inline)` enforcement.** An `inline` field's corpus must be exactly one `Para` line, in no container, with no islands (`RichText::is_inline`). The empty corpus satisfies it, so a blank or zero-filled inline field passes. The constraint is checked in three places: coercion (`CoercionError` for a document value), validation (`richtext::not_inline`, the `TypeMismatch` fatality class, as a backstop for a corpus that bypassed coercion), and load-time example import (a schema literal that violates it is a load error)
 - **Null short-circuits coercion.** A null value (`field:`, `field: null`,
   `field: ~`) passes coercion unchanged for *every* type — null ≡ absent, so
   it carries no data to coerce. The value reaches the render floor and
@@ -170,11 +171,22 @@ seeded documents alike (see [BLUEPRINT.md](BLUEPRINT.md)).
 ## Document seeding
 
 **Seeding** builds a starter `Document` from the schema for editor consumers
-("new document"): each field that declares an `example:` is committed verbatim,
-and **every other field is left absent**. The seeding cascade is therefore
+("new document"): each field that declares an `example:` is committed, and
+**every other field is left absent**. The seeding cascade is therefore
 `example: → absent` — absent fields are never written; they are interpolated at
 the compilation layer by [zero-filled render](#zero-filled-render) (`default:`,
 else type-empty zero), exactly as for any authored document.
+
+**Seed-commits-corpus.** A seeded richtext field (and the body) commits the
+canonical **corpus** form, not the authored markdown string, so a seeded
+document is corpus from birth — matching what an editor round-trip produces and
+what storage embeds. The corpus is imported once at quill load into a
+`#[serde(skip)]` companion cache on the schema (`FieldSchema::default_corpus` /
+`example_corpus`, `BodyCardSchema::example_corpus`), a pure function of the
+`Quill.yaml` bytes; seeding and the render floor read that cache rather than
+re-importing markdown per document. The authored markdown literal is retained
+untouched — it is the source of truth the schema emits and the blueprint prints;
+the corpus is a derived projection of it.
 
 Committing *only* `example` is the whole design. `resolve_fields` already
 produces `default` and `zero` at compile time but **never `example`** (example
