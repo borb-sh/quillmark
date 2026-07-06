@@ -789,11 +789,13 @@ impl PyRenderResult {
 
     /// Schema-field geometry sidecar — populated only when `render(...,
     /// regions=True)` requested it; empty otherwise. One dict per entry:
-    /// `{"field": str, "page": int, "rect": [x0, y0, x1, y1]}` with rect in
-    /// PDF points, bottom-left origin, page indices document-space. Content
-    /// fields carry their **first placement** (one entry per page it
-    /// touches); widgets and scalar reference sites each carry their own
-    /// entry. A field may still appear more than once; group by `field`.
+    /// `{"field": str, "page": int, "rect": [x0, y0, x1, y1], "span":
+    /// [start, end] | None}` with rect in PDF points, bottom-left origin, page
+    /// indices document-space. Content fields carry one entry per **segment**
+    /// (paragraph, heading, code fence) and page, each `span` the covered USV
+    /// corpus range; widgets and scalar reference sites carry `span: None`. A
+    /// field may still appear more than once; group by `field` and union the
+    /// segment rects for the whole-field box.
     #[getter]
     fn regions<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyDict>>> {
         self.inner
@@ -804,6 +806,7 @@ impl PyRenderResult {
                 d.set_item("field", &r.field)?;
                 d.set_item("page", r.page)?;
                 d.set_item("rect", r.rect.to_vec())?;
+                d.set_item("span", r.span.map(|s| s.to_vec()))?;
                 Ok(d)
             })
             .collect()

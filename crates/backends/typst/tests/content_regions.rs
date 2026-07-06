@@ -808,3 +808,215 @@ main:
         "the later-painted widget wins the click, not the alphabetically-first name"
     );
 }
+
+#[test]
+fn segment_regions_carry_span_and_field_union_is_striped() {
+    // #829's visible change: a content field breaks into one region **per
+    // paragraph**, each keyed on its corpus span. The whole-field highlight is
+    // the consumer's union of a page's segment rects — so the inter-paragraph
+    // whitespace stays uncovered (striped), unlike the old single solid box.
+    const YAML: &str = r#"
+quill:
+  name: segment_regions
+  version: 0.1.0
+  backend: typst
+  description: per-segment span regions + striped union
+typst:
+  plate_file: plate.typ
+main:
+  fields:
+    body:
+      type: markdown
+      description: a two-paragraph body
+"#;
+    const PLATE: &str = r#"
+#import "@local/quillmark-helper:0.1.0": data
+#set page(width: 612pt, height: 792pt, margin: 72pt)
+#set text(size: 11pt)
+
+#data.body
+"#;
+    let data = serde_json::json!({
+        "body": corpus("First paragraph, alpha.\n\nSecond paragraph, beta."),
+    });
+    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let body: Vec<_> = session
+        .regions()
+        .into_iter()
+        .filter(|r| r.field == "body")
+        .collect();
+    assert_eq!(
+        body.len(),
+        2,
+        "two paragraphs → two segment regions: {body:?}"
+    );
+    assert!(body.iter().all(|r| r.page == 0), "both on page 0: {body:?}");
+
+    // Each segment carries its own corpus span; the two spans are disjoint and
+    // ordered (segment order is the region sort key).
+    let s0 = body[0].span.expect("segment 0 carries a span");
+    let s1 = body[1].span.expect("segment 1 carries a span");
+    assert!(
+        s0[0] < s0[1] && s1[0] < s1[1],
+        "non-empty spans: {s0:?} {s1:?}"
+    );
+    assert!(s0[1] <= s1[0], "spans disjoint and ordered: {s0:?} {s1:?}");
+
+    // The derived field box (the documented consumer formula — union of a
+    // page's segment rects) leaves the inter-paragraph whitespace uncovered:
+    // the union is taller than the two segment boxes stacked, so a solid
+    // highlight would have to invent the gap between them.
+    let h0 = body[0].rect[3] - body[0].rect[1];
+    let h1 = body[1].rect[3] - body[1].rect[1];
+    let union_lo = body[0].rect[1].min(body[1].rect[1]);
+    let union_hi = body[0].rect[3].max(body[1].rect[3]);
+    assert!(
+        union_hi - union_lo > h0 + h1 + 1.0,
+        "the field union is striped: union {} exceeds segments {h0}+{h1}, so the \
+         blank line between paragraphs is uncovered",
+        union_hi - union_lo
+    );
+}
+
+#[test]
+fn position_at_and_locate_round_trip_a_corpus_offset() {
+    // The two navigation directions compose: a click resolves to a corpus
+    // position inside the field, and locating that position returns a caret
+    // rect back on the same page, inside the field's region. A click off all
+    // content ink resolves to nothing.
+    const YAML: &str = r#"
+quill:
+  name: nav_round_trip
+  version: 0.1.0
+  backend: typst
+  description: position_at / locate round trip
+typst:
+  plate_file: plate.typ
+main:
+  fields:
+    body:
+      type: markdown
+      description: one paragraph
+"#;
+    const PLATE: &str = r#"
+#import "@local/quillmark-helper:0.1.0": data
+#set page(width: 612pt, height: 792pt, margin: 72pt)
+#set text(size: 11pt)
+
+#data.body
+"#;
+    let data = serde_json::json!({ "body": corpus("Alpha beta gamma delta epsilon.") });
+    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let body: Vec<_> = session
+        .regions()
+        .into_iter()
+        .filter(|r| r.field == "body")
+        .collect();
+    assert_eq!(body.len(), 1, "one paragraph, one region: {body:?}");
+    let region = &body[0];
+    let span = region.span.expect("content region carries a span");
+
+    // A click near the top-left of the paragraph (its first line) resolves to a
+    // corpus position within the segment's span.
+    let cx = region.rect[0] + 5.0;
+    let cy = region.rect[3] - 3.0;
+    let hit = session
+        .position_at(region.page, cx, cy)
+        .expect("a click inside content resolves to a corpus position");
+    assert_eq!(hit.field, "body");
+    assert!(
+        span[0] <= hit.pos && hit.pos <= span[1],
+        "pos {} within span {span:?}",
+        hit.pos
+    );
+
+    // Locating that position returns a caret rect on the same page, inside the
+    // field's region, with `span` collapsed to the caret point.
+    let caret = session
+        .locate("body", hit.pos)
+        .expect("a corpus position locates a caret rect");
+    assert_eq!(caret.page, region.page);
+    assert_eq!(caret.span, Some([hit.pos, hit.pos]));
+    assert!(
+        caret.rect[0] >= region.rect[0] - 1.0
+            && caret.rect[2] <= region.rect[2] + 1.0
+            && caret.rect[1] >= region.rect[1] - 1.0
+            && caret.rect[3] <= region.rect[3] + 1.0,
+        "the caret sits inside the field's region: caret {:?} in {:?}",
+        caret.rect,
+        region.rect
+    );
+
+    // Off all content ink (top-left page corner): nothing.
+    assert_eq!(session.position_at(region.page, 5.0, 5.0), None);
+}
+
+#[test]
+fn position_at_on_a_raw_block_degrades_to_the_segment_start() {
+    // The spike's `#raw` correction: every physical line of a multi-line
+    // `#raw(block: true, "…")` fence shares one resolved node wider than any
+    // per-line run, so per-run inversion cannot pick a line. position_at
+    // degrades to the code **segment's** corpus start — so clicks on different
+    // fence lines resolve to the *same* corpus position (segment-level
+    // correctness kept, per-line precision unavailable), distinct from the
+    // prose paragraph's.
+    const YAML: &str = r#"
+quill:
+  name: raw_degrade
+  version: 0.1.0
+  backend: typst
+  description: raw block segment-start degrade
+typst:
+  plate_file: plate.typ
+main:
+  fields:
+    body:
+      type: markdown
+      description: a paragraph plus a multi-line code fence
+"#;
+    const PLATE: &str = r#"
+#import "@local/quillmark-helper:0.1.0": data
+#set page(width: 612pt, height: 792pt, margin: 72pt)
+#set text(size: 11pt)
+
+#data.body
+"#;
+    let data = serde_json::json!({
+        "body": corpus("Intro prose here.\n\n```\nfirst code line\nsecond code line\nthird code line\n```"),
+    });
+    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let body: Vec<_> = session
+        .regions()
+        .into_iter()
+        .filter(|r| r.field == "body")
+        .collect();
+    assert_eq!(
+        body.len(),
+        2,
+        "one prose segment, one code segment: {body:?}"
+    );
+    let (prose, code) = (&body[0], &body[1]);
+
+    // Probe a few x offsets so a click reliably lands on a glyph on the target
+    // fence line.
+    let hit_at = |y: f32| {
+        [2.0f32, 6.0, 12.0, 24.0, 48.0]
+            .iter()
+            .find_map(|dx| session.position_at(code.page, code.rect[0] + dx, y))
+    };
+    let top = hit_at(code.rect[3] - 3.0).expect("a click on the first fence line resolves");
+    let bottom = hit_at(code.rect[1] + 3.0).expect("a click on the last fence line resolves");
+    assert_eq!(top.field, "body");
+    assert_eq!(
+        top.pos, bottom.pos,
+        "different fence lines both degrade to the one code-segment start: {top:?} {bottom:?}"
+    );
+    // The fence's segment start is distinct from the prose paragraph's content.
+    let prose_hit = session
+        .position_at(prose.page, prose.rect[0] + 5.0, prose.rect[3] - 3.0)
+        .expect("a click in the prose paragraph resolves");
+    assert_ne!(
+        prose_hit.pos, top.pos,
+        "prose and the code fence are different segments: {prose_hit:?} {top:?}"
+    );
+}
