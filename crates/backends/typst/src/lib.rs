@@ -31,8 +31,8 @@ mod world;
 use quillmark_core::{
     quill::{build_transform_schema, RICHTEXT_MEDIA_TYPE},
     session::SessionHandle,
-    Backend, ChangeSet, Diagnostic, LiveSession, OutputFormat, Quill, RenderError, RenderOptions,
-    RenderResult, Severity,
+    Backend, ChangeSet, CorpusHit, Diagnostic, LiveSession, OutputFormat, Quill, RenderError,
+    RenderOptions, RenderResult, RenderedRegion, Severity,
 };
 
 /// Typst backend implementation for Quillmark.
@@ -429,6 +429,38 @@ impl SessionHandle for TypstSession {
                     y,
                 )
             })
+    }
+
+    /// A point → corpus position in a content field — the fine-grained twin of
+    /// [`field_at`](Self::field_at). Resolves the content glyph under `(x, y)`
+    /// to a cluster-exact USV offset in its field's `RichText`, degrading to
+    /// the containing segment's start on origin-less ink. `None` off all
+    /// content ink or on scalar/widget ink (no corpus address). Widgets draw no
+    /// spanned content ink, so — unlike `field_at` — they are not consulted.
+    fn position_at(&self, page: usize, x: f32, y: f32) -> Option<CorpusHit> {
+        overlay::position_at(
+            &self.document,
+            &self.world,
+            &self.helper_source,
+            &self.windows,
+            page,
+            x,
+            y,
+        )
+    }
+
+    /// A corpus position → caret rect — the reverse of
+    /// [`position_at`](Self::position_at). Maps `pos` in `field`'s `RichText`
+    /// to the box of the glyph the caret sits at, page-indexed.
+    fn locate(&self, field: &str, pos: usize) -> Option<RenderedRegion> {
+        overlay::locate(
+            &self.document,
+            &self.world,
+            &self.helper_source,
+            &self.windows,
+            field,
+            pos,
+        )
     }
 }
 

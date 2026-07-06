@@ -7,9 +7,9 @@
 The preview surface is two verbs: `render(quill, doc, opts)` — stateless
 one-shot bytes for CLI / server / export — and `open(quill, doc)` →
 **`LiveSession`**, a persistent, incremental compiler that owns preview. Reads
-(`render`, `paint`, `pageSize`, `regions`, `fieldAt`) serve the session's current
-compile; `apply(doc)` recompiles in place and returns a `ChangeSet` naming the
-dirty pages. `paint` writes a rasterized page directly into a
+(`render`, `paint`, `pageSize`, `regions`, `fieldAt`, `positionAt`, `locate`)
+serve the session's current compile; `apply(doc)` recompiles in place and
+returns a `ChangeSet` naming the dirty pages. `paint` writes a rasterized page directly into a
 `CanvasRenderingContext2d`; each paint is a **complete** raster — every piece
 of page content already visible — so the consumer never composites. It is
 multi-backend: any backend whose session can rasterize a page (Typst, pdfform)
@@ -113,6 +113,14 @@ consumer there is no cross-edit reader to protect. If a long-lived read-only
 viewer ever needs to shed the retained world, a `freeze()` that drops it and
 keeps the pageable document is a *mode* to add, not a second type.
 
+The same "nothing to protect" argument keeps regions and `CorpusHit` **counter-free**:
+they key on `(field, corpus range)` against the session's *current* compile, with
+no revision stamp. A revision earns its keep only in Phase 3, alongside the
+per-field change log — when a position captured before an edit must be *mapped*
+forward (`delta::map_pos`) rather than merely detected stale. It appends then as
+an optional field (`RenderedRegion.span` is already additive-optional for exactly
+this), breaking nothing.
+
 ### Complete-raster contract
 
 `render_rgba` returning `Some` guarantees a **complete** page raster: all
@@ -135,12 +143,20 @@ for consumers without a live session — static overlays over an exported SVG,
 PDF post-processing, CI coverage probes. The sidecar always describes the
 whole document: page indices are document-space even under a `pages` subset
 render. Each region carries per-field geometry keyed on the **quill schema
-field path** — the address the editor uses. The two navigation directions get
-two queries: `regions()` answers *field → rectangle* (scroll to / highlight
-the focused field); `fieldAt(page, x, y)` answers *point → field* (click a
-rendered field → focus it in the editor), hit-testing the compiled document
-directly so **every** placement resolves, not just the ones `regions()`
-surfaces.
+field path** — the address the editor uses — plus, for content ink, the
+**corpus span** it covers (§ Segments and the striped union). Navigation is
+four queries, two coarse and two fine:
+
+- `regions()` answers *field → rectangles* (scroll to / highlight a field),
+  one box per content **segment** it draws.
+- `fieldAt(page, x, y)` answers *point → field* (click → focus in the editor),
+  hit-testing the compiled document directly so **every** placement resolves,
+  not just the ones `regions()` surfaces.
+- `positionAt(page, x, y)` answers *point → corpus position* — the field
+  *and* a USV offset into its `RichText`, cluster-exact, for placing a caret
+  or mapping a selection into the content model.
+- `locate(field, pos)` answers *corpus position → caret rect* — the reverse of
+  `positionAt`, the box to draw a caret at.
 
 Three producers: **content fields** (a markdown body, a `markdown[]` element,
 a card's content field) are tracked by the spans their glyphs carry — the
@@ -164,21 +180,56 @@ card addresses without reimplementing the kind+ordinal grammar) and surface a
 region only when they bind one — a widget with no schema field is a backend
 artifact, not a routable field.
 
-`regions()` returns each content field's **first placement** — one region per
+### Segments and the striped union
+
+A content field is not one box. The backend records a per-**segment** source
+map (a segment is one paragraph, heading, or whole code fence — the corpus's
+`continues`-joined line run), and `regions()` returns one region per
+`(segment, page)`, each carrying `span: [start, end)` — the USV range of the
+field's `RichText` that box covers. A scalar reference site and a widget carry
+no `span` (`undefined`): geometry with no corpus address.
+
+The whole-field highlight is **derived, not emitted**: per `(field, page)`,
+union the `span`-bearing segment rects. That is the point of #829 — the union
+is *striped*, leaving inter-paragraph whitespace uncovered, where the old
+single box painted over it. Emitting a field-level union from the backend
+would reintroduce the lie the disjointness invariant exists to prevent, so the
+consumer owns the union:
+
+```ts
+// whole-field box on one page = union of that page's segment rects
+const box = regions()
+  .filter(r => r.field === field && r.page === page && r.span)
+  .reduce(unionRect, undefined);
+```
+
+Each `(segment, page)` key surfaces its **first placement** — one region per
 page it touches, so highlighting covers continuation pages (page marginals
 between one page's body and the next's do not end a placement; a same-page
 interruption does) — not every placement: span data cannot distinguish
 package chrome interrupting one placement from a second placement of the same
-value, and a spanning union would claim the ink between them. Foreign ink
-interrupting the first placement within a page (a rebuild's numbering chrome)
-shrinks the region to the placement's true start rather than lying about
-extent. `field` is still not
-unique in the result — page fragments, several scalar sites, or content plus
-a bound widget each surface independently; consumers group by `field`. Later
-placements of one content value stay reachable through `fieldAt`, where a
-concrete point identifies one drawn item unambiguously. A blank field (empty
-or whitespace-only body) draws nothing and surfaces no region. Geometry only,
-never a value, and never needed to complete the picture.
+value, and a spanning union would claim the ink between them. A field's own
+ink *between* its segments (brackets, container-open syntax — usually inkless)
+is transparent: it neither accrues a box nor breaks a run. `field` is still
+not unique — segment fragments, page fragments, several scalar sites, or
+content plus a bound widget each surface independently; consumers group by
+`field`. Later placements stay reachable through `fieldAt` / `positionAt`,
+where a concrete point identifies one drawn item unambiguously. A blank field
+draws nothing and surfaces no region. Geometry only, never a value, and never
+needed to complete the picture.
+
+`positionAt` reads the same map the other way: the hit glyph's resolved node
+range plus `glyph.span.1` gives an exact generated byte, which inverts through
+the owning run's escape scan to a cluster-exact corpus offset. It is
+**cluster-exact, not sub-character** — a hit inside a char that escaped to
+several bytes floors to that cluster's first char — and degrades to the
+containing segment's start on origin-less ink: a list marker or numbering
+(detached-span decoration, attributable to no field — like clicking page
+chrome, it resolves to nothing) and, inside a multi-line code fence, every
+line sharing one resolved node wider than any per-line run, so per-line
+precision collapses to the fence's corpus start (segment-level correctness
+kept). `locate` forward-maps a corpus offset to a generated byte and returns
+the covering glyph's box.
 
 ## TypeScript surface
 
@@ -201,9 +252,13 @@ class LiveSession {
 
   apply(doc: Document): ChangeSet;      // in-place recompile; transactional
   render(opts?: RenderOptions): RenderResult;
-  regions(): FieldRegion[];             // field → rects; session query, no render
+  regions(): FieldRegion[];             // field → rects (one per segment); session query, no render
   fieldAt(page: number, x: number, y: number): string | undefined;
                                         // point → field; PDF pt, bottom-left
+  positionAt(page: number, x: number, y: number): CorpusHit | undefined;
+                                        // point → { field, pos }; cluster-exact USV offset
+  locate(field: string, pos: number): FieldRegion | undefined;
+                                        // corpus pos → caret rect
   pageSize(page: number): PageSize;     // { widthPt, heightPt } in pt; report-only
   paint(
     ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
@@ -227,6 +282,18 @@ interface PaintResult {
   layoutHeight: number;
   pixelWidth: number;     // canvas.width the painter wrote (clamped at 16384)
   pixelHeight: number;
+}
+
+interface FieldRegion {
+  field: string;          // quill schema field path, not a widget name
+  page: number;           // 0-based
+  rect: [number, number, number, number];   // [x0,y0,x1,y1] PDF pt, bottom-left
+  span?: [number, number];// USV [start,end) of the covered corpus; absent for scalar/widget
+}
+
+interface CorpusHit {
+  field: string;
+  pos: number;            // USV offset into the field's RichText (cluster floor)
 }
 ```
 

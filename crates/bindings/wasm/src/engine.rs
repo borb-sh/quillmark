@@ -3,7 +3,7 @@
 use crate::error::WasmError;
 use crate::types::Diagnostic;
 #[cfg(any(feature = "typst", feature = "pdfform"))]
-use crate::types::{ChangeSet, FieldRegion, RenderOptions, RenderResult};
+use crate::types::{ChangeSet, CorpusHit, FieldRegion, RenderOptions, RenderResult};
 use js_sys::{Array, Uint8Array};
 #[cfg(any(feature = "typst", feature = "pdfform"))]
 use serde::Deserialize;
@@ -1484,6 +1484,29 @@ impl LiveSession {
     #[wasm_bindgen(js_name = fieldAt)]
     pub fn field_at(&self, page: usize, x: f32, y: f32) -> Option<String> {
         self.inner.field_at(page, x, y)
+    }
+
+    /// A point → **corpus position** — the fine-grained click direction:
+    /// hit-test a point and get back the field *and* a USV offset into its
+    /// `RichText` (for placing a caret or mapping a selection into the content
+    /// model), or `undefined` off all content ink. `x`/`y` are PDF points,
+    /// bottom-left origin — the same space as `fieldAt`. The offset is
+    /// cluster-exact and degrades to the containing segment's start on
+    /// origin-less ink (list markers, a code fence's interior). See
+    /// `CorpusHit`.
+    #[wasm_bindgen(js_name = positionAt)]
+    pub fn position_at(&self, page: usize, x: f32, y: f32) -> Option<CorpusHit> {
+        self.inner.position_at(page, x, y).map(Into::into)
+    }
+
+    /// A corpus position → **caret rect** — the reverse of `positionAt`: given
+    /// a field and a USV offset into its `RichText`, return the box (in the
+    /// same bottom-left PDF-point space as `FieldRegion.rect`) to draw a caret
+    /// at, its `span` collapsed to `[pos, pos]`; `undefined` when the field
+    /// places no tracked content or the offset maps to no drawn glyph.
+    #[wasm_bindgen(js_name = locate)]
+    pub fn locate(&self, field: &str, pos: usize) -> Option<FieldRegion> {
+        self.inner.locate(field, pos).map(Into::into)
     }
 
     /// Page dimensions in points (1 pt = 1/72 inch).

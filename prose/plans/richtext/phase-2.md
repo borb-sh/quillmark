@@ -438,10 +438,14 @@ wire states below are branch-private.
    *Discharges handover 2 and 4.* Self-contained, decisions-locked handover in
    [§ PR-E handover](#pr-e-handover--seam-flip-option-a-live) — implement from
    there, not from this summary line.
-7. **PR-F — regions + navigation (#829).** Two-tier windows + segment run machine;
-   `RenderedRegion.span`; `position_at` / `locate` with `glyph.span.1`; session/wasm
-   surface; PREVIEW.md rework; INDEX.md revision-defer amendment. *Discharges
-   handover 3 and 5; the Spike-B carry; delivers #829.*
+7. **PR-F — regions + navigation (#829) — landed.** Two-tier windows +
+   segment run machine (flattened `(window, Option<segment>)` key space, one new
+   transparent same-window arm); `RenderedRegion.span` (additive-optional, no
+   `revision` yet); `position_at` / `locate` with `glyph.span.1`, inverting each
+   run's recomputed escape scan (cluster floor), degrading to segment start on a
+   multi-line `#raw` node (the spike's correction); session + wasm surface;
+   PREVIEW.md rework; INDEX.md revision-defer amendment; phase-0 Spike-B `#raw`
+   correction. *Discharges handover 3 and 5; the Spike-B carry; delivers #829.*
 8. **PR-G — `richtext(inline)` + load-time schema-value import + seed-commits-corpus.**
    Separable from E for reviewability.
 

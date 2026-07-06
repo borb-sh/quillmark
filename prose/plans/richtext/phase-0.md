@@ -146,6 +146,14 @@ per-render parse — the map is a codegen artifact built once at emit.
 **Out of scope.** The `regions()` run-machine rework for highlight boxes
 (grounding §3.2) is phase-2 work; this spike touches navigation only.
 
+> **Correction (phase 2, PR-F).** "Cluster-exact, never sub-char" holds for
+> markup text but **not** for `#raw` string-literal code fences: every physical
+> line resolves to one node wider than any per-line run, so per-run inversion
+> structurally fails and `position_at` degrades to the code **segment's** corpus
+> start — segment-level, not a per-line offset. This spike's probe carried no
+> code fence, so it did not surface. See
+> [pr-f-spike-findings.md](pr-f-spike-findings.md).
+
 ---
 
 ## Spike C — seam encoding + determinism (confirms Option A, gates phase-2 storage)

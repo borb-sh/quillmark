@@ -228,12 +228,14 @@ pub struct ChangeSet {
 /// placement. Geometry only: the raster is already complete, so a region is
 /// never a compositing input.
 ///
-/// `field` is **not** unique: content fields surface their **first placement**
-/// (one fragment per page it touches, so a highlight covers continuation
-/// pages), a scalar referenced at several plate sites surfaces each site, and
-/// tracked content plus a `field:`-bound widget yields both. Group by `field`
-/// — every entry routes to that field. Later placements of one content value
-/// are not enumerated; `fieldAt` still resolves clicks on them.
+/// `field` is **not** unique: content fields surface one region **per segment**
+/// (paragraph, heading, whole code fence) and per page each touches, a scalar
+/// referenced at several plate sites surfaces each site, and tracked content
+/// plus a `field:`-bound widget yields both. Group by `field` — every entry
+/// routes to that field. The whole-field highlight is the **union of a page's
+/// `span`-bearing segment rects**, so inter-paragraph whitespace stays
+/// uncovered (#829). Later placements of one content value are not enumerated;
+/// `fieldAt` / `positionAt` still resolve clicks on them.
 #[cfg(any(feature = "typst", feature = "pdfform"))]
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
@@ -247,6 +249,12 @@ pub struct FieldRegion {
     pub page: usize,
     /// `[x0, y0, x1, y1]` in PDF points (1/72″), bottom-left origin.
     pub rect: [f32; 4],
+    /// The corpus slice this box covers — USV `[start, end)` into the field's
+    /// `RichText` for content ink (one segment), `undefined` for a scalar
+    /// reference site or widget. Consumers key segment highlights on it and
+    /// union same-page segments for the whole-field box.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span: Option<[usize; 2]>,
 }
 
 #[cfg(any(feature = "typst", feature = "pdfform"))]
@@ -256,6 +264,32 @@ impl From<quillmark_core::RenderedRegion> for FieldRegion {
             field: r.field,
             page: r.page,
             rect: r.rect,
+            span: r.span,
+        }
+    }
+}
+
+/// A resolved point → corpus position: the field a click landed in and the USV
+/// offset into its `RichText`. The `LiveSession.positionAt` result, paired with
+/// `locate` (corpus position → caret rect). `pos` is cluster-exact and degrades
+/// to the containing segment's start on origin-less ink.
+#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct CorpusHit {
+    /// Quill schema field path (same address space as `FieldRegion.field`).
+    pub field: String,
+    /// USV offset into the field's `RichText`.
+    pub pos: usize,
+}
+
+#[cfg(any(feature = "typst", feature = "pdfform"))]
+impl From<quillmark_core::CorpusHit> for CorpusHit {
+    fn from(h: quillmark_core::CorpusHit) -> Self {
+        CorpusHit {
+            field: h.field,
+            pos: h.pos,
         }
     }
 }
@@ -493,12 +527,15 @@ mod tests {
             field: "full_name".to_string(),
             page: 0,
             rect: [180.0, 672.0, 520.0, 692.0],
+            span: None,
         };
         let json = serde_json::to_string(&region).unwrap();
         assert!(json.contains("\"field\":\"full_name\""));
         assert!(json.contains("\"page\":0"));
         assert!(json.contains("\"rect\":[180.0,672.0,520.0,692.0]"));
-        // No backend widget name or kind/value leaks into the wire shape.
+        // A scalar/widget region omits `span`; no backend widget name or
+        // kind/value leaks into the wire shape.
+        assert!(!json.contains("\"span\""));
         assert!(!json.contains("\"name\""));
         assert!(!json.contains("\"kind\""));
     }
@@ -511,11 +548,13 @@ mod tests {
             field: "signature_block".to_string(),
             page: 0,
             rect: [180.0, 422.0, 520.0, 462.0],
+            span: Some([0, 25]),
         };
         let json = serde_json::to_string(&region).unwrap();
         let back: FieldRegion = serde_json::from_str(&json).expect("round-trips");
         assert_eq!(back.field, "signature_block");
         assert_eq!(back.rect, [180.0, 422.0, 520.0, 462.0]);
+        assert_eq!(back.span, Some([0, 25]));
     }
 
     #[test]
@@ -527,10 +566,12 @@ mod tests {
             field: "agree".to_string(),
             page: 0,
             rect: [180.0, 538.0, 194.0, 552.0],
+            span: None,
         };
         let wasm_region: FieldRegion = core_region.into();
         assert_eq!(wasm_region.field, "agree");
         assert_eq!(wasm_region.page, 0);
         assert_eq!(wasm_region.rect, [180.0, 538.0, 194.0, 552.0]);
+        assert_eq!(wasm_region.span, None);
     }
 }

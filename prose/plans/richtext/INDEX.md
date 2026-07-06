@@ -104,25 +104,34 @@ not this list.
   identical bytes) and feature configs (whole-tree key sort); a live binding is
   the residual gate ([phase-1.md](phase-1.md), [phase-0.md](phase-0.md#residual-gate)).
 - **Seam encoding, not map production.** `locate` / `position_at` / regions key
-  on `(field, corpus range, revision)` however `typst` builds the map — but the
-  map is a codegen artifact, so content must cross the seam *faithfully* (not as
-  a re-parsed string) from phase 2 on. Map production itself is deferrable.
-  → Encoding confirmed under **Seam — Option A** above (phase 0·C).
+  on `(field, corpus range)` however `typst` builds the map — but the map is a
+  codegen artifact, so content must cross the seam *faithfully* (not as a
+  re-parsed string) from phase 2 on. Map production itself is deferrable.
+  → Encoding confirmed under **Seam — Option A** above (phase 0·C); the map and
+  the `(field, corpus range)` key **landed in phase 2** (#829). A `revision`
+  third key component **defers to Phase 3** with the change log — it earns its
+  keep only when a stale position is *mapped* forward, not merely detected
+  (`RenderedRegion.span` is additive-optional so it appends without a break).
 - **Navigation is cluster-exact, not character-exact.** Point↔corpus resolves at
   the shaping cluster, inverting the source map through `escape_markup` and the
-  glyph's intra-node offset (`glyph.span.1`, unused at `span_scan.rs:197`).
-  Origin-less ink (list markers, numbering, decorations) is nav-ignored;
-  `regions()` still owes the run-machine rework (grounding §3.2) for highlight
-  boxes. → **Resolved (phase 0·B):** cluster-exact, invertible by recomputation;
-  `escape_markup` char-local except the `//`→`\/\/` coupling. See
-  [phase-0.md](phase-0.md).
-- **Determinism has an honest boundary.** Migration is mint-free (legacy bodies
-  hold no islands); island IDs mint at creation, so phase-4 hashing of
-  island-bearing documents inherits mint-nondeterminism. Text stays
-  deterministic. → **Resolved (phase 0·C):** mint is the *sole* source; the
-  `preserve_order` `props`-key-order leak is **closed in phase 1**
-  (`model::sorted_value` recursively sorts before serialization). Mint
-  nondeterminism does not appear until phase 4 (islands).
+  glyph's intra-node offset (`glyph.span.1`). Origin-less ink (list markers,
+  numbering, decorations) is nav-ignored. → **Resolved (phase 0·B):**
+  cluster-exact, invertible by recomputation; `escape_markup` char-local except
+  the `//`→`\/\/` coupling. **Built in phase 2** (#829): the two-tier segment
+  run machine (per-`(field, segment)` regions), `position_at`/`locate`, and
+  `RenderedRegion.span` landed. One correction to phase-0's Spike B: a
+  multi-line `#raw` block's lines share one node wider than any per-line run, so
+  `position_at` degrades to the code segment's start, not a per-line offset —
+  see [phase-2 § PR-F](phase-2.md) and `pr-f-spike-findings.md`.
+- **Determinism has an honest boundary.** Legacy bodies **can** hold tables and
+  images — the prior `mark_to_typst` rendered both — which import as islands
+  with **sequential** ids (`isl-N`); import is a pure function, so the migration
+  stays deterministic (real per-creation minting is Phase 4). Text stays
+  deterministic. → **Resolved (phase 0·C, corrected in phase 2):** sequential
+  import ids are the migration's only island source; the `preserve_order`
+  `props`-key-order leak is **closed in phase 1** (`model::sorted_value`
+  recursively sorts before serialization). Mint nondeterminism does not appear
+  until phase 4 (per-creation island ids).
 - **The move-annotation weak spot lands on the flagship writer.** The stale-text
   writer (MCP `update_document`, a saved document) rebases via cold-parse + corpus
   diff; a reorder is delete+insert, so annotations on moved text drop unless a
