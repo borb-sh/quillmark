@@ -1191,7 +1191,18 @@ fn js_to_card(value: &JsValue) -> Result<quillmark_core::Card, JsValue> {
     // a flat `{ kind, fields }` object fails loudly instead of yielding a
     // silently-empty card.
     if let Some(obj) = value.dyn_ref::<js_sys::Object>() {
-        const ALLOWED: &[&str] = &["kind", "quill", "id", "ext", "seed", "payloadItems", "body"];
+        const ALLOWED: &[&str] = &[
+            "kind",
+            "quill",
+            "id",
+            "ext",
+            "seed",
+            "payloadItems",
+            "body",
+            // The read-only markdown projection; accepted (and ignored) so a card
+            // returned by `cards()` round-trips back through `pushCard`.
+            "bodyMarkdown",
+        ];
         for key in js_sys::Object::keys(obj).iter() {
             if let Some(k) = key.as_string() {
                 if !ALLOWED.contains(&k.as_str()) {
