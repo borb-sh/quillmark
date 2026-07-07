@@ -20,8 +20,9 @@
 //!
 //! Phase 1 delivered diff + rebase + a **move detector**; phase 3 PR-B tightens
 //! [`diff`] to a Myers/LCS minimal edit script. The live delta transport
-//! (revision, bounded change log) is phase 3 PR-C. Position mapping follows
-//! CodeMirror's `ChangeDesc.mapPos` / ProseMirror mapping semantics.
+//! (revision, bounded change log) is phase 3 PR-C — see [`crate::change_log`].
+//! Position mapping follows CodeMirror's `ChangeDesc.mapPos` / ProseMirror
+//! mapping semantics.
 //!
 //! ## The move weak spot (documented limit)
 //!

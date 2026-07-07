@@ -1,6 +1,7 @@
 use crate::{
     CorpusHit, Diagnostic, RenderError, RenderOptions, RenderResult, RenderedRegion, Severity,
 };
+pub use quillmark_richtext::{Assoc, ChangeLog, Delta, FieldChange, StaleRevision};
 
 /// What a committed [`LiveSession::apply`] changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -165,14 +166,55 @@ pub trait SessionHandle: Send + Sync + 'static {
 /// and takes edits via [`apply`](LiveSession::apply). Reads between edits see
 /// a stable document — `apply` is transactional, swapping the compile only on
 /// success — so immutability is an invariant between commits, not a type.
+///
+/// Phase 3 adds a monotonic [`revision`](Self::revision) and a bounded
+/// [`change_log`](Self::change_log) of per-field text deltas so stale corpus
+/// positions map forward via [`map_field_pos`](Self::map_field_pos) instead of
+/// silently reading the current compile.
 pub struct LiveSession {
     inner: Box<dyn SessionHandle>,
+    change_log: ChangeLog,
 }
 
 impl LiveSession {
     #[doc(hidden)]
     pub fn new(inner: Box<dyn SessionHandle>) -> Self {
-        Self { inner }
+        Self {
+            inner,
+            change_log: ChangeLog::with_default_capacity(),
+        }
+    }
+
+    /// Monotonic edit revision — `0` before the first recorded field delta.
+    pub fn revision(&self) -> u64 {
+        self.change_log.revision()
+    }
+
+    /// Bounded ring of per-field text deltas since session open.
+    pub fn change_log(&self) -> &ChangeLog {
+        &self.change_log
+    }
+
+    /// Record a committed field text splice; returns the new revision. Mark and
+    /// line op channels (PR-D) extend the log entry shape later.
+    pub fn record_field_delta(
+        &mut self,
+        path: impl Into<String>,
+        text_delta: Delta,
+    ) -> u64 {
+        self.change_log.record(path, text_delta)
+    }
+
+    /// Map a USV position in `field` forward from `base_revision` through
+    /// subsequent recorded text deltas for that field.
+    pub fn map_field_pos(
+        &self,
+        field: &str,
+        base_revision: u64,
+        pos: usize,
+        assoc: Assoc,
+    ) -> Result<usize, StaleRevision> {
+        self.change_log.map_pos(field, base_revision, pos, assoc)
     }
 
     pub fn page_count(&self) -> usize {
@@ -381,6 +423,26 @@ mod tests {
 
         let result = session.render(&RenderOptions::default()).unwrap();
         assert_eq!(result.warnings[0].message, "warning of compile 1");
+    }
+
+    #[test]
+    fn field_delta_revision_and_map_pos() {
+        use quillmark_richtext::delta::diff;
+
+        let mut session = LiveSession::new(Box::new(PlainHandle));
+        assert_eq!(session.revision(), 0);
+
+        let d = diff("abcdef", "abcXYdef");
+        session.record_field_delta("subject", d);
+        assert_eq!(session.revision(), 1);
+        assert_eq!(
+            session.map_field_pos("subject", 0, 3, Assoc::Before).unwrap(),
+            3
+        );
+        assert_eq!(
+            session.map_field_pos("subject", 0, 3, Assoc::After).unwrap(),
+            5
+        );
     }
 
     #[test]

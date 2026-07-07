@@ -19,6 +19,8 @@
 //!   and for storage.
 //! - [`import`] — markdown → corpus (normalize → pulldown → corpus).
 //! - [`export`] — corpus → markdown, per island loss class.
+//! - [`change_log`] — monotonic revision + bounded per-field delta ring
+//!   (phase 3 PR-C); composed [`change_log::ChangeLog::map_pos`].
 //! - [`delta`] — the per-field edit surface: a text-splice change set
 //!   (`retain`/`insert`/`delete`, CodeMirror `ChangeSet` semantics) plus the
 //!   cold-parse + corpus-diff stale-text writer with a block-move detector. The
@@ -28,6 +30,7 @@
 //!   strip, HTML-comment fence repair), applied at the import boundary.
 //! - [`usv`] — coordinate conversions across the UTF-8 / UTF-16 / USV boundary.
 
+pub mod change_log;
 pub mod delta;
 pub mod export;
 pub mod import;
@@ -36,6 +39,8 @@ pub mod normalize;
 pub mod serial;
 pub mod usv;
 
+pub use change_log::{ChangeLog, FieldChange, StaleRevision, DEFAULT_CAPACITY as CHANGE_LOG_DEFAULT_CAPACITY};
+pub use delta::{Assoc, Delta, Op};
 pub use model::{
     Container, Invariant, Island, Line, LineKind, Loss, Mark, MarkKind, RichText, Usv,
 };
