@@ -50,6 +50,9 @@ indexmap = { version = "2", features = ["serde"] }
 # Unicode normalization
 unicode-normalization = "0.1"
 
+# Char-level diff (Myers/LCS) for richtext edit deltas
+similar = "2.7"
+
 # Typst backend dependencies
 pulldown-cmark = "0.13.0"
 time = { version = "0.3.44", features = ["formatting", "parsing"] }

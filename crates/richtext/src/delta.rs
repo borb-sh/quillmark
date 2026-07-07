@@ -18,8 +18,9 @@
 //! The positional channel stays isomorphic to a text CRDT's op stream (the
 //! phase-4 collab target).
 //!
-//! Phase 1 delivers the diff + rebase + a **move detector**; the live delta
-//! transport (revision, bounded change log) is phase 3. Position mapping follows
+//! Phase 1 delivered diff + rebase + a **move detector**; phase 3 PR-B tightens
+//! [`diff`] to a Myers/LCS minimal edit script. The live delta transport
+//! (revision, bounded change log) is phase 3 PR-C. Position mapping follows
 //! CodeMirror's `ChangeDesc.mapPos` / ProseMirror mapping semantics.
 //!
 //! ## The move weak spot (documented limit)
@@ -33,6 +34,7 @@
 //! follow-up.
 
 use crate::model::{Mark, MarkKind, RichText};
+use similar::{ChangeTag, TextDiff};
 
 /// A per-field edit against a base corpus. Ops apply left-to-right, consuming
 /// base positions; `Retain`/`Delete` advance the base cursor, `Insert` adds new
@@ -175,45 +177,62 @@ impl Delta {
 /// verbatim-move detector's length floor (mirrors the spike's `MIN_MOVE`).
 const MIN_MOVE: usize = 4;
 
-/// Char-level diff via common-prefix / common-suffix trim: the change is one
-/// `Delete` of the differing base middle and one `Insert` of the new middle.
+/// Char-level Myers/LCS diff over USV: a minimal `Retain` / `Delete` / `Insert`
+/// script. Disjoint edits no longer collapse the span between them into one
+/// delete+insert, so anchors sitting in unchanged middle text survive rebase
+/// without relying on the move detector.
 ///
-/// Coarse by design for phase 1. A consequence: two disjoint edits collapse the
-/// whole span between them into one delete+insert, so an anchor sitting between
-/// them collapses and must relocate via the move detector. Anchor *survival*
-/// still holds (relocation recovers moved text; unrelated edits keep the
-/// surrounding retain), but the returned `Delta` is not a minimal edit script.
-/// Phase 3 (the real edit surface + change log) replaces this with a Myers/LCS
-/// diff; phase-1 anchor rebase does not need one.
+/// Single-line text diffs at char granularity; multi-line text diffs at line
+/// granularity so a paragraph reorder surfaces as whole-line insert spans the
+/// move detector can match (char Myers fragments reordered blocks).
 pub fn diff(base: &str, new: &str) -> Delta {
-    let a: Vec<char> = base.chars().collect();
-    let b: Vec<char> = new.chars().collect();
-
-    let mut p = 0usize;
-    while p < a.len() && p < b.len() && a[p] == b[p] {
-        p += 1;
-    }
-    let mut s = 0usize;
-    while s < a.len() - p && s < b.len() - p && a[a.len() - 1 - s] == b[b.len() - 1 - s] {
-        s += 1;
-    }
-
+    let text_diff = if base.contains('\n') || new.contains('\n') {
+        TextDiff::from_lines(base, new)
+    } else {
+        TextDiff::from_chars(base, new)
+    };
     let mut ops = Vec::new();
-    if p > 0 {
-        ops.push(Op::Retain(p));
-    }
-    let del = a.len() - p - s;
-    if del > 0 {
-        ops.push(Op::Delete(del));
-    }
-    let ins: String = b[p..b.len() - s].iter().collect();
-    if !ins.is_empty() {
-        ops.push(Op::Insert(ins));
-    }
-    if s > 0 {
-        ops.push(Op::Retain(s));
+    for change in text_diff.iter_all_changes() {
+        match change.tag() {
+            ChangeTag::Equal => push_retain(&mut ops, change.value().chars().count()),
+            ChangeTag::Delete => push_delete(&mut ops, change.value().chars().count()),
+            ChangeTag::Insert => push_insert(&mut ops, change.value()),
+        }
     }
     Delta { ops }
+}
+
+fn push_retain(ops: &mut Vec<Op>, n: usize) {
+    if n == 0 {
+        return;
+    }
+    if let Some(Op::Retain(last)) = ops.last_mut() {
+        *last += n;
+    } else {
+        ops.push(Op::Retain(n));
+    }
+}
+
+fn push_delete(ops: &mut Vec<Op>, n: usize) {
+    if n == 0 {
+        return;
+    }
+    if let Some(Op::Delete(last)) = ops.last_mut() {
+        *last += n;
+    } else {
+        ops.push(Op::Delete(n));
+    }
+}
+
+fn push_insert(ops: &mut Vec<Op>, s: &str) {
+    if s.is_empty() {
+        return;
+    }
+    if let Some(Op::Insert(last)) = ops.last_mut() {
+        last.push_str(s);
+    } else {
+        ops.push(Op::Insert(s.to_owned()));
+    }
 }
 
 /// The stale-text writer path: cold-parse `new_markdown`, char-diff it against
@@ -324,8 +343,8 @@ fn relocate_point(
 
 /// First index where `needle` occurs in `hay` while *overlapping* an inserted
 /// span — i.e. the match touches text the rewrite actually inserted, not purely
-/// surviving text. Overlap (not full containment) is required because a coarse
-/// diff can split a moved block across an inserted region and the retained
+/// surviving text. Overlap (not full containment) is required because a diff
+/// can split a moved block across an inserted region and the retained
 /// suffix; demanding containment would miss real moves, while demanding overlap
 /// still rejects an unrelated occurrence sitting entirely in retained text.
 /// Enforces [`MIN_MOVE`].
@@ -466,6 +485,53 @@ mod tests {
         let d = diff("abcdef", "abef"); // delete "cd" (span [2,4))
         assert!(!d.is_deleted(2), "left edge of deletion survives");
         assert!(d.is_deleted(3), "interior of deletion is deleted");
+    }
+
+    #[test]
+    fn disjoint_edits_are_separate_ops() {
+        // Myers/LCS (char): prefix and suffix edits must not collapse the middle.
+        let d = diff("aaaMIDDLEbbb", "AAAMIDDLEZZZ");
+        assert_eq!(d.apply("aaaMIDDLEbbb"), "AAAMIDDLEZZZ");
+        let retained: usize = d
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                Op::Retain(n) => Some(*n),
+                _ => None,
+            })
+            .sum();
+        assert!(
+            retained >= 6,
+            "unchanged middle span retained ({retained} USV): {ops:?}",
+            ops = d.ops
+        );
+        assert!(
+            !matches!(d.ops.as_slice(), [Op::Delete(_), Op::Insert(_)]),
+            "coarse single replace: {ops:?}",
+            ops = d.ops
+        );
+    }
+
+    #[test]
+    fn anchor_survives_between_disjoint_edits() {
+        let mut base = from_markdown("aaaMIDDLEbbb").unwrap();
+        base.marks.push(Mark {
+            start: 3,
+            end: 9,
+            kind: MarkKind::Anchor { id: "c1".into() },
+        });
+        base.normalize();
+        let (new_rt, _) = diff_import(&base, "AAAMIDDLEZZZ").unwrap();
+        let anchor = new_rt
+            .marks
+            .iter()
+            .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
+            .expect("anchor between disjoint edits survives without move detector");
+        assert_eq!(
+            new_rt.text[byte(&new_rt.text, anchor.start)..byte(&new_rt.text, anchor.end)]
+                .to_string(),
+            "MIDDLE"
+        );
     }
 
     fn byte(s: &str, char_idx: usize) -> usize {

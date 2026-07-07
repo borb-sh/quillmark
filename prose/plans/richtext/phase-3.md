@@ -12,8 +12,8 @@ freezes transport shape.
 
 **Status: open.** PR-A (Spike-A editor binding) and PR-H (form POC) **reported**
 on branch `spike/richtext-phase-3` (pushed to origin); runnable probes live
-there, not on `integration/richtext`. PR-B (Myers/LCS diff) is next for the
-engine path.
+there, not on `integration/richtext`. **PR-B (Myers/LCS diff) landed** on
+`integration/richtext`. PR-C (revision + bounded change log) is next.
 
 ## Spike branch
 
@@ -36,10 +36,13 @@ cd crates/richtext-spikes/form-poc && npm install && npm run dev  # PR-H manual
    cross-kind overlap. Pass criterion: every scenario round-trips to the same
    normalized corpus marks the Rust serializer commits to — disagreements stay
    in editor config, not in the model. Findings in § Spike-A.
-2. **PR-B — Myers/LCS diff.** Replace the phase-1 prefix/suffix trim in
-   `delta::diff` with a minimal edit script (Myers or `similar`). Disjoint
-   edits no longer collapse anchors sitting between them; stale-text rebase
-   keeps the move detector, gains tighter deltas for the change log.
+2. **PR-B — Myers/LCS diff.** **Landed.** Replaced the phase-1 prefix/suffix
+   trim in [`delta::diff`](../../crates/richtext/src/delta.rs) with a Myers/LCS
+   minimal edit script via the `similar` crate. Single-line text diffs at char
+   granularity; multi-line text diffs at line granularity so paragraph reorders
+   surface as whole-line insert spans the move detector can match. Disjoint
+   edits no longer collapse anchors sitting strictly between them; stale-text
+   rebase keeps the move detector. Findings in § PR-B.
 3. **PR-C — revision + bounded change log.** Monotonic `revision: u64` on the
    live session; ring buffer of per-field entries `{ revision, path, text_delta,
    mark_ops?, line_ops? }`. `map_pos` composes across the log (CodeMirror
@@ -183,11 +186,32 @@ Headless `EditorSession` drives scenarios without a DOM.
    need `LineOp` (PR-D) before a block-capable editor; block canvas stays out
    of scope.
 
+## PR-B — Myers/LCS diff findings
+
+**Implementation:** `similar::TextDiff` — `from_chars` for inline text,
+`from_lines` when either side contains `\n`. Ops coalesce adjacent
+`Retain`/`Delete`/`Insert` into one [`Delta`](../../crates/richtext/src/delta.rs).
+
+**Insights:**
+
+1. **Char Myers alone fragments block moves** — a paragraph reorder char-diff
+   into tiny insert shards (`"econd"`, `"fir"`, …) that fail the move detector's
+   contiguous-needle + inserted-span overlap rule. Line-level Myers fixes this;
+   char-level remains correct for `richtext(inline)` fields.
+2. **Anchors strictly between disjoint edits survive via `map_pos`** — no move
+   detector needed when the unchanged middle is a contiguous `Retain` run. Anchors
+   touching a char-alignment boundary between an edit and unchanged text (e.g.
+   shared prefix char) can expand with the edit; that is Myers alignment, not
+   coarse-collapse.
+3. **All phase-1 rebase tests pass** — including block-move re-home, unrelated-
+   survivor rejection, and property-test anchor survival.
+
 ## Sequencing invariant
 
 - Spike-A reports before PR-B freezes change-log entry shape (text delta only
   until PR-D, but the log slot must accommodate mark/line ops). **Closed.**
-- PR-B (minimal diff) before PR-C (log stores deltas worth replaying).
+- PR-B (minimal diff) before PR-C (log stores deltas worth replaying). **PR-B
+  landed.**
 - PR-D (mark/line ops) before PR-E (mutators emit them).
 - PR-F (revision stamp) before PR-G (WASM exposes revision-aware apply).
 - PR-A's bridge pattern is reused in PR-H; no second editor serialization.

@@ -44,8 +44,9 @@ special chars, hard breaks, nested containers, astral chars).
 - **Degenerate, non-authorable corpora don't round-trip**: a mark spanning a
   hard break, an empty first line in a hard-break block (markdown has no
   blank-then-forced-break).
-- **Coarse diff** (prefix/suffix trim): anchor survival holds, but the `Delta`
-  is not a minimal edit script — Phase 3 brings a Myers/LCS diff.
+- **Coarse diff** (prefix/suffix trim, phase 1): superseded by PR-B Myers/LCS
+  `delta::diff` on `integration/richtext`. Anchor survival held under coarse
+  diff; the `Delta` was not a minimal edit script.
 - **Canonicalizations** (distinct markdown → one corpus): hard break →
   `continues` line; adjacent same-shape sibling lists merge; adjacent
   blockquotes merge; empty blocks/containers keep one empty line; sequential

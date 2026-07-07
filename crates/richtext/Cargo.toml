@@ -21,6 +21,7 @@ unicode-normalization = { workspace = true }
 # The markdown projection's parser. This crate is the workspace's single home
 # for a CommonMark parser; render paths consume the corpus, never markdown.
 pulldown-cmark = { workspace = true }
+similar = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
