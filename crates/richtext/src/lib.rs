@@ -36,7 +36,9 @@ pub mod normalize;
 pub mod serial;
 pub mod usv;
 
-pub use model::{Container, Invariant, Island, Line, LineKind, Loss, Mark, MarkKind, RichText, Usv};
+pub use model::{
+    Container, Invariant, Island, Line, LineKind, Loss, Mark, MarkKind, RichText, Usv,
+};
 pub use normalize::normalize_markdown;
 pub use serial::ParseError;
 

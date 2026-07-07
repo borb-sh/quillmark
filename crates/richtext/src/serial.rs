@@ -530,7 +530,8 @@ mod tests {
     #[test]
     fn from_canonical_json_rejects_invalid() {
         // lines.len() != segment count — must not silently round-trip.
-        let bad = r#"{"text":"a\nb","lines":[{"kind":"para","containers":[]}],"marks":[],"islands":[]}"#;
+        let bad =
+            r#"{"text":"a\nb","lines":[{"kind":"para","containers":[]}],"marks":[],"islands":[]}"#;
         assert!(matches!(
             RichText::from_canonical_json(bad),
             Err(ParseError::Invalid(_))

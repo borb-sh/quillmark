@@ -859,9 +859,14 @@ mod tests {
         let src = "~~~card-yaml\n$quill: q\n$kind: main\na: \"_0\"\n~~~\n\nBody.\n";
         let doc = crate::document::Document::from_markdown(src).expect("parse src");
         let emitted = doc.to_markdown();
-        let reparsed = crate::document::Document::from_markdown(&emitted)
-            .expect("re-parse emitted markdown");
-        let value = reparsed.main().payload().get("a").expect("field 'a'").as_json();
+        let reparsed =
+            crate::document::Document::from_markdown(&emitted).expect("re-parse emitted markdown");
+        let value = reparsed
+            .main()
+            .payload()
+            .get("a")
+            .expect("field 'a'")
+            .as_json();
         assert_eq!(
             value,
             &serde_json::Value::String("_0".to_string()),

@@ -560,10 +560,9 @@ impl<'a> Builder<'a> {
                 let mark = self.container_marks.pop().unwrap_or(0);
                 self.close_container(mark);
             }
-            TagEnd::Emphasis
-            | TagEnd::Strong
-            | TagEnd::Strikethrough
-            | TagEnd::Link => self.close_mark(),
+            TagEnd::Emphasis | TagEnd::Strong | TagEnd::Strikethrough | TagEnd::Link => {
+                self.close_mark()
+            }
             // A block that produced no inline content still gets its line.
             TagEnd::Heading(_) | TagEnd::Paragraph => self.flush_empty_block(),
             _ => {}
@@ -951,14 +950,14 @@ where
                 if !has_open_tags {
                     return Some((event, range));
                 }
-                let next_is_star_text =
-                    if let Some((Event::Text(cow_str), _)) = self.buffer.last() {
-                        cow_str.starts_with('*')
-                    } else if let Some((Event::Text(cow_str), _)) = self.inner.peek() {
-                        cow_str.starts_with('*')
-                    } else {
-                        false
-                    };
+                let next_is_star_text = if let Some((Event::Text(cow_str), _)) = self.buffer.last()
+                {
+                    cow_str.starts_with('*')
+                } else if let Some((Event::Text(cow_str), _)) = self.inner.peek() {
+                    cow_str.starts_with('*')
+                } else {
+                    false
+                };
                 if next_is_star_text {
                     let (text_event, text_range) = if !self.buffer.is_empty() {
                         self.buffer.pop().unwrap()
@@ -1074,9 +1073,10 @@ mod tests {
     fn underline_from_u_tag() {
         let rt = imp("x <u>y</u> z");
         assert_eq!(rt.text, "x y z");
-        assert!(rt.marks.iter().any(|m| m.kind == MarkKind::Underline
-            && m.start == 2
-            && m.end == 3));
+        assert!(rt
+            .marks
+            .iter()
+            .any(|m| m.kind == MarkKind::Underline && m.start == 2 && m.end == 3));
     }
 
     #[test]
@@ -1115,10 +1115,10 @@ mod tests {
         let rt = imp("```rust\nfn a() {}\nfn b() {}\n```");
         assert_eq!(rt.text, "fn a() {}\nfn b() {}");
         assert_eq!(rt.lines.len(), 2);
-        assert!(rt
-            .lines
-            .iter()
-            .all(|l| l.kind == LineKind::Code { lang: Some("rust".into()) }));
+        assert!(rt.lines.iter().all(|l| l.kind
+            == LineKind::Code {
+                lang: Some("rust".into())
+            }));
     }
 
     #[test]
@@ -1309,6 +1309,9 @@ mod tests {
         let rt = imp("a😀**b**");
         // 'a'(0) '😀'(1) 'b'(2) — strong over "b" is 2..3 in USV.
         assert_eq!(rt.text, "a😀b");
-        assert!(rt.marks.iter().any(|m| m.start == 2 && m.end == 3 && m.kind == MarkKind::Strong));
+        assert!(rt
+            .marks
+            .iter()
+            .any(|m| m.start == 2 && m.end == 3 && m.kind == MarkKind::Strong));
     }
 }

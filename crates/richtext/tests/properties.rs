@@ -92,12 +92,12 @@ fn block() -> impl Strategy<Value = String> {
             .collect::<Vec<_>>()
             .join("\n")),
         // Nested bullet list (two container levels).
-        (prose(), prose(), prose())
-            .prop_map(|(a, b, c)| format!("- {a}\n  - {b}\n  - {c}")),
+        (prose(), prose(), prose()).prop_map(|(a, b, c)| format!("- {a}\n  - {b}\n  - {c}")),
         prose().prop_map(|p| format!("> {p}")),
         prop::collection::vec(clean_word(), 1..4)
             .prop_map(|ls| format!("```\n{}\n```", ls.join("\n"))),
-        (clean_word(), clean_word()).prop_map(|(a, b)| format!("| {a} | {b} |\n| --- | --- |\n| 1 | 2 |")),
+        (clean_word(), clean_word())
+            .prop_map(|(a, b)| format!("| {a} | {b} |\n| --- | --- |\n| 1 | 2 |")),
     ]
 }
 
@@ -210,7 +210,11 @@ fn fixture_sample_round_trips() {
 #[test]
 fn fixture_bodies_import_and_are_valid() {
     // Every prose resource imports to a valid corpus and is a fixed point.
-    for name in ["sample.md", "card_yaml_demo.md", "extended_metadata_demo.md"] {
+    for name in [
+        "sample.md",
+        "card_yaml_demo.md",
+        "extended_metadata_demo.md",
+    ] {
         let md = fixture_body(name);
         let rt = from_markdown(&md).unwrap_or_else(|e| panic!("import {name}: {e}"));
         assert_eq!(rt.validate(), Ok(()), "{name} invariants");

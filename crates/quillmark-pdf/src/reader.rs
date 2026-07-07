@@ -328,7 +328,8 @@ pub fn splice_dict_value(dict: &[u8], key: &[u8], value: &[u8], new_value: &[u8]
     let value_start = value.as_ptr() as usize - dict.as_ptr() as usize;
     let value_end = value_start + value.len();
     let key_at = value_start - key.len();
-    let mut out = Vec::with_capacity(key_at + key.len() + 1 + new_value.len() + dict.len() - value_end);
+    let mut out =
+        Vec::with_capacity(key_at + key.len() + 1 + new_value.len() + dict.len() - value_end);
     out.extend_from_slice(&dict[..key_at]);
     out.extend_from_slice(key);
     out.push(b' ');

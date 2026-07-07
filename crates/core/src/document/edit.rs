@@ -236,7 +236,10 @@ impl Card {
         })?;
         let mut payload = Payload::new();
         payload.set_kind(kind);
-        Ok(Card::from_parts(payload, quillmark_richtext::RichText::empty()))
+        Ok(Card::from_parts(
+            payload,
+            quillmark_richtext::RichText::empty(),
+        ))
     }
 
     /// Set a payload field, clearing any `!must_fill` marker on that key.
@@ -431,8 +434,8 @@ impl Card {
     /// degrades to the empty corpus rather than erroring; the fallible edit
     /// surface is Phase 3.
     pub fn replace_body(&mut self, body: impl Into<String>) {
-        let corpus =
-            super::import_body(&body.into()).unwrap_or_else(|_| quillmark_richtext::RichText::empty());
+        let corpus = super::import_body(&body.into())
+            .unwrap_or_else(|_| quillmark_richtext::RichText::empty());
         self.overwrite_body(corpus);
     }
 }

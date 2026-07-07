@@ -335,9 +335,7 @@ fn find_in_spans(hay: &[char], needle: &[char], spans: &[(usize, usize)]) -> Opt
     }
     (0..=hay.len() - needle.len()).find(|&i| {
         &hay[i..i + needle.len()] == needle
-            && spans
-                .iter()
-                .any(|&(s, e)| i < e && i + needle.len() > s)
+            && spans.iter().any(|&(s, e)| i < e && i + needle.len() > s)
     })
 }
 
@@ -380,7 +378,8 @@ mod tests {
             .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
             .expect("anchor preserved");
         assert_eq!(
-            new_rt.text[byte(&new_rt.text, anchor.start)..byte(&new_rt.text, anchor.end)].to_string(),
+            new_rt.text[byte(&new_rt.text, anchor.start)..byte(&new_rt.text, anchor.end)]
+                .to_string(),
             "target"
         );
     }
@@ -403,7 +402,8 @@ mod tests {
             .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
             .expect("anchor re-homed onto moved block");
         assert_eq!(
-            new_rt.text[byte(&new_rt.text, anchor.start)..byte(&new_rt.text, anchor.end)].to_string(),
+            new_rt.text[byte(&new_rt.text, anchor.start)..byte(&new_rt.text, anchor.end)]
+                .to_string(),
             "first para here"
         );
     }

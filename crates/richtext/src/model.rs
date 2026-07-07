@@ -70,10 +70,14 @@ pub struct Line {
 pub enum LineKind {
     Para,
     /// ATX/Setext heading, level 1..=6.
-    Heading { level: u8 },
+    Heading {
+        level: u8,
+    },
     /// A line of a code block. `lang` is the (sanitized) info string, shared by
     /// every line of the same block.
-    Code { lang: Option<String> },
+    Code {
+        lang: Option<String>,
+    },
     /// A block-level island: the line's sole content is one [`ISLAND_SLOT`].
     Island,
 }
@@ -374,8 +378,15 @@ impl RichText {
     /// Mark `type` names the projection reserves; an [`MarkKind::Unknown`] may
     /// not reuse one (its serialization would parse back as the built-in,
     /// silently dropping its attrs — non-injective). Checked by [`RichText::validate`].
-    pub const RESERVED_MARK_TYPES: [&'static str; 7] =
-        ["strong", "emph", "underline", "strike", "code", "link", "anchor"];
+    pub const RESERVED_MARK_TYPES: [&'static str; 7] = [
+        "strong",
+        "emph",
+        "underline",
+        "strike",
+        "code",
+        "link",
+        "anchor",
+    ];
 
     /// Check every invariant. `Ok(())` on a well-formed corpus. Import
     /// guarantees this; a hand-built corpus should be run through it in tests.
@@ -581,10 +592,7 @@ mod tests {
     #[test]
     fn same_kind_adjacent_unions() {
         // [0,3) strong + [3,6) strong -> [0,6) strong (rule 1, adjacency).
-        let got = normalize_marks(vec![
-            f(3, 6, MarkKind::Strong),
-            f(0, 3, MarkKind::Strong),
-        ]);
+        let got = normalize_marks(vec![f(3, 6, MarkKind::Strong), f(0, 3, MarkKind::Strong)]);
         assert_eq!(got, vec![f(0, 6, MarkKind::Strong)]);
     }
 
@@ -645,7 +653,9 @@ mod tests {
     #[test]
     fn is_inline_accepts_empty_and_single_para() {
         assert!(RichText::empty().is_inline());
-        assert!(crate::import::from_markdown("just one line").unwrap().is_inline());
+        assert!(crate::import::from_markdown("just one line")
+            .unwrap()
+            .is_inline());
         assert!(crate::import::from_markdown("a *bold* run")
             .unwrap()
             .is_inline());
@@ -654,9 +664,13 @@ mod tests {
     #[test]
     fn is_inline_rejects_blocks_containers_and_islands() {
         // Two paragraphs → two Para lines.
-        assert!(!crate::import::from_markdown("one\n\ntwo").unwrap().is_inline());
+        assert!(!crate::import::from_markdown("one\n\ntwo")
+            .unwrap()
+            .is_inline());
         // A heading is a non-Para line kind.
-        assert!(!crate::import::from_markdown("# heading").unwrap().is_inline());
+        assert!(!crate::import::from_markdown("# heading")
+            .unwrap()
+            .is_inline());
         // A list item sits in a container.
         assert!(!crate::import::from_markdown("- item").unwrap().is_inline());
     }

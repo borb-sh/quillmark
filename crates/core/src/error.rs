@@ -407,7 +407,6 @@ impl RenderResult {
             regions: Vec::new(),
         }
     }
-
 }
 
 pub fn print_errors(err: &RenderError) {
@@ -527,5 +526,4 @@ mod tests {
         assert!(output.contains("cause 1:"));
         assert!(output.contains("Underlying error"));
     }
-
 }

@@ -209,7 +209,10 @@ This is the body.";
 
     let doc = decompose(markdown).unwrap();
 
-    assert_eq!(doc.main().body_markdown(), "# Hello World\n\nThis is the body.\n");
+    assert_eq!(
+        doc.main().body_markdown(),
+        "# Hello World\n\nThis is the body.\n"
+    );
     assert_eq!(
         doc.main().payload().get("title").unwrap().as_str().unwrap(),
         "Test Document"
@@ -764,7 +767,10 @@ rating: 4
     );
 
     // Verify global body
-    assert!(doc.main().body_markdown().contains("main catalog description"));
+    assert!(doc
+        .main()
+        .body_markdown()
+        .contains("main catalog description"));
 
     // 4 cards total
     assert_eq!(doc.cards().len(), 4);
@@ -943,7 +949,10 @@ fn test_over_nested_body_surfaces_body_import_error() {
     let markdown =
         format!("~~~card-yaml\n$quill: test_quill\n$kind: main\n~~~\n\n{deep} too deep\n");
     let err = decompose(&markdown).unwrap_err();
-    assert_eq!(err.to_diagnostic().code.as_deref(), Some("parse::body_import"));
+    assert_eq!(
+        err.to_diagnostic().code.as_deref(),
+        Some("parse::body_import")
+    );
 }
 
 #[test]
@@ -1095,7 +1104,10 @@ tags:
 This is the body.";
 
     let doc = decompose(markdown).unwrap();
-    assert_eq!(doc.main().body_markdown(), "# Hello World\n\nThis is the body.\n");
+    assert_eq!(
+        doc.main().body_markdown(),
+        "# Hello World\n\nThis is the body.\n"
+    );
     assert_eq!(
         doc.main().payload().get("title").unwrap().as_str().unwrap(),
         "Test Document"
@@ -1282,7 +1294,10 @@ fn test_extended_metadata_demo_file() {
     );
 
     // Verify body
-    assert!(doc.main().body_markdown().contains("card-yaml metadata format"));
+    assert!(doc
+        .main()
+        .body_markdown()
+        .contains("card-yaml metadata format"));
 
     // 5 cards total: 3 features + 2 use_cases
     assert_eq!(doc.cards().len(), 5);
@@ -1427,7 +1442,10 @@ Use <<card body>> here.";
     // protect them verbatim; plain-text `<<word>>` follows CommonMark HTML rules
     // (`<word>` reads as an inline tag). This pins the exact projected body.
     let body = doc.main().body_markdown();
-    assert_eq!(body, "\\<> text.\n\n```\n<<in code block>>\n```\n\n`<<inline code>>` and \\<>\n");
+    assert_eq!(
+        body,
+        "\\<> text.\n\n```\n<<in code block>>\n```\n\n`<<inline code>>` and \\<>\n"
+    );
 
     // Card yaml (a YAML scalar, never markdown) preserves chevrons verbatim.
     let card = &doc.cards()[0];

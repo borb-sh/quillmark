@@ -76,7 +76,10 @@ fn line_segments(rt: &RichText) -> Vec<Segment> {
     // Defensive: a malformed corpus (lines.len() != segments) still gets one
     // segment per line so indexing never panics.
     while segs.len() < rt.lines.len() {
-        segs.push(Segment { start: pos, end: pos });
+        segs.push(Segment {
+            start: pos,
+            end: pos,
+        });
     }
     segs
 }
@@ -248,9 +251,7 @@ fn emit_leaf_block(ctx: &Ctx, range: std::ops::Range<usize>, out: &mut String) {
         }
         LineKind::Para => {
             // Join continuation lines with a backslash hard break.
-            let parts: Vec<String> = range
-                .map(|i| render_inline(ctx, i, true))
-                .collect();
+            let parts: Vec<String> = range.map(|i| render_inline(ctx, i, true)).collect();
             out.push_str(&parts.join("\\\n"));
         }
     }
@@ -305,12 +306,7 @@ fn emit_table(isl: &Island, out: &mut String) {
     // header row
     out.push_str("| ");
     if let Some(h) = header {
-        out.push_str(
-            &h.iter()
-                .map(render_cell_md)
-                .collect::<Vec<_>>()
-                .join(" | "),
-        );
+        out.push_str(&h.iter().map(render_cell_md).collect::<Vec<_>>().join(" | "));
     }
     out.push_str(" |\n|");
     for k in 0..cols {
@@ -377,10 +373,7 @@ fn render_inline(ctx: &Ctx, i: usize, escape_leading_block: bool) -> String {
     // `<digits>)` would re-import as an ordered list, so escape that punctuation.
     let escape_punct_at = if escape_leading_block {
         let lead_digits = chars.iter().take_while(|c| c.is_ascii_digit()).count();
-        if lead_digits > 0
-            && lead_digits < n
-            && matches!(chars[lead_digits], '.' | ')')
-        {
+        if lead_digits > 0 && lead_digits < n && matches!(chars[lead_digits], '.' | ')') {
             Some(lead_digits)
         } else {
             None
@@ -492,7 +485,11 @@ fn render_marked_core(
                 out.push('\\');
                 out.push(c);
             } else {
-                out.push_str(&escape_char(c, pos == 0 && escape_leading_block, escape_pipe));
+                out.push_str(&escape_char(
+                    c,
+                    pos == 0 && escape_leading_block,
+                    escape_pipe,
+                ));
             }
         }
         pos += 1;
@@ -528,9 +525,16 @@ fn render_cell_md(v: &serde_json::Value) -> String {
             _ => fmt.push((s, e, &m.kind)),
         }
     }
-    render_marked_core(&chars, &code_ranges, &fmt, &links, None, false, true, |_| {
-        None
-    })
+    render_marked_core(
+        &chars,
+        &code_ranges,
+        &fmt,
+        &links,
+        None,
+        false,
+        true,
+        |_| None,
+    )
 }
 
 fn delim_open(kind: &MarkKind) -> String {

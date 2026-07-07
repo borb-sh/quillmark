@@ -78,11 +78,7 @@ fn usaf_memo_regions_cover_body_signature_and_cards() {
     .expect("import");
     edited["$cards"][0]["$body"] = quillmark_richtext::serial::to_canonical_value(&rt);
     session.apply(&edited).expect("apply edited card body");
-    let fields: HashSet<String> = session
-        .regions()
-        .into_iter()
-        .map(|r| r.field)
-        .collect();
+    let fields: HashSet<String> = session.regions().into_iter().map(|r| r.field).collect();
     assert!(
         fields.contains("$cards.indorsement.0.$body"),
         "a non-empty card body regions through the rebuild: {fields:?}"

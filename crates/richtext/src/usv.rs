@@ -24,10 +24,7 @@ pub fn char_to_byte(text: &str, char_idx: usize) -> usize {
 /// USV index → UTF-16 code-unit index. Saturates to the UTF-16 length past the
 /// end.
 pub fn char_to_utf16(text: &str, char_idx: usize) -> usize {
-    text.chars()
-        .take(char_idx)
-        .map(|c| c.len_utf16())
-        .sum()
+    text.chars().take(char_idx).map(|c| c.len_utf16()).sum()
 }
 
 /// UTF-16 code-unit index → USV index. An index that lands mid-pair (on a low

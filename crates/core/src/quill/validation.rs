@@ -947,7 +947,10 @@ main:
         let mut p = Payload::from_index_map(IndexMap::new());
         p.set_quill("test_quill".parse().unwrap());
         p.set_kind("main");
-        let main = Card::from_parts(p, crate::document::import_body("Body content that should not be here.").unwrap());
+        let main = Card::from_parts(
+            p,
+            crate::document::import_body("Body content that should not be here.").unwrap(),
+        );
         let doc = Document::from_main_and_cards(main, vec![], vec![]);
         let errors = validate_typed_document(&config, &doc).unwrap_err();
         assert!(has_error(&errors, |e| matches!(

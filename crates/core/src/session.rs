@@ -276,7 +276,9 @@ impl LiveSession {
 
     pub fn render(&self, opts: &RenderOptions) -> Result<RenderResult, RenderError> {
         let mut result = self.inner.render(opts)?;
-        result.warnings.extend(self.inner.warnings().iter().cloned());
+        result
+            .warnings
+            .extend(self.inner.warnings().iter().cloned());
         // The regions sidecar is attached here, at the wrapper, so every
         // backend's one-shot render carries it without implementing anything
         // beyond the `regions` accessor it already has.

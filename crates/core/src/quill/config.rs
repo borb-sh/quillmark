@@ -365,27 +365,29 @@ impl QuillConfig {
                 // be single-`Para` (`richtext(inline)`): editors mount a one-line
                 // surface, so multi-block content is a coercion error here, in
                 // lockstep with the validation-layer `richtext::not_inline` check.
-                let inline_check = |rt: &quillmark_richtext::RichText| -> Result<(), CoercionError> {
-                    if inline && !rt.is_inline() {
-                        return Err(CoercionError::Uncoercible {
-                            path: path.to_string(),
-                            value: "<richtext>".to_string(),
-                            target: "richtext(inline)".to_string(),
-                            reason: "richtext(inline) requires a single paragraph line \
+                let inline_check =
+                    |rt: &quillmark_richtext::RichText| -> Result<(), CoercionError> {
+                        if inline && !rt.is_inline() {
+                            return Err(CoercionError::Uncoercible {
+                                path: path.to_string(),
+                                value: "<richtext>".to_string(),
+                                target: "richtext(inline)".to_string(),
+                                reason: "richtext(inline) requires a single paragraph line \
                                      with no list/quote container and no islands"
-                                .to_string(),
-                        });
-                    }
-                    Ok(())
-                };
+                                    .to_string(),
+                            });
+                        }
+                        Ok(())
+                    };
                 if json_value.is_object() {
-                    let rt = quillmark_richtext::serial::from_canonical_value(json_value)
-                        .map_err(|e| CoercionError::Uncoercible {
+                    let rt = quillmark_richtext::serial::from_canonical_value(json_value).map_err(
+                        |e| CoercionError::Uncoercible {
                             path: path.to_string(),
                             value: "<object>".to_string(),
                             target: "richtext".to_string(),
                             reason: format!("not a valid richtext corpus: {e}"),
-                        })?;
+                        },
+                    )?;
                     inline_check(&rt)?;
                     return Ok(QuillValue::from_json(
                         quillmark_richtext::serial::to_canonical_value(&rt),
@@ -1547,10 +1549,7 @@ fn example_contains_fence_line(text: &str) -> bool {
 fn field_contains_richtext(field: &FieldSchema) -> bool {
     match &field.r#type {
         FieldType::RichText { .. } => true,
-        FieldType::Array => field
-            .items
-            .as_deref()
-            .is_some_and(field_contains_richtext),
+        FieldType::Array => field.items.as_deref().is_some_and(field_contains_richtext),
         FieldType::Object => field
             .properties
             .as_ref()
@@ -1661,8 +1660,8 @@ fn literal_corpus(
             let mut out = Vec::with_capacity(arr.len());
             for (idx, elem) in arr.iter().enumerate() {
                 let elem_v = QuillValue::from_json(elem.clone());
-                let corpus = literal_corpus(&elem_v, items, &format!("{label}[{idx}]"))?
-                    .unwrap_or(elem_v);
+                let corpus =
+                    literal_corpus(&elem_v, items, &format!("{label}[{idx}]"))?.unwrap_or(elem_v);
                 out.push(corpus.into_json());
             }
             Ok(Some(QuillValue::from_json(serde_json::Value::Array(out))))

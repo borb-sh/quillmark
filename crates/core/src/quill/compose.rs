@@ -58,10 +58,7 @@ impl QuillConfig {
                     Some(schema) => resolve_fields(&card.payload().to_index_map(), schema),
                     None => card.payload().to_index_map(),
                 };
-                Card::from_parts(
-                    rebuild_payload_with_meta(card, fields),
-                    card.body().clone(),
-                )
+                Card::from_parts(rebuild_payload_with_meta(card, fields), card.body().clone())
             })
             .collect();
 

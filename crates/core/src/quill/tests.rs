@@ -3087,8 +3087,9 @@ fn quill_with_field(field_yaml: &str) -> Result<QuillConfig, Vec<Diagnostic>> {
 fn markdown_type_is_unknown_at_load() {
     let err = quill_with_field("    body:\n      type: markdown\n").unwrap_err();
     assert!(
-        err.iter().any(|d| d.code.as_deref() == Some("quill::field_parse_error")
-            && d.message.contains("markdown")),
+        err.iter()
+            .any(|d| d.code.as_deref() == Some("quill::field_parse_error")
+                && d.message.contains("markdown")),
         "type: markdown should be a load error naming the type, got: {err:?}"
     );
 }
@@ -3100,23 +3101,34 @@ fn inline_richtext_example_over_one_para_is_a_load_error() {
     )
     .unwrap_err();
     assert!(
-        err.iter().any(|d| d.code.as_deref() == Some("richtext::not_inline")),
+        err.iter()
+            .any(|d| d.code.as_deref() == Some("richtext::not_inline")),
         "a two-paragraph inline example should fail load with richtext::not_inline, got: {err:?}"
     );
 }
 
 #[test]
 fn inline_richtext_single_line_example_loads_and_caches_corpus() {
-    let config =
-        quill_with_field("    tag:\n      type: richtext(inline)\n      example: \"a *bold* motto\"\n")
-            .expect("single-line inline example loads");
+    let config = quill_with_field(
+        "    tag:\n      type: richtext(inline)\n      example: \"a *bold* motto\"\n",
+    )
+    .expect("single-line inline example loads");
     let field = config.main.fields.get("tag").unwrap();
     assert_eq!(field.r#type, FieldType::RichText { inline: true });
     // The load pass imports the markdown example into its corpus companion; the
     // authored `example` string is retained untouched (Alternative A).
-    let corpus = field.example_corpus.as_ref().expect("example_corpus cached");
-    assert!(corpus.as_json().is_object(), "cached example is a corpus object");
-    assert_eq!(field.example.as_ref().unwrap().as_str(), Some("a *bold* motto"));
+    let corpus = field
+        .example_corpus
+        .as_ref()
+        .expect("example_corpus cached");
+    assert!(
+        corpus.as_json().is_object(),
+        "cached example is a corpus object"
+    );
+    assert_eq!(
+        field.example.as_ref().unwrap().as_str(),
+        Some("a *bold* motto")
+    );
 }
 
 #[test]
@@ -3126,8 +3138,14 @@ fn block_richtext_default_caches_corpus() {
     )
     .expect("block richtext default loads");
     let field = config.main.fields.get("body").unwrap();
-    let corpus = field.default_corpus.as_ref().expect("default_corpus cached");
-    assert!(corpus.as_json().is_object(), "cached default is a corpus object");
+    let corpus = field
+        .default_corpus
+        .as_ref()
+        .expect("default_corpus cached");
+    assert!(
+        corpus.as_json().is_object(),
+        "cached default is a corpus object"
+    );
 }
 
 #[test]
@@ -3137,16 +3155,21 @@ fn array_of_inline_richtext_caches_each_element() {
     )
     .expect("array<richtext(inline)> loads");
     let field = config.main.fields.get("refs").unwrap();
-    let corpus = field.example_corpus.as_ref().expect("example_corpus cached");
+    let corpus = field
+        .example_corpus
+        .as_ref()
+        .expect("example_corpus cached");
     let arr = corpus.as_json().as_array().expect("array of corpus");
     assert_eq!(arr.len(), 2);
-    assert!(arr.iter().all(|e| e.is_object()), "each element is a corpus object");
+    assert!(
+        arr.iter().all(|e| e.is_object()),
+        "each element is a corpus object"
+    );
 }
 
 #[test]
 fn inline_coercion_rejects_multi_block_document_value() {
-    let config =
-        quill_with_field("    tag:\n      type: richtext(inline)\n").expect("loads");
+    let config = quill_with_field("    tag:\n      type: richtext(inline)\n").expect("loads");
     let mut fields: indexmap::IndexMap<String, QuillValue> = indexmap::IndexMap::new();
     fields.insert(
         "tag".to_string(),
@@ -3161,8 +3184,7 @@ fn inline_coercion_rejects_multi_block_document_value() {
 
 #[test]
 fn inline_coercion_accepts_single_line_document_value() {
-    let config =
-        quill_with_field("    tag:\n      type: richtext(inline)\n").expect("loads");
+    let config = quill_with_field("    tag:\n      type: richtext(inline)\n").expect("loads");
     let mut fields: indexmap::IndexMap<String, QuillValue> = indexmap::IndexMap::new();
     fields.insert(
         "tag".to_string(),

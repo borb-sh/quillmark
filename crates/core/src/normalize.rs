@@ -181,10 +181,7 @@ mod tests {
         let md = "~~~card-yaml\n$quill: test\n$kind: main\n~~~\n\n~~~card-yaml\n$kind: note\n~~~\n<!-- comment -->Trailing text\n";
         let doc = Document::from_markdown(md).unwrap();
         let normalized = super::normalize_document(doc).unwrap();
-        assert_eq!(
-            normalized.cards()[0].body_markdown(),
-            "Trailing text\n"
-        );
+        assert_eq!(normalized.cards()[0].body_markdown(), "Trailing text\n");
     }
 
     #[test]
