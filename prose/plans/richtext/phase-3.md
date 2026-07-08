@@ -10,9 +10,9 @@ Gated on [phase 2](phase-2.md) (landed through PR-G) and the [phase-1
 freeze](phase-1.md). Spike-A (phase-0 residual gate) closed in PR-A before PR-B
 freezes transport shape.
 
-**Status: open.** PR-A + PR-H **reported** on `spike/richtext-phase-3` (origin).
-**PR-B–G landed** on `integration/richtext` (`0c108163a`…). **PR-H**
-(form-editor POC promotion) is the remaining integration step.
+**Status: open.** **PR-B–H landed** on `integration/richtext` (PR-H records
+findings and product-side promotion — fixture, runtime nav forward; the runnable
+harness stays on `spike/richtext-phase-3`).
 
 ## Spike branch
 
@@ -84,10 +84,10 @@ cd crates/richtext-spikes/form-poc && npm install && npm run dev  # PR-H manual
    `revision`. Whole-document `apply(doc)` remains the markdown/LLM path; form
    fields use the delta path. vitest coverage in `canvas.test.js`. Findings in
    § PR-G.
-8. **PR-H — form-editor POC.** First end-to-end consumer:
-   `crates/richtext-spikes/form-poc/` — Vite dev app with ProseMirror inline
-   fields, `LiveSession.apply`, and canvas preview on `usaf_memo`. Reuses the
-   PR-A bridge; whole-document apply until PR-G lands. Findings in § PR-H.
+8. **PR-H — form-editor POC.** **Landed (findings).** Spike harness on
+   `spike/richtext-phase-3`; integration carries fixture promotion, canonical
+   runtime nav forward, and § PR-H findings. Whole-document apply for all
+   fields this cut (see § PR-H).
 
 ## Design spine
 
@@ -162,45 +162,59 @@ for live editing remains a PR-H production concern (risk register §1).
 single-paragraph schema; `usvToPmPos` maps USV offsets to PM doc positions.
 Headless `EditorSession` drives scenarios without a DOM.
 
-## PR-H — form POC findings
+## PR-H — form-editor POC findings
 
-**Probe:** `crates/richtext-spikes/form-poc/` — Vite app on `usaf_memo` 0.2.0.
+**Probe:** `crates/richtext-spikes/form-poc/` on `spike/richtext-phase-3` —
+Vite app on `usaf_memo` 0.2.0. Integration branch records findings only; run
+the harness from the spike branch.
 
 **What it exercises:**
 
 - `subject` and `tag_line` as `richtext(inline)` ProseMirror fields (toolbar:
-  strong / emph / underline); `$body` stays a markdown textarea on the
-  whole-document path.
+  strong / emph / underline); `$body` stays a markdown textarea.
 - Debounced `LiveSession.apply(doc)` (~280 ms) after any field edit — whole-doc
-  recompile, not per-field deltas (PR-G not started).
+  recompile for every field this cut (see insights §7).
 - Canvas preview via `session.paint()`; region highlight overlay from
   `session.regions()`.
 - Bidirectional cross-navigation: form focus ↔ highlight ↔ canvas click via
-  `fieldAt()` / `locate()` / `positionAt()`.
+  `fieldAt()` / `locate()` / `positionAt()` (forwarded through canonical
+  `runtime.js` — see insights §8).
 - Playwright e2e: boot + canvas paint, live apply per field, toolbar toggle,
   form ↔ canvas focus routing.
 
 **Insights:**
 
-1. **Whole-doc apply is viable for a manual POC** — inline richtext fields
-   round-trip through `doc.setField(corpus)` + `session.apply(doc)` with live
-   preview and region geometry intact. Confirms the phase-2 session surface is
-   sufficient for a first authoring UI before PR-G field deltas land.
+1. **Whole-doc apply remains viable for the first authoring UI** — inline
+   richtext fields round-trip through `doc.setField(corpus)` +
+   `session.apply(doc)` with live preview and region geometry intact even after
+   PR-G lands.
 2. **PR-A bridge shares cleanly** — `form-poc` imports `editor-pm` source via a
    Vite alias; `vite.config.js` pins ProseMirror packages to one
    `prosemirror-model` instance so schema and view agree.
 3. **`markdownInlineToEditor` is spike-only bootstrap** — parses `**` / `*`
    so pre-coercion markdown-shaped seeds (e.g. `**Richtext** form POC`) load
    into ProseMirror before compile-time coercion; not a production codec.
-4. **`usaf_memo` `subject` → `richtext(inline)`** on the spike branch exercises
-   two inline fields against one quill; integration fixture unchanged until
-   PR-H promotes.
-5. **Experimental WASM navigation surface holds** — `regions()`, `pageSize()`,
+4. **`usaf_memo` `subject` → `richtext(inline)` promoted** — exercises two
+   inline fields against one quill on the integration fixture.
+5. **Navigation surface holds with revision stamps** — `regions()`, `pageSize()`,
    `fieldAt()`, `positionAt()`, `locate()` on `LiveSession` are enough for
-   overlay highlight + canvas hit-test without revision stamps (PR-F).
+   overlay highlight + canvas hit-test; optional `revision` on geometry reads
+   is unused while whole-doc apply stays revision-neutral.
 6. **Inline-first is the right POC cut** — multi-line `$body` and block edits
    need `LineOp` (PR-D) before a block-capable editor; block canvas stays out
    of scope.
+7. **Per-field apply path this cut.** `applyFieldDelta` is `$body`-only (PR-G);
+   inline richtext scalars still coerce from strings at `compile_data`, so
+   `subject` / `tag_line` stay on `apply(doc)`. `$body` is a markdown textarea
+   without a text-delta encoder yet — also `apply(doc)` until a body editor or
+   Myers diff bridge lands.
+8. **Partial canonical runtime forward.** `positionAt` / `locate` (and
+   `CorpusHit`) now pass through `runtime.js` so `@quillmark/runtime` consumers
+   get cross-nav without importing the backend build directly. `applyFieldDelta`,
+   `revision`, and `mapFieldPos` remain backend-only — the canonical `apply`
+   bridge (`Document.fromJson(doc.toJson())`) does not compose with in-place
+   mutating field deltas; forwarding those is a later pass when a consumer
+   adopts the delta path end-to-end.
 
 ## PR-B — Myers/LCS diff findings
 
@@ -328,12 +342,12 @@ crate-internal `Card::body_mut`; `RichText` re-exported from
    forward. The stale-text writer that *wants* monotonic mapping records via
    `Document::import_body_delta` + an explicit record at the caller (per PR-E),
    not through `apply(doc)`.
-5. **Canonical `runtime.js` wrapper unchanged.** It already forwards only a
-   curated subset (no `positionAt` / `locate`), and its cross-wasm-memory
-   `apply` bridge (`mod.Document.fromJson(doc.toJson())`) does not compose with
-   an in-place *mutating* `applyFieldDelta`. The phase-3 nav/edit surface is
-   consumed off the backend-build `LiveSession` directly (as PR-H's spike does);
-   forwarding it through the canonical layer is a later pass.
+5. **Canonical `runtime.js` — partial forward.** `positionAt` / `locate` /
+   `CorpusHit` now pass through for cross-nav consumers (PR-H). `applyFieldDelta`,
+   `revision`, and `mapFieldPos` remain backend-only — the cross-wasm-memory
+   `apply` bridge (`Document.fromJson(doc.toJson())`) does not compose with
+   in-place mutating field deltas; full forward deferred until a consumer adopts
+   the delta path end-to-end.
 
 ## Sequencing invariant
 
@@ -344,6 +358,7 @@ crate-internal `Card::body_mut`; `RichText` re-exported from
 - PR-F (revision stamp) before PR-G (WASM exposes revision-aware apply).
   **Both landed.**
 - PR-A's bridge pattern is reused in PR-H; no second editor serialization.
+  **Closed.**
 
 Phase 2 outputs (`RenderedRegion`, canonical bytes, segment maps) extend; none
 are discarded.

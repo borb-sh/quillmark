@@ -12,10 +12,9 @@ Phases 0–2 are landed, **including PR-G** — `richtext(inline)` enforcement
 `#[serde(skip)]` corpus cache, seed-commits-corpus, and the hard `markdown`-alias
 cutover (`type: markdown` is now a schema load error, not a silent alias).
 PR-G's spec lives in [phase-2.md](phase-2.md); the landed behavior lives in
-`prose/canon/` (SCHEMAS.md). **Phase 3 (edit surface) is open** — PR-A + PR-H
-reported on `spike/richtext-phase-3`; **PR-B–E landed** on
-`integration/richtext`; PR-F (preview wire + revision stamp) is next. See
-[phase-3.md](phase-3.md).
+`prose/canon/` (SCHEMAS.md). **Phase 3 (edit surface) is open** — **PR-B–H
+landed** on `integration/richtext` (PR-H findings; harness on
+`spike/richtext-phase-3`). See [phase-3.md](phase-3.md).
 
 For how the system works *today* — the `RichText` corpus, the seam, storage,
 schema surface, navigation — see `prose/canon/` (ARCHITECTURE, CONVERT,
