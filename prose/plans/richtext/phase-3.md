@@ -10,10 +10,9 @@ Gated on [phase 2](phase-2.md) (landed through PR-G) and the [phase-1
 freeze](phase-1.md). Spike-A (phase-0 residual gate) closed in PR-A before PR-B
 freezes transport shape.
 
-**Status: open.** PR-A (Spike-A editor binding) and PR-H (form POC) **reported**
-on branch `spike/richtext-phase-3` (pushed to origin); runnable probes live
-there, not on `integration/richtext`. **PR-B (Myers/LCS diff) landed** on
-`integration/richtext`. PR-C (revision + bounded change log) is next.
+**Status: open.** PR-A + PR-H **reported** on `spike/richtext-phase-3` (origin).
+**PR-B–D landed** on `integration/richtext` (`0c108163a`…`002607c6e`). **PR-E**
+(document mutators) is next.
 
 ## Spike branch
 
@@ -43,18 +42,21 @@ cd crates/richtext-spikes/form-poc && npm install && npm run dev  # PR-H manual
    surface as whole-line insert spans the move detector can match. Disjoint
    edits no longer collapse anchors sitting strictly between them; stale-text
    rebase keeps the move detector. Findings in § PR-B.
-3. **PR-C — revision + bounded change log.** Monotonic `revision: u64` on the
-   live session; ring buffer of per-field entries `{ revision, path, text_delta,
-   mark_ops?, line_ops? }`. `map_pos` composes across the log (CodeMirror
-   `ChangeDesc` / ProseMirror mapping semantics — already implemented on a
-   single [`Delta`](../../crates/richtext/src/delta.rs)). Stale positions map
-   forward instead of silently reading current compile output.
-4. **PR-D — mark and line op channels.** Text splices stay attribute-free
-   ([`delta`](../../crates/richtext/src/delta.rs)); mark edits (`MarkOp`) and
-   line/block edits (`LineOp` — split, join, `kind`, `containers`) are
-   separate op streams that rebase through text deltas via `map_pos`.
-   `RichText::apply_text_delta`, `apply_mark_ops`, `apply_line_ops`; normalize
-   after every apply.
+3. **PR-C — revision + bounded change log.** **Landed.**
+   [`change_log::ChangeLog`](../../crates/richtext/src/change_log.rs) — monotonic
+   `revision: u64`, ring buffer (default 256) of
+   [`FieldChange`](../../crates/richtext/src/change_log.rs) entries,
+   [`map_pos`](../../crates/richtext/src/change_log.rs) composes
+   [`Delta::map_pos`](../../crates/richtext/src/delta.rs) per field.
+   [`LiveSession`](../../crates/core/src/session.rs) owns the log;
+   `record_field_delta` / `record_field_change`, `map_field_pos`. Findings in §
+   PR-C.
+4. **PR-D — mark and line op channels.** **Landed.**
+   [`ops`](../../crates/richtext/src/ops.rs): `MarkOp`, `LineOp`,
+   `RichText::apply_text_delta`, `apply_mark_ops`, `apply_line_ops`,
+   `apply_field_change` (text → line → mark; normalize after each).
+   `FieldChange` carries `mark_ops` + `line_ops`; change-log `map_pos` stays
+   text-delta-only. Findings in § PR-D.
 5. **PR-E — fallible document mutators.** Typed richtext field writers on
    [`Card`](../../crates/core/src/document/edit.rs): set corpus, apply delta
    bundle, import-with-error (retire silent `replace_body` degradation).
@@ -206,13 +208,37 @@ Headless `EditorSession` drives scenarios without a DOM.
 3. **All phase-1 rebase tests pass** — including block-move re-home, unrelated-
    survivor rejection, and property-test anchor survival.
 
+## PR-C — revision + change log findings
+
+**Implementation:** [`change_log.rs`](../../crates/richtext/src/change_log.rs),
+[`LiveSession`](../../crates/core/src/session.rs).
+
+1. **Revision 0 is the pre-edit baseline** — not a log entry. `map_pos` returns
+   `StaleRevision` only when `base_revision > 0` and precedes the oldest
+   retained entry.
+2. **`map_pos` composes text deltas per field** — other fields and mark/line ops
+   in the same entry do not participate in position mapping.
+
+## PR-D — mark/line op findings
+
+**Implementation:** [`ops.rs`](../../crates/richtext/src/ops.rs); `FieldChange`
+extended in [`change_log.rs`](../../crates/richtext/src/change_log.rs).
+
+1. **Apply order in one bundle:** text delta → line ops → mark ops; normalize
+   after each step.
+2. **Text delta syncs `lines` to `\n` insert/delete** in the delta; `LineOp`
+   split/join also splices `\n`. Change-log `map_pos` still composes text deltas
+   only — record `\n` edits in `text_delta` when mapping stale positions through
+   the log.
+3. **Mark ranges in mark ops are post-text-delta coordinates** within the same
+   revision.
+
 ## Sequencing invariant
 
 - Spike-A reports before PR-B freezes change-log entry shape (text delta only
   until PR-D, but the log slot must accommodate mark/line ops). **Closed.**
-- PR-B (minimal diff) before PR-C (log stores deltas worth replaying). **PR-B
-  landed.**
-- PR-D (mark/line ops) before PR-E (mutators emit them).
+- PR-B (minimal diff) before PR-C (log stores deltas worth replaying). **Closed.**
+- PR-D (mark/line ops) before PR-E (mutators emit them). **PR-D landed.**
 - PR-F (revision stamp) before PR-G (WASM exposes revision-aware apply).
 - PR-A's bridge pattern is reused in PR-H; no second editor serialization.
 
@@ -227,8 +253,8 @@ are discarded.
    Spike-A covers astral chars in headless tests; live `EditorView` caret
    placement across surrogate pairs is unexercised until production wiring.
 2. **Line/block edits vs inline-first POC.** PR-H targets `richtext(inline)`;
-   multi-line fields need `LineOp` split/join (PR-D) before a block-capable
-   editor ships. Block canvas remains out of scope.
+   block-capable editors can use `LineOp` split/join (landed PR-D); block canvas
+   remains out of scope.
 3. **Coexistence with whole-doc `apply`.** Markdown/MCP path stays
    `diff_import` at document granularity; session must apply stale-text and
    field-delta edits in a defined order (revision monotonicity across both).
@@ -240,5 +266,6 @@ are discarded.
   [phase-2.md](phase-2.md)
 - Branch `spike/richtext-phase-3` (origin) — runnable PR-A + PR-H probes
 - `prose/canon/PREVIEW.md`, `DOCUMENT_STORAGE.md`, `SCHEMAS.md`
-- `crates/richtext/src/delta.rs`, `crates/core/src/document/edit.rs`,
+- `crates/richtext/src/delta.rs`, `crates/richtext/src/change_log.rs`,
+  `crates/richtext/src/ops.rs`, `crates/core/src/document/edit.rs`,
   `crates/core/src/region.rs`
