@@ -13,8 +13,8 @@ Phases 0–2 are landed, **including PR-G** — `richtext(inline)` enforcement
 cutover (`type: markdown` is now a schema load error, not a silent alias).
 PR-G's spec lives in [phase-2.md](phase-2.md); the landed behavior lives in
 `prose/canon/` (SCHEMAS.md). **Phase 3 (edit surface) is open** — PR-A + PR-H
-reported on `spike/richtext-phase-3`; **PR-B–D landed** on
-`integration/richtext`; PR-E (document mutators) is next. See
+reported on `spike/richtext-phase-3`; **PR-B–E landed** on
+`integration/richtext`; PR-F (preview wire + revision stamp) is next. See
 [phase-3.md](phase-3.md).
 
 For how the system works *today* — the `RichText` corpus, the seam, storage,
@@ -69,8 +69,9 @@ not restate the model.
   form-editor binding on phase-0's frozen mark semantics. PR-A + PR-H probes on
   `spike/richtext-phase-3` — Spike-A closed the phase-0 residual gate (no model
   change); form POC confirms whole-doc `LiveSession.apply` + region
-  cross-navigation for inline fields. **PR-B–D landed** (Myers diff, change log,
-  mark/line ops). PR-E (document mutators) is next.
+  cross-navigation for inline fields. **PR-B–E landed** (Myers diff, change log,
+  mark/line ops, fallible document mutators). PR-F (preview wire + revision
+  stamp) is next.
 - **Phase 4 — islands + collab.** First real island type (tables, with
   per-creation id minting rather than import's sequential ids), then a
   text-CRDT sync binding if wanted; core stays CRDT-free.

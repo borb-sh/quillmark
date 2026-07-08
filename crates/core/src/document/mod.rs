@@ -155,6 +155,10 @@ impl Card {
     pub(crate) fn overwrite_body(&mut self, body: RichText) {
         self.body = body;
     }
+
+    pub(crate) fn body_mut(&mut self) -> &mut RichText {
+        &mut self.body
+    }
 }
 
 /// A parsed, per-kind **seed overlay**: the sparse fields (and optional body)

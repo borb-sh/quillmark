@@ -610,8 +610,11 @@ impl PyDocument {
         Ok(())
     }
 
-    fn replace_body(&mut self, body: &str) {
-        self.inner.main_mut().replace_body(body);
+    fn replace_body(&mut self, body: &str) -> PyResult<()> {
+        self.inner
+            .main_mut()
+            .replace_body(body)
+            .map_err(convert_edit_error)
     }
 
     /// Build a fresh `Card` dict from a kind and a flat field mapping — the
@@ -730,8 +733,9 @@ impl PyDocument {
     }
 
     fn update_card_body(&mut self, index: usize, body: &str) -> PyResult<()> {
-        self.card_mut_or_raise(index)?.replace_body(body);
-        Ok(())
+        self.card_mut_or_raise(index)?
+            .replace_body(body)
+            .map_err(convert_edit_error)
     }
 }
 

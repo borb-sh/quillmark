@@ -17,6 +17,10 @@
 
 use unicode_normalization::UnicodeNormalization;
 
+use quillmark_richtext::delta::diff_import;
+use quillmark_richtext::import::ImportError;
+use quillmark_richtext::{ApplyError, Delta, LineOp, MarkOp, RichText};
+
 use crate::document::meta::{validate_composable_kind, CardKindError};
 use crate::document::{Card, Document, Payload};
 use crate::value::QuillValue;
@@ -63,6 +67,17 @@ pub enum EditError {
 
     #[error("value nests deeper than the maximum of {max} levels")]
     ValueTooDeep { max: usize },
+
+    /// Markdown body import failed — the corpus codec rejected the input
+    /// (e.g. container nesting past [`MAX_NESTING_DEPTH`](quillmark_richtext::MAX_NESTING_DEPTH)).
+    /// The fallible replacement for the pre-phase-3 silent degrade-to-empty.
+    #[error("body import failed: {0}")]
+    BodyImport(ImportError),
+
+    /// A corpus field-change bundle (text delta, line ops, mark ops) applied
+    /// out of bounds or broke an invariant normalization could not repair.
+    #[error("corpus apply failed: {0:?}")]
+    CorpusApply(ApplyError),
 }
 
 impl EditError {
@@ -77,6 +92,8 @@ impl EditError {
             EditError::ReservedKind => "ReservedKind",
             EditError::IndexOutOfRange { .. } => "IndexOutOfRange",
             EditError::ValueTooDeep { .. } => "ValueTooDeep",
+            EditError::BodyImport(_) => "BodyImport",
+            EditError::CorpusApply(_) => "CorpusApply",
         }
     }
 }
@@ -429,13 +446,63 @@ impl Card {
         removed
     }
 
-    /// Replace the body from an authored markdown string, importing it into the
-    /// corpus. A pathologically over-nested input (`> MAX_NESTING_DEPTH`)
-    /// degrades to the empty corpus rather than erroring; the fallible edit
-    /// surface is Phase 3.
-    pub fn replace_body(&mut self, body: impl Into<String>) {
-        let corpus = super::import_body(&body.into())
-            .unwrap_or_else(|_| quillmark_richtext::RichText::empty());
+    /// Set the body corpus directly from a pre-built [`RichText`]. The native
+    /// richtext writer: a corpus is valid by construction, so this is
+    /// infallible — no markdown import, no schema check. Use it when the caller
+    /// already holds a corpus (a decoded canonical-JSON body, another field's
+    /// value, an editor's serialized state); use [`replace_body`](Self::replace_body)
+    /// to import from an authored markdown string instead.
+    pub fn set_body_corpus(&mut self, corpus: RichText) {
         self.overwrite_body(corpus);
+    }
+
+    /// Replace the body from an authored markdown string — the whole-document
+    /// (stale-text / LLM / MCP) writer. Imports the markdown, diffs it against
+    /// the current body, and rebases surviving identity anchors onto the new
+    /// text (cold import + [`diff_import`]). A pathologically over-nested input
+    /// (`> MAX_NESTING_DEPTH`) returns [`EditError::BodyImport`] rather than
+    /// silently degrading to the empty corpus (retired in phase 3). To also
+    /// obtain the text [`Delta`] for recording into a session change log, call
+    /// [`import_body_delta`](Self::import_body_delta).
+    pub fn replace_body(&mut self, body: impl Into<String>) -> Result<(), EditError> {
+        self.import_body_delta(body).map(|_| ())
+    }
+
+    /// Import an authored markdown string into the body and return the text
+    /// [`Delta`] from the old body to the new one — the recordable form of
+    /// [`replace_body`](Self::replace_body). The stale-text writer wired to the
+    /// change log: a caller holding a [`LiveSession`](crate::LiveSession) feeds
+    /// the returned delta to
+    /// [`record_field_delta`](crate::LiveSession::record_field_delta) so a
+    /// stale corpus position maps forward through the whole-document replace,
+    /// the same as a native field edit. Surviving identity anchors rebase onto
+    /// the new text; formatting marks are re-derived by the fresh import.
+    /// Returns [`EditError::BodyImport`] on an over-nested input.
+    pub fn import_body_delta(&mut self, body: impl Into<String>) -> Result<Delta, EditError> {
+        let (corpus, delta) =
+            diff_import(self.body(), &body.into()).map_err(EditError::BodyImport)?;
+        self.overwrite_body(corpus);
+        Ok(delta)
+    }
+
+    /// Apply a committed field-change bundle to the body corpus — the native
+    /// form-editor writer. Order is text delta → line ops → mark ops, each
+    /// followed by normalization ([`RichText::apply_field_change`]); mark
+    /// ranges are in post-text-delta coordinates. A caller recording into a
+    /// session change log passes the same `text_delta`, `line_ops`, and
+    /// `mark_ops` to
+    /// [`record_field_change`](crate::LiveSession::record_field_change).
+    /// Returns [`EditError::CorpusApply`] when an op is out of bounds; the body
+    /// is unchanged on error only up to the failing op — apply the bundle
+    /// against a body at the delta's base revision.
+    pub fn apply_body_change(
+        &mut self,
+        text_delta: &Delta,
+        line_ops: &[LineOp],
+        mark_ops: &[MarkOp],
+    ) -> Result<(), EditError> {
+        self.body_mut()
+            .apply_field_change(text_delta, line_ops, mark_ops)
+            .map_err(EditError::CorpusApply)
     }
 }

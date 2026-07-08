@@ -458,6 +458,33 @@ mod tests {
         );
     }
 
+    /// The PR-E wiring seam: a document body edit produces a text delta
+    /// (`Card::import_body_delta`) that the session records, so a stale corpus
+    /// position maps forward through the whole-document replace.
+    #[test]
+    fn record_body_edit_into_change_log() {
+        let mut doc =
+            crate::Document::from_markdown("~~~\n$quill: q@1.0\n$kind: main\n~~~\n\nhello world\n")
+                .unwrap();
+        let mut session = LiveSession::new(Box::new(PlainHandle));
+        assert_eq!(session.revision(), 0);
+
+        let delta = doc
+            .main_mut()
+            .import_body_delta("hello brave world")
+            .unwrap();
+        let rev = session.record_field_delta("$body", delta);
+        assert_eq!(rev, 1);
+        assert_eq!(doc.main().body().text, "hello brave world");
+
+        // A caret captured at the end of "hello " (pos 6) before the edit maps
+        // past the inserted "brave " when read at the base revision.
+        assert_eq!(
+            session.map_field_pos("$body", 0, 11, Assoc::After).unwrap(),
+            17
+        );
+    }
+
     #[test]
     fn supports_canvas_derives_from_seam() {
         // A session that exposes page geometry is canvas-capable…
