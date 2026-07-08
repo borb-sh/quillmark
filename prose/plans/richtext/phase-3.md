@@ -84,7 +84,7 @@ Both writers target the same per-field op bundle; only the encoder differs.
 | Writer | Encoder | When |
 |--------|---------|------|
 | Form editor | native delta + mark/line ops (PR-G/H) | keystrokes, toolbar |
-| Stale text (MCP, saved `.qmd`) | cold import + `diff_import` | whole-document markdown replace |
+| Stale text (MCP, saved document) | cold import + `diff_import` | whole-document markdown replace |
 
 The engine never sees markdown on the hot path for stored corpus fields. String
 fields in markdown documents still re-import at `compile_data` (phase-2 risk
@@ -93,7 +93,7 @@ register) until authored structurally.
 ### Text splices, not attributed ops
 
 [`Delta`](../../crates/richtext/src/delta.rs) is `retain` / `insert` /
-`delete` over USV — CodeMirror `ChangeSet` semantics, **not** Quill-Delta.
+`delete` over USV — CodeMirror `ChangeSet` text-splice semantics.
 Formatting does not ride as op attributes; overlapping same-kind marks and two
 identity anchors over one range are impossible in an attribute map and are
 first-class in the corpus (Peritext-style free overlap + identity handles).

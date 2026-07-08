@@ -64,8 +64,8 @@ not restate the model.
   storage cutover, regions + navigation (`locate`/`position_at`), and PR-G's
   `richtext(inline)` + load-time example cache + `markdown`-alias cutover.
 - **[Phase 3 — edit surface](phase-3.md).** Open. Per-field delta
-  (`retain`/`insert`/`delete` text splices, CodeMirror `ChangeSet` semantics,
-  not attributed Quill-Delta) + monotonic revision + bounded change log;
+  (`retain`/`insert`/`delete` text splices, CodeMirror `ChangeSet` semantics;
+  marks via separate op channels) + monotonic revision + bounded change log;
   form-editor binding on phase-0's frozen mark semantics. PR-A + PR-H probes on
   `spike/richtext-phase-3` — Spike-A closed the phase-0 residual gate (no model
   change); form POC confirms whole-doc `LiveSession.apply` + region

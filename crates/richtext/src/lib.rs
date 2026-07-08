@@ -50,8 +50,8 @@ pub use delta::{Assoc, Delta, Op};
 pub use model::{
     Container, Invariant, Island, Line, LineKind, Loss, Mark, MarkKind, RichText, Usv,
 };
-pub use ops::{ApplyError, LineOp, MarkOp};
 pub use normalize::normalize_markdown;
+pub use ops::{ApplyError, LineOp, MarkOp};
 pub use serial::ParseError;
 
 /// Maximum container nesting depth the markdown codecs accept before erroring.

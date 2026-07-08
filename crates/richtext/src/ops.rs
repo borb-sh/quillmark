@@ -50,15 +50,8 @@ pub enum LineOp {
 /// broken before normalization could repair them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ApplyError {
-    MarkOutOfRange {
-        start: Usv,
-        end: Usv,
-        len: Usv,
-    },
-    LineOutOfRange {
-        line: usize,
-        lines: usize,
-    },
+    MarkOutOfRange { start: Usv, end: Usv, len: Usv },
+    LineOutOfRange { line: usize, lines: usize },
     SplitAtNewline { at: Usv },
     LineCountMismatch { lines: usize, segments: usize },
 }
@@ -139,9 +132,8 @@ impl RichText {
                     });
                 }
                 MarkOp::RemoveAnchor { id } => {
-                    self.marks.retain(|m| {
-                        !matches!(&m.kind, MarkKind::Anchor { id: aid } if aid == id)
-                    });
+                    self.marks
+                        .retain(|m| !matches!(&m.kind, MarkKind::Anchor { id: aid } if aid == id));
                 }
             }
         }
@@ -266,10 +258,9 @@ fn same_mark_kind(a: &MarkKind, b: &MarkKind) -> bool {
         | (MarkKind::Code, MarkKind::Code) => true,
         (MarkKind::Link { url: u1 }, MarkKind::Link { url: u2 }) => u1 == u2,
         (MarkKind::Anchor { id: i1 }, MarkKind::Anchor { id: i2 }) => i1 == i2,
-        (
-            MarkKind::Unknown { tag: t1, attrs: a1 },
-            MarkKind::Unknown { tag: t2, attrs: a2 },
-        ) => t1 == t2 && a1 == a2,
+        (MarkKind::Unknown { tag: t1, attrs: a1 }, MarkKind::Unknown { tag: t2, attrs: a2 }) => {
+            t1 == t2 && a1 == a2
+        }
         _ => false,
     }
 }

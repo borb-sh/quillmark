@@ -1,7 +1,9 @@
 use crate::{
     CorpusHit, Diagnostic, RenderError, RenderOptions, RenderResult, RenderedRegion, Severity,
 };
-pub use quillmark_richtext::{Assoc, ApplyError, ChangeLog, Delta, FieldChange, LineOp, MarkOp, StaleRevision};
+pub use quillmark_richtext::{
+    ApplyError, Assoc, ChangeLog, Delta, FieldChange, LineOp, MarkOp, StaleRevision,
+};
 
 /// What a committed [`LiveSession::apply`] changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
