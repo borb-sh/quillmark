@@ -1496,7 +1496,12 @@ impl LiveSession {
         // rejected here, leaving `doc` and the session untouched.
         self.inner
             .ensure_base_revision(base_revision as u64)
-            .map_err(|d| WasmError { diagnostics: vec![d] }.to_js_value())?;
+            .map_err(|d| {
+                WasmError {
+                    diagnostics: vec![d],
+                }
+                .to_js_value()
+            })?;
 
         // Native writer: splice the main body corpus (text delta only).
         doc.inner

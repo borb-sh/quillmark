@@ -201,7 +201,10 @@ mod tests {
         };
         let json = serde_json::to_string(&region).unwrap();
         assert!(!json.contains("span"), "scalar region omits span: {json}");
-        assert!(!json.contains("revision"), "unstamped region omits revision: {json}");
+        assert!(
+            !json.contains("revision"),
+            "unstamped region omits revision: {json}"
+        );
         let back: RenderedRegion = serde_json::from_str(&json).unwrap();
         assert_eq!(back, region);
     }
@@ -238,7 +241,10 @@ mod tests {
             revision: None,
         };
         let json = serde_json::to_string(&hit).unwrap();
-        assert!(!json.contains("revision"), "unstamped hit omits revision: {json}");
+        assert!(
+            !json.contains("revision"),
+            "unstamped hit omits revision: {json}"
+        );
         let back: CorpusHit = serde_json::from_str(&json).unwrap();
         assert_eq!(back, hit);
     }
