@@ -184,7 +184,7 @@ fn test_document_set_quill_ref() {
 #[test]
 fn test_document_replace_body() {
     let mut doc = make_doc();
-    doc.main_mut().replace_body("New body content.");
+    doc.main_mut().replace_body("New body content.").unwrap();
     assert_eq!(doc.main().body_markdown(), "New body content.\n");
 }
 
@@ -254,7 +254,7 @@ fn test_document_card_mut() {
     let mut doc = make_doc_with_cards();
     {
         let card = doc.card_mut(0).unwrap();
-        card.replace_body("Updated card body.");
+        card.replace_body("Updated card body.").unwrap();
     }
     assert_eq!(doc.cards()[0].body_markdown(), "Updated card body.\n");
 }
@@ -532,8 +532,143 @@ fn test_card_remove_field_invalid_name_throws() {
 #[test]
 fn test_card_set_body() {
     let mut card = Card::new("note").unwrap();
-    card.replace_body("Card body text.");
+    card.replace_body("Card body text.").unwrap();
     assert_eq!(card.body_markdown(), "Card body text.\n");
+}
+
+// ── Card richtext body writers (PR-E) ────────────────────────────────────────
+
+/// A body markdown import past the container-nesting limit now returns
+/// `EditError::BodyImport` instead of silently degrading to the empty corpus.
+#[test]
+fn test_replace_body_reports_import_error() {
+    let mut card = Card::new("note").unwrap();
+    let deep = ">".repeat(crate::error::MAX_NESTING_DEPTH + 5);
+    match card.replace_body(&deep) {
+        Err(EditError::BodyImport(_)) => {}
+        other => panic!("expected BodyImport, got {other:?}"),
+    }
+    assert_eq!(
+        EditError::BodyImport(quillmark_richtext::import::ImportError::NestingTooDeep {
+            depth: 1,
+            max: 1
+        })
+        .variant_name(),
+        "BodyImport"
+    );
+}
+
+/// `set_body_corpus` installs a pre-built corpus verbatim — no markdown import.
+#[test]
+fn test_set_body_corpus_sets_directly() {
+    let mut card = Card::new("note").unwrap();
+    let corpus = quillmark_richtext::import::from_markdown("**bold** body").unwrap();
+    card.set_body_corpus(corpus.clone());
+    assert_eq!(card.body(), &corpus);
+    assert_eq!(card.body_markdown(), "**bold** body\n");
+}
+
+/// `import_body_delta` updates the body and returns the text delta from the
+/// old body to the new — the recordable whole-document (stale-text) writer.
+#[test]
+fn test_import_body_delta_returns_delta_and_updates_body() {
+    use crate::{Assoc, Delta};
+
+    let mut card = Card::new("note").unwrap();
+    card.replace_body("hello world").unwrap();
+    let delta: Delta = card.import_body_delta("hello brave world").unwrap();
+    assert_eq!(card.body().text, "hello brave world");
+    // The delta maps a stale position at the end of "hello " forward across
+    // the inserted "brave ".
+    assert_eq!(delta.map_pos(6, Assoc::Before), 6);
+    assert_eq!(delta.map_pos(11, Assoc::After), 17);
+}
+
+/// A whole-document markdown replace rebases a surviving identity anchor onto
+/// the new text via `diff_import`, where the old fresh-import path dropped it.
+#[test]
+fn test_import_body_delta_rebases_anchor() {
+    use quillmark_richtext::model::{Mark, MarkKind};
+
+    let mut base = quillmark_richtext::import::from_markdown("keep the target word").unwrap();
+    // Anchor over "target" (chars 9..15).
+    base.marks.push(Mark {
+        start: 9,
+        end: 15,
+        kind: MarkKind::Anchor { id: "c1".into() },
+    });
+    base.normalize();
+    let mut card = Card::new("note").unwrap();
+    card.set_body_corpus(base);
+
+    card.import_body_delta("why keep the target word").unwrap();
+    let anchor = card
+        .body()
+        .marks
+        .iter()
+        .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
+        .expect("identity anchor survives the whole-document replace");
+    let text = &card.body().text;
+    let s = quillmark_richtext::usv::char_to_byte(text, anchor.start);
+    let e = quillmark_richtext::usv::char_to_byte(text, anchor.end);
+    assert_eq!(&text[s..e], "target");
+}
+
+/// `apply_body_change` applies a native field-change bundle (text delta, then
+/// line ops, then mark ops) to the body corpus.
+#[test]
+fn test_apply_body_change_applies_bundle() {
+    use crate::MarkOp;
+    use quillmark_richtext::delta::diff;
+    use quillmark_richtext::model::MarkKind;
+
+    let mut card = Card::new("note").unwrap();
+    card.replace_body("abc").unwrap();
+    let d = diff("abc", "abXc");
+    card.apply_body_change(
+        &d,
+        &[],
+        &[MarkOp::Add {
+            start: 3,
+            end: 4,
+            kind: MarkKind::Strong,
+        }],
+    )
+    .unwrap();
+    assert_eq!(card.body().text, "abXc");
+    let strong = card
+        .body()
+        .marks
+        .iter()
+        .find(|m| matches!(m.kind, MarkKind::Strong))
+        .expect("strong mark applied post-delta");
+    assert_eq!((strong.start, strong.end), (3, 4));
+}
+
+/// An out-of-range mark op surfaces as `EditError::CorpusApply` rather than a
+/// panic or a silent no-op.
+#[test]
+fn test_apply_body_change_reports_out_of_range() {
+    use crate::MarkOp;
+    use quillmark_richtext::delta::diff;
+    use quillmark_richtext::model::MarkKind;
+
+    let mut card = Card::new("note").unwrap();
+    card.replace_body("abc").unwrap();
+    let identity = diff("abc", "abc");
+    let result = card.apply_body_change(
+        &identity,
+        &[],
+        &[MarkOp::Add {
+            start: 0,
+            end: 99,
+            kind: MarkKind::Strong,
+        }],
+    );
+    match result {
+        Err(EditError::CorpusApply(_)) => {}
+        other => panic!("expected CorpusApply, got {other:?}"),
+    }
 }
 
 // ── Invariant check: sequence of mutations ───────────────────────────────────
@@ -571,7 +706,7 @@ fn test_invariants_after_mutation_sequence() {
     doc.remove_card(1); // summary, appendix
 
     // 6. Replace body
-    doc.main_mut().replace_body("Updated body.");
+    doc.main_mut().replace_body("Updated body.").unwrap();
 
     // 7. Remove a payload field
     doc.main_mut().remove_field("version").unwrap();

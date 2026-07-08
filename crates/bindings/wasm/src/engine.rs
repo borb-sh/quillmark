@@ -900,8 +900,11 @@ impl Document {
     }
 
     #[wasm_bindgen(js_name = replaceBody)]
-    pub fn replace_body(&mut self, body: &str) {
-        self.inner.main_mut().replace_body(body);
+    pub fn replace_body(&mut self, body: &str) -> Result<(), JsValue> {
+        self.inner
+            .main_mut()
+            .replace_body(body)
+            .map_err(|e| edit_error_to_js(&e))
     }
 
     /// Build a fresh `Card` from a kind and a flat field map — the ergonomic
@@ -1063,8 +1066,9 @@ impl Document {
     /// Replace the body of the card at `index`. Throws if out of range.
     #[wasm_bindgen(js_name = updateCardBody)]
     pub fn update_card_body(&mut self, index: usize, body: &str) -> Result<(), JsValue> {
-        self.card_mut_or_throw(index)?.replace_body(body);
-        Ok(())
+        self.card_mut_or_throw(index)?
+            .replace_body(body)
+            .map_err(|e| edit_error_to_js(&e))
     }
 }
 

@@ -11,8 +11,8 @@ freeze](phase-1.md). Spike-A (phase-0 residual gate) closed in PR-A before PR-B
 freezes transport shape.
 
 **Status: open.** PR-A + PR-H **reported** on `spike/richtext-phase-3` (origin).
-**PR-B–D landed** on `integration/richtext` (`0c108163a`…`002607c6e`). **PR-E**
-(document mutators) is next.
+**PR-B–E landed** on `integration/richtext` (`0c108163a`…). **PR-F** (preview
+wire + revision stamp) is next.
 
 ## Spike branch
 
@@ -57,10 +57,15 @@ cd crates/richtext-spikes/form-poc && npm install && npm run dev  # PR-H manual
    `apply_field_change` (text → line → mark; normalize after each).
    `FieldChange` carries `mark_ops` + `line_ops`; change-log `map_pos` stays
    text-delta-only. Findings in § PR-D.
-5. **PR-E — fallible document mutators.** Typed richtext field writers on
-   [`Card`](../../crates/core/src/document/edit.rs): set corpus, apply delta
-   bundle, import-with-error (retire silent `replace_body` degradation).
-   Document-level batch apply with invariant enforcement unchanged.
+5. **PR-E — fallible document mutators.** **Landed.** Typed richtext body
+   writers on [`Card`](../../crates/core/src/document/edit.rs):
+   `set_body_corpus` (native corpus set), `apply_body_change` (text delta →
+   line ops → mark ops bundle), `import_body_delta` (whole-document markdown
+   replace via `diff_import`, returns the text delta for change-log
+   recording), and a now-fallible `replace_body` — the silent degrade-to-empty
+   retired for [`EditError::BodyImport`](../../crates/core/src/document/edit.rs)
+   /`CorpusApply`. Existing field/kind invariant enforcement unchanged.
+   Findings in § PR-E.
 6. **PR-F — preview wire + revision stamp.** Append optional `revision` to
    [`RenderedRegion`](../../crates/core/src/region.rs) and tag read responses
    (`regions`, `fieldAt`, `positionAt`, `locate`) — the additive-optional
@@ -233,12 +238,39 @@ extended in [`change_log.rs`](../../crates/richtext/src/change_log.rs).
 3. **Mark ranges in mark ops are post-text-delta coordinates** within the same
    revision.
 
+## PR-E — document mutator findings
+
+**Implementation:** [`edit.rs`](../../crates/core/src/document/edit.rs); one new
+crate-internal `Card::body_mut`; `RichText` re-exported from
+[`quillmark_core`](../../crates/core/src/lib.rs).
+
+1. **Two writers, one corpus, three entry points.** The form-editor path is
+   `apply_body_change` (a native delta + line/mark bundle the editor already
+   computed); the stale-text path is `import_body_delta` (cold import +
+   `diff_import`), with `replace_body` its delta-discarding wrapper.
+   `set_body_corpus` is the raw native set for a corpus decoded elsewhere.
+2. **`diff_import` now wired to `Document`.** `import_body_delta` is the seam:
+   it rebases surviving identity anchors onto the fresh import (the old
+   fresh-`import_body` `replace_body` dropped them) and returns the text delta,
+   so the whole-document replace records into the change log exactly like a
+   field edit. The session still owns the log — the mutator returns the delta;
+   the caller records it (`record_field_delta` / `record_field_change`). Card
+   holds no session reference.
+3. **Silent degradation retired.** `replace_body` was infallible, degrading an
+   over-nested body to the empty corpus; it now returns
+   `EditError::BodyImport`. `apply_body_change` surfaces an out-of-bounds op as
+   `EditError::CorpusApply` (wrapping `ApplyError`). Both new variants ride the
+   existing `variant_name` → `[EditError::<Variant>]` binding contract, so
+   wasm/python surface them without a mapper change; the wasm `replaceBody` /
+   `updateCardBody` and python `replace_body` / `update_card_body` wrappers now
+   propagate instead of swallowing.
+
 ## Sequencing invariant
 
 - Spike-A reports before PR-B freezes change-log entry shape (text delta only
   until PR-D, but the log slot must accommodate mark/line ops). **Closed.**
 - PR-B (minimal diff) before PR-C (log stores deltas worth replaying). **Closed.**
-- PR-D (mark/line ops) before PR-E (mutators emit them). **PR-D landed.**
+- PR-D (mark/line ops) before PR-E (mutators emit them). **Both landed.**
 - PR-F (revision stamp) before PR-G (WASM exposes revision-aware apply).
 - PR-A's bridge pattern is reused in PR-H; no second editor serialization.
 
