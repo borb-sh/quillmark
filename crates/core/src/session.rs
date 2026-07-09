@@ -433,6 +433,40 @@ impl LiveSession {
         self.change_log.invalidate();
         Ok(change_set)
     }
+
+    /// Recompile against `json_data` for a field-delta commit and record the
+    /// delta atomically — the delta path's counterpart to [`apply`](Self::apply).
+    /// Unlike `apply` it does **not** invalidate the change log: a whole-document
+    /// rewrite is not expressed as per-field deltas, so `apply` raises the
+    /// invalidation floor; a field delta *is* composable, so its `base_revision`
+    /// must fold forward rather than fail closed against a raised floor.
+    ///
+    /// Guards `base_revision` against the current [`revision`](Self::revision)
+    /// first: a mismatch returns `session::revision_mismatch`, records nothing,
+    /// and does not recompile. Then recompiles transactionally — on `Err` the
+    /// previous compile stays live and the revision does not advance. On success
+    /// records `text_delta` under `path` (advancing the revision to
+    /// `base_revision + 1`) and returns the [`ChangeSet`]. Because the
+    /// non-invalidating recompile leaves the revision unchanged, the guarded base
+    /// still matches when recording, so the whole call commits or leaves the
+    /// session untouched. The caller holding the source `Document` rolls its own
+    /// copy back on `Err`.
+    #[doc(hidden)]
+    pub fn apply_for_field_delta(
+        &mut self,
+        path: impl Into<String>,
+        base_revision: u64,
+        text_delta: Delta,
+        json_data: &serde_json::Value,
+    ) -> Result<ChangeSet, RenderError> {
+        self.ensure_base_revision(base_revision)
+            .map_err(RenderError::from_diag)?;
+        let change_set = self.inner.apply(json_data)?;
+        // The guard proved base == current and the recompile left the revision
+        // untouched, so this record cannot mismatch — commit it infallibly.
+        self.change_log.record(path, text_delta);
+        Ok(change_set)
+    }
 }
 
 #[cfg(test)]
@@ -649,6 +683,87 @@ mod tests {
             .record_field_change_at("subject", 1, diff("abXc", "abXYc"), [], [])
             .expect("current base");
         assert_eq!(r, 2);
+    }
+
+    /// Whole-document `apply` raises the change log's invalidation floor: a
+    /// position captured at a pre-apply base fails `map_field_pos` closed with
+    /// `StaleRevision` rather than folding through deltas the rewrite obsoleted.
+    #[test]
+    fn apply_invalidates_pre_apply_bases() {
+        use quillmark_richtext::delta::diff;
+
+        let mut session = LiveSession::new(Box::new(WarningHandle {
+            current: Vec::new(),
+            applies: 0,
+        }));
+        session
+            .record_field_delta_at("subject", 0, diff("abc", "abXc"))
+            .unwrap();
+        assert_eq!(session.revision(), 1);
+
+        session.apply(&serde_json::Value::Null).unwrap();
+        assert_eq!(session.revision(), 2);
+
+        let err = session
+            .map_field_pos("subject", 1, 0, Assoc::Before)
+            .unwrap_err();
+        assert_eq!(err.base_revision, 1);
+        assert_eq!(err.oldest_retained, 2);
+    }
+
+    /// The delta-path seam recompiles and records atomically without
+    /// invalidating: the delta lands in the log (a pre-recompile base maps
+    /// forward through it), and a subsequent field delta at the revision the
+    /// seam advanced to still records — no invalidation floor was raised.
+    #[test]
+    fn apply_for_field_delta_records_without_invalidating() {
+        use quillmark_richtext::delta::diff;
+
+        let mut session = LiveSession::new(Box::new(WarningHandle {
+            current: Vec::new(),
+            applies: 0,
+        }));
+        session
+            .apply_for_field_delta(
+                "$body",
+                0,
+                diff("abcdef", "abcXYdef"),
+                &serde_json::Value::Null,
+            )
+            .unwrap();
+        assert_eq!(session.revision(), 1);
+        // The recorded delta composes: a base-0 position folds through it.
+        assert_eq!(
+            session.map_field_pos("$body", 0, 3, Assoc::After).unwrap(),
+            5
+        );
+        // The seam advanced to revision 1 without a floor, so a delta at base 1
+        // still records instead of failing closed.
+        let r = session
+            .record_field_delta_at("$body", 1, diff("abcXYdef", "abcZdef"))
+            .unwrap();
+        assert_eq!(r, 2);
+    }
+
+    /// A stale base to the delta-path seam is rejected before recompiling: the
+    /// `session::revision_mismatch` guard fires, the revision does not advance,
+    /// and (per `WarningHandle`) no recompile ran.
+    #[test]
+    fn apply_for_field_delta_guards_base_revision() {
+        use quillmark_richtext::delta::diff;
+
+        let mut session = LiveSession::new(Box::new(WarningHandle {
+            current: Vec::new(),
+            applies: 0,
+        }));
+        let err = session
+            .apply_for_field_delta("$body", 5, diff("a", "b"), &serde_json::Value::Null)
+            .unwrap_err();
+        assert_eq!(
+            err.diagnostics()[0].code.as_deref(),
+            Some("session::revision_mismatch")
+        );
+        assert_eq!(session.revision(), 0);
     }
 
     #[test]

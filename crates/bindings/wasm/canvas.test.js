@@ -468,6 +468,49 @@ describe('LiveSession revision stamp + applyFieldDelta (PR-F/PR-G)', () => {
     session.free()
   })
 
+  it('leaves the body and revision untouched when the splice fails, and a retry is identical', () => {
+    const { engine, quill } = openQuill()
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const session = engine.open(quill, doc)
+
+    // U+FFFC is the island-slot sentinel: a text splice may not insert one
+    // (islands are minted through their own channel), so the corpus splice
+    // rejects before mutating. The delta-path recompile never runs, so `doc`
+    // and the revision stay exactly as they were — the transactional invariant.
+    const islandSlot = { ops: [{ insert: '￼' }] }
+    const bodyBefore = doc.main.bodyMarkdown
+    expect(session.revision).toBe(0)
+
+    let first
+    try {
+      session.applyFieldDelta(doc, '$body', 0, islandSlot)
+    } catch (e) {
+      first = e
+    }
+    expect(first).toBeTruthy()
+    expect(doc.main.bodyMarkdown).toBe(bodyBefore)
+    expect(session.revision).toBe(0)
+
+    // The failure left no partial state, so the natural retry with the same
+    // arguments behaves identically rather than double-applying or drifting.
+    let second
+    try {
+      session.applyFieldDelta(doc, '$body', 0, islandSlot)
+    } catch (e) {
+      second = e
+    }
+    expect(second).toBeTruthy()
+    expect(doc.main.bodyMarkdown).toBe(bodyBefore)
+    expect(session.revision).toBe(0)
+
+    // And the session still commits a valid edit afterward: the failed call
+    // did not wedge the change log.
+    session.applyFieldDelta(doc, '$body', 0, prepend('OK '))
+    expect(session.revision).toBe(1)
+    expect(doc.main.bodyMarkdown).toContain('OK')
+    session.free()
+  })
+
   it('rejects a non-body field as a delta-path target', () => {
     const { engine, quill } = openQuill()
     const doc = Document.fromMarkdown(TEST_MARKDOWN)

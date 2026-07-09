@@ -1559,8 +1559,12 @@ impl LiveSession {
             return Err(edit_error_to_js(&e));
         }
 
-        // Recompile from the mutated document, transactional on the compile —
-        // and, via the snapshot above, on `doc` itself.
+        // Recompile from the mutated document and record the delta atomically,
+        // transactional on the compile — and, via the snapshot above, on `doc`
+        // itself. The seam recompiles *without* invalidating the change log
+        // (unlike whole-document `apply`) and records the delta against the
+        // guarded base in one step: the revision advances to `base_revision + 1`
+        // in lockstep with the preview, or nothing changes and `doc` rolls back.
         let recompiled = self
             .config
             .check_quill_reference(&doc.inner)
@@ -1572,7 +1576,12 @@ impl LiveSession {
             })
             .and_then(|json_data| {
                 self.inner
-                    .apply(&json_data)
+                    .apply_for_field_delta(
+                        field.to_string(),
+                        base_revision as u64,
+                        core_delta,
+                        &json_data,
+                    )
                     .map_err(|e| WasmError::from(e).to_js_value())
             });
         let cs = match recompiled {
@@ -1582,19 +1591,6 @@ impl LiveSession {
                 return Err(e);
             }
         };
-
-        // Commit into the change log only after a successful recompile, so the
-        // revision advances in lockstep with the live preview. Checked against
-        // `base_revision` like every other recording path — no unchecked
-        // bypass of the guard already enforced above.
-        self.inner
-            .record_field_delta_at(field.to_string(), base_revision as u64, core_delta)
-            .map_err(|d| {
-                WasmError {
-                    diagnostics: vec![d],
-                }
-                .to_js_value()
-            })?;
 
         Ok(ChangeSet {
             page_count: cs.page_count,
