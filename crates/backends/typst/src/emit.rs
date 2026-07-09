@@ -29,6 +29,13 @@
 //! - **Block quotes render** — the one intentional divergence from the prior
 //!   markdown lowering, which flattened them: `Container::Quote` →
 //!   `#quote(block: true)[…]` (a superset behavior, landed as a tested decision).
+//! - **Line-anchored text.** [`escape_markup`] neutralizes inline markup but is
+//!   position-blind; Typst's heading `= `, list `- `/`+ `/`N. `, and term `/ `
+//!   are line-anchored — only special as the first token of a source line. A
+//!   paragraph (or quote/list-item body) whose text opens with one lands at
+//!   column 0 and would render as that block, so [`emit_inline`] prefixes a
+//!   single `\` there ([`opens_line_anchor`]). Styling-only: `#`, `[`, `$` are
+//!   already escaped, so nothing here is a code-execution vector.
 //!
 //! ## The 2→4 escape coupling
 //!
@@ -85,6 +92,29 @@ pub fn escape_string(s: &str) -> String {
         }
     }
     out
+}
+
+/// Does `s` open a **line-anchored** Typst block — one only special as the first
+/// token of a source line? Heading `= ` (one or more `=` then space), bullet
+/// `- `, enum `+ ` or `N. ` (ASCII digits then `.` then space), term `/ `. A
+/// paragraph whose text starts with one of these, emitted at column 0, would
+/// render as that block instead of literal text ([`emit_inline`] escapes it).
+/// The trailing space is required — `=foo`, `-5`, `and/or`, `1.item` are inert,
+/// so this leaves ordinary prose untouched.
+fn opens_line_anchor(s: &str) -> bool {
+    let b = s.as_bytes();
+    match b.first().copied() {
+        Some(b'=') => {
+            let n = b.iter().take_while(|&&c| c == b'=').count();
+            b.get(n) == Some(&b' ')
+        }
+        Some(b'-') | Some(b'+') | Some(b'/') => b.get(1) == Some(&b' '),
+        Some(c) if c.is_ascii_digit() => {
+            let n = b.iter().take_while(|&&c| c.is_ascii_digit()).count();
+            b.get(n) == Some(&b'.') && b.get(n + 1) == Some(&b' ')
+        }
+        _ => false,
+    }
 }
 
 /// The escape discipline a text run was generated under — the recomputation key
@@ -148,6 +178,13 @@ fn gen_cluster(gen: &str, i: usize, ctx: EscapeCtx) -> (usize, usize) {
 /// start. A `target` inside a multi-byte cluster (an escape, the `//` coupling,
 /// a wide UTF-8 char) floors to that cluster's first corpus char, matching how
 /// `glyph.span.1` is computed once per shaped cluster.
+///
+/// "Cluster" here is the escape/USV cluster, not the Unicode grapheme cluster:
+/// the floor is per Unicode scalar value, so a caret can in principle resolve
+/// *between* a base character and a following combining mark. This is the
+/// model's granularity — the corpus indexes USV offsets throughout — so the
+/// navigation API is USV-exact, not grapheme-exact, by design; consumers place
+/// carets on scalar boundaries.
 pub(crate) fn invert_gen_offset(gen: &str, ctx: EscapeCtx, target: usize) -> usize {
     let (mut byte, mut corpus) = (0usize, 0usize);
     while byte < gen.len() {
@@ -639,6 +676,13 @@ impl<'a> Emit<'a> {
         // owns the segment-specific bits: `#linebreak()`, island slots, atomic
         // `#raw(...)` code, and escaped plain runs (recorded).
         let base = self.out.len();
+        // Whether this segment's markup opens at column 0 of a generated source
+        // line — the only place Typst's line-anchored syntax (heading `= `, list
+        // `- `/`+ `/`N. `, term `/ `) is active. True for a paragraph/island
+        // (preceded by `\n\n`, or the very first block) and a quote/list-item
+        // body's first line (preceded by `[\n`/`\n` + indent); false for heading
+        // content (preceded by its `= ` marker) and any run after inline markup.
+        let at_col0 = self.out.trim_end_matches([' ', '\t']).ends_with('\n') || self.out.is_empty();
         let mut buf = String::new();
         sweep_marks(lo, hi, &wraps, &mut buf, |buf, pos| {
             let c = self.chars[pos];
@@ -664,6 +708,16 @@ impl<'a> Emit<'a> {
             // Plain text run up to the next boundary.
             let re = next_boundary(pos, hi, &self.chars, &wraps, &codes);
             let content: String = self.chars[pos..re].iter().collect();
+            // A run landing at column 0 whose text opens a line-anchored token
+            // renders as that block, not literal text. Neutralize with one `\`
+            // — a valid escape for every trigger char, verified to render the
+            // exact literal — emitted *outside* the run's `gen` window, so
+            // `gen == escape_markup(corpus)` (and the escape-scan) stay exact.
+            // `buf.is_empty()` gates to the segment's first content: any wrap
+            // (`#strong[`) already opened here would put the token mid-line.
+            if at_col0 && buf.is_empty() && opens_line_anchor(&content) {
+                buf.push('\\');
+            }
             let rg0 = base + buf.len();
             buf.push_str(&escape_markup(&content));
             let rg1 = base + buf.len();
@@ -1619,5 +1673,68 @@ mod tests {
         assert_eq!(emit("```\nl1\nl2\nl3\n```").segments.len(), 1, "code fence");
         // A three-item list is three segments (one per item paragraph).
         assert_eq!(emit("- a\n- b\n- c").segments.len(), 3);
+    }
+
+    /// The line-anchor predicate: a trailing space is required, so the trigger
+    /// set is narrow and ordinary prose is untouched.
+    #[test]
+    fn line_anchor_predicate() {
+        for yes in ["= h", "== h", "- b", "+ n", "/ term: d", "1. i", "42. i"] {
+            assert!(opens_line_anchor(yes), "{yes:?} should trigger");
+        }
+        for no in [
+            "=foo", "==foo", "-5 degrees", "and/or", "1.item", "1) i", "hi", "", " = x",
+        ] {
+            assert!(!opens_line_anchor(no), "{no:?} should not trigger");
+        }
+    }
+
+    /// A paragraph whose text opens with a line-anchored token gets a single `\`
+    /// at column 0; the source map stays exact because the `\` sits *outside*
+    /// every run's `gen` window, so each run still slices to `escape_markup` of
+    /// its corpus. A wrap opening at the start (`#strong[…]`) puts the token
+    /// mid-line, so no `\` is added there.
+    #[test]
+    fn line_anchor_paragraph_prefixes_backslash() {
+        // Bare paragraph starts → escaped.
+        assert_eq!(emit_marked("= x", vec![]), "\\= x\n\n");
+        assert_eq!(emit_marked("- x", vec![]), "\\- x\n\n");
+        assert_eq!(emit_marked("+ x", vec![]), "\\+ x\n\n");
+        assert_eq!(emit_marked("/ t: d", vec![]), "\\/ t: d\n\n");
+        assert_eq!(emit_marked("1. x", vec![]), "\\1. x\n\n");
+        // Non-trigger prose is untouched.
+        assert_eq!(emit_marked("hello = x", vec![]), "hello = x\n\n");
+        assert_eq!(emit_marked("=x no space", vec![]), "=x no space\n\n");
+        // A wrap at the start neutralizes the line-anchor already → no `\`.
+        assert_eq!(
+            emit_marked(
+                "= x",
+                vec![Mark { start: 0, end: 3, kind: MarkKind::Strong }],
+            ),
+            "#strong[= x]\n\n",
+        );
+
+        // Source-map integrity: every run's generated slice equals the escape of
+        // its corpus, and the leading `\` is not inside any run.
+        use quillmark_richtext::model::Line;
+        let mut rt = RichText {
+            text: "= x".to_string(),
+            lines: vec![Line { kind: LineKind::Para, containers: vec![], continues: false }],
+            marks: vec![],
+            islands: vec![],
+        };
+        rt.normalize();
+        let ec = emit_richtext(&rt).unwrap();
+        let chars: Vec<char> = rt.text.chars().collect();
+        for seg in &ec.segments {
+            for (corpus, gen, ctx) in &seg.runs {
+                let src: String = chars[corpus.clone()].iter().collect();
+                let expect = match ctx {
+                    EscapeCtx::Markup => escape_markup(&src),
+                    EscapeCtx::StringLit => escape_string(&src),
+                };
+                assert_eq!(&ec.markup[gen.clone()], expect, "run slices to its escape");
+            }
+        }
     }
 }

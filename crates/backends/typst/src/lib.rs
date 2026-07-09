@@ -865,6 +865,72 @@ mod tests {
         );
     }
 
+    /// A paragraph whose text opens with a line-anchored Typst token (`= `, `- `,
+    /// `+ `, `N. `, `/ `) must render as literal text, not a heading/list/term.
+    /// The emitter prefixes a `\` at column 0; this compiles the corpus and asks
+    /// Typst's introspector how many of each block it actually produced — the
+    /// end-to-end teeth behind `emit::opens_line_anchor`, run against the real
+    /// Typst grammar so a future Typst version that changes line-anchoring fails
+    /// loud here.
+    #[test]
+    fn line_anchored_paragraph_text_stays_literal() {
+        use quillmark_core::FileTreeNode;
+        use typst::foundations::{NativeElement, Selector};
+        use typst::introspection::Introspector;
+        use typst::model::{EnumElem, HeadingElem, ListElem, TermsElem};
+
+        const PLATE: &str = r#"#import "@local/quillmark-helper:0.1.0": data
+#set page(width: 300pt, height: 400pt, margin: 20pt)
+#set text(size: 11pt)
+#data.body
+"#;
+        let quill = || {
+            let yaml = "quill:\n  name: anchor\n  version: 0.1.0\n  backend: typst\n  description: line-anchor guard\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    body:\n      type: richtext\n      description: body\n";
+            let mut files = HashMap::new();
+            files.insert(
+                "Quill.yaml".to_string(),
+                FileTreeNode::File { contents: yaml.as_bytes().to_vec() },
+            );
+            files.insert(
+                "plate.typ".to_string(),
+                FileTreeNode::File { contents: PLATE.as_bytes().to_vec() },
+            );
+            Quill::from_tree(FileTreeNode::Directory { files }).expect("quill")
+        };
+        // Build the corpus as `Para` lines directly — an editor can place a
+        // paragraph whose literal text opens with any of these tokens (markdown
+        // import would instead parse `- `/`+ `/`N. ` as real lists, which is not
+        // the bug). Each line is its own paragraph, so each starts at column 0.
+        use quillmark_richtext::model::{Line, LineKind, RichText};
+        let para = |_: usize| Line { kind: LineKind::Para, containers: vec![], continues: false };
+        let mut rt = RichText {
+            text: "= Heading\n- bullet\n+ numbered\n1. dotted\n/ term: desc".to_string(),
+            lines: (0..5).map(para).collect(),
+            marks: vec![],
+            islands: vec![],
+        };
+        rt.normalize();
+        assert_eq!(rt.validate(), Ok(()), "corpus invariants");
+        let q = quill();
+        let json =
+            serde_json::json!({ "body": quillmark_richtext::serial::to_canonical_value(&rt) });
+        let plate_content = read_plate(&q).expect("plate");
+        let transform_schema = build_transform_schema(q.config());
+        let schema_meta = SchemaMeta::from_schema_json(transform_schema.as_json());
+        let data = transformed_data(&schema_meta, &json).expect("data");
+        let (world, _w) =
+            world::QuillWorld::new_with_data(&q, &plate_content, &data, &schema_meta)
+                .expect("world");
+        let (document, _warn) = compile::compile_document(&world).expect("compile");
+
+        let intro = document.introspector();
+        let count = |e| intro.query(&Selector::Elem(e, None)).len();
+        assert_eq!(count(<HeadingElem as NativeElement>::ELEM), 0, "no heading");
+        assert_eq!(count(<ListElem as NativeElement>::ELEM), 0, "no bullet list");
+        assert_eq!(count(<EnumElem as NativeElement>::ELEM), 0, "no enum");
+        assert_eq!(count(<TermsElem as NativeElement>::ELEM), 0, "no term list");
+    }
+
     #[test]
     fn test_is_richtext_field() {
         let richtext_schema = json!({
