@@ -1537,8 +1537,10 @@ impl LiveSession {
     /// the mechanism that keeps a form caret or highlight anchored across
     /// edits. `assoc` (`"before"` | `"after"`) picks the side of a
     /// same-position insertion (`"after"` moves past inserted text). Throws
-    /// `session::stale_revision` when `baseRevision` predates the bounded change
-    /// log (the consumer must re-read at the current `revision`).
+    /// `session::stale_revision` when `baseRevision` cannot be mapped forward:
+    /// either it predates the bounded change log (evicted), or it is a future
+    /// revision the session never reached — either way the consumer must
+    /// re-read at the current `revision`.
     #[wasm_bindgen(js_name = mapFieldPos)]
     pub fn map_field_pos(
         &self,
@@ -1560,14 +1562,23 @@ impl LiveSession {
         self.inner
             .map_field_pos(field, base_revision as u64, pos, assoc)
             .map_err(|stale| {
+                let detail = if stale.base_revision > self.inner.revision() {
+                    format!(
+                        "position captured at revision {} is ahead of the session's current \
+                         revision {}; re-read at the current revision",
+                        stale.base_revision, stale.oldest_retained
+                    )
+                } else {
+                    format!(
+                        "position captured at revision {} predates the change log \
+                         (oldest retained {}); re-read at the current revision",
+                        stale.base_revision, stale.oldest_retained
+                    )
+                };
                 WasmError {
                     diagnostics: vec![quillmark_core::Diagnostic::new(
                         quillmark_core::Severity::Error,
-                        format!(
-                            "position captured at revision {} predates the change log \
-                             (oldest retained {}); re-read at the current revision",
-                            stale.base_revision, stale.oldest_retained
-                        ),
+                        detail,
                     )
                     .with_code("session::stale_revision".to_string())],
                 }
