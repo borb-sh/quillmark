@@ -19,7 +19,7 @@ use quillmark_richtext::export::to_markdown;
 use quillmark_richtext::import::from_markdown;
 use quillmark_richtext::model::{Mark, MarkKind};
 use quillmark_richtext::usv::{char_to_utf16, utf16_to_char};
-use quillmark_richtext::RichText;
+use quillmark_richtext::{Delta, LineKind, LineOp, MarkOp, Op, RichText};
 
 // ---------------------------------------------------------------------------
 // A constrained markdown generator: combinations of the phase-1 constructs,
@@ -184,6 +184,113 @@ proptest! {
         let u_before = char_to_utf16(&s, emoji_char);
         // u_before + 1 lands mid-pair.
         prop_assert_eq!(utf16_to_char(&s, u_before + 1), emoji_char);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Edit-channel invariant properties (issue #847): the three apply channels
+// preserve `validate()`. The corpus arriving at a channel is valid; a
+// successful apply must leave it valid. For `apply_text_delta` this includes
+// cascading island removal when a slot char is deleted (islands.len() stays in
+// sync with the slot count) and rejecting a raw slot insert.
+// ---------------------------------------------------------------------------
+
+/// `Op::Retain(n)`, or nothing when `n == 0` (no empty retains in the script).
+fn retain(n: usize) -> Vec<Op> {
+    if n == 0 {
+        vec![]
+    } else {
+        vec![Op::Retain(n)]
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(400))]
+
+    /// `apply_text_delta` preserves `validate()` for a text-channel edit
+    /// (insert clean text — including `\n` — or delete a range). A deletion can
+    /// span an island slot; the cascade must drop the backing island so the
+    /// slot/island counts stay in sync (the #847 corruption, now caught here).
+    /// Inserted text excludes U+FFFC, `\r`, and bidi controls — a real editor
+    /// never types them through this channel, and a raw slot insert is rejected.
+    #[test]
+    fn apply_text_delta_preserves_validate(
+        md in document(),
+        ins in "[a-z0-9 \n]{0,10}",
+        pos_seed in 0usize..4096,
+        del_seed in 0usize..4096,
+        is_delete in any::<bool>(),
+    ) {
+        let mut rt = from_markdown(&md).unwrap();
+        prop_assert_eq!(rt.validate(), Ok(()), "import invalid for {:?}", md);
+        let len = rt.len_usv();
+        let pos = pos_seed % (len + 1);
+        let delta = if is_delete {
+            let k = del_seed % (len - pos + 1);
+            let ops = retain(pos)
+                .into_iter()
+                .chain(std::iter::once(Op::Delete(k)))
+                .chain(retain(len - pos - k))
+                .collect();
+            Delta { ops }
+        } else {
+            let ops = retain(pos)
+                .into_iter()
+                .chain(std::iter::once(Op::Insert(ins.clone())))
+                .chain(retain(len - pos))
+                .collect();
+            Delta { ops }
+        };
+        if rt.apply_text_delta(&delta).is_ok() {
+            prop_assert_eq!(rt.validate(), Ok(()), "text delta broke an invariant");
+        }
+    }
+
+    /// `apply_mark_ops` preserves `validate()`: an accepted Add over a clamped
+    /// range leaves the corpus valid (normalization trims edges / drops
+    /// zero-width).
+    #[test]
+    fn apply_mark_ops_preserves_validate(
+        md in document(),
+        s_seed in 0usize..4096,
+        e_seed in 0usize..4096,
+    ) {
+        let mut rt = from_markdown(&md).unwrap();
+        let len = rt.len_usv();
+        let a = s_seed % (len + 1);
+        let b = e_seed % (len + 1);
+        let op = MarkOp::Add { start: a.min(b), end: a.max(b), kind: MarkKind::Strong };
+        if rt.apply_mark_ops(&[op]).is_ok() {
+            prop_assert_eq!(rt.validate(), Ok(()), "mark op broke an invariant");
+        }
+    }
+
+    /// `apply_line_ops` preserves the structural invariants (line/segment sync
+    /// and island/slot sync) across an accepted split/join/set-kind. Marks are
+    /// cleared first: a split/join splices `\n` without rebasing marks (mark
+    /// rebasing rides the text-delta channel, per the `ops` module docs), so
+    /// asserting mark-range preservation here would test a guarantee this
+    /// channel does not make. Splicing `\n` never adds or removes a slot, so
+    /// island sync is a genuine post-condition to check.
+    #[test]
+    fn apply_line_ops_preserves_validate(
+        md in document(),
+        pos_seed in 0usize..4096,
+        line_seed in 0usize..64,
+        which in 0u8..3,
+    ) {
+        let mut rt = from_markdown(&md).unwrap();
+        rt.marks.clear();
+        let len = rt.len_usv();
+        let nlines = rt.lines.len().max(1);
+        let op = match which {
+            0 => LineOp::Split { at: pos_seed % (len + 1) },
+            1 => LineOp::Join { line: line_seed % nlines },
+            _ => LineOp::SetKind { line: line_seed % nlines, kind: LineKind::Heading { level: 2 } },
+        };
+        if rt.apply_line_ops(&[op]).is_ok() {
+            prop_assert_eq!(rt.validate(), Ok(()), "line op broke an invariant");
+        }
     }
 }
 
