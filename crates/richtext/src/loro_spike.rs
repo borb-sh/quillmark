@@ -22,6 +22,8 @@
 //!    solves) and that the result normalizes/validates identically to the
 //!    existing markdown-import path for equivalent content.
 
+#![cfg(test)]
+
 use crate::model::{Line, LineKind, Mark, MarkKind, RichText};
 use loro::{ExpandType, ExportMode, LoroDoc, StyleConfig, StyleConfigMap, TextDelta};
 
