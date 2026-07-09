@@ -232,8 +232,8 @@ const CHAR_DIFF_LIMIT: usize = 5_000;
 /// Single-line text diffs at char granularity; multi-line text diffs at line
 /// granularity so a paragraph reorder surfaces as whole-line insert spans the
 /// move detector can match (char Myers fragments reordered blocks). Above
-/// [`CHAR_DIFF_LIMIT`] chars, the single-line path skips Myers entirely and
-/// uses [`coarse_replace`] instead.
+/// `CHAR_DIFF_LIMIT` chars, the single-line path skips Myers entirely and
+/// uses `coarse_replace` instead.
 pub fn diff(base: &str, new: &str) -> Delta {
     let multiline = base.contains('\n') || new.contains('\n');
     if !multiline

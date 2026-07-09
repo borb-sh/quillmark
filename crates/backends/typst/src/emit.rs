@@ -29,13 +29,13 @@
 //! - **Block quotes render** — the one intentional divergence from the prior
 //!   markdown lowering, which flattened them: `Container::Quote` →
 //!   `#quote(block: true)[…]` (a superset behavior, landed as a tested decision).
-//! - **Line-anchored text.** [`escape_markup`] neutralizes inline markup but is
-//!   position-blind; Typst's heading `= `, list `- `/`+ `/`N. `, and term `/ `
-//!   are line-anchored — only special as the first token of a source line. A
-//!   paragraph (or quote/list-item body) whose text opens with one lands at
-//!   column 0 and would render as that block, so [`emit_inline`] prefixes a
-//!   single `\` there ([`opens_line_anchor`]). Styling-only: `#`, `[`, `$` are
-//!   already escaped, so nothing here is a code-execution vector.
+//! - **Line-anchored text.** [`escape_markup`](crate::emit::escape_markup)
+//!   neutralizes inline markup but is position-blind; Typst's heading `= `, list
+//!   `- `/`+ `/`N. `, and term `/ ` are line-anchored — only special as the
+//!   first token of a source line. A paragraph (or quote/list-item body) whose
+//!   text opens with one lands at column 0 and would render as that block, so
+//!   the emitter prefixes a single `\` there (`opens_line_anchor`). Styling-only:
+//!   `#`, `[`, `$` are already escaped, so nothing here is a code-execution vector.
 //!
 //! ## The 2→4 escape coupling
 //!
