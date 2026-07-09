@@ -264,6 +264,7 @@ fn emit_leaf_block(ctx: &Ctx, range: std::ops::Range<usize>, out: &mut String) {
             let parts: Vec<String> = range.map(|i| render_inline(ctx, i, true)).collect();
             out.push_str(&parts.join("\\\n"));
         }
+        LineKind::Rule => out.push_str("---"),
     }
 }
 
@@ -808,6 +809,22 @@ mod tests {
     #[test]
     fn table() {
         round_trips("| a | b |\n| --- | --- |\n| 1 | 2 |");
+    }
+
+    #[test]
+    fn thematic_break() {
+        round_trips("one\n\n***\n\ntwo");
+    }
+
+    #[test]
+    fn thematic_break_canonicalizes_to_dashes() {
+        // `***`/`___` and `---` all import to the same `Rule` line, so export
+        // re-emits the canonical `---` whatever the source delimiter was.
+        for src in ["***", "___", "- - -"] {
+            let rt = from_markdown(&format!("one\n\n{src}\n\ntwo")).unwrap();
+            let md = to_markdown(&rt);
+            assert!(md.contains("\n\n---\n\n"), "source: {src}, got: {md:?}");
+        }
     }
 
     #[test]

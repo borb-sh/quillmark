@@ -535,6 +535,16 @@ impl<'a> Emit<'a> {
                     runs,
                 });
             }
+            LineKind::Rule => {
+                let g0 = self.out.len();
+                self.out.push_str("#line(length: 100%)");
+                let g1 = self.out.len();
+                self.segments.push(SegmentMap {
+                    corpus: lo..hi,
+                    gen: g0..g1,
+                    runs: Vec::new(),
+                });
+            }
         }
         self.end_newline = false;
     }
@@ -1043,6 +1053,10 @@ mod tests {
             "Hello~World",
             "Use path/to/file for the file",
             "Path: C:\\\\Users\\\\file",
+            // thematic breaks
+            "one\n\n---\n\ntwo",
+            "one\n\n***\n\ntwo",
+            "one\n\n___\n\ntwo",
             // lists
             "- Item 1\n- Item 2\n- Item 3",
             "1. First\n2. Second\n3. Third",
@@ -1148,6 +1162,19 @@ mod tests {
         let out = emit("> one\n>\n> two").markup;
         assert!(out.contains("#quote(block: true)["));
         assert!(out.contains("one") && out.contains("two"));
+    }
+
+    // ---- thematic breaks ----
+
+    #[test]
+    fn thematic_break_renders_line() {
+        for src in ["---", "***", "___"] {
+            let out = emit(&format!("one\n\n{src}\n\ntwo")).markup;
+            assert_eq!(
+                out, "one\n\n#line(length: 100%)\n\ntwo\n\n",
+                "source: {src}, got {out:?}"
+            );
+        }
     }
 
     // ---- structured table cells (Option A) ----
