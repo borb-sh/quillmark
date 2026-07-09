@@ -38,6 +38,8 @@ pub mod change_log;
 pub mod delta;
 pub mod export;
 pub mod import;
+#[cfg(feature = "loro")]
+mod loro_spike;
 pub mod model;
 pub mod normalize;
 pub mod ops;

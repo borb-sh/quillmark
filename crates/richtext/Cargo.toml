@@ -22,7 +22,11 @@ unicode-normalization = { workspace = true }
 # for a CommonMark parser; render paths consume the corpus, never markdown.
 pulldown-cmark = { workspace = true }
 similar = { workspace = true }
+loro = { version = "1.13.6", optional = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
 quillmark-fixtures = { workspace = true }
+
+[features]
+loro = ["dep:loro"]
