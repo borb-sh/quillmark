@@ -42,6 +42,11 @@ pub struct ChangeLog {
     capacity: usize,
     revision: u64,
     entries: VecDeque<FieldChange>,
+    /// Invalidation floor: a `map_pos` against any `base_revision` strictly
+    /// below this fails closed. Raised to the post-bump revision by
+    /// [`invalidate`](Self::invalidate); `0` before any whole-document rewrite
+    /// bypasses the delta protocol.
+    invalidated_below: u64,
 }
 
 impl ChangeLog {
@@ -50,6 +55,7 @@ impl ChangeLog {
             capacity: capacity.max(1),
             revision: 0,
             entries: VecDeque::new(),
+            invalidated_below: 0,
         }
     }
 
@@ -126,6 +132,17 @@ impl ChangeLog {
                 oldest_retained: self.revision,
             });
         }
+        // A whole-document rewrite raised the invalidation floor: every base
+        // below it captured text this log's deltas no longer describe, so
+        // folding them would silently lie. The floor is the oldest base still
+        // mappable — a read taken at it composes identity forward through any
+        // deltas recorded since.
+        if base_revision < self.invalidated_below {
+            return Err(StaleRevision {
+                base_revision,
+                oldest_retained: self.invalidated_below,
+            });
+        }
         if let Some(oldest) = self.oldest_retained() {
             // The fold below needs every entry with revision > base_revision,
             // i.e. starting at `base_revision + 1`. That entry is retained iff
@@ -154,22 +171,17 @@ impl ChangeLog {
     }
 
     /// Invalidate the log for a whole-document rewrite that bypasses the
-    /// delta protocol (`LiveSession::apply`): bump the revision and drop
-    /// every entry, replacing them with one sentinel at the new revision. A
-    /// later `map_pos` call against any base revision recorded before this
-    /// point now fails closed with [`StaleRevision`] instead of silently
-    /// composing through per-field deltas that no longer describe the
-    /// current text. Returns the new revision.
+    /// delta protocol (`LiveSession::apply`): bump the revision, drop every
+    /// entry, and raise the invalidation floor to the new revision. A later
+    /// `map_pos` against any base below the floor fails closed with
+    /// [`StaleRevision`] instead of silently composing through per-field
+    /// deltas that no longer describe the current text; a base at or above the
+    /// floor still maps, folding forward through any deltas recorded after the
+    /// rewrite. Returns the new revision.
     pub fn invalidate(&mut self) -> u64 {
         self.revision = self.revision.saturating_add(1);
         self.entries.clear();
-        self.entries.push_back(FieldChange {
-            revision: self.revision,
-            path: String::new(),
-            text_delta: Delta { ops: Vec::new() },
-            mark_ops: Vec::new(),
-            line_ops: Vec::new(),
-        });
+        self.invalidated_below = self.revision;
         self.revision
     }
 }
@@ -349,6 +361,33 @@ mod tests {
         );
         // ...but a read taken exactly at the new revision still resolves.
         assert_eq!(log.map_pos("f", 3, 5, Assoc::Before).unwrap(), 5);
+    }
+
+    /// Deltas recorded *after* an invalidation fold forward normally from the
+    /// floor revision, while every pre-invalidation base stays stale: the
+    /// floor partitions mappable from unmappable bases, and records past it
+    /// re-arm the delta protocol.
+    #[test]
+    fn map_pos_after_invalidate_maps_from_floor() {
+        let mut log = ChangeLog::with_default_capacity();
+        log.record("f", diff("a", "b")); // rev 1
+        log.record("f", diff("b", "c")); // rev 2
+        assert_eq!(log.invalidate(), 3); // floor := 3
+        log.record("f", diff("abcdef", "abcXYdef")); // rev 4, base == floor
+
+        // A read at the floor (rev 3) folds through the rev-4 insert…
+        assert_eq!(log.map_pos("f", 3, 3, Assoc::After).unwrap(), 5);
+        // …and a read at rev 4 is current, so identity.
+        assert_eq!(log.map_pos("f", 4, 3, Assoc::Before).unwrap(), 3);
+        // But every pre-invalidation base is still stale against the floor,
+        // even though its needed entry was never in the ring.
+        assert_eq!(
+            log.map_pos("f", 2, 0, Assoc::Before).unwrap_err(),
+            StaleRevision {
+                base_revision: 2,
+                oldest_retained: 3,
+            }
+        );
     }
 
     #[test]
