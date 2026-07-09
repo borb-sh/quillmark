@@ -134,11 +134,6 @@ export interface RenderOptions {
 export interface CorpusHit {
 	field: string;
 	pos: number;
-	/**
-	 * The session {@link LiveSession.revision} this hit was resolved at.
-	 * Stamped only by a live-session read; absent on sessionless paths.
-	 */
-	revision?: number;
 }
 
 export interface FieldRegion {
@@ -155,13 +150,6 @@ export interface FieldRegion {
 	 * segments for the whole-field box.
 	 */
 	span?: [number, number];
-	/**
-	 * The session {@link LiveSession.revision} this geometry was read at, so a
-	 * consumer can {@link LiveSession.mapFieldPos} a captured span forward across
-	 * later edits. Stamped only by a live-session read; absent on the
-	 * sessionless {@link RenderResult.regions} sidecar.
-	 */
-	revision?: number;
 }
 
 /** Canonical contract every backend build must satisfy. Result of one render. */

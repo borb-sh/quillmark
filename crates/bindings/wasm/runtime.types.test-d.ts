@@ -106,7 +106,13 @@ const artifactKeys: KeysEqual<CanonicalArtifact, TypstArtifact> = true;
 const pageSizeKeys: KeysEqual<CanonicalPageSize, TypstPageSize> = true;
 const paintOptionsKeys: KeysEqual<CanonicalPaintOptions, TypstPaintOptions> = true;
 const paintResultKeys: KeysEqual<CanonicalPaintResult, TypstPaintResult> = true;
-const fieldRegionKeys: KeysEqual<CanonicalFieldRegion, TypstFieldRegion> = true;
+// `revision` is a deliberately backend-only key: the Typst build stamps it on
+// region reads (scaffolding for the not-yet-forwarded delta API — see
+// `prose/plans/richtext/phase-3.md`), but the canonical public type omits it
+// until `applyFieldDelta`/`revision`/`mapFieldPos` are reachable through
+// `runtime.js` (#850). `Omit` encodes that single intentional divergence so
+// real drift on every OTHER key still fails the guard.
+const fieldRegionKeys: KeysEqual<CanonicalFieldRegion, Omit<TypstFieldRegion, 'revision'>> = true;
 const changeSetKeys: KeysEqual<CanonicalChangeSet, TypstChangeSet> = true;
 void renderResultKeys;
 void renderOptionsKeys;

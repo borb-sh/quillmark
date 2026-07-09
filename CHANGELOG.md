@@ -8,6 +8,14 @@
 
 ## Unreleased
 
+- fix(wasm): drop the `revision?` field from the public `CorpusHit`/`FieldRegion`
+  types and the broken `{@link LiveSession.mapFieldPos}` / `.revision` references
+  in `runtime.d.ts`. The delta API (`applyFieldDelta`/`revision`/`mapFieldPos`) is
+  not forwarded through `runtime.js`, so no published consumer could reach the
+  methods those fields pointed at, and the stamped `revision` was always `0` on
+  the reachable read paths (whole-doc `apply` is revision-neutral). The public
+  types no longer advertise a capability the shipped `LiveSession` doesn't expose
+  (#850)
 - refactor(core)!: `RenderSession` collapses into `LiveSession` — a persistent,
   incremental compiler that owns preview (#778). Reads (`render`, the canvas
   seam, `regions`) serve the session's current compile; the new transactional
