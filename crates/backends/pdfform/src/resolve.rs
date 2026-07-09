@@ -194,17 +194,11 @@ fn element_text(e: &Value) -> Option<String> {
     }
 }
 
-/// A richtext corpus's plaintext: `RichText.text` with island slots
-/// ([`ISLAND_SLOT`](quillmark_richtext::model::ISLAND_SLOT)) stripped — islands
-/// (tables, images) have no plaintext projection. `None` for a non-corpus object
-/// or an empty result.
+/// A richtext corpus's plaintext, via [`quillmark_richtext::export::to_plaintext`]
+/// (island slots stripped). `None` for a non-corpus object or an empty result.
 fn richtext_plaintext(v: &Value) -> Option<String> {
     let rt = quillmark_richtext::serial::from_canonical_value(v).ok()?;
-    let text: String = rt
-        .text
-        .chars()
-        .filter(|c| *c != quillmark_richtext::model::ISLAND_SLOT)
-        .collect();
+    let text = quillmark_richtext::export::to_plaintext(&rt);
     (!text.is_empty()).then_some(text)
 }
 

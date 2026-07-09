@@ -50,6 +50,15 @@ pub fn to_markdown(rt: &RichText) -> String {
     out
 }
 
+/// Render a corpus to plaintext: [`RichText::text`] with island slots
+/// ([`ISLAND_SLOT`]) removed. The lossy sibling of [`to_markdown`] — it drops
+/// every mark and island (tables, images have no plaintext projection), keeping
+/// only literal text. Callers that want a non-empty result should check for the
+/// empty string themselves.
+pub fn to_plaintext(rt: &RichText) -> String {
+    rt.text.chars().filter(|&c| c != ISLAND_SLOT).collect()
+}
+
 struct Ctx<'a> {
     rt: &'a RichText,
     segments: &'a [Segment],
@@ -725,6 +734,32 @@ mod tests {
             rt, rt2,
             "corpus not a fixed point.\n  in:  {md:?}\n  mid: {md2:?}"
         );
+    }
+
+    /// [`to_plaintext`] keeps literal text, drops marks, and strips island
+    /// slots — the lossy projection pdfform binds to non-content fields.
+    #[test]
+    fn plaintext_drops_marks_and_islands() {
+        // Marks contribute no delimiters to plaintext.
+        let rt = marked(
+            "bold text",
+            vec![Mark { start: 0, end: 4, kind: MarkKind::Strong }],
+        );
+        assert_eq!(to_plaintext(&rt), "bold text");
+        // An island slot in the text is removed.
+        let mut rt = RichText {
+            text: format!("see {ISLAND_SLOT} here"),
+            lines: vec![Line { kind: LineKind::Para, containers: vec![], continues: false }],
+            marks: vec![],
+            islands: vec![Island {
+                id: String::new(),
+                island_type: "image".into(),
+                props: serde_json::Value::Null,
+                loss: Loss::Unrepresentable,
+            }],
+        };
+        rt.normalize();
+        assert_eq!(to_plaintext(&rt), "see  here");
     }
 
     /// A single-paragraph corpus over `text` with hand-placed `marks` — the

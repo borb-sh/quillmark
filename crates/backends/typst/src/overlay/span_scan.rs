@@ -542,6 +542,12 @@ struct GlyphHit {
     page: usize,
     rect: Aabb,
     node: Range<usize>,
+    /// Byte offset within the resolved node, straight from `glyph.span.1` —
+    /// Typst types the intra-node span offset as `u16`, so a single text node
+    /// wider than 64 KiB saturates it. Graceful degrade, not a panic: the offset
+    /// floors to the last representable byte, so a caret in an overlong node
+    /// resolves to the cluster/segment boundary rather than the exact glyph. No
+    /// emitted node approaches this bound (paragraphs split into per-line runs).
     offset: u16,
     window: usize,
     seg: Option<usize>,
