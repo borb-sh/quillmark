@@ -23,6 +23,7 @@ unicode-normalization = { workspace = true }
 pulldown-cmark = { workspace = true }
 similar = { workspace = true }
 loro = { version = "1.13.6", optional = true }
+automerge = { version = "0.10.0", optional = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
@@ -30,3 +31,4 @@ quillmark-fixtures = { workspace = true }
 
 [features]
 loro = ["dep:loro"]
+automerge = ["dep:automerge"]

@@ -34,6 +34,8 @@
 //!   strip, HTML-comment fence repair), applied at the import boundary.
 //! - [`usv`] — coordinate conversions across the UTF-8 / UTF-16 / USV boundary.
 
+#[cfg(feature = "automerge")]
+mod automerge_spike;
 pub mod change_log;
 pub mod delta;
 pub mod export;
