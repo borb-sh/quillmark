@@ -62,12 +62,13 @@ peeks. The shared `strong_or_underline` helper already narrows the drift but not
 the altitude — the distinction is still recovered from source bytes rather than
 carried.
 
-### serial.rs:115 — `to_canonical_value` builds the JSON tree twice
+### serial.rs:115 — `to_canonical_value` still clones + normalizes unconditionally
 
-It constructs via `to_value()` then rebuilds the whole tree with
-`sorted_value(...)`, and always clones + normalizes the corpus even when the
-caller (live `Document` bodies, invariantly normalized) is already canonical.
-Fix: emit the top-level keys and mark/line/island maps in sorted order
-directly (props/attrs are already key-sorted by `normalize`), and/or a
-no-clone path for known-normalized values. Interacts with the seam round-trips
-(see `seams.md`).
+The double **tree** build is gone: `to_canonical_value` now finishes with
+`sort_keys_owned(rt.to_value())`, which reorders keys by moving each entry
+rather than deep-cloning every leaf (the `text` string, mark attrs, arrays)
+like `sorted_value` did. Remaining: it still `clone()`s + `normalize()`s the
+corpus even when the caller (live `Document` bodies, invariantly normalized)
+is already canonical. Fix: a no-clone path for known-normalized values —
+interacts with the seam round-trips (see `seams.md`), so it lands with that
+work.

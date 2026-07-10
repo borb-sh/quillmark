@@ -231,7 +231,9 @@ pub(crate) fn canonical_json_string(v: &JsonValue) -> String {
 
 /// Rebuild `v` with every object's keys sorted, recursively. Pins island
 /// `props` (and unknown-mark attrs) against `preserve_order` leaking insertion
-/// order into the canonical bytes / content hash (Spike C carry-forward).
+/// order into the canonical bytes / content hash (Spike C carry-forward). For
+/// an owned tree, prefer [`sort_keys_owned`] — it reorders in place without
+/// cloning the leaves.
 pub(crate) fn sorted_value(v: &JsonValue) -> JsonValue {
     match v {
         JsonValue::Array(items) => JsonValue::Array(items.iter().map(sorted_value).collect()),
@@ -245,6 +247,32 @@ pub(crate) fn sorted_value(v: &JsonValue) -> JsonValue {
             JsonValue::Object(out)
         }
         other => other.clone(),
+    }
+}
+
+/// The owned twin of [`sorted_value`]: reorder every object's keys by **moving**
+/// each entry into a freshly key-sorted map, recursively. Same canonical result
+/// — the fixed struct keys land alphabetically and any already-sorted `props`/
+/// `attrs` re-sort to themselves — but the leaves (the `text` string, mark
+/// attrs, arrays) are moved rather than deep-cloned, so a tree built once by
+/// `to_value` is canonicalized without a second full clone. Re-sorting a new
+/// `serde_json::Map` (not sorting in place) keeps this independent of whether
+/// `serde_json`'s `preserve_order` feature is on in the crate graph.
+pub(crate) fn sort_keys_owned(v: JsonValue) -> JsonValue {
+    match v {
+        JsonValue::Array(items) => {
+            JsonValue::Array(items.into_iter().map(sort_keys_owned).collect())
+        }
+        JsonValue::Object(map) => {
+            let mut entries: Vec<(String, JsonValue)> = map.into_iter().collect();
+            entries.sort_by(|a, b| a.0.cmp(&b.0));
+            let mut out = serde_json::Map::with_capacity(entries.len());
+            for (k, child) in entries {
+                out.insert(k, sort_keys_owned(child));
+            }
+            JsonValue::Object(out)
+        }
+        other => other,
     }
 }
 

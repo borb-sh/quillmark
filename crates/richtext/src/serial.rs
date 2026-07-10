@@ -12,7 +12,8 @@
 //! canonical form — one serializer, not two to keep aligned.
 
 use crate::model::{
-    sorted_value, Container, Island, Line, LineKind, Loss, Mark, MarkKind, RichText,
+    sort_keys_owned, sorted_value, Container, Island, Line, LineKind, Loss, Mark, MarkKind,
+    RichText,
 };
 use serde_json::{Map, Value};
 
@@ -115,7 +116,7 @@ impl RichText {
 pub fn to_canonical_value(rt: &RichText) -> Value {
     let mut rt = rt.clone();
     rt.normalize();
-    sorted_value(&rt.to_value())
+    sort_keys_owned(rt.to_value())
 }
 
 /// Parse the canonical richtext form from a structural [`Value`], normalize
