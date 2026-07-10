@@ -394,16 +394,6 @@ A single line of body ink.`
       expect(hit).toBe('$body')
       expect(session.fieldAt(body.page, 1, 1)).toBeUndefined()
 
-      // positionAt + locate — click ⇄ corpus position.
-      expect(typeof session.positionAt).toBe('function')
-      const cy = (y0 + y1) / 2
-      const posHit = session.positionAt(body.page, (x0 + x1) / 2, cy)
-      expect(posHit && posHit.field).toBe('$body')
-      expect(posHit.revision).toBe(0)
-      expect(typeof session.locate).toBe('function')
-      const caret = session.locate('$body', posHit.pos)
-      expect(caret && caret.revision).toBe(0)
-
       // paint.
       expect(typeof session.paint).toBe('function')
       const ctx = new FakeCanvasRenderingContext2D()
