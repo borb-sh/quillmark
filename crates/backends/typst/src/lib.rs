@@ -1030,6 +1030,50 @@ mod tests {
         );
     }
 
+    /// End-to-end teeth for #873: a plate imports `plaintext` and uses a content
+    /// field as a **string** — `type(plaintext("subject")) == str` and a string
+    /// op (`upper`) on it — where `data.subject` is Typst `content` that would
+    /// fail those. Compiles against real Typst, so a helper whose `plaintext`
+    /// returned content (or errored) fails here.
+    #[test]
+    fn plate_uses_plaintext_projection_as_string() {
+        use quillmark_core::FileTreeNode;
+
+        const PLATE: &str = r#"#import "@local/quillmark-helper:0.1.0": data, plaintext
+#set page(width: 300pt, height: 200pt, margin: 20pt)
+#set text(size: 11pt)
+#assert(type(plaintext("subject")) == str, message: "plaintext must be a str")
+#assert(plaintext("subject").starts-with("Hello"), message: "string op works")
+#assert(plaintext("missing") == "", message: "absent field defaults to empty string")
+#upper(plaintext("subject"))
+"#;
+        let quill = || {
+            let yaml = "quill:\n  name: plaintext\n  version: 0.1.0\n  backend: typst\n  description: plaintext probe\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    subject:\n      type: richtext\n      description: subject\n";
+            let mut files = HashMap::new();
+            files.insert(
+                "Quill.yaml".to_string(),
+                FileTreeNode::File { contents: yaml.as_bytes().to_vec() },
+            );
+            files.insert(
+                "plate.typ".to_string(),
+                FileTreeNode::File { contents: PLATE.as_bytes().to_vec() },
+            );
+            Quill::from_tree(FileTreeNode::Directory { files }).expect("quill")
+        };
+        let q = quill();
+        // A body with a mark and (defensively) no island — plaintext drops the mark.
+        let json = serde_json::json!({ "subject": corpus("Hello **bold** world") });
+        let plate_content = read_plate(&q).expect("plate");
+        let transform_schema = build_transform_schema(q.config());
+        let schema_meta = SchemaMeta::from_schema_json(transform_schema.as_json());
+        let data = transformed_data(&schema_meta, &json).expect("data");
+        let (world, _w) =
+            world::QuillWorld::new_with_data(&q, &plate_content, data.as_ref(), &schema_meta)
+                .expect("world");
+        // Compile succeeds ⇒ every `#assert` in the plate held.
+        let (_doc, _warn) = compile::compile_document(&world).expect("compile");
+    }
+
     #[test]
     fn test_is_richtext_field() {
         let richtext_schema = json!({
