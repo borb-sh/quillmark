@@ -74,14 +74,6 @@ impl ChangeLog {
         self.entries.front().map(|e| e.revision)
     }
 
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
     /// Append a text-only field edit, bump revision, evict when over capacity.
     pub fn record(&mut self, path: impl Into<String>, text_delta: Delta) -> u64 {
         self.record_change(path, text_delta, [], [])
@@ -165,11 +157,6 @@ impl ChangeLog {
         Ok(mapped)
     }
 
-    /// Entries with `revision > after`, in commit order.
-    pub fn entries_after(&self, after: u64) -> impl Iterator<Item = &FieldChange> {
-        self.entries.iter().filter(move |e| e.revision > after)
-    }
-
     /// Invalidate the log for a whole-document rewrite that bypasses the
     /// delta protocol (`LiveSession::apply`): bump the revision, drop every
     /// entry, and raise the invalidation floor to the new revision. A later
@@ -209,10 +196,9 @@ mod tests {
         log.record("b", diff("", "2"));
         assert_eq!(log.oldest_retained(), Some(1));
         log.record("c", diff("", "3"));
-        assert_eq!(log.len(), 2);
+        // oldest advancing to rev 2 proves the ring dropped rev 1 ("a") and
+        // retained the last two entries.
         assert_eq!(log.oldest_retained(), Some(2));
-        assert!(log.entries_after(0).any(|e| e.path == "b"));
-        assert!(!log.entries_after(0).any(|e| e.path == "a"));
     }
 
     #[test]

@@ -62,15 +62,6 @@ peeks. The shared `strong_or_underline` helper already narrows the drift but not
 the altitude — the distinction is still recovered from source bytes rather than
 carried.
 
-### change_log.rs:77, change_log.rs:169 — unused `ChangeLog` surface
-
-`len`, `is_empty`, `entries_after`, and the `CHANGE_LOG_DEFAULT_CAPACITY`
-re-export (lib.rs:48) have no consumers outside the module's own tests;
-session.rs uses only `record`/`record_change`/`revision`/`map_pos`/
-`invalidate`. `entries_after` implies an incremental-reader protocol that is
-not wired anywhere. Fix: drop or demote to `#[cfg(test)]` until the
-delta-transport consumer lands. Published-crate API.
-
 ### serial.rs:115 — `to_canonical_value` builds the JSON tree twice
 
 It constructs via `to_value()` then rebuilds the whole tree with
