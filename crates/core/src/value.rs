@@ -21,8 +21,8 @@ use std::sync::OnceLock;
 /// Construction (`from_json`, `from_yaml_str`, the scalar constructors)
 /// produces nodes with `fill = false`; the `!must_fill` markers are applied
 /// by the document layer. `QuillValue` exposes no data-mutating methods —
-/// only `set_fill`/`with_fill`, which do not affect the JSON projection —
-/// so the cached projection never goes stale.
+/// only the fill setters (`with_fill`, `set_fill_at`), which do not affect
+/// the JSON projection — so the cached projection never goes stale.
 pub struct QuillValue {
     node: Node,
     /// Lazily materialized, fill-free [`serde_json::Value`] view of `node`.
