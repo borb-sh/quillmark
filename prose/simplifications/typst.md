@@ -1,0 +1,110 @@
+# crates/backends/typst
+
+## Low risk
+
+### emit.rs:301 — `Emit::new` re-implements `line_segments`
+
+The `line_usv` build duplicates the per-line USV `[start, end)` segmentation
+in `richtext/src/export.rs:73`, identical down to the defensive padding for a
+malformed corpus. Two copies of the line-range computation in two crates can
+drift on the malformed-corpus edge. Fix: promote `line_segments` to a public
+`RichText` method and call it from both.
+
+### emit.rs:730 — `island_markup` counts slots by scanning the corpus prefix
+
+`self.chars[..pos].iter().filter(..).count()` per island slot is O(corpus) per
+island per emit; `emit_richtext` runs for every content field on every apply —
+quadratic with many islands on the per-keystroke preview path. Fix: precompute
+slot offsets once in `Emit::new` (a `Vec<usize>`; running index or binary
+search).
+
+### emit.rs:545, emit.rs:412 — phantom `depth` parameter
+
+`emit_segment`'s `_depth` is unused, and `emit_leaf_terminated`'s `depth`
+exists only to forward it — the signature implies depth-dependent emission
+that does not exist. Fix: remove both.
+
+### emit.rs:549 — three copies of the segment record-and-push tail
+
+The `Heading`, `Island | Para`, and `Rule` arms each repeat
+`let g0 = out.len(); …; segments.push(SegmentMap { corpus, gen, runs })` —
+three push sites to keep field-consistent when `SegmentMap` changes. Fix:
+early-return the `Code` arm, emit each kind's prefix in the match, one shared
+tail.
+
+### span_scan.rs:396, span_scan.rs:765 — coordinate flip duplicated
+
+`scan` and `locate` both hand-write the top-left→PDF-bottom-left rect flip
+(`[min_x, page_h - max_y, max_x, page_h - min_y]` with four casts). Fix: one
+`pdf_rect(bbox, page_h) -> [f32; 4]` helper.
+
+### span_scan.rs:734 — `locate`'s selection loop re-implements `min_by_key`
+
+~20 lines of manual `best`/`better` state over
+`Option<(&GlyphHit, bool, (bool, usize))>` where
+`filter(...).min_by_key(|g| (…))` states the ordering directly; `min_by_key`'s
+first-wins tie-break matches the loop.
+
+### lib.rs:219 — dead date validation on the empty-input branch
+
+The non-object branch of `transformed_data` calls `validate_date_fields` on a
+freshly built empty map; the function only errors on present-and-bad values,
+so the call is unconditionally `Ok`. Fix: return the empty object directly.
+
+## Needs judgment
+
+### emit.rs:637 vs emit.rs:882 — `emit_inline` re-implements `wraps_and_codes`
+
+The prose path's wraps/codes partition loop copies the same six `MarkKind`
+arms and sort as `wraps_and_codes` (whose own comment concedes the
+duplication), including the `#link("…")[` open-string via `escape_string`,
+differing only in clip bounds (`[lo, hi)` vs `[0, n)`). A new mark kind or
+delimiter change must land twice. Fix: give `wraps_and_codes` the clip bounds
+(cells pass the full range) and delete the inline copy. The prose path clamps
+mark ranges to the segment window — parameterize carefully and pin with the
+round-trip tests.
+
+### emit.rs:776 — `clip_wraps_to_codes` duplicates `clip_fmt_to_atomic`
+
+Same edge-pull rule and swallowed-mark drop as
+`richtext/src/export.rs:563` — the #846-class balance invariant enforced by
+two hand-kept copies in two crates. Fix: one range-based clip helper in
+`quillmark-richtext` taking the atomic span set as a parameter (export clips
+against codes+links, emit against codes only); pin behavior with the existing
+round-trip tests.
+
+### emit.rs:330 vs emit.rs:488 — container dispatch duplicated across the two walkers
+
+`emit_block_level` and `emit_item_body` carry byte-identical
+`Container::ListItem`/`Container::Quote` arms (run-end computation +
+recursion); only the leaf arm differs. A new `Container` variant must be
+mirrored in both. Fix: a shared `try_emit_container(range, depth, i)` helper
+both loops call before their own leaf arm — restructures a recursive emitter.
+
+### emit.rs:139 — `gen_cluster` re-derives escape structure from generated text
+
+The scan re-parses the backend's own output (`\/\/` coupling, `\X`, `\u{..}`),
+duplicating knowledge encoded in `escape_markup`/`escape_string`; agreement is
+maintained only by the `escape_tripwire` tests, and
+`invert_gen_offset`/`forward_corpus_offset` correctness rides on the pairing.
+Deeper form: the emitter records the cluster table (corpus-chars, byte-len
+pairs) at generation time so the scan reads structure. The no-stored-table
+design is a documented deliberate tradeoff — weigh the memory cost first.
+
+### span_scan.rs:557 vs span_scan.rs:272 — `walk_glyphs` duplicates `collect_page_hits`
+
+~60 lines of identical frame-walk geometry (`Group` transform recursion,
+per-glyph cursor/advance/bbox math, `Shape`/`Image` handling), and all three
+item arms recompute `(classify_seg, resolve_range)` although `classify_seg`
+already calls `resolve_range`. Fix: one shared walker emitting
+`(page, span, offset, rect)` with two thin consumers, and one classifier
+method returning `(window, seg, node_range)` together. Hot path for
+region/hit-testing.
+
+### span_scan.rs:703 — `locate` walks every page to place one caret
+
+Caret placement builds a fresh `Classifier` and walks all pages' frames,
+allocating a `GlyphHit` per window-classified glyph, to find the single glyph
+covering one generated byte — O(total document glyphs) per caret move. Fix:
+stop at the best covering glyph, or restrict the walk to the page(s) the
+segment's region scan already placed it on.
