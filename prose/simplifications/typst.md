@@ -2,17 +2,6 @@
 
 ## Needs judgment
 
-### emit.rs:637 vs emit.rs:882 — `emit_inline` re-implements `wraps_and_codes`
-
-The prose path's wraps/codes partition loop copies the same six `MarkKind`
-arms and sort as `wraps_and_codes` (whose own comment concedes the
-duplication), including the `#link("…")[` open-string via `escape_string`,
-differing only in clip bounds (`[lo, hi)` vs `[0, n)`). A new mark kind or
-delimiter change must land twice. Fix: give `wraps_and_codes` the clip bounds
-(cells pass the full range) and delete the inline copy. The prose path clamps
-mark ranges to the segment window — parameterize carefully and pin with the
-round-trip tests.
-
 ### span_scan.rs:557 vs span_scan.rs:272 — `walk_glyphs` duplicates `collect_page_hits`
 
 ~60 lines of identical frame-walk geometry (`Group` transform recursion,

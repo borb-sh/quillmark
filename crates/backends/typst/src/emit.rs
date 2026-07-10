@@ -631,39 +631,10 @@ impl<'a> Emit<'a> {
     ) -> Vec<(Range<usize>, Range<usize>, EscapeCtx)> {
         let mut runs = Vec::new();
 
-        // Wrapping marks (nest) and atomic code marks, clipped to [lo, hi).
-        let mut wraps: Vec<Wrap> = Vec::new();
-        let mut codes: Vec<(usize, usize)> = Vec::new();
-        for m in &self.rt.marks {
-            if m.end <= lo || m.start >= hi {
-                continue;
-            }
-            let s = m.start.max(lo);
-            let e = m.end.min(hi);
-            if s >= e {
-                continue;
-            }
-            match &m.kind {
-                MarkKind::Code => codes.push((s, e)),
-                MarkKind::Strong | MarkKind::Emph | MarkKind::Underline | MarkKind::Strike => {
-                    wraps.push(Wrap {
-                        start: s,
-                        end: e,
-                        ord: m.kind.ord(),
-                        open: wrap_open(&m.kind),
-                    });
-                }
-                MarkKind::Link { url } => wraps.push(Wrap {
-                    start: s,
-                    end: e,
-                    ord: m.kind.ord(),
-                    open: format!("#link(\"{}\")[", escape_string(url)),
-                }),
-                // Anchor / Unknown project to nothing.
-                MarkKind::Anchor { .. } | MarkKind::Unknown { .. } => {}
-            }
-        }
-        codes.sort_unstable();
+        // Wrapping marks (nest) and atomic code marks, clipped to [lo, hi) — the
+        // same construction cells use, here over the corpus marks windowed to
+        // this segment.
+        let (mut wraps, codes) = wraps_and_codes(&self.rt.marks, lo, hi);
         // Atomic code spans can't carry partial styling; clip wraps out of their
         // interiors so overlapping wrap+code lowers to balanced markup.
         clip_wraps_to_codes(&mut wraps, &codes);
@@ -862,19 +833,20 @@ fn next_boundary(
     p
 }
 
-/// Build the wrapping/atomic marks for a flat inline run of `chars` under
-/// cell-local `marks` (USV offsets into `chars`). Shared by cell rendering; the
-/// prose path builds the same lists inline from clipped corpus marks.
-fn wraps_and_codes(chars: &[char], marks: &[Mark]) -> (Vec<Wrap>, Vec<(usize, usize)>) {
-    let n = chars.len();
+/// Build the wrapping/atomic marks overlapping the USV window `[lo, hi)`,
+/// clamped to it. Shared by the prose inline emitter — which passes the corpus
+/// marks and a segment window — and cell rendering — a flat run, `lo = 0`,
+/// `hi = chars.len()`. A mark entirely outside the window is dropped; one
+/// straddling it is clipped to the window edges.
+fn wraps_and_codes(marks: &[Mark], lo: usize, hi: usize) -> (Vec<Wrap>, Vec<(usize, usize)>) {
     let mut wraps = Vec::new();
     let mut codes = Vec::new();
     for m in marks {
-        if m.start >= n {
+        if m.end <= lo || m.start >= hi {
             continue;
         }
-        let s = m.start;
-        let e = m.end.min(n);
+        let s = m.start.max(lo);
+        let e = m.end.min(hi);
         if s >= e {
             continue;
         }
@@ -907,7 +879,7 @@ fn wraps_and_codes(chars: &[char], marks: &[Mark]) -> (Vec<Wrap>, Vec<(usize, us
 /// — so its markup carries no source-map runs (like other island markup).
 fn cell_markup(text: &str, marks: &[Mark]) -> String {
     let chars: Vec<char> = text.chars().collect();
-    let (mut wraps, codes) = wraps_and_codes(&chars, marks);
+    let (mut wraps, codes) = wraps_and_codes(marks, 0, chars.len());
     clip_wraps_to_codes(&mut wraps, &codes);
     let mut out = String::new();
     sweep_marks(0, chars.len(), &wraps, &mut out, |out, pos| {
