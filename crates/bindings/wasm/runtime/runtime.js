@@ -358,13 +358,19 @@ export class Engine {
  * opened from have already been freed — the session retains what `apply`
  * needs.
  *
+ * The incremental-edit surface (`applyFieldDelta`, `mapFieldPos`, `revision`)
+ * is the per-field twin of `apply(doc)`: it splices one content field's corpus
+ * and maps captured positions forward across edits, so a native form editor
+ * keeps a caret anchored without a whole-document recompile per keystroke. It
+ * is `@experimental` while the shape settles (#876).
+ *
  * `paint` writes a COMPLETE page raster — all content visible, no caller-side
  * compositing — for every backend that supports canvas (Typst rasterizes
  * natively; pdfform rasterizes its pre-flattened page). See `runtime.d.ts`.
  */
 export class LiveSession {
 	/**
-	 * @param {{ pageCount: number, backendId: string, supportsCanvas: boolean, warnings: any[], apply: Function, render: Function, regions: Function, pageSize: Function, paint: Function, free: Function }} inner backend-build LiveSession (typst or pdfform)
+	 * @param {{ pageCount: number, backendId: string, supportsCanvas: boolean, revision: number, warnings: any[], apply: Function, applyFieldDelta: Function, mapFieldPos: Function, render: Function, regions: Function, pageSize: Function, paint: Function, free: Function }} inner backend-build LiveSession (typst or pdfform)
 	 * @param {{ Document: { fromJson(json: string): any } }} mod the session's backend build, used to materialize `apply` documents in its linear memory
 	 */
 	constructor(inner, mod) {
@@ -389,6 +395,83 @@ export class LiveSession {
 		} finally {
 			backendDoc?.free();
 		}
+	}
+
+	/**
+	 * The session's monotonic edit revision — `0` before the first
+	 * `applyFieldDelta`, advanced by each committed native field edit (and by a
+	 * whole-document `apply(doc)`, which also invalidates the change log). The
+	 * stamp `regions()` / `positionAt` / `locate` carry; pass a captured value
+	 * back as `applyFieldDelta`'s `baseRevision` and to `mapFieldPos`.
+	 * @experimental Part of the incremental-edit surface (`applyFieldDelta` /
+	 * `mapFieldPos`); the shape may change in any 0.x release.
+	 * @returns {number}
+	 */
+	get revision() {
+		return this.#inner.revision;
+	}
+
+	/**
+	 * Commit a native form-editor edit to a content field: splice `delta` into
+	 * the field's corpus on `doc`, recompile the preview incrementally, and
+	 * record the delta so later positions map forward (`mapFieldPos`) — the
+	 * per-field twin of the whole-document `apply(doc)`.
+	 *
+	 * `doc` is mutated **in place** to carry the edit (the same contract the
+	 * native path has), bridged across the WASM linear-memory seam: the splice
+	 * runs on a transient backend-memory clone, and on success the mutated state
+	 * is written back into the canonical `doc` (via `Document.loadJson`). This
+	 * phase targets the main body only (`field === "$body"`); any other address
+	 * throws — use `apply(doc)` for those.
+	 *
+	 * `baseRevision` must equal the current `revision`; a mismatch throws
+	 * `session::revision_mismatch` and changes nothing (neither the preview nor
+	 * `doc`), so a natural retry is safe rather than double-applying. On success
+	 * `doc` carries the edit, the preview reflects it, and `revision` is
+	 * `baseRevision + 1`; on any failure `doc` is left byte-identical to before.
+	 * @experimental The incremental-edit surface ships ahead of its first
+	 * production consumer; the shape may change in any 0.x release. `apply(doc)`
+	 * is the stable edit path.
+	 * @param {Document} doc
+	 * @param {string} field
+	 * @param {number} baseRevision
+	 * @param {import('./runtime.d.ts').Delta} delta
+	 * @returns {import('./runtime.d.ts').ChangeSet}
+	 */
+	applyFieldDelta(doc, field, baseRevision, delta) {
+		let backendDoc = null;
+		try {
+			backendDoc = this.#mod.Document.fromJson(doc.toJson());
+			// Transactional in the backend: on throw `backendDoc` is rolled back
+			// and nothing here syncs, so the canonical `doc` is untouched too.
+			const cs = this.#inner.applyFieldDelta(backendDoc, field, baseRevision, delta);
+			// Success: mirror the mutated backend state into the caller's canonical
+			// handle so the next edit's delta is computed against the current body.
+			doc.loadJson(backendDoc.toJson());
+			return cs;
+		} finally {
+			backendDoc?.free();
+		}
+	}
+
+	/**
+	 * Map a USV `pos` in `field`, captured at `baseRevision`, forward through the
+	 * field's recorded deltas to its position in the current `revision` — the
+	 * primitive that keeps a form caret or highlight anchored across edits.
+	 * `assoc` (`"before"` | `"after"`) picks the side of a same-position
+	 * insertion. Throws `session::stale_revision` when `baseRevision` cannot be
+	 * mapped forward (evicted from the bounded change log, or a future revision):
+	 * re-read at the current `revision`.
+	 * @experimental Part of the incremental-edit surface; the shape may change in
+	 * any 0.x release.
+	 * @param {string} field
+	 * @param {number} baseRevision
+	 * @param {number} pos
+	 * @param {"before" | "after"} assoc
+	 * @returns {number}
+	 */
+	mapFieldPos(field, baseRevision, pos, assoc) {
+		return this.#inner.mapFieldPos(field, baseRevision, pos, assoc);
 	}
 
 	get pageCount() {

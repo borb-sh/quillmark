@@ -698,6 +698,26 @@ impl Document {
         }
     }
 
+    /// Replace this document's contents **in place** from a versioned storage
+    /// DTO string — the mutating twin of the static
+    /// [`fromJson`](Document::from_json) constructor. Parse-time `warnings` are
+    /// cleared. Throws (leaving the document unchanged) on an invalid DTO.
+    ///
+    /// The cross-WASM-memory `Document` bridge: `runtime.js` `applyFieldDelta`
+    /// splices one field on a backend-memory clone, then writes the mutated
+    /// state back into the caller's canonical document with this — the one way
+    /// to update a live handle across the linear-memory seam without the caller
+    /// re-binding its variable.
+    #[wasm_bindgen(js_name = loadJson)]
+    pub fn load_json(&mut self, json: &str) -> Result<(), JsValue> {
+        let inner: quillmark_core::Document = serde_json::from_str(json).map_err(|e| {
+            WasmError::from(format!("loadJson: invalid storage DTO: {e}")).to_js_value()
+        })?;
+        self.inner = inner;
+        self.parse_warnings.clear();
+        Ok(())
+    }
+
     #[wasm_bindgen(getter, js_name = quillRef)]
     pub fn quill_ref(&self) -> String {
         self.inner.quill_reference().to_string()
