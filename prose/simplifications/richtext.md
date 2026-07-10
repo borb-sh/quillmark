@@ -17,6 +17,13 @@ The same Retain/Delete char-walk over `old_chars`, differing only in sentinel
 shared walk parameterized by sentinel handler — mechanical but restructures the
 delta-apply path.
 
+_Assessed and deferred (2026-07):_ the genuinely shared skeleton is only the
+bounded per-char advance (`for op … if old >= len break`), ~10 lines; the
+per-op actions diverge hard (lines rebuild structure on `Insert`; islands
+ignore it), and the two closures both mutate captured state, so sharing needs a
+`trait DeltaWalk` + generic walker whose cost exceeds the dedup. Revisit only if
+a third consumer of the same walk appears.
+
 ### ops.rs:221 — `apply_field_change` normalizes three times
 
 `apply_text_delta`, `apply_line_ops`, and `apply_mark_ops` each end with
