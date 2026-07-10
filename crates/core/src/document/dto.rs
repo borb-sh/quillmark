@@ -63,12 +63,6 @@ use crate::version::QuillReference;
 /// the payload shape is unchanged from V0_92_0.
 pub const SCHEMA_V0_93_0: &str = "quillmark/document@0.93.0";
 
-/// Schema version for the V0_92_0 wire format. Legacy: read-only, migrated
-/// forward to V0_93_0 on read. Adds per-field `nested_fills` (so `!must_fill`
-/// markers nested inside a field value survive a storage round-trip) and the
-/// `$seed` payload-item variant.
-pub const SCHEMA_V0_92_0: &str = "quillmark/document@0.92.0";
-
 /// Read the `schema` field from a raw storage DTO payload without
 /// performing full deserialization.
 ///
