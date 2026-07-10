@@ -250,6 +250,22 @@ pub(crate) fn sorted_value(v: &JsonValue) -> JsonValue {
     }
 }
 
+/// Whether every object in `v` already has its keys in ascending order,
+/// recursively — the cheap allocation-free check that lets a re-normalize skip
+/// rebuilding an already-canonical `props`/`attrs` tree via [`sorted_value`].
+/// Once normalized, an untouched tree stays sorted, so a per-keystroke
+/// re-normalize pays a scan instead of a full clone.
+pub(crate) fn is_value_key_sorted(v: &JsonValue) -> bool {
+    match v {
+        JsonValue::Array(items) => items.iter().all(is_value_key_sorted),
+        JsonValue::Object(map) => {
+            map.keys().zip(map.keys().skip(1)).all(|(a, b)| a <= b)
+                && map.values().all(is_value_key_sorted)
+        }
+        _ => true,
+    }
+}
+
 /// The owned twin of [`sorted_value`]: reorder every object's keys by **moving**
 /// each entry into a freshly key-sorted map, recursively. Same canonical result
 /// — the fixed struct keys land alphabetically and any already-sorted `props`/
@@ -360,11 +376,18 @@ impl RichText {
         // props are otherwise opaque here.
         for island in &mut self.islands {
             crate::serial::normalize_island_cell_marks(island);
-            island.props = sorted_value(&island.props);
+            // Rebuild props only when a key is actually out of order — an
+            // untouched island (a pure text splice) stays sorted, so this skips
+            // the deep clone on the common per-keystroke path.
+            if !is_value_key_sorted(&island.props) {
+                island.props = sorted_value(&island.props);
+            }
         }
         for mark in &mut self.marks {
             if let MarkKind::Unknown { attrs, .. } = &mut mark.kind {
-                *attrs = sorted_value(attrs);
+                if !is_value_key_sorted(attrs) {
+                    *attrs = sorted_value(attrs);
+                }
             }
         }
         // A formatting mark's edges never sit on a line boundary: markdown can't

@@ -10,22 +10,40 @@ single-pass cursor rewrite is possible but the interleaving of retain/insert
 with the template-clone rule has edge cases on malformed corpora; semantics
 need pinning by tests before restructuring.
 
-### ops.rs:221 — `apply_field_change` normalizes three times
+### ops.rs:221 — `apply_field_change` normalizes three times (behavior-load-bearing)
 
 `apply_text_delta`, `apply_line_ops`, and `apply_mark_ops` each end with
 `self.normalize()`, so a committed edit bundle pays 3× (mark sort + full-text
-char collection + island props rebuild). Fix: internal non-normalizing apply
-steps with one `normalize()` at the bundle end. Needs care: the public
-single-channel methods must keep normalizing.
+char collection + island props rebuild). The obvious fix — non-normalizing
+inner steps and one `normalize()` at the bundle end — is **not**
+behavior-preserving, so it is deferred until the semantics are pinned:
 
-### model.rs:333, serial.rs:388 — every `normalize()` rebuilds all table-cell JSON
+- `normalize` unions adjacent same-kind marks (`[0..3]`+`[3..5]`→`[0..5]`), and
+  `apply_mark_ops`'s `Remove` matches by `ranges_overlap` (half-open). With the
+  intermediate normalize, `Remove{3..5}` overlaps the whole union and clears
+  `[0..3]` too; without it, only `[3..5]` is removed. The normalize between text
+  and mark ops changes which marks a subsequent `Remove` matches.
+- `split_line`/`join_line` insert/delete `\n` in the text **without** remapping
+  marks, and `normalize`'s formatting-edge trim is `\n`-position-sensitive, so
+  normalizing on the pre-line-op text vs the post-line-op text can trim
+  different edges.
 
-`normalize_table_cell_marks` parses and rebuilds each cell (`parse_cell` +
-`cell_to_value`) and `sorted_value`-clones every island's `props` tree even
-when a pure text splice touched no island — O(total island props) per
-keystroke on any corpus containing a table. Fix: skip the island pass unless
-islands were touched (dirty flag on island-mutating paths), or verify-sorted
-before rebuilding.
+Fix: give `apply_field_change` a real op-level model (remap marks across line
+ops; define `Remove`-vs-union order) and pin it with tests, then collapse to one
+terminal normalize.
+
+### model.rs:333 — `normalize()` re-canonicalizes table cells even on a pure text splice
+
+Half done: `normalize` now guards the `sorted_value` clone of each island's
+`props` (and each unknown mark's `attrs`) behind `is_value_key_sorted`, so an
+untouched, already-sorted tree pays a scan rather than a deep clone on the
+common per-keystroke path. Remaining: `normalize_island_cell_marks` still
+`parse_cell` + `cell_to_value`-rebuilds every table cell each `normalize`, even
+when no island was touched — and under `serde_json` `preserve_order` that
+re-inserts cell keys unsorted, so the guard above then does rebuild a table's
+props. The real fix is a dirty flag on the island-mutating paths
+(`sync_islands_for_delta`, cell edits) so a text-only edit skips the island
+pass entirely; deferred for the correctness care that flag needs.
 
 ### island_type mark dispatch — normalize/validate consolidated; emit sites remain
 
