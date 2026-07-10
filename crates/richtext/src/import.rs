@@ -44,7 +44,16 @@ use crate::normalize::normalize_markdown;
 use crate::MAX_NESTING_DEPTH;
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
 use serde_json::json;
+use std::cell::RefCell;
+use std::collections::HashSet;
 use std::ops::Range;
+use std::rc::Rc;
+
+/// Byte offsets at which the [`MarkdownFixer`] converted a `<u>` open tag into a
+/// `Tag::Strong` event. The fixer is the one place that classifies `<u>` (via
+/// [`is_u_open_tag`]); it records the fact here so the [`Builder`] can tell a
+/// `<u>`-derived strong from a real `**` one without re-sniffing source bytes.
+type UnderlineOpens = Rc<RefCell<HashSet<usize>>>;
 
 /// Import errors: just the nesting guard (mirrors the typst backend's
 /// `ConversionError::NestingTooDeep`).
@@ -72,9 +81,14 @@ pub fn from_markdown(markdown: &str) -> Result<RichText, ImportError> {
     options.insert(Options::ENABLE_STRIKETHROUGH);
     options.insert(Options::ENABLE_TABLES);
     let parser = Parser::new_ext(&normalized, options);
-    let fixer = MarkdownFixer::new(parser.into_offset_iter(), &normalized);
+    let underline_opens: UnderlineOpens = Rc::new(RefCell::new(HashSet::new()));
+    let fixer = MarkdownFixer::new(
+        parser.into_offset_iter(),
+        &normalized,
+        Rc::clone(&underline_opens),
+    );
 
-    let mut b = Builder::new(&normalized);
+    let mut b = Builder::new(underline_opens);
     b.run(fixer)?;
     let mut rt = b.finish();
     rt.normalize();
@@ -154,8 +168,12 @@ impl Inline {
     }
 }
 
-struct Builder<'a> {
-    source: &'a str,
+struct Builder {
+    /// A `Tag::Strong` whose `range.start` is here was a `<u>` in source (the
+    /// fixer recorded it); the [`Builder`] opens [`MarkKind::Underline`] for it
+    /// instead of [`MarkKind::Strong`] — the carried form of the distinction the
+    /// fixer would otherwise erase.
+    underline_opens: UnderlineOpens,
     /// The corpus text + marks; the [`Builder`] adds line/block structure around
     /// it (a `\n` boundary is [`Inline::push_raw`], inline content is the mark
     /// machinery). A table cell reuses the same [`Inline`] in isolation.
@@ -218,24 +236,10 @@ fn align_str(a: &pulldown_cmark::Alignment) -> &'static str {
     }
 }
 
-/// Recover the `<u>`-vs-`Strong` distinction the fixer collapses: it rewrites
-/// `<u>`/`</u>` to `Strong` events, so a `Strong` whose source starts `<u`
-/// (case-insensitive) is really an underline.
-fn strong_or_underline(source: &str, range: &Range<usize>) -> MarkKind {
-    if source
-        .get(range.start..range.start + 2)
-        .is_some_and(|s| s.eq_ignore_ascii_case("<u"))
-    {
-        MarkKind::Underline
-    } else {
-        MarkKind::Strong
-    }
-}
-
-impl<'a> Builder<'a> {
-    fn new(source: &'a str) -> Self {
+impl Builder {
+    fn new(underline_opens: UnderlineOpens) -> Self {
         Builder {
-            source,
+            underline_opens,
             inline: Inline::default(),
             lines: Vec::new(),
             cur: None,
@@ -357,7 +361,18 @@ impl<'a> Builder<'a> {
         Ok(())
     }
 
-    fn run<I>(&mut self, iter: I) -> Result<(), ImportError>
+    /// [`MarkKind::Underline`] if the fixer converted a `<u>` open at `start`,
+    /// else [`MarkKind::Strong`] — reads the classification the fixer carried,
+    /// no source re-sniff.
+    fn strong_kind(&self, start: usize) -> MarkKind {
+        if self.underline_opens.borrow().contains(&start) {
+            MarkKind::Underline
+        } else {
+            MarkKind::Strong
+        }
+    }
+
+    fn run<'a, I>(&mut self, iter: I) -> Result<(), ImportError>
     where
         I: Iterator<Item = (Event<'a>, Range<usize>)>,
     {
@@ -435,7 +450,7 @@ impl<'a> Builder<'a> {
         Ok(())
     }
 
-    fn start_tag(&mut self, tag: Tag<'a>, range: Range<usize>) -> Result<(), ImportError> {
+    fn start_tag<'a>(&mut self, tag: Tag<'a>, range: Range<usize>) -> Result<(), ImportError> {
         match tag {
             // Block starts arm a pending line (new block, continues = false);
             // the next inline content opens it.
@@ -523,7 +538,7 @@ impl<'a> Builder<'a> {
                 self.check_depth()?;
             }
             Tag::Strong => {
-                let kind = strong_or_underline(self.source, &range);
+                let kind = self.strong_kind(range.start);
                 self.open_mark(kind);
                 self.check_depth()?;
             }
@@ -686,7 +701,7 @@ impl<'a> Builder<'a> {
                 }
             }
             Event::Start(Tag::Strong) => {
-                let kind = strong_or_underline(self.source, range);
+                let kind = self.strong_kind(range.start);
                 if let Some(c) = self.cell_mut() {
                     c.open_mark(kind);
                 }
@@ -809,6 +824,10 @@ fn is_u_close_tag(html: &str) -> bool {
 struct MarkdownFixer<'a, I: Iterator<Item = (Event<'a>, Range<usize>)>> {
     inner: std::iter::Peekable<I>,
     source: &'a str,
+    /// Shared with the [`Builder`]: each `<u>` open this fixer converts to
+    /// `Tag::Strong` records its `range.start` here, so the builder recovers the
+    /// underline without a second source-byte test (see [`UnderlineOpens`]).
+    underline_opens: UnderlineOpens,
     buffer: Vec<(Event<'a>, Range<usize>)>,
     emph_depth: usize,
     strong_depth: usize,
@@ -818,10 +837,11 @@ impl<'a, I> MarkdownFixer<'a, I>
 where
     I: Iterator<Item = (Event<'a>, Range<usize>)>,
 {
-    fn new(inner: I, source: &'a str) -> Self {
+    fn new(inner: I, source: &'a str, underline_opens: UnderlineOpens) -> Self {
         Self {
             inner: inner.peekable(),
             source,
+            underline_opens,
             buffer: Vec::new(),
             emph_depth: 0,
             strong_depth: 0,
@@ -1012,6 +1032,9 @@ where
             let (event, range) = self.inner.next()?;
             let (event, range) = match event {
                 Event::InlineHtml(ref html) | Event::Html(ref html) if is_u_open_tag(html) => {
+                    // Carry the `<u>` classification to the builder keyed on the
+                    // tag's start offset, so it need not re-sniff the source.
+                    self.underline_opens.borrow_mut().insert(range.start);
                     (Event::Start(Tag::Strong), range)
                 }
                 Event::InlineHtml(ref html) | Event::Html(ref html) if is_u_close_tag(html) => {
@@ -1080,6 +1103,21 @@ mod tests {
     fn other_html_stripped() {
         let rt = imp("a <span>b</span> c");
         assert_eq!(rt.text, "a b c");
+    }
+
+    /// A `<u>`-lookalike must not be read as underline. The fixer's single
+    /// `is_u_open_tag` classifier rejects `<ul>` (inner != "u"), so it is
+    /// stripped like any other HTML — no underline, no strong. Regression for
+    /// the old split where a separate 2-byte `<u` prefix peek would have
+    /// mis-classified it had the fixer ever converted it.
+    #[test]
+    fn ul_lookalike_is_not_underline() {
+        let rt = imp("x <ul>y</ul> z");
+        assert_eq!(rt.text, "x y z");
+        assert!(rt
+            .marks
+            .iter()
+            .all(|m| m.kind != MarkKind::Underline && m.kind != MarkKind::Strong));
     }
 
     #[test]

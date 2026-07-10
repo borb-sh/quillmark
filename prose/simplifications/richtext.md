@@ -52,20 +52,6 @@ future consumer replaying entries via strict `try_apply` (undo, sync) gets
 deltas at the boundary where they enter (the WASM delta deserializer), or make
 implicit trailing retain the documented contract of `try_apply` itself.
 
-### import.rs:512 — the `MarkdownFixer` erases the `<u>`/`Strong` distinction it owns
-
-The fixer rewrites `<u>`/`</u>` into `Strong` events; both downstream consumers
-(`Tag::Strong` at import.rs:526 and the table-cell path at import.rs:689) then
-re-sniff raw source bytes via `strong_or_underline` to recover the distinction.
-That peek's 2-byte `<u`-prefix test and the fixer's `is_u_open_tag` (trim +
-inner `== "u"`) are two hand-synced encodings of one rule that classify a tag
-like `<ul>` oppositely; only the fixer's gate — which never converts `<ul>` to
-`Strong` — keeps that divergence from reaching the peek today. Fix: the fixer
-emits the distinction explicitly (wrapper event or `MarkKind`), deleting both
-peeks. The shared `strong_or_underline` helper already narrows the drift but not
-the altitude — the distinction is still recovered from source bytes rather than
-carried.
-
 ### serial.rs:115 — `to_canonical_value` still clones + normalizes unconditionally
 
 The double **tree** build is gone: `to_canonical_value` now finishes with
