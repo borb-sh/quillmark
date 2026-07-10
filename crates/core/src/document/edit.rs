@@ -468,14 +468,12 @@ impl Card {
     /// **object** (decoded and validated) or an authored markdown **string**
     /// (imported) — the write twin of the `Card.body` read shape
     /// (`RichText | string`). `null` installs the empty corpus. Routes through
-    /// the one object-vs-string dispatch ([`decode_richtext_value`]), so it
+    /// the one object-vs-string dispatch (`decode_richtext_value`), so it
     /// stays lossless for corpus-only marks a markdown projection cannot carry
     /// (e.g. `underline`), unlike serializing to markdown and calling
     /// [`replace_body`](Self::replace_body). Prefer the typed
     /// [`set_body_corpus`](Self::set_body_corpus) when the caller already holds a
     /// [`RichText`]; this is for a JSON-valued body crossing a binding boundary.
-    ///
-    /// [`decode_richtext_value`]: crate::document::decode_richtext_value
     pub fn set_body_value(&mut self, value: &serde_json::Value) -> Result<(), EditError> {
         match crate::document::decode_richtext_value(value) {
             Some(result) => {

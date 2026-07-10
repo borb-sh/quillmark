@@ -279,18 +279,17 @@ pub fn emit_richtext(rt: &RichText) -> Result<EmittedContent, EmitError> {
 
 /// Lower a `richtext(inline)` corpus — the [`is_inline`] shape: exactly one
 /// `Para`, in no container, with no islands — to **pure inline** Typst markup,
-/// omitting the block terminator [`emit_block_level`] appends (`\n\n`, a
-/// `parbreak()`). So the field composes in an inline slot (`par(..)`, a signature
-/// line, a grid cell, `measure`) without emitting Typst's non-fatal "parbreak may
-/// not occur inside of a paragraph" warning (#872). The single segment's source
-/// map is identical to the block path's — only the trailing separator differs.
+/// omitting the block terminator the block walk appends (`\n\n`, a `parbreak()`).
+/// So the field composes in an inline slot (`par(..)`, a signature line, a grid
+/// cell, `measure`) without emitting Typst's non-fatal "parbreak may not occur
+/// inside of a paragraph" warning (#872). The single segment's source map is
+/// identical to the block path's — only the trailing separator differs.
 ///
 /// A corpus that is *not* [`is_inline`] (never produced for an inline field once
 /// coercion has run, but reachable from a hand-built corpus) falls back to block
 /// [`emit_richtext`], so it still renders rather than silently dropping structure.
 ///
 /// [`is_inline`]: quillmark_richtext::RichText::is_inline
-/// [`emit_block_level`]: Emit::emit_block_level
 pub fn emit_richtext_inline(rt: &RichText) -> Result<EmittedContent, EmitError> {
     if !rt.is_inline() {
         return emit_richtext(rt);
