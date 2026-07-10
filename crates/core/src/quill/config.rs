@@ -381,6 +381,12 @@ impl QuillConfig {
                 // be single-`Para` (`richtext(inline)`): editors mount a one-line
                 // surface, so multi-block content is a coercion error here, in
                 // lockstep with the validation-layer `richtext::not_inline` check.
+                //
+                // This is the deliberately-lenient sibling of
+                // `document::decode_richtext_value` (used by the strict wire /
+                // literal / validation sites): the string branch below reduces a
+                // bare scalar or length-1 array to text before importing, which
+                // the strict decoder must not do, so it stays open-coded here.
                 let inline_check =
                     |rt: &quillmark_richtext::RichText| -> Result<(), CoercionError> {
                         if inline && !rt.is_inline() {
@@ -1639,19 +1645,25 @@ fn literal_corpus(
     }
     match &field.r#type {
         FieldType::RichText { inline } => {
-            let rt = if let Some(s) = json.as_str() {
-                quillmark_richtext::import::from_markdown(s).map_err(|e| {
-                    richtext_literal_error(label, &format!("markdown import failed: {e}"))
-                })?
-            } else if json.is_object() {
-                quillmark_richtext::serial::from_canonical_value(json).map_err(|e| {
-                    richtext_literal_error(label, &format!("not a valid richtext corpus: {e}"))
-                })?
-            } else {
-                return Err(richtext_literal_error(
-                    label,
-                    "expected a markdown string (richtext literals are authored as markdown)",
-                ));
+            let rt = match crate::document::decode_richtext_value(json) {
+                Some(Ok(rt)) => rt,
+                Some(Err(e)) => {
+                    let reason = match e {
+                        crate::document::RichtextDecodeError::BadMarkdown(m) => {
+                            format!("markdown import failed: {m}")
+                        }
+                        crate::document::RichtextDecodeError::NotCorpus(m) => {
+                            format!("not a valid richtext corpus: {m}")
+                        }
+                    };
+                    return Err(richtext_literal_error(label, &reason));
+                }
+                None => {
+                    return Err(richtext_literal_error(
+                        label,
+                        "expected a markdown string (richtext literals are authored as markdown)",
+                    ));
+                }
             };
             if *inline && !rt.is_inline() {
                 return Err(richtext_inline_error(label));

@@ -2,24 +2,23 @@
 
 All entries need judgment — each spans crates or changes a contract.
 
-### Four sites re-implement the dual-shape richtext decode
+### ~~Four sites re-implement the dual-shape richtext decode~~ (three unified)
 
-`core/src/document/wire.rs:314` (`body_from_wire`), the coercion branch
-`core/src/quill/config.rs:359`, `literal_corpus` at
-`core/src/quill/config.rs:1646`, and the validation backstop
-`core/src/quill/validation.rs:470` each independently implement "JSON object →
-`serial::from_canonical_value`, string → `from_markdown`, then optional
-`is_inline` check / re-canonicalize". The accepted `$body`/richtext-value
-encodings are defined in four places that already drift: wire.rs accepts
-`null`, config.rs adds array-unwrap/scalar leniency, validation.rs
-`.ok()`-swallows decode errors. The inline-violation prose is separately
-restated three times (coercion's `inline_check`, `validation.rs`'s
-`not_inline_hint`, `config.rs`'s `richtext_inline_error`). Fix: one shared
-decoder (`RichText::from_json_or_markdown` beside `from_canonical_value`, or
-next to `document::import_body`) plus a single `check_inline`, with per-site
-error wrapping and *deliberate* per-site leniency kept local — the leniency
-differences are intentional in places and must be preserved, which is what
-makes this a judgment call.
+Done for the three strict sites. `document::decode_richtext_value` (next to
+`import_body`) is now the one place the "JSON object → `from_canonical_value`,
+string → `import_body`" dispatch lives; `body_from_wire`, `literal_corpus`, and
+the `validation.rs` backstop call it and keep only their deliberate local
+handling — wire's `null` → empty and shape error, literal's per-encoding
+message prefixes (via the `RichtextDecodeError` variant), validation's
+`.ok()`-swallow. All three now reach markdown through the single `import_body`
+boundary rather than three raw `from_markdown` calls.
+
+The coercion branch (`config.rs`) stays open-coded on purpose: its string path
+is deliberately lenient (reduce a scalar / length-1 array to text before
+import), which the strict decoder must not do — flagged in a comment beside it.
+The inline-violation surfaces (`CoercionError`, `ValidationError::NotInline`,
+`richtext_inline_error`) are intentionally per-layer error types over the one
+shared `rt.is_inline()` condition, so they are left distinct.
 
 ### Every apply round-trips each richtext value through the canonical codec three times
 
