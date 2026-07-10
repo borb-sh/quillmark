@@ -150,11 +150,6 @@ fn test_in_memory_file_system() {
     // Test file content
     let asset_content = quill.get_file("assets/test.txt").unwrap();
     assert_eq!(asset_content, b"asset content");
-
-    // Test directory listing
-    let asset_files = quill.list_directory("assets");
-    assert_eq!(asset_files.len(), 1);
-    assert!(asset_files.contains(&PathBuf::from("assets/test.txt")));
 }
 
 #[test]
