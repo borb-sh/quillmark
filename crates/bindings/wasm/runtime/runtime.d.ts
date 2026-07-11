@@ -93,10 +93,29 @@ export interface RenderOptions {
 	regions?: boolean;
 }
 
+/**
+ * How precisely a {@link CorpusHit.pos} resolved — the marker a caret UI reads
+ * to decide whether to trust the offset. Never sub-cluster: `'cluster'` is the
+ * finest, `'segment'` the floor it degrades to on origin-less ink.
+ *
+ * - `'cluster'` — `pos` is the first corpus char of the cluster under the point
+ *   (an escaped/CJK/shaping cluster floors to its first char). Place the caret
+ *   at `pos` directly.
+ * - `'segment'` — the point hit origin-less ink (list markers, numbering, a
+ *   multi-line code fence's interior), so `pos` degraded to the containing
+ *   segment's start. Treat `pos` as the selected segment, not a caret.
+ */
+export type HitGranularity = 'cluster' | 'segment';
+
 /** A click resolved to a field and USV offset into its RichText. */
 export interface CorpusHit {
 	field: string;
 	pos: number;
+	/**
+	 * Whether {@link pos} is cluster-exact or floored to the segment start
+	 * ({@link HitGranularity}). Absent when the backend does not report it.
+	 */
+	granularity?: HitGranularity;
 	/**
 	 * The {@link LiveSession.revision} this hit was resolved at — `positionAt`
 	 * stamps it so a caller can record the captured `pos` against this base
@@ -179,8 +198,9 @@ export interface FieldRegion {
 	/**
 	 * The corpus slice this box covers — USV `[start, end)` into the field's
 	 * `RichText` for content ink (one segment), absent for a scalar reference
-	 * site or widget. Consumers key segment highlights on it and union same-page
-	 * segments for the whole-field box.
+	 * site or widget. Consumers key segment highlights on it;
+	 * {@link LiveSession.fieldBoxes} unions same-page segments for the
+	 * whole-field box.
 	 */
 	span?: [number, number];
 	/**
@@ -432,6 +452,17 @@ export declare class LiveSession {
 	 * clicks on them.
 	 */
 	regions(): FieldRegion[];
+	/**
+	 * The whole-field highlight boxes for `field` — one union rect per page,
+	 * over the field's `span`-bearing content segments (the "highlight the
+	 * focused field" quantity). Owns the union {@link regions} leaves derived
+	 * (span-filter + per-page union), keeping `regions()` the low-level disjoint
+	 * truth, so a consumer stops reimplementing it. **Content only** — a field
+	 * placed solely as a scalar reference or a bound widget carries no `span`
+	 * and returns `[]`; its box is a single {@link regions} rect. Each box is
+	 * stamped with the current {@link revision}, like `regions()`.
+	 */
+	fieldBoxes(field: string): FieldRegion[];
 	/**
 	 * The schema field whose content is under a point on `page` — the forward
 	 * (click → field) direction: hit-test a click against the compiled

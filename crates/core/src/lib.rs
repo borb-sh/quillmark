@@ -40,7 +40,7 @@ pub mod types;
 pub use types::{Artifact, OutputFormat, RenderOptions};
 
 pub mod region;
-pub use region::{CorpusHit, RenderedRegion};
+pub use region::{field_boxes, CorpusHit, HitGranularity, RenderedRegion};
 
 pub mod session;
 pub use session::{

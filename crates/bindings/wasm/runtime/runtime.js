@@ -519,6 +519,20 @@ export class LiveSession {
 	}
 
 	/**
+	 * The whole-field highlight boxes for `field` — one union rect per page,
+	 * over the field's `span`-bearing content segments. Owns the union
+	 * `regions()` leaves derived (span-filter + per-page union), so a "highlight
+	 * the focused field" consumer stops reimplementing it. Content only: a field
+	 * placed solely as a scalar reference or a bound widget returns `[]` — its
+	 * box is a single `regions()` rect.
+	 * @param {string} field
+	 * @returns {import('./runtime.d.ts').FieldRegion[]}
+	 */
+	fieldBoxes(field) {
+		return this.#inner.fieldBoxes(field);
+	}
+
+	/**
 	 * The schema field whose content is under a point on `page` — the forward
 	 * (click → field) direction, resolving *every* placement, not just the first
 	 * that `regions` enumerates. `x`/`y` are PDF points with a bottom-left origin
