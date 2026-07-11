@@ -360,8 +360,13 @@ fn emit_table(isl: &Island, out: &mut String) {
     if let Some(rs) = rows {
         for row in rs {
             if let Some(r) = row.as_array() {
+                // Pad/truncate to the header's column count so a ragged island
+                // (one that skipped normalization) still emits a rectangular
+                // table — the same count the Typst projection uses post-normalize.
+                let mut cells: Vec<String> = r.iter().map(render_cell_md).collect();
+                cells.resize(cols, String::new());
                 out.push_str("\n| ");
-                out.push_str(&r.iter().map(render_cell_md).collect::<Vec<_>>().join(" | "));
+                out.push_str(&cells.join(" | "));
                 out.push_str(" |");
             }
         }
