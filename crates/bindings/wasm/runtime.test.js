@@ -10,7 +10,7 @@
  *
  * Aliased to pkg/runtime/runtime.js in vitest.config.js.
  */
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeAll } from 'vitest'
 import { Quill, Document, Engine, isQuillmarkError } from '@quillmark-wasm/runtime'
 // Pin that the runtime's Quill IS the internal core build's class (re-export,
 // not a parallel wrapper). This imports the internal core artifact directly —
@@ -104,6 +104,19 @@ describe('@quillmark/wasm/runtime — surface', () => {
 })
 
 describe('@quillmark/wasm/runtime — Engine (hidden core→backend crossing)', () => {
+  // Warm the lazy Typst-backend import + first Typst compile once, outside any
+  // timed test. `Engine.render` dynamically `import()`s the backend wasm binary
+  // on first render — a one-time cost (large module instantiation) that on a
+  // cold CI runner alone can approach the per-test ceiling. Paying it here keeps
+  // the individual render tests warm (sub-second, like the SVG case) so a tight
+  // per-test `testTimeout` still catches a genuine hang. The hook carries its own
+  // generous timeout for the cold load.
+  beforeAll(async () => {
+    await new Engine().render(makeRuntimeQuill(), Document.fromMarkdown(TEST_MARKDOWN), {
+      format: 'pdf',
+    })
+  }, 120000)
+
   it('renders a core Quill + Document to PDF without exposing a backend handle', async () => {
     const engine = new Engine()
     const quill = makeRuntimeQuill()
