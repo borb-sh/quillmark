@@ -44,9 +44,7 @@ pub mod ops;
 pub mod serial;
 pub mod usv;
 
-pub use change_log::{
-    ChangeLog, FieldChange, StaleRevision, DEFAULT_CAPACITY as CHANGE_LOG_DEFAULT_CAPACITY,
-};
+pub use change_log::{ChangeLog, FieldChange, StaleRevision};
 pub use delta::{Assoc, Delta, Op};
 pub use model::{
     Container, Invariant, Island, Line, LineKind, Loss, Mark, MarkKind, RichText, Usv,
