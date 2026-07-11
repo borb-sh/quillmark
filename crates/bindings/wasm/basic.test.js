@@ -615,58 +615,74 @@ describe('Document editor surface — setQuillRef / replaceBody', () => {
   })
 })
 
-describe('Document editor surface — setRichtextField / fieldMarkdown', () => {
-  it('setRichtextField accepts a markdown string and stores a corpus object', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.setRichtextField('intro', 'A **bold** intro.')
-    // Stored structurally as the corpus, not the authored string.
+describe('Document editor surface — commitField / commitCardField', () => {
+  const COMMIT_QUILL_YAML = `quill:
+  name: commit_test
+  version: "1.0"
+  backend: typst
+  description: Typed write smoke test
+
+main:
+  fields:
+    subject:
+      type: richtext
+      inline: true
+    intro:
+      type: richtext
+    qty:
+      type: integer
+
+card_kinds:
+  note:
+    fields:
+      body:
+        type: richtext
+`
+  const buildQuill = () =>
+    Quill.fromTree(makeQuill({ name: 'commit_test', plate: TEST_PLATE, quillYaml: COMMIT_QUILL_YAML }))
+  const blankDoc = () => Document.fromMarkdown('~~~card-yaml\n$quill: commit_test\n~~~\n\nBody.')
+
+  it('commitField resolves the schema type: richtext string → corpus, integer "3" → 3', () => {
+    const quill = buildQuill()
+    const doc = blankDoc()
+    expect(doc.commitField(quill, 'intro', 'A **bold** intro.')).toBe('typed')
     expect(typeof field(doc.main, 'intro')).toBe('object')
-    expect(field(doc.main, 'intro').text).toBe('A bold intro.')
-    // fieldMarkdown is the projection twin of bodyMarkdown.
     expect(doc.fieldMarkdown('intro')).toBe('A **bold** intro.\n')
+
+    expect(doc.commitField(quill, 'qty', '3')).toBe('typed')
+    expect(field(doc.main, 'qty')).toBe(3)
   })
 
-  it('setRichtextField accepts a corpus object round-tripped from a body', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const src = Document.fromMarkdown('~~~card-yaml\n$quill: q@1.0.0\n~~~\n\nCorpus **field** here.')
-    const corpus = src.main.body
-    expect(typeof corpus).toBe('object')
-    doc.setRichtextField('intro', corpus)
-    expect(field(doc.main, 'intro').text).toBe('Corpus field here.')
-    expect(doc.fieldMarkdown('intro')).toBe('Corpus **field** here.\n')
-  })
-
-  it('setRichtextField(name, null) stores the empty corpus', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.setRichtextField('intro', null)
-    expect(doc.fieldMarkdown('intro')).toBe('')
-  })
-
-  it('setRichtextField(inline=true) throws FieldRichtextNotInline on multi-block', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.setRichtextField('title', 'one line', true) // ok
-    expect(() => doc.setRichtextField('title', 'line one\n\nline two', true))
-      .toThrow(/FieldRichtextNotInline/)
-  })
-
-  it('setRichtextField throws FieldRichtextDecode on a non-corpus object', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    expect(() => doc.setRichtextField('intro', { not: 'a corpus' })).toThrow(/FieldRichtextDecode/)
+  it('commitField stores an unknown field opaquely and says so', () => {
+    const quill = buildQuill()
+    const doc = blankDoc()
+    expect(doc.commitField(quill, 'stray', 'x')).toBe('opaque')
+    expect(field(doc.main, 'stray')).toBe('x')
   })
 
   it('fieldMarkdown returns undefined for an absent or non-richtext field', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const doc = blankDoc()
     expect(doc.fieldMarkdown('nonexistent')).toBeUndefined()
     doc.setField('count', 3)
     expect(doc.fieldMarkdown('count')).toBeUndefined()
   })
 
-  it('updateCardRichtextField / cardFieldMarkdown target a card by index', () => {
+  it('commitField fails a strict mismatch and a richtext(inline) violation', () => {
+    const quill = buildQuill()
+    const doc = blankDoc()
+    expect(() => doc.commitField(quill, 'qty', 'not-a-number')).toThrow(/FieldConform/)
+    expect(() => doc.commitField(quill, 'subject', 'line one\n\nline two'))
+      .toThrow(/FieldRichtextNotInline/)
+  })
+
+  it('commitCardField resolves the card-kind schema and errors on a bad index', () => {
+    const quill = buildQuill()
     const doc = Document.fromMarkdown(
-      '~~~card-yaml\n$quill: q@1.0.0\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nCard.',
+      '~~~card-yaml\n$quill: commit_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nCard.',
     )
-    doc.updateCardRichtextField(0, 'note', 'Card **note**.')
-    expect(doc.cardFieldMarkdown(0, 'note')).toBe('Card **note**.\n')
+    expect(doc.commitCardField(quill, 0, 'body', 'Card **body**.')).toBe('typed')
+    expect(doc.cardFieldMarkdown(0, 'body')).toBe('Card **body**.\n')
+    expect(() => doc.commitCardField(quill, 9, 'body', 'x')).toThrow(/IndexOutOfRange/)
   })
 })
 

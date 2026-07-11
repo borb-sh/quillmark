@@ -23,6 +23,7 @@ use quillmark_richtext::{ApplyError, Delta, LineOp, MarkOp, RichText};
 
 use crate::document::meta::{validate_composable_kind, CardKindError};
 use crate::document::{Card, Document, Payload};
+use crate::quill::{CoercionError, FieldSchema, FieldType, Leniency, QuillConfig};
 use crate::value::QuillValue;
 use crate::version::QuillReference;
 
@@ -85,17 +86,28 @@ pub enum EditError {
     /// decoded: a JSON object that is not a canonical richtext corpus, a
     /// markdown string that failed to import, or a shape that is neither
     /// object, string, nor null. The field-level twin of [`BodyDecode`](Self::BodyDecode);
-    /// returned by [`Card::set_field_richtext`](Card::set_field_richtext).
+    /// returned by [`Card::commit_field`](Card::commit_field) on a richtext field
+    /// and by [`Card::apply_field_richtext_change`](Card::apply_field_richtext_change).
     #[error("richtext field '{field}' decode failed: {message}")]
     FieldRichtextDecode { field: String, message: String },
 
     /// A richtext field written under the `richtext(inline)` constraint decoded
     /// to a multi-block corpus (more than one line, a container, or an island).
     /// The write-time counterpart of the coercion/validation `richtext(inline)`
-    /// check; returned by [`Card::set_field_richtext`](Card::set_field_richtext)
-    /// when its `inline` argument is set.
+    /// check; returned by [`Card::commit_field`](Card::commit_field) when the
+    /// field's schema is `richtext` with `inline: true`.
     #[error("richtext field '{0}' is not inline: richtext(inline) requires a single paragraph line with no list/quote container and no islands")]
     FieldRichtextNotInline(String),
+
+    /// A typed write ([`Card::commit_field`](Card::commit_field)) could not
+    /// conform the value to the field's schema type — the general write-commit
+    /// failure for scalar/array/object types (a `"x"` for an `integer`, a
+    /// non-object for an `object`, …). Richtext fields report through the
+    /// dedicated [`FieldRichtextDecode`](Self::FieldRichtextDecode) /
+    /// [`FieldRichtextNotInline`](Self::FieldRichtextNotInline) variants
+    /// instead, so the richtext write surface is unchanged.
+    #[error("field '{field}' does not conform to its schema type: {message}")]
+    FieldConform { field: String, message: String },
 
     /// A corpus field-change bundle (text delta, line ops, mark ops) applied
     /// out of bounds or broke an invariant normalization could not repair.
@@ -119,6 +131,7 @@ impl EditError {
             EditError::BodyDecode(_) => "BodyDecode",
             EditError::FieldRichtextDecode { .. } => "FieldRichtextDecode",
             EditError::FieldRichtextNotInline(_) => "FieldRichtextNotInline",
+            EditError::FieldConform { .. } => "FieldConform",
             EditError::CorpusApply(_) => "CorpusApply",
         }
     }
@@ -172,6 +185,58 @@ pub fn validate_field(key: &str, value: &serde_json::Value) -> Result<(), FieldV
         return Err(FieldViolation::TooDeep);
     }
     Ok(())
+}
+
+/// Map a strict-write [`CoercionError`] to the field-write [`EditError`] surface.
+///
+/// A richtext field routes to the dedicated `FieldRichtext*` variants — the
+/// same surface [`Card::apply_field_richtext_change`] produces, and the one the
+/// wasm/Python error mappers (and their tests) key on; the inline violation is
+/// distinguished by the coercion `target`. Every other type uses the general
+/// [`EditError::FieldConform`].
+fn conform_error_to_edit(name: &str, schema: &FieldSchema, err: CoercionError) -> EditError {
+    let CoercionError::Uncoercible { target, reason, .. } = err;
+    if matches!(schema.r#type, FieldType::RichText { .. }) {
+        if target == "richtext(inline)" {
+            EditError::FieldRichtextNotInline(name.to_string())
+        } else {
+            EditError::FieldRichtextDecode {
+                field: name.to_string(),
+                message: reason,
+            }
+        }
+    } else {
+        EditError::FieldConform {
+            field: name.to_string(),
+            message: reason,
+        }
+    }
+}
+
+/// Compute the canonical stored form of a field write **without applying it** —
+/// the dry-run shared by [`Card::commit_field`] and the batched, all-or-nothing
+/// [`TypedEditor::set_all`](crate::TypedEditor::set_all).
+///
+/// `schema = Some(_)` is a typed write (strict `Leniency::Write` conform);
+/// `schema = None` is an opaque write (mirrors [`Card::set_field`], storing the
+/// value verbatim). Either way the name and stored-value depth are validated,
+/// so a batch can collect every violation before any mutation.
+pub(crate) fn resolve_field_write(
+    name: &str,
+    value: QuillValue,
+    schema: Option<&FieldSchema>,
+) -> Result<QuillValue, EditError> {
+    if !is_valid_field_name(name) {
+        return Err(EditError::InvalidFieldName(name.to_string()));
+    }
+    let stored = match schema {
+        Some(schema) => QuillConfig::conform_value(&value, schema, name, Leniency::Write)
+            .map_err(|e| conform_error_to_edit(name, schema, e))?,
+        None => value,
+    };
+    // Depth-bound the stored form (name already validated above).
+    check_field(name, stored.as_json())?;
+    Ok(stored)
 }
 
 impl Document {
@@ -519,79 +584,50 @@ impl Card {
         }
     }
 
-    /// Set a payload field to a **richtext corpus**, committing the corpus form
-    /// at write — the field-level twin of [`set_body_value`](Self::set_body_value),
-    /// and the writer that makes a schema-richtext field corpus-from-write-onward
-    /// (`$body` is corpus by construction; a field is corpus *iff* the caller
-    /// picks this method over the string-storing [`set_field`](Self::set_field)).
+    /// Write-time commit: validate and normalize `value` per the field's schema
+    /// `type` and store the canonical form. The typed sibling of the opaque
+    /// [`set_field`](Self::set_field) — the one write verb for *every* field
+    /// type (richtext today, any future corpus model tomorrow), dispatching on
+    /// the [`FieldSchema`] rather than growing a per-type method.
     ///
-    /// Accepts either encoding the seam carries — a canonical corpus **object**
-    /// (decoded and validated) or an authored markdown **string** (imported) —
-    /// and stores the canonical corpus JSON, so identity marks (anchors, island
-    /// ids) live on the stored value and persist across compiles and DTO
-    /// round-trips. `null` stores the empty corpus. Routes through the one
-    /// object-vs-string dispatch (`decode_richtext_value`), so it stays lossless
-    /// for corpus-only marks a markdown projection cannot carry (e.g.
-    /// `underline`); a Markdown (`.qmd`) save projects the field back
-    /// to a string ([`Card::field_markdown`]) and re-imports a fresh corpus on
-    /// reload, so on-disk persistence is markdown-lossy by design — identity
-    /// survives the live/DTO carriers, not a card-yaml round-trip.
+    /// The two write disciplines: [`set_field`](Self::set_field) stores the
+    /// value opaquely and defers coercion to render (keystroke-level state,
+    /// data-in-flight); `commit_field` canonicalizes now and fails now (an
+    /// editor blur/save, an agent write). Neither is forced on the other.
     ///
-    /// `inline` mirrors the schema's `richtext(inline)` constraint: when set, a
-    /// decoded multi-block corpus is rejected here with
-    /// [`EditError::FieldRichtextNotInline`], in lockstep with the coercion- and
-    /// validation-layer `richtext(inline)` checks — so the write is the strict
-    /// commit (fail at write, not at a later render). The caller supplies it
-    /// because a [`Document`] holds only a `$quill` *reference*, not the resolved
-    /// [`FieldType`](crate::quill::FieldType); an editor holds the schema and
-    /// knows whether the target field is `richtext(inline)`.
+    /// Behavior by `type`:
+    /// - **richtext** — imports a markdown string / adopts a corpus object and
+    ///   stores canonical corpus JSON, so identity marks (anchors, island ids)
+    ///   live on the stored value from the write; a `richtext(inline)` schema
+    ///   rejects a multi-block value with [`EditError::FieldRichtextNotInline`].
+    /// - **scalars** (`string`/`integer`/`number`/`boolean`/`datetime`) — stores
+    ///   the coerced canonical (`"3"` → `3`), applying only value-parsing
+    ///   normalizations; a cross-type value that the render floor would coerce
+    ///   (e.g. `1` → `true`) or a shape mismatch fails here instead.
+    /// - **array** / **object** — coerces each element/property against the
+    ///   element/property schema.
+    /// - **null** — passes through unchanged (the null ≡ absent rule); nothing
+    ///   is coerced (a richtext `null` reads back as the empty corpus via
+    ///   [`field_richtext`](Self::field_richtext)).
     ///
-    /// Returns [`EditError::InvalidFieldName`] for a malformed name and
-    /// [`EditError::FieldRichtextDecode`] for a value that is neither a corpus
-    /// object, an importable markdown string, nor `null`.
-    pub fn set_field_richtext(
+    /// The caller supplies the `schema` because a [`Document`] holds only a
+    /// `$quill` *reference*, not the resolved schema; an editor holds it (see
+    /// [`crate::TypedEditor`], which resolves the schema per field and calls
+    /// this).
+    ///
+    /// Returns [`EditError::InvalidFieldName`] for a malformed name,
+    /// [`EditError::FieldRichtextDecode`] / [`EditError::FieldRichtextNotInline`]
+    /// for a richtext field, [`EditError::FieldConform`] for any other type
+    /// mismatch, and [`EditError::ValueTooDeep`] when the stored value nests
+    /// past the §8 depth limit.
+    pub fn commit_field(
         &mut self,
         name: &str,
-        value: &serde_json::Value,
-        inline: bool,
+        value: impl Into<QuillValue>,
+        schema: &FieldSchema,
     ) -> Result<(), EditError> {
-        if !is_valid_field_name(name) {
-            return Err(EditError::InvalidFieldName(name.to_string()));
-        }
-        let corpus = match crate::document::decode_richtext_value(value) {
-            Some(result) => result.map_err(|e| EditError::FieldRichtextDecode {
-                field: name.to_string(),
-                message: e.into_message(),
-            })?,
-            // Neither object nor string: `null` is the empty corpus; anything
-            // else is an invalid richtext value.
-            None => match value {
-                serde_json::Value::Null => RichText::empty(),
-                other => {
-                    return Err(EditError::FieldRichtextDecode {
-                        field: name.to_string(),
-                        message: format!(
-                            "expected a richtext corpus object or a markdown string, got {}",
-                            match other {
-                                serde_json::Value::Bool(_) => "a boolean",
-                                serde_json::Value::Number(_) => "a number",
-                                serde_json::Value::Array(_) => "an array",
-                                _ => "an unsupported value",
-                            }
-                        ),
-                    })
-                }
-            },
-        };
-        if inline && !corpus.is_inline() {
-            return Err(EditError::FieldRichtextNotInline(name.to_string()));
-        }
-        // Store the canonical corpus object. Depth-checking is unnecessary: a
-        // corpus nests a fixed handful of levels (well under `MAX_YAML_DEPTH`),
-        // and `decode_richtext_value` already validated it.
-        let canonical = quillmark_richtext::serial::to_canonical_value(&corpus);
-        self.payload_mut()
-            .insert(name.to_string(), QuillValue::from_json(canonical));
+        let stored = resolve_field_write(name, value.into(), Some(schema))?;
+        self.payload_mut().insert(name.to_string(), stored);
         Ok(())
     }
 

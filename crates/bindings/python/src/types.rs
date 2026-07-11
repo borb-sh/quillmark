@@ -468,6 +468,50 @@ impl PyDocument {
             .map_err(convert_edit_errors)
     }
 
+    /// Typed field write on the main card, resolving the field's schema `type`
+    /// from `quill` — the one write verb for every field type. Python has no
+    /// richtext field writer otherwise, so a richtext value (a corpus dict or a
+    /// markdown string) commits to the canonical corpus here; scalars coerce to
+    /// their declared type (`"3"` → `3`).
+    ///
+    /// Returns `"typed"` when the field is declared in the schema (strict
+    /// commit — a mismatch raises now) or `"opaque"` when it is not (stored
+    /// verbatim, like `set_field`). Raises `QuillmarkError` on a typed mismatch
+    /// or a malformed name. Mirrors WASM `commitField`.
+    fn commit_field(
+        &mut self,
+        quill: PyRef<'_, PyQuill>,
+        name: &str,
+        value: Bound<'_, PyAny>,
+    ) -> PyResult<String> {
+        let qv = py_to_quillvalue(&value)?;
+        quill
+            .inner
+            .editor(&mut self.inner)
+            .set(name, qv)
+            .map(|c| c.as_str().to_string())
+            .map_err(convert_edit_error)
+    }
+
+    /// Typed field write on the composable card at `index` — the card-indexed
+    /// twin of `commit_field`, resolving the field's type from the card's
+    /// `$kind` schema in `quill`. Returns `"typed"` / `"opaque"`; raises on an
+    /// out-of-range index or a typed mismatch. Mirrors WASM `commitCardField`.
+    fn commit_card_field(
+        &mut self,
+        quill: PyRef<'_, PyQuill>,
+        index: usize,
+        name: &str,
+        value: Bound<'_, PyAny>,
+    ) -> PyResult<String> {
+        let qv = py_to_quillvalue(&value)?;
+        let mut editor = quill.inner.editor(&mut self.inner);
+        let mut card = editor.card(index).map_err(convert_edit_error)?;
+        card.set(name, qv)
+            .map(|c| c.as_str().to_string())
+            .map_err(convert_edit_error)
+    }
+
     fn remove_field<'py>(&mut self, py: Python<'py>, name: &str) -> PyResult<Bound<'py, PyAny>> {
         match self
             .inner
