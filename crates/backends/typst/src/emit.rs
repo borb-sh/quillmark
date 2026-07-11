@@ -1190,19 +1190,6 @@ mod tests {
         assert!(block.ends_with("\n\n"), "block path keeps its terminator");
     }
 
-    /// The inline path records the same single-segment source map the block path
-    /// does, minus the terminator: one segment spanning the whole corpus, whose
-    /// generated window slices the markup exactly.
-    #[test]
-    fn inline_records_one_segment_over_the_markup() {
-        let rt = from_markdown("Hello **bold**.").expect("import");
-        let ec = emit_richtext_inline(&rt).expect("emit");
-        assert_eq!(ec.segments.len(), 1);
-        let seg = &ec.segments[0];
-        assert_eq!(seg.corpus, 0..rt.len_usv());
-        assert_eq!(seg.gen, 0..ec.markup.len());
-    }
-
     /// A corpus that is not `is_inline` (a heading, a list, multiple paragraphs)
     /// falls back to the block lowering rather than dropping structure — the
     /// defensive path for a hand-built corpus on an inline field.

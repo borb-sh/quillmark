@@ -362,7 +362,7 @@ export class Engine {
  * is the per-field twin of `apply(doc)`: it splices one content field's corpus
  * and maps captured positions forward across edits, so a native form editor
  * keeps a caret anchored without a whole-document recompile per keystroke. It
- * is `@experimental` while the shape settles (#876).
+ * is `@experimental` and may change in any 0.x release (#876).
  *
  * `paint` writes a COMPLETE page raster — all content visible, no caller-side
  * compositing — for every backend that supports canvas (Typst rasterizes

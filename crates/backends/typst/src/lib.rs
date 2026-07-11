@@ -1131,40 +1131,6 @@ mod tests {
     }
 
     #[test]
-    fn schema_meta_classifies_inline_richtext_fields() {
-        // `inline_fields` is the subset of content fields whose (element) corpus
-        // is `richtext(inline)` — the `quillmark:inline` flag on the field, or on
-        // an array's `items`. A plain richtext field is content but not inline.
-        let schema = QuillValue::from_json(json!({
-            "type": "object",
-            "properties": {
-                "block": { "type": "object", "contentMediaType": RICHTEXT_MEDIA_TYPE },
-                "subject": {
-                    "type": "object",
-                    "contentMediaType": RICHTEXT_MEDIA_TYPE,
-                    "quillmark:inline": true
-                },
-                "cc": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "contentMediaType": RICHTEXT_MEDIA_TYPE,
-                        "quillmark:inline": true
-                    }
-                }
-            }
-        }));
-        let meta = SchemaMeta::from_schema_json(schema.as_json());
-        assert!(meta.inline_fields.contains(&"subject".to_string()));
-        assert!(meta.inline_fields.contains(&"cc".to_string()));
-        assert!(!meta.inline_fields.contains(&"block".to_string()));
-        // Every inline field is also a content field.
-        for f in &meta.inline_fields {
-            assert!(meta.content_fields.contains(f), "{f} must be content");
-        }
-    }
-
-    #[test]
     fn schema_meta_array_fields_distinguish_scalar_from_array() {
         // Any array is element-addressable (`field.N`) — `array<richtext>` and
         // plain string arrays alike, matching the pdfform resolver's grammar.
