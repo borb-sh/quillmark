@@ -15,7 +15,6 @@ Risk tags:
 Files, grouped by where the fix lands:
 
 - [`richtext.md`](richtext.md) — `crates/richtext`
-- [`typst.md`](typst.md) — `crates/backends/typst`
 - [`core.md`](core.md) — `crates/core`
 - [`bindings.md`](bindings.md) — `crates/bindings/wasm`, `crates/backends/pdfform`
 - [`seams.md`](seams.md) — cross-crate: the richtext value seam and the

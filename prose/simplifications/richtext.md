@@ -10,31 +10,27 @@ single-pass cursor rewrite is possible but the interleaving of retain/insert
 with the template-clone rule has edge cases on malformed corpora; semantics
 need pinning by tests before restructuring.
 
-### ops.rs:221 — `apply_field_change` normalizes three times
+### ops.rs:221 — `apply_field_change` normalizes three times (behavior-load-bearing)
 
 `apply_text_delta`, `apply_line_ops`, and `apply_mark_ops` each end with
 `self.normalize()`, so a committed edit bundle pays 3× (mark sort + full-text
-char collection + island props rebuild). Fix: internal non-normalizing apply
-steps with one `normalize()` at the bundle end. Needs care: the public
-single-channel methods must keep normalizing.
+char collection + island props rebuild). The obvious fix — non-normalizing
+inner steps and one `normalize()` at the bundle end — is **not**
+behavior-preserving, so it is deferred until the semantics are pinned:
 
-### model.rs:333, serial.rs:388 — every `normalize()` rebuilds all table-cell JSON
+- `normalize` unions adjacent same-kind marks (`[0..3]`+`[3..5]`→`[0..5]`), and
+  `apply_mark_ops`'s `Remove` matches by `ranges_overlap` (half-open). With the
+  intermediate normalize, `Remove{3..5}` overlaps the whole union and clears
+  `[0..3]` too; without it, only `[3..5]` is removed. The normalize between text
+  and mark ops changes which marks a subsequent `Remove` matches.
+- `split_line`/`join_line` insert/delete `\n` in the text **without** remapping
+  marks, and `normalize`'s formatting-edge trim is `\n`-position-sensitive, so
+  normalizing on the pre-line-op text vs the post-line-op text can trim
+  different edges.
 
-`normalize_table_cell_marks` parses and rebuilds each cell (`parse_cell` +
-`cell_to_value`) and `sorted_value`-clones every island's `props` tree even
-when a pure text splice touched no island — O(total island props) per
-keystroke on any corpus containing a table. Fix: skip the island pass unless
-islands were touched (dirty flag on island-mutating paths), or verify-sorted
-before rebuilding.
-
-### model.rs:334, model.rs:448 — `island_type == "table"` string dispatch in three places
-
-`normalize` and `validate` each string-match `"table"` to reach into props via
-`serial`, and export's `emit_island` dispatches on the same tag independently.
-Islands are an open set: a new mark-carrying island type requires coordinated
-edits in three files, and missing one silently voids the canonical-bytes
-guarantee for that type. Fix: one island-type dispatch table in `serial.rs`
-exposing per-type normalize/validate/emit hooks.
+Fix: give `apply_field_change` a real op-level model (remap marks across line
+ops; define `Remove`-vs-union order) and pin it with tests, then collapse to one
+terminal normalize.
 
 ### ops.rs:111, delta.rs:99 — short-delta leniency lives at the wrong altitude
 
@@ -47,36 +43,3 @@ future consumer replaying entries via strict `try_apply` (undo, sync) gets
 `BaseLengthMismatch` for edits that succeeded. Fix: normalize abbreviated
 deltas at the boundary where they enter (the WASM delta deserializer), or make
 implicit trailing retain the documented contract of `try_apply` itself.
-
-### import.rs:512 — the `MarkdownFixer` erases the `<u>`/`Strong` distinction it owns
-
-The fixer rewrites `<u>`/`</u>` into `Strong` events; both downstream consumers
-(`Tag::Strong` at import.rs:526 and the table-cell path at import.rs:689) then
-re-sniff raw source bytes via `strong_or_underline` to recover the distinction.
-That peek's 2-byte `<u`-prefix test and the fixer's `is_u_open_tag` (trim +
-inner `== "u"`) are two hand-synced encodings of one rule that classify a tag
-like `<ul>` oppositely; only the fixer's gate — which never converts `<ul>` to
-`Strong` — keeps that divergence from reaching the peek today. Fix: the fixer
-emits the distinction explicitly (wrapper event or `MarkKind`), deleting both
-peeks. The shared `strong_or_underline` helper already narrows the drift but not
-the altitude — the distinction is still recovered from source bytes rather than
-carried.
-
-### change_log.rs:77, change_log.rs:169 — unused `ChangeLog` surface
-
-`len`, `is_empty`, `entries_after`, and the `CHANGE_LOG_DEFAULT_CAPACITY`
-re-export (lib.rs:48) have no consumers outside the module's own tests;
-session.rs uses only `record`/`record_change`/`revision`/`map_pos`/
-`invalidate`. `entries_after` implies an incremental-reader protocol that is
-not wired anywhere. Fix: drop or demote to `#[cfg(test)]` until the
-delta-transport consumer lands. Published-crate API.
-
-### serial.rs:115 — `to_canonical_value` builds the JSON tree twice
-
-It constructs via `to_value()` then rebuilds the whole tree with
-`sorted_value(...)`, and always clones + normalizes the corpus even when the
-caller (live `Document` bodies, invariantly normalized) is already canonical.
-Fix: emit the top-level keys and mark/line/island maps in sorted order
-directly (props/attrs are already key-sorted by `normalize`), and/or a
-no-clone path for known-normalized values. Interacts with the seam round-trips
-(see `seams.md`).

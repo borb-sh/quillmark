@@ -2,7 +2,7 @@ use crate::{
     CorpusHit, Diagnostic, RenderError, RenderOptions, RenderResult, RenderedRegion, Severity,
 };
 pub use quillmark_richtext::{
-    ApplyError, Assoc, ChangeLog, Delta, FieldChange, LineOp, MarkOp, Op, StaleRevision,
+    ApplyError, Assoc, ChangeLog, Delta, LineOp, MarkOp, Op, StaleRevision,
 };
 
 /// What a committed [`LiveSession::apply`] changed.
@@ -169,10 +169,10 @@ pub trait SessionHandle: Send + Sync + 'static {
 /// a stable document — `apply` is transactional, swapping the compile only on
 /// success — so immutability is an invariant between commits, not a type.
 ///
-/// A monotonic [`revision`](Self::revision) and a bounded
-/// [`change_log`](Self::change_log) of per-field text deltas let stale corpus
-/// positions map forward via [`map_field_pos`](Self::map_field_pos) instead of
-/// silently reading the current compile.
+/// A monotonic [`revision`](Self::revision) and a bounded change log of
+/// per-field text deltas let stale corpus positions map forward via
+/// [`map_field_pos`](Self::map_field_pos) instead of silently reading the
+/// current compile.
 pub struct LiveSession {
     inner: Box<dyn SessionHandle>,
     change_log: ChangeLog,
@@ -190,11 +190,6 @@ impl LiveSession {
     /// Monotonic edit revision — `0` before the first recorded field delta.
     pub fn revision(&self) -> u64 {
         self.change_log.revision()
-    }
-
-    /// Bounded ring of per-field text deltas since session open.
-    pub fn change_log(&self) -> &ChangeLog {
-        &self.change_log
     }
 
     /// Record a text-only field splice **committed against `base_revision`**,
