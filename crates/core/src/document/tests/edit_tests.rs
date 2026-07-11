@@ -703,6 +703,51 @@ fn test_field_richtext_absent_and_non_richtext() {
     assert!(card.field_markdown("count").is_none());
 }
 
+/// A corpus-valued field emits to card-yaml as its **markdown projection**, not
+/// a nested `{text, lines, marks, islands}` object — card-yaml stays
+/// markdown-clean. Re-parsing yields a string field (schema-less parse), the
+/// documented on-disk identity boundary; the corpus survives only via the DTO.
+#[test]
+fn test_corpus_field_emits_as_markdown_projection() {
+    let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
+    doc.main_mut()
+        .set_field_richtext("intro", &serde_json::json!("**bold** intro"), false)
+        .unwrap();
+
+    let md = doc.to_markdown();
+    // Projected to a quoted markdown scalar (the `body_markdown` projection,
+    // trailing newline and all), not a block mapping.
+    assert!(
+        md.contains("intro: \"**bold** intro\\n\""),
+        "expected markdown projection, got:\n{md}"
+    );
+    assert!(!md.contains("lines:"), "corpus object leaked into card-yaml:\n{md}");
+
+    // Re-parse: schema-less, so the field is now a plain string (identity lost
+    // on disk — the intended boundary), but the markdown content survives.
+    let reparsed = Document::from_markdown(&md).unwrap();
+    assert_eq!(
+        reparsed.main().payload().get("intro").unwrap().as_str(),
+        Some("**bold** intro\n")
+    );
+}
+
+/// A plain object field that is *not* a canonical corpus emits structurally
+/// (unchanged) — projection fires only on genuine corpus objects.
+#[test]
+fn test_non_corpus_object_field_emits_structurally() {
+    let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
+    doc.main_mut()
+        .set_field(
+            "addr",
+            QuillValue::from_json(serde_json::json!({ "city": "Paris" })),
+        )
+        .unwrap();
+    let md = doc.to_markdown();
+    assert!(md.contains("addr:"), "{md}");
+    assert!(md.contains("city: Paris"), "{md}");
+}
+
 /// `import_body_delta` updates the body and returns the text delta from the
 /// old body to the new — the recordable whole-document (stale-text) writer.
 #[test]
