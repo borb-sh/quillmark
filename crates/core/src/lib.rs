@@ -43,10 +43,7 @@ pub mod region;
 pub use region::{field_boxes, CorpusHit, HitGranularity, RenderedRegion};
 
 pub mod session;
-pub use session::{
-    ApplyError, Assoc, ChangeLog, ChangeSet, Delta, LineOp, LiveSession, MarkOp, Op,
-    StaleRevision,
-};
+pub use session::{ApplyError, Assoc, ChangeSet, Delta, LineOp, LiveSession, MarkOp, Op};
 
 /// The canonical corpus content model — re-exported so consumers of the
 /// document mutators ([`Card::set_body_corpus`], [`Card::apply_body_change`])

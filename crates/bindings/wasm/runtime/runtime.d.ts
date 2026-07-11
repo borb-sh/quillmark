@@ -116,40 +116,7 @@ export interface CorpusHit {
 	 * ({@link HitGranularity}). Absent when the backend does not report it.
 	 */
 	granularity?: HitGranularity;
-	/**
-	 * The {@link LiveSession.revision} this hit was resolved at — `positionAt`
-	 * stamps it so a caller can record the captured `pos` against this base
-	 * revision and map it forward ({@link LiveSession.mapFieldPos}). Absent on a
-	 * one-shot read with no live session.
-	 * @experimental Part of the incremental-edit surface — see {@link LiveSession}.
-	 */
-	revision?: number;
 }
-
-/**
- * A text-splice delta over a field's USV corpus — CodeMirror `ChangeSet`
- * semantics: `retain` / `insert` / `delete` ops applied left-to-right,
- * consuming base positions. The native form-editor edit unit
- * {@link LiveSession.applyFieldDelta} consumes; carries no formatting (marks and
- * lines are separate channels).
- * @experimental Part of the incremental-edit surface — see {@link LiveSession}.
- */
-export interface Delta {
-	ops: DeltaOp[];
-}
-
-/** One {@link Delta} op — exactly one key. */
-export type DeltaOp = { retain: number } | { insert: string } | { delete: number };
-
-/**
- * A field address {@link LiveSession.applyFieldDelta} accepts: `"$body"` (the
- * main content body) or the name of a richtext-typed field on the **main**
- * card. Not a finite literal set — valid field names are whatever the quill
- * schema declares, so this stays `string` rather than a union; any address
- * that isn't `$body` or an existing main-card richtext field throws.
- * @experimental Part of the incremental-edit surface — see {@link LiveSession}.
- */
-export type DeltaFieldAddress = string;
 
 /**
  * A rendered field region: the quill schema field address (`field`) plus its
@@ -203,15 +170,6 @@ export interface FieldRegion {
 	 * whole-field box.
 	 */
 	span?: [number, number];
-	/**
-	 * The {@link LiveSession.revision} this geometry was read at — `regions()`
-	 * and `locate()` stamp the current revision so a consumer can pair a
-	 * highlight box or caret with the edit state it reflects and map a position
-	 * forward through later edits ({@link LiveSession.mapFieldPos}). Absent on a
-	 * one-shot {@link RenderResult.regions} sidecar (no live session).
-	 * @experimental Part of the incremental-edit surface — see {@link LiveSession}.
-	 */
-	revision?: number;
 }
 
 /** Canonical contract every backend build must satisfy. Result of one render. */
@@ -404,49 +362,6 @@ export declare class LiveSession {
 	 * repaint `dirtyPages ∩ visible`.
 	 */
 	apply(doc: Document): ChangeSet;
-	/**
-	 * The session's monotonic edit revision — `0` before the first
-	 * {@link applyFieldDelta}, advanced by each committed native field edit (and
-	 * by a whole-document {@link apply}, which also invalidates the change log).
-	 * The stamp {@link regions} / {@link positionAt} / {@link locate} carry; pass
-	 * a captured value back as {@link applyFieldDelta}'s `baseRevision` and to
-	 * {@link mapFieldPos}.
-	 * @experimental Part of the incremental-edit surface; may change in any 0.x release.
-	 */
-	readonly revision: number;
-	/**
-	 * Commit a native form-editor edit to a content field: splice `delta` into
-	 * the field's corpus on `doc`, recompile the preview incrementally, and
-	 * record the delta so later positions map forward ({@link mapFieldPos}) — the
-	 * per-field twin of the whole-document {@link apply}.
-	 *
-	 * `doc` is mutated **in place** to carry the edit (the native-path contract),
-	 * bridged across the WASM linear-memory seam: the splice runs on a transient
-	 * backend clone and, on success, is written back into the canonical `doc`.
-	 * `field` is typed to what this phase actually accepts — see
-	 * {@link DeltaFieldAddress} — use {@link apply} for any other address.
-	 *
-	 * `baseRevision` must equal the current {@link revision}; a mismatch throws
-	 * `session::revision_mismatch` and changes nothing (preview and `doc` both
-	 * untouched), so a natural retry is safe. On success `doc` carries the edit,
-	 * the preview reflects it, and {@link revision} is `baseRevision + 1`; on any
-	 * failure `doc` is byte-identical to before.
-	 * @experimental The incremental-edit surface ships ahead of its first
-	 * production consumer and may change shape in any 0.x release; {@link apply}
-	 * is the stable edit path.
-	 */
-	applyFieldDelta(doc: Document, field: DeltaFieldAddress, baseRevision: number, delta: Delta): ChangeSet;
-	/**
-	 * Map a USV `pos` in `field`, captured at `baseRevision`, forward through the
-	 * field's recorded deltas to its position in the current {@link revision} —
-	 * the primitive that keeps a form caret or highlight anchored across edits.
-	 * `assoc` picks the side of a same-position insertion (`"after"` moves past
-	 * inserted text). Throws `session::stale_revision` when `baseRevision` cannot
-	 * be mapped forward (evicted from the bounded change log, or a future
-	 * revision): re-read at the current {@link revision}.
-	 * @experimental Part of the incremental-edit surface; may change in any 0.x release.
-	 */
-	mapFieldPos(field: string, baseRevision: number, pos: number, assoc: 'before' | 'after'): number;
 	render(options?: RenderOptions): RenderResult;
 	/**
 	 * Schema-field geometry for this compiled session, keyed on quill schema
@@ -472,8 +387,8 @@ export declare class LiveSession {
 	 * (span-filter + per-page union), keeping `regions()` the low-level disjoint
 	 * truth, so a consumer stops reimplementing it. **Content only** — a field
 	 * placed solely as a scalar reference or a bound widget carries no `span`
-	 * and returns `[]`; its box is a single {@link regions} rect. Each box is
-	 * stamped with the current {@link revision}, like `regions()`.
+	 * and returns `[]`; its box is a single {@link regions} rect. Reflects the
+	 * current compile, like `regions()`.
 	 */
 	fieldBoxes(field: string): FieldRegion[];
 	/**

@@ -478,7 +478,7 @@ mod tests {
     fn apply_text_delta_pads_short_prepend() {
         // A bare prepend names only its inserted text (no trailing retain); it
         // still splices against the whole corpus rather than failing the base
-        // check (regression for the `applyFieldDelta` delta-path).
+        // check (regression for the per-field delta path).
         let mut rt = from_markdown("hello").unwrap();
         rt.apply_text_delta(&Delta {
             ops: vec![Op::Insert("NEW ".into())],

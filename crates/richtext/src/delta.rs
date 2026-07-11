@@ -19,10 +19,11 @@
 //! real-time collaborative editing would need.
 //!
 //! [`diff`] computes a Myers/LCS minimal edit script and pairs it with a
-//! **move detector** that re-homes an anchor across a verbatim block move. The
-//! live delta transport — a monotonic revision plus a bounded change log —
-//! lives in [`crate::change_log`]. Position mapping follows CodeMirror's
-//! `ChangeDesc.mapPos` / ProseMirror mapping semantics.
+//! **move detector** that re-homes an anchor across a verbatim block move.
+//! Position mapping ([`Delta::map_pos`]) follows CodeMirror's
+//! `ChangeDesc.mapPos` / ProseMirror mapping semantics. Anchoring a captured
+//! position across edits is the editor's job (its own transaction mapping); the
+//! corpus carries no session-side change log.
 //!
 //! ## The move weak spot (documented limit)
 //!
@@ -347,8 +348,8 @@ fn push_insert(ops: &mut Vec<Op>, s: &str) {
 /// the diff (re-homing verbatim block moves). The returned corpus is `new_rt`
 /// (structure/marks/islands from the fresh import) plus the surviving anchors.
 ///
-/// Returns the new corpus and the [`Delta`] used — the entry
-/// [`crate::change_log::ChangeLog::record`] would log for this edit.
+/// Returns the new corpus and the [`Delta`] used — the text change an editor
+/// bridge can map its own positions through.
 pub fn diff_import(
     base: &RichText,
     new_markdown: &str,

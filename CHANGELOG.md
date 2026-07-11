@@ -8,6 +8,23 @@
 
 ## Unreleased
 
+- remove(core,richtext,wasm)!: delete the incremental-edit surface — the
+  per-field change log and everything layered on it: `richtext::ChangeLog` /
+  `FieldChange` / `StaleRevision`; `LiveSession::revision` /
+  `record_field_delta_at` / `record_field_change_at` / `ensure_base_revision` /
+  `map_field_pos` / `apply_for_field_delta`; the WASM `applyFieldDelta` /
+  `mapFieldPos` / `revision` and the `Delta` DTO; and the `revision` stamp on
+  `RenderedRegion` / `CorpusHit` (and `FieldRegion` / `CorpusHit` on the wire).
+  Anchoring a caret or selection across edits belongs to the editor's own
+  transaction mapping (a ProseMirror / CodeMirror `StepMap`), not a parallel
+  core-side position map: the bidirectional preview↔editor cursor bridge is
+  `positionAt` / `locate` over the current compile, exact inverses that never
+  consulted the change log. Whole-document `apply(doc)` stays the one edit verb.
+  This dissolves #886's anchor-stranding half outright and drops the
+  half-built delta path behind its per-keystroke-marshalling half; `Delta` /
+  `diff` / `diff_import` / the mark & line op channels remain as the corpus
+  writers' substrate (`replace_body`, `import_body_delta`, `apply_body_change`)
+  (#886)
 - feat(core,wasm): `field_boxes(field)` / `LiveSession.fieldBoxes(field)` derive
   the whole-field highlight — one union rect per page over the field's
   `span`-bearing content segments — so a "highlight the focused field" consumer
@@ -22,29 +39,18 @@
   fence's interior), so a caret UI trusts a `cluster` offset for the caret and
   treats a `segment` one as a segment selection instead of guessing. Additive-
   optional, omitted from the wire when the backend does not report it (#884)
-- fix(wasm): `LiveSession.applyFieldDelta`'s `field` param gains a named
-  `DeltaFieldAddress` alias documenting its actual domain (`"$body"` or a
-  richtext field on the main card — dynamic, not a finite literal set) instead
-  of a bare `string` the doc prose alone explained. `Engine.supportsCanvas` and
-  `LiveSession.supportsCanvas` gain doc comments cross-referencing each other:
-  the two are spelled identically but answer different questions (a
-  pre-session backend estimate vs. this compile's authoritative answer, which
-  can diverge — e.g. a 0-page document) — the divergence is now visible where
-  each is used instead of only discoverable at runtime (#883)
+- fix(wasm): `Engine.supportsCanvas` and `LiveSession.supportsCanvas` gain doc
+  comments cross-referencing each other: the two are spelled identically but
+  answer different questions (a pre-session backend estimate vs. this compile's
+  authoritative answer, which can diverge — e.g. a 0-page document) — the
+  divergence is now visible where each is used instead of only discoverable at
+  runtime (#883)
 - fix(core): drop two rustdoc intra-doc links from public items
   (`RichtextDecodeError`, `Card::set_field_richtext`) to the private
   `decode_richtext_value`, which `-D rustdoc::private-intra-doc-links` (part of
   the lint gate) rejects since the link can never resolve for a doc reader;
   reworded to a plain code span, matching the existing convention elsewhere in
   the same file for referencing a private helper from public docs
-- test(wasm): fix two `applyFieldDelta` tests left stale by the #881 un-gate.
-  `canvas.test.js` still asserted the old hard `$body`-only rejection message;
-  updated to the current `FieldRichtextDecode` error. `runtime.test.js`
-  asserted that targeting a plain-string field (`title`) throws — but
-  `field_richtext` decodes any string as authored markdown regardless of
-  intent (`Document` carries no schema to tell richtext from string), so that
-  call actually succeeds; switched the probe to an absent field, which does
-  exercise the rejection
 - fix(wasm): drop the `revision?` field from the public `CorpusHit`/`FieldRegion`
   types and the broken `{@link LiveSession.mapFieldPos}` / `.revision` references
   in `runtime.d.ts`. The delta API (`applyFieldDelta`/`revision`/`mapFieldPos`) is

@@ -1,9 +1,7 @@
 use crate::{
     CorpusHit, Diagnostic, RenderError, RenderOptions, RenderResult, RenderedRegion, Severity,
 };
-pub use quillmark_richtext::{
-    ApplyError, Assoc, ChangeLog, Delta, LineOp, MarkOp, Op, StaleRevision,
-};
+pub use quillmark_richtext::{ApplyError, Assoc, Delta, LineOp, MarkOp, Op};
 
 /// What a committed [`LiveSession::apply`] changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -169,101 +167,19 @@ pub trait SessionHandle: Send + Sync + 'static {
 /// a stable document — `apply` is transactional, swapping the compile only on
 /// success — so immutability is an invariant between commits, not a type.
 ///
-/// A monotonic [`revision`](Self::revision) and a bounded change log of
-/// per-field text deltas let stale corpus positions map forward via
-/// [`map_field_pos`](Self::map_field_pos) instead of silently reading the
-/// current compile.
+/// Geometry reads (`regions`, `position_at`, `locate`) resolve against the
+/// current compile. Anchoring a caret or selection across edits is the editor's
+/// job (its own transaction mapping) — the session holds no change log and maps
+/// no positions forward; a consumer re-reads geometry after each committed
+/// [`apply`](Self::apply).
 pub struct LiveSession {
     inner: Box<dyn SessionHandle>,
-    change_log: ChangeLog,
 }
 
 impl LiveSession {
     #[doc(hidden)]
     pub fn new(inner: Box<dyn SessionHandle>) -> Self {
-        Self {
-            inner,
-            change_log: ChangeLog::with_default_capacity(),
-        }
-    }
-
-    /// Monotonic edit revision — `0` before the first recorded field delta.
-    pub fn revision(&self) -> u64 {
-        self.change_log.revision()
-    }
-
-    /// Record a text-only field splice **committed against `base_revision`**,
-    /// guarding revision monotonicity: a delta is only composable onto the
-    /// state it was computed from, so `base_revision` must equal the session's
-    /// current [`revision`](Self::revision). On a match records the delta,
-    /// bumps the revision, and returns the new one; on a mismatch records
-    /// nothing and returns a `session::revision_mismatch` [`Diagnostic`] — the
-    /// caller re-reads at the current revision and recomputes the delta rather
-    /// than splicing it onto the wrong base (a silent stale write). The write
-    /// twin of the read stamp on [`regions`](Self::regions) /
-    /// [`position_at`](Self::position_at): a consumer captures a base revision
-    /// from a read, then submits its delta against it here.
-    pub fn record_field_delta_at(
-        &mut self,
-        path: impl Into<String>,
-        base_revision: u64,
-        text_delta: Delta,
-    ) -> Result<u64, Diagnostic> {
-        self.ensure_base_revision(base_revision)?;
-        Ok(self.change_log.record(path, text_delta))
-    }
-
-    /// Bundle twin of [`record_field_delta_at`](Self::record_field_delta_at):
-    /// record a text delta plus mark/line ops against `base_revision`, with the
-    /// same monotonicity guard and `session::revision_mismatch` diagnostic.
-    pub fn record_field_change_at(
-        &mut self,
-        path: impl Into<String>,
-        base_revision: u64,
-        text_delta: Delta,
-        mark_ops: impl Into<Vec<MarkOp>>,
-        line_ops: impl Into<Vec<LineOp>>,
-    ) -> Result<u64, Diagnostic> {
-        self.ensure_base_revision(base_revision)?;
-        Ok(self
-            .change_log
-            .record_change(path, text_delta, mark_ops, line_ops))
-    }
-
-    /// Guard that `base_revision` matches the current revision — the raw check
-    /// behind [`record_field_delta_at`](Self::record_field_delta_at), exposed
-    /// for a caller that interleaves other work (a document mutation, a
-    /// recompile) between the guard and the record so the log advances only on
-    /// a fully-committed edit. Both a field delta submitted against a stale
-    /// read and an impossible future revision fail; the
-    /// `session::revision_mismatch` diagnostic reports the mismatch so the
-    /// caller re-reads at the current revision.
-    pub fn ensure_base_revision(&self, base_revision: u64) -> Result<(), Diagnostic> {
-        let current = self.revision();
-        if base_revision == current {
-            return Ok(());
-        }
-        Err(Diagnostic::new(
-            Severity::Error,
-            format!(
-                "field delta base revision {base_revision} does not match the session's \
-                 current revision {current}; re-read at the current revision and recompute \
-                 the delta"
-            ),
-        )
-        .with_code("session::revision_mismatch".to_string()))
-    }
-
-    /// Map a USV position in `field` forward from `base_revision` through
-    /// subsequent recorded text deltas for that field.
-    pub fn map_field_pos(
-        &self,
-        field: &str,
-        base_revision: u64,
-        pos: usize,
-        assoc: Assoc,
-    ) -> Result<usize, StaleRevision> {
-        self.change_log.map_pos(field, base_revision, pos, assoc)
+        Self { inner }
     }
 
     pub fn page_count(&self) -> usize {
@@ -318,20 +234,10 @@ impl LiveSession {
     /// point-driven lookup over any placement, use
     /// [`field_at`](Self::field_at).
     ///
-    /// Each region is stamped with the current [`revision`](Self::revision)
-    /// ([`RenderedRegion::revision`]) so a consumer can pair a highlight box
-    /// with the edit state it reflects and map a position forward through
-    /// later edits.
+    /// Reflects the current compile; re-read after each committed
+    /// [`apply`](Self::apply) to pair a highlight box with the edit it shows.
     pub fn regions(&self) -> Vec<RenderedRegion> {
-        let revision = self.revision();
-        self.inner
-            .regions()
-            .into_iter()
-            .map(|mut r| {
-                r.revision = Some(revision);
-                r
-            })
-            .collect()
+        self.inner.regions()
     }
 
     /// The whole-field highlight boxes for `field` — one union rect per page,
@@ -342,8 +248,7 @@ impl LiveSession {
     /// union here so no consumer reimplements it. Content only — a field placed
     /// solely as a scalar reference or a bound widget carries no `span` and
     /// yields nothing here; its box is a single [`regions`](Self::regions) rect.
-    /// Each box is stamped with the current [`revision`](Self::revision), like
-    /// `regions`. See [`crate::field_boxes`].
+    /// Reflects the current compile, like `regions`. See [`crate::field_boxes`].
     pub fn field_boxes(&self, field: &str) -> Vec<RenderedRegion> {
         crate::field_boxes(&self.regions(), field)
     }
@@ -370,31 +275,19 @@ impl LiveSession {
     /// markers, a code fence's interior). `None` off all content ink, on a
     /// scalar/widget, or for backends with no corpus map. See [`CorpusHit`].
     ///
-    /// The hit is stamped with the current [`revision`](Self::revision)
-    /// ([`CorpusHit::revision`]) so a caller can record the captured `pos`
-    /// against that base revision and map it forward through later edits.
-    /// [`field_at`](Self::field_at) carries no such stamp — a field address is
-    /// revision-invariant, only a position drifts.
+    /// Resolves against the current compile; the editor owns the caret it
+    /// places and anchors it across later edits itself.
     pub fn position_at(&self, page: usize, x: f32, y: f32) -> Option<CorpusHit> {
-        let revision = self.revision();
-        self.inner.position_at(page, x, y).map(|mut h| {
-            h.revision = Some(revision);
-            h
-        })
+        self.inner.position_at(page, x, y)
     }
 
     /// A corpus position → **caret rect** — the reverse of
     /// [`position_at`](Self::position_at): given a field and a USV offset into
     /// its `RichText`, return the box (page-indexed) to draw a caret at. `None`
     /// when the field places no tracked content or the offset maps to no drawn
-    /// glyph. The returned region is stamped with the current
-    /// [`revision`](Self::revision), like [`regions`](Self::regions).
+    /// glyph. Resolves against the current compile.
     pub fn locate(&self, field: &str, pos: usize) -> Option<RenderedRegion> {
-        let revision = self.revision();
-        self.inner.locate(field, pos).map(|mut r| {
-            r.revision = Some(revision);
-            r
-        })
+        self.inner.locate(field, pos)
     }
 
     /// Non-fatal diagnostics of the session's **current compile** — set at
@@ -431,50 +324,9 @@ impl LiveSession {
     /// *same quill*: the `$quill` reference check lives at the layer that
     /// still holds a `Document` (`Quillmark::open`, the WASM `apply`);
     /// compiled data does not carry the reference, so this seam cannot
-    /// re-check it. On success this also invalidates the change log
-    /// ([`ChangeLog::invalidate`]): a whole-document rewrite is not
-    /// expressed as per-field deltas, so any position captured before this
-    /// call now maps forward as `session::stale_revision` rather than
-    /// silently resolving against text `apply` may have rewritten out from
-    /// under it.
+    /// re-check it.
     pub fn apply(&mut self, json_data: &serde_json::Value) -> Result<ChangeSet, RenderError> {
-        let change_set = self.inner.apply(json_data)?;
-        self.change_log.invalidate();
-        Ok(change_set)
-    }
-
-    /// Recompile against `json_data` for a field-delta commit and record the
-    /// delta atomically — the delta path's counterpart to [`apply`](Self::apply).
-    /// Unlike `apply` it does **not** invalidate the change log: a whole-document
-    /// rewrite is not expressed as per-field deltas, so `apply` raises the
-    /// invalidation floor; a field delta *is* composable, so its `base_revision`
-    /// must fold forward rather than fail closed against a raised floor.
-    ///
-    /// Guards `base_revision` against the current [`revision`](Self::revision)
-    /// first: a mismatch returns `session::revision_mismatch`, records nothing,
-    /// and does not recompile. Then recompiles transactionally — on `Err` the
-    /// previous compile stays live and the revision does not advance. On success
-    /// records `text_delta` under `path` (advancing the revision to
-    /// `base_revision + 1`) and returns the [`ChangeSet`]. Because the
-    /// non-invalidating recompile leaves the revision unchanged, the guarded base
-    /// still matches when recording, so the whole call commits or leaves the
-    /// session untouched. The caller holding the source `Document` rolls its own
-    /// copy back on `Err`.
-    #[doc(hidden)]
-    pub fn apply_for_field_delta(
-        &mut self,
-        path: impl Into<String>,
-        base_revision: u64,
-        text_delta: Delta,
-        json_data: &serde_json::Value,
-    ) -> Result<ChangeSet, RenderError> {
-        self.ensure_base_revision(base_revision)
-            .map_err(RenderError::from_diag)?;
-        let change_set = self.inner.apply(json_data)?;
-        // The guard proved base == current and the recompile left the revision
-        // untouched, so this record cannot mismatch — commit it infallibly.
-        self.change_log.record(path, text_delta);
-        Ok(change_set)
+        self.inner.apply(json_data)
     }
 }
 
@@ -557,63 +409,12 @@ mod tests {
         assert_eq!(result.warnings[0].message, "warning of compile 1");
     }
 
-    #[test]
-    fn field_delta_revision_and_map_pos() {
-        use quillmark_richtext::delta::diff;
-
-        let mut session = LiveSession::new(Box::new(PlainHandle));
-        assert_eq!(session.revision(), 0);
-
-        let d = diff("abcdef", "abcXYdef");
-        session.record_field_delta_at("subject", 0, d).unwrap();
-        assert_eq!(session.revision(), 1);
-        assert_eq!(
-            session
-                .map_field_pos("subject", 0, 3, Assoc::Before)
-                .unwrap(),
-            3
-        );
-        assert_eq!(
-            session
-                .map_field_pos("subject", 0, 3, Assoc::After)
-                .unwrap(),
-            5
-        );
-    }
-
-    /// The wiring seam: a document body edit produces a text delta
-    /// (`Card::import_body_delta`) that the session records, so a stale corpus
-    /// position maps forward through the whole-document replace.
-    #[test]
-    fn record_body_edit_into_change_log() {
-        let mut doc =
-            crate::Document::from_markdown("~~~\n$quill: q@1.0\n$kind: main\n~~~\n\nhello world\n")
-                .unwrap();
-        let mut session = LiveSession::new(Box::new(PlainHandle));
-        assert_eq!(session.revision(), 0);
-
-        let delta = doc
-            .main_mut()
-            .import_body_delta("hello brave world")
-            .unwrap();
-        let rev = session.record_field_delta_at("$body", 0, delta).unwrap();
-        assert_eq!(rev, 1);
-        assert_eq!(doc.main().body().text, "hello brave world");
-
-        // A caret captured at the end of "hello " (pos 6) before the edit maps
-        // past the inserted "brave " when read at the base revision.
-        assert_eq!(
-            session.map_field_pos("$body", 0, 11, Assoc::After).unwrap(),
-            17
-        );
-    }
-
-    /// A handle that surfaces one content region, one hit, and one caret rect,
-    /// all with `revision: None` — the backend never stamps; the wrapper does.
+    /// A handle that surfaces one content region, one hit, and one caret rect —
+    /// the geometry the wrapper passes straight through.
     struct RegionHandle;
     impl SessionHandle for RegionHandle {
         fn render(&self, _: &RenderOptions) -> Result<RenderResult, RenderError> {
-            unimplemented!("render is not exercised by stamp tests")
+            unimplemented!("render is not exercised by geometry tests")
         }
         fn page_count(&self) -> usize {
             1
@@ -624,7 +425,6 @@ mod tests {
                 page: 0,
                 rect: [1.0, 2.0, 3.0, 4.0],
                 span: Some([0, 3]),
-                revision: None,
             }]
         }
         fn position_at(&self, _: usize, _: f32, _: f32) -> Option<CorpusHit> {
@@ -632,7 +432,6 @@ mod tests {
                 field: "subject".to_string(),
                 pos: 2,
                 granularity: Some(crate::HitGranularity::Cluster),
-                revision: None,
             })
         }
         fn locate(&self, field: &str, pos: usize) -> Option<RenderedRegion> {
@@ -641,152 +440,20 @@ mod tests {
                 page: 0,
                 rect: [1.0, 2.0, 1.0, 4.0],
                 span: Some([pos, pos]),
-                revision: None,
             })
         }
     }
 
-    /// Every geometry read is stamped with the session's current revision, and
-    /// the stamp advances with each recorded edit.
-    #[test]
-    fn reads_are_stamped_with_current_revision() {
-        use quillmark_richtext::delta::diff;
-
-        let mut session = LiveSession::new(Box::new(RegionHandle));
-        assert_eq!(session.regions()[0].revision, Some(0));
-        assert_eq!(session.position_at(0, 2.0, 3.0).unwrap().revision, Some(0));
-        assert_eq!(session.locate("subject", 1).unwrap().revision, Some(0));
-
-        session
-            .record_field_delta_at("subject", 0, diff("abc", "abXc"))
-            .unwrap();
-        assert_eq!(session.regions()[0].revision, Some(1));
-        assert_eq!(session.position_at(0, 2.0, 3.0).unwrap().revision, Some(1));
-        assert_eq!(session.locate("subject", 1).unwrap().revision, Some(1));
-    }
-
     /// `field_boxes` derives the whole-field box off the session's own
-    /// `regions()`, so it inherits the revision stamp the wrapper applies.
+    /// `regions()`.
     #[test]
-    fn field_boxes_derives_off_stamped_regions() {
+    fn field_boxes_derives_off_regions() {
         let session = LiveSession::new(Box::new(RegionHandle));
         let boxes = session.field_boxes("subject");
         assert_eq!(boxes.len(), 1, "one span-bearing region → one box");
         assert_eq!(boxes[0].field, "subject");
-        assert_eq!(boxes[0].revision, Some(0), "inherits the regions() stamp");
         // A field with no span-bearing region has no derived content box.
         assert!(session.field_boxes("nope").is_empty());
-    }
-
-    /// `record_field_delta_at` records only when its base revision matches the
-    /// current one; a stale base yields a `session::revision_mismatch`
-    /// diagnostic and records nothing.
-    #[test]
-    fn checked_record_guards_base_revision() {
-        use quillmark_richtext::delta::diff;
-
-        let mut session = LiveSession::new(Box::new(PlainHandle));
-        // Base 0 matches the fresh session → records, revision becomes 1.
-        let r = session
-            .record_field_delta_at("subject", 0, diff("abc", "abXc"))
-            .expect("base matches");
-        assert_eq!(r, 1);
-        assert_eq!(session.revision(), 1);
-
-        // Re-submitting against the now-stale base 0 is rejected, and the log
-        // does not advance.
-        let diag = session
-            .record_field_delta_at("subject", 0, diff("abXc", "abXYc"))
-            .expect_err("stale base rejected");
-        assert_eq!(diag.code.as_deref(), Some("session::revision_mismatch"));
-        assert_eq!(session.revision(), 1);
-
-        // Against the current base it records again.
-        let r = session
-            .record_field_change_at("subject", 1, diff("abXc", "abXYc"), [], [])
-            .expect("current base");
-        assert_eq!(r, 2);
-    }
-
-    /// Whole-document `apply` raises the change log's invalidation floor: a
-    /// position captured at a pre-apply base fails `map_field_pos` closed with
-    /// `StaleRevision` rather than folding through deltas the rewrite obsoleted.
-    #[test]
-    fn apply_invalidates_pre_apply_bases() {
-        use quillmark_richtext::delta::diff;
-
-        let mut session = LiveSession::new(Box::new(WarningHandle {
-            current: Vec::new(),
-            applies: 0,
-        }));
-        session
-            .record_field_delta_at("subject", 0, diff("abc", "abXc"))
-            .unwrap();
-        assert_eq!(session.revision(), 1);
-
-        session.apply(&serde_json::Value::Null).unwrap();
-        assert_eq!(session.revision(), 2);
-
-        let err = session
-            .map_field_pos("subject", 1, 0, Assoc::Before)
-            .unwrap_err();
-        assert_eq!(err.base_revision, 1);
-        assert_eq!(err.oldest_retained, 2);
-    }
-
-    /// The delta-path seam recompiles and records atomically without
-    /// invalidating: the delta lands in the log (a pre-recompile base maps
-    /// forward through it), and a subsequent field delta at the revision the
-    /// seam advanced to still records — no invalidation floor was raised.
-    #[test]
-    fn apply_for_field_delta_records_without_invalidating() {
-        use quillmark_richtext::delta::diff;
-
-        let mut session = LiveSession::new(Box::new(WarningHandle {
-            current: Vec::new(),
-            applies: 0,
-        }));
-        session
-            .apply_for_field_delta(
-                "$body",
-                0,
-                diff("abcdef", "abcXYdef"),
-                &serde_json::Value::Null,
-            )
-            .unwrap();
-        assert_eq!(session.revision(), 1);
-        // The recorded delta composes: a base-0 position folds through it.
-        assert_eq!(
-            session.map_field_pos("$body", 0, 3, Assoc::After).unwrap(),
-            5
-        );
-        // The seam advanced to revision 1 without a floor, so a delta at base 1
-        // still records instead of failing closed.
-        let r = session
-            .record_field_delta_at("$body", 1, diff("abcXYdef", "abcZdef"))
-            .unwrap();
-        assert_eq!(r, 2);
-    }
-
-    /// A stale base to the delta-path seam is rejected before recompiling: the
-    /// `session::revision_mismatch` guard fires, the revision does not advance,
-    /// and (per `WarningHandle`) no recompile ran.
-    #[test]
-    fn apply_for_field_delta_guards_base_revision() {
-        use quillmark_richtext::delta::diff;
-
-        let mut session = LiveSession::new(Box::new(WarningHandle {
-            current: Vec::new(),
-            applies: 0,
-        }));
-        let err = session
-            .apply_for_field_delta("$body", 5, diff("a", "b"), &serde_json::Value::Null)
-            .unwrap_err();
-        assert_eq!(
-            err.diagnostics()[0].code.as_deref(),
-            Some("session::revision_mismatch")
-        );
-        assert_eq!(session.revision(), 0);
     }
 
     #[test]

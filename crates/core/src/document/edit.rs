@@ -608,15 +608,12 @@ impl Card {
     }
 
     /// Import an authored markdown string into the body and return the text
-    /// [`Delta`] from the old body to the new one — the recordable form of
-    /// [`replace_body`](Self::replace_body). The stale-text writer wired to the
-    /// change log: a caller holding a [`LiveSession`](crate::LiveSession) feeds
-    /// the returned delta to
-    /// [`record_field_delta_at`](crate::LiveSession::record_field_delta_at) so a
-    /// stale corpus position maps forward through the whole-document replace,
-    /// the same as a native field edit. Surviving identity anchors rebase onto
-    /// the new text; formatting marks are re-derived by the fresh import.
-    /// Returns [`EditError::BodyImport`] on an over-nested input.
+    /// [`Delta`] from the old body to the new one — the observable form of
+    /// [`replace_body`](Self::replace_body). The returned delta is the text
+    /// change an editor bridge maps its own positions through across a
+    /// whole-document replace. Surviving identity anchors rebase onto the new
+    /// text; formatting marks are re-derived by the fresh import. Returns
+    /// [`EditError::BodyImport`] on an over-nested input.
     pub fn import_body_delta(&mut self, body: impl Into<String>) -> Result<Delta, EditError> {
         let (corpus, delta) =
             diff_import(self.body(), &body.into()).map_err(EditError::BodyImport)?;
@@ -627,14 +624,11 @@ impl Card {
     /// Apply a committed field-change bundle to the body corpus — the native
     /// form-editor writer. Order is text delta → line ops → mark ops, each
     /// followed by normalization ([`RichText::apply_field_change`]); mark
-    /// ranges are in post-text-delta coordinates. A caller recording into a
-    /// session change log passes the same `text_delta`, `line_ops`, and
-    /// `mark_ops` to
-    /// [`record_field_change_at`](crate::LiveSession::record_field_change_at).
-    /// Returns [`EditError::CorpusApply`] when an op is out of bounds; the apply
-    /// is all-or-nothing ([`RichText::apply_field_change`]), so the body is
-    /// unchanged on error — apply the bundle against a body at the delta's base
-    /// revision.
+    /// ranges are in post-text-delta coordinates. Returns
+    /// [`EditError::CorpusApply`] when an op is out of bounds; the apply is
+    /// all-or-nothing ([`RichText::apply_field_change`]), so the body is
+    /// unchanged on error — apply the bundle against the body the delta was
+    /// computed from.
     pub fn apply_body_change(
         &mut self,
         text_delta: &Delta,

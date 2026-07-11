@@ -105,21 +105,9 @@ pub struct RenderedRegion {
     /// The corpus slice this box covers: USV `[start, end)` into the field's
     /// `RichText` for content ink (one segment's range), `None` for a scalar
     /// reference site or a widget — geometry with no corpus address. Additive
-    /// and optional, alongside `revision`.
+    /// and optional: omitted from the wire when `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub span: Option<[usize; 2]>,
-    /// The [`LiveSession`](crate::LiveSession) revision this geometry was read
-    /// at. [`LiveSession::regions`](crate::LiveSession::regions) and
-    /// [`locate`](crate::LiveSession::locate) stamp the current revision so a
-    /// consumer can pair a captured box or caret with the edit state it
-    /// reflects and map a position forward through later edits
-    /// ([`map_field_pos`](crate::LiveSession::map_field_pos)). `None` for a
-    /// region produced outside a live session (a one-shot
-    /// [`RenderOptions::regions`](crate::RenderOptions) sidecar) or straight
-    /// from a backend. Additive-optional: omitted from the wire when `None`, so
-    /// a region lacking `revision` still deserializes.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub revision: Option<u64>,
 }
 
 impl RenderedRegion {
@@ -157,8 +145,8 @@ impl RenderedRegion {
 /// reference or a bound widget yields an empty result here — its highlight box
 /// is a single region's `rect`, read straight from the region set with no
 /// derivation. Each returned region carries the union `span`
-/// (`[min start, max end)` over the page's contributing segments) and the
-/// `revision` of its first contributor; `page`-ascending.
+/// (`[min start, max end)` over the page's contributing segments);
+/// `page`-ascending.
 pub fn field_boxes(regions: &[RenderedRegion], field: &str) -> Vec<RenderedRegion> {
     let mut by_page: Vec<RenderedRegion> = Vec::new();
     for r in regions
@@ -180,7 +168,6 @@ pub fn field_boxes(regions: &[RenderedRegion], field: &str) -> Vec<RenderedRegio
                 page: r.page,
                 rect: r.rect,
                 span: Some(span),
-                revision: r.revision,
             }),
         }
     }
@@ -233,19 +220,9 @@ pub struct CorpusHit {
     /// Whether [`pos`](Self::pos) is cluster-exact or floored to the segment
     /// start ([`HitGranularity`]). `None` when the backend does not report it (a
     /// hit straight from a backend with no source map, or an older wire payload).
-    /// Additive-optional: omitted from the wire when `None`, alongside
-    /// `revision`.
+    /// Additive-optional: omitted from the wire when `None`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub granularity: Option<HitGranularity>,
-    /// The [`LiveSession`](crate::LiveSession) revision this hit was resolved
-    /// at — [`position_at`](crate::LiveSession::position_at) stamps the current
-    /// revision so a caller can record the captured `pos` against a base
-    /// revision and map it forward through later edits
-    /// ([`map_field_pos`](crate::LiveSession::map_field_pos)). `None` when the
-    /// hit came straight from a backend. Additive-optional: omitted from the
-    /// wire when `None`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub revision: Option<u64>,
 }
 
 #[cfg(test)]
@@ -259,36 +236,27 @@ mod tests {
             page: 0,
             rect: [180.0, 715.0, 520.0, 735.0],
             span: Some([12, 34]),
-            revision: Some(7),
         };
         let json = serde_json::to_string(&region).unwrap();
         assert!(json.contains("\"field\":\"full_name\""), "{json}");
         assert!(json.contains("\"span\":[12,34]"), "{json}");
-        assert!(json.contains("\"revision\":7"), "{json}");
         let back: RenderedRegion = serde_json::from_str(&json).unwrap();
         assert_eq!(back, region);
     }
 
-    /// `span` and `revision` are both omitted when `None` and default back on
-    /// read — the additive-optional discipline that lets a new field append
-    /// without a wire break, and that keeps a backend-emitted region (no
-    /// session, no revision) parsing the same as the earlier region shape
-    /// lacking `span`/`revision`.
+    /// `span` is omitted when `None` and defaults back on read — the
+    /// additive-optional discipline that lets a scalar/widget region (no corpus
+    /// address) parse the same as a content region carrying a span.
     #[test]
-    fn optional_fields_omitted_when_none() {
+    fn optional_span_omitted_when_none() {
         let region = RenderedRegion {
             field: "subject".to_string(),
             page: 0,
             rect: [1.0, 2.0, 3.0, 4.0],
             span: None,
-            revision: None,
         };
         let json = serde_json::to_string(&region).unwrap();
         assert!(!json.contains("span"), "scalar region omits span: {json}");
-        assert!(
-            !json.contains("revision"),
-            "unstamped region omits revision: {json}"
-        );
         let back: RenderedRegion = serde_json::from_str(&json).unwrap();
         assert_eq!(back, region);
     }
@@ -299,36 +267,28 @@ mod tests {
             field: "body".to_string(),
             pos: 42,
             granularity: Some(HitGranularity::Cluster),
-            revision: Some(3),
         };
         let json = serde_json::to_string(&hit).unwrap();
         assert!(json.contains("\"field\":\"body\"") && json.contains("\"pos\":42"));
         assert!(json.contains("\"granularity\":\"cluster\""), "{json}");
-        assert!(json.contains("\"revision\":3"), "{json}");
         let back: CorpusHit = serde_json::from_str(&json).unwrap();
         assert_eq!(back, hit);
     }
 
-    /// `granularity` and `revision` both omit when `None` and default back on
-    /// read — the additive-optional discipline, so a hit straight from a backend
-    /// (no source map, no session) parses the same as the earlier hit shape
-    /// lacking both.
+    /// `granularity` omits when `None` and defaults back on read — the
+    /// additive-optional discipline, so a hit straight from a backend (no source
+    /// map) parses the same as the earlier hit shape lacking it.
     #[test]
     fn corpus_hit_omits_optionals_when_none() {
         let hit = CorpusHit {
             field: "body".to_string(),
             pos: 42,
             granularity: None,
-            revision: None,
         };
         let json = serde_json::to_string(&hit).unwrap();
         assert!(
             !json.contains("granularity"),
             "unreported granularity omitted: {json}"
-        );
-        assert!(
-            !json.contains("revision"),
-            "unstamped hit omits revision: {json}"
         );
         let back: CorpusHit = serde_json::from_str(&json).unwrap();
         assert_eq!(back, hit);
@@ -342,7 +302,6 @@ mod tests {
             field: "body".to_string(),
             pos: 7,
             granularity: Some(HitGranularity::Segment),
-            revision: None,
         };
         let json = serde_json::to_string(&hit).unwrap();
         assert!(json.contains("\"granularity\":\"segment\""), "{json}");
@@ -356,7 +315,6 @@ mod tests {
             page,
             rect,
             span: Some(span),
-            revision: Some(4),
         }
     }
 
@@ -377,7 +335,6 @@ mod tests {
         assert_eq!(boxes[0].page, 0);
         assert_eq!(boxes[0].rect, [10.0, 660.0, 260.0, 720.0], "page-0 union");
         assert_eq!(boxes[0].span, Some([0, 40]), "page-0 union span");
-        assert_eq!(boxes[0].revision, Some(4));
         assert_eq!(boxes[1].page, 1);
         assert_eq!(boxes[1].rect, [10.0, 700.0, 150.0, 720.0]);
     }
@@ -392,7 +349,6 @@ mod tests {
             page: 0,
             rect: [10.0, 740.0, 90.0, 752.0],
             span: None,
-            revision: Some(1),
         }];
         assert!(field_boxes(&regions, "subject").is_empty());
     }

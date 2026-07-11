@@ -21,8 +21,7 @@ import type {
 	PaintResult as CanonicalPaintResult,
 	FieldRegion as CanonicalFieldRegion,
 	ChangeSet as CanonicalChangeSet,
-	CorpusHit as CanonicalCorpusHit,
-	Delta as CanonicalDelta
+	CorpusHit as CanonicalCorpusHit
   // The BUILT copy (synced from `runtime/runtime.d.ts` by build-wasm.sh / the
   // cp step), because only there does the d.ts's own `../core/wasm.js` import
   // resolve to the generated `pkg/core` build. The two copies are byte-identical.
@@ -38,8 +37,7 @@ import type {
 	PaintResult as TypstPaintResult,
 	FieldRegion as TypstFieldRegion,
 	ChangeSet as TypstChangeSet,
-	CorpusHit as TypstCorpusHit,
-	Delta as TypstDelta
+	CorpusHit as TypstCorpusHit
 } from '../../../pkg/backends/typst/wasm';
 
 // One mutual-assignability pair per hoisted type: typst → canonical and
@@ -109,25 +107,15 @@ const corpusHitB: TypstCorpusHit = {} as CanonicalCorpusHit;
 void corpusHitA;
 void corpusHitB;
 
-const deltaA: CanonicalDelta = {} as TypstDelta;
-const deltaB: TypstDelta = {} as CanonicalDelta;
-void deltaA;
-void deltaB;
-
 const renderResultKeys: KeysEqual<CanonicalRenderResult, TypstRenderResult> = true;
 const renderOptionsKeys: KeysEqual<CanonicalRenderOptions, TypstRenderOptions> = true;
 const artifactKeys: KeysEqual<CanonicalArtifact, TypstArtifact> = true;
 const pageSizeKeys: KeysEqual<CanonicalPageSize, TypstPageSize> = true;
 const paintOptionsKeys: KeysEqual<CanonicalPaintOptions, TypstPaintOptions> = true;
 const paintResultKeys: KeysEqual<CanonicalPaintResult, TypstPaintResult> = true;
-// `revision` is now carried on the canonical `FieldRegion` / `CorpusHit` too:
-// the incremental-edit surface (`applyFieldDelta` / `revision` / `mapFieldPos`)
-// is reachable through `runtime.js` (#876), so the former backend-only stamp is
-// public and the keys match exactly — no `Omit` divergence remains.
 const fieldRegionKeys: KeysEqual<CanonicalFieldRegion, TypstFieldRegion> = true;
 const changeSetKeys: KeysEqual<CanonicalChangeSet, TypstChangeSet> = true;
 const corpusHitKeys: KeysEqual<CanonicalCorpusHit, TypstCorpusHit> = true;
-const deltaKeys: KeysEqual<CanonicalDelta, TypstDelta> = true;
 void renderResultKeys;
 void renderOptionsKeys;
 void artifactKeys;
@@ -137,4 +125,3 @@ void paintResultKeys;
 void fieldRegionKeys;
 void changeSetKeys;
 void corpusHitKeys;
-void deltaKeys;

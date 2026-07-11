@@ -412,8 +412,6 @@ pub(crate) fn scan(
                     page: *page,
                     rect: pdf_rect(b, page_h),
                     span,
-                    // The session wrapper stamps the revision; the backend has none.
-                    revision: None,
                 },
                 ki,
             ));
@@ -644,8 +642,6 @@ pub(crate) fn position_at(
         field: window.path.clone(),
         pos,
         granularity: Some(granularity),
-        // The session wrapper stamps the revision; the backend has none.
-        revision: None,
     })
 }
 
@@ -735,8 +731,6 @@ pub(crate) fn locate(
         page: g.page,
         rect: pdf_rect(&g.rect, page_h),
         span: Some([pos, pos]),
-        // The session wrapper stamps the revision; the backend has none.
-        revision: None,
     })
 }
 

@@ -417,36 +417,6 @@ A single line of body ink.`
       const paintResult = session.paint(ctx, body.page)
       expect(paintResult.pixelWidth).toBeGreaterThan(0)
 
-      // revision + applyFieldDelta + mapFieldPos — the incremental-edit surface
-      // (#876). Run BEFORE `apply` (which invalidates the change log). Verifies
-      // both forwarding AND the cross-memory doc bridge: applyFieldDelta mutates
-      // the canonical `doc` in place through Document.loadJson.
-      expect(session.revision).toBe(0)
-      expect(typeof session.applyFieldDelta).toBe('function')
-      const editCs = session.applyFieldDelta(doc, '$body', 0, { ops: [{ insert: 'NEW ' }] })
-      expect(Array.isArray(editCs.dirtyPages)).toBe(true)
-      expect(session.revision).toBe(1)
-      // The caller's canonical doc carries the edit (bridged across memories).
-      expect(doc.main.body.text.startsWith('NEW ')).toBe(true)
-      // mapFieldPos maps a pre-edit position forward past the inserted "NEW ".
-      expect(typeof session.mapFieldPos).toBe('function')
-      expect(session.mapFieldPos('$body', 0, 0, 'after')).toBe(4)
-
-      // applyFieldDelta un-gate (#881): a non-`$body` address now dispatches to
-      // the richtext-field path instead of the old hard "only $body in this
-      // phase" rejection. `field_richtext` decodes a plain string field as
-      // authored markdown rather than rejecting it (Document carries no schema
-      // to tell richtext from string), so an absent field is what actually
-      // exercises the rejection here — FieldRichtextDecode ("field is
-      // absent") — and the session stays untouched: the revision does not
-      // advance on failure.
-      expect(() =>
-        session.applyFieldDelta(doc, 'no_such_field', session.revision, {
-          ops: [{ insert: 'X' }],
-        }),
-      ).toThrow(/FieldRichtextDecode/)
-      expect(session.revision).toBe(1)
-
       // apply — recompile in place.
       expect(typeof session.apply).toBe('function')
       const cs = session.apply(Document.fromMarkdown(SMOKE_MARKDOWN))

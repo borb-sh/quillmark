@@ -113,15 +113,16 @@ consumer there is no cross-edit reader to protect. If a long-lived read-only
 viewer ever needs to shed the retained world, a `freeze()` that drops it and
 keeps the pageable document is a *mode* to add, not a second type.
 
-Whole-document `apply` is revision-neutral, so the canonical WASM surface
-exposes no revision stamp and no field-delta path — the published `FieldRegion`
-and `CorpusHit` omit `revision`, and `LiveSession` has no `applyFieldDelta` /
-`mapFieldPos` (#850). The core session still carries the machinery: a monotonic
-`LiveSession::revision` and a `ChangeLog::map_pos` that maps a position captured
-before an edit *forward* rather than merely flagging it stale, with the stamp
-riding `RenderedRegion` / `CorpusHit` and set only by a live-session read. It
-surfaces through WASM once the field-delta path is reachable through
-`runtime.js`.
+`apply` is the only edit verb — a whole-document recompile. Anchoring a caret
+or selection across edits is the **editor's** job: its own transaction mapping
+(a ProseMirror / CodeMirror `StepMap`) carries positions through local edits, so
+the session holds no change log, no revision stamp, and no per-field delta path
+(#886 removed them; `FieldRegion` / `CorpusHit` carry no `revision`). Geometry
+(`regions`, `positionAt`, `locate`) is read against the current compile and
+re-read after each committed `apply`. `positionAt` (point → corpus position) and
+`locate` (corpus position → caret rect) are exact inverses over that compile —
+that pair *is* the bidirectional preview↔editor cursor bridge, and it needs no
+forward-mapping because the editor owns the live position it feeds in.
 
 ### Complete-raster contract
 

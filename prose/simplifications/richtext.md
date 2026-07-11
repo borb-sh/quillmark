@@ -35,11 +35,13 @@ terminal normalize.
 ### ops.rs:111, delta.rs:99 — short-delta leniency lives at the wrong altitude
 
 `extend_to_base` pads abbreviated deltas inside `apply_text_delta` to
-accommodate one producer (the WASM `applyFieldDelta` path), leaving `Delta`
-with three application semantics: `apply` clamps, `try_apply` is strict,
-`apply_text_delta` pads-then-checks — while `map_pos` separately implements
-implicit trailing retain. The change log records the *unpadded* delta, so a
-future consumer replaying entries via strict `try_apply` (undo, sync) gets
-`BaseLengthMismatch` for edits that succeeded. Fix: normalize abbreviated
-deltas at the boundary where they enter (the WASM delta deserializer), or make
-implicit trailing retain the documented contract of `try_apply` itself.
+accommodate abbreviated producers, leaving `Delta` with three application
+semantics: `apply` clamps, `try_apply` is strict, `apply_text_delta`
+pads-then-checks — while `map_pos` separately implements implicit trailing
+retain. A consumer that computes a delta and later replays it via strict
+`try_apply` (an editor bridge, sync) gets `BaseLengthMismatch` for an
+abbreviated edit that `apply_text_delta` accepted. Fix: normalize abbreviated
+deltas at the boundary where they enter, or make implicit trailing retain the
+documented contract of `try_apply` itself. (The WASM `applyFieldDelta` producer
+this originally accommodated was removed in #886; the padding remains for the
+corpus writers.)

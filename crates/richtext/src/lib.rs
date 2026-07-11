@@ -8,8 +8,8 @@
 //!
 //! `core`, `quillmark`, and both backends (`typst`, `pdfform`) consume this
 //! crate: the seam carries corpus JSON, storage embeds it structurally (see
-//! `prose/canon/DOCUMENT_STORAGE.md`), and the live-preview edit surface
-//! (`change_log`, `ops`) drives it through `LiveSession`. See
+//! `prose/canon/DOCUMENT_STORAGE.md`), and the corpus edit surface
+//! (`delta`, `ops`) drives per-field splices. See
 //! `prose/plans/richtext/` for the phase map that landed it.
 //!
 //! ## Layout
@@ -20,8 +20,6 @@
 //!   and for storage.
 //! - [`import`] — markdown → corpus (normalize → pulldown → corpus).
 //! - [`export`] — corpus → markdown, per island loss class.
-//! - [`change_log`] — monotonic revision + bounded per-field delta ring;
-//!   composed [`change_log::ChangeLog::map_pos`].
 //! - [`delta`] — the per-field edit surface: a text-splice change set
 //!   (`retain`/`insert`/`delete`, CodeMirror `ChangeSet` semantics) plus the
 //!   cold-parse + corpus-diff stale-text writer with a block-move detector. The
@@ -34,7 +32,6 @@
 //!   strip, HTML-comment fence repair), applied at the import boundary.
 //! - [`usv`] — USV → UTF-8 byte-offset conversion for slicing the corpus.
 
-pub mod change_log;
 pub mod delta;
 pub mod export;
 pub mod import;
@@ -44,7 +41,6 @@ pub mod ops;
 pub mod serial;
 pub mod usv;
 
-pub use change_log::{ChangeLog, FieldChange, StaleRevision};
 pub use delta::{Assoc, Delta, Op};
 pub use model::{
     Container, Invariant, Island, Line, LineKind, Loss, Mark, MarkKind, RichText, Usv,

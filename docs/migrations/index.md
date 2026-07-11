@@ -17,7 +17,8 @@ guides in order.
   `richtext(inline)<markdown>`; `build_transform_schema` gains
   `quillmark:inline: true`. Richtext fields gain a corpus writer
   (`set_field_richtext` / wasm `setRichtextField`) that commits the corpus at
-  write; `applyFieldDelta` accepts richtext field addresses. On-disk (`.qmd`)
+  write; live field edits go through it + `apply(doc)` (the experimental
+  `applyFieldDelta` / change-log surface was removed, #886). On-disk (`.qmd`)
   identity stays markdown-lossy — the storage DTO is the lossless carrier.
 - [0.92 → 0.93](0.92-to-0.93.md) — the blueprint placeholder is rebuilt on two
   orthogonal axes (value and marker): blueprints now stamp the `!must_fill` tag
