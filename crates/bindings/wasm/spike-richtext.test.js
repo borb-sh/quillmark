@@ -222,7 +222,7 @@ describe('spike: corpus-native richtext + bidirectional nav (usaf_memo)', () => 
     }
   })
 
-  it('setRichtextField writes a richtext field from corpus, with inline enforcement (#881)', async () => {
+  it('commitField typed-writes a richtext field from corpus (#893/#895)', async () => {
     const doc = buildDoc(quill)
     const NEW_SUBJECT = {
       islands: [],
@@ -230,8 +230,10 @@ describe('spike: corpus-native richtext + bidirectional nav (usaf_memo)', () => 
       lines: [{ kind: 'para', containers: [] }],
       marks: [{ start: 0, end: 6, type: 'strong' }] // "Corpus"
     }
-    // `subject` is richtext(inline) — the strict corpus writer commits at write.
-    doc.setRichtextField('subject', NEW_SUBJECT, true)
+    // The typed writer resolves `subject`'s type from the quill schema and
+    // dispatches to the richtext writer — returning "typed".
+    const disc = doc.commitField(quill, 'subject', NEW_SUBJECT)
+    expect(disc).toBe('typed')
     // Markdown projection reads the field back (**Corpus**-written subject).
     expect(doc.fieldMarkdown('subject')).toContain('Corpus')
 
@@ -253,6 +255,29 @@ describe('spike: corpus-native richtext + bidirectional nav (usaf_memo)', () => 
       ],
       marks: []
     }
-    expect(() => doc.setRichtextField('subject', multiline, true)).toThrow()
+    expect(() => doc.commitField(quill, 'subject', multiline)).toThrow()
+  })
+
+  it('setCardBody writes a non-main card body from corpus (#892)', async () => {
+    const doc = buildDoc(quill)
+    // Push a seeded indorsement card, then set its body corpus-natively.
+    doc.pushCard(quill.seedCard('indorsement'))
+    const CARD_BODY = {
+      islands: [],
+      text: 'Indorsement body, written as corpus.',
+      lines: [{ kind: 'para', containers: [] }],
+      marks: [{ start: 0, end: 11, type: 'strong' }] // "Indorsement"
+    }
+    doc.setCardBody(0, CARD_BODY)
+    expect(doc.cards[0].body.text).toBe('Indorsement body, written as corpus.')
+
+    const session = await engine.open(quill, doc)
+    try {
+      // The card body surfaces a routable region under its card path.
+      const cardBody = session.regions().find((r) => r.field.includes('$body') && r.field !== '$body')
+      expect(cardBody, 'card $body region').toBeTruthy()
+    } finally {
+      session.free()
+    }
   })
 })

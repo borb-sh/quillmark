@@ -19,28 +19,30 @@ and integrated back into the spike:
 | §4 inline richtext → parbreak | #872 | `richtext(inline)` lowers to inline content |
 | §6 stale wasm TS types | #875 | `type: … | richtext` (not `markdown`); `RichTextLine` gains `rule` |
 
-A later change (#881) unified the **field** write surface: `setRichtextField` /
-`updateCardRichtextField` (+ `fieldMarkdown` / `cardFieldMarkdown` read-back)
-commit a corpus to a richtext field at write, the field-level twin of `setBody`.
-Structured **tables** also landed as canonical islands.
+The write surface then went through two reshapes:
 
-The spike consumes the current surface: `session.ts` sets the body with
-`setBody` (#874) and richtext fields with `setRichtextField` (#881);
-`spike-richtext.test.js` exercises `setBody` and `setRichtextField` (with inline
-enforcement); the `usaf_memo` render is warning-free (#872). The findings below
-are kept as the original report; the table above records their resolution.
+- **#881** first added per-field corpus writers (`setRichtextField` /
+  `updateCardRichtextField`), then **#893/#895** replaced them with one **typed**
+  writer per address: `commitField(quill, name, value)` /
+  `commitCardField(quill, index, name, value)`. The quill's schema resolves the
+  field's type, so the caller issues one verb and gets back the `"typed"` /
+  `"opaque"` discriminant instead of passing an `inline` flag. The write grammar
+  is now regular: **`set`** (opaque), **`commit`** (typed), **`replace`**
+  (markdown body), **`setBody` / `setCardBody`** (corpus body). Card verbs were
+  renamed to mirror the main ones (`updateCardField`→`setCardField`,
+  `updateCardBody`→`replaceCardBody`).
+- **#892** (this spike's filed gap) added **`setCardBody(index, RichText |
+  string)`** — the card-body corpus writer. The write surface is now complete:
+  main body, card body, and every field (main + card) write corpus-natively.
+- Structured **tables** landed as canonical islands.
 
-### Still insufficient: no card-**body** corpus writer
-
-`setBody(corpus)` covers the **main** card body and `updateCardRichtextField`
-covers card **fields**, but there is no wasm writer for a non-main card's
-**body** — `updateCardBody(index, body)` still accepts markdown only, even
-though the core `Card::set_body_value(&json)` exists for every card. So an
-indorsement body cannot be written corpus-natively; it must round-trip through
-`updateCardBody(serializeMarkdown(corpus))`, dropping corpus-only marks
-(`underline`) and identity ids on card bodies. A one-method binding
-(`updateCardBody` accepting `RichText | string`, or a `setCardBody(index, value,
-inline?)`) closes it.
+The spike consumes the current surface: `session.ts` sets the main body with
+`setBody`, a card body with `setCardBody` (#892), and richtext fields with the
+typed `commitField` (#893/#895); `spike-richtext.test.js` exercises all three
+(`commitField` asserts the `"typed"` discriminant + inline enforcement; a pushed
+indorsement card's body is written via `setCardBody`). The `usaf_memo` render is
+warning-free (#872). The findings below are kept as the original report; the
+table above records their resolution.
 
 ## What was built (and where)
 
