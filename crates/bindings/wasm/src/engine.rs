@@ -995,6 +995,51 @@ impl Document {
             .map_err(|e| edit_error_to_js(&e))
     }
 
+    /// Set a **richtext** field on the main card from a corpus object (canonical
+    /// RichText-JSON) or a markdown string — the field-level twin of
+    /// [`setBody`](Document::set_body), and the corpus-native counterpart to
+    /// [`setField`](Document::set_field) (which stores an opaque value). The
+    /// field is stored as the canonical corpus, so identity marks (anchors,
+    /// island ids) live on it and survive compiles and the storage DTO; a
+    /// corpus-only mark such as `underline` round-trips losslessly, unlike the
+    /// card-yaml markdown projection. `null` stores the empty corpus.
+    ///
+    /// `inline` (default `false`) mirrors the schema's `richtext(inline)`
+    /// constraint: when `true`, a multi-block value throws
+    /// `[EditError::FieldRichtextNotInline]` here at write rather than at a later
+    /// render. The caller supplies it because a `Document` carries only a
+    /// `$quill` reference, not the resolved field type — an editor holds the
+    /// schema and knows whether the target is `richtext(inline)`.
+    ///
+    /// Throws `[EditError::FieldRichtextDecode]` if `value` is neither a valid
+    /// corpus object, an importable markdown string, nor `null`, and
+    /// `[EditError::InvalidFieldName]` on a malformed name.
+    #[wasm_bindgen(js_name = setRichtextField)]
+    pub fn set_richtext_field(
+        &mut self,
+        name: &str,
+        #[wasm_bindgen(unchecked_param_type = "RichText | string")] value: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "boolean")] inline: Option<bool>,
+    ) -> Result<(), JsValue> {
+        let json = js_value_to_json(value, "setRichtextField")?;
+        self.inner
+            .main_mut()
+            .set_field_richtext(name, &json, inline.unwrap_or(false))
+            .map_err(|e| edit_error_to_js(&e))
+    }
+
+    /// The markdown projection of a richtext field on the main card
+    /// (`export ∘ decode`) — the field-level twin of `main.bodyMarkdown`.
+    /// Returns `undefined` when the field is absent or does not decode as
+    /// richtext (e.g. a plain scalar written via [`setField`](Document::set_field)).
+    #[wasm_bindgen(js_name = fieldMarkdown, unchecked_return_type = "string | undefined")]
+    pub fn field_markdown(&self, name: &str) -> JsValue {
+        match self.inner.main().field_markdown(name) {
+            Some(md) => JsValue::from_str(&md),
+            None => JsValue::UNDEFINED,
+        }
+    }
+
     /// Build a fresh `Card` from a kind and a flat field map — the ergonomic
     /// constructor for `pushCard` / `insertCard`. `fields` is an optional
     /// `Record<string, unknown>` (each entry becomes a card field, in
@@ -1119,6 +1164,42 @@ impl Document {
         self.card_mut_or_throw(index)?
             .set_field(name, qv)
             .map_err(|e| edit_error_to_js(&e))
+    }
+
+    /// Set a **richtext** field on the card at `index` — the card-indexed twin of
+    /// [`setRichtextField`](Document::set_richtext_field). Stores the canonical
+    /// corpus; `inline` (default `false`) enforces `richtext(inline)` at write.
+    /// Throws if `index` is out of range, on a malformed name, or on a value that
+    /// is neither a corpus object, an importable markdown string, nor `null`.
+    #[wasm_bindgen(js_name = updateCardRichtextField)]
+    pub fn update_card_richtext_field(
+        &mut self,
+        index: usize,
+        name: &str,
+        #[wasm_bindgen(unchecked_param_type = "RichText | string")] value: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "boolean")] inline: Option<bool>,
+    ) -> Result<(), JsValue> {
+        let json = js_value_to_json(value, "updateCardRichtextField")?;
+        self.card_mut_or_throw(index)?
+            .set_field_richtext(name, &json, inline.unwrap_or(false))
+            .map_err(|e| edit_error_to_js(&e))
+    }
+
+    /// The markdown projection of a richtext field on the card at `index` — the
+    /// card-indexed twin of [`fieldMarkdown`](Document::field_markdown). Returns
+    /// `undefined` when `index` is out of range, the field is absent, or it does
+    /// not decode as richtext.
+    #[wasm_bindgen(js_name = cardFieldMarkdown, unchecked_return_type = "string | undefined")]
+    pub fn card_field_markdown(&self, index: usize, name: &str) -> JsValue {
+        match self
+            .inner
+            .cards()
+            .get(index)
+            .and_then(|c| c.field_markdown(name))
+        {
+            Some(md) => JsValue::from_str(&md),
+            None => JsValue::UNDEFINED,
+        }
     }
 
     /// Batched twin of [`updateCardField`](Document::update_card_field): set
