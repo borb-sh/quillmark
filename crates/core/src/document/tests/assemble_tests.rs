@@ -1705,15 +1705,6 @@ fn test_yaml_syntax_error_missing_colon() {
     assert!(result.is_err());
 }
 
-#[test]
-fn test_yaml_syntax_error_bad_indentation() {
-    let markdown =
-        "~~~card-yaml\n$quill: test_quill\n$kind: main\nitems:\n- one\n - two\n~~~\n\nBody.";
-    let result = decompose(markdown);
-    // Bad indentation may or may not be an error depending on YAML parser
-    let _ = result;
-}
-
 // Body extraction edge cases
 
 #[test]

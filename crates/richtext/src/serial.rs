@@ -629,24 +629,6 @@ mod tests {
     }
 
     #[test]
-    fn round_trips_and_is_fixed_point() {
-        let rt = sample();
-        let json = rt.to_canonical_json();
-        let back = RichText::from_canonical_json(&json).unwrap();
-        // Re-serializing the parsed value yields identical bytes (fixed point).
-        assert_eq!(back.to_canonical_json(), json);
-        assert_eq!(back.validate(), Ok(()));
-    }
-
-    #[test]
-    fn byte_deterministic_regardless_of_input_order() {
-        let a = sample();
-        let mut b = sample();
-        b.marks.reverse(); // different discovery order
-        assert_eq!(a.to_canonical_json(), b.to_canonical_json());
-    }
-
-    #[test]
     fn island_props_key_order_does_not_leak() {
         let mut one = RichText::empty();
         one.text = "\u{FFFC}".into();

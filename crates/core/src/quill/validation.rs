@@ -713,9 +713,9 @@ main:
     }
 
     // NOTE: top-level typed-dictionary fields (`type: object` with `properties`)
-    // are supported. Coverage lives in `validates_array_of_objects` (typed
-    // tables) and the blueprint tests. Freeform objects without properties are
-    // rejected at config parse time.
+    // are supported. Coverage lives in the `schema.rs` transform-schema tests
+    // (typed tables/dicts) and the blueprint tests. Freeform objects without
+    // properties are rejected at config parse time.
 
     #[test]
     fn validates_card_with_valid_discriminator() {
