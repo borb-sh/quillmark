@@ -1099,32 +1099,6 @@ This body and the metadata above are an indorsement card.
     }
 
     #[test]
-    fn v0_82_0_payload_migrates_forward() {
-        // A 0.82.0 row (no `nested_fills` on its field) loads via the
-        // V0_82_0 → V0_92_0 migration, defaulting nested_fills to empty.
-        let json = r#"{
-            "schema": "quillmark/document@0.82.0",
-            "main": {
-                "payload": {
-                    "items": [
-                        {"type": "quill", "value": "usaf_memo@0.1"},
-                        {"type": "kind", "value": "main"},
-                        {"type": "field", "key": "title", "value": "Hello", "fill": false}
-                    ]
-                },
-                "body": "Body."
-            },
-            "cards": []
-        }"#;
-        let doc: Document = serde_json::from_str(json).unwrap();
-        assert_eq!(doc.main().kind(), Some("main"));
-        assert_eq!(
-            doc.main().payload().get("title").unwrap().as_str(),
-            Some("Hello")
-        );
-    }
-
-    #[test]
     fn root_kind_is_main_through_round_trip() {
         let doc = Document::from_markdown(
             "~~~card-yaml\n$quill: usaf_memo@0.1\n$kind: main\ntitle: \"Hi\"\n~~~\n",

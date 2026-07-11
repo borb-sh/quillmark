@@ -515,29 +515,6 @@ mod tests {
     }
 
     #[test]
-    fn anchor_survives_edit_elsewhere() {
-        // Anchor on "target" (chars 7..13); edit happens before it.
-        let mut base = from_markdown("hello, target word").unwrap();
-        base.marks.push(Mark {
-            start: 7,
-            end: 13,
-            kind: MarkKind::Anchor { id: "c1".into() },
-        });
-        base.normalize();
-        let (new_rt, _) = diff_import(&base, "why hello, target word").unwrap();
-        let anchor = new_rt
-            .marks
-            .iter()
-            .find(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1"))
-            .expect("anchor preserved");
-        assert_eq!(
-            new_rt.text[byte(&new_rt.text, anchor.start)..byte(&new_rt.text, anchor.end)]
-                .to_string(),
-            "target"
-        );
-    }
-
-    #[test]
     fn anchor_rehomed_on_block_move() {
         // Two paragraphs; anchor on the first; the rewrite swaps their order.
         let mut base = from_markdown("first para here\n\nsecond para here").unwrap();

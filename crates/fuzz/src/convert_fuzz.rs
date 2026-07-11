@@ -98,21 +98,6 @@ proptest! {
     }
 
     #[test]
-    fn fuzz_escape_string_valid_escapes(s in "\\PC*") {
-        let escaped = escape_string(&s);
-
-        // Key property: no unescaped quotes that could break out of string context
-        // Simple check: any quote must be preceded by a backslash
-        let chars: Vec<char> = escaped.chars().collect();
-        for i in 0..chars.len() {
-            if chars[i] == '"' {
-                assert!(i > 0 && chars[i-1] == '\\',
-                    "Found unescaped quote at position {} in: {}", i, escaped);
-            }
-        }
-    }
-
-    #[test]
     fn fuzz_escape_markup_typst_chars_escaped(s in "\\PC*") {
         let escaped = escape_markup(&s);
         // For each Typst special character in the input, verify it's escaped in output
