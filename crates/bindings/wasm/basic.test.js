@@ -670,6 +670,70 @@ describe('Document editor surface — setRichtextField / fieldMarkdown', () => {
   })
 })
 
+describe('Document editor surface — commitField / commitCardField', () => {
+  const COMMIT_QUILL_YAML = `quill:
+  name: commit_test
+  version: "1.0"
+  backend: typst
+  description: Typed write smoke test
+
+main:
+  fields:
+    subject:
+      type: richtext
+      inline: true
+    intro:
+      type: richtext
+    qty:
+      type: integer
+
+card_kinds:
+  note:
+    fields:
+      body:
+        type: richtext
+`
+  const buildQuill = () =>
+    Quill.fromTree(makeQuill({ name: 'commit_test', plate: TEST_PLATE, quillYaml: COMMIT_QUILL_YAML }))
+  const blankDoc = () => Document.fromMarkdown('~~~card-yaml\n$quill: commit_test\n~~~\n\nBody.')
+
+  it('commitField resolves the schema type: richtext string → corpus, integer "3" → 3', () => {
+    const quill = buildQuill()
+    const doc = blankDoc()
+    expect(doc.commitField(quill, 'intro', 'A **bold** intro.')).toBe('typed')
+    expect(typeof field(doc.main, 'intro')).toBe('object')
+    expect(doc.fieldMarkdown('intro')).toBe('A **bold** intro.\n')
+
+    expect(doc.commitField(quill, 'qty', '3')).toBe('typed')
+    expect(field(doc.main, 'qty')).toBe(3)
+  })
+
+  it('commitField stores an unknown field opaquely and says so', () => {
+    const quill = buildQuill()
+    const doc = blankDoc()
+    expect(doc.commitField(quill, 'stray', 'x')).toBe('opaque')
+    expect(field(doc.main, 'stray')).toBe('x')
+  })
+
+  it('commitField fails a strict mismatch and a richtext(inline) violation', () => {
+    const quill = buildQuill()
+    const doc = blankDoc()
+    expect(() => doc.commitField(quill, 'qty', 'not-a-number')).toThrow(/FieldConform/)
+    expect(() => doc.commitField(quill, 'subject', 'line one\n\nline two'))
+      .toThrow(/FieldRichtextNotInline/)
+  })
+
+  it('commitCardField resolves the card-kind schema and errors on a bad index', () => {
+    const quill = buildQuill()
+    const doc = Document.fromMarkdown(
+      '~~~card-yaml\n$quill: commit_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nCard.',
+    )
+    expect(doc.commitCardField(quill, 0, 'body', 'Card **body**.')).toBe('typed')
+    expect(doc.cardFieldMarkdown(0, 'body')).toBe('Card **body**.\n')
+    expect(() => doc.commitCardField(quill, 9, 'body', 'x')).toThrow(/IndexOutOfRange/)
+  })
+})
+
 describe('Document editor surface — card mutations', () => {
   const MD_WITH_CARDS = `~~~card-yaml
 $quill: test_quill

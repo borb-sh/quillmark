@@ -576,3 +576,46 @@ def test_to_markdown_ambiguous_string_survival():
     assert field(doc2.main, "str_null") == "null"
     assert field(doc2.main, "octal_str") == "01234"
     assert field(doc2.main, "date_str") == "2024-01-15"
+
+
+# ── Typed field writes — commit_field / commit_card_field ─────────────────────
+
+
+def _richtext_form_quill():
+    """The richtext_form fixture quill (headline: richtext inline, bio: richtext)."""
+    return Quill.from_path(str(_latest_version(QUILLS_PATH / "richtext_form")))
+
+
+def test_commit_field_richtext_typed():
+    """commit_field resolves a richtext field's type and stores canonical corpus."""
+    quill = _richtext_form_quill()
+    doc = Document("richtext_form@0.1.0")
+    assert doc.commit_field(quill, "bio", "A **bold** intro.") == "typed"
+    value = field(doc.main, "bio")
+    # Stored structurally as the corpus dict, not the authored markdown string.
+    assert isinstance(value, dict)
+    assert value["text"] == "A bold intro."
+
+
+def test_commit_field_unknown_field_is_opaque():
+    """A field absent from the schema stores opaquely, and the caller is told."""
+    quill = _richtext_form_quill()
+    doc = Document("richtext_form@0.1.0")
+    assert doc.commit_field(quill, "stray", "x") == "opaque"
+    assert field(doc.main, "stray") == "x"
+
+
+def test_commit_field_inline_violation_raises():
+    """A richtext(inline) field rejects multi-block content at the write."""
+    quill = _richtext_form_quill()
+    doc = Document("richtext_form@0.1.0")
+    with pytest.raises(QuillmarkError, match="FieldRichtextNotInline"):
+        doc.commit_field(quill, "headline", "line one\n\nline two")
+
+
+def test_commit_card_field_index_out_of_range():
+    """commit_card_field surfaces IndexOutOfRange for a missing card."""
+    quill = _richtext_form_quill()
+    doc = Document("richtext_form@0.1.0")
+    with pytest.raises(QuillmarkError, match="IndexOutOfRange"):
+        doc.commit_card_field(quill, 0, "body", "x")

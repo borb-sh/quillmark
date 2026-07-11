@@ -1007,6 +1007,11 @@ impl Document {
     /// Throws `[EditError::FieldRichtextDecode]` if `value` is neither a valid
     /// corpus object, an importable markdown string, nor `null`, and
     /// `[EditError::InvalidFieldName]` on a malformed name.
+    ///
+    /// **Deprecated**: use [`commitField`](Document::commit_field), which
+    /// resolves the field's type (including the `richtext(inline)` constraint)
+    /// from the quill schema — the one write verb for every field type.
+    #[allow(deprecated)]
     #[wasm_bindgen(js_name = setRichtextField)]
     pub fn set_richtext_field(
         &mut self,
@@ -1018,6 +1023,39 @@ impl Document {
         self.inner
             .main_mut()
             .set_field_richtext(name, &json, inline.unwrap_or(false))
+            .map_err(|e| edit_error_to_js(&e))
+    }
+
+    /// Typed field write on the main card, resolving the field's schema `type`
+    /// from `quill` — the one write verb for **every** field type (richtext,
+    /// scalar, array, object), subsuming [`setRichtextField`](Document::set_richtext_field).
+    /// The schema carries the `inline` constraint, so no type token or flag is
+    /// passed. Values use the encoding the seam already speaks: a corpus object
+    /// or markdown string for richtext, a scalar/array/object otherwise.
+    ///
+    /// Returns `"typed"` when the field is declared in the schema (strict
+    /// commit — a mismatch throws now, not at render) or `"opaque"` when it is
+    /// not (stored verbatim, like [`setField`](Document::set_field)). Throws
+    /// `[EditError::FieldConform]` / `[EditError::FieldRichtextDecode]` /
+    /// `[EditError::FieldRichtextNotInline]` on a typed mismatch and
+    /// `[EditError::InvalidFieldName]` on a malformed name.
+    ///
+    /// The `quill` handle is passed per call because a `Document` carries only a
+    /// `$quill` reference, not the resolved schema.
+    #[wasm_bindgen(js_name = commitField, unchecked_return_type = "\"typed\" | \"opaque\"")]
+    pub fn commit_field(
+        &mut self,
+        quill: &Quill,
+        name: &str,
+        value: JsValue,
+    ) -> Result<String, JsValue> {
+        let json = js_value_to_json(value, "commitField")?;
+        let qv = quillmark_core::QuillValue::from_json(json);
+        quill
+            .inner
+            .editor(&mut self.inner)
+            .set(name, qv)
+            .map(|c| c.as_str().to_string())
             .map_err(|e| edit_error_to_js(&e))
     }
 
@@ -1164,6 +1202,10 @@ impl Document {
     /// corpus; `inline` (default `false`) enforces `richtext(inline)` at write.
     /// Throws if `index` is out of range, on a malformed name, or on a value that
     /// is neither a corpus object, an importable markdown string, nor `null`.
+    ///
+    /// **Deprecated**: use [`commitCardField`](Document::commit_card_field),
+    /// which resolves the field's type from the quill schema.
+    #[allow(deprecated)]
     #[wasm_bindgen(js_name = updateCardRichtextField)]
     pub fn update_card_richtext_field(
         &mut self,
@@ -1175,6 +1217,31 @@ impl Document {
         let json = js_value_to_json(value, "updateCardRichtextField")?;
         self.card_mut_or_throw(index)?
             .set_field_richtext(name, &json, inline.unwrap_or(false))
+            .map_err(|e| edit_error_to_js(&e))
+    }
+
+    /// Typed field write on the composable card at `index` — the card-indexed
+    /// twin of [`commitField`](Document::commit_field). Resolves the field's
+    /// type from the card's `$kind` schema in `quill` and strict-commits it;
+    /// subsumes [`updateCardRichtextField`](Document::update_card_richtext_field).
+    ///
+    /// Returns `"typed"` / `"opaque"` (see `commitField`). Throws
+    /// `[EditError::IndexOutOfRange]` when `index` is out of range, and the same
+    /// typed-mismatch / name errors as `commitField`.
+    #[wasm_bindgen(js_name = commitCardField, unchecked_return_type = "\"typed\" | \"opaque\"")]
+    pub fn commit_card_field(
+        &mut self,
+        quill: &Quill,
+        index: usize,
+        name: &str,
+        value: JsValue,
+    ) -> Result<String, JsValue> {
+        let json = js_value_to_json(value, "commitCardField")?;
+        let qv = quillmark_core::QuillValue::from_json(json);
+        let mut editor = quill.inner.editor(&mut self.inner);
+        let mut card = editor.card(index).map_err(|e| edit_error_to_js(&e))?;
+        card.set(name, qv)
+            .map(|c| c.as_str().to_string())
             .map_err(|e| edit_error_to_js(&e))
     }
 
