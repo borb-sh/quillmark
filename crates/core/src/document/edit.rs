@@ -530,9 +530,9 @@ impl Card {
     /// and stores the canonical corpus JSON, so identity marks (anchors, island
     /// ids) live on the stored value and persist across compiles and DTO
     /// round-trips. `null` stores the empty corpus. Routes through the one
-    /// object-vs-string dispatch ([`decode_richtext_value`](crate::document::decode_richtext_value)),
-    /// so it stays lossless for corpus-only marks a markdown projection cannot
-    /// carry (e.g. `underline`); a Markdown (`.qmd`) save projects the field back
+    /// object-vs-string dispatch (`decode_richtext_value`), so it stays lossless
+    /// for corpus-only marks a markdown projection cannot carry (e.g.
+    /// `underline`); a Markdown (`.qmd`) save projects the field back
     /// to a string ([`Card::field_markdown`]) and re-imports a fresh corpus on
     /// reload, so on-disk persistence is markdown-lossy by design — identity
     /// survives the live/DTO carriers, not a card-yaml round-trip.
