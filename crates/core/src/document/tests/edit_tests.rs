@@ -611,6 +611,98 @@ fn test_set_body_value_accepts_markdown_and_null_and_rejects_bad() {
     );
 }
 
+/// `set_field_richtext` accepts a **canonical corpus object**, stores it as the
+/// field's canonical value (lossless for corpus-only marks), and reads back
+/// through `field_richtext` — the field-level twin of `set_body_value` / `body`.
+#[test]
+fn test_set_field_richtext_accepts_corpus_object_and_reads_back() {
+    use quillmark_richtext::model::{Mark, MarkKind};
+
+    let mut corpus = quillmark_richtext::import::from_markdown("underlined intro").unwrap();
+    // `underline` has no markdown projection — the corpus store must keep it.
+    corpus.marks.push(Mark {
+        start: 0,
+        end: 10,
+        kind: MarkKind::Underline,
+    });
+    corpus.normalize();
+    let json = quillmark_richtext::serial::to_canonical_value(&corpus);
+
+    let mut card = Card::new("note").unwrap();
+    card.set_field_richtext("intro", &json, false).unwrap();
+
+    // Stored structurally as the corpus object, not the authored string.
+    assert!(card.payload().get("intro").unwrap().as_json().is_object());
+    // Reads back losslessly, underline intact.
+    let read = card.field_richtext("intro").unwrap().unwrap();
+    assert_eq!(read, corpus);
+    assert!(read.marks.iter().any(|m| matches!(m.kind, MarkKind::Underline)));
+}
+
+/// `set_field_richtext` also accepts a **markdown string** (imported) and `null`
+/// (empty corpus); `field_markdown` is the projection twin of `body_markdown`.
+/// A non-corpus object / other shape is `EditError::FieldRichtextDecode`.
+#[test]
+fn test_set_field_richtext_accepts_markdown_and_null_and_rejects_bad() {
+    let mut card = Card::new("note").unwrap();
+
+    card.set_field_richtext("intro", &serde_json::json!("**bold** intro"), false)
+        .unwrap();
+    assert_eq!(card.field_markdown("intro").unwrap(), "**bold** intro\n");
+
+    card.set_field_richtext("intro", &serde_json::Value::Null, false)
+        .unwrap();
+    assert!(card.field_richtext("intro").unwrap().unwrap().is_blank());
+
+    assert_eq!(
+        card.set_field_richtext("intro", &serde_json::json!({ "not": "a corpus" }), false)
+            .unwrap_err()
+            .variant_name(),
+        "FieldRichtextDecode"
+    );
+    assert_eq!(
+        card.set_field_richtext("intro", &serde_json::json!(42), false)
+            .unwrap_err()
+            .variant_name(),
+        "FieldRichtextDecode"
+    );
+}
+
+/// `set_field_richtext(inline = true)` commits the `richtext(inline)` check at
+/// write: a single-`Para` corpus stores, a multi-block corpus is
+/// `EditError::FieldRichtextNotInline` — the write is the strict commit, not a
+/// deferred render failure.
+#[test]
+fn test_set_field_richtext_inline_enforced_at_write() {
+    let mut card = Card::new("note").unwrap();
+
+    // One paragraph line: inline, accepted.
+    card.set_field_richtext("title", &serde_json::json!("A single line"), true)
+        .unwrap();
+    assert_eq!(card.field_markdown("title").unwrap(), "A single line\n");
+
+    // Two blocks: rejected at write, and nothing is stored over the good value.
+    let err = card
+        .set_field_richtext("title", &serde_json::json!("line one\n\nline two"), true)
+        .unwrap_err();
+    assert_eq!(err.variant_name(), "FieldRichtextNotInline");
+    assert_eq!(card.field_markdown("title").unwrap(), "A single line\n");
+}
+
+/// `field_richtext` on an absent field is `None`; on a plain non-richtext field
+/// value it is `Some(Err(_))` — the read mirrors the write in needing the caller
+/// to name a field it knows is richtext.
+#[test]
+fn test_field_richtext_absent_and_non_richtext() {
+    let mut card = Card::new("note").unwrap();
+    assert!(card.field_richtext("missing").is_none());
+    assert!(card.field_markdown("missing").is_none());
+
+    card.set_field("count", 3).unwrap();
+    assert!(card.field_richtext("count").unwrap().is_err());
+    assert!(card.field_markdown("count").is_none());
+}
+
 /// `import_body_delta` updates the body and returns the text delta from the
 /// old body to the new — the recordable whole-document (stale-text) writer.
 #[test]
