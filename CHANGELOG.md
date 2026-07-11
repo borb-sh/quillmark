@@ -8,6 +8,20 @@
 
 ## Unreleased
 
+- feat(core,wasm): `field_boxes(field)` / `LiveSession.fieldBoxes(field)` derive
+  the whole-field highlight — one union rect per page over the field's
+  `span`-bearing content segments — so a "highlight the focused field" consumer
+  stops reimplementing the span-filter + per-page union by hand. `regions()`
+  stays the low-level disjoint truth (#829); the helper owns the union, and is
+  content-only (a scalar-reference/widget-only field returns `[]`, its box being
+  a single `regions()` rect). Core `field_boxes(&[RenderedRegion], field)` is a
+  pure function so the one-shot `RenderResult.regions` sidecar gets it too (#884)
+- feat(core,wasm): `CorpusHit.granularity` (`HitGranularity` = `cluster` |
+  `segment`) reports whether `positionAt`'s `pos` resolved cluster-exact or
+  floored to the containing segment's start (origin-less ink, a multi-line code
+  fence's interior), so a caret UI trusts a `cluster` offset for the caret and
+  treats a `segment` one as a segment selection instead of guessing. Additive-
+  optional, omitted from the wire when the backend does not report it (#884)
 - fix(wasm): drop the `revision?` field from the public `CorpusHit`/`FieldRegion`
   types and the broken `{@link LiveSession.mapFieldPos}` / `.revision` references
   in `runtime.d.ts`. The delta API (`applyFieldDelta`/`revision`/`mapFieldPos`) is

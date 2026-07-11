@@ -1721,6 +1721,26 @@ impl LiveSession {
         serialize_or_throw(&regions, "regions")
     }
 
+    /// The whole-field highlight boxes for `field` — one union rect per page,
+    /// over the field's `span`-bearing content segments. The convenience that
+    /// owns the union `regions()` leaves derived: it keeps `regions()` the
+    /// low-level disjoint truth (#829) and folds the span-filter + per-page
+    /// union here, so a "highlight the focused field" consumer stops
+    /// reimplementing it. **Content only** — a field placed solely as a scalar
+    /// reference or a bound widget carries no `span` and returns `[]`; its box
+    /// is a single `regions()` rect. Each box is stamped with the current
+    /// `revision`, like `regions()`.
+    #[wasm_bindgen(js_name = fieldBoxes, unchecked_return_type = "FieldRegion[]")]
+    pub fn field_boxes(&self, field: &str) -> Result<JsValue, JsValue> {
+        let boxes: Vec<FieldRegion> = self
+            .inner
+            .field_boxes(field)
+            .into_iter()
+            .map(Into::into)
+            .collect();
+        serialize_or_throw(&boxes, "fieldBoxes")
+    }
+
     /// The schema field whose content is under a point on `page` — the
     /// forward (click → field) direction: hit-test a click against the
     /// compiled document and get back the field address to focus in the

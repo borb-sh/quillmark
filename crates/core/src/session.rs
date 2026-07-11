@@ -334,6 +334,20 @@ impl LiveSession {
             .collect()
     }
 
+    /// The whole-field highlight boxes for `field` — one union rect per page,
+    /// over the field's `span`-bearing content segments (the "highlight the
+    /// focused field" quantity). The convenience that owns the union
+    /// [`regions`](Self::regions) leaves derived: it keeps `regions()` as the
+    /// low-level disjoint truth (#829) and folds the span-filter + per-page
+    /// union here so no consumer reimplements it. Content only — a field placed
+    /// solely as a scalar reference or a bound widget carries no `span` and
+    /// yields nothing here; its box is a single [`regions`](Self::regions) rect.
+    /// Each box is stamped with the current [`revision`](Self::revision), like
+    /// `regions`. See [`crate::field_boxes`].
+    pub fn field_boxes(&self, field: &str) -> Vec<RenderedRegion> {
+        crate::field_boxes(&self.regions(), field)
+    }
+
     /// The schema field whose content is under a point on `page` — the
     /// forward (click → field) direction: hit-test a click against the
     /// compiled document and get back the field address to focus in the
@@ -617,6 +631,7 @@ mod tests {
             Some(CorpusHit {
                 field: "subject".to_string(),
                 pos: 2,
+                granularity: Some(crate::HitGranularity::Cluster),
                 revision: None,
             })
         }
@@ -648,6 +663,19 @@ mod tests {
         assert_eq!(session.regions()[0].revision, Some(1));
         assert_eq!(session.position_at(0, 2.0, 3.0).unwrap().revision, Some(1));
         assert_eq!(session.locate("subject", 1).unwrap().revision, Some(1));
+    }
+
+    /// `field_boxes` derives the whole-field box off the session's own
+    /// `regions()`, so it inherits the revision stamp the wrapper applies.
+    #[test]
+    fn field_boxes_derives_off_stamped_regions() {
+        let session = LiveSession::new(Box::new(RegionHandle));
+        let boxes = session.field_boxes("subject");
+        assert_eq!(boxes.len(), 1, "one span-bearing region → one box");
+        assert_eq!(boxes[0].field, "subject");
+        assert_eq!(boxes[0].revision, Some(0), "inherits the regions() stamp");
+        // A field with no span-bearing region has no derived content box.
+        assert!(session.field_boxes("nope").is_empty());
     }
 
     /// `record_field_delta_at` records only when its base revision matches the
