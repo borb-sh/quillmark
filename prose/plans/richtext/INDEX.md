@@ -71,7 +71,12 @@ not restate the model.
   cross-navigation for inline fields. PR-B–E landed the Myers diff, change log,
   mark/line ops, and fallible document mutators; PR-F/G landed the preview wire
   and revision stamp (`LiveSession.revision`, `applyFieldDelta`, `mapFieldPos`);
-  PR-H landed the fixture and runtime nav docs. See
+  PR-H landed the fixture and runtime nav docs. **#886 later removed the
+  change log and everything built on it** — `revision`, the field-delta path
+  (`applyFieldDelta` / `mapFieldPos`), and the geometry-read `revision` stamp —
+  moving cross-edit position anchoring to the editor's own transaction mapping;
+  the Myers diff, mark/line ops, and document mutators (the corpus substrate)
+  stay. See
   [PREVIEW.md](../../canon/PREVIEW.md) for the landed edit-surface contract.
 - **Phase 4 — islands + collab.** First real island type (tables, with
   per-creation id minting rather than import's sequential ids), then a

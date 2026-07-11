@@ -1,5 +1,17 @@
 # Phase 3 — edit surface
 
+> **Superseded in part by #886.** The change-log / revision / field-delta
+> machinery this plan built (PR-C, PR-F, PR-G — `ChangeLog`, `LiveSession::revision`,
+> `record_field_delta_at`, `map_field_pos`, `apply_for_field_delta`, WASM
+> `applyFieldDelta` / `mapFieldPos` / `revision`, the geometry-read `revision`
+> stamp) has been **removed**. Cross-edit position anchoring is the editor's own
+> transaction mapping (a ProseMirror / CodeMirror `StepMap`), so `positionAt` /
+> `locate` over the current compile carry the whole preview↔editor cursor bridge
+> without a core-side forward map. The Myers diff, mark/line op channels, and
+> fallible document mutators (PR-B, PR-D, PR-E — the corpus substrate) stay. The
+> findings below are the era-accurate record of what landed, not the current
+> surface; see [PREVIEW.md](../../canon/PREVIEW.md) for that.
+
 The engine already stores, renders, and navigates `RichText`; this phase wires
 **editing**: per-field text splices, mark and line op channels, monotonic
 revision with a bounded change log, and a form-editor binding on the phase-1

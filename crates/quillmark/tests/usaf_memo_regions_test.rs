@@ -98,8 +98,7 @@ fn usaf_memo_regions_cover_body_signature_and_cards() {
         )
         .expect("usaf_memo should render to PDF");
     assert_eq!(
-        with_regions.regions,
-        regions_geometry_only(&regions),
+        with_regions.regions, regions,
         "one-shot sidecar matches the session query"
     );
 
@@ -117,17 +116,4 @@ fn usaf_memo_regions_cover_body_signature_and_cards() {
         without_regions.regions.is_empty(),
         "the sidecar is opt-in; exports carry no regions by default"
     );
-}
-
-/// Session reads stamp `revision`; the one-shot sidecar omits it (PR-F).
-fn regions_geometry_only(
-    regions: &[quillmark_core::RenderedRegion],
-) -> Vec<quillmark_core::RenderedRegion> {
-    regions
-        .iter()
-        .map(|r| quillmark_core::RenderedRegion {
-            revision: None,
-            ..r.clone()
-        })
-        .collect()
 }

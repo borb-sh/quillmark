@@ -3,9 +3,7 @@
 use crate::error::WasmError;
 use crate::types::Diagnostic;
 #[cfg(any(feature = "typst", feature = "pdfform"))]
-use crate::types::{
-    revision_u32, ChangeSet, CorpusHit, Delta, FieldRegion, RenderOptions, RenderResult,
-};
+use crate::types::{ChangeSet, CorpusHit, FieldRegion, RenderOptions, RenderResult};
 use js_sys::{Array, Uint8Array};
 #[cfg(any(feature = "typst", feature = "pdfform"))]
 use serde::Deserialize;
@@ -244,15 +242,11 @@ pub struct Quill {
 }
 
 /// Live render session: reads (`render`, `paint`, `pageSize`, `regions`,
-/// `fieldAt`, `positionAt`, `locate`) serve the current compile. Two edit
-/// verbs, both transactional (on throw every read keeps serving the last-good
-/// compile): `apply(doc)` recompiles a whole document in place (the
-/// markdown/LLM path) and invalidates the change log, so a position captured
-/// before it now throws `session::stale_revision` on `mapFieldPos` instead of
-/// silently resolving; `applyFieldDelta(doc, …)` splices one content field's
-/// corpus, advancing the monotonic `revision` so captured positions map
-/// forward instead. Geometry reads stamp that `revision` (`FieldRegion.revision`
-/// / `CorpusHit.revision`).
+/// `fieldAt`, `positionAt`, `locate`) serve the current compile. `apply(doc)`
+/// recompiles a whole document in place, transactionally (on throw every read
+/// keeps serving the last-good compile). Geometry reads reflect the current
+/// compile; anchoring a caret across edits is the editor's job — re-read
+/// geometry after each committed `apply`.
 ///
 /// **Empty documents.** A zero-page document yields a valid session
 /// (`pageCount === 0`); `paint(ctx, 0)` or `pageSize(0)` throws with
@@ -703,11 +697,10 @@ impl Document {
     /// [`fromJson`](Document::from_json) constructor. Parse-time `warnings` are
     /// cleared. Throws (leaving the document unchanged) on an invalid DTO.
     ///
-    /// The cross-WASM-memory `Document` bridge: `runtime.js` `applyFieldDelta`
-    /// splices one field on a backend-memory clone, then writes the mutated
-    /// state back into the caller's canonical document with this — the one way
-    /// to update a live handle across the linear-memory seam without the caller
-    /// re-binding its variable.
+    /// The cross-WASM-memory `Document` bridge: mutate a document on a
+    /// backend-memory clone, then write the mutated state back into the caller's
+    /// canonical document with this — the one way to update a live handle across
+    /// the linear-memory seam without the caller re-binding its variable.
     #[wasm_bindgen(js_name = loadJson)]
     pub fn load_json(&mut self, json: &str) -> Result<(), JsValue> {
         let inner: quillmark_core::Document = serde_json::from_str(json).map_err(|e| {
@@ -1511,10 +1504,7 @@ impl LiveSession {
     /// (same quill), then applied transactionally: on throw every read
     /// (`render`, `paint`, `pageSize`, `regions`, `fieldAt`) keeps serving the last-good
     /// compile, and the session recovers on the next successful `apply`. On
-    /// success reads serve the new compile; repaint `dirtyPages ∩ visible`, and
-    /// the change log is invalidated — a position captured before this call now
-    /// throws `session::stale_revision` on `mapFieldPos` instead of silently
-    /// resolving against text this rewrite may have replaced.
+    /// success reads serve the new compile; repaint `dirtyPages ∩ visible`.
     #[wasm_bindgen(js_name = apply)]
     pub fn apply(&mut self, doc: &Document) -> Result<ChangeSet, JsValue> {
         let json_data = self.compile_checked(&doc.inner)?;
@@ -1526,166 +1516,6 @@ impl LiveSession {
             page_count: cs.page_count,
             dirty_pages: cs.dirty_pages,
         })
-    }
-
-    /// The session's monotonic edit revision — `0` before the first
-    /// `applyFieldDelta`, incremented by each committed native field edit. The
-    /// stamp on `regions()` / `positionAt` / `locate`; pass a captured value
-    /// back as `applyFieldDelta`'s `baseRevision` and to `mapFieldPos`. A
-    /// whole-document `apply(doc)` also advances it (invalidating the change
-    /// log), so a position captured before an `apply(doc)` call always fails
-    /// `mapFieldPos` with `session::stale_revision` rather than mapping forward
-    /// through per-field deltas that no longer describe the rewritten text.
-    #[wasm_bindgen(getter, js_name = revision)]
-    pub fn revision(&self) -> u32 {
-        revision_u32(self.inner.revision())
-    }
-
-    /// Commit a native form-editor edit to a content field: splice `delta` into
-    /// the field's corpus on `doc`, recompile the preview, and record the delta
-    /// so later positions map forward — the delta-path twin of the
-    /// whole-document `apply(doc)` (markdown/LLM path).
-    ///
-    /// `baseRevision` is the revision the editor computed `delta` against
-    /// (captured from a read stamp or a prior `applyFieldDelta`). It must equal
-    /// the current `revision`; a mismatch throws `session::revision_mismatch`
-    /// and changes nothing, so a stale delta is never spliced onto the wrong
-    /// base — re-read and recompute instead.
-    ///
-    /// This phase targets the **main body** corpus only (`field === "$body"`);
-    /// any other address throws (use `apply(doc)` for those). Transactional on
-    /// the compile *and* on `doc`: a failed splice or recompile leaves both the
-    /// preview and `doc` byte-identical to before the call (the splice is
-    /// rolled back), so a caller's natural retry with the same arguments is
-    /// safe rather than double-applying the delta. `revision` does not advance
-    /// on failure either. On success `doc`'s body carries the edit, the
-    /// preview reflects it, and `revision` is `baseRevision + 1`.
-    #[wasm_bindgen(js_name = applyFieldDelta)]
-    pub fn apply_field_delta(
-        &mut self,
-        doc: &mut Document,
-        field: &str,
-        base_revision: u32,
-        delta: Delta,
-    ) -> Result<ChangeSet, JsValue> {
-        if field != "$body" {
-            return Err(WasmError::from(format!(
-                "applyFieldDelta: '{field}' is not a delta-path target; only the main body \
-                 '$body' is supported in this phase — use apply(doc) for whole-document edits"
-            ))
-            .to_js_value());
-        }
-        let core_delta: quillmark_core::Delta = delta.into();
-
-        // Guard the base revision before touching anything: a stale delta is
-        // rejected here, leaving `doc` and the session untouched.
-        self.inner
-            .ensure_base_revision(base_revision as u64)
-            .map_err(|d| {
-                WasmError {
-                    diagnostics: vec![d],
-                }
-                .to_js_value()
-            })?;
-
-        // Snapshot the pre-edit body: `apply_body_change` is itself atomic, but
-        // the compile and record steps that follow it can fail *after* the body
-        // has changed, so restoring the snapshot on any failure leaves `doc`
-        // exactly as it was — a caller's retry then never double-applies the
-        // delta onto an already-mutated document. This snapshot is the
-        // compile/record transaction boundary, not a guard against a
-        // half-applied body.
-        let pre_edit_body = doc.inner.main().body().clone();
-
-        // Splice the main body corpus (text delta only), then recompile from the
-        // mutated document and record the delta atomically — transactional on the
-        // compile and, via the snapshot above, on `doc` itself. The seam
-        // recompiles *without* invalidating the change log (unlike whole-document
-        // `apply`) and records the delta against the guarded base in one step:
-        // the revision advances to `base_revision + 1` in lockstep with the
-        // preview, or nothing changes and `doc` rolls back. On any failure the
-        // single site below restores the body and returns the step's error.
-        let spliced = (|| -> Result<quillmark_core::ChangeSet, JsValue> {
-            doc.inner
-                .main_mut()
-                .apply_body_change(&core_delta, &[], &[])
-                .map_err(|e| edit_error_to_js(&e))?;
-            let json_data = self.compile_checked(&doc.inner)?;
-            self.inner
-                .apply_for_field_delta(
-                    field.to_string(),
-                    base_revision as u64,
-                    core_delta,
-                    &json_data,
-                )
-                .map_err(|e| WasmError::from(e).to_js_value())
-        })();
-        let cs = match spliced {
-            Ok(cs) => cs,
-            Err(e) => {
-                doc.inner.main_mut().set_body_corpus(pre_edit_body);
-                return Err(e);
-            }
-        };
-
-        Ok(ChangeSet {
-            page_count: cs.page_count,
-            dirty_pages: cs.dirty_pages,
-        })
-    }
-
-    /// Map a USV `pos` in `field`, captured at `baseRevision`, forward through
-    /// the field's recorded deltas to its position in the current revision —
-    /// the mechanism that keeps a form caret or highlight anchored across
-    /// edits. `assoc` (`"before"` | `"after"`) picks the side of a
-    /// same-position insertion (`"after"` moves past inserted text). Throws
-    /// `session::stale_revision` when `baseRevision` cannot be mapped forward:
-    /// either it predates the bounded change log (evicted), or it is a future
-    /// revision the session never reached — either way the consumer must
-    /// re-read at the current `revision`.
-    #[wasm_bindgen(js_name = mapFieldPos)]
-    pub fn map_field_pos(
-        &self,
-        field: &str,
-        base_revision: u32,
-        pos: usize,
-        #[wasm_bindgen(unchecked_param_type = "\"before\" | \"after\"")] assoc: &str,
-    ) -> Result<usize, JsValue> {
-        let assoc = match assoc {
-            "before" => quillmark_core::Assoc::Before,
-            "after" => quillmark_core::Assoc::After,
-            other => {
-                return Err(WasmError::from(format!(
-                    "mapFieldPos: assoc must be \"before\" or \"after\", got \"{other}\""
-                ))
-                .to_js_value())
-            }
-        };
-        self.inner
-            .map_field_pos(field, base_revision as u64, pos, assoc)
-            .map_err(|stale| {
-                let detail = if stale.base_revision > self.inner.revision() {
-                    format!(
-                        "position captured at revision {} is ahead of the session's current \
-                         revision {}; re-read at the current revision",
-                        stale.base_revision, stale.oldest_retained
-                    )
-                } else {
-                    format!(
-                        "position captured at revision {} predates the change log \
-                         (oldest retained {}); re-read at the current revision",
-                        stale.base_revision, stale.oldest_retained
-                    )
-                };
-                WasmError {
-                    diagnostics: vec![quillmark_core::Diagnostic::new(
-                        quillmark_core::Severity::Error,
-                        detail,
-                    )
-                    .with_code("session::stale_revision".to_string())],
-                }
-                .to_js_value()
-            })
     }
 
     #[wasm_bindgen(js_name = render)]
@@ -1919,7 +1749,7 @@ impl LiveSession {
         .to_js_value()
     }
 
-    /// The compile preamble shared by `apply` and `applyFieldDelta`: verify
+    /// The compile preamble used by `apply`: verify
     /// `doc` still references this session's quill, then compile it to plate
     /// data through the same schema pipeline as `open`. Errors map to JS via
     /// `WasmError`, as the render path does.

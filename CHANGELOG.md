@@ -8,6 +8,23 @@
 
 ## Unreleased
 
+- remove(core,richtext,wasm)!: delete the incremental-edit surface — the
+  per-field change log and everything layered on it: `richtext::ChangeLog` /
+  `FieldChange` / `StaleRevision`; `LiveSession::revision` /
+  `record_field_delta_at` / `record_field_change_at` / `ensure_base_revision` /
+  `map_field_pos` / `apply_for_field_delta`; the WASM `applyFieldDelta` /
+  `mapFieldPos` / `revision` and the `Delta` DTO; and the `revision` stamp on
+  `RenderedRegion` / `CorpusHit` (and `FieldRegion` / `CorpusHit` on the wire).
+  Anchoring a caret or selection across edits belongs to the editor's own
+  transaction mapping (a ProseMirror / CodeMirror `StepMap`), not a parallel
+  core-side position map: the bidirectional preview↔editor cursor bridge is
+  `positionAt` / `locate` over the current compile, exact inverses that never
+  consulted the change log. Whole-document `apply(doc)` stays the one edit verb.
+  This dissolves #886's anchor-stranding half outright and drops the
+  half-built delta path behind its per-keystroke-marshalling half; `Delta` /
+  `diff` / `diff_import` / the mark & line op channels remain as the corpus
+  writers' substrate (`replace_body`, `import_body_delta`, `apply_body_change`)
+  (#886)
 - fix(wasm): drop the `revision?` field from the public `CorpusHit`/`FieldRegion`
   types and the broken `{@link LiveSession.mapFieldPos}` / `.revision` references
   in `runtime.d.ts`. The delta API (`applyFieldDelta`/`revision`/`mapFieldPos`) is
