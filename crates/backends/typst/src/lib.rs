@@ -31,7 +31,7 @@ mod world;
 use std::borrow::Cow;
 
 use quillmark_core::{
-    quill::{build_transform_schema, RICHTEXT_MEDIA_TYPE},
+    quill::{build_transform_schema, QUILLMARK_INLINE_KEY, RICHTEXT_MEDIA_TYPE},
     session::SessionHandle,
     Backend, ChangeSet, CorpusHit, Diagnostic, LiveSession, OutputFormat, Quill, RenderError,
     RenderOptions, RenderResult, RenderedRegion, Severity,
@@ -651,6 +651,23 @@ fn is_richtext_array_field(field_schema: &serde_json::Value) -> bool {
             .unwrap_or(false)
 }
 
+/// Check if a field schema is a richtext (or `array<richtext>`) field whose
+/// (element) corpus is `inline` — carries `quillmark:inline: true`
+/// ([`QUILLMARK_INLINE_KEY`]). An inline field's corpus lowers to pure inline
+/// Typst markup (no `parbreak`); the flag sits on the richtext schema itself,
+/// and for an array on its `items` (mirroring `build_transform_schema`).
+fn is_inline_richtext_field(field_schema: &serde_json::Value) -> bool {
+    fn marked_inline(fs: &serde_json::Value) -> bool {
+        fs.get(QUILLMARK_INLINE_KEY).and_then(|v| v.as_bool()) == Some(true)
+    }
+    (is_richtext_field(field_schema) && marked_inline(field_schema))
+        || (is_richtext_array_field(field_schema)
+            && field_schema
+                .get("items")
+                .map(marked_inline)
+                .unwrap_or(false))
+}
+
 /// Check if a field schema indicates a datetime field (`format = "date-time"`).
 fn is_date_field(field_schema: &serde_json::Value) -> bool {
     field_schema
@@ -679,6 +696,12 @@ fn content_field_names(properties: &serde_json::Map<String, serde_json::Value>) 
     field_names_where(properties, |fs| {
         is_richtext_field(fs) || is_richtext_array_field(fs)
     })
+}
+
+/// Names of the `inline` richtext / `array<richtext(inline)>` fields — a subset
+/// of [`content_field_names`] whose corpus lowers to pure inline markup (#872).
+fn inline_field_names(properties: &serde_json::Map<String, serde_json::Value>) -> Vec<String> {
+    field_names_where(properties, is_inline_richtext_field)
 }
 
 /// Names of the date fields in a schema `properties` map.
@@ -714,10 +737,15 @@ pub(crate) struct SchemaMeta {
     pub(crate) content_fields: Vec<String>,
     pub(crate) date_fields: Vec<String>,
     pub(crate) array_fields: Vec<String>,
+    /// Content fields whose (element) richtext is `inline` — a subset of
+    /// `content_fields`, driving the pure-inline lowering (#872).
+    pub(crate) inline_fields: Vec<String>,
     pub(crate) card_content_fields: serde_json::Map<String, serde_json::Value>,
     pub(crate) card_date_fields: serde_json::Map<String, serde_json::Value>,
     pub(crate) card_field_names: serde_json::Map<String, serde_json::Value>,
     pub(crate) card_array_fields: serde_json::Map<String, serde_json::Value>,
+    /// Per-card-kind counterpart of `inline_fields`.
+    pub(crate) card_inline_fields: serde_json::Map<String, serde_json::Value>,
     pub(crate) fields: Vec<String>,
 }
 
@@ -730,6 +758,7 @@ impl SchemaMeta {
         let content_fields = content_field_names(properties_obj);
         let date_fields = date_field_names(properties_obj);
         let array_fields = array_field_names(properties_obj);
+        let inline_fields = inline_field_names(properties_obj);
         let fields = properties_obj.keys().cloned().collect();
 
         // Collect per-card-kind content/date/array field names from schema
@@ -739,6 +768,7 @@ impl SchemaMeta {
         let mut card_date_fields = serde_json::Map::new();
         let mut card_field_names = serde_json::Map::new();
         let mut card_array_fields = serde_json::Map::new();
+        let mut card_inline_fields = serde_json::Map::new();
         fn insert_names(
             table: &mut serde_json::Map<String, serde_json::Value>,
             kind: &str,
@@ -773,6 +803,11 @@ impl SchemaMeta {
                         card_kind,
                         card_props.map(array_field_names).unwrap_or_default(),
                     );
+                    insert_names(
+                        &mut card_inline_fields,
+                        card_kind,
+                        card_props.map(inline_field_names).unwrap_or_default(),
+                    );
                 }
             }
         }
@@ -781,10 +816,12 @@ impl SchemaMeta {
             content_fields,
             date_fields,
             array_fields,
+            inline_fields,
             card_content_fields,
             card_date_fields,
             card_field_names,
             card_array_fields,
+            card_inline_fields,
             fields,
         }
     }
@@ -931,6 +968,110 @@ mod tests {
         assert_eq!(count(<ListElem as NativeElement>::ELEM), 0, "no bullet list");
         assert_eq!(count(<EnumElem as NativeElement>::ELEM), 0, "no enum");
         assert_eq!(count(<TermsElem as NativeElement>::ELEM), 0, "no term list");
+    }
+
+    /// End-to-end teeth for #872: a `richtext(inline)` field composed inside
+    /// `par(..)` compiles with **no** "parbreak may not occur inside of a
+    /// paragraph" warning, whereas the same field lowered as a plain (block)
+    /// richtext DOES warn. Runs against the real Typst grammar, so a future
+    /// version that changes the diagnostic fails loud here.
+    #[test]
+    fn inline_field_in_par_emits_no_parbreak_warning() {
+        use quillmark_core::FileTreeNode;
+
+        const PLATE: &str = r#"#import "@local/quillmark-helper:0.1.0": data
+#set page(width: 300pt, height: 200pt, margin: 20pt)
+#set text(size: 11pt)
+#par(data.subject)
+"#;
+        // `inline` toggles the `subject` field between `richtext(inline)` and a
+        // plain block `richtext`; everything else is identical.
+        let quill = |inline: bool| {
+            let inline_line = if inline { "      inline: true\n" } else { "" };
+            let yaml = format!(
+                "quill:\n  name: parbreak\n  version: 0.1.0\n  backend: typst\n  description: parbreak probe\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    subject:\n      type: richtext\n{inline_line}      description: subject\n",
+            );
+            let mut files = HashMap::new();
+            files.insert(
+                "Quill.yaml".to_string(),
+                FileTreeNode::File { contents: yaml.into_bytes() },
+            );
+            files.insert(
+                "plate.typ".to_string(),
+                FileTreeNode::File { contents: PLATE.as_bytes().to_vec() },
+            );
+            Quill::from_tree(FileTreeNode::Directory { files }).expect("quill")
+        };
+        let warnings_for = |inline: bool| {
+            let q = quill(inline);
+            let json = serde_json::json!({ "subject": corpus("A subject line") });
+            let plate_content = read_plate(&q).expect("plate");
+            let transform_schema = build_transform_schema(q.config());
+            let schema_meta = SchemaMeta::from_schema_json(transform_schema.as_json());
+            let data = transformed_data(&schema_meta, &json).expect("data");
+            let (world, _w) =
+                world::QuillWorld::new_with_data(&q, &plate_content, data.as_ref(), &schema_meta)
+                    .expect("world");
+            let (_doc, warnings) = compile::compile_document(&world).expect("compile");
+            warnings
+        };
+        let has_parbreak =
+            |ws: &[Diagnostic]| ws.iter().any(|d| d.message.contains("parbreak"));
+
+        // Negative control: the block lowering warns, proving the probe has teeth.
+        assert!(
+            has_parbreak(&warnings_for(false)),
+            "block richtext in par() should emit the parbreak warning"
+        );
+        // The fix: inline lowering emits no parbreak warning.
+        assert!(
+            !has_parbreak(&warnings_for(true)),
+            "inline richtext in par() must emit no parbreak warning"
+        );
+    }
+
+    /// End-to-end teeth for #873: a plate imports `plaintext` and uses a content
+    /// field as a **string** — `type(plaintext("subject")) == str` and a string
+    /// op (`upper`) on it — where `data.subject` is Typst `content` that would
+    /// fail those. Compiles against real Typst, so a helper whose `plaintext`
+    /// returned content (or errored) fails here.
+    #[test]
+    fn plate_uses_plaintext_projection_as_string() {
+        use quillmark_core::FileTreeNode;
+
+        const PLATE: &str = r#"#import "@local/quillmark-helper:0.1.0": data, plaintext
+#set page(width: 300pt, height: 200pt, margin: 20pt)
+#set text(size: 11pt)
+#assert(type(plaintext("subject")) == str, message: "plaintext must be a str")
+#assert(plaintext("subject").starts-with("Hello"), message: "string op works")
+#assert(plaintext("missing") == "", message: "absent field defaults to empty string")
+#upper(plaintext("subject"))
+"#;
+        let quill = || {
+            let yaml = "quill:\n  name: plaintext\n  version: 0.1.0\n  backend: typst\n  description: plaintext probe\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    subject:\n      type: richtext\n      description: subject\n";
+            let mut files = HashMap::new();
+            files.insert(
+                "Quill.yaml".to_string(),
+                FileTreeNode::File { contents: yaml.as_bytes().to_vec() },
+            );
+            files.insert(
+                "plate.typ".to_string(),
+                FileTreeNode::File { contents: PLATE.as_bytes().to_vec() },
+            );
+            Quill::from_tree(FileTreeNode::Directory { files }).expect("quill")
+        };
+        let q = quill();
+        // A body with a mark and (defensively) no island — plaintext drops the mark.
+        let json = serde_json::json!({ "subject": corpus("Hello **bold** world") });
+        let plate_content = read_plate(&q).expect("plate");
+        let transform_schema = build_transform_schema(q.config());
+        let schema_meta = SchemaMeta::from_schema_json(transform_schema.as_json());
+        let data = transformed_data(&schema_meta, &json).expect("data");
+        let (world, _w) =
+            world::QuillWorld::new_with_data(&q, &plate_content, data.as_ref(), &schema_meta)
+                .expect("world");
+        // Compile succeeds ⇒ every `#assert` in the plate held.
+        let (_doc, _warn) = compile::compile_document(&world).expect("compile");
     }
 
     #[test]

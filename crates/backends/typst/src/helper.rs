@@ -9,7 +9,9 @@
 //! fields are `datetime(..)` constructors, `$cards` carry a per-kind-ordinal
 //! `$path`, and everything else is a value literal Typst judges equal to the
 //! former `json()` parse; the schema address tables are a generated literal
-//! `_qm-meta`. See [`generate_lib_typ`].
+//! `_qm-meta`, and each content field's plaintext projection a generated literal
+//! `_qm-plaintext` (backing the `plaintext(field)` helper, #873). See
+//! [`generate_lib_typ`].
 //!
 //! Output is **canonical**: dict keys emit in sorted order at every level (via
 //! [`sorted`]), so equal data produces byte-equal source regardless of the
@@ -18,7 +20,9 @@
 use std::collections::HashMap;
 use std::ops::Range;
 
-use crate::emit::{emit_richtext, escape_string, EmitError, EmittedContent, SegmentMap};
+use crate::emit::{
+    emit_richtext, emit_richtext_inline, escape_string, EmitError, EmittedContent, SegmentMap,
+};
 use crate::SchemaMeta;
 use quillmark_richtext::serial::from_canonical_value;
 
@@ -62,14 +66,16 @@ pub fn generate_lib_typ(
         return Err(e);
     }
     let meta_literal = meta_literal(meta);
+    let plaintext_literal = plaintext_literal(&cg.plaintext);
 
     // Every placeholder is located in the *raw template* — trusted static text
     // — never in already-substituted output, so document data containing the
     // literal placeholder text cannot hijack a splice point (the #795 hygiene
     // fix, carried over). Slots are unique and ordered; each `find` starts
     // after the previous slot, scanning only the static template.
-    let mut out =
-        String::with_capacity(LIB_TYP_TEMPLATE.len() + cg.blocks.len() + data_literal.len());
+    let mut out = String::with_capacity(
+        LIB_TYP_TEMPLATE.len() + cg.blocks.len() + data_literal.len() + plaintext_literal.len(),
+    );
     let mut cursor = 0usize;
     let mut blocks_at = 0usize;
     for (slot, value) in [
@@ -77,6 +83,7 @@ pub fn generate_lib_typ(
         ("{meta_literal}", meta_literal.as_str()),
         ("{content_blocks}", cg.blocks.as_str()),
         ("{data_literal}", data_literal.as_str()),
+        ("{plaintext_literal}", plaintext_literal.as_str()),
     ] {
         let rel = LIB_TYP_TEMPLATE[cursor..]
             .find(slot)
@@ -120,14 +127,20 @@ fn rebase_segment(mut s: SegmentMap, shift: usize) -> SegmentMap {
 
 /// Accumulates the generated helper across one render: the content block
 /// bindings, their brackets-included windows + rebased segment maps (relative to
-/// the block section), the `_qm_cN` counter, and the first content-lowering
-/// error (a corpus over the nesting bound; import normally prevents it).
+/// the block section), the `_qm_cN` counter, the first content-lowering error (a
+/// corpus over the nesting bound; import normally prevents it), and each content
+/// field's plaintext projection (for the `plaintext(field)` helper, #873).
 struct Codegen<'m> {
     meta: &'m SchemaMeta,
     blocks: String,
     windows: Vec<(String, Range<usize>, Vec<SegmentMap>)>,
     counter: usize,
     emit_error: Option<EmitError>,
+    /// `(schema address, plaintext)` per non-blank content field — the corpus
+    /// text with island slots stripped and marks dropped, keyed by the same
+    /// address the content-block window uses (`subject`, `refs.2`,
+    /// `$cards.note.0.$body`). Backs the generated `_qm-plaintext` table.
+    plaintext: Vec<(String, String)>,
 }
 
 impl<'m> Codegen<'m> {
@@ -138,6 +151,7 @@ impl<'m> Codegen<'m> {
             windows: Vec::new(),
             counter: 0,
             emit_error: None,
+            plaintext: Vec::new(),
         }
     }
 
@@ -176,15 +190,34 @@ impl<'m> Codegen<'m> {
     /// is not a valid corpus (never produced by the seam) degrades to its value
     /// literal; no render path re-parses markdown. A nesting-bound violation is
     /// recorded on `self.emit_error` and surfaced by `generate_lib_typ`.
-    fn content_field(&mut self, path: &str, value: &serde_json::Value) -> String {
+    ///
+    /// `inline` selects the lowering: an `inline` field (`richtext(inline)`)
+    /// lowers to pure inline markup (no trailing `parbreak`, #872) via
+    /// [`emit_richtext_inline`]; every other field keeps the block lowering.
+    fn content_field(&mut self, path: &str, value: &serde_json::Value, inline: bool) -> String {
+        let emit = if inline {
+            emit_richtext_inline
+        } else {
+            emit_richtext
+        };
         match from_canonical_value(value) {
-            Ok(rt) if !rt.is_blank() => match emit_richtext(&rt) {
-                Ok(ec) => self.content_block(path, ec),
-                Err(e) => {
-                    self.emit_error.get_or_insert(e);
-                    "\"\"".to_string()
+            Ok(rt) if !rt.is_blank() => {
+                // Record the plaintext projection (corpus text minus island
+                // slots, marks dropped) for `plaintext(field)`, keyed by the same
+                // address the content block windows on. Blank corpora are skipped
+                // — `plaintext` defaults them to `""`.
+                let plain = quillmark_richtext::export::to_plaintext(&rt);
+                if !plain.is_empty() {
+                    self.plaintext.push((path.to_string(), plain));
                 }
-            },
+                match emit(&rt) {
+                    Ok(ec) => self.content_block(path, ec),
+                    Err(e) => {
+                        self.emit_error.get_or_insert(e);
+                        "\"\"".to_string()
+                    }
+                }
+            }
             Ok(_) => "\"\"".to_string(),
             Err(_) => lit(value),
         }
@@ -207,7 +240,8 @@ impl<'m> Codegen<'m> {
             }
             let is_content = self.meta.content_fields.iter().any(|f| f == key);
             let is_date = self.meta.date_fields.iter().any(|f| f == key);
-            let expr = self.emit_field(key, value, is_content, is_date);
+            let is_inline = self.meta.inline_fields.iter().any(|f| f == key);
+            let expr = self.emit_field(key, value, is_content, is_date, is_inline);
             items.push(format!("\"{}\": {}", escape_string(key), expr));
         }
         wrap_dict(items)
@@ -251,6 +285,7 @@ impl<'m> Codegen<'m> {
     ) -> String {
         let content = card_names(&self.meta.card_content_fields, kind);
         let dates = card_names(&self.meta.card_date_fields, kind);
+        let inlines = card_names(&self.meta.card_inline_fields, kind);
         let mut items = Vec::with_capacity(obj.len() + 1);
         // The card's canonical address prefix, so plates compose schema-field
         // addresses — `form-field(.., field: card.at("$path") + "from")` —
@@ -263,8 +298,9 @@ impl<'m> Codegen<'m> {
             }
             let is_content = content.iter().any(|f| f == key);
             let is_date = dates.iter().any(|f| f == key);
+            let is_inline = inlines.iter().any(|f| f == key);
             let path = format!("{prefix}{key}");
-            let expr = self.emit_field(&path, value, is_content, is_date);
+            let expr = self.emit_field(&path, value, is_content, is_date, is_inline);
             items.push(format!("\"{}\": {}", escape_string(key), expr));
         }
         wrap_dict(items)
@@ -273,6 +309,8 @@ impl<'m> Codegen<'m> {
     /// A single field's value literal. Content (richtext) fields — a corpus
     /// object, or an array of them — lower to `#let` content blocks via
     /// [`Self::content_field`]; a blank corpus stays an empty string literal.
+    /// `is_inline` picks pure-inline lowering (no `parbreak`) for a
+    /// `richtext(inline)` field, per element for an `array<richtext(inline)>`.
     /// Date fields become `datetime(..)` constructors (or `none`). Everything
     /// else is a plain value literal.
     fn emit_field(
@@ -281,20 +319,21 @@ impl<'m> Codegen<'m> {
         value: &serde_json::Value,
         is_content: bool,
         is_date: bool,
+        is_inline: bool,
     ) -> String {
         if is_content {
             match value {
                 // A richtext field crosses the seam as canonical corpus JSON (an
                 // object); an `array<richtext>` as an array of them. Lower each
                 // corpus to a content block here.
-                serde_json::Value::Object(_) => self.content_field(path, value),
+                serde_json::Value::Object(_) => self.content_field(path, value, is_inline),
                 serde_json::Value::Array(arr) => {
                     let items = arr
                         .iter()
                         .enumerate()
                         .map(|(i, elem)| match elem {
                             serde_json::Value::Object(_) => {
-                                self.content_field(&format!("{path}.{i}"), elem)
+                                self.content_field(&format!("{path}.{i}"), elem, is_inline)
                             }
                             other => lit(other),
                         })
@@ -338,6 +377,25 @@ fn meta_literal(meta: &SchemaMeta) -> String {
         "card_array_fields": meta.card_array_fields,
     });
     lit(&tables)
+}
+
+/// The `_qm-plaintext` literal: each content field's plaintext projection
+/// (island slots stripped, marks dropped) keyed by schema address, emitted as a
+/// Typst dict literal for the `plaintext(field)` helper (#873). Keys are sorted
+/// so the output is a pure function of the data's values — a reorder-only
+/// `apply` still produces byte-identical source (same #801 invariant as the
+/// content blocks). Content addresses are unique, so no key collides.
+fn plaintext_literal(entries: &[(String, String)]) -> String {
+    let mut sorted: Vec<&(String, String)> = entries.iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+    wrap_dict(
+        sorted
+            .into_iter()
+            .map(|(path, text)| {
+                format!("\"{}\": \"{}\"", escape_string(path), escape_string(text))
+            })
+            .collect(),
+    )
 }
 
 /// A coerced datetime string as a Typst `datetime(year:, month:, day:)`
@@ -467,6 +525,54 @@ mod tests {
         serde_json::json!({ "type": "object", "contentMediaType": RICHTEXT_MEDIA_TYPE })
     }
 
+    /// A schema descriptor for a scalar `richtext(inline)` field.
+    fn inline_richtext_field() -> serde_json::Value {
+        serde_json::json!({
+            "type": "object",
+            "contentMediaType": RICHTEXT_MEDIA_TYPE,
+            "quillmark:inline": true
+        })
+    }
+
+    /// An `inline` richtext field's block carries pure inline markup (no
+    /// `parbreak`), while a plain richtext field keeps its `\n\n` terminator —
+    /// so the inline value composes in `par(..)` without warning (#872).
+    #[test]
+    fn inline_field_lowers_without_parbreak() {
+        let meta = meta_from(serde_json::json!({ "properties": {
+            "subject": inline_richtext_field(),
+            "intro": richtext_field(),
+        }}));
+        let data = serde_json::json!({
+            "subject": corpus("A **bold** subject"),
+            "intro": corpus("An intro."),
+        });
+        let (lib, _) = generate_lib_typ(&data, &meta).unwrap();
+        // Inline: no parbreak inside the block.
+        assert!(
+            lib.contains("[\nA #strong[bold] subject\n]"),
+            "inline block should carry no parbreak: {lib}"
+        );
+        // Block: the paragraph still terminates with `\n\n`.
+        assert!(
+            lib.contains("[\nAn intro.\n\n\n]"),
+            "block field keeps its terminator: {lib}"
+        );
+    }
+
+    /// Each element of an `array<richtext(inline)>` lowers inline (per the
+    /// `quillmark:inline` flag on `items`), so no element carries a parbreak.
+    #[test]
+    fn inline_array_lowers_each_element_without_parbreak() {
+        let meta = meta_from(serde_json::json!({ "properties": {
+            "cc": { "type": "array", "items": inline_richtext_field() }
+        }}));
+        let data = serde_json::json!({ "cc": [corpus("First"), corpus("Second **bold**")] });
+        let (lib, _) = generate_lib_typ(&data, &meta).unwrap();
+        assert!(lib.contains("[\nFirst\n]"), "{lib}");
+        assert!(lib.contains("[\nSecond #strong[bold]\n]"), "{lib}");
+    }
+
     /// A richtext field's corpus lowers to a `#let _qm_cN = [ .. ]` block,
     /// referenced from `data`, with the recorded window covering exactly its
     /// bracketed range.
@@ -551,6 +657,85 @@ mod tests {
         let paths: Vec<&str> = windows.iter().map(|w| w.path.as_str()).collect();
         assert_eq!(paths, vec!["sections.0", "sections.2"]);
         assert!(lib.contains("\"sections\": (_qm_c0, \"\", _qm_c1,)"));
+    }
+
+    /// Every non-blank content field gets a `_qm-plaintext` entry keyed by its
+    /// schema address — the corpus text with marks dropped and island slots
+    /// stripped — so `plaintext(field)` returns the field's string (#873). A
+    /// blank field is absent (it defaults to `""`).
+    #[test]
+    fn content_fields_populate_the_plaintext_table() {
+        let meta = meta_from(serde_json::json!({ "properties": {
+            "subject": richtext_field(),
+            "refs": { "type": "array", "items": richtext_field() },
+            "blank": richtext_field(),
+        }}));
+        let data = serde_json::json!({
+            "subject": corpus("A **bold** subject"),
+            "refs": [corpus("first ref"), corpus("second _ref_")],
+            "blank": corpus("   "),
+        });
+        let (lib, _) = generate_lib_typ(&data, &meta).unwrap();
+        // Scope to the `_qm-plaintext` table: `data` also carries these keys
+        // (bound to content blocks / the empty-string literal), so match the
+        // table, not the whole file.
+        let table = plaintext_table(&lib);
+        // Marks are dropped: the plaintext is the corpus text, not the markup.
+        assert!(table.contains(r#""subject": "A bold subject""#), "{table}");
+        assert!(table.contains(r#""refs.0": "first ref""#), "{table}");
+        assert!(table.contains(r#""refs.1": "second ref""#), "{table}");
+        // The blank field carries no entry in the table.
+        assert!(!table.contains("blank"), "{table}");
+        assert!(lib.contains("#let plaintext(field) = _qm-plaintext.at(field"));
+    }
+
+    /// An image/table island contributes no plaintext: `to_plaintext` strips the
+    /// island slot, so a field that is only an island yields no entry — the
+    /// table is empty (`(:)`).
+    #[test]
+    fn island_only_content_has_no_plaintext_entry() {
+        let meta = meta_from(serde_json::json!({ "properties": { "fig": richtext_field() } }));
+        let data = serde_json::json!({ "fig": corpus("![alt](x.png)") });
+        let (lib, _) = generate_lib_typ(&data, &meta).unwrap();
+        assert_eq!(
+            plaintext_table(&lib),
+            "(:)",
+            "island-only field yields an empty plaintext table"
+        );
+    }
+
+    /// A card content field's plaintext is keyed by the full card address
+    /// (`$cards.<kind>.<n>.<field>`), so a plate composes it from the card's
+    /// `$path` prefix — `plaintext(card.at("$path") + "$body")`.
+    #[test]
+    fn card_content_plaintext_keyed_by_card_address() {
+        let meta = meta_from(serde_json::json!({
+            "properties": {},
+            "$defs": { "note_card": { "properties": { "$body": richtext_field() } } }
+        }));
+        let data = serde_json::json!({
+            "$cards": [ { "$kind": "note", "$body": corpus("Note **body**") } ]
+        });
+        let (lib, _) = generate_lib_typ(&data, &meta).unwrap();
+        assert!(
+            plaintext_table(&lib).contains(r#""$cards.note.0.$body": "Note body""#),
+            "{lib}"
+        );
+    }
+
+    /// The `_qm-plaintext = ( .. )` dict literal, sliced out of a generated
+    /// `lib.typ` so plaintext assertions don't collide with the `data` dict
+    /// (which reuses the same keys, bound to content blocks) or the following
+    /// `plaintext` helper's doc comment. The literal is single-line (`\n`s in
+    /// values are escaped), so it ends at the first newline.
+    fn plaintext_table(lib: &str) -> &str {
+        let start = lib
+            .find("#let _qm-plaintext = ")
+            .expect("plaintext table present")
+            + "#let _qm-plaintext = ".len();
+        let rest = &lib[start..];
+        let end = rest.find('\n').unwrap_or(rest.len());
+        &rest[..end]
     }
 
     /// A date field becomes a date-only `datetime(..)` constructor; null stays

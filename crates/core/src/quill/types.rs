@@ -91,8 +91,9 @@ impl CardSchema {
 ///
 /// Serializes as its type expression (`FieldType::as_str`) and deserializes by
 /// parsing that string (`FieldType::from_str`), so a YAML `type:` value round-
-/// trips as the one token that names it. Richtext inline shape is declared on
-/// [`FieldSchema::inline`], not in the `type:` token.
+/// trips as the one token that names it. Richtext inline shape is declared with
+/// the sibling `inline:` key (folded into `FieldType::RichText { inline }`), not
+/// in the `type:` token.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldType {
     String,
@@ -106,7 +107,7 @@ pub enum FieldType {
     /// (bare `YYYY-MM-DD` through full RFC 3339 with offset).
     DateTime,
     /// Rich text — the canonical corpus content model ([`RichText`]). Surfaced
-    /// as `type: richtext`; single-line shape is declared with [`FieldSchema::inline`].
+    /// as `type: richtext`; single-line shape is declared with the sibling `inline:` key.
     /// The transform schema marks it `contentMediaType:
     /// application/quillmark-richtext+json` and, when inline, `quillmark:inline:
     /// true`. The pre-richtext `markdown` spelling is not accepted — a
@@ -116,7 +117,7 @@ pub enum FieldType {
     /// [`RichText`]: quillmark_richtext::RichText
     RichText {
         /// When `true`, the field is `richtext(inline)` — exactly one `Para`
-        /// line, no container, no islands. Populated from [`FieldSchema::inline`]
+        /// line, no container, no islands. Populated from the wire `inline:` key
         /// at load; editors mount a one-line surface. Enforced at coercion,
         /// validation, and load-time example import.
         inline: bool,

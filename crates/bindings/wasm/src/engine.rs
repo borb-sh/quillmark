@@ -48,7 +48,7 @@ export interface QuillCardBody {
  * zero-fills the field). There is no separate `required` axis.
  */
 export interface QuillFieldSchema {
-    type: "string" | "number" | "integer" | "boolean" | "array" | "object" | "datetime" | "markdown";
+    type: "string" | "number" | "integer" | "boolean" | "array" | "object" | "datetime" | "richtext";
     description?: string;
     default?: unknown;
     example?: unknown;
@@ -176,6 +176,7 @@ export type RichTextLine = {
     | { kind: "heading"; level: number }
     | { kind: "code"; lang?: string }
     | { kind: "island" }
+    | { kind: "rule" }
 );
 
 /** An ancestor block a line nests inside, outermost first. */
@@ -697,6 +698,26 @@ impl Document {
         }
     }
 
+    /// Replace this document's contents **in place** from a versioned storage
+    /// DTO string — the mutating twin of the static
+    /// [`fromJson`](Document::from_json) constructor. Parse-time `warnings` are
+    /// cleared. Throws (leaving the document unchanged) on an invalid DTO.
+    ///
+    /// The cross-WASM-memory `Document` bridge: `runtime.js` `applyFieldDelta`
+    /// splices one field on a backend-memory clone, then writes the mutated
+    /// state back into the caller's canonical document with this — the one way
+    /// to update a live handle across the linear-memory seam without the caller
+    /// re-binding its variable.
+    #[wasm_bindgen(js_name = loadJson)]
+    pub fn load_json(&mut self, json: &str) -> Result<(), JsValue> {
+        let inner: quillmark_core::Document = serde_json::from_str(json).map_err(|e| {
+            WasmError::from(format!("loadJson: invalid storage DTO: {e}")).to_js_value()
+        })?;
+        self.inner = inner;
+        self.parse_warnings.clear();
+        Ok(())
+    }
+
     #[wasm_bindgen(getter, js_name = quillRef)]
     pub fn quill_ref(&self) -> String {
         self.inner.quill_reference().to_string()
@@ -948,6 +969,29 @@ impl Document {
         self.inner
             .main_mut()
             .replace_body(body)
+            .map_err(|e| edit_error_to_js(&e))
+    }
+
+    /// Set the main card's body from a **corpus object** (canonical
+    /// RichText-JSON) or a markdown string — the corpus-native counterpart to
+    /// [`replaceBody`](Document::replace_body), which accepts markdown only.
+    /// `body` is the same `RichText | string` shape `Document.main.body` reads
+    /// back, so a corpus-native editor writes the body straight through with no
+    /// lossy markdown round-trip (a corpus-only mark such as `underline`
+    /// survives). `null` clears the body to empty. Closes the read/write
+    /// asymmetry `doc.main.body` (corpus in, corpus out) otherwise had.
+    ///
+    /// Throws `[EditError::BodyDecode]` if `body` is neither a valid corpus
+    /// object, an importable markdown string, nor `null`.
+    #[wasm_bindgen(js_name = setBody)]
+    pub fn set_body(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "RichText | string")] body: JsValue,
+    ) -> Result<(), JsValue> {
+        let json = js_value_to_json(body, "setBody")?;
+        self.inner
+            .main_mut()
+            .set_body_value(&json)
             .map_err(|e| edit_error_to_js(&e))
     }
 
