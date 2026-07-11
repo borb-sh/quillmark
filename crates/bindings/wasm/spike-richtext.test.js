@@ -222,32 +222,37 @@ describe('spike: corpus-native richtext + bidirectional nav (usaf_memo)', () => 
     }
   })
 
-  it('applyFieldDelta / mapFieldPos / revision drive an incremental $body edit (#876)', async () => {
+  it('setRichtextField writes a richtext field from corpus, with inline enforcement (#881)', async () => {
     const doc = buildDoc(quill)
+    const NEW_SUBJECT = {
+      islands: [],
+      text: 'Corpus-written subject',
+      lines: [{ kind: 'para', containers: [] }],
+      marks: [{ start: 0, end: 6, type: 'strong' }] // "Corpus"
+    }
+    // `subject` is richtext(inline) — the strict corpus writer commits at write.
+    doc.setRichtextField('subject', NEW_SUBJECT, true)
+    // Markdown projection reads the field back (**Corpus**-written subject).
+    expect(doc.fieldMarkdown('subject')).toContain('Corpus')
+
     const session = await engine.open(quill, doc)
     try {
-      expect(session.revision).toBe(0)
-
-      // A form caret sitting at USV 15 (start of "BOLD") before the edit.
-      const caretBefore = 15
-      // Prepend "NEW " with a text-splice delta (CodeMirror ChangeSet semantics).
-      const delta = { ops: [{ insert: 'NEW ' }, { retain: BODY.text.length }] }
-      const cs = session.applyFieldDelta(doc, '$body', 0, delta)
-
-      expect(cs.dirtyPages).toContain(0)
-      expect(session.revision).toBe(1)
-      // doc is mutated in place across the WASM seam.
-      expect(doc.main.body.text.startsWith('NEW ')).toBe(true)
-      // The pre-edit caret maps forward past the 4-char insert.
-      const mapped = session.mapFieldPos('$body', 0, caretBefore, 'after')
-      expect(mapped).toBe(caretBefore + 4)
-      console.log(`[spike] revision ${session.revision}; mapped ${caretBefore} -> ${mapped}`)
-
-      // A stale base revision is rejected transactionally (revision unchanged).
-      expect(() => session.applyFieldDelta(doc, '$body', 0, delta)).toThrow()
-      expect(session.revision).toBe(1)
+      const fields = [...new Set(session.regions().map((r) => r.field))]
+      expect(fields).toContain('subject')
     } finally {
       session.free()
     }
+
+    // Inline enforcement at write: a two-line corpus into an inline field throws.
+    const multiline = {
+      islands: [],
+      text: 'line one\nline two',
+      lines: [
+        { kind: 'para', containers: [] },
+        { kind: 'para', containers: [] }
+      ],
+      marks: []
+    }
+    expect(() => doc.setRichtextField('subject', multiline, true)).toThrow()
   })
 })

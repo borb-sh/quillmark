@@ -13,18 +13,34 @@ and integrated back into the spike:
 
 | Finding (§) | Issue | Fix |
 | --- | --- | --- |
-| §1 no public delta/position map | #876 | `applyFieldDelta` / `mapFieldPos` / `revision` now on the public `LiveSession` |
+| §1 no public delta/position map | #876 → **reverted by #886** | the incremental `applyFieldDelta` / `mapFieldPos` / `revision` surface shipped, then was **removed before release** (#886). The sanctioned bridge is the editor's own transaction map (ProseMirror `StepMap`) plus `positionAt` / `locate`, which are exact inverses over the current compile — exactly the exact PM↔USV index this spike already implements. |
 | §2 no body-corpus mutator | #874 | `Document.setBody(corpus)` |
 | §3 richtext flips Typst `str`→`content` | #873 | `plaintext(field)` plate helper + migration-hazard docs |
 | §4 inline richtext → parbreak | #872 | `richtext(inline)` lowers to inline content |
 | §6 stale wasm TS types | #875 | `type: … | richtext` (not `markdown`); `RichTextLine` gains `rule` |
 
-The spike now consumes the new surface: `session.ts` sets the body with
-`setBody` (no DTO round-trip) and forwards `applyFieldDelta`/`mapFieldPos`/
-`revision`; `spike-richtext.test.js` exercises `setBody` (#874) and an
-incremental `$body` delta with forward caret mapping (#876); the `usaf_memo`
-render is now warning-free (#872). The findings below are kept as the original
-report; the table above records their resolution.
+A later change (#881) unified the **field** write surface: `setRichtextField` /
+`updateCardRichtextField` (+ `fieldMarkdown` / `cardFieldMarkdown` read-back)
+commit a corpus to a richtext field at write, the field-level twin of `setBody`.
+Structured **tables** also landed as canonical islands.
+
+The spike consumes the current surface: `session.ts` sets the body with
+`setBody` (#874) and richtext fields with `setRichtextField` (#881);
+`spike-richtext.test.js` exercises `setBody` and `setRichtextField` (with inline
+enforcement); the `usaf_memo` render is warning-free (#872). The findings below
+are kept as the original report; the table above records their resolution.
+
+### Still insufficient: no card-**body** corpus writer
+
+`setBody(corpus)` covers the **main** card body and `updateCardRichtextField`
+covers card **fields**, but there is no wasm writer for a non-main card's
+**body** — `updateCardBody(index, body)` still accepts markdown only, even
+though the core `Card::set_body_value(&json)` exists for every card. So an
+indorsement body cannot be written corpus-natively; it must round-trip through
+`updateCardBody(serializeMarkdown(corpus))`, dropping corpus-only marks
+(`underline`) and identity ids on card bodies. A one-method binding
+(`updateCardBody` accepting `RichText | string`, or a `setCardBody(index, value,
+inline?)`) closes it.
 
 ## What was built (and where)
 
