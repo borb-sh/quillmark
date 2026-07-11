@@ -123,12 +123,14 @@ export interface Delta {
 export type DeltaOp = { retain: number } | { insert: string } | { delete: number };
 
 /**
- * A field address {@link LiveSession.applyFieldDelta} accepts. Exactly the
- * main body for now — the delta-path seam targets only `$body`; any other
- * address throws. Widens as card/other content fields land on the delta path.
+ * A field address {@link LiveSession.applyFieldDelta} accepts: `"$body"` (the
+ * main content body) or the name of a richtext-typed field on the **main**
+ * card. Not a finite literal set — valid field names are whatever the quill
+ * schema declares, so this stays `string` rather than a union; any address
+ * that isn't `$body` or an existing main-card richtext field throws.
  * @experimental Part of the incremental-edit surface — see {@link LiveSession}.
  */
-export type DeltaFieldAddress = '$body';
+export type DeltaFieldAddress = string;
 
 /**
  * A rendered field region: the quill schema field address (`field`) plus its

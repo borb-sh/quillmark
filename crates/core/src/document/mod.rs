@@ -32,7 +32,7 @@ pub(crate) fn import_body(md: &str) -> Result<RichText, ImportError> {
     }
 }
 
-/// Which encoding a [`decode_richtext_value`] failure came from, so a call site
+/// Which encoding a `decode_richtext_value` failure came from, so a call site
 /// can prefix its diagnostic per encoding without re-deriving the dispatch.
 /// Surfaced publicly as the error of [`Card::field_richtext`].
 #[derive(Debug, Clone, PartialEq, Eq)]
