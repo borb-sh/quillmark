@@ -417,11 +417,16 @@ A single line of body ink.`
 
       // applyFieldDelta un-gate (#881): a non-`$body` address now dispatches to
       // the richtext-field path instead of the old hard "only $body in this
-      // phase" rejection. `title` is a plain string field, so the field path
-      // rejects it with FieldRichtextDecode (not the removed gate error), and
-      // the session is untouched — the revision does not advance on failure.
+      // phase" rejection. `field_richtext` decodes a plain string field as
+      // authored markdown rather than rejecting it (Document carries no schema
+      // to tell richtext from string), so an absent field is what actually
+      // exercises the rejection here — FieldRichtextDecode ("field is
+      // absent") — and the session stays untouched: the revision does not
+      // advance on failure.
       expect(() =>
-        session.applyFieldDelta(doc, 'title', session.revision, { ops: [{ insert: 'X' }] }),
+        session.applyFieldDelta(doc, 'no_such_field', session.revision, {
+          ops: [{ insert: 'X' }],
+        }),
       ).toThrow(/FieldRichtextDecode/)
       expect(session.revision).toBe(1)
 

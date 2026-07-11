@@ -23,6 +23,14 @@
   the lint gate) rejects since the link can never resolve for a doc reader;
   reworded to a plain code span, matching the existing convention elsewhere in
   the same file for referencing a private helper from public docs
+- test(wasm): fix two `applyFieldDelta` tests left stale by the #881 un-gate.
+  `canvas.test.js` still asserted the old hard `$body`-only rejection message;
+  updated to the current `FieldRichtextDecode` error. `runtime.test.js`
+  asserted that targeting a plain-string field (`title`) throws — but
+  `field_richtext` decodes any string as authored markdown regardless of
+  intent (`Document` carries no schema to tell richtext from string), so that
+  call actually succeeds; switched the probe to an absent field, which does
+  exercise the rejection
 - fix(wasm): drop the `revision?` field from the public `CorpusHit`/`FieldRegion`
   types and the broken `{@link LiveSession.mapFieldPos}` / `.revision` references
   in `runtime.d.ts`. The delta API (`applyFieldDelta`/`revision`/`mapFieldPos`) is
