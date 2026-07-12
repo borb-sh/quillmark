@@ -1,25 +1,25 @@
-//! Schema-bound typed editor — the front door for typed field writes.
+//! Schema-bound typed writer — the front door for typed field writes.
 //!
 //! [`Card::commit_field`](crate::Card::commit_field) still asks the caller to
 //! fetch a [`FieldSchema`] per write. Every consumer that wants typed writes (a
 //! form editor, an MCP server) already holds the resolved [`QuillConfig`] — it
-//! renders with it. [`Quill::editor`](crate::Quill::editor) binds the schema
+//! renders with it. [`Quill::writer`](crate::Quill::writer) binds the schema
 //! once, so callers issue one verb (`set`) and never pass a type token or an
-//! `inline` flag: the editor resolves each field's type itself, strict-commits
+//! `inline` flag: the writer resolves each field's type itself, strict-commits
 //! a schema field, and rejects a name the schema does not declare with
 //! [`EditError::UnknownField`] — on the typed path an undeclared name is a typo,
 //! not a fallback. Opaque storage stays available on purpose through the raw
 //! [`Card::set_field`](crate::Card::set_field) verb.
 //!
 //! ```ignore
-//! let mut ed = quill.editor(&mut doc);
-//! ed.set("subject", "Q3 results")?;       // richtext(inline) → strict corpus commit
-//! ed.set("qty", "3")?;                    // integer → strict coerce, stores 3
-//! ed.card(2)?.set("desc", corpus_json)?;  // card kind → CardSchema → field type
-//! ed.set_all([("a", "1"), ("b", "2")])?;  // batched, all-or-nothing
+//! let mut w = quill.writer(&mut doc);
+//! w.set("subject", "Q3 results")?;       // richtext(inline) → strict corpus commit
+//! w.set("qty", "3")?;                    // integer → strict coerce, stores 3
+//! w.card(2)?.set("desc", corpus_json)?;  // card kind → CardSchema → field type
+//! w.set_all([("a", "1"), ("b", "2")])?;  // batched, all-or-nothing
 //! ```
 //!
-//! The editor holds `&mut Document` and `&QuillConfig`, so a bound `TypedEditor`
+//! The writer holds `&mut Document` and `&QuillConfig`, so a bound `TypedWriter`
 //! cannot cross a binding boundary that carries no lifetimes (wasm-bindgen /
 //! pyo3 objects); those surfaces construct one per call from the quill handle.
 
@@ -31,15 +31,15 @@ use crate::quill::{CardSchema, FieldSchema, QuillConfig};
 use crate::value::QuillValue;
 
 /// A [`Document`] bound to its [`QuillConfig`] for typed writes. Construct with
-/// [`Quill::editor`](crate::Quill::editor). Writes target the main card; use
+/// [`Quill::writer`](crate::Quill::writer). Writes target the main card; use
 /// [`card`](Self::card) for a composable card.
-pub struct TypedEditor<'a> {
+pub struct TypedWriter<'a> {
     config: &'a QuillConfig,
     doc: &'a mut Document,
 }
 
-impl<'a> TypedEditor<'a> {
-    /// Bind `doc` to `config`. Prefer [`Quill::editor`](crate::Quill::editor).
+impl<'a> TypedWriter<'a> {
+    /// Bind `doc` to `config`. Prefer [`Quill::writer`](crate::Quill::writer).
     pub fn new(config: &'a QuillConfig, doc: &'a mut Document) -> Self {
         Self { config, doc }
     }
@@ -117,13 +117,13 @@ impl<'a> TypedEditor<'a> {
         Ok(())
     }
 
-    /// A schema-bound editor for the composable card at `index`. The card's
+    /// A schema-bound writer for the composable card at `index`. The card's
     /// `$kind` resolves its [`CardSchema`]; an unknown kind carries no schema, so
     /// every field on it is undeclared and its typed writes fail with
     /// [`EditError::UnknownField`] (write such a card opaquely through
     /// [`Card::set_field`](crate::Card::set_field)). Returns
     /// [`EditError::IndexOutOfRange`] when `index` is out of range.
-    pub fn card(&mut self, index: usize) -> Result<CardEditor<'_>, EditError> {
+    pub fn card(&mut self, index: usize) -> Result<CardWriter<'_>, EditError> {
         let config = self.config;
         let len = self.doc.cards().len();
         let card = self
@@ -131,18 +131,18 @@ impl<'a> TypedEditor<'a> {
             .card_mut(index)
             .ok_or(EditError::IndexOutOfRange { index, len })?;
         let schema = card.kind().and_then(|k| config.card_kind(k));
-        Ok(CardEditor { schema, card })
+        Ok(CardWriter { schema, card })
     }
 }
 
 /// A single composable card bound to its [`CardSchema`], from
-/// [`TypedEditor::card`]. Same `set` / `set_all` verbs as [`TypedEditor`].
-pub struct CardEditor<'a> {
+/// [`TypedWriter::card`]. Same `set` / `set_all` verbs as [`TypedWriter`].
+pub struct CardWriter<'a> {
     schema: Option<&'a CardSchema>,
     card: &'a mut Card,
 }
 
-impl CardEditor<'_> {
+impl CardWriter<'_> {
     /// The card's `$kind`, if any.
     pub fn kind(&self) -> Option<&str> {
         self.card.kind()
@@ -160,13 +160,13 @@ impl CardEditor<'_> {
     }
 
     /// Revise this card's body from markdown (edit semantics), discarding the
-    /// delta — the card twin of [`TypedEditor::set_body`].
+    /// delta — the card twin of [`TypedWriter::set_body`].
     pub fn set_body(&mut self, markdown: &str) -> Result<(), EditError> {
         self.card.revise_body(markdown).map(|_| ())
     }
 
     /// Write several fields on this card atomically — see
-    /// [`TypedEditor::set_all`]; an undeclared name aborts the whole batch with
+    /// [`TypedWriter::set_all`]; an undeclared name aborts the whole batch with
     /// [`EditError::UnknownField`].
     pub fn set_all<K, V, I>(&mut self, fields: I) -> Result<(), Vec<(String, EditError)>>
     where
@@ -178,8 +178,8 @@ impl CardEditor<'_> {
     }
 }
 
-/// All-or-nothing batched write shared by [`TypedEditor::set_all`] and
-/// [`CardEditor::set_all`]: resolve every field first (collecting every error),
+/// All-or-nothing batched write shared by [`TypedWriter::set_all`] and
+/// [`CardWriter::set_all`]: resolve every field first (collecting every error),
 /// apply none on failure, apply all on success. A name absent from
 /// `fields_schema` (or every name, when the whole schema is `None` — an unknown
 /// card kind) is an [`EditError::UnknownField`], the batch form of the scalar
@@ -258,7 +258,7 @@ card_kinds:
     fn set_resolves_schema_field_as_typed_commit() {
         let config = config();
         let mut doc = blank_doc();
-        let mut ed = TypedEditor::new(&config, &mut doc);
+        let mut ed = TypedWriter::new(&config, &mut doc);
 
         // A schema field commits typed: "3" → 3, richtext string → corpus.
         ed.set("qty", "3").unwrap();
@@ -274,7 +274,7 @@ card_kinds:
     fn set_rejects_unknown_field() {
         let config = config();
         let mut doc = blank_doc();
-        let mut ed = TypedEditor::new(&config, &mut doc);
+        let mut ed = TypedWriter::new(&config, &mut doc);
         // Unknown field on the typed path is a typo, not a fallback: it fails
         // here and nothing is written. Opaque storage is the raw `set_field`.
         let err = ed.set("notafield", "x").unwrap_err();
@@ -286,7 +286,7 @@ card_kinds:
     fn set_reports_strict_conform_failure() {
         let config = config();
         let mut doc = blank_doc();
-        let mut ed = TypedEditor::new(&config, &mut doc);
+        let mut ed = TypedWriter::new(&config, &mut doc);
         let err = ed.set("qty", "not-a-number").unwrap_err();
         assert_eq!(err.variant_name(), "FieldConform");
         // A richtext(inline) violation surfaces through the richtext variant.
@@ -298,7 +298,7 @@ card_kinds:
     fn set_all_is_all_or_nothing() {
         let config = config();
         let mut doc = blank_doc();
-        let mut ed = TypedEditor::new(&config, &mut doc);
+        let mut ed = TypedWriter::new(&config, &mut doc);
         // One bad field aborts the whole batch; nothing is applied.
         let errs = ed
             .set_all([("qty", "5"), ("subject", "bad\n\nblock")])
@@ -308,7 +308,7 @@ card_kinds:
         assert!(doc.main().payload().get("qty").is_none());
 
         // A clean batch applies every field.
-        let mut ed = TypedEditor::new(&config, &mut doc);
+        let mut ed = TypedWriter::new(&config, &mut doc);
         ed.set_all([("qty", "5"), ("subject", "ok")]).unwrap();
         assert_eq!(
             doc.main().payload().get("qty").unwrap().as_json(),
@@ -320,7 +320,7 @@ card_kinds:
     fn set_all_rejects_unknown_field() {
         let config = config();
         let mut doc = blank_doc();
-        let mut ed = TypedEditor::new(&config, &mut doc);
+        let mut ed = TypedWriter::new(&config, &mut doc);
         // A whole-form submit with a typo'd name: `qty` is a schema field, `titel`
         // is not. The undeclared name aborts the all-or-nothing batch — nothing is
         // written and the typo is reported.
@@ -335,7 +335,7 @@ card_kinds:
     fn set_body_revises_main_body() {
         let config = config();
         let mut doc = blank_doc();
-        let mut ed = TypedEditor::new(&config, &mut doc);
+        let mut ed = TypedWriter::new(&config, &mut doc);
         ed.set_body("**hi**").unwrap();
         assert_eq!(doc.main().body_markdown(), "**hi**\n");
     }
@@ -344,7 +344,7 @@ card_kinds:
     fn add_card_fuses_new_commit_push() {
         let config = config();
         let mut doc = blank_doc();
-        let mut ed = TypedEditor::new(&config, &mut doc);
+        let mut ed = TypedWriter::new(&config, &mut doc);
         ed.add_card("note", [("body", "**hi**")], Some("card body"))
             .unwrap();
         assert_eq!(doc.cards().len(), 1);
@@ -357,7 +357,7 @@ card_kinds:
     fn add_card_is_transactional_on_bad_field() {
         let config = config();
         let mut doc = blank_doc();
-        let mut ed = TypedEditor::new(&config, &mut doc);
+        let mut ed = TypedWriter::new(&config, &mut doc);
         // An undeclared field aborts the commit; the card never joins the document.
         let errs = ed
             .add_card("note", [("stray", "x")], None)
@@ -371,7 +371,7 @@ card_kinds:
     fn add_card_reports_invalid_kind() {
         let config = config();
         let mut doc = blank_doc();
-        let mut ed = TypedEditor::new(&config, &mut doc);
+        let mut ed = TypedWriter::new(&config, &mut doc);
         // A reserved kind is refused before any card is built.
         let errs = ed.add_card("$reserved", [] as [(&str, &str); 0], None).unwrap_err();
         assert_eq!(errs[0].0, "$kind");
@@ -379,12 +379,12 @@ card_kinds:
     }
 
     #[test]
-    fn card_editor_resolves_card_kind_schema() {
+    fn card_writer_resolves_card_kind_schema() {
         let config = config();
         let mut doc = blank_doc();
         doc.push_card(Card::new("note").unwrap()).unwrap();
 
-        let mut ed = TypedEditor::new(&config, &mut doc);
+        let mut ed = TypedWriter::new(&config, &mut doc);
         let mut card_ed = ed.card(0).unwrap();
         card_ed.set("body", "**hi**").unwrap();
         // Unknown field on a known card → rejected as a typo.
@@ -394,7 +394,7 @@ card_kinds:
         assert_eq!(doc.cards()[0].field_markdown("body").unwrap(), "**hi**\n");
 
         // Out-of-range card index errors.
-        let mut ed = TypedEditor::new(&config, &mut doc);
+        let mut ed = TypedWriter::new(&config, &mut doc);
         assert!(matches!(
             ed.card(9),
             Err(EditError::IndexOutOfRange { .. })

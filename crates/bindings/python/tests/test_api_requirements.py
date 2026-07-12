@@ -596,7 +596,7 @@ def test_to_markdown_ambiguous_string_survival():
     assert field(doc2.main, "date_str") == "2024-01-15"
 
 
-# ── Tier-1 typed editor — doc.editor(quill) front door ────────────────────────
+# ── Tier-1 typed writer — quill.writer(doc) front door ────────────────────────
 
 
 def _richtext_form_quill():
@@ -609,11 +609,11 @@ def _taro_quill():
     return Quill.from_path(str(_latest_version(QUILLS_PATH / "taro")))
 
 
-def test_editor_front_door_set_and_reads():
-    """doc.editor(quill).set writes; the reads live quill-free on the Document."""
+def test_writer_front_door_set_and_reads():
+    """quill.writer(doc).set writes; the reads live quill-free on the Document."""
     quill = _taro_quill()
     doc = Document("taro@0.1.0")
-    ed = doc.editor(quill)
+    ed = quill.writer(doc)
     ed.set("author", "Ada")
     ed.set_all({"title": "On Taro"})
     assert ed.document is doc  # holds the same object, mutated in place
@@ -623,20 +623,20 @@ def test_editor_front_door_set_and_reads():
     assert doc.get_markdown() == "A **taro** essay.\n"
 
 
-def test_editor_set_rejects_unknown_field():
+def test_writer_set_rejects_unknown_field():
     """An undeclared name is a typo on the typed path — it raises, nothing lands."""
     quill = _taro_quill()
     doc = Document("taro@0.1.0")
     with pytest.raises(QuillmarkError, match="UnknownField"):
-        doc.editor(quill).set("stray", "x")
+        quill.writer(doc).set("stray", "x")
     assert not has_field(doc.main, "stray")
 
 
-def test_editor_add_card_transactional():
+def test_writer_add_card_transactional():
     """add_card fuses make + typed commit + push; a typo leaves the doc untouched."""
     quill = _taro_quill()
     doc = Document("taro@0.1.0")
-    ed = doc.editor(quill)
+    ed = quill.writer(doc)
     ed.add_card("quotes", {"author": "Basho"}, "A quote body.")
     assert len(doc.cards) == 1
     assert field(doc.cards[0], "author") == "Basho"
@@ -645,11 +645,11 @@ def test_editor_add_card_transactional():
     assert len(doc.cards) == 1  # nothing joined the document
 
 
-def test_editor_card_cursor_set_and_body():
-    """editor.card(i) targets the composable card; a bad index raises at the write."""
+def test_writer_card_cursor_set_and_body():
+    """writer.card(i) targets the composable card; a bad index raises at the write."""
     quill = _taro_quill()
     doc = Document("taro@0.1.0")
-    ed = doc.editor(quill)
+    ed = quill.writer(doc)
     ed.add_card("quotes", {"author": "Basho"})
     ed.card(0).set("author", "Issa")
     assert field(doc.cards[0], "author") == "Issa"
@@ -657,30 +657,30 @@ def test_editor_card_cursor_set_and_body():
         ed.card(9).set("author", "x")
 
 
-def test_editor_set_coerces_richtext_to_corpus():
+def test_writer_set_coerces_richtext_to_corpus():
     """A richtext field commits the canonical corpus, not the authored markdown."""
     quill = _richtext_form_quill()
     doc = Document("richtext_form@0.1.0")
-    doc.editor(quill).set("bio", "A **bold** intro.")
+    quill.writer(doc).set("bio", "A **bold** intro.")
     value = field(doc.main, "bio")
     assert isinstance(value, dict)  # stored as the corpus dict, not a string
     assert value["text"] == "A bold intro."
 
 
-def test_editor_set_rejects_inline_violation():
+def test_writer_set_rejects_inline_violation():
     """A richtext(inline) field rejects multi-block content at the write."""
     quill = _richtext_form_quill()
     doc = Document("richtext_form@0.1.0")
     with pytest.raises(QuillmarkError, match="FieldRichtextNotInline"):
-        doc.editor(quill).set("headline", "line one\n\nline two")
+        quill.writer(doc).set("headline", "line one\n\nline two")
 
 
-def test_editor_set_all_is_all_or_nothing():
+def test_writer_set_all_is_all_or_nothing():
     """A mid-batch inline violation aborts set_all — nothing lingers."""
     quill = _richtext_form_quill()
     doc = Document("richtext_form@0.1.0")
     with pytest.raises(QuillmarkError, match="FieldRichtextNotInline"):
-        doc.editor(quill).set_all({"bio": "ok", "headline": "line one\n\nline two"})
+        quill.writer(doc).set_all({"bio": "ok", "headline": "line one\n\nline two"})
     assert not has_field(doc.main, "bio")
 
 

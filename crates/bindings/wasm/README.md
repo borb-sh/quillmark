@@ -286,23 +286,23 @@ Per-keystroke cost is the same either way (both mutate the in-memory `Document`
 in place; no seam is crossed), so steering to `commit*` buys the type check for
 free.
 
-#### `DocumentEditor` / `CardEditor` — bind the quill once
+#### `DocumentWriter` / `CardWriter` — bind the quill once
 
 The `commit*` verbs take the `quill` handle per call (the document carries no
 schema). When you hold both a quill and a document — a form editor, an MCP
-writer — bind them once with the editor sugar and issue bare verbs:
+writer — bind them once with the writer sugar and issue bare verbs:
 
 ```ts
-import { DocumentEditor } from "@quillmark/wasm";
+import { DocumentWriter } from "@quillmark/wasm";
 
-const ed = new DocumentEditor(quill, doc);          // JS twin of Rust `quill.editor(doc)`
+const ed = new DocumentWriter(quill, doc);          // JS twin of Rust `quill.writer(doc)`
 ed.set("subject", "Q3 results");                    // strict-committed to the schema type
 ed.setAll({ qty: "3", subject: "Q3" });             // all-or-nothing batch
 ed.set("titel", "x");                               // throws UnknownField — a typo, not a fallback
 ed.card(2).set("body", "**note**");                 // composable card, resolved by its $kind
 ```
 
-`DocumentEditor` / `CardEditor` are pure JS holding references to your existing
+`DocumentWriter` / `CardWriter` are pure JS holding references to your existing
 `quill` and `doc` — no WASM handle of their own, nothing to `free()`. `card(i)`
 is lazy: it never throws; an out-of-range index throws `IndexOutOfRange` at the
 write.

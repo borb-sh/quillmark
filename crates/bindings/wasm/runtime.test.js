@@ -15,8 +15,8 @@ import {
   Quill,
   Document,
   Engine,
-  DocumentEditor,
-  CardEditor,
+  DocumentWriter,
+  CardWriter,
   isQuillmarkError,
   exportMarkdown,
 } from '@quillmark-wasm/runtime'
@@ -111,15 +111,15 @@ describe('@quillmark/wasm/runtime — surface', () => {
   })
 })
 
-// The typed-editor sugar binds a quill to a document once, so writes are bare
-// `set` / `setAll` / `card(i).set` — the JS twin of Rust's `quill.editor(doc)`,
+// The typed-writer sugar binds a quill to a document once, so writes are bare
+// `set` / `setAll` / `card(i).set` — the JS twin of Rust's `quill.writer(doc)`,
 // forwarding to the `commit*` verbs (typed for a schema field, opaque otherwise).
-describe('@quillmark/wasm/runtime — DocumentEditor / CardEditor (bind the quill once)', () => {
+describe('@quillmark/wasm/runtime — DocumentWriter / CardWriter (bind the quill once)', () => {
   const EDITOR_QUILL_YAML = `quill:
   name: editor_test
   version: "1.0"
   backend: typst
-  description: Typed editor sugar test
+  description: Typed writer sugar test
 
 main:
   fields:
@@ -141,41 +141,41 @@ card_kinds:
   const fieldOf = (card, key) =>
     card.payloadItems.find((i) => i.type === 'field' && i.key === key)?.value
 
-  it('quill.editor(doc) is the front door and returns a DocumentEditor', () => {
+  it('quill.writer(doc) is the front door and returns a DocumentWriter', () => {
     const quill = buildQuill()
-    const ed = quill.editor(blankDoc())
-    expect(ed).toBeInstanceOf(DocumentEditor)
+    const ed = quill.writer(blankDoc())
+    expect(ed).toBeInstanceOf(DocumentWriter)
     // The factory is sugar over the constructor — same class, no wrapping.
-    expect(new DocumentEditor(quill, blankDoc())).toBeInstanceOf(DocumentEditor)
+    expect(new DocumentWriter(quill, blankDoc())).toBeInstanceOf(DocumentWriter)
   })
 
   it('set binds the quill once and strict-commits a schema field', () => {
-    const ed = buildQuill().editor(blankDoc())
+    const ed = buildQuill().writer(blankDoc())
     ed.set('qty', '3') // schema field → strict coerce
     expect(fieldOf(ed.document.main, 'qty')).toBe(3)
   })
 
   it('set rejects an undeclared name as a typo, not a fallback', () => {
-    const ed = buildQuill().editor(blankDoc())
+    const ed = buildQuill().writer(blankDoc())
     expect(() => ed.set('stray', 'x')).toThrow(/UnknownField/)
     expect(fieldOf(ed.document.main, 'stray')).toBeUndefined()
   })
 
   it('setAll aborts the whole batch on a typo, applying nothing', () => {
-    const ed = buildQuill().editor(blankDoc())
+    const ed = buildQuill().writer(blankDoc())
     expect(() => ed.setAll({ qty: '5', titel: 'oops' })).toThrow(/UnknownField/)
     expect(fieldOf(ed.document.main, 'qty')).toBeUndefined()
     expect(fieldOf(ed.document.main, 'titel')).toBeUndefined()
   })
 
   it('setBody writes the main body from markdown, receipt-free', () => {
-    const ed = buildQuill().editor(blankDoc())
+    const ed = buildQuill().writer(blankDoc())
     ed.setBody('New **body**.')
     expect(ed.document.getMarkdown()).toBe('New **body**.\n')
   })
 
   it('addCard fuses make + typed commit + push, transactionally', () => {
-    const ed = buildQuill().editor(blankDoc())
+    const ed = buildQuill().writer(blankDoc())
     // `body` here is the card's richtext FIELD; the third arg is the card body.
     ed.addCard('note', { body: 'Field **body**.' }, 'Card body text.')
     expect(ed.document.cards).toHaveLength(1)
@@ -188,7 +188,7 @@ card_kinds:
   })
 
   it('removeCard drops the card and returns it', () => {
-    const ed = buildQuill().editor(blankDoc())
+    const ed = buildQuill().writer(blankDoc())
     ed.addCard('note', { body: 'x' })
     const removed = ed.removeCard(0)
     expect(removed.kind).toBe('note')
@@ -199,7 +199,7 @@ card_kinds:
     const doc = Document.fromMarkdown(
       '~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nCard.',
     )
-    const ed = buildQuill().editor(doc)
+    const ed = buildQuill().writer(doc)
     ed.card(0).set('body', 'Card **body**.')
     expect(exportMarkdown(fieldOf(doc.cards[0], 'body'))).toBe('Card **body**.\n')
     ed.card(0).setBody('Card body md.')
@@ -207,14 +207,14 @@ card_kinds:
   })
 
   it('a bad card index throws at write time, not at card()', () => {
-    const ed = buildQuill().editor(blankDoc())
-    const cardEd = ed.card(9) // lazy: constructing the CardEditor never throws
-    expect(cardEd).toBeInstanceOf(CardEditor)
+    const ed = buildQuill().writer(blankDoc())
+    const cardEd = ed.card(9) // lazy: constructing the CardWriter never throws
+    expect(cardEd).toBeInstanceOf(CardWriter)
     expect(() => cardEd.set('body', 'x')).toThrow(/IndexOutOfRange/)
   })
 
   it('get / getMarkdown read main fields quill-free, off the Document', () => {
-    const ed = buildQuill().editor(blankDoc())
+    const ed = buildQuill().writer(blankDoc())
     ed.set('qty', '3')
     ed.set('subject', 'Q3 **results**')
     expect(ed.document.get('qty')).toBe(3)

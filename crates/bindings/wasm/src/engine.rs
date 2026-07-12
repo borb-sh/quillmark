@@ -816,7 +816,7 @@ impl Document {
     /// Read a main-card field's stored value — the raw payload value (a corpus
     /// object for a richtext field, a scalar/array/object otherwise), or
     /// `undefined` when the field is absent. The quill-free read: reads need no
-    /// schema, so they live on `Document`, not the typed editor. For the markdown
+    /// schema, so they live on `Document`, not the typed writer. For the markdown
     /// projection of a richtext value use [`getMarkdown`](Self::get_markdown).
     #[wasm_bindgen(js_name = get)]
     pub fn get(&self, name: &str) -> Result<JsValue, JsValue> {
@@ -1193,7 +1193,7 @@ impl Document {
         let qv = quillmark_core::QuillValue::from_json(json);
         quill
             .inner
-            .editor(&mut self.inner)
+            .writer(&mut self.inner)
             .set(name, qv)
             .map_err(|e| edit_error_to_js(&e))
     }
@@ -1214,14 +1214,14 @@ impl Document {
         let batch = js_value_to_field_batch(&fields, "commitFields")?;
         quill
             .inner
-            .editor(&mut self.inner)
+            .writer(&mut self.inner)
             .set_all(batch)
             .map_err(edit_errors_to_js)
     }
 
     /// Build a composable card of `kind`, typed-commit `fields` onto it, set its
     /// body from optional markdown, and append it — the ABI under
-    /// `editor.addCard`. Fuses `makeCard` + typed commit + `pushCard`
+    /// `writer.addCard`. Fuses `makeCard` + typed commit + `pushCard`
     /// transactionally: the card is committed in full before it joins the
     /// document, so a rejected field (or an invalid kind or body) leaves the
     /// document untouched. Field errors throw the same per-field diagnostic
@@ -1244,7 +1244,7 @@ impl Document {
         };
         quill
             .inner
-            .editor(&mut self.inner)
+            .writer(&mut self.inner)
             .add_card(kind, batch, body.as_deref())
             .map_err(edit_errors_to_js)
     }
@@ -1394,8 +1394,8 @@ impl Document {
     ) -> Result<(), JsValue> {
         let json = js_value_to_json(value, "commitCardField")?;
         let qv = quillmark_core::QuillValue::from_json(json);
-        let mut editor = quill.inner.editor(&mut self.inner);
-        let mut card = editor.card(index).map_err(|e| edit_error_to_js(&e))?;
+        let mut writer = quill.inner.writer(&mut self.inner);
+        let mut card = writer.card(index).map_err(|e| edit_error_to_js(&e))?;
         card.set(name, qv).map_err(|e| edit_error_to_js(&e))
     }
 
@@ -1414,8 +1414,8 @@ impl Document {
         #[wasm_bindgen(unchecked_param_type = "Record<string, unknown>")] fields: JsValue,
     ) -> Result<(), JsValue> {
         let batch = js_value_to_field_batch(&fields, "commitCardFields")?;
-        let mut editor = quill.inner.editor(&mut self.inner);
-        editor
+        let mut writer = quill.inner.writer(&mut self.inner);
+        writer
             .card(index)
             .map_err(|e| edit_error_to_js(&e))?
             .set_all(batch)

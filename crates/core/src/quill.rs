@@ -71,12 +71,12 @@ impl Quill {
         &self.config
     }
 
-    /// A schema-bound [`TypedEditor`](crate::TypedEditor) over `doc`. The front
+    /// A schema-bound [`TypedWriter`](crate::TypedWriter) over `doc`. The front
     /// door for typed field writes: it resolves each field's type from this
     /// quill's schema, so callers issue one verb (`set`) with no type token or
-    /// `inline` flag. See the [`editor`](crate::editor) module.
-    pub fn editor<'a>(&'a self, doc: &'a mut crate::document::Document) -> crate::TypedEditor<'a> {
-        crate::TypedEditor::new(&self.config, doc)
+    /// `inline` flag. See the [`writer`](crate::writer) module.
+    pub fn writer<'a>(&'a self, doc: &'a mut crate::document::Document) -> crate::TypedWriter<'a> {
+        crate::TypedWriter::new(&self.config, doc)
     }
 
     /// The in-memory file tree for this quill.

@@ -17,7 +17,7 @@ guides in order.
   `richtext(inline)<markdown>`; `build_transform_schema` gains
   `quillmark:inline: true`. Typed field writes land: one schema-dispatched
   writer (`Card::commit_field` / wasm `commitField` / Python `commit_field`) for
-  every field type, plus the schema-bound `TypedEditor`; strict writes fail a
+  every field type, plus the schema-bound `TypedWriter`; strict writes fail a
   mismatch at the write, not at render (#893). Live field edits go through the
   writer + `apply(doc)` (the experimental `applyFieldDelta` / change-log surface
   was removed, #886). Card-write verbs become mechanical twins of their
@@ -34,11 +34,11 @@ guides in order.
   for one cycle, and richtext fields gain the anchor-preserving `revise_field`
   (#925). On-disk (`.qmd`) identity stays markdown-lossy — the storage DTO is
   the lossless carrier. The binding write surface then settles into two tiers:
-  `quill.editor(doc)` (Python `doc.editor(quill)`) is the documented default —
+  `quill.writer(doc)` (WASM and Python alike) is the documented default —
   typed `set` / `set_all` / `setBody` / `addCard` / `card(i)` and quill-free
   `get` / `getMarkdown` reads — over the corpus lane and the opaque `setField`
   primitive; the addressed `commit(addr, …)` is deleted (subsumed by the
-  editor) and a core-vs-bindings parity table governs drift (#932).
+  writer) and a core-vs-bindings parity table governs drift (#932).
 - [0.92 → 0.93](0.92-to-0.93.md) — the blueprint placeholder is rebuilt on two
   orthogonal axes (value and marker): blueprints now stamp the `!must_fill` tag
   instead of the `<must-fill>` string sentinel, and bare-null / `field:` now

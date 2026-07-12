@@ -23,7 +23,7 @@
   dispatches on the schema — the write surface stays O(1) in field types. Adds
   `EditError::FieldConform` for non-richtext mismatches (richtext keeps
   `FieldRichtextDecode` / `FieldRichtextNotInline`). A schema-bound
-  `TypedEditor` (`Quill::editor(&mut doc)`) is the front door: `set` / `set_all`
+  `TypedWriter` (`Quill::writer(&mut doc)`) is the front door: `set` / `set_all`
   resolve field types and strict-commit; a name the schema does not declare is a
   typo on the typed path, so it fails with `EditError::UnknownField` instead of
   falling to the opaque store (#918) — opaque storage stays available through the

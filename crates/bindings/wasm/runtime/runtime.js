@@ -54,7 +54,7 @@
 // (`Quill === CoreQuill`) is the executable guard for this invariant.
 //
 // Imported (not bare re-exported) so `Quill` is a local binding this module can
-// augment — `quill.editor(doc)` is patched onto its prototype below. The
+// augment — `quill.writer(doc)` is patched onto its prototype below. The
 // re-export keeps the identity: the exported `Quill` IS the core class.
 import { Quill, Document, init } from '../core/wasm.js';
 export { Quill, Document, init };
@@ -520,8 +520,8 @@ export class LiveSession {
 	}
 }
 
-// ── Typed-editor sugar: bind the quill once ─────────────────────────────────
-// Rust exposes `quill.editor(&mut doc)` so a caller issues bare `set` / `set_all`
+// ── Typed-writer sugar: bind the quill once ─────────────────────────────────
+// Rust exposes `quill.writer(&mut doc)` so a caller issues bare `set` / `set_all`
 // without threading the schema per write. The WASM `commit*` verbs can't borrow
 // like that — a `Document` carries only a `$quill` REFERENCE, not the resolved
 // schema, so each `commit*` method takes the `quill` handle as its first
@@ -538,11 +538,11 @@ export class LiveSession {
 
 /**
  * A {@link Document} bound to its {@link Quill} for typed writes — the JS twin
- * of Rust's `quill.editor(&mut doc)`. Writes target the main card; use
+ * of Rust's `quill.writer(&mut doc)`. Writes target the main card; use
  * {@link card} for a composable card. Holds both handles by reference and owns
  * neither, so there is nothing to `free()`.
  */
-export class DocumentEditor {
+export class DocumentWriter {
 	#quill;
 	#doc;
 	/**
@@ -614,7 +614,7 @@ export class DocumentEditor {
 		return this.#doc.removeCard(index);
 	}
 	/**
-	 * A {@link CardEditor} bound to the composable card at `index`. Index
+	 * A {@link CardWriter} bound to the composable card at `index`. Index
 	 * validity is checked lazily by the underlying write (it throws
 	 * `IndexOutOfRange` at commit time), so constructing one never throws.
 	 *
@@ -623,19 +623,19 @@ export class DocumentEditor {
 	 * retargets it. For durable addressing stamp `$id` and re-resolve the index
 	 * at write time.
 	 * @param {number} index
-	 * @returns {CardEditor}
+	 * @returns {CardWriter}
 	 */
 	card(index) {
-		return new CardEditor(this.#quill, this.#doc, index);
+		return new CardWriter(this.#quill, this.#doc, index);
 	}
 }
 
 /**
  * A single composable card bound to its {@link Quill} for typed writes, from
- * {@link DocumentEditor.card}. Same `set` / `setAll` verbs as
- * {@link DocumentEditor}, targeting the card at its bound index.
+ * {@link DocumentWriter.card}. Same `set` / `setAll` verbs as
+ * {@link DocumentWriter}, targeting the card at its bound index.
  */
-export class CardEditor {
+export class CardWriter {
 	#quill;
 	#doc;
 	#index;
@@ -676,7 +676,7 @@ export class CardEditor {
 	}
 	/**
 	 * Set this card's body from markdown (edit semantics), discarding the delta —
-	 * the card twin of {@link DocumentEditor.setBody}.
+	 * the card twin of {@link DocumentWriter.setBody}.
 	 * @param {string} markdown
 	 * @returns {void}
 	 */
@@ -685,22 +685,22 @@ export class CardEditor {
 	}
 }
 
-// ── `quill.editor(doc)` — the typed front door ──────────────────────────────
+// ── `quill.writer(doc)` — the typed front door ──────────────────────────────
 // The tier-1 default: bind the quill's schema to a document and issue bare
-// typed writes. Mirrors core's `quill.editor(&mut doc)` — the schema grants the
+// typed writes. Mirrors core's `quill.writer(&mut doc)` — the schema grants the
 // typing, so the quill (not the document) is the factory. Patched onto the
 // re-exported `Quill` prototype rather than wrapped: `Quill === CoreQuill`
 // stays true (the identity invariant above); this only adds a method that
-// constructs the pure-JS editor, which owns no WASM handle.
+// constructs the pure-JS writer, which owns no WASM handle.
 /**
- * A {@link DocumentEditor} binding this quill's schema to `doc` for typed
- * writes — the documented front door. The returned editor holds both handles by
+ * A {@link DocumentWriter} binding this quill's schema to `doc` for typed
+ * writes — the documented front door. The returned writer holds both handles by
  * reference and owns neither, so there is nothing to `free()`. Ephemeral by
  * convention: bind, write, discard.
  * @this {Quill}
  * @param {Document} doc the document to mutate, held by reference (not owned)
- * @returns {DocumentEditor}
+ * @returns {DocumentWriter}
  */
-Quill.prototype.editor = function editor(doc) {
-	return new DocumentEditor(this, doc);
+Quill.prototype.writer = function writer(doc) {
+	return new DocumentWriter(this, doc);
 };
