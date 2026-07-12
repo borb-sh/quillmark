@@ -127,7 +127,10 @@
   key→value pairs, so a Name in *value* position (e.g. `/Subtype /Producer`)
   is no longer mis-matched as a key; the object/dict scanners also skip
   `%`-comments, so `endobj` or a key token inside a comment can't derail
-  parsing of an untrusted base PDF
+  parsing of a base PDF. The `<<…>>`/`[…]` depth walkers (`extract_outer_dict`
+  and `read_value_end`'s nested-dict/array branches) skip `%`-comments and
+  literal `(…)` strings uniformly, so a `>>`/`]` carried inside a comment or
+  string no longer truncates a dict/array and drops the keys after it
 - feat(pdfform): add the Typst-free `pdfform` backend + shared `quillmark-pdf`
   AcroForm stamping spine; rewire Typst signatures onto the spine; thread a
   `regions` sidecar through `RenderResult` and generalize the raster-preview
