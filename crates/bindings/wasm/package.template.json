@@ -9,7 +9,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/quillmark-org/quillmark.git"
+    "url": "git+https://github.com/borb-sh/quillmark.git"
   },
   "files": [
     "core",

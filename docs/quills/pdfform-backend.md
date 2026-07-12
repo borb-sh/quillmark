@@ -192,7 +192,7 @@ The backend's formats are `[Pdf, Svg, Png]`; `render` with any other
 
 **Canvas** is a separate surface from the `render()` output formats above: it is
 the WASM `paint()` raster path (`render_rgba`), not an `OutputFormat`. See
-[PREVIEW.md](https://github.com/quillmark-org/quillmark/blob/main/prose/canon/PREVIEW.md).
+[PREVIEW.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PREVIEW.md).
 
 The PDF is the real deliverable. By design (Technique A — real fields plus `NeedAppearances`, no baked appearance streams), **values appear only in viewers that synthesize appearances** — Acrobat, Chrome/pdfium, Preview.app, pdf.js's forms layer. A flat, non-interactive rasterizer renders the fields blank.
 

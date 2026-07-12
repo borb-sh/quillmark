@@ -1,7 +1,7 @@
 # Richtext rework — integration HQ
 
 Working plan for the content-model rework tracked in
-[#831](https://github.com/quillmark-org/quillmark/issues/831). This branch
+[#831](https://github.com/borb-sh/quillmark/issues/831). This branch
 (`integration/richtext`) is the long-range integration point; phases land here
 behind their spike gates, not on `main` piecemeal.
 
@@ -32,7 +32,7 @@ documents stay co-equal writers; a Notion-class block canvas is a non-goal.
 
 The full model spec — `RichText` shape, lines / marks / islands, codecs,
 storage, schema — lives in the body of
-[#831](https://github.com/quillmark-org/quillmark/issues/831). This HQ is the
+[#831](https://github.com/borb-sh/quillmark/issues/831). This HQ is the
 canonical direction: what is decided, and how the work is sequenced; it does
 not restate the model.
 
@@ -58,7 +58,7 @@ not restate the model.
   canonical serialization + markdown⇄corpus codecs, in `crates/richtext`,
   engine untouched.
 - **[Phase 2 — engine consumes RichText](phase-2.md) (delivered
-  [#829](https://github.com/quillmark-org/quillmark/issues/829)).** Landed
+  [#829](https://github.com/borb-sh/quillmark/issues/829)).** Landed
   through PR-G: seam flip to corpus JSON, typst emitter + segment maps,
   storage cutover, regions + navigation (`locate`/`position_at`), and PR-G's
   `richtext(inline)` + load-time example cache + `markdown`-alias cutover.

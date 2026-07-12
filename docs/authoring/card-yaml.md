@@ -74,7 +74,7 @@ on the block's typed metadata.
 - **`$seed: <mapping>`** is a **root-only** mapping of per-kind seed overlays,
   keyed by card-kind. Like `$ext` it round-trips through Markdown and storage
   but **never** appears in the plate JSON; the seeding layer interprets it (see
-  [CARDS.md](https://github.com/quillmark-org/quillmark/blob/main/prose/canon/CARDS.md)
+  [CARDS.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/CARDS.md)
   "Per-kind Seed Overlays"). A composable card carrying `$seed` is rejected.
 
 `$` metadata entries may appear anywhere in the block's payload (the

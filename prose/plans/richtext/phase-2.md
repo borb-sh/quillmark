@@ -5,7 +5,7 @@ is `RichText`; the seam carries canonical RichText-JSON; the `typst` backend
 lowers the corpus to markup while recording a per-segment source map; storage
 embeds the corpus structurally; regions key on `(field, corpus range)` and
 navigation exposes `locate` / `position_at`. This is the phase that delivers
-[#829](https://github.com/quillmark-org/quillmark/issues/829)'s paragraph-level
+[#829](https://github.com/borb-sh/quillmark/issues/829)'s paragraph-level
 regions — as the degenerate case of the segment map, not a special path.
 
 Gated on the [phase-0 spikes](phase-0.md) (all reported, no red flag) and the

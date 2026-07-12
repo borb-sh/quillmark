@@ -5,7 +5,7 @@ edition.workspace = true
 include.workspace = true
 license.workspace = true
 homepage.workspace = true
-repository = "https://github.com/quillmark-org/quillmark"
+repository = "https://github.com/borb-sh/quillmark"
 description = "RichText corpus content model, canonical serialization, edit deltas, and markdown codecs for Quillmark (issue #831)"
 # The leaf content-model crate: `quillmark-core` depends on it for the storage
 # body type and the markdown-string normalizer, so it carries no dependency on

@@ -8,7 +8,7 @@ description = "Typst-free AcroForm stamping spine for Quillmark: (base_pdf, &[Fi
 license.workspace = true
 documentation = "https://docs.rs/quillmark-pdf"
 homepage.workspace = true
-repository = "https://github.com/quillmark-org/quillmark"
+repository = "https://github.com/borb-sh/quillmark"
 
 [dependencies]
 quillmark-core = { workspace = true }
