@@ -113,8 +113,8 @@
   rasters at `RenderOptions::ppi` (default 144). The `preview` cargo feature is
   removed — the hayro raster/SVG/PNG seam is always linked, so SVG/PNG/canvas
   work out of the box rather than behind a flag. The `quillmark` crate's
-  `pdfform-preview` feature is dropped (folded into `pdfform`); the wasm
-  `pdfform-preview` feature now gates only the `web-sys` canvas painter
+  `pdfform-preview` feature is folded into `pdfform`; in the wasm crate both the
+  `typst` and `pdfform` build variants link the `web-sys` canvas painter directly
 - fix(quillmark-pdf): `find_dict_value` now walks the dict as strict
   key→value pairs, so a Name in *value* position (e.g. `/Subtype /Producer`)
   is no longer mis-matched as a key; the object/dict scanners also skip
@@ -146,7 +146,7 @@
   longer disagree with what `paint` does. The engine and WASM `supportsCanvas`
   surfaces are unchanged in shape. See `docs/migrations/0.92-to-0.93.md`
 - build(wasm)!: rename the WASM engine feature `render` → `typst` (now the
-  default) and add `pdfform` / `pdfform-preview` build variants, so a Typst-free
+  default) and add a `pdfform` build variant, so a Typst-free
   PDF-form bundle can ship without Typst. From-source builders pass
   `--features typst` where they used `--features render`; the published JS API is
   unchanged. See `docs/migrations/0.92-to-0.93.md`

@@ -203,7 +203,11 @@ fn emit_container(
             ordinal,
         } => {
             let marker = if *ordered {
-                format!("{}. ", start + ordinal)
+                // `start`/`ordinal` are unbounded `u64` and `validate` does not
+                // ceiling them, so a corrupt/adversarial corpus can drive the
+                // sum past `u64::MAX`; saturate rather than panic (or wrap under
+                // release overflow-checks) on the render path.
+                format!("{}. ", start.saturating_add(*ordinal))
             } else {
                 "- ".to_string()
             };
@@ -1226,5 +1230,22 @@ mod tests {
         let mut esc = String::new();
         emit_url("a&<\\b", &mut esc);
         assert_eq!(esc, "<a\\&\\<\\\\b>", "specials escaped inside the wrap");
+    }
+
+    #[test]
+    fn ordered_list_marker_saturates_on_overflow() {
+        // `validate` does not ceiling `start`/`ordinal`, so a corrupt corpus can
+        // carry `start == u64::MAX`. Export must not panic (or wrap silently) on
+        // the `start + ordinal` marker; it saturates instead.
+        let json = format!(
+            r#"{{"text":"x","lines":[{{"kind":"para","containers":[{{"container":"list_item","ordered":true,"start":{},"ordinal":5}}]}}],"marks":[],"islands":[]}}"#,
+            u64::MAX
+        );
+        let rt = RichText::from_canonical_json(&json).unwrap();
+        let md = to_markdown(&rt);
+        assert!(
+            md.contains(&format!("{}. ", u64::MAX)),
+            "marker saturates to u64::MAX: {md:?}"
+        );
     }
 }
