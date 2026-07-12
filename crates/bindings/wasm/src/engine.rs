@@ -1468,7 +1468,7 @@ impl Document {
 
     /// Resolve the card an [`Addr`] targets: the main card when `addr.card` is
     /// absent, else the composable card at that index (out-of-range throws). The
-    /// static address axis the four addressed content verbs share.
+    /// static address axis the addressed content verbs share.
     fn addr_card_mut(&mut self, addr: &Addr) -> Result<&mut quillmark_core::Card, JsValue> {
         match addr.card {
             None => Ok(self.inner.main_mut()),
