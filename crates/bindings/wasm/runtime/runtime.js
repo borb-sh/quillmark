@@ -53,6 +53,11 @@
 // "re-exports the internal core build classes verbatim" case
 // (`Quill === CoreQuill`) is the executable guard for this invariant.
 export { Quill, Document, init } from '../core/wasm.js';
+// The document-free corpus codec — re-exported verbatim from the core build so
+// the runtime subpath exposes `exportMarkdown(body)` (the on-demand markdown
+// projection that replaces the eager `bodyMarkdown`), `importMarkdown`, and the
+// position-mapping pair (`rebase`, `mapPos`).
+export { importMarkdown, exportMarkdown, rebase, mapPos } from '../core/wasm.js';
 
 /**
  * Narrow an unknown caught value to a `QuillmarkError` — the error every

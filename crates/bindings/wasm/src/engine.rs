@@ -149,13 +149,11 @@ export interface Card {
     payloadItems: PayloadItem[];
     /**
      * The card body as canonical `RichText` — the source-of-truth content model.
-     * Always this corpus shape on read, never a markdown string; read
-     * `bodyMarkdown` for the markdown projection. Write a body back with
-     * `setBody` / `setCardBody`, or via `CardInput.body`.
+     * Always this corpus shape on read, never a markdown string. For the markdown
+     * projection call the codec `exportMarkdown(card.body)`. Write a body back
+     * with `doc.install(addr, rt)` / `doc.revise(addr, md)`, or via `CardInput.body`.
      */
     body: RichText;
-    /** The body's markdown projection (`export ∘ body`). Read-only; `""` for an empty body. */
-    bodyMarkdown: string;
 }
 
 /**
@@ -163,9 +161,8 @@ export interface Card {
  * `Document.pushCard` / `Document.insertCard`. Like `Card` but `body` also
  * takes a markdown `string` (imported to the corpus, so a markdown / LLM writer
  * needn't build the `RichText` shape), and every field but `kind` is optional —
- * an absent field defaults (no payload items, an empty body). `bodyMarkdown` is
- * ignored (`body` is authoritative). Write one inline (`{ kind, body }`) or
- * build it with `Document.makeCard`.
+ * an absent field defaults (no payload items, an empty body). Write one inline
+ * (`{ kind, body }`) or build it with `Document.makeCard`.
  */
 export interface CardInput {
     kind: string;
@@ -175,7 +172,6 @@ export interface CardInput {
     seed?: Record<string, unknown>;
     payloadItems?: PayloadItem[];
     body?: RichText | string;
-    bodyMarkdown?: string;
 }
 
 /**
@@ -225,6 +221,65 @@ export interface RichTextIsland {
     props: unknown;
     /** How faithfully the markdown projection can carry this island. */
     loss: "lossless" | "degraded" | "unrepresentable";
+}
+
+/**
+ * A richtext write address. An absent `field` targets the card body; an absent
+ * `card` targets the main card. `{}` is the main-card body; `{ card: 2 }` the
+ * body of the composable card at index 2; `{ field: "intro" }` the main card's
+ * `intro` richtext field; `{ card: 2, field: "intro" }` a card field.
+ */
+export interface Addr {
+    card?: number;
+    field?: string;
+}
+
+/**
+ * A text-splice change set over the USV corpus (CodeMirror `ChangeSet`
+ * semantics) — plain, structured-clone-able data. Returned by `revise` and by
+ * the `rebase` codec; map a stored position through it with `mapPos`.
+ */
+export interface Delta {
+    ops: ({ retain: number } | { insert: string } | { delete: number })[];
+}
+
+/** Which side of a same-position insertion `mapPos` lands a point on. */
+export type Assoc = "before" | "after";
+
+/**
+ * A mark edit in post-text-delta coordinates. `add` / `remove` carry the
+ * `RichTextMark` vocabulary (`{ type, … }`); `removeAnchor` drops one identity
+ * anchor by id.
+ */
+export type MarkOp =
+    | ({ op: "add" | "remove"; start: number; end: number } & (
+          | { type: "strong" | "emph" | "underline" | "strike" | "code" }
+          | { type: "link"; url: string }
+          | { type: "anchor"; id: string }
+          | { type: string; attrs: unknown }
+      ))
+    | { op: "removeAnchor"; id: string };
+
+/** A line/block edit. `split`/`join` splice `\n`; `setKind`/`setContainers` touch metadata. */
+export type LineOp =
+    | { op: "split"; at: number }
+    | { op: "join"; line: number }
+    | ({ op: "setKind"; line: number } & (
+          | { kind: "para" | "island" | "rule" }
+          | { kind: "heading"; level: number }
+          | { kind: "code"; lang?: string }
+      ))
+    | { op: "setContainers"; line: number; containers: RichTextContainer[] };
+
+/**
+ * A committed corpus edit bundle for `applyChange`: a text `delta` (default no
+ * text change), then `lineOps`, then `markOps` (mark ranges are in post-delta
+ * coordinates). Every field is optional.
+ */
+export interface ChangeBundle {
+    delta?: Delta;
+    lineOps?: LineOp[];
+    markOps?: MarkOp[];
 }
 "#;
 
@@ -985,35 +1040,134 @@ impl Document {
         Ok(())
     }
 
+    /// **Deprecated** — alias for `revise({}, markdown)`, kept one release cycle.
+    /// Revise the main card's body from a markdown string (edit semantics: a
+    /// `diff_import` that rebases surviving anchors). Discards the text delta;
+    /// call [`revise`](Document::revise) to receive it.
     #[wasm_bindgen(js_name = replaceBody)]
     pub fn replace_body(&mut self, body: &str) -> Result<(), JsValue> {
         self.inner
             .main_mut()
-            .replace_body(body)
+            .revise_body(body)
+            .map(|_| ())
             .map_err(|e| edit_error_to_js(&e))
     }
 
-    /// Set the main card's body from a **corpus object** (canonical
-    /// RichText-JSON) or a markdown string — the corpus-native counterpart to
-    /// [`replaceBody`](Document::replace_body), which accepts markdown only.
-    /// `body` is the same `RichText | string` shape `Document.main.body` reads
-    /// back, so a corpus-native editor writes the body straight through with no
-    /// lossy markdown round-trip (a corpus-only mark such as `underline`
-    /// survives). `null` clears the body to empty. Closes the read/write
-    /// asymmetry `doc.main.body` (corpus in, corpus out) otherwise had.
+    /// **Install** a richtext value at `addr` — **value semantics**, corpus only.
+    /// Stores exactly `rt` (a canonical `RichText` corpus object); the identity
+    /// anchors of any previous value are gone. An absent `addr.field` targets the
+    /// body, an absent `addr.card` the main card. For "here's new markdown," use
+    /// [`revise`](Document::revise); the cold-import path is spelled at the call
+    /// site as `install(addr, importMarkdown(md))`, so anchor loss is visible in
+    /// source.
     ///
-    /// Throws `[EditError::BodyDecode]` if `body` is neither a valid corpus
-    /// object, an importable markdown string, nor `null`.
-    #[wasm_bindgen(js_name = setBody)]
-    pub fn set_body(
+    /// Throws on an out-of-range card, a malformed field name, or an `rt` that is
+    /// not a canonical corpus object.
+    #[wasm_bindgen(js_name = install)]
+    pub fn install(
         &mut self,
-        #[wasm_bindgen(unchecked_param_type = "RichText | string")] body: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "Addr")] addr: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "RichText")] rt: JsValue,
     ) -> Result<(), JsValue> {
-        let json = js_value_to_json(body, "setBody")?;
-        self.inner
-            .main_mut()
-            .set_body_value(&json)
-            .map_err(|e| edit_error_to_js(&e))
+        let addr = Addr::from_js(&addr)?;
+        let corpus = js_to_corpus(rt, "install")?;
+        let card = self.addr_card_mut(&addr)?;
+        match &addr.field {
+            None => {
+                card.install_body(corpus);
+                Ok(())
+            }
+            Some(field) => card.install_field(field, corpus).map_err(|e| edit_error_to_js(&e)),
+        }
+    }
+
+    /// **Revise** the richtext value at `addr` from a markdown string — **edit
+    /// semantics**, the default write path, returning the text [`Delta`]. Imports
+    /// the markdown, diffs it against the current value, rebases surviving
+    /// identity anchors, and returns the change an editor bridge maps its own
+    /// positions through (`mapPos`). An absent `addr.field` targets the body, an
+    /// absent `addr.card` the main card; an absent field cold-imports from empty.
+    ///
+    /// Throws on an out-of-range card, a malformed field name, a present
+    /// non-corpus field value, or an over-nested markdown input.
+    #[wasm_bindgen(js_name = revise, unchecked_return_type = "Delta")]
+    pub fn revise(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "Addr")] addr: JsValue,
+        markdown: &str,
+    ) -> Result<JsValue, JsValue> {
+        let addr = Addr::from_js(&addr)?;
+        let card = self.addr_card_mut(&addr)?;
+        let delta = match &addr.field {
+            None => card.revise_body(markdown),
+            Some(field) => card.revise_field(field, markdown),
+        }
+        .map_err(|e| edit_error_to_js(&e))?;
+        serialize_or_throw(&delta, "revise")
+    }
+
+    /// **Apply** a committed corpus edit `bundle` (`{ delta?, lineOps?, markOps? }`)
+    /// at `addr` — the editor splice: text delta first, then line ops, then mark
+    /// ops (mark ranges in post-delta coordinates), each all-or-nothing. An absent
+    /// `addr.field` targets the body, an absent `addr.card` the main card.
+    ///
+    /// Throws on an out-of-range card, a field that is not richtext, a malformed
+    /// bundle, or an op that applies out of bounds (the value is unchanged on a
+    /// failed apply).
+    #[wasm_bindgen(js_name = applyChange)]
+    pub fn apply_change(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "Addr")] addr: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "ChangeBundle")] bundle: JsValue,
+    ) -> Result<(), JsValue> {
+        let addr = Addr::from_js(&addr)?;
+        let (delta, line_ops, mark_ops) = parse_change_bundle(&bundle)?;
+        let card = self.addr_card_mut(&addr)?;
+        match &addr.field {
+            None => card.apply_body_change(&delta, &line_ops, &mark_ops),
+            Some(field) => {
+                card.apply_field_richtext_change(field, &delta, &line_ops, &mark_ops)
+            }
+        }
+        .map_err(|e| edit_error_to_js(&e))
+    }
+
+    /// **Commit** a typed value at `addr.field`, resolving the field's schema
+    /// `type` from `quill` — the one typed write verb for every field type
+    /// (richtext, scalar, array, object). The schema carries any `inline`
+    /// constraint. A richtext-typed field stores the canonical corpus (identity
+    /// and corpus-only marks intact). Requires `addr.field`; the body carries no
+    /// schema type, so a bodyless `addr` throws.
+    ///
+    /// A field the schema does not declare throws `[EditError::UnknownField]`
+    /// (a typo on the typed path — use [`setField`](Document::set_field) for
+    /// opaque storage); a typed mismatch throws now, not at render.
+    #[wasm_bindgen(js_name = commit)]
+    pub fn commit(
+        &mut self,
+        #[wasm_bindgen(unchecked_param_type = "Addr")] addr: JsValue,
+        value: JsValue,
+        quill: &Quill,
+    ) -> Result<(), JsValue> {
+        let addr = Addr::from_js(&addr)?;
+        let field = addr.field.as_deref().ok_or_else(|| {
+            WasmError::from(
+                "commit requires addr.field — the body carries no schema type; \
+                 use install/revise for the body",
+            )
+            .to_js_value()
+        })?;
+        let json = js_value_to_json(value, "commit")?;
+        let qv = quillmark_core::QuillValue::from_json(json);
+        let mut editor = quill.inner.editor(&mut self.inner);
+        match addr.card {
+            None => editor.set(field, qv).map_err(|e| edit_error_to_js(&e)),
+            Some(index) => editor
+                .card(index)
+                .map_err(|e| edit_error_to_js(&e))?
+                .set(field, qv)
+                .map_err(|e| edit_error_to_js(&e)),
+        }
     }
 
     /// Typed field write on the main card, resolving the field's schema `type`
@@ -1073,18 +1227,6 @@ impl Document {
             .map_err(edit_errors_to_js)
     }
 
-    /// The markdown projection of a richtext field on the main card
-    /// (`export ∘ decode`) — the field-level twin of `main.bodyMarkdown`.
-    /// Returns `undefined` when the field is absent or does not decode as
-    /// richtext (e.g. a plain scalar written via [`setField`](Document::set_field)).
-    #[wasm_bindgen(js_name = fieldMarkdown, unchecked_return_type = "string | undefined")]
-    pub fn field_markdown(&self, name: &str) -> JsValue {
-        match self.inner.main().field_markdown(name) {
-            Some(md) => JsValue::from_str(&md),
-            None => JsValue::UNDEFINED,
-        }
-    }
-
     /// Build a fresh `Card` from a kind and a flat field map — the ergonomic
     /// constructor for `pushCard` / `insertCard`. `fields` is an optional
     /// `Record<string, unknown>` (each entry becomes a card field, in
@@ -1126,11 +1268,10 @@ impl Document {
             // The `body` argument is markdown; `Card::try_from` imports it to the
             // corpus (and validates the fields).
             body: serde_json::Value::String(body.unwrap_or_default()),
-            body_markdown: String::new(),
         };
         // Round-trip through `Card` so the emitted card carries the corpus body
-        // (the source-of-truth shape `cards()` returns) plus its markdown
-        // projection, not the raw authored string.
+        // (the source-of-truth shape `cards()` returns), not the raw authored
+        // string.
         let card = quillmark_core::Card::try_from(string_wire)
             .map_err(|e| WasmError::from(format!("makeCard: {e}")).to_js_value())?;
         let wire = quillmark_core::CardWire::from(&card);
@@ -1259,23 +1400,6 @@ impl Document {
             .map_err(edit_errors_to_js)
     }
 
-    /// The markdown projection of a richtext field on the card at `index` — the
-    /// card-indexed twin of [`fieldMarkdown`](Document::field_markdown). Returns
-    /// `undefined` when `index` is out of range, the field is absent, or it does
-    /// not decode as richtext.
-    #[wasm_bindgen(js_name = cardFieldMarkdown, unchecked_return_type = "string | undefined")]
-    pub fn card_field_markdown(&self, index: usize, name: &str) -> JsValue {
-        match self
-            .inner
-            .cards()
-            .get(index)
-            .and_then(|c| c.field_markdown(name))
-        {
-            Some(md) => JsValue::from_str(&md),
-            None => JsValue::UNDEFINED,
-        }
-    }
-
     /// Batched twin of [`setCardField`](Document::set_card_field): set
     /// several fields on the card at `index` atomically. Same all-or-nothing,
     /// one-diagnostic-per-field contract as [`setFields`](Document::set_fields).
@@ -1306,45 +1430,6 @@ impl Document {
         })
     }
 
-    /// Replace the body of the card at `index` from a markdown string — the
-    /// card-indexed twin of [`replaceBody`](Document::replace_body). Throws if
-    /// out of range.
-    #[wasm_bindgen(js_name = replaceCardBody)]
-    pub fn replace_card_body(&mut self, index: usize, body: &str) -> Result<(), JsValue> {
-        self.card_mut_or_throw(index)?
-            .replace_body(body)
-            .map_err(|e| edit_error_to_js(&e))
-    }
-
-    /// Set the body of the card at `index` from a **corpus object** (canonical
-    /// RichText-JSON) or a markdown string — the card-indexed twin of
-    /// [`setBody`](Document::set_body), and the corpus-native counterpart to
-    /// [`replaceCardBody`](Document::replace_card_body), which accepts markdown
-    /// only. `body` is the same `RichText | string` shape `Document.cards[i].body`
-    /// reads back, so a corpus-native editor writes a card body straight through
-    /// with no lossy markdown round-trip — a corpus-only mark such as `underline`,
-    /// and anchor/island identity ids, survive. `null` clears the body to empty.
-    ///
-    /// A card body is reachable only here: `$body` is rejected by
-    /// [`commitCardField`](Document::commit_card_field) (the reserved `$`-prefix
-    /// fails the field-name check), so the field channel cannot address it. This
-    /// closes the last markdown-forced write in the corpus surface — a non-main
-    /// card body (issue #892).
-    ///
-    /// Throws `[EditError::BodyDecode]` if `body` is neither a valid corpus
-    /// object, an importable markdown string, nor `null`, and
-    /// `[EditError::IndexOutOfRange]` when the card is absent.
-    #[wasm_bindgen(js_name = setCardBody)]
-    pub fn set_card_body(
-        &mut self,
-        index: usize,
-        #[wasm_bindgen(unchecked_param_type = "RichText | string")] body: JsValue,
-    ) -> Result<(), JsValue> {
-        let json = js_value_to_json(body, "setCardBody")?;
-        self.card_mut_or_throw(index)?
-            .set_body_value(&json)
-            .map_err(|e| edit_error_to_js(&e))
-    }
 }
 
 impl Document {
@@ -1358,6 +1443,143 @@ impl Document {
             edit_error_to_js(&quillmark_core::EditError::IndexOutOfRange { index, len })
         })
     }
+
+    /// Resolve the card an [`Addr`] targets: the main card when `addr.card` is
+    /// absent, else the composable card at that index (out-of-range throws). The
+    /// static address axis the four addressed content verbs share.
+    fn addr_card_mut(&mut self, addr: &Addr) -> Result<&mut quillmark_core::Card, JsValue> {
+        match addr.card {
+            None => Ok(self.inner.main_mut()),
+            Some(index) => self.card_mut_or_throw(index),
+        }
+    }
+}
+
+// ── Addressed write surface ────────────────────────────────────────────────────
+
+/// A richtext write address (`{ card?, field? }`). Absent `field` = body, absent
+/// `card` = main. Mirrors the `Addr` TS interface.
+#[derive(serde::Deserialize, Default)]
+struct Addr {
+    #[serde(default)]
+    card: Option<usize>,
+    #[serde(default)]
+    field: Option<String>,
+}
+
+impl Addr {
+    /// Deserialize an `Addr` from its JS object (`undefined`/`null`/`{}` all mean
+    /// the main-card body).
+    fn from_js(value: &JsValue) -> Result<Addr, JsValue> {
+        if value.is_undefined() || value.is_null() {
+            return Ok(Addr::default());
+        }
+        serde_wasm_bindgen::from_value(value.clone())
+            .map_err(|e| WasmError::from(format!("addr must be an Addr object: {e}")).to_js_value())
+    }
+}
+
+/// Decode a JS value as a canonical `RichText` corpus object — the `install`
+/// input (value semantics, corpus only). Rejects a markdown string: the cold
+/// path is spelled `install(addr, importMarkdown(md))`.
+fn js_to_corpus(value: JsValue, ctx: &str) -> Result<quillmark_core::RichText, JsValue> {
+    let json = js_value_to_json(value, ctx)?;
+    if !json.is_object() {
+        return Err(WasmError::from(format!(
+            "{ctx}: expected a RichText corpus object; for markdown use importMarkdown(md) first"
+        ))
+        .to_js_value());
+    }
+    quillmark_richtext::serial::from_canonical_value(&json)
+        .map_err(|e| WasmError::from(format!("{ctx}: not a canonical RichText corpus: {e}")).to_js_value())
+}
+
+/// Lower a `ChangeBundle` (`{ delta?, lineOps?, markOps? }`) to core ops via the
+/// shared richtext reader, mapping its message to a `WasmError`.
+fn parse_change_bundle(
+    value: &JsValue,
+) -> Result<
+    (
+        quillmark_core::Delta,
+        Vec<quillmark_core::LineOp>,
+        Vec<quillmark_core::MarkOp>,
+    ),
+    JsValue,
+> {
+    let json = js_value_to_json(value.clone(), "applyChange")?;
+    quillmark_richtext::change_bundle_from_value(&json)
+        .map_err(|e| WasmError::from(format!("applyChange: {e}")).to_js_value())
+}
+
+// ── Corpus codec (document-free) ────────────────────────────────────────────────
+
+/// Import a markdown string to a canonical `RichText` corpus — the pure,
+/// document-free codec. Pair with `install(addr, importMarkdown(md))` to spell
+/// the cold (anchor-losing) write at the call site; prefer `revise` for edit
+/// semantics. Throws on an over-nested input.
+#[wasm_bindgen(js_name = importMarkdown, unchecked_return_type = "RichText")]
+pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
+    let corpus = quillmark_richtext::from_markdown(markdown)
+        .map_err(|e| WasmError::from(format!("importMarkdown: {e}")).to_js_value())?;
+    serialize_or_throw(
+        &quillmark_richtext::serial::to_canonical_value(&corpus),
+        "importMarkdown",
+    )
+}
+
+/// Export a canonical `RichText` corpus to its markdown projection — the pure
+/// codec that replaces the eager `bodyMarkdown` / `fieldMarkdown` precomputes
+/// (`exportMarkdown(card.body)`). Throws if `rt` is not a canonical corpus.
+#[wasm_bindgen(js_name = exportMarkdown)]
+pub fn export_markdown(
+    #[wasm_bindgen(unchecked_param_type = "RichText")] rt: JsValue,
+) -> Result<String, JsValue> {
+    let corpus = js_to_corpus(rt, "exportMarkdown")?;
+    Ok(quillmark_richtext::to_markdown(&corpus))
+}
+
+/// Rebase `markdown` onto a `base` corpus — the pure, document-free twin of
+/// `revise`: cold-import + `diff_import`, returning the new `corpus` and the
+/// text `delta` (surviving anchors rebased). Use it to compute a revise without
+/// a document in hand; `revise(addr, md)` fuses this with the store for
+/// atomicity. Throws on an over-nested markdown input or a non-corpus `base`.
+#[wasm_bindgen(js_name = rebase, unchecked_return_type = "{ corpus: RichText; delta: Delta }")]
+pub fn rebase(
+    #[wasm_bindgen(unchecked_param_type = "RichText")] base: JsValue,
+    markdown: &str,
+) -> Result<JsValue, JsValue> {
+    let base = js_to_corpus(base, "rebase")?;
+    let (corpus, delta) = quillmark_richtext::diff_import(&base, markdown)
+        .map_err(|e| WasmError::from(format!("rebase: {e}")).to_js_value())?;
+    let out = serde_json::json!({
+        "corpus": quillmark_richtext::serial::to_canonical_value(&corpus),
+        "delta": serde_json::to_value(&delta).unwrap_or(serde_json::Value::Null),
+    });
+    serialize_or_throw(&out, "rebase")
+}
+
+/// Map a base corpus position through a `delta` to its new position — the pure
+/// position-mapping codec an editor bridge composes to hold a caret stable
+/// across a `revise`. `assoc` decides the side of a same-position insertion
+/// (`"after"` moves past it). Throws on a malformed `delta`.
+#[wasm_bindgen(js_name = mapPos)]
+pub fn map_pos(
+    #[wasm_bindgen(unchecked_param_type = "Delta")] delta: JsValue,
+    pos: usize,
+    #[wasm_bindgen(unchecked_param_type = "Assoc")] assoc: JsValue,
+) -> Result<usize, JsValue> {
+    let delta: quillmark_core::Delta = serde_wasm_bindgen::from_value(delta)
+        .map_err(|e| WasmError::from(format!("mapPos: invalid delta: {e}")).to_js_value())?;
+    let assoc = match assoc.as_string().as_deref() {
+        Some("before") => quillmark_core::Assoc::Before,
+        Some("after") => quillmark_core::Assoc::After,
+        _ => {
+            return Err(
+                WasmError::from("mapPos: assoc must be \"before\" or \"after\"").to_js_value(),
+            )
+        }
+    };
+    Ok(delta.map_pos(pos, assoc))
 }
 
 // ── Edit helpers ──────────────────────────────────────────────────────────────
@@ -1478,9 +1700,6 @@ fn js_to_card(value: &JsValue) -> Result<quillmark_core::Card, JsValue> {
             "seed",
             "payloadItems",
             "body",
-            // The read-only markdown projection; accepted (and ignored) so a card
-            // returned by `cards()` round-trips back through `pushCard`.
-            "bodyMarkdown",
         ];
         for key in js_sys::Object::keys(obj).iter() {
             if let Some(k) = key.as_string() {

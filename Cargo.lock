@@ -2369,6 +2369,7 @@ dependencies = [
  "pyo3",
  "quillmark",
  "quillmark-core",
+ "quillmark-richtext",
  "serde_json",
 ]
 
@@ -2379,6 +2380,7 @@ dependencies = [
  "proptest",
  "pulldown-cmark",
  "quillmark-fixtures",
+ "serde",
  "serde_json",
  "similar",
 ]
@@ -2414,6 +2416,7 @@ dependencies = [
  "js-sys",
  "quillmark",
  "quillmark-core",
+ "quillmark-richtext",
  "serde",
  "serde-wasm-bindgen 0.6.5",
  "serde_bytes",

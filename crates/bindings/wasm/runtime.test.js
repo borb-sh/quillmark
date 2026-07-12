@@ -18,6 +18,7 @@ import {
   DocumentEditor,
   CardEditor,
   isQuillmarkError,
+  exportMarkdown,
 } from '@quillmark-wasm/runtime'
 // Pin that the runtime's Quill IS the internal core build's class (re-export,
 // not a parallel wrapper). This imports the internal core artifact directly —
@@ -165,7 +166,7 @@ card_kinds:
     )
     const ed = new DocumentEditor(buildQuill(), doc)
     ed.card(0).set('body', 'Card **body**.')
-    expect(doc.cardFieldMarkdown(0, 'body')).toBe('Card **body**.\n')
+    expect(exportMarkdown(fieldOf(doc.cards[0], 'body'))).toBe('Card **body**.\n')
   })
 
   it('a bad card index throws at write time, not at card()', () => {

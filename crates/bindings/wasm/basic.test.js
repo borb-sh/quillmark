@@ -8,7 +8,15 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { Quillmark, Quill, Document } from '@quillmark-wasm'
+import {
+  Quillmark,
+  Quill,
+  Document,
+  importMarkdown,
+  exportMarkdown,
+  rebase,
+  mapPos,
+} from '@quillmark-wasm'
 import { makeQuill } from './test-helpers.js'
 
 /** Read a field value from a card's payloadItems list by key. */
@@ -61,13 +69,13 @@ describe('Document.fromMarkdown', () => {
   it('should expose body as a corpus with a markdown projection', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
 
-    // `body` is the canonical corpus (source-of-truth model); `bodyMarkdown` is
-    // the markdown projection.
+    // `body` is the canonical corpus (source-of-truth model); the markdown
+    // projection is the on-demand `exportMarkdown(body)` codec.
     expect(typeof doc.main.body).toBe('object')
     expect(typeof doc.main.body.text).toBe('string')
     expect(doc.main.body.text).toContain('Hello World')
-    expect(typeof doc.main.bodyMarkdown).toBe('string')
-    expect(doc.main.bodyMarkdown).toContain('Hello World')
+    expect(typeof exportMarkdown(doc.main.body)).toBe('string')
+    expect(exportMarkdown(doc.main.body)).toContain('Hello World')
   })
 
   it('should expose cards as an array', () => {
@@ -97,7 +105,7 @@ Card body.
     expect(doc.cards.length).toBe(1)
     expect(doc.cards[0].kind).toBe('note')
     expect(field(doc.cards[0], 'foo')).toBe('bar')
-    expect(doc.cards[0].bodyMarkdown).toContain('Card body.')
+    expect(exportMarkdown(doc.cards[0].body)).toContain('Card body.')
   })
 
   it('should expose warnings array', () => {
@@ -177,15 +185,15 @@ describe('Document.toMarkdown — fromMarkdown → mutate → emit → re-parse'
     // Note on trailing newlines: the global body is followed by a card fence,
     // so the wire format inserts a line terminator + F2 blank line between
     // them (`Updated body\n\n~~~card-yaml`). On re-parse the F2 blank is
-    // stripped but the terminator stays, so `doc2.main.bodyMarkdown === 'Updated body\n'`. The card
+    // stripped but the terminator stays, so `exportMarkdown(doc2.main.body) === 'Updated body\n'`. The card
     // body is at EOF and has no F2 separator, so it survives byte-for-byte.
     const doc2 = Document.fromMarkdown(emitted)
     expect(field(doc2.main, 'title')).toBe('New Title')
-    expect(doc2.main.bodyMarkdown).toBe('Updated body\n')
+    expect(exportMarkdown(doc2.main.body)).toBe('Updated body\n')
     expect(doc2.cards.length).toBe(originalCardCount + 1)
     expect(doc2.cards[0].kind).toBe('note')
     expect(field(doc2.cards[0], 'author')).toBe('Alice')
-    expect(doc2.cards[0].bodyMarkdown).toBe('Hello\n')
+    expect(exportMarkdown(doc2.cards[0].body)).toBe('Hello\n')
   })
 
   it('ambiguous-string survival: YAML-keyword values are preserved as strings', () => {
@@ -248,7 +256,7 @@ describe('Document JSON DTO — toJson / fromJson', () => {
     expect(field(restored.main, 'title')).toBe('New Title')
     expect(restored.cards[0].kind).toBe('note')
     expect(field(restored.cards[0], 'author')).toBe('Alice')
-    expect(restored.cards[0].bodyMarkdown).toBe('Hello\n')
+    expect(exportMarkdown(restored.cards[0].body)).toBe('Hello\n')
   })
 
   it('toJson output is standard JSON parseable by the JSON global', () => {
@@ -522,7 +530,7 @@ describe('Document blank-canvas constructor', () => {
     const doc = new Document('test_quill')
     expect(doc.quillRef).toBe('test_quill')
     expect(doc.cards.length).toBe(0)
-    expect(doc.main.bodyMarkdown).toBe('')
+    expect(exportMarkdown(doc.main.body)).toBe('')
     doc.setFields({ title: 'Hello' })
     expect(field(doc.main, 'title')).toBe('Hello')
   })
@@ -567,7 +575,7 @@ describe('Document editor surface — setFields / setCardFields', () => {
   })
 })
 
-describe('Document editor surface — setQuillRef / replaceBody', () => {
+describe('Document editor surface — setQuillRef / replaceBody(deprecated) / install / revise', () => {
   it('setQuillRef changes the quillRef', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     doc.setQuillRef('new_quill')
@@ -579,39 +587,60 @@ describe('Document editor surface — setQuillRef / replaceBody', () => {
     expect(() => doc.setQuillRef('INVALID QUILL REF WITH SPACES')).toThrow()
   })
 
-  it('replaceBody changes the body', () => {
+  it('replaceBody (deprecated alias for revise) changes the body', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     doc.replaceBody('Brand new body.')
-    expect(doc.main.bodyMarkdown).toBe('Brand new body.\n')
+    expect(exportMarkdown(doc.main.body)).toBe('Brand new body.\n')
   })
 
-  it('setBody accepts a markdown string', () => {
+  it('revise({}, md) revises the main body and returns the text delta', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.setBody('Body from **markdown**.')
-    expect(doc.main.bodyMarkdown).toBe('Body from **markdown**.\n')
+    const delta = doc.revise({}, 'Body from **markdown**.')
+    expect(exportMarkdown(doc.main.body)).toBe('Body from **markdown**.\n')
+    // The receipt is a structured-clone-able change set.
+    expect(Array.isArray(delta.ops)).toBe(true)
   })
 
-  it('setBody accepts a corpus object round-tripped from doc.main.body', () => {
-    // The corpus is the source-of-truth shape doc.main.body reads back; writing
-    // it straight through is the read/write symmetry #874 closes.
+  it('install({}, rt) installs a corpus object with value semantics', () => {
+    // The corpus is the source-of-truth shape doc.main.body reads back; the
+    // cold path spells importMarkdown at the call site.
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const src = Document.fromMarkdown('~~~card-yaml\n$quill: q@1.0.0\n~~~\n\nCorpus **body** here.')
-    const corpus = src.main.body
+    const corpus = importMarkdown('Corpus **body** here.')
     expect(typeof corpus).toBe('object')
-    doc.setBody(corpus)
+    doc.install({}, corpus)
     expect(doc.main.body.text).toBe('Corpus body here.')
-    expect(doc.main.bodyMarkdown).toBe('Corpus **body** here.\n')
+    expect(exportMarkdown(doc.main.body)).toBe('Corpus **body** here.\n')
   })
 
-  it('setBody(null) clears the body', () => {
+  it('install({}, importMarkdown("")) clears the body', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.setBody(null)
-    expect(doc.main.bodyMarkdown).toBe('')
+    doc.install({}, importMarkdown(''))
+    expect(exportMarkdown(doc.main.body)).toBe('')
   })
 
-  it('setBody throws BodyDecode on a non-corpus object', () => {
+  it('install rejects a non-corpus value (markdown must go through importMarkdown)', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    expect(() => doc.setBody({ not: 'a corpus' })).toThrow(/BodyDecode/)
+    expect(() => doc.install({}, 'plain markdown')).toThrow()
+    expect(() => doc.install({}, { not: 'a corpus' })).toThrow()
+  })
+})
+
+describe('Corpus codec — importMarkdown / exportMarkdown / rebase / mapPos', () => {
+  it('importMarkdown ∘ exportMarkdown round-trips a body', () => {
+    const rt = importMarkdown('A **bold** line.')
+    expect(typeof rt).toBe('object')
+    expect(rt.text).toBe('A bold line.')
+    expect(exportMarkdown(rt)).toBe('A **bold** line.\n')
+  })
+
+  it('rebase computes a corpus + delta and mapPos maps a position through it', () => {
+    const base = importMarkdown('hello world')
+    const { corpus, delta } = rebase(base, 'hello brave world')
+    expect(corpus.text).toBe('hello brave world')
+    expect(Array.isArray(delta.ops)).toBe(true)
+    // A caret at the end of "hello " stays; one after "world" shifts past "brave ".
+    expect(mapPos(delta, 6, 'before')).toBe(6)
+    expect(mapPos(delta, 11, 'after')).toBe(17)
   })
 })
 
@@ -647,7 +676,8 @@ card_kinds:
     const doc = blankDoc()
     doc.commitField(quill, 'intro', 'A **bold** intro.')
     expect(typeof field(doc.main, 'intro')).toBe('object')
-    expect(doc.fieldMarkdown('intro')).toBe('A **bold** intro.\n')
+    // The markdown projection of a richtext field is exportMarkdown ∘ its corpus.
+    expect(exportMarkdown(field(doc.main, 'intro'))).toBe('A **bold** intro.\n')
 
     doc.commitField(quill, 'qty', '3')
     expect(field(doc.main, 'qty')).toBe(3)
@@ -663,11 +693,17 @@ card_kinds:
     expect(field(doc.main, 'stray')).toBe('x')
   })
 
-  it('fieldMarkdown returns undefined for an absent or non-richtext field', () => {
+  it('exportMarkdown composes on a committed richtext field; a scalar field is not a corpus', () => {
+    const quill = buildQuill()
     const doc = blankDoc()
-    expect(doc.fieldMarkdown('nonexistent')).toBeUndefined()
+    // Absent field: the value is undefined, nothing to project.
+    expect(field(doc.main, 'nonexistent')).toBeUndefined()
+    // A non-richtext scalar is stored verbatim, not a corpus object.
     doc.setField('count', 3)
-    expect(doc.fieldMarkdown('count')).toBeUndefined()
+    expect(field(doc.main, 'count')).toBe(3)
+    // A committed richtext field projects through the codec.
+    doc.commitField(quill, 'intro', 'plain intro')
+    expect(exportMarkdown(field(doc.main, 'intro'))).toBe('plain intro\n')
   })
 
   it('commitField fails a strict mismatch and a richtext(inline) violation', () => {
@@ -678,13 +714,46 @@ card_kinds:
       .toThrow(/FieldRichtextNotInline/)
   })
 
+  it('commit(addr, value, quill) is the addressed typed door for main and card fields', () => {
+    const quill = buildQuill()
+    const doc = Document.fromMarkdown(
+      '~~~card-yaml\n$quill: commit_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nCard.',
+    )
+    // Main field, resolving the schema type from the quill.
+    doc.commit({ field: 'qty' }, '3', quill)
+    expect(field(doc.main, 'qty')).toBe(3)
+    // Card field, addressed by index.
+    doc.commit({ card: 0, field: 'body' }, 'Card **body**.', quill)
+    expect(exportMarkdown(field(doc.cards[0], 'body'))).toBe('Card **body**.\n')
+    // A typo is rejected on the typed path; the body has no schema type.
+    expect(() => doc.commit({ field: 'stray' }, 'x', quill)).toThrow(/UnknownField/)
+    expect(() => doc.commit({}, 'x', quill)).toThrow(/addr\.field/)
+  })
+
+  it('revise({field}) rebases a richtext field anchor and applyChange splices it', () => {
+    const quill = buildQuill()
+    const doc = blankDoc()
+    // revise the field from markdown (edit semantics), then splice a formatting
+    // mark over "bold" via applyChange.
+    doc.revise({ field: 'intro' }, 'make it bold here')
+    doc.applyChange(
+      { field: 'intro' },
+      { markOps: [{ op: 'add', start: 8, end: 12, type: 'strong' }] },
+    )
+    expect(exportMarkdown(field(doc.main, 'intro'))).toBe('make it **bold** here\n')
+    // An out-of-bounds op leaves the value unchanged (all-or-nothing).
+    expect(() =>
+      doc.applyChange({ field: 'intro' }, { markOps: [{ op: 'add', start: 999, end: 1000, type: 'emph' }] }),
+    ).toThrow()
+  })
+
   it('commitCardField resolves the card-kind schema and errors on a bad index', () => {
     const quill = buildQuill()
     const doc = Document.fromMarkdown(
       '~~~card-yaml\n$quill: commit_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nCard.',
     )
     doc.commitCardField(quill, 0, 'body', 'Card **body**.')
-    expect(doc.cardFieldMarkdown(0, 'body')).toBe('Card **body**.\n')
+    expect(exportMarkdown(field(doc.cards[0], 'body'))).toBe('Card **body**.\n')
     expect(() => doc.commitCardField(quill, 9, 'body', 'x')).toThrow(/IndexOutOfRange/)
   })
 
@@ -693,7 +762,7 @@ card_kinds:
     const doc = blankDoc()
     doc.commitFields(quill, { intro: 'A **bold** intro.', qty: '3' })
     // The values were coerced, not stored verbatim.
-    expect(doc.fieldMarkdown('intro')).toBe('A **bold** intro.\n')
+    expect(exportMarkdown(field(doc.main, 'intro'))).toBe('A **bold** intro.\n')
     expect(field(doc.main, 'qty')).toBe(3)
   })
 
@@ -723,7 +792,7 @@ card_kinds:
       '~~~card-yaml\n$quill: commit_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nCard.',
     )
     doc.commitCardFields(quill, 0, { body: 'Card **body**.' })
-    expect(doc.cardFieldMarkdown(0, 'body')).toBe('Card **body**.\n')
+    expect(exportMarkdown(field(doc.cards[0], 'body'))).toBe('Card **body**.\n')
     // An undeclared field on the card aborts the batch.
     expect(() => doc.commitCardFields(quill, 0, { stray: 'x' })).toThrow(/UnknownField/)
     expect(() => doc.commitCardFields(quill, 9, { body: 'x' })).toThrow(/IndexOutOfRange/)
@@ -757,7 +826,7 @@ Card two.
     doc.pushCard(Document.makeCard('note', {}, 'My card.'))
     expect(doc.cards.length).toBe(1)
     expect(doc.cards[0].kind).toBe('note')
-    expect(doc.cards[0].bodyMarkdown).toBe('My card.\n')
+    expect(exportMarkdown(doc.cards[0].body)).toBe('My card.\n')
   })
 
   it('pushCard throws on invalid kind', () => {
@@ -797,7 +866,7 @@ Card two.
     const bare = Document.makeCard('note')
     expect(bare.kind).toBe('note')
     expect(bare.payloadItems).toEqual([])
-    expect(bare.bodyMarkdown).toBe('')
+    expect(exportMarkdown(bare.body)).toBe('')
   })
 
   it('a stale { kind, fields } object is a loud error, not a silent empty card', () => {
@@ -923,7 +992,7 @@ describe('Document.equals', () => {
   })
 })
 
-describe('Document editor surface — setCardField / replaceCardBody', () => {
+describe('Document editor surface — setCardField / install / revise (card)', () => {
   const MD_WITH_CARD = `~~~card-yaml
 $quill: test_quill
 $kind: main
@@ -973,47 +1042,37 @@ Card body.
     expect(() => doc.removeCardField(0, 'foo')).toThrow(/IndexOutOfRange/)
   })
 
-  it('replaceCardBody replaces card body', () => {
+  it('revise({card:0}, md) revises a card body and returns the delta', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARD)
-    doc.replaceCardBody(0, 'New card body.')
-    expect(doc.cards[0].bodyMarkdown).toBe('New card body.\n')
+    const delta = doc.revise({ card: 0 }, 'New card body.')
+    expect(exportMarkdown(doc.cards[0].body)).toBe('New card body.\n')
+    expect(Array.isArray(delta.ops)).toBe(true)
   })
 
-  it('replaceCardBody throws IndexOutOfRange when card absent', () => {
+  it('revise({card:0}, md) throws IndexOutOfRange when card absent', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN) // 0 cards
-    expect(() => doc.replaceCardBody(0, 'x')).toThrow(/IndexOutOfRange/)
+    expect(() => doc.revise({ card: 0 }, 'x')).toThrow(/IndexOutOfRange/)
   })
 
-  it('setCardBody accepts a markdown string', () => {
+  it('install({card:0}, rt) installs a corpus into a card body', () => {
+    // The corpus is the shape doc.cards[i].body reads back; the card-indexed
+    // twin of the main-body install path.
+    const corpus = importMarkdown('Card body from **markdown**.')
     const doc = Document.fromMarkdown(MD_WITH_CARD)
-    doc.setCardBody(0, 'Card body from **markdown**.')
-    expect(doc.cards[0].bodyMarkdown).toBe('Card body from **markdown**.\n')
-  })
-
-  it('setCardBody accepts a corpus object round-tripped from a card body', () => {
-    // The corpus is the shape doc.cards[i].body reads back; writing it straight
-    // through must round-trip, the card-indexed twin of the setBody corpus path.
-    const src = Document.fromMarkdown(MD_WITH_CARD)
-    const corpus = src.cards[0].body
-    const doc = Document.fromMarkdown(MD_WITH_CARD)
-    doc.setCardBody(0, corpus)
+    doc.install({ card: 0 }, corpus)
     expect(doc.cards[0].body.text).toBe(corpus.text)
+    expect(exportMarkdown(doc.cards[0].body)).toBe('Card body from **markdown**.\n')
   })
 
-  it('setCardBody(null) clears the card body', () => {
+  it('install({card:0}, importMarkdown("")) clears the card body', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARD)
-    doc.setCardBody(0, null)
+    doc.install({ card: 0 }, importMarkdown(''))
     expect(doc.cards[0].body.text).toBe('')
   })
 
-  it('setCardBody throws BodyDecode on a non-corpus object', () => {
-    const doc = Document.fromMarkdown(MD_WITH_CARD)
-    expect(() => doc.setCardBody(0, { not: 'a corpus' })).toThrow(/BodyDecode/)
-  })
-
-  it('setCardBody throws IndexOutOfRange when card absent', () => {
+  it('install({card:0}, ...) throws IndexOutOfRange when card absent', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN) // 0 cards
-    expect(() => doc.setCardBody(0, 'x')).toThrow(/IndexOutOfRange/)
+    expect(() => doc.install({ card: 0 }, importMarkdown('x'))).toThrow(/IndexOutOfRange/)
   })
 })
 
@@ -1029,10 +1088,10 @@ describe('Document editor surface — parse→mutate→read round-trip', () => {
 
     // Assert state
     expect(field(doc.main, 'author')).toBe('Bob')
-    expect(doc.main.bodyMarkdown).toBe('New body text.\n')
+    expect(exportMarkdown(doc.main.body)).toBe('New body text.\n')
     expect(doc.cards.length).toBe(1)
     expect(doc.cards[0].kind).toBe('note')
-    expect(doc.cards[0].bodyMarkdown).toBe('Card content.\n')
+    expect(exportMarkdown(doc.cards[0].body)).toBe('Card content.\n')
     expect(doc.quillRef).toBe('updated_quill')
 
     // Original title still present
