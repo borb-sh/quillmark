@@ -643,6 +643,62 @@ def test_commit_card_field_index_out_of_range():
         doc.commit_card_field(quill, 0, "body", "x")
 
 
+# ── Tier-1 typed editor — doc.editor(quill) front door ────────────────────────
+
+
+def _taro_quill():
+    """The taro fixture quill (main string fields; a `quotes` card kind)."""
+    return Quill.from_path(str(_latest_version(QUILLS_PATH / "taro")))
+
+
+def test_editor_front_door_set_and_reads():
+    """doc.editor(quill).set writes; the reads live quill-free on the Document."""
+    quill = _taro_quill()
+    doc = Document("taro@0.1.0")
+    ed = doc.editor(quill)
+    ed.set("author", "Ada")
+    ed.set_all({"title": "On Taro"})
+    assert ed.document is doc  # holds the same object, mutated in place
+    assert doc.get("author") == "Ada"
+    assert doc.get("missing") is None
+    ed.set_body("A **taro** essay.")
+    assert doc.get_markdown() == "A **taro** essay.\n"
+
+
+def test_editor_set_rejects_unknown_field():
+    """An undeclared name is a typo on the typed path — it raises, nothing lands."""
+    quill = _taro_quill()
+    doc = Document("taro@0.1.0")
+    with pytest.raises(QuillmarkError, match="UnknownField"):
+        doc.editor(quill).set("stray", "x")
+    assert not has_field(doc.main, "stray")
+
+
+def test_editor_add_card_transactional():
+    """add_card fuses make + typed commit + push; a typo leaves the doc untouched."""
+    quill = _taro_quill()
+    doc = Document("taro@0.1.0")
+    ed = doc.editor(quill)
+    ed.add_card("quotes", {"author": "Basho"}, "A quote body.")
+    assert len(doc.cards) == 1
+    assert field(doc.cards[0], "author") == "Basho"
+    with pytest.raises(QuillmarkError, match="UnknownField"):
+        ed.add_card("quotes", {"stray": "x"})
+    assert len(doc.cards) == 1  # nothing joined the document
+
+
+def test_editor_card_cursor_set_and_body():
+    """editor.card(i) targets the composable card; a bad index raises at the write."""
+    quill = _taro_quill()
+    doc = Document("taro@0.1.0")
+    ed = doc.editor(quill)
+    ed.add_card("quotes", {"author": "Basho"})
+    ed.card(0).set("author", "Issa")
+    assert field(doc.cards[0], "author") == "Issa"
+    with pytest.raises(QuillmarkError, match="IndexOutOfRange"):
+        ed.card(9).set("author", "x")
+
+
 # ── Addressed content verbs — commit / revise / apply_change ──────────────────
 
 
