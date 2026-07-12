@@ -86,7 +86,7 @@ fn richtext_fields_lower_to_plaintext_field_values() {
     );
 }
 
-/// Same render, but the richtext fields are written via the typed editor, so
+/// Same render, but the richtext fields are written via the typed writer, so
 /// each is **stored as a canonical corpus object** rather than an authored
 /// markdown string. This exercises coercion's object branch (re-validate +
 /// re-canonicalize) end-to-end and proves it lowers identically to the
@@ -98,7 +98,7 @@ fn richtext_fields_written_as_corpus_render_identically() {
     let engine = Quillmark::new();
 
     // Start from the string-authored doc, then re-write each field through the
-    // schema-bound typed editor: `commit_field` stores the *canonical corpus
+    // schema-bound typed writer: `commit_field` stores the *canonical corpus
     // object* (decode → canonicalize) for a richtext-typed field, so the payload
     // now carries corpus objects.
     let mut doc = Document::from_markdown(FILLED).expect("parse markdown");

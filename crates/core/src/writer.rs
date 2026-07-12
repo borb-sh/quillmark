@@ -379,7 +379,7 @@ card_kinds:
     }
 
     #[test]
-    fn card_editor_resolves_card_kind_schema() {
+    fn card_writer_resolves_card_kind_schema() {
         let config = config();
         let mut doc = blank_doc();
         doc.push_card(Card::new("note").unwrap()).unwrap();

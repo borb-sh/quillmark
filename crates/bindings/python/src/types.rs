@@ -117,10 +117,8 @@ impl PyQuill {
 
     /// Bind this quill's schema to `doc` for typed writes — the documented front
     /// door, mirroring core `quill.writer(&mut doc)` and WASM `quill.writer(doc)`.
-    /// The quill owns the schema, so it is the factory. Returns a `Writer` holding
-    /// both objects by reference and re-borrowing per call (pyo3 objects carry no
-    /// lifetime, so the writer cannot hold the borrow the way core's `TypedWriter`
-    /// does). Ephemeral by convention — bind, write, discard.
+    /// The quill owns the schema, so it is the factory. See [`PyWriter`] for the
+    /// re-borrow/ephemerality contract.
     fn writer(slf: Py<Self>, doc: Py<PyDocument>) -> PyWriter {
         PyWriter { quill: slf, doc }
     }
@@ -549,7 +547,7 @@ impl PyDocument {
     /// Reach for it deliberately — standalone data with no quill in hand,
     /// quill-agnostic storage/migration, or a store-now-validate-later editor
     /// holding not-yet-conforming input. When a quill *is* in hand, prefer the
-    /// typed writer (`doc.writer(quill).set(name, value)`) so a mismatch surfaces
+    /// typed writer (`quill.writer(doc).set(name, value)`) so a mismatch surfaces
     /// at the write. Raises `QuillmarkError` on a malformed name. Mirrors WASM
     /// `setField`.
     fn set_field(&mut self, name: &str, value: Bound<'_, PyAny>) -> PyResult<()> {
@@ -576,7 +574,7 @@ impl PyDocument {
     ///
     /// The batched quill-free primitive (see `set_field`) — stores every value
     /// opaquely, deferring coercion to render. Prefer the typed writer
-    /// (`doc.writer(quill).set_all(fields)`) whenever a quill is in hand: it
+    /// (`quill.writer(doc).set_all(fields)`) whenever a quill is in hand: it
     /// typed-commits the batch and reports per-field routing, so a form
     /// submitting a card is not silently stripped of schema typing. Mirrors WASM
     /// `setFields`.
@@ -829,7 +827,7 @@ impl PyDocument {
 
     /// Store an opaque value on the composable card at `index` — the
     /// card-indexed twin of `set_field`, and the same quill-free primitive.
-    /// Prefer the typed writer (`doc.writer(quill).card(index).set(...)`) when a
+    /// Prefer the typed writer (`quill.writer(doc).card(index).set(...)`) when a
     /// quill is in hand. Raises on an out-of-range index or a malformed name.
     /// Mirrors WASM `setCardField`.
     fn set_card_field(
@@ -847,7 +845,7 @@ impl PyDocument {
     /// Batched twin of `set_card_field`: set several fields on the composable
     /// card at `index` atomically. Same all-or-nothing, one-diagnostic-per-field
     /// contract as `set_fields`, and the same quill-free-primitive framing —
-    /// prefer the typed writer (`doc.writer(quill).card(index).set_all(...)`)
+    /// prefer the typed writer (`quill.writer(doc).card(index).set_all(...)`)
     /// when a quill is in hand. Mirrors WASM `setCardFields`.
     fn set_card_fields(&mut self, index: usize, fields: Bound<'_, PyDict>) -> PyResult<()> {
         let batch = pydict_to_field_batch(&fields)?;
