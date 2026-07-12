@@ -646,19 +646,6 @@ def test_commit_card_field_index_out_of_range():
 # ── Addressed content verbs — commit / revise / apply_change ──────────────────
 
 
-def test_commit_addressed_typed_door():
-    """commit(value, quill, field=...) is the addressed typed door; the body has
-    no schema type so a field is required, and a typo raises UnknownField."""
-    quill = _richtext_form_quill()
-    doc = Document("richtext_form@0.1.0")
-    doc.commit("A **bold** intro.", quill, field="bio")
-    assert isinstance(field(doc.main, "bio"), dict)
-    with pytest.raises(QuillmarkError, match="UnknownField"):
-        doc.commit("x", quill, field="stray")
-    with pytest.raises(TypeError):
-        doc.commit("x", quill)  # field is a required keyword
-
-
 def test_revise_field_and_apply_change_splice():
     """revise({field}) diff-imports a richtext field; apply_change splices marks."""
     quill = _richtext_form_quill()

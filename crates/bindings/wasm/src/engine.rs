@@ -1132,44 +1132,6 @@ impl Document {
         .map_err(|e| edit_error_to_js(&e))
     }
 
-    /// **Commit** a typed value at `addr.field`, resolving the field's schema
-    /// `type` from `quill` — the one typed write verb for every field type
-    /// (richtext, scalar, array, object). The schema carries any `inline`
-    /// constraint. A richtext-typed field stores the canonical corpus (identity
-    /// and corpus-only marks intact). Requires `addr.field`; the body carries no
-    /// schema type, so a bodyless `addr` throws.
-    ///
-    /// A field the schema does not declare throws `[EditError::UnknownField]`
-    /// (a typo on the typed path — use [`setField`](Document::set_field) for
-    /// opaque storage); a typed mismatch throws now, not at render.
-    #[wasm_bindgen(js_name = commit)]
-    pub fn commit(
-        &mut self,
-        #[wasm_bindgen(unchecked_param_type = "Addr")] addr: JsValue,
-        value: JsValue,
-        quill: &Quill,
-    ) -> Result<(), JsValue> {
-        let addr = Addr::from_js(&addr)?;
-        let field = addr.field.as_deref().ok_or_else(|| {
-            WasmError::from(
-                "commit requires addr.field — the body carries no schema type; \
-                 use install/revise for the body",
-            )
-            .to_js_value()
-        })?;
-        let json = js_value_to_json(value, "commit")?;
-        let qv = quillmark_core::QuillValue::from_json(json);
-        let mut editor = quill.inner.editor(&mut self.inner);
-        match addr.card {
-            None => editor.set(field, qv).map_err(|e| edit_error_to_js(&e)),
-            Some(index) => editor
-                .card(index)
-                .map_err(|e| edit_error_to_js(&e))?
-                .set(field, qv)
-                .map_err(|e| edit_error_to_js(&e)),
-        }
-    }
-
     /// Typed field write on the main card, resolving the field's schema `type`
     /// from `quill` — the one write verb for **every** field type (richtext,
     /// scalar, array, object). The schema carries the `inline` constraint, so no

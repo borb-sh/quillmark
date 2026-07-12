@@ -490,32 +490,6 @@ impl PyDocument {
         .map_err(convert_edit_error)
     }
 
-    /// **Commit** a typed value at `(card, field)`, resolving the field's schema
-    /// `type` from `quill` — the one typed write verb for every field type, the
-    /// kwargs idiom of WASM `doc.commit(addr, value, quill)`. Requires `field`
-    /// (the body carries no schema type). A field the schema does not declare
-    /// raises `[EditError::UnknownField]`; a typed mismatch raises now, not at
-    /// render.
-    #[pyo3(signature = (value, quill, *, card=None, field))]
-    fn commit(
-        &mut self,
-        value: Bound<'_, PyAny>,
-        quill: PyRef<'_, PyQuill>,
-        card: Option<usize>,
-        field: &str,
-    ) -> PyResult<()> {
-        let qv = py_to_quillvalue(&value)?;
-        let mut editor = quill.inner.editor(&mut self.inner);
-        match card {
-            None => editor.set(field, qv).map_err(convert_edit_error),
-            Some(index) => editor
-                .card(index)
-                .map_err(convert_edit_error)?
-                .set(field, qv)
-                .map_err(convert_edit_error),
-        }
-    }
-
     /// Main (entry) card as a dict with `kind`, `quill`, `id`, `payload_items`,
     /// `ext`, `seed`, and `body`.
     #[getter]
