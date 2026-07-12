@@ -813,6 +813,36 @@ impl Document {
         serialize_or_throw(&cards, "cards")
     }
 
+    /// Read a main-card field's stored value — the raw payload value (a corpus
+    /// object for a richtext field, a scalar/array/object otherwise), or
+    /// `undefined` when the field is absent. The quill-free read: reads need no
+    /// schema, so they live on `Document`, not the typed editor. For the markdown
+    /// projection of a richtext value use [`getMarkdown`](Self::get_markdown).
+    #[wasm_bindgen(js_name = get)]
+    pub fn get(&self, name: &str) -> Result<JsValue, JsValue> {
+        match self.inner.main().payload().get(name) {
+            Some(v) => serialize_or_throw(v.as_json(), "get"),
+            None => Ok(JsValue::UNDEFINED),
+        }
+    }
+
+    /// The markdown projection of a main-card field (`name` given) or the main
+    /// body (`name` omitted) — the on-demand, lossy export (corpus-only marks do
+    /// not survive markdown), returning `""` for an absent field. Re-coins,
+    /// lazily and by name, the projection the eager `fieldMarkdown` /
+    /// `bodyMarkdown` getters dropped in #925; call it only when markdown is what
+    /// you need out.
+    #[wasm_bindgen(js_name = getMarkdown)]
+    pub fn get_markdown(
+        &self,
+        #[wasm_bindgen(unchecked_optional_param_type = "string")] name: Option<String>,
+    ) -> String {
+        match name {
+            Some(n) => self.inner.main().field_markdown(&n).unwrap_or_default(),
+            None => self.inner.main().body_markdown(),
+        }
+    }
+
     /// Number of composable cards (excludes the main card). O(1).
     #[wasm_bindgen(getter, js_name = cardCount)]
     pub fn card_count(&self) -> usize {
@@ -1186,6 +1216,36 @@ impl Document {
             .inner
             .editor(&mut self.inner)
             .set_all(batch)
+            .map_err(edit_errors_to_js)
+    }
+
+    /// Build a composable card of `kind`, typed-commit `fields` onto it, set its
+    /// body from optional markdown, and append it — the ABI under
+    /// `editor.addCard`. Fuses `makeCard` + typed commit + `pushCard`
+    /// transactionally: the card is committed in full before it joins the
+    /// document, so a rejected field (or an invalid kind or body) leaves the
+    /// document untouched. Field errors throw the same per-field diagnostic
+    /// bundle as [`commitFields`](Self::commit_fields), including an
+    /// `[EditError::UnknownField]` per undeclared name; an invalid kind or body
+    /// throws a single-entry bundle keyed `$kind` / `$body`.
+    #[wasm_bindgen(js_name = addCard)]
+    pub fn add_card(
+        &mut self,
+        quill: &Quill,
+        kind: &str,
+        #[wasm_bindgen(unchecked_optional_param_type = "Record<string, unknown>")] fields: Option<
+            JsValue,
+        >,
+        #[wasm_bindgen(unchecked_optional_param_type = "string")] body: Option<String>,
+    ) -> Result<(), JsValue> {
+        let batch = match fields {
+            Some(f) => js_value_to_field_batch(&f, "addCard")?,
+            None => Vec::new(),
+        };
+        quill
+            .inner
+            .editor(&mut self.inner)
+            .add_card(kind, batch, body.as_deref())
             .map_err(edit_errors_to_js)
     }
 
