@@ -1494,9 +1494,8 @@ fn js_to_corpus(value: JsValue, ctx: &str) -> Result<quillmark_core::RichText, J
         .map_err(|e| WasmError::from(format!("{ctx}: not a canonical RichText corpus: {e}")).to_js_value())
 }
 
-/// Lower a `ChangeBundle` (`{ delta?, lineOps?, markOps? }`) to core ops. A
-/// missing `delta` is the identity (no text change); missing op arrays are
-/// empty.
+/// Lower a `ChangeBundle` (`{ delta?, lineOps?, markOps? }`) to core ops via the
+/// shared richtext reader, mapping its message to a `WasmError`.
 fn parse_change_bundle(
     value: &JsValue,
 ) -> Result<
@@ -1508,42 +1507,8 @@ fn parse_change_bundle(
     JsValue,
 > {
     let json = js_value_to_json(value.clone(), "applyChange")?;
-    let obj = json.as_object().ok_or_else(|| {
-        WasmError::from("applyChange: bundle must be an object { delta?, lineOps?, markOps? }")
-            .to_js_value()
-    })?;
-    let delta = match obj.get("delta") {
-        Some(serde_json::Value::Null) | None => quillmark_core::Delta { ops: Vec::new() },
-        Some(d) => serde_json::from_value(d.clone())
-            .map_err(|e| WasmError::from(format!("applyChange: invalid delta: {e}")).to_js_value())?,
-    };
-    let line_ops = parse_op_array(obj.get("lineOps"), quillmark_richtext::line_op_from_value, "lineOps")?;
-    let mark_ops = parse_op_array(obj.get("markOps"), quillmark_richtext::mark_op_from_value, "markOps")?;
-    Ok((delta, line_ops, mark_ops))
-}
-
-/// Lower an optional JSON array of op objects through `convert`, mapping a shape
-/// error to a `WasmError` naming `what`.
-fn parse_op_array<T>(
-    value: Option<&serde_json::Value>,
-    convert: impl Fn(&serde_json::Value) -> Result<T, quillmark_richtext::ParseError>,
-    what: &str,
-) -> Result<Vec<T>, JsValue> {
-    let Some(value) = value else {
-        return Ok(Vec::new());
-    };
-    if value.is_null() {
-        return Ok(Vec::new());
-    }
-    let arr = value.as_array().ok_or_else(|| {
-        WasmError::from(format!("applyChange: {what} must be an array")).to_js_value()
-    })?;
-    arr.iter()
-        .map(|v| {
-            convert(v)
-                .map_err(|e| WasmError::from(format!("applyChange: invalid {what}: {e}")).to_js_value())
-        })
-        .collect()
+    quillmark_richtext::change_bundle_from_value(&json)
+        .map_err(|e| WasmError::from(format!("applyChange: {e}")).to_js_value())
 }
 
 // ── Corpus codec (document-free) ────────────────────────────────────────────────

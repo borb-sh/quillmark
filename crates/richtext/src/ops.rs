@@ -203,6 +203,53 @@ pub fn line_op_from_value(v: &Value) -> Result<LineOp, ParseError> {
     }
 }
 
+/// Lower a committed change **bundle** object (`{delta?, lineOps?, markOps?}`) to
+/// core ops — the whole-bundle reader the `applyChange` verb needs, so each
+/// binding lowers a JS/Python bundle in one call instead of re-deriving the
+/// delta/op extraction. A missing `delta` is the identity (no text change); a
+/// missing/`null` op array is empty. Both camelCase (`lineOps`) and snake_case
+/// (`line_ops`) keys are accepted, so the one reader serves the wasm (camelCase)
+/// and Python (either) surfaces. The error is a message string the binding wraps
+/// in its own error type.
+#[allow(clippy::type_complexity)]
+pub fn change_bundle_from_value(
+    v: &Value,
+) -> Result<(Delta, Vec<LineOp>, Vec<MarkOp>), String> {
+    let obj = v
+        .as_object()
+        .ok_or("bundle must be an object { delta?, lineOps?, markOps? }")?;
+    let get = |snake: &str, camel: &str| obj.get(snake).or_else(|| obj.get(camel));
+    let delta = match get("delta", "delta") {
+        Some(Value::Null) | None => Delta { ops: Vec::new() },
+        Some(d) => serde_json::from_value(d.clone()).map_err(|e| format!("invalid delta: {e}"))?,
+    };
+    let line_ops = op_array(get("line_ops", "lineOps"), line_op_from_value, "lineOps")?;
+    let mark_ops = op_array(get("mark_ops", "markOps"), mark_op_from_value, "markOps")?;
+    Ok((delta, line_ops, mark_ops))
+}
+
+/// Lower an optional JSON array of op objects through `convert` (missing/`null`
+/// → empty), naming `what` in any shape-error message. The list twin shared by
+/// [`change_bundle_from_value`]'s line- and mark-op channels.
+fn op_array<T>(
+    value: Option<&Value>,
+    convert: impl Fn(&Value) -> Result<T, ParseError>,
+    what: &str,
+) -> Result<Vec<T>, String> {
+    let Some(value) = value else {
+        return Ok(Vec::new());
+    };
+    if value.is_null() {
+        return Ok(Vec::new());
+    }
+    let arr = value
+        .as_array()
+        .ok_or_else(|| format!("{what} must be an array"))?;
+    arr.iter()
+        .map(|v| convert(v).map_err(|e| format!("invalid {what}: {e}")))
+        .collect()
+}
+
 /// Why an apply failed — range or line index out of bounds, or invariants
 /// broken before normalization could repair them.
 #[derive(Debug, Clone, PartialEq, Eq)]

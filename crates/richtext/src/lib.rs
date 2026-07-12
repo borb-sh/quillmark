@@ -49,8 +49,8 @@ pub use model::{
 };
 pub use normalize::normalize_markdown;
 pub use ops::{
-    line_op_from_value, line_op_to_value, mark_op_from_value, mark_op_to_value, ApplyError, LineOp,
-    MarkOp,
+    change_bundle_from_value, line_op_from_value, line_op_to_value, mark_op_from_value,
+    mark_op_to_value, ApplyError, LineOp, MarkOp,
 };
 pub use serial::ParseError;
 

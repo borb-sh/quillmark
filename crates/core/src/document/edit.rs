@@ -85,21 +85,12 @@ pub enum EditError {
     #[error("body import failed: {0}")]
     BodyImport(ImportError),
 
-    /// A body value in the corpus-or-markdown encoding could not be decoded: a
-    /// JSON object that is not a canonical richtext corpus, a markdown string
-    /// that failed to import, or a shape that is neither object, string, nor
-    /// null. Retained for callers that decode a JSON-valued body at a boundary;
-    /// the corpus writers ([`Card::install_body`](Card::install_body) /
-    /// [`Card::revise_body`](Card::revise_body)) take a typed [`RichText`] or a
-    /// markdown string and never produce it.
-    #[error("body decode failed: {0}")]
-    BodyDecode(String),
-
     /// A richtext field value in the corpus-or-markdown encoding could not be
     /// decoded: a JSON object that is not a canonical richtext corpus, a
     /// markdown string that failed to import, or a shape that is neither
-    /// object, string, nor null. The field-level twin of [`BodyDecode`](Self::BodyDecode);
-    /// returned by [`Card::commit_field`](Card::commit_field) on a richtext field
+    /// object, string, nor null. Returned by
+    /// [`Card::commit_field`](Card::commit_field) on a richtext field, by
+    /// [`Card::revise_field`](Card::revise_field) on a present non-corpus field,
     /// and by [`Card::apply_field_richtext_change`](Card::apply_field_richtext_change).
     #[error("richtext field '{field}' decode failed: {message}")]
     FieldRichtextDecode { field: String, message: String },
@@ -142,7 +133,6 @@ impl EditError {
             EditError::IndexOutOfRange { .. } => "IndexOutOfRange",
             EditError::ValueTooDeep { .. } => "ValueTooDeep",
             EditError::BodyImport(_) => "BodyImport",
-            EditError::BodyDecode(_) => "BodyDecode",
             EditError::FieldRichtextDecode { .. } => "FieldRichtextDecode",
             EditError::FieldRichtextNotInline(_) => "FieldRichtextNotInline",
             EditError::FieldConform { .. } => "FieldConform",
@@ -573,10 +563,20 @@ impl Card {
         if !is_valid_field_name(name) {
             return Err(EditError::InvalidFieldName(name.to_string()));
         }
-        let canonical = quillmark_richtext::serial::to_canonical_value(&corpus);
+        self.store_field_corpus(name, &corpus);
+        Ok(())
+    }
+
+    /// Store `corpus` as the canonical corpus-JSON value of field `name` — the
+    /// one place a richtext field's corpus is committed to the payload, shared by
+    /// [`install_field`](Self::install_field), [`revise_field`](Self::revise_field),
+    /// and [`apply_field_richtext_change`](Self::apply_field_richtext_change).
+    /// Assumes `name` is already validated (all three callers check it or resolve
+    /// an existing field first).
+    fn store_field_corpus(&mut self, name: &str, corpus: &RichText) {
+        let canonical = quillmark_richtext::serial::to_canonical_value(corpus);
         self.payload_mut()
             .insert(name.to_string(), QuillValue::from_json(canonical));
-        Ok(())
     }
 
     /// Write-time commit: validate and normalize `value` per the field's schema
@@ -679,9 +679,7 @@ impl Card {
             None => RichText::empty(),
         };
         let (corpus, delta) = diff_import(&base, &body.into()).map_err(EditError::BodyImport)?;
-        let canonical = quillmark_richtext::serial::to_canonical_value(&corpus);
-        self.payload_mut()
-            .insert(name.to_string(), QuillValue::from_json(canonical));
+        self.store_field_corpus(name, &corpus);
         Ok(delta)
     }
 
@@ -740,9 +738,7 @@ impl Card {
         corpus
             .apply_field_change(text_delta, line_ops, mark_ops)
             .map_err(EditError::CorpusApply)?;
-        let canonical = quillmark_richtext::serial::to_canonical_value(&corpus);
-        self.payload_mut()
-            .insert(name.to_string(), QuillValue::from_json(canonical));
+        self.store_field_corpus(name, &corpus);
         Ok(())
     }
 }

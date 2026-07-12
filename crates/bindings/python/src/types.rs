@@ -1480,9 +1480,9 @@ fn delta_to_json(delta: &quillmark_core::Delta) -> serde_json::Value {
     serde_json::to_value(delta).unwrap_or(serde_json::Value::Null)
 }
 
-/// Lower an `apply_change` bundle (`{delta?, line_ops?, mark_ops?}`) to core ops.
-/// A missing `delta` is the identity; missing op lists are empty. Accepts both
-/// snake_case (`line_ops`) and camelCase (`lineOps`) keys.
+/// Lower an `apply_change` bundle (`{delta?, line_ops?, mark_ops?}`) to core ops
+/// via the shared richtext reader (which accepts both snake_case and camelCase
+/// keys), mapping its message to a `ValueError`.
 fn parse_change_bundle(
     value: &Bound<'_, PyAny>,
 ) -> PyResult<(
@@ -1491,47 +1491,7 @@ fn parse_change_bundle(
     Vec<quillmark_core::MarkOp>,
 )> {
     let json = py_to_json(value)?;
-    let obj = json.as_object().ok_or_else(|| {
-        PyValueError::new_err("bundle must be a dict { delta?, line_ops?, mark_ops? }")
-    })?;
-    let get = |snake: &str, camel: &str| obj.get(snake).or_else(|| obj.get(camel));
-    let delta = match get("delta", "delta") {
-        Some(serde_json::Value::Null) | None => quillmark_core::Delta { ops: Vec::new() },
-        Some(d) => serde_json::from_value(d.clone())
-            .map_err(|e| PyValueError::new_err(format!("invalid delta: {e}")))?,
-    };
-    let line_ops = parse_op_list(
-        get("line_ops", "lineOps"),
-        quillmark_richtext::line_op_from_value,
-        "line_ops",
-    )?;
-    let mark_ops = parse_op_list(
-        get("mark_ops", "markOps"),
-        quillmark_richtext::mark_op_from_value,
-        "mark_ops",
-    )?;
-    Ok((delta, line_ops, mark_ops))
-}
-
-/// Lower an optional JSON array of op objects through `convert`, mapping a shape
-/// error to a `ValueError` naming `what`.
-fn parse_op_list<T>(
-    value: Option<&serde_json::Value>,
-    convert: impl Fn(&serde_json::Value) -> Result<T, quillmark_richtext::ParseError>,
-    what: &str,
-) -> PyResult<Vec<T>> {
-    let Some(value) = value else {
-        return Ok(Vec::new());
-    };
-    if value.is_null() {
-        return Ok(Vec::new());
-    }
-    let arr = value
-        .as_array()
-        .ok_or_else(|| PyValueError::new_err(format!("{what} must be a list")))?;
-    arr.iter()
-        .map(|v| convert(v).map_err(|e| PyValueError::new_err(format!("invalid {what}: {e}"))))
-        .collect()
+    quillmark_richtext::change_bundle_from_value(&json).map_err(PyValueError::new_err)
 }
 
 /// Import a markdown string to a canonical `RichText` corpus dict — the pure,
