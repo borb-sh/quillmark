@@ -442,27 +442,27 @@ export declare class LiveSession {
 	free(): void;
 }
 
-// ── Typed editor — the tier-1 front door ────────────────────────────────────
+// ── Typed writer — the tier-1 front door ────────────────────────────────────
 
-// `quill.editor(doc)` is patched onto the re-exported `Quill` prototype (the
+// `quill.writer(doc)` is patched onto the re-exported `Quill` prototype (the
 // class is re-exported verbatim, so the method is declared by merging into the
 // core module's `Quill` rather than redeclaring the class).
 declare module '../core/wasm.js' {
 	interface Quill {
 		/**
 		 * Bind this quill's schema to `doc` for typed writes — the documented
-		 * front door, mirroring core's `quill.editor(&mut doc)`. The schema grants
-		 * the typing, so the quill is the factory. The returned editor holds both
+		 * front door, mirroring core's `quill.writer(&mut doc)`. The schema grants
+		 * the typing, so the quill is the factory. The returned writer holds both
 		 * handles by reference and owns neither (nothing to `free()`); it is
 		 * ephemeral by convention — bind, write, discard.
 		 */
-		editor(doc: Document): DocumentEditor;
+		writer(doc: Document): DocumentWriter;
 	}
 }
 
 /**
  * A `Document` bound to its `Quill` for typed writes — the tier-1 default,
- * constructed via {@link Quill.editor}. Speaks names, values, and markdown; a
+ * constructed via {@link Quill.writer}. Speaks names, values, and markdown; a
  * consumer here never meets an `Addr`, a corpus object, or a `Delta`. Bare
  * `set` / `setAll` / `setBody` / `addCard` / `card(i).set` instead of threading
  * the `quill` handle through every `commit*` call. Holds both handles by
@@ -475,7 +475,7 @@ declare module '../core/wasm.js' {
  * deliberate quill-free primitive (standalone data, storage/migration infra, or
  * holding not-yet-conforming in-progress input).
  */
-export declare class DocumentEditor {
+export declare class DocumentWriter {
 	constructor(quill: Quill, doc: Document);
 	/** The bound document — the instance passed in, mutated in place. */
 	readonly document: Document;
@@ -506,21 +506,21 @@ export declare class DocumentEditor {
 	/** Remove the composable card at `index`, returning it (or `undefined`). */
 	removeCard(index: number): Card | undefined;
 	/**
-	 * A {@link CardEditor} for the composable card at `index`. Index validity is
+	 * A {@link CardWriter} for the composable card at `index`. Index validity is
 	 * checked lazily at commit time, so this never throws. The cursor is
 	 * ephemeral — a `removeCard`/`addCard` between binding and writing silently
 	 * retargets it; for durable addressing stamp `$id` and re-resolve at write.
 	 */
-	card(index: number): CardEditor;
+	card(index: number): CardWriter;
 }
 
 /**
  * A composable card bound to its `Quill` for typed writes, from
- * {@link DocumentEditor.card}. Same verbs as {@link DocumentEditor}, targeting
+ * {@link DocumentWriter.card}. Same verbs as {@link DocumentWriter}, targeting
  * the card at its bound index; each write throws `IndexOutOfRange` if that index
  * is out of range.
  */
-export declare class CardEditor {
+export declare class CardWriter {
 	constructor(quill: Quill, doc: Document, index: number);
 	/** The bound card index. */
 	readonly index: number;

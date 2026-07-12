@@ -103,7 +103,7 @@ fn richtext_fields_written_as_corpus_render_identically() {
     // now carries corpus objects.
     let mut doc = Document::from_markdown(FILLED).expect("parse markdown");
     {
-        let mut ed = quill.editor(&mut doc);
+        let mut ed = quill.writer(&mut doc);
         ed.set("headline", "The **headline**")
             .expect("inline richtext write");
         ed.set("bio", "A **bold** claim and _emphasis_.")

@@ -115,6 +115,16 @@ impl PyQuill {
         self.inner.backend_id().to_string()
     }
 
+    /// Bind this quill's schema to `doc` for typed writes — the documented front
+    /// door, mirroring core `quill.writer(&mut doc)` and WASM `quill.writer(doc)`.
+    /// The quill owns the schema, so it is the factory. Returns a `Writer` holding
+    /// both objects by reference and re-borrowing per call (pyo3 objects carry no
+    /// lifetime, so the writer cannot hold the borrow the way core's `TypedWriter`
+    /// does). Ephemeral by convention — bind, write, discard.
+    fn writer(slf: Py<Self>, doc: Py<PyDocument>) -> PyWriter {
+        PyWriter { quill: slf, doc }
+    }
+
     #[getter]
     fn quill_ref(&self) -> String {
         let source = &self.inner;
@@ -507,20 +517,11 @@ impl PyDocument {
         Ok(result)
     }
 
-    /// Bind `quill`'s schema to this document for typed writes — the documented
-    /// front door, mirroring core `quill.editor(&mut doc)` and WASM
-    /// `quill.editor(doc)`. Returns an `Editor` holding both objects by reference
-    /// and re-borrowing per call (pyo3 objects carry no lifetime, so the editor
-    /// cannot hold the borrow the way core's `TypedEditor` does). Ephemeral by
-    /// convention — bind, write, discard.
-    fn editor(slf: Py<Self>, quill: Py<PyQuill>) -> PyEditor {
-        PyEditor { quill, doc: slf }
-    }
 
     /// Read a main-card field's stored value — a dict for a richtext corpus, a
     /// scalar/list/dict otherwise, or `None` when the field is absent. The
     /// quill-free read: reads need no schema, so they live on `Document`, not the
-    /// typed editor. For the markdown projection of a richtext value use
+    /// typed writer. For the markdown projection of a richtext value use
     /// `get_markdown`. Mirrors WASM `Document.get`.
     fn get<'py>(&self, py: Python<'py>, name: &str) -> PyResult<Option<Bound<'py, PyAny>>> {
         match self.inner.main().payload().get(name) {
@@ -548,7 +549,7 @@ impl PyDocument {
     /// Reach for it deliberately — standalone data with no quill in hand,
     /// quill-agnostic storage/migration, or a store-now-validate-later editor
     /// holding not-yet-conforming input. When a quill *is* in hand, prefer the
-    /// typed editor (`doc.editor(quill).set(name, value)`) so a mismatch surfaces
+    /// typed writer (`doc.writer(quill).set(name, value)`) so a mismatch surfaces
     /// at the write. Raises `QuillmarkError` on a malformed name. Mirrors WASM
     /// `setField`.
     fn set_field(&mut self, name: &str, value: Bound<'_, PyAny>) -> PyResult<()> {
@@ -574,8 +575,8 @@ impl PyDocument {
     /// (database columns, form keys) surface every violation in one pass.
     ///
     /// The batched quill-free primitive (see `set_field`) — stores every value
-    /// opaquely, deferring coercion to render. Prefer the typed editor
-    /// (`doc.editor(quill).set_all(fields)`) whenever a quill is in hand: it
+    /// opaquely, deferring coercion to render. Prefer the typed writer
+    /// (`doc.writer(quill).set_all(fields)`) whenever a quill is in hand: it
     /// typed-commits the batch and reports per-field routing, so a form
     /// submitting a card is not silently stripped of schema typing. Mirrors WASM
     /// `setFields`.
@@ -828,7 +829,7 @@ impl PyDocument {
 
     /// Store an opaque value on the composable card at `index` — the
     /// card-indexed twin of `set_field`, and the same quill-free primitive.
-    /// Prefer the typed editor (`doc.editor(quill).card(index).set(...)`) when a
+    /// Prefer the typed writer (`doc.writer(quill).card(index).set(...)`) when a
     /// quill is in hand. Raises on an out-of-range index or a malformed name.
     /// Mirrors WASM `setCardField`.
     fn set_card_field(
@@ -846,7 +847,7 @@ impl PyDocument {
     /// Batched twin of `set_card_field`: set several fields on the composable
     /// card at `index` atomically. Same all-or-nothing, one-diagnostic-per-field
     /// contract as `set_fields`, and the same quill-free-primitive framing —
-    /// prefer the typed editor (`doc.editor(quill).card(index).set_all(...)`)
+    /// prefer the typed writer (`doc.writer(quill).card(index).set_all(...)`)
     /// when a quill is in hand. Mirrors WASM `setCardFields`.
     fn set_card_fields(&mut self, index: usize, fields: Bound<'_, PyDict>) -> PyResult<()> {
         let batch = pydict_to_field_batch(&fields)?;
@@ -896,19 +897,19 @@ impl PyDocument {
 }
 
 /// A `Document` bound to its `Quill` for typed writes — the tier-1 default,
-/// from `Document.editor(quill)`. Speaks names, values, and markdown; a consumer
+/// from `Quill.writer(doc)`. Speaks names, values, and markdown; a consumer
 /// here never meets an address, a corpus dict, or a delta. It holds both objects
 /// by reference and re-borrows them per call (pyo3 objects carry no lifetime, so
-/// unlike core's `TypedEditor` it cannot keep the borrow) — so it is ephemeral by
-/// convention: bind, write, discard. Mirrors WASM `quill.editor(doc)`.
-#[pyclass(name = "Editor")]
-pub struct PyEditor {
+/// unlike core's `TypedWriter` it cannot keep the borrow) — so it is ephemeral by
+/// convention: bind, write, discard. Mirrors WASM `quill.writer(doc)`.
+#[pyclass(name = "Writer")]
+pub struct PyWriter {
     quill: Py<PyQuill>,
     doc: Py<PyDocument>,
 }
 
 #[pymethods]
-impl PyEditor {
+impl PyWriter {
     /// The bound document — the same object passed in, mutated in place.
     #[getter]
     fn document(&self, py: Python<'_>) -> Py<PyDocument> {
@@ -923,7 +924,7 @@ impl PyEditor {
         let mut doc = self.doc.borrow_mut(py);
         quill
             .inner
-            .editor(&mut doc.inner)
+            .writer(&mut doc.inner)
             .set(name, qv)
             .map_err(convert_edit_error)
     }
@@ -937,7 +938,7 @@ impl PyEditor {
         let mut doc = self.doc.borrow_mut(py);
         quill
             .inner
-            .editor(&mut doc.inner)
+            .writer(&mut doc.inner)
             .set_all(batch)
             .map_err(convert_edit_errors)
     }
@@ -950,7 +951,7 @@ impl PyEditor {
         let mut doc = self.doc.borrow_mut(py);
         quill
             .inner
-            .editor(&mut doc.inner)
+            .writer(&mut doc.inner)
             .set_body(markdown)
             .map_err(convert_edit_error)
     }
@@ -975,7 +976,7 @@ impl PyEditor {
         let mut doc = self.doc.borrow_mut(py);
         quill
             .inner
-            .editor(&mut doc.inner)
+            .writer(&mut doc.inner)
             .add_card(kind, batch, body.as_deref())
             .map_err(convert_edit_errors)
     }
@@ -995,12 +996,12 @@ impl PyEditor {
         }
     }
 
-    /// A `CardEditor` for the composable card at `index`. The index is checked
+    /// A `CardWriter` for the composable card at `index`. The index is checked
     /// lazily at the write, so this never raises. The cursor is ephemeral — a
     /// `remove_card`/`add_card` between binding and writing silently retargets
     /// it; for durable addressing stamp `$id` and re-resolve at write time.
-    fn card(&self, py: Python<'_>, index: usize) -> PyCardEditor {
-        PyCardEditor {
+    fn card(&self, py: Python<'_>, index: usize) -> PyCardWriter {
+        PyCardWriter {
             quill: self.quill.clone_ref(py),
             doc: self.doc.clone_ref(py),
             index,
@@ -1008,18 +1009,18 @@ impl PyEditor {
     }
 }
 
-/// A composable card bound to its `Quill` for typed writes, from `Editor.card`.
-/// Same verbs as `Editor`, targeting the card at its bound index; each write
+/// A composable card bound to its `Quill` for typed writes, from `Writer.card`.
+/// Same verbs as `Writer`, targeting the card at its bound index; each write
 /// raises `[EditError::IndexOutOfRange]` if that index is out of range.
-#[pyclass(name = "CardEditor")]
-pub struct PyCardEditor {
+#[pyclass(name = "CardWriter")]
+pub struct PyCardWriter {
     quill: Py<PyQuill>,
     doc: Py<PyDocument>,
     index: usize,
 }
 
 #[pymethods]
-impl PyCardEditor {
+impl PyCardWriter {
     /// The bound card index.
     #[getter]
     fn index(&self) -> usize {
@@ -1035,7 +1036,7 @@ impl PyCardEditor {
         let mut doc = self.doc.borrow_mut(py);
         quill
             .inner
-            .editor(&mut doc.inner)
+            .writer(&mut doc.inner)
             .card(self.index)
             .map_err(convert_edit_error)?
             .set(name, qv)
@@ -1043,13 +1044,13 @@ impl PyCardEditor {
     }
 
     /// Typed-commit several fields on this card atomically — same per-field
-    /// diagnostic bundle as `Editor.set_all`.
+    /// diagnostic bundle as `Writer.set_all`.
     fn set_all(&self, py: Python<'_>, fields: Bound<'_, PyDict>) -> PyResult<()> {
         let batch = pydict_to_field_batch(&fields)?;
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
-        let mut editor = quill.inner.editor(&mut doc.inner);
-        editor
+        let mut writer = quill.inner.writer(&mut doc.inner);
+        writer
             .card(self.index)
             .map_err(convert_edit_error)?
             .set_all(batch)
@@ -1062,7 +1063,7 @@ impl PyCardEditor {
         let mut doc = self.doc.borrow_mut(py);
         quill
             .inner
-            .editor(&mut doc.inner)
+            .writer(&mut doc.inner)
             .card(self.index)
             .map_err(convert_edit_error)?
             .set_body(markdown)

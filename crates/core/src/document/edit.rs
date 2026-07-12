@@ -57,8 +57,8 @@ pub enum EditError {
     #[error("invalid field name '{0}': must match [A-Za-z_][A-Za-z0-9_]*")]
     InvalidFieldName(String),
 
-    /// A typed write ([`TypedEditor::set`](crate::TypedEditor::set) /
-    /// [`CardEditor::set`](crate::CardEditor::set)) addressed a well-formed name
+    /// A typed write ([`TypedWriter::set`](crate::TypedWriter::set) /
+    /// [`CardWriter::set`](crate::CardWriter::set)) addressed a well-formed name
     /// that the bound schema does not declare (or a card whose `$kind` carries
     /// no schema). The typed path resolves every name to a schema type, so an
     /// undeclared name is a typo, not a fallback — it fails here instead of
@@ -219,7 +219,7 @@ fn conform_error_to_edit(name: &str, err: CoercionError) -> EditError {
 
 /// Compute the canonical stored form of a typed field write **without applying
 /// it** — the dry-run shared by [`Card::commit_field`] and the batched,
-/// all-or-nothing [`TypedEditor::set_all`](crate::TypedEditor::set_all).
+/// all-or-nothing [`TypedWriter::set_all`](crate::TypedWriter::set_all).
 ///
 /// Strict `Leniency::Write` conform against `schema`; the name and stored-value
 /// depth are validated too, so a batch can collect every violation before any
@@ -607,7 +607,7 @@ impl Card {
     ///
     /// The caller supplies the `schema` because a [`Document`] holds only a
     /// `$quill` *reference*, not the resolved schema; an editor holds it (see
-    /// [`crate::TypedEditor`], which resolves the schema per field and calls
+    /// [`crate::TypedWriter`], which resolves the schema per field and calls
     /// this).
     ///
     /// Returns [`EditError::InvalidFieldName`] for a malformed name,

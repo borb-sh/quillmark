@@ -71,7 +71,7 @@ to the write by typed commit (below).
 Document mutation is a data primitive that never requires a Quill. `set_field` /
 `set_fields` hold only a `$quill` *reference*, enforce the structural invariants
 above, and store the value verbatim — coercion is deferred to render. Typed
-commit is a schema-bound layer over that primitive: `Quill::editor(&mut doc)`
+commit is a schema-bound layer over that primitive: `Quill::writer(&mut doc)`
 binds the resolved schema, and its `set` / `set_all` resolve each field's `type`,
 coerce to the canonical form (`"3"` → `3`, a markdown string → a richtext
 corpus), and fail at the write on a mismatch — the default whenever a Quill is
@@ -86,11 +86,11 @@ The primitive stays load-bearing — it is what lets a `Document` be constructed
 and `from_json`'d with no bundle (standalone data), what quill-agnostic
 storage/migration infra writes through, what a store-now-validate-later editor
 uses to hold not-yet-conforming input, and the way to store a value opaquely on
-purpose. Reach for the opaque `set_*` for those; reach for the editor by
-default. `Quill::editor(&mut doc)` is the documented front door in every
-surface: `quill.editor(doc)` in WASM, `doc.editor(quill)` in Python (the
-schema-bound `DocumentEditor` / `Editor` with `set` / `set_all` / `set_body` /
-`add_card` / `card(i)`). The `commitField` / `commitFields` (+ `commitCard*`)
+purpose. Reach for the opaque `set_*` for those; reach for the writer by
+default. `Quill::writer(&mut doc)` is the documented front door in every
+surface — `quill.writer(doc)` in WASM and Python alike (the schema-bound
+`DocumentWriter` / `Writer` with `set` / `set_all` / `set_body` /
+`add_card` / `card(i)`); the quill owns the schema, so it is the factory. The `commitField` / `commitFields` (+ `commitCard*`)
 verbs are the stable ABI underneath it, and `setField` / `setCardField` remain
 the quill-free opaque store. See [BINDINGS.md](BINDINGS.md) for the two-tier
 write surface and the core-vs-bindings parity table.
