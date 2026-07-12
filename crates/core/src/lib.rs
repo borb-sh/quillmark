@@ -21,8 +21,8 @@
 //!
 //! ## Further Reading
 //!
-//! - [markdown-spec.md](https://github.com/quillmark-org/quillmark/blob/main/prose/references/markdown-spec.md) - Quillmark Markdown parsing specification
-//! - [Examples](https://github.com/quillmark-org/quillmark/tree/main/crates/core/examples) - Working examples
+//! - [markdown-spec.md](https://github.com/borb-sh/quillmark/blob/main/prose/references/markdown-spec.md) - Quillmark Markdown parsing specification
+//! - [Examples](https://github.com/borb-sh/quillmark/tree/main/crates/core/examples) - Working examples
 
 pub mod document;
 pub use document::{

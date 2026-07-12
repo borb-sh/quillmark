@@ -22,10 +22,10 @@ The binary will be installed to `~/.cargo/bin/quillmark` (ensure `~/.cargo/bin` 
 
 ```bash
 # Install latest from main branch
-cargo install --git https://github.com/quillmark-org/quillmark quillmark-cli
+cargo install --git https://github.com/borb-sh/quillmark quillmark-cli
 
 # Install from specific branch or tag
-cargo install --git https://github.com/quillmark-org/quillmark --branch main quillmark-cli
+cargo install --git https://github.com/borb-sh/quillmark --branch main quillmark-cli
 ```
 
 ### From Local Source
@@ -179,8 +179,8 @@ For architectural details and design decisions, see:
 
 ## Changelog
 
-See the [changelog](https://github.com/quillmark-org/quillmark/blob/main/CHANGELOG.md)
-and the [GitHub Releases](https://github.com/quillmark-org/quillmark/releases) page for
+See the [changelog](https://github.com/borb-sh/quillmark/blob/main/CHANGELOG.md)
+and the [GitHub Releases](https://github.com/borb-sh/quillmark/releases) page for
 release notes and version history.
 
 ## License

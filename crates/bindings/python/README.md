@@ -154,8 +154,8 @@ WASM uses — so callers can pattern-match on the message when they need to.
 
 ## Changelog
 
-See the [changelog](https://github.com/quillmark-org/quillmark/blob/main/CHANGELOG.md)
-and the [GitHub Releases](https://github.com/quillmark-org/quillmark/releases) page for
+See the [changelog](https://github.com/borb-sh/quillmark/blob/main/CHANGELOG.md)
+and the [GitHub Releases](https://github.com/borb-sh/quillmark/releases) page for
 release notes and version history.
 
 ## Development

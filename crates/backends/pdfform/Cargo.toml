@@ -8,7 +8,7 @@ description = "Typst-free PDF-form backend for Quillmark: fills existing PDF for
 license.workspace = true
 documentation = "https://docs.rs/quillmark-pdfform"
 homepage.workspace = true
-repository = "https://github.com/quillmark-org/quillmark"
+repository = "https://github.com/borb-sh/quillmark"
 
 [dependencies]
 quillmark-core = { workspace = true }

@@ -119,4 +119,4 @@
       which recompiles in place and can change the page count
       (`ChangeSet.pageCount`).
 
-    Full design rationale: [PREVIEW.md](https://github.com/quillmark-org/quillmark/blob/main/prose/canon/PREVIEW.md).
+    Full design rationale: [PREVIEW.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PREVIEW.md).

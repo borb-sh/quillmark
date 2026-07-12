@@ -29,7 +29,7 @@ edition = "2021"
 include = ["src/**", "Cargo.toml", "README*", "LICENSE*"]
 readme = "README.md"
 license = "Apache-2.0"
-homepage = "https://quillmark-org.github.io/quillmark/"
+homepage = "https://borb-sh.github.io/quillmark/"
 
 [workspace.dependencies]
 # Core dependencies
