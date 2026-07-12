@@ -14,6 +14,8 @@
 // public entry point, so this is a structural fact. Replacing the re-export
 // with a wrapper is a breaking design change, not a refactor. See runtime.js.
 export { Quill, Document, init } from '../core/wasm.js';
+// The document-free corpus codec, re-exported from the core build.
+export { importMarkdown, exportMarkdown, rebase, mapPos } from '../core/wasm.js';
 
 // Core-build types consumers read off `Quill`/`Document`.
 export type {
