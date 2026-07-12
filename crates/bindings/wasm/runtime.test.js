@@ -140,19 +140,23 @@ card_kinds:
   const fieldOf = (card, key) =>
     card.payloadItems.find((i) => i.type === 'field' && i.key === key)?.value
 
-  it('set binds the quill once and routes typed vs opaque', () => {
+  it('set binds the quill once and strict-commits a schema field', () => {
     const ed = new DocumentEditor(buildQuill(), blankDoc())
-    expect(ed.set('qty', '3')).toBe('typed') // schema field → strict coerce
-    expect(ed.set('stray', 'x')).toBe('opaque') // unknown → verbatim store
+    ed.set('qty', '3') // schema field → strict coerce
     expect(fieldOf(ed.document.main, 'qty')).toBe(3)
-    expect(fieldOf(ed.document.main, 'stray')).toBe('x')
   })
 
-  it('setAll returns the per-field routing record, flagging a typo as opaque', () => {
+  it('set rejects an undeclared name as a typo, not a fallback', () => {
     const ed = new DocumentEditor(buildQuill(), blankDoc())
-    const routing = ed.setAll({ qty: '5', titel: 'oops' })
-    expect(routing).toEqual({ qty: 'typed', titel: 'opaque' })
-    expect(fieldOf(ed.document.main, 'qty')).toBe(5)
+    expect(() => ed.set('stray', 'x')).toThrow(/UnknownField/)
+    expect(fieldOf(ed.document.main, 'stray')).toBeUndefined()
+  })
+
+  it('setAll aborts the whole batch on a typo, applying nothing', () => {
+    const ed = new DocumentEditor(buildQuill(), blankDoc())
+    expect(() => ed.setAll({ qty: '5', titel: 'oops' })).toThrow(/UnknownField/)
+    expect(fieldOf(ed.document.main, 'qty')).toBeUndefined()
+    expect(fieldOf(ed.document.main, 'titel')).toBeUndefined()
   })
 
   it('card(i).set targets the composable card via its kind schema', () => {
@@ -160,7 +164,7 @@ card_kinds:
       '~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nCard.',
     )
     const ed = new DocumentEditor(buildQuill(), doc)
-    expect(ed.card(0).set('body', 'Card **body**.')).toBe('typed')
+    ed.card(0).set('body', 'Card **body**.')
     expect(doc.cardFieldMarkdown(0, 'body')).toBe('Card **body**.\n')
   })
 
