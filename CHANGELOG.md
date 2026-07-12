@@ -8,6 +8,14 @@
 
 ## Unreleased
 
+- fix(richtext): the markdown-export codec never leaks a delimiter into the
+  corpus. An editor `apply_mark_ops` mark can wrap a span markdown can't
+  represent (a `strong`/`emph`/`strike` edge on punctuation/symbols/whitespace,
+  or abutting a literal `*`) — the run would re-import as literal `**`/`*`/`~~`
+  text (bolding `a.` used to export `**a.**b`). `to_markdown` now verifies each
+  rendered line by re-parse and drops any mark whose emission would alter the
+  text, so the text always round-trips; only the unrepresentable formatting is
+  lost. Import-domain corpora are unaffected (still an exact fixed point).
 - feat(core,wasm,python)!: typed field writes via schema-carried types. One
   per-type write dispatch (`conform_value(value, schema, mode)`) unifies the
   render floor's coercion with a strict-write mode behind a `Leniency` flag; one
