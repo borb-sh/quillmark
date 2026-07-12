@@ -1085,7 +1085,7 @@ impl Document {
     /// semantics**, the default write path, returning the text [`Delta`]. Imports
     /// the markdown, diffs it against the current value, rebases surviving
     /// identity anchors, and returns the change an editor bridge maps its own
-    /// positions through ([`mapPos`]). An absent `addr.field` targets the body, an
+    /// positions through (`mapPos`). An absent `addr.field` targets the body, an
     /// absent `addr.card` the main card; an absent field cold-imports from empty.
     ///
     /// Throws on an out-of-range card, a malformed field name, a present
