@@ -510,8 +510,11 @@ fn validate_value(
                 // Plaintext strings are literal, not markdown, so a schema
                 // literal decodes through the literal codec; a Document value is
                 // a canonical corpus object. The plain constraint is primary;
-                // the single-line constraint applies only when `inline`.
-                if let Some(rt) = decode_plaintext_value(value.as_json()) {
+                // the single-line constraint applies only when `inline`. A decode
+                // error is another layer's to report (swallowed via `.ok()`).
+                if let Some(rt) = crate::document::decode_plaintext_value(value.as_json())
+                    .and_then(Result::ok)
+                {
                     if !rt.is_plain() {
                         errors.push(ValidationError::NotPlain {
                             path: path.to_string(),
@@ -564,19 +567,6 @@ fn validate_value(
     }
 
     errors
-}
-
-/// Decode a plaintext field value into a corpus for the shape check. A Document
-/// value is a canonical corpus object; a schema literal is a literal string
-/// imported verbatim ([`quillmark_richtext::from_plaintext`]) — never parsed as
-/// markdown, so `*hi*` stays four plain characters. Returns `None` for shapes
-/// the shape check does not judge (a bare scalar already stringified upstream).
-fn decode_plaintext_value(json: &serde_json::Value) -> Option<quillmark_richtext::RichText> {
-    if json.is_object() {
-        quillmark_richtext::serial::from_canonical_value(json).ok()
-    } else {
-        json.as_str().map(quillmark_richtext::from_plaintext)
-    }
 }
 
 /// Validate a single document value against a field schema at the given path.

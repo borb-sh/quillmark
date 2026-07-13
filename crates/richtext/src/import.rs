@@ -120,15 +120,20 @@ pub fn from_plaintext(s: &str) -> RichText {
         .collect();
     // One line per `\n`-separated segment. `continues` marks a within-paragraph
     // break — a lone `\n` joining two non-empty segments; any empty segment is a
-    // paragraph boundary and resets it. Line 0 is always `false`.
-    let segments: Vec<&str> = text.split('\n').collect();
-    let lines = segments
-        .iter()
-        .enumerate()
-        .map(|(i, seg)| Line {
-            kind: LineKind::Para,
-            containers: Vec::new(),
-            continues: i > 0 && !seg.is_empty() && !segments[i - 1].is_empty(),
+    // paragraph boundary and resets it. A single streaming pass carries the prior
+    // segment's non-emptiness, so line 0 is `false` (the flag starts `false`) and
+    // no intermediate segment vector is allocated.
+    let mut prev_nonempty = false;
+    let lines = text
+        .split('\n')
+        .map(|seg| {
+            let continues = prev_nonempty && !seg.is_empty();
+            prev_nonempty = !seg.is_empty();
+            Line {
+                kind: LineKind::Para,
+                containers: Vec::new(),
+                continues,
+            }
         })
         .collect();
     RichText {

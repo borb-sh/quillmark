@@ -1857,25 +1857,22 @@ fn literal_corpus(
         FieldType::PlainText { inline } => {
             // Plaintext literals are authored as literal strings and imported
             // verbatim (never markdown), so the cached corpus is plain by
-            // construction. A corpus-object literal is validated plain. The
-            // inline constraint, when set, still applies.
-            let rt = if let Some(s) = json.as_str() {
-                quillmark_richtext::from_plaintext(s)
-            } else if json.is_object() {
-                match quillmark_richtext::serial::from_canonical_value(json) {
-                    Ok(rt) => rt,
-                    Err(e) => {
-                        return Err(richtext_literal_error(
-                            label,
-                            &format!("not a valid richtext corpus: {e}"),
-                        ))
-                    }
+            // construction; a corpus-object literal is revalidated. Shares the
+            // one object-vs-string dispatch with the validation shape check.
+            let rt = match crate::document::decode_plaintext_value(json) {
+                Some(Ok(rt)) => rt,
+                Some(Err(e)) => {
+                    return Err(richtext_literal_error(
+                        label,
+                        &format!("not a valid richtext corpus: {e}"),
+                    ))
                 }
-            } else {
-                return Err(richtext_literal_error(
-                    label,
-                    "expected a plaintext string (plaintext literals are authored as literal text)",
-                ));
+                None => {
+                    return Err(richtext_literal_error(
+                        label,
+                        "expected a plaintext string (plaintext literals are authored as literal text)",
+                    ))
+                }
             };
             if !rt.is_plain() {
                 return Err(richtext_literal_error(
