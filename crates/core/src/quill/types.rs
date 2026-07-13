@@ -122,6 +122,38 @@ pub enum FieldType {
         /// validation, and load-time example import.
         inline: bool,
     },
+    /// Plain text — the same [`RichText`] corpus as [`RichText`](FieldType::RichText),
+    /// constrained mark-free and island-free (all `Para` lines, no containers),
+    /// but authored and projected through a *literal* codec
+    /// ([`from_plaintext`]/[`to_plaintext`]) rather than markdown: `*hi*` is four
+    /// literal characters, verbatim both ways, never emphasis. Surfaced as
+    /// `type: plaintext`; single-line shape is declared with the sibling
+    /// `inline:` key, exactly as richtext. The transform schema marks it with the
+    /// same `contentMediaType: application/quillmark-richtext+json` (so it
+    /// inherits the whole nav/region/preview stack with no backend edits) plus a
+    /// `quillmark:plain: true` annotation (so editors mount a formatting-free
+    /// surface). Enforced at coercion, validation (`NotPlain`), and load-time
+    /// example import via [`RichText::is_plain`].
+    ///
+    /// [`RichText`]: quillmark_richtext::RichText
+    /// [`RichText::is_plain`]: quillmark_richtext::RichText::is_plain
+    /// [`from_plaintext`]: quillmark_richtext::from_plaintext
+    /// [`to_plaintext`]: quillmark_richtext::to_plaintext
+    PlainText {
+        /// When `true`, the field is single-line plaintext — one `Para` line, no
+        /// container. Populated from the wire `inline:` key at load, mirroring
+        /// richtext. Enforced at coercion, validation, and load-time import.
+        inline: bool,
+    },
+    /// A closed finite domain of string values — the "branch on this" data type.
+    /// Surfaced as `type: enum` with a required `values:` list (carried in
+    /// [`FieldSchema::enum_values`], the single storage shared with the
+    /// deprecated `enum:` modifier on `string`). Projects to the idiomatic
+    /// JSON-Schema `{type: string, enum: [...]}` — exactly the shape backends
+    /// already consume, so promoting the token costs zero backend edits. Scoped
+    /// to string-valued members in v1 (an enum is a branching key; numeric
+    /// domains are range constraints on `number`, not enums).
+    Enum,
 }
 
 impl FieldType {
@@ -136,6 +168,8 @@ impl FieldType {
             "object" => Some(FieldType::Object),
             "datetime" => Some(FieldType::DateTime),
             "richtext" => Some(FieldType::RichText { inline: false }),
+            "plaintext" => Some(FieldType::PlainText { inline: false }),
+            "enum" => Some(FieldType::Enum),
             // The pre-richtext `markdown` spelling is not a recognized type: it
             // returns `None` here so the loader reports it as an unknown type
             // rather than silently aliasing it to block richtext.
@@ -153,6 +187,8 @@ impl FieldType {
             FieldType::Object => "object",
             FieldType::DateTime => "datetime",
             FieldType::RichText { .. } => "richtext",
+            FieldType::PlainText { .. } => "plaintext",
+            FieldType::Enum => "enum",
         }
     }
 }
@@ -250,8 +286,14 @@ struct FieldSchemaDef {
     pub default: Option<QuillValue>,
     pub example: Option<QuillValue>,
     pub ui: Option<UiFieldSchema>,
+    /// The deprecated `enum:` modifier on `type: string`. Accepted for one
+    /// release alongside the promoted `type: enum` + `values:` spelling; both
+    /// land in [`FieldSchema::enum_values`].
     #[serde(rename = "enum")]
     pub enum_values: Option<Vec<String>>,
+    /// The `values:` list required by the promoted `type: enum`. Merged with
+    /// `enum_values` into the one carrier at load.
+    pub values: Option<Vec<String>>,
     // Nested schema support
     pub properties: Option<serde_json::Map<String, serde_json::Value>>,
     // Element schema for arrays.
@@ -287,8 +329,14 @@ impl FieldSchema {
         let def: FieldSchemaDef = serde_json::from_value(value.clone().into_json())
             .map_err(|e| format!("Failed to parse field schema: {}", e))?;
         // The sole inline sync point: the wire `inline:` key folds into the enum
-        // here, so `FieldType::RichText { inline }` is the one carrier thereafter.
-        let r#type = Self::resolve_richtext_inline(def.r#type, def.inline)?;
+        // here, so `FieldType::RichText { inline }` (and its `PlainText` sibling)
+        // is the one carrier thereafter.
+        let r#type = Self::resolve_prose_inline(def.r#type, def.inline)?;
+        // Fold the two enum spellings into the one carrier: the promoted
+        // `type: enum` requires `values:`; the deprecated `enum:` modifier is
+        // accepted only on `string`. On any other type an `enum:`/`values:` key
+        // is a hard error, not the old silent no-op.
+        let enum_values = Self::resolve_enum_values(&r#type, def.enum_values, def.values)?;
         Ok(Self {
             name: key.clone(),
             r#type,
@@ -296,7 +344,7 @@ impl FieldSchema {
             default: def.default,
             example: def.example,
             ui: def.ui,
-            enum_values: def.enum_values,
+            enum_values,
             properties: if let Some(props) = def.properties {
                 let mut p = BTreeMap::new();
                 for (key, value) in props {
@@ -328,20 +376,71 @@ impl FieldSchema {
         })
     }
 
-    fn resolve_richtext_inline(
+    /// Fold the sibling `inline:` key into a prose type's enum payload. Both
+    /// `richtext` and `plaintext` carry the single-line constraint; every other
+    /// type rejects `inline:`.
+    fn resolve_prose_inline(
         r#type: FieldType,
         inline: Option<bool>,
     ) -> Result<FieldType, String> {
         match (r#type, inline) {
-            (FieldType::RichText { .. }, Some(true)) => Ok(FieldType::RichText { inline: true }),
-            (FieldType::RichText { .. }, Some(false) | None) => {
-                Ok(FieldType::RichText { inline: false })
-            }
+            (FieldType::RichText { .. }, inline) => Ok(FieldType::RichText {
+                inline: inline.unwrap_or(false),
+            }),
+            (FieldType::PlainText { .. }, inline) => Ok(FieldType::PlainText {
+                inline: inline.unwrap_or(false),
+            }),
             (_, Some(_)) => Err(
-                "inline is only valid on type: richtext fields; omit inline or declare type: richtext"
+                "inline is only valid on prose types (type: richtext or type: plaintext); \
+                 omit inline or declare a prose type"
                     .to_string(),
             ),
             (other, None) => Ok(other),
+        }
+    }
+
+    /// Reconcile the two enum spellings into [`FieldSchema::enum_values`]:
+    /// the promoted `type: enum` requires a non-empty `values:` list; `type:
+    /// string` accepts the deprecated `enum:` modifier; any other type carrying
+    /// either key is an error (the old silent no-op, made loud).
+    fn resolve_enum_values(
+        r#type: &FieldType,
+        enum_key: Option<Vec<String>>,
+        values_key: Option<Vec<String>>,
+    ) -> Result<Option<Vec<String>>, String> {
+        match r#type {
+            FieldType::Enum => {
+                if enum_key.is_some() {
+                    return Err(
+                        "type: enum declares its domain with values:, not enum:; rename the key"
+                            .to_string(),
+                    );
+                }
+                match values_key {
+                    Some(v) if !v.is_empty() => Ok(Some(v)),
+                    _ => Err("type: enum requires a non-empty values: list".to_string()),
+                }
+            }
+            FieldType::String => {
+                if values_key.is_some() {
+                    return Err(
+                        "values: is only valid on type: enum; on a string use the enum: modifier \
+                         (deprecated) or declare type: enum"
+                            .to_string(),
+                    );
+                }
+                Ok(enum_key)
+            }
+            other => {
+                if enum_key.is_some() || values_key.is_some() {
+                    return Err(format!(
+                        "enum:/values: is only valid on type: enum (or the deprecated enum: on \
+                         type: string), not on type: {}",
+                        other.as_str()
+                    ));
+                }
+                Ok(None)
+            }
         }
     }
 }
@@ -379,7 +478,14 @@ impl Serialize for FieldSchema {
             map.serialize_entry("ui", v)?;
         }
         if let Some(v) = &self.enum_values {
-            map.serialize_entry("enum", v)?;
+            // The promoted type re-emits its domain as `values:`; the deprecated
+            // modifier on `string` re-emits as `enum:`, so each spelling round-trips.
+            let key = if matches!(self.r#type, FieldType::Enum) {
+                "values"
+            } else {
+                "enum"
+            };
+            map.serialize_entry(key, v)?;
         }
         if let Some(v) = &self.properties {
             map.serialize_entry("properties", v)?;

@@ -46,17 +46,22 @@ export interface QuillCardBody {
  * zero-fills the field). There is no separate `required` axis.
  */
 export interface QuillFieldSchema {
-    type: "string" | "number" | "integer" | "boolean" | "array" | "object" | "datetime" | "richtext";
+    type: "string" | "number" | "integer" | "boolean" | "array" | "object" | "datetime" | "richtext" | "plaintext" | "enum";
     description?: string;
     default?: unknown;
     example?: unknown;
+    /** Closed value domain. On `type: "enum"` declared as `values`; the
+     *  deprecated `enum` modifier on `type: "string"` is accepted for one
+     *  release. Both round-trip through this field. */
     enum?: string[];
+    /** Required on `type: "enum"`: the closed set of allowed string values. */
+    values?: string[];
     ui?: QuillFieldUi;
     properties?: Record<string, QuillFieldSchema>;
     items?: QuillFieldSchema;
-    /** Present (and `true`) only on a `richtext` field declared `richtext(inline)`
-     *  — the single-paragraph, container-free, island-free constraint. Core
-     *  serializes `inline: true` into the schema JSON; absent otherwise. */
+    /** Present (and `true`) on a `richtext` or `plaintext` field declared
+     *  `inline` — the single-paragraph, container-free, island-free constraint.
+     *  Core serializes `inline: true` into the schema JSON; absent otherwise. */
     inline?: boolean;
 }
 

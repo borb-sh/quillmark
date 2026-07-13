@@ -409,7 +409,10 @@ impl QuillConfig {
                     reason: "value is not coercible to integer".to_string(),
                 })
             }
-            FieldType::String => {
+            // Enum is open scalar data drawn from a closed domain — coerced as a
+            // string here; domain membership is checked at the validation layer
+            // (an out-of-domain string is a value error, not a type error).
+            FieldType::String | FieldType::Enum => {
                 if json_value.is_string() {
                     return Ok(value.clone());
                 }
@@ -428,10 +431,72 @@ impl QuillConfig {
                     Leniency::Write => Err(CoercionError::Uncoercible {
                         path: path.to_string(),
                         value: json_value.to_string(),
-                        target: "string".to_string(),
+                        target: field_schema.r#type.as_str().to_string(),
                         reason: "value is not a string".to_string(),
                     }),
                 }
+            }
+            FieldType::PlainText { inline } => {
+                // Plaintext rides the same corpus as richtext but through the
+                // *literal* codec: a string is imported verbatim via
+                // `from_plaintext` (no markdown parsing, no escaping), an
+                // already-structured corpus is validated plain. A wire corpus
+                // carrying marks or islands is rejected, not silently stripped —
+                // matching the `inline` precedent and keeping coercion lossless.
+                let plain_check =
+                    |rt: &quillmark_richtext::RichText| -> Result<(), CoercionError> {
+                        if !rt.is_plain() {
+                            return Err(CoercionError::Uncoercible {
+                                path: path.to_string(),
+                                value: "<plaintext>".to_string(),
+                                target: "plaintext".to_string(),
+                                reason: "plaintext carries no marks, islands, or block \
+                                     formatting (lists, quotes, headings)"
+                                    .to_string(),
+                            });
+                        }
+                        if inline && !rt.is_inline() {
+                            return Err(CoercionError::Uncoercible {
+                                path: path.to_string(),
+                                value: "<plaintext>".to_string(),
+                                target: "plaintext(inline)".to_string(),
+                                reason: "plaintext(inline) requires a single line".to_string(),
+                            });
+                        }
+                        Ok(())
+                    };
+                if json_value.is_object() {
+                    let rt = quillmark_richtext::serial::from_canonical_value(json_value).map_err(
+                        |e| CoercionError::Uncoercible {
+                            path: path.to_string(),
+                            value: "<object>".to_string(),
+                            target: "plaintext".to_string(),
+                            reason: format!("not a valid richtext corpus: {e}"),
+                        },
+                    )?;
+                    plain_check(&rt)?;
+                    return Ok(QuillValue::from_json(
+                        quillmark_richtext::serial::to_canonical_value(&rt),
+                    ));
+                }
+                // Reduce to the authored literal string via the shared leniency
+                // cascade, then import verbatim.
+                let Some(text) = lenient_string(json_value) else {
+                    return match mode {
+                        Leniency::Render => Ok(value.clone()),
+                        Leniency::Write => Err(CoercionError::Uncoercible {
+                            path: path.to_string(),
+                            value: json_value.to_string(),
+                            target: "plaintext".to_string(),
+                            reason: "value is not a plaintext string or corpus".to_string(),
+                        }),
+                    };
+                };
+                let rt = quillmark_richtext::from_plaintext(&text);
+                plain_check(&rt)?;
+                Ok(QuillValue::from_json(
+                    quillmark_richtext::serial::to_canonical_value(&rt),
+                ))
             }
             FieldType::RichText { inline } => {
                 // The seam carries the corpus, so coercion commits the corpus
@@ -1676,17 +1741,18 @@ fn example_contains_fence_line(text: &str) -> bool {
     })
 }
 
-/// Whether a field's type tree contains any richtext leaf — the gate for
-/// caching a corpus companion. A scalar (`string`, `integer`, …) never carries
-/// one; an `array<richtext>` or an `object` with a richtext property does.
-fn field_contains_richtext(field: &FieldSchema) -> bool {
+/// Whether a field's type tree contains any corpus leaf — the gate for caching
+/// a corpus companion. Both `richtext` and its literal-codec sibling `plaintext`
+/// are corpus leaves; a scalar (`string`, `integer`, `enum`, …) never carries
+/// one; an `array<richtext>` or an `object` with a corpus property does.
+fn field_contains_corpus(field: &FieldSchema) -> bool {
     match &field.r#type {
-        FieldType::RichText { .. } => true,
-        FieldType::Array => field.items.as_deref().is_some_and(field_contains_richtext),
+        FieldType::RichText { .. } | FieldType::PlainText { .. } => true,
+        FieldType::Array => field.items.as_deref().is_some_and(field_contains_corpus),
         FieldType::Object => field
             .properties
             .as_ref()
-            .is_some_and(|p| p.values().any(|f| field_contains_richtext(f))),
+            .is_some_and(|p| p.values().any(|f| field_contains_corpus(f))),
         _ => false,
     }
 }
@@ -1695,7 +1761,7 @@ fn field_contains_richtext(field: &FieldSchema) -> bool {
 /// its markdown literals. No-op for a non-richtext field; a failed import or a
 /// `richtext(inline)` violation is appended to `errors` as a load diagnostic.
 fn populate_field_corpus(field: &mut FieldSchema, owner: &str, errors: &mut Vec<Diagnostic>) {
-    if !field_contains_richtext(field) {
+    if !field_contains_corpus(field) {
         return;
     }
     if let Some(default) = field.default.clone() {
@@ -1788,11 +1854,44 @@ fn literal_corpus(
                 quillmark_richtext::serial::to_canonical_value(&rt),
             )))
         }
+        FieldType::PlainText { inline } => {
+            // Plaintext literals are authored as literal strings and imported
+            // verbatim (never markdown), so the cached corpus is plain by
+            // construction; a corpus-object literal is revalidated. Shares the
+            // one object-vs-string dispatch with the validation shape check.
+            let rt = match crate::document::decode_plaintext_value(json) {
+                Some(Ok(rt)) => rt,
+                Some(Err(e)) => {
+                    return Err(richtext_literal_error(
+                        label,
+                        &format!("not a valid richtext corpus: {e}"),
+                    ))
+                }
+                None => {
+                    return Err(richtext_literal_error(
+                        label,
+                        "expected a plaintext string (plaintext literals are authored as literal text)",
+                    ))
+                }
+            };
+            if !rt.is_plain() {
+                return Err(richtext_literal_error(
+                    label,
+                    "plaintext carries no marks, islands, or block formatting",
+                ));
+            }
+            if *inline && !rt.is_inline() {
+                return Err(richtext_inline_error(label));
+            }
+            Ok(Some(QuillValue::from_json(
+                quillmark_richtext::serial::to_canonical_value(&rt),
+            )))
+        }
         FieldType::Array => {
             let Some(items) = field.items.as_deref() else {
                 return Ok(None);
             };
-            if !field_contains_richtext(items) {
+            if !field_contains_corpus(items) {
                 return Ok(None);
             }
             let arr = json.as_array().cloned().unwrap_or_default();
@@ -1809,7 +1908,7 @@ fn literal_corpus(
             let Some(props) = field.properties.as_ref() else {
                 return Ok(None);
             };
-            if !props.values().any(|f| field_contains_richtext(f)) {
+            if !props.values().any(|f| field_contains_corpus(f)) {
                 return Ok(None);
             }
             let obj = json.as_object().cloned().unwrap_or_default();

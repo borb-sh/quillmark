@@ -86,41 +86,53 @@ main:
 | `description` | string            | no       | Detailed help text |
 | `default`     | matches `type`    | no       | The value the **majority of authors want**. When the field is omitted, the default is filled in. **Declaring `default` makes the field Endorsed**: the blueprint renders the concrete default value with a type-only annotation (no marker), shippable as-is. Omitting `default` makes the field **Unendorsed**: the blueprint stamps the `!must_fill` marker (carrying the field's `example` as a suggested value when present, else bare). A surviving marker raises the non-fatal `validation::must_fill` warning — it never gates render, since an absent or present-null field zero-fills. |
 | `example`     | matches `type`    | no       | A value matching the **type and shape** of what the author wants, but **not** the value desired most of the time. Documents shape only — surfaced in the [blueprint](https://github.com/borb-sh/quillmark/blob/main/prose/canon/BLUEPRINT.md)'s `# e.g.` line for documentation and LLM authoring, never rendered as the value. |
-| `enum`        | array of strings  | no       | Restrict to specific values |
+| `values`      | array of strings  | for `enum` | The closed set of allowed string values. Required on every `enum` field. |
+| `enum`        | array of strings  | no       | **Deprecated** alias of `values`, accepted on `type: string` for one release. Prefer `type: enum` with `values:`. |
 | `ui`          | object            | no       | UI rendering hints (see [UI Properties](#ui-properties)) |
 | `items`       | object            | for `array` | Element schema for an `array` field (a nested field schema). Required on every array. |
 | `properties`  | object            | for `object` | Nested field schemas for an `object` typed dictionary (or an array's `object`-typed `items`). Required on every `object` field. |
-| `inline`      | boolean           | no       | For `richtext` only: constrain the corpus to a single paragraph (a one-line editor surface). |
+| `inline`      | boolean           | no       | For `richtext` and `plaintext` only: constrain the corpus to a single paragraph/line (a one-line editor surface). |
 
 ### Field Types
 
 | Type       | Notes |
 |------------|-------|
-| `string`   | UTF-8 text |
+| `string`   | Open scalar UTF-8 text — a value the template computes with (a URL, path, identifier, or reference key), not prose it lays out |
+| `enum`     | A closed set of string values; requires a `values:` list. Projects to JSON-Schema `{type: string, enum: […]}` |
+| `plaintext`| Navigable, **unformatted** prose over the canonical corpus — the same nav/regions as `richtext`, but a literal codec (delimiters stay literal, no markup). Add `inline: true` for the single-line variant |
 | `number`   | Numeric scalar (integers and decimals) |
 | `integer`  | Integer-only numeric scalar |
 | `boolean`  | `true` or `false` |
 | `array`    | Ordered list; requires an `items:` element schema |
 | `datetime` | Bare `YYYY-MM-DD` through full RFC 3339 with offset |
-| `richtext` | Rich prose over a canonical corpus; backends lower it to the target format. Markdown is its import/export projection. Add `inline: true` for the single-paragraph variant |
+| `richtext` | Rich, **formatted** prose over a canonical corpus; backends lower it to the target format. Markdown is its import/export projection. Add `inline: true` for the single-paragraph variant |
 | `object`   | Structured map; requires a `properties:` map |
+
+The four text-ish types form a 2×2 of **data vs content** and **open/plain vs
+closed/formatted**: `enum` (closed data), `string` (open data), `plaintext`
+(plain content), `richtext` (formatted content). Reach for `string` when the
+value is computed with, `plaintext`/`richtext` when it is prose the author
+navigates.
 
 ### Enum Constraints
 
-Restrict a string field to specific values:
+Declare a closed string domain with `type: enum` and a required `values:` list:
 
 ```yaml
 main:
   fields:
     format:
-      type: string
-      enum:
+      type: enum
+      values:
         - standard
         - informal
         - separate_page
       default: standard
       description: "Format style for the endorsement."
 ```
+
+The `enum:` modifier on `type: string` is a deprecated alias, accepted for one
+release. `enum:`/`values:` on any other type is a load error.
 
 ### Primitive Arrays, Typed Tables, and Typed Dictionaries
 

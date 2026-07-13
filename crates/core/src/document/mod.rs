@@ -78,6 +78,31 @@ pub(crate) fn decode_richtext_value(
     }
 }
 
+/// Decode a JSON value for a `plaintext` field: a canonical corpus **object**
+/// (revalidated) or a literal **string** imported verbatim
+/// ([`from_plaintext`](quillmark_richtext::from_plaintext) — never markdown, so
+/// `*hi*` stays four plain characters). The plaintext twin of
+/// [`decode_richtext_value`]: the string branch is infallible (literal import
+/// can't fail), so only the object branch yields `Err` (`String` message). A
+/// call site handles the shapes that are neither — `null`, array, scalar. This
+/// is the single plaintext object-vs-string dispatch, shared by the coercion
+/// literal-import site and the validation shape check.
+///
+/// - `Some(Ok(rt))` — decoded.
+/// - `Some(Err(msg))` — an object that is not a valid corpus.
+/// - `None` — the value is neither an object nor a string.
+pub(crate) fn decode_plaintext_value(
+    value: &serde_json::Value,
+) -> Option<Result<RichText, String>> {
+    match value {
+        serde_json::Value::Object(_) => {
+            Some(quillmark_richtext::serial::from_canonical_value(value).map_err(|e| e.to_string()))
+        }
+        serde_json::Value::String(s) => Some(Ok(quillmark_richtext::from_plaintext(s))),
+        _ => None,
+    }
+}
+
 pub mod assemble;
 pub mod dto;
 pub mod edit;

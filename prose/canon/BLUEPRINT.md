@@ -100,7 +100,7 @@ Form: **`# <type>[<format>]`**
 
 - **Type slot** (mandatory, first): one of
   `string`, `integer`, `number`, `boolean`, `array`, `object`,
-  `richtext`, `datetime`, `enum`.
+  `richtext`, `plaintext`, `datetime`, `enum`.
   Every field is labeled — there is no "self-evident" exemption.
   (`object` requires a `properties` map; freeform untyped objects are not
   supported. `object` also appears in the format slot of typed-table fields
@@ -110,6 +110,8 @@ Form: **`# <type>[<format>]`**
   - `datetime<YYYY-MM-DD[Thh:mm:ss]>`
   - `richtext<markdown>`, `richtext(inline)<markdown>` — the `<markdown>` slot
     names the surface encoding an author writes over the corpus model
+  - `plaintext<plain>`, `plaintext(inline)<plain>` — the `<plain>` slot names
+    the literal codec (delimiters stay literal), distinct from `<markdown>`
   - `array<string>`, `array<integer>`, `array<object>`, `array<richtext<markdown>>`, …
   - `enum<a | b | c>`
   - omitted for `string`, `integer`, `number`, `boolean`, `object`
@@ -199,7 +201,7 @@ The marker is stamped where the LLM types the value:
 
 | Type | Marker position | Example |
 |---|---|---|
-| `string`, `integer`, `number`, `boolean`, `datetime`, `enum` | On the field | `name: !must_fill # string` |
+| `string`, `integer`, `number`, `boolean`, `datetime`, `enum`, `plaintext` | On the field | `name: !must_fill # string` |
 | `array<scalar>` | On the field | `recipient: !must_fill # array<string>` |
 | `richtext` | On the field (bare; no block scalar) | `bio: !must_fill # richtext<markdown>` |
 | `object` (typed dict) | Per-property recursion | leaves carry `!must_fill` |

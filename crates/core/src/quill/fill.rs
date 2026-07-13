@@ -47,11 +47,11 @@ pub fn zero_value(field: &FieldSchema) -> QuillValue {
         },
         FieldType::Integer | FieldType::Number => json!(0),
         FieldType::Boolean => json!(false),
-        // A richtext field's zero is the empty corpus, not `""` — the seam
-        // carries canonical RichText-JSON, so the render floor must zero-fill an
-        // absent richtext field with a corpus the backend can lower. The empty
-        // corpus is single-`Para`, so it satisfies `richtext(inline)` too.
-        FieldType::RichText { .. } => {
+        // A corpus field's zero is the empty corpus, not `""` — the seam carries
+        // canonical RichText-JSON, so the render floor must zero-fill an absent
+        // richtext or plaintext field with a corpus the backend can lower. The
+        // empty corpus is single-`Para`, so it satisfies `inline` and is `plain`.
+        FieldType::RichText { .. } | FieldType::PlainText { .. } => {
             quillmark_richtext::serial::to_canonical_value(&quillmark_richtext::RichText::empty())
         }
         // String / DateTime: `""` is schema-valid for both.

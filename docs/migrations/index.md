@@ -38,7 +38,11 @@ guides in order.
   typed `set` / `set_all` / `setBody` / `addCard` / `card(i)` and quill-free
   `get` / `getMarkdown` reads — over the corpus lane and the opaque `setField`
   primitive; the addressed `commit(addr, …)` is deleted (subsumed by the
-  writer) and a core-vs-bindings parity table governs drift (#932).
+  writer) and a core-vs-bindings parity table governs drift (#932). Two field
+  types join the schema: `plaintext` (navigable unformatted prose over the
+  richtext corpus, via a literal codec) and a promoted first-class `enum`
+  (`type: enum` + `values:`, the `enum:` modifier on `string` deprecated for one
+  release); `string` narrows to open scalar data (#938).
 - [0.92 → 0.93](0.92-to-0.93.md) — the blueprint placeholder is rebuilt on two
   orthogonal axes (value and marker): blueprints now stamp the `!must_fill` tag
   instead of the `<must-fill>` string sentinel, and bare-null / `field:` now

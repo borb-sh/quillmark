@@ -430,6 +430,14 @@ fn type_expression(field: &FieldSchema) -> String {
         // surface encoding an author writes (and `to_markdown` re-emits).
         FieldType::RichText { inline: false } => "richtext<markdown>".into(),
         FieldType::RichText { inline: true } => "richtext(inline)<markdown>".into(),
+        // The `<plain>` format slot names the literal codec (`from_plaintext`/
+        // `to_plaintext`) — content the author navigates but which takes no
+        // markup, distinct from richtext's `<markdown>` surface.
+        FieldType::PlainText { inline: false } => "plaintext<plain>".into(),
+        FieldType::PlainText { inline: true } => "plaintext(inline)<plain>".into(),
+        // `enum` fields always carry `enum_values`, so the early return above
+        // handles them; this arm is the defensive fallback for a valueless enum.
+        FieldType::Enum => "enum".into(),
         FieldType::DateTime => "datetime<YYYY-MM-DD[Thh:mm:ss]>".into(),
         // The element type comes from `items`; a scalar element gives
         // `array<string>`/`array<integer>`/`array<markdown>`, an object
