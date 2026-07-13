@@ -62,6 +62,14 @@ pub enum ValidationError {
     NotInline {
         path: String,
     },
+
+    /// A `plaintext` field whose corpus carries marks, islands, or block
+    /// formatting. Same fatality class as `TypeMismatch` — the value is a
+    /// well-formed corpus but the wrong *shape* for a plaintext field, which
+    /// takes prose the author navigates but no formatting.
+    NotPlain {
+        path: String,
+    },
 }
 
 impl std::error::Error for ValidationError {}
@@ -124,6 +132,13 @@ impl std::fmt::Display for ValidationError {
                     hint = not_inline_hint(),
                 )
             }
+            ValidationError::NotPlain { path } => {
+                write!(
+                    f,
+                    "field `{path}` is `plaintext` but its content carries formatting — {hint}",
+                    hint = not_plain_hint(),
+                )
+            }
         }
     }
 }
@@ -155,6 +170,12 @@ fn not_inline_hint() -> &'static str {
      quotes, or tables), or change the schema's `type:` to `richtext`"
 }
 
+/// Actionable exit clause for a `NotPlain` error.
+fn not_plain_hint() -> &'static str {
+    "remove the formatting (marks, tables, images, headings, lists, quotes), or \
+     change the schema's `type:` to `richtext`"
+}
+
 impl ValidationError {
     /// Document-model path anchor for this error.
     ///
@@ -166,7 +187,8 @@ impl ValidationError {
             | ValidationError::FormatViolation { path, .. }
             | ValidationError::UnknownCard { path, .. }
             | ValidationError::BodyDisabled { path, .. }
-            | ValidationError::NotInline { path, .. } => path,
+            | ValidationError::NotInline { path, .. }
+            | ValidationError::NotPlain { path, .. } => path,
         }
     }
 
@@ -180,6 +202,7 @@ impl ValidationError {
             ValidationError::UnknownCard { .. } => "validation::unknown_card",
             ValidationError::BodyDisabled { .. } => "validation::body_disabled",
             ValidationError::NotInline { .. } => "richtext::not_inline",
+            ValidationError::NotPlain { .. } => "plaintext::not_plain",
         }
     }
 
@@ -196,6 +219,7 @@ impl ValidationError {
             } => Some(type_mismatch_hint(expected, actual, default.as_deref())),
             ValidationError::BodyDisabled { .. } => Some(body_disabled_hint().to_string()),
             ValidationError::NotInline { .. } => Some(not_inline_hint().to_string()),
+            ValidationError::NotPlain { .. } => Some(not_plain_hint().to_string()),
             ValidationError::EnumViolation { .. }
             | ValidationError::FormatViolation { .. }
             | ValidationError::UnknownCard { .. } => None,
@@ -368,16 +392,20 @@ fn validate_value(
         // coercion layer adopts it) — in lockstep with `coerce_value_strict`
         // via `scalar_as_string`. Schema literals stay strict so the blueprint
         // keeps quoting ambiguous string literals.
-        FieldType::String => {
+        // Enum is string-valued data (domain membership is checked separately
+        // below), so it is type-valid exactly where a string is.
+        FieldType::String | FieldType::Enum => {
             value.as_str().is_some()
                 || (ctx == ValueContext::Document
                     && super::config::scalar_as_string(value.as_json()).is_some())
         }
-        // Post-coercion (Document) a richtext value is a canonical corpus
-        // object; an authored `default`/`example` (Schema) is a markdown string.
-        // Accept both shapes — the corpus's own invariants were enforced at
-        // coercion (`from_canonical_value`), and a bare scalar still stringifies.
-        FieldType::RichText { .. } => {
+        // Post-coercion (Document) a richtext/plaintext value is a canonical
+        // corpus object; an authored `default`/`example` (Schema) is a string
+        // (markdown for richtext, literal for plaintext). Accept both shapes —
+        // the corpus's own invariants were enforced at coercion, and a bare
+        // scalar still stringifies. The plaintext-specific plain constraint is
+        // checked in the shape pass below, parallel to the inline check.
+        FieldType::RichText { .. } | FieldType::PlainText { .. } => {
             value.as_json().is_object()
                 || value.as_str().is_some()
                 || (ctx == ValueContext::Document
@@ -458,26 +486,44 @@ fn validate_value(
         },
     };
 
-    // `richtext(inline)` shape check: a well-typed richtext value (corpus object,
-    // or a markdown string on a schema literal) must lower to a single `Para`.
-    // Runs only when the value is type-valid — a mistyped value already raises
-    // TypeMismatch below, and a null/absent inline field zero-fills to the empty
-    // corpus (which is inline). Mirrors the coercion-layer check so a corpus that
-    // bypassed coercion (e.g. a direct `validate_document`) is still caught.
+    // Corpus shape checks, run only on a type-valid value (a mistyped value
+    // already raises TypeMismatch below, and a null/absent field zero-fills to
+    // the empty corpus, which is both inline and plain). Mirror the
+    // coercion-layer checks so a corpus that bypassed coercion (e.g. a direct
+    // `validate_document`) is still caught. A decode failure is not this layer's
+    // error to report — swallow it and flag only a well-formed but mis-shaped
+    // corpus.
     if type_valid {
-        if let FieldType::RichText { inline: true } = field.r#type {
-            // A decode failure here is not this layer's error to report (a
-            // mistyped value already raised TypeMismatch); swallow it and only
-            // flag a well-formed corpus that is not single-`Para`.
-            let parsed = crate::document::decode_richtext_value(value.as_json())
-                .and_then(Result::ok);
-            if let Some(rt) = parsed {
-                if !rt.is_inline() {
-                    errors.push(ValidationError::NotInline {
-                        path: path.to_string(),
-                    });
+        match field.r#type {
+            FieldType::RichText { inline: true } => {
+                let parsed =
+                    crate::document::decode_richtext_value(value.as_json()).and_then(Result::ok);
+                if let Some(rt) = parsed {
+                    if !rt.is_inline() {
+                        errors.push(ValidationError::NotInline {
+                            path: path.to_string(),
+                        });
+                    }
                 }
             }
+            FieldType::PlainText { inline } => {
+                // Plaintext strings are literal, not markdown, so a schema
+                // literal decodes through the literal codec; a Document value is
+                // a canonical corpus object. The plain constraint is primary;
+                // the single-line constraint applies only when `inline`.
+                if let Some(rt) = decode_plaintext_value(value.as_json()) {
+                    if !rt.is_plain() {
+                        errors.push(ValidationError::NotPlain {
+                            path: path.to_string(),
+                        });
+                    } else if inline && !rt.is_inline() {
+                        errors.push(ValidationError::NotInline {
+                            path: path.to_string(),
+                        });
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -520,6 +566,19 @@ fn validate_value(
     errors
 }
 
+/// Decode a plaintext field value into a corpus for the shape check. A Document
+/// value is a canonical corpus object; a schema literal is a literal string
+/// imported verbatim ([`quillmark_richtext::from_plaintext`]) — never parsed as
+/// markdown, so `*hi*` stays four plain characters. Returns `None` for shapes
+/// the shape check does not judge (a bare scalar already stringified upstream).
+fn decode_plaintext_value(json: &serde_json::Value) -> Option<quillmark_richtext::RichText> {
+    if json.is_object() {
+        quillmark_richtext::serial::from_canonical_value(json).ok()
+    } else {
+        json.as_str().map(quillmark_richtext::from_plaintext)
+    }
+}
+
 /// Validate a single document value against a field schema at the given path.
 /// Used internally; exposed for testing.
 pub(crate) fn validate_field(
@@ -548,7 +607,10 @@ pub(crate) fn validate_schema_literal(
 fn expected_type_name(field_type: &FieldType) -> &'static str {
     match field_type {
         FieldType::String | FieldType::DateTime => "string",
+        // Enum is a closed string domain; a mistyped value reports the base type.
+        FieldType::Enum => "string",
         FieldType::RichText { .. } => "richtext",
+        FieldType::PlainText { .. } => "plaintext",
         FieldType::Integer => "integer",
         FieldType::Number => "number",
         FieldType::Boolean => "boolean",

@@ -350,21 +350,25 @@ fn resolve_fields(
 fn resolve_value(value: Option<&QuillValue>, field: &FieldSchema) -> QuillValue {
     let present = value.filter(|v| !v.as_json().is_null());
     let Some(v) = present else {
-        // A richtext-bearing field commits the *corpus* form of its default
-        // (`default_corpus`, cached at load by `from_yaml`), so the seam carries
-        // canonical RichText-JSON the backend can classify. It must NOT fall
-        // through to the raw markdown `default`: `resolve_fields` runs after
-        // `coerce_and_validate`, so a bare markdown string injected here would
-        // reach the plate uncoerced and be misread. A richtext field with no
-        // cached `default_corpus` (only reachable via a serde-built
-        // `QuillConfig`, never `from_yaml`) zero-fills to the empty corpus.
-        if matches!(field.r#type, FieldType::RichText { .. }) {
+        // A corpus-bearing field (`richtext` or its literal sibling `plaintext`)
+        // commits the *corpus* form of its default (`default_corpus`, cached at
+        // load by `from_yaml`), so the seam carries canonical RichText-JSON the
+        // backend can classify. It must NOT fall through to the raw `default`:
+        // `resolve_fields` runs after `coerce_and_validate`, so a bare authored
+        // string injected here would reach the plate uncoerced and be misread. A
+        // corpus field with no cached `default_corpus` (only reachable via a
+        // serde-built `QuillConfig`, never `from_yaml`) zero-fills to the empty
+        // corpus.
+        if matches!(
+            field.r#type,
+            FieldType::RichText { .. } | FieldType::PlainText { .. }
+        ) {
             return field
                 .default_corpus
                 .clone()
                 .unwrap_or_else(|| zero_value(field));
         }
-        // Non-richtext: `default_corpus` is always `None`, so use the raw
+        // Non-corpus: `default_corpus` is always `None`, so use the raw
         // `default`, then the type-empty zero.
         return field.default.clone().unwrap_or_else(|| zero_value(field));
     };

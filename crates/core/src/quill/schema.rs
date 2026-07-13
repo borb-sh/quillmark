@@ -20,6 +20,12 @@ pub const RICHTEXT_MEDIA_TYPE: &str = "application/quillmark-richtext+json";
 /// is the JSON Schema–shaped wire for editor and backend consumers.
 pub const QUILLMARK_INLINE_KEY: &str = "quillmark:inline";
 
+/// Transform-schema keyword marking a `plaintext` field — the literal-codec
+/// sibling of richtext. It rides the same [`RICHTEXT_MEDIA_TYPE`], so backends
+/// lower it identically; this annotation only tells editors to mount a
+/// formatting-free surface and to author/project through the literal codec.
+pub const QUILLMARK_PLAIN_KEY: &str = "quillmark:plain";
+
 /// Build a JSON-Schema-shaped descriptor of a [`QuillConfig`]'s main + card fields.
 ///
 /// The descriptor marks richtext fields with `contentMediaType:
@@ -58,6 +64,47 @@ pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
                     schema.insert(
                         QUILLMARK_INLINE_KEY.to_string(),
                         serde_json::Value::Bool(true),
+                    );
+                }
+            }
+            FieldType::PlainText { inline } => {
+                // Plaintext rides the *same* corpus and media type as richtext, so
+                // a backend classifies and lowers it identically — no backend edit.
+                // The distinction (literal codec, no formatting) is carried by the
+                // `quillmark:plain` annotation, which only editors consult.
+                schema.insert(
+                    "type".to_string(),
+                    serde_json::Value::String("object".to_string()),
+                );
+                schema.insert(
+                    "contentMediaType".to_string(),
+                    serde_json::Value::String(RICHTEXT_MEDIA_TYPE.to_string()),
+                );
+                schema.insert(QUILLMARK_PLAIN_KEY.to_string(), serde_json::Value::Bool(true));
+                if inline {
+                    schema.insert(
+                        QUILLMARK_INLINE_KEY.to_string(),
+                        serde_json::Value::Bool(true),
+                    );
+                }
+            }
+            FieldType::Enum => {
+                // The promoted token projects to the idiomatic JSON-Schema
+                // spelling `{type: string, enum: [...]}` — exactly what a backend
+                // dispatches on today (a plain string), plus the finite domain.
+                schema.insert(
+                    "type".to_string(),
+                    serde_json::Value::String("string".to_string()),
+                );
+                if let Some(values) = &field.enum_values {
+                    schema.insert(
+                        "enum".to_string(),
+                        serde_json::Value::Array(
+                            values
+                                .iter()
+                                .map(|v| serde_json::Value::String(v.clone()))
+                                .collect(),
+                        ),
                     );
                 }
             }
