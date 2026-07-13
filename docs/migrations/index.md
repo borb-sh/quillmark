@@ -42,7 +42,10 @@ guides in order.
   types join the schema: `plaintext` (navigable unformatted prose over the
   richtext corpus, via a literal codec) and a promoted first-class `enum`
   (`type: enum` + `values:`, the `enum:` modifier on `string` deprecated for one
-  release); `string` narrows to open scalar data (#938).
+  release); `string` narrows to open scalar data (#938). Two `ui.*` fixes:
+  `ui.group` in a nested position is now a load error
+  (`quill::nested_group_not_supported`), and typed-dictionary / typed-table-row
+  properties render in declaration order instead of alphabetically (#941).
 - [0.92 → 0.93](0.92-to-0.93.md) — the blueprint placeholder is rebuilt on two
   orthogonal axes (value and marker): blueprints now stamp the `!must_fill` tag
   instead of the `<must-fill>` string sentinel, and bare-null / `field:` now

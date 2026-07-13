@@ -237,9 +237,11 @@ main:
 
 Fields with the same `group` value are rendered together. The group name becomes the section heading.
 
+`group` applies only to card-level fields (those directly under a card's `fields:`). Grouping never descends into an object's properties or an array's items, so a `group` on a nested property is a hard error (`quill::nested_group_not_supported`) rather than a silently inert knob.
+
 ### `order`
 
-Auto-assigned from field position. To override:
+Auto-assigned from field position. This positional assignment applies at every level — card-level fields *and* the properties of a typed dictionary or typed-table row — so nested properties render in declaration order rather than alphabetically. To override:
 
 ```yaml
 main:

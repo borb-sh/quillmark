@@ -1542,6 +1542,128 @@ main:
 }
 
 #[test]
+fn nested_object_properties_receive_positional_ui_order() {
+    // Properties render in declaration order, not the alphabetical order their
+    // `BTreeMap` storage would otherwise impose: `zulu` is declared first, so
+    // it sorts ahead of `alpha` despite the reversed alphabet.
+    let yaml = r#"
+quill: { name: x, version: "1.0", backend: typst, description: x }
+main:
+  fields:
+    address:
+      type: object
+      properties:
+        zulu: { type: string }
+        alpha: { type: string }
+"#;
+    let config = QuillConfig::from_yaml(yaml).unwrap();
+    let props = config.main.fields["address"].properties.as_ref().unwrap();
+    assert_eq!(props["zulu"].ui_order(), 0);
+    assert_eq!(props["alpha"].ui_order(), 1);
+}
+
+#[test]
+fn typed_table_row_properties_receive_positional_ui_order() {
+    // The synthetic row of a typed table is an object built by the same
+    // `from_quill_value` recursion, so its properties get positional order too.
+    let yaml = r#"
+quill: { name: x, version: "1.0", backend: typst, description: x }
+main:
+  fields:
+    rows:
+      type: array
+      items:
+        type: object
+        properties:
+          org: { type: string }
+          year: { type: integer }
+"#;
+    let config = QuillConfig::from_yaml(yaml).unwrap();
+    let props = config.main.fields["rows"].items.as_ref().unwrap();
+    let props = props.properties.as_ref().unwrap();
+    assert_eq!(props["org"].ui_order(), 0);
+    assert_eq!(props["year"].ui_order(), 1);
+}
+
+#[test]
+fn nested_property_explicit_ui_order_is_preserved() {
+    // An author-supplied `order` on a nested property is never overwritten; the
+    // sibling without one still receives its positional index.
+    let yaml = r#"
+quill: { name: x, version: "1.0", backend: typst, description: x }
+main:
+  fields:
+    address:
+      type: object
+      properties:
+        street: { type: string, ui: { order: 5 } }
+        city: { type: string }
+"#;
+    let config = QuillConfig::from_yaml(yaml).unwrap();
+    let props = config.main.fields["address"].properties.as_ref().unwrap();
+    assert_eq!(props["street"].ui_order(), 5);
+    assert_eq!(props["city"].ui_order(), 1);
+}
+
+#[test]
+fn ui_group_on_object_property_is_rejected() {
+    // `ui.group` clusters card-level fields only; on a typed-dictionary
+    // property it was silently inert, and now loads as a hard error.
+    let yaml = r#"
+quill: { name: x, version: "1.0", backend: typst, description: x }
+main:
+  fields:
+    address:
+      type: object
+      properties:
+        street: { type: string, ui: { group: Location } }
+"#;
+    let err = QuillConfig::from_yaml_with_warnings(yaml).unwrap_err();
+    assert!(err
+        .iter()
+        .any(|d| d.code.as_deref() == Some("quill::nested_group_not_supported")));
+}
+
+#[test]
+fn ui_group_on_typed_table_property_is_rejected() {
+    let yaml = r#"
+quill: { name: x, version: "1.0", backend: typst, description: x }
+main:
+  fields:
+    rows:
+      type: array
+      items:
+        type: object
+        properties:
+          score: { type: number, ui: { group: Metrics } }
+"#;
+    let err = QuillConfig::from_yaml_with_warnings(yaml).unwrap_err();
+    assert!(err
+        .iter()
+        .any(|d| d.code.as_deref() == Some("quill::nested_group_not_supported")));
+}
+
+#[test]
+fn ui_group_on_card_level_field_is_still_accepted() {
+    // Regression guard: the nested-position rejection must not touch card-level
+    // fields, where grouping is the whole point.
+    let yaml = r#"
+quill: { name: x, version: "1.0", backend: typst, description: x }
+main:
+  fields:
+    subject: { type: string, ui: { group: Addressing } }
+"#;
+    let config = QuillConfig::from_yaml(yaml).unwrap();
+    assert_eq!(
+        config.main.fields["subject"]
+            .ui
+            .as_ref()
+            .and_then(|u| u.group.as_deref()),
+        Some("Addressing")
+    );
+}
+
+#[test]
 fn test_array_items_recursive_coercion() {
     let yaml_content = r#"
 quill:

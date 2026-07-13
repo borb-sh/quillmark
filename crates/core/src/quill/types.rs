@@ -309,6 +309,30 @@ impl FieldSchema {
         self.ui.as_ref().and_then(|u| u.order).unwrap_or(i32::MAX)
     }
 
+    /// Stamp `order` onto `ui.order` when the author left it unset, creating the
+    /// `ui` block if absent. Positional ordering derived from declaration order
+    /// — applied at card level by the loader and to nested object properties as
+    /// they are built (`from_quill_value`), so `ui_order()` is meaningful at
+    /// every depth. Never overrides an author-supplied `order`.
+    pub(crate) fn set_ui_order_if_unset(&mut self, order: i32) {
+        match &mut self.ui {
+            Some(ui) => {
+                if ui.order.is_none() {
+                    ui.order = Some(order);
+                }
+            }
+            None => {
+                self.ui = Some(UiFieldSchema {
+                    title: None,
+                    group: None,
+                    order: Some(order),
+                    compact: None,
+                    multiline: None,
+                });
+            }
+        }
+    }
+
     pub fn new(name: String, r#type: FieldType, description: Option<String>) -> Self {
         Self {
             name,
@@ -347,14 +371,16 @@ impl FieldSchema {
             enum_values,
             properties: if let Some(props) = def.properties {
                 let mut p = BTreeMap::new();
-                for (key, value) in props {
-                    p.insert(
-                        key.clone(),
-                        Box::new(FieldSchema::from_quill_value(
-                            key,
-                            &QuillValue::from_json(value),
-                        )?),
-                    );
+                // Declaration order (preserved by serde_json's `preserve_order`)
+                // assigns each property a positional `ui.order`, mirroring the
+                // card-level pass in `parse_fields_with_order`. Without this,
+                // properties live in a `BTreeMap` and would render alphabetically,
+                // discarding authored order one nesting level down.
+                for (index, (key, value)) in props.into_iter().enumerate() {
+                    let mut prop =
+                        FieldSchema::from_quill_value(key.clone(), &QuillValue::from_json(value))?;
+                    prop.set_ui_order_if_unset(index as i32);
+                    p.insert(key, Box::new(prop));
                 }
                 Some(p)
             } else {

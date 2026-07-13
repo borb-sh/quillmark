@@ -10,7 +10,7 @@ use crate::error::{Diagnostic, Severity};
 use crate::value::QuillValue;
 
 use super::types::RICHTEXT_INLINE_TOKEN_MSG;
-use super::{BodyCardSchema, CardSchema, FieldSchema, FieldType, UiCardSchema, UiFieldSchema};
+use super::{BodyCardSchema, CardSchema, FieldSchema, FieldType, UiCardSchema};
 
 /// Canonical string text for a bare scalar unambiguously representable as a
 /// string — a boolean (`true`/`false`) or number (`47`, `1.0`). `None` for
@@ -746,6 +746,23 @@ impl QuillConfig {
         // `from_quill_value` folds the wire key into the `FieldType` enum
         // (`resolve_richtext_inline`); no second check belongs here.
 
+        // `ui.group` clusters card-level fields only — the blueprint's grouping
+        // pass never descends into object properties or array items, so a nested
+        // `group` is an inert knob. Reject it rather than let it silently do
+        // nothing, the same dead-knob class this walk exists to catch.
+        if position != ShapePosition::Top
+            && schema.ui.as_ref().and_then(|u| u.group.as_ref()).is_some()
+        {
+            return err(
+                "quill::nested_group_not_supported",
+                format!(
+                    "Field '{owner}' sets ui.group in a nested position. Grouping applies \
+                     only to card-level fields; an object property or array item cannot \
+                     join a group."
+                ),
+            );
+        }
+
         match schema.r#type {
             FieldType::Object => {
                 // An object nested inside another object (a Leaf position) is
@@ -1094,20 +1111,9 @@ impl QuillConfig {
                         continue;
                     }
 
-                    // Always set ui.order based on position
-                    if schema.ui.is_none() {
-                        schema.ui = Some(UiFieldSchema {
-                            title: None,
-                            group: None,
-                            order: Some(order),
-                            compact: None,
-                            multiline: None,
-                        });
-                    } else if let Some(ui) = &mut schema.ui {
-                        if ui.order.is_none() {
-                            ui.order = Some(order);
-                        }
-                    }
+                    // Assign this card-level field its positional `ui.order`
+                    // (nested properties are stamped in `from_quill_value`).
+                    schema.set_ui_order_if_unset(order);
 
                     let owner = format!("{} '{}'", context, field_name);
                     Self::validate_field_blueprint_constraints(&schema, &owner, errors);
