@@ -3033,3 +3033,195 @@ fn richtext_zero_value_is_empty_corpus() {
         zero.as_json()
     );
 }
+
+// ---------------------------------------------------------------------------
+// plaintext — the literal-codec corpus sibling of richtext
+// ---------------------------------------------------------------------------
+
+#[test]
+fn plaintext_field_caches_literal_corpus() {
+    // A plaintext example is imported verbatim: markdown delimiters stay literal
+    // (no marks), and the cached companion is a mark-free corpus object.
+    let config = quill_with_field(
+        "    subject:\n      type: plaintext\n      example: \"a *literal* subject\"\n",
+    )
+    .expect("plaintext example loads");
+    let field = config.main.fields.get("subject").unwrap();
+    assert_eq!(field.r#type, FieldType::PlainText { inline: false });
+    let corpus = field.example_corpus.as_ref().expect("example_corpus cached");
+    let rt = quillmark_richtext::serial::from_canonical_value(corpus.as_json()).unwrap();
+    assert!(rt.is_plain(), "cached plaintext corpus is plain");
+    assert_eq!(
+        quillmark_richtext::to_plaintext(&rt),
+        "a *literal* subject",
+        "the asterisks are literal, not emphasis"
+    );
+}
+
+#[test]
+fn plaintext_coercion_imports_verbatim_not_as_markdown() {
+    let config = quill_with_field("    subject:\n      type: plaintext\n").expect("loads");
+    let mut fields: indexmap::IndexMap<String, QuillValue> = indexmap::IndexMap::new();
+    fields.insert(
+        "subject".to_string(),
+        QuillValue::from_json(serde_json::json!("*not bold* text")),
+    );
+    let coerced = config.coerce_payload(&fields).expect("plaintext coerces");
+    let value = coerced.get("subject").unwrap();
+    assert!(value.as_json().is_object(), "coerced value is a corpus object");
+    let rt = quillmark_richtext::serial::from_canonical_value(value.as_json()).unwrap();
+    assert!(rt.marks.is_empty(), "no marks: delimiters stayed literal");
+    assert_eq!(quillmark_richtext::to_plaintext(&rt), "*not bold* text");
+}
+
+#[test]
+fn inline_plaintext_rejects_multiline_document_value() {
+    let config =
+        quill_with_field("    subject:\n      type: plaintext\n      inline: true\n").expect("loads");
+    let mut fields: indexmap::IndexMap<String, QuillValue> = indexmap::IndexMap::new();
+    fields.insert(
+        "subject".to_string(),
+        QuillValue::from_json(serde_json::json!("line one\n\nline two")),
+    );
+    let err = config.coerce_payload(&fields).unwrap_err();
+    assert!(
+        err.to_string().contains("plaintext(inline)"),
+        "a multi-line value should fail an inline plaintext field, got: {err}"
+    );
+}
+
+#[test]
+fn plaintext_wire_corpus_with_marks_is_rejected_not_stripped() {
+    // A corpus object carrying a mark is not silently downgraded to plain — it
+    // is rejected, mirroring the inline precedent and keeping coercion lossless.
+    let config = quill_with_field("    subject:\n      type: plaintext\n").expect("loads");
+    let mut rt = quillmark_richtext::from_markdown("a **bold** word").unwrap();
+    rt.normalize();
+    let mut fields: indexmap::IndexMap<String, QuillValue> = indexmap::IndexMap::new();
+    fields.insert(
+        "subject".to_string(),
+        QuillValue::from_json(quillmark_richtext::serial::to_canonical_value(&rt)),
+    );
+    let err = config.coerce_payload(&fields).unwrap_err();
+    assert!(
+        err.to_string().contains("plaintext"),
+        "a mark-bearing corpus should fail a plaintext field, got: {err}"
+    );
+}
+
+#[test]
+fn plaintext_zero_value_is_empty_corpus() {
+    let field = FieldSchema::new("x".to_string(), FieldType::PlainText { inline: false }, None);
+    let zero = zero_value(&field);
+    assert!(
+        zero.as_json().is_object(),
+        "plaintext zero-fill is the empty corpus, not a string: {:?}",
+        zero.as_json()
+    );
+}
+
+#[test]
+fn plaintext_transform_schema_carries_media_type_and_plain_annotation() {
+    let config = quill_with_field("    subject:\n      type: plaintext\n      inline: true\n")
+        .expect("loads");
+    let schema = super::schema::build_transform_schema(&config);
+    let json = schema.as_json();
+    let subject = &json["properties"]["subject"];
+    // Same media type as richtext → backends lower it identically, zero edits.
+    assert_eq!(subject["type"], "object");
+    assert_eq!(
+        subject["contentMediaType"],
+        super::schema::RICHTEXT_MEDIA_TYPE
+    );
+    // Plus the editor-only annotations.
+    assert_eq!(subject[super::schema::QUILLMARK_PLAIN_KEY], true);
+    assert_eq!(subject[super::schema::QUILLMARK_INLINE_KEY], true);
+}
+
+// ---------------------------------------------------------------------------
+// enum — promoted to a first-class token
+// ---------------------------------------------------------------------------
+
+#[test]
+fn enum_type_projects_to_json_schema_string_enum() {
+    let config = quill_with_field(
+        "    color:\n      type: enum\n      values: [red, green, blue]\n",
+    )
+    .expect("type: enum loads");
+    let field = config.main.fields.get("color").unwrap();
+    assert_eq!(field.r#type, FieldType::Enum);
+    assert_eq!(
+        field.enum_values.as_deref(),
+        Some(["red".to_string(), "green".to_string(), "blue".to_string()].as_slice())
+    );
+    let schema = super::schema::build_transform_schema(&config);
+    let color = &schema.as_json()["properties"]["color"];
+    // Exactly the shape backends already dispatch on: a string plus its domain.
+    assert_eq!(color["type"], "string");
+    assert_eq!(color["enum"], serde_json::json!(["red", "green", "blue"]));
+}
+
+#[test]
+fn enum_requires_a_non_empty_values_list() {
+    let err = quill_with_field("    color:\n      type: enum\n").unwrap_err();
+    assert!(
+        err.iter().any(|d| d
+            .message
+            .contains("type: enum requires a non-empty values")),
+        "type: enum without values should fail load, got: {err:?}"
+    );
+}
+
+#[test]
+fn enum_membership_is_validated_on_a_document_value() {
+    let config = quill_with_field("    color:\n      type: enum\n      values: [red, blue]\n")
+        .expect("loads");
+    let field = config.main.fields.get("color").unwrap();
+    let errs = super::validation::validate_field(
+        field,
+        &QuillValue::from_json(serde_json::json!("green")),
+        "color",
+    );
+    assert!(
+        errs.iter().any(|e| e.code() == "validation::enum_violation"),
+        "an out-of-domain enum value should raise enum_violation, got: {errs:?}"
+    );
+    // An in-domain value is accepted.
+    let ok = super::validation::validate_field(
+        field,
+        &QuillValue::from_json(serde_json::json!("red")),
+        "color",
+    );
+    assert!(ok.is_empty(), "an in-domain value validates, got: {ok:?}");
+}
+
+#[test]
+fn legacy_enum_modifier_on_string_is_still_accepted() {
+    // The deprecated spelling loads for one release and populates the same store.
+    let config = quill_with_field("    color:\n      type: string\n      enum: [a, b]\n")
+        .expect("legacy enum: on string still loads");
+    let field = config.main.fields.get("color").unwrap();
+    assert_eq!(field.r#type, FieldType::String);
+    assert_eq!(
+        field.enum_values.as_deref(),
+        Some(["a".to_string(), "b".to_string()].as_slice())
+    );
+}
+
+#[test]
+fn enum_or_values_on_a_non_enum_type_is_a_load_error() {
+    // The old silent no-op is now loud: enum:/values: on a non-string, non-enum
+    // type fails to load.
+    let err = quill_with_field("    n:\n      type: integer\n      enum: [1, 2]\n").unwrap_err();
+    assert!(
+        err.iter()
+            .any(|d| d.code.as_deref() == Some("quill::field_parse_error")),
+        "enum: on an integer field should fail to load, got: {err:?}"
+    );
+    let err = quill_with_field("    s:\n      type: string\n      values: [a, b]\n").unwrap_err();
+    assert!(
+        err.iter()
+            .any(|d| d.code.as_deref() == Some("quill::field_parse_error")),
+        "values: on a string field should fail to load, got: {err:?}"
+    );
+}
