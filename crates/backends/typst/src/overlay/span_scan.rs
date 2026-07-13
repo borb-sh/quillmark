@@ -55,9 +55,12 @@
 //! own ink, never another field's). A field's own inter-segment ink is the one
 //! exception to "any hit suspends the current run": it is transparent while its
 //! own window's segment is the run, but still suspends a *different* field's
-//! run (else interleaved placements merge into one lying box). A scalar
-//! referenced at several distinct plate sites costs nothing: each site is its
-//! own window, so each surfaces independently.
+//! run (else interleaved placements merge into one lying box). The other
+//! exception is **detached-span** ink — Typst's synthesized text decorations
+//! (the `underline`/`strike` line, a `Shape` drawn mid-run) and list markers:
+//! anonymous, attributable to no field, so it breaks no run at all (#936). A
+//! scalar referenced at several distinct plate sites costs nothing: each site
+//! is its own window, so each surfaces independently.
 //!
 //! Geometry composes the group-transform stack exactly like
 //! `typst_layout::introspect::discover_frame`, transforming all four corners
@@ -172,8 +175,21 @@ enum HitClass {
     /// interleaved second placement of another field would merge across the gap
     /// into one lying box.
     Transparent { window: usize },
-    /// No window at all — page chrome, list-marker/numbering ink (detached
-    /// spans), vendored packages.
+    /// **Detached-span** ink — a `Span` carrying no source location: Typst's
+    /// synthesized text decorations (the `underline`/`strike`/`overline` line,
+    /// drawn as a `Shape` mid-run) and list/enum marker glyphs. Anonymous by
+    /// construction — attributable to no field — and, unlike [`Foreign`],
+    /// **never a run-breaker**: a `#underline[..]` decoration drawn between a
+    /// field's own text glyphs would otherwise suspend the run and orphan the
+    /// rest of the line (#936). A marker preceding a list item's text is a
+    /// no-op for the same reason, harmlessly — the next item is a different
+    /// segment key that ends the run on its own.
+    ///
+    /// [`Foreign`]: HitClass::Foreign
+    Anonymous,
+    /// No window, but a *resolvable* span — page chrome, another field's text,
+    /// vendored-package output. Real attributable ink from elsewhere, so it
+    /// breaks a run (the twice-placed / interleaved-field guard).
     Foreign,
 }
 
@@ -184,17 +200,25 @@ impl HitClass {
         match self {
             HitClass::Boxable { key } => Some(key.0),
             HitClass::Transparent { window } => Some(window),
-            HitClass::Foreign => None,
+            HitClass::Anonymous | HitClass::Foreign => None,
         }
     }
 }
 
 /// Fold a resolved `(window, Option<segment>)` classification into the run
-/// machine's key space. `(w, None)` splits by window kind: on a **segment-less**
-/// window (scalar/widget site) it is the whole placement's boxable key; on a
-/// **content** window it is transparent inter-segment ink.
-fn hit_class(resolved: Option<(usize, Option<usize>)>, windows: &[FieldWindow]) -> HitClass {
+/// machine's key space, given whether the originating span was **detached**.
+/// `(w, None)` splits by window kind: on a **segment-less** window
+/// (scalar/widget site) it is the whole placement's boxable key; on a
+/// **content** window it is transparent inter-segment ink. A resolved span
+/// matching no window is [`Foreign`](HitClass::Foreign); an unresolved
+/// (detached) span is [`Anonymous`](HitClass::Anonymous) decoration/marker ink.
+fn hit_class(
+    resolved: Option<(usize, Option<usize>)>,
+    detached: bool,
+    windows: &[FieldWindow],
+) -> HitClass {
     match resolved {
+        None if detached => HitClass::Anonymous,
         None => HitClass::Foreign,
         Some((w, Some(s))) => HitClass::Boxable { key: (w, Some(s)) },
         Some((w, None)) if windows[w].segments.is_empty() => HitClass::Boxable { key: (w, None) },
@@ -282,7 +306,7 @@ impl<'a> Classifier<'a> {
 /// ink only.
 fn collect_page_hits(frame: &Frame, page: usize, cls: &mut Classifier, out: &mut Vec<Hit>) {
     walk_items(frame, Transform::identity(), page, &mut |page, span, _offset, aabb| {
-        let class = hit_class(cls.classify_seg(span), cls.windows);
+        let class = hit_class(cls.classify_seg(span), span.is_detached(), cls.windows);
         // Boxes are computed for classified ink only; foreign ink still emits a
         // (rect-less) Hit so the run machine sees the full ink sequence.
         let rect = class.window().is_some().then(aabb);
@@ -442,10 +466,11 @@ fn flatten_keys(windows: &[FieldWindow]) -> Vec<(usize, Option<usize>)> {
 /// `(window, Option<segment>)`. Returns each key's first placement as per-page
 /// boxes, indexed parallel to `keys`. `current` is the one key whose run is
 /// accruing; a boxable hit for a different key (or foreign ink) suspends it, and
-/// a suspended run resumes only on the immediately following page. The one new
-/// arm is [`HitClass::Transparent`]: a field's own inter-segment ink, a no-op
+/// a suspended run resumes only on the immediately following page.
+/// [`HitClass::Transparent`] — a field's own inter-segment ink — is a no-op
 /// while that same window's segment is the run, else a suspension like foreign
-/// ink (see [`HitClass`]).
+/// ink; [`HitClass::Anonymous`] — detached decoration/marker ink — is an
+/// unconditional no-op (see [`HitClass`]).
 fn run_scan_machine(keys: &[(usize, Option<usize>)], hits: &[Hit]) -> Vec<Vec<(usize, Aabb)>> {
     let key_index: HashMap<(usize, Option<usize>), usize> =
         keys.iter().enumerate().map(|(i, k)| (*k, i)).collect();
@@ -489,6 +514,10 @@ fn run_scan_machine(keys: &[(usize, Option<usize>)], hits: &[Hit]) -> Vec<Vec<(u
                     }
                 }
             },
+            // Detached decoration/marker ink is anonymous — it breaks no run,
+            // so a `#underline[..]`/`#strike[..]` line drawn mid-run does not
+            // orphan the rest of its line (#936).
+            HitClass::Anonymous => {}
             HitClass::Foreign => {
                 if let Some((c, last_page)) = current.take() {
                     state[c] = Run::Suspended { last_page };
@@ -962,6 +991,93 @@ main:
         );
     }
 
+    /// #936 end-to-end: an `underline`/`strike` mark must not truncate its
+    /// line's `$body` region. Typst lowers all four wrapping marks the same way
+    /// (`#strong[`/`#emph[`/`#underline[`/`#strike[`), but `underline`/`strike`
+    /// additionally draw a decoration **`Shape` with a detached span** between
+    /// the decorated glyphs and the trailing plain run. Before the fix that
+    /// shape classified `Foreign` and suspended the run, so the region stopped
+    /// at the mark's start and lost the whole trailing run; here every mark's
+    /// region must span essentially the full line, like the undecorated marks.
+    #[test]
+    fn decoration_marks_do_not_truncate_the_region() {
+        use quillmark_richtext::model::{Line, LineKind, Mark, MarkKind, RichText};
+        const YAML: &str = r#"
+quill:
+  name: deco_probe
+  version: 0.1.0
+  backend: typst
+  description: underline and strike region truncation probe
+typst:
+  plate_file: plate.typ
+main:
+  fields:
+    body:
+      type: richtext
+      description: one paragraph with one decorated run
+"#;
+        const PLATE: &str = r#"
+#import "@local/quillmark-helper:0.1.0": data
+#set page(width: 400pt, height: 400pt, margin: 40pt)
+#data.body
+"#;
+        // The mark [6,11) over "uline" leaves a long trailing plain run — the
+        // part the truncation used to swallow.
+        const TEXT: &str = "Start uline and then a long trailing plain run of text.";
+        let region_width = |kind: MarkKind| -> f32 {
+            let rt = RichText {
+                text: TEXT.to_string(),
+                lines: vec![Line {
+                    containers: vec![],
+                    kind: LineKind::Para,
+                    continues: false,
+                }],
+                marks: vec![Mark {
+                    start: 6,
+                    end: 11,
+                    kind,
+                }],
+                islands: vec![],
+            };
+            let q = quill(YAML, PLATE);
+            let plate = crate::read_plate(&q).expect("plate");
+            let schema = quillmark_core::quill::build_transform_schema(q.config());
+            let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
+            let data =
+                serde_json::json!({ "body": quillmark_richtext::serial::to_canonical_value(&rt) });
+            let transformed = crate::transformed_data(&meta, &data).expect("transform");
+            let mut world = QuillWorld::new(&q, &plate).expect("world");
+            let windows = world
+                .inject_helper_package(transformed.as_ref(), &meta)
+                .expect("inject");
+            let (doc, _) = compile_document(&world).expect("compile");
+            let helper = world
+                .source(QuillWorld::helper_fid("lib.typ"))
+                .expect("helper source");
+            let regions = scan(&doc, &world, &helper, &windows);
+            regions
+                .iter()
+                .filter(|r| r.field == "body")
+                .map(|r| r.rect[2] - r.rect[0])
+                .fold(0.0f32, f32::max)
+        };
+
+        // `strong` is a stand-in for "no decoration shape": its region is the
+        // full paragraph width. Every mark should land within a hair of it.
+        let baseline = region_width(MarkKind::Strong);
+        assert!(
+            baseline > 150.0,
+            "sanity: full-line region is wide: {baseline}"
+        );
+        for kind in [MarkKind::Emph, MarkKind::Underline, MarkKind::Strike] {
+            let w = region_width(kind.clone());
+            assert!(
+                w >= baseline * 0.9,
+                "{kind:?} region width {w} truncated vs {baseline} baseline (#936)"
+            );
+        }
+    }
+
     #[test]
     fn scalar_windows_track_chains_and_single_owner_enclosing_expressions() {
         let src = Source::detached(
@@ -1314,6 +1430,14 @@ main:
         }
     }
 
+    fn anonymous_hit(page: usize) -> Hit {
+        Hit {
+            page,
+            class: HitClass::Anonymous,
+            rect: None,
+        }
+    }
+
     /// Each key's accrued pages, in order, dropping never-accrued keys — the
     /// production [`run_scan_machine`] read as page sequences.
     fn key_pages(
@@ -1362,6 +1486,44 @@ main:
         assert!(
             bx.max_x < 11.0,
             "only the first hit accrued — same-page foreign ink ends the run, exactly today's rule"
+        );
+    }
+
+    /// #936: detached decoration ink (a `#underline`/`#strike` line) drawn
+    /// between two hits of one segment must keep the run — both accrue into one
+    /// unioned box — where identically-placed *foreign* ink would end it. The
+    /// underline case is exactly this shape: `Start `, then the decorated run's
+    /// glyphs, then the decoration `Shape` (detached span), then the trailing
+    /// plain run, all one segment. Foreign ink here would truncate the region
+    /// at the decoration, orphaning the trailing run.
+    #[test]
+    fn anonymous_ink_is_transparent_but_foreign_ink_is_not() {
+        let keys = vec![(0usize, Some(0usize))];
+        let (a, b) = (aabb(0.0, 0.0, 1.0, 1.0), aabb(10.0, 10.0, 11.0, 11.0));
+
+        let anonymous = vec![
+            boxable_hit(0, (0, Some(0)), a),
+            anonymous_hit(0), // the underline/strike decoration Shape
+            boxable_hit(0, (0, Some(0)), b),
+        ];
+        let boxes = run_scan_machine(&keys, &anonymous);
+        assert_eq!(boxes[0].len(), 1, "one page-0 box");
+        let (_, bx) = boxes[0][0];
+        assert!(
+            bx.min_x <= 0.0 && bx.max_x >= 11.0,
+            "the box unions both hits — the decoration did not break the run"
+        );
+
+        let foreign = vec![
+            boxable_hit(0, (0, Some(0)), a),
+            foreign_hit(0),
+            boxable_hit(0, (0, Some(0)), b),
+        ];
+        let boxes = run_scan_machine(&keys, &foreign);
+        let (_, bx) = boxes[0][0];
+        assert!(
+            bx.max_x < 11.0,
+            "foreign ink still ends the run — only detached ink is exempt"
         );
     }
 
