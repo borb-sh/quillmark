@@ -196,16 +196,15 @@ fn group_fields<'a, I: IntoIterator<Item = &'a FieldSchema>>(
         }
     }
     // Ungrouped is the implicit leading pseudo-group (rank 0). Grouped clusters
-    // (rank 1) sort by registry position; with no registry every group ties at
-    // `usize::MAX` and the stable sort preserves first appearance.
+    // sort by registry position shifted past it (`pos + 1`); with no registry
+    // every group ties at `usize::MAX` and the stable sort preserves first
+    // appearance.
     groups.sort_by_key(|(g, _)| match g {
-        None => (0, 0),
-        Some(id) => (
-            1,
-            registry
-                .and_then(|order| order.iter().position(|o| o == id))
-                .unwrap_or(usize::MAX),
-        ),
+        None => 0,
+        Some(id) => registry
+            .and_then(|order| order.iter().position(|o| o == id))
+            .map(|pos| pos + 1)
+            .unwrap_or(usize::MAX),
     });
     groups.into_iter().flat_map(|(_, fields)| fields).collect()
 }

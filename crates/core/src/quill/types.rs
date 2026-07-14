@@ -425,22 +425,14 @@ impl FieldSchema {
     /// they are built (`from_quill_value`), so `ui_order()` is meaningful at
     /// every depth. Never overrides an author-supplied `order`.
     pub(crate) fn set_ui_order_if_unset(&mut self, order: i32) {
-        match &mut self.ui {
-            Some(ui) => {
-                if ui.order.is_none() {
-                    ui.order = Some(order);
-                }
-            }
-            None => {
-                self.ui = Some(UiFieldSchema {
-                    title: None,
-                    group: None,
-                    order: Some(order),
-                    compact: None,
-                    multiline: None,
-                });
-            }
-        }
+        let ui = self.ui.get_or_insert(UiFieldSchema {
+            title: None,
+            group: None,
+            order: None,
+            compact: None,
+            multiline: None,
+        });
+        ui.order.get_or_insert(order);
     }
 
     pub fn new(name: String, r#type: FieldType, description: Option<String>) -> Self {
