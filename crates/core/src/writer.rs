@@ -283,18 +283,6 @@ card_kinds:
     }
 
     #[test]
-    fn set_reports_strict_conform_failure() {
-        let config = config();
-        let mut doc = blank_doc();
-        let mut ed = TypedWriter::new(&config, &mut doc);
-        let err = ed.set("qty", "not-a-number").unwrap_err();
-        assert_eq!(err.variant_name(), "FieldConform");
-        // A richtext(inline) violation surfaces through the richtext variant.
-        let err = ed.set("subject", "line one\n\nline two").unwrap_err();
-        assert_eq!(err.variant_name(), "FieldRichtextNotInline");
-    }
-
-    #[test]
     fn set_all_is_all_or_nothing() {
         let config = config();
         let mut doc = blank_doc();

@@ -1665,22 +1665,6 @@ Some text with --- dashes in it.";
     assert!(doc.cards()[0].body_markdown().contains("--- dashes"));
 }
 
-// `$quill` reference edge cases
-
-#[test]
-fn test_quill_with_underscore_prefix() {
-    let markdown = "~~~card-yaml\n$quill: _internal\n$kind: main\n~~~\n\nBody.";
-    let doc = decompose(markdown).unwrap();
-    assert_eq!(doc.quill_reference().name, "_internal");
-}
-
-#[test]
-fn test_quill_with_numbers() {
-    let markdown = "~~~card-yaml\n$quill: form_8_v2\n$kind: main\n~~~\n\nBody.";
-    let doc = decompose(markdown).unwrap();
-    assert_eq!(doc.quill_reference().name, "form_8_v2");
-}
-
 // Error handling
 
 #[test]

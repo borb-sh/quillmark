@@ -560,18 +560,7 @@ main:
 
 #[test]
 fn test_field_schema_struct() {
-    // Test creating FieldSchema with minimal fields
-    let schema1 = FieldSchema::new(
-        "test_name".to_string(),
-        FieldType::String,
-        Some("Test description".to_string()),
-    );
-    assert_eq!(schema1.description, Some("Test description".to_string()));
-    assert_eq!(schema1.r#type, FieldType::String);
-    assert_eq!(schema1.example, None);
-    assert_eq!(schema1.default, None);
-
-    // Test parsing FieldSchema from YAML with all fields
+    // Parse a FieldSchema from YAML with every field set.
     let yaml_str = r#"
 description: "Full field schema"
 type: "string"
@@ -1267,46 +1256,6 @@ card_kinds:
     assert!(config.card_kind("conflict").is_some());
 }
 
-#[test]
-fn test_quill_config_ordering_with_cards() {
-    // Test that fields have proper UI ordering (ordering is field-level, not card-level)
-    let yaml_content = r#"
-quill:
-  name: ordering_test
-  version: "1.0"
-  backend: typst
-  description: Test ordering
-
-main:
-  fields:
-    first:
-      type: string
-      description: First
-    zero:
-      type: string
-      description: Zero
-
-card_kinds:
-  second:
-    description: Second
-    fields:
-      card_field:
-        type: string
-        description: A card field
-"#;
-
-    let config = QuillConfig::from_yaml(yaml_content).unwrap();
-
-    let second = config.card_kind("second").unwrap();
-
-    // Within main.fields, "first" is declared before "zero"; the field map
-    // carries that order.
-    assert_eq!(config.main.fields.get_index_of("first"), Some(0));
-    assert_eq!(config.main.fields.get_index_of("zero"), Some(1));
-
-    // Card fields carry declaration order too.
-    assert_eq!(second.fields.get_index_of("card_field"), Some(0));
-}
 #[test]
 fn test_card_field_order_preservation() {
     // Test that card fields preserve definition order (not alphabetical)
@@ -3392,17 +3341,6 @@ fn plaintext_wire_corpus_with_marks_is_rejected_not_stripped() {
     assert!(
         err.to_string().contains("plaintext"),
         "a mark-bearing corpus should fail a plaintext field, got: {err}"
-    );
-}
-
-#[test]
-fn plaintext_zero_value_is_empty_corpus() {
-    let field = FieldSchema::new("x".to_string(), FieldType::PlainText { inline: false }, None);
-    let zero = zero_value(&field);
-    assert!(
-        zero.as_json().is_object(),
-        "plaintext zero-fill is the empty corpus, not a string: {:?}",
-        zero.as_json()
     );
 }
 

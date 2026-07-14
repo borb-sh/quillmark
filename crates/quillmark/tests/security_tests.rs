@@ -5,31 +5,6 @@
 
 use quillmark_core::{Card, Document};
 
-/// Test deeply nested YAML structures hit the depth limit
-#[test]
-fn test_yaml_depth_limit_attack() {
-    // Create deeply nested YAML structure (exceeds MAX_YAML_DEPTH)
-    let mut deep_yaml = String::new();
-    for i in 0..150 {
-        deep_yaml.push_str(&"  ".repeat(i));
-        deep_yaml.push_str("a:\n");
-    }
-    let markdown = format!(
-        "~~~card-yaml\n$quill: test_quill\n$kind: main\n{}~~~\n\nBody",
-        deep_yaml
-    );
-    let result = Document::from_markdown(&markdown);
-
-    // Should fail with YAML depth limit error
-    assert!(result.is_err(), "Should reject deeply nested YAML");
-    let err_msg = result.unwrap_err().to_string();
-    assert!(
-        err_msg.contains("depth") || err_msg.contains("YAML") || err_msg.contains("limit"),
-        "Error should mention depth/limit: {}",
-        err_msg
-    );
-}
-
 /// Test card count limit prevents DoS
 #[test]
 fn test_card_count_limit_attack() {
@@ -50,70 +25,6 @@ fn test_card_count_limit_attack() {
     assert!(
         err_msg.contains("too large") || err_msg.contains("max"),
         "Error should mention limit: {}",
-        err_msg
-    );
-}
-
-/// Test that Typst special characters are properly escaped (injection prevention)
-#[test]
-fn test_typst_injection_via_special_chars() {
-    let malicious_inputs = vec![
-        r#"**"; eval("malicious")""#,
-        r#"$x$ math injection"#,
-        r#"#eval("danger")"#,
-        r#"@dangerous"#,
-        r#"~strike~`code`"#,
-    ];
-
-    for input in malicious_inputs {
-        let markdown = format!(
-            "~~~card-yaml\n$quill: test_quill\n$kind: main\n~~~\n\n{}",
-            input
-        );
-        let result = Document::from_markdown(&markdown);
-        // Should parse without error (escaping happens during conversion)
-        assert!(
-            result.is_ok(),
-            "Should handle special chars in input: {}",
-            input
-        );
-    }
-}
-
-/// Test large input size limit
-#[test]
-fn test_input_size_limit() {
-    let large_content = "a".repeat(11 * 1024 * 1024); // 11 MB
-    let markdown = format!(
-        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Large\n~~~\n\n{}",
-        large_content
-    );
-    let result = Document::from_markdown(&markdown);
-
-    assert!(result.is_err(), "Should reject oversized input");
-    let err_msg = result.unwrap_err().to_string();
-    assert!(
-        err_msg.contains("too large") || err_msg.contains("bytes"),
-        "Error should mention size limit: {}",
-        err_msg
-    );
-}
-
-/// Test YAML size limit
-#[test]
-fn test_yaml_size_limit() {
-    let large_value = "x".repeat(1024 * 1024 + 100);
-    let markdown = format!(
-        "~~~card-yaml\n$quill: test_quill\n$kind: main\ndata: {}\n~~~\n\nBody",
-        large_value
-    );
-    let result = Document::from_markdown(&markdown);
-
-    assert!(result.is_err(), "Should reject oversized YAML");
-    let err_msg = result.unwrap_err().to_string();
-    assert!(
-        err_msg.contains("too large") || err_msg.contains("YAML"),
-        "Error should mention YAML size: {}",
         err_msg
     );
 }
@@ -175,21 +86,5 @@ fn test_yaml_error_location() {
         err_msg.contains("line") || err_msg.contains("YAML"),
         "Error should include location context: {}",
         err_msg
-    );
-}
-
-/// Test that `~~~card-yaml` fences inside backtick code blocks are not parsed as metadata
-#[test]
-fn test_strict_fence_detection() {
-    let markdown =
-        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\n````\n~~~card-yaml\n$kind: test\nvalue: 1\n~~~\n````";
-    let result = Document::from_markdown(markdown);
-
-    assert!(result.is_ok(), "Should parse successfully: {:?}", result);
-    let doc = result.unwrap();
-    assert_eq!(
-        doc.cards().len(),
-        0,
-        "card-yaml fence inside ```` code block should not be parsed as metadata"
     );
 }

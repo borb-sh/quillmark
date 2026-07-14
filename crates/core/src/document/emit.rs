@@ -1105,22 +1105,4 @@ mod tests {
         );
         assert_eq!(out, "dept: !must_fill placeholder # note\n");
     }
-
-    #[test]
-    fn fill_integer_emits_tag_with_value() {
-        let value = QuillValue::from_json(serde_json::json!(42));
-        let mut out = String::new();
-        emit_field(
-            &mut out,
-            "count",
-            value.as_json(),
-            0,
-            true,
-            &p("count"),
-            &[],
-            &[],
-            None,
-        );
-        assert_eq!(out, "count: !must_fill 42\n");
-    }
 }

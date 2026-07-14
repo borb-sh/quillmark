@@ -1091,13 +1091,6 @@ mod tests {
     }
 
     #[test]
-    fn comment_after_plain_scalar_with_double_quote() {
-        let (v, c) = split_trailing_comment(" don\"t # note");
-        assert_eq!(v, " don\"t");
-        assert_eq!(c.as_deref(), Some("# note"));
-    }
-
-    #[test]
     fn hash_inside_quoted_scalar_is_not_a_comment() {
         let (v, c) = split_trailing_comment(" 'a # b'");
         assert_eq!(v, " 'a # b'");

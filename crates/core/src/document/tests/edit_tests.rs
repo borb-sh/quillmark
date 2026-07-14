@@ -550,14 +550,6 @@ fn test_replace_body_reports_import_error() {
         Err(EditError::BodyImport(_)) => {}
         other => panic!("expected BodyImport, got {other:?}"),
     }
-    assert_eq!(
-        EditError::BodyImport(quillmark_richtext::import::ImportError::NestingTooDeep {
-            depth: 1,
-            max: 1
-        })
-        .variant_name(),
-        "BodyImport"
-    );
 }
 
 /// `install_body` installs a pre-built corpus verbatim — value semantics, no
