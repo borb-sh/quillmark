@@ -12,6 +12,13 @@ These notes cover everything since v0.92.1. No 0.93.x was separately
 published — the 0.93 milestone folds into this release, so the upgrade path
 from 0.92.1 is the `0.92-to-0.93` and `0.93-to-0.94` guides read in sequence.
 
+- feat(wasm): the live-session / canvas-paint surface graduates from
+  `@experimental` to stable — `Engine.open`, `LiveSession`, `apply` /
+  `ChangeSet`, `paint` / `PaintOptions` / `PaintResult`, `PageSize`, and the
+  `supportsCanvas` probe are now the committed preview API. The tag is dropped
+  from the runtime `.d.ts` / `.js`, the wasm README, and `PREVIEW.md`; further
+  shape changes follow the normal deprecation path rather than landing in any
+  0.x. `Engine.render` / `supportedFormats` remain the one-shot path
 - refactor(core)!: field ordering becomes fully structural — `ui.order` is
   removed and an authored `order:` is a load error. Field and card-kind display
   order is now the key order of the emitted schema (declaration order, backed by
