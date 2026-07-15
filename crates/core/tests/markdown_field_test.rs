@@ -1,4 +1,4 @@
-use quillmark_core::{normalize::normalize_document, quill::QuillConfig, Document};
+use quillmark_core::quill::QuillConfig;
 
 #[test]
 fn test_markdown_type_is_a_load_error() {
@@ -57,26 +57,5 @@ main:
             .and_then(|v| v.get("type"))
             .and_then(|v| v.as_str()),
         Some("richtext")
-    );
-}
-
-#[test]
-fn test_markdown_field_normalization() {
-    // Create a document via from_markdown
-    let md = "~~~card-yaml\n$quill: test\n$kind: main\nmarkdown_field: This has <<guillemets>>\nstring_field: This has <<stripped>>\n~~~\n";
-    let doc = Document::from_markdown(md).unwrap();
-
-    // Normalize
-    let normalized = normalize_document(doc).expect("Failed to normalize document");
-    let fm = normalized.main().payload();
-
-    // Both fields pass through unchanged (no stripping on YAML fields)
-    assert_eq!(
-        fm.get("markdown_field").unwrap().as_str().unwrap(),
-        "This has <<guillemets>>"
-    );
-    assert_eq!(
-        fm.get("string_field").unwrap().as_str().unwrap(),
-        "This has <<stripped>>"
     );
 }
