@@ -541,12 +541,11 @@ impl PyDocument {
         }
     }
 
-    /// Read a composable card's field value — the card-indexed twin of `get`.
-    /// Returns a dict for a richtext corpus, a scalar/list/dict otherwise, or
-    /// `None` when the field is absent. Raises `IndexOutOfRange` when `index` is
-    /// out of range: a bad card index is a boundary error, not an absent field, so
-    /// it surfaces the way the card write verbs do rather than reading back as
-    /// `None`. Mirrors WASM `Document.getCardField`.
+    /// Read a composable card's field value — the card-indexed twin of `get`: a
+    /// dict for a richtext corpus, a scalar/list/dict otherwise, or `None` when
+    /// the field is absent. An out-of-range `index` raises `IndexOutOfRange`, as
+    /// the card write verbs do — a bad index is a boundary error, not an absent
+    /// field. Mirrors WASM `Document.getCardField`.
     fn get_card_field<'py>(
         &self,
         py: Python<'py>,
@@ -560,9 +559,9 @@ impl PyDocument {
     }
 
     /// The markdown projection of a composable card's field (`name` given) or its
-    /// body (`name` omitted) — the card-indexed twin of `get_markdown`, returning
-    /// `""` for an absent field. Raises `IndexOutOfRange` when `index` is out of
-    /// range. Mirrors WASM `Document.getCardMarkdown`.
+    /// body (`name` omitted) — the card-indexed twin of `get_markdown`, `""` for
+    /// an absent field. An out-of-range `index` raises `IndexOutOfRange`. Mirrors
+    /// WASM `Document.getCardMarkdown`.
     #[pyo3(signature = (index, name=None))]
     fn get_card_markdown(&self, index: usize, name: Option<&str>) -> PyResult<String> {
         let card = self.card_or_raise(index)?;

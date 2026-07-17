@@ -859,12 +859,11 @@ impl Document {
     }
 
     /// Read a composable card's field value — the card-indexed twin of
-    /// [`get`](Self::get). Returns the raw payload value (a corpus object for a
-    /// richtext field, a scalar/array/object otherwise), or `undefined` when the
-    /// field is absent. Throws `[EditError::IndexOutOfRange]` when `index` is out
-    /// of range: a bad card index is a boundary error, not an absent field, so it
-    /// surfaces the way the card *write* verbs (`commitCardField` / `setCardField`
-    /// / `removeCardField`) do rather than reading back as `undefined`.
+    /// [`get`](Self::get): the raw payload value (a corpus object for a richtext
+    /// field, a scalar/array/object otherwise), or `undefined` when the field is
+    /// absent. An out-of-range `index` throws `[EditError::IndexOutOfRange]`, as
+    /// the card write verbs do — a bad index is a boundary error, not an absent
+    /// field.
     #[wasm_bindgen(js_name = getCardField)]
     pub fn get_card_field(&self, index: usize, name: &str) -> Result<JsValue, JsValue> {
         match self.card_or_throw(index)?.payload().get(name) {
@@ -875,12 +874,10 @@ impl Document {
 
     /// The markdown projection of a composable card's field (`name` given) or its
     /// body (`name` omitted) — the card-indexed twin of
-    /// [`getMarkdown`](Self::get_markdown), returning `""` for an absent field.
-    /// Re-coins the card-scoped projection the eager `cardFieldMarkdown` getter
-    /// dropped in #925 (the field case); the body case twins `getMarkdown()`.
-    /// Throws `[EditError::IndexOutOfRange]` when `index` is out of range — the
-    /// one idiom difference from the infallible main `getMarkdown`, forced by the
-    /// index.
+    /// [`getMarkdown`](Self::get_markdown), `""` for an absent field. An
+    /// out-of-range `index` throws `[EditError::IndexOutOfRange]`; that
+    /// fallibility is the one difference from the infallible main `getMarkdown`,
+    /// forced by the index.
     #[wasm_bindgen(js_name = getCardMarkdown)]
     pub fn get_card_markdown(
         &self,
