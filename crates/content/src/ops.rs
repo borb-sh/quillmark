@@ -644,11 +644,26 @@ fn sanitize_inserts(delta: &Delta) -> Cow<'_, Delta> {
     Cow::Owned(Delta { ops })
 }
 
-/// Walk `delta` over `old_chars` and mirror `\n` insert/delete in `lines`.
+/// Walk `delta` over `old_chars` and mirror `\n` insert/delete in `lines`,
+/// building the result in one forward pass — O(old_chars walked + inserts),
+/// no per-`\n` mid-`Vec` `remove`/`insert`.
+///
+/// The cursor sits *in* a line, `cur`; downstream of it is always the untouched
+/// original suffix (`rest`), because a split lands its clone right at the cursor
+/// and a delete drops the next original. So the three `\n` events reduce to:
+/// a retained `\n` finalizes `cur` and pulls the next original into it; a
+/// deleted `\n` drops the next original (merging it in) — the old
+/// `line_idx + 1 < lines.len()` guard becomes "a next original exists"; an
+/// inserted `\n` finalizes `cur` and makes a clone (its `continues` cleared) the
+/// new `cur`. `cur == None` is the past-the-end state the old code reached via
+/// `lines.get(line_idx)` returning `None` on a malformed corpus, where a split
+/// clones a default line.
 fn sync_lines_for_delta(old_chars: &[char], old_lines: Vec<Line>, delta: &Delta) -> Vec<Line> {
-    let mut lines = old_lines;
+    let cap = old_lines.len();
+    let mut rest = old_lines.into_iter();
+    let mut out: Vec<Line> = Vec::with_capacity(cap);
+    let mut cur: Option<Line> = rest.next();
     let mut old = 0usize;
-    let mut line_idx = 0usize;
 
     for op in &delta.ops {
         match op {
@@ -658,7 +673,8 @@ fn sync_lines_for_delta(old_chars: &[char], old_lines: Vec<Line>, delta: &Delta)
                         break;
                     }
                     if old_chars[old] == '\n' {
-                        line_idx += 1;
+                        out.extend(cur.take());
+                        cur = rest.next();
                     }
                     old += 1;
                 }
@@ -668,8 +684,11 @@ fn sync_lines_for_delta(old_chars: &[char], old_lines: Vec<Line>, delta: &Delta)
                     if old >= old_chars.len() {
                         break;
                     }
-                    if old_chars[old] == '\n' && line_idx + 1 < lines.len() {
-                        lines.remove(line_idx + 1);
+                    // A deleted '\n' merges the next original into `cur` — drop
+                    // it. No next original: nothing to remove, matching the old
+                    // `line_idx + 1 < lines.len()` guard skipping the `remove`.
+                    if old_chars[old] == '\n' {
+                        rest.next();
                     }
                     old += 1;
                 }
@@ -677,24 +696,25 @@ fn sync_lines_for_delta(old_chars: &[char], old_lines: Vec<Line>, delta: &Delta)
             Op::Insert(s) => {
                 for c in s.chars() {
                     if c == '\n' {
-                        let template = lines
-                            .get(line_idx)
-                            .cloned()
-                            .unwrap_or_else(default_para_line);
-                        let mut new_line = template;
+                        let mut new_line = match cur.take() {
+                            Some(line) => {
+                                let clone = line.clone();
+                                out.push(line);
+                                clone
+                            }
+                            None => default_para_line(),
+                        };
                         new_line.continues = false;
-                        if line_idx < lines.len() {
-                            lines.insert(line_idx + 1, new_line);
-                        } else {
-                            lines.push(new_line);
-                        }
-                        line_idx += 1;
+                        cur = Some(new_line);
                     }
                 }
             }
         }
     }
-    lines
+
+    out.extend(cur);
+    out.extend(rest);
+    out
 }
 
 /// Walk `delta` over `old_chars` and drop any island whose [`ISLAND_SLOT`] char
@@ -1284,5 +1304,164 @@ mod tests {
         );
         assert!(matches!(err, Err(ApplyError::MarkOutOfRange { .. })));
         assert_eq!(rt, before, "failed bundle must not mutate the content");
+    }
+
+    // ── sync_lines_for_delta characterization (issue #926 finding 2) ─────────
+    //
+    // Pin the observable behavior of the line-sync walk — retain/insert/delete
+    // interleavings, the split template-clone rule, and the malformed-corpus
+    // guards — so the O(n)-per-remove → O(1) rewrite is behavior-preserving.
+
+    /// A `Heading{level}` line, its level a visible tag so a test can trace
+    /// which original line landed where; `continues` distinguishes a clone.
+    fn tag_line(level: u8, continues: bool) -> Line {
+        Line {
+            kind: LineKind::Heading { level },
+            containers: Vec::new(),
+            continues,
+        }
+    }
+
+    /// `(tag, continues)` per line — `Heading{level}` reads its level, `Para` is
+    /// tag 0 (the default line), any other kind is 255.
+    fn tags(lines: &[Line]) -> Vec<(u8, bool)> {
+        lines
+            .iter()
+            .map(|l| match l.kind {
+                LineKind::Heading { level } => (level, l.continues),
+                LineKind::Para => (0, l.continues),
+                _ => (255, l.continues),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn sync_lines_retain_only_is_identity() {
+        let old_chars: Vec<char> = "a\nb\nc".chars().collect();
+        let lines = vec![tag_line(1, false), tag_line(2, false), tag_line(3, false)];
+        let d = Delta {
+            ops: vec![Op::Retain(5)],
+        };
+        assert_eq!(sync_lines_for_delta(&old_chars, lines.clone(), &d), lines);
+    }
+
+    #[test]
+    fn sync_lines_insert_newline_clones_split_line_and_clears_continues() {
+        // Split line 1 ("bc") mid-line: the first half stays the original line
+        // (keeps kind, containers, and its `continues: true`); the second half
+        // is a clone of it with `continues` forced false.
+        let old_chars: Vec<char> = "a\nbc".chars().collect();
+        let l1 = Line {
+            kind: LineKind::Heading { level: 5 },
+            containers: vec![Container::Quote],
+            continues: true,
+        };
+        let lines = vec![tag_line(1, false), l1.clone()];
+        // Retain(3)[a\nb] moves to line 1; Insert("\n") splits it; Retain(1)[c].
+        let d = Delta {
+            ops: vec![Op::Retain(3), Op::Insert("\n".into()), Op::Retain(1)],
+        };
+        let out = sync_lines_for_delta(&old_chars, lines, &d);
+        assert_eq!(out.len(), 3);
+        assert_eq!(out[1], l1, "first half is the untouched original line");
+        assert_eq!(out[2].kind, LineKind::Heading { level: 5 });
+        assert_eq!(out[2].containers, vec![Container::Quote]);
+        assert!(!out[2].continues, "the split clone starts a new block");
+    }
+
+    #[test]
+    fn sync_lines_delete_newline_drops_following_line() {
+        // Delete the first '\n' of "a\nb\nc": lines 0 and 1 merge, dropping line
+        // 1; the current line (0) and line 2 survive.
+        let old_chars: Vec<char> = "a\nb\nc".chars().collect();
+        let lines = vec![tag_line(1, false), tag_line(2, false), tag_line(3, false)];
+        let d = Delta {
+            ops: vec![Op::Retain(1), Op::Delete(1), Op::Retain(3)],
+        };
+        let out = sync_lines_for_delta(&old_chars, lines, &d);
+        assert_eq!(tags(&out), vec![(1, false), (3, false)]);
+    }
+
+    #[test]
+    fn sync_lines_delete_trailing_newline_without_following_line_is_guarded() {
+        // Malformed corpus: text "a\n" is two segments but `lines` has one
+        // entry. Deleting the '\n' when `line_idx + 1` is out of bounds removes
+        // nothing (the guard), leaving the single line intact.
+        let old_chars: Vec<char> = "a\n".chars().collect();
+        let lines = vec![tag_line(1, false)];
+        let d = Delta {
+            ops: vec![Op::Retain(1), Op::Delete(1)],
+        };
+        let out = sync_lines_for_delta(&old_chars, lines, &d);
+        assert_eq!(tags(&out), vec![(1, false)]);
+    }
+
+    #[test]
+    fn sync_lines_stops_at_end_of_old_chars() {
+        // A retain running past the end of old_chars stops at the end rather
+        // than indexing out of bounds (the `old >= old_chars.len()` guard).
+        let old_chars: Vec<char> = "a\nb".chars().collect();
+        let lines = vec![tag_line(1, false), tag_line(2, false)];
+        let d = Delta {
+            ops: vec![Op::Retain(99)],
+        };
+        assert_eq!(sync_lines_for_delta(&old_chars, lines.clone(), &d), lines);
+    }
+
+    #[test]
+    fn sync_lines_insert_two_newlines_adds_two_clones() {
+        // Inserting "\n\n" mid-line adds two lines, each carrying the split
+        // line's kind and containers with `continues: false`.
+        let old_chars: Vec<char> = "abc".chars().collect();
+        let src = Line {
+            kind: LineKind::Heading { level: 7 },
+            containers: vec![Container::Quote],
+            continues: false,
+        };
+        let d = Delta {
+            ops: vec![Op::Retain(1), Op::Insert("\n\n".into()), Op::Retain(2)],
+        };
+        let out = sync_lines_for_delta(&old_chars, vec![src], &d);
+        assert_eq!(out.len(), 3);
+        for l in &out {
+            assert_eq!(l.kind, LineKind::Heading { level: 7 });
+            assert_eq!(l.containers, vec![Container::Quote]);
+            assert!(!l.continues);
+        }
+    }
+
+    #[test]
+    fn sync_lines_select_all_delete_collapses_to_first_line() {
+        // The motivating case (issue #926 finding 2): deleting a whole
+        // multi-line body drops every line but the first (each deleted '\n'
+        // merges the next line away). Formerly O(n) per deleted '\n'.
+        let text: String = (0..50).map(|i| format!("line{i}\n")).collect();
+        let old_chars: Vec<char> = text.chars().collect();
+        let lines: Vec<Line> = (0..=50).map(|i| tag_line((i % 200) as u8, false)).collect();
+        assert_eq!(lines.len(), old_chars.iter().filter(|&&c| c == '\n').count() + 1);
+        let d = Delta {
+            ops: vec![Op::Delete(old_chars.len())],
+        };
+        let out = sync_lines_for_delta(&old_chars, lines, &d);
+        assert_eq!(tags(&out), vec![(0, false)], "only the first line survives");
+    }
+
+    #[test]
+    fn sync_lines_insert_newline_past_end_appends_default() {
+        // Malformed corpus: after a retain walks past the sole line (line_idx ==
+        // lines.len()), an inserted '\n' has no line to clone and appends a
+        // default Para.
+        let old_chars: Vec<char> = "a\n".chars().collect();
+        let lines = vec![tag_line(1, false)];
+        // Retain(2)[a\n] moves line_idx to 1 (== lines.len()); Insert("\n").
+        let d = Delta {
+            ops: vec![Op::Retain(2), Op::Insert("\n".into())],
+        };
+        let out = sync_lines_for_delta(&old_chars, lines, &d);
+        assert_eq!(out.len(), 2);
+        assert_eq!(tags(&out)[0], (1, false));
+        assert_eq!(out[1].kind, LineKind::Para);
+        assert!(out[1].containers.is_empty());
+        assert!(!out[1].continues);
     }
 }
