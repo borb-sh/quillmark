@@ -689,12 +689,12 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_inline() {
     // A multi-block result fails the inline check on the *diffed* corpus with the
     // same FieldRichtextNotInline surface commit_field raises — and the field is
     // left unchanged (the schema check runs before the store).
-    let before = card.field_markdown("subject").unwrap();
+    let before = card.field_markdown("subject").unwrap().unwrap();
     let err = card
         .revise_field_checked("subject", "line one\n\nline two", &inline)
         .unwrap_err();
     assert_eq!(err.variant_name(), "FieldRichtextNotInline");
-    assert_eq!(card.field_markdown("subject").unwrap(), before);
+    assert_eq!(card.field_markdown("subject").unwrap().unwrap(), before);
 
     // A block (non-inline) richtext schema accepts multi-block content.
     let block = FieldSchema::new("body".to_string(), FieldType::RichText { inline: false }, None);
@@ -702,7 +702,7 @@ fn test_revise_field_checked_preserves_anchors_and_enforces_inline() {
         .revise_field_checked("body", "para one\n\npara two", &block)
         .unwrap();
     assert!(!d.ops.is_empty());
-    assert!(card.field_markdown("body").unwrap().contains("para two"));
+    assert!(card.field_markdown("body").unwrap().unwrap().contains("para two"));
 }
 
 /// `commit_field` on a richtext field accepts a **canonical corpus object**,
@@ -743,7 +743,7 @@ fn test_commit_field_richtext_markdown_null_and_rejects_bad() {
     let mut card = Card::new("note").unwrap();
 
     commit_richtext(&mut card, "intro", &serde_json::json!("**bold** intro"), false).unwrap();
-    assert_eq!(card.field_markdown("intro").unwrap(), "**bold** intro\n");
+    assert_eq!(card.field_markdown("intro").unwrap().unwrap(), "**bold** intro\n");
 
     // null passes through (stored as null) and reads back as the empty corpus.
     commit_richtext(&mut card, "intro", &serde_json::Value::Null, false).unwrap();
@@ -774,7 +774,7 @@ fn test_commit_field_richtext_inline_enforced_at_write() {
 
     // One paragraph line: inline, accepted.
     commit_richtext(&mut card, "title", &serde_json::json!("A single line"), true).unwrap();
-    assert_eq!(card.field_markdown("title").unwrap(), "A single line\n");
+    assert_eq!(card.field_markdown("title").unwrap().unwrap(), "A single line\n");
 
     // Two blocks: rejected at write, and nothing is stored over the good value.
     let err = commit_richtext(
@@ -785,7 +785,7 @@ fn test_commit_field_richtext_inline_enforced_at_write() {
     )
     .unwrap_err();
     assert_eq!(err.variant_name(), "FieldRichtextNotInline");
-    assert_eq!(card.field_markdown("title").unwrap(), "A single line\n");
+    assert_eq!(card.field_markdown("title").unwrap().unwrap(), "A single line\n");
 }
 
 /// A multi-block element committed to an `array` of `richtext(inline)` items
@@ -897,7 +897,8 @@ fn test_commit_field_rejects_bad_name() {
 
 /// `field_richtext` on an absent field is `None`; on a plain non-richtext field
 /// value it is `Some(Err(_))` — the read mirrors the write in needing the caller
-/// to name a field it knows is richtext.
+/// to name a field it knows is richtext. `field_markdown` carries the same
+/// shape: `None` absent, `Some(Err)` present-but-undecodable (#968).
 #[test]
 fn test_field_richtext_absent_and_non_richtext() {
     let mut card = Card::new("note").unwrap();
@@ -906,7 +907,7 @@ fn test_field_richtext_absent_and_non_richtext() {
 
     card.store_field("count", 3).unwrap();
     assert!(card.field_richtext("count").unwrap().is_err());
-    assert!(card.field_markdown("count").is_none());
+    assert!(card.field_markdown("count").unwrap().is_err());
 }
 
 /// A corpus-valued field emits to card-yaml as its **markdown projection**, not

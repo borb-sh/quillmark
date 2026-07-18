@@ -530,15 +530,17 @@ impl PyDocument {
 
     /// The markdown projection of a main-card field (`name` given) or the main
     /// body (`name` omitted) — the on-demand, lossy export (corpus-only marks do
-    /// not survive markdown), returning `""` for an absent field. Re-coins,
-    /// lazily and by name, the projection the eager `field_markdown` /
-    /// `body_markdown` getters dropped in #925. Mirrors WASM `Document.getMarkdown`.
+    /// not survive markdown), returning `""` for an **absent** field. A
+    /// **present** field that does not decode as richtext raises
+    /// `FieldRichtextDecode` — the projection surfaces the type mismatch instead
+    /// of blanking on it; read the raw value with `get`. Mirrors WASM
+    /// `Document.getMarkdown`.
     #[pyo3(signature = (name=None))]
-    fn get_markdown(&self, name: Option<&str>) -> String {
-        match name {
-            Some(n) => self.inner.main().field_markdown(n).unwrap_or_default(),
+    fn get_markdown(&self, name: Option<&str>) -> PyResult<String> {
+        Ok(match name {
+            Some(n) => field_markdown_or_raise(self.inner.main(), n)?,
             None => self.inner.main().body_markdown(),
-        }
+        })
     }
 
     /// Read a composable card's field value — the card-indexed twin of `get`: a
@@ -560,13 +562,14 @@ impl PyDocument {
 
     /// The markdown projection of a composable card's field (`name` given) or its
     /// body (`name` omitted) — the card-indexed twin of `get_markdown`, `""` for
-    /// an absent field. An out-of-range `index` raises `IndexOutOfRange`. Mirrors
-    /// WASM `Document.getCardMarkdown`.
+    /// an **absent** field and a raised `FieldRichtextDecode` for a **present**
+    /// field that does not decode as richtext. An out-of-range `index` raises
+    /// `IndexOutOfRange`. Mirrors WASM `Document.getCardMarkdown`.
     #[pyo3(signature = (index, name=None))]
     fn get_card_markdown(&self, index: usize, name: Option<&str>) -> PyResult<String> {
         let card = self.card_or_raise(index)?;
         Ok(match name {
-            Some(n) => card.field_markdown(n).unwrap_or_default(),
+            Some(n) => field_markdown_or_raise(card, n)?,
             None => card.body_markdown(),
         })
     }
@@ -1303,6 +1306,23 @@ fn quillvalue_to_py<'py>(
     value: &quillmark_core::QuillValue,
 ) -> PyResult<Bound<'py, PyAny>> {
     json_to_py(py, value.as_json())
+}
+
+/// Project a richtext field to markdown, raising `FieldRichtextDecode` when the
+/// field is present but does not decode as richtext (a scalar/array/object a
+/// `store_field` wrote). An **absent** field stays `""`: the read is total over
+/// absence. Shared by `get_markdown` / `get_card_markdown`.
+fn field_markdown_or_raise(card: &quillmark_core::Card, name: &str) -> PyResult<String> {
+    match card.field_markdown(name) {
+        None => Ok(String::new()),
+        Some(Ok(md)) => Ok(md),
+        Some(Err(e)) => Err(convert_edit_error(
+            quillmark_core::EditError::FieldRichtextDecode {
+                field: name.to_string(),
+                message: e.into_message(),
+            },
+        )),
+    }
 }
 
 /// Project a core [`Card`](quillmark_core::Card) to its Python dict shape via

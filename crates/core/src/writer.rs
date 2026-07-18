@@ -310,7 +310,7 @@ card_kinds:
             doc.main().payload().get("qty").unwrap().as_json(),
             &serde_json::json!(3)
         );
-        assert_eq!(doc.main().field_markdown("subject").unwrap(), "Hello\n");
+        assert_eq!(doc.main().field_markdown("subject").unwrap().unwrap(), "Hello\n");
     }
 
     #[test]
@@ -380,7 +380,7 @@ card_kinds:
             .unwrap();
         assert_eq!(doc.cards().len(), 1);
         assert_eq!(doc.cards()[0].kind(), Some("note"));
-        assert_eq!(doc.cards()[0].field_markdown("body").unwrap(), "**hi**\n");
+        assert_eq!(doc.cards()[0].field_markdown("body").unwrap().unwrap(), "**hi**\n");
         assert_eq!(doc.cards()[0].body_markdown(), "card body\n");
     }
 
@@ -398,7 +398,7 @@ card_kinds:
         let bodies: Vec<String> = doc
             .cards()
             .iter()
-            .map(|c| c.field_markdown("body").unwrap())
+            .map(|c| c.field_markdown("body").unwrap().unwrap())
             .collect();
         assert_eq!(bodies, ["a\n", "b\n", "c\n"]);
 
@@ -416,7 +416,7 @@ card_kinds:
         {
             let mut ed = TypedWriter::new(&config, &mut doc);
             let removed = ed.remove_card(1).unwrap();
-            assert_eq!(removed.field_markdown("body").unwrap(), "b\n");
+            assert_eq!(removed.field_markdown("body").unwrap().unwrap(), "b\n");
             assert!(ed.remove_card(5).is_none());
         }
         assert_eq!(doc.cards().len(), 2);
@@ -462,7 +462,7 @@ card_kinds:
         let err = card_ed.set("stray", "v").unwrap_err();
         assert_eq!(err.variant_name(), "UnknownField");
 
-        assert_eq!(doc.cards()[0].field_markdown("body").unwrap(), "**hi**\n");
+        assert_eq!(doc.cards()[0].field_markdown("body").unwrap().unwrap(), "**hi**\n");
 
         // Out-of-range card index errors.
         let mut ed = TypedWriter::new(&config, &mut doc);
@@ -479,7 +479,7 @@ card_kinds:
         let mut ed = TypedWriter::new(&config, &mut doc);
         // Typed richtext write lands the corpus and returns a Delta receipt.
         let _delta = ed.revise_field("subject", "Hello").unwrap();
-        assert_eq!(doc.main().field_markdown("subject").unwrap(), "Hello\n");
+        assert_eq!(doc.main().field_markdown("subject").unwrap().unwrap(), "Hello\n");
 
         // Unknown name is a typo, not a fallback.
         let mut ed = TypedWriter::new(&config, &mut doc);
@@ -490,7 +490,7 @@ card_kinds:
         // richtext(inline) rejects a multi-block result; the field is unchanged.
         let err = ed.revise_field("subject", "a\n\nb").unwrap_err();
         assert_eq!(err.variant_name(), "FieldRichtextNotInline");
-        assert_eq!(doc.main().field_markdown("subject").unwrap(), "Hello\n");
+        assert_eq!(doc.main().field_markdown("subject").unwrap().unwrap(), "Hello\n");
     }
 
     #[test]
@@ -501,7 +501,7 @@ card_kinds:
 
         let mut ed = TypedWriter::new(&config, &mut doc);
         ed.card(0).unwrap().revise_field("body", "**hi**").unwrap();
-        assert_eq!(doc.cards()[0].field_markdown("body").unwrap(), "**hi**\n");
+        assert_eq!(doc.cards()[0].field_markdown("body").unwrap().unwrap(), "**hi**\n");
 
         let mut ed = TypedWriter::new(&config, &mut doc);
         assert_eq!(

@@ -874,9 +874,12 @@ impl Document {
     /// The markdown projection of the value at `addr` — a field's (given
     /// `addr.field`) or the body's (absent) — the on-demand, lossy export
     /// (corpus-only marks do not survive markdown). A bare string is `Addr`
-    /// shorthand for `{ field }`. Returns `undefined` for an absent field
+    /// shorthand for `{ field }`. Returns `undefined` for an **absent** field
     /// (absence vs empty is real signal for must-fill / seeding UIs); a body is
-    /// never absent. Only an out-of-range `addr.card` throws.
+    /// never absent. A **present** field that does not decode as richtext (a
+    /// scalar/array/object a `storeField` wrote) throws `FieldRichtextDecode` —
+    /// the projection surfaces the type mismatch instead of blanking on it; read
+    /// the raw value with `get`. An out-of-range `addr.card` throws.
     #[wasm_bindgen(js_name = getMarkdown, unchecked_return_type = "string | undefined")]
     pub fn get_markdown(
         &self,
@@ -887,8 +890,16 @@ impl Document {
         Ok(match &addr.field {
             None => JsValue::from_str(&card.body_markdown()),
             Some(field) => match card.field_markdown(field) {
-                Some(md) => JsValue::from_str(&md),
                 None => JsValue::UNDEFINED,
+                Some(Ok(md)) => JsValue::from_str(&md),
+                Some(Err(e)) => {
+                    return Err(edit_error_to_js(
+                        &quillmark_core::EditError::FieldRichtextDecode {
+                            field: field.to_string(),
+                            message: e.into_message(),
+                        },
+                    ))
+                }
             },
         })
     }
