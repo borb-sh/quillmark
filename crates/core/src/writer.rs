@@ -213,8 +213,9 @@ where
     if !errors.is_empty() {
         return Err(errors);
     }
+    // Every entry validated by `resolve_field_write` above; apply unchecked.
     for (name, stored) in resolved {
-        card.payload_mut().insert(name, stored);
+        card.payload_mut().insert_unchecked(name, stored);
     }
     Ok(())
 }
