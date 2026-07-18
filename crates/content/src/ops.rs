@@ -1,10 +1,14 @@
 //! Mark and line op channels — structural edits separate from text splices.
 //!
 //! [`MarkOp`] and [`LineOp`] apply after [`Content::apply_text_delta`] in one
-//! bundle; mark ranges are in post-delta coordinates. Line split/join
-//! also splice `\n` in `text`; position mapping through the change log still
-//! composes [`Delta::map_pos`](crate::delta::Delta::map_pos) on the text delta
-//! channel — record `\n` edits there when mapping stale positions.
+//! bundle. Mark ranges are in **final-text coordinates**: mark ops run after
+//! line ops and validate against the post-line-op length, so a producer
+//! computes them in the only frame it can — the text as it stands once the
+//! delta and line ops have landed. Line split/join splice a `\n` in `text` and
+//! rebase marks through that one-char change with
+//! [`Delta::map_pos`](crate::delta::Delta::map_pos), the same mapping the
+//! text-delta channel uses, so a mark's coordinates track the splice rather
+//! than drifting.
 
 use crate::delta::{Assoc, Delta, Op};
 use crate::model::{Container, Island, Line, LineKind, Mark, MarkKind, Content, Usv, ISLAND_SLOT};
@@ -12,7 +16,7 @@ use crate::normalize::is_bidi_char;
 use crate::usv::char_to_byte;
 use std::borrow::Cow;
 
-/// A mark edit in post-text-delta coordinates.
+/// A mark edit in final-text coordinates (post-delta, post-line-op).
 #[derive(Debug, Clone, PartialEq)]
 pub enum MarkOp {
     /// Add a mark over `[start, end)`.
@@ -331,6 +335,16 @@ impl Content {
     /// insert of `\r` or a bidi control returned `Ok` while leaving a content
     /// that fails `validate()` (see issue #899).
     pub fn apply_text_delta(&mut self, delta: &Delta) -> Result<(), ApplyError> {
+        self.apply_text_delta_inner(delta)?;
+        self.normalize();
+        Ok(())
+    }
+
+    /// [`apply_text_delta`](Self::apply_text_delta) without the terminal
+    /// normalize — the stage [`apply_field_change`](Self::apply_field_change)
+    /// runs so a committed bundle canonicalizes once at the end, not after each
+    /// op.
+    fn apply_text_delta_inner(&mut self, delta: &Delta) -> Result<(), ApplyError> {
         // Reject before mutating: a raw slot in an insert would create a slot
         // with no backing island. Checked up front so the content is untouched
         // on this error.
@@ -365,16 +379,7 @@ impl Content {
                 actual: e.actual,
             })?;
 
-        for m in &mut self.marks {
-            if m.start == m.end {
-                let p = delta.map_pos(m.start, Assoc::Before);
-                m.start = p;
-                m.end = p;
-            } else {
-                m.start = delta.map_pos(m.start, Assoc::After);
-                m.end = delta.map_pos(m.end, Assoc::Before);
-            }
-        }
+        self.rebase_marks(delta);
         let new_len = new_text.chars().count();
         self.marks.retain(|m| {
             m.start <= m.end
@@ -392,12 +397,38 @@ impl Content {
                 segments: self.segment_count(),
             });
         }
+        Ok(())
+    }
+
+    /// Rebase every mark's range through `delta`'s
+    /// [`map_pos`](crate::delta::Delta::map_pos): a range mark's start biases
+    /// `After` and its end `Before` (an insertion at either edge grows text
+    /// *outside* the span), a point (zero-width) mark biases `Before`. The one
+    /// mapping the text-delta channel and line split/join both rebase marks by.
+    fn rebase_marks(&mut self, delta: &Delta) {
+        for m in &mut self.marks {
+            if m.start == m.end {
+                let p = delta.map_pos(m.start, Assoc::Before);
+                m.start = p;
+                m.end = p;
+            } else {
+                m.start = delta.map_pos(m.start, Assoc::After);
+                m.end = delta.map_pos(m.end, Assoc::Before);
+            }
+        }
+    }
+
+    /// Apply mark ops in final-text coordinates, then normalize.
+    pub fn apply_mark_ops(&mut self, ops: &[MarkOp]) -> Result<(), ApplyError> {
+        self.apply_mark_ops_inner(ops)?;
         self.normalize();
         Ok(())
     }
 
-    /// Apply mark ops in post-text-delta coordinates, then normalize.
-    pub fn apply_mark_ops(&mut self, ops: &[MarkOp]) -> Result<(), ApplyError> {
+    /// [`apply_mark_ops`](Self::apply_mark_ops) without the terminal normalize —
+    /// the bundle's final stage, canonicalized once by
+    /// [`apply_field_change`](Self::apply_field_change).
+    fn apply_mark_ops_inner(&mut self, ops: &[MarkOp]) -> Result<(), ApplyError> {
         let len = self.len_usv();
         for op in ops {
             match op {
@@ -469,12 +500,20 @@ impl Content {
                 }
             }
         }
-        self.normalize();
         Ok(())
     }
 
     /// Apply line ops — split/join splice `\n`; set ops touch metadata only.
     pub fn apply_line_ops(&mut self, ops: &[LineOp]) -> Result<(), ApplyError> {
+        self.apply_line_ops_inner(ops)?;
+        self.normalize();
+        Ok(())
+    }
+
+    /// [`apply_line_ops`](Self::apply_line_ops) without the terminal normalize —
+    /// a bundle stage canonicalized once by
+    /// [`apply_field_change`](Self::apply_field_change).
+    fn apply_line_ops_inner(&mut self, ops: &[LineOp]) -> Result<(), ApplyError> {
         for op in ops {
             match op {
                 LineOp::Split { at } => self.split_line(*at)?,
@@ -501,11 +540,11 @@ impl Content {
                 }
             }
         }
-        self.normalize();
         Ok(())
     }
 
-    /// One committed field edit bundle: text delta, then line ops, then marks.
+    /// One committed field edit bundle: text delta, then line ops, then marks,
+    /// canonicalized by a single terminal [`normalize`](Self::normalize).
     ///
     /// All-or-nothing: on any op's error `self` is left exactly as it was, so a
     /// caller need not snapshot-and-restore around a failed bundle. A bundle
@@ -515,6 +554,15 @@ impl Content {
     /// per-keystroke hot path) skips the clone: `apply_text_delta` validates the
     /// delta before mutating, so it is already atomic on the errors a caller can
     /// provoke.
+    ///
+    /// The stages run on their non-normalizing inner forms and `normalize` runs
+    /// once at the end. This is behavior-preserving because line split/join now
+    /// rebase marks through their `\n` splice ([`map_pos`](crate::delta::Delta::map_pos)
+    /// semantics): with that remap, `normalize`'s formatting-edge `\n`-trim
+    /// commutes with the line ops (trim-per-stage and trim-once converge), and
+    /// `MarkOp::Remove` is coverage-set subtraction, which commutes with the
+    /// same-kind union `normalize` would have run between stages
+    /// (`(A ∪ B) \ R = (A\R) ∪ (B\R)`). One canonicalization point, one pass.
     pub fn apply_field_change(
         &mut self,
         text_delta: &Delta,
@@ -525,9 +573,10 @@ impl Content {
             return self.apply_text_delta(text_delta);
         }
         let mut scratch = self.clone();
-        scratch.apply_text_delta(text_delta)?;
-        scratch.apply_line_ops(line_ops)?;
-        scratch.apply_mark_ops(mark_ops)?;
+        scratch.apply_text_delta_inner(text_delta)?;
+        scratch.apply_line_ops_inner(line_ops)?;
+        scratch.apply_mark_ops_inner(mark_ops)?;
+        scratch.normalize();
         *self = scratch;
         Ok(())
     }
@@ -560,6 +609,14 @@ impl Content {
         let line_idx = char_indices[..at].iter().filter(|&(_, c)| *c == '\n').count();
         self.text.insert(byte, '\n');
 
+        // Rebase marks through the one-char `\n` insertion — the same map_pos
+        // rule the text-delta channel uses, so a split does not drift a mark's
+        // coordinates (a mark spanning `at` grows by the inserted char; the
+        // terminal normalize trims any `\n` edge it lands on).
+        self.rebase_marks(&Delta {
+            ops: vec![Op::Retain(at), Op::Insert("\n".to_string())],
+        });
+
         let template = self
             .lines
             .get(line_idx)
@@ -588,6 +645,14 @@ impl Content {
         let nl = newline_at_line_boundary(&self.text, line)?;
         let byte = char_to_byte(&self.text, nl);
         self.text.remove(byte);
+
+        // Rebase marks through the one-char `\n` deletion, as the text-delta
+        // channel would: a mark spanning the boundary shrinks by one; one that
+        // covered only the `\n` collapses to zero-width and the terminal
+        // normalize drops it.
+        self.rebase_marks(&Delta {
+            ops: vec![Op::Retain(nl), Op::Delete(1)],
+        });
 
         self.lines.remove(line + 1);
 
@@ -1428,6 +1493,92 @@ mod tests {
             assert_eq!(l.containers, vec![Container::Quote]);
             assert!(!l.continues);
         }
+    }
+
+    // ── line-op mark remap + terminal-normalize collapse (issue #926 finding 3) ──
+
+    #[test]
+    fn split_line_rebases_mark_across_the_split_point() {
+        // A strong mark spanning the split point grows by the inserted `\n`
+        // rather than staying at its old coordinates. "abcd", strong[1..3)
+        // ("bc"); split at 2 → "ab\ncd"; the mark must still cover "b"+"c",
+        // i.e. [1..4) over "ab\ncd".
+        let mut rt = from_markdown("abcd").unwrap();
+        rt.apply_mark_ops(&[MarkOp::Add {
+            start: 1,
+            end: 3,
+            kind: MarkKind::Strong,
+        }])
+        .unwrap();
+        rt.apply_line_ops(&[LineOp::Split { at: 2 }]).unwrap();
+        assert_eq!(rt.text, "ab\ncd");
+        let strong: Vec<_> = rt
+            .marks
+            .iter()
+            .filter(|m| matches!(m.kind, MarkKind::Strong))
+            .map(|m| (m.start, m.end))
+            .collect();
+        // [1..4) spans "b\nc"; normalize keeps the interior `\n` (a mark may
+        // legitimately span lines), trimming only leading/trailing boundaries.
+        assert_eq!(strong, vec![(1, 4)]);
+        assert_eq!(rt.validate(), Ok(()));
+    }
+
+    #[test]
+    fn join_line_rebases_marks_to_final_text_coordinates() {
+        // The issue's concrete drift case: "ab\ncd", strong[2..4) (over "\nc").
+        // Joining line 0 removes the `\n`; the remap + terminal normalize must
+        // land strong on "c" — coordinate [2..3) over "abcd" — not on "d"
+        // (the un-remapped-mark bug) nor on "cd".
+        let mut rt = from_markdown("ab").unwrap();
+        rt.apply_text_delta(&diff("ab", "ab\ncd")).unwrap();
+        rt.marks.push(Mark {
+            start: 2,
+            end: 4,
+            kind: MarkKind::Strong,
+        });
+        rt.normalize();
+        // Post-normalize the `\n` edge trims to [3..4) ("c"); either way the
+        // join must converge to strong on "c".
+        rt.apply_line_ops(&[LineOp::Join { line: 0 }]).unwrap();
+        assert_eq!(rt.text, "abcd");
+        let strong: Vec<_> = rt
+            .marks
+            .iter()
+            .filter(|m| matches!(m.kind, MarkKind::Strong))
+            .map(|m| (m.start, m.end))
+            .collect();
+        assert_eq!(strong, vec![(2, 3)], "strong lands on 'c', not 'd' or 'cd'");
+        assert_eq!(rt.validate(), Ok(()));
+    }
+
+    #[test]
+    fn field_change_terminal_normalize_matches_per_stage_normalize() {
+        // The collapse proof obligation: a bundle applied through
+        // `apply_field_change` (one terminal normalize) must equal applying the
+        // same stages each with its own normalize (the public wrappers). The
+        // remap through split/join is what makes the two converge.
+        let start = from_markdown("hello world").unwrap();
+        let text_delta = diff("hello world", "hello brave world");
+        let line_ops = vec![LineOp::Split { at: 5 }]; // after "hello"
+        let mark_ops = vec![MarkOp::Add {
+            start: 0,
+            end: 5,
+            kind: MarkKind::Strong,
+        }];
+
+        let mut bundled = start.clone();
+        bundled
+            .apply_field_change(&text_delta, &line_ops, &mark_ops)
+            .unwrap();
+
+        let mut staged = start;
+        staged.apply_text_delta(&text_delta).unwrap();
+        staged.apply_line_ops(&line_ops).unwrap();
+        staged.apply_mark_ops(&mark_ops).unwrap();
+
+        assert_eq!(bundled, staged, "terminal normalize diverged from per-stage");
+        assert_eq!(bundled.validate(), Ok(()));
     }
 
     #[test]
