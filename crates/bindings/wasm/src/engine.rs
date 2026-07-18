@@ -871,37 +871,30 @@ impl Document {
         }
     }
 
-    /// The markdown projection of the value at `addr` — a field's (given
-    /// `addr.field`) or the body's (absent) — the on-demand, lossy export
-    /// (content-only marks do not survive markdown). A bare string is `Addr`
-    /// shorthand for `{ field }`. Returns `undefined` for an **absent** field
-    /// (absence vs empty is real signal for must-fill / seeding UIs); a body is
-    /// never absent. A **present** field that does not decode as richtext (a
-    /// scalar/array/object a `storeField` wrote) throws `FieldRichtextDecode` —
-    /// the projection surfaces the type mismatch instead of blanking on it; read
-    /// the raw value with `get`. An out-of-range `addr.card` throws.
-    #[wasm_bindgen(js_name = getMarkdown, unchecked_return_type = "string | undefined")]
+    /// The **body** markdown projection — the main body, or a composable card's
+    /// body (`{ card }`) — the on-demand, lossy export (content-only marks do not
+    /// survive markdown). A body's type is a format fact, not a schema fact, so
+    /// this read stays quill-free; a body is never absent.
+    ///
+    /// `addr` is an optional **card address** (`{ card }`, absent = main). A
+    /// present `field` throws: field projection is retired — read a field's
+    /// markdown with the schema-plane `quill.view(doc).get(field)`, which has the
+    /// schema to interpret by declared type (#978). An out-of-range `addr.card`
+    /// throws.
+    #[wasm_bindgen(js_name = getMarkdown, unchecked_return_type = "string")]
     pub fn get_markdown(
         &self,
-        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+        #[wasm_bindgen(unchecked_optional_param_type = "CardAddr")] addr: JsValue,
     ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js_or_string(&addr)?;
-        let card = self.addr_card_ref(&addr)?;
-        Ok(match &addr.field {
-            None => JsValue::from_str(&card.body_markdown()),
-            Some(field) => match card.field_markdown(field) {
-                None => JsValue::UNDEFINED,
-                Some(Ok(md)) => JsValue::from_str(&md),
-                Some(Err(e)) => {
-                    return Err(edit_error_to_js(
-                        &quillmark_core::EditError::FieldRichtextDecode {
-                            field: field.to_string(),
-                            message: e.into_message(),
-                        },
-                    ))
-                }
-            },
-        })
+        let addr = Addr::from_js(&addr)?;
+        if addr.field.is_some() {
+            return Err(WasmError::from(
+                "getMarkdown is body-only — field projection retired; read a field's \
+                 markdown with quill.view(doc).get(field)",
+            )
+            .to_js_value());
+        }
+        Ok(JsValue::from_str(&self.addr_card_ref(&addr)?.body_markdown()))
     }
 
     /// Interpreted read at `addr`, resolving the field's declared `type` from
@@ -951,6 +944,9 @@ impl Document {
                 match read {
                     None => Ok(JsValue::UNDEFINED),
                     Some(quillmark_core::ReadValue::Markdown(md)) => Ok(JsValue::from_str(&md)),
+                    Some(quillmark_core::ReadValue::Plaintext(text)) => {
+                        Ok(JsValue::from_str(&text))
+                    }
                     Some(quillmark_core::ReadValue::Value(v)) => {
                         serialize_or_throw(v.as_json(), "view.get")
                     }

@@ -398,16 +398,11 @@ def test_get_card_field_out_of_range():
         doc.get_card_field(0, "foo")
 
 
-def test_get_card_markdown():
-    """get_card_markdown projects a card field (name given) or the card body
-    (name omitted) — the card-indexed twin of get_markdown."""
+def test_get_card_markdown_body():
+    """get_card_markdown reads a card's body markdown. Field projection is retired
+    — read a card field's markdown via quill.view(doc).card(i).get(name) (#978)."""
     doc = Document.from_markdown(MD_WITH_CARDS)
-    # A bare string field imports as markdown.
-    assert "bar" in doc.get_card_markdown(0, "foo")
-    # Body when name omitted.
     assert "Card one." in doc.get_card_markdown(0)
-    # Absent field → "".
-    assert doc.get_card_markdown(0, "missing") == ""
 
 
 def test_get_card_markdown_out_of_range():
@@ -415,24 +410,6 @@ def test_get_card_markdown_out_of_range():
     doc = Document.from_markdown(SIMPLE_MD)  # 0 cards
     with pytest.raises(QuillmarkError, match="IndexOutOfRange"):
         doc.get_card_markdown(0)
-
-
-def test_get_markdown_raises_on_non_richtext():
-    """A present field that is not richtext (a scalar store_field wrote) raises
-    FieldRichtextDecode on get_markdown / get_card_markdown — the projection
-    surfaces the type mismatch instead of blanking, distinct from an absent
-    field's "" (#968). The raw value still reads back via get / get_card_field."""
-    doc = Document.from_markdown(MD_WITH_CARDS)
-
-    doc.store_field("qty", 3)
-    assert doc.get("qty") == 3
-    with pytest.raises(QuillmarkError, match="FieldRichtextDecode"):
-        doc.get_markdown("qty")
-
-    doc.store_card_field(0, "qty", 3)
-    assert doc.get_card_field(0, "qty") == 3
-    with pytest.raises(QuillmarkError, match="FieldRichtextDecode"):
-        doc.get_card_markdown(0, "qty")
 
 
 def test_revise_card_body():

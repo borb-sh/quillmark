@@ -181,19 +181,21 @@ card_kinds:
   })
 
   it('reviseField writes a richtext field typed, and returns a Delta', () => {
-    const ed = buildQuill().writer(blankDoc())
+    const quill = buildQuill()
+    const ed = quill.writer(blankDoc())
     const delta = ed.reviseField('subject', 'Q3 **results**')
-    expect(ed.document.getMarkdown('subject')).toBe('Q3 **results**')
+    expect(quill.view(ed.document).get('subject')).toBe('Q3 **results**')
     expect(delta).toBeTruthy() // the anchor-preserving receipt
   })
 
   it('reviseField rejects an undeclared name, and a non-inline result', () => {
-    const ed = buildQuill().writer(blankDoc())
+    const quill = buildQuill()
+    const ed = quill.writer(blankDoc())
     expect(() => ed.reviseField('stray', 'x')).toThrow(/UnknownField/)
     // `subject` is richtext(inline): a multi-block result is refused, field intact.
     ed.reviseField('subject', 'kept')
     expect(() => ed.reviseField('subject', 'a\n\nb')).toThrow(/FieldRichtextNotInline/)
-    expect(ed.document.getMarkdown('subject')).toBe('kept')
+    expect(quill.view(ed.document).get('subject')).toBe('kept')
   })
 
   it('addCard fuses make + typed commit + push, transactionally', () => {
@@ -240,14 +242,21 @@ card_kinds:
     expect(() => cardEd.set('body', 'x')).toThrow(/IndexOutOfRange/)
   })
 
-  it('get / getMarkdown read main fields quill-free, off the Document', () => {
-    const ed = buildQuill().writer(blankDoc())
+  it('get reads raw values quill-free; getMarkdown is body-only (field half retired)', () => {
+    const quill = buildQuill()
+    const ed = quill.writer(blankDoc())
     ed.set('qty', '3')
     ed.set('subject', 'Q3 **results**')
+    ed.setBody('Main **body**.')
+    // Transport reads stay quill-free on the Document.
     expect(ed.document.get('qty')).toBe(3)
-    expect(ed.document.getMarkdown('subject')).toBe('Q3 **results**')
     expect(ed.document.get('missing')).toBeUndefined()
-    expect(ed.document.getMarkdown('missing')).toBeUndefined()
+    // getMarkdown is now the body read; a field address throws — field markdown
+    // moved to the schema-plane view (#978).
+    expect(ed.document.getMarkdown()).toBe('Main **body**.')
+    expect(() => ed.document.getMarkdown({ field: 'subject' })).toThrow(/body-only/)
+    expect(quill.view(ed.document).get('subject')).toBe('Q3 **results**')
+    expect(quill.view(ed.document).get('missing')).toBeUndefined()
   })
 })
 
@@ -267,6 +276,8 @@ main:
     subject:
       type: richtext
       inline: true
+    note:
+      type: plaintext
     qty:
       type: integer
 
@@ -294,10 +305,13 @@ card_kinds:
     expect(new DocumentView(quill, seededDoc(quill))).toBeInstanceOf(DocumentView)
   })
 
-  it('interprets by declared type: richtext → markdown, scalar → canonical', () => {
+  it('interprets by declared type: richtext → markdown, plaintext → literal, scalar → canonical', () => {
     const quill = buildQuill()
-    const v = quill.view(seededDoc(quill))
+    const doc = seededDoc(quill)
+    quill.writer(doc).set('note', 'a *literal* line') // marks verbatim under plaintext
+    const v = quill.view(doc)
     expect(v.get('subject')).toBe('Q3 **results**') // richtext projects to markdown
+    expect(v.get('note')).toBe('a *literal* line') // plaintext projects verbatim
     expect(v.get('qty')).toBe(3) // scalar returns canonical
   })
 
