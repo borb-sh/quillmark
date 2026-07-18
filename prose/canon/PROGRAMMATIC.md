@@ -6,7 +6,7 @@
 
 A `Document` is built and mutated in memory — no Markdown text involved —
 through validated constructors and mutators: `Document::new` (blank canvas),
-`Card::new`, `set_field` / `set_fields`, `push_card`. Every mutator enforces
+`Card::new`, `store_field` / `store_fields`, `push_card`. Every mutator enforces
 the same field-name, depth, and kind invariants the Markdown parser does, so a
 constructed document cannot be invalid. This is the authoring surface for
 programs (database row → rendered PDF); Markdown serves human authoring and
@@ -18,7 +18,7 @@ the blueprint serves LLM/MCP consumers.
 |---|---|---|
 | card-yaml Markdown | humans | `Document::from_markdown` |
 | annotated blueprint | LLMs / MCP | `blueprint()` → fill → `from_markdown` |
-| structured mutators | programs | `Document::new` → `set_fields` / `push_card` |
+| structured mutators | programs | `Document::new` → `store_fields` / `push_card` |
 
 All three produce the same `Document`; render, validation, storage, and
 emission do not distinguish how it was built. `to_markdown()` emits canonical
@@ -45,7 +45,7 @@ Python shown; Rust and WASM mirror it method-for-method:
 
 ```python
 doc = Document("invoice")
-doc.set_fields({"customer": row.name, "total": row.total})
+doc.store_fields({"customer": row.name, "total": row.total})
 for item in row.items:
     doc.push_card(Document.make_card("line_item", {"desc": item.desc, "qty": item.qty}))
 result = engine.render(quill, doc, OutputFormat.PDF)
@@ -58,7 +58,7 @@ YAML or Markdown.
 ## Validation: batched, atomic, at the boundary
 
 Structural invariants (field-name grammar, value depth, card kind) are
-enforced per mutator call. `set_fields` validates its whole batch before
+enforced per mutator call. `store_fields` validates its whole batch before
 applying any of it: on violation nothing is applied and the single error
 carries one diagnostic per offending field with `path` set to the field name —
 externally sourced names (database columns, form keys) surface every violation
@@ -68,9 +68,10 @@ to the write by typed commit (below).
 
 ## Two write disciplines: opaque store vs typed commit
 
-Document mutation is a data primitive that never requires a Quill. `set_field` /
-`set_fields` hold only a `$quill` *reference*, enforce the structural invariants
-above, and store the value verbatim — coercion is deferred to render. Typed
+Document mutation is a data primitive that never requires a Quill. `store_field`
+/ `store_fields` (the opaque **store** — verbatim, coercion deferred) hold only a
+`$quill` *reference*, enforce the structural invariants above, and store the
+value verbatim — coercion is deferred to render. Typed
 commit is a schema-bound layer over that primitive: `Quill::writer(&mut doc)`
 binds the resolved schema, and its `set` / `set_all` resolve each field's `type`,
 coerce to the canonical form (`"3"` → `3`, a markdown string → a richtext
@@ -86,14 +87,16 @@ The primitive stays load-bearing — it is what lets a `Document` be constructed
 and `from_json`'d with no bundle (standalone data), what quill-agnostic
 storage/migration infra writes through, what a store-now-validate-later editor
 uses to hold not-yet-conforming input, and the way to store a value opaquely on
-purpose. Reach for the opaque `set_*` for those; reach for the writer by
+purpose. Reach for the opaque `store_*` for those; reach for the writer by
 default. `Quill::writer(&mut doc)` is the documented front door in every
 surface — `quill.writer(doc)` in WASM and Python alike (the schema-bound
 `DocumentWriter` / `Writer` with `set` / `set_all` / `set_body` /
-`add_card` / `card(i)`); the quill owns the schema, so it is the factory. The `commitField` / `commitFields` (+ `commitCard*`)
-verbs are the stable ABI underneath it, and `setField` / `setCardField` remain
-the quill-free opaque store. See [BINDINGS.md](BINDINGS.md) for the two-tier
-write surface and the core-vs-bindings parity table.
+`add_card` / `card(i)`); the quill owns the schema, so it is the factory. The
+`commitField` / `commitFields` verbs (addressed by `Addr`) are the stable ABI
+underneath it, and `storeField` / `storeFields` remain the quill-free opaque
+store. See [BINDINGS.md](BINDINGS.md) for the two-tier write surface, the
+`store` / `set` / `install·revise·apply` vocabulary rule, and the
+core-vs-bindings parity table.
 
 ## Addressing cards for re-render
 
@@ -103,7 +106,7 @@ the index when patching:
 
 ```python
 idx = next(i for i, c in enumerate(doc.cards) if c["id"] == row_id)
-doc.set_card_fields(idx, {"qty": new_qty})
+doc.store_card_fields(idx, {"qty": new_qty})
 ```
 
 `$id` is optional and opaque; the model imposes no uniqueness on it.

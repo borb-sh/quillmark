@@ -53,9 +53,18 @@ discarded; `writer.set` is `commitField` with the quill bound once. Anything
 tier 1 writes, tier 2 can write with more control, so the decision tree picks a
 *default*, not a *cage*: a live editor legitimately writes fields through the
 writer and bodies/splices through the addressed verbs in one interaction. Reads
-(`get` / `getMarkdown`) need no schema, so they sit on `Document`, not the
-writer. The quill-free `setField` / `setCardField` primitive stays the third
-lane — verbatim storage, coercion deferred to render.
+(`get` / `getMarkdown` / `isFill` / `getExt`) need no schema, so they sit on
+`Document`, not the writer. The quill-free `storeField` primitive stays the
+third lane — verbatim storage, coercion deferred to render.
+
+**The verb carries the lane.** One vocabulary rule, stated once here: **store**
+= verbatim (the quill-free opaque write, coercion deferred to render), **set** =
+typed (the writer's strict commit at the write), **install / revise / apply** =
+corpus (identity-aware). `remove_*` has no tier — one verb per lane serves it.
+So `store_field` / `store_fields` / `store_fill` (+ `store_ext` / `store_seed_*`)
+are the opaque store, `set` / `set_all` / `set_body` the typed writer, and a name
+never needs per-verb disambiguation against its neighbor (the `store_fields`
+opaque batch no longer near-homographs the `set_all` typed batch).
 
 **Writers and card cursors are ephemeral — bind, write, discard.** They hold an
 address (the quill + document, or an index), never a cache; every call reads
@@ -85,11 +94,10 @@ ergonomic), nothing else admitted. Drift is a reviewable diff to this table.
 | Card removal (writer) | `writer.remove_card(i)` | `writer.removeCard(i)` | identical |
 | Card cursor | `writer.card(i)?` (eager check) | `writer.card(i)` (lazy check) | **FFI** — no borrow to validate against; the index is checked at the write |
 | Cursor kind | `writer.card(i)?.kind()` | `writer.card(i).kind` | identical — the JS getter reads through `doc.card(i)` |
-| Reads (main) | `card.field_markdown(..)` / `payload().get(..)` | `doc.getMarkdown(name?)` / `doc.get(name)` | **idiom** — the bindings fuse the read into one named verb on `Document` |
-| Reads (card) | `cards()[i].field_markdown(..)` / `payload().get(..)` | `doc.getCardMarkdown(i, name?)` / `doc.getCardField(i, name)` | **idiom** — the card-indexed twins of the main reads, mirroring the card write verbs; `getCardMarkdown` is a fallible `Result` (the index bounds-check) where main `getMarkdown` is infallible |
+| Reads (value / markdown / fill / `$ext`) | `field_markdown(..)` / `payload().get(..)` / `payload().is_fill(..)` / `card.ext()` (borrow chain; index for a card) | `doc.get(addr?)` / `doc.getMarkdown(addr?)` / `doc.isFill(addr)` / `doc.getExt(cardAddr?)` / `doc.getExtNamespace(cardAddr, ns)` (JS); name-keyed twins (py) | **idiom** / **FFI** — WASM fuses every read onto the one `Addr` (a bare string ⇒ `{field}`), *total over the field axis* (absent field → `undefined`, `isFill` → `false`; only an out-of-range card throws); Python stays name-keyed |
 | Reads (whole card / `$id` / seed) | `card(i)` / `find_card(id)` / `main().seed()` | `doc.card(i)` / `doc.cardIndexById(id)` / `doc.seedOverlay(kind)` | **idiom** — the bindings fuse each into one named verb on `Document`; `card(i)` throws out of range, `find_card`/`cardIndexById` return the first `$id` match (non-unique by design) |
-| Richtext ops | `card.revise_field(name, md)?` (borrow chain) | `doc.revise({card, field}, md)` (addr literal) | **FFI** — same model, flattened navigation |
-| Opaque primitive | `set_field` / `set_fields` | `setField` / `setCardField` (JS), `set_field` / `set_fields` (py) | identical |
+| Richtext ops | `revise_field(name, md)?` / `revise_field_checked(name, md, schema)?` (borrow chain) | `doc.revise({card, field}, md)` / `doc.reviseChecked(quill, {card, field}, md)` (addr literal) | **FFI** — same model, flattened navigation; the `*_checked` verb enforces the field schema on the diffed result (typed *and* anchor-preserving), keeping the `Delta` in the corpus lane |
+| Opaque store | `store_field` / `store_fields` / `store_fill` | `storeField` / `storeFields` / `storeFill` (JS, `Addr`), `store_field` / `store_fields` / `store_card_field` (py, name-keyed) | identical — the quill-free verbatim write; WASM addresses with `Addr`, Python stays name-keyed |
 
 The single **idiom** row on the front door is the honest cost: the typed writer
 is the one shape pyo3 carries worst, so its "identical" is qualified, not
