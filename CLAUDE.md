@@ -15,5 +15,3 @@ Design docs: [`prose/canon/INDEX.md`](prose/canon/INDEX.md). Comments and docs f
 - `cargo test --workspace`
 - WASM: `./scripts/build-wasm.sh && cd crates/bindings/wasm && npm test`
 - Python: `cd crates/bindings/python && uv run maturin develop && uv run pytest`
-
-In the Claude cloud environment, run bindings tests via CI, not locally.
