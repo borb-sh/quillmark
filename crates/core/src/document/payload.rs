@@ -561,8 +561,8 @@ impl Payload {
     /// the "a constructed document cannot be invalid" invariant holds even for
     /// the direct `Payload` path reachable through
     /// [`Card::payload_mut`](super::Card::payload_mut). Pre-validated callers
-    /// (typed commit, all-or-nothing batches) use
-    /// [`insert_unchecked`](Self::insert_unchecked) to skip the redundant check.
+    /// (typed commit, all-or-nothing batches) use `insert_unchecked` to skip the
+    /// redundant check.
     pub fn insert(
         &mut self,
         key: impl Into<String>,
@@ -575,8 +575,8 @@ impl Payload {
 
     /// [`insert`](Self::insert) without the field-invariant check. `pub(crate)`
     /// for callers that have already validated the exact stored `(name, value)`
-    /// — [`resolve_field_write`](super::edit::resolve_field_write) and the
-    /// batch setters that validate the whole batch before applying any of it.
+    /// — `resolve_field_write` and the batch setters that validate the whole
+    /// batch before applying any of it.
     pub(crate) fn insert_unchecked(
         &mut self,
         key: impl Into<String>,
@@ -623,7 +623,7 @@ impl Payload {
     }
 
     /// [`insert_fill`](Self::insert_fill) without the field-invariant check;
-    /// the fill twin of [`insert_unchecked`](Self::insert_unchecked).
+    /// the fill twin of `insert_unchecked`.
     pub(crate) fn insert_fill_unchecked(
         &mut self,
         key: impl Into<String>,
