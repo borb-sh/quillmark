@@ -135,10 +135,10 @@ impl Delta {
     /// trailing retain so a producer that names only the changed region need not
     /// pad a bare trailing [`Op::Retain`].
     ///
-    /// Cost of the leniency: strictness was a corruption tripwire, so a short
-    /// delta replayed against a wrong but *longer* base now applies silently
-    /// rather than erroring. An abbreviated delta forfeits that tripwire by
-    /// construction; it still fires on over-consumption.
+    /// Cost of the leniency: a short delta carries no full-base-length check, so
+    /// one replayed against a wrong but *longer* base applies silently instead
+    /// of failing. An abbreviated delta forfeits that tripwire by construction;
+    /// over-consumption still fails.
     pub fn try_apply(&self, base: &str) -> Result<String, BaseLengthMismatch> {
         let expected = self.expected_base_len();
         let actual = base.chars().count();

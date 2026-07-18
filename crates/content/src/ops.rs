@@ -556,12 +556,12 @@ impl Content {
     /// provoke.
     ///
     /// The stages run on their non-normalizing inner forms and `normalize` runs
-    /// once at the end. This is behavior-preserving because line split/join now
-    /// rebase marks through their `\n` splice ([`map_pos`](crate::delta::Delta::map_pos)
-    /// semantics): with that remap, `normalize`'s formatting-edge `\n`-trim
-    /// commutes with the line ops (trim-per-stage and trim-once converge), and
-    /// `MarkOp::Remove` is coverage-set subtraction, which commutes with the
-    /// same-kind union `normalize` would have run between stages
+    /// once at the end. One terminal normalize suffices because split/join
+    /// rebase marks through their `\n` splice
+    /// ([`map_pos`](crate::delta::Delta::map_pos) semantics): the
+    /// formatting-edge `\n`-trim then commutes with the line ops (trim-per-stage
+    /// and trim-once converge), and `MarkOp::Remove` is coverage-set
+    /// subtraction, which commutes with `normalize`'s same-kind union
     /// (`(A ∪ B) \ R = (A\R) ∪ (B\R)`). One canonicalization point, one pass.
     pub fn apply_field_change(
         &mut self,
@@ -717,12 +717,10 @@ fn sanitize_inserts(delta: &Delta) -> Cow<'_, Delta> {
 /// original suffix (`rest`), because a split lands its clone right at the cursor
 /// and a delete drops the next original. So the three `\n` events reduce to:
 /// a retained `\n` finalizes `cur` and pulls the next original into it; a
-/// deleted `\n` drops the next original (merging it in) — the old
-/// `line_idx + 1 < lines.len()` guard becomes "a next original exists"; an
+/// deleted `\n` drops the next original (merging it in), when one exists; an
 /// inserted `\n` finalizes `cur` and makes a clone (its `continues` cleared) the
-/// new `cur`. `cur == None` is the past-the-end state the old code reached via
-/// `lines.get(line_idx)` returning `None` on a malformed corpus, where a split
-/// clones a default line.
+/// new `cur`. `cur == None` is the past-the-end state on a malformed corpus
+/// (more `\n` than lines), where a split clones a default line.
 fn sync_lines_for_delta(old_chars: &[char], old_lines: Vec<Line>, delta: &Delta) -> Vec<Line> {
     let cap = old_lines.len();
     let mut rest = old_lines.into_iter();
@@ -750,8 +748,7 @@ fn sync_lines_for_delta(old_chars: &[char], old_lines: Vec<Line>, delta: &Delta)
                         break;
                     }
                     // A deleted '\n' merges the next original into `cur` — drop
-                    // it. No next original: nothing to remove, matching the old
-                    // `line_idx + 1 < lines.len()` guard skipping the `remove`.
+                    // it. With no next original there is nothing to drop.
                     if old_chars[old] == '\n' {
                         rest.next();
                     }
@@ -1375,7 +1372,7 @@ mod tests {
     //
     // Pin the observable behavior of the line-sync walk — retain/insert/delete
     // interleavings, the split template-clone rule, and the malformed-corpus
-    // guards — so the O(n)-per-remove → O(1) rewrite is behavior-preserving.
+    // guards — against a silent change to its internals.
 
     /// A `Heading{level}` line, its level a visible tag so a test can trace
     /// which original line landed where; `continues` distinguishes a clone.
@@ -1585,7 +1582,7 @@ mod tests {
     fn sync_lines_select_all_delete_collapses_to_first_line() {
         // The motivating case (issue #926 finding 2): deleting a whole
         // multi-line body drops every line but the first (each deleted '\n'
-        // merges the next line away). Formerly O(n) per deleted '\n'.
+        // merges the next line away).
         let text: String = (0..50).map(|i| format!("line{i}\n")).collect();
         let old_chars: Vec<char> = text.chars().collect();
         let lines: Vec<Line> = (0..=50).map(|i| tag_line((i % 200) as u8, false)).collect();
