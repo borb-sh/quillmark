@@ -157,14 +157,22 @@ pub enum FieldViolation {
     TooDeep,
 }
 
-/// Map a [`FieldViolation`] to the mutator error surface.
-fn check_field(name: &str, value: &serde_json::Value) -> Result<(), EditError> {
-    validate_field(name, value).map_err(|v| match v {
+/// Map a [`FieldViolation`] to the mutator error surface — the single
+/// translation the `Card` mutators and the validating
+/// [`Payload::insert`](crate::document::Payload::insert) both route through.
+pub(crate) fn edit_error_from_violation(name: &str, v: FieldViolation) -> EditError {
+    match v {
         FieldViolation::InvalidName => EditError::InvalidFieldName(name.to_string()),
         FieldViolation::TooDeep => EditError::ValueTooDeep {
             max: crate::document::limits::MAX_YAML_DEPTH,
         },
-    })
+    }
+}
+
+/// Validate a user field at the mutator boundary, mapping a violation to the
+/// mutator error surface.
+fn check_field(name: &str, value: &serde_json::Value) -> Result<(), EditError> {
+    validate_field(name, value).map_err(|v| edit_error_from_violation(name, v))
 }
 
 /// Depth-bound an out-of-band meta map (`$ext` / `$seed`). Both ride the same
@@ -358,9 +366,9 @@ impl Card {
     /// Returns [`EditError::InvalidFieldName`] when `name` does not match
     /// `[A-Za-z_][A-Za-z0-9_]*`.
     pub fn set_field(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
-        let value = value.into();
-        check_field(name, value.as_json())?;
-        self.payload_mut().insert(name.to_string(), value);
+        self.payload_mut()
+            .insert(name.to_string(), value.into())
+            .map_err(|v| edit_error_from_violation(name, v))?;
         Ok(())
     }
 
@@ -368,9 +376,9 @@ impl Card {
     /// `Null` emits as `key: !must_fill`; scalars/sequences as `key: !must_fill <value>`.
     /// Same validation as [`Card::set_field`].
     pub fn set_fill(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
-        let value = value.into();
-        check_field(name, value.as_json())?;
-        self.payload_mut().insert_fill(name.to_string(), value);
+        self.payload_mut()
+            .insert_fill(name.to_string(), value.into())
+            .map_err(|v| edit_error_from_violation(name, v))?;
         Ok(())
     }
 
@@ -404,8 +412,10 @@ impl Card {
         if !errors.is_empty() {
             return Err(errors);
         }
+        // Batch validated above; apply through the unchecked insert so the
+        // whole-batch check is not re-run per field.
         for (name, value) in fields {
-            self.payload_mut().insert(name, value);
+            self.payload_mut().insert_unchecked(name, value);
         }
         Ok(())
     }
@@ -576,7 +586,7 @@ impl Card {
     fn store_field_corpus(&mut self, name: &str, corpus: &RichText) {
         let canonical = quillmark_richtext::serial::to_canonical_value(corpus);
         self.payload_mut()
-            .insert(name.to_string(), QuillValue::from_json(canonical));
+            .insert_unchecked(name.to_string(), QuillValue::from_json(canonical));
     }
 
     /// Write-time commit: validate and normalize `value` per the field's schema
@@ -622,7 +632,8 @@ impl Card {
         schema: &FieldSchema,
     ) -> Result<(), EditError> {
         let stored = resolve_field_write(name, value.into(), schema)?;
-        self.payload_mut().insert(name.to_string(), stored);
+        // `resolve_field_write` already validated name + stored-value depth.
+        self.payload_mut().insert_unchecked(name.to_string(), stored);
         Ok(())
     }
 

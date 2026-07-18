@@ -151,7 +151,7 @@ title: Draft
 
     // Edit the main card and append a composable card.
     doc.setField('title', 'Final')
-    doc.pushCard(Document.makeCard('note', { author: 'Alice' }, 'A note.'))
+    doc.insertCard(Document.makeCard('note', { author: 'Alice' }, 'A note.'))
     expect(doc.cardCount).toBe(1)
     expect(doc.cards[0].kind).toBe('note')
 
@@ -178,7 +178,7 @@ title: Draft
 ~~~
 
 # Body`)
-    doc.pushCard(Document.makeCard('note', { author: 'Alice' }, 'A note body.'))
+    doc.insertCard(Document.makeCard('note', { author: 'Alice' }, 'A note body.'))
 
     // getCardField — value keyed by name; undefined when the field is absent.
     expect(doc.getCardField(0, 'author')).toBe('Alice')
@@ -194,5 +194,34 @@ title: Draft
     // write verbs do, rather than reading back as undefined/"".
     expect(() => doc.getCardField(1, 'author')).toThrow()
     expect(() => doc.getCardMarkdown(1)).toThrow()
+  })
+
+  it('single-card, $id, and seed-overlay reads (#956)', () => {
+    const doc = Document.fromMarkdown(`~~~
+$quill: core_test
+$kind: main
+title: Draft
+~~~
+
+# Body`)
+    doc.insertCard({ kind: 'note', id: 'dup', body: 'A' })
+    doc.insertCard({ kind: 'note', id: 'other', body: 'B' })
+    doc.insertCard({ kind: 'note', id: 'dup', body: 'C' })
+
+    // card(i) reads one whole card without materializing the cards array.
+    expect(doc.card(1).kind).toBe('note')
+    expect(doc.card(1).id).toBe('other')
+    expect(() => doc.card(3)).toThrow() // out of range is a boundary error
+
+    // cardIndexById resolves the durable $id address; non-unique → first match.
+    expect(doc.cardIndexById('dup')).toBe(0)
+    expect(doc.cardIndexById('other')).toBe(1)
+    expect(doc.cardIndexById('missing')).toBeUndefined()
+
+    // seedOverlay reads one $seed[kind] entry off the main card cheaply, the
+    // overlay you feed straight into quill.seedCard(kind, overlay).
+    doc.setSeedNamespace('note', { author: 'Seeded' })
+    expect(doc.seedOverlay('note')).toEqual({ author: 'Seeded' })
+    expect(doc.seedOverlay('absent')).toBeUndefined()
   })
 })

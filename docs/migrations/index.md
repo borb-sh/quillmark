@@ -18,6 +18,21 @@ guides in order.
 
 ## Available guides
 
+- [0.94 → 0.95](0.94-to-0.95.md) — WASM `pushCard` folds into
+  `insertCard(card, at?)` (one insertion verb; `insertCard`'s args reorder to
+  `(card, at?)`) and the deprecated `replaceBody` alias is deleted (use
+  `revise({}, md)` / `writer.setBody`); the typed `addCard` / `add_card` gains a
+  position, `TypedWriter::remove_card` and a JS `CardWriter.kind` getter close
+  writer/cursor asymmetries (#961). Core `Payload::insert` / `insert_fill`
+  validate the field-name/depth invariant at the boundary and return
+  `Result<_, FieldViolation>`, closing the `payload_mut().insert(...)` hole (a
+  `pub(crate)` `insert_unchecked` serves pre-validated callers; the `Card`/writer
+  mutators are unchanged) (#958). Parse warnings move fully onto `ParseOutput`:
+  `Document::warnings()` and the `from_main_and_cards` `warnings` param are
+  removed and `Document` `PartialEq` becomes a plain derive; `from_markdown` /
+  `from_markdown_with_warnings` are unchanged (#959). Additive, no action:
+  single-card reads `card(i)` / `cardIndexById(id)` / `seedOverlay(kind)` backed
+  by core `Document::card(i)` / `find_card(id)` (#956).
 - [0.93 → 0.94](0.93-to-0.94.md) — `type: richtext(inline)` retires; declare
   `type: richtext` with `inline: true` instead. Blueprint still emits
   `richtext(inline)<markdown>`; `build_transform_schema` gains

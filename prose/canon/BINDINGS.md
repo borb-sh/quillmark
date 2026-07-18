@@ -80,10 +80,14 @@ ergonomic), nothing else admitted. Drift is a reviewable diff to this table.
 | Typed writer front door | `quill.writer(&mut doc)` | `quill.writer(doc)` | **idiom** — core holds `&mut Document` under the checker; the bindings re-borrow per call (pyo3/wasm objects carry no lifetime), so the guarantee becomes the ephemerality convention |
 | Scalar / batch write | `set` / `set_all` | `set` / `setAll` (JS), `set` / `set_all` (py) | identical |
 | Receipt-free body write | `set_body(md)` | `setBody(md)` / `set_body(md)` | identical — core also exposes the delta via `revise_body` |
-| Card creation | `add_card(kind, fields, body?)` | `addCard` / `add_card` | identical — fused make + typed-commit + push, transactional |
+| Card creation | `add_card(kind, fields, body?, at?)` | `addCard(kind, fields?, body?, at?)` | identical — fused make + typed-commit + insert, transactional (`at` appends when absent, else inserts at the index — one atomic positioned insert, not `addCard` + `moveCard`) |
+| Card insertion | `push_card(card)` / `insert_card(i, card)` | `insertCard(card, at?)` | **idiom** — the binding folds core's append + positional-insert verbs into one; absent `at` appends |
+| Card removal (writer) | `writer.remove_card(i)` | `writer.removeCard(i)` | identical |
 | Card cursor | `writer.card(i)?` (eager check) | `writer.card(i)` (lazy check) | **FFI** — no borrow to validate against; the index is checked at the write |
+| Cursor kind | `writer.card(i)?.kind()` | `writer.card(i).kind` | identical — the JS getter reads through `doc.card(i)` |
 | Reads (main) | `card.field_markdown(..)` / `payload().get(..)` | `doc.getMarkdown(name?)` / `doc.get(name)` | **idiom** — the bindings fuse the read into one named verb on `Document` |
 | Reads (card) | `cards()[i].field_markdown(..)` / `payload().get(..)` | `doc.getCardMarkdown(i, name?)` / `doc.getCardField(i, name)` | **idiom** — the card-indexed twins of the main reads, mirroring the card write verbs; `getCardMarkdown` is a fallible `Result` (the index bounds-check) where main `getMarkdown` is infallible |
+| Reads (whole card / `$id` / seed) | `card(i)` / `find_card(id)` / `main().seed()` | `doc.card(i)` / `doc.cardIndexById(id)` / `doc.seedOverlay(kind)` | **idiom** — the bindings fuse each into one named verb on `Document`; `card(i)` throws out of range, `find_card`/`cardIndexById` return the first `$id` match (non-unique by design) |
 | Richtext ops | `card.revise_field(name, md)?` (borrow chain) | `doc.revise({card, field}, md)` (addr literal) | **FFI** — same model, flattened navigation |
 | Opaque primitive | `set_field` / `set_fields` | `setField` / `setCardField` (JS), `set_field` / `set_fields` (py) | identical |
 

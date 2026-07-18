@@ -326,20 +326,16 @@ impl SeedOverlay {
 
 /// A fully-parsed Quillmark document. Serde routes through [`StoredDocument`];
 /// for the plate wire shape see [`Document::to_plate_json`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Parse-time warnings are *not* document state — they ride out-of-band on
+/// [`ParseOutput`] from [`Document::from_markdown_with_warnings`], the single
+/// owner. Equality and the storage DTO therefore cover only structural content
+/// (`main` and `cards`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(into = "StoredDocument", try_from = "StoredDocument")]
 pub struct Document {
     main: Card,
     cards: Vec<Card>,
-    warnings: Vec<Diagnostic>,
-}
-
-// `warnings` are parse-time observations and vary on round-trips; equality
-// covers only structural content (`main` and `cards`).
-impl PartialEq for Document {
-    fn eq(&self, other: &Self) -> bool {
-        self.main == other.main && self.cards == other.cards
-    }
 }
 
 impl Document {
@@ -358,13 +354,12 @@ impl Document {
         Self {
             main: Card::from_parts(payload, RichText::empty()),
             cards: Vec::new(),
-            warnings: Vec::new(),
         }
     }
 
     /// Create a `Document` from a pre-built main card and composable cards.
     /// `main` must carry `$quill`; composable cards must not.
-    pub fn from_main_and_cards(main: Card, cards: Vec<Card>, warnings: Vec<Diagnostic>) -> Self {
+    pub fn from_main_and_cards(main: Card, cards: Vec<Card>) -> Self {
         debug_assert!(main.quill().is_some(), "main card must carry `$quill`");
         debug_assert!(
             cards.iter().all(|c| c.quill().is_none()),
@@ -374,11 +369,7 @@ impl Document {
             cards.iter().all(|c| c.seed().is_none()),
             "composable cards must not carry `$seed`"
         );
-        Self {
-            main,
-            cards,
-            warnings,
-        }
+        Self { main, cards }
     }
 
     pub fn from_markdown(markdown: &str) -> Result<Self, ParseError> {
@@ -414,11 +405,25 @@ impl Document {
         &mut self.cards
     }
 
-    /// Non-fatal warnings from the parse; empty for a [`Document::new`] blank
-    /// canvas. [`Document::from_main_and_cards`] carries whatever `warnings`
-    /// the caller passes.
-    pub fn warnings(&self) -> &[Diagnostic] {
-        &self.warnings
+    /// A single composable card by index — the immutable twin of
+    /// [`card_mut`](Document::card_mut), so reading one card's payload does not
+    /// require materializing every card via [`cards`](Document::cards). `None`
+    /// when out of range.
+    pub fn card(&self, index: usize) -> Option<&Card> {
+        self.cards.get(index)
+    }
+
+    /// The first composable card whose `$id` equals `id`, with its index —
+    /// resolving the canonical durable address ([PROGRAMMATIC.md]) without a
+    /// hand-rolled scan over [`cards`](Document::cards). `$id` is non-unique by
+    /// design, so this returns the first match; `None` when no card carries it.
+    ///
+    /// [PROGRAMMATIC.md]: https://github.com/borb-sh/quillmark/blob/main/prose/canon/PROGRAMMATIC.md
+    pub fn find_card(&self, id: &str) -> Option<(usize, &Card)> {
+        self.cards
+            .iter()
+            .enumerate()
+            .find(|(_, card)| card.id() == Some(id))
     }
 
     pub(crate) fn cards_vec_mut(&mut self) -> &mut Vec<Card> {
