@@ -110,11 +110,11 @@ doc.equals(other)
 doc.card_count
 doc.main; doc.cards; doc.body; doc.warnings
 
-doc.set_field("title", "New")
-doc.set_fields({"title": "New", "author": "A"})  # atomic batch; one diagnostic per bad field
+doc.store_field("title", "New")                  # opaque store (store = verbatim; the typed write is the writer)
+doc.store_fields({"title": "New", "author": "A"})  # atomic batch; one diagnostic per bad field
 doc.push_card(Document.make_card("note", {"x": 1}, "..."))  # or pass a Card from cards/remove_card/seed_card
 # insert_card, remove_card, move_card, set_card_kind,
-# set_card_field, set_card_fields, remove_card_field, replace_card_body, ...
+# store_card_field, store_card_fields, remove_card_field, replace_card_body, ...
 ```
 
 ## Schema model

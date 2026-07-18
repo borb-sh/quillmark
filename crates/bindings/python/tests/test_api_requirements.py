@@ -98,7 +98,7 @@ def test_blank_document_constructor():
     assert doc.card_count == 0
     assert export_markdown(doc.body) == ""
     assert field_keys(doc.main) == []
-    doc.set_fields({"title": "Hello"})
+    doc.store_fields({"title": "Hello"})
     assert field(doc.main, "title") == "Hello"
     with pytest.raises(ValueError, match="QuillReference"):
         Document("not a valid ref!!")
@@ -110,7 +110,7 @@ def test_blank_document_renders(engine):
     quill = Quill.from_path(str(_latest_version(taro_dir)))
 
     doc = Document("taro")
-    doc.set_fields({"title": "Test", "author": "Test Author", "ice_cream": "Chocolate"})
+    doc.store_fields({"title": "Test", "author": "Test Author", "ice_cream": "Chocolate"})
     doc.replace_body("Content.")
 
     result = engine.render(quill, doc, OutputFormat.PDF)
@@ -151,14 +151,14 @@ Card two.
 def test_set_field_inserts():
     """set_field adds a new payload field."""
     doc = Document.from_markdown(SIMPLE_MD)
-    doc.set_field("subtitle", "A subtitle")
+    doc.store_field("subtitle", "A subtitle")
     assert field(doc.main, "subtitle") == "A subtitle"
 
 
 def test_set_field_updates():
     """set_field updates an existing payload field."""
     doc = Document.from_markdown(SIMPLE_MD)
-    doc.set_field("title", "New Title")
+    doc.store_field("title", "New Title")
     assert field(doc.main, "title") == "New Title"
 
 
@@ -167,7 +167,7 @@ def test_set_field_uppercase_accepted():
     but not enforced); only `$`-prefixed keys stay reserved."""
     doc = Document.from_markdown(SIMPLE_MD)
     for name in ("BODY", "CARDS", "Title", "MixedCase_1"):
-        doc.set_field(name, "value")
+        doc.store_field(name, "value")
         assert field(doc.main, name) == "value"
 
 
@@ -176,20 +176,20 @@ def test_set_field_dollar_prefix_rejected_matrix():
     for name in ("$body", "$cards", "$quill", "$kind"):
         doc = Document.from_markdown(SIMPLE_MD)
         with pytest.raises(QuillmarkError, match="InvalidFieldName"):
-            doc.set_field(name, "value")
+            doc.store_field(name, "value")
 
 
 def test_set_field_invalid_field_name():
     """set_field raises EditError for an invalid name (hyphen not allowed)."""
     doc = Document.from_markdown(SIMPLE_MD)
     with pytest.raises(QuillmarkError, match="InvalidFieldName"):
-        doc.set_field("bad-name", "value")
+        doc.store_field("bad-name", "value")
 
 
 def test_set_fields_inserts_batch_in_order():
     """set_fields applies every entry, in dict order."""
     doc = Document.from_markdown(SIMPLE_MD)
-    doc.set_fields({"subtitle": "A subtitle", "pages": 3})
+    doc.store_fields({"subtitle": "A subtitle", "pages": 3})
     assert field(doc.main, "subtitle") == "A subtitle"
     assert field(doc.main, "pages") == 3
     assert field_keys(doc.main) == ["title", "author", "subtitle", "pages"]
@@ -200,7 +200,7 @@ def test_set_fields_reports_every_violation_and_applies_nothing():
     leaves the document untouched — including the batch's valid entries."""
     doc = Document.from_markdown(SIMPLE_MD)
     with pytest.raises(QuillmarkError, match="InvalidFieldName") as exc_info:
-        doc.set_fields({"ok_field": "v", "bad-name": "v", "also bad": "v"})
+        doc.store_fields({"ok_field": "v", "bad-name": "v", "also bad": "v"})
     diags = exc_info.value.diagnostics
     assert [d.path for d in diags] == ["bad-name", "also bad"]
     assert not has_field(doc.main, "ok_field")
@@ -209,11 +209,11 @@ def test_set_fields_reports_every_violation_and_applies_nothing():
 def test_set_card_fields_batch():
     """set_card_fields is the card-indexed twin of set_fields."""
     doc = Document.from_markdown(MD_WITH_CARDS)
-    doc.set_card_fields(0, {"foo": "baz", "extra": 1})
+    doc.store_card_fields(0, {"foo": "baz", "extra": 1})
     assert field(doc.cards[0], "foo") == "baz"
     assert field(doc.cards[0], "extra") == 1
     with pytest.raises(QuillmarkError, match="IndexOutOfRange"):
-        doc.set_card_fields(99, {"foo": "v"})
+        doc.store_card_fields(99, {"foo": "v"})
 
 
 def test_remove_field_existing():
@@ -369,7 +369,7 @@ def test_move_card_out_of_range():
 def test_set_card_field():
     """set_card_field sets a field on a specific card."""
     doc = Document.from_markdown(MD_WITH_CARDS)
-    doc.set_card_field(0, "content", "hello")
+    doc.store_card_field(0, "content", "hello")
     assert field(doc.cards[0], "content") == "hello"
 
 
@@ -377,7 +377,7 @@ def test_set_card_field_out_of_range():
     """set_card_field raises EditError when card index is out of range."""
     doc = Document.from_markdown(SIMPLE_MD)  # 0 cards
     with pytest.raises(QuillmarkError, match="IndexOutOfRange"):
-        doc.set_card_field(0, "title", "x")
+        doc.store_card_field(0, "title", "x")
 
 
 def test_get_card_field():
@@ -442,7 +442,7 @@ def test_update_card_body_deprecated_alias():
 def test_set_ext_adds_map():
     """set_ext stores an opaque map readable via card['ext']."""
     doc = Document.from_markdown(SIMPLE_MD)
-    doc.set_ext({"presentation": {"title": "Greeting"}})
+    doc.store_ext({"presentation": {"title": "Greeting"}})
     assert doc.main["ext"] == {"presentation": {"title": "Greeting"}}
 
 
@@ -450,13 +450,13 @@ def test_set_ext_rejects_non_dict():
     """set_ext raises for non-dict values."""
     doc = Document.from_markdown(SIMPLE_MD)
     with pytest.raises(ValueError, match="must be a dict"):
-        doc.set_ext("nope")
+        doc.store_ext("nope")
 
 
 def test_ext_round_trips_through_markdown():
     """$ext survives emit → re-parse."""
     doc = Document.from_markdown(SIMPLE_MD)
-    doc.set_ext({"agent": {"pinned": True}})
+    doc.store_ext({"agent": {"pinned": True}})
     reparsed = Document.from_markdown(doc.to_markdown())
     assert reparsed.main["ext"]["agent"]["pinned"] is True
 
@@ -464,9 +464,9 @@ def test_ext_round_trips_through_markdown():
 def test_set_ext_namespace_preserves_siblings():
     """set_ext_namespace merges without clobbering other namespaces."""
     doc = Document.from_markdown(SIMPLE_MD)
-    doc.set_ext_namespace("presentation", {"title": "A"})
-    doc.set_ext_namespace("agent", {"pinned": True})
-    doc.set_ext_namespace("presentation", {"title": "B"})
+    doc.store_ext_namespace("presentation", {"title": "A"})
+    doc.store_ext_namespace("agent", {"pinned": True})
+    doc.store_ext_namespace("presentation", {"title": "B"})
     assert doc.main["ext"] == {
         "presentation": {"title": "B"},
         "agent": {"pinned": True},
@@ -476,8 +476,8 @@ def test_set_ext_namespace_preserves_siblings():
 def test_remove_ext_namespace_clears_one_slot_and_drops_when_empty():
     """remove_ext_namespace clears one slot; the last one drops $ext."""
     doc = Document.from_markdown(SIMPLE_MD)
-    doc.set_ext_namespace("presentation", {"title": "A"})
-    doc.set_ext_namespace("tutorial", ["step-1", "step-2"])
+    doc.store_ext_namespace("presentation", {"title": "A"})
+    doc.store_ext_namespace("tutorial", ["step-1", "step-2"])
     # Returns the removed value; siblings survive.
     assert doc.remove_ext_namespace("tutorial") == ["step-1", "step-2"]
     assert doc.main["ext"] == {"presentation": {"title": "A"}}
@@ -491,7 +491,7 @@ def test_remove_ext_namespace_clears_one_slot_and_drops_when_empty():
 def test_remove_ext_returns_previous_and_clears():
     """remove_ext returns the previous map, then None."""
     doc = Document.from_markdown(SIMPLE_MD)
-    doc.set_ext({"agent": {"n": 1}})
+    doc.store_ext({"agent": {"n": 1}})
     assert doc.remove_ext() == {"agent": {"n": 1}}
     assert doc.main["ext"] is None
     assert doc.remove_ext() is None
@@ -500,7 +500,7 @@ def test_remove_ext_returns_previous_and_clears():
 def test_card_ext_mutators():
     """set_card_ext / remove_card_ext target the card at index."""
     doc = Document.from_markdown(MD_WITH_CARDS)
-    doc.set_card_ext(0, {"agent": {"note": "y"}})
+    doc.store_card_ext(0, {"agent": {"note": "y"}})
     assert doc.cards[0]["ext"] == {"agent": {"note": "y"}}
     assert doc.remove_card_ext(0) == {"agent": {"note": "y"}}
     assert doc.cards[0]["ext"] is None
@@ -509,8 +509,8 @@ def test_card_ext_mutators():
 def test_card_ext_namespace_mutators():
     """set/remove_card_ext_namespace preserve siblings and clear when empty."""
     doc = Document.from_markdown(MD_WITH_CARDS)
-    doc.set_card_ext_namespace(0, "presentation", {"title": "A"})
-    doc.set_card_ext_namespace(0, "tutorial", ["step-1"])
+    doc.store_card_ext_namespace(0, "presentation", {"title": "A"})
+    doc.store_card_ext_namespace(0, "tutorial", ["step-1"])
     assert doc.remove_card_ext_namespace(0, "tutorial") == ["step-1"]
     assert doc.cards[0]["ext"] == {"presentation": {"title": "A"}}
     doc.remove_card_ext_namespace(0, "presentation")
@@ -521,11 +521,11 @@ def test_card_ext_mutators_out_of_range():
     """Card ext mutators raise IndexOutOfRange for a bad index."""
     doc = Document.from_markdown(SIMPLE_MD)  # 0 cards
     with pytest.raises(QuillmarkError, match="IndexOutOfRange"):
-        doc.set_card_ext(0, {})
+        doc.store_card_ext(0, {})
     with pytest.raises(QuillmarkError, match="IndexOutOfRange"):
         doc.remove_card_ext(0)
     with pytest.raises(QuillmarkError, match="IndexOutOfRange"):
-        doc.set_card_ext_namespace(0, "a", {})
+        doc.store_card_ext_namespace(0, "a", {})
     with pytest.raises(QuillmarkError, match="IndexOutOfRange"):
         doc.remove_card_ext_namespace(0, "a")
 
@@ -534,7 +534,7 @@ def test_mutators_do_not_touch_warnings():
     """Mutators must not modify the warnings list."""
     doc = Document.from_markdown(SIMPLE_MD)
     initial = list(doc.warnings)
-    doc.set_field("extra", "value")
+    doc.store_field("extra", "value")
     doc.replace_body("New body.")
     doc.push_card({"kind": "new_card"})
     assert list(doc.warnings) == initial
@@ -553,7 +553,7 @@ def test_invariants_after_mutation_sequence():
     doc.remove_card(2)                     # appendix, note, summary
 
     # Mutate payload
-    doc.set_field("extra_author", "Bob")
+    doc.store_field("extra_author", "Bob")
     doc.remove_field("extra_author")
 
     # Assertions: every payload key passes the user-field regex.
@@ -581,7 +581,7 @@ def test_to_markdown_general_round_trip():
     original_card_count = len(doc.cards)  # 0 for SIMPLE_MD
 
     # Mutate
-    doc.set_field("title", "New Title")
+    doc.store_field("title", "New Title")
     doc.push_card(Document.make_card("note", {"author": "Alice"}, "Hello"))
     doc.replace_body("Updated body")
 
@@ -608,15 +608,15 @@ def test_to_markdown_ambiguous_string_survival():
     so they survive through a re-parse as strings, not bools or null.
     """
     doc = Document.from_markdown(SIMPLE_MD)
-    doc.set_field("flag_on", "on")
-    doc.set_field("flag_off", "off")
-    doc.set_field("flag_yes", "yes")
-    doc.set_field("flag_no", "no")
-    doc.set_field("str_true", "true")
-    doc.set_field("str_false", "false")
-    doc.set_field("str_null", "null")
-    doc.set_field("octal_str", "01234")
-    doc.set_field("date_str", "2024-01-15")
+    doc.store_field("flag_on", "on")
+    doc.store_field("flag_off", "off")
+    doc.store_field("flag_yes", "yes")
+    doc.store_field("flag_no", "no")
+    doc.store_field("str_true", "true")
+    doc.store_field("str_false", "false")
+    doc.store_field("str_null", "null")
+    doc.store_field("octal_str", "01234")
+    doc.store_field("date_str", "2024-01-15")
 
     emitted = doc.to_markdown()
     doc2 = Document.from_markdown(emitted)

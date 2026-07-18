@@ -181,7 +181,7 @@ def test_document_seed_and_set_seed_namespace_round_trip(tmp_path):
     doc = Document.from_markdown(_md())  # empty main card
 
     assert seed_of(doc, "note") is None
-    doc.set_seed_namespace("note", {"tag": "WRITTEN"})
+    doc.store_seed_namespace("note", {"tag": "WRITTEN"})
     assert seed_of(doc, "note")["tag"] == "WRITTEN"
 
     card = quill.seed_card("note", seed_of(doc, "note"))
