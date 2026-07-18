@@ -60,11 +60,11 @@ third lane — verbatim storage, coercion deferred to render.
 **The verb carries the lane.** One vocabulary rule, stated once here: **store**
 = verbatim (the quill-free opaque write, coercion deferred to render), **set** =
 typed (the writer's strict commit at the write), **install / revise / apply** =
-corpus (identity-aware). `remove_*` has no tier — one verb per lane serves it.
+corpus (identity-aware). `remove_*` has no tier — one verb serves every lane.
 So `store_field` / `store_fields` / `store_fill` (+ `store_ext` / `store_seed_*`)
 are the opaque store, `set` / `set_all` / `set_body` the typed writer, and a name
-never needs per-verb disambiguation against its neighbor (the `store_fields`
-opaque batch no longer near-homographs the `set_all` typed batch).
+never needs per-verb disambiguation against its neighbor (the opaque batch
+`store_fields` and the typed batch `set_all` are not near-homographs).
 
 **Writers and card cursors are ephemeral — bind, write, discard.** They hold an
 address (the quill + document, or an index), never a cache; every call reads

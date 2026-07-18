@@ -665,6 +665,33 @@ impl Card {
         Ok(delta)
     }
 
+    /// Decode the field's current corpus (an absent field imports from empty),
+    /// diff `body` against it so surviving anchors rebase, and return the new
+    /// corpus with its text [`Delta`] — the shared preamble of
+    /// [`revise_field`](Self::revise_field) and
+    /// [`revise_field_checked`](Self::revise_field_checked). Neither stores; the
+    /// caller lands the diffed corpus (raw, or schema-checked).
+    fn diff_field(
+        &self,
+        name: &str,
+        body: impl Into<String>,
+    ) -> Result<(RichText, Delta), EditError> {
+        if !is_valid_field_name(name) {
+            return Err(EditError::InvalidFieldName(name.to_string()));
+        }
+        let base = match self.field_richtext(name) {
+            Some(Ok(rt)) => rt,
+            Some(Err(e)) => {
+                return Err(EditError::FieldRichtextDecode {
+                    field: name.to_string(),
+                    message: e.into_message(),
+                })
+            }
+            None => RichText::empty(),
+        };
+        diff_import(&base, &body.into()).map_err(EditError::BodyImport)
+    }
+
     /// Revise a richtext field from an authored markdown string — the
     /// field-level twin of [`revise_body`](Self::revise_body), and the
     /// field-level `diff_import` the write surface previously lacked (the only
@@ -685,20 +712,7 @@ impl Card {
     /// richtext corpus (a scalar a `store_field` wrote), and
     /// [`EditError::BodyImport`] on an over-nested markdown input.
     pub fn revise_field(&mut self, name: &str, body: impl Into<String>) -> Result<Delta, EditError> {
-        if !is_valid_field_name(name) {
-            return Err(EditError::InvalidFieldName(name.to_string()));
-        }
-        let base = match self.field_richtext(name) {
-            Some(Ok(rt)) => rt,
-            Some(Err(e)) => {
-                return Err(EditError::FieldRichtextDecode {
-                    field: name.to_string(),
-                    message: e.into_message(),
-                })
-            }
-            None => RichText::empty(),
-        };
-        let (corpus, delta) = diff_import(&base, &body.into()).map_err(EditError::BodyImport)?;
+        let (corpus, delta) = self.diff_field(name, body)?;
         self.store_field_corpus(name, &corpus);
         Ok(delta)
     }
@@ -735,25 +749,11 @@ impl Card {
         body: impl Into<String>,
         schema: &FieldSchema,
     ) -> Result<Delta, EditError> {
-        if !is_valid_field_name(name) {
-            return Err(EditError::InvalidFieldName(name.to_string()));
-        }
-        let base = match self.field_richtext(name) {
-            Some(Ok(rt)) => rt,
-            Some(Err(e)) => {
-                return Err(EditError::FieldRichtextDecode {
-                    field: name.to_string(),
-                    message: e.into_message(),
-                })
-            }
-            None => RichText::empty(),
-        };
-        let (corpus, delta) = diff_import(&base, &body.into()).map_err(EditError::BodyImport)?;
-        // Enforce `schema` on the *diffed* corpus (anchor-rebased), not a cold
-        // import, through the same typed path `commit_field` uses — the inline
-        // check runs on the value anchors survived onto, so the error surface is
-        // identical. Re-canonicalizing a corpus object is anchor-preserving
-        // (`decode_richtext_value` keeps identity marks).
+        let (corpus, delta) = self.diff_field(name, body)?;
+        // Enforce `schema` on the diffed (anchor-rebased) corpus through the same
+        // typed path `commit_field` uses: re-canonicalizing a corpus object keeps
+        // its identity marks (`decode_richtext_value`), so the inline check fires
+        // on the value anchors survived onto and the error surface is identical.
         let canonical = quillmark_richtext::serial::to_canonical_value(&corpus);
         let stored = resolve_field_write(name, QuillValue::from_json(canonical), schema)?;
         self.payload_mut().insert_unchecked(name.to_string(), stored);

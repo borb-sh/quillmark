@@ -911,10 +911,9 @@ impl Document {
     }
 
     /// The whole `$ext` map at `addr` (a card address, absent `card` = main), or
-    /// `undefined` when the card carries none. The fine-grained `$ext` read the
-    /// surface previously lacked: reading your own state no longer means
-    /// serializing the whole card. Throws on a present `field` (a card address
-    /// takes only `card`) or an out-of-range card.
+    /// `undefined` when the card carries none. The fine-grained `$ext` read —
+    /// your own state without serializing the whole card. Throws on a present
+    /// `field` (a card address takes only `card`) or an out-of-range card.
     #[wasm_bindgen(js_name = getExt, unchecked_return_type = "Record<string, unknown> | undefined")]
     pub fn get_ext(
         &self,
@@ -1031,10 +1030,9 @@ impl Document {
     }
 
     /// Store a field verbatim at `addr` and mark it `!must_fill` — the opaque
-    /// store's fill variant, now card-capable (a bare string or `{ field }` for
-    /// main, `{ card, field }` for a composable card, closing the card-scoped
-    /// fill gap). A body address throws. Same validation as
-    /// [`storeField`](Document::store_field).
+    /// store's fill variant, card-capable (a bare string or `{ field }` for main,
+    /// `{ card, field }` for a composable card). A body address throws. Same
+    /// validation as [`storeField`](Document::store_field).
     #[wasm_bindgen(js_name = storeFill)]
     pub fn store_fill(
         &mut self,
