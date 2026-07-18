@@ -83,9 +83,8 @@ Documents written before `0.93.0` carry
 markdown string rather than the embedded canonical content. Readers accept
 them and migrate forward to V0_93_0 on load; writers do not produce this
 shape. The one hop that can reject is the body cold-import (see
-Byte-stability). The pre-`0.92.0` read shims (`@0.81.0`, `@0.82.0`) are
-retired — no stored population in those shapes remains on this lineage — so a
-blob still carrying either tag fails to load as an unknown schema version.
+Byte-stability). Tags older than `@0.92.0` (`@0.81.0`, `@0.82.0`) have no
+reader; a blob carrying one is rejected as an unknown schema version.
 
 ## Byte-stability
 
@@ -158,12 +157,10 @@ pathologically over-nested legacy body is rejected
 (`StorageError::Malformed`) rather than silently truncated. Only the newest
 DTO converts to the live `Document`; a `0.92.0` blob migrates one hop first.
 
-The `0.81.0` and `0.82.0` schemas predate this — `0.81.0` used a separate
-`sentinel + frontmatter` shape, `0.82.0` first unified the payload list.
-Their read shims are retired now that no stored population in those shapes
-remains on this lineage; a blob still tagged `@0.81.0` or `@0.82.0` is
-rejected as an unknown version (see "Adding a Schema Version" on retiring a
-variant).
+Schema tags older than `0.92.0` (`@0.81.0`, `@0.82.0`) have no reader: a
+blob carrying one is rejected as an unknown version. Their shims are retired
+because no stored population in those shapes remains on this lineage (see
+"Adding a Schema Version" on retiring a variant).
 
 ## Adding a Schema Version
 
@@ -219,9 +216,8 @@ per version bump.
 A legacy variant may be **retired** — its DTO tree, migration, and tests
 deleted — once a product/release-history call confirms no stored population
 remains in that shape (the `0.81.0` and `0.82.0` shims were dropped this
-way). A row that later surfaces in a retired shape then fails loudly as an
-unknown version rather than loading, so retirement is reserved for shapes
-with no live rows.
+way). A row that later surfaces in a retired shape then fails as an unknown
+version, so retirement is reserved for shapes with no live rows.
 
 ## Gotchas
 

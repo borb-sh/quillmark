@@ -819,10 +819,9 @@ title: Hi
 
     #[test]
     fn retired_legacy_schema_tags_are_rejected() {
-        // The V0_81_0 and V0_82_0 read shims were retired (everything persisted
-        // on this lineage is `@0.92.0` or newer); a blob still carrying either
-        // tag now fails to load as an unknown schema version rather than
-        // migrating forward.
+        // The `@0.81.0` and `@0.82.0` schema tags have no reader: a blob
+        // carrying either is rejected as an unknown version, never migrated.
+        // (Everything persisted on this lineage is `@0.92.0` or newer.)
         for tag in ["quillmark/document@0.81.0", "quillmark/document@0.82.0"] {
             let json = format!(
                 r#"{{"schema":"{tag}","main":{{"payload":{{"items":[]}},"body":""}},"cards":[]}}"#
