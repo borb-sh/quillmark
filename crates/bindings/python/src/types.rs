@@ -579,20 +579,20 @@ impl PyDocument {
     /// holding not-yet-conforming input. When a quill *is* in hand, prefer the
     /// typed writer (`quill.writer(doc).set(name, value)`) so a mismatch surfaces
     /// at the write. Raises `QuillmarkError` on a malformed name. Mirrors WASM
-    /// `setField`.
-    fn set_field(&mut self, name: &str, value: Bound<'_, PyAny>) -> PyResult<()> {
+    /// `storeField`.
+    fn store_field(&mut self, name: &str, value: Bound<'_, PyAny>) -> PyResult<()> {
         let qv = py_to_quillvalue(&value)?;
         self.inner
             .main_mut()
-            .set_field(name, qv)
+            .store_field(name, qv)
             .map_err(convert_edit_error)
     }
 
-    fn set_fill(&mut self, name: &str, value: Bound<'_, PyAny>) -> PyResult<()> {
+    fn store_fill(&mut self, name: &str, value: Bound<'_, PyAny>) -> PyResult<()> {
         let qv = py_to_quillvalue(&value)?;
         self.inner
             .main_mut()
-            .set_fill(name, qv)
+            .store_fill(name, qv)
             .map_err(convert_edit_error)
     }
 
@@ -602,17 +602,17 @@ impl PyDocument {
     /// offending field (`path` = field name), so externally-sourced names
     /// (database columns, form keys) surface every violation in one pass.
     ///
-    /// The batched quill-free primitive (see `set_field`) — stores every value
+    /// The batched quill-free primitive (see `store_field`) — stores every value
     /// opaquely, deferring coercion to render. Prefer the typed writer
     /// (`quill.writer(doc).set_all(fields)`) whenever a quill is in hand: it
     /// typed-commits the batch and reports per-field routing, so a form
     /// submitting a card is not silently stripped of schema typing. Mirrors WASM
-    /// `setFields`.
-    fn set_fields(&mut self, fields: Bound<'_, PyDict>) -> PyResult<()> {
+    /// `storeFields`.
+    fn store_fields(&mut self, fields: Bound<'_, PyDict>) -> PyResult<()> {
         let batch = pydict_to_field_batch(&fields)?;
         self.inner
             .main_mut()
-            .set_fields(batch)
+            .store_fields(batch)
             .map_err(convert_edit_errors)
     }
 
@@ -632,11 +632,11 @@ impl PyDocument {
     /// raises `ValueError` otherwise. `$ext` carries out-of-band consumer state
     /// and never reaches the rendered output. Pass `{}` for an explicit empty
     /// `$ext`.
-    fn set_ext(&mut self, value: Bound<'_, PyAny>) -> PyResult<()> {
-        let map = py_to_object(&value, "set_ext")?;
+    fn store_ext(&mut self, value: Bound<'_, PyAny>) -> PyResult<()> {
+        let map = py_to_object(&value, "store_ext")?;
         self.inner
             .main_mut()
-            .set_ext(map)
+            .store_ext(map)
             .map_err(convert_edit_error)?;
         Ok(())
     }
@@ -652,11 +652,11 @@ impl PyDocument {
     /// Merge `value` into the main card's `$ext` map under `namespace`, creating
     /// the map when absent and replacing any existing value at that key. Sibling
     /// namespaces are preserved so independent consumers don't clobber each other.
-    fn set_ext_namespace(&mut self, namespace: &str, value: Bound<'_, PyAny>) -> PyResult<()> {
+    fn store_ext_namespace(&mut self, namespace: &str, value: Bound<'_, PyAny>) -> PyResult<()> {
         let json = py_to_json(&value)?;
         self.inner
             .main_mut()
-            .set_ext_namespace(namespace, json)
+            .store_ext_namespace(namespace, json)
             .map_err(convert_edit_error)?;
         Ok(())
     }
@@ -676,11 +676,11 @@ impl PyDocument {
     /// Merge a card-kind's seed `overlay` into the main card's `$seed` map
     /// under `card_kind`, preserving sibling kinds. Sets the starting values
     /// new cards of that kind spawn with.
-    fn set_seed_namespace(&mut self, card_kind: &str, overlay: Bound<'_, PyAny>) -> PyResult<()> {
+    fn store_seed_namespace(&mut self, card_kind: &str, overlay: Bound<'_, PyAny>) -> PyResult<()> {
         let json = py_to_json(&overlay)?;
         self.inner
             .main_mut()
-            .set_seed_namespace(card_kind, json)
+            .store_seed_namespace(card_kind, json)
             .map_err(convert_edit_error)?;
         Ok(())
     }
@@ -697,12 +697,12 @@ impl PyDocument {
     }
 
     /// Replace the `$ext` map on the composable card at `index`. Raises on
-    /// out-of-range index or non-dict value. Named to mirror `set_ext` on the
+    /// out-of-range index or non-dict value. Named to mirror `store_ext` on the
     /// main card; `set_card_ext_namespace` is the sibling-safe alternative.
-    fn set_card_ext(&mut self, index: usize, value: Bound<'_, PyAny>) -> PyResult<()> {
-        let map = py_to_object(&value, "set_card_ext")?;
+    fn store_card_ext(&mut self, index: usize, value: Bound<'_, PyAny>) -> PyResult<()> {
+        let map = py_to_object(&value, "store_card_ext")?;
         self.card_mut_or_raise(index)?
-            .set_ext(map)
+            .store_ext(map)
             .map_err(convert_edit_error)?;
         Ok(())
     }
@@ -721,8 +721,8 @@ impl PyDocument {
 
     /// Merge `value` into the composable card's `$ext` map under `namespace`,
     /// preserving sibling namespaces. The card-indexed twin of
-    /// `set_ext_namespace`. Raises if `index` is out of range.
-    fn set_card_ext_namespace(
+    /// `store_ext_namespace`. Raises if `index` is out of range.
+    fn store_card_ext_namespace(
         &mut self,
         index: usize,
         namespace: &str,
@@ -730,7 +730,7 @@ impl PyDocument {
     ) -> PyResult<()> {
         let json = py_to_json(&value)?;
         self.card_mut_or_raise(index)?
-            .set_ext_namespace(namespace, json)
+            .store_ext_namespace(namespace, json)
             .map_err(convert_edit_error)?;
         Ok(())
     }
@@ -856,11 +856,11 @@ impl PyDocument {
     }
 
     /// Store an opaque value on the composable card at `index` — the
-    /// card-indexed twin of `set_field`, and the same quill-free primitive.
+    /// card-indexed twin of `store_field`, and the same quill-free primitive.
     /// Prefer the typed writer (`quill.writer(doc).card(index).set(...)`) when a
     /// quill is in hand. Raises on an out-of-range index or a malformed name.
-    /// Mirrors WASM `setCardField`.
-    fn set_card_field(
+    /// Mirrors WASM `storeField` with a card address.
+    fn store_card_field(
         &mut self,
         index: usize,
         name: &str,
@@ -868,19 +868,19 @@ impl PyDocument {
     ) -> PyResult<()> {
         let qv = py_to_quillvalue(&value)?;
         self.card_mut_or_raise(index)?
-            .set_field(name, qv)
+            .store_field(name, qv)
             .map_err(convert_edit_error)
     }
 
-    /// Batched twin of `set_card_field`: set several fields on the composable
+    /// Batched twin of `store_card_field`: set several fields on the composable
     /// card at `index` atomically. Same all-or-nothing, one-diagnostic-per-field
-    /// contract as `set_fields`, and the same quill-free-primitive framing —
+    /// contract as `store_fields`, and the same quill-free-primitive framing —
     /// prefer the typed writer (`quill.writer(doc).card(index).set_all(...)`)
-    /// when a quill is in hand. Mirrors WASM `setCardFields`.
-    fn set_card_fields(&mut self, index: usize, fields: Bound<'_, PyDict>) -> PyResult<()> {
+    /// when a quill is in hand. Mirrors WASM `storeFields` with a card address.
+    fn store_card_fields(&mut self, index: usize, fields: Bound<'_, PyDict>) -> PyResult<()> {
         let batch = pydict_to_field_batch(&fields)?;
         self.card_mut_or_raise(index)?
-            .set_fields(batch)
+            .store_fields(batch)
             .map_err(convert_edit_errors)
     }
 
@@ -1421,7 +1421,7 @@ fn py_to_quillvalue(value: &Bound<'_, PyAny>) -> PyResult<quillmark_core::QuillV
     Ok(quillmark_core::QuillValue::from_json(json))
 }
 
-/// Convert a Python mapping to the `(name, value)` batch `Card::set_fields`
+/// Convert a Python mapping to the `(name, value)` batch `Card::store_fields`
 /// consumes. Value-conversion failures (depth bound, unsupported type) are
 /// collected — not fail-fast — into one `QuillmarkError` with a per-field
 /// `path`, matching the batch contract of the mutator itself. Non-string

@@ -197,7 +197,7 @@ def test_clone_isolates_mutations(taro_md):
     doc = Document.from_markdown(taro_md)
     cloned = doc.clone()
 
-    cloned.set_field("title", "Updated Title")
+    cloned.store_field("title", "Updated Title")
     assert field(doc.main, "title") != "Updated Title"
     assert field(cloned.main, "title") == "Updated Title"
 
@@ -214,7 +214,7 @@ def test_copy_module_clones(taro_md):
     assert shallow == doc
     assert deep == doc
 
-    shallow.set_field("title", "Shallow Edit")
+    shallow.store_field("title", "Shallow Edit")
     assert field(doc.main, "title") != "Shallow Edit"
 
 
@@ -232,7 +232,7 @@ def test_eq_after_mutation(taro_md):
     doc1 = Document.from_markdown(taro_md)
     doc2 = Document.from_markdown(taro_md)
 
-    doc2.set_field("title", "Different")
+    doc2.store_field("title", "Different")
     assert doc1 != doc2
 
 
@@ -394,15 +394,15 @@ def test_depth_bound_matches_core_container_levels():
     )
 
     # Scalar-terminated: 100 objects with a scalar leaf is at the limit.
-    doc.set_field("ok_scalar", _nest(100, 1))
+    doc.store_field("ok_scalar", _nest(100, 1))
     with pytest.raises((QuillmarkError, ValueError)):
-        doc.set_field("deep_scalar", _nest(101, 1))
+        doc.store_field("deep_scalar", _nest(101, 1))
 
     # Container-terminated: the deepest container, not its contents, occupies
     # the last level, so the boundary is identical.
-    doc.set_field("ok_container", _nest(99, [1, 2, 3]))
+    doc.store_field("ok_container", _nest(99, [1, 2, 3]))
     with pytest.raises((QuillmarkError, ValueError)):
-        doc.set_field("deep_container", _nest(100, [1, 2, 3]))
+        doc.store_field("deep_container", _nest(100, [1, 2, 3]))
 
 
 def test_nested_fill_push_card_round_trip():
