@@ -417,6 +417,24 @@ def test_get_card_markdown_out_of_range():
         doc.get_card_markdown(0)
 
 
+def test_get_markdown_raises_on_non_richtext():
+    """A present field that is not richtext (a scalar store_field wrote) raises
+    FieldRichtextDecode on get_markdown / get_card_markdown — the projection
+    surfaces the type mismatch instead of blanking, distinct from an absent
+    field's "" (#968). The raw value still reads back via get / get_card_field."""
+    doc = Document.from_markdown(MD_WITH_CARDS)
+
+    doc.store_field("qty", 3)
+    assert doc.get("qty") == 3
+    with pytest.raises(QuillmarkError, match="FieldRichtextDecode"):
+        doc.get_markdown("qty")
+
+    doc.store_card_field(0, "qty", 3)
+    assert doc.get_card_field(0, "qty") == 3
+    with pytest.raises(QuillmarkError, match="FieldRichtextDecode"):
+        doc.get_card_markdown(0, "qty")
+
+
 def test_revise_card_body():
     """revise(md, card=i) revises a card body and returns the text delta."""
     doc = Document.from_markdown(MD_WITH_CARDS)

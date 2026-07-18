@@ -266,13 +266,20 @@ impl Card {
 
     /// The markdown projection of a richtext-valued field (`export ∘ decode`) —
     /// the field-level twin of [`Card::body_markdown`], and the projection an
-    /// emit or a markdown save writes for a corpus-valued field. `None` when the
-    /// field is absent or does not decode as richtext.
-    pub fn field_markdown(&self, name: &str) -> Option<String> {
-        match self.field_richtext(name)? {
-            Ok(rt) => Some(quillmark_richtext::export::to_markdown(&rt)),
-            Err(_) => None,
-        }
+    /// emit or a markdown save writes for a corpus-valued field. Carries the
+    /// decode outcome rather than flattening it, the projection twin of
+    /// [`field_richtext`](Card::field_richtext):
+    ///
+    /// - `None` — the field is absent.
+    /// - `Some(Ok(md))` — the projected markdown.
+    /// - `Some(Err(_))` — the field is present but does not decode as richtext
+    ///   (a scalar/array/object a `store_field` wrote, or a non-corpus object).
+    ///
+    /// Absence returns `None`; a present value that is not richtext returns
+    /// `Some(Err)`, so the projection surfaces the type mismatch instead of
+    /// blanking on it (#968) — the caller addressed a richtext field it isn't.
+    pub fn field_markdown(&self, name: &str) -> Option<Result<String, RichtextDecodeError>> {
+        Some(self.field_richtext(name)?.map(|rt| quillmark_richtext::export::to_markdown(&rt)))
     }
 }
 

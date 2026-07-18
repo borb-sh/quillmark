@@ -39,6 +39,10 @@ guides in order.
   the one schema-bound door: `writer.reviseField` (typed *and* anchor-preserving)
   lands, the quill-taking `commit*` ABI is underscored and hidden from the
   `.d.ts`, and `EditError::BodyImport` renames to `Import` (#957, #966).
+  `getMarkdown` / `get_markdown` stop conflating absent with
+  present-but-not-richtext: a present field that does not decode now throws
+  `FieldRichtextDecode` instead of reading back blank — absence returns, mismatch
+  raises (#968).
 - [0.93 → 0.94](0.93-to-0.94.md) — `type: richtext(inline)` retires; declare
   `type: richtext` with `inline: true` instead. Blueprint still emits
   `richtext(inline)<markdown>`; `build_transform_schema` gains
