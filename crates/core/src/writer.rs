@@ -365,7 +365,7 @@ card_kinds:
             let mut ed = TypedWriter::new(&config, &mut doc);
             ed.add_card("note", [("body", "a")], None, None).unwrap();
             ed.add_card("note", [("body", "c")], None, None).unwrap();
-            // Positioned typed insert in one atomic call (was add_card + move_card).
+            // Positioned typed insert in one atomic call.
             ed.add_card("note", [("body", "b")], None, Some(1)).unwrap();
         }
         let bodies: Vec<String> = doc

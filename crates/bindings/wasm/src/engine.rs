@@ -898,10 +898,10 @@ impl Document {
     }
 
     /// A single composable card by index — the whole `Card`, the card-indexed
-    /// twin of the [`main`](Self::main) getter, so reading one card no longer
-    /// means materializing every card via [`cards`](Self::cards). An
-    /// out-of-range `index` throws `[EditError::IndexOutOfRange]`, matching the
-    /// card write verbs.
+    /// twin of the [`main`](Self::main) getter, so reading one card need not
+    /// materialize every card via [`cards`](Self::cards). An out-of-range
+    /// `index` throws `[EditError::IndexOutOfRange]`, matching the card write
+    /// verbs.
     #[wasm_bindgen(js_name = card, unchecked_return_type = "Card")]
     pub fn card(&self, index: usize) -> Result<JsValue, JsValue> {
         card_to_js(self.card_or_throw(index)?)

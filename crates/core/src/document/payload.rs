@@ -549,12 +549,10 @@ impl Payload {
         })
     }
 
-    /// Insert or update a user field. Always clears the `fill` marker
-    /// (field is no longer a placeholder). Preserves position for existing
-    /// keys; appends new keys at the end. `$` entries and comments are
-    /// untouched. Replacing an existing field discards its
-    /// `nested_comments` because the new value tree may not contain
-    /// matching positions.
+    /// Insert or update a user field, clearing any `!must_fill` marker.
+    /// Preserves position for an existing key; appends a new one. `$` entries
+    /// and comments are untouched; replacing a field discards its
+    /// `nested_comments` (the new value tree may not carry matching positions).
     ///
     /// Validates the field name and value depth
     /// ([`validate_field`](super::edit::validate_field)) at this boundary, so
@@ -570,7 +568,19 @@ impl Payload {
     ) -> Result<Option<QuillValue>, super::edit::FieldViolation> {
         let key = key.into();
         super::edit::validate_field(&key, value.as_json())?;
-        Ok(self.insert_unchecked(key, value))
+        Ok(self.insert_item(key, value, false))
+    }
+
+    /// Insert or update a user field and mark it a `!must_fill` placeholder;
+    /// same rules and boundary validation as [`insert`](Self::insert).
+    pub fn insert_fill(
+        &mut self,
+        key: impl Into<String>,
+        value: QuillValue,
+    ) -> Result<Option<QuillValue>, super::edit::FieldViolation> {
+        let key = key.into();
+        super::edit::validate_field(&key, value.as_json())?;
+        Ok(self.insert_item(key, value, true))
     }
 
     /// [`insert`](Self::insert) without the field-invariant check. `pub(crate)`
@@ -582,18 +592,23 @@ impl Payload {
         key: impl Into<String>,
         value: QuillValue,
     ) -> Option<QuillValue> {
-        let key = key.into();
+        self.insert_item(key.into(), value, false)
+    }
+
+    /// Insert or replace field `key` with `value`, setting its fill marker.
+    /// Position-preserving for an existing key, append otherwise.
+    fn insert_item(&mut self, key: String, value: QuillValue, fill: bool) -> Option<QuillValue> {
         for item in self.items.iter_mut() {
             if let PayloadItem::Field {
                 key: k,
                 value: v,
-                fill,
+                fill: item_fill,
                 nested_comments,
             } = item
             {
                 if k == &key {
                     let old = std::mem::replace(v, value);
-                    *fill = false;
+                    *item_fill = fill;
                     nested_comments.clear();
                     return Some(old);
                 }
@@ -602,54 +617,7 @@ impl Payload {
         self.items.push(PayloadItem::Field {
             key,
             value,
-            fill: false,
-            nested_comments: Vec::new(),
-        });
-        None
-    }
-
-    /// Insert or update a user field and mark it as a `!must_fill` placeholder.
-    /// Preserves position for existing keys; appends new keys at the end.
-    /// Replacing an existing field discards its `nested_comments`. Validates
-    /// at the boundary like [`insert`](Self::insert).
-    pub fn insert_fill(
-        &mut self,
-        key: impl Into<String>,
-        value: QuillValue,
-    ) -> Result<Option<QuillValue>, super::edit::FieldViolation> {
-        let key = key.into();
-        super::edit::validate_field(&key, value.as_json())?;
-        Ok(self.insert_fill_unchecked(key, value))
-    }
-
-    /// [`insert_fill`](Self::insert_fill) without the field-invariant check;
-    /// the fill twin of `insert_unchecked`.
-    pub(crate) fn insert_fill_unchecked(
-        &mut self,
-        key: impl Into<String>,
-        value: QuillValue,
-    ) -> Option<QuillValue> {
-        let key = key.into();
-        for item in self.items.iter_mut() {
-            if let PayloadItem::Field {
-                key: k,
-                value: v,
-                fill,
-                nested_comments,
-            } = item
-            {
-                if k == &key {
-                    let old = std::mem::replace(v, value);
-                    *fill = true;
-                    nested_comments.clear();
-                    return Some(old);
-                }
-            }
-        }
-        self.items.push(PayloadItem::Field {
-            key,
-            value,
-            fill: true,
+            fill,
             nested_comments: Vec::new(),
         });
         None
@@ -741,8 +709,8 @@ mod tests {
     fn insert_enforces_the_field_invariant() {
         use super::super::edit::FieldViolation;
 
-        // Malformed name — the `payload_mut().insert(...)` hole that used to
-        // let an invalid field into a "constructed" document.
+        // A malformed name is refused: `payload_mut().insert(...)` cannot seat
+        // an invalid field in a "constructed" document.
         let mut fm = Payload::new();
         assert_eq!(fm.insert("bad name", qv("v")), Err(FieldViolation::InvalidName));
         assert_eq!(fm.insert("$id", qv("v")), Err(FieldViolation::InvalidName));
