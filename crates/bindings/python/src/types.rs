@@ -123,6 +123,15 @@ impl PyQuill {
         PyWriter { quill: slf, doc }
     }
 
+    /// Bind this quill's schema to `doc` for interpreted reads — the read twin of
+    /// `writer`, mirroring core `quill.view(&doc)` and WASM `quill.view(doc)`.
+    /// Each field reads by its declared type (a richtext field to markdown, every
+    /// other type verbatim) with schema authority. See [`PyView`] for the
+    /// re-borrow/ephemerality contract.
+    fn view(slf: Py<Self>, doc: Py<PyDocument>) -> PyView {
+        PyView { quill: slf, doc }
+    }
+
     #[getter]
     fn quill_ref(&self) -> String {
         let source = &self.inner;
@@ -1112,6 +1121,126 @@ impl PyCardWriter {
     }
 }
 
+/// A `Document` bound to its `Quill` for interpreted reads — the schema-plane
+/// read view, from `Quill.view(doc)` and the read twin of `Writer`. One `get`
+/// reads each field by its declared type: a richtext field to its markdown
+/// projection, every other type its canonical value verbatim. The schema
+/// authority is the point — unlike the quill-free `Document.get` / `get_markdown`,
+/// a name the schema does not declare raises `[EditError::UnknownField]` rather
+/// than reading back `None`. Holds both objects by reference and re-borrows them
+/// per call (pyo3 objects carry no lifetime), so it is ephemeral by convention:
+/// bind, read, discard. Mirrors WASM `quill.view(doc)`.
+#[pyclass(name = "View")]
+pub struct PyView {
+    quill: Py<PyQuill>,
+    doc: Py<PyDocument>,
+}
+
+#[pymethods]
+impl PyView {
+    /// The bound document — the same object passed in.
+    #[getter]
+    fn document(&self, py: Python<'_>) -> Py<PyDocument> {
+        self.doc.clone_ref(py)
+    }
+
+    /// Read a main-card field, interpreted by its declared type: a richtext field
+    /// to its markdown projection (a `str`), every other type its canonical value
+    /// (scalar/list/dict), or `None` when the field is absent. Raises
+    /// `[EditError::UnknownField]` for a name the schema does not declare (a typo,
+    /// as on the write side) and `[EditError::FieldRichtextDecode]` for a richtext
+    /// field holding a value that does not decode.
+    fn get<'py>(&self, py: Python<'py>, name: &str) -> PyResult<Option<Bound<'py, PyAny>>> {
+        let quill = self.quill.borrow(py);
+        let doc = self.doc.borrow(py);
+        let read = quill
+            .inner
+            .view(&doc.inner)
+            .get(name)
+            .map_err(convert_edit_error)?;
+        read_value_to_py(py, read)
+    }
+
+    /// The main body's markdown — the quill-free body read (a body's type is a
+    /// format fact, not a schema fact), never raising.
+    fn get_body(&self, py: Python<'_>) -> String {
+        let doc = self.doc.borrow(py);
+        doc.inner.main().body_markdown()
+    }
+
+    /// A `CardView` for the composable card at `index`. The index is checked
+    /// lazily at the read, so this never raises. The cursor is ephemeral — a
+    /// `remove_card`/`add_card` between binding and reading silently retargets it.
+    fn card(&self, py: Python<'_>, index: usize) -> PyCardView {
+        PyCardView {
+            quill: self.quill.clone_ref(py),
+            doc: self.doc.clone_ref(py),
+            index,
+        }
+    }
+}
+
+/// A composable card bound to its `Quill` for interpreted reads, from
+/// `View.card`. Same verbs as `View`, reading the card at its bound index; each
+/// read raises `[EditError::IndexOutOfRange]` if that index is out of range.
+#[pyclass(name = "CardView")]
+pub struct PyCardView {
+    quill: Py<PyQuill>,
+    doc: Py<PyDocument>,
+    index: usize,
+}
+
+#[pymethods]
+impl PyCardView {
+    /// The bound card index.
+    #[getter]
+    fn index(&self) -> usize {
+        self.index
+    }
+
+    /// The bound card's `$kind`, or `None` when it carries none. Raises
+    /// `[EditError::IndexOutOfRange]` if the bound index is out of range.
+    #[getter]
+    fn kind(&self, py: Python<'_>) -> PyResult<Option<String>> {
+        let quill = self.quill.borrow(py);
+        let doc = self.doc.borrow(py);
+        let view = quill.inner.view(&doc.inner);
+        let card = view.card(self.index).map_err(convert_edit_error)?;
+        Ok(card.kind().map(|k| k.to_string()))
+    }
+
+    /// Read a field on this card, interpreted by its declared type — the
+    /// card-indexed twin of `View.get`. Raises `[EditError::UnknownField]` for an
+    /// undeclared name and `[EditError::IndexOutOfRange]` for a bad index.
+    fn get<'py>(&self, py: Python<'py>, name: &str) -> PyResult<Option<Bound<'py, PyAny>>> {
+        let quill = self.quill.borrow(py);
+        let doc = self.doc.borrow(py);
+        let view = quill.inner.view(&doc.inner);
+        let read = view
+            .card(self.index)
+            .map_err(convert_edit_error)?
+            .get(name)
+            .map_err(convert_edit_error)?;
+        read_value_to_py(py, read)
+    }
+
+    /// This card's body markdown — the card twin of `View.get_body`. Raises
+    /// `[EditError::IndexOutOfRange]` if the bound index is out of range.
+    fn get_body(&self, py: Python<'_>) -> PyResult<String> {
+        let doc = self.doc.borrow(py);
+        let card = doc
+            .inner
+            .card(self.index)
+            .ok_or_else(|| {
+                convert_edit_error(quillmark_core::EditError::IndexOutOfRange {
+                    index: self.index,
+                    len: doc.inner.cards().len(),
+                })
+            })?;
+        Ok(card.body_markdown())
+    }
+}
+
 #[pyclass(name = "RenderResult")]
 pub struct PyRenderResult {
     pub(crate) inner: RenderResult,
@@ -1306,6 +1435,21 @@ fn quillvalue_to_py<'py>(
     value: &quillmark_core::QuillValue,
 ) -> PyResult<Bound<'py, PyAny>> {
     json_to_py(py, value.as_json())
+}
+
+/// Flatten a [`ReadValue`](quillmark_core::ReadValue) into a Python object for
+/// the `View.get` surfaces: a richtext projection becomes a `str`, a canonical
+/// value its scalar/list/dict shape, and an absent field `None`. The schema-plane
+/// twin of `quillvalue_to_py`, which knows only the transport shape.
+fn read_value_to_py<'py>(
+    py: Python<'py>,
+    read: Option<quillmark_core::ReadValue>,
+) -> PyResult<Option<Bound<'py, PyAny>>> {
+    match read {
+        None => Ok(None),
+        Some(quillmark_core::ReadValue::Markdown(md)) => Ok(Some(md.into_bound_py_any(py)?)),
+        Some(quillmark_core::ReadValue::Value(v)) => Ok(Some(quillvalue_to_py(py, &v)?)),
+    }
 }
 
 /// Project a richtext field to markdown, raising `FieldRichtextDecode` when the
