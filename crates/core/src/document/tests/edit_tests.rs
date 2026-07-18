@@ -898,8 +898,7 @@ fn test_commit_field_rejects_bad_name() {
 /// `field_richtext` on an absent field is `None`; on a plain non-richtext field
 /// value it is `Some(Err(_))` — the read mirrors the write in needing the caller
 /// to name a field it knows is richtext. `field_markdown` carries the same
-/// shape: `None` absent, `Some(Err)` present-but-undecodable — it does not
-/// flatten the mismatch into absence (#968).
+/// shape: `None` absent, `Some(Err)` present-but-undecodable (#968).
 #[test]
 fn test_field_richtext_absent_and_non_richtext() {
     let mut card = Card::new("note").unwrap();

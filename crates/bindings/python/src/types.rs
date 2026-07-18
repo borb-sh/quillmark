@@ -533,9 +533,8 @@ impl PyDocument {
     /// not survive markdown), returning `""` for an **absent** field. A
     /// **present** field that does not decode as richtext raises
     /// `FieldRichtextDecode` — the projection surfaces the type mismatch instead
-    /// of blanking on it (#968); read the raw value with `get`. Re-coins,
-    /// lazily and by name, the projection the eager `field_markdown` /
-    /// `body_markdown` getters dropped in #925. Mirrors WASM `Document.getMarkdown`.
+    /// of blanking on it; read the raw value with `get`. Mirrors WASM
+    /// `Document.getMarkdown`.
     #[pyo3(signature = (name=None))]
     fn get_markdown(&self, name: Option<&str>) -> PyResult<String> {
         Ok(match name {
@@ -564,8 +563,8 @@ impl PyDocument {
     /// The markdown projection of a composable card's field (`name` given) or its
     /// body (`name` omitted) — the card-indexed twin of `get_markdown`, `""` for
     /// an **absent** field and a raised `FieldRichtextDecode` for a **present**
-    /// field that does not decode as richtext (#968). An out-of-range `index`
-    /// raises `IndexOutOfRange`. Mirrors WASM `Document.getCardMarkdown`.
+    /// field that does not decode as richtext. An out-of-range `index` raises
+    /// `IndexOutOfRange`. Mirrors WASM `Document.getCardMarkdown`.
     #[pyo3(signature = (index, name=None))]
     fn get_card_markdown(&self, index: usize, name: Option<&str>) -> PyResult<String> {
         let card = self.card_or_raise(index)?;
@@ -1311,9 +1310,8 @@ fn quillvalue_to_py<'py>(
 
 /// Project a richtext field to markdown, raising `FieldRichtextDecode` when the
 /// field is present but does not decode as richtext (a scalar/array/object a
-/// `store_field` wrote) — the mismatch the eager getters flattened into blank
-/// (#968). An **absent** field stays `""`: the read is total over absence.
-/// Shared by `get_markdown` / `get_card_markdown`.
+/// `store_field` wrote). An **absent** field stays `""`: the read is total over
+/// absence. Shared by `get_markdown` / `get_card_markdown`.
 fn field_markdown_or_raise(card: &quillmark_core::Card, name: &str) -> PyResult<String> {
     match card.field_markdown(name) {
         None => Ok(String::new()),
