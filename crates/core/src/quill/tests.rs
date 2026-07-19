@@ -3060,7 +3060,7 @@ fn richtext_type_mismatch_reports_richtext_not_string() {
 
 #[test]
 fn type_date_accepts_bare_dates_and_rejects_time_components() {
-    // `type: date` is a first-class field type: a strict calendar date. It loads,
+    // `type: date` is a valid field type: a strict calendar date. It loads,
     // coerces a bare `YYYY-MM-DD` verbatim, and rejects any time-bearing string
     // (that is a `type: datetime`) rather than truncating it.
     let yaml = r#"
