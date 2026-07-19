@@ -114,7 +114,7 @@ struct TypstSession {
 /// every such reapply (see `reapply_with_reordered_fields_same_content_is_clean`
 /// in `tests/live_apply.rs`). Excluding spans makes the invariant structural: a
 /// page cannot be reported dirty for a source-location shift that moved no ink.
-fn page_hashes(document: &typst_layout::PagedDocument) -> Vec<u128> {
+pub(crate) fn page_hashes(document: &typst_layout::PagedDocument) -> Vec<u128> {
     use std::hash::{Hash, Hasher};
     use typst::layout::FrameItem;
 

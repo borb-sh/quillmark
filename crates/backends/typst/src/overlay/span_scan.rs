@@ -1796,4 +1796,261 @@ main:
             "no single run should contain the whole-call node — it is coarser than every run"
         );
     }
+
+    // -----------------------------------------------------------------
+    // #990 verification spikes — the value-object date design's load-bearing
+    // assumptions, pinned against Typst 0.15 (the driving-consumer gap: USAF
+    // memo/indorsement dates place through `.display()`, and indorsements are
+    // cards whose loop-variable ink `scalar_windows` deliberately does not
+    // chase). The design emits each present date as a dict value-object whose
+    // `display:` key holds a generated closure `(..args) => text(datetime(..)
+    // .display(..args))`, so the glyphs are born inside a recorded helper
+    // window. These four are the go/no-go gates — first commits, re-pinned as
+    // tests per the #797 pattern.
+    // -----------------------------------------------------------------
+
+    /// Compile `plate` and return its concatenated frame text (glyph runs in
+    /// document order) or the mapped compile error — the observable the
+    /// language-behavior spikes assert on.
+    fn compile_frame_text(plate: &str) -> Result<String, String> {
+        const YAML: &str = r#"
+quill:
+  name: spike_990
+  version: 0.1.0
+  backend: typst
+  description: date value-object verification spike (990)
+typst:
+  plate_file: plate.typ
+"#;
+        fn walk_text(frame: &Frame, out: &mut String) {
+            for (_, item) in frame.items() {
+                match item {
+                    FrameItem::Group(g) => walk_text(&g.frame, out),
+                    FrameItem::Text(t) => out.push_str(&t.text),
+                    _ => {}
+                }
+            }
+        }
+        let q = quill(YAML, plate);
+        let plate = crate::read_plate(&q).expect("plate");
+        let world = QuillWorld::new(&q, &plate).expect("world");
+        match compile_document(&world) {
+            Ok((doc, _)) => {
+                let mut s = String::new();
+                for p in doc.pages() {
+                    walk_text(&p.frame, &mut s);
+                }
+                Ok(s)
+            }
+            Err(e) => Err(format!("{e:?}")),
+        }
+    }
+
+    /// The value-object's generated shape, for the language-behavior spikes:
+    /// `d` is the dict a present date lowers to, `display` a closure forwarding
+    /// its args to the native `datetime`.
+    const VALUE_OBJECT: &str = "#set page(width: 400pt, height: 400pt, margin: 20pt)\n\
+        #let d = (\
+          value: datetime(year: 2026, month: 1, day: 2), \
+          display: (..args) => text(datetime(year: 2026, month: 1, day: 2).display(..args)),\
+        )\n";
+
+    /// #990 spike 1 (go/no-go gate #1) — **dict-method-sugar does not forward.**
+    ///
+    /// The primary design's headline claim is that plates keep calling
+    /// `card.on.display("…")` verbatim while `card.on` migrates from a native
+    /// `datetime` to a value-object dict. This pins what Typst 0.15 actually
+    /// does with that call site:
+    ///
+    /// - method sugar on the dict — `d.display("[year]")` — is a **hard
+    ///   error**. Typst reserves `dict.key(..)` for built-in dict methods and
+    ///   refuses to dispatch it to a stored closure ("cannot directly call
+    ///   dictionary keys as functions"), hinting the parenthesized form;
+    /// - the parenthesized call `(d.display)(..)` forwards its `..args`
+    ///   faithfully: a format arg reaches `datetime.display`
+    ///   (`[year]`→`2026`, `[month repr:long]`→`January`), and the no-arg
+    ///   case takes the native default (`2026-01-02`).
+    ///
+    /// So the closure forwards — but **not through an unchanged call site**.
+    /// "Plate code is unchanged for the display path" does not hold: every
+    /// `card.on.display("…")` must become `(card.on.display)("…")`. The go
+    /// decision must budget that plate edit (and the migration-guide entry).
+    #[test]
+    fn spike_990_dict_display_needs_parens_then_forwards_args() {
+        // Method sugar on the dict field is rejected — the unchanged-plate
+        // premise fails here.
+        let sugar = compile_frame_text(&format!("{VALUE_OBJECT}#d.display(\"[year]\")"))
+            .expect_err("dict method sugar must be a compile error on Typst 0.15");
+        assert!(
+            sugar.contains("cannot directly call dictionary keys as functions"),
+            "the failure is Typst's dict-key-call restriction, not something else: {sugar}"
+        );
+
+        // The parenthesized call forwards args faithfully — same closure, a
+        // format arg reaches the native `datetime.display`.
+        assert_eq!(
+            compile_frame_text(&format!("{VALUE_OBJECT}#(d.display)(\"[year]\")"))
+                .expect("parenthesized call compiles")
+                .trim(),
+            "2026",
+            "the `[year]` format arg forwards through the closure"
+        );
+        assert_eq!(
+            compile_frame_text(&format!("{VALUE_OBJECT}#(d.display)(\"[month repr:long]\")"))
+                .expect("parenthesized call compiles")
+                .trim(),
+            "January",
+            "a different format arg yields a different result — args are forwarded, not ignored"
+        );
+        // The no-arg default-format case the spike calls out explicitly.
+        assert_eq!(
+            compile_frame_text(&format!("{VALUE_OBJECT}#(d.display)()"))
+                .expect("no-arg call compiles")
+                .trim(),
+            "2026-01-02",
+            "the no-arg call forwards an empty spread and takes datetime's default format"
+        );
+    }
+
+    /// #990 spike 2 (go/no-go gate #2) — **`text()` over a programmatic string
+    /// stamps its glyphs with the constructing node's span, which classifies
+    /// into a recorded segment-less window.**
+    ///
+    /// This is the mechanism the whole design turns on: the `display:` closure
+    /// returns `text(datetime(..).display(..))` — *content*, not a string — so
+    /// its glyphs are born at the `text(..)` node's lexical site inside the
+    /// generated helper, not at whatever reference laundered the value. The
+    /// worry is that `text(str)` output might carry a **detached** span
+    /// (`Anonymous`, like a decoration line or list marker), attributable to no
+    /// field. It does not: every glyph carries one uniform, resolvable span —
+    /// the `text(..)` call node — and a segment-less `FieldWindow` over that
+    /// node surfaces one whole-placement region, exactly like a scalar site.
+    ///
+    /// Driven on the plate here (the design's site is the generated helper, but
+    /// containment classification is file-agnostic — a plate window and a
+    /// helper window resolve identically); the end-to-end shipping-API view is
+    /// `tests/content_regions.rs`.
+    #[test]
+    fn spike_990_text_over_programmatic_string_classifies_into_recorded_window() {
+        const PLATE: &str = "#set page(width: 400pt, height: 400pt, margin: 20pt)\n\
+            #text(datetime(year: 2026, month: 1, day: 2).display(\"[year]\"))\n";
+        let q = quill(
+            "quill:\n  name: spike_990_text\n  version: 0.1.0\n  backend: typst\n  \
+             description: text() span attribution spike\ntypst:\n  plate_file: plate.typ\n",
+            PLATE,
+        );
+        let plate = crate::read_plate(&q).expect("plate");
+        let world = QuillWorld::new(&q, &plate).expect("world");
+        let (doc, _) = compile_document(&world).expect("compile");
+        let main_id = world.main();
+        let src = world.source(main_id).expect("main source");
+        let text = src.text().to_string();
+
+        // The `text(..)` call's byte window in the plate — the segment-less
+        // window a `date_object` sibling of `content_block` would record.
+        let start = text.find("text(").expect("the text() call");
+        let end = text.rfind(')').expect("its close paren") + 1;
+        let window_range = start..end;
+
+        // Part 1: the glyphs' spans are non-detached, uniform, and resolve into
+        // that window. An empty helper stands in — no glyph resolves there.
+        let helper = Source::new(QuillWorld::helper_fid("lib.typ"), String::new());
+        let cls = Classifier::new(&world, &helper, &[]);
+        let mut spans = Vec::new();
+        for p in doc.pages() {
+            collect_spans(&p.frame, &mut spans);
+        }
+        assert!(!spans.is_empty(), "the date renders at least one glyph");
+        for span in &spans {
+            assert!(!span.is_detached(), "date glyphs are not detached ink");
+            let (file, range) = cls
+                .resolve_range(*span)
+                .expect("a date glyph span resolves to a source range");
+            assert_eq!(file, main_id, "the span resolves into the plate, not elsewhere");
+            assert!(
+                window_range.start <= range.start && range.end <= window_range.end,
+                "the constructing `text(..)` node's span nests in the recorded window: \
+                 {range:?} ⊄ {window_range:?}"
+            );
+        }
+
+        // Part 2: a segment-less window over that node yields one
+        // whole-placement region — the same shape a scalar site produces.
+        let windows = vec![FieldWindow {
+            path: "issued".to_string(),
+            file: main_id,
+            range: window_range,
+            segments: vec![],
+        }];
+        let regions = scan(&doc, &world, &helper, &windows);
+        let issued: Vec<_> = regions.iter().filter(|r| r.field == "issued").collect();
+        assert_eq!(
+            issued.len(),
+            1,
+            "the recorded window surfaces exactly one region: {regions:?}"
+        );
+        assert!(
+            issued[0].rect[2] - issued[0].rect[0] > 0.0
+                && issued[0].rect[3] - issued[0].rect[1] > 0.0,
+            "the date region has positive area: {:?}",
+            issued[0].rect
+        );
+    }
+
+    /// #990 spike 3 — **`!= none` guards are invariant across the emission
+    /// change.** A present date's zero stays `none` and its value migrates from
+    /// a native `datetime` to a dict; both are `!= none`, so existing
+    /// `#if data.issued != none` guards keep the same branch. Pins the three
+    /// cases: native datetime, value-object dict, and the blank `none`.
+    #[test]
+    fn spike_990_none_guard_is_invariant_across_value_object_and_blank() {
+        let out = compile_frame_text(
+            "#set page(width: 400pt, height: 400pt, margin: 20pt)\n\
+             DT#(datetime(year: 2026, month: 1, day: 2) != none)|\
+             OBJ#((value: 1, display: (..a) => none) != none)|\
+             NONE#(none != none)",
+        )
+        .expect("guard expressions compile");
+        assert!(out.contains("DTtrue"), "a native datetime is != none: {out}");
+        assert!(
+            out.contains("OBJtrue"),
+            "a value-object dict is != none, so present-date guards are untouched: {out}"
+        );
+        assert!(
+            out.contains("NONEfalse"),
+            "a blank date stays none, so blank-date guards are untouched: {out}"
+        );
+    }
+
+    /// #990 spike 4 — **page hashes are unmoved when ink is identical.** Today a
+    /// date's `.display("[year]")` interpolates a `str` into markup; the design
+    /// wraps the same glyphs in `text(..)` (content). The #795/#801
+    /// page-fingerprint is pixels-not-spans, so the two must hash identically —
+    /// the emission change moves ink *provenance*, never ink. Asserted, not
+    /// assumed.
+    #[test]
+    fn spike_990_text_wrapper_preserves_page_hash() {
+        const YAML: &str = "quill:\n  name: spike_990_hash\n  version: 0.1.0\n  \
+            backend: typst\n  description: page-hash invariance spike\ntypst:\n  \
+            plate_file: plate.typ\n";
+        let page_hash = |plate: &str| -> Vec<u128> {
+            let q = quill(YAML, plate);
+            let plate = crate::read_plate(&q).expect("plate");
+            let world = QuillWorld::new(&q, &plate).expect("world");
+            let (doc, _) = compile_document(&world).expect("compile");
+            crate::page_hashes(&doc)
+        };
+        let bare = page_hash(
+            "#set page(width: 400pt, height: 400pt, margin: 20pt)\n\
+             #(datetime(year: 2026, month: 1, day: 2).display(\"[year]\"))\n",
+        );
+        let wrapped = page_hash(
+            "#set page(width: 400pt, height: 400pt, margin: 20pt)\n\
+             #text(datetime(year: 2026, month: 1, day: 2).display(\"[year]\"))\n",
+        );
+        assert_eq!(
+            bare, wrapped,
+            "wrapping identical glyphs in text() must not move the page fingerprint"
+        );
+    }
 }
