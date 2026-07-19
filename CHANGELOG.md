@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.95.0 - 2026-07-19
 
 - **breaking** typst: a present `date` / `datetime` field lowers to a click-to-edit value-object — `(value: datetime(..), display: (..args) => text(value.display(..args)))` — instead of a bare Typst `datetime`, so the rendered glyphs are born at a generated `text(..)` node carrying a region keyed on the field's schema path: a date placed by a vendored package, or a card's date riding a shared loop variable, is click-to-edit. A blank date stays `none`, so `!= none` guards hold. Plates migrate two shapes: `(data.f.display)("…")` (paren form — the stored `display` is a closure on a dict, not a method) and `data.f.value` for anything native (comparison, `.year()`-family components, datetime-consuming packages). The tonguetoquill flagship quills' `display-date` dispatches on `type(date)`, since their `datetime.today()` blank-date fallback stays a native datetime (#990)
 - **breaking** core,typst,pdfform: split the `datetime` field type into strict `date` and `datetime` (#717/#799 resolved) — `date` accepts a bare `YYYY-MM-DD` and rejects any time component; `datetime` accepts offset-less wall-clock `YYYY-MM-DDThh:mm[:ss]` (seconds zero-filled) and rejects timezone offsets, the space separator, fractional seconds, and bare dates. Offsets are rejected, never dropped (the engine does no zone math); storage stays verbatim; no truncation in either direction. A `date` lowers to the three-component Typst `datetime(year:, month:, day:)` (unchanged emission) and a `datetime` to the six-component constructor, carrying the wall-clock time. The transform schema marks `date` as `format: "date"` (keeping `format: "date-time"` for `datetime`), and the blueprint reads `date<YYYY-MM-DD>` / `datetime<YYYY-MM-DDThh:mm[:ss]>`. Most deployed `datetime` fields hold a bare date and migrate to `type: date` with byte-identical data; the fixtures (usaf_memo, cmu_letter) do so. No deprecation alias — `datetime` rejecting a bare date is the decided end-state (#991)
@@ -24,6 +24,49 @@
 - feat(wasm,python): keyed card reads `getCardField(index, name)` / `getCardMarkdown(index, name?)` (py `get_card_field` / `get_card_markdown`) — the card-indexed twins of `get` / `getMarkdown`, mirroring the `commitCardField` / `setCardField` write verbs so card reads no longer require a `payloadItems` walk (#953)
 - feat(content,wasm,python): `LineOp::SetContinues { line, continues }` — hard breaks lower op-wise. Split, join, and a text-delta `\n` all mint `continues: false` lines, so a within-block hard break (a paragraph hard break, a code fence's interior line) had no op and fell back to a whole-install, losing that edit's identity anchors. Threaded through the wire codec into WASM `applyChange` (TS union updated) and Python; `continues: true` on line 0 is rejected with `ApplyError::FirstLineContinues` before the write, leaving the content untouched (#949)
 - feat(wasm): the runtime root re-exports the edit vocabulary its own signatures reference — `Content` / `ContentLine` / `ContentContainer` / `ContentMark` / `ContentIsland`, `Addr` / `Delta` / `Assoc` / `LineOp` / `MarkOp` / `ChangeBundle`, `CardInput` / `PathStep` — as type-only exports (single entry point preserved; no `/core` subpath), with a presence guard so a dropped re-export fails `npm run typecheck` (#948)
+
+<!-- seed: commits since v0.94.0 — confirm the entries above cover them, then delete this comment
+- chore: prune redundant logic and duplicate tests (post-0.94.0 residue scan) (#996)
+- release: unbreak the crates.io publish lane; fold curated notes into the seed (#995)
+- Emit date fields as click-to-edit value-objects (#990) (#994)
+- Split `datetime` into strict `date` and `datetime` types (#991) (#993)
+- Python binding: commit to the Tier-1 surface (#970) (#992)
+- audit #982: complete the Content-genus residual sweep (retire "corpus") (#989)
+- feat: schema-bound read view — `quill.view(doc)` and `TypedReader` (#988)
+- Rebase marks through line ops; collapse bundle normalize (#987)
+- core: retire the V0_81_0 and V0_82_0 storage read shims (#929) (#986)
+- Document binding build performance guidance in CLAUDE.md (#984)
+- richtext: to_markdown projects a value, not a file — no trailing newline (#965) (#977)
+- docs(markdown-spec): scope $body wire claim, fix lossless→lossy projection (#983)
+- Delete prose/review directory
+- rename: content genus off its codec's name — RichText → Content, crate → quillmark-content (#976) (#981)
+- Add note to not run cargo fmt (#980)
+- fix(core,wasm,python): getMarkdown surfaces present-but-not-richtext instead of blanking (#968) (#979)
+- docs: purge rogue .qmd file-extension mentions (#975)
+- Rewrite CLAUDE.md for density (#974)
+- docs: fix mkdocs strict build — drop cross-tree link to prose/canon
+- wasm: name the main-card address (MAIN_CARD_ADDR), reject unknown addr keys (#969)
+- core: collapse the two parse functions into one `Document::parse` -> `Parsed` (#964)
+- core,wasm: writer-level reviseField; hide the quill-taking Document ABI (#966)
+- core,wasm,docs: dense-prose pass over the #963 write surface
+- docs: document the write-surface reshape (#955, #957, #960)
+- python: rename opaque store verbs set_* → store_* (#960)
+- wasm: unify Document on Addr addressing; store_* verbs; reviseChecked (#955, #960, #957)
+- core: rename opaque store verbs set_* → store_*; add revise_field_checked (#960, #957)
+- core: collapse the Payload insert helpers; tighten prose
+- core: use plain code spans for pub(crate) refs in Payload::insert docs
+- docs: 0.94→0.95 migration guide and BINDINGS parity refresh (#956, #958, #959, #961)
+- wasm,core: writer/card-surface parity cleanups (#961)
+- wasm,core: single-card, $id, and seed-overlay reads (#956)
+- core: enforce field invariants at the Payload::insert boundary (#958)
+- core: make ParseOutput the single owner of parse warnings (#959)
+- docs(bindings): densify the card-read doc comments
+- feat(wasm,python): keyed card reads mirroring the card write verbs (#953)
+- docs: remove prose/simplifications backlog for greenfield re-analysis
+- Add setContinues line op so hard breaks lower op-wise (#949)
+- Re-export corpus edit vocabulary from @quillmark/wasm root (#948)
+-->
+
 
 ## v0.94.0 - 2026-07-15
 
