@@ -264,21 +264,6 @@ fn validate_date_fields(
         Ok(())
     }
 
-    fn names_for(
-        table: &serde_json::Map<String, serde_json::Value>,
-        kind: &str,
-    ) -> Vec<String> {
-        table
-            .get(kind)
-            .and_then(|v| v.as_array())
-            .map(|a| {
-                a.iter()
-                    .filter_map(|s| s.as_str().map(str::to_string))
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
     check(&meta.date_fields, obj, "", false)?;
     check(&meta.datetime_fields, obj, "", true)?;
     if let Some(cards) = obj.get("$cards").and_then(|v| v.as_array()) {
@@ -290,13 +275,10 @@ fn validate_date_fields(
                 continue;
             };
             let prefix = format!("$cards.{kind}.");
-            check(&names_for(&meta.card_date_fields, kind), card_obj, &prefix, false)?;
-            check(
-                &names_for(&meta.card_datetime_fields, kind),
-                card_obj,
-                &prefix,
-                true,
-            )?;
+            let dates = helper::card_names(&meta.card_date_fields, kind);
+            let datetimes = helper::card_names(&meta.card_datetime_fields, kind);
+            check(&dates, card_obj, &prefix, false)?;
+            check(&datetimes, card_obj, &prefix, true)?;
         }
     }
     Ok(())

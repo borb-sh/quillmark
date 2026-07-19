@@ -642,17 +642,18 @@ impl QuillConfig {
                 // only the grammar differs. A `date` rejects any time component,
                 // a `datetime` rejects offsets/space/fraction/bare-date — neither
                 // truncates, so the stored string is exactly the authored one.
-                let valid = match field_schema.r#type {
-                    FieldType::Date => super::formats::is_valid_date(&text),
-                    _ => super::formats::is_valid_datetime(&text),
+                let (valid, reason) = match field_schema.r#type {
+                    FieldType::Date => {
+                        (super::formats::is_valid_date(&text), "invalid date format")
+                    }
+                    _ => (
+                        super::formats::is_valid_datetime(&text),
+                        "invalid datetime format",
+                    ),
                 };
                 if valid {
                     Ok(QuillValue::from_json(serde_json::Value::String(text)))
                 } else {
-                    let reason = match field_schema.r#type {
-                        FieldType::Date => "invalid date format",
-                        _ => "invalid datetime format",
-                    };
                     Err(CoercionError::Uncoercible {
                         path: path.to_string(),
                         value: text,

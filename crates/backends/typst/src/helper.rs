@@ -378,8 +378,12 @@ enum DateKind {
     DateTime,
 }
 
-/// The card kind's content/date field-name list from a `SchemaMeta` table.
-fn card_names(table: &serde_json::Map<String, serde_json::Value>, kind: &str) -> Vec<String> {
+/// The card kind's field-name list from a `SchemaMeta` card table (content,
+/// date, datetime, …). Shared with `validate_date_fields` in `lib.rs`.
+pub(crate) fn card_names(
+    table: &serde_json::Map<String, serde_json::Value>,
+    kind: &str,
+) -> Vec<String> {
     table
         .get(kind)
         .and_then(|v| v.as_array())
@@ -432,21 +436,21 @@ fn datetime_literal(s: &str, kind: DateKind) -> String {
     if s.is_empty() {
         return "none".to_string();
     }
-    match kind {
-        DateKind::Date => match quillmark_core::quill::parse_date(s) {
-            Some((year, month, day)) => {
-                format!("datetime(year: {year}, month: {month}, day: {day})")
-            }
-            None => "none".to_string(),
-        },
-        DateKind::DateTime => match quillmark_core::quill::parse_datetime(s) {
-            Some((year, month, day, hour, minute, second)) => format!(
-                "datetime(year: {year}, month: {month}, day: {day}, \
-                 hour: {hour}, minute: {minute}, second: {second})"
-            ),
-            None => "none".to_string(),
-        },
-    }
+    // An unparseable value is defensively `none` — coercion has already rejected
+    // malformed values upstream, so this fallback is shared across both arities.
+    let constructor = match kind {
+        DateKind::Date => quillmark_core::quill::parse_date(s)
+            .map(|(year, month, day)| format!("datetime(year: {year}, month: {month}, day: {day})")),
+        DateKind::DateTime => {
+            quillmark_core::quill::parse_datetime(s).map(|(year, month, day, hour, minute, second)| {
+                format!(
+                    "datetime(year: {year}, month: {month}, day: {day}, \
+                     hour: {hour}, minute: {minute}, second: {second})"
+                )
+            })
+        }
+    };
+    constructor.unwrap_or_else(|| "none".to_string())
 }
 
 /// Serialize a JSON value as a Typst literal expression, mirroring the value

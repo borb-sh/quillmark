@@ -418,24 +418,22 @@ fn validate_value(
         FieldType::Number => value.as_json().is_number(),
         FieldType::Boolean => value.as_bool().is_some(),
         FieldType::Date | FieldType::DateTime => {
-            let is_date = matches!(field.r#type, FieldType::Date);
             if value.as_json().is_null() {
                 true
             } else {
                 match value.as_str() {
                     Some("") => true,
                     Some(text) => {
-                        let ok = if is_date {
-                            is_valid_date(text)
-                        } else {
-                            is_valid_datetime(text)
+                        let (ok, format) = match field.r#type {
+                            FieldType::Date => (is_valid_date(text), "date"),
+                            _ => (is_valid_datetime(text), "datetime"),
                         };
                         if ok {
                             true
                         } else {
                             errors.push(ValidationError::FormatViolation {
                                 path: path.to_string(),
-                                format: if is_date { "date" } else { "datetime" }.to_string(),
+                                format: format.to_string(),
                             });
                             false
                         }
