@@ -140,8 +140,9 @@
 {content_blocks}
 
 /// Document data as a dictionary — a backend-generated Typst literal. Content
-/// fields reference their `_qm_cN` block bindings; date fields are
-/// `datetime(year:, month:, day:)` constructors; `$cards` carry their
+/// fields reference their `_qm_cN` block bindings; `date` fields are
+/// `datetime(year:, month:, day:)` constructors and `datetime` fields the
+/// six-component `datetime(year:, .., second:)`; `$cards` carry their
 /// per-kind-ordinal `$path` prefix; everything else is a value literal Typst
 /// judges equal to the former `json()` parse. No runtime processing: the
 /// former `__meta__` strip, content insertion, date parsing, and card loop are

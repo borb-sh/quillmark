@@ -290,6 +290,7 @@ pub fn project_kind(
         SchemaType::String
         | SchemaType::Number
         | SchemaType::Integer
+        | SchemaType::Date
         | SchemaType::DateTime
         | SchemaType::RichText { .. }
         | SchemaType::PlainText { .. } => WidgetType::Text {

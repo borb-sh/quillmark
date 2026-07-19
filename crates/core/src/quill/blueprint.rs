@@ -452,7 +452,8 @@ fn type_expression(field: &FieldSchema) -> String {
         // `enum` fields always carry `enum_values`, so the early return above
         // handles them; this arm is the defensive fallback for a valueless enum.
         FieldType::Enum => "enum".into(),
-        FieldType::DateTime => "datetime<YYYY-MM-DD[Thh:mm:ss]>".into(),
+        FieldType::Date => "date<YYYY-MM-DD>".into(),
+        FieldType::DateTime => "datetime<YYYY-MM-DDThh:mm[:ss]>".into(),
         // The element type comes from `items`; a scalar element gives
         // `array<string>`/`array<integer>`/`array<markdown>`, an object
         // element gives `array<object>`.
@@ -601,7 +602,7 @@ main:
     title: { type: string }
     size: { type: number, default: 11 }
     flag: { type: boolean, default: false }
-    issued: { type: datetime }
+    issued: { type: date }
     published: { type: datetime }
     refs: { type: array, default: [], items: { type: string } }
 "#)
@@ -609,8 +610,8 @@ main:
         assert!(t.contains("title: !must_fill # string\n"));
         assert!(t.contains("size: 11 # number\n"));
         assert!(t.contains("flag: false # boolean\n"));
-        assert!(t.contains("issued: !must_fill # datetime<YYYY-MM-DD[Thh:mm:ss]>\n"));
-        assert!(t.contains("published: !must_fill # datetime<YYYY-MM-DD[Thh:mm:ss]>\n"));
+        assert!(t.contains("issued: !must_fill # date<YYYY-MM-DD>\n"));
+        assert!(t.contains("published: !must_fill # datetime<YYYY-MM-DDThh:mm[:ss]>\n"));
         assert!(t.contains("refs: [] # array<string>\n"));
     }
 

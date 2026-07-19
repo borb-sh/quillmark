@@ -152,6 +152,20 @@ pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
                     schema.insert("properties".to_string(), serde_json::Value::Object(props));
                 }
             }
+            // Distinct markers for the two date types drive the Typst backend's
+            // per-type lowering (3-component vs 6-component `datetime(..)`). This
+            // is the internal transform schema; the marker precedent is
+            // `quillmark:inline`.
+            FieldType::Date => {
+                schema.insert(
+                    "type".to_string(),
+                    serde_json::Value::String("string".to_string()),
+                );
+                schema.insert(
+                    "format".to_string(),
+                    serde_json::Value::String("date".to_string()),
+                );
+            }
             FieldType::DateTime => {
                 schema.insert(
                     "type".to_string(),

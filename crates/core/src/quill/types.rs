@@ -252,8 +252,18 @@ pub enum FieldType {
     Boolean,
     Array,
     Object,
-    /// Formatted as string; validates against the YAML 1.1 timestamp grammar
-    /// (bare `YYYY-MM-DD` through full RFC 3339 with offset).
+    /// A calendar date, `YYYY-MM-DD`, stored verbatim as a string. Rejects any
+    /// time component — a time-bearing string is a [`DateTime`](Self::DateTime),
+    /// not a truncated date. The common case in a document engine, so it is the
+    /// unmarked date type. Lowers to Typst `datetime(year:, month:, day:)`.
+    Date,
+    /// An offset-less wall-clock datetime, `YYYY-MM-DDThh:mm[:ss]`, stored
+    /// verbatim as a string. Rejects timezone offsets (`Z`, `±HH:MM`), the space
+    /// separator, fractional seconds, and a bare date (which is a
+    /// [`Date`](Self::Date)); seconds are optional and zero-fill. The engine does
+    /// no zone math — an offset is rejected, never dropped. Lowers to the
+    /// six-component Typst `datetime(year:, month:, day:, hour:, minute:,
+    /// second:)`.
     DateTime,
     /// Rich text — the canonical content model ([`Content`]). Surfaced
     /// as `type: richtext`; single-line shape is declared with the sibling `inline:` key.
@@ -315,6 +325,7 @@ impl FieldType {
             "boolean" => Some(FieldType::Boolean),
             "array" => Some(FieldType::Array),
             "object" => Some(FieldType::Object),
+            "date" => Some(FieldType::Date),
             "datetime" => Some(FieldType::DateTime),
             "richtext" => Some(FieldType::RichText { inline: false }),
             "plaintext" => Some(FieldType::PlainText { inline: false }),
@@ -334,6 +345,7 @@ impl FieldType {
             FieldType::Boolean => "boolean",
             FieldType::Array => "array",
             FieldType::Object => "object",
+            FieldType::Date => "date",
             FieldType::DateTime => "datetime",
             FieldType::RichText { .. } => "richtext",
             FieldType::PlainText { .. } => "plaintext",

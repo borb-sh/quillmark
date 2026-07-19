@@ -600,7 +600,7 @@ impl QuillConfig {
                     quillmark_content::serial::to_canonical_value(&rt),
                 ))
             }
-            FieldType::DateTime => {
+            FieldType::Date | FieldType::DateTime => {
                 if json_value.is_null() {
                     return Ok(QuillValue::from_json(serde_json::Value::Null));
                 }
@@ -638,14 +638,27 @@ impl QuillConfig {
                     });
                 };
 
-                if super::formats::is_valid_datetime(&text) {
+                // The two date types share extraction and verbatim storage;
+                // only the grammar differs. A `date` rejects any time component,
+                // a `datetime` rejects offsets/space/fraction/bare-date — neither
+                // truncates, so the stored string is exactly the authored one.
+                let (valid, reason) = match field_schema.r#type {
+                    FieldType::Date => {
+                        (super::formats::is_valid_date(&text), "invalid date format")
+                    }
+                    _ => (
+                        super::formats::is_valid_datetime(&text),
+                        "invalid datetime format",
+                    ),
+                };
+                if valid {
                     Ok(QuillValue::from_json(serde_json::Value::String(text)))
                 } else {
                     Err(CoercionError::Uncoercible {
                         path: path.to_string(),
                         value: text,
                         target: field_schema.r#type.as_str().to_string(),
-                        reason: "invalid datetime format".to_string(),
+                        reason: reason.to_string(),
                     })
                 }
             }

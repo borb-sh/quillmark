@@ -227,7 +227,7 @@ main:
       description: Body text size in points; decimals allowed (e.g. 11.5).
 
     date:
-      type: datetime
+      type: date
       default: ""
       ui:
         group: additional
@@ -287,7 +287,7 @@ card_kinds:
           compact: true
         description: "Action taken by the endorser. Leave blank to hide the Approve/Disapprove line entirely, 'undecided' to display the line with neither option circled, 'approve' or 'disapprove' to circle the selected option."
       date:
-        type: datetime
+        type: date
         default: ""
         ui:
           group: additional
