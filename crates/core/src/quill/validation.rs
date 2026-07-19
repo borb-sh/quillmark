@@ -2,7 +2,7 @@ use indexmap::IndexMap;
 
 use crate::document::Document;
 use crate::error::{Diagnostic, Severity};
-use crate::quill::formats::is_valid_datetime;
+use crate::quill::formats::{is_valid_date, is_valid_datetime};
 use crate::quill::{CardSchema, FieldSchema, FieldType, QuillConfig};
 use crate::value::QuillValue;
 
@@ -417,19 +417,25 @@ fn validate_value(
         }
         FieldType::Number => value.as_json().is_number(),
         FieldType::Boolean => value.as_bool().is_some(),
-        FieldType::DateTime => {
+        FieldType::Date | FieldType::DateTime => {
+            let is_date = matches!(field.r#type, FieldType::Date);
             if value.as_json().is_null() {
                 true
             } else {
                 match value.as_str() {
                     Some("") => true,
                     Some(text) => {
-                        if is_valid_datetime(text) {
+                        let ok = if is_date {
+                            is_valid_date(text)
+                        } else {
+                            is_valid_datetime(text)
+                        };
+                        if ok {
                             true
                         } else {
                             errors.push(ValidationError::FormatViolation {
                                 path: path.to_string(),
-                                format: "datetime".to_string(),
+                                format: if is_date { "date" } else { "datetime" }.to_string(),
                             });
                             false
                         }
@@ -530,10 +536,10 @@ fn validate_value(
         }
     }
 
-    // A DateTime with a string value already emitted a FormatViolation;
+    // A Date/DateTime with a string value already emitted a FormatViolation;
     // skip the redundant TypeMismatch in that case.
     let format_error_already_reported =
-        matches!(field.r#type, FieldType::DateTime) && value.as_str().is_some();
+        matches!(field.r#type, FieldType::Date | FieldType::DateTime) && value.as_str().is_some();
 
     if !type_valid && !format_error_already_reported {
         errors.push(ValidationError::TypeMismatch {
@@ -596,7 +602,7 @@ pub(crate) fn validate_schema_literal(
 
 fn expected_type_name(field_type: &FieldType) -> &'static str {
     match field_type {
-        FieldType::String | FieldType::DateTime => "string",
+        FieldType::String | FieldType::Date | FieldType::DateTime => "string",
         // Enum is a closed string domain; a mistyped value reports the base type.
         FieldType::Enum => "string",
         FieldType::RichText { .. } => "richtext",

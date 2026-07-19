@@ -541,7 +541,7 @@ main:
       type: richtext
       description: a paragraph
     when:
-      type: datetime
+      type: date
       description: a date the template parses at data-assembly time
 "#;
     const PLATE: &str = r#"

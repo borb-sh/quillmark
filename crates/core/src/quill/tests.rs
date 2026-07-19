@@ -1839,7 +1839,7 @@ main:
     active:
       type: boolean
     signed_on:
-      type: datetime
+      type: date
     created_at:
       type: datetime
 "#;
@@ -1858,9 +1858,10 @@ main:
         "signed_on".to_string(),
         QuillValue::from_json(serde_json::json!("2026-04-13")),
     );
+    // A `datetime` carries wall-clock time-of-day verbatim (no offset).
     payload.insert(
         "created_at".to_string(),
-        QuillValue::from_json(serde_json::json!("2026-04-13T20:00:00Z")),
+        QuillValue::from_json(serde_json::json!("2026-04-13T20:00:00")),
     );
 
     let coerced = config.coerce_payload(&payload).unwrap();
@@ -1872,7 +1873,7 @@ main:
     );
     assert_eq!(
         coerced.get("created_at").unwrap().as_str(),
-        Some("2026-04-13T20:00:00Z")
+        Some("2026-04-13T20:00:00")
     );
 }
 
@@ -3058,27 +3059,43 @@ fn richtext_type_mismatch_reports_richtext_not_string() {
 }
 
 #[test]
-fn type_date_is_rejected() {
-    // `type: date` is not a valid field type; schemas declaring it must fail to
-    // load with a parse error, not silently accept or coerce the field.
+fn type_date_accepts_bare_dates_and_rejects_time_components() {
+    // `type: date` is a first-class field type: a strict calendar date. It loads,
+    // coerces a bare `YYYY-MM-DD` verbatim, and rejects any time-bearing string
+    // (that is a `type: datetime`) rather than truncating it.
     let yaml = r#"
 quill:
-  name: old_date_field
+  name: date_field
   version: "1.0"
   backend: typst
-  description: Schema using the removed date type
+  description: Schema using the date type
 
 main:
   fields:
     due:
       type: date
 "#;
-    let err = QuillConfig::from_yaml_with_warnings(yaml).unwrap_err();
+    let config = QuillConfig::from_yaml(yaml).expect("type: date loads");
+
+    let coerce = |v: serde_json::Value| {
+        let mut payload = indexmap::IndexMap::new();
+        payload.insert("due".to_string(), QuillValue::from_json(v));
+        config.coerce_payload(&payload)
+    };
+
+    assert_eq!(
+        coerce(serde_json::json!("2026-04-13"))
+            .unwrap()
+            .get("due")
+            .unwrap()
+            .as_str(),
+        Some("2026-04-13")
+    );
+    let err = coerce(serde_json::json!("2026-04-13T12:00")).unwrap_err();
     assert!(
-        err.iter()
-            .any(|d| d.code.as_deref() == Some("quill::field_parse_error")
-                && d.message.contains("due")),
-        "expected field_parse_error for 'due' using removed type: date, got: {err:?}"
+        matches!(err, super::CoercionError::Uncoercible { ref path, ref target, .. }
+            if path == "due" && target == "date"),
+        "a time-bearing value must not coerce into a date field, got: {err:?}"
     );
 }
 

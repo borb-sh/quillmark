@@ -227,7 +227,7 @@ main:
         group: additional
         compact: true
     date:
-      type: datetime
+      type: date
       description: YYYY-MM-DD. Leave blank to use today's date.
       default: ""
       ui:
@@ -299,7 +299,7 @@ card_kinds:
         - approve
         - disapprove
       date:
-        type: datetime
+        type: date
         description: >-
           YYYY-MM-DD. Date the endorser signs/forwards the memo (per AFH 33-337 Ch. 14,
           this is distinct from the originating memo's date). Leave blank to render a

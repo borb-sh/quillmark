@@ -54,7 +54,8 @@ pub fn zero_value(field: &FieldSchema) -> QuillValue {
         FieldType::RichText { .. } | FieldType::PlainText { .. } => {
             quillmark_content::serial::to_canonical_value(&quillmark_content::Content::empty())
         }
-        // String / DateTime: `""` is schema-valid for both.
+        // String / Date / DateTime: `""` is the schema-valid zero for all three
+        // (an empty string lowers to `none`, the absent-date sentinel).
         _ => json!(""),
     };
     QuillValue::from_json(json)

@@ -48,7 +48,7 @@ export interface QuillCardBody {
  * zero-fills the field). There is no separate `required` axis.
  */
 export interface QuillFieldSchema {
-    type: "string" | "number" | "integer" | "boolean" | "array" | "object" | "datetime" | "richtext" | "plaintext" | "enum";
+    type: "string" | "number" | "integer" | "boolean" | "array" | "object" | "date" | "datetime" | "richtext" | "plaintext" | "enum";
     description?: string;
     default?: unknown;
     example?: unknown;

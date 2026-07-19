@@ -239,9 +239,9 @@ impl<'m> Codegen<'m> {
                 }
             }
             let is_content = self.meta.content_fields.iter().any(|f| f == key);
-            let is_date = self.meta.date_fields.iter().any(|f| f == key);
+            let date_kind = date_kind_of(&self.meta.date_fields, &self.meta.datetime_fields, key);
             let is_inline = self.meta.inline_fields.iter().any(|f| f == key);
-            let expr = self.emit_field(key, value, is_content, is_date, is_inline);
+            let expr = self.emit_field(key, value, is_content, date_kind, is_inline);
             items.push(format!("\"{}\": {}", escape_string(key), expr));
         }
         wrap_dict(items)
@@ -285,6 +285,7 @@ impl<'m> Codegen<'m> {
     ) -> String {
         let content = card_names(&self.meta.card_content_fields, kind);
         let dates = card_names(&self.meta.card_date_fields, kind);
+        let datetimes = card_names(&self.meta.card_datetime_fields, kind);
         let inlines = card_names(&self.meta.card_inline_fields, kind);
         let mut items = Vec::with_capacity(obj.len() + 1);
         // The card's canonical address prefix, so plates compose schema-field
@@ -297,10 +298,10 @@ impl<'m> Codegen<'m> {
                 continue;
             }
             let is_content = content.iter().any(|f| f == key);
-            let is_date = dates.iter().any(|f| f == key);
+            let date_kind = date_kind_of(&dates, &datetimes, key);
             let is_inline = inlines.iter().any(|f| f == key);
             let path = format!("{prefix}{key}");
-            let expr = self.emit_field(&path, value, is_content, is_date, is_inline);
+            let expr = self.emit_field(&path, value, is_content, date_kind, is_inline);
             items.push(format!("\"{}\": {}", escape_string(key), expr));
         }
         wrap_dict(items)
@@ -311,14 +312,15 @@ impl<'m> Codegen<'m> {
     /// [`Self::content_field`]; a blank content stays an empty string literal.
     /// `is_inline` picks pure-inline lowering (no `parbreak`) for a
     /// `richtext(inline)` field, per element for an `array<richtext(inline)>`.
-    /// Date fields become `datetime(..)` constructors (or `none`). Everything
+    /// A `date_kind` field becomes a `datetime(..)` constructor (or `none`) —
+    /// three-component for a `date`, six-component for a `datetime`. Everything
     /// else is a plain value literal.
     fn emit_field(
         &mut self,
         path: &str,
         value: &serde_json::Value,
         is_content: bool,
-        is_date: bool,
+        date_kind: Option<DateKind>,
         is_inline: bool,
     ) -> String {
         if is_content {
@@ -342,9 +344,9 @@ impl<'m> Codegen<'m> {
                 }
                 other => lit(other),
             }
-        } else if is_date {
+        } else if let Some(kind) = date_kind {
             match value {
-                serde_json::Value::String(s) => datetime_literal(s),
+                serde_json::Value::String(s) => datetime_literal(s, kind),
                 serde_json::Value::Null => "none".to_string(),
                 other => lit(other),
             }
@@ -352,6 +354,28 @@ impl<'m> Codegen<'m> {
             lit(value)
         }
     }
+}
+
+/// Which date type a field is, if any — selects the `datetime(..)` arity in
+/// [`datetime_literal`]. A field name never appears in both tables (a schema
+/// field has one type), so `date` is checked first and `datetime` second.
+fn date_kind_of(dates: &[String], datetimes: &[String], key: &str) -> Option<DateKind> {
+    if dates.iter().any(|f| f == key) {
+        Some(DateKind::Date)
+    } else if datetimes.iter().any(|f| f == key) {
+        Some(DateKind::DateTime)
+    } else {
+        None
+    }
+}
+
+/// The two date field types, distinguished by their Typst `datetime(..)` arity.
+#[derive(Clone, Copy)]
+enum DateKind {
+    /// `type: date` — `datetime(year:, month:, day:)`.
+    Date,
+    /// `type: datetime` — `datetime(year:, month:, day:, hour:, minute:, second:)`.
+    DateTime,
 }
 
 /// The card kind's content/date field-name list from a `SchemaMeta` table.
@@ -398,19 +422,30 @@ fn plaintext_literal(entries: &[(String, String)]) -> String {
     )
 }
 
-/// A coerced datetime string as a Typst `datetime(year:, month:, day:)`
-/// constructor, date-only (time and offset discarded), reusing the same parse
-/// the coercion layer validates with. Empty or (defensively) unparseable ⇒
-/// `none` — coercion has already rejected malformed dates upstream.
-fn datetime_literal(s: &str) -> String {
+/// A coerced date/datetime string as a Typst `datetime(..)` constructor,
+/// reusing the same parse the coercion layer validates with. A `date` lowers to
+/// the three-component date-only form; a `datetime` lowers to the six-component
+/// wall-clock form, seconds zero-filled — carrying the authored time-of-day
+/// through rather than truncating it. Empty or (defensively) unparseable ⇒
+/// `none` — coercion has already rejected malformed values upstream.
+fn datetime_literal(s: &str, kind: DateKind) -> String {
     if s.is_empty() {
         return "none".to_string();
     }
-    match quillmark_core::quill::parse_date_ymd(s) {
-        Some((year, month, day)) => {
-            format!("datetime(year: {year}, month: {month}, day: {day})")
-        }
-        None => "none".to_string(),
+    match kind {
+        DateKind::Date => match quillmark_core::quill::parse_date(s) {
+            Some((year, month, day)) => {
+                format!("datetime(year: {year}, month: {month}, day: {day})")
+            }
+            None => "none".to_string(),
+        },
+        DateKind::DateTime => match quillmark_core::quill::parse_datetime(s) {
+            Some((year, month, day, hour, minute, second)) => format!(
+                "datetime(year: {year}, month: {month}, day: {day}, \
+                 hour: {hour}, minute: {minute}, second: {second})"
+            ),
+            None => "none".to_string(),
+        },
     }
 }
 
@@ -738,19 +773,34 @@ mod tests {
         &rest[..end]
     }
 
-    /// A date field becomes a date-only `datetime(..)` constructor; null stays
-    /// `none`.
+    /// A `date` field becomes a three-component `datetime(..)`; a `datetime`
+    /// field a six-component one carrying the wall-clock time (seconds
+    /// zero-filled when omitted); null stays `none`.
     #[test]
-    fn date_field_becomes_a_datetime_constructor() {
+    fn date_and_datetime_fields_become_datetime_constructors() {
         let meta = meta_from(serde_json::json!({
             "properties": {
-                "issued": { "type": "string", "format": "date-time" },
-                "signed": { "type": "string", "format": "date-time" }
+                "issued": { "type": "string", "format": "date" },
+                "at": { "type": "string", "format": "date-time" },
+                "signed": { "type": "string", "format": "date" }
             }
         }));
-        let data = serde_json::json!({ "issued": "2026-07-03T09:30:00Z", "signed": null });
+        let data = serde_json::json!({
+            "issued": "2026-07-03",
+            "at": "2026-07-03T09:30",
+            "signed": null
+        });
         let (lib, _) = generate_lib_typ(&data, &meta).unwrap();
-        assert!(lib.contains("\"issued\": datetime(year: 2026, month: 7, day: 3)"));
+        assert!(
+            lib.contains("\"issued\": datetime(year: 2026, month: 7, day: 3)"),
+            "{lib}"
+        );
+        assert!(
+            lib.contains(
+                "\"at\": datetime(year: 2026, month: 7, day: 3, hour: 9, minute: 30, second: 0)"
+            ),
+            "{lib}"
+        );
         assert!(lib.contains("\"signed\": none"));
     }
 
@@ -765,7 +815,7 @@ mod tests {
                 "note_card": {
                     "properties": {
                         "$body": richtext_field(),
-                        "on": { "type": "string", "format": "date-time" }
+                        "on": { "type": "string", "format": "date" }
                     }
                 }
             }

@@ -223,10 +223,11 @@ fn transformed_data<'a>(
     }
 }
 
-/// Reject any date field whose value is a non-empty string the shared
-/// [`parse_date_ymd`](quillmark_core::quill::parse_date_ymd) parser — the same
-/// one the coercion layer validates with — cannot parse. Walks the top-level
-/// date fields and each card kind's date fields.
+/// Reject any date/datetime field whose value is a non-empty string the shared
+/// [`parse_date`](quillmark_core::quill::parse_date) /
+/// [`parse_datetime`](quillmark_core::quill::parse_datetime) parsers — the same
+/// ones the coercion layer validates with — cannot parse. Walks the top-level
+/// and per-card date and datetime fields, each against its type's grammar.
 fn validate_date_fields(
     meta: &SchemaMeta,
     obj: &serde_json::Map<String, serde_json::Value>,
@@ -240,14 +241,22 @@ fn validate_date_fields(
             .with_code("backend::invalid_date".to_string()),
         )
     }
+    // `is_datetime` selects the strict wall-clock parser over the date-only one,
+    // so a `datetime` field's time components are validated (not just its date).
     fn check(
         names: &[String],
         dict: &serde_json::Map<String, serde_json::Value>,
         prefix: &str,
+        is_datetime: bool,
     ) -> Result<(), RenderError> {
         for key in names {
             if let Some(serde_json::Value::String(s)) = dict.get(key) {
-                if !s.is_empty() && quillmark_core::quill::parse_date_ymd(s).is_none() {
+                let ok = if is_datetime {
+                    quillmark_core::quill::parse_datetime(s).is_some()
+                } else {
+                    quillmark_core::quill::parse_date(s).is_some()
+                };
+                if !s.is_empty() && !ok {
                     return Err(bad_date(&format!("{prefix}{key}"), s));
                 }
             }
@@ -255,7 +264,23 @@ fn validate_date_fields(
         Ok(())
     }
 
-    check(&meta.date_fields, obj, "")?;
+    fn names_for(
+        table: &serde_json::Map<String, serde_json::Value>,
+        kind: &str,
+    ) -> Vec<String> {
+        table
+            .get(kind)
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|s| s.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    check(&meta.date_fields, obj, "", false)?;
+    check(&meta.datetime_fields, obj, "", true)?;
     if let Some(cards) = obj.get("$cards").and_then(|v| v.as_array()) {
         for card in cards {
             let Some(card_obj) = card.as_object() else {
@@ -264,17 +289,14 @@ fn validate_date_fields(
             let Some(kind) = card_obj.get("$kind").and_then(|v| v.as_str()) else {
                 continue;
             };
-            let names: Vec<String> = meta
-                .card_date_fields
-                .get(kind)
-                .and_then(|v| v.as_array())
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|s| s.as_str().map(str::to_string))
-                        .collect()
-                })
-                .unwrap_or_default();
-            check(&names, card_obj, &format!("$cards.{kind}."))?;
+            let prefix = format!("$cards.{kind}.");
+            check(&names_for(&meta.card_date_fields, kind), card_obj, &prefix, false)?;
+            check(
+                &names_for(&meta.card_datetime_fields, kind),
+                card_obj,
+                &prefix,
+                true,
+            )?;
         }
     }
     Ok(())
@@ -668,13 +690,20 @@ fn is_inline_richtext_field(field_schema: &serde_json::Value) -> bool {
                 .unwrap_or(false))
 }
 
-/// Check if a field schema indicates a datetime field (`format = "date-time"`).
+/// Check if a field schema is a `type: date` field (`format = "date"`) — the
+/// date-only type, lowered to a three-component `datetime(..)`.
 fn is_date_field(field_schema: &serde_json::Value) -> bool {
-    field_schema
-        .get("format")
-        .and_then(|v| v.as_str())
-        .map(|s| s == "date-time")
-        .unwrap_or(false)
+    has_format(field_schema, "date")
+}
+
+/// Check if a field schema is a `type: datetime` field (`format = "date-time"`)
+/// — the wall-clock type, lowered to a six-component `datetime(..)`.
+fn is_datetime_field(field_schema: &serde_json::Value) -> bool {
+    has_format(field_schema, "date-time")
+}
+
+fn has_format(field_schema: &serde_json::Value, format: &str) -> bool {
+    field_schema.get("format").and_then(|v| v.as_str()) == Some(format)
 }
 
 /// Names of the richtext / `richtext[]` fields in a schema `properties` map —
@@ -704,9 +733,14 @@ fn inline_field_names(properties: &serde_json::Map<String, serde_json::Value>) -
     field_names_where(properties, is_inline_richtext_field)
 }
 
-/// Names of the date fields in a schema `properties` map.
+/// Names of the `type: date` fields in a schema `properties` map.
 fn date_field_names(properties: &serde_json::Map<String, serde_json::Value>) -> Vec<String> {
     field_names_where(properties, is_date_field)
+}
+
+/// Names of the `type: datetime` fields in a schema `properties` map.
+fn datetime_field_names(properties: &serde_json::Map<String, serde_json::Value>) -> Vec<String> {
+    field_names_where(properties, is_datetime_field)
 }
 
 /// Names of the array-typed fields in a schema `properties` map — the fields
@@ -735,13 +769,17 @@ fn array_field_names(properties: &serde_json::Map<String, serde_json::Value>) ->
 #[derive(Default)]
 pub(crate) struct SchemaMeta {
     pub(crate) content_fields: Vec<String>,
+    /// `type: date` fields — date-only, three-component `datetime(..)` lowering.
     pub(crate) date_fields: Vec<String>,
+    /// `type: datetime` fields — wall-clock, six-component `datetime(..)` lowering.
+    pub(crate) datetime_fields: Vec<String>,
     pub(crate) array_fields: Vec<String>,
     /// Content fields whose (element) richtext is `inline` — a subset of
     /// `content_fields`, driving the pure-inline lowering (#872).
     pub(crate) inline_fields: Vec<String>,
     pub(crate) card_content_fields: serde_json::Map<String, serde_json::Value>,
     pub(crate) card_date_fields: serde_json::Map<String, serde_json::Value>,
+    pub(crate) card_datetime_fields: serde_json::Map<String, serde_json::Value>,
     pub(crate) card_field_names: serde_json::Map<String, serde_json::Value>,
     pub(crate) card_array_fields: serde_json::Map<String, serde_json::Value>,
     /// Per-card-kind counterpart of `inline_fields`.
@@ -757,6 +795,7 @@ impl SchemaMeta {
 
         let content_fields = content_field_names(properties_obj);
         let date_fields = date_field_names(properties_obj);
+        let datetime_fields = datetime_field_names(properties_obj);
         let array_fields = array_field_names(properties_obj);
         let inline_fields = inline_field_names(properties_obj);
         let fields = properties_obj.keys().cloned().collect();
@@ -766,6 +805,7 @@ impl SchemaMeta {
         // `form-field` path validation.
         let mut card_content_fields = serde_json::Map::new();
         let mut card_date_fields = serde_json::Map::new();
+        let mut card_datetime_fields = serde_json::Map::new();
         let mut card_field_names = serde_json::Map::new();
         let mut card_array_fields = serde_json::Map::new();
         let mut card_inline_fields = serde_json::Map::new();
@@ -799,6 +839,11 @@ impl SchemaMeta {
                         card_props.map(date_field_names).unwrap_or_default(),
                     );
                     insert_names(
+                        &mut card_datetime_fields,
+                        card_kind,
+                        card_props.map(datetime_field_names).unwrap_or_default(),
+                    );
+                    insert_names(
                         &mut card_array_fields,
                         card_kind,
                         card_props.map(array_field_names).unwrap_or_default(),
@@ -815,10 +860,12 @@ impl SchemaMeta {
         Self {
             content_fields,
             date_fields,
+            datetime_fields,
             array_fields,
             inline_fields,
             card_content_fields,
             card_date_fields,
+            card_datetime_fields,
             card_field_names,
             card_array_fields,
             card_inline_fields,
@@ -1174,27 +1221,33 @@ mod tests {
     }
 
     #[test]
-    fn schema_meta_collects_date_fields() {
+    fn schema_meta_collects_date_and_datetime_fields() {
+        // `format: date` → date_fields (3-component lowering); `format:
+        // date-time` → datetime_fields (6-component). The two tables are keyed
+        // by the distinct transform-schema markers, top-level and per-card.
         let schema = QuillValue::from_json(json!({
             "type": "object",
             "properties": {
                 "title": { "type": "string" },
-                "issued": { "type": "string", "format": "date-time" },
+                "issued": { "type": "string", "format": "date" },
                 "created_at": { "type": "string", "format": "date-time" }
             },
             "$defs": {
                 "indorsement_card": {
                     "type": "object",
                     "properties": {
-                        "signed_on": { "type": "string", "format": "date-time" }
+                        "signed_on": { "type": "string", "format": "date" },
+                        "filed_at": { "type": "string", "format": "date-time" }
                     }
                 }
             }
         }));
         let meta = SchemaMeta::from_schema_json(schema.as_json());
         assert!(meta.date_fields.contains(&"issued".to_string()));
-        assert!(meta.date_fields.contains(&"created_at".to_string()));
+        assert!(!meta.date_fields.contains(&"created_at".to_string()));
+        assert!(meta.datetime_fields.contains(&"created_at".to_string()));
         assert_eq!(meta.card_date_fields["indorsement"], json!(["signed_on"]));
+        assert_eq!(meta.card_datetime_fields["indorsement"], json!(["filed_at"]));
     }
 
 }
