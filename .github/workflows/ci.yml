@@ -140,13 +140,19 @@ jobs:
         with:
           enable-cache: true
 
-      # Builds the pyo3 extension (maturin backend) and installs pytest + the
-      # Tier-1 binding into a fresh venv — the documented dev flow (README).
-      - name: Build extension + install dev deps
+      # `maturin develop` builds the pyo3 extension in the DEBUG (dev) profile —
+      # far faster to compile than the release build a `pip install -e` (maturin
+      # PEP-517 default) would trigger, and opt-level is irrelevant to test
+      # outcomes. Matches `cargo test --workspace` (also debug) and the documented
+      # dev flow (CLAUDE.md / README). The top-level CARGO_PROFILE_DEV_DEBUG=0 env
+      # strips debuginfo, so this stays lean.
+      - name: Build extension (debug)
         working-directory: crates/bindings/python
         run: |
           uv venv --python 3.12
-          uv pip install -e ".[dev]"
+          source .venv/bin/activate
+          uv pip install pytest maturin
+          maturin develop
 
       - name: Test Python
         working-directory: crates/bindings/python
