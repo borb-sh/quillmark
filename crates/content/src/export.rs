@@ -24,8 +24,8 @@
 //!   blank-then-forced-break syntax, so the leading empty line is dropped.
 //!
 //! Both arise only from adversarial delimiter/break placement, never from clean
-//! markdown or a form editor. Hardening them is deferred until a live editor
-//! defines what it can even produce.
+//! markdown or a form editor. Neither is hardened — no live editor yet defines
+//! what it can produce.
 
 use crate::model::{Container, Island, LineKind, MarkKind, Content, ISLAND_SLOT};
 

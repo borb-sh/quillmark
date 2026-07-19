@@ -13,7 +13,7 @@
 //! ## Schema versions
 //!
 //! - **`quillmark/document@0.93.0`** — current. The V0_92_0 payload model with
-//!   the card `body` stored as the **canonical richtext content** embedded
+//!   the card `body` stored as the **canonical content** embedded
 //!   structurally (a nested object byte-identical to `to_canonical_json`), not a
 //!   markdown string. The envelope carries two byte disciplines: the outer
 //!   structure stays compact `serde_json` in frozen struct + payload-insertion
@@ -49,7 +49,7 @@ use crate::value::QuillValue;
 use crate::version::QuillReference;
 
 /// Schema version for the V0_93_0 wire format. Newly serialized documents carry
-/// this tag. Stores the card `body` as the canonical richtext content embedded
+/// this tag. Stores the card `body` as the canonical content embedded
 /// structurally (byte-identical to `to_canonical_json`) rather than a markdown string;
 /// the payload shape is unchanged from V0_92_0.
 pub const SCHEMA_V0_93_0: &str = "quillmark/document@0.93.0";
@@ -79,7 +79,7 @@ pub fn peek_schema_version(json: &str) -> Option<String> {
 #[serde(tag = "schema")]
 pub enum StoredDocument {
     /// Current (V0_93_0) document model — the V0_92_0 payload with the card
-    /// `body` embedded as the canonical richtext content (a nested object).
+    /// `body` embedded as the canonical content (a nested object).
     #[serde(rename = "quillmark/document@0.93.0")]
     V0_93_0(DocumentV0_93_0),
     /// Legacy (V0_92_0) document model — unified payload items with per-field
@@ -136,7 +136,7 @@ pub struct DocumentV0_93_0 {
 }
 
 /// Frozen `0.93.0` representation of a [`Card`]. The `body` is the canonical
-/// richtext content embedded structurally (see [`CanonicalContent`]); the
+/// content embedded structurally (see [`CanonicalContent`]); the
 /// payload is not part of this freeze and reuses the V0_92_0 shape.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CardV0_93_0 {
@@ -148,7 +148,7 @@ pub struct CardV0_93_0 {
 /// because payload is outside this freeze; a future payload change forks it.
 pub type PayloadV0_93_0 = PayloadV0_92_0;
 
-/// A card body embedded as the **canonical richtext content**. Its serde *is* the
+/// A card body embedded as the **canonical content**. Its serde *is* the
 /// frozen canonical serializer (`quillmark_content::serial`), delegated to — not
 /// a hand-mirrored DTO tree that could drift from the frozen wire format:
 ///

@@ -1868,7 +1868,7 @@ fn populate_field_content(field: &mut FieldSchema, owner: &str, errors: &mut Vec
     }
 }
 
-/// Populate every richtext content companion on a card: each field's
+/// Populate every content companion on a card: each field's
 /// `default`/`example`, and the card's `body.example` (block richtext — no
 /// inline constraint; skipped when the body is disabled, since its example is
 /// inert).

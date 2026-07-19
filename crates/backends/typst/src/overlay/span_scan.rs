@@ -1140,8 +1140,7 @@ main:
     // transparency arm (#829). The tests below drive the production
     // `Classifier::classify_seg` and `run_scan_machine` directly, pinning a
     // transparent same-window arm that still suspends across fields against
-    // the shipped code, not a re-derived copy. See
-    // `prose/plans/richtext/phase-2.md` § PR-F for background.
+    // the shipped code, not a re-derived copy.
     // -----------------------------------------------------------------
 
     /// Every drawn item's span in a frame, geometry dropped — classification
@@ -1582,8 +1581,7 @@ main:
     // -----------------------------------------------------------------
     // Does `glyph.span.1` give usable per-character intra-node offsets, and
     // where does it degrade (raw string literals, list/enum numbering,
-    // shaping clusters)? See `prose/plans/richtext/phase-2.md` § PR-F for the
-    // full write-up; this test pins the empirical findings so a future Typst
+    // shaping clusters)? This test pins the empirical findings so a future Typst
     // upgrade cannot silently change them unnoticed.
     // -----------------------------------------------------------------
 
