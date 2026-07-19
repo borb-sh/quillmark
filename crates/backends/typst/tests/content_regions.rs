@@ -680,6 +680,62 @@ typst:
 }
 
 #[test]
+fn spike_990_text_wrapped_ink_surfaces_a_region() {
+    // #990 spike 2, shipping-API view. The date value-object's `display:`
+    // closure emits `text(datetime(..).display(..))` — *content* whose glyphs
+    // must carry the constructing node's span, not detached decoration ink, so
+    // a recorded window claims them. This pins the load-bearing half through
+    // the same `regions()` surface: a scalar shown via `#text(data.subject)`
+    // still surfaces its field region. `text()` over a computed string keeps
+    // the span attributable (here the enclosing-expression window, exactly like
+    // `#upper(data.subject)`); were the output detached, no region would form.
+    // The generated-helper mechanism itself is pinned in the backend unit test
+    // `spike_990_text_over_programmatic_string_classifies_into_recorded_window`.
+    const YAML: &str = r#"
+quill:
+  name: text_wrapped_spike
+  version: 0.1.0
+  backend: typst
+  description: text()-wrapped ink attribution spike
+main:
+  fields:
+    subject:
+      type: string
+      description: a scalar shown through a text() wrapper
+typst:
+  plate_file: plate.typ
+"#;
+    const PLATE: &str = r#"
+#import "@local/quillmark-helper:0.1.0": data
+#set page(width: 612pt, height: 792pt, margin: 72pt)
+
+#text(data.subject)
+"#;
+    let data = serde_json::json!({ "subject": "request for quarters" });
+
+    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let regions = session.regions();
+    let subject: Vec<_> = regions.iter().filter(|r| r.field == "subject").collect();
+    assert_eq!(
+        subject.len(),
+        1,
+        "text()-wrapped ink is span-attributable, so the field still surfaces: {regions:?}"
+    );
+    let [x0, y0, x1, y1] = subject[0].rect;
+    assert!(
+        x1 > x0 && y1 > y0,
+        "the text()-wrapped region has positive area: {:?}",
+        subject[0].rect
+    );
+    let (cx, cy) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+    assert_eq!(
+        session.field_at(subject[0].page, cx, cy).as_deref(),
+        Some("subject"),
+        "clicks on the text()-wrapped ink route to the field"
+    );
+}
+
+#[test]
 fn form_field_path_rejected_when_address_tables_are_empty() {
     // `__meta__` present with empty address tables (a body-disabled main
     // with no fields and no cards) validates against the empty set — every
