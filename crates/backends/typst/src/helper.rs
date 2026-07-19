@@ -138,10 +138,12 @@ struct Codegen<'m> {
     blocks: String,
     windows: Vec<(String, Range<usize>, Vec<SegmentMap>)>,
     counter: usize,
-    /// The `_qm_dN` date value-object counter — independent of `counter` so the
-    /// two ID spaces never collide and each stays a pure function of emission
-    /// order (sorted keys, semantic card order), preserving the #801
-    /// byte-identical-source invariant.
+    /// The `_qm_dN` date value-object counter. Separate from `counter` only to
+    /// number date blocks densely (`_qm_d0`, `_qm_d1`, …) rather than sharing
+    /// the content blocks' sequence; the `_qm_c`/`_qm_d` prefixes keep the ID
+    /// spaces distinct either way, and both counters are a pure function of
+    /// emission order (sorted keys, semantic card order), so the #801
+    /// byte-identical-source invariant holds regardless.
     date_counter: usize,
     emit_error: Option<EmitError>,
     /// `(schema address, plaintext)` per non-blank content field — the content
@@ -487,16 +489,14 @@ fn plaintext_literal(entries: &[(String, String)]) -> String {
 }
 
 /// The `datetime(..)` constructor for a coerced date/datetime string — the `v`
-/// a [`date_object`](Codegen::date_object) captures — or `None` for empty or
-/// (defensively) unparseable input, which the caller lowers to `none`. Reuses
-/// the same parse the coercion layer validates with. A `date` lowers to the
-/// three-component date-only form; a `datetime` to the six-component wall-clock
-/// form, seconds zero-filled — carrying the authored time-of-day through rather
-/// than truncating it. Coercion has already rejected malformed values upstream.
+/// a [`date_object`](Codegen::date_object) captures — or `None` when the string
+/// does not parse (the empty string included, since both parsers reject it),
+/// which the caller lowers to `none`. Reuses the same parse the coercion layer
+/// validates with, so a value that reached here parses; `None` is the defensive
+/// arm. A `date` lowers to the three-component date-only form; a `datetime` to
+/// the six-component wall-clock form, seconds zero-filled — carrying the
+/// authored time-of-day through rather than truncating it.
 fn datetime_constructor(s: &str, kind: DateKind) -> Option<String> {
-    if s.is_empty() {
-        return None;
-    }
     match kind {
         DateKind::Date => quillmark_core::quill::parse_date(s)
             .map(|(year, month, day)| format!("datetime(year: {year}, month: {month}, day: {day})")),
