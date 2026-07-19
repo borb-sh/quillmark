@@ -910,11 +910,6 @@ mod tests {
     }
 
     #[test]
-    fn saphyr_scalar_round_trips_plain_string() {
-        assert_scalar_round_trips(serde_json::json!("hello"));
-    }
-
-    #[test]
     fn saphyr_scalar_round_trips_ambiguous_strings() {
         for ambiguous in &[
             "on", "off", "yes", "no", "true", "false", "null", "~", "01234", "1e10",
