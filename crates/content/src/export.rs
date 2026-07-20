@@ -27,6 +27,7 @@
 //! markdown or a form editor. Neither is hardened — no live editor yet defines
 //! what it can produce.
 
+use crate::island::KnownIslandType;
 use crate::model::{Container, Island, LineKind, MarkKind, Content, ISLAND_SLOT};
 
 /// Render a content to markdown. Lossless/degraded islands emit their markdown;
@@ -328,14 +329,16 @@ fn slot_island<'a>(ctx: &'a Ctx, i: usize) -> Option<&'a Island> {
 }
 
 fn emit_island(isl: &Island, out: &mut String) {
-    match isl.island_type.as_str() {
-        "table" => emit_table(isl, out),
-        "image" => emit_image(isl, out),
-        _ => {
-            // Unknown island / unrepresentable: a comment placeholder that
+    match KnownIslandType::parse(&isl.island_type) {
+        Some(KnownIslandType::Table) => emit_table(isl, out),
+        Some(KnownIslandType::Image) => emit_image(isl, out),
+        None => {
+            // Genuinely-unknown island (the open set): a comment placeholder that
             // survives round-trip as no content text (HTML comments are stripped
             // on re-import). The island itself is preserved via storage, not the
-            // projection.
+            // projection. A *known* type can't land here — [`KnownIslandType`] is
+            // exhaustive above, so a new type is a compile error, not a silent
+            // placeholder.
             out.push_str(&format!("<!-- island:{} -->", isl.island_type));
         }
     }

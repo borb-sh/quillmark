@@ -412,46 +412,10 @@ pub(crate) fn table_cells(props: &Value) -> Vec<(String, Vec<Mark>)> {
     out
 }
 
-/// Islands whose props carry inline `{text, marks}` cells — the set that
-/// participates in mark normalization and cell-mark validation. Adding a
-/// mark-carrying island type is a single edit here;
-/// [`normalize_island_cell_marks`] and [`island_cell_marks`] both route through
-/// it, so neither `normalize` nor `validate` can silently skip a new type
-/// (which would void the canonical-bytes guarantee for its cells).
-fn island_is_mark_carrying(island_type: &str) -> bool {
-    matches!(island_type, "table")
-}
-
-/// Repair a mark-carrying island's structure in place (a no-op for a
-/// non-mark-carrying type) — the normalize-side island-type dispatch, kept
-/// beside the table codec rather than as a bare `"table"` match in `model`.
-pub(crate) fn normalize_island_structure(island: &mut Island) {
-    if island_is_mark_carrying(&island.island_type) {
-        normalize_table_props(&mut island.props);
-    }
-}
-
-/// A mark-carrying island's `(text, marks)` cells for validation (empty for a
-/// non-mark-carrying type) — the validate-side twin of
-/// [`normalize_island_structure`].
-pub(crate) fn island_cell_marks(island: &Island) -> Vec<(String, Vec<Mark>)> {
-    if island_is_mark_carrying(&island.island_type) {
-        table_cells(&island.props)
-    } else {
-        Vec::new()
-    }
-}
-
-/// A mark-carrying island's shape violation, if any (`None` for a well-formed
-/// or non-mark-carrying island) — the validate-side twin of the shape repair in
-/// [`normalize_island_structure`]. `normalize` guarantees this returns `None`.
-pub(crate) fn island_shape_error(island: &Island) -> Option<Invariant> {
-    if island_is_mark_carrying(&island.island_type) {
-        table_shape_error(&island.props)
-    } else {
-        None
-    }
-}
+// The `table` codec below (props normalize, shape-validate, cell extraction) is
+// the primitive the [`crate::island`] dispatch table calls for
+// [`KnownIslandType::Table`](crate::island::KnownIslandType); island-type
+// dispatch itself lives there, not here.
 
 /// Repair a table island's props in place to the canonical shape:
 ///
@@ -465,7 +429,7 @@ pub(crate) fn island_shape_error(island: &Island) -> Option<Invariant> {
 ///   offsets stable, so the cell's marks stay in range.
 /// - **Canonical cell marks.** Each cell's marks are re-normalized (sort,
 ///   same-kind union, drop zero-width) so equal cells serialize to equal bytes.
-fn normalize_table_props(props: &mut Value) {
+pub(crate) fn normalize_table_props(props: &mut Value) {
     let cols = table_cols(props);
     let Some(obj) = props.as_object_mut() else {
         return;
@@ -541,7 +505,7 @@ fn canon_cell(cell: &mut Value) {
 /// A table island's shape violation, if any — the widths the header, `aligns`,
 /// and each body row must share (the header width), plus the `\n`-free-cell rule.
 /// The validate-side twin of [`normalize_table_props`].
-fn table_shape_error(props: &Value) -> Option<Invariant> {
+pub(crate) fn table_shape_error(props: &Value) -> Option<Invariant> {
     // A present-but-non-array header can't carry column cells — `normalize`
     // rewrites it to an empty array, so an un-normalized one is a hand-built
     // degenerate island. (An absent header is a zero-column table, which is
