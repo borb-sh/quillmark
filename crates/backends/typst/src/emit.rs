@@ -46,6 +46,7 @@
 //! escape-rule change fails loud.
 
 use quillmark_core::error::MAX_NESTING_DEPTH;
+use quillmark_content::island::KnownIslandType;
 use quillmark_content::model::{Container, LineKind, Mark, MarkKind, Content, ISLAND_SLOT};
 use std::ops::Range;
 
@@ -731,11 +732,12 @@ impl<'a> Emit<'a> {
         let Some(isl) = self.rt.islands.get(idx) else {
             return String::new();
         };
-        match isl.island_type.as_str() {
-            "image" => image_markup(&isl.props),
-            "table" => table_markup(&isl.props),
-            // Unknown island types emit nothing (parallel to the HTML rule).
-            _ => String::new(),
+        match KnownIslandType::parse(&isl.island_type) {
+            Some(KnownIslandType::Image) => image_markup(&isl.props),
+            Some(KnownIslandType::Table) => table_markup(&isl.props),
+            // Unknown island types emit nothing (parallel to the HTML rule). A
+            // new known type is a compile error here, not silence.
+            None => String::new(),
         }
     }
 }

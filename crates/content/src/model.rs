@@ -416,7 +416,7 @@ impl Content {
         // serialize to equal bytes and `validate` holds — the props are
         // otherwise opaque here.
         for island in &mut self.islands {
-            crate::serial::normalize_island_structure(island);
+            crate::island::normalize_island_structure(island);
             // Rebuild props only when a key is actually out of order — an
             // untouched island (a pure text splice) stays sorted, so this skips
             // the deep clone on the common per-keystroke path.
@@ -546,10 +546,10 @@ impl Content {
             // Structural shape (table column/row/aligns consistency, `\n`-free
             // cells) before the per-cell mark ranges — a ragged island is
             // ill-formed regardless of its marks.
-            if let Some(e) = crate::serial::island_shape_error(island) {
+            if let Some(e) = crate::island::island_shape_error(island) {
                 return Err(e);
             }
-            for (text, marks) in crate::serial::island_cell_marks(island) {
+            for (text, marks) in crate::island::island_cell_marks(island) {
                 let clen = text.chars().count();
                 for m in &marks {
                     if m.start > m.end || m.end > clen {

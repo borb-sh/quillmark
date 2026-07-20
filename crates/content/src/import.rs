@@ -40,6 +40,7 @@
 use crate::model::{
     Container, Island, Line, LineKind, Loss, Mark, MarkKind, Content, ISLAND_SLOT,
 };
+use crate::island::KnownIslandType;
 use crate::normalize::normalize_markdown;
 use crate::MAX_NESTING_DEPTH;
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
@@ -401,12 +402,15 @@ impl Builder {
         self.inline.close_mark();
     }
 
-    fn mint_island(&mut self, island_type: &str, props: serde_json::Value, loss: Loss) {
+    /// Mint an island of a *known* type — the importer can only produce the
+    /// closed set, so an unknown type can enter the system through storage
+    /// deserialization but never through import.
+    fn mint_island(&mut self, kind: KnownIslandType, props: serde_json::Value, loss: Loss) {
         let id = format!("isl-{}", self.island_seq);
         self.island_seq += 1;
         self.islands.push(Island {
             id,
-            island_type: island_type.to_string(),
+            island_type: kind.as_str().to_string(),
             props,
             loss,
         });
@@ -839,13 +843,14 @@ impl Builder {
                 "rows": acc.rows,
             });
             // Degraded when a cell dropped an inline image's url — the projection
-            // then carries the alt text but not the image (not a fixed point).
+            // then carries the alt text but not the image (not a fixed point);
+            // otherwise the type's ceiling.
             let loss = if acc.degraded {
                 Loss::Degraded
             } else {
-                Loss::Lossless
+                KnownIslandType::Table.default_loss()
             };
-            self.mint_island("table", props, loss);
+            self.mint_island(KnownIslandType::Table, props, loss);
         }
     }
 
@@ -856,7 +861,7 @@ impl Builder {
             "url": self.image_url,
             "alt": self.image_alt.trim(),
         });
-        self.mint_island("image", props, Loss::Lossless);
+        self.mint_island(KnownIslandType::Image, props, KnownIslandType::Image.default_loss());
     }
 
     fn finish(mut self) -> Content {

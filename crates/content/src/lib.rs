@@ -17,6 +17,8 @@
 //!   Spike-A rules), and invariants. The freeze.
 //! - [`serial`] — canonical, byte-deterministic JSON. One encoding for the seam
 //!   and for storage.
+//! - [`island`] — [`KnownIslandType`], the closed dispatch authority for island
+//!   types; adding a type is one variant and the compiler enforces every arm.
 //! - [`import`] — markdown → content (normalize → pulldown → content).
 //! - [`export`] — content → markdown, per island loss class.
 //! - [`delta`] — the per-field edit surface: a text-splice change set
@@ -34,6 +36,7 @@
 pub mod delta;
 pub mod export;
 pub mod import;
+pub mod island;
 pub mod model;
 pub mod normalize;
 pub mod ops;
@@ -43,6 +46,7 @@ pub mod usv;
 pub use delta::{diff_import, Assoc, Delta, Op};
 pub use export::{to_markdown, to_plaintext};
 pub use import::{from_markdown, from_plaintext};
+pub use island::KnownIslandType;
 pub use model::{
     Container, Invariant, Island, Line, LineKind, Loss, Mark, MarkKind, Content, Usv,
 };
