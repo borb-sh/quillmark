@@ -735,8 +735,8 @@ impl<'a> Emit<'a> {
         match KnownIslandType::parse(&isl.island_type) {
             Some(KnownIslandType::Image) => image_markup(&isl.props),
             Some(KnownIslandType::Table) => table_markup(&isl.props),
-            // Genuinely-unknown island types emit nothing (parallel to the HTML
-            // rule). A new *known* type is a compile error here, not silence.
+            // Unknown island types emit nothing (parallel to the HTML rule). A
+            // new known type is a compile error here, not silence.
             None => String::new(),
         }
     }

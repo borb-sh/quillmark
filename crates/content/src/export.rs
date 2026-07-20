@@ -333,12 +333,11 @@ fn emit_island(isl: &Island, out: &mut String) {
         Some(KnownIslandType::Table) => emit_table(isl, out),
         Some(KnownIslandType::Image) => emit_image(isl, out),
         None => {
-            // Genuinely-unknown island (the open set): a comment placeholder that
-            // survives round-trip as no content text (HTML comments are stripped
-            // on re-import). The island itself is preserved via storage, not the
-            // projection. A *known* type can't land here — [`KnownIslandType`] is
-            // exhaustive above, so a new type is a compile error, not a silent
-            // placeholder.
+            // Unknown island (the open set): a comment placeholder that survives
+            // round-trip as no content text (HTML comments are stripped on
+            // re-import). The island is preserved via storage, not the projection.
+            // A known type can't reach here — the match is exhaustive, so a new
+            // type is a compile error, not a silent placeholder.
             out.push_str(&format!("<!-- island:{} -->", isl.island_type));
         }
     }

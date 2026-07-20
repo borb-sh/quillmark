@@ -413,9 +413,8 @@ pub(crate) fn table_cells(props: &Value) -> Vec<(String, Vec<Mark>)> {
 }
 
 // The `table` codec below (props normalize, shape-validate, cell extraction) is
-// the primitive the [`crate::island`] dispatch table calls for
-// [`KnownIslandType::Table`](crate::island::KnownIslandType); island-type
-// dispatch itself lives there, not here.
+// the primitive `crate::island` dispatches into for `KnownIslandType::Table`;
+// island-type dispatch itself lives there, not here.
 
 /// Repair a table island's props in place to the canonical shape:
 ///

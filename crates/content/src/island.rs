@@ -1,23 +1,19 @@
 //! Island types — the closed dispatch authority.
 //!
 //! [`Island::island_type`](crate::model::Island::island_type) stays an **open**
-//! string on the wire: a genuinely-unknown type (one this build was never taught,
-//! arriving via storage) round-trips opaque. [`KnownIslandType`] is that string's
-//! *parse* into the closed set this build understands, and every site that
-//! dispatches on a type matches [`KnownIslandType::parse`]. The `Some(k)` arm is
-//! exhaustive over the enum, so **adding a variant is a compile error at every
-//! dispatch site** — a known type wired into only some sites cannot reach the
-//! `None` path, which is reserved for the open set.
+//! string on the wire: an unknown type (one this build lacks, arriving via
+//! storage) round-trips opaque. [`KnownIslandType`] is that string's *parse* into
+//! the closed set, and every site that dispatches on a type matches
+//! [`KnownIslandType::parse`]. The `Some(k)` arm is exhaustive, so **adding a
+//! variant is a compile error at every dispatch site**; a known type wired into
+//! only some sites cannot reach the `None` path, which is the open set's alone.
 //!
-//! The behavior a type must supply lives here as one method per seam
-//! ([`default_loss`](KnownIslandType::default_loss),
-//! [`cell_marks`](KnownIslandType::cell_marks),
-//! [`normalize_props`](KnownIslandType::normalize_props),
-//! [`shape_error`](KnownIslandType::shape_error)); the two projections that can't
+//! Behavior a type must supply lives on the enum, one method per seam (loss
+//! class, cell marks, shape normalize/validate). The two projections that can't
 //! live in this crate — markdown emit ([`crate::export`]) and Typst emit (the
-//! typst backend) — match on the enum where they are, so the exhaustiveness
-//! guarantee still crosses the crate boundary. The table codec itself stays in
-//! [`crate::serial`]; this module dispatches into it.
+//! typst backend) — match on the enum where they are, so the guarantee crosses
+//! the crate boundary. The `table` codec stays in [`crate::serial`]; this module
+//! dispatches into it.
 
 use crate::model::{Invariant, Island, Loss, Mark};
 use serde_json::Value;
@@ -36,8 +32,7 @@ pub enum KnownIslandType {
 }
 
 impl KnownIslandType {
-    /// The wire discriminator. `parse(k.as_str()) == Some(k)` for every variant
-    /// (the [`known_types_round_trip`](self) test pins it).
+    /// The wire discriminator; `parse(k.as_str()) == Some(k)` for every variant.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Table => "table",
@@ -58,8 +53,7 @@ impl KnownIslandType {
 
     /// The best markdown-projection loss class this type achieves — the ceiling
     /// the importer stamps at mint. A per-island [`Loss`] may sit *below* it (a
-    /// table cell dropping an inline image's url degrades that instance) but never
-    /// above; centralizing the ceiling here keeps the mint sites from disagreeing.
+    /// table cell dropping an inline image's url) but never above.
     pub fn default_loss(self) -> Loss {
         match self {
             Self::Table => Loss::Lossless,
