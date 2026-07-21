@@ -555,7 +555,10 @@ describe('Document editor surface — storeFields', () => {
       throw new Error('storeFields should have thrown')
     } catch (err) {
       expect(err.diagnostics.map((d) => d.path)).toEqual(['bad-name', 'also bad'])
-      expect(err.message).toMatch(/InvalidFieldName/)
+      expect(err.diagnostics.map((d) => d.code)).toEqual([
+        'edit::invalid_field_name',
+        'edit::invalid_field_name',
+      ])
     }
     expect(hasField(doc.main, 'ok_field')).toBe(false)
   })
