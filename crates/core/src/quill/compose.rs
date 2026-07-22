@@ -174,7 +174,7 @@ impl Quill {
             Ok(()) => Vec::new(),
             Err(errors) => errors.iter().map(|e| e.to_diagnostic()).collect(),
         };
-        diags.extend(validate_fills(doc));
+        diags.extend(validate_fills(self.config(), doc));
         diags.extend(self.validate_seed(doc));
         diags
     }
@@ -432,11 +432,15 @@ fn rebuild_payload_with_meta(source: &Card, fields: IndexMap<String, QuillValue>
 /// The marker fires whether or not the cell carries a suggested value, and never
 /// gates render (the cell zero-fills or uses its suggested value). A strict
 /// consumer treats any outstanding marker as "not done".
-fn validate_fills(doc: &Document) -> Vec<Diagnostic> {
+fn validate_fills(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     collect_fill_diags(doc.main(), &DocPath::new(), &mut diags);
     for (index, card) in doc.cards().iter().enumerate() {
-        collect_fill_diags(card, &DocPath::card(card.kind(), index), &mut diags);
+        // A card whose declared `$kind` has no schema drops the kind segment and
+        // stays `cards[<i>]`, matching `validate_typed_document`; a
+        // schema-declared kind qualifies as `cards.<kind>[<i>]`.
+        let kind = card.kind().filter(|k| config.card_kind(k).is_some());
+        collect_fill_diags(card, &DocPath::card(kind, index), &mut diags);
     }
     diags
 }
@@ -503,6 +507,73 @@ properties:
         assert_eq!(
             resolved,
             json!({ "street": "1 Infinite Loop", "zip": 0, "note": "extra" })
+        );
+    }
+
+    // A card whose declared `$kind` has no schema anchors its `!must_fill`
+    // warning at the bare-index root `cards[<i>].<field>` — matching
+    // `validate_typed_document`'s unknown-card path — never `cards.<kind>[<i>]`.
+    // A truly kindless card (no `$kind`) stays bare-index the same way.
+    #[test]
+    fn unknown_kind_card_fill_path_is_bare_index() {
+        use crate::document::Payload;
+
+        let config = QuillConfig::from_yaml(
+            r#"
+quill:
+  name: fills_test
+  backend: typst
+  description: fill path tests
+  version: 1.0.0
+main:
+  fields:
+    title:
+      type: string
+      default: ""
+card_kinds:
+  known:
+    fields:
+      note:
+        type: string
+"#,
+        )
+        .unwrap();
+
+        let mut main = Payload::new();
+        main.set_quill("fills_test@1.0.0".parse().unwrap());
+        main.set_kind("main");
+        let main = Card::from_parts(main, quillmark_content::Content::empty());
+
+        // Index 0: a card whose `$kind` ("mystery") is not a declared card kind.
+        let mut unknown = Card::new("mystery").unwrap();
+        unknown
+            .store_fill("note", QuillValue::from_json(json!(null)))
+            .unwrap();
+
+        // Index 1: a kindless card (no `$kind` at all).
+        let mut kindless =
+            Card::from_parts(Payload::new(), quillmark_content::Content::empty());
+        kindless
+            .store_fill("memo", QuillValue::from_json(json!(null)))
+            .unwrap();
+
+        let doc = Document::from_main_and_cards(main, vec![unknown, kindless]);
+        let paths: Vec<String> = validate_fills(&config, &doc)
+            .iter()
+            .filter_map(|d| d.path.clone())
+            .collect();
+
+        assert!(
+            paths.contains(&"cards[0].note".to_string()),
+            "unknown-kind card fill must anchor at the bare index; got {paths:?}"
+        );
+        assert!(
+            !paths.iter().any(|p| p.starts_with("cards.mystery")),
+            "unknown-kind card fill must NOT carry the kind segment; got {paths:?}"
+        );
+        assert!(
+            paths.contains(&"cards[1].memo".to_string()),
+            "kindless card fill must anchor at the bare index; got {paths:?}"
         );
     }
 

@@ -701,6 +701,11 @@ describe('Document-model path — parseDocPath / formatDocPath', () => {
     expect(() => parseDocPath('cards[')).toThrow()
     expect(() => parseDocPath('')).toThrow()
   })
+
+  it('formatDocPath throws on an empty segment array', () => {
+    // Symmetric with parseDocPath(''), which throws "empty path".
+    expect(() => formatDocPath([])).toThrow()
+  })
 })
 
 // The typed-commit ABI is `_commitField` / `_commitFields` (hidden from the

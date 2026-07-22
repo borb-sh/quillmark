@@ -18,8 +18,8 @@ segment the engine emits.
 ## Grammar
 
 - Card fields are kind-qualified: `cards.<kind>[<i>].<field>`.
-- The unknown-kind whole-card case stays `cards[<i>]` — there is no kind to
-  qualify with; this is the only bare-index form.
+- A whole-card case whose `$kind` has no schema — absent, or present but not a
+  declared card kind — stays `cards[<i>]`; this is the only bare-index form.
 - Main-card fields are bare names (`recipient`); the main body is
   `main.body`.
 

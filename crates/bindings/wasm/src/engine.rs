@@ -1842,7 +1842,9 @@ pub fn parse_doc_path(path: &str) -> Result<JsValue, JsValue> {
 
 /// Serialize structured [`DocPathSeg`] segments back to the canonical path
 /// string — the inverse of `parseDocPath`, for a consumer that builds a path
-/// rather than reads one. Throws on a segment array the deserializer rejects.
+/// rather than reads one. Throws on a segment array the deserializer rejects,
+/// and on an empty segment array (symmetric with `parseDocPath("")`, which
+/// throws "empty path").
 #[wasm_bindgen(js_name = formatDocPath)]
 pub fn format_doc_path(
     #[wasm_bindgen(unchecked_param_type = "DocPathSeg[]")] segs: JsValue,
@@ -1850,6 +1852,9 @@ pub fn format_doc_path(
     let json = js_value_to_json(segs, "formatDocPath")?;
     let doc_path: quillmark_core::DocPath = serde_json::from_value(json)
         .map_err(|e| WasmError::from(format!("formatDocPath: {e}")).to_js_value())?;
+    if doc_path.segs().is_empty() {
+        return Err(WasmError::from("formatDocPath: empty path").to_js_value());
+    }
     Ok(doc_path.to_string())
 }
 
