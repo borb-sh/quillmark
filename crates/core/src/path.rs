@@ -23,8 +23,9 @@
 //! A bare main field carries no root (`recipient`, `recipients[0].name`); the
 //! main body is `main.body`. A card field is kind-qualified —
 //! `cards.<kind>[<i>].<field>` — so a consumer receives kind and array index
-//! without a second lookup; a card whose `$kind` has no schema stays
-//! `cards[<i>]`. Field names and card kinds exclude `.`, `[`, `]`, so the
+//! without a second lookup; a card whose `$kind` has no schema — absent, or
+//! present but not a declared card kind — stays `cards[<i>]`. Field names and
+//! card kinds exclude `.`, `[`, `]`, so the
 //! rendered form round-trips.
 //!
 //! `cards` and `main` are reserved roots and `body` a reserved terminal: a

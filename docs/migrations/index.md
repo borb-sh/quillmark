@@ -25,7 +25,11 @@ guides in order.
   `diagnostics[0].code`, never on message text. `Diagnostic.path` gains an
   exported `parseDocPath` / `formatDocPath` (route on `DocPathSeg[]`, not a
   regex); the emitted path strings are unchanged. Canon ratifies null ≡ absent
-  as a 1.0 commitment (no behavior change).
+  as a 1.0 commitment (no behavior change). Adds `fieldStates()` (Python
+  `field_states`) — the resolved-field view: value, source rung
+  (`"authored" | "default" | "zero"`), the schema `example:`, and the
+  `validate()` diagnostics bucketed per field, in one call (additive, no
+  action).
 - [0.94 → 0.95](0.94-to-0.95.md) — WASM `pushCard` folds into
   `insertCard(card, at?)` (one insertion verb; `insertCard`'s args reorder to
   `(card, at?)`) and the deprecated `replaceBody` alias is deleted (use

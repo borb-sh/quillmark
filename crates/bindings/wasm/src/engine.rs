@@ -600,6 +600,29 @@ impl Quill {
         })
     }
 
+    /// The resolved-field view of `doc` against this quill's schema — for every
+    /// declared field the value the render projection would use, the
+    /// `FieldSource` rung it came from (`"authored" | "default" | "zero"`), the
+    /// diagnostics anchored to it, and the schema `example:` as guidance
+    /// (`example?` — absent from the wire when the field declares none), in one
+    /// call. The card body rides the `fields` map under the `$body` key.
+    ///
+    /// Diagnostics are the standalone `validate` contract, bucketed by their
+    /// `DocPath` into the per-field, per-card, and document slots (plus a
+    /// path-anchored `validation::coercion_failed` per field whose render
+    /// coercion fails), so a consumer reads value, provenance, and completeness
+    /// here instead of re-cutting the ladder and re-joining `validate` by path.
+    #[wasm_bindgen(js_name = fieldStates, unchecked_return_type = "FieldStates")]
+    pub fn field_states(&self, doc: &Document) -> Result<JsValue, JsValue> {
+        let states = self.inner.field_states(&doc.inner);
+        let serializer = serde_wasm_bindgen::Serializer::new()
+            .serialize_maps_as_objects(true)
+            .serialize_missing_as_null(true);
+        states.serialize(&serializer).map_err(|e| {
+            WasmError::from(format!("fieldStates: serialization failed: {e}")).to_js_value()
+        })
+    }
+
     /// Seed a starter `Document` from the schema — the main card plus one
     /// instance of each composable card kind, each committing its fields'
     /// `example:` values and leaving every other field absent (interpolated at
@@ -1817,6 +1840,64 @@ export type DocPathSeg =
     | { seg: "body" };
 "#;
 
+/// TypeScript declarations for the resolved-field view (`Quill.fieldStates`).
+/// Emitted here as the single source of truth; `Diagnostic` is already declared
+/// by the core build's generated `.d.ts`.
+#[wasm_bindgen(typescript_custom_section)]
+const FIELDSTATES_TS: &'static str = r#"
+/** The commitment-ladder rung that produced a `FieldState.value`. */
+export type FieldSource = "authored" | "default" | "zero";
+
+/**
+ * One resolved field: the value the render projection would use, the
+ * `FieldSource` rung it came from, the diagnostics anchored to it, and the
+ * schema `example:` as authoring guidance (`example?` — absent from the wire,
+ * never null, when the field declares none). The card body rides its card's
+ * `fields` map under the `$body` key as an ordinary `FieldState`.
+ */
+export interface FieldState {
+    value: unknown;
+    source: FieldSource;
+    diagnostics: Diagnostic[];
+    example?: unknown;
+}
+
+/**
+ * The main card's resolved fields (keyed by field name in declaration order,
+ * with `$body` under its key when the main enables a body) plus a card-level
+ * `diagnostics` slot for diagnostics anchored to the card but no field.
+ */
+export interface MainFieldStates {
+    fields: Record<string, FieldState>;
+    diagnostics: Diagnostic[];
+}
+
+/**
+ * One composable card's resolved fields (`$body` under its key when the kind
+ * enables a body), with its authored `kind` (`null` for an unknown-kind card),
+ * its document-array `index`, and a card-level `diagnostics` slot
+ * (`validation::unknown_card`, `validation::body_disabled`).
+ */
+export interface CardFieldStates {
+    kind: string | null;
+    index: number;
+    fields: Record<string, FieldState>;
+    diagnostics: Diagnostic[];
+}
+
+/**
+ * The resolved-field view (`Quill.fieldStates`): the main card, every
+ * composable card, and a document-level `diagnostics` slot (`$seed` overlays,
+ * unanchored diagnostics). Every `Quill.validate` diagnostic lands in exactly
+ * one slot.
+ */
+export interface FieldStates {
+    main: MainFieldStates;
+    cards: CardFieldStates[];
+    diagnostics: Diagnostic[];
+}
+"#;
+
 /// Parse a canonical document-model `Diagnostic.path`
 /// (`cards.<kind>[<i>].<field>`, `main.body`, `recipients[0].name`) into its
 /// structured [`DocPathSeg`] segments — the exported inverse of the engine's
@@ -1842,7 +1923,9 @@ pub fn parse_doc_path(path: &str) -> Result<JsValue, JsValue> {
 
 /// Serialize structured [`DocPathSeg`] segments back to the canonical path
 /// string — the inverse of `parseDocPath`, for a consumer that builds a path
-/// rather than reads one. Throws on a segment array the deserializer rejects.
+/// rather than reads one. Throws on a segment array the deserializer rejects,
+/// and on an empty segment array (symmetric with `parseDocPath("")`, which
+/// throws "empty path").
 #[wasm_bindgen(js_name = formatDocPath)]
 pub fn format_doc_path(
     #[wasm_bindgen(unchecked_param_type = "DocPathSeg[]")] segs: JsValue,
@@ -1850,6 +1933,9 @@ pub fn format_doc_path(
     let json = js_value_to_json(segs, "formatDocPath")?;
     let doc_path: quillmark_core::DocPath = serde_json::from_value(json)
         .map_err(|e| WasmError::from(format!("formatDocPath: {e}")).to_js_value())?;
+    if doc_path.segs().is_empty() {
+        return Err(WasmError::from("formatDocPath: empty path").to_js_value());
+    }
     Ok(doc_path.to_string())
 }
 

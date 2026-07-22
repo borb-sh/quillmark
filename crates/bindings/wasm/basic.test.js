@@ -701,6 +701,11 @@ describe('Document-model path — parseDocPath / formatDocPath', () => {
     expect(() => parseDocPath('cards[')).toThrow()
     expect(() => parseDocPath('')).toThrow()
   })
+
+  it('formatDocPath throws on an empty segment array', () => {
+    // Symmetric with parseDocPath(''), which throws "empty path".
+    expect(() => formatDocPath([])).toThrow()
+  })
 })
 
 // The typed-commit ABI is `_commitField` / `_commitFields` (hidden from the
@@ -1735,5 +1740,156 @@ addr:
     )
     const title = doc.main.payloadItems.find((i) => i.key === 'title')
     expect(title.nestedFills).toBeUndefined()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// quill.fieldStates — the resolved-field view
+// ---------------------------------------------------------------------------
+//
+// For every declared field: the value the render projection would use, the
+// source rung it came from ("authored" | "default" | "zero"), the schema
+// `example:` as guidance (absent from the wire when the field declares none),
+// and the diagnostics bucketed onto it. The body rides the fields map under the
+// `$body` key. See prose/canon/SCHEMAS.md § "Value sources and projections".
+
+describe('quill.fieldStates', () => {
+  const QUILL_YAML = `quill:
+  name: field_states_test
+  version: "1.0"
+  backend: typst
+  description: Resolved-field view coverage
+
+main:
+  body:
+    example: "Example body prose."
+  fields:
+    title:
+      type: string
+    status:
+      type: string
+      default: draft
+    notes:
+      type: string
+    count:
+      type: integer
+    author:
+      type: string
+      example: A. Author
+
+card_kinds:
+  note:
+    fields:
+      label:
+        type: string
+`
+
+  const buildQuill = () =>
+    Quill.fromTree(makeQuill({ name: 'field_states_test', quillYaml: QUILL_YAML }))
+
+  it('tags main rows with their authored / default / zero source', () => {
+    const quill = buildQuill()
+    const md = `~~~card-yaml
+$quill: field_states_test
+$kind: main
+title: Hello
+~~~
+`
+    const f = quill.fieldStates(Document.fromMarkdown(md)).main.fields
+
+    expect(f.title.source).toBe('authored')
+    expect(f.title.value).toBe('Hello')
+    expect(f.status.source).toBe('default')
+    expect(f.status.value).toBe('draft')
+    expect(f.notes.source).toBe('zero')
+    expect(f.notes.value).toBe('')
+  })
+
+  it('carries the body under the $body row with a source', () => {
+    const quill = buildQuill()
+    const authored = `~~~card-yaml
+$quill: field_states_test
+$kind: main
+title: T
+~~~
+
+Hello body.
+`
+    const withBody = quill.fieldStates(Document.fromMarkdown(authored))
+    expect(withBody.main.fields.$body).toBeDefined()
+    expect(withBody.main.fields.$body.source).toBe('authored')
+
+    const blank = `~~~card-yaml
+$quill: field_states_test
+$kind: main
+title: T
+~~~
+`
+    const noBody = quill.fieldStates(Document.fromMarkdown(blank))
+    expect(noBody.main.fields.$body.source).toBe('zero')
+  })
+
+  it('includes example only on a field that declares one', () => {
+    const quill = buildQuill()
+    const md = `~~~card-yaml
+$quill: field_states_test
+$kind: main
+title: T
+~~~
+`
+    const f = quill.fieldStates(Document.fromMarkdown(md)).main.fields
+    // `author` declares `example: A. Author` — the key is present.
+    expect('example' in f.author).toBe(true)
+    expect(f.author.example).toBe('A. Author')
+    // `title` declares none — the key is absent on the wire, not null.
+    expect('example' in f.title).toBe(false)
+  })
+
+  it('reports kind and index on a card entry', () => {
+    const quill = buildQuill()
+    const md = `~~~card-yaml
+$quill: field_states_test
+$kind: main
+title: T
+~~~
+
+~~~card-yaml
+$kind: note
+label: L
+~~~
+Note body.
+`
+    const states = quill.fieldStates(Document.fromMarkdown(md))
+    expect(states.cards.length).toBe(1)
+    const card = states.cards[0]
+    expect(card.kind).toBe('note')
+    expect(card.index).toBe(0)
+    expect(card.fields.label.source).toBe('authored')
+    expect(card.fields.label.value).toBe('L')
+  })
+
+  it('buckets a type mismatch onto its field row', () => {
+    const quill = buildQuill()
+    const md = `~~~card-yaml
+$quill: field_states_test
+$kind: main
+title: T
+count: "not-a-number"
+~~~
+`
+    const row = quill.fieldStates(Document.fromMarkdown(md)).main.fields.count
+    expect(row.diagnostics.some((d) => d.code === 'validation::type_mismatch')).toBe(true)
+  })
+
+  it('result is JSON.stringify-able', () => {
+    const quill = buildQuill()
+    const md = `~~~card-yaml
+$quill: field_states_test
+$kind: main
+title: T
+~~~
+`
+    const states = quill.fieldStates(Document.fromMarkdown(md))
+    expect(typeof JSON.stringify(states)).toBe('string')
   })
 })
