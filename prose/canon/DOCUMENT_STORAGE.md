@@ -154,11 +154,11 @@ checked by `Content::validate`, is therefore **uniqueness**
 (`Invariant::IslandIdCollision`), not `id == isl-{index}`: after an edit
 `isl-1` may legitimately sit at index 0.
 
-This resolves the id in favor of keeping "canonical bytes == hash input"
-exact — no id-stripping in the hash, no separate hash form. Any future
-id-minting producer (a live editor, a richer island type) is bound by the
-same rule: continue the positional sequence for appended islands; never mint
-an ambient id.
+The id stays in the hash input, so "canonical bytes == hash input" holds
+exact — no id-stripping, no separate hash form. Any future id-minting
+producer (a live editor, a richer island type) is bound by the same rule:
+continue the positional sequence for appended islands; never mint an ambient
+id.
 
 ## Schema Versioning
 

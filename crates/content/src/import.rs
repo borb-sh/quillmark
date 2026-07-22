@@ -1436,14 +1436,9 @@ mod tests {
         let a = imp(md);
         let b = imp(md);
         assert_eq!(a.to_canonical_json(), b.to_canonical_json());
-        assert!(
-            a.islands.len() >= 2,
-            "expected an image and a table island, got {}",
-            a.islands.len()
-        );
-        for (i, island) in a.islands.iter().enumerate() {
-            assert_eq!(island.id, format!("isl-{i}"));
-        }
+        // Image slot then table island, minted in slot order.
+        let ids: Vec<&str> = a.islands.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, ["isl-0", "isl-1"]);
     }
 
     #[test]
