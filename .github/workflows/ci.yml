@@ -27,6 +27,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Canon spine lint (prose/README.md). Zero deps; runs before the Rust
+      # setup so it fails fast on a checkout-only step.
+      - name: Check canon spine
+        run: node scripts/check-canon.mjs
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
