@@ -54,8 +54,8 @@ verbatim, need no schema, and sit on `Document` too.
 
 The one **interpreting** read — projecting a field by its type — is a
 schema-shaped question ("this field's richtext, as markdown"), so it gains a
-schema-bound home: `quill.view(doc)`, the read twin of `quill.writer(doc)`
-(mirroring core's `quill.view(&doc)`). `view.get(addr)` reads each field by its
+schema-bound home: `quill.reader(doc)`, the read twin of `quill.writer(doc)`
+(mirroring core's `quill.reader(&doc)`). `reader.get(addr)` reads each field by its
 declared type — a `richtext` field to markdown, a `plaintext` field to its
 literal text (marks verbatim), every other type verbatim — with schema
 authority, so a name the schema does not declare throws `UnknownField` instead of
@@ -64,7 +64,7 @@ reading back `undefined`, and a content field holding an undecodable value throw
 `get_markdown` / `get_card_markdown` are **body-only** (WASM `getMarkdown` takes a
 `CardAddr`; a present `field` throws), and the quill-free **body** projection
 stays on `Document` (a body's type is a format fact, not a schema fact, so
-`view.getBody` mirrors it rather than gating it on the schema). The placement rule
+`reader.getBody` mirrors it rather than gating it on the schema). The placement rule
 generalizes: *a verb that needs a schema lives on the writer (writes) or the view
 (reads); `Document` is quill-free data.*
 
@@ -108,8 +108,8 @@ nothing else admitted. Drift is a reviewable diff to this table.
 | Concept | Core | Bindings | Class |
 |---|---|---|---|
 | Typed writer front door | `quill.writer(&mut doc)` | `quill.writer(doc)` | **idiom** — core holds `&mut Document` under the checker; the bindings re-borrow per call (pyo3/wasm objects carry no lifetime), so the guarantee becomes the ephemerality convention |
-| Typed reader front door | `quill.view(&doc)` | `quill.view(doc)` | **idiom** — the read twin; same re-borrow/ephemerality as the writer |
-| Interpreted read | `view.get(name)?` → `ReadValue` (richtext → markdown, plaintext → literal text, else canonical); `view.card(i)?.get(..)?` | `view.get(addr)` / `view.card(i).get(name)` (JS), `view.get(name)` / `view.card(i).get(name)` (py) | **idiom** / **FFI** — one `get` interprets by declared type; absent → `undefined`/`None`, unknown name → `UnknownField`, undecodable content → `FieldRichtextDecode`; a field's markdown reads here, not on the body-only `getMarkdown` (#978). Body read (`view.getBody` / absent-field addr) stays quill-free |
+| Typed reader front door | `quill.reader(&doc)` | `quill.reader(doc)` | **idiom** — the read twin; same re-borrow/ephemerality as the writer |
+| Interpreted read | `reader.get(name)?` → `ReadValue` (richtext → markdown, plaintext → literal text, else canonical); `reader.card(i)?.get(..)?` | `reader.get(addr)` / `reader.card(i).get(name)` (JS), `reader.get(name)` / `reader.card(i).get(name)` (py) | **idiom** / **FFI** — one `get` interprets by declared type; absent → `undefined`/`None`, unknown name → `UnknownField`, undecodable content → `FieldRichtextDecode`; a field's markdown reads here, not on the body-only `getMarkdown` (#978). Body read (`reader.getBody` / absent-field addr) stays quill-free |
 | Scalar / batch write | `set` / `set_all` | `set` / `setAll` (JS), `set` / `set_all` (py) | identical |
 | Receipt-free body write | `set_body(md)` | `setBody(md)` / `set_body(md)` | identical — core also exposes the delta via `revise_body` |
 | Typed richtext field revise | `TypedWriter::revise_field(name, md)?` / `CardWriter::revise_field(..)?` | `writer.reviseField(name, md)` / `writer.card(i).reviseField(..)` (JS); `writer.revise_field(name, md)` / `writer.card(i).revise_field(..)` (py) | **idiom** — typed *and* anchor-preserving; both wrap `Card::revise_field_checked`. JS returns the `Delta`; Python discards it (the position-mapping receipt is an editor concern, WASM-only) |
@@ -118,7 +118,7 @@ nothing else admitted. Drift is a reviewable diff to this table.
 | Card removal (writer) | `writer.remove_card(i)` | `writer.removeCard(i)` | identical |
 | Card cursor | `writer.card(i)?` (eager check) | `writer.card(i)` (lazy check) | **FFI** — no borrow to validate against; the index is checked at the write |
 | Cursor kind | `writer.card(i)?.kind()` | `writer.card(i).kind` | identical — the JS getter reads through `doc.card(i)` |
-| Reads (value / body markdown / fill / `$ext`) | `body_markdown(..)` / `payload().get(..)` / `payload().is_fill(..)` / `card.ext()` (borrow chain; index for a card) | `doc.get(addr?)` / `doc.getMarkdown(cardAddr?)` / `doc.isFill(addr)` / `doc.getExt(cardAddr?)` / `doc.getExtNamespace(cardAddr, ns)` (JS) | **idiom** / **FFI** / **scope** — WASM fuses the transport reads onto the one `Addr` (a bare string ⇒ `{field}` for `get`/`isFill`), *total over the field axis* (absent field → `undefined`, `isFill` → `false`; only an out-of-range card throws); `getMarkdown` is the **body** read (a `CardAddr`; a present `field` throws). Python has no quill-free field read — interpreted field reads go through `quill.view(doc).get` (#978, #970), and `$ext` / body content read off the `main` / `cards` dict snapshots |
+| Reads (value / body markdown / fill / `$ext`) | `body_markdown(..)` / `payload().get(..)` / `payload().is_fill(..)` / `card.ext()` (borrow chain; index for a card) | `doc.get(addr?)` / `doc.getMarkdown(cardAddr?)` / `doc.isFill(addr)` / `doc.getExt(cardAddr?)` / `doc.getExtNamespace(cardAddr, ns)` (JS) | **idiom** / **FFI** / **scope** — WASM fuses the transport reads onto the one `Addr` (a bare string ⇒ `{field}` for `get`/`isFill`), *total over the field axis* (absent field → `undefined`, `isFill` → `false`; only an out-of-range card throws); `getMarkdown` is the **body** read (a `CardAddr`; a present `field` throws). Python has no quill-free field read — interpreted field reads go through `quill.reader(doc).get` (#978, #970), and `$ext` / body content read off the `main` / `cards` dict snapshots |
 | Reads (whole card / `$id` / seed) | `card(i)` / `find_card(id)` / `main().seed()` | `doc.card(i)` / `doc.cardIndexById(id)` / `doc.seedOverlay(kind)` | **idiom** — the bindings fuse each into one named verb on `Document`; `card(i)` throws out of range, `find_card`/`cardIndexById` return the first `$id` match (non-unique by design) |
 | Richtext revise (content lane) | `Card::revise_field(name, md)?` (schema-blind, borrow chain) | `doc.revise({card, field}, md)` (addr literal, JS) | **FFI** / **scope** — same model, flattened navigation, schema-blind, `Delta` in hand; WASM-only. Python's anchor-preserving write is the typed `writer.revise_field` (#970) |
 | Opaque store | `store_field` / `store_fields` / `store_fill` | `storeField` / `storeFields` / `storeFill` (JS, `Addr`) | **scope** — the quill-free verbatim write, WASM-only; Python has no opaque field store (the typed writer is the only field write, #970). A field write without a loadable quill operates on the storage DTO directly |
@@ -134,7 +134,7 @@ PyO3 bindings published as `quillmark` on PyPI. A `snake_case` surface over the
 shared model; one-shot `engine.render` (no canvas).
 
 > **Scope: Tier 1 + storage + render ([#970](https://github.com/borb-sh/quillmark/issues/970)).**
-> Field I/O flows through `quill.writer(doc)` / `quill.view(doc)` exclusively;
+> Field I/O flows through `quill.writer(doc)` / `quill.reader(doc)` exclusively;
 > `Document` is quill-free data and structure (parse, the storage DTO,
 > `insert_card` / `remove_card` / `move_card` / `make_card`, `remove_field`,
 > `$ext` / `$seed`). The opaque store (`store_field` / `store_fields` /

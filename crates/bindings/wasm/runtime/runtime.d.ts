@@ -78,7 +78,7 @@ export type {
 	DocPathSeg
 } from '../core/wasm.js';
 
-// The resolved-value view — the return shape of `quill.fieldStates(doc)`. Value
+// The resolved-value view — the return shape of `quill.resolve(doc)`. Value
 // + source rung per declared field (the body rides the fields map under
 // `$body`); diagnostics stay `quill.validate`, guidance stays `quill.schema`.
 // Declared in the core build's generated `.d.ts` via a
@@ -86,10 +86,10 @@ export type {
 // point names them.
 export type {
 	FieldSource,
-	FieldState,
-	MainFieldStates,
-	CardFieldStates,
-	FieldStates
+	ResolvedField,
+	ResolvedMain,
+	ResolvedCard,
+	Resolved
 } from '../core/wasm.js';
 
 // ── Error contract ──────────────────────────────────────────────────────────
@@ -519,14 +519,14 @@ declare module '../core/wasm.js' {
 		writer(doc: Document): DocumentWriter;
 		/**
 		 * Bind this quill's schema to `doc` for interpreted reads — the read twin of
-		 * {@link Quill.writer}, mirroring core's `quill.view(&doc)`. Each field is
+		 * {@link Quill.writer}, mirroring core's `quill.reader(&doc)`. Each field is
 		 * read by its declared type (a richtext field to markdown, every other type
 		 * verbatim) with schema authority, so a name the schema does not declare
 		 * throws rather than reading back `undefined`. Holds both handles by
 		 * reference and owns neither (nothing to `free()`); ephemeral by convention —
 		 * bind, read, discard.
 		 */
-		view(doc: Document): DocumentView;
+		reader(doc: Document): DocumentReader;
 	}
 }
 
@@ -624,7 +624,7 @@ export declare class CardWriter {
 
 /**
  * A `Document` bound to its `Quill` for interpreted reads — the schema-plane read
- * view, constructed via {@link Quill.view} and the read twin of
+ * surface, constructed via {@link Quill.reader} and the read twin of
  * {@link DocumentWriter}. One `get` reads each field by its declared type: a
  * richtext field to its markdown projection, a plaintext field to its literal
  * text, every other type its canonical value verbatim. Holds both handles by
@@ -637,7 +637,7 @@ export declare class CardWriter {
  * body-only `Document.getMarkdown`. The body read stays quill-free (a body's type
  * is a format fact) and never throws.
  */
-export declare class DocumentView {
+export declare class DocumentReader {
 	constructor(quill: Quill, doc: Document);
 	/** The bound document — the instance passed in. */
 	readonly document: Document;
@@ -653,20 +653,20 @@ export declare class DocumentView {
 	/** The main body's markdown — the quill-free body read. Equals `get({})`. */
 	getBody(): string;
 	/**
-	 * A {@link CardView} for the composable card at `index`. Index validity is
+	 * A {@link CardReader} for the composable card at `index`. Index validity is
 	 * checked lazily at read time, so this never throws. The cursor is ephemeral —
 	 * a `removeCard`/`addCard` between binding and reading silently retargets it.
 	 */
-	card(index: number): CardView;
+	card(index: number): CardReader;
 }
 
 /**
  * A composable card bound to its `Quill` for interpreted reads, from
- * {@link DocumentView.card}. Same verbs as {@link DocumentView}, reading the card
+ * {@link DocumentReader.card}. Same verbs as {@link DocumentReader}, reading the card
  * at its bound index; each read throws `IndexOutOfRange` if that index is out of
  * range.
  */
-export declare class CardView {
+export declare class CardReader {
 	constructor(quill: Quill, doc: Document, index: number);
 	/** The bound card index. */
 	readonly index: number;
@@ -681,6 +681,6 @@ export declare class CardView {
 	 * `IndexOutOfRange` for a bad index.
 	 */
 	get(name: string): unknown;
-	/** This card's body markdown — the card twin of {@link DocumentView.getBody}. */
+	/** This card's body markdown — the card twin of {@link DocumentReader.getBody}. */
 	getBody(): string;
 }

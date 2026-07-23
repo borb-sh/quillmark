@@ -43,7 +43,7 @@ def test_payload_access(taro_md):
 def test_body_is_content_dict(taro_md):
     """`body` is the canonical content dict (source of truth); its `text` carries
     the plain USV text quill-free. The markdown projection is
-    `quill.view(doc).get_body()`."""
+    `quill.reader(doc).get_body()`."""
     doc = Document.from_markdown(taro_md)
     assert isinstance(doc.body, dict)
     assert "nutty" in doc.body["text"]

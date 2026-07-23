@@ -11,12 +11,12 @@
 //! projection but has no schema to name the field set, so an unknown field name
 //! reads back as absent rather than as the typo it is.
 //!
-//! [`Quill::view`](crate::Quill::view) binds the schema — where the authority
+//! [`Quill::reader`](crate::Quill::reader) binds the schema — where the authority
 //! already lives, the writer's twin — so a single verb interprets by the field's
 //! declared type:
 //!
 //! ```ignore
-//! let v = quill.view(&doc);
+//! let v = quill.reader(&doc);
 //! v.get("subject")?;            // richtext → Some(Markdown(..))
 //! v.get("qty")?;                // integer  → Some(Value(3))
 //! v.get("absent")?;             // absent   → None
@@ -90,7 +90,7 @@ impl ReadValue {
 }
 
 /// A [`Document`] bound to its [`QuillConfig`] for typed reads. Construct with
-/// [`Quill::view`](crate::Quill::view). Reads target the main card; use
+/// [`Quill::reader`](crate::Quill::reader). Reads target the main card; use
 /// [`card`](Self::card) for a composable card. The read twin of
 /// [`TypedWriter`](crate::TypedWriter).
 pub struct TypedReader<'a> {
@@ -99,7 +99,7 @@ pub struct TypedReader<'a> {
 }
 
 impl<'a> TypedReader<'a> {
-    /// Bind `doc` to `config`. Prefer [`Quill::view`](crate::Quill::view).
+    /// Bind `doc` to `config`. Prefer [`Quill::reader`](crate::Quill::reader).
     pub fn new(config: &'a QuillConfig, doc: &'a Document) -> Self {
         Self { config, doc }
     }

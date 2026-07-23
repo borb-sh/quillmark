@@ -1,7 +1,7 @@
 """Tests for the API requirements.
 
 Python is a Tier-1 binding: field I/O flows through `quill.writer(doc)` /
-`quill.view(doc)`. `Document` carries the quill-free surface — parse, storage,
+`quill.reader(doc)`. `Document` carries the quill-free surface — parse, storage,
 structure, `$ext` / `$seed`, and `remove_field`. There is no opaque field store
 and no content lane (`install` / `revise` / `apply_change` + codec); those are
 WASM-only by scope.
@@ -513,7 +513,7 @@ def test_to_markdown_ambiguous_string_survival():
 
 
 def test_writer_front_door_set_and_reads():
-    """quill.writer(doc).set writes; the reads live on quill.view(doc)."""
+    """quill.writer(doc).set writes; the reads live on quill.reader(doc)."""
     quill = _taro_quill()
     doc = Document("taro@0.1.0")
     ed = quill.writer(doc)
@@ -521,7 +521,7 @@ def test_writer_front_door_set_and_reads():
     ed.set_all({"title": "On Taro"})
     assert ed.document is doc  # holds the same object, mutated in place
 
-    v = quill.view(doc)
+    v = quill.reader(doc)
     assert v.get("author") == "Ada"
     assert v.get("ice_cream") is None  # declared but absent → None
     ed.set_body("A **taro** essay.")
@@ -634,7 +634,7 @@ def test_writer_revise_field_typed_and_anchor_preserving():
     quill = _richtext_form_quill()
     doc = Document("richtext_form@0.1.0")
     quill.writer(doc).revise_field("bio", "make it **bold**")
-    assert quill.view(doc).get("bio") == "make it **bold**"
+    assert quill.reader(doc).get("bio") == "make it **bold**"
 
 
 def test_writer_revise_field_rejects_inline_and_unknown():
@@ -664,7 +664,7 @@ def test_typed_set_clears_must_fill_marker():
     assert field(doc.main, "title") == "Real Title"
 
 
-# ── Tier-1 typed reader — quill.view(doc) front door ──────────────────────────
+# ── Tier-1 typed reader — quill.reader(doc) front door ──────────────────────────
 
 
 def test_view_interprets_by_declared_type():
@@ -672,20 +672,20 @@ def test_view_interprets_by_declared_type():
     quill = _richtext_form_quill()
     doc = Document("richtext_form@0.1.0")
     quill.writer(doc).set("bio", "A **bold** intro.")
-    v = quill.view(doc)
+    v = quill.reader(doc)
     assert v.document is doc  # holds the same object
     assert v.get("bio") == "A **bold** intro."  # richtext → markdown
 
     taro = _taro_quill()
     tdoc = Document("taro@0.1.0")
     taro.writer(tdoc).set("author", "Ada")
-    assert taro.view(tdoc).get("author") == "Ada"  # scalar → canonical
+    assert taro.reader(tdoc).get("author") == "Ada"  # scalar → canonical
 
 
 def test_view_absence_returns_none_unknown_name_raises():
     """Absent → None; a name the schema does not declare raises (the schema authority)."""
     quill = _richtext_form_quill()
-    v = quill.view(Document("richtext_form@0.1.0"))
+    v = quill.reader(Document("richtext_form@0.1.0"))
     assert v.get("bio") is None  # absent, not a typo
     with raises_edit_code("edit::unknown_field"):
         v.get("nope")  # typo, not absent
@@ -701,7 +701,7 @@ def test_view_richtext_holding_scalar_raises_mismatch():
         "~~~card-yaml\n$quill: richtext_form@0.1.0\n$kind: main\nbio: 3\n~~~\n"
     )
     with raises_edit_code("edit::field_richtext_decode"):
-        quill.view(doc).get("bio")
+        quill.reader(doc).get("bio")
 
 
 def test_view_body_read_is_quill_free():
@@ -709,7 +709,7 @@ def test_view_body_read_is_quill_free():
     quill = _taro_quill()
     doc = Document("taro@0.1.0")
     quill.writer(doc).set_body("A **taro** essay.")
-    assert quill.view(doc).get_body() == "A **taro** essay."
+    assert quill.reader(doc).get_body() == "A **taro** essay."
 
 
 def test_view_card_cursor_reads_through_kind_schema():
@@ -718,7 +718,7 @@ def test_view_card_cursor_reads_through_kind_schema():
     doc = Document("taro@0.1.0")
     ed = quill.writer(doc)
     ed.add_card("quotes", {"author": "Basho"}, "A quote body.")
-    v = quill.view(doc)
+    v = quill.reader(doc)
     assert v.card(0).kind == "quotes"
     assert v.card(0).get("author") == "Basho"
     assert v.card(0).get_body() == "A quote body."

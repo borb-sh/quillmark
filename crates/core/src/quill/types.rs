@@ -428,7 +428,7 @@ pub struct FieldSchema {
     pub items: Option<Box<FieldSchema>>,
     /// Canonical-content form of [`default`](Self::default) for a richtext-bearing
     /// field, imported once at quill load and cached — never serialized. The
-    /// render floor (`resolve_fields`) commits this for an absent field, so a
+    /// render floor (`resolve_value_sourced`) commits this for an absent field, so a
     /// richtext default crosses the seam as content, not a re-imported string.
     /// `None` for a non-richtext field, a null/absent default, or a schema built
     /// outside the loader.

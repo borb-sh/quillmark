@@ -142,10 +142,10 @@ field maps rather than a sort key):
 | `blueprint` document | Endorsed: `default:`; Unendorsed: `example:` else zero, stamped `!must_fill` | zero (under the marker) | annotated string — [BLUEPRINT.md](BLUEPRINT.md) |
 | seeding | `example:` › absent | (deferred to render floor) | committed `Document` — [Document seeding](#document-seeding) |
 | add-card (into a document) | `$seed` overlay › `example:` › absent | (deferred to render floor) | a new composable `Card` — [Document seeding](#document-seeding) |
-| editor (consumer-side) | authored › `default:` › zero, resolved per field and **tagged with its source rung** | zero | the engine's [`fieldStates()`](#the-resolved-field-view-fieldstates) resolved-value view — value and source rung per field |
+| editor (consumer-side) | authored › `default:` › zero, resolved per field and **tagged with its source rung** | zero | the engine's [`resolve()`](#the-resolved-value-view-resolve) resolved-value view — value and source rung per field |
 
 The consumer-side `Document`-payload × schema join is a **non-goal**:
-[`fieldStates()`](#the-resolved-field-view-fieldstates) supersedes it. The
+[`resolve()`](#the-resolved-value-view-resolve) supersedes it. The
 editor reads value and source rung from one engine call rather than re-cutting
 the ladder in consumer code. Completeness and errors stay `Quill::validate`'s
 (a consumer merges it with its own diagnostic producers regardless), and schema
@@ -159,9 +159,9 @@ rides *alongside* the value rather than replacing it; and `zero` is honestly
 blank for every type except `enum`, whose zero is the first declared variant
 (there is no empty enum member). Both are detailed below.
 
-### The resolved-value view (`fieldStates()`)
+### The resolved-value view (`resolve()`)
 
-`Quill::field_states(doc)` (WASM `fieldStates`) cuts the render ladder into
+`Quill::resolve(doc)` (WASM `resolve`) cuts the render ladder into
 observable data: for every declared field, the value `compile_data` would emit
 into the plate, tagged with its source rung (`authored` / `default` / `zero`) —
 byte-for-byte with the plate on every fixture. The shape is nested: a `main`
@@ -270,7 +270,7 @@ path's "`default:` wins" rule applies to authored and blank documents, where no
   field's value came from seeding or later authoring is not recorded; correctness
   and renderability do not depend on the distinction. The commitment *rung* is a
   separate axis and is reported on read: the
-  [`fieldStates()`](#the-resolved-field-view-fieldstates) projection tags each
+  [`resolve()`](#the-resolved-value-view-resolve) projection tags each
   field `authored` / `default` / `zero` — a seeded and a hand-authored value both
   read as `authored`, both being document content.
 

@@ -258,7 +258,7 @@ main card's `qty`, `doc.storeField({ card: 2, field: "qty" }, 3)` a composable
 card's. Reads are total over the field axis (`get` → `undefined`, `isFill` → `false` for
 an absent field; only an out-of-range card throws); field writes throw on a body
 address. `getMarkdown` is the body markdown read (a `CardAddr`; a field's
-markdown is read through `quill.view(doc).get(field)`). Card-scoped verbs take a
+markdown is read through `quill.reader(doc).get(field)`). Card-scoped verbs take a
 `CardAddr` (`{ card? }`) first: `doc.getExt({ card: 2 })`, and the batch below.
 
 Batch mutation: `doc.storeFields({}, {...})` / `doc.storeFields({ card: index }, {...})`
