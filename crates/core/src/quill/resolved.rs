@@ -5,8 +5,9 @@
 //! projection would use and the [`FieldSource`] rung it came from. It cuts the
 //! one commitment ladder (`prose/canon/SCHEMAS.md` § "Value sources and
 //! projections") through the shared producer
-//! `resolve_card_sourced` (in `super::compose`) — the same resolver the render
-//! plate cuts — never a parallel precedence policy.
+//! `resolve_card_sourced` (in `super::compose`), whose sourced ladder
+//! (`ladder_sourced`) the render plate cuts too — never a parallel precedence
+//! policy.
 //!
 //! Values only: diagnostics stay [`Quill::validate`]'s job (the editor merges
 //! `validate()` with its own producers regardless, so bucketing here would
@@ -77,10 +78,10 @@ impl Quill {
     /// The resolved-value view of `doc` against this quill's schema.
     ///
     /// For every declared field, the value [`compile_data`] emits into the plate
-    /// — the two cut the *same* resolver (`resolve_card_sourced`), so the value
-    /// is the plate's by construction — tagged with the [`FieldSource`] rung it
-    /// came from. Completeness and errors stay [`Quill::validate`]'s; this view
-    /// carries no diagnostics.
+    /// — the two cut the *same* sourced ladder (`ladder_sourced`) over equal
+    /// coerced input, so the value is the plate's by construction — tagged with
+    /// the [`FieldSource`] rung it came from. Completeness and errors stay
+    /// [`Quill::validate`]'s; this view carries no diagnostics.
     ///
     /// [`compile_data`]: Quill::compile_data
     pub fn resolve(&self, doc: &Document) -> Resolved {
@@ -323,9 +324,11 @@ card_kinds:
     }
 
     // ── Byte-for-byte with the render projection ─────────────────────────────
-    // Both projections now cut the one shared resolver, so agreement is
-    // structural rather than mirrored; this guards against a future re-fork and
-    // pins the plate-build wiring (order, meta, body) against the row view.
+    // Both projections cut the one shared ladder (`ladder_sourced`), but over
+    // separately-conformed input — the render gate's fallible conform vs the
+    // view's keep-raw `conform_card_render`. This pins that those two conform
+    // paths agree on a gated document, plus the plate-build wiring (order, meta,
+    // body) against the row view.
 
     #[test]
     fn every_row_is_byte_for_byte_with_compile_data() {
