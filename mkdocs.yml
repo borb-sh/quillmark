@@ -41,9 +41,16 @@ nav:
   - Quills:
       - Creating Quills: quills/creating-quills.md
       - Quill.yaml Reference: quills/quill-yaml-reference.md
+      - Blueprint & Seeding: quills/blueprint.md
       - Typst Backend: quills/typst-backend.md
       - PDF Form Backend: quills/pdfform-backend.md
       - Versioning: quills/versioning.md
+  - Integrating:
+      - Overview: integration/index.md
+      - Programmatic Construction: integration/programmatic.md
+      - Error Handling: integration/error-handling.md
+      - Live Preview: integration/live-preview.md
+      - Persistence: integration/persistence.md
   - CLI:
       - Reference: cli/reference.md
   - Reference:
