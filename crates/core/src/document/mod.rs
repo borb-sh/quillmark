@@ -479,10 +479,9 @@ impl Document {
     /// `$kind` is document-defined and omitted for a kindless card (never a
     /// fabricated `""`). This method is schema-free and emits `$body` for every
     /// card and the root; the schema-gated render plate
-    /// (`QuillConfig::compile_data`) instead calls
-    /// [`to_plate_json_gated`](Self::to_plate_json_gated) with the per-card
-    /// body-presence it resolved, so a card whose kind enables no body carries no
-    /// `$body` — issue 1030's "absent on undefined".
+    /// (`QuillConfig::compile_data`) instead calls `to_plate_json_gated` with the
+    /// per-card body-presence it resolved, so a card whose kind enables no body
+    /// carries no `$body` — issue 1030's "absent on undefined".
     pub fn to_plate_json(&self) -> serde_json::Value {
         // Schema-free: the root and every card carry `$body`.
         self.to_plate_json_gated(true, None)
@@ -491,7 +490,7 @@ impl Document {
     /// [`to_plate_json`](Self::to_plate_json) with the body-presence decision
     /// supplied by the caller: the root carries `$body` iff `main_body`, and card
     /// *i* iff `card_bodies` is `None` (all present) or `card_bodies[i]` holds.
-    /// The schema-gated render plate ([`QuillConfig::compile_data`]) passes the
+    /// The schema-gated render plate (`QuillConfig::compile_data`) passes the
     /// body-enabled bit it already resolved per card, so a body-disabled card
     /// never carries `$body` (issue 1030, "absent on undefined") and the decision
     /// is never re-derived from the serialized plate. `Document` stays schema-free

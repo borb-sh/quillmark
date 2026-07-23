@@ -386,8 +386,7 @@ interface Card {
   document-defined `$kind`; the render plate the backend receives
   (`compile_data`) additionally drops `$body` where the schema defines none. Read
   plate metadata with a total accessor (`card.at("$body", default: "")`); a
-  present `$body` is always a content object. See
-  [PLATE_DATA.md](../canon/PLATE_DATA.md).
+  present `$body` is always a content object.
 - `$cards` is always present, possibly empty.
 - Root-block fields and card-field names may collide freely; each card is its
   own scope.
