@@ -504,11 +504,8 @@ impl Document {
             .iter()
             .map(|card| {
                 let mut card_map = serde_json::Map::new();
-                // `$kind` is document-defined: present exactly when the card
-                // authors one. A kindless card carries no `$kind` — the raw
-                // serializer never fabricates `$kind: ""` — matching the
-                // resolved-value view's `kind: None` (issue 1030, "absent on
-                // undefined").
+                // A kindless card carries no `$kind`, never a fabricated `""` —
+                // matching the resolved view's `kind: None`.
                 if let Some(kind) = card.kind() {
                     card_map.insert(
                         "$kind".to_string(),
