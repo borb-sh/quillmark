@@ -67,11 +67,20 @@ impl QuillConfig {
             ),
             normalized.main().body().clone(),
         );
+        // A card's `$body` is defined for the plate iff its kind resolves to a
+        // body-enabled schema — the `$body` half of issue 1030's "absent on
+        // undefined". Capture it here, where the schema is already in hand for
+        // field lowering, and hand it to the plate builder, so the decision is
+        // never re-derived from the serialized plate. (`$kind`, the document-
+        // defined half, is gated structurally by `to_plate_json`.)
+        let mut card_bodies: Vec<bool> = Vec::with_capacity(normalized.cards().len());
         let cards_resolved: Vec<Card> = normalized
             .cards()
             .iter()
             .map(|card| {
-                let fields = match self.card_kind(card.kind().unwrap_or("")) {
+                let schema = self.card_kind(card.kind().unwrap_or(""));
+                card_bodies.push(schema.is_some_and(|s| s.body_enabled()));
+                let fields = match schema {
                     Some(schema) => {
                         plate_fields(ladder_sourced(schema, &card.payload().to_index_map()))
                     }
@@ -83,10 +92,8 @@ impl QuillConfig {
             })
             .collect();
 
-        let mut plate =
-            Document::from_main_and_cards(final_main, cards_resolved).to_plate_json();
-        gate_undefined_body(self, &mut plate);
-        Ok(plate)
+        Ok(Document::from_main_and_cards(final_main, cards_resolved)
+            .to_plate_json_gated(self.main.body_enabled(), Some(&card_bodies)))
     }
 
     /// Validate without backend compilation.
@@ -416,51 +423,6 @@ fn plate_fields(
         .collect()
 }
 
-/// Drop `$body` from the render plate wherever the schema defines no body — the
-/// `$body` half of issue 1030's **absent on undefined**: a `$`-metadata field
-/// appears on a card exactly when the schema defines it there. [`to_plate_json`]
-/// is schema-free and emits `$body` for every card and the root; this is the one
-/// place that knows [`body_enabled`], so it applies the schema gate here.
-///
-/// - Root `$body`: kept iff the main card enables a body.
-/// - Card `$body`: kept iff the card's `$kind` names a declared, **body-enabled**
-///   kind. A body-disabled kind, an unknown kind (no schema), and a kindless card
-///   (no `$kind` key — [`to_plate_json`] already omitted it, its document-defined
-///   half) all resolve to "no body slot", matching the resolved-value view
-///   ([`Quill::resolve`](crate::Quill::resolve) omits the body row) and the
-///   transform schema ([`build_transform_schema`](crate::quill::build_transform_schema)
-///   drops `$body` for a body-disabled kind). Unknown-kind and kindless cards are
-///   unreachable on this path — `validate_document` rejects them before render —
-///   so in practice only the body-disabled edge fires; the rest is the rule made
-///   total.
-///
-/// [`to_plate_json`]: crate::Document::to_plate_json
-/// [`body_enabled`]: crate::quill::CardSchema::body_enabled
-fn gate_undefined_body(config: &QuillConfig, plate: &mut serde_json::Value) {
-    let Some(obj) = plate.as_object_mut() else {
-        return;
-    };
-    if !config.main.body_enabled() {
-        obj.shift_remove("$body");
-    }
-    let Some(cards) = obj.get_mut("$cards").and_then(|v| v.as_array_mut()) else {
-        return;
-    };
-    for card in cards {
-        let Some(card_obj) = card.as_object_mut() else {
-            continue;
-        };
-        let body_defined = card_obj
-            .get("$kind")
-            .and_then(|v| v.as_str())
-            .and_then(|kind| config.card_kind(kind))
-            .is_some_and(|schema| schema.body_enabled());
-        if !body_defined {
-            card_obj.shift_remove("$body");
-        }
-    }
-}
-
 /// The value half of [`resolve_value_sourced`], discarding the rung tag — the
 /// nested-recursion helper for a typed dictionary's properties and a typed
 /// array's elements, where the source of an inner cell is not surfaced (a
@@ -751,7 +713,7 @@ items:
         assert_eq!(resolved, json!([{ "name": "ACME", "year": 2020 }]));
     }
 
-    // ── "Absent on undefined": the render plate drops `$body` wherever the
+    // ── "Absent on undefined": the render plate omits `$body` wherever the
     //    schema defines none (issue 1030). The `$kind` half is structural in
     //    `to_plate_json`; these pin the schema-gated `$body` half. Only the
     //    body-disabled edge is reachable here — `validate_document` rejects an
