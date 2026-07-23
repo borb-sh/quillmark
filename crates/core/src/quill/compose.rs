@@ -7,8 +7,8 @@ use std::str::FromStr;
 use indexmap::IndexMap;
 
 use super::field_states::FieldSource;
-use super::{seed, CardSchema, FieldSchema, FieldType, Quill, QuillConfig};
-use crate::normalize::normalize_document;
+use super::{seed, CardSchema, FieldSchema, FieldType, Leniency, Quill, QuillConfig};
+use crate::normalize::normalize_field_name;
 use crate::quill::zero_value;
 use crate::path::DocPath;
 use crate::{
@@ -47,29 +47,36 @@ impl QuillConfig {
     /// it surfaces as a non-fatal warning from `validate`. See
     /// `prose/canon/SCHEMAS.md`.
     pub fn compile_data(&self, doc: &Document) -> Result<serde_json::Value, RenderError> {
-        let coerced = self.coerce_and_validate(doc)?;
-        let normalized = normalize_document(coerced)?;
+        // Validation gate: only a *malformed* document (a value that won't
+        // coerce/validate) is fatal. A document that passes never takes the
+        // keep-raw branch inside [`resolve_card_sourced`], so the total resolver
+        // below reproduces the gated, coerced, NFC-normalized values
+        // byte-for-byte — the render plate is the resolved-value view with its
+        // source rungs dropped, not a second walk of the same ladder.
+        self.coerce_and_validate(doc)?;
 
-        let main_resolved = resolve_fields(&normalized.main().payload().to_index_map(), &self.main);
-        let cards_resolved: Vec<Card> = normalized
+        let final_main = Card::from_parts(
+            rebuild_payload_with_meta(
+                doc.main(),
+                plate_fields(resolve_card_sourced(&self.main, doc.main())),
+            ),
+            doc.main().body().clone(),
+        );
+        let cards_resolved: Vec<Card> = doc
             .cards()
             .iter()
             .map(|card| {
                 let fields = match self.card_kind(card.kind().unwrap_or("")) {
-                    Some(schema) => resolve_fields(&card.payload().to_index_map(), schema),
+                    Some(schema) => plate_fields(resolve_card_sourced(schema, card)),
+                    // Unknown-kind card: authored fields verbatim, no ladder — as
+                    // the resolved-value view leaves it (`card_states`).
                     None => card.payload().to_index_map(),
                 };
                 Card::from_parts(rebuild_payload_with_meta(card, fields), card.body().clone())
             })
             .collect();
 
-        let final_main = Card::from_parts(
-            rebuild_payload_with_meta(normalized.main(), main_resolved),
-            normalized.main().body().clone(),
-        );
-        let final_doc = Document::from_main_and_cards(final_main, cards_resolved);
-
-        Ok(final_doc.to_plate_json())
+        Ok(Document::from_main_and_cards(final_main, cards_resolved).to_plate_json())
     }
 
     /// Validate without backend compilation.
@@ -311,33 +318,83 @@ fn coercion_error(e: impl std::fmt::Display) -> RenderError {
     )
 }
 
-/// Resolve every schema field absent from `fields`, by precedence: an authored
-/// value wins; else the schema `default:`; else the type-empty [`zero_value`].
-/// This is the zero-filled render projection — the fill lives only here and is
-/// never persisted (see `prose/canon/SCHEMAS.md`). Non-schema fields already
-/// present are preserved untouched.
+/// The one total resolver both canon projections cut — the render-fidelity plate
+/// ([`compile_data`](QuillConfig::compile_data)) and the consumer-side
+/// resolved-value view ([`Quill::field_states`](crate::Quill::field_states)). For
+/// one card it owns the whole per-field walk: conform each authored value under
+/// Render leniency (keep-raw on failure — a branch the validation gate makes
+/// unreachable on a rendered document), NFC-normalize the key (what
+/// `normalize_document` did between coercion and the ladder), then cut the
+/// **sourced** commitment ladder over the declared fields. Undeclared authored
+/// fields carry through verbatim ([`Authored`](FieldSource::Authored)) — the
+/// schema is a floor, not an allowlist.
 ///
-/// Null ≡ absent **at every level**: a null or absent value — top-level field,
-/// typed-dictionary property, or typed-table cell — carries no data and resolves
-/// like an omitted one (default, else zero) rather than projecting a bare null
-/// into the plate. A `!must_fill` placeholder is a present-null (or a suggested
-/// value) on this path; its marker is render-irrelevant.
-fn resolve_fields(
-    fields: &IndexMap<String, QuillValue>,
+/// Field order is authored-first with declared-but-absent fields appended: the
+/// render plate's order. Each projection re-cuts the presentation order it wants
+/// from this one value-and-source map — the view rows declared fields first in
+/// declaration order — rather than re-deriving the ladder against a parallel
+/// precedence policy (`prose/canon/SCHEMAS.md` § "Value sources and
+/// projections"). Null ≡ absent applies recursively inside
+/// [`resolve_value_sourced`], so no bare null reaches either projection.
+pub(crate) fn resolve_card_sourced(
     schema: &CardSchema,
-) -> IndexMap<String, QuillValue> {
-    let mut result = fields.clone();
-    for (name, field) in &schema.fields {
-        let resolved = resolve_value(result.get(name), field);
-        result.insert(name.clone(), resolved);
+    card: &Card,
+) -> IndexMap<String, (QuillValue, FieldSource)> {
+    // conform + NFC, per field — the gated-and-coerced input, reproduced. Every
+    // validated ingress (parse, the mutators) restricts field names to ASCII
+    // (NFC-invariant), so the normalization only respells keys on a
+    // directly-constructed payload (`Payload::from_index_map`), under the same
+    // NFC key the plate carries. A value Render coercion cannot conform is kept
+    // raw (the ladder reads it Authored); on a document that passes the gate that
+    // branch never fires, so this equals the gated path byte-for-byte.
+    let mut resolved_input: IndexMap<String, QuillValue> = IndexMap::new();
+    for (raw_name, value) in card.payload().to_index_map() {
+        let name = normalize_field_name(&raw_name);
+        let entry = match schema.fields.get(&raw_name) {
+            Some(field_schema) => {
+                QuillConfig::conform_value(&value, field_schema, &name, Leniency::Render)
+                    .unwrap_or(value)
+            }
+            None => value,
+        };
+        resolved_input.insert(name, entry);
     }
-    result
+
+    // Undeclared authored fields seed the map in authored order (verbatim,
+    // Authored); the declared fields then overlay in place — or append when
+    // absent — each carrying its ladder value and the source rung that produced
+    // it. Insert on an existing key preserves its authored position, so the
+    // order is authored-first, declared-but-absent appended.
+    let mut out: IndexMap<String, (QuillValue, FieldSource)> = resolved_input
+        .iter()
+        .map(|(name, value)| (name.clone(), (value.clone(), FieldSource::Authored)))
+        .collect();
+    for (name, field_schema) in &schema.fields {
+        out.insert(
+            name.clone(),
+            resolve_value_sourced(resolved_input.get(name), field_schema),
+        );
+    }
+    out
+}
+
+/// Drop the source rungs from [`resolve_card_sourced`]'s map — the render plate
+/// consumes the value half only; the resolved-value view keeps both.
+fn plate_fields(
+    sourced: IndexMap<String, (QuillValue, FieldSource)>,
+) -> IndexMap<String, QuillValue> {
+    sourced
+        .into_iter()
+        .map(|(name, (value, _source))| (name, value))
+        .collect()
 }
 
 /// The value half of [`resolve_value_sourced`], discarding the rung tag — the
-/// zero-filled render projection consumes only the value. `field_states`
-/// consumes both, so the source is produced by the one branch here rather than
-/// re-derived against a parallel ladder.
+/// nested-recursion helper for a typed dictionary's properties and a typed
+/// array's elements, where the source of an inner cell is not surfaced (a
+/// present dict/array is [`Authored`](FieldSource::Authored) as a whole). Both
+/// canon projections cut the sourced ladder through [`resolve_card_sourced`];
+/// this is the inner value-only cut beneath it.
 fn resolve_value(value: Option<&QuillValue>, field: &FieldSchema) -> QuillValue {
     resolve_value_sourced(value, field).0
 }
@@ -375,8 +432,9 @@ pub(crate) fn resolve_value_sourced(
         // commits the *content* form of its default (`default_content`, cached at
         // load by `from_yaml`), so the seam carries canonical Content-JSON the
         // backend can classify. It must NOT fall through to the raw `default`:
-        // `resolve_fields` runs after `coerce_and_validate`, so a bare authored
-        // string injected here would reach the plate uncoerced and be misread. A
+        // the ladder injects this default without re-coercing it (coercion
+        // touched only authored values), so a bare authored string here would
+        // reach the plate uncoerced and be misread. A
         // content field with no cached `default_content` (only reachable via a
         // serde-built `QuillConfig`, never `from_yaml`) zero-fills to the empty
         // content.

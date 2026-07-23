@@ -4,8 +4,9 @@
 //! inferred behavior chain: for every declared field, the value the render
 //! projection would use and the [`FieldSource`] rung it came from. It cuts the
 //! one commitment ladder (`prose/canon/SCHEMAS.md` § "Value sources and
-//! projections") through the shared producer [`resolve_value_sourced`], never a
-//! parallel precedence policy.
+//! projections") through the shared producer
+//! [`resolve_card_sourced`](super::compose::resolve_card_sourced) — the same
+//! resolver the render plate cuts — never a parallel precedence policy.
 //!
 //! Values only: diagnostics stay [`Quill::validate`]'s job (the editor merges
 //! `validate()` with its own producers regardless, so bucketing here would
@@ -16,8 +17,8 @@
 use indexmap::IndexMap;
 use serde::Serialize;
 
-use super::compose::resolve_value_sourced;
-use super::{CardSchema, Leniency, Quill, QuillConfig};
+use super::compose::resolve_card_sourced;
+use super::{CardSchema, Quill, QuillConfig};
 use crate::{Card, Document, QuillValue};
 
 /// The rung of the commitment ladder that produced a [`FieldState::value`].
@@ -75,11 +76,12 @@ pub struct FieldStates {
 impl Quill {
     /// The resolved-value view of `doc` against this quill's schema.
     ///
-    /// For every declared field, the value [`compile_data`] would emit into the
-    /// plate (byte-for-byte with the plate on every fixture), tagged with the
-    /// [`FieldSource`] rung it came from — one call for value and provenance
-    /// instead of re-implementing the ladder. Completeness and errors stay
-    /// [`Quill::validate`]'s; this view carries no diagnostics.
+    /// For every declared field, the value [`compile_data`] emits into the plate
+    /// — the two cut the *same* resolver
+    /// ([`resolve_card_sourced`](super::compose::resolve_card_sourced)), so the
+    /// value is the plate's by construction — tagged with the [`FieldSource`]
+    /// rung it came from. Completeness and errors stay [`Quill::validate`]'s;
+    /// this view carries no diagnostics.
     ///
     /// [`compile_data`]: Quill::compile_data
     pub fn field_states(&self, doc: &Document) -> FieldStates {
@@ -98,37 +100,27 @@ impl Quill {
 
 /// Resolve one card (main or a schema-declared kind) into its ordered
 /// [`FieldState`] rows and its body row (present iff the kind enables a body).
+///
+/// The value and source of every field come from the one shared resolver
+/// [`resolve_card_sourced`] — the same producer [`compile_data`] cuts for the
+/// plate — so the two projections cannot drift. This layer only re-cuts the
+/// **presentation order**: declared fields first in declaration order (the canon
+/// ordering contract, carried structurally by the row array — not the validation
+/// walker's alphabetical sort), then undeclared authored fields in authored
+/// order. The body is a sibling row, never an entry in `fields`.
+///
+/// [`compile_data`]: crate::Quill::compile_data
 fn resolve_card_fields(schema: &CardSchema, card: &Card) -> (Vec<FieldState>, Option<FieldState>) {
-    // Mirror `compile_data`'s pipeline per-field so the value is byte-for-byte
-    // with the plate: coerce under Render leniency (the schema looked up by the
-    // authored name, as `coerce_payload` does), then NFC-normalize the key
-    // (`normalize_document` runs between coercion and the ladder), then resolve.
-    // Every validated ingress (parse, the mutators) restricts field names to
-    // ASCII — NFC-invariant — so the normalization only respells keys on a
-    // directly-constructed payload (`Payload::from_index_map`), under the same
-    // NFC key the plate carries. A value the render coercion cannot conform is
-    // kept raw (the ladder reads it Authored), exactly as `compile_data` leaves
-    // it — the failure surfaces through `validate()`, not here.
-    let mut resolved_input: IndexMap<String, QuillValue> = IndexMap::new();
-    for (raw_name, value) in card.payload().to_index_map() {
-        let name = crate::normalize::normalize_field_name(&raw_name);
-        let entry = match schema.fields.get(&raw_name) {
-            Some(field_schema) => {
-                QuillConfig::conform_value(&value, field_schema, &name, Leniency::Render)
-                    .unwrap_or(value)
-            }
-            None => value,
-        };
-        resolved_input.insert(name, entry);
-    }
-
+    let sourced: IndexMap<String, (QuillValue, FieldSource)> = resolve_card_sourced(schema, card);
     let mut fields = Vec::new();
 
-    // Declared rows in schema **declaration order** — the canon ordering
-    // contract, now carried structurally by the row array. (Not the validation
-    // walker, which sorts alphabetically.)
-    for (name, field_schema) in &schema.fields {
-        let (value, source) = resolve_value_sourced(resolved_input.get(name), field_schema);
+    // Declared rows in schema declaration order. Every declared field is present
+    // in the map — the resolver's ladder inserts each one — so the lookup holds.
+    for (name, _field_schema) in &schema.fields {
+        let (value, source) = sourced
+            .get(name)
+            .cloned()
+            .expect("resolve_card_sourced emits every declared field");
         fields.push(FieldState {
             name: name.clone(),
             value,
@@ -137,20 +129,18 @@ fn resolve_card_fields(schema: &CardSchema, card: &Card) -> (Vec<FieldState>, Op
     }
 
     // Undeclared authored fields, appended in authored order under their NFC
-    // keys (matching the plate's): the schema is a floor, not an allowlist, so
-    // these reach the plate too — value verbatim, source Authored.
-    for (name, value) in &resolved_input {
+    // keys: the schema is a floor, not an allowlist, so these reach both
+    // projections too — value verbatim, source Authored.
+    for (name, (value, source)) in &sourced {
         if !schema.fields.contains_key(name) {
             fields.push(FieldState {
                 name: name.clone(),
                 value: value.clone(),
-                source: FieldSource::Authored,
+                source: *source,
             });
         }
     }
 
-    // The body is a sibling row, not an entry in `fields` — present iff the kind
-    // enables a body.
     let body = schema.body_enabled().then(|| body_state(card));
     (fields, body)
 }
@@ -333,7 +323,10 @@ card_kinds:
         assert_eq!(status.value.as_json(), &serde_json::json!("draft"));
     }
 
-    // ── Byte-for-byte with the render projection (the phase's acceptance) ────
+    // ── Byte-for-byte with the render projection ─────────────────────────────
+    // Both projections now cut the one shared resolver, so agreement is
+    // structural rather than mirrored; this guards against a future re-fork and
+    // pins the plate-build wiring (order, meta, body) against the row view.
 
     #[test]
     fn every_row_is_byte_for_byte_with_compile_data() {
