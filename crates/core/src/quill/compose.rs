@@ -83,7 +83,10 @@ impl QuillConfig {
             })
             .collect();
 
-        Ok(Document::from_main_and_cards(final_main, cards_resolved).to_plate_json())
+        let mut plate =
+            Document::from_main_and_cards(final_main, cards_resolved).to_plate_json();
+        gate_undefined_body(self, &mut plate);
+        Ok(plate)
     }
 
     /// Validate without backend compilation.
@@ -413,6 +416,51 @@ fn plate_fields(
         .collect()
 }
 
+/// Drop `$body` from the render plate wherever the schema defines no body — the
+/// `$body` half of issue 1030's **absent on undefined**: a `$`-metadata field
+/// appears on a card exactly when the schema defines it there. [`to_plate_json`]
+/// is schema-free and emits `$body` for every card and the root; this is the one
+/// place that knows [`body_enabled`], so it applies the schema gate here.
+///
+/// - Root `$body`: kept iff the main card enables a body.
+/// - Card `$body`: kept iff the card's `$kind` names a declared, **body-enabled**
+///   kind. A body-disabled kind, an unknown kind (no schema), and a kindless card
+///   (no `$kind` key — [`to_plate_json`] already omitted it, its document-defined
+///   half) all resolve to "no body slot", matching the resolved-value view
+///   ([`Quill::resolve`](crate::Quill::resolve) omits the body row) and the
+///   transform schema ([`build_transform_schema`](crate::quill::build_transform_schema)
+///   drops `$body` for a body-disabled kind). Unknown-kind and kindless cards are
+///   unreachable on this path — `validate_document` rejects them before render —
+///   so in practice only the body-disabled edge fires; the rest is the rule made
+///   total.
+///
+/// [`to_plate_json`]: crate::Document::to_plate_json
+/// [`body_enabled`]: crate::quill::CardSchema::body_enabled
+fn gate_undefined_body(config: &QuillConfig, plate: &mut serde_json::Value) {
+    let Some(obj) = plate.as_object_mut() else {
+        return;
+    };
+    if !config.main.body_enabled() {
+        obj.shift_remove("$body");
+    }
+    let Some(cards) = obj.get_mut("$cards").and_then(|v| v.as_array_mut()) else {
+        return;
+    };
+    for card in cards {
+        let Some(card_obj) = card.as_object_mut() else {
+            continue;
+        };
+        let body_defined = card_obj
+            .get("$kind")
+            .and_then(|v| v.as_str())
+            .and_then(|kind| config.card_kind(kind))
+            .is_some_and(|schema| schema.body_enabled());
+        if !body_defined {
+            card_obj.shift_remove("$body");
+        }
+    }
+}
+
 /// The value half of [`resolve_value_sourced`], discarding the rung tag — the
 /// nested-recursion helper for a typed dictionary's properties and a typed
 /// array's elements, where the source of an inner cell is not surfaced (a
@@ -701,5 +749,92 @@ items:
         let resolved = resolve_value(Some(&input), &schema).into_json();
 
         assert_eq!(resolved, json!([{ "name": "ACME", "year": 2020 }]));
+    }
+
+    // ── "Absent on undefined": the render plate drops `$body` wherever the
+    //    schema defines none (issue 1030). The `$kind` half is structural in
+    //    `to_plate_json`; these pin the schema-gated `$body` half. Only the
+    //    body-disabled edge is reachable here — `validate_document` rejects an
+    //    unknown-kind or kindless card before render.
+
+    fn plate_of(yaml: &str, md: &str) -> serde_json::Value {
+        let config = QuillConfig::from_yaml(yaml).expect("valid quill");
+        let doc = Document::parse(md).expect("parse").document;
+        config.compile_data(&doc).expect("compile")
+    }
+
+    #[test]
+    fn body_disabled_kind_omits_dollar_body() {
+        let plate = plate_of(
+            r#"
+quill: { name: bd, version: 1.0.0, backend: typst, description: x }
+main:
+  fields:
+    title: { type: string }
+card_kinds:
+  stamp:
+    body:
+      enabled: false
+    fields:
+      label: { type: string }
+"#,
+            "~~~card-yaml\n$quill: bd@1.0.0\n$kind: main\ntitle: T\n~~~\n\n\
+             ~~~card-yaml\n$kind: stamp\nlabel: L\n~~~\n",
+        );
+        let card = &plate["$cards"][0];
+        assert_eq!(card["$kind"], "stamp", "$kind is document-defined, kept");
+        assert_eq!(card["label"], "L", "declared fields kept");
+        assert!(
+            card.get("$body").is_none(),
+            "a body-disabled kind carries no $body in the plate; got {card}"
+        );
+    }
+
+    #[test]
+    fn body_disabled_main_omits_root_dollar_body() {
+        let plate = plate_of(
+            r#"
+quill: { name: bdm, version: 1.0.0, backend: typst, description: x }
+main:
+  body:
+    enabled: false
+  fields:
+    title: { type: string }
+"#,
+            "~~~card-yaml\n$quill: bdm@1.0.0\n$kind: main\ntitle: T\n~~~\n",
+        );
+        assert_eq!(plate["title"], "T");
+        assert!(
+            plate.get("$body").is_none(),
+            "a body-disabled main carries no root $body; got {plate}"
+        );
+    }
+
+    #[test]
+    fn body_enabled_keeps_dollar_body() {
+        let plate = plate_of(
+            r#"
+quill: { name: be, version: 1.0.0, backend: typst, description: x }
+main:
+  fields:
+    title: { type: string }
+card_kinds:
+  note:
+    fields:
+      tag: { type: string }
+"#,
+            "~~~card-yaml\n$quill: be@1.0.0\n$kind: main\ntitle: T\n~~~\n\n\
+             Main body.\n\n\
+             ~~~card-yaml\n$kind: note\ntag: x\n~~~\nNote body.\n",
+        );
+        assert_eq!(
+            plate["$body"]["text"], "Main body.",
+            "a body-enabled main keeps its $body"
+        );
+        let card = &plate["$cards"][0];
+        assert_eq!(
+            card["$body"]["text"], "Note body.",
+            "a body-enabled kind keeps its $body content object"
+        );
     }
 }

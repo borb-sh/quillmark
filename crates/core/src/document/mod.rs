@@ -475,6 +475,13 @@ impl Document {
     /// text, card list, card kind). User payload fields stay flat at the
     /// root — they cannot collide with `$` keys because user field names are
     /// never `$`-prefixed (they match `[A-Za-z_][A-Za-z0-9_]*`).
+    ///
+    /// `$kind` is document-defined and omitted for a kindless card (never a
+    /// fabricated `""`). This raw serializer is schema-free, so it emits
+    /// `$body` for every card and the root; the schema-gated render plate
+    /// (`QuillConfig::compile_data`) additionally drops `$body` wherever the
+    /// schema defines no body — a body-disabled or unknown kind — per issue
+    /// 1030's "absent on undefined".
     pub fn to_plate_json(&self) -> serde_json::Value {
         let mut map = serde_json::Map::new();
 
@@ -497,10 +504,17 @@ impl Document {
             .iter()
             .map(|card| {
                 let mut card_map = serde_json::Map::new();
-                card_map.insert(
-                    "$kind".to_string(),
-                    serde_json::Value::String(card.kind().unwrap_or("").to_string()),
-                );
+                // `$kind` is document-defined: present exactly when the card
+                // authors one. A kindless card carries no `$kind` — the raw
+                // serializer never fabricates `$kind: ""` — matching the
+                // resolved-value view's `kind: None` (issue 1030, "absent on
+                // undefined").
+                if let Some(kind) = card.kind() {
+                    card_map.insert(
+                        "$kind".to_string(),
+                        serde_json::Value::String(kind.to_string()),
+                    );
+                }
                 card_map.insert(
                     "$body".to_string(),
                     quillmark_content::serial::to_canonical_value(card.body()),

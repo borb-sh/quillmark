@@ -2031,6 +2031,34 @@ Card body here.
     assert_eq!(cards[0]["$body"]["text"], "Card body here.");
 }
 
+/// A kindless composable card (no `$kind`) carries no `$kind` key in the raw
+/// plate — the serializer never fabricates `$kind: ""` (issue 1030, "absent on
+/// undefined"). The schema-free serializer still emits `$body` for every card;
+/// the schema-gated body drop is the render plate's job (`compile_data`).
+#[test]
+fn test_to_plate_json_kindless_card_omits_kind() {
+    use crate::{Card, Payload};
+
+    let mut doc = Document::parse("~~~card-yaml\n$quill: my_quill\n$kind: main\n~~~\n\nBody.\n")
+        .unwrap()
+        .document;
+    doc.cards_vec_mut().push(Card::from_parts(
+        Payload::new(),
+        quillmark_content::Content::empty(),
+    ));
+
+    let json = doc.to_plate_json();
+    let card = &json["$cards"][0];
+    assert!(
+        card.get("$kind").is_none(),
+        "a kindless card must carry no $kind: {card}"
+    );
+    assert!(
+        card.get("$body").is_some(),
+        "the schema-free serializer still emits $body: {card}"
+    );
+}
+
 /// to_plate_json parity: the `$quill` key appears first.
 #[test]
 fn test_to_plate_json_quill_first() {
