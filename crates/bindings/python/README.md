@@ -35,7 +35,7 @@ result.artifacts[0].save("output.pdf")
 ## API surface
 
 Python is a **Tier-1 binding**: field I/O flows through `quill.writer(doc)` and
-`quill.view(doc)`, the schema-bound write/read front doors. `Document` carries
+`quill.reader(doc)`, the schema-bound write/read front doors. `Document` carries
 the quill-free surface — parse, storage, structure, `$ext` / `$seed`, and
 `remove_field`. There is no opaque field store and no anchor-preserving content
 lane (`install` / `revise` / `apply_change` + the `import_markdown` /
@@ -82,7 +82,7 @@ main    = quill.seed_main()               # just the $kind: main card (dict, lik
 card    = quill.seed_card("note")         # one starter composable card (dict), None if kind undeclared
 
 writer  = quill.writer(doc)               # schema-bound typed write front door
-reader  = quill.view(doc)                 # schema-bound interpreted read front door
+reader  = quill.reader(doc)                 # schema-bound interpreted read front door
 ```
 
 ### `Writer` — `quill.writer(doc)`
@@ -103,14 +103,14 @@ w.remove_card(0)
 w.card(0).set("author", "Issa")           # a CardWriter: .index, .kind, .set, .set_all, .set_body, .revise_field
 ```
 
-### `View` — `quill.view(doc)`
+### `Reader` — `quill.reader(doc)`
 
 The interpreted read front door and the read twin of `Writer`. One `get` reads
 each field by its declared type: a richtext field to its markdown projection,
 every other type its canonical value verbatim.
 
 ```python
-v = quill.view(doc)
+v = quill.reader(doc)
 v.get("bio")                              # richtext → markdown str; scalar → its value; absent → None
                                           # undeclared name raises UnknownField; undecodable content raises FieldRichtextDecode
 v.get_body()                              # the main body markdown (quill-free body read)
@@ -173,7 +173,7 @@ doc.remove_seed_namespace("note")
 
 Setting a field's value is the writer's job (`quill.writer(doc).set(...)`) — a
 field write needs the schema, and `Document` is quill-free. Reading a field's
-interpreted value is the view's (`quill.view(doc).get(...)`).
+interpreted value is the reader's (`quill.reader(doc).get(...)`).
 
 ## Schema model
 

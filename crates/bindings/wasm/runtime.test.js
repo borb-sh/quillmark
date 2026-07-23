@@ -17,8 +17,8 @@ import {
   Engine,
   DocumentWriter,
   CardWriter,
-  DocumentView,
-  CardView,
+  DocumentReader,
+  CardReader,
   MAIN_CARD_ADDR,
   isQuillmarkError,
   exportMarkdown,
@@ -189,7 +189,7 @@ card_kinds:
     const quill = buildQuill()
     const ed = quill.writer(blankDoc())
     const delta = ed.reviseField('subject', 'Q3 **results**')
-    expect(quill.view(ed.document).get('subject')).toBe('Q3 **results**')
+    expect(quill.reader(ed.document).get('subject')).toBe('Q3 **results**')
     expect(delta).toBeTruthy() // the anchor-preserving receipt
   })
 
@@ -200,7 +200,7 @@ card_kinds:
     // `subject` is richtext(inline): a multi-block result is refused, field intact.
     ed.reviseField('subject', 'kept')
     expectEditCode(() => ed.reviseField('subject', 'a\n\nb'), 'edit::field_richtext_not_inline')
-    expect(quill.view(ed.document).get('subject')).toBe('kept')
+    expect(quill.reader(ed.document).get('subject')).toBe('kept')
   })
 
   it('addCard fuses make + typed commit + push, transactionally', () => {
@@ -260,10 +260,10 @@ card_kinds:
     // reads through the schema-plane view (#978).
     expect(ed.document.getMarkdown()).toBe('Main **body**.')
     expect(() => ed.document.getMarkdown({ field: 'subject' })).toThrow(/body-only/)
-    expect(quill.view(ed.document).get('subject')).toBe('Q3 **results**')
+    expect(quill.reader(ed.document).get('subject')).toBe('Q3 **results**')
     // view.get carries schema authority: an unknown name throws (vs `undefined`
     // from the quill-free transport `Document.get` above).
-    expectEditCode(() => quill.view(ed.document).get('missing'), 'edit::unknown_field')
+    expectEditCode(() => quill.reader(ed.document).get('missing'), 'edit::unknown_field')
   })
 })
 
@@ -271,7 +271,7 @@ card_kinds:
 // once and read each field by its declared type — a richtext field to markdown,
 // every other type verbatim — with schema authority, so an unknown field name
 // throws rather than reading back `undefined` off the quill-free `Document`.
-describe('@quillmark/wasm/runtime — DocumentView / CardView (the schema-plane read)', () => {
+describe('@quillmark/wasm/runtime — DocumentReader / CardReader (the schema-plane read)', () => {
   const VIEW_QUILL_YAML = `quill:
   name: view_test
   version: "1.0"
@@ -305,18 +305,18 @@ card_kinds:
     return doc
   }
 
-  it('quill.view(doc) is the front door and returns a DocumentView', () => {
+  it('quill.reader(doc) is the front door and returns a DocumentReader', () => {
     const quill = buildQuill()
-    const v = quill.view(seededDoc(quill))
-    expect(v).toBeInstanceOf(DocumentView)
-    expect(new DocumentView(quill, seededDoc(quill))).toBeInstanceOf(DocumentView)
+    const v = quill.reader(seededDoc(quill))
+    expect(v).toBeInstanceOf(DocumentReader)
+    expect(new DocumentReader(quill, seededDoc(quill))).toBeInstanceOf(DocumentReader)
   })
 
   it('interprets by declared type: richtext → markdown, plaintext → literal, scalar → canonical', () => {
     const quill = buildQuill()
     const doc = seededDoc(quill)
     quill.writer(doc).set('note', 'a *literal* line') // marks verbatim under plaintext
-    const v = quill.view(doc)
+    const v = quill.reader(doc)
     expect(v.get('subject')).toBe('Q3 **results**') // richtext projects to markdown
     expect(v.get('note')).toBe('a *literal* line') // plaintext projects verbatim
     expect(v.get('qty')).toBe(3) // scalar returns canonical
@@ -324,7 +324,7 @@ card_kinds:
 
   it('absence returns undefined; an unknown name throws (schema authority)', () => {
     const quill = buildQuill()
-    const v = quill.view(Document.fromMarkdown('~~~card-yaml\n$quill: view_test\n~~~\n\nBody.'))
+    const v = quill.reader(Document.fromMarkdown('~~~card-yaml\n$quill: view_test\n~~~\n\nBody.'))
     expect(v.get('subject')).toBeUndefined() // absent, not a typo
     expectEditCode(() => v.get('nope'), 'edit::unknown_field') // typo, not absent
   })
@@ -333,19 +333,19 @@ card_kinds:
     const quill = buildQuill()
     const doc = Document.fromMarkdown('~~~card-yaml\n$quill: view_test\n~~~\n\nBody.')
     doc.storeField('subject', 3) // opaque write puts a bare number under richtext
-    expectEditCode(() => quill.view(doc).get('subject'), 'edit::field_richtext_decode')
+    expectEditCode(() => quill.reader(doc).get('subject'), 'edit::field_richtext_decode')
   })
 
   it('an absent field addr reads the body markdown, quill-free', () => {
     const quill = buildQuill()
-    const v = quill.view(seededDoc(quill))
+    const v = quill.reader(seededDoc(quill))
     expect(v.getBody()).toBe('Main **body**.')
     expect(v.get({})).toBe('Main **body**.') // {} = main body, equals getBody()
   })
 
   it('card(i).get reads a card field through its $kind schema', () => {
     const quill = buildQuill()
-    const v = quill.view(seededDoc(quill))
+    const v = quill.reader(seededDoc(quill))
     expect(v.card(0).kind).toBe('note')
     expect(v.card(0).get('body')).toBe('A *card* field.')
     expect(v.card(0).getBody()).toBe('Card body.')
@@ -354,9 +354,9 @@ card_kinds:
 
   it('a bad card index throws at read time, not at card()', () => {
     const quill = buildQuill()
-    const cardView = quill.view(seededDoc(quill)).card(9)
-    expect(cardView).toBeInstanceOf(CardView)
-    expectEditCode(() => cardView.get('body'), 'edit::index_out_of_range')
+    const cardReader = quill.reader(seededDoc(quill)).card(9)
+    expect(cardReader).toBeInstanceOf(CardReader)
+    expectEditCode(() => cardReader.get('body'), 'edit::index_out_of_range')
   })
 })
 

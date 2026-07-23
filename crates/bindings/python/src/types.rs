@@ -124,12 +124,12 @@ impl PyQuill {
     }
 
     /// Bind this quill's schema to `doc` for interpreted reads — the read twin of
-    /// `writer`, mirroring core `quill.view(&doc)` and WASM `quill.view(doc)`.
+    /// `writer`, mirroring core `quill.reader(&doc)` and WASM `quill.reader(doc)`.
     /// Each field reads by its declared type (a richtext field to markdown, every
-    /// other type verbatim) with schema authority. See [`PyView`] for the
+    /// other type verbatim) with schema authority. See [`PyReader`] for the
     /// re-borrow/ephemerality contract.
-    fn view(slf: Py<Self>, doc: Py<PyDocument>) -> PyView {
-        PyView { quill: slf, doc }
+    fn reader(slf: Py<Self>, doc: Py<PyDocument>) -> PyReader {
+        PyReader { quill: slf, doc }
     }
 
     #[getter]
@@ -425,7 +425,7 @@ impl PyDocument {
     /// Main card's global body as canonical Content-JSON — the source-of-truth
     /// content model (a content dict, `{text, lines, marks, islands}`). The
     /// quill-free total-read snapshot; for the markdown projection use
-    /// `quill.view(doc).get_body()`.
+    /// `quill.reader(doc).get_body()`.
     #[getter]
     fn body<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let wire = quillmark_core::CardWire::from(self.inner.main());
@@ -895,7 +895,7 @@ impl PyCardWriter {
 }
 
 /// A `Document` bound to its `Quill` for interpreted reads — the schema-plane
-/// read view, from `Quill.view(doc)` and the read twin of `Writer`. One `get`
+/// read surface, from `Quill.reader(doc)` and the read twin of `Writer`. One `get`
 /// reads each field by its declared type: a richtext field to its markdown
 /// projection, a plaintext field to its literal text, every other type its
 /// canonical value verbatim. The schema authority is the point: a name the schema
@@ -905,15 +905,15 @@ impl PyCardWriter {
 /// read surface — `Document` carries no quill-free field read. Holds both objects
 /// by reference and re-borrows them per call (pyo3 objects carry no lifetime), so
 /// it is ephemeral by convention: bind, read, discard. Mirrors WASM
-/// `quill.view(doc)`.
-#[pyclass(name = "View")]
-pub struct PyView {
+/// `quill.reader(doc)`.
+#[pyclass(name = "Reader")]
+pub struct PyReader {
     quill: Py<PyQuill>,
     doc: Py<PyDocument>,
 }
 
 #[pymethods]
-impl PyView {
+impl PyReader {
     /// The bound document — the same object passed in.
     #[getter]
     fn document(&self, py: Python<'_>) -> Py<PyDocument> {
@@ -931,7 +931,7 @@ impl PyView {
         let doc = self.doc.borrow(py);
         let read = quill
             .inner
-            .view(&doc.inner)
+            .reader(&doc.inner)
             .get(name)
             .map_err(convert_edit_error)?;
         read_value_to_py(py, read)
@@ -944,11 +944,11 @@ impl PyView {
         doc.inner.main().body_markdown()
     }
 
-    /// A `CardView` for the composable card at `index`. The index is checked
+    /// A `CardReader` for the composable card at `index`. The index is checked
     /// lazily at the read, so this never raises. The cursor is ephemeral — a
     /// `remove_card`/`add_card` between binding and reading silently retargets it.
-    fn card(&self, py: Python<'_>, index: usize) -> PyCardView {
-        PyCardView {
+    fn card(&self, py: Python<'_>, index: usize) -> PyCardReader {
+        PyCardReader {
             quill: self.quill.clone_ref(py),
             doc: self.doc.clone_ref(py),
             index,
@@ -957,17 +957,17 @@ impl PyView {
 }
 
 /// A composable card bound to its `Quill` for interpreted reads, from
-/// `View.card`. Same verbs as `View`, reading the card at its bound index; each
+/// `Reader.card`. Same verbs as `Reader`, reading the card at its bound index; each
 /// read raises `edit::index_out_of_range` if that index is out of range.
-#[pyclass(name = "CardView")]
-pub struct PyCardView {
+#[pyclass(name = "CardReader")]
+pub struct PyCardReader {
     quill: Py<PyQuill>,
     doc: Py<PyDocument>,
     index: usize,
 }
 
 #[pymethods]
-impl PyCardView {
+impl PyCardReader {
     /// The bound card index.
     #[getter]
     fn index(&self) -> usize {
@@ -980,19 +980,19 @@ impl PyCardView {
     fn kind(&self, py: Python<'_>) -> PyResult<Option<String>> {
         let quill = self.quill.borrow(py);
         let doc = self.doc.borrow(py);
-        let view = quill.inner.view(&doc.inner);
-        let card = view.card(self.index).map_err(convert_edit_error)?;
+        let reader = quill.inner.reader(&doc.inner);
+        let card = reader.card(self.index).map_err(convert_edit_error)?;
         Ok(card.kind().map(|k| k.to_string()))
     }
 
     /// Read a field on this card, interpreted by its declared type — the
-    /// card-indexed twin of `View.get`. Raises `edit::unknown_field` for an
+    /// card-indexed twin of `Reader.get`. Raises `edit::unknown_field` for an
     /// undeclared name and `edit::index_out_of_range` for a bad index.
     fn get<'py>(&self, py: Python<'py>, name: &str) -> PyResult<Option<Bound<'py, PyAny>>> {
         let quill = self.quill.borrow(py);
         let doc = self.doc.borrow(py);
-        let view = quill.inner.view(&doc.inner);
-        let read = view
+        let reader = quill.inner.reader(&doc.inner);
+        let read = reader
             .card(self.index)
             .map_err(convert_edit_error)?
             .get(name)
@@ -1000,7 +1000,7 @@ impl PyCardView {
         read_value_to_py(py, read)
     }
 
-    /// This card's body markdown — the card twin of `View.get_body`. Raises
+    /// This card's body markdown — the card twin of `Reader.get_body`. Raises
     /// `edit::index_out_of_range` if the bound index is out of range.
     fn get_body(&self, py: Python<'_>) -> PyResult<String> {
         let doc = self.doc.borrow(py);
@@ -1214,7 +1214,7 @@ fn quillvalue_to_py<'py>(
 }
 
 /// Flatten a [`ReadValue`](quillmark_core::ReadValue) into a Python object for
-/// the `View.get` surfaces: a richtext projection becomes a `str`, a canonical
+/// the `Reader.get` surfaces: a richtext projection becomes a `str`, a canonical
 /// value its scalar/list/dict shape, and an absent field `None`. The schema-plane
 /// twin of `quillvalue_to_py`, which knows only the transport shape.
 fn read_value_to_py<'py>(
@@ -1300,7 +1300,7 @@ fn card_to_pydict<'py>(
     }
 
     // `body` is the canonical content (source of truth); the markdown projection
-    // is the schema-plane `quill.view(doc).get_body()` read. The reverse path
+    // is the schema-plane `quill.reader(doc).get_body()` read. The reverse path
     // (`py_dict_to_card`) reads `body`.
     d.set_item("body", json_to_py(py, &wire.body)?)?;
     Ok(d)

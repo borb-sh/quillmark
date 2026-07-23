@@ -30,8 +30,10 @@ guides in order.
   `diagnostics[0].code`), and each mutator diagnostic now carries a `DocPath`
   `path` (WASM). `Diagnostic.path` gains an exported `parseDocPath` /
   `formatDocPath` (route on `DocPathSeg[]`, not a regex). Canon ratifies
-  null ≡ absent as a 1.0 commitment (no behavior change). Adds `fieldStates()`
-  (WASM) — the resolved-value view: per field, value + source rung
+  null ≡ absent as a 1.0 commitment (no behavior change). The typed reader front
+  door is renamed `view()` → `reader()` (`DocumentView`/`CardView` → `*Reader`)
+  on every binding — migrate `.view(` call sites. Adds `resolve()` (WASM) — the
+  resolved-value view: per field, value + source rung
   (`"authored" | "default" | "zero"`), in one call (additive, no action).
 - [0.94 → 0.95](0.94-to-0.95.md) — WASM `pushCard` folds into
   `insertCard(card, at?)` (one insertion verb; `insertCard`'s args reorder to

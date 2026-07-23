@@ -673,14 +673,14 @@ impl Quill {
     /// Value and provenance only: completeness and errors stay `validate`'s
     /// (a consumer merges it with its own diagnostic producers regardless), and
     /// schema guidance reads from `Quill.schema`.
-    #[wasm_bindgen(js_name = fieldStates, unchecked_return_type = "FieldStates")]
-    pub fn field_states(&self, doc: &Document) -> Result<JsValue, JsValue> {
-        let states = self.inner.field_states(&doc.inner);
+    #[wasm_bindgen(js_name = resolve, unchecked_return_type = "Resolved")]
+    pub fn resolve(&self, doc: &Document) -> Result<JsValue, JsValue> {
+        let states = self.inner.resolve(&doc.inner);
         let serializer = serde_wasm_bindgen::Serializer::new()
             .serialize_maps_as_objects(true)
             .serialize_missing_as_null(true);
         states.serialize(&serializer).map_err(|e| {
-            WasmError::from(format!("fieldStates: serialization failed: {e}")).to_js_value()
+            WasmError::from(format!("resolve: serialization failed: {e}")).to_js_value()
         })
     }
 
@@ -962,7 +962,7 @@ impl Document {
     ///
     /// `addr` is an optional **card address** (`{ card }`, absent = main). A
     /// present `field` throws — a field's markdown is read through the
-    /// schema-plane `quill.view(doc).get(field)`, which interprets by declared
+    /// schema-plane `quill.reader(doc).get(field)`, which interprets by declared
     /// type (#978). An out-of-range `addr.card` throws.
     #[wasm_bindgen(js_name = getMarkdown, unchecked_return_type = "string")]
     pub fn get_markdown(
@@ -973,7 +973,7 @@ impl Document {
         if addr.field.is_some() {
             return Err(WasmError::from(
                 "getMarkdown is body-only — read a field's markdown with \
-                 quill.view(doc).get(field)",
+                 quill.reader(doc).get(field)",
             )
             .to_js_value());
         }
@@ -981,7 +981,7 @@ impl Document {
     }
 
     /// Interpreted read at `addr`, resolving the field's declared `type` from
-    /// `quill` — the stable ABI under the runtime `view.get` / `view.card(i).get`.
+    /// `quill` — the stable ABI under the runtime `reader.get` / `reader.card(i).get`.
     /// The schema-plane twin of the quill-free [`get`](Self::get): a `richtext`
     /// field returns its markdown projection, every other declared type its
     /// canonical value verbatim, so a consumer holding the quill reads by field
@@ -999,28 +999,28 @@ impl Document {
     ///
     /// The `quill` handle is passed per call because a `Document` carries only a
     /// `$quill` reference, not the resolved schema.
-    #[wasm_bindgen(js_name = _viewGet, skip_typescript, unchecked_return_type = "unknown")]
-    pub fn view_get(
+    #[wasm_bindgen(js_name = _readerGet, skip_typescript, unchecked_return_type = "unknown")]
+    pub fn reader_get(
         &self,
         quill: &Quill,
         #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
     ) -> Result<JsValue, JsValue> {
         let addr = Addr::from_js_or_string(&addr)?;
         let base = self.addr_base(&addr);
-        let view = quill.inner.view(&self.inner);
+        let reader = quill.inner.reader(&self.inner);
         match &addr.field {
             // Absent field = body: quill-free markdown, the getMarkdown body read.
             None => Ok(JsValue::from_str(&match addr.card {
-                None => view.get_body(),
-                Some(index) => view
+                None => reader.get_body(),
+                Some(index) => reader
                     .card(index)
                     .map_err(|e| edit_error_to_js(&e, &base))?
                     .get_body(),
             })),
             Some(field) => {
                 let read = match addr.card {
-                    None => view.get(field),
-                    Some(index) => view
+                    None => reader.get(field),
+                    Some(index) => reader
                         .card(index)
                         .map_err(|e| edit_error_to_js(&e, &base))?
                         .get(field),
@@ -1032,7 +1032,7 @@ impl Document {
                     Some(quillmark_core::ReadValue::Markdown(s))
                     | Some(quillmark_core::ReadValue::Plaintext(s)) => Ok(JsValue::from_str(&s)),
                     Some(quillmark_core::ReadValue::Value(v)) => {
-                        serialize_or_throw(v.as_json(), "view.get")
+                        serialize_or_throw(v.as_json(), "reader.get")
                     }
                 }
             }
@@ -1954,11 +1954,11 @@ export type DocPathSeg =
     | { seg: "body" };
 "#;
 
-/// TypeScript declarations for the resolved-value view (`Quill.fieldStates`).
+/// TypeScript declarations for the resolved-value view (`Quill.resolve`).
 /// Emitted here as the single source of truth.
 #[wasm_bindgen(typescript_custom_section)]
-const FIELDSTATES_TS: &'static str = r#"
-/** The commitment-ladder rung that produced a `FieldState.value`. */
+const RESOLVED_TS: &'static str = r#"
+/** The commitment-ladder rung that produced a `ResolvedField.value`. */
 export type FieldSource = "authored" | "default" | "zero";
 
 /**
@@ -1968,7 +1968,7 @@ export type FieldSource = "authored" | "default" | "zero";
  * on its card, never a row in `fields`. Diagnostics stay `Quill.validate`'s;
  * schema guidance (`example:`, labels) reads from `Quill.schema`.
  */
-export interface FieldState {
+export interface ResolvedField {
     name: string;
     value: unknown;
     source: FieldSource;
@@ -1978,9 +1978,9 @@ export interface FieldState {
  * The main card's resolved rows in declaration order, plus its body row —
  * `null` when the main enables no body.
  */
-export interface MainFieldStates {
-    fields: FieldState[];
-    body: FieldState | null;
+export interface ResolvedMain {
+    fields: ResolvedField[];
+    body: ResolvedField | null;
 }
 
 /**
@@ -1988,21 +1988,21 @@ export interface MainFieldStates {
  * `kind` (`null` for an unknown-kind card), its document-array `index`, and its
  * body row — `null` when the kind enables no body.
  */
-export interface CardFieldStates {
+export interface ResolvedCard {
     kind: string | null;
     index: number;
-    fields: FieldState[];
-    body: FieldState | null;
+    fields: ResolvedField[];
+    body: ResolvedField | null;
 }
 
 /**
- * The resolved-value view (`Quill.fieldStates`): the main card and every
+ * The resolved-value view (`Quill.resolve`): the main card and every
  * composable card. Value and provenance only — completeness and errors stay
  * `Quill.validate`.
  */
-export interface FieldStates {
-    main: MainFieldStates;
-    cards: CardFieldStates[];
+export interface Resolved {
+    main: ResolvedMain;
+    cards: ResolvedCard[];
 }
 "#;
 

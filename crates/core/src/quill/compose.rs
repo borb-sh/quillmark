@@ -6,7 +6,7 @@ use std::str::FromStr;
 
 use indexmap::IndexMap;
 
-use super::field_states::FieldSource;
+use super::resolved::FieldSource;
 use super::{seed, CardSchema, FieldSchema, FieldType, Leniency, Quill, QuillConfig};
 use crate::normalize::normalize_field_name;
 use crate::quill::zero_value;
@@ -320,7 +320,7 @@ fn coercion_error(e: impl std::fmt::Display) -> RenderError {
 
 /// The one total resolver both canon projections cut — the render-fidelity plate
 /// ([`compile_data`](QuillConfig::compile_data)) and the consumer-side
-/// resolved-value view ([`Quill::field_states`](crate::Quill::field_states)). For
+/// resolved-value view ([`Quill::resolve`](crate::Quill::resolve)). For
 /// one card it owns the whole per-field walk: conform each authored value under
 /// Render leniency (keep-raw on failure — a branch the validation gate makes
 /// unreachable on a rendered document), NFC-normalize the key (what

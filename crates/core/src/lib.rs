@@ -61,7 +61,7 @@ pub use quillmark_content::Content;
 
 pub mod quill;
 pub use quill::{
-    zero_value, CardStates, FieldSource, FieldState, FieldStates, FileTreeNode, MainStates, Quill,
+    zero_value, FieldSource, FileTreeNode, Quill, Resolved, ResolvedCard, ResolvedField, ResolvedMain,
     QuillIgnore, STANDARD_METADATA_KEYS,
 };
 

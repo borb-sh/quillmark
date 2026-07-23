@@ -1,12 +1,12 @@
-//! The resolved-value view — [`Quill::field_states`].
+//! The resolved-value view — [`Quill::resolve`].
 //!
 //! A projection that makes field resolution observable *data* rather than an
 //! inferred behavior chain: for every declared field, the value the render
 //! projection would use and the [`FieldSource`] rung it came from. It cuts the
 //! one commitment ladder (`prose/canon/SCHEMAS.md` § "Value sources and
 //! projections") through the shared producer
-//! [`resolve_card_sourced`](super::compose::resolve_card_sourced) — the same
-//! resolver the render plate cuts — never a parallel precedence policy.
+//! `resolve_card_sourced` (in `super::compose`) — the same resolver the render
+//! plate cuts — never a parallel precedence policy.
 //!
 //! Values only: diagnostics stay [`Quill::validate`]'s job (the editor merges
 //! `validate()` with its own producers regardless, so bucketing here would
@@ -21,7 +21,7 @@ use super::compose::resolve_card_sourced;
 use super::{CardSchema, Quill, QuillConfig};
 use crate::{Card, Document, QuillValue};
 
-/// The rung of the commitment ladder that produced a [`FieldState::value`].
+/// The rung of the commitment ladder that produced a [`ResolvedField::value`].
 /// Serializes lowercase (`"authored" | "default" | "zero"`).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -37,11 +37,11 @@ pub enum FieldSource {
 /// One resolved row: its `name`, the value the render projection would use, and
 /// the [`FieldSource`] rung that value came from. A row carries its own name so
 /// declaration order is structural — an ordered array, not JSON object key
-/// order. The card body is a [`MainStates::body`] / [`CardStates::body`]
+/// order. The card body is a [`ResolvedMain::body`] / [`ResolvedCard::body`]
 /// sibling, never a row in `fields`, so a consumer iterating declared fields
 /// never trips over it.
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct FieldState {
+pub struct ResolvedField {
     pub name: String,
     pub value: QuillValue,
     pub source: FieldSource,
@@ -50,56 +50,55 @@ pub struct FieldState {
 /// The main card's resolved rows in declaration order, plus its body row when
 /// the main enables a body.
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct MainStates {
-    pub fields: Vec<FieldState>,
-    pub body: Option<FieldState>,
+pub struct ResolvedMain {
+    pub fields: Vec<ResolvedField>,
+    pub body: Option<ResolvedField>,
 }
 
 /// One composable card's resolved rows, with its authored `kind` (present even
 /// for an unknown kind, which carries its fields verbatim), its document-array
 /// `index`, and its body row when the kind enables a body.
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct CardStates {
+pub struct ResolvedCard {
     pub kind: Option<String>,
     pub index: usize,
-    pub fields: Vec<FieldState>,
-    pub body: Option<FieldState>,
+    pub fields: Vec<ResolvedField>,
+    pub body: Option<ResolvedField>,
 }
 
 /// The whole resolved-value view: the main card and every composable card.
 #[derive(Debug, Clone, PartialEq, Serialize)]
-pub struct FieldStates {
-    pub main: MainStates,
-    pub cards: Vec<CardStates>,
+pub struct Resolved {
+    pub main: ResolvedMain,
+    pub cards: Vec<ResolvedCard>,
 }
 
 impl Quill {
     /// The resolved-value view of `doc` against this quill's schema.
     ///
     /// For every declared field, the value [`compile_data`] emits into the plate
-    /// — the two cut the *same* resolver
-    /// ([`resolve_card_sourced`](super::compose::resolve_card_sourced)), so the
-    /// value is the plate's by construction — tagged with the [`FieldSource`]
-    /// rung it came from. Completeness and errors stay [`Quill::validate`]'s;
-    /// this view carries no diagnostics.
+    /// — the two cut the *same* resolver (`resolve_card_sourced`), so the value
+    /// is the plate's by construction — tagged with the [`FieldSource`] rung it
+    /// came from. Completeness and errors stay [`Quill::validate`]'s; this view
+    /// carries no diagnostics.
     ///
     /// [`compile_data`]: Quill::compile_data
-    pub fn field_states(&self, doc: &Document) -> FieldStates {
+    pub fn resolve(&self, doc: &Document) -> Resolved {
         let config = self.config();
         let (fields, body) = resolve_card_fields(&config.main, doc.main());
-        let main = MainStates { fields, body };
+        let main = ResolvedMain { fields, body };
         let cards = doc
             .cards()
             .iter()
             .enumerate()
             .map(|(index, card)| card_states(config, card, index))
             .collect();
-        FieldStates { main, cards }
+        Resolved { main, cards }
     }
 }
 
 /// Resolve one card (main or a schema-declared kind) into its ordered
-/// [`FieldState`] rows and its body row (present iff the kind enables a body).
+/// [`ResolvedField`] rows and its body row (present iff the kind enables a body).
 ///
 /// The value and source of every field come from the one shared resolver
 /// [`resolve_card_sourced`] — the same producer [`compile_data`] cuts for the
@@ -110,7 +109,7 @@ impl Quill {
 /// order. The body is a sibling row, never an entry in `fields`.
 ///
 /// [`compile_data`]: crate::Quill::compile_data
-fn resolve_card_fields(schema: &CardSchema, card: &Card) -> (Vec<FieldState>, Option<FieldState>) {
+fn resolve_card_fields(schema: &CardSchema, card: &Card) -> (Vec<ResolvedField>, Option<ResolvedField>) {
     let sourced: IndexMap<String, (QuillValue, FieldSource)> = resolve_card_sourced(schema, card);
     let mut fields = Vec::new();
 
@@ -121,7 +120,7 @@ fn resolve_card_fields(schema: &CardSchema, card: &Card) -> (Vec<FieldState>, Op
             .get(name)
             .cloned()
             .expect("resolve_card_sourced emits every declared field");
-        fields.push(FieldState {
+        fields.push(ResolvedField {
             name: name.clone(),
             value,
             source,
@@ -133,7 +132,7 @@ fn resolve_card_fields(schema: &CardSchema, card: &Card) -> (Vec<FieldState>, Op
     // projections too — value verbatim, source Authored.
     for (name, (value, source)) in &sourced {
         if !schema.fields.contains_key(name) {
-            fields.push(FieldState {
+            fields.push(ResolvedField {
                 name: name.clone(),
                 value: value.clone(),
                 source: *source,
@@ -149,14 +148,14 @@ fn resolve_card_fields(schema: &CardSchema, card: &Card) -> (Vec<FieldState>, Op
 /// through the ladder; an unknown-kind card (declared `$kind` with no schema, or
 /// a kindless card) carries its authored fields verbatim — no coercion, no
 /// ladder, no `$body` row.
-fn card_states(config: &QuillConfig, card: &Card, index: usize) -> CardStates {
+fn card_states(config: &QuillConfig, card: &Card, index: usize) -> ResolvedCard {
     // The raw authored kind rides the entry even when it names no schema — the
     // card reports what it *claimed* to be.
     let kind = card.kind().map(String::from);
     match card.kind().and_then(|k| config.card_kind(k)) {
         Some(schema) => {
             let (fields, body) = resolve_card_fields(schema, card);
-            CardStates {
+            ResolvedCard {
                 kind,
                 index,
                 fields,
@@ -170,13 +169,13 @@ fn card_states(config: &QuillConfig, card: &Card, index: usize) -> CardStates {
                 .payload()
                 .to_index_map()
                 .into_iter()
-                .map(|(name, value)| FieldState {
+                .map(|(name, value)| ResolvedField {
                     name,
                     value,
                     source: FieldSource::Authored,
                 })
                 .collect();
-            CardStates {
+            ResolvedCard {
                 kind,
                 index,
                 fields,
@@ -190,14 +189,14 @@ fn card_states(config: &QuillConfig, card: &Card, index: usize) -> CardStates {
 /// `$body` (canonical Content-JSON of the card body). A body has no `default:`
 /// rung, so its source is only ever [`Authored`](FieldSource::Authored)
 /// (non-blank) or [`Zero`](FieldSource::Zero) (blank).
-fn body_state(card: &Card) -> FieldState {
+fn body_state(card: &Card) -> ResolvedField {
     let value = QuillValue::from_json(quillmark_content::serial::to_canonical_value(card.body()));
     let source = if card.body().is_blank() {
         FieldSource::Zero
     } else {
         FieldSource::Authored
     };
-    FieldState {
+    ResolvedField {
         name: "body".to_string(),
         value,
         source,
@@ -229,14 +228,14 @@ mod tests {
     }
 
     /// Look up a resolved row by name — rows are an ordered array now.
-    fn row<'a>(fields: &'a [FieldState], name: &str) -> &'a FieldState {
+    fn row<'a>(fields: &'a [ResolvedField], name: &str) -> &'a ResolvedField {
         fields
             .iter()
             .find(|f| f.name == name)
             .unwrap_or_else(|| panic!("no row `{name}`"))
     }
 
-    fn has_row(fields: &[FieldState], name: &str) -> bool {
+    fn has_row(fields: &[ResolvedField], name: &str) -> bool {
         fields.iter().any(|f| f.name == name)
     }
 
@@ -283,7 +282,7 @@ card_kinds:
         let quill = quill_from_yaml(QUILL);
         // title authored; status absent (has a default); notes absent (no default).
         let doc = parse("~~~card-yaml\n$quill: fs_test@1.0\n$kind: main\ntitle: Hello\n~~~\n");
-        let states = quill.field_states(&doc);
+        let states = quill.resolve(&doc);
         let f = &states.main.fields;
 
         assert_eq!(row(f, "title").source, FieldSource::Authored);
@@ -301,7 +300,7 @@ card_kinds:
         let quill = quill_from_yaml(QUILL);
         // intro absent → its richtext `default:` (committed as content).
         let doc = parse("~~~card-yaml\n$quill: fs_test@1.0\n$kind: main\ntitle: T\n~~~\n");
-        let states = quill.field_states(&doc);
+        let states = quill.resolve(&doc);
         let intro = row(&states.main.fields, "intro");
 
         assert_eq!(intro.source, FieldSource::Default);
@@ -317,7 +316,7 @@ card_kinds:
         let quill = quill_from_yaml(QUILL);
         // `status:` is a present-null → treated as absent → default rung.
         let doc = parse("~~~card-yaml\n$quill: fs_test@1.0\n$kind: main\ntitle: T\nstatus:\n~~~\n");
-        let states = quill.field_states(&doc);
+        let states = quill.resolve(&doc);
         let status = row(&states.main.fields, "status");
         assert_eq!(status.source, FieldSource::Default);
         assert_eq!(status.value.as_json(), &serde_json::json!("draft"));
@@ -336,7 +335,7 @@ card_kinds:
                   Body prose here.\n\n\
                   ~~~card-yaml\n$kind: note\nauthor: Zed\n~~~\nNote body.\n";
         let doc = parse(md);
-        let states = quill.field_states(&doc);
+        let states = quill.resolve(&doc);
         let plate = quill.compile_data(&doc).expect("compile");
 
         // Every declared main row equals its plate field; the body equals plate `$body`.
@@ -387,7 +386,7 @@ card_kinds:
         payload.set_kind("main");
         let main = Card::from_parts(payload, quillmark_content::Content::empty());
         let doc = Document::from_main_and_cards(main, Vec::new());
-        let states = quill.field_states(&doc);
+        let states = quill.resolve(&doc);
 
         assert!(!has_row(&states.main.fields, "cafe\u{301}"));
         let r = row(&states.main.fields, "caf\u{e9}");
@@ -404,12 +403,12 @@ card_kinds:
         let authored =
             parse("~~~card-yaml\n$quill: fs_test@1.0\n$kind: main\ntitle: T\n~~~\n\nHello body.\n");
         assert_eq!(
-            quill.field_states(&authored).main.body.unwrap().source,
+            quill.resolve(&authored).main.body.unwrap().source,
             FieldSource::Authored
         );
 
         let blank = parse("~~~card-yaml\n$quill: fs_test@1.0\n$kind: main\ntitle: T\n~~~\n");
-        let states = quill.field_states(&blank);
+        let states = quill.resolve(&blank);
         let body = states.main.body.as_ref().unwrap();
         assert_eq!(body.source, FieldSource::Zero);
         assert!(body.value.as_json().is_object(), "blank body is empty content");
@@ -441,7 +440,7 @@ card_kinds:
             "~~~card-yaml\n$quill: bd_test@1.0\n$kind: main\ntitle: T\n~~~\n\n\
              ~~~card-yaml\n$kind: stamp\nlabel: L\n~~~\nStray prose.\n",
         );
-        let states = quill.field_states(&doc);
+        let states = quill.resolve(&doc);
         let card = &states.cards[0];
         assert!(card.body.is_none(), "a body-disabled kind has no body row");
         assert!(has_row(&card.fields, "label"), "declared rows still present");
@@ -456,7 +455,7 @@ card_kinds:
             "~~~card-yaml\n$quill: fs_test@1.0\n$kind: main\ntitle: T\n~~~\n\n\
              ~~~card-yaml\n$kind: mystery\nfoo: bar\n~~~\nUnread body.\n",
         );
-        let states = quill.field_states(&doc);
+        let states = quill.resolve(&doc);
         let card = &states.cards[0];
 
         assert_eq!(card.kind.as_deref(), Some("mystery"));
@@ -475,7 +474,7 @@ card_kinds:
         let doc = parse(
             "~~~card-yaml\n$quill: fs_test@1.0\n$kind: main\ntitle: T\nextra: whatever\n~~~\n",
         );
-        let states = quill.field_states(&doc);
+        let states = quill.resolve(&doc);
         let r = row(&states.main.fields, "extra");
         assert_eq!(r.source, FieldSource::Authored);
         assert_eq!(r.value.as_json(), &serde_json::json!("whatever"));
@@ -498,7 +497,7 @@ card_kinds:
 
     #[test]
     fn field_state_is_name_value_and_source_only() {
-        let state = FieldState {
+        let state = ResolvedField {
             name: "x".to_string(),
             value: QuillValue::from_json(serde_json::json!("v")),
             source: FieldSource::Authored,

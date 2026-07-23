@@ -3,7 +3,7 @@
 mod blueprint;
 mod compose;
 mod config;
-mod field_states;
+mod resolved;
 mod fill;
 mod formats;
 mod ignore;
@@ -18,7 +18,7 @@ pub(crate) mod validation;
 
 pub use config::{CoercionError, QuillConfig};
 pub(crate) use config::Leniency;
-pub use field_states::{CardStates, FieldSource, FieldState, FieldStates, MainStates};
+pub use resolved::{FieldSource, Resolved, ResolvedCard, ResolvedField, ResolvedMain};
 pub use fill::zero_value;
 pub use formats::{parse_date, parse_datetime};
 pub use ignore::QuillIgnore;
@@ -89,7 +89,7 @@ impl Quill {
     /// type (a `richtext` field to markdown, every other type verbatim) with
     /// schema authority: a name the schema does not declare reads as the typo it
     /// is rather than as absent. See the [`reader`](crate::reader) module.
-    pub fn view<'a>(&'a self, doc: &'a crate::document::Document) -> crate::TypedReader<'a> {
+    pub fn reader<'a>(&'a self, doc: &'a crate::document::Document) -> crate::TypedReader<'a> {
         crate::TypedReader::new(&self.config, doc)
     }
 

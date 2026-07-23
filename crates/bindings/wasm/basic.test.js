@@ -1773,7 +1773,7 @@ addr:
 })
 
 // ---------------------------------------------------------------------------
-// quill.fieldStates — the resolved-value view
+// quill.resolve — the resolved-value view
 // ---------------------------------------------------------------------------
 //
 // For every declared field: the value the render projection would use and the
@@ -1783,7 +1783,7 @@ addr:
 // validate(), guidance stays the schema. See prose/canon/SCHEMAS.md
 // § "Value sources and projections".
 
-describe('quill.fieldStates', () => {
+describe('quill.resolve', () => {
   const QUILL_YAML = `quill:
   name: field_states_test
   version: "1.0"
@@ -1828,7 +1828,7 @@ $kind: main
 title: Hello
 ~~~
 `
-    const f = quill.fieldStates(Document.fromMarkdown(md)).main.fields
+    const f = quill.resolve(Document.fromMarkdown(md)).main.fields
 
     // Declaration order is structural — the array order is the contract.
     expect(f.map((r) => r.name)).toEqual(['title', 'status', 'notes', 'count', 'author'])
@@ -1851,7 +1851,7 @@ title: T
 
 Hello body.
 `
-    const withBody = quill.fieldStates(Document.fromMarkdown(authored))
+    const withBody = quill.resolve(Document.fromMarkdown(authored))
     expect(withBody.main.body).toBeDefined()
     expect(withBody.main.body.source).toBe('authored')
     // Not smuggled into the fields array under any `body` / `$body` name.
@@ -1864,7 +1864,7 @@ $kind: main
 title: T
 ~~~
 `
-    const noBody = quill.fieldStates(Document.fromMarkdown(blank))
+    const noBody = quill.resolve(Document.fromMarkdown(blank))
     expect(noBody.main.body.source).toBe('zero')
   })
 
@@ -1876,7 +1876,7 @@ $kind: main
 title: T
 ~~~
 `
-    const f = quill.fieldStates(Document.fromMarkdown(md)).main.fields
+    const f = quill.resolve(Document.fromMarkdown(md)).main.fields
     // Each row is exactly { name, value, source } — schema guidance (example:)
     // and diagnostics read from quill.schema / quill.validate, not duplicated.
     const author = byName(f, 'author')
@@ -1899,7 +1899,7 @@ label: L
 ~~~
 Note body.
 `
-    const states = quill.fieldStates(Document.fromMarkdown(md))
+    const states = quill.resolve(Document.fromMarkdown(md))
     expect(states.cards.length).toBe(1)
     const card = states.cards[0]
     expect(card.kind).toBe('note')
@@ -1920,7 +1920,7 @@ count: "not-a-number"
     // A value the render coercion cannot conform is kept raw and Authored,
     // exactly as compile_data leaves it — the error surfaces via validate(),
     // not this view (which carries no diagnostics).
-    const row = byName(quill.fieldStates(Document.fromMarkdown(md)).main.fields, 'count')
+    const row = byName(quill.resolve(Document.fromMarkdown(md)).main.fields, 'count')
     expect(row.source).toBe('authored')
     expect(row.value).toBe('not-a-number')
     expect('diagnostics' in row).toBe(false)
@@ -1934,7 +1934,7 @@ $kind: main
 title: T
 ~~~
 `
-    const states = quill.fieldStates(Document.fromMarkdown(md))
+    const states = quill.resolve(Document.fromMarkdown(md))
     expect(typeof JSON.stringify(states)).toBe('string')
   })
 })

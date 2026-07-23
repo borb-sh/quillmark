@@ -186,7 +186,7 @@ title: Draft
 
     // getMarkdown is the card body read (card address); a field address throws.
     // A field's markdown reads through the schema-plane view,
-    // quill.view(doc).card(i).get(name) (#978).
+    // quill.reader(doc).card(i).get(name) (#978).
     expect(doc.getMarkdown({ card: 0 })).toContain('A note body.')
     expect(() => doc.getMarkdown({ card: 0, field: 'author' })).toThrow(/body-only/)
 

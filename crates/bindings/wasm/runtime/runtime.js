@@ -753,11 +753,11 @@ Quill.prototype.writer = function writer(doc) {
 	return new DocumentWriter(this, doc);
 };
 
-// ── Typed-reader sugar: the schema-plane read view ──────────────────────────
+// ── Typed-reader sugar: the schema-plane read surface ──────────────────────────
 // The read twin of the writer above. The transport `Document.get` is schema-free
 // — a `Document` cannot say which fields are richtext, so an unknown field name
 // reads back `undefined` rather than as the typo it is. Binding the quill's
-// schema (`_viewGet` takes the handle, like the `commit*` verbs) lets one `get`
+// schema (`_readerGet` takes the handle, like the `commit*` verbs) lets one `get`
 // interpret by declared type: a richtext field to markdown, a plaintext field to
 // its literal text, every other type verbatim, and an unknown name throws
 // `UnknownField`. A field's markdown lives here, not on the body-only
@@ -766,11 +766,11 @@ Quill.prototype.writer = function writer(doc) {
 
 /**
  * A {@link Document} bound to its {@link Quill} for typed reads — the JS twin of
- * Rust's `quill.view(&doc)` and the read counterpart of {@link DocumentWriter}.
+ * Rust's `quill.reader(&doc)` and the read counterpart of {@link DocumentWriter}.
  * Reads target the main card; use {@link card} for a composable card. Holds both
  * handles by reference and owns neither, so there is nothing to `free()`.
  */
-export class DocumentView {
+export class DocumentReader {
 	#quill;
 	#doc;
 	/**
@@ -796,7 +796,7 @@ export class DocumentView {
 	 * @returns {unknown}
 	 */
 	get(addr) {
-		return this.#doc._viewGet(this.#quill, addr);
+		return this.#doc._readerGet(this.#quill, addr);
 	}
 	/**
 	 * The main body's markdown — the quill-free body read (a body's type is a
@@ -804,28 +804,28 @@ export class DocumentView {
 	 * @returns {string}
 	 */
 	getBody() {
-		return this.#doc._viewGet(this.#quill, {});
+		return this.#doc._readerGet(this.#quill, {});
 	}
 	/**
-	 * A {@link CardView} bound to the composable card at `index`. Index validity
+	 * A {@link CardReader} bound to the composable card at `index`. Index validity
 	 * is checked lazily by the underlying read (it throws `IndexOutOfRange` at read
 	 * time), so constructing one never throws. Ephemeral like the writer cursor —
 	 * it holds `index`, not the card, so a `removeCard`/`addCard` between binding
 	 * and reading silently retargets it.
 	 * @param {number} index
-	 * @returns {CardView}
+	 * @returns {CardReader}
 	 */
 	card(index) {
-		return new CardView(this.#quill, this.#doc, index);
+		return new CardReader(this.#quill, this.#doc, index);
 	}
 }
 
 /**
  * A single composable card bound to its {@link Quill} for typed reads, from
- * {@link DocumentView.card}. Same `get` / `getBody` verbs as
- * {@link DocumentView}, reading the card at its bound index.
+ * {@link DocumentReader.card}. Same `get` / `getBody` verbs as
+ * {@link DocumentReader}, reading the card at its bound index.
  */
-export class CardView {
+export class CardReader {
 	#quill;
 	#doc;
 	#index;
@@ -859,30 +859,30 @@ export class CardView {
 	 * @returns {unknown}
 	 */
 	get(name) {
-		return this.#doc._viewGet(this.#quill, { card: this.#index, field: name });
+		return this.#doc._readerGet(this.#quill, { card: this.#index, field: name });
 	}
 	/**
-	 * This card's body markdown — the card twin of {@link DocumentView.getBody}.
+	 * This card's body markdown — the card twin of {@link DocumentReader.getBody}.
 	 * @returns {string}
 	 */
 	getBody() {
-		return this.#doc._viewGet(this.#quill, { card: this.#index });
+		return this.#doc._readerGet(this.#quill, { card: this.#index });
 	}
 }
 
-// ── `quill.view(doc)` — the schema-plane read front door ─────────────────────
+// ── `quill.reader(doc)` — the schema-plane read front door ─────────────────────
 // The read twin of `quill.writer(doc)`, patched onto the same re-exported `Quill`
 // prototype (the `Quill === CoreQuill` identity invariant holds — this only adds
-// a method constructing the pure-JS view, which owns no WASM handle).
+// a method constructing the pure-JS reader, which owns no WASM handle).
 /**
- * A {@link DocumentView} binding this quill's schema to `doc` for interpreted
- * reads — the read front door, mirroring core's `quill.view(&doc)`. The returned
- * view holds both handles by reference and owns neither, so there is nothing to
+ * A {@link DocumentReader} binding this quill's schema to `doc` for interpreted
+ * reads — the read front door, mirroring core's `quill.reader(&doc)`. The returned
+ * reader holds both handles by reference and owns neither, so there is nothing to
  * `free()`. Ephemeral by convention: bind, read, discard.
  * @this {Quill}
  * @param {Document} doc the document to read, held by reference (not owned)
- * @returns {DocumentView}
+ * @returns {DocumentReader}
  */
-Quill.prototype.view = function view(doc) {
-	return new DocumentView(this, doc);
+Quill.prototype.reader = function reader(doc) {
+	return new DocumentReader(this, doc);
 };

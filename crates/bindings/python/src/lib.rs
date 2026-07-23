@@ -7,12 +7,12 @@ mod types;
 pub use enums::{PyOutputFormat, PySeverity};
 pub use errors::QuillmarkError;
 pub use types::{
-    PyArtifact, PyCardView, PyCardWriter, PyDiagnostic, PyDocument, PyLocation, PyQuill,
-    PyQuillmark, PyRenderResult, PyView, PyWriter,
+    PyArtifact, PyCardReader, PyCardWriter, PyDiagnostic, PyDocument, PyLocation, PyQuill,
+    PyQuillmark, PyRenderResult, PyReader, PyWriter,
 };
 
 // Python is Tier 1 + storage + render: field I/O flows through `quill.writer(doc)`
-// / `quill.view(doc)`. The opaque store and the anchor-preserving content lane
+// / `quill.reader(doc)`. The opaque store and the anchor-preserving content lane
 // (`install` / `revise` / `apply_change` + the `importMarkdown` / `exportMarkdown`
 // / `rebase` / `mapPos` codec) are WASM-only by scope. See prose/canon/BINDINGS.md.
 
@@ -23,8 +23,8 @@ fn _quillmark(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDocument>()?;
     m.add_class::<PyWriter>()?;
     m.add_class::<PyCardWriter>()?;
-    m.add_class::<PyView>()?;
-    m.add_class::<PyCardView>()?;
+    m.add_class::<PyReader>()?;
+    m.add_class::<PyCardReader>()?;
     m.add_class::<PyRenderResult>()?;
     m.add_class::<PyArtifact>()?;
     m.add_class::<PyDiagnostic>()?;

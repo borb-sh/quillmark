@@ -2,7 +2,7 @@
 
 from ._quillmark import (
     Artifact,
-    CardView,
+    CardReader,
     CardWriter,
     Diagnostic,
     Document,
@@ -11,15 +11,15 @@ from ._quillmark import (
     Quill,
     Quillmark,
     QuillmarkError,
+    Reader,
     RenderResult,
     Severity,
-    View,
     Writer,
 )
 
 __all__ = [
     "Artifact",
-    "CardView",
+    "CardReader",
     "CardWriter",
     "Diagnostic",
     "Document",
@@ -28,9 +28,9 @@ __all__ = [
     "Quill",
     "Quillmark",
     "QuillmarkError",
+    "Reader",
     "RenderResult",
     "Severity",
-    "View",
     "Writer",
 ]
 
