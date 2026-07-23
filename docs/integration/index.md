@@ -10,30 +10,14 @@ Three objects carry every integration:
 
 Field I/O is schema-bound: `quill.writer(doc)` writes each field by its declared type and `quill.reader(doc)` reads it back. `Document` itself is quill-free data — parse, persist, structure.
 
-## API surface
-
-| Task | Python | JavaScript |
-|---|---|---|
-| Engine | `Quillmark()` | `new Engine()` |
-| Load a quill | `Quill.from_path(dir)` | `Quill.fromTree(map)` |
-| Parse a document | `Document.from_markdown(md)` | `Document.fromMarkdown(md)` |
-| Blank document | `Document(quill_ref)` | `new Document(quillRef)` |
-| Typed write | `quill.writer(doc).set_all({…})` | `quill.writer(doc).setAll({…})` |
-| Typed read | `quill.reader(doc).get(name)` | `quill.reader(doc).get(addr)` |
-| Add a card | `quill.writer(doc).add_card(kind, {…})` | `quill.writer(doc).addCard(kind, {…})` |
-| Render | `engine.render(quill, doc, OutputFormat.PDF)` | `await engine.render(quill, doc, {format:'pdf'})` |
-| Live preview | — | `await engine.open(quill, doc)` → `LiveSession` |
-| Persist | `doc.to_json()` / `Document.from_json(s)` | `doc.toJson()` / `Document.fromJson(s)` |
-| Schema (for UIs) | `quill.schema` | `quill.schema` |
-| Blueprint | `quill.blueprint` | `quill.blueprint` |
-| Seed a starter | `quill.seed_document()` | `quill.seedDocument()` |
-
-Both bindings share the core model, diagnostics, and storage format; they differ in language idiom, packaging, and extras (canvas preview is JavaScript-only).
+Both bindings share the core model, diagnostics, and storage format; they differ in language idiom (`snake_case` vs. camelCase), packaging, and extras (canvas preview is JavaScript-only). Exact method signatures live with each binding — `import quillmark` and the `@quillmark/wasm` `.d.ts` — rather than in a table here that would drift as the pre-1.0 surface moves; the task pages below show the calls in context.
 
 ## Where to go
 
 - **[Programmatic Construction](programmatic.md)** — build and mutate a `Document` in memory (database row → PDF).
 - **[Error Handling](error-handling.md)** — the diagnostic model every binding raises.
-- **[Live Preview](live-preview.md)** — the `LiveSession` editor API: canvas paint, dirty-page repaint, and the click/caret bridge.
 - **[Persistence](persistence.md)** — store a `Document` as versioned JSON.
 - **[Blueprint & Seeding](../quills/blueprint.md)** — the LLM/MCP authoring surface and its filled-out twin.
+
+!!! note "Advanced: live preview"
+    Canvas / `LiveSession` editor integration — incremental `apply`, `paint`, and the click/caret geometry bridge — is WASM-only and single-consumer today. Its design contract lives in [PREVIEW.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PREVIEW.md); the [Quickstart](../getting-started/quickstart.md#live-preview-canvas) has the minimal paint loop.
