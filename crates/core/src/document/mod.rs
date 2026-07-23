@@ -475,7 +475,31 @@ impl Document {
     /// text, card list, card kind). User payload fields stay flat at the
     /// root — they cannot collide with `$` keys because user field names are
     /// never `$`-prefixed (they match `[A-Za-z_][A-Za-z0-9_]*`).
+    ///
+    /// `$kind` is document-defined and omitted for a kindless card (never a
+    /// fabricated `""`). This method is schema-free and emits `$body` for every
+    /// card and the root; the schema-gated render plate
+    /// (`QuillConfig::compile_data`) instead calls `to_plate_json_gated` with the
+    /// per-card body-presence it resolved, so a card whose kind enables no body
+    /// carries no `$body` — issue 1030's "absent on undefined".
     pub fn to_plate_json(&self) -> serde_json::Value {
+        // Schema-free: the root and every card carry `$body`.
+        self.to_plate_json_gated(true, None)
+    }
+
+    /// [`to_plate_json`](Self::to_plate_json) with the body-presence decision
+    /// supplied by the caller: the root carries `$body` iff `main_body`, and card
+    /// *i* iff `card_bodies` is `None` (all present) or `card_bodies[i]` holds.
+    /// The schema-gated render plate (`QuillConfig::compile_data`) passes the
+    /// body-enabled bit it already resolved per card, so a body-disabled card
+    /// never carries `$body` (issue 1030, "absent on undefined") and the decision
+    /// is never re-derived from the serialized plate. `Document` stays schema-free
+    /// — it receives the decision, not a schema.
+    pub(crate) fn to_plate_json_gated(
+        &self,
+        main_body: bool,
+        card_bodies: Option<&[bool]>,
+    ) -> serde_json::Value {
         let mut map = serde_json::Map::new();
 
         map.insert(
@@ -487,24 +511,34 @@ impl Document {
         // nested content object, byte-identical to `to_canonical_json`, never a lossy
         // markdown string. Backends lower the content (typst → markup + source
         // map; pdfform → `.text`); the markdown projection is `body_markdown`.
-        map.insert(
-            "$body".to_string(),
-            quillmark_content::serial::to_canonical_value(self.main.body()),
-        );
+        if main_body {
+            map.insert(
+                "$body".to_string(),
+                quillmark_content::serial::to_canonical_value(self.main.body()),
+            );
+        }
 
         let cards_array: Vec<serde_json::Value> = self
             .cards
             .iter()
-            .map(|card| {
+            .enumerate()
+            .map(|(i, card)| {
                 let mut card_map = serde_json::Map::new();
-                card_map.insert(
-                    "$kind".to_string(),
-                    serde_json::Value::String(card.kind().unwrap_or("").to_string()),
-                );
-                card_map.insert(
-                    "$body".to_string(),
-                    quillmark_content::serial::to_canonical_value(card.body()),
-                );
+                // A kindless card carries no `$kind`, never a fabricated `""` —
+                // matching the resolved view's `kind: None`.
+                if let Some(kind) = card.kind() {
+                    card_map.insert(
+                        "$kind".to_string(),
+                        serde_json::Value::String(kind.to_string()),
+                    );
+                }
+                // `$body` iff the caller's schema defines a body for this card.
+                if card_bodies.map_or(true, |f| f.get(i).copied().unwrap_or(true)) {
+                    card_map.insert(
+                        "$body".to_string(),
+                        quillmark_content::serial::to_canonical_value(card.body()),
+                    );
+                }
                 for (key, value) in card.payload.iter() {
                     card_map.insert(key.clone(), value.as_json().clone());
                 }

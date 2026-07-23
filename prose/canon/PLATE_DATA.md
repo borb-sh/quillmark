@@ -13,8 +13,9 @@ Plates get document data through a backend-injected virtual Typst package, not a
 
 ### Data Shape
 
-- Document-level metadata uses `$`-prefixed keys: `$quill` (quill ref string), `$body` (root prose body, a canonical `Content` object), `$cards` (array of card objects)
-- Each card object carries `$kind` (discriminator), `$body` (card prose body, a content object), and the card's user fields flat
+- Document-level metadata uses `$`-prefixed keys: `$quill` (quill ref string), `$body` (root prose body, a canonical `Content` object, present when the main enables a body), `$cards` (array of card objects)
+- Each card object carries its user fields flat, a `$kind` discriminator when the card authors one, and a `$body` (card prose body, a content object) when the card's kind enables a body
+- **`$`-metadata is present exactly where the schema defines it** ("absent on undefined"). The rule splits by which definition gates the key: `$kind` is *document-defined* — present iff the card authors one, absent for a kindless card; `$body` is *schema-defined* — present (and, when present, always a content object) iff a declared kind enables a body, absent for a body-disabled or unknown kind. So a present `$body` is never a raw object needing a type check, and absence is the signal. Read `$`-metadata with a total accessor — `card.at("$kind", default: none)`, `card.at("$body", default: "")` — never a bare `card.$body`
 - User payload fields sit flat at the root next to the `$` keys; field names match `[a-z_][a-z0-9_]*` and therefore never collide with `$` metadata
 
 ## Typst Helper Package
@@ -25,11 +26,12 @@ The Typst backend injects a virtual package `@local/quillmark-helper:<version>` 
 #import "@local/quillmark-helper:0.1.0": data
 
 #data.title                  // plain field access
-#data.at("$body")            // $body is automatically converted to content
+#data.at("$body")            // root $body: a content object when the main enables a body
 #(data.date.display)("…")    // date/datetime fields are value-objects; .value is the native datetime
 #for card in data.at("$cards") {
-  if card.at("$kind") == "indorsement" {
-    // ... per-kind handling using card.<field> and card.at("$body")
+  if card.at("$kind", default: none) == "indorsement" {
+    // per-kind handling; $kind/$body are present only where the schema
+    // defines them, so read them totally: card.<field>, card.at("$body", default: "")
   }
 }
 ```

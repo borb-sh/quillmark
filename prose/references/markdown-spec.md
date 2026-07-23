@@ -367,18 +367,26 @@ the `$` sigil.
 ```typescript
 interface PlateJson {
   $quill: string;         // quill name@version, from the root block $quill
-  $body: object;          // root-block body as canonical Content-JSON on the plate wire (backends lower it directly); markdown consumers get a lossy projection via exportMarkdown
+  $body?: object;         // root-block body as canonical Content-JSON on the plate wire (backends lower it directly); present when the main enables a body; markdown consumers get a lossy projection via exportMarkdown
   $cards: Card[];         // zero or more cards, in document order
   [field: string]: any;   // root-block payload fields, flat
 }
 
 interface Card {
-  $kind: string;          // card kind, matches /^[a-z_][a-z0-9_]*$/
-  $body: object;          // card body as canonical Content-JSON on the plate wire (backends lower it directly); markdown consumers get a lossy projection via exportMarkdown
+  $kind?: string;         // card kind, matches /^[a-z_][a-z0-9_]*$/; absent for a kindless card
+  $body?: object;         // card body as canonical Content-JSON on the plate wire (backends lower it directly); present when the card's kind enables a body; markdown consumers get a lossy projection via exportMarkdown
   [field: string]: any;   // card payload fields, flat
 }
 ```
 
+- `$`-metadata is **present exactly where the schema defines it** ("absent on
+  undefined"): `$kind` is document-defined (absent for a kindless card), `$body`
+  is schema-defined (absent for a body-disabled or unknown kind, and for a
+  body-disabled main). The raw `to_plate_json` is schema-free and omits only the
+  document-defined `$kind`; the render plate the backend receives
+  (`compile_data`) additionally drops `$body` where the schema defines none. Read
+  plate metadata with a total accessor (`card.at("$body", default: "")`); a
+  present `$body` is always a content object.
 - `$cards` is always present, possibly empty.
 - Root-block fields and card-field names may collide freely; each card is its
   own scope.

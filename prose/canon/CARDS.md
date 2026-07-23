@@ -102,7 +102,7 @@ See [`markdown-spec.md`](../references/markdown-spec.md) §3 for the full syntax
 
 ## Backend Consumption
 
-- **All backends**: cards are delivered as `data.$cards`, an array of objects each containing a `$kind` discriminator, the card's payload fields, and a `$body` key with the card's body Markdown.
+- **All backends**: cards are delivered as `data.$cards`, an array of objects. Each carries its payload fields flat, a `$kind` discriminator when the card authors one, and a `$body` (canonical `Content` object, not a Markdown string) when the card's kind enables a body. `$`-metadata is present exactly where the schema defines it ("absent on undefined") — read it with a total accessor (`card.at("$body", default: "")`); see [PLATE_DATA.md](PLATE_DATA.md).
 - **`Quill::compile_data()`** returns the fully coerced and validated JSON, including `$cards`.
 
 The sigiled `data.$cards` here is plate JSON — glue delivered to the backend. It is a **different namespace** from the unsigiled `cards` in a `Diagnostic.path` (`cards.<kind>[<index>]`, the document-model anchor — see [ERROR.md](ERROR.md) § "Document-model paths"). The plate key is not renamed off `$cards`; the two namespaces are documented apart.

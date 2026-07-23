@@ -67,11 +67,20 @@ impl QuillConfig {
             ),
             normalized.main().body().clone(),
         );
+        // A card's `$body` is defined for the plate iff its kind resolves to a
+        // body-enabled schema — the `$body` half of issue 1030's "absent on
+        // undefined". Capture it here, where the schema is already in hand for
+        // field lowering, and hand it to the plate builder, so the decision is
+        // never re-derived from the serialized plate. (`$kind`, the document-
+        // defined half, is gated structurally by `to_plate_json`.)
+        let mut card_bodies: Vec<bool> = Vec::with_capacity(normalized.cards().len());
         let cards_resolved: Vec<Card> = normalized
             .cards()
             .iter()
             .map(|card| {
-                let fields = match self.card_kind(card.kind().unwrap_or("")) {
+                let schema = self.card_kind(card.kind().unwrap_or(""));
+                card_bodies.push(schema.is_some_and(|s| s.body_enabled()));
+                let fields = match schema {
                     Some(schema) => {
                         plate_fields(ladder_sourced(schema, &card.payload().to_index_map()))
                     }
@@ -83,7 +92,8 @@ impl QuillConfig {
             })
             .collect();
 
-        Ok(Document::from_main_and_cards(final_main, cards_resolved).to_plate_json())
+        Ok(Document::from_main_and_cards(final_main, cards_resolved)
+            .to_plate_json_gated(self.main.body_enabled(), Some(&card_bodies)))
     }
 
     /// Validate without backend compilation.
@@ -701,5 +711,92 @@ items:
         let resolved = resolve_value(Some(&input), &schema).into_json();
 
         assert_eq!(resolved, json!([{ "name": "ACME", "year": 2020 }]));
+    }
+
+    // ── "Absent on undefined": the render plate omits `$body` wherever the
+    //    schema defines none (issue 1030). The `$kind` half is structural in
+    //    `to_plate_json`; these pin the schema-gated `$body` half. Only the
+    //    body-disabled edge is reachable here — `validate_document` rejects an
+    //    unknown-kind or kindless card before render.
+
+    fn plate_of(yaml: &str, md: &str) -> serde_json::Value {
+        let config = QuillConfig::from_yaml(yaml).expect("valid quill");
+        let doc = Document::parse(md).expect("parse").document;
+        config.compile_data(&doc).expect("compile")
+    }
+
+    #[test]
+    fn body_disabled_kind_omits_dollar_body() {
+        let plate = plate_of(
+            r#"
+quill: { name: bd, version: 1.0.0, backend: typst, description: x }
+main:
+  fields:
+    title: { type: string }
+card_kinds:
+  stamp:
+    body:
+      enabled: false
+    fields:
+      label: { type: string }
+"#,
+            "~~~card-yaml\n$quill: bd@1.0.0\n$kind: main\ntitle: T\n~~~\n\n\
+             ~~~card-yaml\n$kind: stamp\nlabel: L\n~~~\n",
+        );
+        let card = &plate["$cards"][0];
+        assert_eq!(card["$kind"], "stamp", "$kind is document-defined, kept");
+        assert_eq!(card["label"], "L", "declared fields kept");
+        assert!(
+            card.get("$body").is_none(),
+            "a body-disabled kind carries no $body in the plate; got {card}"
+        );
+    }
+
+    #[test]
+    fn body_disabled_main_omits_root_dollar_body() {
+        let plate = plate_of(
+            r#"
+quill: { name: bdm, version: 1.0.0, backend: typst, description: x }
+main:
+  body:
+    enabled: false
+  fields:
+    title: { type: string }
+"#,
+            "~~~card-yaml\n$quill: bdm@1.0.0\n$kind: main\ntitle: T\n~~~\n",
+        );
+        assert_eq!(plate["title"], "T");
+        assert!(
+            plate.get("$body").is_none(),
+            "a body-disabled main carries no root $body; got {plate}"
+        );
+    }
+
+    #[test]
+    fn body_enabled_keeps_dollar_body() {
+        let plate = plate_of(
+            r#"
+quill: { name: be, version: 1.0.0, backend: typst, description: x }
+main:
+  fields:
+    title: { type: string }
+card_kinds:
+  note:
+    fields:
+      tag: { type: string }
+"#,
+            "~~~card-yaml\n$quill: be@1.0.0\n$kind: main\ntitle: T\n~~~\n\n\
+             Main body.\n\n\
+             ~~~card-yaml\n$kind: note\ntag: x\n~~~\nNote body.\n",
+        );
+        assert_eq!(
+            plate["$body"]["text"], "Main body.",
+            "a body-enabled main keeps its $body"
+        );
+        let card = &plate["$cards"][0];
+        assert_eq!(
+            card["$body"]["text"], "Note body.",
+            "a body-enabled kind keeps its $body content object"
+        );
     }
 }
