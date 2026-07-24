@@ -128,8 +128,9 @@ impl Document {
 
         // The body projection (`body_markdown`) emits no trailing newline — it is
         // a value, not a file (issue #965) — so a document ending in a body ends
-        // without one. `.qmd` is a file; own its final newline here. A
-        // fence-terminated document already ends in `\n`, so this is then a no-op.
+        // without one. The emitted document is a file; own its final newline
+        // here. A fence-terminated document already ends in `\n`, so this is
+        // then a no-op.
         if !out.ends_with('\n') {
             out.push('\n');
         }

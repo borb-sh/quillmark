@@ -108,7 +108,9 @@ pub enum PayloadItem {
     Quill { reference: QuillReference },
     /// `$kind` system metadata — the card's kind name.
     Kind { value: String },
-    /// `$id` system metadata — opaque identifier.
+    /// `$id` system metadata — the durable card handle: opaque,
+    /// caller-supplied, unique per document across composable cards
+    /// (`DOCUMENT_STORAGE.md` §Card-id identity).
     Id { value: String },
     /// `$ext` / `$seed` system metadata — an opaque mapping (discriminated by
     /// [`MetaKey`]) reserved for out-of-band data. Never emitted into the plate
@@ -344,6 +346,14 @@ impl Payload {
         &mut self.items
     }
 
+    /// Remove the first item matching `pred` and return it. The typed
+    /// removers (`take_id`, `take_meta`, `remove`) wrap this and destructure
+    /// the returned variant, which `pred` guarantees.
+    fn take_item(&mut self, pred: impl Fn(&PayloadItem) -> bool) -> Option<PayloadItem> {
+        let pos = self.items.iter().position(pred)?;
+        Some(self.items.remove(pos))
+    }
+
     // ── Typed `$` access ────────────────────────────────────────────────────
 
     /// The `$quill` reference, if declared.
@@ -407,8 +417,23 @@ impl Payload {
 
     /// Set or replace the `$id` entry. Same insertion rules as
     /// [`set_quill`](Self::set_quill).
+    ///
+    /// This is the stamping door for a card **not yet placed** in a document
+    /// (mint → stamp → insert); uniqueness is checked at insertion. For a
+    /// placed card, write through the guarded
+    /// [`Document::set_card_id`](crate::Document::set_card_id) so the
+    /// per-document uniqueness of `$id` holds.
     pub fn set_id(&mut self, id: impl Into<String>) {
         self.upsert_meta(PayloadItem::Id { value: id.into() });
+    }
+
+    /// Remove the `$id` entry, returning the previous value if any. Removal
+    /// cannot collide, so no document-level guard exists or is needed.
+    pub fn take_id(&mut self) -> Option<String> {
+        match self.take_item(|i| matches!(i, PayloadItem::Id { .. }))? {
+            PayloadItem::Id { value } => Some(value),
+            _ => unreachable!(),
+        }
     }
 
     /// Set or replace an out-of-band meta entry at its canonical position.
@@ -444,11 +469,7 @@ impl Payload {
     /// Remove an out-of-band meta entry, returning the previous map if any.
     /// Any nested comments attached to the entry are dropped.
     fn take_meta(&mut self, want: MetaKey) -> Option<JsonMap<String, JsonValue>> {
-        let pos = self
-            .items
-            .iter()
-            .position(|i| matches!(i, PayloadItem::Meta { key, .. } if *key == want))?;
-        match self.items.remove(pos) {
+        match self.take_item(|i| matches!(i, PayloadItem::Meta { key, .. } if *key == want))? {
             PayloadItem::Meta { value, .. } => Some(value),
             _ => unreachable!(),
         }
@@ -626,11 +647,7 @@ impl Payload {
     /// Remove a user field by key, returning its value. Comments and `$`
     /// entries are untouched.
     pub fn remove(&mut self, key: &str) -> Option<QuillValue> {
-        let pos = self
-            .items
-            .iter()
-            .position(|item| matches!(item, PayloadItem::Field { key: k, .. } if k == key))?;
-        match self.items.remove(pos) {
+        match self.take_item(|item| matches!(item, PayloadItem::Field { key: k, .. } if k == key))? {
             PayloadItem::Field { value, .. } => Some(value),
             _ => unreachable!(),
         }

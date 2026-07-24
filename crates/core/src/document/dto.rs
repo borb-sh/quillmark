@@ -436,6 +436,12 @@ impl TryFrom<DocumentV0_93_0> for Document {
             .into_iter()
             .map(Card::try_from)
             .collect::<Result<Vec<_>, _>>()?;
+        // `$id` is unique per document and never empty; the writer cannot
+        // produce a violation (parse repairs, mutators reject), so a stored
+        // blob carrying one is malformed, not a repair candidate — storage is
+        // the strict machine boundary where parse is the lenient one
+        // (`DOCUMENT_STORAGE.md` §Card-id identity).
+        let mut seen_ids: std::collections::HashSet<&str> = std::collections::HashSet::new();
         for card in &cards {
             if card.quill().is_some() {
                 return Err(StorageError::Malformed(
@@ -461,6 +467,21 @@ impl TryFrom<DocumentV0_93_0> for Document {
                             "composable card kind {kind:?} is reserved (root only)"
                         )));
                     }
+                }
+            }
+            if let Some(id) = card.id() {
+                if id.is_empty() {
+                    return Err(StorageError::Malformed(
+                        "empty composable card $id: a card handle cannot be the \
+                         empty string"
+                            .into(),
+                    ));
+                }
+                if !seen_ids.insert(id) {
+                    return Err(StorageError::Malformed(format!(
+                        "duplicate composable card $id {id:?}: $id is unique per \
+                         document"
+                    )));
                 }
             }
         }
@@ -695,6 +716,40 @@ This body and the metadata above are an indorsement card.
         let restored: Document = serde_json::from_str(&json).unwrap();
         assert_eq!(doc, restored);
         assert_eq!(doc.to_markdown(), restored.to_markdown());
+    }
+
+    #[test]
+    fn card_id_round_trips_and_violations_are_malformed() {
+        // `$id` survives the storage round-trip verbatim (§Card-id identity).
+        let mut doc = sample();
+        doc.set_card_id(0, "id_a").unwrap();
+        let json = serde_json::to_string(&doc).unwrap();
+        let restored: Document = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.cards()[0].id(), Some("id_a"));
+        assert_eq!(doc, restored);
+
+        // The writer cannot produce a duplicate or empty `$id`, so a blob
+        // carrying one is malformed — storage rejects where parse repairs.
+        let mut two = sample();
+        two.set_card_id(0, "id_a").unwrap();
+        let second = crate::document::Card::new("indorsement").unwrap();
+        two.push_card(second).unwrap();
+        two.set_card_id(1, "id_b").unwrap();
+        let json = serde_json::to_string(&two).unwrap();
+
+        let dup = json.replace("id_b", "id_a");
+        let err = serde_json::from_str::<Document>(&dup).unwrap_err();
+        assert!(
+            err.to_string().contains("duplicate composable card $id"),
+            "got: {err}"
+        );
+
+        let empty = json.replace("id_b", "");
+        let err = serde_json::from_str::<Document>(&empty).unwrap_err();
+        assert!(
+            err.to_string().contains("empty composable card $id"),
+            "got: {err}"
+        );
     }
 
     #[test]

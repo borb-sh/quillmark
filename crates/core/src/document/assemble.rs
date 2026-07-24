@@ -23,7 +23,7 @@ use std::collections::HashMap;
 
 use crate::error::ParseError;
 use crate::value::QuillValue;
-use crate::Diagnostic;
+use crate::{Diagnostic, Severity};
 
 use super::fences::find_metadata_blocks;
 use super::meta::{extract_meta_items, meta_key};
@@ -388,9 +388,53 @@ pub(super) fn decompose_with_warnings(
         ));
     }
 
+    normalize_card_ids(&mut cards, &mut warnings);
+
     let doc = Document::from_main_and_cards(main, cards);
 
     Ok((doc, warnings))
+}
+
+/// Repair `$id` violations across the composable cards: `$id` is the durable
+/// card handle, unique per document (`DOCUMENT_STORAGE.md` §Card-id
+/// identity), and parse is the lenient hand-authoring boundary — an empty
+/// `$id` (degenerate handle) and every duplicate after the first occupant
+/// are **dropped under a warning** rather than rejected, so hand-edited or
+/// merge-conflicted markdown still loads and one emit converges on a valid
+/// document. Keep-first hands the handle to the card [`Document::find_card`]
+/// resolves. `main` is addressed structurally, never by id, so its `$id`
+/// sits outside the scan. Duplicate `$id` *keys within one block* never
+/// reach here — the YAML parser rejects them.
+fn normalize_card_ids(cards: &mut [Card], warnings: &mut Vec<Diagnostic>) {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for card in cards.iter_mut() {
+        let Some(id) = card.id().map(str::to_owned) else {
+            continue;
+        };
+        if id.is_empty() {
+            card.payload_mut().take_id();
+            warnings.push(
+                Diagnostic::new(
+                    Severity::Warning,
+                    "empty `$id` dropped — a card handle cannot be the empty string"
+                        .to_string(),
+                )
+                .with_code("parse::card_id_empty".to_string()),
+            );
+        } else if !seen.insert(id.clone()) {
+            card.payload_mut().take_id();
+            warnings.push(
+                Diagnostic::new(
+                    Severity::Warning,
+                    format!(
+                        "duplicate `$id: {id}` dropped — `$id` is unique per document; \
+                         the first card carrying it keeps the handle"
+                    ),
+                )
+                .with_code("parse::card_id_duplicate".to_string()),
+            );
+        }
+    }
 }
 
 /// Build a unified [`Payload`] from the pre-scan items, the typed `$`

@@ -76,6 +76,19 @@ pub enum EditError {
     #[error("index {index} is out of range (len = {len})")]
     IndexOutOfRange { index: usize, len: usize },
 
+    /// A card write would give two composable cards the same `$id`. `$id` is
+    /// the durable card handle, unique per document
+    /// (`DOCUMENT_STORAGE.md` §Card-id identity); raised by
+    /// [`Document::push_card`], [`Document::insert_card`], and
+    /// [`Document::set_card_id`].
+    #[error("duplicate card $id '{id}': $id is unique per document")]
+    CardIdCollision { id: String },
+
+    /// A card write supplied the empty string as a `$id` — a degenerate
+    /// handle, rejected like the empty anchor id.
+    #[error("card $id cannot be empty")]
+    EmptyCardId,
+
     #[error("value nests deeper than the maximum of {max} levels")]
     ValueTooDeep { max: usize },
 
@@ -131,6 +144,8 @@ impl EditError {
             EditError::InvalidKindName(_) => "InvalidKindName",
             EditError::ReservedKind => "ReservedKind",
             EditError::IndexOutOfRange { .. } => "IndexOutOfRange",
+            EditError::CardIdCollision { .. } => "CardIdCollision",
+            EditError::EmptyCardId => "EmptyCardId",
             EditError::ValueTooDeep { .. } => "ValueTooDeep",
             EditError::Import(_) => "Import",
             EditError::FieldRichtextDecode { .. } => "FieldRichtextDecode",
@@ -152,6 +167,8 @@ impl EditError {
             EditError::InvalidKindName(_) => "edit::invalid_kind_name",
             EditError::ReservedKind => "edit::reserved_kind",
             EditError::IndexOutOfRange { .. } => "edit::index_out_of_range",
+            EditError::CardIdCollision { .. } => "edit::card_id_collision",
+            EditError::EmptyCardId => "edit::empty_card_id",
             EditError::ValueTooDeep { .. } => "edit::value_too_deep",
             EditError::Import(_) => "edit::import",
             EditError::FieldRichtextDecode { .. } => "edit::field_richtext_decode",
@@ -305,24 +322,93 @@ impl Document {
     /// Append a composable card. Its `$kind` must be a valid, non-reserved
     /// composable kind ([`EditError::InvalidKindName`] /
     /// [`EditError::ReservedKind`] otherwise) — the invariant for any card in
-    /// the cards list, enforced here so every entry path shares it.
+    /// the cards list, enforced here so every entry path shares it. A `$id`
+    /// on the card must be non-empty and unused by any other composable card
+    /// ([`EditError::EmptyCardId`] / [`EditError::CardIdCollision`]).
     pub fn push_card(&mut self, card: Card) -> Result<(), EditError> {
-        Self::check_composable_kind(&card)?;
+        self.check_incoming_card(&card)?;
         self.cards_vec_mut().push(card);
         Ok(())
     }
 
     /// Insert a composable card at `index` (`index > len` →
     /// [`EditError::IndexOutOfRange`]; invalid `$kind` →
-    /// [`EditError::InvalidKindName`] / [`EditError::ReservedKind`]).
+    /// [`EditError::InvalidKindName`] / [`EditError::ReservedKind`]; empty or
+    /// colliding `$id` → [`EditError::EmptyCardId`] /
+    /// [`EditError::CardIdCollision`]).
     pub fn insert_card(&mut self, index: usize, card: Card) -> Result<(), EditError> {
         let len = self.cards().len();
         if index > len {
             return Err(EditError::IndexOutOfRange { index, len });
         }
-        Self::check_composable_kind(&card)?;
+        self.check_incoming_card(&card)?;
         self.cards_vec_mut().insert(index, card);
         Ok(())
+    }
+
+    /// Validate a card arriving from outside the document ([`push_card`],
+    /// [`insert_card`]): composable `$kind`, plus — when it carries a `$id` —
+    /// a non-empty handle unused by any placed card.
+    ///
+    /// [`push_card`]: Document::push_card
+    /// [`insert_card`]: Document::insert_card
+    fn check_incoming_card(&self, card: &Card) -> Result<(), EditError> {
+        Self::check_composable_kind(card)?;
+        if let Some(id) = card.id() {
+            self.check_card_id(id, None)?;
+        }
+        Ok(())
+    }
+
+    /// Validate `id` as the `$id` handle for the composable card at `exclude`
+    /// (`None` for a card not yet placed): non-empty, and carried by no
+    /// *other* composable card. The uniqueness scope is the composable-card
+    /// list — `main` is addressed structurally, never by id, so it sits
+    /// outside the scan (`DOCUMENT_STORAGE.md` §Card-id identity).
+    fn check_card_id(&self, id: &str, exclude: Option<usize>) -> Result<(), EditError> {
+        if id.is_empty() {
+            return Err(EditError::EmptyCardId);
+        }
+        let collides = self
+            .cards()
+            .iter()
+            .enumerate()
+            .any(|(i, c)| Some(i) != exclude && c.id() == Some(id));
+        if collides {
+            return Err(EditError::CardIdCollision { id: id.to_string() });
+        }
+        Ok(())
+    }
+
+    /// Set or replace the `$id` of the composable card at `index` — the
+    /// guarded door for a placed card ([`Payload::set_id`] stamps a card
+    /// before insertion). Re-setting a card's own id is a no-op success.
+    /// Returns [`EditError::IndexOutOfRange`], [`EditError::EmptyCardId`], or
+    /// [`EditError::CardIdCollision`].
+    pub fn set_card_id(
+        &mut self,
+        index: usize,
+        id: impl Into<String>,
+    ) -> Result<(), EditError> {
+        let id = id.into();
+        let len = self.cards().len();
+        if index >= len {
+            return Err(EditError::IndexOutOfRange { index, len });
+        }
+        self.check_card_id(&id, Some(index))?;
+        self.card_mut(index)
+            .expect("index checked above")
+            .payload_mut()
+            .set_id(id);
+        Ok(())
+    }
+
+    /// Remove the `$id` of the composable card at `index`, returning the
+    /// previous value. `None` when the index is out of range or the card
+    /// carries no `$id`. Removal cannot collide, so it needs no guard; the
+    /// id is then free for another card (undo reconstruction re-supplies it).
+    pub fn remove_card_id(&mut self, index: usize) -> Option<String> {
+        self.card_mut(index)?.payload_mut().take_id()
     }
 
     /// Validate that `card`'s `$kind` is a valid, non-reserved composable kind.
