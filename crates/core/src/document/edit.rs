@@ -326,10 +326,7 @@ impl Document {
     /// on the card must be non-empty and unused by any other composable card
     /// ([`EditError::EmptyCardId`] / [`EditError::CardIdCollision`]).
     pub fn push_card(&mut self, card: Card) -> Result<(), EditError> {
-        Self::check_composable_kind(&card)?;
-        if let Some(id) = card.id() {
-            self.check_card_id(id, None)?;
-        }
+        self.check_incoming_card(&card)?;
         self.cards_vec_mut().push(card);
         Ok(())
     }
@@ -344,11 +341,22 @@ impl Document {
         if index > len {
             return Err(EditError::IndexOutOfRange { index, len });
         }
-        Self::check_composable_kind(&card)?;
+        self.check_incoming_card(&card)?;
+        self.cards_vec_mut().insert(index, card);
+        Ok(())
+    }
+
+    /// Validate a card arriving from outside the document ([`push_card`],
+    /// [`insert_card`]): composable `$kind`, plus — when it carries a `$id` —
+    /// a non-empty handle unused by any placed card.
+    ///
+    /// [`push_card`]: Document::push_card
+    /// [`insert_card`]: Document::insert_card
+    fn check_incoming_card(&self, card: &Card) -> Result<(), EditError> {
+        Self::check_composable_kind(card)?;
         if let Some(id) = card.id() {
             self.check_card_id(id, None)?;
         }
-        self.cards_vec_mut().insert(index, card);
         Ok(())
     }
 
