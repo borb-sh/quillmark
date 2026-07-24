@@ -1613,8 +1613,8 @@ fn card_id_is_invariant_under_move_and_set_kind() {
         "$id survives a kind change"
     );
 
-    // Deleting the other holder frees nothing that was still in use, and the
-    // removed card keeps its stamp (undo can reinstate it verbatim).
+    // A removed card keeps its stamp, and its handle is free while it is
+    // out — undo reinstates it verbatim.
     let removed = doc.remove_card(0).unwrap();
     assert_eq!(removed.id(), Some("b"));
     doc.push_card(removed).unwrap();
