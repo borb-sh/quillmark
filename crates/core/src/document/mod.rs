@@ -392,6 +392,16 @@ impl Document {
             cards.iter().all(|c| c.seed().is_none()),
             "composable cards must not carry `$seed`"
         );
+        debug_assert!(
+            {
+                let mut seen = std::collections::HashSet::new();
+                cards
+                    .iter()
+                    .filter_map(|c| c.id())
+                    .all(|id| !id.is_empty() && seen.insert(id))
+            },
+            "composable card `$id`s must be non-empty and unique per document"
+        );
         Self { main, cards }
     }
 
@@ -438,10 +448,11 @@ impl Document {
         self.cards.get(index)
     }
 
-    /// The first composable card whose `$id` equals `id`, with its index —
-    /// resolving the canonical durable address ([PROGRAMMATIC.md]) without a
-    /// hand-rolled scan over [`cards`](Document::cards). `$id` is non-unique by
-    /// design, so this returns the first match; `None` when no card carries it.
+    /// The composable card whose `$id` equals `id`, with its index —
+    /// resolving the durable card handle ([PROGRAMMATIC.md]) without a
+    /// hand-rolled scan over [`cards`](Document::cards). `$id` is unique per
+    /// document (parse repairs a duplicate, mutators and storage reject one),
+    /// so at most one card matches; `None` when none carries it.
     ///
     /// [PROGRAMMATIC.md]: https://github.com/borb-sh/quillmark/blob/main/prose/canon/PROGRAMMATIC.md
     pub fn find_card(&self, id: &str) -> Option<(usize, &Card)> {

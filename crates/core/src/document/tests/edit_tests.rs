@@ -1502,27 +1502,121 @@ fn wire_card_rejects_value_past_depth_limit_and_bad_names() {
 // ── Single-card / $id reads (#956) ───────────────────────────────────────────
 
 #[test]
-fn find_card_returns_first_match_and_card_indexes() {
+fn find_card_resolves_id_and_card_indexes() {
     let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
 
     let mut c0 = Card::new("item").unwrap();
-    c0.payload_mut().set_id("dup");
+    c0.payload_mut().set_id("first");
     let mut c1 = Card::new("item").unwrap();
     c1.payload_mut().set_id("other");
-    let mut c2 = Card::new("item").unwrap();
-    c2.payload_mut().set_id("dup");
     doc.push_card(c0).unwrap();
     doc.push_card(c1).unwrap();
-    doc.push_card(c2).unwrap();
 
-    // `$id` is non-unique by design — find_card returns the first match.
-    let (idx, card) = doc.find_card("dup").unwrap();
+    // `$id` is unique per document — find_card resolves the one holder.
+    let (idx, card) = doc.find_card("first").unwrap();
     assert_eq!(idx, 0);
-    assert_eq!(card.id(), Some("dup"));
+    assert_eq!(card.id(), Some("first"));
     assert_eq!(doc.find_card("other").map(|(i, _)| i), Some(1));
     assert!(doc.find_card("missing").is_none());
 
     // card(i) is the immutable single-card read; None out of range.
     assert_eq!(doc.card(1).unwrap().id(), Some("other"));
-    assert!(doc.card(3).is_none());
+    assert!(doc.card(2).is_none());
+}
+
+// ── Card-id identity (#1044) ─────────────────────────────────────────────────
+
+#[test]
+fn push_and_insert_card_reject_duplicate_and_empty_id() {
+    let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
+    let mut c0 = Card::new("item").unwrap();
+    c0.payload_mut().set_id("dup");
+    doc.push_card(c0).unwrap();
+
+    let mut c1 = Card::new("item").unwrap();
+    c1.payload_mut().set_id("dup");
+    let err = doc.push_card(c1).unwrap_err();
+    assert_eq!(err, EditError::CardIdCollision { id: "dup".into() });
+    assert_eq!(err.code(), "edit::card_id_collision");
+    assert_eq!(doc.cards().len(), 1, "rejected card is not appended");
+
+    let mut c2 = Card::new("item").unwrap();
+    c2.payload_mut().set_id("");
+    let err = doc.push_card(c2).unwrap_err();
+    assert_eq!(err, EditError::EmptyCardId);
+    assert_eq!(err.code(), "edit::empty_card_id");
+
+    // insert_card shares the guard.
+    let mut c3 = Card::new("item").unwrap();
+    c3.payload_mut().set_id("dup");
+    assert_eq!(
+        doc.insert_card(0, c3).unwrap_err(),
+        EditError::CardIdCollision { id: "dup".into() }
+    );
+
+    // A card without `$id` is always insertable — the handle is optional.
+    doc.push_card(Card::new("item").unwrap()).unwrap();
+    assert_eq!(doc.cards().len(), 2);
+}
+
+#[test]
+fn set_card_id_guards_and_remove_frees_the_handle() {
+    let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
+    doc.push_card(Card::new("item").unwrap()).unwrap();
+    doc.push_card(Card::new("item").unwrap()).unwrap();
+
+    doc.set_card_id(0, "a").unwrap();
+    assert_eq!(doc.card(0).unwrap().id(), Some("a"));
+    // Re-setting a card's own id is a no-op success, not a self-collision.
+    doc.set_card_id(0, "a").unwrap();
+
+    assert_eq!(
+        doc.set_card_id(1, "a").unwrap_err(),
+        EditError::CardIdCollision { id: "a".into() }
+    );
+    assert_eq!(doc.set_card_id(1, "").unwrap_err(), EditError::EmptyCardId);
+    assert!(matches!(
+        doc.set_card_id(5, "b").unwrap_err(),
+        EditError::IndexOutOfRange { index: 5, len: 2 }
+    ));
+
+    // Removal retires the handle; it is then free for another card — what
+    // makes undo-reconstruction of a deleted card sound.
+    assert_eq!(doc.remove_card_id(0), Some("a".to_string()));
+    assert_eq!(doc.remove_card_id(0), None);
+    doc.set_card_id(1, "a").unwrap();
+    assert_eq!(doc.find_card("a").map(|(i, _)| i), Some(1));
+}
+
+#[test]
+fn card_id_is_invariant_under_move_and_set_kind() {
+    let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
+    let mut c0 = Card::new("item").unwrap();
+    c0.payload_mut().set_id("a");
+    let mut c1 = Card::new("item").unwrap();
+    c1.payload_mut().set_id("b");
+    doc.push_card(c0).unwrap();
+    doc.push_card(c1).unwrap();
+
+    doc.move_card(0, 1).unwrap();
+    assert_eq!(doc.card(0).unwrap().id(), Some("b"));
+    assert_eq!(
+        doc.card(1).unwrap().id(),
+        Some("a"),
+        "$id travels with its card, never rewritten"
+    );
+
+    doc.set_card_kind(1, "note").unwrap();
+    assert_eq!(
+        doc.card(1).unwrap().id(),
+        Some("a"),
+        "$id survives a kind change"
+    );
+
+    // Deleting the other holder frees nothing that was still in use, and the
+    // removed card keeps its stamp (undo can reinstate it verbatim).
+    let removed = doc.remove_card(0).unwrap();
+    assert_eq!(removed.id(), Some("b"));
+    doc.push_card(removed).unwrap();
+    assert_eq!(doc.find_card("b").map(|(i, _)| i), Some(1));
 }

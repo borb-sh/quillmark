@@ -108,7 +108,9 @@ pub enum PayloadItem {
     Quill { reference: QuillReference },
     /// `$kind` system metadata — the card's kind name.
     Kind { value: String },
-    /// `$id` system metadata — opaque identifier.
+    /// `$id` system metadata — the durable card handle: opaque,
+    /// caller-supplied, unique per document across composable cards
+    /// (`DOCUMENT_STORAGE.md` §Card-id identity).
     Id { value: String },
     /// `$ext` / `$seed` system metadata — an opaque mapping (discriminated by
     /// [`MetaKey`]) reserved for out-of-band data. Never emitted into the plate
@@ -407,8 +409,27 @@ impl Payload {
 
     /// Set or replace the `$id` entry. Same insertion rules as
     /// [`set_quill`](Self::set_quill).
+    ///
+    /// This is the stamping door for a card **not yet placed** in a document
+    /// (mint → stamp → insert); uniqueness is checked at insertion. For a
+    /// placed card, write through the guarded
+    /// [`Document::set_card_id`](crate::Document::set_card_id) so the
+    /// per-document uniqueness of `$id` holds.
     pub fn set_id(&mut self, id: impl Into<String>) {
         self.upsert_meta(PayloadItem::Id { value: id.into() });
+    }
+
+    /// Remove the `$id` entry, returning the previous value if any. Removal
+    /// cannot collide, so no document-level guard exists or is needed.
+    pub fn take_id(&mut self) -> Option<String> {
+        let pos = self
+            .items
+            .iter()
+            .position(|i| matches!(i, PayloadItem::Id { .. }))?;
+        match self.items.remove(pos) {
+            PayloadItem::Id { value } => Some(value),
+            _ => unreachable!(),
+        }
     }
 
     /// Set or replace an out-of-band meta entry at its canonical position.
