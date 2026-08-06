@@ -46,7 +46,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Install cargo-release
-        uses: taiki-e/install-action@v2.85.4
+        uses: taiki-e/install-action@v2.85.7
         with:
           tool: cargo-release
 
