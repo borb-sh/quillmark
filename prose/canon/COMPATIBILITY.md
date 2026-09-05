@@ -24,7 +24,7 @@ own rustdoc:
 
 | Seam | Why it is exempt |
 |---|---|
-| `Backend` + `SessionHandle` | Sealed and `#[doc(hidden)]`; an out-of-workspace backend writes against items this crate does not hold stable. |
+| `Backend` + `SessionHandle` | Sealed, with the seal's module and `SessionHandle` `#[doc(hidden)]`; an out-of-workspace backend writes against items this crate does not hold stable. |
 | `quillmark_typst::emit` | `pub` only so `quillmark-fuzz` can drive the escapers directly. |
 
 Deleting a row promises the seam. Publishing a contract later is additive and

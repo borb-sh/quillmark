@@ -51,7 +51,7 @@ A multi-problem stage (validation, quill config, backend compile) reports **ever
 
 The `code` namespaces are the routing surface:
 
-`parse::*` · `validation::*` · `quill::*` · `edit::*` (mutators) · `typst::*` · `pdfform::*` · `backend::*` · `engine::*`.
+`parse::*` · `validation::*` · `quill::*` · `edit::*` (mutators) · `typst::*` · `pdfform::*` · `pdf::*` (the AcroForm stamping spine both PDF-producing backends share) · `backend::*` · `engine::*`.
 
 Notable codes: `quill::name_mismatch` / `quill::version_mismatch` (a well-formed document paired with the wrong quill; see [Versioning](../quills/versioning.md)); `engine::backend_not_found` (the quill's declared backend is not registered); `parse::input_too_large`, which carries the two byte-sized [§8 caps](../reference/markdown-spec.md#8-limits) — document size and YAML payload size — distinguished only by its `max` arg, while the count caps arrive as `parse::too_many_cards` and `parse::too_many_fields` (args `count`, `max`) and an over-deep payload as `parse::yaml_error_with_location`.
 

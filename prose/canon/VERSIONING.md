@@ -53,11 +53,12 @@ A quill mismatch is distinct from a validation failure (a malformed document): h
 
 Three distinct failure paths, and the parser owns one of them outright:
 
-- **`Quill.yaml` version invalid** → `quill::invalid_version` → surfaces as
-  `RenderError::QuillConfig` at Quill load.
+- **`Quill.yaml` version invalid** → a `quill::invalid_version` diagnostic from
+  Quill load: `Quill::from_tree` returns it in its `Vec<Diagnostic>`,
+  `quill_from_path` in the `RenderError` wrapping that vector.
 - **Document `$quill` reference invalid** (e.g. `my_format@bad`) →
-  `ParseError::InvalidQuillReference`, returned directly by the parser, never as
-  `RenderError::QuillConfig`.
+  `ParseError::InvalidQuillReference` (`parse::invalid_quill_reference`),
+  returned directly by the parser, never through Quill load.
 - **Loaded Quill does not satisfy a well-formed `$quill`** → the two mismatch
   codes above, as a `RenderError` from `render`/`dry_run`.
 

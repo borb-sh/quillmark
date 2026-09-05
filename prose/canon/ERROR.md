@@ -22,7 +22,7 @@ severity.
 
 **`Diagnostic`**: severity, optional error `code`, `message`, optional `location` (text anchor: file/line/column), optional `path` (document-model anchor, dotted/bracketed path into the typed `Document`, set by schema validation/coercion), optional `hint`, `source_chain` (omitted from serialization when empty). `location` and `path` are independent and may co-exist.
 
-**`ParseError`**: parsing-stage error enum, `InputTooLarge`, `TooManyFields`, `TooManyCards`, `InvalidStructure`, `EmptyInput`, `MissingQuill`, `InvalidQuillReference`, `YamlErrorWithLocation`; converts to `Diagnostic` via `to_diagnostic()`. The `InvalidQuillReference` case (`parse::invalid_quill_reference`) attaches the canonical `$quill` grammar (`quill_ref_hint()`) as the diagnostic hint. That hint is the single source of truth for the reference grammar: bindings surface it verbatim (e.g. WASM `Document.quillRefHint`) rather than re-stating the rule.
+**`ParseError`**: parsing-stage error enum, `InputTooLarge`, `TooManyFields`, `TooManyCards`, `InvalidStructure`, `EmptyInput`, `MissingQuill`, `InvalidQuillReference`, `BodyImport`, `YamlErrorWithLocation`; converts to `Diagnostic` via `to_diagnostic()`. The `InvalidQuillReference` case (`parse::invalid_quill_reference`) attaches the canonical `$quill` grammar (`quill_ref_hint()`) as the diagnostic hint. That hint is the single source of truth for the reference grammar: bindings surface it verbatim (e.g. WASM `Document.quillRefHint`) rather than re-stating the rule.
 
 **`YamlError`**: the one adapter every `serde-saphyr` error passes through. Sanitizes the message (the engine appends its own Rust API names (`from_multiple`, `DuplicateKeyPolicy`) which `yaml_hints::enrich_yaml_error` strips), derives the hint, and carries the 1-indexed line/column the engine located; `to_diagnostic(code, file)` renders all three. The emit side has no input to point at, so it carries neither position nor hint.
 
@@ -43,8 +43,8 @@ for the one-error-diagnostic case every engine-side refusal takes;
 `into_diagnostics()` consumes). There is no failure taxonomy beyond the
 diagnostics themselves: the machine-routable identity of a failure is each
 diagnostic's namespaced `code` (`parse::*`, `validation::*`, `quill::*`,
-`edit::*`, `typst::*`, `pdfform::*`, `backend::*`, `engine::*`): consumers
-route on codes, not on a type. Multi-problem stages (validation, quill config, backend
+`edit::*`, `typst::*`, `pdfform::*`, `pdf::*`, `backend::*`, `engine::*`):
+consumers route on codes, not on a type. Multi-problem stages (validation, quill config, backend
 compilation) carry several diagnostics so every problem reaches the caller in
 one pass. `Display` follows the count-based message rule shared with both
 bindings: the primary diagnostic's message for a single diagnostic, an
@@ -58,6 +58,11 @@ for a backend session that does not override the incremental-`update` seam
 requested format is outside the backend's `supported_formats`, one code on
 every backend so a caller matches the condition once;
 `engine::backend_not_found`: the quill's declared backend is not registered.
+
+`pdf::*` is the AcroForm stamping spine's own namespace (`pdf::parse`,
+`pdf::write`, `pdf::rotated_page`, `pdf::bad_rect`, …): `quillmark-pdf` carries
+the code on its `PdfError` and the `From` impl forwards it intact into a
+`RenderError`, so a spine refusal routes the same whichever backend drove it.
 
 **`edit::*`: mutator diagnostics.** Document and card mutators fail with the
 `EditError` enum (`crates/core/src/document/edit.rs`), one namespaced code per

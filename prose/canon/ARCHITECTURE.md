@@ -113,13 +113,13 @@ See [PLATE_DATA.md](PLATE_DATA.md) for the Typst helper package.
 
 ## Backend Implementation
 
-Backends are an in-workspace seam, not an extension point. `Backend` and
-`SessionHandle` are sealed and `#[doc(hidden)]`, outside the crate
-compatibility promise ([COMPATIBILITY.md](COMPATIBILITY.md)), so a new trait
-method lands in a minor release. The seal withholds the promise, not the
-ability: a crate willing to name the hidden module implements both and
-registers through `Quillmark::register_backend`. Nothing it writes against is
-held stable.
+Backends are an in-workspace seam, not an extension point. `Backend` is sealed
+and documented; its seal's module and `SessionHandle` are `#[doc(hidden)]`.
+Both traits sit outside the crate compatibility promise
+([COMPATIBILITY.md](COMPATIBILITY.md)), so a new trait method lands in a minor
+release. The seal withholds the promise, not the ability: a crate willing to
+name the hidden module implements both and registers through
+`Quillmark::register_backend`. Nothing it writes against is held stable.
 
 A quill declares one backend and renders through that one. Rendering a schema
 two ways is therefore two quills, with nothing keeping their field definitions
