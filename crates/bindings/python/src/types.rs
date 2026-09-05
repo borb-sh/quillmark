@@ -2,13 +2,14 @@ use pyo3::conversion::IntoPyObjectExt;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pycell::{PyRef, PyRefMut};
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::{PyBytes, PyDict, PyList};
 use pyo3::Bound;
 
 use quillmark::{
     quill_from_path, Diagnostic, Document, Location, OutputFormat, Quill, Quillmark, RenderResult,
 };
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 
 use crate::enums::{PyOutputFormat, PySeverity};
@@ -64,10 +65,7 @@ impl PyQuillmark {
         result
             .warnings
             .splice(0..0, doc.parse_warnings.iter().cloned());
-        Ok(PyRenderResult {
-            inner: result,
-            render_time_ms: elapsed_ms,
-        })
+        PyRenderResult::new(doc.py(), result, elapsed_ms)
     }
 
     /// The output formats `quill`'s backend can emit. Raises `QuillmarkError`
@@ -1218,36 +1216,58 @@ impl PyCardReader {
 
 #[pyclass(name = "RenderResult")]
 pub struct PyRenderResult {
-    pub(crate) inner: RenderResult,
-    pub(crate) render_time_ms: f64,
+    artifacts: Vec<Py<PyArtifact>>,
+    warnings: Vec<Py<PyDiagnostic>>,
+    output_format: OutputFormat,
+    regions: Vec<quillmark_core::RenderedRegion>,
+    render_time_ms: f64,
+}
+
+impl PyRenderResult {
+    fn new(py: Python<'_>, result: RenderResult, render_time_ms: f64) -> PyResult<Self> {
+        Ok(Self {
+            artifacts: result
+                .artifacts
+                .into_iter()
+                .map(|a| {
+                    Py::new(
+                        py,
+                        PyArtifact {
+                            inner: Arc::from(a.bytes),
+                            format: a.output_format,
+                        },
+                    )
+                })
+                .collect::<PyResult<_>>()?,
+            warnings: result
+                .warnings
+                .into_iter()
+                .map(|inner| Py::new(py, PyDiagnostic { inner }))
+                .collect::<PyResult<_>>()?,
+            output_format: result.output_format,
+            regions: result.regions,
+            render_time_ms,
+        })
+    }
 }
 
 #[pymethods]
 impl PyRenderResult {
+    /// Every read hands back the same `Artifact` objects in a new list,
+    /// copying no artifact bytes.
     #[getter]
-    fn artifacts(&self) -> Vec<PyArtifact> {
-        self.inner
-            .artifacts
-            .iter()
-            .map(|a| PyArtifact {
-                inner: a.bytes.clone(),
-                format: a.output_format,
-            })
-            .collect()
+    fn artifacts(&self, py: Python<'_>) -> Vec<Py<PyArtifact>> {
+        self.artifacts.iter().map(|a| a.clone_ref(py)).collect()
     }
 
     #[getter]
-    fn warnings(&self) -> Vec<PyDiagnostic> {
-        self.inner
-            .warnings
-            .iter()
-            .map(|d| PyDiagnostic { inner: d.clone() })
-            .collect()
+    fn warnings(&self, py: Python<'_>) -> Vec<Py<PyDiagnostic>> {
+        self.warnings.iter().map(|d| d.clone_ref(py)).collect()
     }
 
     #[getter]
     fn format(&self) -> PyOutputFormat {
-        self.inner.output_format.into()
+        self.output_format.into()
     }
 
     /// Wall-clock time spent inside `render`, in milliseconds.
@@ -1266,8 +1286,7 @@ impl PyRenderResult {
     /// `field` and union the segment rects for the whole-field box.
     #[getter]
     fn regions<'py>(&self, py: Python<'py>) -> PyResult<Vec<Bound<'py, PyDict>>> {
-        self.inner
-            .regions
+        self.regions
             .iter()
             .map(|r| {
                 let d = PyDict::new(py);
@@ -1284,15 +1303,17 @@ impl PyRenderResult {
 #[pyclass(name = "Artifact", from_py_object)]
 #[derive(Clone)]
 pub struct PyArtifact {
-    pub(crate) inner: Vec<u8>,
+    pub(crate) inner: Arc<[u8]>,
     pub(crate) format: OutputFormat,
 }
 
 #[pymethods]
 impl PyArtifact {
+    /// Copies the rendered buffer into a new `bytes` on each read; `save`
+    /// writes it without a copy.
     #[getter]
-    fn bytes(&self) -> Vec<u8> {
-        self.inner.clone()
+    fn bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.inner)
     }
 
     #[getter]

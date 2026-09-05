@@ -5,17 +5,21 @@ import pytest
 from quillmark import OutputFormat, Document, Quill, QuillmarkError
 
 
-def test_save_artifact(engine, taro_quill_dir, taro_md, tmp_path):
+def test_artifact_reads_share_one_buffer(engine, taro_quill_dir, taro_md, tmp_path):
+    """Re-reading `artifacts` hands back the same objects, and `bytes` is what `save` wrote."""
     quill = Quill.from_path(str(taro_quill_dir))
 
     parsed = Document.from_markdown(taro_md)
     result = engine.render(quill, parsed, OutputFormat.PDF)
 
-    output_path = tmp_path / "output.pdf"
-    result.artifacts[0].save(str(output_path))
+    artifact = result.artifacts[0]
+    assert result.artifacts[0] is artifact
 
-    assert output_path.exists()
-    assert output_path.stat().st_size > 0
+    output_path = tmp_path / "output.pdf"
+    artifact.save(str(output_path))
+
+    assert artifact.bytes
+    assert output_path.read_bytes() == artifact.bytes
 
 
 def test_engine_render_with_explicit_format(engine, taro_quill_dir, taro_md):
