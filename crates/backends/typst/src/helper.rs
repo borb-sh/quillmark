@@ -308,7 +308,7 @@ impl<'m> Codegen<'m> {
     /// on an address the recursion produced rather than one reassembled.
     ///
     /// A value whose shape contradicts its declaration reaches here through a
-    /// direct `apply`, never the seam, and falls to its literal.
+    /// direct `update`, never the seam, and falls to its literal.
     fn emit_value(
         &mut self,
         path: &str,
@@ -398,7 +398,7 @@ enum DateKind {
 }
 
 /// Each present date's `_qm_dN` closure keyed by schema address, backing the
-/// `display(field, ..)` helper. Keys sort so a reorder-only `apply` still
+/// `display(field, ..)` helper. Keys sort so a reorder-only `update` still
 /// produces byte-identical source.
 fn display_literal(entries: &[(String, String)]) -> String {
     let mut sorted: Vec<&(String, String)> = entries.iter().collect();
@@ -468,7 +468,7 @@ pub(crate) fn lit(v: &serde_json::Value) -> String {
 
 /// The workspace builds `serde_json` with `preserve_order`, so a map's own
 /// iteration order is the caller's. Sorting makes the generated source a pure
-/// function of the data's *values*, so a reorder-only `apply` produces
+/// function of the data's *values*, so a reorder-only `update` produces
 /// byte-identical `lib.typ` and comemo reuses the whole compile.
 fn sorted(obj: &serde_json::Map<String, serde_json::Value>) -> Vec<(&String, &serde_json::Value)> {
     let mut entries: Vec<_> = obj.iter().collect();
@@ -917,7 +917,7 @@ mod tests {
         );
     }
 
-    /// A reorder-only `apply` must be a `Source::replace` no-op.
+    /// A reorder-only `update` must be a `Source::replace` no-op.
     #[test]
     fn reordered_input_emits_byte_identical_source() {
         let meta = meta_from(serde_json::json!({

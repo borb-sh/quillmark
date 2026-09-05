@@ -486,10 +486,10 @@ pub struct Quill {
     inner: quillmark::Quill,
 }
 
-/// Live render session: every read serves the current compile. `apply(doc)`
+/// Live render session: every read serves the current compile. `update(doc)`
 /// recompiles a whole document in place, transactionally — on throw the reads
 /// keep serving the last-good compile. Geometry is per-compile, so re-read it
-/// after each committed `apply`.
+/// after each committed `update`.
 ///
 /// A zero-page document yields a valid session (`pageCount === 0`) whose
 /// `paint(ctx, 0)` and `pageSize(0)` throw; branch on `pageCount === 0` rather
@@ -500,7 +500,7 @@ pub struct LiveSession {
     inner: quillmark_core::LiveSession,
     backend_id: String,
     /// Resolves a geometry region's plate-space per-kind ordinal to its
-    /// `DocPath` absolute index. Refreshed on every committed `apply`.
+    /// `DocPath` absolute index. Refreshed on every committed `update`.
     card_kinds: Vec<Option<String>>,
 }
 
@@ -2777,7 +2777,7 @@ impl LiveSession {
     }
 
     /// Non-fatal diagnostics of the session's **current compile**, refreshed by
-    /// each committed `apply`; a failed apply keeps the last-good compile's.
+    /// each committed `update`; a failed `update` keeps the last-good compile's.
     /// Also appended to `RenderResult.warnings` on each `render()`.
     #[wasm_bindgen(getter, js_name = warnings, unchecked_return_type = "Diagnostic[]")]
     pub fn warnings(&self) -> Result<JsValue, JsValue> {

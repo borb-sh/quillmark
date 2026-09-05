@@ -72,7 +72,7 @@ fn usaf_memo_regions_cover_body_signature_and_cards() {
         .expect("the indorsement card")
         .revise_body("The indorsement **body**, rebuilt by render-body.")
         .expect("set the card body");
-    session.update(&edited).expect("apply edited card body");
+    session.update(&edited).expect("update with an edited card body");
     let fields: HashSet<String> = session.regions().into_iter().map(|r| r.field).collect();
     assert!(
         fields.contains("$cards.indorsement.0.$body"),
@@ -120,7 +120,7 @@ fn usaf_memo_date_region_rides_the_vendored_display() {
     quillmark::TypedWriter::new(quill.config(), &mut edited)
         .set("date", "2026-01-02")
         .expect("set a real date");
-    session.update(&edited).expect("apply a real memo date");
+    session.update(&edited).expect("update with a real memo date");
 
     let regions = session.regions();
     let date = regions

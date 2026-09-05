@@ -32,7 +32,7 @@ page and its internals are rustdoc.
 
 - **[BINDINGS.md](BINDINGS.md)** - Language surfaces (Python, WASM, CLI) over the one core engine
 - **[CLI.md](CLI.md)** - Command-line interface
-- **[PREVIEW.md](PREVIEW.md)** - WASM live preview: LiveSession (apply/ChangeSet) + multi-backend canvas paint (Typst, pdfform)
+- **[PREVIEW.md](PREVIEW.md)** - WASM live preview: LiveSession (update/ChangeSet) + multi-backend canvas paint (Typst, pdfform)
 
 ## Infrastructure
 

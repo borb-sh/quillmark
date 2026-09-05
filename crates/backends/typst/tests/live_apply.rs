@@ -1,4 +1,4 @@
-//! `apply` swaps new document data into the helper package, recompiles, and
+//! `update` swaps new document data into the helper package, recompiles, and
 //! reports the dirty page set. Commit is transactional: a failed recompile
 //! leaves every read serving the last-good compile.
 
@@ -15,7 +15,7 @@ const PLATE: &str = r#"#import "@local/quillmark-helper:0.1.0": data
 "#;
 
 fn quill() -> Quill {
-    let yaml = "quill:\n  name: live\n  version: 0.1.0\n  backend: typst\n  description: apply acceptance quill\n\ntypst:\n  plate_file: plate.typ\n\nmain:\n  fields:\n    msg:\n      description: message\n      type: string\n";
+    let yaml = "quill:\n  name: live\n  version: 0.1.0\n  backend: typst\n  description: update acceptance quill\n\ntypst:\n  plate_file: plate.typ\n\nmain:\n  fields:\n    msg:\n      description: message\n      type: string\n";
     common::quill_with_plate(yaml, PLATE)
 }
 
@@ -35,7 +35,7 @@ fn msg(n: usize, edit_at: Option<usize>, marker: &str) -> String {
 }
 
 #[test]
-fn apply_commits_and_dirties_only_the_touched_suffix() {
+fn update_commits_and_dirties_only_the_touched_suffix() {
     let backend = TypstBackend;
     let q = quill();
     let n = 60;
@@ -48,30 +48,30 @@ fn apply_commits_and_dirties_only_the_touched_suffix() {
 
     let cs = session
         .update_data(&json!({ "msg": msg(n, Some(n - 1), "EDITED") }))
-        .expect("apply");
+        .expect("update");
     assert_eq!(cs.page_count, pages);
     assert_eq!(cs.dirty_pages, vec![pages - 1]);
 
     // A front edit dirties the first page and possibly shifted successors.
     let cs = session
         .update_data(&json!({ "msg": msg(n, Some(0), "EDITED") }))
-        .expect("apply");
+        .expect("update");
     assert!(cs.dirty_pages.contains(&0), "dirty: {:?}", cs.dirty_pages);
 
     let cs = session
         .update_data(&json!({ "msg": msg(n, Some(0), "EDITED") }))
-        .expect("apply");
+        .expect("update");
     assert!(cs.dirty_pages.is_empty(), "dirty: {:?}", cs.dirty_pages);
 }
 
 /// A content field routes its glyph spans into the helper `lib.typ`, which is
-/// regenerated per `apply`: the dirty-every-reapply shape.
+/// regenerated per `update`: the dirty-every-re-update shape.
 fn markdown_quill() -> Quill {
     const YAML: &str = r#"quill:
   name: live_markdown
   version: 0.1.0
   backend: typst
-  description: markdown-content no-op reapply quill
+  description: markdown-content no-op re-update quill
 typst:
   plate_file: plate.typ
 main:
@@ -89,8 +89,8 @@ main:
 }
 
 #[test]
-fn identical_reapply_of_markdown_content_is_clean() {
-    // A page's fingerprint must not fold in `Span`s, so a byte-identical reapply
+fn identical_re_update_of_markdown_content_is_clean() {
+    // A page's fingerprint must not fold in `Span`s, so a byte-identical re-update
     // reports nothing dirty, every round, not just once.
     let backend = TypstBackend;
     let q = markdown_quill();
@@ -103,11 +103,11 @@ fn identical_reapply_of_markdown_content_is_clean() {
     for round in 0..3 {
         let cs = session
             .update_data(&json!({ "body": body }))
-            .expect("apply identical");
+            .expect("update identical");
         assert_eq!(cs.page_count, pages);
         assert!(
             cs.dirty_pages.is_empty(),
-            "round {round}: identical markdown reapply must be clean, got {:?}",
+            "round {round}: identical markdown re-update must be clean, got {:?}",
             cs.dirty_pages
         );
     }
@@ -115,7 +115,7 @@ fn identical_reapply_of_markdown_content_is_clean() {
     // A real change still dirties: the fingerprint didn't go blind.
     let cs = session
         .update_data(&json!({ "body": format!("{body} plus a genuinely new sentence.") }))
-        .expect("apply changed");
+        .expect("update changed");
     assert!(
         !cs.dirty_pages.is_empty(),
         "a real edit must still dirty a page"
@@ -150,9 +150,9 @@ main:
 }
 
 #[test]
-fn reapply_with_reordered_fields_same_content_is_clean() {
+fn update_with_reordered_fields_same_content_is_clean() {
     // `serde_json` is built with `preserve_order`, so field insertion order
-    // survives on the wire and an editor can hand `apply` the same content in a
+    // survives on the wire and an editor can hand `update` the same content in a
     // different key order. Canonical codegen and span-free page hashes must
     // both hold for that to stay clean.
     let backend = TypstBackend;
@@ -168,7 +168,7 @@ fn reapply_with_reordered_fields_same_content_is_clean() {
     .unwrap();
 
     let mut session = backend.open(&q, &opened).expect("open");
-    let cs = session.update_data(&reordered).expect("apply reordered");
+    let cs = session.update_data(&reordered).expect("update reordered");
     assert!(
         cs.dirty_pages.is_empty(),
         "same content in a different field order moved no ink; got dirty {:?}",
@@ -177,12 +177,12 @@ fn reapply_with_reordered_fields_same_content_is_clean() {
 
     let mut edited = reordered.clone();
     edited["body"] = json!("**Body** paragraph with real ink, now extended further.");
-    let cs = session.update_data(&edited).expect("apply edited");
+    let cs = session.update_data(&edited).expect("update edited");
     assert!(!cs.dirty_pages.is_empty(), "a real edit must still dirty");
 }
 
 #[test]
-fn apply_is_transactional_on_compile_failure() {
+fn update_is_transactional_on_compile_failure() {
     let backend = TypstBackend;
     let q = quill();
 
@@ -202,12 +202,12 @@ fn apply_is_transactional_on_compile_failure() {
 
     let cs = session
         .update_data(&json!({ "msg": "recovered" }))
-        .expect("apply after failure");
+        .expect("update after failure");
     assert_eq!(cs.page_count, session.page_count());
 }
 
 #[test]
-fn apply_tracks_page_count_growth_and_shrink() {
+fn update_tracks_page_count_growth_and_shrink() {
     let backend = TypstBackend;
     let q = quill();
 

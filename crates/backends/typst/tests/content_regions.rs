@@ -653,7 +653,7 @@ main:
     assert_eq!(
         session.regions(),
         before,
-        "a failed apply must not move or drop the served compile's regions"
+        "a failed update must not move or drop the served compile's regions"
     );
     let intro = before.iter().find(|r| r.field == "intro").unwrap();
     let cx = (intro.rect[0] + intro.rect[2]) / 2.0;

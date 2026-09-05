@@ -86,11 +86,11 @@ fn name_mismatch_is_a_hard_error() {
     assert_eq!(mismatch_code(&err), Some("quill::name_mismatch"));
 }
 
-/// The check rides `apply`, not just the open door: a session compiles every
+/// The check rides `update`, not just the open door: a session compiles every
 /// edit through its own config, so the pairing stays checkable.
 #[test]
 #[cfg(feature = "typst")]
-fn apply_rechecks_the_reference_against_the_sessions_quill() {
+fn update_rechecks_the_reference_against_the_sessions_quill() {
     let temp_dir = TempDir::new().unwrap();
     let quill_path = make_quill(&temp_dir, "3.0.0");
     let quill = quillmark::quill_from_path(&quill_path).expect("from_path failed");
@@ -112,12 +112,12 @@ fn apply_rechecks_the_reference_against_the_sessions_quill() {
 
     let err = session
         .update(&doc("other_quill@3"))
-        .expect_err("apply must refuse another quill's document");
+        .expect_err("update must refuse another quill's document");
     assert_eq!(mismatch_code(&err), Some("quill::name_mismatch"));
 
     let err = session
         .update(&doc("test_quill@2"))
-        .expect_err("apply must refuse an out-of-selector version");
+        .expect_err("update must refuse an out-of-selector version");
     assert_eq!(mismatch_code(&err), Some("quill::version_mismatch"));
 
     // A refusal is raised before the backend is touched, so reads still serve

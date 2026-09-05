@@ -46,7 +46,7 @@ struct TypstSession {
     /// and codegen plus date validation read only these tables.
     schema_meta: SchemaMeta,
     /// The plate is static for a session's lifetime, so these are computed once
-    /// at `open` and re-appended into the compile's windows per apply.
+    /// at `open` and re-appended into the compile's windows per update.
     scalar_windows: Vec<overlay::FieldWindow>,
     /// Swapped whole, and only once [`recompile`] has succeeded, so on `Err`
     /// every read keeps serving the last-good compile.
@@ -67,13 +67,13 @@ struct Compiled {
     /// then the plate's scalar reference-site windows.
     windows: Vec<overlay::FieldWindow>,
     /// Span resolution goes through this snapshot, not the world: a failed
-    /// `apply` leaves the *next* injection's text in the world while every read
+    /// `update` leaves the *next* injection's text in the world while every read
     /// keeps serving this compile.
     helper_source: typst::syntax::Source,
     /// Diffed against the next compile's to produce `ChangeSet::dirty_pages`.
     page_hashes: Vec<u128>,
     /// What [`session_warnings`] built for this compile. The compile half swaps
-    /// on each committed `apply`; the load half rides along unchanged.
+    /// on each committed `update`; the load half rides along unchanged.
     warnings: Vec<Diagnostic>,
     /// [`overlay::unclosed_claims`] for this document, suppressed by every
     /// region and point query. Computed with the compile rather than per query:
@@ -117,7 +117,7 @@ fn recompile(
 }
 
 /// The quill's load warnings, then this compile's own, then one per runaway
-/// `field-region`. One order, built in one place, so an `apply` that swaps only
+/// `field-region`. One order, built in one place, so an `update` that swaps only
 /// what it recompiled keeps the load half.
 fn session_warnings(
     world: &world::QuillWorld,
@@ -574,7 +574,7 @@ pub(crate) struct SchemaMeta {
     pub(crate) root: AddressNode,
     pub(crate) cards: BTreeMap<String, AddressNode>,
     /// Serialized once: the schema is fixed for a session's lifetime, and every
-    /// apply splices this same literal into the generated `lib.typ`.
+    /// update splices this same literal into the generated `lib.typ`.
     meta_literal: String,
 }
 

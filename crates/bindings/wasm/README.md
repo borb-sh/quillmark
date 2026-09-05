@@ -341,11 +341,11 @@ present-null `null`. A read never coerces a scalar (`qty: "3"` reads `"3"`);
 Use **`engine.render`** for one-shot exports (PDF/SVG/PNG): compiles, emits
 artifacts, done. Use **`LiveSession`** (returned by `engine.open`) for
 reactive previews: the session is a persistent compiler. `paint` / `render` /
-`regions` / `fieldAt` read its current compile without recompiling, and `apply(doc)`
+`regions` / `fieldAt` read its current compile without recompiling, and `update(doc)`
 recompiles in place on each edit, returning a `ChangeSet` whose `dirtyPages`
-tells you which pages to repaint (`dirty ∩ visible`). Apply is transactional:
+tells you which pages to repaint (`dirty ∩ visible`). `update` is transactional:
 on throw, every read keeps serving the last-good compile. Don't open a session
-per export, and don't re-open per edit: `apply` instead.
+per export, and don't re-open per edit: `update` instead.
 
 A document that compiles to zero pages still produces a valid session
 (`pageCount === 0`); `paint(ctx, 0)` and `pageSize(0)` then throw. Branch on
@@ -385,8 +385,10 @@ canvas.style.height = `${result.layoutHeight}px`;
   a page's canvas alive while it stays near the viewport: an idle canvas retains
   its pixels for free, whereas pooling one canvas across pages re-renders on
   every scroll.
-- `pageCount` and `pageSize(page)` are stable for the session's lifetime: cache
-  them.
+- `pageCount` and `pageSize(page)` read the current compile, not the session:
+  cache them between committed `update`s only. After one, the count is
+  `ChangeSet.pageCount`, and every page in `ChangeSet.dirtyPages` needs its
+  `pageSize` re-read.
 - In a Worker, pass an `OffscreenCanvasRenderingContext2D`; the layout
   dimensions are informational there. Loading the WASM module inside the Worker
   is the host's responsibility.

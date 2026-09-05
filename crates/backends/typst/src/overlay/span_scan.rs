@@ -10,7 +10,7 @@
 //! because they are a property of the glyph, not a sibling element.
 //!
 //! **Resolution goes through the compile's own helper source.** The session
-//! serves reads from its last-good compile, but a failed `apply` has already
+//! serves reads from its last-good compile, but a failed `update` has already
 //! written the *next* injection's helper text into the world; resolving the
 //! served document's spans against that text would shift every range. Only
 //! non-helper spans (plate, vendored packages: stable within a session)

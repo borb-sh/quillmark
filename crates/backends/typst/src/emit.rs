@@ -304,7 +304,7 @@ pub enum EmitError {
     /// on a hand-built content that skipped that guard.
     #[error("Nesting too deep: {depth} levels (max: {max} levels)")]
     NestingTooDeep { depth: usize, max: usize },
-    /// A non-blank date the shared parsers reject. Only a direct `apply` can
+    /// A non-blank date the shared parsers reject. Only a direct `update` can
     /// deliver one: coercion parses the same way.
     #[error("invalid date in field {field:?}: {value:?} is not a recognized date")]
     InvalidDate { field: String, value: String },

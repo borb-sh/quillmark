@@ -215,14 +215,14 @@ fn apply_rebinds_values_and_reports_dirty_pages() {
     let doc = Document::parse(FILLED).expect("parse markdown").document;
     let mut session = engine.open(&quill, &doc).expect("open ok");
 
-    let cs = session.update(&doc).expect("apply");
+    let cs = session.update(&doc).expect("update");
     assert_eq!(cs.page_count, session.page_count());
     assert!(cs.dirty_pages.is_empty(), "dirty: {:?}", cs.dirty_pages);
 
     let doc2 = Document::parse(&FILLED.replace("Ada Lovelace", "Grace Hopper"))
         .expect("parse markdown")
         .document;
-    let cs = session.update(&doc2).expect("apply");
+    let cs = session.update(&doc2).expect("update");
     assert_eq!(cs.dirty_pages, vec![0]);
 
     let result = session

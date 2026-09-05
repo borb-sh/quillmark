@@ -43,7 +43,7 @@ impl Quill {
 /// The document→data compile is a pure config read: coercion, validation,
 /// normalization, and blank-fill consult only the parsed schemas, never the
 /// quill's file tree. Living on [`QuillConfig`] lets a consumer that only
-/// compiles data (e.g. a live session's `apply`) retain the config alone
+/// compiles data (e.g. a live session's `update`) retain the config alone
 /// rather than the whole quill with its font/package bytes.
 impl QuillConfig {
     /// Applies coercion, validation, normalization, and **blank-filled render**:
