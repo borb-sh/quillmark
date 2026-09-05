@@ -4,9 +4,8 @@ use crate::types::Diagnostic;
 use crate::types::{ChangeSet, ContentHit, FieldRegion, RenderOptions, RenderResult};
 use js_sys::{Array, Uint8Array};
 #[cfg(any(feature = "typst", feature = "pdfform"))]
-use serde::Deserialize;
-use serde::Serialize;
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen(typescript_custom_section)]
@@ -115,6 +114,9 @@ export interface QuillSchema {
  * Identity snapshot mirroring the `quill:` section of `Quill.yaml`. The schema
  * lives on `Quill.schema`; output formats are a resolved-backend capability read
  * from `Quillmark.supportedFormats`, not part of this config snapshot.
+ *
+ * These five keys come first in the order below; any extra `quill:` keys follow
+ * in sorted order.
  */
 export interface QuillMetadata {
     name: string;
@@ -592,10 +594,7 @@ impl Quillmark {
             .supported_formats(&quill.inner)
             .map_err(|e| WasmError::from(e).to_js_value())?;
         let out: Vec<crate::types::OutputFormat> = formats.iter().map(|f| (*f).into()).collect();
-        let serializer = serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
-        out.serialize(&serializer).map_err(|e| {
-            WasmError::from(format!("supportedFormats: serialization failed: {e}")).to_js_value()
-        })
+        serialize_or_throw(&out, "supportedFormats")
     }
 
     /// Whether `quill`'s backend can paint sessions to a canvas; `false` when the
@@ -663,45 +662,36 @@ impl Quill {
     /// Identity snapshot of the `quill:` section of `Quill.yaml` plus any extra
     /// `quill:` keys. Pure config: output formats are a resolved-backend
     /// capability read from `Quillmark.supportedFormats`, not part of this.
+    ///
+    /// The five standard keys come first in their declared order, then the
+    /// extra keys sorted by name, so the object's key order is a function of
+    /// the quill alone.
     #[wasm_bindgen(getter, js_name = metadata, unchecked_return_type = "QuillMetadata")]
     pub fn metadata(&self) -> Result<JsValue, JsValue> {
         let source = &self.inner;
         let config = source.config();
 
-        let mut obj = serde_json::Map::new();
-        obj.insert(
-            "name".to_string(),
-            serde_json::Value::String(config.name.clone()),
-        );
-        obj.insert(
-            "version".to_string(),
-            serde_json::Value::String(config.version.clone()),
-        );
-        obj.insert(
-            "backend".to_string(),
-            serde_json::Value::String(config.backend.clone()),
-        );
-        obj.insert(
-            "author".to_string(),
-            serde_json::Value::String(config.author.clone()),
-        );
-        obj.insert(
-            "description".to_string(),
-            serde_json::Value::String(config.description.clone()),
-        );
-
-        for (key, value) in source.metadata() {
-            if quillmark_core::STANDARD_METADATA_KEYS.contains(&key.as_str()) {
-                continue;
-            }
-            if obj.contains_key(key) {
-                continue;
-            }
-            obj.insert(key.clone(), value.as_json().clone());
+        let mut value = serde_json::json!({
+            "name": config.name,
+            "version": config.version,
+            "backend": config.backend,
+            "author": config.author,
+            "description": config.description,
+        });
+        let serde_json::Value::Object(obj) = &mut value else {
+            unreachable!("json! builds an object")
+        };
+        let extras: BTreeMap<&str, &serde_json::Value> = source
+            .metadata()
+            .iter()
+            .filter(|(key, _)| !quillmark_core::STANDARD_METADATA_KEYS.contains(&key.as_str()))
+            .map(|(key, value)| (key.as_str(), value.as_json()))
+            .collect();
+        for (key, extra) in extras {
+            obj.insert(key.to_string(), extra.clone());
         }
 
-        let val = serde_json::Value::Object(obj);
-        serialize_or_throw(&val, "metadata")
+        serialize_or_throw(&value, "metadata")
     }
 
     /// Validate `doc` against this quill's schema, returning every diagnostic
@@ -711,12 +701,7 @@ impl Quill {
     #[wasm_bindgen(js_name = validate, unchecked_return_type = "Diagnostic[]")]
     pub fn validate(&self, doc: &Document) -> Result<JsValue, JsValue> {
         let diags = self.inner.validate(&doc.inner);
-        let serializer = serde_wasm_bindgen::Serializer::new()
-            .serialize_maps_as_objects(true)
-            .serialize_missing_as_null(true);
-        diags.serialize(&serializer).map_err(|e| {
-            WasmError::from(format!("validate: serialization failed: {e}")).to_js_value()
-        })
+        serialize_or_throw(&diags, "validate")
     }
 
     /// Parse `markdown` and conform it against this quill: the primary ingestion
@@ -758,12 +743,7 @@ impl Quill {
             .conform(&mut doc.inner)
             .map_err(WasmError::from)
             .map_err(|e| e.to_js_value())?;
-        let serializer = serde_wasm_bindgen::Serializer::new()
-            .serialize_maps_as_objects(true)
-            .serialize_missing_as_null(true);
-        diags.serialize(&serializer).map_err(|e| {
-            WasmError::from(format!("conform: serialization failed: {e}")).to_js_value()
-        })
+        serialize_or_throw(&diags, "conform")
     }
 
     /// The resolved-value view of `doc`: the ABI under `reader.resolve()`. For
@@ -775,12 +755,7 @@ impl Quill {
     #[wasm_bindgen(js_name = _resolve, skip_typescript, unchecked_return_type = "Resolved")]
     pub fn resolve(&self, doc: &Document) -> Result<JsValue, JsValue> {
         let states = self.inner.resolve(&doc.inner);
-        let serializer = serde_wasm_bindgen::Serializer::new()
-            .serialize_maps_as_objects(true)
-            .serialize_missing_as_null(true);
-        states.serialize(&serializer).map_err(|e| {
-            WasmError::from(format!("resolve: serialization failed: {e}")).to_js_value()
-        })
+        serialize_nullable_or_throw(&states, "resolve")
     }
 
     /// Seed a starter `Document` from the schema: the main card plus one instance
@@ -1731,20 +1706,16 @@ impl Document {
         addr.require_card_only("readerValues")?;
         let base = self.addr_base(&addr);
         let reader = quill.inner.reader(&self.inner);
-        let serializer = serde_wasm_bindgen::Serializer::new()
-            .serialize_maps_as_objects(true)
-            .serialize_missing_as_null(true);
-        let serialized = match addr.card {
-            None => reader.values().serialize(&serializer),
-            Some(index) => reader
-                .card(index)
-                .map_err(|e| edit_error_to_js(&e, &base))?
-                .values()
-                .serialize(&serializer),
-        };
-        serialized.map_err(|e| {
-            WasmError::from(format!("reader.values: serialization failed: {e}")).to_js_value()
-        })
+        match addr.card {
+            None => serialize_nullable_or_throw(&reader.values(), "reader.values"),
+            Some(index) => serialize_nullable_or_throw(
+                &reader
+                    .card(index)
+                    .map_err(|e| edit_error_to_js(&e, &base))?
+                    .values(),
+                "reader.values",
+            ),
+        }
     }
 
     /// Write the values form at `addr`: the ABI under `writer.setValues` (the
@@ -1872,10 +1843,7 @@ impl Document {
         let card = quillmark_core::Card::try_from(string_wire)
             .map_err(|e| WasmError::from(format!("makeCard: {e}")).to_js_value())?;
         let wire = quillmark_core::CardWire::from(&card);
-        let serializer = serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
-        wire.serialize(&serializer).map_err(|e| {
-            WasmError::from(format!("makeCard: serialization failed: {e}")).to_js_value()
-        })
+        serialize_or_throw(&wire, "makeCard")
     }
 
     /// Insert a card: `at` absent appends, a number inserts at that index (in
@@ -2283,15 +2251,11 @@ pub fn parse_doc_path(path: &str) -> Result<JsValue, JsValue> {
         .parse::<quillmark_core::DocPath>()
         .map_err(|e| WasmError::from(e.to_string()).to_js_value())?;
     // Via `serde_json::Value` so the tagged segments cross as plain objects,
-    // sidestepping serde-wasm-bindgen's tagged-enum handling; `missing_as_null`
-    // because the `DocPathSeg` contract is `kind: string | null`.
+    // sidestepping serde-wasm-bindgen's tagged-enum handling; nullable because
+    // the `DocPathSeg` contract is `kind: string | null`.
     let json = serde_json::to_value(&doc_path)
         .map_err(|e| WasmError::from(format!("parseDocPath: {e}")).to_js_value())?;
-    let serializer = serde_wasm_bindgen::Serializer::new()
-        .serialize_maps_as_objects(true)
-        .serialize_missing_as_null(true);
-    json.serialize(&serializer)
-        .map_err(|e| WasmError::from(format!("parseDocPath: {e}")).to_js_value())
+    serialize_nullable_or_throw(&json, "parseDocPath")
 }
 
 /// Serialize structured [`DocPathSeg`] segments back to the canonical path
@@ -2538,7 +2502,26 @@ fn serialize_or_throw<T: serde::Serialize + ?Sized>(
     value: &T,
     what: &str,
 ) -> Result<JsValue, JsValue> {
-    let serializer = serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
+    serialize_inner(value, what, false)
+}
+
+/// [`serialize_or_throw`] for a shape whose declared type spells `null`: an
+/// absent `Option` crosses as `null` instead of as a missing property.
+fn serialize_nullable_or_throw<T: serde::Serialize + ?Sized>(
+    value: &T,
+    what: &str,
+) -> Result<JsValue, JsValue> {
+    serialize_inner(value, what, true)
+}
+
+fn serialize_inner<T: serde::Serialize + ?Sized>(
+    value: &T,
+    what: &str,
+    missing_as_null: bool,
+) -> Result<JsValue, JsValue> {
+    let serializer = serde_wasm_bindgen::Serializer::new()
+        .serialize_maps_as_objects(true)
+        .serialize_missing_as_null(missing_as_null);
     value
         .serialize(&serializer)
         .map_err(|e| WasmError::from(format!("{what}: serialization failed: {e}")).to_js_value())
@@ -2932,13 +2915,13 @@ impl LiveSession {
             .inner
             .page_size_pt(page)
             .ok_or_else(|| self.page_oob_error("pageSize", page))?;
-        let serializer = serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
-        PageSize {
-            width_pt,
-            height_pt,
-        }
-        .serialize(&serializer)
-        .map_err(|e| WasmError::from(format!("pageSize: serialization failed: {e}")).to_js_value())
+        serialize_or_throw(
+            &PageSize {
+                width_pt,
+                height_pt,
+            },
+            "pageSize",
+        )
     }
 
     /// Paint `page` into a `CanvasRenderingContext2D` or
@@ -3055,10 +3038,7 @@ impl LiveSession {
             clamped,
             effective_density_scale: effective_density,
         };
-        let serializer = serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
-        result
-            .serialize(&serializer)
-            .map_err(|e| WasmError::from(format!("paint: serialization failed: {e}")).to_js_value())
+        serialize_or_throw(&result, "paint")
     }
 }
 

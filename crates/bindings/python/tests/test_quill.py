@@ -32,3 +32,41 @@ def test_quill_from_path_bad_backend_loads_then_fails_at_render(tmp_path):
     )
     with pytest.raises(QuillmarkError):
         Quillmark().render(quill, doc, OutputFormat.PDF)
+
+
+def test_metadata_orders_standard_keys_then_extras_sorted(tmp_path):
+    """metadata's key order is a function of the quill: the five standard keys
+    in their declared order, then the extra keys sorted by name."""
+    quill_dir = tmp_path / "meta_quill"
+    quill_dir.mkdir()
+    (quill_dir / "Quill.yaml").write_text(
+        "quill:\n"
+        '  name: "meta_quill"\n'
+        '  version: "0.1.0"\n'
+        '  backend: "typst"\n'
+        '  description: "Metadata test"\n'
+        "typst:\n"
+        "  zeta: z\n"
+        "  plate_file: plate.typ\n"
+        "  alpha: a\n"
+        "  nu: n\n"
+        "  beta: b\n"
+        "  mu: m\n"
+    )
+    (quill_dir / "plate.typ").write_text("= Test\n")
+
+    quill = Quill.from_path(str(quill_dir))
+
+    assert list(quill.metadata) == [
+        "name",
+        "version",
+        "backend",
+        "author",
+        "description",
+        "typst_alpha",
+        "typst_beta",
+        "typst_mu",
+        "typst_nu",
+        "typst_plate_file",
+        "typst_zeta",
+    ]

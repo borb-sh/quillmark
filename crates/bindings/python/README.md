@@ -47,9 +47,10 @@ render session and canvas preview; Python renders in one shot via
 [`@quillmark/wasm`](../wasm)'s.
 
 A `Quill` is portable, declarative config data, and `quill.metadata` a pure,
-infallible snapshot of the `quill:` section. The engine resolves the declared
-backend, so only the format probe (`supported_formats`) and `render` raise
-`engine::backend_not_found`.
+infallible snapshot of the `quill:` section: `name`, `version`, `backend`,
+`author`, `description`, then any extra keys in sorted order. The engine
+resolves the declared backend, so only the format probe (`supported_formats`)
+and `render` raise `engine::backend_not_found`.
 
 ### `Quillmark`
 

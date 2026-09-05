@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- fix(wasm,python): **`quill.metadata` key order is a function of the quill.**
+  The five standard keys (`name`, `version`, `backend`, `author`,
+  `description`) come first in that order, then the extra keys sorted by name,
+  so `JSON.stringify` / `json.dumps` of a metadata snapshot is stable across
+  processes. The extras rode core's `HashMap` iteration order.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one

@@ -8,6 +8,7 @@ use pyo3::Bound;
 use quillmark::{
     quill_from_path, Diagnostic, Document, Location, OutputFormat, Quill, Quillmark, RenderResult,
 };
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -143,6 +144,10 @@ impl PyQuill {
     /// Identity snapshot mirroring the `quill:` section of `Quill.yaml`. A pure
     /// config read: capability lives on the engine, as
     /// `Quillmark.supported_formats(quill)`.
+    ///
+    /// The five standard keys come first in their declared order, then the
+    /// extra keys sorted by name, so the dict's key order is a function of the
+    /// quill alone.
     #[getter]
     fn metadata<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
         let source = &self.inner;
@@ -155,13 +160,13 @@ impl PyQuill {
         dict.set_item("author", &config.author)?;
         dict.set_item("description", &config.description)?;
 
-        for (key, value) in source.metadata() {
-            if quillmark_core::STANDARD_METADATA_KEYS.contains(&key.as_str()) {
-                continue;
-            }
-            if dict.contains(key)? {
-                continue;
-            }
+        let extras: BTreeMap<&str, &quillmark_core::QuillValue> = source
+            .metadata()
+            .iter()
+            .filter(|(key, _)| !quillmark_core::STANDARD_METADATA_KEYS.contains(&key.as_str()))
+            .map(|(key, value)| (key.as_str(), value))
+            .collect();
+        for (key, value) in extras {
             dict.set_item(key, quillvalue_to_py(py, value)?)?;
         }
 

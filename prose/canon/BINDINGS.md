@@ -8,7 +8,7 @@ Quillmark exposes one core engine through several language surfaces: Python (PyO
 
 ## Shared model
 
-- **Capability principle.** A `Quill` is portable, declarative config data. Its format capability (`supportedFormats`) and rendering are resolved by the `Quillmark` engine *against* a quill at render time: never by the quill itself. So `quill.metadata` is a pure, infallible config snapshot, while `render` / `supportedFormats` can fail for an unregistered backend.
+- **Capability principle.** A `Quill` is portable, declarative config data. Its format capability (`supportedFormats`) and rendering are resolved by the `Quillmark` engine *against* a quill at render time: never by the quill itself. So `quill.metadata` is a pure, infallible config snapshot, while `render` / `supportedFormats` can fail for an unregistered backend. Its key order is a function of the quill, identical on both surfaces carrying it: `name`, `version`, `backend`, `author`, `description`, then any extra keys in sorted order.
 - **One model, serialized across every boundary.** The `Document`/`Card` model and `Diagnostic`s cross each language boundary as the same core `serde` shapes (`CardWire`, the versioned storage DTO, `Diagnostic`), so a card or an error reads identically no matter which surface emits it. See [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md), [CARDS.md](CARDS.md), [ERROR.md](ERROR.md).
 - **Uniform errors.** Each binding raises a single error type that always carries a non-empty diagnostic list (`QuillmarkError.diagnostics` / thrown `Error.diagnostics`).
 

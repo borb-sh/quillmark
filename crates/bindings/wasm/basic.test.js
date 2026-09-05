@@ -1690,6 +1690,40 @@ card_kinds:
     expect(schema.card_kinds.indorsement.fields.CARD).toBeUndefined()
   })
 
+  it('orders the five standard keys first, then the extra keys sorted by name', () => {
+    const EXTRAS_QUILL_YAML = `quill:
+  name: meta_test_quill
+  version: "0.2.1"
+  backend: typst
+  description: Metadata test
+
+typst:
+  zeta: z
+  plate_file: plate.typ
+  alpha: a
+  nu: n
+  beta: b
+  mu: m
+`
+    const quill = Quill.fromTree(
+      makeQuill({ name: 'meta_test_quill', plate: TEST_PLATE, quillYaml: EXTRAS_QUILL_YAML }),
+    )
+
+    expect(Object.keys(quill.metadata)).toEqual([
+      'name',
+      'version',
+      'backend',
+      'author',
+      'description',
+      'typst_alpha',
+      'typst_beta',
+      'typst_mu',
+      'typst_nu',
+      'typst_plate_file',
+      'typst_zeta',
+    ])
+  })
+
   it('metadata and schema are JSON.stringify-able (plain objects)', () => {
     const quill = Quill.fromTree(
       makeQuill({ name: 'meta_test_quill', plate: TEST_PLATE, quillYaml: META_QUILL_YAML }),
