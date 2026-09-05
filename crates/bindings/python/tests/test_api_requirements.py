@@ -16,6 +16,7 @@ from quillmark import (
     Document,
     OutputFormat,
     QuillmarkError,
+    Severity,
 )
 from conftest import QUILLS_PATH, _latest_version, raises_edit_code
 
@@ -82,6 +83,14 @@ def test_quill_properties(engine, taro_quill_dir):
     supported_formats = engine.supported_formats(quill)
     assert isinstance(supported_formats, list)
     assert OutputFormat.PDF in supported_formats
+
+
+def test_enum_members_are_hashable():
+    """Both mirrors key a dict and enter a set, one slot per variant."""
+    mime = {OutputFormat.PDF: "application/pdf", OutputFormat.SVG: "image/svg+xml"}
+    assert mime[OutputFormat.PDF] == "application/pdf"
+    assert len(set(OutputFormat.all())) == len(OutputFormat.all())
+    assert len(set(Severity.all())) == len(Severity.all())
 
 
 def test_registered_backends(engine):

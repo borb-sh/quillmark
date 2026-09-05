@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fix(python): **`OutputFormat` and `Severity` members are hashable.** The two
+  pyclass mirrors declared `eq` alone, which fills `tp_richcompare` and leaves
+  no `tp_hash`, so CPython stamped `__hash__ = None` and every variant was
+  rejected as a set member or a dict key: `set(engine.supported_formats(quill))`
+  and `Counter(d.severity for d in exc.diagnostics)` raised `TypeError`. Both
+  are now frozen and hash by variant, one slot per member.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one
