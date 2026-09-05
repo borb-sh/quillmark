@@ -1391,12 +1391,12 @@ impl QuillConfig {
                     source_token,
                     ..
                 } => {
-                    // validation.rs uses "number" for all non-integer JSON numbers;
-                    // display as "float" so messages match the YAML author's mental model.
-                    let display_actual = if actual == "number" {
-                        "float"
-                    } else {
-                        actual.as_str()
+                    // validation.rs says "number" for every JSON number outside
+                    // `i64`: the fractional literal, which the YAML author calls
+                    // a float, and the integer past the range, which is not one.
+                    let display_actual = match actual.as_str() {
+                        "number" if source_token.contains(['.', 'e', 'E']) => "float",
+                        other => other,
                     };
                     // Show the offending value's content. A top-level mismatch
                     // renders the original literal (so arrays/objects show their

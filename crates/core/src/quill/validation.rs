@@ -319,8 +319,11 @@ fn yaml_scalar_type(value: &serde_json::Value) -> &'static str {
     match value {
         serde_json::Value::Null => "null",
         serde_json::Value::Bool(_) => "boolean",
+        // An `integer` is the engine's `i64`. A numeric literal past that range
+        // is a `number`, the type that does carry it, which keeps the mismatch
+        // hint ("change the schema's `type:` to `{actual}`") true.
         serde_json::Value::Number(n) => {
-            if n.is_i64() || n.is_u64() {
+            if n.is_i64() {
                 "integer"
             } else {
                 "number"
@@ -430,10 +433,12 @@ enum ValueContext {
 ///
 /// A document value is judged in the form the render floor builds from it, not
 /// as authored: `conform_value` at `Leniency::Render` runs first. Validity is
-/// therefore renderability — `Quill::validate` cannot refuse a document
-/// `compile_data` accepts. A value the floor refuses is judged as authored,
-/// where the type check reports it. Conforming runs per node rather than per
-/// field, so one refused element does not mistype its siblings.
+/// therefore renderability, in both directions — `Quill::validate` neither
+/// refuses a document `compile_data` accepts nor passes one it refuses. A leaf
+/// the floor refuses is judged as authored, so the type check names the value
+/// the author wrote, and is refused even where that check finds the authored
+/// shape well-typed. Conforming runs per node rather than per field, so one
+/// refused element does not mistype its siblings.
 ///
 /// Schema literals are judged as written: an `example:`/`default:` is the
 /// blueprint's own text, and coercing it would let the blueprint emit a
@@ -460,15 +465,20 @@ fn validate_value(
     }
 
     let conformed = match ctx {
-        ValueContext::Document => super::QuillConfig::conform_value(
+        ValueContext::Document => Some(super::QuillConfig::conform_value(
             value,
             field,
             &path.to_string(),
             super::config::Leniency::Render,
-        )
-        .ok(),
+        )),
         ValueContext::SchemaLiteral => None,
     };
+    // A container's refusal belongs to the element or property that caused it,
+    // which the recursion below reaches at its own path; a leaf's refusal is
+    // this path's.
+    let floor_refused = matches!(conformed, Some(Err(_)))
+        && !matches!(field.r#type, FieldType::Array | FieldType::Object);
+    let conformed = conformed.and_then(Result::ok);
     let value = conformed.as_ref().unwrap_or(value);
 
     let mut errors = Vec::new();
@@ -484,10 +494,7 @@ fn validate_value(
         FieldType::RichText { .. } | FieldType::PlainText { .. } => {
             value.as_json().is_object() || value.as_str().is_some()
         }
-        FieldType::Integer => {
-            let json = value.as_json();
-            json.is_i64() || json.is_u64()
-        }
+        FieldType::Integer => value.as_json().is_i64(),
         FieldType::Number => value.as_json().is_number(),
         FieldType::Boolean => value.as_bool().is_some(),
         FieldType::Date | FieldType::DateTime => {
@@ -567,9 +574,9 @@ fn validate_value(
     // already raises TypeMismatch below, and a null/absent field blank-fills to
     // the empty content, which is both inline and plain). Mirror the
     // coercion-layer checks so a content that bypassed coercion (e.g. a direct
-    // `validate_document`) is still caught. A decode failure is not this layer's
-    // error to report: swallow it and flag only a well-formed but mis-shaped
-    // content.
+    // `validate_document`) is still caught. A decode failure names no shape:
+    // for a document it is the floor's refusal, reported below; for a schema
+    // literal it is the load-time content import's.
     if type_valid {
         match field.r#type {
             FieldType::RichText { inline: true } => {
@@ -588,8 +595,7 @@ fn validate_value(
                 // Plaintext strings are literal, not markdown, so a schema
                 // literal decodes through the literal codec; a Document value is
                 // a canonical content object. The plain constraint is primary;
-                // the single-line constraint applies only when `inline`. A decode
-                // error is another layer's to report (swallowed via `.ok()`).
+                // the single-line constraint applies only when `inline`.
                 if let Some(rt) = crate::document::Codec::Plaintext
                     .decode_value(value.as_json())
                     .and_then(Result::ok)
@@ -614,7 +620,13 @@ fn validate_value(
     let format_error_already_reported =
         matches!(field.r#type, FieldType::Date | FieldType::DateTime) && value.as_str().is_some();
 
-    if !type_valid && !format_error_already_reported {
+    // The floor refused a leaf the checks above find well-typed — a content
+    // object that is not canonical content, an integer past `i64` — and no
+    // shape check named the refusal. The mismatch is the refusal: the render
+    // door and this surface give one verdict.
+    let unnamed_refusal = floor_refused && errors.is_empty();
+
+    if (!type_valid || unnamed_refusal) && !format_error_already_reported {
         errors.push(ValidationError::TypeMismatch {
             path: path.to_string(),
             expected: field.r#type.as_str().to_string(),

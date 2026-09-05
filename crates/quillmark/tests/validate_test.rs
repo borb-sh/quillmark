@@ -216,6 +216,37 @@ fn validate_refuses_what_the_render_floor_refuses() {
 }
 
 #[test]
+fn validate_refuses_a_well_shaped_value_the_floor_cannot_conform() {
+    let quill = quill_from_yaml(LENIENT);
+    // A content field rests in an object and an `integer` in an integer
+    // literal, so only the floor's conformance separates these from valid
+    // values.
+    for (field, authored) in [
+        ("prose", "prose:\n  prose: older\n"),
+        ("literal", "literal:\n  prose: older\n"),
+        ("count", "count: 18446744073709551615\n"),
+    ] {
+        let doc = lenient_doc(authored);
+        let diags = quill.validate(&doc);
+        assert!(
+            diags
+                .iter()
+                .any(|d| d.code.as_deref() == Some("validation::type_mismatch")
+                    && d.path.as_deref() == Some(&format!("main.{field}")[..])),
+            "`{authored}` should be a type_mismatch at `main.{field}`; got: {:?}",
+            diags
+                .iter()
+                .map(|d| (&d.code, &d.path))
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            quill.dry_run(&doc).is_err(),
+            "`{authored}` does not render either"
+        );
+    }
+}
+
+#[test]
 fn validate_reports_a_refused_element_without_mistyping_its_siblings() {
     let quill = quill_from_yaml(
         r#"

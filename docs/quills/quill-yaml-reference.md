@@ -142,7 +142,7 @@ discharges it.
 | `enum`     | A closed set of string values; requires a `values:` list. Also accepts its [blank](#the-blank-values-is-for-choices-not-for-the-absence-of-one) (`""`), which is not a declared member. Projects to JSON-Schema `{type: string, enum: ["", …]}` |
 | `plaintext`| Navigable, **unformatted** prose over the canonical content: the same nav/regions as `richtext`, but a literal codec (delimiters stay literal, no markup). Add `inline: true` for the single-line variant |
 | `number`   | Numeric scalar (integers and decimals) |
-| `integer`  | Integer-only numeric scalar |
+| `integer`  | Integer-only numeric scalar, sized as an `i64`; a literal past that range takes `number` |
 | `boolean`  | `true` or `false` |
 | `array`    | Ordered list; requires an `items:` element schema |
 | `date`     | A strict calendar date `YYYY-MM-DD`; rejects any time component |

@@ -209,7 +209,8 @@ Scalar → content is the lossy direction: the stored string enters the codec's 
 **Coercion is the type predicate; validation reads its result.** `validate_value`
 conforms each document value through `conform_value` at `Leniency::Render`
 before judging it, so a type has one predicate. **A fatal `validation::*`
-diagnostic means the document does not render.**
+diagnostic means the document does not render.** The pairing holds in both
+directions: a value the floor refuses carries one.
 
 The value a document rests at is a separate question from the value the floor
 builds. `letterhead_caption: HEADQUARTERS` rests as the authored scalar and is
@@ -219,8 +220,12 @@ resting form is `Quill::conform`'s job, not validation's.
 
 Conforming runs per node, so an element the floor refuses does not mistype its
 siblings: `counts: [true, "abc"]` under `integer` items is one mismatch, at
-`counts[1]`. A value the floor refuses outright is judged as authored, where the
-type check reports it.
+`counts[1]`. A leaf the floor refuses is judged as authored, so the type check
+names the value the author wrote, and is a `type_mismatch` even where the
+authored shape reads well-typed — a content object that is not canonical
+content, an integer past `i64` — unless a shape check already names the refusal
+(`not_inline`, `not_plain`, `format_violation`). A container's refusal is the
+element's or property's, reported at that path.
 
 Validation adds the arbitration coercion cannot carry — the enum domain, the
 datetime grammar, indexed element paths, the inline/plain content shapes — over
@@ -237,7 +242,7 @@ Coercion rules per type:
 |---|---|
 | `array` | array wrapping plus element-wise coercion against the `items` schema; a bad element fails at its indexed path, e.g. `counts[1]` |
 | `boolean` | from string, int, or float |
-| `number` / `integer` | from string, or from boolean (`true→1`, `false→0`) |
+| `number` / `integer` | from string, or from boolean (`true→1`, `false→0`). An `integer` is an `i64`; a literal past that range is refused, and only `number` carries it |
 | `string` | unwraps a length-1 string array into the bare string; identity otherwise |
 | `richtext` | commits the canonical content form (the model): an authored markdown string imports via `quillmark-content::import`, an editor-supplied content object revalidates and re-canonicalizes. The length-1-array-unwrap and bare-scalar-stringify leniencies feed the import |
 | `date` / `datetime` | per-type strict-grammar validation, stored verbatim: a `date` rejects any time component, a `datetime` rejects offsets/space/fractional/bare-date. Neither truncates |

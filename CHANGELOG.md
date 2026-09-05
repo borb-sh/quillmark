@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- fix(core)!: **`Quill::validate` refuses every value the render floor
+  refuses.** Validation judged a floor refusal by the authored value's own
+  shape, and two shapes read well-typed there: a content object that is not
+  canonical content on a `richtext` or `plaintext` field (`{prose: older}`),
+  and an integer past `i64` on an `integer` field (`18446744073709551615`).
+  Both audited clean while `compile_data` and `dry_run` refused them, so the
+  `validate`/`dry_run` pairing an editor runs on gave two verdicts. A leaf the
+  floor cannot conform is now a `validation::type_mismatch` at the field's
+  path, unless a shape check already names the refusal
+  (`validation::not_inline`, `validation::not_plain`,
+  `validation::format_violation`); a container's refusal stays the element's or
+  property's, at its own path. A numeric literal past `i64` reports `actual:
+  number`, the type that does carry it, so the mismatch hint stays true, and
+  such a literal in a `default:` or `example:` is a load error.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one
