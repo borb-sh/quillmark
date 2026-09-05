@@ -158,6 +158,12 @@ fn seed_field(field: &crate::quill::FieldSchema, overlaid: Option<&QuillValue>) 
 /// before the field set is walked — otherwise the seed commits one world's tag
 /// beside another world's answers.
 ///
+/// The world walked is `overlay › example: › default: › blank`, the render
+/// floor's own selection, so a cell lands under the member the seeded card
+/// renders. Only a member the overlay or an `example:` named is *written*: a
+/// `default:` is read-only here as everywhere, and the container it leaves
+/// without a `value` is the spelling the ladder fills.
+///
 /// Per cell the precedence is the ordinary `overlay › example: › absent`, and
 /// the `!must_fill` marker rides a committed `example` exactly as elsewhere: an
 /// example documents shape, so it is not an answer. An overlay value is exempt —
@@ -176,29 +182,27 @@ fn seed_variant(
     let overlay_member =
         crate::quill::FieldSchema::authored_member(overlay_json).and_then(|v| v.as_str());
 
-    let member = overlay_member
-        .map(str::to_string)
-        .or_else(|| {
-            field
-                .example
-                .as_ref()
-                .and_then(|e| e.as_str())
-                .map(str::to_string)
-        })?;
+    let committed_member =
+        overlay_member.or_else(|| field.example.as_ref().and_then(|e| e.as_str()));
+    let member = committed_member
+        .or_else(|| field.default.as_ref().and_then(|d| d.as_str()))
+        .unwrap_or_default();
 
     let mut map = serde_json::Map::new();
-    map.insert(
-        VARIANT_DISCRIMINANT_KEY.to_string(),
-        serde_json::Value::String(member.clone()),
-    );
     let mut fills: Vec<Vec<crate::value::PathSegment>> = Vec::new();
-    if overlay_member.is_none() && field.must_fill() {
-        fills.push(vec![crate::value::PathSegment::Key(
+    if let Some(committed) = committed_member {
+        map.insert(
             VARIANT_DISCRIMINANT_KEY.to_string(),
-        )]);
+            serde_json::Value::String(committed.to_string()),
+        );
+        if overlay_member.is_none() && field.must_fill() {
+            fills.push(vec![crate::value::PathSegment::Key(
+                VARIANT_DISCRIMINANT_KEY.to_string(),
+            )]);
+        }
     }
 
-    if let Some(fields) = field.variant_fields(&member) {
+    if let Some(fields) = field.variant_fields(member) {
         for (key, schema) in fields {
             // A cell carries any type a card field may, so it seeds through the
             // same descent.
@@ -215,6 +219,10 @@ fn seed_variant(
             }
             map.insert(key.clone(), seeded.value.into_json());
         }
+    }
+
+    if map.is_empty() {
+        return None;
     }
 
     let mut value = seeded_rest(

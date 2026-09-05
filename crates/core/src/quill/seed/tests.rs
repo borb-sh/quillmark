@@ -364,6 +364,59 @@ card_kinds:
     );
 }
 
+/// `value` stays absent — a `default:` is never persisted — and the container
+/// that leaves it out is a valid card.
+#[test]
+fn a_variant_overlay_without_a_discriminant_commits_its_cells_under_the_default_world() {
+    let quill = quill_from_yaml(
+        r#"
+quill: { name: seed_test, version: 1.0.0, backend: typst, description: x }
+main:
+  fields:
+    title: { type: string, default: "" }
+card_kinds:
+  entry:
+    fields:
+      classification:
+        type: enum
+        values: [UNCLASSIFIED, CUI]
+        default: CUI
+        variants:
+          CUI:
+            note: { type: richtext }
+      other: { type: string }
+"#,
+    );
+    let overlay = overlay(json!({ "classification": { "note": "hello" }, "other": "kept" }));
+    let card = quill
+        .seed_card("entry", Some(&overlay))
+        .expect("kind exists");
+
+    let classification = card
+        .payload()
+        .get("classification")
+        .expect("an overlay cell commits without a discriminant to name its world")
+        .as_json()
+        .clone();
+    assert!(
+        classification.get("note").is_some(),
+        "the cell the overlay supplied must reach the card: {classification}"
+    );
+    assert!(
+        classification.get("value").is_none(),
+        "a `default:` discriminant stays deferred to the render floor: {classification}"
+    );
+    assert_eq!(
+        card.payload().get("other").and_then(|v| v.as_str()),
+        Some("kept"),
+        "the sibling field commits as it always did"
+    );
+
+    let doc = Document::from_main_and_cards(quill.seed_main(), vec![card]);
+    let diags = quill.validate(&doc);
+    assert!(diags.is_empty(), "a seeded card is a valid document: {diags:?}");
+}
+
 /// Null ≡ absent in an overlay cell as in any authored one: the field is simply
 /// unanswered, and the seeded card blank-fills it at render.
 #[test]

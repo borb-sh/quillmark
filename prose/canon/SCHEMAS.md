@@ -682,6 +682,14 @@ anything. The commit is **sparse** at every depth — only the cells with an
 `example:` is reachable at all. It otherwise would not be: the render floor never
 emits an `example`, and the blueprint is a different document.
 
+A variant container is a namespace whose cells depend on a member, so the seed
+picks one before descending: `overlay › example: › default: › blank`, the same
+selection the render floor makes, so a cell lands in the world the seeded card
+renders. Only a member the overlay or an `example:` named is *written*, the
+`default:` staying deferred as everywhere else. A container therefore commits
+cells while leaving `value` absent, which is the spelling coercion, validation
+and [`resolve()`](#the-resolved-value-view-resolve) already read off the ladder.
+
 **Seed-commits-rest.** A seeded content field commits its codec's resting form
 (a richtext field and the body the canonical content, a plaintext field its
 literal string), so a seeded document is at rest from birth: `conform` of a

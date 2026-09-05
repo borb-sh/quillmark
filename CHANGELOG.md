@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- fix(core): **a seeded variant commits its cells without a discriminant to
+  name their world.** `seed_card` needed the overlay or an `example:` to name a
+  member and dropped the whole field otherwise, so a `$seed` entry was honored
+  for a card's plain fields and silently discarded for its variant-bearing one.
+  The world walked is now the render floor's own selection — overlay ›
+  `example:` › `default:` › blank — and the container commits whenever a cell
+  has something to commit. `value` is written only where the overlay or an
+  `example:` named the member, so a `default:` stays deferred to the floor and
+  the container it leaves without a `value` resolves to the default's world.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one
