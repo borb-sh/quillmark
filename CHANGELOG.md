@@ -506,6 +506,15 @@
   to just past its `>`, which the dict, array and `endobj` scans all inherit.
   The trigger is real: pdf-writer's compact mode, which krilla and typst-pdf
   use, writes a non-ASCII `/Title` or `/Author` exactly this way.
+- fix(python)!: **every `edit::*` diagnostic anchors at the `DocPath` its verb
+  ran against.** `Diagnostic.path` had three spellings for one refusal:
+  `writer.set` minted none, `writer.set_all` the bare field name, and
+  `writer.set_values` the rooted path. The converters now thread the base
+  anchor the WASM binding does, so an undeclared name is `main.stray` from
+  every main-card verb, `cards.<kind>[<i>].stray` from a card cursor, and a
+  structural out-of-range op is `cards[<i>]`. A consumer routing on `path`
+  reads the same string from both bindings; one comparing against a bare field
+  name now matches nothing.
 
 ## v0.112.0 - 2026-09-01
 

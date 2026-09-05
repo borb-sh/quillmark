@@ -562,16 +562,43 @@ def test_writer_set_rejects_unknown_field():
 
 
 def test_writer_set_all_reports_every_unknown_field():
-    """set_all is all-or-nothing and reports one diagnostic per undeclared name
-    (path = field name): externally-sourced keys surface every violation at once."""
+    """set_all is all-or-nothing and reports one diagnostic per undeclared name:
+    externally-sourced keys surface every violation at once."""
     quill = _taro_quill()
     doc = Document("taro@0.1.0")
     with raises_edit_code("edit::unknown_field") as exc_info:
         quill.writer(doc).set_all({"title": "ok", "stray1": "x", "stray2": "y"})
     paths = [d.path for d in exc_info.value.diagnostics]
-    assert "stray1" in paths and "stray2" in paths
+    assert "main.stray1" in paths and "main.stray2" in paths
     # All-or-nothing: even the valid `title` did not land.
     assert not has_field(doc.main, "title")
+
+
+def test_every_mutator_verb_anchors_its_diagnostic_at_one_doc_path():
+    """One rooted anchor per refusal, whichever verb refused, so a consumer
+    routes on `path` without knowing which one did. `add_card` is the exception
+    it names: the card is committed before it joins the document, so it has no
+    slot to anchor in and its bundle keys the bare `$kind`."""
+    quill = _taro_quill()
+    doc = Document("taro@0.1.0")
+    writer = quill.writer(doc)
+    writer.add_card("quotes", {"author": "Basho"})
+
+    def path_of(call):
+        with pytest.raises(QuillmarkError) as excinfo:
+            call()
+        return excinfo.value.diagnostics[0].path
+
+    cases = [
+        ("set", lambda: writer.set("stray", "x"), "main.stray"),
+        ("set_all", lambda: writer.set_all({"stray": "x"}), "main.stray"),
+        ("set_values", lambda: writer.set_values({"fields": {"stray": "x"}}), "main.stray"),
+        ("card.set", lambda: writer.card(0).set("stray", "x"), "cards.quotes[0].stray"),
+        ("add_card", lambda: writer.add_card("quotes", {}, at=99), "$kind"),
+        ("set_card_kind", lambda: doc.set_card_kind(9, "quotes"), "cards[9]"),
+    ]
+    for verb, call, expected in cases:
+        assert path_of(call) == expected, verb
 
 
 def test_writer_add_card_transactional():
@@ -886,10 +913,7 @@ def test_view_get_content_at_stale_index_and_no_content_leaf(element_quill):
 
 
 def test_view_get_content_at_names_the_element_in_a_decode_failure(element_quill):
-    """A failing element names itself, rather than reporting against the field.
-
-    `convert_edit_error` mints no `path` on this surface for any edit error, so
-    the message is where the element shows up here."""
+    """A failing element names itself, rather than reporting against the field."""
     doc = Document.from_markdown(
         "~~~card-yaml\n$quill: element_test@0.1.0\n$kind: main\nparagraphs: ['ok', 3]\n~~~\n"
     )
@@ -897,7 +921,7 @@ def test_view_get_content_at_names_the_element_in_a_decode_failure(element_quill
         element_quill.reader(doc).get_content_at("paragraphs", [1])
     diag = excinfo.value.diagnostics[0]
     assert diag.code == "edit::field_decode"
-    assert "paragraphs[1]" in diag.message
+    assert diag.path == "main.paragraphs[1]"
 
 
 def test_view_body_read_is_quill_free():
