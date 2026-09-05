@@ -73,16 +73,52 @@ pub(crate) fn find_trailer_dict(pdf: &[u8], xref_offset: usize) -> Result<&[u8],
         .ok_or_else(|| err(CODE_PARSE, "trailer dict not parseable"))
 }
 
-/// Carry `/Info` and `/ID` forward into the update's trailer: many readers
-/// (lopdf included) consult only the last trailer, so dropping them would lose
-/// the document `/Info` and file identifier. Callers append `/Size`, `/Root` and
-/// `/Prev` themselves.
-fn write_preserved_trailer_keys(out: &mut Vec<u8>, prior_trailer: &[u8]) {
-    for key in ["Info", "ID"] {
-        if let Some(value) = find_dict_value(prior_trailer, key) {
-            out.extend_from_slice(format!(" /{} ", key).as_bytes());
-            out.extend_from_slice(value.trim_ascii());
+/// What the trailer's `/Info` gives the producer stamp to rewrite.
+pub(crate) enum InfoSource<'a> {
+    /// Object `id`, rewritten in place under the trailer's existing reference.
+    Object(u32),
+    /// Entries for a fresh object whose reference replaces the trailer's
+    /// `/Info`: a direct dict's — ISO 32000-1 Table 15 asks for an indirect
+    /// reference, which not every writer honours — or none, when the trailer
+    /// carries no `/Info` or one this reader cannot read.
+    Entries(&'a [u8]),
+}
+
+pub(crate) fn read_info_source(trailer: &[u8]) -> InfoSource<'_> {
+    let Some(value) = find_dict_value(trailer, "Info") else {
+        return InfoSource::Entries(b"");
+    };
+    if let Some((id, _)) = parse_indirect_ref(value) {
+        return InfoSource::Object(id);
+    }
+    let trimmed = value.trim_ascii();
+    if trimmed.starts_with(b"<<")
+        && let Some(entries) = extract_outer_dict(trimmed)
+    {
+        return InfoSource::Entries(entries);
+    }
+    InfoSource::Entries(b"")
+}
+
+/// Carry the prior trailer's `/ID` and `/Info` forward into the update's
+/// trailer: many readers (lopdf included) consult only the last trailer, so
+/// dropping them would lose the document `/Info` and file identifier.
+/// `new_info_ref` supersedes that `/Info` rather than joining it, so the new
+/// trailer holds one `/Info` whatever shape the old value had. Callers append
+/// `/Size`, `/Root` and `/Prev` themselves.
+fn write_trailer_tail(out: &mut Vec<u8>, prior_trailer: &[u8], new_info_ref: Option<u32>) {
+    match new_info_ref {
+        Some(id) => out.extend_from_slice(format!(" /Info {id} 0 R").as_bytes()),
+        None => {
+            if let Some(value) = find_dict_value(prior_trailer, "Info") {
+                out.extend_from_slice(b" /Info ");
+                out.extend_from_slice(value.trim_ascii());
+            }
         }
+    }
+    if let Some(value) = find_dict_value(prior_trailer, "ID") {
+        out.extend_from_slice(b" /ID ");
+        out.extend_from_slice(value.trim_ascii());
     }
 }
 
@@ -103,23 +139,25 @@ impl UpdatedObject {
 /// Append one incremental update to `pdf`: each object in `objects`, then an
 /// xref subsection table and a trailer chaining to the prior xref via `/Prev`.
 ///
-/// `extra_info_ref` adds an explicit `/Info <id> 0 R` for the case where the
-/// prior trailer had none. `new_size` is the updated `/Size` (highest object
-/// number + 1) and `root_id` the document catalog.
+/// `new_info_ref` names an information dictionary written in this update, which
+/// the new trailer's `/Info` points at in place of the prior trailer's own.
+/// `new_size` is the updated `/Size` (highest object number + 1) and `root_id`
+/// the document catalog.
 pub(crate) fn append_incremental_update(
     mut pdf: Vec<u8>,
     prev_xref: usize,
     root_id: u32,
     new_size: u32,
-    extra_info_ref: Option<u32>,
+    new_info_ref: Option<u32>,
     objects: &[UpdatedObject],
 ) -> Result<Vec<u8>, PdfError> {
     // Built while the prior trailer at `prev_xref` is still intact.
     let mut trailer_tail = Vec::new();
-    write_preserved_trailer_keys(&mut trailer_tail, find_trailer_dict(&pdf, prev_xref)?);
-    if let Some(id) = extra_info_ref {
-        trailer_tail.extend_from_slice(format!(" /Info {id} 0 R").as_bytes());
-    }
+    write_trailer_tail(
+        &mut trailer_tail,
+        find_trailer_dict(&pdf, prev_xref)?,
+        new_info_ref,
+    );
 
     if !pdf.ends_with(b"\n") {
         pdf.push(b'\n');

@@ -116,6 +116,14 @@
   document-level pair rather than a `store` / `load` pair. The old names are
   removed rather than aliased. Stored blobs, the `schema` tag, and every byte
   these verbs write are untouched.
+- fix(pdf): **a stamped trailer carries one `/Info`, whatever shape the base's
+  `/Info` had.** The producer stamp allocated a fresh information dictionary
+  whenever the trailer's `/Info` did not parse as an indirect reference, while
+  the trailer writer copied the old value forward regardless, so a direct-dict
+  `/Info << /Title (x) >>` came out as two `/Info` keys in one dict — undefined
+  per spec, parser-dependent in practice. The fresh reference now supersedes the
+  old value, and a direct dict's entries seed the object it names, so `/Title`
+  and the rest survive the stamp.
 - fix(pdf): **the object index skips literal strings, `%`-comments and stream
   bodies, so `N G obj` bytes carried as content cannot shadow the real object.**
   The scan accepted any `<id> <gen> obj` at a token boundary and a later
