@@ -49,6 +49,13 @@ pub trait SessionHandle: Send + Sync + 'static {
     /// range. The canvas-preview seam: a backend that can rasterize pages
     /// overrides this and [`render_rgba`](Self::render_rgba). Default `None`
     /// marks the session as having no canvas painter.
+    ///
+    /// One coordinate space serves the three canvas reads: the page's lower-left
+    /// corner is the origin of this extent, of [`regions`](Self::regions), and of
+    /// the [`render_rgba`](Self::render_rgba) raster, whose size is this extent
+    /// times its `scale`. A backend drawing on a page whose own coordinates start
+    /// elsewhere (a PDF background with a `/CropBox` or a translated
+    /// `/MediaBox`) reports geometry relative to that corner.
     fn page_size_pt(&self, _page: usize) -> Option<(f32, f32)> {
         None
     }

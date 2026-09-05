@@ -74,8 +74,9 @@ incremental-update appender that splices a fresh `/AcroForm` (and `/Info`
 `/Producer` stamp) onto a base PDF. Deliberately small: it hard-errors on
 out-of-contract input (xref streams, encryption, indirect `/Annots`,
 non-zero-generation base objects, a base that already carries an `/AcroForm`,
-a non-finite widget `/Rect`, a page `/Rotate` it cannot resolve to zero) rather
-than parsing the full format.
+a non-finite widget `/Rect`, a page `/Rotate` it cannot resolve to zero, a page
+box that is not a direct array of numbers, a canvas box under a point per side)
+rather than parsing the full format.
 
 ### `bindings/*`
 

@@ -92,14 +92,14 @@ impl std::fmt::Display for BindError {
 pub fn bind_widgets(
     spec: &FormSpec,
     config: &QuillConfig,
-    page_boxes: &[[f32; 4]],
+    canvas_boxes: &[[f32; 4]],
 ) -> Result<Vec<BoundWidget>, BindError> {
     let mut bound = Vec::with_capacity(spec.fields.len() + spec.widgets.len());
     for field in &spec.fields {
-        bound.push(bind_field(field, config, page_boxes)?);
+        bound.push(bind_field(field, config, canvas_boxes)?);
     }
     for widget in &spec.widgets {
-        bound.push(bind_unbound(widget, page_boxes)?);
+        bound.push(bind_unbound(widget, canvas_boxes)?);
     }
     Ok(bound)
 }
@@ -108,7 +108,7 @@ pub fn bind_widgets(
 fn bind_field(
     field: &BoundField,
     config: &QuillConfig,
-    page_boxes: &[[f32; 4]],
+    canvas_boxes: &[[f32; 4]],
 ) -> Result<BoundWidget, BindError> {
     let schema = bind(config, &field.name, &field.schema_field)?;
     let field_type = project_kind(schema, &field.name, &field.schema_field)?;
@@ -120,7 +120,7 @@ fn bind_field(
         name: field.name.clone(),
         schema_field: Some(field.schema_field.clone()),
         page: field.page,
-        rect: place(&field.name, field.page, field.rect, page_boxes)?,
+        rect: place(&field.name, field.page, field.rect, canvas_boxes)?,
         field_type,
         tooltip,
     })
@@ -128,13 +128,13 @@ fn bind_field(
 
 fn bind_unbound(
     widget: &UnboundWidget,
-    page_boxes: &[[f32; 4]],
+    canvas_boxes: &[[f32; 4]],
 ) -> Result<BoundWidget, BindError> {
     Ok(BoundWidget {
         name: widget.name.clone(),
         schema_field: None,
         page: widget.page,
-        rect: place(&widget.name, widget.page, widget.rect, page_boxes)?,
+        rect: place(&widget.name, widget.page, widget.rect, canvas_boxes)?,
         field_type: widget_type(&widget.kind),
         tooltip: widget.tooltip.clone(),
     })
@@ -144,22 +144,26 @@ fn place(
     name: &str,
     page: usize,
     rect: Rect,
-    page_boxes: &[[f32; 4]],
+    canvas_boxes: &[[f32; 4]],
 ) -> Result<[f32; 4], BindError> {
-    let media_box = page_boxes.get(page).ok_or_else(|| BindError::PageOutOfRange {
-        name: name.to_string(),
-        page,
-        page_count: page_boxes.len(),
-    })?;
-    Ok(flip_rect(rect, *media_box))
+    let canvas_box = canvas_boxes
+        .get(page)
+        .ok_or_else(|| BindError::PageOutOfRange {
+            name: name.to_string(),
+            page,
+            page_count: canvas_boxes.len(),
+        })?;
+    Ok(flip_rect(rect, *canvas_box))
 }
 
 /// Page-relative top-left `{x,y,w,h}` → bottom-left `[x0, y0, x1, y1]` in PDF
-/// user space. Origins come from the MediaBox, not `(0,0)`, so a translated
-/// MediaBox (e.g. `[10 20 622 812]`) does not shift widgets by its origin.
-fn flip_rect(r: Rect, media_box: [f32; 4]) -> [f32; 4] {
-    let left = media_box[0];
-    let top = media_box[3];
+/// user space. `x`/`y` measure from the corner of the page a viewer displays, so
+/// they flip against the canvas box (`/CropBox` ∩ `/MediaBox`): on a page whose
+/// canvas starts at `[10 20 622 812]`, a widget lands 10 pt right and 20 pt up of
+/// where user-space `(0,0)` would put it.
+fn flip_rect(r: Rect, canvas_box: [f32; 4]) -> [f32; 4] {
+    let left = canvas_box[0];
+    let top = canvas_box[3];
     [left + r.x, top - (r.y + r.h), left + r.x + r.w, top - r.y]
 }
 
@@ -624,7 +628,7 @@ main:
             place("W", 0, r, &[[0.0, 0.0, 600.0, 800.0]]).unwrap(),
             [180.0, 800.0 - 104.0, 194.0, 800.0 - 90.0]
         );
-        // Translated MediaBox: widgets land offset by the origin.
+        // Translated canvas box: widgets land offset by the origin.
         assert_eq!(
             place("W", 0, r, &[[10.0, 20.0, 622.0, 812.0]]).unwrap(),
             [10.0 + 180.0, 812.0 - 104.0, 10.0 + 194.0, 812.0 - 90.0]

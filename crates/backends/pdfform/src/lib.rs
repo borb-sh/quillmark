@@ -78,11 +78,11 @@ impl Backend for PdfformBackend {
         let spec = FormSpec::parse(form_json)
             .map_err(|e| RenderError::coded(e.code(), e.to_string()))?;
 
-        // Page boxes drive the top-left → bottom-left flip (honouring a
-        // non-zero page origin), and reading them surfaces a malformed base early.
-        let page_boxes = quillmark_pdf::page_media_boxes(&base_pdf)?;
+        // Canvas boxes drive the top-left → bottom-left flip and the canvas
+        // coordinate space, and reading them surfaces a malformed base early.
+        let canvas_boxes = quillmark_pdf::page_canvas_boxes(&base_pdf)?;
 
-        let bound = bind::bind_widgets(&spec, source.config(), &page_boxes)
+        let bound = bind::bind_widgets(&spec, source.config(), &canvas_boxes)
             .map_err(|e| RenderError::coded(e.code(), e.to_string()))?;
 
         let field_specs = resolve_field_specs(&bound, json_data);
@@ -94,7 +94,7 @@ impl Backend for PdfformBackend {
                 base_pdf,
                 bound,
                 field_specs,
-                page_boxes,
+                canvas_boxes,
                 flat,
             }),
             source.config().clone(),
@@ -139,8 +139,10 @@ struct PdfformSession {
     base_pdf: Vec<u8>,
     bound: Vec<BoundWidget>,
     field_specs: Vec<FieldSpec>,
-    /// Cached so `page_size_pt` need not reparse.
-    page_boxes: Vec<[f32; 4]>,
+    /// Per page, `/CropBox` ∩ `/MediaBox`: the box hayro rasterizes, whose
+    /// lower-left corner is the canvas origin. Cached so `page_size_pt` need not
+    /// reparse.
+    canvas_boxes: Vec<[f32; 4]>,
     /// The base with `field_specs` baked in, parsed: the render paths hold
     /// pages rather than bytes to reparse per paint.
     flat: HayroPdf,
@@ -178,11 +180,11 @@ impl SessionHandle for PdfformSession {
     }
 
     fn page_count(&self) -> usize {
-        self.page_boxes.len()
+        self.canvas_boxes.len()
     }
 
     fn page_size_pt(&self, page: usize) -> Option<(f32, f32)> {
-        let [x0, y0, x1, y1] = *self.page_boxes.get(page)?;
+        let [x0, y0, x1, y1] = *self.canvas_boxes.get(page)?;
         Some((x1 - x0, y1 - y0))
     }
 
@@ -202,8 +204,19 @@ impl SessionHandle for PdfformSession {
         Some((w, h, bytes))
     }
 
+    /// A widget's `/Rect` is user space, which starts at the canvas box's
+    /// lower-left corner rather than at `(0, 0)`; the raster puts that corner at
+    /// the origin, so a region measures from it.
     fn regions(&self) -> Vec<RenderedRegion> {
-        regions_of(&self.field_specs)
+        let mut regions = regions_of(&self.field_specs);
+        for region in &mut regions {
+            let Some([x0, y0, ..]) = self.canvas_boxes.get(region.page) else {
+                continue;
+            };
+            let [rx0, ry0, rx1, ry1] = region.rect;
+            region.rect = [rx0 - x0, ry0 - y0, rx1 - x0, ry1 - y0];
+        }
+        regions
     }
 
     /// Specs and flat PDF swap together only after both succeed. The background
@@ -225,7 +238,7 @@ impl SessionHandle for PdfformSession {
         self.field_specs = field_specs;
         self.flat = flat;
 
-        Ok(ChangeSet::new(self.page_boxes.len(), dirty_pages))
+        Ok(ChangeSet::new(self.canvas_boxes.len(), dirty_pages))
     }
 }
 

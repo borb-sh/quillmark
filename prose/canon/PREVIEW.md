@@ -414,6 +414,17 @@ paint is always a full repaint: consumers never call `clearRect`.
 
 ### Regions overlay transform
 
+One origin serves the whole canvas surface: `pageSize`, `regions`, the point
+queries, and the raster all measure from the **page's lower-left corner as
+drawn**, so `(0, 0)` is the raster's first pixel and `pageSize × renderScale` is
+its extent. A Typst page starts there already. A pdfform background's page need
+not. The file's own numbers are in PDF user space, and the page a viewer shows
+is the **canvas box**, `/CropBox` ∩ `/MediaBox`, which `pdfcrop` leaves
+translated away from `(0, 0)`. The backend reports that box's extent as the page
+size and subtracts its corner from every region, matching what hayro rasterizes.
+The widget `/Rect`s in the PDF the same session renders stay in user space:
+canvas geometry is box-relative, the deliverable is not.
+
 A consumer drawing overlays from `regions` must flip the Y axis: region
 `rect = [x0, y0, x1, y1]` is in PDF points with a **bottom-left** origin, a
 canvas is **top-left** in device pixels. For a page `pageHeightPt` tall (from

@@ -42,8 +42,12 @@
 
 /// One schema field placement's extent on a rendered page.
 ///
-/// `rect` is `[x0, y0, x1, y1]` in PDF points with a **bottom-left** origin:
-/// the same geometry the stamp spine writes to the widget `/Rect`.
+/// `rect` is `[x0, y0, x1, y1]` in PDF points with a **bottom-left** origin: the
+/// lower-left corner of the page as drawn, which is also the origin of the page
+/// raster and of [`page_size_pt`](crate::LiveSession::page_size_pt). On a PDF
+/// background that corner is the page's canvas box (`/CropBox` ∩ `/MediaBox`)
+/// rather than user-space `(0, 0)`, so a widget's `/Rect` in the stamped PDF and
+/// its region here differ by that box's origin.
 ///
 /// `field` is **not** unique within a region set: a content field breaks into
 /// one entry per segment and per page, a scalar referenced at several plate

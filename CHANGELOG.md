@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- fix(pdfform)!: **canvas geometry measures from the page's canvas box.** hayro
+  rasterizes `/CropBox` ∩ `/MediaBox` and draws that box's lower-left corner at
+  the raster's origin, while `page_size_pt` reported the `/MediaBox` extent and
+  `regions()` reported widget `/Rect`s in raw user space. An overlay over a
+  `pdfcrop`ped background (`/MediaBox [96 133 500 700]`) therefore sat 96 × 133
+  pt off its ink, and a `/CropBox` inside the MediaBox reported a page bigger
+  than its own raster. `page_size_pt` is the canvas box's extent, `regions()`
+  subtracts its lower-left corner, and `form.json`'s top-left rects flip against
+  it, so `pageSize`, `regions`, the point queries, and the raster share one
+  origin. Values move only on a page whose canvas box does not start at
+  `(0, 0)`: a background on `[0 0 W H]` with no `/CropBox` reports what it always
+  did. The stamped PDF's widget `/Rect`s stay in user space.
+  `quillmark_pdf::page_media_boxes` is `page_canvas_boxes`, and it refuses a
+  canvas box under a point per side (`pdf::degenerate_page_box`) and a page box
+  that is not a direct array of numbers.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one

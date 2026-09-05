@@ -175,7 +175,9 @@ A bound field's kind is derived from the **capability of the resolved schema fie
 
 ### Top-left coordinates
 
-`rect` is authored **top-left origin**: `x`/`y` measured from the top-left corner of the page, the way a human reads a form. The backend flips to PDF's native bottom-left origin when it builds the widget, reading the page height from `form.pdf` and honouring a non-zero `/MediaBox` origin. You never reason about page height or coordinate flipping yourself.
+`rect` is authored **top-left origin**: `x`/`y` measured from the top-left corner of the page, the way a human reads a form. The corner is the one a viewer shows you — the page's canvas box, `/CropBox` intersected with `/MediaBox` — so a background cropped or shifted away from PDF user-space `(0,0)` (anything through `pdfcrop`, say) needs no adjustment on your side. The backend flips to PDF's native bottom-left origin when it builds the widget. You never reason about page height or coordinate flipping yourself.
+
+A page whose canvas box is under a point per side carries no canvas to place anything on, and loading refuses it with `pdf::degenerate_page_box`.
 
 ### Schema versioning and unknown keys
 

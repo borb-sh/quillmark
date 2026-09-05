@@ -617,7 +617,7 @@ fn xref_stream_rejected_cleanly() {
 #[test]
 fn nonzero_mediabox_origin_flows_through() {
     let base = build_base_pdf_origin(1, [10.0, 20.0, 622.0, 812.0]);
-    let boxes = quillmark_pdf::page_media_boxes(&base).expect("media boxes");
+    let boxes = quillmark_pdf::page_canvas_boxes(&base).expect("canvas boxes");
     assert_eq!(boxes, vec![[10.0, 20.0, 622.0, 812.0]]);
 }
 
