@@ -464,6 +464,9 @@ applies to every throw site:
 - `engine.render(quill, parsed)` against a quill whose *name* differs
   (`quill::name_mismatch`) or whose *version* falls outside the document's
   selector (`quill::version_mismatch`): a throw, never a warning.
+- The four `Engine` verbs against a quill whose declared `backend:` is not in
+  the registry: `engine::backend_not_found`, the code core raises for the same
+  condition, hinting the registered ids.
 - Any method taking a `Quill` or `Document`: a handle from a *second* copy of
   `@quillmark/wasm` is refused with `runtime::foreign_handle`, hinting `npm ls
   @quillmark/wasm`. Two copies are two WASM memories and two `Quill`/`Document`

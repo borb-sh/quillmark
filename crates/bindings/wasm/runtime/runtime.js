@@ -710,17 +710,19 @@ export class Engine {
 	}
 
 	/**
-	 * The registered descriptor for `backendId`, or the "no backend registered"
-	 * throw. Touches no binary.
+	 * The registered descriptor for `backendId`, or the
+	 * `engine::backend_not_found` throw core raises for the same condition.
+	 * Touches no binary.
 	 * @param {string} backendId
 	 * @returns {{ load: () => Promise<unknown>, formats: string[], canvas: boolean }}
 	 */
 	#descriptorFor(backendId) {
 		const descriptor = this.#loaders[backendId];
 		if (!descriptor) {
-			throw new Error(
-				`Engine: no backend registered for '${backendId}'. ` +
-					`Known backends: ${Object.keys(this.#loaders).join(', ') || '(none)'}.`
+			throw quillmarkError(
+				'engine::backend_not_found',
+				`Engine: backend '${backendId}' not registered or not enabled.`,
+				`Available backends: ${Object.keys(this.#loaders).join(', ') || '(none)'}`
 			);
 		}
 		return descriptor;

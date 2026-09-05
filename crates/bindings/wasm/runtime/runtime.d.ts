@@ -515,6 +515,10 @@ export interface EngineOptions {
  * `quill.backendId`, lazily loads that backend build, clones the quill and
  * document into the backend's WASM memory on demand, renders, and frees the
  * clones. The cross-memory crossing is invisible to callers.
+ *
+ * A `quill.backendId` outside the registry rejects with
+ * `engine::backend_not_found`, the capability probes included. The diagnostic's
+ * `hint` names the registered ids.
  */
 export declare class Engine {
 	constructor(options?: EngineOptions);

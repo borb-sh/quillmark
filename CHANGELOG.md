@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fix(wasm): **an unregistered backend rejects with `engine::backend_not_found`
+  like every other failure.** The four `Engine` verbs threw a bare `Error` for a
+  quill whose declared `backend:` has no loader, so `isQuillmarkError` answered
+  `false` and the README's own `catch` example re-threw it as a foreign
+  failure. The rejection now carries one diagnostic under the code core and the
+  Python binding already raise, hinting the registered backend ids.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one

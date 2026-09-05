@@ -1092,7 +1092,7 @@ A single line of body ink.`
     expect(b.artifacts.length).toBeGreaterThan(0)
   })
 
-  it('throws a clear error for an unregistered backend', async () => {
+  it('rejects an unregistered backend with engine::backend_not_found, probes like renders', async () => {
     const engine = new Engine()
     // A quill whose declared backend has no loader.
     const yaml = `quill:
@@ -1108,7 +1108,19 @@ main:
 `
     const quill = Quill.fromTree(new Map([['Quill.yaml', new TextEncoder().encode(yaml)]]))
     const doc = quill.seedDocument()
-    await expect(engine.render(quill, doc)).rejects.toThrow(/no backend registered/)
+    for (const [call, verb] of [
+      [() => engine.render(quill, doc), 'engine.render'],
+      [() => engine.supportedFormats(quill), 'engine.supportedFormats'],
+    ]) {
+      const caught = await call().then(
+        () => expect.unreachable(`${verb} resolved against an unregistered backend`),
+        (e) => e
+      )
+      expect(isQuillmarkError(caught)).toBe(true)
+      expect(caught.diagnostics[0].code).toBe('engine::backend_not_found')
+      expect(caught.message).toContain('doesnotexist')
+      expect(caught.diagnostics[0].hint).toContain('typst')
+    }
   })
 
   it('accepts a custom backend descriptor override', async () => {
