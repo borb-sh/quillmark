@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- docs(cli): **the exit-code table separates a usage error from a refusal.**
+  The CLI reference and the crate README both promised `1` on any error, while
+  `clap` exits `2` on an invocation it cannot parse — an unknown flag, a missing
+  argument, an unknown subcommand — before any command runs. `1` is the command
+  running and refusing: an invalid quill, a missing file, a failed render, an
+  argument value the command itself rejects (`-f docx`). `--help` and
+  `--version` exit `0`. Stated in `prose/canon/CLI.md`, the reference, and the
+  README; a smoke test pins the `2`.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one

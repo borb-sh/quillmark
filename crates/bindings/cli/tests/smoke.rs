@@ -353,6 +353,21 @@ fn absent_quill_exits_one_with_stderr() {
     );
 }
 
+/// Exit 2 rather than 1: a script reading the status can tell an invocation
+/// `clap` rejected from a command that ran and refused.
+#[test]
+fn a_usage_error_exits_two_with_stderr() {
+    let out = run(&["render", "--bogus"]);
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "expected a usage exit 2, got {:?}\nstderr: {}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(!out.stderr.is_empty(), "usage error wrote nothing to stderr");
+}
+
 /// Every command routes a typo'd path through the loader, which names the path
 /// rather than the `Quill.yaml` a directory that does not exist cannot be
 /// missing.

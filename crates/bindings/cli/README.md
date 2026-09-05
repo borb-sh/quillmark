@@ -58,7 +58,8 @@ field, `!must_fill` where a value is expected.
 
 Checks the quill's configuration: `Quill.yaml` parse errors, `example:`/`default:`
 literals against their declared types, and referenced files. `-v` adds advisory
-warnings such as missing field descriptions. Exits 1 on any error.
+warnings such as missing field descriptions. Exits 1 where the configuration is
+invalid.
 
 ### `quillmark info <QUILL_PATH> [--json]`
 
@@ -67,7 +68,11 @@ Prints quill metadata — name, version, author, backend, field and card counts.
 
 ## Exit codes
 
-`0` on success, `1` on any error, with diagnostics on stderr.
+`0` on success, `--help`, and `--version`. `2` where argument parsing rejected
+the invocation before any command ran — an unknown flag, a missing argument, an
+unknown subcommand. `1` where the command ran and refused — an invalid quill, a
+missing file, a failed render, an argument value the command itself rejects
+(`-f docx`). Diagnostics go to stderr.
 
 ## Links
 

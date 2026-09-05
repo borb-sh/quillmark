@@ -30,3 +30,7 @@ them.
 - **Every artifact reaches disk.** `svg` and `png` render one artifact per page,
   and a multi-page render writes `out-1.svg`, `out-2.svg`, …. `--stdout` carries
   one artifact and refuses such a render.
+- **Two failure codes.** `clap` rejects an unparseable invocation — unknown
+  flag, missing argument, unknown subcommand — with `2`, before any command
+  runs. A command that ran and refused exits `1`. Success, `--help`, and
+  `--version` exit `0`.

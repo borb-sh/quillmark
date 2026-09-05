@@ -169,5 +169,6 @@ quillmark info ./my-quill --json
 
 ## Exit Codes
 
-- `0`: success
-- `1`: error (invalid arguments, file not found, parse error, compilation error, etc.)
+- `0`: success, `--help`, and `--version`
+- `1`: the command ran and refused — an invalid quill, a file not found, a parse error, a compilation error, or an argument value the command itself rejects (`-f docx`)
+- `2`: usage error — an unknown flag, a missing argument, an unknown subcommand; argument parsing rejected the invocation before any command ran
