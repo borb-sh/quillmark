@@ -5,10 +5,17 @@
 //! `EditError::<Variant>` prefix lives in the message, not the type.
 //!
 //! An argument the binding cannot convert at all — a non-finite float, an int
-//! past 64 bits, a type with no JSON form, a malformed `path` sequence — raises
-//! `ValueError` before the engine is called. No diagnostic describes it, and
-//! `ValueError` is what a Python caller catches for its own argument. The WASM
-//! binding has one shape for both.
+//! past 64 bits, a type with no JSON form, a malformed `path` sequence, a dict
+//! whose shape is not the one the surface reads — raises `ValueError` before the
+//! engine is called. No diagnostic describes it, and `ValueError` is what a
+//! Python caller catches for its own argument. The WASM binding has one shape
+//! for both.
+//!
+//! The line runs between shape and content: a card dict that will not
+//! deserialize is a `ValueError`, while one that deserializes and then violates
+//! an invariant — a malformed field name, a `$quill` that is not a reference, a
+//! `!must_fill` on a mapping — is the engine's refusal and raises
+//! `QuillmarkError` under its code.
 
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
@@ -22,6 +29,14 @@ pub fn convert_edit_error(err: EditError) -> PyErr {
         Diagnostic::new(Severity::Error, err.to_string())
             .with_code(err.code().to_string())
             .with_args(err.args());
+    let message = diagnostic.message.clone();
+    raise_with_diagnostics(vec![diagnostic], message)
+}
+
+/// A card the wire refuses, under the code the addressed mutator onto the same
+/// violation mints. The card is not placed, so the diagnostic carries no `path`.
+pub fn convert_wire_error(err: quillmark_core::WireError) -> PyErr {
+    let diagnostic = err.to_diagnostic();
     let message = diagnostic.message.clone();
     raise_with_diagnostics(vec![diagnostic], message)
 }

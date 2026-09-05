@@ -19,9 +19,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
 use super::payload::{MetaKey, Payload, PayloadItem};
-use super::Card;
+use super::{Card, EditError};
+use crate::error::diag_args;
 use crate::value::{PathSegment, QuillValue};
 use crate::version::QuillReference;
+use crate::{Diagnostic, Severity};
 use quillmark_content::Normalized;
 
 /// One entry in a [`CardWire`]'s `payload_items`: a user field or a comment.
@@ -148,36 +150,47 @@ impl CardWire {
 }
 
 /// Failure converting a [`CardWire`] back into a [`Card`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Building a card from a wire is a mutator door, so every violation travels
+/// under the [`code`](Self::code) the *addressed* mutator onto it mints —
+/// [`Card::store_field`]'s for a field name, `parse::invalid_quill_reference`
+/// for a `$quill` string — and a binding routes one door as it routes the other.
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 #[non_exhaustive]
 pub enum WireError {
     /// The `quill` string is not a valid `name@version` reference.
+    #[error("invalid `quill` reference {value:?}: {reason}")]
     InvalidQuillReference { value: String, reason: String },
-    /// A field violates the payload invariant: a name failing
-    /// `[A-Za-z_][A-Za-z0-9_]*`, or a value (including `$ext`) nesting past the
-    /// §8 depth limit.
-    InvalidField { key: String, reason: String },
-    /// The `payload_items` list violates an invariant of the list as a whole
-    /// (`edit::PayloadViolation`): a duplicate key, a field count past the §8
-    /// bound, a comment spanning lines.
-    InvalidPayload { reason: String },
+    /// A field, an `$ext`/`$seed` map, the body, or the item list as a whole
+    /// violates an invariant the mutators enforce.
+    #[error(transparent)]
+    Edit(#[from] EditError),
 }
 
-impl std::fmt::Display for WireError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl WireError {
+    /// The namespaced diagnostic `code`, one per violation and the same the
+    /// addressed mutator onto it mints. Taxonomy: `prose/canon/ERROR.md`.
+    pub fn code(&self) -> &'static str {
         match self {
-            WireError::InvalidQuillReference { value, reason } => {
-                write!(f, "invalid `quill` reference {value:?}: {reason}")
-            }
-            WireError::InvalidField { key, reason } => {
-                write!(f, "invalid field {key:?}: {reason}")
-            }
-            WireError::InvalidPayload { reason } => f.write_str(reason),
+            WireError::InvalidQuillReference { .. } => "parse::invalid_quill_reference",
+            WireError::Edit(err) => err.code(),
+        }
+    }
+
+    /// The [`Diagnostic`] a binding raises for this refusal, carrying
+    /// [`code`](Self::code) and the facts its message interpolates. The card is
+    /// not placed yet, so nothing anchors it: no `path` rides here.
+    pub fn to_diagnostic(&self) -> Diagnostic {
+        let diag = Diagnostic::new(Severity::Error, self.to_string())
+            .with_code(self.code().to_string());
+        match self {
+            WireError::InvalidQuillReference { value, .. } => diag
+                .with_args(diag_args! { "value" => value })
+                .with_hint(crate::version::quill_ref_hint().to_string()),
+            WireError::Edit(err) => diag.with_args(err.args()),
         }
     }
 }
-
-impl std::error::Error for WireError {}
 
 impl From<&Card> for CardWire {
     fn from(card: &Card) -> Self {
@@ -281,21 +294,15 @@ impl TryFrom<CardWire> for Card {
         if !wire.kind.is_empty() {
             payload.set_kind(wire.kind);
         }
-        let too_deep = |key: &str| {
-            let key = key.to_string();
-            move |max| WireError::InvalidField {
-                key,
-                reason: format!("nests deeper than the maximum of {} levels", max),
-            }
-        };
+        let too_deep = |max| WireError::Edit(EditError::ValueTooDeep { max });
         if let Some(ext) = wire.ext {
-            payload.set_ext(crate::value::depth_check_meta_map(ext, too_deep("$ext"))?);
+            payload.set_ext(crate::value::depth_check_meta_map(ext, too_deep)?);
         }
         if let Some(seed) = wire.seed {
-            payload.set_seed(crate::value::depth_check_meta_map(seed, too_deep("$seed"))?);
+            payload.set_seed(crate::value::depth_check_meta_map(seed, too_deep)?);
         }
         super::edit::validate_payload(&payload)
-            .map_err(|v| WireError::InvalidPayload { reason: v.to_string() })?;
+            .map_err(|v| WireError::Edit(EditError::InvalidPayload(v)))?;
         let body = body_from_wire(&wire.body)?;
         Ok(Card::from_parts(payload, body))
     }
@@ -305,16 +312,19 @@ impl TryFrom<CardWire> for Card {
 /// of truth and reads through the richtext codec whatever the schema declares,
 /// so its accepted encodings are [`super::Codec::decode_field`]'s.
 fn body_from_wire(body: &JsonValue) -> Result<Normalized, WireError> {
-    super::Codec::Richtext
-        .decode_field(body)
-        .map_err(|e| WireError::InvalidField {
-            key: "$body".to_string(),
-            reason: e.into_message(),
-        })
+    super::Codec::Richtext.decode_field(body).map_err(|e| {
+        WireError::Edit(super::edit::field_decode(
+            "$body",
+            &[],
+            super::Codec::Richtext,
+            e,
+        ))
+    })
 }
 
 /// Validate a wire field against the payload invariant (see
-/// `edit::validate_field`), mapping a violation to [`WireError::InvalidField`].
+/// `edit::validate_field`), mapping a violation to the [`EditError`] its
+/// addressed mutator raises.
 fn validate_wire_field(key: &str, value: &JsonValue) -> Result<(), WireError> {
     super::edit::validate_field(key, value).map_err(|v| wire_field_error(key, v))
 }
@@ -330,10 +340,7 @@ fn validate_wire_fill_targets(
 }
 
 fn wire_field_error(key: &str, v: super::edit::FieldViolation) -> WireError {
-    WireError::InvalidField {
-        key: key.to_string(),
-        reason: v.to_string(),
-    }
+    WireError::Edit(super::edit::edit_error_from_violation(key, v))
 }
 
 #[cfg(test)]
@@ -390,7 +397,7 @@ mod tests {
         let err = Card::try_from(field("x", json!({"a": 1}), true, Vec::new()))
             .expect_err("a fill-marked mapping is refused");
         assert!(
-            matches!(&err, WireError::InvalidField { key, .. } if key == "x"),
+            matches!(&err, WireError::Edit(EditError::FillOnMapping { field }) if field == "x"),
             "{err:?}"
         );
 
@@ -398,7 +405,7 @@ mod tests {
         let err = Card::try_from(field("addr", json!({"inner": {"a": 1}}), false, nested))
             .expect_err("a nested fill on a mapping is refused");
         assert!(
-            matches!(&err, WireError::InvalidField { key, .. } if key == "addr"),
+            matches!(&err, WireError::Edit(EditError::FillOnMapping { field }) if field == "addr"),
             "{err:?}"
         );
 
@@ -502,7 +509,8 @@ mod tests {
         assert!(json.get("quill").is_none(), "absent quill is omitted");
     }
 
-    /// A malformed `quill` string is a typed error, not a panic.
+    /// A malformed `quill` string is a typed error, not a panic, and carries
+    /// the code and grammar hint of every door that parses a reference.
     #[test]
     fn card_wire_rejects_bad_quill() {
         let err = Card::try_from(CardWire {
@@ -514,7 +522,56 @@ mod tests {
             body: JsonValue::Null,
         })
         .unwrap_err();
-        assert!(matches!(err, WireError::InvalidQuillReference { .. }));
+        assert_eq!(err.code(), "parse::invalid_quill_reference");
+        assert!(
+            err.to_diagnostic().hint.is_some(),
+            "every door that parses a `$quill` reference carries the grammar"
+        );
+    }
+
+    /// Two doors onto one violation: a card built from a wire refuses under the
+    /// code the addressed mutator mints for the same field, so `insertCard` and
+    /// `storeField` are routable alike.
+    #[test]
+    fn card_wire_refuses_a_field_under_the_mutator_code() {
+        let refused = |key: &str, value: JsonValue, fill: bool| {
+            let mut wire = CardWire::new("note".to_string(), JsonValue::Null);
+            wire.payload_items.push(PayloadItemWire::Field {
+                key: key.to_string(),
+                value,
+                fill,
+                nested_fills: Vec::new(),
+            });
+            Card::try_from(wire).expect_err("the wire refuses it")
+        };
+        let mut card = Card::new("note").unwrap();
+        let deep = (0..=quillmark_content::MAX_JSON_DEPTH)
+            .fold(json!(1), |v, _| json!({ "a": v }));
+
+        for (wire_err, mutator_err) in [
+            (
+                refused("bad-name", json!(1), false),
+                card.store_field("bad-name", QuillValue::from_json(json!(1)))
+                    .unwrap_err(),
+            ),
+            (
+                refused("deep", deep.clone(), false),
+                card.store_field("deep", QuillValue::from_json(deep))
+                    .unwrap_err(),
+            ),
+            (
+                refused("addr", json!({"a": 1}), true),
+                card.store_fill("addr", QuillValue::from_json(json!({"a": 1})))
+                    .unwrap_err(),
+            ),
+        ] {
+            assert_eq!(wire_err.code(), mutator_err.code(), "{wire_err:?}");
+            assert_eq!(
+                wire_err.to_diagnostic().args,
+                mutator_err.args(),
+                "{wire_err:?}"
+            );
+        }
     }
 
     /// `$body` reads through the richtext codec: a null is the empty content, a
@@ -535,16 +592,17 @@ mod tests {
 
         let err = with_body(json!(true)).unwrap_err();
         assert!(
-            matches!(&err, WireError::InvalidField { key, reason }
-                if key == "$body"
-                    && reason
+            matches!(&err, WireError::Edit(EditError::FieldDecode { field, message, .. })
+                if field == "$body"
+                    && message
                         == "expected a richtext content object or a markdown string, got a boolean"),
             "got {err:?}"
         );
         for (body, tail) in [(json!(3), "a number"), (json!([]), "an array")] {
             let err = with_body(body).unwrap_err();
             assert!(
-                matches!(&err, WireError::InvalidField { reason, .. } if reason.ends_with(tail)),
+                matches!(&err, WireError::Edit(EditError::FieldDecode { message, .. })
+                    if message.ends_with(tail)),
                 "got {err:?}"
             );
         }

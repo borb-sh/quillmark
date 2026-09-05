@@ -14,7 +14,7 @@ use std::time::Instant;
 use crate::enums::{PyOutputFormat, PySeverity};
 use crate::errors::{
     convert_edit_error, convert_edit_errors, convert_edit_errors_at, convert_render_error,
-    raise_with_diagnostics,
+    convert_wire_error, raise_with_diagnostics,
 };
 
 #[pyclass(name = "Quillmark")]
@@ -644,8 +644,7 @@ impl PyDocument {
             serde_json::Value::String(body.unwrap_or_default()),
         );
         wire.payload_items = payload_items;
-        let card = quillmark_core::Card::try_from(wire)
-            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let card = quillmark_core::Card::try_from(wire).map_err(convert_wire_error)?;
         card_to_pydict(py, &card)
     }
 
@@ -1754,6 +1753,6 @@ fn py_dict_to_card(value: &Bound<'_, PyAny>) -> PyResult<quillmark_core::Card> {
             "card must be a Card dict {{ kind, payload_items?, body? }}: {e}"
         ))
     })?;
-    quillmark_core::Card::try_from(wire).map_err(|e| PyValueError::new_err(e.to_string()))
+    quillmark_core::Card::try_from(wire).map_err(convert_wire_error)
 }
 

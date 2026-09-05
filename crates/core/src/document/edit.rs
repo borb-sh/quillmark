@@ -176,6 +176,12 @@ pub enum EditError {
     /// out of bounds or broke an invariant normalization could not repair.
     #[error("content apply failed: {0:?}")]
     ContentApply(ApplyError),
+
+    /// The card's item list violates an invariant of the list as a whole. Only a
+    /// door taking a whole payload at once reaches it ([`Card::try_from`] a
+    /// [`CardWire`](crate::CardWire)); the per-field mutators cannot build one.
+    #[error("{0}")]
+    InvalidPayload(PayloadViolation),
 }
 
 impl EditError {
@@ -205,6 +211,7 @@ impl EditError {
             EditError::FieldNotInline { .. } => "edit::field_not_inline",
             EditError::FieldCoercionFailed { .. } => "edit::field_coercion_failed",
             EditError::ContentApply(_) => "edit::content_apply",
+            EditError::InvalidPayload(_) => "edit::invalid_payload",
         }
     }
 
@@ -261,6 +268,9 @@ impl EditError {
                 "target" => target,
             },
             EditError::ContentApply(_) => diag_args! {},
+            // One code, four sentences: the variant that spoke is not on the
+            // wire, so a consumer's template falls back to `message`.
+            EditError::InvalidPayload(_) => diag_args! {},
         }
     }
 
@@ -296,10 +306,10 @@ impl EditError {
 /// A field-level invariant violation, shared by every payload ingestion path.
 ///
 /// Each boundary maps it to its own error type (`ParseError`, `StorageError`,
-/// `WireError`, `EditError`), so the invariant is enforced once, here. Its
-/// [`Display`](std::fmt::Display) is the reason alone, for a boundary carrying
-/// the offending key itself; [`message`](Self::message) names the key inline
-/// for the boundaries whose error type does not.
+/// [`EditError`]), so the invariant is enforced once, here. Its
+/// [`Display`](std::fmt::Display) is the reason alone, for a boundary carrying the
+/// offending key itself; [`message`](Self::message) names the key inline for the
+/// boundaries whose error type does not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum FieldViolation {
@@ -315,9 +325,9 @@ pub enum FieldViolation {
 }
 
 impl FieldViolation {
-    /// The reason with `key` named inline: the rendering
-    /// [`WireError::InvalidField`](crate::document::wire::WireError::InvalidField)
-    /// composes from its own key and this `Display`.
+    /// The reason with `key` named inline, for `ParseError::InvalidStructure`
+    /// and `StorageError::Malformed`, whose error types carry no key of their
+    /// own.
     pub fn message(&self, key: &str) -> String {
         format!("invalid field {key:?}: {self}")
     }

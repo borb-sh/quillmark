@@ -1211,6 +1211,24 @@ Card two.
     expect(() => doc.insertCard({ kind: 'note', fields: { x: 1 } })).toThrow()
   })
 
+  it('a card the wire refuses carries the code its addressed mutator mints', () => {
+    // Two doors onto one violation: what storeField / setQuillRef throw for a
+    // name, a reference and a fill is what a card built from a wire throws.
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const withField = (key, value, fill = false) => ({
+      kind: 'note',
+      payloadItems: [{ type: 'field', key, value, fill }],
+    })
+
+    expectEditCode(() => doc.insertCard(withField('bad-name', 1)), 'edit::invalid_field_name')
+    expectEditCode(() => doc.insertCard(withField('addr', { a: 1 }, true)), 'edit::fill_on_mapping')
+    expectEditCode(
+      () => doc.insertCard({ kind: 'note', quill: '@nope' }),
+      'parse::invalid_quill_reference',
+    )
+    expectEditCode(() => Document.makeCard('note', { 'bad-name': 1 }), 'edit::invalid_field_name')
+  })
+
   it('insertCard inserts at specified index', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARDS)
     doc.insertCard({ kind: 'intro' }, 0)

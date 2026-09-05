@@ -240,6 +240,31 @@ def test_make_card_accepts_any_kind_insert_card_is_the_gate():
         doc.insert_card(card)
 
 
+def test_wire_refusal_carries_the_mutator_code():
+    """A card dict whose content violates an invariant raises QuillmarkError
+    under the code the addressed mutator mints, not a bare ValueError: routing
+    is `diagnostics[0].code`. A dict whose *shape* the binding cannot read at
+    all stays a ValueError."""
+    doc = Document.from_markdown(SIMPLE_MD)
+
+    def with_field(key, value, fill=False):
+        return {
+            "kind": "note",
+            "payload_items": [
+                {"type": "field", "key": key, "value": value, "fill": fill}
+            ],
+        }
+
+    with raises_edit_code("edit::invalid_field_name"):
+        doc.insert_card(with_field("bad-name", 1))
+    with raises_edit_code("edit::fill_on_mapping"):
+        doc.insert_card(with_field("addr", {"a": 1}, fill=True))
+    with raises_edit_code("parse::invalid_quill_reference"):
+        doc.insert_card({"kind": "note", "quill": "@nope"})
+    with raises_edit_code("edit::invalid_field_name"):
+        Document.make_card("note", {"bad-name": 1})
+
+
 def test_stale_flat_input_is_a_loud_error():
     """A stale {kind, fields} dict fails loudly rather than yielding an empty
     card: `deny_unknown_fields` on the wire type rejects the unknown `fields`

@@ -219,7 +219,13 @@ except QuillmarkError as exc:
 Mutator failures (invalid field names, kind names, out-of-range indices) carry a
 namespaced `edit::*` `code` on `diagnostics[0]`: `edit::invalid_field_name`,
 `edit::unknown_field`, `edit::index_out_of_range`, `edit::field_coercion_failed`,
-…. Route on `diagnostics[0].code`, never on message text.
+…. `make_card` / `insert_card` refuse a card's contents under those same codes.
+Route on `diagnostics[0].code`, never on message text.
+
+One thing raises `ValueError` instead: an argument this binding cannot convert
+at all — a non-finite float, an int past 64 bits, a type with no JSON form, a
+dict that is not the shape the surface reads. The engine never sees the call, so
+no diagnostic describes it.
 
 ## Changelog
 

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- fix(core,wasm,python)!: **a card built from a wire refuses under the code its
+  addressed mutator mints.** `makeCard` / `insertCard` folded a malformed field
+  name, a bad `$quill` reference, a `!must_fill` on a mapping and a malformed
+  item list into one code-less refusal, so `diagnostics[0].code` was `undefined`
+  in JS and Python raised a bare `ValueError` — while `storeField` /
+  `setQuillRef` carried `edit::invalid_field_name`,
+  `parse::invalid_quill_reference` and `edit::fill_on_mapping` for the same
+  violations. `WireError` now carries the `EditError` its addressed twin raises
+  and both bindings stamp `WireError::code()` on the diagnostic. A card dict
+  Python cannot read as a card at all is still a `ValueError`; one that
+  deserializes and then violates an invariant is a `QuillmarkError` under its
+  code. The list-level violations (a duplicate key, a field count past the §8
+  bound, a `$` entry twice, a comment spanning lines) carry the new
+  `edit::invalid_payload`.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one

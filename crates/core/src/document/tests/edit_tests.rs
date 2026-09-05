@@ -1218,8 +1218,16 @@ fn test_insert_card_refuses_root_only_entries() {
 /// are card-local are checked where the card is built.
 #[test]
 fn test_wire_refuses_payload_level_violations() {
+    use crate::document::edit::PayloadViolation;
     use crate::document::wire::{CardWire, PayloadItemWire, WireError};
 
+    let violation = |err: &WireError| match err {
+        WireError::Edit(EditError::InvalidPayload(v)) => {
+            assert_eq!(err.code(), "edit::invalid_payload");
+            v.clone()
+        }
+        other => panic!("{other:?}"),
+    };
     let built = |items: Vec<PayloadItemWire>| {
         let mut wire = CardWire::new("note".to_string(), serde_json::Value::Null);
         wire.payload_items = items;
@@ -1234,7 +1242,7 @@ fn test_wire_refuses_payload_level_violations() {
 
     let dup = built(vec![field("title"), field("title")]).unwrap_err();
     assert!(
-        matches!(&dup, WireError::InvalidPayload { reason } if reason.contains("duplicate")),
+        matches!(violation(&dup), PayloadViolation::DuplicateField { key } if key == "title"),
         "{dup:?}"
     );
 
@@ -1242,7 +1250,7 @@ fn test_wire_refuses_payload_level_violations() {
         built((0..=crate::error::MAX_FIELD_COUNT).map(|i| field(&format!("f{i}"))).collect())
             .unwrap_err();
     assert!(
-        matches!(&too_many, WireError::InvalidPayload { reason } if reason.contains("maximum")),
+        matches!(violation(&too_many), PayloadViolation::TooManyFields { .. }),
         "{too_many:?}"
     );
 
@@ -1254,7 +1262,7 @@ fn test_wire_refuses_payload_level_violations() {
     }])
     .unwrap_err();
     assert!(
-        matches!(&injected, WireError::InvalidPayload { reason } if reason.contains("one line")),
+        matches!(violation(&injected), PayloadViolation::MultiLineComment),
         "{injected:?}"
     );
 
@@ -1319,10 +1327,12 @@ fn storage_dto_refuses_a_multi_line_comment() {
     assert!(err.to_string().contains("one line"), "got: {err}");
 }
 
-/// One violation, the three ingestion boundaries that spell it: parse, wire,
-/// storage. Each renders the text `FieldViolation` owns, naming the key.
+/// One violation, the three ingestion boundaries that spell it. Parse and
+/// storage render the text `FieldViolation` owns, naming the key; the wire is a
+/// mutator door, so it renders the `EditError` `store_field` raises for the
+/// same name.
 #[test]
-fn every_ingestion_boundary_renders_one_violation_text() {
+fn every_ingestion_boundary_renders_its_violation_text() {
     use crate::document::edit::FieldViolation;
 
     let expected = FieldViolation::InvalidName.message("bad name");
@@ -1343,7 +1353,11 @@ fn every_ingestion_boundary_renders_one_violation_text() {
         nested_fills: Vec::new(),
     }];
     let wire_err = Card::try_from(wire).unwrap_err();
-    assert!(wire_err.to_string().contains(&expected), "wire: {wire_err}");
+    assert_eq!(
+        wire_err.to_string(),
+        EditError::InvalidFieldName("bad name".to_string()).to_string(),
+        "wire: {wire_err}"
+    );
 
     let storage_err = serde_json::from_value::<Document>(serde_json::json!({
         "schema": "quillmark/document@0.92.0",

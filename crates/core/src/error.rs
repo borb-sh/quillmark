@@ -701,6 +701,9 @@ mod args_canon {
                 line: 3,
                 lines: 1,
             }),
+            EditError::InvalidPayload(crate::document::edit::PayloadViolation::DuplicateField {
+                key: "title".into(),
+            }),
         ] {
             add(e.code(), e.args());
         }

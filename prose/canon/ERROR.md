@@ -68,6 +68,17 @@ peer of the render-path namespaces. Identity is the code, never message text:
 routing coercion-vs-undeclared is `edit::field_coercion_failed` vs.
 `edit::unknown_field`, read off `diagnostics[0].code`.
 
+Building a card from a `CardWire` (`makeCard` / `insertCard`) is the same
+surface reached without an address, so it refuses under the same codes:
+`WireError` carries the `EditError` its addressed twin raises, and
+`WireError::code()` is that code. Two of its codes are not `edit::*`, or not
+reachable elsewhere. A malformed `quill` string carries
+`parse::invalid_quill_reference` and the grammar hint, the code core mints
+wherever a reference is parsed. And `edit::invalid_payload` is reachable from
+this door only: it is the item list, not a field, that is malformed (a duplicate
+key, a field count past the §8 bound, a `$` entry twice, a comment spanning
+lines), and a per-field mutator cannot build one.
+
 **`RenderResult`**: successful result carrying artifacts, output format, and non-fatal `Vec<Diagnostic>` warnings
 
 ## Warning flow
@@ -372,6 +383,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `edit::root_only_entry` | `key` | structured |
 | `edit::import` | — | fallback |
 | `edit::content_apply` | — | fallback |
+| `edit::invalid_payload` | — | fallback |
 | `conform::invalid_field_name` | `field` | structured |
 | `conform::value_too_deep` | `max` | structured |
 | `conform::field_not_inline` | `field`, `codec` | structured |
