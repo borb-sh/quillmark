@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fix(core): **a `ParseError` spells its English once.** `to_diagnostic()`
+  renders the variant's `Display` instead of a second copy of the same
+  sentence, and the copies had drifted: `InvalidStructure` displayed under an
+  `Invalid YAML structure: ` prefix the diagnostic dropped. A Rust caller
+  formatting `{err}` from `Document::parse` now reads that variant without the
+  prefix, matching the message every binding and the CLI have always shown.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one

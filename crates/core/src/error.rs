@@ -319,7 +319,9 @@ pub enum ParseError {
     #[error("Too many cards: {count} (max: {max})")]
     TooManyCards { count: usize, max: usize },
 
-    #[error("Invalid YAML structure: {0}")]
+    /// A card-yaml block is not a well-formed document structure. The message
+    /// is minted at the site that refused it. Code `parse::invalid_structure`.
+    #[error("{0}")]
     InvalidStructure(String),
 
     /// Markdown input was empty or whitespace-only. Code `parse::empty_input`.
@@ -416,61 +418,43 @@ impl ParseError {
         }
     }
 
+    /// This error as a [`Diagnostic`]: the `Display` rendering as `message`,
+    /// under the variant's `parse::*` code, with the location, hint and
+    /// [`args`](Self::args) the variant carries. The `#[error]` attribute is
+    /// the one place a variant's English is spelled.
     pub fn to_diagnostic(&self) -> Diagnostic {
+        let base = Diagnostic::new(Severity::Error, self.to_string());
         let diag = match self {
-            ParseError::InputTooLarge { size, max } => Diagnostic::new(
-                Severity::Error,
-                format!("Input too large: {} bytes (max: {} bytes)", size, max),
-            )
-            .with_code("parse::input_too_large".to_string()),
-            ParseError::TooManyFields { count, max } => Diagnostic::new(
-                Severity::Error,
-                format!(
-                    "Too many fields in one card-yaml block: {} (max: {})",
-                    count, max
-                ),
-            )
-            .with_code("parse::too_many_fields".to_string()),
-            ParseError::TooManyCards { count, max } => Diagnostic::new(
-                Severity::Error,
-                format!("Too many cards: {} (max: {})", count, max),
-            )
-            .with_code("parse::too_many_cards".to_string()),
-            ParseError::InvalidStructure(msg) => Diagnostic::new(Severity::Error, msg.clone())
-                .with_code("parse::invalid_structure".to_string()),
-            ParseError::EmptyInput(msg) => Diagnostic::new(Severity::Error, msg.clone())
-                .with_code("parse::empty_input".to_string()),
-            ParseError::MissingQuill(msg) => Diagnostic::new(Severity::Error, msg.clone())
-                .with_code("parse::missing_quill".to_string()),
-            ParseError::BodyImport(msg) => Diagnostic::new(Severity::Error, msg.clone())
-                .with_code("parse::body_import".to_string()),
-            ParseError::InvalidQuillReference { value, reason } => Diagnostic::new(
-                Severity::Error,
-                format!("Invalid $quill reference '{}': {}", value, reason),
-            )
-            .with_code("parse::invalid_quill_reference".to_string())
-            .with_hint(crate::version::quill_ref_hint().to_string()),
+            ParseError::InputTooLarge { .. } => {
+                base.with_code("parse::input_too_large".to_string())
+            }
+            ParseError::TooManyFields { .. } => {
+                base.with_code("parse::too_many_fields".to_string())
+            }
+            ParseError::TooManyCards { .. } => base.with_code("parse::too_many_cards".to_string()),
+            ParseError::InvalidStructure(_) => {
+                base.with_code("parse::invalid_structure".to_string())
+            }
+            ParseError::EmptyInput(_) => base.with_code("parse::empty_input".to_string()),
+            ParseError::MissingQuill(_) => base.with_code("parse::missing_quill".to_string()),
+            ParseError::BodyImport(_) => base.with_code("parse::body_import".to_string()),
+            ParseError::InvalidQuillReference { .. } => base
+                .with_code("parse::invalid_quill_reference".to_string())
+                .with_hint(crate::version::quill_ref_hint().to_string()),
             ParseError::YamlErrorWithLocation {
-                message,
-                line,
-                column,
-                block_index,
-                hint,
+                line, column, hint, ..
             } => {
-                let mut d = Diagnostic::new(
-                    Severity::Error,
-                    format!("YAML error in {}: {}", block_label(*block_index), message),
-                )
-                .with_code("parse::yaml_error_with_location".to_string())
-                .with_location(Location::new(
-                    DOCUMENT_FILE.to_string(),
-                    *line as u32,
-                    *column as u32,
-                ));
-                if let Some(h) = hint {
-                    d = d.with_hint(h.clone());
+                let d = base
+                    .with_code("parse::yaml_error_with_location".to_string())
+                    .with_location(Location::new(
+                        DOCUMENT_FILE.to_string(),
+                        *line as u32,
+                        *column as u32,
+                    ));
+                match hint {
+                    Some(h) => d.with_hint(h.clone()),
+                    None => d,
                 }
-                d
             }
         };
         diag.with_args(self.args())
@@ -579,9 +563,43 @@ pub fn print_errors(err: &RenderError) {
     }
 }
 
+/// One sample per [`ParseError`] variant.
+#[cfg(test)]
+fn parse_error_samples() -> Vec<ParseError> {
+    vec![
+        ParseError::InputTooLarge { size: 2, max: 1 },
+        ParseError::TooManyFields { count: 2, max: 1 },
+        ParseError::TooManyCards { count: 2, max: 1 },
+        ParseError::InvalidStructure("x".into()),
+        ParseError::EmptyInput("x".into()),
+        ParseError::MissingQuill("x".into()),
+        ParseError::BodyImport("x".into()),
+        ParseError::InvalidQuillReference {
+            value: "a@b".into(),
+            reason: "x".into(),
+        },
+        ParseError::YamlErrorWithLocation {
+            message: "x".into(),
+            line: 3,
+            column: 1,
+            block_index: 1,
+            hint: None,
+        },
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One spelling per variant: the `#[error]` attribute, which the
+    /// diagnostic renders rather than restates.
+    #[test]
+    fn parse_diagnostic_message_is_the_display_rendering() {
+        for err in super::parse_error_samples() {
+            assert_eq!(err.to_diagnostic().message, err.to_string(), "{err:?}");
+        }
+    }
 
     #[test]
     fn test_diagnostic_with_source_chain() {
@@ -609,7 +627,6 @@ mod tests {
 mod args_canon {
     use std::collections::BTreeMap;
 
-    use super::ParseError;
     use crate::document::EditError;
     use crate::quill::{CoercionError, ValidationError};
 
@@ -734,26 +751,7 @@ mod args_canon {
             );
         }
 
-        for e in [
-            ParseError::InputTooLarge { size: 2, max: 1 },
-            ParseError::TooManyFields { count: 2, max: 1 },
-            ParseError::TooManyCards { count: 2, max: 1 },
-            ParseError::InvalidStructure("x".into()),
-            ParseError::EmptyInput("x".into()),
-            ParseError::MissingQuill("x".into()),
-            ParseError::BodyImport("x".into()),
-            ParseError::InvalidQuillReference {
-                value: "a@b".into(),
-                reason: "x".into(),
-            },
-            ParseError::YamlErrorWithLocation {
-                message: "x".into(),
-                line: 3,
-                column: 1,
-                block_index: 1,
-                hint: None,
-            },
-        ] {
+        for e in super::parse_error_samples() {
             let diag = e.to_diagnostic();
             add(diag.code.as_deref().expect("parse errors carry a code"), diag.args);
         }
