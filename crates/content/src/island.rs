@@ -55,6 +55,17 @@ impl KnownIslandType {
         }
     }
 
+    /// Whether this type's markdown projection is a **block**: markup no
+    /// paragraph line can hold, so its slot has to sit alone on its line. A
+    /// pipe table is one; an image is inline (`![alt](url)`), and an unknown
+    /// type's placeholder comment is inline too.
+    pub fn block_only(self) -> bool {
+        match self {
+            Self::Table => true,
+            Self::Image => false,
+        }
+    }
+
     /// This type's `(text, marks)` cells: the set that participates in mark
     /// normalization and cell-mark validation. Empty for a type with no cell
     /// model.

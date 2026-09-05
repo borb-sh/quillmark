@@ -111,7 +111,12 @@ pub enum LineKind {
     Code {
         lang: Option<String>,
     },
-    /// A block-level island: the line's sole content is one [`ISLAND_SLOT`].
+    /// A block-level island: the line's sole content is one [`ISLAND_SLOT`]
+    /// backing an island whose markdown *is* a block
+    /// ([`KnownIslandType::block_only`](crate::KnownIslandType::block_only)).
+    /// An image is inline markup, so a line holding one alone is
+    /// [`Para`](LineKind::Para) — the kind re-importing `![alt](url)` yields,
+    /// and the kind [`Content::normalize`] writes there.
     Island,
     /// A thematic break (`---`/`***`/`___`). The line carries no text.
     Rule,
@@ -911,6 +916,34 @@ pub fn line_kind_mismatch(kind: &LineKind, seg: &str) -> Option<LineKindMismatch
     }
 }
 
+/// The [`LineKind`] a line whose sole content is one [`ISLAND_SLOT`] carries in
+/// canonical form: [`LineKind::Island`] where markdown writes that island as a
+/// block ([`KnownIslandType::block_only`](crate::KnownIslandType::block_only)),
+/// [`LineKind::Para`] where it writes it inline. Both spell one markdown, so the
+/// model keeps the one re-importing it yields, and [`Content::normalize`] writes
+/// that one.
+///
+/// `None` leaves the stored kind standing, on the three counts the projection
+/// settles nothing: a line holding more than the slot, a kind whose own contract
+/// carries a slot ([`LineKind::Heading`], the open [`LineKind::Unknown`]), and
+/// an island type this build cannot read — its placeholder projects no kind
+/// back, and its spelling is not this build's to move.
+fn island_line_kind(kind: &LineKind, seg: &str, island: Option<&Island>) -> Option<LineKind> {
+    if !matches!(kind, LineKind::Para | LineKind::Island) {
+        return None;
+    }
+    let mut chars = seg.chars();
+    if (chars.next(), chars.next()) != (Some(ISLAND_SLOT), None) {
+        return None;
+    }
+    let known = crate::island::KnownIslandType::parse(&island?.island_type)?;
+    Some(if known.block_only() {
+        LineKind::Island
+    } else {
+        LineKind::Para
+    })
+}
+
 impl Content {
     /// The text and its per-line attributes; marks and islands start empty.
     ///
@@ -1004,10 +1037,15 @@ impl Content {
         // un-repaired line projects its content away. Demote to `Para`, which is
         // what re-importing the line's own markdown yields. A *deliberate*
         // mis-tag is refused up front by the op channel instead.
+        let mut slot = 0usize;
         for (line, seg) in self.lines.iter_mut().zip(self.text.split('\n')) {
             if line_kind_mismatch(&line.kind, seg).is_some() {
                 line.kind = LineKind::Para;
             }
+            if let Some(kind) = island_line_kind(&line.kind, seg, self.islands.get(slot)) {
+                line.kind = kind;
+            }
+            slot += seg.chars().filter(|&c| c == ISLAND_SLOT).count();
             if let LineKind::Unknown { attrs, .. } = &mut line.kind {
                 canonicalize_keys(attrs);
                 collapse_empty_bag(attrs);
@@ -1529,17 +1567,65 @@ mod tests {
         let mut rt = tagged("text on a rule line", LineKind::Rule);
         rt.normalize();
         assert_eq!(rt.lines[0].kind, LineKind::Para);
-        // A well-formed island line is left alone.
+        // A well-formed island line — a block island's slot alone — is left alone.
         let mut rt = tagged(&ISLAND_SLOT.to_string(), LineKind::Island);
-        rt.islands = vec![Island {
-            id: "isl-0".into(),
-            island_type: "image".into(),
-            props: serde_json::json!({"alt": "x", "url": "y.png"}),
-            loss: Loss::LOSSLESS,
-        }];
+        rt.islands = vec![table_island()];
         rt.normalize();
         assert_eq!(rt.lines[0].kind, LineKind::Island);
         assert_eq!(rt.validate(), Ok(()));
+    }
+
+    /// A one-cell table: the island type markdown writes as a block.
+    fn table_island() -> Island {
+        Island::new("isl-0".into(), "table".into()).with_props(serde_json::json!({
+            "aligns": ["none"],
+            "header": [{"marks": [], "text": "h"}],
+            "rows": [[{"marks": [], "text": "c"}]],
+        }))
+    }
+
+    /// Markdown spells a slot-alone `Para` line and a slot-alone `Island` line
+    /// alike, so which one a document holds is the island type's to settle:
+    /// table markup is a block and re-imports as `Island`, an image is inline
+    /// and re-imports as `Para`. Both spellings of each converge on the one the
+    /// round trip yields, so no document holds a kind its own markdown denies.
+    #[test]
+    fn an_island_alone_on_a_line_takes_the_kind_its_type_projects() {
+        let image = Island::new("isl-0".into(), "image".into())
+            .with_props(serde_json::json!({"alt": "a", "url": "u"}));
+        for (island, canonical) in [
+            (table_island(), LineKind::Island),
+            (image, LineKind::Para),
+        ] {
+            for stored in [LineKind::Para, LineKind::Island] {
+                let what = format!("{} as {stored:?}", island.island_type);
+                let rt = tagged(&ISLAND_SLOT.to_string(), stored)
+                    .with_islands(vec![island.clone()])
+                    .into_normalized();
+                assert_eq!(rt.validate(), Ok(()), "{what}");
+                assert_eq!(rt.lines[0].kind, canonical, "{what}");
+                let md = crate::export::to_markdown(&rt);
+                assert_eq!(
+                    crate::import::from_markdown(&md).expect("re-imports"),
+                    rt,
+                    "{what} is not a fixed point: {md:?}"
+                );
+            }
+        }
+    }
+
+    /// An island type this build cannot read projects to a placeholder that
+    /// carries no island back, so nothing in the markdown names a kind for its
+    /// line. The stored spelling stands: reading a document is not licence to
+    /// move the bytes of a construct this build does not understand.
+    #[test]
+    fn an_unknown_island_keeps_the_line_kind_it_was_stored_with() {
+        for stored in [LineKind::Para, LineKind::Island] {
+            let mut rt = tagged(&ISLAND_SLOT.to_string(), stored.clone())
+                .with_islands(vec![Island::new("isl-0".into(), "widget".into())]);
+            rt.normalize();
+            assert_eq!(rt.lines[0].kind, stored);
+        }
     }
 
     #[test]

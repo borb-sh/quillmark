@@ -2051,7 +2051,8 @@ mod tests {
             delta: diff("intro", "intro\n"),
             island_ops: vec![IslandOp::Insert {
                 at: 6,
-                island: image("isl-a"),
+                island: Island::new("isl-a".into(), "table".into())
+                    .with_props(table_props("H", "a")),
             }],
             line_ops: vec![LineOp::SetKind {
                 line: 1,
@@ -2062,6 +2063,7 @@ mod tests {
         .unwrap();
         let before = rt.clone();
         let held = rt.islands[0].clone();
+        assert_eq!(before.lines[1].kind, LineKind::Island);
 
         rt.apply_field_change(&ChangeBundle::from_delta(diff(&before.text, "intro\n")))
             .unwrap();

@@ -411,11 +411,15 @@ export type LineOp =
  * A `set` stores the `loss` it is given; nothing re-derives the class from the
  * new `props`.
  *
- * An island is *inline* (a slot inside a paragraph) unless its line says
- * otherwise. A **block** island is one bundle of all three channels, in the
- * order they apply: `delta` inserts the `\n` that opens the line, `islandOps`
- * inserts the slot, `lineOps` tags the line `{ op: "setKind", kind: "island" }`.
- * `{ op: "split" }` cannot open that line, since line ops run after island ops.
+ * An island is *inline* (a slot inside a paragraph) or a **block** (that slot
+ * alone on a line under `kind: "island"`), and for a slot alone on a line the
+ * type settles which: markdown writes a `table` as a block and an image inline,
+ * so the line's `kind` is read off the type and a `setKind` spelling it
+ * otherwise does not survive. Landing a block island is one bundle of all three
+ * channels, in the order they apply: `delta` inserts the `\n` that opens the
+ * line, `islandOps` inserts the slot, `lineOps` tags the line
+ * `{ op: "setKind", kind: "island" }`. `{ op: "split" }` cannot open that line,
+ * since line ops run after island ops.
  */
 export type IslandOp =
     | ({ op: "set" } & ContentIsland)
