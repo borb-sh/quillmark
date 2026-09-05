@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- fix(core)!: **`main:` parses under the same strict card-schema shape as a
+  card kind.** A `main:` that is not a mapping, an unknown key under it
+  (`feilds:`, `title:`), and a `main.fields` that is not a mapping all loaded
+  as a main card with zero fields and no diagnostic; each is now
+  `quill::invalid_card_schema`. `main` and `card_kinds.<name>` accept
+  `description`, `fields`, `ui`, and `body` only, and a malformed `ui` or
+  `body` block under either reports `quill::invalid_ui` or
+  `quill::invalid_body` with the hint naming that block's keys, where a card
+  kind drew the whole-card `quill::invalid_card_schema`.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one

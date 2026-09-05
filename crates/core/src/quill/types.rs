@@ -150,6 +150,10 @@ pub struct BodyCardSchema {
     pub unsupported: Vec<BlockConstruct>,
 }
 
+/// The keys [`UiCardSchema`] deserializes, for the hint on a rejected `ui:`
+/// section.
+pub(crate) const UI_CARD_SCHEMA_KEYS: &[&str] = &["title", "groups"];
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]

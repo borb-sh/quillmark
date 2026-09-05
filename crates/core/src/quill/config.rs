@@ -9,7 +9,7 @@ use crate::error::{Diagnostic, Severity, diag_args};
 use crate::value::QuillValue;
 
 use super::types::{
-    BODY_CARD_SCHEMA_KEYS, RICHTEXT_INLINE_TOKEN_MSG, UI_ORDER_REMOVED_MSG,
+    BODY_CARD_SCHEMA_KEYS, RICHTEXT_INLINE_TOKEN_MSG, UI_CARD_SCHEMA_KEYS, UI_ORDER_REMOVED_MSG,
     VARIANT_DISCRIMINANT_KEY,
 };
 use super::{BodyCardSchema, CardSchema, FieldSchema, FieldType, GroupRegistry, UiCardSchema};
@@ -101,16 +101,16 @@ impl QuillConfig {
     }
 }
 
-#[derive(Debug, Deserialize)]
+/// One card-schema block: the `main:` section or a `card_kinds.<name>:` entry.
+/// It fixes the key set and each block's outer shape; `fields`, `ui`, and `body`
+/// stay raw so their own parsers can report per-block diagnostics.
+#[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CardSchemaDef {
     pub description: Option<String>,
-    // Declared so `deny_unknown_fields` accepts a `fields:` block on a card.
-    // Fields are parsed separately via `parse_fields` (per-field diagnostics).
-    #[allow(dead_code)]
     pub fields: Option<serde_json::Map<String, serde_json::Value>>,
-    pub ui: Option<UiCardSchema>,
-    pub body: Option<BodyCardSchema>,
+    pub ui: Option<serde_json::Value>,
+    pub body: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
@@ -1522,6 +1522,39 @@ impl QuillConfig {
         }
     }
 
+    /// Parse one card-schema block (`main:` or a `card_kinds.<name>:` entry).
+    /// `None` plus a diagnostic when the block is not a mapping or carries an
+    /// unknown key, so a typo is reported rather than loading as an empty card.
+    fn parse_card_schema_def(
+        value: &serde_json::Value,
+        label: &str,
+        errors: &mut Vec<Diagnostic>,
+    ) -> Option<CardSchemaDef> {
+        // Checked ahead of serde, which reads a sequence of the right length as
+        // a struct's fields in declaration order.
+        if !value.is_object() {
+            errors.push(
+                Diagnostic::new(
+                    Severity::Error,
+                    format!("'{label}' must be an object (mapping of card-schema keys)"),
+                )
+                .with_code("quill::invalid_card_schema".to_string()),
+            );
+            return None;
+        }
+
+        match serde_json::from_value::<CardSchemaDef>(value.clone()) {
+            Ok(def) => Some(def),
+            Err(e) => {
+                errors.push(
+                    Diagnostic::new(Severity::Error, format!("Failed to parse '{label}': {e}"))
+                        .with_code("quill::invalid_card_schema".to_string()),
+                );
+                None
+            }
+        }
+    }
+
     /// Parse fields from a JSON map into `FieldSchema`s (both `main.fields` and
     /// a card kind's `fields`). Declaration order rides the map itself: the
     /// source map preserves key order (serde_json's `preserve_order`) and the
@@ -1825,11 +1858,20 @@ impl QuillConfig {
             .map(|s| s.to_string())
             .unwrap_or_else(|| "Unknown".to_string());
 
+        let ui_hint = format!(
+            "Valid keys under 'ui' are: {}.",
+            UI_CARD_SCHEMA_KEYS.join(", ")
+        );
+        let body_hint = format!(
+            "Valid keys under 'body' are: {}.",
+            BODY_CARD_SCHEMA_KEYS.join(", ")
+        );
+
         let ui_section: Option<UiCardSchema> = Self::parse_section(
             quill_section.get("ui"),
             "quill.ui",
             "quill::invalid_ui",
-            "Valid keys under 'ui' are: title, groups.",
+            &ui_hint,
             &mut errors,
         );
 
@@ -1884,46 +1926,35 @@ impl QuillConfig {
             }
         }
 
-        let main_obj_opt = quill_yaml_val.get("main").and_then(|v| v.as_object());
+        let main_def = quill_yaml_val
+            .get("main")
+            .and_then(|main_val| Self::parse_card_schema_def(main_val, "main", &mut errors))
+            .unwrap_or_default();
 
-        // Extract main.fields (optional)
-        let fields = if let Some(fields_map) = main_obj_opt
-            .and_then(|main_obj| main_obj.get("fields"))
-            .and_then(|v| v.as_object())
-        {
-            Self::parse_fields(fields_map, "field schema", &mut errors)
-        } else {
-            IndexMap::new()
+        let fields = match &main_def.fields {
+            Some(fields_map) => Self::parse_fields(fields_map, "field schema", &mut errors),
+            None => IndexMap::new(),
         };
 
-        // Extract main.ui (optional). Fail loudly on malformed UI metadata rather
-        // than silently dropping it; see `quill.ui` handling above.
         let main_ui: Option<UiCardSchema> = Self::parse_section(
-            main_obj_opt.and_then(|main_obj| main_obj.get("ui")),
+            main_def.ui.as_ref(),
             "main.ui",
             "quill::invalid_ui",
-            "Valid keys under 'ui' are: title, groups.",
+            &ui_hint,
             &mut errors,
         );
 
-        // Extract main.body (optional). Fail loudly on malformed body metadata.
         let main_body: Option<BodyCardSchema> = Self::parse_section(
-            main_obj_opt.and_then(|main_obj| main_obj.get("body")),
+            main_def.body.as_ref(),
             "main.body",
             "quill::invalid_body",
-            &format!(
-                "Valid keys under 'body' are: {}.",
-                BODY_CARD_SCHEMA_KEYS.join(", ")
-            ),
+            &body_hint,
             &mut errors,
         );
 
-        // Extract main.description (optional, authored under `main:` like any
-        // other card kind). This is independent of `quill.description`.
-        let main_description = main_obj_opt
-            .and_then(|main_obj| main_obj.get("description"))
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string());
+        // `main.description` describes the main card's schema, independent of
+        // `quill.description`.
+        let main_description = main_def.description;
         Self::validate_description_singleline(main_description.as_deref(), "main", &mut errors);
 
         // The main entry-point card.
@@ -1965,37 +1996,37 @@ impl QuillConfig {
                             continue;
                         }
 
-                        // Parse card basic info using serde
-                        let card_def: CardSchemaDef =
-                            match serde_json::from_value(card_value.clone()) {
-                                Ok(d) => d,
-                                Err(e) => {
-                                    errors.push(
-                                        Diagnostic::new(
-                                            Severity::Error,
-                                            format!(
-                                                "Failed to parse card_kind '{}': {}",
-                                                card_name, e
-                                            ),
-                                        )
-                                        .with_code("quill::invalid_card_schema".to_string()),
-                                    );
-                                    continue;
-                                }
+                        let label = format!("card_kinds.{}", card_name);
+                        let card_def =
+                            match Self::parse_card_schema_def(card_value, &label, &mut errors) {
+                                Some(d) => d,
+                                None => continue,
                             };
 
-                        // Parse card fields
-                        let card_fields = if let Some(card_fields_table) =
-                            card_value.get("fields").and_then(|v| v.as_object())
-                        {
-                            Self::parse_fields(
+                        let card_fields = match &card_def.fields {
+                            Some(card_fields_table) => Self::parse_fields(
                                 card_fields_table,
                                 &format!("card_kind '{}' field", card_name),
                                 &mut errors,
-                            )
-                        } else {
-                            IndexMap::new()
+                            ),
+                            None => IndexMap::new(),
                         };
+
+                        let card_ui: Option<UiCardSchema> = Self::parse_section(
+                            card_def.ui.as_ref(),
+                            &format!("{}.ui", label),
+                            "quill::invalid_ui",
+                            &ui_hint,
+                            &mut errors,
+                        );
+
+                        let card_body: Option<BodyCardSchema> = Self::parse_section(
+                            card_def.body.as_ref(),
+                            &format!("{}.body", label),
+                            "quill::invalid_body",
+                            &body_hint,
+                            &mut errors,
+                        );
 
                         Self::validate_description_singleline(
                             card_def.description.as_deref(),
@@ -2006,8 +2037,8 @@ impl QuillConfig {
                             name: card_name.clone(),
                             description: card_def.description,
                             fields: card_fields,
-                            ui: card_def.ui,
-                            body: card_def.body,
+                            ui: card_ui,
+                            body: card_body,
                         });
                     }
                 }

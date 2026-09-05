@@ -1975,6 +1975,73 @@ main:
     }
 }
 
+fn config_with_sections(sections: &str) -> Result<QuillConfig, Vec<Diagnostic>> {
+    let yaml_content = format!(
+        r#"
+quill:
+  name: strict
+  version: "1.0"
+  backend: typst
+  description: Strict card-schema parsing
+
+{sections}
+"#
+    );
+    QuillConfig::from_yaml_with_warnings(&yaml_content).map(|(c, _)| c)
+}
+
+#[test]
+fn main_refuses_every_shape_a_card_kind_refuses() {
+    let cases = [
+        (
+            "misspelled fields",
+            "main:\n  feilds:\n    title:\n      type: string",
+        ),
+        ("unknown key", "main:\n  title: Memo"),
+        ("list-shaped fields", "main:\n  fields: [title, author]"),
+        ("non-mapping main", "main: [x]"),
+        ("scalar main", "main: 5"),
+        ("empty main", "main:"),
+    ];
+
+    for (label, sections) in cases {
+        let err = config_with_sections(sections)
+            .err()
+            .unwrap_or_else(|| panic!("{label} loaded instead of erroring"));
+        assert!(
+            err.iter()
+                .any(|d| d.code.as_deref() == Some("quill::invalid_card_schema")),
+            "{label}: {:?}",
+            err.iter().map(|d| d.code.as_deref()).collect::<Vec<_>>()
+        );
+    }
+}
+
+#[test]
+fn a_card_kind_ui_and_body_block_report_their_own_codes() {
+    let ui_err = config_with_sections("card_kinds:\n  note:\n    ui:\n      bogus_key: nope")
+        .expect_err("a malformed card_kinds.<name>.ui is a load error");
+    assert!(
+        ui_err
+            .iter()
+            .any(|d| d.code.as_deref() == Some("quill::invalid_ui")),
+        "{:?}",
+        ui_err.iter().map(|d| d.code.as_deref()).collect::<Vec<_>>()
+    );
+
+    let body_err =
+        config_with_sections("card_kinds:\n  note:\n    body:\n      unsuported: [Table]")
+            .expect_err("a malformed card_kinds.<name>.body is a load error");
+    let hint = body_err
+        .iter()
+        .find(|d| d.code.as_deref() == Some("quill::invalid_body"))
+        .and_then(|d| d.hint.clone())
+        .expect("a malformed card_kinds.<name>.body carries a hint");
+    for key in ["enabled", "example", "unsupported"] {
+        assert!(hint.contains(key), "hint omits {key}: {hint}");
+    }
+}
+
 #[test]
 fn test_field_ui_title_is_valid() {
     let yaml_content = r#"
