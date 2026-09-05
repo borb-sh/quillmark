@@ -1,7 +1,9 @@
 //! SVG and PNG are views of the *flattened* form — values baked into the page
 //! content — so they render without viewer appearance synthesis.
 
-use quillmark::{Document, OutputFormat, Quillmark, RenderOptions};
+use pdf_writer::{Pdf, Rect, Ref};
+use quillmark::{Document, FileTreeNode, OutputFormat, Quill, Quillmark, RenderOptions};
+use quillmark_core::RenderError;
 
 const FILLED: &str = "~~~\n\
 $quill: sample_form\n\
@@ -49,5 +51,124 @@ fn renders_png_per_page() {
             "artifact must carry the PNG signature"
         );
     }
+}
+
+/// Two widgets, one per page, so a bound field exercises each page box.
+const TWO_PAGE_FORM_JSON: &str = r#"{
+  "schema": "quillmark/form@0.2.0",
+  "fields": [
+    {
+      "name": "FullName",
+      "schema_field": "full_name",
+      "page": 0,
+      "rect": { "x": 180, "y": 100, "w": 340, "h": 20 }
+    },
+    {
+      "name": "Comments",
+      "schema_field": "comments",
+      "page": 1,
+      "rect": { "x": 180, "y": 140, "w": 340, "h": 80 }
+    }
+  ]
+}"#;
+
+/// Two US-Letter pages drawing a rule at different heights, so one page's ink
+/// never matches the other's.
+fn two_page_background() -> Vec<u8> {
+    let letter = Rect::new(0.0, 0.0, 612.0, 792.0);
+    let mut pdf = Pdf::new();
+    pdf.catalog(Ref::new(1)).pages(Ref::new(2));
+    pdf.pages(Ref::new(2))
+        .kids([Ref::new(3), Ref::new(5)])
+        .count(2)
+        .media_box(letter);
+    pdf.page(Ref::new(3))
+        .parent(Ref::new(2))
+        .media_box(letter)
+        .contents(Ref::new(4));
+    pdf.stream(Ref::new(4), b"0.75 w 180 672 340 20 re S");
+    pdf.page(Ref::new(5))
+        .parent(Ref::new(2))
+        .media_box(letter)
+        .contents(Ref::new(6));
+    pdf.stream(Ref::new(6), b"0.75 w 180 472 340 20 re S");
+    pdf.finish()
+}
+
+/// The fixture quill on a two-page background: page selection needs a document
+/// with more than one page to select from.
+fn two_page_quill() -> Quill {
+    let mut tree = quillmark::tree_from_path(quillmark_fixtures::quills_path("sample_form"))
+        .expect("load sample_form tree");
+    tree.insert(
+        "form.pdf",
+        FileTreeNode::File {
+            contents: two_page_background(),
+        },
+    )
+    .expect("replace form.pdf");
+    tree.insert(
+        "form.json",
+        FileTreeNode::File {
+            contents: TWO_PAGE_FORM_JSON.as_bytes().to_vec(),
+        },
+    )
+    .expect("replace form.json");
+    Quill::from_tree(tree).expect("load two-page quill")
+}
+
+fn render_two_page(
+    format: OutputFormat,
+    pages: Option<Vec<usize>>,
+) -> Result<quillmark::RenderResult, RenderError> {
+    let quill = two_page_quill();
+    let doc = Document::parse(FILLED).expect("parse markdown").document;
+    let mut opts = RenderOptions::default().with_output_format(format);
+    opts.pages = pages;
+    Quillmark::new().render(&quill, &doc, &opts)
+}
+
+fn refusal_code(format: OutputFormat, pages: Vec<usize>) -> String {
+    let err = render_two_page(format, Some(pages)).expect_err("the selection is refused");
+    err.diagnostics()[0]
+        .code
+        .clone()
+        .expect("a refusal carries its code")
+}
+
+#[test]
+fn page_selection_narrows_raster_output_to_the_named_page() {
+    for format in [OutputFormat::Svg, OutputFormat::Png] {
+        let whole = render_two_page(format, None).expect("render whole document");
+        assert_eq!(whole.artifacts.len(), 2, "{format:?}: one artifact per page");
+
+        let first = render_two_page(format, Some(vec![0])).expect("render page 0");
+        let second = render_two_page(format, Some(vec![1])).expect("render page 1");
+        assert_eq!(first.artifacts.len(), 1, "{format:?}: one page selected");
+        assert_eq!(second.artifacts.len(), 1, "{format:?}: one page selected");
+        assert_ne!(
+            first.artifacts[0].bytes, second.artifacts[0].bytes,
+            "{format:?}: the selection renders the named page, not always the first"
+        );
+    }
+}
+
+#[test]
+fn a_page_past_the_form_is_refused() {
+    for format in [OutputFormat::Svg, OutputFormat::Png] {
+        assert_eq!(
+            refusal_code(format, vec![2]),
+            "backend::page_index_out_of_bounds",
+            "{format:?}"
+        );
+    }
+}
+
+#[test]
+fn pdf_refuses_a_page_selection() {
+    assert_eq!(
+        refusal_code(OutputFormat::Pdf, vec![0]),
+        "backend::page_selection_not_supported"
+    );
 }
 

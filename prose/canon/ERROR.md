@@ -57,6 +57,10 @@ for a backend session that does not override the incremental-`update` seam
 (both built-in backends override it); `backend::format_not_supported`: the
 requested format is outside the backend's `supported_formats`, one code on
 every backend so a caller matches the condition once;
+`backend::page_index_out_of_bounds` / `backend::page_selection_not_supported`:
+a `RenderOptions::pages` selection naming a page the document does not have, or
+asked of a format the backend emits whole (PDF on both built-in backends), both
+minted by the shared constructors in `crates/core/src/backend.rs`;
 `engine::backend_not_found`: the quill's declared backend is not registered.
 
 **`edit::*`: mutator diagnostics.** Document and card mutators fail with the

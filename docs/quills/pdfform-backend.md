@@ -233,6 +233,11 @@ The backend's formats are `[Pdf, Svg, Png]`: every `OutputFormat` there is. A
 format added to the enum and not to this backend errors with
 `backend::format_not_supported`, the code both built-in backends share.
 
+`RenderOptions::pages` narrows SVG and PNG to the named pages, in the order
+given; an index past the form's last page errors with
+`backend::page_index_out_of_bounds`. PDF is emitted whole, so a selection there
+errors with `backend::page_selection_not_supported`.
+
 **Canvas** is a separate surface from the `render()` output formats above: it is
 the WASM `paint()` raster path (`render_rgba`), not an `OutputFormat`. See
 [PREVIEW.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PREVIEW.md).

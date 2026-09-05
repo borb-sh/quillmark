@@ -328,8 +328,8 @@ pub struct RenderOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ppi: Option<f32>,
     /// 0-based page indices to render; `undefined` renders all pages. An index
-    /// `>= pageCount` throws `typst::page_index_out_of_bounds`. Not supported
-    /// for PDF output: throws `typst::pdf_page_selection_not_supported`.
+    /// `>= pageCount` throws `backend::page_index_out_of_bounds`. Not supported
+    /// for PDF output: throws `backend::page_selection_not_supported`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pages: Option<Vec<usize>>,
     /// PDF `/Info` `/Producer` override; defaults to `Quillmark <version>`.

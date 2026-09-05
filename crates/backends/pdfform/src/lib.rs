@@ -157,24 +157,28 @@ impl SessionHandle for PdfformSession {
             ));
         }
 
+        if format == OutputFormat::Pdf {
+            if opts.pages.is_some() {
+                return Err(quillmark_core::page_selection_not_supported(format));
+            }
+
+            // PDF output is always an interactive AcroForm; value-flattening
+            // backs only the raster paths, never a PDF deliverable.
+            let producer = opts.producer.clone().unwrap_or_else(default_producer);
+            let stamp_opts = StampOptions::default().with_producer(producer);
+            let stamped = stamp(self.base_pdf.clone(), &self.field_specs, &stamp_opts)?;
+
+            return Ok(RenderResult::new(
+                vec![Artifact::new(stamped, OutputFormat::Pdf)],
+                OutputFormat::Pdf,
+            ));
+        }
+
+        let pages = quillmark_core::selected_pages(opts.pages.as_deref(), self.flat.pages().len())?;
         if format == OutputFormat::Svg {
-            return self.render_svg();
+            return self.render_svg(&pages);
         }
-        if format == OutputFormat::Png {
-            let scale = opts.ppi_or_default() / 72.0;
-            return self.render_png(scale);
-        }
-
-        // PDF output is always an interactive AcroForm; value-flattening backs
-        // only the raster paths, never a PDF deliverable.
-        let producer = opts.producer.clone().unwrap_or_else(default_producer);
-        let stamp_opts = StampOptions::default().with_producer(producer);
-        let stamped = stamp(self.base_pdf.clone(), &self.field_specs, &stamp_opts)?;
-
-        Ok(RenderResult::new(
-            vec![Artifact::new(stamped, OutputFormat::Pdf)],
-            OutputFormat::Pdf,
-        ))
+        self.render_png(&pages, opts.ppi_or_default() / 72.0)
     }
 
     fn page_count(&self) -> usize {
@@ -230,18 +234,17 @@ impl SessionHandle for PdfformSession {
 }
 
 impl PdfformSession {
-    fn render_svg(&self) -> Result<RenderResult, RenderError> {
+    fn render_svg(&self, pages: &[usize]) -> Result<RenderResult, RenderError> {
         let interp = standard_font_settings();
         let svg_settings = SvgRenderSettings {
             bg_color: [255, 255, 255, 255],
         };
-        let artifacts: Vec<Artifact> = self
-            .flat
-            .pages()
+        let all = self.flat.pages();
+        let artifacts: Vec<Artifact> = pages
             .iter()
-            .map(|page| {
+            .map(|&idx| {
                 let cache = SvgCache::new();
-                let svg = hayro_svg_convert(page, &cache, &interp, &svg_settings);
+                let svg = hayro_svg_convert(&all[idx], &cache, &interp, &svg_settings);
                 Artifact::new(svg.into_bytes(), OutputFormat::Svg)
             })
             .collect();
@@ -250,12 +253,14 @@ impl PdfformSession {
     }
 
     /// `scale` is device pixels per PDF point (`ppi / 72`).
-    fn render_png(&self, scale: f32) -> Result<RenderResult, RenderError> {
+    fn render_png(&self, pages: &[usize], scale: f32) -> Result<RenderResult, RenderError> {
         let interp = standard_font_settings();
         let render_settings = scaled_render_settings(scale);
 
-        let mut artifacts = Vec::with_capacity(self.flat.pages().len());
-        for page in self.flat.pages().iter() {
+        let all = self.flat.pages();
+        let mut artifacts = Vec::with_capacity(pages.len());
+        for &idx in pages {
+            let page = &all[idx];
             let cache = RenderCache::new();
             let pixmap = hayro_render(page, &cache, &interp, &render_settings);
             let png = pixmap.into_png().map_err(|e| {

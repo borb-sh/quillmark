@@ -34,7 +34,10 @@ pub mod reader;
 pub use reader::{CardReader, TypedReader};
 
 pub mod backend;
-pub use backend::{formats_support_canvas, unsupported_format, Backend};
+pub use backend::{
+    formats_support_canvas, page_selection_not_supported, selected_pages, unsupported_format,
+    Backend,
+};
 
 pub mod error;
 pub use error::{

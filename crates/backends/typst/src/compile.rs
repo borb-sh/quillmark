@@ -11,7 +11,10 @@ use typst_svg::SvgOptions;
 use crate::error_mapping::map_typst_errors;
 use crate::overlay;
 use crate::world::QuillWorld;
-use quillmark_core::{Artifact, Diagnostic, OutputFormat, RenderError, RenderResult};
+use quillmark_core::{
+    page_selection_not_supported, selected_pages, Artifact, Diagnostic, OutputFormat, RenderError,
+    RenderResult,
+};
 use quillmark_pdf::{stamp, FieldSpec, StampOptions};
 
 pub(crate) fn render_options(pixel_per_pt: f32) -> RenderOptions {
@@ -51,29 +54,10 @@ pub(crate) fn render_document_pages(
     producer: Option<&str>,
 ) -> Result<RenderResult, RenderError> {
     if format == OutputFormat::Pdf && pages.is_some() {
-        return Err(RenderError::coded(
-            "typst::pdf_page_selection_not_supported",
-            "PDF does not support page selection; pass null/None to render the full document, or use PNG/SVG",
-        ));
+        return Err(page_selection_not_supported(format));
     }
 
-    let page_count = document.pages().len();
-    let selected_indices: Vec<usize> = match pages {
-        Some(slice) => {
-            let out_of_bounds: Vec<usize> =
-                slice.iter().copied().filter(|&i| i >= page_count).collect();
-            if !out_of_bounds.is_empty() {
-                return Err(RenderError::coded(
-                    "typst::page_index_out_of_bounds",
-                    format!(
-                        "Page index out of bounds (page_count={page_count}); offending indices: {out_of_bounds:?}. Check `LiveSession.pageCount` before requesting pages."
-                    ),
-                ));
-            }
-            slice.to_vec()
-        }
-        None => (0..page_count).collect(),
-    };
+    let selected_indices = selected_pages(pages, document.pages().len())?;
 
     match format {
         OutputFormat::Svg => {

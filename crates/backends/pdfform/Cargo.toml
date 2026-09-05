@@ -32,5 +32,5 @@ quillmark-fixtures = { workspace = true }
 # an unpublishable cycle; cargo strips path-only dev-deps at packaging.
 quillmark = { path = "../../quillmark" }
 lopdf = { workspace = true }
-# Builds the page-tree shapes the flatten tests need but no fixture carries.
+# Builds the page-tree shapes the tests need but no fixture carries.
 pdf-writer = { workspace = true }

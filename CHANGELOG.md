@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- fix(typst,pdfform)!: **`RenderOptions::pages` means one thing on every
+  backend, under `backend::*` codes.** The PDF-form backend ignored the option:
+  SVG and PNG rendered every page whatever was asked for, PDF returned bytes
+  instead of refusing, and an out-of-range index passed silently. It now
+  narrows SVG and PNG to the named pages, in the order given, and refuses a
+  selection for PDF. Both backends mint the two refusals from the shared
+  constructors in `quillmark_core::backend`, so the codes are
+  `backend::page_index_out_of_bounds` and
+  `backend::page_selection_not_supported` in place of the Typst-private
+  `typst::page_index_out_of_bounds` and
+  `typst::pdf_page_selection_not_supported`.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one

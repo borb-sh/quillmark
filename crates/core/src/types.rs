@@ -163,11 +163,10 @@ pub struct RenderOptions {
     /// Optional 0-based page indices to render (e.g., `vec![0, 2]` for
     /// the first and third pages). `None` renders all pages. Any index
     /// `>= page_count` fails with a `RenderError` carrying the
-    /// `typst::page_index_out_of_bounds` code: call
-    /// `LiveSession::page_count()` first if validation is needed.
-    /// Backends that do not support page selection (notably PDF) fail with a
-    /// `RenderError` carrying `typst::pdf_page_selection_not_supported` when
-    /// this is `Some`.
+    /// `backend::page_index_out_of_bounds` code: call
+    /// `LiveSession::page_count()` first if validation is needed. A format the
+    /// backend emits whole — PDF on both built-in backends — fails with
+    /// `backend::page_selection_not_supported` when this is `Some`.
     pub pages: Option<Vec<usize>>,
     /// Override for the PDF `/Info` `/Producer` metadata string. `None` uses
     /// the backend default (`Quillmark <version>` for the Typst backend).
