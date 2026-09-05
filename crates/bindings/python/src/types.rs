@@ -1469,84 +1469,37 @@ fn read_value_to_py<'py>(
     }
 }
 
-/// The dict keeps Python's snake_case `payload_items`; the item entries
-/// themselves match the WASM `Card` shape verbatim.
+/// `CardWire`'s serde shape with the two divergences Python's surface owns: the
+/// top-level key is snake_case `payload_items`, and an absent `quill` / `ext` /
+/// `seed` is an explicit `None` rather than a missing key. Item entries match
+/// the WASM `Card` shape verbatim.
 fn card_to_pydict<'py>(
     py: Python<'py>,
     card: &quillmark_core::Card,
 ) -> PyResult<Bound<'py, PyDict>> {
     let wire = quillmark_core::CardWire::from(card);
+    let json = serde_json::to_value(&wire).map_err(|e| PyValueError::new_err(e.to_string()))?;
+    let serde_json::Value::Object(mut map) = json else {
+        return Err(PyValueError::new_err("card wire is not a JSON object"));
+    };
+
+    // `CardWire` declares the three right after `kind`, so filling them left to
+    // right lands each at its own index and keeps one key order for every card.
+    for (offset, key) in ["quill", "ext", "seed"].into_iter().enumerate() {
+        if !map.contains_key(key) {
+            map.shift_insert(offset + 1, key.to_string(), serde_json::Value::Null);
+        }
+    }
+
     let d = PyDict::new(py);
-    d.set_item("kind", &wire.kind)?;
-    d.set_item("quill", wire.quill.as_deref())?;
-
-    let items = PyList::empty(py);
-    for item in &wire.payload_items {
-        let entry = PyDict::new(py);
-        match item {
-            quillmark_core::PayloadItemWire::Field {
-                key,
-                value,
-                fill,
-                nested_fills,
-            } => {
-                entry.set_item("type", "field")?;
-                entry.set_item("key", key)?;
-                entry.set_item("value", json_to_py(py, value)?)?;
-                entry.set_item("fill", *fill)?;
-                // Paths to `!must_fill` markers nested inside `value`, which is
-                // itself fill-free. Omitted when empty; `py_dict_to_card` reads
-                // it back.
-                if !nested_fills.is_empty() {
-                    let nf = serde_json::to_value(nested_fills)
-                        .map_err(|e| PyValueError::new_err(e.to_string()))?;
-                    entry.set_item("nestedFills", json_to_py(py, &nf)?)?;
-                }
-            }
-            quillmark_core::PayloadItemWire::Comment { text, inline } => {
-                entry.set_item("type", "comment")?;
-                entry.set_item("text", text)?;
-                entry.set_item("inline", *inline)?;
-            }
-            // `#[non_exhaustive]`: raising beats appending an untyped entry the
-            // caller cannot read.
-            _ => {
-                let msg = "this build cannot project one of the card's payload items";
-                return Err(crate::errors::raise_with_diagnostics(
-                    vec![quillmark_core::Diagnostic::new(
-                        quillmark_core::Severity::Error,
-                        msg.to_string(),
-                    )
-                    .with_code("edit::unprojectable_payload_item".to_string())],
-                    msg.to_string(),
-                ));
-            }
-        }
-        items.append(entry)?;
+    for (key, value) in &map {
+        let key = if key == "payloadItems" {
+            "payload_items"
+        } else {
+            key.as_str()
+        };
+        d.set_item(key, json_to_py(py, value)?)?;
     }
-    d.set_item("payload_items", items)?;
-
-    match &wire.ext {
-        Some(ext_map) => {
-            d.set_item(
-                "ext",
-                json_to_py(py, &serde_json::Value::Object(ext_map.clone()))?,
-            )?;
-        }
-        None => d.set_item("ext", py.None())?,
-    }
-
-    match &wire.seed {
-        Some(seed_map) => {
-            d.set_item(
-                "seed",
-                json_to_py(py, &serde_json::Value::Object(seed_map.clone()))?,
-            )?;
-        }
-        None => d.set_item("seed", py.None())?,
-    }
-
-    d.set_item("body", json_to_py(py, &wire.body)?)?;
     Ok(d)
 }
 
