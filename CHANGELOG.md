@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- fix(content)!: **a block-only island lands only on a line of its own, and the
+  markdown write breaks the paragraph around one already stored inline.** A
+  `table`'s markdown is a block, so a slot spliced into a paragraph exported as
+  pipes mid-line — `a| h |\n| --- |\n| c |b` — which re-imported as prose with
+  the island gone. `IslandOp::Insert` refuses an `at` that is not an empty line,
+  `IslandOp::Set` refuses retyping an inline island into a block-only one
+  (`ApplyError::BlockIslandNotAlone`), and the authored whole-content door
+  (`overwrite`, through `serial::from_authored_value`) refuses the same
+  placement. Storage stays lenient: `to_markdown` writes a content already in
+  that shape as a paragraph, the table, and a paragraph, so the island survives
+  re-import.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one

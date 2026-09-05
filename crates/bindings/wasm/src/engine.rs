@@ -416,6 +416,10 @@ export type LineOp =
  * order they apply: `delta` inserts the `\n` that opens the line, `islandOps`
  * inserts the slot, `lineOps` tags the line `{ op: "setKind", kind: "island" }`.
  * `{ op: "split" }` cannot open that line, since line ops run after island ops.
+ *
+ * A `table` has no inline placement: markdown writes it as a block, so an
+ * `insert` whose `at` is not an empty line throws, as does a `set` retyping an
+ * inline island into one.
  */
 export type IslandOp =
     | ({ op: "set" } & ContentIsland)

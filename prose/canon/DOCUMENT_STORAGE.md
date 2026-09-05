@@ -374,6 +374,17 @@ The same split governs an unreadable **table-cell mark**. Storage skips it:
 authored lane refuses it, because a host's malformed mark vanishing with no
 signal is the silent corruption the split exists to catch.
 
+It governs a **block-only island's placement** too. Markdown writes a `table` as
+a block (`KnownIslandType::block_only`, which an inline `image` is not), so a
+slot sharing its line with prose has no inline spelling: written there it lands
+as pipes inside the paragraph, which re-imports as prose with the island gone.
+The authored lanes refuse the placement — `ApplyError::BlockIslandNotAlone` from
+`IslandOp::Insert` and from a `Set` that retypes an inline island, a shape error
+from `serial::from_authored_value` — so a host learns at the write. Storage takes
+what it holds and the projection settles it: `export::to_markdown` breaks the
+line around the slot, so the prose on each side becomes its own block and the
+island keeps the line its markup needs.
+
 The opaque attrs are hash input like everything else in the canonical form, so
 they are recursively key-sorted along with the rest (see Byte-stability). What
 *does* remain a schema event is a change to the content object's own structure:

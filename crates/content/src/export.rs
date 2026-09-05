@@ -29,7 +29,10 @@
 //! island prop.
 
 use crate::island::KnownIslandType;
-use crate::model::{Container, Island, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT};
+use crate::model::{
+    Container, Island, Line, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT,
+};
+use std::borrow::Cow;
 
 /// Render a content to markdown. An island projects by **type**: a type this
 /// build knows emits its markdown, any other a placeholder comment.
@@ -39,13 +42,14 @@ use crate::model::{Container, Island, LineKind, Mark, MarkKind, Content, Normali
 /// whether a projection exists at all. So a known type stamped with a loss class
 /// this build lacks still emits its table.
 pub fn to_markdown(rt: &Normalized) -> String {
-    let segments = line_segments(rt);
+    let (lines, segments) = projected_lines(rt);
     let ctx = Ctx {
         rt,
+        lines: &lines,
         segments: &segments,
     };
     let mut out = String::new();
-    emit_block(&ctx, 0..rt.lines.len(), 0, &mut out);
+    emit_block(&ctx, 0..ctx.lines.len(), 0, &mut out);
     // `to_markdown` projects a *value*, not a file: it emits no final newline,
     // so `writer.set("subject", "Hello")` reads back as `"Hello"`. Document-file
     // writers own the file-final newline, and import is newline-insensitive, so
@@ -70,6 +74,10 @@ pub fn to_plaintext(rt: &Content) -> String {
 
 struct Ctx<'a> {
     rt: &'a Content,
+    /// The block structure being written, which is `rt.lines` unless
+    /// [`projected_lines`] had to break a line around a block-only island.
+    lines: &'a [Line],
+    /// One entry per [`Ctx::lines`] entry.
     segments: &'a [Segment],
 }
 
@@ -143,6 +151,129 @@ pub fn line_segments(rt: &Content) -> Vec<Segment> {
     segs
 }
 
+/// The lines the block walk writes, one [`Segment`] each: the content's own,
+/// unless a **block-only** island's slot
+/// ([`KnownIslandType::block_only`]) shares its line with other content.
+///
+/// A table's markdown is a block. Left inline it writes pipes into the middle of
+/// the paragraph, which re-imports as prose with the island gone, so the
+/// projection breaks the line around such a slot: the prose on each side becomes
+/// its own block and the island takes the line its markup needs. The break is
+/// the write's alone — the stored content keeps its paragraph — and the lanes
+/// that *author* an island refuse the placement outright
+/// ([`ApplyError::BlockIslandNotAlone`](crate::ApplyError::BlockIslandNotAlone)).
+fn projected_lines(rt: &Content) -> (Cow<'_, [Line]>, Vec<Segment>) {
+    let segments = line_segments(rt);
+    let breaks = |i: usize| {
+        let seg = segments[i];
+        seg.end - seg.start > 1 && holds_block_island(rt, seg)
+    };
+    if !(0..rt.lines.len()).any(breaks) {
+        return (Cow::Borrowed(&rt.lines), segments);
+    }
+
+    let mut lines: Vec<Line> = Vec::with_capacity(rt.lines.len());
+    let mut segs: Vec<Segment> = Vec::with_capacity(segments.len());
+    for (i, line) in rt.lines.iter().enumerate() {
+        let seg = segments[i];
+        if !breaks(i) {
+            lines.push(line.clone());
+            segs.push(seg);
+            continue;
+        }
+        // Only the line's first fragment can continue the block above it; each
+        // later one opens a block of its own, which is what the break is.
+        let mut first = true;
+        let mut start = seg.start;
+        let mut byte_start = seg.byte_start;
+        let mut prose_slots = seg.slots_before;
+        let mut slot = seg.slots_before;
+        let mut pos = seg.start;
+        for (b, c) in rt.text[seg.byte_start..seg.byte_end].char_indices() {
+            let byte = seg.byte_start + b;
+            if c == ISLAND_SLOT
+                && rt
+                    .islands
+                    .get(slot)
+                    .is_some_and(crate::island::island_is_block_only)
+            {
+                if pos > start {
+                    lines.push(prose_fragment(line, first));
+                    segs.push(Segment {
+                        start,
+                        end: pos,
+                        byte_start,
+                        byte_end: byte,
+                        slots_before: prose_slots,
+                    });
+                }
+                lines.push(Line {
+                    kind: LineKind::Island,
+                    containers: line.containers.clone(),
+                    continues: false,
+                });
+                segs.push(Segment {
+                    start: pos,
+                    end: pos + 1,
+                    byte_start: byte,
+                    byte_end: byte + c.len_utf8(),
+                    slots_before: slot,
+                });
+                first = false;
+                start = pos + 1;
+                byte_start = byte + c.len_utf8();
+                prose_slots = slot + 1;
+            }
+            if c == ISLAND_SLOT {
+                slot += 1;
+            }
+            pos += 1;
+        }
+        if pos > start {
+            lines.push(prose_fragment(line, first));
+            segs.push(Segment {
+                start,
+                end: pos,
+                byte_start,
+                byte_end: seg.byte_end,
+                slots_before: prose_slots,
+            });
+        }
+    }
+    // A line ending in a block-only island leaves the line after it continuing a
+    // block that renders one line, where the walk would take the continuation
+    // into the island's segment and write only the island. `normalize` clears
+    // the flag in the model; the projection clears it in what it writes.
+    for i in 1..lines.len() {
+        if lines[i].continues && !lines[i - 1].kind.takes_continuations() {
+            lines[i].continues = false;
+        }
+    }
+    (Cow::Owned(lines), segs)
+}
+
+/// One prose piece of a broken line, keeping the line's role and container path.
+fn prose_fragment(line: &Line, first: bool) -> Line {
+    Line {
+        kind: line.kind.clone(),
+        containers: line.containers.clone(),
+        continues: first && line.continues,
+    }
+}
+
+/// Whether the line `seg` covers carries a block-only island's slot.
+fn holds_block_island(rt: &Content, seg: Segment) -> bool {
+    rt.text[seg.byte_start..seg.byte_end]
+        .chars()
+        .filter(|&c| c == ISLAND_SLOT)
+        .enumerate()
+        .any(|(n, _)| {
+            rt.islands
+                .get(seg.slots_before + n)
+                .is_some_and(crate::island::island_is_block_only)
+        })
+}
+
 /// One open level of the block walk: `at` is the next line of `range` to emit,
 /// `buf` the markdown emitted for the level so far, and `container` the one
 /// whose syntax prefixes `buf` when the level closes (`None` at the root).
@@ -178,7 +309,7 @@ impl<'a> Frame<'a> {
 /// past [`MAX_NESTING_DEPTH`](crate::MAX_NESTING_DEPTH) freely, and a call
 /// frame per level aborts the process where this returns a projection.
 fn emit_block(ctx: &Ctx, range: std::ops::Range<usize>, depth: usize, out: &mut String) {
-    let lines = &ctx.rt.lines;
+    let lines = ctx.lines;
     let mut stack = vec![Frame::open(None, range, depth)];
     while let Some(frame) = stack.last_mut() {
         if frame.at < frame.range.end {
@@ -326,7 +457,7 @@ fn emit_code(ctx: &Ctx, range: std::ops::Range<usize>, lang: Option<&str>, out: 
 /// break (`\` + newline); a code block renders one fence; a heading/island is a
 /// single line.
 fn emit_leaf_block(ctx: &Ctx, range: std::ops::Range<usize>, out: &mut String) {
-    let first = &ctx.rt.lines[range.start];
+    let first = &ctx.lines[range.start];
     match &first.kind {
         LineKind::Code { lang } => emit_code(ctx, range, lang.as_deref(), out),
         LineKind::Island => {
@@ -1636,6 +1767,59 @@ mod tests {
         let back = from_markdown(&to_markdown(&rt)).unwrap();
         assert_eq!(back.text, "ab");
         assert_eq!(back.lines.len(), 1);
+    }
+
+    /// A one-cell table island, the block-only type.
+    fn table() -> Island {
+        Island::new("isl-0".into(), "table".into()).with_props(serde_json::json!({
+            "aligns": ["none"],
+            "header": [{"marks": [], "text": "h"}],
+            "rows": [[{"marks": [], "text": "c"}]],
+        }))
+    }
+
+    /// A table is block markup, so a slot storage holds inside a paragraph gets
+    /// the line its markup needs: the paragraph breaks around it and the island
+    /// re-imports, where writing the pipes inline re-imports as prose with the
+    /// island gone. The prose on each side keeps its marks in the coordinates
+    /// the break leaves.
+    #[test]
+    fn a_block_island_inside_a_paragraph_breaks_the_paragraph_around_it() {
+        let rt = Content {
+            text: format!("a{ISLAND_SLOT}bold"),
+            lines: vec![Line::new(LineKind::Para)],
+            marks: vec![Mark::new(2, 6, MarkKind::Strong)],
+            islands: vec![table()],
+        }
+        .into_normalized();
+        assert_eq!(rt.validate(), Ok(()), "hand-built content invalid");
+        let md = to_markdown(&rt);
+        let back = from_markdown(&md).unwrap();
+        assert_eq!(back.text, format!("a\n{ISLAND_SLOT}\nbold"), "{md:?}");
+        assert_eq!(back.islands.len(), 1, "island lost: {md:?}");
+        assert_eq!(back.lines[1].kind, LineKind::Island);
+        assert_eq!(back.marks, vec![Mark::new(4, 8, MarkKind::Strong)], "{md:?}");
+    }
+
+    /// The break leaves an island line where a paragraph line was, and a block
+    /// island renders one line, so a hard-break continuation after it would be
+    /// text the write never reaches. The projection clears the flag the way
+    /// `normalize` does in the model.
+    #[test]
+    fn a_hard_break_after_a_broken_line_keeps_its_text() {
+        let mut second = Line::new(LineKind::Para);
+        second.continues = true;
+        let rt = Content {
+            text: format!("a{ISLAND_SLOT}\nmore"),
+            lines: vec![Line::new(LineKind::Para), second],
+            marks: vec![],
+            islands: vec![table()],
+        }
+        .into_normalized();
+        assert_eq!(rt.validate(), Ok(()), "hand-built content invalid");
+        let md = to_markdown(&rt);
+        let back = from_markdown(&md).unwrap();
+        assert_eq!(back.text, format!("a\n{ISLAND_SLOT}\nmore"), "{md:?}");
     }
 
     /// The placeholder re-imports as no content text, so the net's expected text

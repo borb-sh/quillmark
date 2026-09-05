@@ -911,6 +911,13 @@ pub fn line_kind_mismatch(kind: &LineKind, seg: &str) -> Option<LineKindMismatch
     }
 }
 
+/// Whether `[start, end)` is a whole line of `chars`: a line boundary on each
+/// side and nothing else between them. An empty range asks it of the position a
+/// splice would fill.
+pub(crate) fn is_whole_line(chars: &[char], start: Usv, end: Usv) -> bool {
+    (start == 0 || chars.get(start - 1) == Some(&'\n')) && matches!(chars.get(end), None | Some('\n'))
+}
+
 impl Content {
     /// The text and its per-line attributes; marks and islands start empty.
     ///

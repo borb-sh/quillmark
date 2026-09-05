@@ -594,10 +594,33 @@ pub(crate) fn reject_unreadable_mark(v: &Value) -> Result<(), ParseError> {
 /// [`from_canonical_value`] for a content the **host authored just now**: the
 /// `install` input, not a blob read back from storage. Same decode, plus the
 /// legacy-spelling rule on every axis [`Content::validate`] checks: line kinds,
-/// containers, prose marks, and table-cell marks.
+/// containers, prose marks, and table-cell marks, and the placement rule on a
+/// block-only island.
 pub fn from_authored_value(v: &Value) -> Result<Normalized, ParseError> {
     reject_legacy_siblings_deep(v)?;
-    from_canonical_value(v)
+    let rt = from_canonical_value(v)?;
+    reject_inline_block_island(&rt)?;
+    Ok(rt)
+}
+
+/// A block-only island's slot sharing its line with other content: markdown
+/// writes a table as a block, so `export::to_markdown` breaks the line around
+/// one, splitting a paragraph the host did not ask to split. The op wire refuses
+/// the same placement ([`crate::ApplyError::BlockIslandNotAlone`]).
+fn reject_inline_block_island(rt: &Content) -> Result<(), ParseError> {
+    let chars: Vec<char> = rt.text.chars().collect();
+    let slots = chars
+        .iter()
+        .enumerate()
+        .filter(|&(_, &c)| c == crate::model::ISLAND_SLOT);
+    for ((at, _), island) in slots.zip(&rt.islands) {
+        if crate::island::island_is_block_only(island)
+            && !crate::model::is_whole_line(&chars, at, at + 1)
+        {
+            return Err(ParseError::Shape("block island in a line's prose"));
+        }
+    }
+    Ok(())
 }
 
 /// The authored-lane scan [`from_authored_value`] runs. Structural rather than a
@@ -1665,6 +1688,39 @@ mod tests {
             line_kind_from_authored_value(&v),
             Err(ParseError::Shape("code lang"))
         ));
+    }
+
+    /// The same split on a block-only island's placement. A table's markdown is
+    /// a block, so `export::to_markdown` breaks the line around a slot sitting
+    /// in a paragraph's prose: storage decodes the shape it holds and the write
+    /// settles it, while a host authoring that placement is told, rather than
+    /// having its paragraph split for it. An inline island keeps the position.
+    #[test]
+    fn an_inline_block_island_decodes_on_storage_and_is_refused_when_authored() {
+        let content = |island_type: &str, props: &str| {
+            format!(
+                concat!(
+                    r#"{{"islands":[{{"id":"isl-0","loss":"lossless","props":{},"#,
+                    r#""type":"{}"}}],"lines":[{{"containers":[],"kind":"para"}}],"#,
+                    r#""marks":[],"text":"a￼b"}}"#
+                ),
+                props, island_type
+            )
+        };
+        let table = content(
+            "table",
+            r#"{"aligns":["none"],"header":[{"marks":[],"text":"h"}],"rows":[[{"marks":[],"text":"c"}]]}"#,
+        );
+        assert!(
+            Content::from_canonical_json(&table).is_ok(),
+            "storage lane rejected: {table}"
+        );
+        let v: Value = serde_json::from_str(&table).unwrap();
+        assert!(matches!(from_authored_value(&v), Err(ParseError::Shape(_))));
+
+        let image = content("image", r#"{"alt":"a","url":"u"}"#);
+        let v: Value = serde_json::from_str(&image).unwrap();
+        assert!(from_authored_value(&v).is_ok(), "inline island refused");
     }
 
     /// The `@0.93.0` spelling — every built-in's payload in named siblings —

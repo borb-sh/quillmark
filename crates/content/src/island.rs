@@ -55,6 +55,17 @@ impl KnownIslandType {
         }
     }
 
+    /// Whether this type's markdown projection is a **block**: markup no
+    /// paragraph line can hold, so its slot has to sit alone on its line. A
+    /// pipe table is one; an image is inline (`![alt](url)`), and an unknown
+    /// type's placeholder comment is inline too.
+    pub fn block_only(self) -> bool {
+        match self {
+            Self::Table => true,
+            Self::Image => false,
+        }
+    }
+
     /// This type's `(text, marks)` cells: the set that participates in mark
     /// normalization and cell-mark validation. Empty for a type with no cell
     /// model.
@@ -85,8 +96,8 @@ impl KnownIslandType {
     }
 }
 
-// These three wrappers answer the open set's unknown arm once each, so callers
-// get a total function and no site re-decides what an unknown type does.
+// These wrappers answer the open set's unknown arm once each, so callers get a
+// total function and no site re-decides what an unknown type does.
 
 pub(crate) fn normalize_island_structure(island: &mut Island) {
     if let Some(k) = KnownIslandType::parse(&island.island_type) {
@@ -103,6 +114,10 @@ pub(crate) fn island_cell_marks(island: &Island) -> Vec<(String, Vec<Mark>)> {
 
 pub(crate) fn island_shape_error(island: &Island) -> Option<Invariant> {
     KnownIslandType::parse(&island.island_type).and_then(|k| k.shape_error(&island.props))
+}
+
+pub(crate) fn island_is_block_only(island: &Island) -> bool {
+    KnownIslandType::parse(&island.island_type).is_some_and(KnownIslandType::block_only)
 }
 
 #[cfg(test)]
