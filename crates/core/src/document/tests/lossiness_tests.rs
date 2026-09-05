@@ -132,6 +132,41 @@ fn unsupported_fill_position_warns_not_silently_dropped() {
     );
 }
 
+/// A `$seed` / `$ext` value carries no fill markers, so a marker nested inside
+/// one is dropped like any other unpreservable position: the warning names the
+/// cell that lost it.
+#[test]
+fn fill_marker_inside_meta_value_warns_with_its_path() {
+    let cases = [
+        (
+            "~~~card-yaml\n$quill: q\n$kind: main\n$seed:\n  note:\n    from: !must_fill\n    to: !must_fill X\n~~~\n",
+            ["$seed.note.from", "$seed.note.to"],
+        ),
+        (
+            "~~~card-yaml\n$quill: q\n$kind: main\n$ext:\n  ns:\n    from: !must_fill\n    to: !must_fill X\n~~~\n",
+            ["$ext.ns.from", "$ext.ns.to"],
+        ),
+    ];
+
+    for (src, paths) in cases {
+        let out = Document::parse(src).unwrap();
+        let named: Vec<&str> = out
+            .warnings
+            .iter()
+            .filter(|w| w.code.as_deref() == Some("parse::fill_marker_unsupported_position"))
+            .map(|w| w.message.as_str())
+            .collect();
+        for path in paths {
+            assert!(
+                named.iter().any(|m| m.contains(path)),
+                "a marker at `{}` must warn\nGot: {:?}",
+                path,
+                named
+            );
+        }
+    }
+}
+
 /// The prescan splits on `\n`, so CRLF input reaches it with a trailing `\r` on
 /// every line. Line endings carry no meaning of their own: the parse must land
 /// where the LF twin lands.

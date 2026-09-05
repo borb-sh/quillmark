@@ -256,11 +256,12 @@ data payload.
   `!must_fill` may be applied to scalars (string, integer, float, bool, null)
   and sequences; it is rejected on a mapping (tag the leaves, not the
   container). `!must_fill` may not be applied to a `$` metadata key. The marker
-  is preserved only in **block style**: `key: !must_fill` at any depth. A
-  marker written inside a **flow collection** (`{…}` / `[…]`) or on a **bare
-  sequence element** (`- !must_fill`) cannot be round-tripped and is reported
-  with a `parse::fill_marker_unsupported_position` warning (the value is kept,
-  the marker is not); markers under YAML **anchors/merge keys** are likewise
+  is preserved only in **block style** under a data field: `key: !must_fill` at
+  any depth. A marker written inside a **flow collection** (`{…}` / `[…]`), on a
+  **bare sequence element** (`- !must_fill`), or nested inside a **`$` metadata
+  value** (`$seed`, `$ext`) cannot be round-tripped and is reported with a
+  `parse::fill_marker_unsupported_position` warning (the value is kept, the
+  marker is not); markers under YAML **anchors/merge keys** are likewise
   not preserved. `!must_fill` is the only fill tag: every other custom tag,
   `!include`, `!env`, and the former `!fill` spelling: is dropped with a
   `parse::unsupported_yaml_tag` warning; the scalar value is kept but the tag

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- fix(core): **a `!must_fill` marker nested inside `$seed` or `$ext` warns
+  instead of vanishing.** A `$` metadata value is a plain tree with no fill
+  carrier, so a marker under one reached neither storage nor emit and the cell
+  it marked read back as `null`. Parse now emits a
+  `parse::fill_marker_unsupported_position` warning naming the cell
+  (`$seed.note.from`), the family every other unpreservable marker position
+  already draws. The value under the marker is kept, as it was; a marker on the
+  `$` key itself remains a parse error.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one

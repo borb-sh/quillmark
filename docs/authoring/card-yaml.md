@@ -190,11 +190,12 @@ It is rejected on mappings (tag the leaves, not the container). `!must_fill`
 is the only placeholder tag; every other custom YAML tag (`!include`, `!env`,
 `!fill`) is dropped with a warning and the value kept.
 
-Use **block style** for placeholders. A marker written inside a flow
-collection (`addr: {street: !must_fill}`), on a bare sequence element
-(`- !must_fill`), or under a YAML anchor/merge key is **not** preserved: the
-flow and bare-element cases emit a `parse::fill_marker_unsupported_position`
-warning so the loss is never silent.
+Use **block style** for placeholders, on a data field. A marker written inside
+a flow collection (`addr: {street: !must_fill}`), on a bare sequence element
+(`- !must_fill`), nested inside a `$` metadata value (`$seed`, `$ext`), or
+under a YAML anchor/merge key is **not** preserved. Every case but the anchor
+one emits a `parse::fill_marker_unsupported_position` warning so the loss is
+never silent.
 
 ## Card Blocks
 

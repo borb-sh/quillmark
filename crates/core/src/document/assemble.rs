@@ -7,7 +7,7 @@
 
 use crate::error::ParseError;
 use crate::value::QuillValue;
-use crate::Diagnostic;
+use crate::{Diagnostic, Severity};
 
 use super::fences::{find_metadata_blocks, RootFault};
 use super::meta::{extract_meta_items, meta_key};
@@ -190,7 +190,7 @@ pub(super) fn build_block(
         });
     }
 
-    let pre = prescan_fence_content(raw_content);
+    let mut pre = prescan_fence_content(raw_content);
 
     if let Some(err) = pre.fill_target_errors.first() {
         return Err(ParseError::InvalidStructure(err.clone()));
@@ -209,6 +209,9 @@ pub(super) fn build_block(
             }
         }
     }
+
+    pre.warnings
+        .extend(meta_rooted_fill_warnings(&pre.nested_fills));
 
     let content = pre.cleaned_yaml.trim().to_string();
     let (meta_items, yaml_value) = if content.is_empty() {
@@ -564,6 +567,30 @@ fn apply_nested_fills(
         );
     }
     Ok(())
+}
+
+/// One warning per nested `!must_fill` path rooted at a `$` metadata key. A
+/// `PayloadItem::Meta` value is a plain tree with no fill carrier, so the marker
+/// reaches neither storage nor emit; the value under it survives, as in every
+/// other unpreservable marker position.
+fn meta_rooted_fill_warnings(nested_fills: &[Vec<CommentPathSegment>]) -> Vec<Diagnostic> {
+    nested_fills
+        .iter()
+        .filter(|path| {
+            matches!(path.first(), Some(CommentPathSegment::Key(k)) if k.starts_with('$'))
+        })
+        .map(|path| {
+            Diagnostic::new(
+                Severity::Warning,
+                format!(
+                    "a `!must_fill` marker at `{}` is inside `$` system metadata and is \
+                     not preserved; system-metadata values carry no placeholder markers",
+                    render_path(path)
+                ),
+            )
+            .with_code("parse::fill_marker_unsupported_position".to_string())
+        })
+        .collect()
 }
 
 /// Render a structural path as a dotted/bracketed string for diagnostics,
