@@ -1,7 +1,7 @@
 //! Markdown import (cold): `normalize → pulldown → content`.
 //!
 //! Input is normalized by [`crate::normalize::normalize_markdown`] (CRLF→LF,
-//! bidi controls dropped, U+2028/U+2029 spaced, HTML comment-fence repair) so
+//! bidi controls dropped, line separators spaced, HTML comment-fence repair) so
 //! the content invariants hold by construction, then parsed with
 //! `pulldown_cmark` (CommonMark + strikethrough + pipe tables) and walked into
 //! a [`Content`]. This is the one place the `<u>` allowlist runs.
@@ -78,7 +78,8 @@ pub fn from_markdown(markdown: &str) -> Result<Normalized, ImportError> {
 /// [`from_markdown`]. Every character is content, never syntax: `*hi*` is four
 /// literal chars, not emphasis. With [`crate::export::to_plaintext`] it pins the
 /// fixed point `to_plaintext(from_plaintext(s)) == s` for any `s` free of `\r`,
-/// bidi controls, U+2028/U+2029 line separators, and [`ISLAND_SLOT`].
+/// bidi controls, line separators (VT, FF, NEL, U+2028, U+2029), and
+/// [`ISLAND_SLOT`].
 ///
 /// Line structure is **derived, not stored**: a lone `\n` between two non-empty
 /// segments is a within-paragraph break ([`Line::continues`] `true`); a blank
@@ -947,17 +948,17 @@ mod tests {
 
     #[test]
     fn line_separators_are_spaced_at_every_text_ingress() {
-        for sep in ['\u{2028}', '\u{2029}'] {
+        for sep in ['\u{000B}', '\u{000C}', '\u{0085}', '\u{2028}', '\u{2029}'] {
             let src = format!("intro{sep}- item");
             assert_eq!(imp_plain(&src).text, "intro - item", "plaintext {sep:?}");
             assert_eq!(imp(&src).text, "intro - item", "markdown {sep:?}");
-        }
 
-        let held = Content::new("intro\u{2028}- item".into(), vec![Line::new(LineKind::Para)]);
-        assert_eq!(
-            held.validate(),
-            Err(crate::model::Invariant::LineSeparator('\u{2028}'))
-        );
+            let held = Content::new(src, vec![Line::new(LineKind::Para)]);
+            assert_eq!(
+                held.validate(),
+                Err(crate::model::Invariant::LineSeparator(sep))
+            );
+        }
     }
 
     #[test]

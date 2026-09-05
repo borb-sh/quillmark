@@ -410,8 +410,8 @@ impl Content {
     /// *inserts* a raw slot is rejected ([`ApplyError::IslandSlotInInsert`]).
     ///
     /// Inserted text is sanitized first, mirroring what `import` applies at the
-    /// string boundary: `\r` and Unicode bidi controls are stripped, and a
-    /// U+2028/U+2029 line separator becomes a space — the chars
+    /// string boundary: `\r` and Unicode bidi controls are stripped, and a line
+    /// separator (VT, FF, NEL, U+2028, U+2029) becomes a space — the chars
     /// [`Content::validate`] forbids.
     pub fn apply_text_delta(&mut self, delta: &Delta) -> Result<(), ApplyError> {
         self.apply_text_delta_inner(delta)?;
@@ -1810,14 +1810,16 @@ mod tests {
     fn insert_line_separator_is_spaced() {
         // A space keeps the words apart without minting the line break Typst
         // would read, and which would make `- item` a bullet.
-        let mut rt = from_markdown("ab").unwrap();
-        let d = Delta {
-            ops: vec![Op::Retain(2), Op::Insert("\u{2028}- item".into())],
-        };
-        rt.apply_text_delta(&d).unwrap();
-        assert_eq!(rt.text, "ab - item");
-        assert_eq!(rt.lines.len(), 1);
-        assert_eq!(rt.validate(), Ok(()));
+        for sep in ['\u{000B}', '\u{000C}', '\u{0085}', '\u{2028}', '\u{2029}'] {
+            let mut rt = from_markdown("ab").unwrap();
+            let d = Delta {
+                ops: vec![Op::Retain(2), Op::Insert(format!("{sep}- item"))],
+            };
+            rt.apply_text_delta(&d).unwrap();
+            assert_eq!(rt.text, "ab - item", "for {sep:?}");
+            assert_eq!(rt.lines.len(), 1);
+            assert_eq!(rt.validate(), Ok(()));
+        }
     }
 
     #[test]

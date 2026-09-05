@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- fix(content): **VT, FF and NEL in document text become a space.** Typst's
+  lexer reads all three as line breaks, like the U+2028/U+2029 separators the
+  ingress already spaced, so one mid-paragraph reopens `at_start` and the
+  characters behind it are read as a block marker — `"intro\u{c}- item"`
+  rendered a bullet — and two in a row split the paragraph. The spaced set is
+  Typst's whole newline set less `\n`, named by
+  `normalize::is_line_separator`, refused by `validate`, and replaced at every
+  text ingress: `from_plaintext`, markdown import, an `Op::Insert` through
+  `apply_text_delta`, and a table cell's text. Markdown-spec §7 states it.
+- fix(typst): **`escape_markup` lowers every character Typst reads as a newline
+  to a space.** A content that reached the emitter without passing the ingress
+  — hand-built, or decoded from storage — could still carry `\r`, VT, FF, NEL,
+  U+2028 or U+2029, and the emitter wrote it through: the text behind it parsed
+  as a heading, list or term marker the document never wrote. One character to
+  one byte, so the per-character span scan stays exact, and the space is trivia
+  to the line-anchor guard, which lands on the marker behind it.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one

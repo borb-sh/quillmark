@@ -22,12 +22,20 @@ pub(crate) fn is_bidi_char(c: char) -> bool {
     )
 }
 
-/// U+2028 LINE SEPARATOR and U+2029 PARAGRAPH SEPARATOR, which Typst's lexer
-/// reads as line breaks: one mid-paragraph reopens `at_start`, so what follows
-/// it is read as a block marker the author never wrote.
+/// Every character Typst's lexer reads as a line break (`is_newline`) besides
+/// `\n` and `\r`: one mid-paragraph reopens `at_start`, so what follows it is
+/// read as a block marker the author never wrote, and two in a row are a
+/// paragraph break.
 #[inline]
-pub(crate) fn is_line_separator(c: char) -> bool {
-    matches!(c, '\u{2028}' | '\u{2029}')
+pub fn is_line_separator(c: char) -> bool {
+    matches!(
+        c,
+        '\u{000B}' // LINE TABULATION (VT)
+        | '\u{000C}' // FORM FEED (FF)
+        | '\u{0085}' // NEXT LINE (NEL)
+        | '\u{2028}' // LINE SEPARATOR
+        | '\u{2029}' // PARAGRAPH SEPARATOR
+    )
 }
 
 /// What the content admits `c` as, `None` dropping it. A `\r` is dropped
@@ -134,7 +142,7 @@ fn fix_html_comment_fences(s: &str) -> String {
 }
 
 /// Applies all markdown normalizations in order: CRLF → LF, bidi controls
-/// dropped and U+2028/U+2029 spaced, HTML comment fence repair.
+/// dropped and line separators spaced, HTML comment fence repair.
 pub fn normalize_markdown(markdown: &str) -> String {
     let cleaned = normalize_line_endings(markdown);
     let cleaned = admit_chars(&cleaned);
@@ -175,6 +183,10 @@ mod tests {
             ("**bold** text", "**bold** text"),
             ("intro\u{2028}- item", "intro - item"),
             ("intro\u{2029}= Heading", "intro = Heading"),
+            ("intro\u{000B}- item", "intro - item"),
+            ("intro\u{000C}- item", "intro - item"),
+            ("intro\u{0085}= Heading", "intro = Heading"),
+            ("- one\u{000C}\u{000C}two", "- one  two"),
             ("he\u{202D}llo", "hello"),
             ("**asdf** or \u{202D}**(1234**", "**asdf** or **(1234**"),
             ("a\u{200E}b\u{200F}c", "abc"),

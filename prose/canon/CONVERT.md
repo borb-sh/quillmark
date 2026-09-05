@@ -51,6 +51,15 @@ Two escapers guard the two Typst contexts; both live in `emit`:
   shorthand leaves behind is too short to re-form it. Applied to plain text runs
   and to a table cell's text.
 
+  **Stray newlines lower to a space.** Every character Typst's lexer reads as a
+  newline besides `\n` — `\r`, VT, FF, NEL, U+2028, U+2029 — becomes a space.
+  The content ingress drops or spaces all six, so one reaches the emitter only
+  from a content built or decoded some other way. No escape neutralizes one: a
+  `\` before whitespace is Typst's linebreak. One reopens `at_start`, so the
+  text behind it parses as a heading, list or term marker; two in a row split
+  the paragraph. One character to one byte, so the per-character span scan
+  stays exact, and the space is trivia the line-anchor guard holds open behind.
+
   **Smart quotes are the quill's.** `'` and `"` pass through, so Typst's
   language-aware substitution applies and a quill chooses with
   `#set smartquote(enabled: false)`. Escaping them here would settle that for

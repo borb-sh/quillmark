@@ -349,8 +349,8 @@ export interface CardAddr {
  * position through it with `mapPos`.
  *
  * Applying one admits an `insert` string rather than storing it verbatim: `\r`
- * and the Unicode bidi controls drop, and a U+2028 or U+2029 line separator
- * becomes a space. Nothing reports the substitution.
+ * and the Unicode bidi controls drop, and a line separator — VT, FF, NEL,
+ * U+2028, U+2029 — becomes a space. Nothing reports the substitution.
  */
 export interface Delta {
     ops: ({ retain: number } | { insert: string } | { delete: number })[];

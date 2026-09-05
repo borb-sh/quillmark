@@ -46,7 +46,16 @@
 use quillmark_core::error::MAX_NESTING_DEPTH;
 use quillmark_content::island::KnownIslandType;
 use quillmark_content::model::{Container, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT};
+use quillmark_content::normalize::is_line_separator;
 use std::ops::Range;
+
+/// Does Typst's lexer read `c` as a newline where the emitter writes document
+/// text? Every character of its `is_newline` set but `\n`, which the emitter
+/// writes itself as a line boundary. `Content::validate` rejects all of them, so
+/// one reaches here only from a content the ingress never made.
+fn reads_as_newline(c: char) -> bool {
+    c == '\r' || is_line_separator(c)
+}
 
 /// Neutralizes every markup-special character, so document text cannot inject
 /// markup, references (`@`), or comments (`//`).
@@ -60,6 +69,12 @@ use std::ops::Range;
 /// nothing, so escaping every `-` before a number takes one more than the page
 /// needs. Reading far enough to tell would tie this function to a tokenization
 /// the lexer owns.
+///
+/// Every character Typst reads as a newline but `\n` lowers to a space, the
+/// content ingress's own rule. No escape neutralizes one — a `\` before
+/// whitespace is Typst's linebreak — and each reopens `at_start`, so the text
+/// behind it would parse as a heading, list or term marker. The space it becomes
+/// is trivia to the emitter, which holds the line-anchor guard open behind it.
 ///
 /// `'` and `"` pass through. Smart quotes are an element with a set rule, so a
 /// quill chooses with `#set smartquote(enabled: false)`; escaping them here
@@ -82,6 +97,9 @@ pub fn escape_markup(s: &str) -> String {
                 out.push_str(r"\-")
             }
             '.' if rest.starts_with("..") => out.push_str(r"\."),
+            // One char to one byte, which `gen_cluster` reads back as a plain
+            // cluster.
+            c if reads_as_newline(c) => out.push(' '),
             '\\' | '~' | '*' | '_' | '`' | '#' | '[' | ']' | '{' | '}' | '$' | '<' | '>' | '@' => {
                 out.push('\\');
                 out.push(c);
@@ -932,10 +950,11 @@ fn wraps_and_codes(marks: &[Mark], lo: usize, hi: usize) -> (Vec<Wrap>, Vec<(usi
 /// line-anchor one and [`continues_expr`]'s — whose byte sits *outside* the
 /// run's window so `generated == escape_markup(content)` stays exact.
 ///
-/// Under [`Tail::Anchor`] a run opening with spaces or tabs stops at the first
-/// character that is neither: Typst reads them as trivia and holds the anchor
-/// open behind them, while `\` before a space is its linebreak rather than an
-/// escape, so the guard byte has to land on the marker itself.
+/// Under [`Tail::Anchor`] a run opening with trivia — spaces, tabs, and the
+/// [`reads_as_newline`] characters [`escape_markup`] lowers to a space — stops
+/// at the first character that is none of them: Typst reads trivia as holding
+/// the anchor open behind it, while `\` before a space is its linebreak rather
+/// than an escape, so the guard byte has to land on the marker itself.
 fn emit_run(
     out: &mut String,
     pos: usize,
@@ -955,7 +974,7 @@ fn emit_run(
         return (ce, Tail::Expr, (cs..ce, g0..g1, EscapeCtx::StringLit));
     }
     let mut re = next_boundary(pos, hi, chars, wraps, codes);
-    let trivia = |c: char| c == ' ' || c == '\t';
+    let trivia = |c: char| c == ' ' || c == '\t' || reads_as_newline(c);
     if tail == Tail::Anchor && trivia(chars[pos]) {
         re = (pos..re).find(|&p| !trivia(chars[p])).unwrap_or(re);
     }
@@ -1480,6 +1499,7 @@ mod tests {
             "-5 degrees",
             "a-b and a - b",
             "\"double\" and 'single'",
+            "a\u{000B}b\u{000C}c\u{0085}d\u{2028}e\u{2029}f",
         ];
         for s in samples {
             assert_eq!(
@@ -1520,13 +1540,20 @@ mod tests {
         (text, kinds)
     }
 
+    /// What escaped document text may lower to. `SmartQuote` is allowed by
+    /// policy: `'` and `"` stay authored so a quill picks its own typography.
+    const ALLOWED_LEAVES: &[SyntaxKind] = &[
+        SyntaxKind::Text,
+        SyntaxKind::Space,
+        SyntaxKind::Parbreak,
+        SyntaxKind::Escape,
+        SyntaxKind::SmartQuote,
+    ];
+
     /// Escaped text reaches the page as the characters the document holds, read
     /// back through Typst's own parser. The `x` prefix puts the fragment past
     /// `at_start`, whose markers are [`emit_run`]'s guard rather than
     /// [`escape_markup`]'s.
-    ///
-    /// `SmartQuote` is allowed by policy: `'` and `"` stay authored so a quill
-    /// picks its own typography.
     #[test]
     fn escaped_markup_resolves_to_the_authored_text() {
         let samples = [
@@ -1545,18 +1572,42 @@ mod tests {
             "trailing backslash \\",
             "-", "--", "---", "...", "//", "-?", "-1",
         ];
-        let allowed = [
-            SyntaxKind::Text,
-            SyntaxKind::Space,
-            SyntaxKind::Parbreak,
-            SyntaxKind::Escape,
-            SyntaxKind::SmartQuote,
-        ];
         for s in samples {
             let (text, kinds) = resolve(&format!("x{}", escape_markup(s)));
             assert_eq!(text, format!("x{s}"), "escaping {s:?} did not survive Typst");
             for k in kinds {
-                assert!(allowed.contains(&k), "{s:?} lowered to a {k:?} leaf");
+                assert!(ALLOWED_LEAVES.contains(&k), "{s:?} lowered to a {k:?} leaf");
+            }
+        }
+    }
+
+    /// The emitter lowers exactly Typst's own newline set, less the `\n` it
+    /// writes as a line boundary, so a Typst upgrade that widens the set fails
+    /// here rather than in a rendered document.
+    #[test]
+    fn the_lowered_set_is_typsts_newlines_less_lf() {
+        for c in ('\0'..=char::MAX).filter(|c| *c != '\n') {
+            assert_eq!(reads_as_newline(c), typst::syntax::is_newline(c), "{c:?}");
+        }
+    }
+
+    /// A character Typst reads as a newline lowers to a space, so the text
+    /// behind it stays prose instead of opening a heading, list or term marker,
+    /// and a pair of them does not split the paragraph. Such a character reaches
+    /// the emitter only from a content the ingress never made — hand-built, or
+    /// decoded from storage — so the content is built here rather than imported.
+    #[test]
+    fn a_stray_newline_lowers_to_a_space_and_opens_no_block() {
+        use quillmark_content::model::Line;
+        for c in ('\0'..=char::MAX).filter(|c| *c != '\n' && reads_as_newline(*c)) {
+            let text = format!("{c}- item{c}{c}tail{c}= not a heading");
+            let rt = Content::new(text, vec![Line::new(LineKind::Para)]).into_normalized();
+            assert!(rt.validate().is_err(), "{c:?} passes the content invariants");
+
+            let markup = emit_content(&rt).unwrap().markup;
+            assert_eq!(markup, " \\- item  tail = not a heading\n\n", "for {c:?}");
+            for k in resolve(&markup).1 {
+                assert!(ALLOWED_LEAVES.contains(&k), "{c:?} lowered to a {k:?} leaf");
             }
         }
     }
@@ -1713,6 +1764,7 @@ mod tests {
             (EscapeCtx::Markup, "3--5"),
             (EscapeCtx::Markup, "wait..."),
             (EscapeCtx::Markup, "-5 and -?x"),
+            (EscapeCtx::Markup, "a\u{0085}b\u{2028}c"),
             (EscapeCtx::StringLit, "fn add(a, b)"),
             (EscapeCtx::StringLit, "a\"b\\c"),
             (EscapeCtx::StringLit, "tab\there"),

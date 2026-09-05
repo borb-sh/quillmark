@@ -25,9 +25,9 @@ pub const ISLAND_SLOT: char = '\u{FFFC}';
 ///
 /// Invariants (established once by import normalization, checked by
 /// [`Content::validate`]): the text holds no `\r`, no bidi controls, and no
-/// U+2028/U+2029 line separators; the count of [`ISLAND_SLOT`] equals
-/// `islands.len()`; `lines.len()` equals the number of `\n`-separated segments;
-/// marks are normalized (sorted, unioned).
+/// line separator (every character Typst reads as a newline but `\n`); the count
+/// of [`ISLAND_SLOT`] equals `islands.len()`; `lines.len()` equals the number of
+/// `\n`-separated segments; marks are normalized (sorted, unioned).
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub struct Content {
@@ -796,8 +796,8 @@ pub enum Invariant {
     CarriageReturn,
     /// A bidi formatting control in the text.
     BidiControl(char),
-    /// A U+2028/U+2029 line separator in the text, which a downstream lexer
-    /// reads as a line break.
+    /// A line separator in the text — VT, FF, NEL, U+2028 or U+2029 — which a
+    /// downstream lexer reads as a line break.
     LineSeparator(char),
     /// `island_slot_count != islands.len()`.
     IslandSlotMismatch { slots: usize, islands: usize },
