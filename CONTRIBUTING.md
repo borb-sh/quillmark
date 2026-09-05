@@ -39,4 +39,6 @@ The changelog is seeded from commit subjects, so the `!` marker is where a break
 
 **WASM:** repo root → `./scripts/build-wasm.sh` → `cd crates/bindings/wasm` → `npm install` (first time) → `npm run test`
 
-**Python:** `cd crates/bindings/python` → `uv sync --extra dev` → `uv run maturin develop` → `uv run pytest`
+**Python:** `cd crates/bindings/python` → `uv venv` → `source .venv/bin/activate` → `uv pip install maturin pytest` → `maturin develop` → `pytest`
+
+`maturin develop` builds the extension in the debug profile. Stay in the activated venv: `uv sync`, `uv run`, and `pip install -e` each sync the project through maturin's PEP 517 backend, a release build that replaces the debug `.so`.

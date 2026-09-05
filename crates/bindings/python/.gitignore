@@ -27,6 +27,9 @@ env/
 ENV/
 .venv/
 
+# uv: the dev flow installs with `uv pip`, which writes no project lock
+uv.lock
+
 # Compiled extension modules
 *.so
 *.dylib

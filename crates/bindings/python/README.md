@@ -231,9 +231,16 @@ release notes and version history.
 
 ```bash
 uv venv
-uv pip install -e ".[dev]"
-uv run pytest
+source .venv/bin/activate
+uv pip install maturin pytest
+maturin develop
+pytest
 ```
+
+`maturin develop` builds the extension in the debug profile. Stay in the
+activated venv: `uv sync`, `uv run`, and `pip install -e` each sync the project
+through maturin's PEP 517 backend, a release build that replaces the debug
+`.so`.
 
 `python/quillmark/_quillmark.pyi` is hand-written and must track `src/`. No CI
 job gates it, so after changing the surface run the stub against the built
@@ -241,7 +248,7 @@ module yourself:
 
 ```bash
 uv pip install mypy
-uv run python -m mypy.stubtest --ignore-disjoint-bases quillmark
+python -m mypy.stubtest --ignore-disjoint-bases quillmark
 ```
 
 ## License
