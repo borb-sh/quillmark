@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fix(core): **a blank `main.description` emits no description line in the
+  blueprint.** The main card tested the raw string for emptiness and collapsed
+  whitespace afterwards, so `main: { description: "   " }` passed the test and
+  landed as a bare `# ` above the first field. The collapse now runs first, the
+  same order every other description takes, and a description that collapses to
+  nothing falls through to `quill.description`.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one

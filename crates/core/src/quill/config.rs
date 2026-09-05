@@ -2016,11 +2016,9 @@ impl QuillConfig {
 
         // Warn when `body.example` is set together with `body.enabled: false`:
         // the example has no effect since the body editor is disabled.
-        let warn_example_unused = |label: &str,
-                                   body: &Option<BodyCardSchema>|
-         -> Option<Diagnostic> {
-            let body = body.as_ref()?;
-            if body.enabled == Some(false) && body.example.is_some() {
+        let warn_example_unused = |label: &str, card: &CardSchema| -> Option<Diagnostic> {
+            let body = card.body.as_ref()?;
+            if !card.body_enabled() && body.example.is_some() {
                 Some(
                     Diagnostic::new(
                         Severity::Warning,
@@ -2050,7 +2048,7 @@ impl QuillConfig {
             .collect();
 
         for (label, card) in &labeled {
-            if let Some(d) = warn_example_unused(label, &card.body) {
+            if let Some(d) = warn_example_unused(label, card) {
                 warnings.push(d);
             }
         }
@@ -2228,8 +2226,7 @@ fn populate_card_content(card: &mut CardSchema, label: &str, errors: &mut Vec<Di
     for (name, field) in card.fields.iter_mut() {
         populate_field_content(field, label, name, errors);
     }
-    let body_enabled = card.body.as_ref().is_none_or(|b| b.enabled != Some(false));
-    if body_enabled {
+    if card.body_enabled() {
         if let Some(body) = card.body.as_mut() {
             if let Some(example) = body.example.clone() {
                 match crate::document::import_body(&example) {

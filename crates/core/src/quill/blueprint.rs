@@ -32,12 +32,8 @@ impl QuillConfig {
     ///
     /// [`Document`]: crate::Document
     pub fn blueprint(&self) -> String {
-        let main_desc = self
-            .main
-            .description
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .or_else(|| Some(self.description.as_str()).filter(|s| !s.is_empty()));
+        let main_desc = collapse_opt(self.main.description.as_deref())
+            .or_else(|| collapse_opt(Some(self.description.as_str())));
 
         let main = build_main_card(
             &self.main,
@@ -52,13 +48,8 @@ impl QuillConfig {
 
 /// Whitespace-collapse a description into a single line; `None` when it
 /// collapses to empty.
-fn collapse(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-fn collapse_opt(text: &Option<String>) -> Option<String> {
-    text.as_deref()
-        .map(collapse)
+fn collapse_opt(text: Option<&str>) -> Option<String> {
+    text.map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
         .filter(|clean| !clean.is_empty())
 }
 
@@ -84,7 +75,7 @@ pub(super) fn body_placeholder(kind: &str) -> String {
 
 /// Build the root card: `$quill` (with the `# keep verbatim` inline reminder),
 /// `$kind: main`, the optional description own-line comment, then the fields.
-fn build_main_card(card: &CardSchema, quill_ref: &str, description: Option<&str>) -> Card {
+fn build_main_card(card: &CardSchema, quill_ref: &str, description: Option<String>) -> Card {
     let reference = quill_ref
         .parse()
         .expect("quill name@version is always a valid QuillReference");
@@ -96,7 +87,7 @@ fn build_main_card(card: &CardSchema, quill_ref: &str, description: Option<&str>
         },
     ];
     if let Some(desc) = description {
-        items.push(PayloadItem::comment(collapse(desc)));
+        items.push(PayloadItem::comment(desc));
     }
     append_fields(&mut items, card);
     Card::from_parts(
@@ -121,7 +112,7 @@ fn build_card(card: &CardSchema) -> Card {
         PayloadItem::comment("composable (0..N)"),
         PayloadItem::comment("sample card; delete if not needed"),
     ];
-    if let Some(desc) = collapse_opt(&card.description) {
+    if let Some(desc) = collapse_opt(card.description.as_deref()) {
         items.push(PayloadItem::comment(desc));
     }
     append_fields(&mut items, card);
@@ -233,7 +224,7 @@ fn eg_hinted(field: &FieldSchema) -> bool {
 /// `eg_hinted`, while typed containers always surface it (their example never
 /// inlines).
 fn push_leading(items: &mut Vec<PayloadItem>, field: &FieldSchema, eg_when: bool) {
-    if let Some(desc) = collapse_opt(&field.description) {
+    if let Some(desc) = collapse_opt(field.description.as_deref()) {
         items.push(PayloadItem::comment(desc));
     }
     if eg_when {
@@ -299,7 +290,7 @@ fn build_property_mapping(
     let mut fills = Vec::new();
     for prop in props.values().map(|b| b.as_ref()) {
         let slot = map.len();
-        if let Some(desc) = collapse_opt(&prop.description) {
+        if let Some(desc) = collapse_opt(prop.description.as_deref()) {
             nested.push(NestedComment {
                 container_path: prefix.to_vec(),
                 position: slot,
@@ -809,6 +800,27 @@ main:
         .blueprint();
         assert!(t.starts_with("~~~\n$quill: taro@0.1.0 # keep verbatim\n$kind: main\n# x\n"));
         assert!(t.contains("\nWrite main body here.\n"));
+    }
+
+    /// A description that collapses to nothing is no description: the main card
+    /// falls through to the quill's own rather than emitting an empty comment.
+    #[test]
+    fn a_whitespace_only_main_description_emits_no_empty_comment() {
+        let t = cfg(r#"
+quill: { name: taro, version: 0.1.0, backend: typst, description: A taro order form. }
+main:
+  description: "   "
+  fields:
+    flavor: { type: string, default: taro }
+"#)
+        .blueprint();
+        assert!(
+            t.starts_with(
+                "~~~\n$quill: taro@0.1.0 # keep verbatim\n$kind: main\n# A taro order form.\n"
+            ),
+            "{t}"
+        );
+        assert!(!t.contains("\n#\n") && !t.contains("\n# \n"), "{t}");
     }
 
     #[test]
