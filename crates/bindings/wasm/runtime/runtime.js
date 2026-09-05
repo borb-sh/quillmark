@@ -799,11 +799,15 @@ export class Engine {
 	 * memory and run `fn` against the backend engine. Only `render`/`open` call
 	 * this, so `doc` is always present.
 	 *
-	 * OWNERSHIP WINDOW: both caller handles are snapshotted (`doc.toStored()`, and
-	 * `quill.toTree()` on a clone-cache miss) BEFORE the first await. The backend
-	 * load below is a real suspension point, so reading the handles after it
-	 * would race a caller that `free()`s them as soon as this call returns its
-	 * promise ("null pointer passed to rust").
+	 * OWNERSHIP WINDOW: both caller handles are snapshotted (`doc.toStored()` and
+	 * `doc.warnings`, and `quill.toTree()` on a clone-cache miss) BEFORE the first
+	 * await. The backend load below is a real suspension point, so reading the
+	 * handles after it would race a caller that `free()`s them as soon as this
+	 * call returns its promise ("null pointer passed to rust").
+	 *
+	 * `docWarnings` rides the context because the storage DTO does not carry
+	 * them: `fromStored` clears the load's warnings, so the backend clone knows
+	 * nothing of them and `render` splices the snapshot back in.
 	 *
 	 * Clone lifetimes differ by design: the `doc` clone is TRANSIENT, freed in
 	 * the `finally` of every call, while the `quill` clone is CACHED and is not
@@ -813,12 +817,13 @@ export class Engine {
 	 * @param {string} method the caller's name, for the rejection message
 	 * @param {Quill} quill
 	 * @param {Document} doc
-	 * @param {(ctx: { mod: any, engine: any, quill: any, doc: any }) => any} fn
+	 * @param {(ctx: { mod: any, engine: any, quill: any, doc: any, docWarnings: any[] }) => any} fn
 	 */
 	async #withClones(method, quill, doc, fn) {
 		const backendId = this.#backendOf(quill, method);
 		requireLocalDoc(doc, method);
 		const docJson = doc.toStored();
+		const docWarnings = doc.warnings;
 		const quillTree = this.#quillClones.get(backendId)?.has(quill) ? null : quill.toTree();
 		const { mod, engine } = await this.#resolveBackend(backendId);
 		// The doc clone and `fn` share one try so the clone is freed even if a
@@ -828,7 +833,7 @@ export class Engine {
 		let backendDoc = null;
 		try {
 			backendDoc = mod.Document.fromStored(docJson);
-			return fn({ mod, engine, quill: backendQuill, doc: backendDoc });
+			return fn({ mod, engine, quill: backendQuill, doc: backendDoc, docWarnings });
 		} finally {
 			backendDoc?.free();
 		}
@@ -843,8 +848,15 @@ export class Engine {
 	 * @returns {Promise<import('./runtime.js').RenderResult>}
 	 */
 	async render(quill, doc, options) {
-		return this.#withClones('engine.render(quill, doc)', quill, doc, ({ engine, quill: q, doc: d }) =>
-			engine.render(q, d, options ?? undefined)
+		return this.#withClones(
+			'engine.render(quill, doc)',
+			quill,
+			doc,
+			({ engine, quill: q, doc: d, docWarnings }) => {
+				const result = engine.render(q, d, options ?? undefined);
+				result.warnings = docWarnings.concat(result.warnings);
+				return result;
+			}
 		);
 	}
 

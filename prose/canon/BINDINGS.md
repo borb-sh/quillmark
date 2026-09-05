@@ -178,6 +178,8 @@ Each backend (Typst and pdfform) is a **private** build with its own linear memo
 
 Backend handles never escape the `Engine`: it clones the quill tree + `doc.toStored()` into the backend's memory as serialized data and frees the clones.
 
+The storage DTO carries no warnings, so the clone the backend renders knows nothing of the load's. `Engine.render` snapshots `doc.warnings` beside the DTO and splices it into `RenderResult.warnings` ahead of the compile's own ([ERROR.md](ERROR.md) § "Warning flow"): the runtime layer, not the backend build, is the surface that merges the two halves. `LiveSession.render` carries the compile half alone, a session outliving the document it opened from.
+
 **Exactly one copy of the package per process.** Two copies are two core builds (two linear memories, two `Quill`/`Document` classes), and no topology legitimately loads a multi-megabyte binary twice and needs handles to cross between the copies. Every seam taking a core handle checks it and throws a `QuillmarkError` naming the duplicate install, including the ones that could cross as data (`Engine`, `LiveSession.update`). Errors are the exception: `isQuillmarkError` stays structural, an error being data rather than a handle.
 
 Beyond the byte-output verbs (`engine.render`, `LiveSession.render`), the canvas-capable backend builds (Typst, and pdfform under its preview seam) expose a **live preview** path on `LiveSession` (`update`, `pageCount`, `pageSize`, `paint`, …). See [PREVIEW.md](PREVIEW.md).

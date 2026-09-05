@@ -352,6 +352,12 @@ A document that compiles to zero pages still produces a valid session
 `pageCount === 0` to render a "no pages to preview" UI rather than relying on
 the throw.
 
+Their `warnings` differ in reach. `engine.render` returns one list for the
+whole pipeline: `doc.warnings` (parse, `conform::*`,
+`plate::unsupported_construct`) ahead of the compile's own. A session outlives
+the document it opened from, so `session.render` and `session.warnings` carry
+the compile half alone — read `doc.warnings` beside them.
+
 ### Canvas Preview
 
 `session.paint(ctx, page, opts?)` rasterizes a page directly into a

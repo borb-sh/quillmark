@@ -77,8 +77,12 @@ families:
 
 - **Parse warnings**: the `warnings` on the `Parsed` that `Document::parse`
   returns (e.g. a `~~~` opener missing its blank line). The CLI render and the
-  WASM one-shot render splice them into `RenderResult.warnings` ahead of any
-  compile warnings.
+  WASM one-shot render splice the whole `Parsed.warnings` carrier — this family
+  plus the two below that `Quill::parse` appends to it — into
+  `RenderResult.warnings` ahead of any compile warnings. In WASM the surface
+  that merges is the runtime `Engine.render`, reading the carrier off the
+  caller's `doc.warnings`: the backend-memory clone it renders is built by
+  `Document.fromStored`, which carries none.
 - **`conform::*`: resting-form warnings.** `Quill::conform` returns one per
   declared content field whose value the strict write refuses, and
   `Quill::parse` appends them to the `Parsed.warnings` the parse produced. Each

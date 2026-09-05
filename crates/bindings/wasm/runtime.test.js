@@ -68,6 +68,24 @@ function makeRuntimeQuill() {
   return Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
 }
 
+// A quill declaring one construct its plate does not typeset, so `quill.parse`
+// draws a `plate::unsupported_construct` warning off a body holding a rule.
+const DECLINE_QUILL_YAML = `quill:
+  name: decliner
+  version: "1.0"
+  backend: typst
+  description: A quill that typesets no horizontal rule
+
+main:
+  body:
+    unsupported: [rule]
+  fields: {}
+`
+
+const DECLINE_PLATE = `#import "@local/quillmark-helper:0.1.0": data
+
+#data.at("$body")`
+
 const PKG_DIR = path.resolve(import.meta.dirname, '..', '..', '..', 'pkg')
 
 /** Read a field value from a card's payloadItems list by key. */
@@ -773,6 +791,24 @@ describe('@quillmark/wasm/runtime: Engine (hidden core→backend crossing)', () 
     const formats = await engine.supportedFormats(quill)
     expect(formats).toContain('svg')
     expect(typeof (await engine.supportsCanvas(quill))).toBe('boolean')
+  })
+
+  // ERROR.md § "Warning flow": `RenderResult.warnings` is pipeline order, the
+  // load half ahead of the compile's. Only the runtime layer can merge them —
+  // the document clone it renders comes through `fromStored`, which carries no
+  // warnings, so the backend build's own merge has nothing to prepend.
+  it('render fronts RenderResult.warnings with the load warnings, leaving doc.warnings intact', async () => {
+    const quill = Quill.fromTree(
+      makeQuill({ name: 'decliner', plate: DECLINE_PLATE, quillYaml: DECLINE_QUILL_YAML }),
+    )
+    const doc = quill.parse('~~~card-yaml\n$quill: decliner\n~~~\n\nAlpha\n\n---\n\nBeta\n')
+    const loadCodes = doc.warnings.map((d) => d.code)
+    expect(loadCodes).toContain('plate::unsupported_construct')
+
+    const result = await new Engine().render(quill, doc, { format: 'svg' })
+    expect(result.artifacts.length).toBeGreaterThan(0)
+    expect(result.warnings.slice(0, loadCodes.length)).toEqual(doc.warnings)
+    expect(doc.warnings.map((d) => d.code)).toEqual(loadCodes)
   })
 
   it('manifest-backed capability probes do NOT load the backend', async () => {

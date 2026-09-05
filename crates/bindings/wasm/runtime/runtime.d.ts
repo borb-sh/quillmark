@@ -523,6 +523,12 @@ export declare class Engine {
 	 * Render `doc` against `quill` in one shot. Both handles are read
 	 * synchronously before the first await, so the caller may `free()` them as
 	 * soon as this call returns.
+	 *
+	 * This is the surface that merges the two warning halves:
+	 * {@link RenderResult.warnings} carries `doc.warnings` (parse, `conform::*`,
+	 * `plate::unsupported_construct`) ahead of the compile's own. A
+	 * {@link LiveSession} outlives the document it opened from, so
+	 * {@link LiveSession.render} carries the compile half alone.
 	 */
 	render(quill: Quill, doc: Document, options?: RenderOptions): Promise<RenderResult>;
 

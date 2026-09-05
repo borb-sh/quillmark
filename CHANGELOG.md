@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- fix(wasm): **`Engine.render` returns the document's load warnings ahead of
+  the compile's own.** The engine renders a backend-memory clone built by
+  `Document.fromStored`, which carries no warnings, so a `@quillmark/wasm`
+  consumer got compile warnings only and a parse, `conform::*` or
+  `plate::unsupported_construct` diagnostic reached `RenderResult.warnings`
+  from no public surface. `Engine.render` now snapshots `doc.warnings` beside
+  the storage DTO and fronts the result with it, the pipeline order ERROR.md
+  states. `doc.warnings` still carries the same list, and
+  `LiveSession.render` carries the compile half alone.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one
