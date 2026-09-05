@@ -263,6 +263,39 @@ def test_insert_card_out_of_range():
         doc.insert_card({"kind": "note"}, at=5)
 
 
+def test_negative_index_is_out_of_range():
+    """Indices count from the front, so -1 addresses no card rather than the last
+    one. Every index-taking surface answers it as it answers an index past the
+    end: `edit::index_out_of_range` where the verb raises, `None` where it
+    answers absence."""
+    doc = Document.from_markdown(MD_WITH_CARDS)
+    with raises_edit_code("edit::index_out_of_range") as exc_info:
+        doc.card(-1)
+    assert exc_info.value.diagnostics[0].args["index"] == -1
+    with raises_edit_code("edit::index_out_of_range"):
+        doc.move_card(-1, 0)
+    with raises_edit_code("edit::index_out_of_range"):
+        doc.set_card_kind(-1, "note")
+    with raises_edit_code("edit::index_out_of_range"):
+        doc.insert_card({"kind": "note"}, at=-1)
+    with raises_edit_code("edit::index_out_of_range"):
+        doc.store_ext({}, card=-1)
+    assert doc.remove_card(-1) is None
+    assert doc.remove_card(99) is None
+    assert len(doc.cards) == 2
+
+    quill = _taro_quill()
+    typed = Document("taro@0.1.0")
+    ed = quill.writer(typed)
+    ed.add_card("quotes", {"author": "Basho"})
+    cursor = ed.card(-1)  # a cursor binds any index; the write checks it
+    assert cursor.index == -1
+    with raises_edit_code("edit::index_out_of_range"):
+        cursor.set("author", "Issa")
+    with raises_edit_code("edit::index_out_of_range"):
+        quill.reader(typed).card(-1).get("author")
+
+
 def test_remove_card():
     """remove_card removes and returns the card."""
     doc = Document.from_markdown(MD_WITH_CARDS)

@@ -66,6 +66,18 @@ def test_engine_render_page_selection(engine, taro_quill_dir, taro_md):
     assert subset.format == OutputFormat.SVG
 
 
+def test_engine_render_negative_page_is_out_of_bounds(engine, taro_quill_dir, taro_md):
+    """Page indices count from the first page, so a negative one is refused under
+    the code a page past the last is refused under."""
+    quill = Quill.from_path(str(taro_quill_dir))
+    parsed = Document.from_markdown(taro_md)
+
+    with pytest.raises(QuillmarkError) as exc_info:
+        engine.render(quill, parsed, OutputFormat.SVG, pages=[-1])
+
+    assert exc_info.value.diagnostics[0].code == "typst::page_index_out_of_bounds"
+
+
 def test_engine_render_full_document(engine, taro_quill_dir, taro_md):
     quill = Quill.from_path(str(taro_quill_dir))
 

@@ -204,8 +204,10 @@ Neither axis gates render. Partial documents are accepted, and
 
 ## Error contract
 
-Every failure raises `QuillmarkError`, carrying a non-empty `.diagnostics` list
-of `Diagnostic` objects.
+An engine refusal raises `QuillmarkError`, carrying a non-empty `.diagnostics`
+list of `Diagnostic` objects. An argument the binding cannot read at all — a
+non-finite float, a value with no JSON form, a malformed `path` sequence —
+raises `ValueError` before the engine is called, described by no diagnostic.
 
 ```python
 try:
@@ -220,6 +222,11 @@ Mutator failures (invalid field names, kind names, out-of-range indices) carry a
 namespaced `edit::*` `code` on `diagnostics[0]`: `edit::invalid_field_name`,
 `edit::unknown_field`, `edit::index_out_of_range`, `edit::field_coercion_failed`,
 …. Route on `diagnostics[0].code`, never on message text.
+
+Card and page indices count from the front, so a negative one addresses nothing
+rather than the last card or page: it takes the same answer as an index past the
+end — `edit::index_out_of_range` where the verb raises, `None` where
+`remove_card` answers absence.
 
 ## Changelog
 

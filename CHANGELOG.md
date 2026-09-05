@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- fix(python)!: **a negative index is an out-of-range index, not an
+  `OverflowError`.** Every index parameter was a `usize`, so `doc.card(-1)`,
+  `doc.move_card(-1, 0)`, `writer.card(-1).set(..)` and `render(pages=[-1])`
+  died in the boundary conversion with a third exception type, outside the two
+  the binding documents. Indices are signed at the boundary now. A negative one
+  addresses nothing — it is not the last card, and the binding does not index
+  from the end — so it takes the answer its site already gives an index past the
+  end: `edit::index_out_of_range` where the verb raises,
+  `typst::page_index_out_of_bounds` for a page, `None` where `remove_card`
+  answers absence.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one
