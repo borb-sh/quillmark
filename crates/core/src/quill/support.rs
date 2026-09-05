@@ -92,7 +92,7 @@ fn collect(schema: &CardSchema, body: &Content, path: &DocPath, out: &mut Vec<Di
 
 /// English enough for the engine's own sentence; a consumer wording this
 /// itself reads `construct` and `count` off `args` instead.
-fn plural(construct: BlockConstruct, count: usize) -> String {
+pub(crate) fn plural(construct: BlockConstruct, count: usize) -> String {
     let name = match construct {
         BlockConstruct::Heading => "heading",
         BlockConstruct::Rule => "horizontal rule",

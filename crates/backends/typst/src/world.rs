@@ -13,6 +13,10 @@ use typst::{Library, World};
 use crate::helper;
 use quillmark_core::{Diagnostic, Quill, Severity};
 
+/// One `(plate address, count)` per content field holding image islands, which
+/// this backend draws nothing for.
+pub(crate) type DeclinedImages = Vec<(String, usize)>;
+
 /// One shape for assets and package files alike, so a consumer routing on the
 /// code need not know which.
 fn skipped_path(path: &Path, err: impl std::fmt::Display) -> Diagnostic {
@@ -138,27 +142,23 @@ impl QuillWorld {
         let mut world = Self::new(source, main)?;
 
         // Inject the quillmark-helper package
-        let windows = world.inject_helper_package(data, meta)?;
+        let (windows, _declined) = world.inject_helper_package(data, meta)?;
 
         Ok((world, windows))
-    }
-
-    /// The spec of the virtual `@local/quillmark-helper` package.
-    fn helper_spec() -> PackageSpec {
-        PackageSpec {
-            namespace: helper::HELPER_NAMESPACE.into(),
-            name: helper::HELPER_NAME.into(),
-            version: helper::HELPER_VERSION
-                .parse()
-                .expect("Invalid helper version"),
-        }
     }
 
     /// A [`FileId`] for `rel` inside the virtual `@local/quillmark-helper`
     /// package (e.g. `lib.typ`).
     pub(crate) fn helper_fid(rel: &str) -> FileId {
+        let spec = PackageSpec {
+            namespace: helper::HELPER_NAMESPACE.into(),
+            name: helper::HELPER_NAME.into(),
+            version: helper::HELPER_VERSION
+                .parse()
+                .expect("Invalid helper version"),
+        };
         file_id(
-            Some(Self::helper_spec()),
+            Some(spec),
             VirtualPath::new(rel).expect("valid helper vpath"),
         )
     }
@@ -183,17 +183,23 @@ impl QuillWorld {
     /// `set_source` on the helper `lib.typ` makes a repeat injection (a session
     /// edit) an incremental reparse rather than a fresh parse. The helper's
     /// `typst.toml` is constant and set once at construction. Returns each
-    /// generated content block's byte window, paired with the helper file's id:
-    /// the span scan's classification table.
+    /// generated content block's byte window, paired with the helper file's id
+    /// (the span scan's classification table), beside this injection's
+    /// [`DeclinedImages`].
     pub(crate) fn inject_helper_package(
         &mut self,
         data: &serde_json::Value,
         meta: &crate::SchemaMeta,
-    ) -> Result<Vec<crate::overlay::FieldWindow>, crate::emit::EmitError> {
+    ) -> Result<(Vec<crate::overlay::FieldWindow>, DeclinedImages), crate::emit::EmitError> {
         let file = Self::helper_fid("lib.typ");
         let (src, windows) = helper::generate_lib_typ(data, meta)?;
         self.set_source(file, &src);
-        Ok(windows
+        let declined = windows
+            .iter()
+            .filter(|w| w.declined_images > 0)
+            .map(|w| (w.path.clone(), w.declined_images))
+            .collect();
+        let windows = windows
             .into_iter()
             .map(|w| crate::overlay::FieldWindow {
                 path: w.path,
@@ -201,7 +207,8 @@ impl QuillWorld {
                 range: w.block,
                 segments: w.segments,
             })
-            .collect())
+            .collect();
+        Ok((windows, declined))
     }
 
     /// Loads fonts from quill's in-memory file system.
@@ -232,11 +239,8 @@ impl QuillWorld {
         Ok(font_data)
     }
 
-    /// Loads assets from quill's in-memory file system. Each asset lands under
-    /// its project path *and* under the same path inside the helper package:
-    /// Typst resolves an `image` path against the root of the file holding the
-    /// call and never leaves it, and a content block's `#image(..)` is emitted
-    /// into the helper's `lib.typ`. One `Bytes` backs both ids.
+    /// Loads assets from quill's in-memory file system. Project root only: an
+    /// asset is the plate's to reach, and nothing generated names one.
     fn load_assets_from_quill(
         source: &Quill,
         binaries: &mut HashMap<FileId, Bytes>,
@@ -253,12 +257,8 @@ impl QuillWorld {
                         continue;
                     }
                 };
-                let bytes = Bytes::new(contents.to_vec());
-                binaries.insert(
-                    file_id(Some(Self::helper_spec()), virtual_path.clone()),
-                    bytes.clone(),
-                );
-                binaries.insert(file_id(None, virtual_path), bytes);
+                let id = file_id(None, virtual_path);
+                binaries.insert(id, Bytes::new(contents.to_vec()));
             }
         }
 

@@ -114,17 +114,15 @@ Then reference them by family name (`#set text(font: "CustomFont")`).
 
 ## Images
 
-Files under `assets/` are reachable by their path from the Quill root, from the plate and from a `richtext` field alike:
+A plate draws a file under `assets/` by its path from the Quill root:
 
 ```typst
 #image("assets/logo.svg", width: 2cm)
 ```
 
-```markdown
-![logo](assets/logo.svg)
-```
+**A markdown image in a `richtext` field draws nothing.** `![logo](assets/logo.svg)` in document content reaches no page, and the render warns under `backend::declined_construct`, naming the field and how many images it holds.
 
-A leading slash (`/assets/logo.svg`) names the same file.
+What such a url names — a file in this Quill, a path beside the document, a remote address — is undecided. A document is portable across every version a `$quill` selector admits, so a path into one Quill's file tree is not a binding it can take. The construct still stores and round-trips; only the page declines it.
 
 ## Typesetting
 

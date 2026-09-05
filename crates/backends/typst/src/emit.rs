@@ -29,8 +29,8 @@
 //! **Expression tails.** The same `\` guards the other direction. Typst reads a
 //! `(` directly after a `#…` expression as that call's arguments, a `.` before
 //! an identifier as a field access, and a `;` as the expression's terminator, so
-//! the text behind an emitted `#raw(…)`, `#image(…)` or a wrap's `]` would reach
-//! it as code — or, for the `;`, vanish (`continues_expr`).
+//! the text behind an emitted `#raw(…)` or a wrap's `]` would reach it as code
+//! — or, for the `;`, vanish (`continues_expr`).
 //!
 //! **Seams.** And a third time, where the emitter writes nothing between two
 //! runs. Escaping is per run, so a multi-character rule sees one side of such a
@@ -280,19 +280,30 @@ pub struct Emission {
     pub markup: String,
     /// One entry per emitted segment, in generation order.
     pub segments: Vec<SegmentMap>,
+    /// Image islands this emission drew nothing for. Counted off `islands`
+    /// rather than off the slots, so an image counts wherever it sits.
+    pub declined_images: usize,
 }
 
 impl Emission {
     /// A syntax error in emitted markup is a lowering bug, never a document's.
     /// Typst's parser is the only faithful judge of its own grammar, so debug
     /// builds run it over every emission.
-    fn new(markup: String, segments: Vec<SegmentMap>) -> Self {
+    fn new(rt: &Content, markup: String, segments: Vec<SegmentMap>) -> Self {
         debug_assert!(
             !typst::syntax::parse(&markup).diagnosis().errors,
             "emitted markup does not parse: {:?}\n{markup:?}",
             typst::syntax::parse(&markup).errors_and_warnings().0,
         );
-        Emission { markup, segments }
+        Emission {
+            markup,
+            segments,
+            declined_images: rt
+                .islands
+                .iter()
+                .filter(|i| KnownIslandType::parse(&i.island_type) == Some(KnownIslandType::Image))
+                .count(),
+        }
     }
 }
 
@@ -335,7 +346,7 @@ pub fn emit_content(rt: &Normalized) -> Result<Emission, EmitError> {
     let mut e = Emit::new(rt);
     let n = rt.lines.len();
     e.emit_block_level(0..n, 0);
-    Ok(Emission::new(e.out, e.segments))
+    Ok(Emission::new(rt, e.out, e.segments))
 }
 
 /// Lower an [`is_inline`] content to pure inline markup, omitting the block
@@ -351,7 +362,7 @@ pub(crate) fn emit_content_inline(rt: &Normalized) -> Result<Emission, EmitError
     // `is_inline` guarantees depth 0, so `emit_content`'s nesting guard is moot.
     let mut e = Emit::new(rt);
     e.emit_segment(0..rt.lines.len());
-    Ok(Emission::new(e.out, e.segments))
+    Ok(Emission::new(rt, e.out, e.segments))
 }
 
 struct Emit<'a> {
@@ -757,7 +768,10 @@ impl<'a> Emit<'a> {
             return String::new();
         };
         match KnownIslandType::parse(&isl.island_type) {
-            Some(KnownIslandType::Image) => image_markup(&isl.props),
+            // Declined, not unknown: what a content image's url names is
+            // undecided, so this backend draws none and
+            // `Emission::declined_images` counts them for the warning saying so.
+            Some(KnownIslandType::Image) => String::new(),
             Some(KnownIslandType::Table) => table_markup(&isl.props),
             // Parallel to the HTML rule; a new known type is a compile error
             // here, not silence.
@@ -991,18 +1005,6 @@ fn cell_markup(text: &str, marks: &[Mark]) -> String {
         let (re, left, _) = emit_run(out, pos, chars.len(), &chars, &wraps, &codes, tail);
         (re, left)
     });
-    out
-}
-
-/// `#image("url"[, alt: "…"])` from an image island's props.
-fn image_markup(props: &serde_json::Value) -> String {
-    let url = props.get("url").and_then(|v| v.as_str()).unwrap_or("");
-    let alt = props.get("alt").and_then(|v| v.as_str()).unwrap_or("");
-    let mut out = format!("#image(\"{}\"", escape_string(url));
-    if !alt.trim().is_empty() {
-        out.push_str(&format!(", alt: \"{}\"", escape_string(alt.trim())));
-    }
-    out.push(')');
     out
 }
 
@@ -1630,7 +1632,7 @@ mod tests {
         }
 
         // An island this build renders as nothing closes the gap its slot held.
-        for ty in ["widget", "table"] {
+        for ty in ["widget", "table", "image"] {
             for text in ["a/{}/b", "a-{}-b", "a-{}?b", "a-{}5b", "a.{}..b", "a..{}.b"] {
                 let text = text.replace("{}", &ISLAND_SLOT.to_string());
                 let rt = Content::new(text.clone(), vec![Line::new(LineKind::Para)])
@@ -1967,6 +1969,15 @@ mod tests {
     }
 
     #[test]
+    fn an_image_island_draws_nothing_and_is_counted() {
+        let ec = emit("before ![alt](assets/logo.svg) after\n\n![x](y.png)");
+        assert!(!ec.markup.contains("#image"), "got {:?}", ec.markup);
+        assert!(!ec.markup.contains("assets/logo.svg"), "got {:?}", ec.markup);
+        assert_eq!(ec.declined_images, 2);
+        assert_eq!(emit("no images here").declined_images, 0);
+    }
+
+    #[test]
     fn segment_shape() {
         assert_eq!(
             emit("a  \nb  \nc").segments.len(),
@@ -2056,10 +2067,6 @@ mod tests {
         assert_eq!(emit("`--force`; x").markup, "#raw(\"--force\")\\; x\n\n");
         assert_eq!(emit("**W**; x").markup, "#strong[W]\\; x\n\n");
         assert_eq!(emit("a\\\n; b").markup, "a#linebreak()\\; b\n\n");
-        assert_eq!(
-            emit("![i](u)(y)").markup,
-            "#image(\"u\", alt: \"i\")\\(y)\n\n"
-        );
         assert_eq!(emit("a\\\n(b)").markup, "a#linebreak()\\(b)\n\n");
         // Typst ends the expression on trivia, and on a `.` no identifier follows.
         assert_eq!(emit("`x` (y)").markup, "#raw(\"x\") (y)\n\n");

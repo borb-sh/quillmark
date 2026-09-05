@@ -286,7 +286,9 @@ export interface TableProps {
     aligns: ("none" | "left" | "center" | "right")[];
 }
 
-/** `props` of a `type: "image"` island. */
+/** `props` of a `type: "image"` island. Stores and round-trips; no backend
+ * typesets one, and a render that holds one warns `backend::declined_construct`,
+ * because what `url` names is undecided. */
 export interface ImageProps {
     url: string;
     alt: string;

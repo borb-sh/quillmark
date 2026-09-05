@@ -12,7 +12,7 @@ mod ignore;
 mod load;
 mod schema;
 mod schema_yaml;
-mod support;
+pub(crate) mod support;
 mod seed;
 mod tree;
 mod types;

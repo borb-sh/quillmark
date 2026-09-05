@@ -809,6 +809,18 @@ mod args_canon {
             args.insert("count".to_string(), 3.into());
             args
         });
+        // Its observed twin, minted by a backend that declines a construct
+        // outright; core owns the constructor so the pair cannot drift.
+        add(
+            "backend::declined_construct",
+            crate::backend::declined_construct(
+                "typst",
+                crate::quill::BlockConstruct::Image,
+                2,
+                &path.body(),
+            )
+            .args,
+        );
 
         out
     }

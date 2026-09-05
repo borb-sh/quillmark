@@ -64,6 +64,7 @@ Fatality is a two-value ladder: `Error` blocks the stage that emits it; `Warning
 - **Parse warnings** (e.g. a `~~~` opener missing its blank line) carried on the parsed document (`doc.warnings`) and spliced into a render's warnings.
 - **Validation warnings**: `quill.validate(doc)` returns every diagnostic; `validation::must_fill` and the `$seed` checks are the non-fatal ones. `validation::must_fill` fires on two triggers, named by its `trigger` arg: `marker`, an outstanding `!must_fill` tag in the document, and `unauthored`, a cell the schema obliges (one with no `default:`) that nobody has authored. At most one per path; the marker wins where both apply. The render path never gates on either: an absent field blank-fills.
 - **Compile warnings**: a backend's non-fatal diagnostics (font fallback, overfull pages), carried on `result.warnings`.
+- **`backend::declined_construct`**: a construct the backend typesets nothing for, one per content field, carrying `backend`, `construct` and `count` in `args` and the field's path. The Typst backend declines `image`: a markdown image in a `richtext` field reaches no page, because what its url names is undecided.
 
 A successful render returns artifacts **and** a `warnings` list, so inspect it even on success.
 

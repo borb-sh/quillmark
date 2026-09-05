@@ -51,6 +51,46 @@ pub fn unsupported_format(format: OutputFormat, backend: &str, supported: &[Outp
     )
 }
 
+/// The diagnostic code a backend's own declined construct rides.
+pub const DECLINED_CONSTRUCT: &str = "backend::declined_construct";
+
+/// The warning a backend owes a content field holding a construct it typesets
+/// nothing for: `count` of `construct` in the field `path` anchors, from
+/// `backend`.
+///
+/// The observed twin of quill-declared
+/// [`plate::unsupported_construct`](crate::quill::UNSUPPORTED_CONSTRUCT), which
+/// exists because core cannot see a plate drop a construct. A backend declining
+/// one outright *is* the observer, so it says so itself, per field rather than
+/// per body and at the compile that dropped it rather than at the pre-render
+/// walk. One diagnostic per (field, construct): a producer that sees every
+/// occurrence at once collapses them into `count`.
+///
+/// Non-fatal by construction, for the same reason as its twin: the content
+/// stores and round-trips, and it is the page that will not carry it.
+pub fn declined_construct(
+    backend: &str,
+    construct: crate::quill::BlockConstruct,
+    count: usize,
+    path: &crate::path::DocPath,
+) -> crate::Diagnostic {
+    let mut args = std::collections::BTreeMap::new();
+    args.insert("backend".to_string(), backend.into());
+    args.insert("construct".to_string(), construct.as_str().into());
+    args.insert("count".to_string(), count.into());
+    crate::Diagnostic::new(
+        crate::Severity::Warning,
+        format!(
+            "the {backend} backend does not typeset {}: {count} in this field \
+             will not reach the page",
+            crate::quill::support::plural(construct, count)
+        ),
+    )
+    .with_code(DECLINED_CONSTRUCT.to_string())
+    .with_path(path.to_string())
+    .with_args(args)
+}
+
 /// Pre-session hint for whether a backend with these `formats` can paint pages
 /// to a canvas, used before a session exists (e.g. a GUI deciding whether to
 /// mount a canvas preview without first paying to open one).

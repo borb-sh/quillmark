@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- change(typst): **an image in a content field draws nothing and warns.** What
+  a content image's `url` names is undecided — a document is quill-free but for
+  `$quill`, which selects a *range* of versions, and declares everything else it
+  references — so the Typst backend lowers an `image` island to nothing rather
+  than binding one reading of the string. A quill asset stays the plate's to
+  draw (`#image("assets/logo.svg")`), unchanged. The refusal is legible where it
+  used to be a Typst file-not-found error about a generated file the author never
+  wrote: one **`backend::declined_construct`** warning per content field, `args`
+  `{backend, construct, count}` and the field's `DocPath` in `path`, minted by
+  the new `quillmark_core::declined_construct` so it cannot drift from
+  quill-declared `plate::unsupported_construct` — the sixth warning family, and
+  the first a backend *observes* rather than a quill declares. **A consumer
+  routing on diagnostic codes gains a warning family** and needs an arm for it.
+  Storage is untouched: an `image` island still parses, stores, round-trips to
+  markdown and reaches an editor with its `{url, alt}` props.
 - fix(typst): **a compile diagnostic carries a code from a closed set.** The
   code was the message up to its first `:`, so a missing asset minted
   `typst::file not found (searched at assets/logo.png)` — the author's path
@@ -307,15 +322,6 @@
   in reverse, so a pdfform quill whose widgets overlap answers with the
   last-stamped one. A backend that mixes widget and content regions through the
   default overrides `field_at` to hand a widget the tie, as Typst does.
-- fix(typst): **an image in a content field resolves a quill asset.**
-  `![logo](assets/logo.svg)` in a `richtext` field lowers to `#image(..)`
-  inside the helper package's `lib.typ`, and Typst resolves an image path
-  against the root of the file holding the call, never leaving it; assets sat
-  under the project root alone, so the one thing an image island lowers to
-  failed the render outright. `QuillWorld` registers each `assets/` file under
-  the helper package's file id as well, one `Bytes` behind both ids, and a
-  content image names an asset by its quill-root path, rooted or relative, the
-  path a plate names it by.
 - fix(typst): **a `form-field` widget's rect is the box it prints in, whatever
   the layout context.** The helper emitted its `<__qm_field__>` metadata beside
   the box rather than inside it, and a tag's own position is the line's baseline

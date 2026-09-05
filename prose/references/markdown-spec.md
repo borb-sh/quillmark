@@ -402,11 +402,13 @@ The following are parsed where CommonMark or pulldown-cmark already
 handles them, but produce limited or no Quillmark-specific output; fuller
 support may come in a future revision:
 
-- Images (`![alt](src)`): the markup *is* rendered by the Typst backend as
-  `#image("src", alt: "alt")`, with the alt text preserved as the output's
-  accessibility alternate text. What remains future work is asset-resolver
-  integration: `src` is emitted verbatim and resolved by the backend's
-  virtual filesystem, with no dedicated asset-resolution layer yet.
+- Images (`![alt](src)`): parsed into an `image` island carrying `{url, alt}`,
+  which stores, round-trips to markdown, and reaches an editor — but no backend
+  typesets one. The Typst backend draws nothing for it and warns under
+  `backend::declined_construct`. `src` names no space: a document is portable
+  across the versions its `$quill` selector admits and declares every other
+  thing it references, so a path into one quill's file tree is not a binding a
+  document may take.
 - Math (`$…$`, `$$…$$`), footnotes, task lists, definition lists: not
   supported. In markdown body text `$` is literal; inside a `~~~` card-yaml
   payload `$` is reserved as the prefix for system-metadata keys (§3.3).

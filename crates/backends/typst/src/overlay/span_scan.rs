@@ -1391,7 +1391,7 @@ main:
             serde_json::json!({ "intro": quillmark_content::serial::to_canonical_value(&rt) });
         let transformed = crate::transformed_data(&data);
         let mut world = QuillWorld::new(&q, &plate).expect("world");
-        let windows = world
+        let (windows, _) = world
             .inject_helper_package(transformed.as_ref(), &meta)
             .expect("inject");
         let (doc, _) = compile_document(&world).expect("compile");
@@ -1454,7 +1454,7 @@ main:
                 serde_json::json!({ "body": quillmark_content::serial::to_canonical_value(&rt) });
             let transformed = crate::transformed_data(&data);
             let mut world = QuillWorld::new(&q, &plate).expect("world");
-            let windows = world
+            let (windows, _) = world
                 .inject_helper_package(transformed.as_ref(), &meta)
                 .expect("inject");
             let (doc, _) = compile_document(&world).expect("compile");
@@ -1878,7 +1878,7 @@ main:
             serde_json::json!({ "body": quillmark_content::serial::to_canonical_value(&rt) });
         let transformed = crate::transformed_data(&data);
         let mut world = QuillWorld::new(&q, &plate).expect("world");
-        let windows = world
+        let (windows, _) = world
             .inject_helper_package(transformed.as_ref(), &meta)
             .expect("inject");
         let (doc, _) = compile_document(&world).expect("compile");
@@ -1957,7 +1957,7 @@ main:
         let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
         let transformed = crate::transformed_data(&data);
         let mut world = QuillWorld::new(&q, &plate_src).expect("world");
-        let mut windows = world
+        let (mut windows, _) = world
             .inject_helper_package(transformed.as_ref(), &meta)
             .expect("inject");
         let main_id = world.main();

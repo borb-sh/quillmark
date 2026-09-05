@@ -24,7 +24,7 @@ use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use quillmark_core::{
-    quill::build_transform_schema,
+    quill::{build_transform_schema, BlockConstruct},
     session::SessionHandle,
     Backend, ChangeSet, ContentHit, Diagnostic, LiveSession, OutputFormat, Quill, RenderError,
     RenderOptions, RenderResult, RenderedRegion, Severity,
@@ -90,7 +90,7 @@ fn recompile(
     schema_meta: &SchemaMeta,
     scalar_windows: &[overlay::FieldWindow],
 ) -> Result<Compiled, RenderError> {
-    let mut windows = world
+    let (mut windows, declined_images) = world
         .inject_helper_package(data, schema_meta)
         .map_err(|e| RenderError::coded(e.code(), e.to_string()))?;
     windows.extend(scalar_windows.iter().cloned());
@@ -103,7 +103,13 @@ fn recompile(
 
     let unclosed = overlay::unclosed_claims(&document);
     let hashes = page_hashes(&document);
-    let warnings = session_warnings(world, compile_warnings, &unclosed);
+    let warnings = session_warnings(
+        world,
+        compile_warnings,
+        &unclosed,
+        &declined_images,
+        &card_kinds(data),
+    );
     Ok(Compiled {
         document,
         field_specs,
@@ -116,13 +122,64 @@ fn recompile(
     })
 }
 
+/// The `$kind` of each card in `data`'s `$cards`, in document order:
+/// [`plate_addr_to_doc_path`](quillmark_core::plate_addr_to_doc_path) resolves a
+/// plate-space per-kind ordinal against it.
+fn card_kinds(data: &serde_json::Value) -> Vec<Option<String>> {
+    data.get("$cards")
+        .and_then(|c| c.as_array())
+        .map(|cards| {
+            cards
+                .iter()
+                .map(|c| {
+                    c.get("$kind")
+                        .and_then(|k| k.as_str())
+                        .map(str::to_string)
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// One `backend::declined_construct` per content field holding images.
+///
+/// A field whose plate address does not translate is skipped rather than
+/// anchored loosely: the warning is about *this* field, and an unanchored one
+/// names none.
+fn declined_image_warnings(
+    declined: &world::DeclinedImages,
+    card_kinds: &[Option<String>],
+) -> Vec<Diagnostic> {
+    let kinds: Vec<Option<&str>> = card_kinds.iter().map(|k| k.as_deref()).collect();
+    declined
+        .iter()
+        .filter_map(|(addr, count)| {
+            let path = quillmark_core::plate_addr_to_doc_path(addr, &kinds)?;
+            let diag = quillmark_core::declined_construct(
+                TypstBackend.id(),
+                BlockConstruct::Image,
+                *count,
+                &path,
+            );
+            Some(diag.with_hint(
+                "what a content image's url names is undecided; a plate draws a \
+                 quill asset with `#image(\"assets/…\")`"
+                    .to_string(),
+            ))
+        })
+        .collect()
+}
+
 /// The quill's load warnings, then this compile's own, then one per runaway
-/// `field-region`. One order, built in one place, so an `apply` that swaps only
-/// what it recompiled keeps the load half.
+/// `field-region`, then one per field whose images this backend declined. One
+/// order, built in one place, so an `apply` that swaps only what it recompiled
+/// keeps the load half.
 fn session_warnings(
     world: &world::QuillWorld,
     compile: Vec<Diagnostic>,
     unclosed: &[(usize, String)],
+    declined_images: &world::DeclinedImages,
+    card_kinds: &[Option<String>],
 ) -> Vec<Diagnostic> {
     let mut all = world.load_warnings().to_vec();
     all.extend(compile);
@@ -138,6 +195,7 @@ fn session_warnings(
                 .to_string(),
         )
     }));
+    all.extend(declined_image_warnings(declined_images, card_kinds));
     all
 }
 
