@@ -34,6 +34,8 @@ pub use reader::ObjectIndex;
 pub use stamp::{regions_of, stamp, StampOptions, CHECKBOX_ON_STATE};
 pub use update::PdfUpdate;
 
+const CODE_BAD_RECT: &str = "pdf::bad_rect";
+
 /// The `/MediaBox` of every page of `base`, normalized to `[x0, y0, x1, y1]`
 /// (lower-left, upper-right), in document order. A backend owning top-left
 /// page-relative rects flips against these before building a [`FieldSpec`].
@@ -87,6 +89,23 @@ impl FieldSpec {
             font_size: None,
             align: TextAlign::default(),
         }
+    }
+
+    /// `Err` with code `pdf::bad_rect` unless every [`rect`](Self::rect)
+    /// coordinate is finite. `rect` is public and every writer here prints a
+    /// float verbatim, so an unchecked one reaches a widget `/Rect` or a drawn
+    /// content stream as `NaN`/`inf`, a token no PDF number grammar admits.
+    pub fn assert_finite_rect(&self) -> Result<(), PdfError> {
+        if self.rect.iter().all(|v| v.is_finite()) {
+            return Ok(());
+        }
+        Err(PdfError::new(
+            CODE_BAD_RECT,
+            format!(
+                "field `{}` has a non-finite /Rect: {:?}",
+                self.name, self.rect
+            ),
+        ))
     }
 }
 

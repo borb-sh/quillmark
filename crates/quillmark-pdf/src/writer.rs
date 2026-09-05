@@ -2,7 +2,7 @@
 //! the two emit identical bytes for an object, a text string, and the `/Info`
 //! `/Producer` stamp.
 
-use pdf_writer::Ref;
+use pdf_writer::{Chunk, Name, Ref};
 
 use crate::error::PdfError;
 use crate::reader::{err, find_dict_value, splice_dict_value, ObjectIndex, UpdatedObject};
@@ -20,6 +20,31 @@ pub fn dict_object(id: u32, inner: &[u8]) -> UpdatedObject {
     bytes.extend_from_slice(inner);
     bytes.extend_from_slice(b" >>\nendobj\n");
     UpdatedObject { id, bytes }
+}
+
+/// One base-14 Type1 font object, never embedded. `encoding` names a predefined
+/// encoding; a symbol font passes `None` to keep its built-in one.
+pub fn type1_font_object(
+    id: u32,
+    base_font: &[u8],
+    encoding: Option<&[u8]>,
+) -> Result<UpdatedObject, PdfError> {
+    let mut chunk = Chunk::new();
+    {
+        let mut font = chunk.type1_font(to_ref(id)?);
+        font.base_font(Name(base_font));
+        if let Some(name) = encoding {
+            font.encoding_predefined(Name(name));
+        }
+    }
+    Ok(UpdatedObject::new(id, chunk.as_bytes().to_vec()))
+}
+
+/// One uncompressed content stream object carrying `content`.
+pub fn content_stream_object(id: u32, content: &[u8]) -> Result<UpdatedObject, PdfError> {
+    let mut chunk = Chunk::new();
+    chunk.stream(to_ref(id)?, content);
+    Ok(UpdatedObject::new(id, chunk.as_bytes().to_vec()))
 }
 
 /// Hand out the next object id from `next`, bounded at `i32::MAX` so a

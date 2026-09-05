@@ -4,11 +4,11 @@
 //! flatten path must commit to a concrete font and size. Keeping that decision
 //! here is what makes preview and flattening agree exactly.
 
-/// Base-14 Helvetica, for text and choice values.
-pub(crate) const TEXT_FONT: &str = "Helvetica";
+/// Base-14 Helvetica `/BaseFont`, for text and choice values.
+pub(crate) const TEXT_FONT: &[u8] = b"Helvetica";
 
-/// Base-14 ZapfDingbats, for the checkbox check glyph.
-pub(crate) const CHECK_FONT: &str = "ZapfDingbats";
+/// Base-14 ZapfDingbats `/BaseFont`, for the checkbox check glyph.
+pub(crate) const CHECK_FONT: &[u8] = b"ZapfDingbats";
 
 /// Preferred `/Font` resource name for [`TEXT_FONT`], shared with the `/DA` the
 /// stamp path writes. A page already binding it gets a derived name instead.

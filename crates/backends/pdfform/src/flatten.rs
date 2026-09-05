@@ -15,18 +15,18 @@
 use quillmark_pdf::{
     reader::{
         extract_outer_dict, find_dict_value, parse_indirect_ref, splice_dict_value, ObjectIndex,
-        Page, UpdatedObject,
+        Page,
     },
     writer::{
-        alloc_id, append_refs_to_array_key, dict_object, pdf_escape, winansi_encode, OnNonArray,
+        alloc_id, append_refs_to_array_key, content_stream_object, dict_object, pdf_escape,
+        type1_font_object, winansi_encode, OnNonArray,
     },
     FieldSpec, FieldType, PdfError, PdfUpdate, CHECKBOX_ON_STATE,
 };
 
 use crate::typography;
 
-const CODE_PARSE: &str = "pdf::flatten_parse";
-const CODE_BAD_RECT: &str = "pdf::bad_rect";
+const CODE_PARSE: &str = "pdfform::flatten_parse";
 
 const STATE_RESET: &[u8] = b"0 g 0 Tr 0 Tc 0 Tw 100 Tz 0 Ts\n";
 
@@ -40,18 +40,8 @@ pub fn flatten(base: Vec<u8>, fields: &[FieldSpec]) -> Result<Vec<u8>, PdfError>
         return Ok(base);
     }
 
-    // `push_f32` formats a non-finite float as the literal `NaN`/`inf`, a token
-    // no PDF number grammar admits: the drawn stream would be unparseable.
     for spec in &drawable {
-        if !spec.rect.iter().all(|v| v.is_finite()) {
-            return Err(PdfError::new(
-                CODE_BAD_RECT,
-                format!(
-                    "field `{}` has a non-finite /Rect: {:?}",
-                    spec.name, spec.rect
-                ),
-            ));
-        }
+        spec.assert_finite_rect()?;
     }
 
     let pdf = base;
@@ -68,10 +58,10 @@ pub fn flatten(base: Vec<u8>, fields: &[FieldSpec]) -> Result<Vec<u8>, PdfError>
     up.objects.push(type1_font_object(
         helv_id,
         typography::TEXT_FONT,
-        Some("WinAnsiEncoding"),
-    ));
+        Some(b"WinAnsiEncoding"),
+    )?);
     up.objects
-        .push(type1_font_object(zadb_id, typography::CHECK_FONT, None));
+        .push(type1_font_object(zadb_id, typography::CHECK_FONT, None)?);
 
     let mut fields_by_page: Vec<Vec<&FieldSpec>> = vec![Vec::new(); page_count];
     for spec in drawable {
@@ -99,7 +89,7 @@ pub fn flatten(base: Vec<u8>, fields: &[FieldSpec]) -> Result<Vec<u8>, PdfError>
         up.objects.push(content_stream_object(
             stream_id,
             &build_content_stream(page_fields, &names),
-        ));
+        )?);
 
         let new_pg = rewrite_page_for_flatten(
             &idx,
@@ -428,29 +418,6 @@ fn add_font_resources(
             out
         }
     })
-}
-
-/// Build a base-14 Type1 font object. Symbol fonts pass `encoding: None` to keep
-/// their built-in encoding; text fonts name `WinAnsiEncoding`.
-fn type1_font_object(id: u32, base_font: &str, encoding: Option<&str>) -> UpdatedObject {
-    let enc = match encoding {
-        Some(name) => format!(" /Encoding /{name}"),
-        None => String::new(),
-    };
-    UpdatedObject::new(
-        id,
-        format!(
-            "{id} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /{base_font}{enc} >>\nendobj\n"
-        )
-        .into_bytes(),
-    )
-}
-
-fn content_stream_object(id: u32, content: &[u8]) -> UpdatedObject {
-    let mut bytes = format!("{id} 0 obj\n<< /Length {} >>\nstream\n", content.len()).into_bytes();
-    bytes.extend_from_slice(content);
-    bytes.extend_from_slice(b"\nendstream\nendobj\n");
-    UpdatedObject::new(id, bytes)
 }
 
 /// Append `v` as a compact `%.2f` float, stripping trailing zeros and dot.
@@ -825,5 +792,15 @@ mod tests {
             BASE,
             "no drawable value must append no revision"
         );
+    }
+
+    #[test]
+    fn a_non_finite_rect_is_refused_rather_than_drawn() {
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut spec = text_field("FullName", "Ada Lovelace");
+            spec.rect[1] = bad;
+            let err = flatten(BASE.to_vec(), &[spec]).expect_err("non-finite rect rejected");
+            assert_eq!(err.code, "pdf::bad_rect", "{bad}");
+        }
     }
 }

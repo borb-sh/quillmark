@@ -23,11 +23,12 @@ use quillmark_core::RenderedRegion;
 use crate::error::PdfError;
 use crate::reader::{err, find_dict_value, parse_indirect_ref, ObjectIndex, UpdatedObject};
 use crate::update::PdfUpdate;
-use crate::writer::{alloc_id, append_refs_to_array_key, dict_object, to_ref, OnNonArray};
+use crate::writer::{
+    alloc_id, append_refs_to_array_key, dict_object, to_ref, type1_font_object, OnNonArray,
+};
 use crate::{FieldSpec, FieldType, FormFont, TextAlign};
 
 const CODE_PARSE: &str = "pdf::stamp_parse";
-const CODE_BAD_RECT: &str = "pdf::bad_rect";
 const CODE_EXISTING_ACROFORM: &str = "pdf::existing_acroform";
 
 /// The fixed checkbox on-state export name. A checkbox [`FieldSpec`] carries
@@ -115,20 +116,8 @@ pub fn stamp(
         return Ok(base);
     }
 
-    // pdf-writer prints a non-finite float verbatim, so an unchecked rect puts
-    // `inf`/`NaN` in the widget's `/Rect` — tokens no PDF number grammar
-    // admits. `rect` is public, as `font_size` is, and guarded for the same
-    // reason.
     for spec in fields {
-        if !spec.rect.iter().all(|v| v.is_finite()) {
-            return Err(err(
-                CODE_BAD_RECT,
-                format!(
-                    "field `{}` has a non-finite /Rect: {:?}",
-                    spec.name, spec.rect
-                ),
-            ));
-        }
+        spec.assert_finite_rect()?;
     }
 
     let pdf = base;
@@ -172,14 +161,8 @@ pub fn stamp(
         }
 
         for (font, &fid) in fonts.iter().zip(&font_ids) {
-            let mut fchunk = Chunk::new();
-            fchunk
-                .type1_font(to_ref(fid)?)
-                .base_font(Name(font.base_font()));
-            up.objects.push(UpdatedObject {
-                id: fid,
-                bytes: fchunk.as_bytes().to_vec(),
-            });
+            up.objects
+                .push(type1_font_object(fid, font.base_font(), None)?);
         }
 
         let has_signature = fields

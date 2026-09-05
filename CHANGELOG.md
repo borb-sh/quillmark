@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- fix(pdfform)!: **flatten's own parse failure is `pdfform::flatten_parse`.** A
+  page dict or `/Contents` the content-stream flattener cannot read raised
+  `pdf::flatten_parse`, naming the stamp spine for a failure of the backend's
+  own code; it carries the `pdfform::*` namespace every other pdfform code
+  uses. `pdf::bad_rect` stays the spine's and is minted in one place,
+  `FieldSpec::assert_finite_rect`, which the stamp and flatten paths both call.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one
