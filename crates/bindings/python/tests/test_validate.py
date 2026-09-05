@@ -4,27 +4,12 @@ The diagnostic set and the seed layering rules are core's: `validate`'s
 decision matrix lives in `crates/quillmark/tests/validate_test.rs`, the seed
 semantics in `core/src/quill/seed/tests.rs`. What is pyo3's is the crossing:
 each verb returns the right Python shape, and an error keeps its `code`.
-
-NOTE: These tests cannot run in the devcontainer because the Python binding
-is not built with `maturin develop` in this environment.  They are written
-to run in CI where `maturin develop` (or `pip install -e .`) is available.
-
-Expected environment: `quillmark` importable from a maturin-built wheel.
 """
 
 import json
 import pytest
 
-try:
-    from quillmark import Document, Quill
-    QUILLMARK_AVAILABLE = True
-except ImportError:
-    QUILLMARK_AVAILABLE = False
-
-pytestmark = pytest.mark.skipif(
-    not QUILLMARK_AVAILABLE,
-    reason="quillmark native module not available in this environment",
-)
+from quillmark import Document, Quill
 
 # ---------------------------------------------------------------------------
 # Helpers

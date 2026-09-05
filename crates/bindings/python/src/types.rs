@@ -131,13 +131,7 @@ impl PyQuill {
 
     #[getter]
     fn quill_ref(&self) -> String {
-        let source = &self.inner;
-        let version = source
-            .metadata()
-            .get("version")
-            .and_then(|v| v.as_str())
-            .unwrap_or("0.0.0");
-        format!("{}@{}", source.name(), version)
+        format!("{}@{}", self.inner.name(), self.inner.config().version)
     }
 
     /// Identity snapshot mirroring the `quill:` section of `Quill.yaml`. A pure
