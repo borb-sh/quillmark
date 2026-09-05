@@ -19,14 +19,18 @@
 //!
 //! ## Documented codec limits
 //!
-//! Three shapes markdown cannot represent do **not** round-trip. A mark spanning
+//! Four shapes markdown cannot represent do **not** round-trip. A mark spanning
 //! a hard break splits into two per-line marks, and an empty first line in a
 //! hard-break block is dropped, markdown having no blank-then-forced-break
 //! syntax (`tests::known_hard_break_limits`). An image `alt` loses its edge
 //! whitespace: the parser trims alt *after* decoding the character reference
 //! that carries an edge run everywhere else (`tests::known_image_alt_limit`).
-//! Each arises only from adversarial delimiter/break placement or a hand-built
-//! island prop.
+//! A link or image `url` carrying a line ending comes back percent-encoded
+//! (`%0A`/`%0D`): CommonMark admits none in a destination, and the import
+//! decodes no percent escape
+//! (`tests::a_url_carrying_a_line_ending_still_projects_as_a_link`). Each arises
+//! only from adversarial delimiter/break placement, a hand-built island prop, or
+//! a stored url the authored lanes refuse.
 
 use crate::island::KnownIslandType;
 use crate::model::{Container, Island, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT};
@@ -456,12 +460,16 @@ fn emit_image(isl: &Island, out: &mut String) {
     out.push(')');
 }
 
-/// Emit a link/image destination that re-imports to `url` verbatim. A bare
-/// (unbracketed) destination round-trips only for CommonMark's unbracketed form:
-/// no whitespace, control char, `<`, `>`, `\`, or `&`, and balanced parentheses.
-/// Anything else is angle-wrapped, with `<`, `>`, `\` and `&` backslash-escaped,
-/// since unescaped `<`/`>` are illegal even inside the wrap and `\`/`&` would be
-/// consumed as an escape or entity reference on re-import.
+/// Emit a link/image destination. A bare (unbracketed) destination round-trips
+/// only for CommonMark's unbracketed form: no whitespace, control char, `<`,
+/// `>`, `\`, or `&`, and balanced parentheses. Anything else is angle-wrapped,
+/// with `<`, `>`, `\` and `&` backslash-escaped, since unescaped `<`/`>` are
+/// illegal even inside the wrap and `\`/`&` would be consumed as an escape or
+/// entity reference on re-import.
+///
+/// Every character re-imports to itself except the two
+/// [`url_is_writable`] refuses: a line ending is illegal inside the wrap too, so
+/// it is percent-encoded and comes back in that form.
 fn emit_url(url: &str, out: &mut String) {
     if url_is_bare_safe(url) {
         out.push_str(url);
@@ -469,12 +477,27 @@ fn emit_url(url: &str, out: &mut String) {
     }
     out.push('<');
     for c in url.chars() {
-        if matches!(c, '<' | '>' | '\\' | '&') {
-            out.push('\\');
+        match c {
+            '\n' => out.push_str("%0A"),
+            '\r' => out.push_str("%0D"),
+            '<' | '>' | '\\' | '&' => {
+                out.push('\\');
+                out.push(c);
+            }
+            _ => out.push(c),
         }
-        out.push(c);
     }
     out.push('>');
+}
+
+/// Whether a link or image `url` survives [`to_markdown`] unchanged. CommonMark
+/// admits no line ending in a destination, bare or angle-wrapped, so an authored
+/// lane that stores a url refuses one
+/// ([`crate::serial::reject_unwritable_link_url`],
+/// [`crate::serial::island_from_authored_value`]) and [`emit_url`]
+/// percent-encodes the one a storage-lane or hand-built content still holds.
+pub(crate) fn url_is_writable(url: &str) -> bool {
+    !url.contains(['\n', '\r'])
 }
 
 fn url_is_bare_safe(url: &str) -> bool {
@@ -1931,6 +1954,40 @@ mod tests {
         let mut esc = String::new();
         emit_url("a&<\\b", &mut esc);
         assert_eq!(esc, "<a\\&\\<\\\\b>", "specials escaped inside the wrap");
+    }
+
+    /// A line ending in a `url` has no destination spelling at all, so the
+    /// writer percent-encodes it: the mark survives, addressing the encoded URL.
+    /// Only a storage-lane or hand-built content reaches this — the authored
+    /// lanes refuse the url outright.
+    #[test]
+    fn a_url_carrying_a_line_ending_still_projects_as_a_link() {
+        let rt = Content::new("t x".to_string(), vec![Line::new(LineKind::Para)])
+            .with_marks(vec![Mark::new(
+                0,
+                1,
+                MarkKind::Link {
+                    url: "a\nb".into(),
+                },
+            )])
+            .into_normalized();
+        let back = from_markdown(&to_markdown(&rt)).expect("re-imports");
+        assert_eq!(back.text, "t x", "the display text did not leak");
+        assert_eq!(
+            back.marks.first().map(|m| &m.kind),
+            Some(&MarkKind::Link {
+                url: "a%0Ab".into()
+            })
+        );
+
+        let isl = crate::model::Island::new("i1".into(), "image".into())
+            .with_props(serde_json::json!({"alt": "a", "url": "u\rv"}));
+        let rt = Content::new(format!("x{ISLAND_SLOT}"), vec![Line::new(LineKind::Para)])
+            .with_islands(vec![isl])
+            .into_normalized();
+        let back = from_markdown(&to_markdown(&rt)).expect("re-imports");
+        assert_eq!(back.islands.len(), 1, "the island survived");
+        assert_eq!(back.islands[0].props["url"], "u%0Dv");
     }
 
     /// A strong mark whose delimiters land where CommonMark won't read them as a

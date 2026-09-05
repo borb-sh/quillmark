@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- fix(content)!: **a link or image `url` carrying a line ending is refused
+  where it is authored, and percent-encoded where it is written.** CommonMark
+  admits no line ending in a destination, bare or angle-wrapped, so `"a\nb"`
+  exported as `[t](<a\nb>)`, which pulldown reads as an inline HTML tag: the
+  re-import came back `[t]()` with the mark gone, and an image the same way
+  with its island gone. An authored lane that *stores* a url now refuses one —
+  `MarkOp::Add` of a `link`, `IslandOp::Insert` and `IslandOp::Set` of an
+  `image`, and the whole-content doors (`install`, `overwrite`,
+  `CardInput.body`) — the way an unwritable code-fence `lang` is refused.
+  `MarkOp::Remove` still takes it, matching on kind equality against a mark the
+  field already holds. Storage stays lenient, and `to_markdown` writes the line
+  ending as `%0A`/`%0D`, so the link survives and re-imports addressing the
+  encoded url.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one

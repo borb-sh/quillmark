@@ -351,11 +351,12 @@ payload spelled as a **named sibling**, which is how every release through
     retirable on tag evidence, no tag naming those rows. Read-repair converges
     the population; cold rows keep it alive.
   - **The authored lane rejects it.** A legacy payload sibling is a shape error
-    (`serial::line_kind_from_authored_value` and its two twins for the op wire,
-    `serial::from_authored_value` for a whole content). A host writing it now
-    holds a stale copy of the encoding, and where a bag sits beside it the
-    sibling it meant is not the one the decoder reads. Reads that hand back
-    stored content (`exportMarkdown`, `rebase`) are storage-lane, not this one.
+    (`serial::line_kind_from_authored_value` and its container and mark twins
+    for the op wire, `serial::from_authored_value` for a whole content). A host
+    writing it now holds a stale copy of the encoding, and where a bag sits
+    beside it the sibling it meant is not the one the decoder reads. Reads that
+    hand back stored content (`exportMarkdown`, `rebase`) are storage-lane, not
+    this one.
 
   Both read one frozen table (`serial::legacy_*_keys`): the fallback reads
   exactly the keys the rejection refuses, so a key a later promotion adds is in
@@ -373,6 +374,20 @@ The same split governs an unreadable **table-cell mark**. Storage skips it:
 `serial::parse_cell` is lenient, and normalization makes the skip permanent. The
 authored lane refuses it, because a host's malformed mark vanishing with no
 signal is the silent corruption the split exists to catch.
+
+It governs a **value the markdown projection cannot write** as well: a code
+fence's `lang` outside the identifier shape it is emitted in unquoted, and a
+link or image `url` carrying a line ending, which CommonMark admits in no
+destination form. The authored lane refuses both, so a host learns at the write
+that its markdown would come back without the fence header or the mark. Storage
+takes what it holds and the projection settles it — `import::sanitize_lang`
+reduces the `lang`, `export::emit_url` percent-encodes the line ending, and the
+encoded url is what a re-import reads back.
+
+The url rule is on the lanes that **store** one, not on `MarkOp::Remove`, which
+matches on kind equality against a mark the field already holds: a url in the
+model has no second spelling, so refusing it there would make a stored link
+unremovable.
 
 The opaque attrs are hash input like everything else in the canonical form, so
 they are recursively key-sorted along with the rest (see Byte-stability). What

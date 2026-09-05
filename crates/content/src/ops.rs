@@ -180,19 +180,21 @@ impl ChangeBundle {
 // and no encoder answers these.
 
 use crate::serial::{
-    container_from_authored_value, island_from_value, line_kind_from_authored_value,
-    mark_from_authored_value, usv_from, ParseError,
+    container_from_authored_value, island_from_authored_value, line_kind_from_authored_value,
+    mark_from_authored_value, reject_unwritable_link_url, usv_from, ParseError,
 };
 use serde_json::Value;
 
 /// Decode a [`MarkOp`] from its wire object (`{op, start, end, type, attrs}` for
 /// `add`/`remove`, `{op, id}` for `removeAnchor`). `add`/`remove` read the mark
 /// vocabulary on the authored lane, which refuses the `@0.93.0` payload
-/// spelling rather than guessing which of the two a stale host meant.
+/// spelling rather than guessing which of the two a stale host meant. `add`
+/// carries the url rule too, `remove` naming a mark the field already holds.
 pub fn mark_op_from_value(v: &Value) -> Result<MarkOp, ParseError> {
     let o = v.as_object().ok_or(ParseError::Shape("mark op"))?;
     match o.get("op").and_then(Value::as_str) {
         Some("add") => {
+            reject_unwritable_link_url(v)?;
             let mark = mark_from_authored_value(v)?;
             Ok(MarkOp::Add {
                 start: mark.start,
@@ -255,10 +257,12 @@ pub fn line_op_from_value(v: &Value) -> Result<LineOp, ParseError> {
 }
 
 /// Decode an [`IslandOp`] from its wire object. Both arms carry the island
-/// vocabulary (`{id, type, props, loss}`) flattened alongside `op`.
+/// vocabulary (`{id, type, props, loss}`) flattened alongside `op`, read on the
+/// authored lane, which refuses an image `url` the markdown projection cannot
+/// write.
 pub fn island_op_from_value(v: &Value) -> Result<IslandOp, ParseError> {
     let o = v.as_object().ok_or(ParseError::Shape("island op"))?;
-    let island = || island_from_value(v);
+    let island = || island_from_authored_value(v);
     match o.get("op").and_then(Value::as_str) {
         Some("set") => Ok(IslandOp::Set { island: island()? }),
         Some("insert") => Ok(IslandOp::Insert {
@@ -1164,6 +1168,45 @@ mod tests {
         ] {
             assert!(line_op_from_value(&ok).is_ok(), "rejected: {ok}");
         }
+    }
+
+    /// A markdown destination admits no line ending, bare or angle-wrapped, so
+    /// a `url` carrying one exports as markup that re-imports without its link
+    /// or image. An op that stores a url refuses it rather than landing a mark
+    /// the projection dissolves; `remove` names a mark the field already holds,
+    /// so a legacy link stays removable.
+    #[test]
+    fn a_url_the_projection_cannot_write_is_refused_where_an_op_stores_it() {
+        let link = |op: &str, url: &str| {
+            serde_json::json!({"op": op, "start": 0, "end": 1, "type": "link", "attrs": {"url": url}})
+        };
+        for url in ["a\nb", "a\rb"] {
+            assert!(
+                matches!(
+                    mark_op_from_value(&link("add", url)),
+                    Err(ParseError::Shape(_))
+                ),
+                "accepted: {url:?}"
+            );
+            assert!(
+                mark_op_from_value(&link("remove", url)).is_ok(),
+                "unremovable: {url:?}"
+            );
+        }
+        let image = |url: &str| {
+            serde_json::json!({
+                "op": "insert", "at": 0, "id": "i1", "type": "image",
+                "props": {"alt": "a", "url": url},
+            })
+        };
+        assert!(matches!(
+            island_op_from_value(&image("u\nv")),
+            Err(ParseError::Shape(_))
+        ));
+        assert!(
+            island_op_from_value(&image("u v")).is_ok(),
+            "a space angle-wraps and round-trips"
+        );
     }
 
     #[test]

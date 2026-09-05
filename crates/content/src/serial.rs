@@ -587,16 +587,69 @@ pub(crate) fn mark_from_authored_value(v: &Value) -> Result<Mark, ParseError> {
 /// reaches no strict decode that would raise the error on its own.
 pub(crate) fn reject_unreadable_mark(v: &Value) -> Result<(), ParseError> {
     reject_mark_legacy(v)?;
+    reject_unwritable_link_url(v)?;
     mark_shape(v)?;
     Ok(())
 }
 
+/// [`island_from_value`] for the authored lane: an image `url` the markdown
+/// projection cannot write is a shape error rather than a silent rewrite, the
+/// rule [`line_kind_from_authored_value`] carries for a code fence's `lang`.
+pub(crate) fn island_from_authored_value(v: &Value) -> Result<Island, ParseError> {
+    reject_unwritable_image_url(v)?;
+    island_from_value(v)
+}
+
+/// A link `url` [`crate::export::url_is_writable`] refuses is a shape error: the
+/// emitter writes it into the destination slot of `[…](…)`, which admits no line
+/// ending, so the export's percent-encoding of it is a rewrite the host did not
+/// ask for.
+///
+/// The rule is on the lanes that **store** a url. An op naming a mark already in
+/// the field matches on kind equality, and a url the model holds has no other
+/// spelling, so refusing it there would leave a legacy link unremovable.
+pub(crate) fn reject_unwritable_link_url(v: &Value) -> Result<(), ParseError> {
+    let Some(o) = v.as_object() else {
+        return Ok(());
+    };
+    if o.get("type").and_then(Value::as_str) != Some("link") {
+        return Ok(());
+    }
+    reject_unwritable_url(
+        payload(o, legacy_mark_keys("link"), "url").and_then(Value::as_str),
+        "link url",
+    )
+}
+
+/// [`reject_unwritable_link_url`] on an `image` island's `url` prop, which the
+/// emitter writes into the same slot.
+fn reject_unwritable_image_url(v: &Value) -> Result<(), ParseError> {
+    let image = crate::island::KnownIslandType::Image.as_str();
+    if v.get("type").and_then(Value::as_str) != Some(image) {
+        return Ok(());
+    }
+    reject_unwritable_url(
+        v.get("props")
+            .and_then(|p| p.get("url"))
+            .and_then(Value::as_str),
+        "image url",
+    )
+}
+
+fn reject_unwritable_url(url: Option<&str>, err: &'static str) -> Result<(), ParseError> {
+    match url {
+        Some(u) if !crate::export::url_is_writable(u) => Err(ParseError::Shape(err)),
+        _ => Ok(()),
+    }
+}
+
 /// [`from_canonical_value`] for a content the **host authored just now**: the
 /// `install` input, not a blob read back from storage. Same decode, plus the
-/// legacy-spelling rule on every axis [`Content::validate`] checks: line kinds,
-/// containers, prose marks, and table-cell marks.
+/// legacy-spelling rule on every axis [`Content::validate`] checks — line kinds,
+/// containers, prose marks, table-cell marks — and the writability rule on the
+/// urls the projection spells.
 pub fn from_authored_value(v: &Value) -> Result<Normalized, ParseError> {
-    reject_legacy_siblings_deep(v)?;
+    authored_lane_scan(v)?;
     from_canonical_value(v)
 }
 
@@ -604,19 +657,20 @@ pub fn from_authored_value(v: &Value) -> Result<Normalized, ParseError> {
 /// blind recursive walk: an unknown's `attrs` is opaque host payload that may
 /// legitimately contain an object spelled `{"type": "link", "url": …}`, and
 /// rejecting that would make the carrier unable to carry.
-fn reject_legacy_siblings_deep(v: &Value) -> Result<(), ParseError> {
+fn authored_lane_scan(v: &Value) -> Result<(), ParseError> {
     for line in arr_or_empty(v, "lines") {
         reject_line_kind_legacy(line)?;
         for c in arr_or_empty(line, "containers") {
             reject_container_legacy(c)?;
         }
     }
-    // Only the legacy-spelling half here: a prose mark that will not parse is
-    // rejected by the strict decode `from_canonical_value` runs next.
+    // Both rules here: the strict decode `from_canonical_value` runs next reads
+    // prose marks on the storage lane, so it carries neither.
     for m in arr_or_empty(v, "marks") {
         reject_mark_legacy(m)?;
+        reject_unwritable_link_url(m)?;
     }
-    // Cell marks ride the prose mark shape, so the rule follows them in, plus
+    // Cell marks ride the prose mark shape, so the rules follow them in, plus
     // the readability check, since no strict decode reaches them. Dispatch goes
     // through `KnownIslandType`, so a new mark-carrying type is a compile error
     // here rather than a silent skip.
@@ -633,8 +687,10 @@ fn reject_legacy_siblings_deep(v: &Value) -> Result<(), ParseError> {
                     }
                 }
             }
-            // No cells: an image's props are flat, an unknown type's are opaque.
-            Some(crate::island::KnownIslandType::Image) | None => {}
+            // No cells; the one prop the projection writes is the url.
+            Some(crate::island::KnownIslandType::Image) => reject_unwritable_image_url(island)?,
+            // An unknown type's props are opaque.
+            None => {}
         }
     }
     Ok(())
@@ -1665,6 +1721,58 @@ mod tests {
             line_kind_from_authored_value(&v),
             Err(ParseError::Shape("code lang"))
         ));
+    }
+
+    /// The same split on a link or image `url`: CommonMark admits no line
+    /// ending in a destination, so a lane that stores one refuses it, while
+    /// storage keeps what it holds and [`crate::export::emit_url`]
+    /// percent-encodes it.
+    #[test]
+    fn an_unwritable_url_decodes_on_storage_and_is_refused_when_authored() {
+        let mark =
+            serde_json::json!({"type": "link", "start": 0, "end": 1, "attrs": {"url": "a\nb"}});
+        assert_eq!(
+            mark_from_value(&mark).unwrap().kind,
+            MarkKind::Link { url: "a\nb".into() }
+        );
+        assert!(matches!(
+            reject_unwritable_link_url(&mark),
+            Err(ParseError::Shape("link url"))
+        ));
+
+        let island =
+            serde_json::json!({"id": "i1", "type": "image", "props": {"alt": "a", "url": "u\rv"}});
+        assert_eq!(island_from_value(&island).unwrap().props["url"], "u\rv");
+        assert!(matches!(
+            island_from_authored_value(&island),
+            Err(ParseError::Shape("image url"))
+        ));
+    }
+
+    /// The whole-content authored door (`install`, `overwrite`) carries the
+    /// url rule as deep as the values the projection writes.
+    #[test]
+    fn the_authored_content_door_refuses_an_unwritable_url() {
+        for json in [
+            concat!(
+                r#"{"islands":[],"lines":[{"containers":[],"kind":"para"}],"#,
+                r#""marks":[{"attrs":{"url":"a\nb"},"end":1,"start":0,"type":"link"}],"text":"x"}"#
+            ),
+            concat!(
+                r#"{"islands":[{"id":"i1","loss":"lossless","props":{"alt":"a","url":"u\nv"},"#,
+                r#""type":"image"}],"lines":[{"containers":[],"kind":"para"}],"marks":[],"text":"￼"}"#
+            ),
+        ] {
+            let v: Value = serde_json::from_str(json).unwrap();
+            assert!(
+                matches!(from_authored_value(&v), Err(ParseError::Shape(_))),
+                "accepted: {json}"
+            );
+            assert!(
+                Content::from_canonical_json(json).is_ok(),
+                "storage lane rejected: {json}"
+            );
+        }
     }
 
     /// The `@0.93.0` spelling — every built-in's payload in named siblings —
