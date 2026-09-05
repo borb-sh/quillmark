@@ -55,8 +55,8 @@ pub trait SessionHandle: Send + Sync + 'static {
 
     /// Render `page` to a non-premultiplied RGBA8 buffer at `scale`× the natural
     /// 72-ppi size, returning `(width_px, height_px, rgba)` (row-major, `w*h*4`
-    /// bytes), or `None` if `page` is out of range or the backend has no canvas
-    /// painter. The other half of the seam paired with
+    /// bytes), or `Ok(None)` if `page` is out of range or the backend has no
+    /// canvas painter. The other half of the seam paired with
     /// [`page_size_pt`](Self::page_size_pt).
     ///
     /// A backend that returns `Some` here guarantees a **complete** raster:
@@ -64,12 +64,19 @@ pub trait SessionHandle: Send + Sync + 'static {
     /// caller composites nothing. [`regions`](Self::regions) is for overlay and
     /// cross-navigation UIs, never required to complete the raster.
     ///
+    /// A scale the page cannot be rasterized at is the `Err`: run it through
+    /// [`check_raster`](crate::check_raster), which every raster path shares.
+    ///
     /// A backend with no painter overrides neither this nor
     /// [`page_size_pt`](Self::page_size_pt), and
     /// [`LiveSession::supports_canvas`] derives the capability from that half
     /// of the seam rather than a separate flag.
-    fn render_rgba(&self, _page: usize, _scale: f32) -> Option<(u32, u32, Vec<u8>)> {
-        None
+    fn render_rgba(
+        &self,
+        _page: usize,
+        _scale: f32,
+    ) -> Result<Option<(u32, u32, Vec<u8>)>, RenderError> {
+        Ok(None)
     }
 
     /// Schema-field geometry for the compiled session: [`RenderedRegion`]s
@@ -208,11 +215,20 @@ impl LiveSession {
         self.inner.page_size_pt(page)
     }
 
-    /// Rasterize `page` to non-premultiplied RGBA8 at `scale`× 72 ppi, or `None`
-    /// if `page` is out of range or the backend has no canvas painter. A `Some`
-    /// result is a **complete** raster: all content visible, no caller-side
-    /// compositing.
-    pub fn render_rgba(&self, page: usize, scale: f32) -> Option<(u32, u32, Vec<u8>)> {
+    /// Rasterize `page` to non-premultiplied RGBA8 at `scale`× 72 ppi, or
+    /// `Ok(None)` if `page` is out of range or the backend has no canvas
+    /// painter. A `Some` result is a **complete** raster: all content visible,
+    /// no caller-side compositing.
+    ///
+    /// `scale` is device pixels per point, and must be finite, positive, and
+    /// small enough to keep the page under
+    /// [`MAX_RASTER_PIXELS`](crate::MAX_RASTER_PIXELS); anything else is a
+    /// `backend::invalid_raster_scale` refusal.
+    pub fn render_rgba(
+        &self,
+        page: usize,
+        scale: f32,
+    ) -> Result<Option<(u32, u32, Vec<u8>)>, RenderError> {
         self.inner.render_rgba(page, scale)
     }
 

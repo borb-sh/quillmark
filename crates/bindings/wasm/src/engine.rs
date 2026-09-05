@@ -2953,7 +2953,9 @@ impl LiveSession {
     /// this call.
     ///
     /// Throws if the backend has no canvas painter, `page` is out of range, `ctx`
-    /// is the wrong type, or either scale is non-finite or `<= 0`.
+    /// is the wrong type, either scale is non-finite or `<= 0`, or the page
+    /// cannot be rasterized at the resulting scale
+    /// (`backend::invalid_raster_scale`).
     #[wasm_bindgen(js_name = paint, unchecked_return_type = "PaintResult")]
     pub fn paint(
         &self,
@@ -3026,6 +3028,7 @@ impl LiveSession {
         let (pixel_w, pixel_h, mut rgba) = self
             .inner
             .render_rgba(page, render_scale as f32)
+            .map_err(|e| WasmError::from(e).to_js_value())?
             .ok_or_else(|| {
                 WasmError::from(format!(
                     "paint: backend '{}' reported a canvas painter but produced no raster \

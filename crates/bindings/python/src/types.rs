@@ -33,8 +33,11 @@ impl PyQuillmark {
 
     /// Render `doc` against `quill` in one shot, resolving `quill`'s backend on
     /// this engine. The default `output_format` falls back to the backend's
-    /// first supported format. Raises `QuillmarkError` (`engine::backend_not_found`)
-    /// when the backend is not registered.
+    /// first supported format. `ppi` (raster formats only, default 144) must be
+    /// finite, above 0, and small enough to keep every rendered page under
+    /// 268435456 pixels. Raises `QuillmarkError` (`engine::backend_not_found`)
+    /// when the backend is not registered, or `backend::invalid_raster_scale`
+    /// for a `ppi` outside that range.
     #[pyo3(signature = (quill, doc, format=None, ppi=None, pages=None, producer=None, regions=false))]
     #[allow(clippy::too_many_arguments)] // kwargs mirror RenderOptions 1:1; the signature IS the Python API
     fn render(

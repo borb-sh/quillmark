@@ -90,11 +90,14 @@ pub(crate) fn render_document_pages(
             Ok(RenderResult::new(artifacts, OutputFormat::Svg))
         }
         OutputFormat::Png => {
-            let scale = ppi / 72.0;
+            let scale = quillmark_core::raster_scale(ppi)?;
             let opts = render_options(scale);
             let mut artifacts = Vec::with_capacity(selected_indices.len());
             for idx in selected_indices {
-                let pixmap = typst_render::render(&document.pages()[idx], &opts);
+                let page = &document.pages()[idx];
+                let size = page.frame.size();
+                quillmark_core::check_raster(scale, size.x.to_pt() as f32, size.y.to_pt() as f32)?;
+                let pixmap = typst_render::render(page, &opts);
                 let png_data = pixmap.encode_png().map_err(|e| {
                     RenderError::coded("typst::png_encoding", format!("PNG encoding failed: {e}"))
                 })?;

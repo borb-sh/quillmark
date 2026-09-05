@@ -161,8 +161,7 @@ impl SessionHandle for PdfformSession {
             return self.render_svg();
         }
         if format == OutputFormat::Png {
-            let scale = opts.ppi_or_default() / 72.0;
-            return self.render_png(scale);
+            return self.render_png(quillmark_core::raster_scale(opts.ppi_or_default())?);
         }
 
         // PDF output is always an interactive AcroForm; value-flattening backs
@@ -186,8 +185,16 @@ impl SessionHandle for PdfformSession {
         Some((x1 - x0, y1 - y0))
     }
 
-    fn render_rgba(&self, page: usize, scale: f32) -> Option<(u32, u32, Vec<u8>)> {
-        let p = self.flat.pages().get(page)?;
+    fn render_rgba(
+        &self,
+        page: usize,
+        scale: f32,
+    ) -> Result<Option<(u32, u32, Vec<u8>)>, RenderError> {
+        let Some(p) = self.flat.pages().get(page) else {
+            return Ok(None);
+        };
+        let (width_pt, height_pt) = p.render_dimensions();
+        quillmark_core::check_raster(scale, width_pt, height_pt)?;
         let cache = RenderCache::new();
         let interp = standard_font_settings();
         let render_settings = scaled_render_settings(scale);
@@ -199,7 +206,7 @@ impl SessionHandle for PdfformSession {
             .into_iter()
             .flat_map(|px| [px.r, px.g, px.b, px.a])
             .collect();
-        Some((w, h, bytes))
+        Ok(Some((w, h, bytes)))
     }
 
     fn regions(&self) -> Vec<RenderedRegion> {
@@ -256,6 +263,8 @@ impl PdfformSession {
 
         let mut artifacts = Vec::with_capacity(self.flat.pages().len());
         for page in self.flat.pages().iter() {
+            let (width_pt, height_pt) = page.render_dimensions();
+            quillmark_core::check_raster(scale, width_pt, height_pt)?;
             let cache = RenderCache::new();
             let pixmap = hayro_render(page, &cache, &interp, &render_settings);
             let png = pixmap.into_png().map_err(|e| {

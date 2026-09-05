@@ -20,14 +20,17 @@ agree: true\n\
 favorite_color: green\n\
 ~~~\n";
 
-#[test]
-fn pdfform_canvas_raster_is_complete() {
+fn open() -> quillmark_core::LiveSession {
     let quill = quillmark::quill_from_path(quillmark_fixtures::quills_path("sample_form"))
         .expect("load sample_form quill");
     let engine = Quillmark::new();
     let doc = Document::parse(FILLED).expect("parse markdown").document;
+    engine.open(&quill, &doc).expect("open session")
+}
 
-    let session = engine.open(&quill, &doc).expect("open session");
+#[test]
+fn pdfform_canvas_raster_is_complete() {
+    let session = open();
 
     assert!(
         session.page_size_pt(0).is_some(),
@@ -38,6 +41,7 @@ fn pdfform_canvas_raster_is_complete() {
     let (width_pt, height_pt) = session.page_size_pt(0).expect("page 0 size");
     let (px_w, px_h, rgba) = session
         .render_rgba(0, scale)
+        .expect("page 0 rasterizes at 2x")
         .expect("pdfform session must rasterize page 0");
 
     let expect_w = (width_pt * scale).round() as i64;
@@ -97,5 +101,28 @@ fn pdfform_canvas_raster_is_complete() {
     assert!(
         ink > 0,
         "field region box must contain non-white opaque pixels"
+    );
+}
+
+#[test]
+fn a_canvas_scale_that_cannot_be_rasterized_is_refused_rather_than_painted() {
+    let session = open();
+    for scale in [f32::INFINITY, f32::NAN, 0.0, -2.0, 1e6] {
+        let err = session
+            .render_rgba(0, scale)
+            .err()
+            .unwrap_or_else(|| panic!("{scale}x is not rasterizable"));
+        assert_eq!(
+            err.diagnostics()[0].code.as_deref(),
+            Some("backend::invalid_raster_scale")
+        );
+    }
+
+    assert!(
+        session
+            .render_rgba(99, 2.0)
+            .expect("a page out of range is not a refused scale")
+            .is_none(),
+        "an out-of-range page still answers None"
     );
 }

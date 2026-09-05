@@ -159,6 +159,11 @@ pub struct RenderOptions {
     /// Ignored for vector/document formats (PDF, SVG).
     /// `None` resolves to [`RenderOptions::DEFAULT_PPI`] through
     /// [`ppi_or_default`](RenderOptions::ppi_or_default).
+    ///
+    /// Must be finite and positive, and small enough to keep every rendered
+    /// page under [`MAX_RASTER_PIXELS`](crate::MAX_RASTER_PIXELS); a raster
+    /// backend refuses anything else with a `backend::invalid_raster_scale`
+    /// [`RenderError`](crate::RenderError).
     pub ppi: Option<f32>,
     /// Optional 0-based page indices to render (e.g., `vec![0, 2]` for
     /// the first and third pages). `None` renders all pages. Any index

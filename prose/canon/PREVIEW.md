@@ -46,7 +46,8 @@ pub trait SessionHandle: Send + Sync + 'static {
 
     // Canvas seam: default None = "no painter".
     fn page_size_pt(&self, page: usize) -> Option<(f32, f32)> { None }
-    fn render_rgba(&self, page: usize, scale: f32) -> Option<(u32, u32, Vec<u8>)> { None }
+    fn render_rgba(&self, page: usize, scale: f32)
+        -> Result<Option<(u32, u32, Vec<u8>)>, RenderError> { Ok(None) }
 
     // Warnings seam: the current compile's non-fatal diagnostics; default empty.
     fn warnings(&self) -> &[Diagnostic] { &[] }
@@ -130,6 +131,13 @@ compositing of its own. Backends satisfy it differently:
   streams at session-open (and again at each `update`), then rasterizes that
   flat PDF via hayro, so field values appear in the raster on their own, with
   no regions-compositing by the caller.
+
+`Ok(None)` is the out-of-range page and the painterless backend; the `Err` is a
+`scale` no page can be rasterized at. Neither rasterizer bounds the buffer it
+sizes from `scale × page size`, so a scale that is not finite and positive, or
+that puts the page past `MAX_RASTER_PIXELS` (16384², the area of the per-side
+clamp below), is refused under `backend::invalid_raster_scale` before either is
+asked. `RenderOptions.ppi` meets the same ceiling on the byte-artifact path.
 
 ### Painter owns the canvas
 

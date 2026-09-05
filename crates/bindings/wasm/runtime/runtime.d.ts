@@ -337,6 +337,12 @@ export interface Artifact {
 /** Options for one render. */
 export interface RenderOptions {
 	format?: OutputFormat;
+	/**
+	 * Pixels per inch for raster formats (PNG); ignored by PDF and SVG.
+	 * Defaults to 144. Must be finite, above 0, and small enough to keep every
+	 * rendered page under 268435456 pixels — anything else throws
+	 * `backend::invalid_raster_scale`.
+	 */
 	ppi?: number;
 	pages?: number[];
 	producer?: string;

@@ -295,8 +295,16 @@ impl SessionHandle for TypstSession {
 
     /// Non-premultiplied RGBA8 at `scale`× the natural 72 ppi, returned as
     /// `(width_px, height_px, rgba)` with `w * h * 4` row-major bytes.
-    fn render_rgba(&self, page: usize, scale: f32) -> Option<(u32, u32, Vec<u8>)> {
-        let p = self.live.document.pages().get(page)?;
+    fn render_rgba(
+        &self,
+        page: usize,
+        scale: f32,
+    ) -> Result<Option<(u32, u32, Vec<u8>)>, RenderError> {
+        let Some(p) = self.live.document.pages().get(page) else {
+            return Ok(None);
+        };
+        let size = p.frame.size();
+        quillmark_core::check_raster(scale, size.x.to_pt() as f32, size.y.to_pt() as f32)?;
         let pixmap = typst_render::render(p, &compile::render_options(scale));
         let width = pixmap.width();
         let height = pixmap.height();
@@ -308,7 +316,7 @@ impl SessionHandle for TypstSession {
             rgba.push(c.blue());
             rgba.push(c.alpha());
         }
-        Some((width, height, rgba))
+        Ok(Some((width, height, rgba)))
     }
 
     /// Widgets first (one fixed-size box each), then span-tracked content in

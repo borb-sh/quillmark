@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- fix(typst,pdfform)!: **a raster nobody can allocate is refused, not
+  attempted.** `RenderOptions.ppi` and the `render_rgba` canvas scale reached
+  tiny-skia and hayro unchecked; both size their buffer from the value and
+  unwrap it, so `ppi: Infinity` or `1e9` panicked the process — in WASM a trap
+  that takes the engine instance with it — while NaN, zero and a negative
+  quietly rasterized a 1×1 image. Every raster path now refuses under
+  `backend::invalid_raster_scale` a scale that is not finite and positive, or
+  that would put a page past `MAX_RASTER_PIXELS` (16384² px: a 1 GiB RGBA
+  buffer, and the area of the WASM painter's per-side clamp, so nothing that
+  clamp admits is refused). US Letter at the default 144 ppi is 138× under it.
+  `SessionHandle::render_rgba` and `LiveSession::render_rgba` return
+  `Result<Option<(u32, u32, Vec<u8>)>, RenderError>` to carry the refusal;
+  `Ok(None)` is still the out-of-range page.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one

@@ -57,8 +57,14 @@ fn open() -> LiveSession {
 /// The bounding box, in Typst top-left-origin points, of the pixels that differ
 /// between `page` and `twin`.
 fn diff_bbox(session: &LiveSession, page: usize, twin: usize) -> [f32; 4] {
-    let (w, h, a) = session.render_rgba(page, SCALE).expect("render page");
-    let (tw, th, b) = session.render_rgba(twin, SCALE).expect("render twin");
+    let (w, h, a) = session
+        .render_rgba(page, SCALE)
+        .expect("SCALE rasterizes")
+        .expect("render page");
+    let (tw, th, b) = session
+        .render_rgba(twin, SCALE)
+        .expect("SCALE rasterizes")
+        .expect("render twin");
     assert_eq!((w, h), (tw, th), "the twin pages render at the same size");
 
     let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0u32, 0u32);

@@ -57,6 +57,10 @@ for a backend session that does not override the incremental-`update` seam
 (both built-in backends override it); `backend::format_not_supported`: the
 requested format is outside the backend's `supported_formats`, one code on
 every backend so a caller matches the condition once;
+`backend::invalid_raster_scale`: a `RenderOptions.ppi` or a `render_rgba` scale
+that is not finite and positive, or that would rasterize a page past
+`MAX_RASTER_PIXELS` — ppi and canvas scale are the same quantity in two units,
+so they share the code and the message names which one was passed;
 `engine::backend_not_found`: the quill's declared backend is not registered.
 
 **`edit::*`: mutator diagnostics.** Document and card mutators fail with the
