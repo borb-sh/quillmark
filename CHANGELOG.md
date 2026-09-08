@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- test(fixtures): **`classic_resume` and `cmu_letter` leave the fixture tree.**
+  2.7 MB of the 4.3 MB was their fonts (EB Garamond ×4, OpenSans ×4). No test
+  named `cmu_letter`; `classic_resume` was named by one three-line gate that
+  also runs on `taro` and `usaf_memo`, and by the usage line of
+  `print_blueprint`. What they exercised beyond the other five is covered
+  without them: `body.enabled: false` by `sample_form` and `richtext_form`, a
+  templated `ui.title` by `core/src/quill/tests.rs`, an object-typed schema by
+  `address_grammar.rs` and `default_values_test.rs`. The
+  `quillmark-fixtures` crate is `publish = false`, so nothing outside the
+  workspace read them. `BLUEPRINT.md`'s worked example still spells
+  `$quill: cmu_letter@0.1.0`: it teaches the annotation grammar and loads no
+  quill. Both READMEs lose a hand-kept inventory — the fixture crate's
+  per-backend quill list (the render sweep walks the directory) and the fuzz
+  crate's module table (each module states its own target, and two that did
+  not now do).
 - docs(core,wasm): **`PREVIEW.md` points at the two surfaces it was copying.**
   § "The seam" claimed every `SessionHandle` method past `render` and
   `page_count` defaults to *absent* and that a backend's capabilities are

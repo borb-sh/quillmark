@@ -1,3 +1,7 @@
+//! The markdown → Typst lane: `escape_string` and `escape_markup`, and the
+//! import-then-lower render path behind them. Escaped text never breaks out of
+//! the string or markup context it was written into.
+
 use proptest::prelude::*;
 use quillmark_content::export::to_plaintext;
 use quillmark_content::import::from_plaintext;
