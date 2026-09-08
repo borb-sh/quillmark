@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- docs: **two copies that were copies, not two ends of a subject.**
+  `prose/README.md` divides canon and `docs/` by audience and says neither
+  restates the other. § "Addressing cards for re-render" was in both, code block
+  included; canon keeps the rule (no durable card handle, `$ext` guarantees
+  nothing, namespacing is a convention) and points at the page that carries the
+  recipe. The text-type 2×2 table was in `creating-quills.md` and
+  `quill-yaml-reference.md`, two pages of the same site, with the tutorial
+  already linking at the reference for the fuller treatment; the tutorial keeps
+  the two questions that pick a type and drops the table.
 - test(fixtures): **`classic_resume` and `cmu_letter` leave the fixture tree.**
   2.7 MB of the 4.3 MB was their fonts (EB Garamond ×4, OpenSans ×4). No test
   named `cmu_letter`; `classic_resume` was named by one three-line gate that

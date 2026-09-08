@@ -124,15 +124,7 @@ fate, governing user-field writes), and the core-vs-bindings parity table.
 
 ## Addressing cards for re-render
 
-Card mutators address by index, and the engine offers no durable card handle: a `remove_card` / `add_card` moves every index after it. For patch-and-re-render automation (a source row changed, re-render the document), carry your own key in the card's `$ext` under a namespace you own, and resolve the index when patching:
-
-```python
-ext = doc.cards[index]["ext"] or {}                                # at build time
-doc.store_ext({**ext, "myapp": {"row_id": row_id}}, card=index)
-idx = next(i for i, c in enumerate(doc.cards)                      # at patch time
-           if (c["ext"] or {}).get("myapp", {}).get("row_id") == row_id)
-quill.writer(doc).card(idx).set_all({"qty": new_qty})
-```
+Card mutators address by index, and the engine offers no durable card handle: a `remove_card` / `add_card` moves every index after it. A consumer that patches and re-renders (a source row changed, re-render the document) carries its own key in the card's `$ext` under a namespace it owns and resolves the index at patch time — the [Programmatic Use](../../docs/integration/programmatic.md) page carries that recipe.
 
 `$ext` round-trips through Markdown and the storage DTO and never reaches a backend ([CARDS.md](CARDS.md) § Out-of-band Metadata). It rides the values form too, so a key stamped here survives a `values()` → edit → `set_values` cycle: the shape carries `$ext` precisely because this pattern depends on it. **The engine guarantees nothing about what a consumer puts there**: no uniqueness, no collision check, no repair on a hand-edited file. A key duplicated across two cards resolves to whichever the scan hits first. Namespacing (`$ext.myapp`) is what keeps two tools on one card from colliding, and it is a convention, not an enforced rule.
 
