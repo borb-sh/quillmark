@@ -68,12 +68,7 @@ fn all_four_fields() -> Vec<FieldSpec> {
 #[test]
 fn stamps_all_four_field_types_into_valid_acroform() {
     let base = build_base_pdf(1);
-    let result = stamp(
-        base,
-        &all_four_fields(),
-        &StampOptions::default().with_producer("Quillmark test".into()),
-    )
-    .expect("stamp ok");
+    let result = stamp(base, &all_four_fields(), &StampOptions::default()).expect("stamp ok");
 
     let doc = lopdf::Document::load_mem(&result).expect("lopdf reparse");
     let cat = doc.catalog().expect("catalog");
@@ -198,25 +193,15 @@ fn signature_field_sets_sigflags() {
     );
 }
 
-#[test]
-fn no_producer_no_fields_is_identity() {
-    let base = build_base_pdf(1);
-    let before = base.clone();
-    let result = stamp(base, &[], &StampOptions::default()).expect("stamp ok");
-    assert_eq!(result, before, "no-op stamp returns base unchanged");
-    assert!(regions_of(&[]).is_empty(), "no fields → no regions");
+/// The `/Producer` [`StampOptions::default`] carries.
+fn default_producer() -> Vec<u8> {
+    format!("Quillmark {}", env!("CARGO_PKG_VERSION")).into_bytes()
 }
 
 #[test]
-fn producer_only_no_fields_stamps_info_producer() {
-    // Not the identity short-circuit: a minimal `/Info`-only incremental append.
+fn no_fields_stamps_info_producer_alone() {
     let base = build_base_pdf(1);
-    let result = stamp(
-        base,
-        &[],
-        &StampOptions::default().with_producer("Quillmark test".into()),
-    )
-    .expect("stamp ok");
+    let result = stamp(base, &[], &StampOptions::default()).expect("stamp ok");
 
     let doc = lopdf::Document::load_mem(&result).expect("lopdf reparse");
     assert!(
@@ -232,7 +217,7 @@ fn producer_only_no_fields_stamps_info_producer() {
     let info = doc.get_object(info_ref).unwrap().as_dict().unwrap();
     assert_eq!(
         info.get(b"Producer").unwrap().as_str().unwrap(),
-        b"Quillmark test"
+        default_producer()
     );
 }
 
@@ -272,7 +257,7 @@ fn producer_stamp_preserves_a_trailing_hex_title() {
     let result = stamp(
         build_base_with_hex_title_info(title),
         &[],
-        &StampOptions::default().with_producer("Quillmark test".into()),
+        &StampOptions::default(),
     )
     .expect("stamp ok");
 
@@ -286,7 +271,7 @@ fn producer_stamp_preserves_a_trailing_hex_title() {
     let info = doc.get_object(info_ref).unwrap().as_dict().unwrap();
     assert_eq!(
         info.get(b"Producer").unwrap().as_str().unwrap(),
-        b"Quillmark test"
+        default_producer()
     );
     let mut utf16be = vec![0xFE, 0xFF];
     for unit in title.encode_utf16() {
@@ -417,7 +402,7 @@ fn implausible_size_errors_cleanly_without_panic() {
     let err = stamp(
         base_with_spliced_size("4294967295"),
         &[],
-        &StampOptions::default().with_producer("Quillmark test".into()),
+        &StampOptions::default(),
     )
     .expect_err("near-u32::MAX /Size should error");
     assert!(err.message.contains("id space"), "{}", err.message);
@@ -563,12 +548,8 @@ fn nonzero_generation_catalog_rejected_cleanly() {
     // Bump the catalog (object 1) header and the trailer /Root to generation 2.
     replace_first(&mut base, b"1 0 obj", b"1 2 obj");
     replace_first(&mut base, b"/Root 1 0 R", b"/Root 1 2 R");
-    let err = stamp(
-        base,
-        &[],
-        &StampOptions::default().with_producer("Quillmark test".into()),
-    )
-    .expect_err("non-zero generation catalog rejected");
+    let err = stamp(base, &[], &StampOptions::default())
+        .expect_err("non-zero generation catalog rejected");
     assert_eq!(err.code, "pdf::nonzero_generation");
     assert!(err.message.contains("generation 2"), "{}", err.message);
 }
@@ -590,12 +571,8 @@ fn encrypted_pdf_rejected_cleanly() {
     // After the xref table, so the startxref offset stays valid.
     let base = build_base_pdf(1);
     let tampered = insert_after(&base, b"/Root 1 0 R", b" /Encrypt 1 0 R");
-    let err = stamp(
-        tampered,
-        &[],
-        &StampOptions::default().with_producer("Quillmark test".into()),
-    )
-    .expect_err("encrypted PDF rejected");
+    let err = stamp(tampered, &[], &StampOptions::default())
+        .expect_err("encrypted PDF rejected");
     assert_eq!(err.code, "pdf::encrypted");
 }
 
@@ -605,12 +582,8 @@ fn xref_stream_rejected_cleanly() {
     // `xref\n0` heads the table; `startxref\n<n>` never matches it.
     let mut base = build_base_pdf(1);
     replace_first(&mut base, b"xref\n0", b"1 0 \n0");
-    let err = stamp(
-        base,
-        &[],
-        &StampOptions::default().with_producer("Quillmark test".into()),
-    )
-    .expect_err("xref stream rejected");
+    let err = stamp(base, &[], &StampOptions::default())
+        .expect_err("xref stream rejected");
     assert_eq!(err.code, "pdf::xref_stream");
 }
 
@@ -693,12 +666,7 @@ fn xref_emits_multiple_subsections_when_ids_have_gaps() {
     // Overwriting low ids while allocating fresh high ones leaves gaps in the
     // changed-id set, so the appended xref needs several subsections.
     let base = build_base_pdf(1);
-    let result = stamp(
-        base,
-        &all_four_fields(),
-        &StampOptions::default().with_producer("Quillmark test".into()),
-    )
-    .expect("stamp ok");
+    let result = stamp(base, &all_four_fields(), &StampOptions::default()).expect("stamp ok");
 
     // The appended table is the last standalone `\nxref\n`. Header lines carry
     // two numeric tokens; entries carry three.

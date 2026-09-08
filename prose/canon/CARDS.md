@@ -140,7 +140,7 @@ positional gate that also polices `$kind`). It answers
 keyed by composable card-kind, is a **sparse overlay** of the user fields (plus
 an optional reserved `$body` string) a freshly-added card of that kind inherits.
 
-**Twin in structure, not in key.** `$ext` is keyed by a free-form *namespace* a consumer owns and the engine never inspects; `$seed` is keyed by a validated composable *card-kind*, and its value is an overlay. The verbs differ where the keys do: `store_ext_namespace` / `remove_ext_namespace` against `store_seed_overlay` / `remove_seed_overlay`, matching the `seedOverlay` read and the `SeedOverlay` type.
+**Twin in structure, not in key.** `$ext` is keyed by a free-form *namespace* a consumer owns and the engine never inspects; `$seed` is keyed by a validated composable *card-kind*, and its value is an overlay. The verbs follow the keys. `$ext` moves whole — `ext` / `store_ext` / `remove_ext` — because a map the engine never reads is one its consumer merges for itself: a namespaced write is the read spread over the new slot. `$seed` is addressed per kind — `store_seed_overlay` / `remove_seed_overlay` — matching the `seedOverlay` read and the `SeedOverlay` type.
 
 ````markdown
 ~~~

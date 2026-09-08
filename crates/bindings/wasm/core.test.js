@@ -113,6 +113,8 @@ card_kinds:
     // overlay yields the bare schema example.
     expect(field(quill.seedCard('note', overlay), 'author')).toBe('Custom Author')
     expect(field(quill.seedCard('note'), 'author')).toBe('A. Author')
+    // Total over the kind axis: an undeclared kind is undefined, not a throw.
+    expect(quill.seedCard('missing')).toBeUndefined()
 
     // storeSeedOverlay writes an overlay; main.seed reads it back; remove clears.
     const doc2 = Document.fromMarkdown('~~~\n$quill: seed_core@1.0.0\n$kind: main\n~~~\n')

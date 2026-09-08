@@ -43,11 +43,6 @@ pub(crate) struct FieldPlacement {
     pub align: TextAlign,
 }
 
-/// Owned by the backend, never defaulted from the leaf spine's version.
-pub(crate) fn default_producer() -> String {
-    format!("Quillmark {}", env!("CARGO_PKG_VERSION"))
-}
-
 /// Flips each rect from Typst's top-left origin to the PDF bottom-left origin
 /// the spine consumes. The value coercion mirrors `quillmark-pdfform`'s
 /// resolver, duplicated because this crate must not depend on it: the two

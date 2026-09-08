@@ -162,9 +162,7 @@ impl SessionHandle for PdfformSession {
 
         // PDF output is always an interactive AcroForm; value-flattening backs
         // only the canvas raster, never a PDF deliverable.
-        let producer = opts.producer.clone().unwrap_or_else(default_producer);
-        let stamp_opts = StampOptions::default().with_producer(producer);
-        let stamped = stamp(self.base_pdf.clone(), &self.field_specs, &stamp_opts)?;
+        let stamped = stamp(self.base_pdf.clone(), &self.field_specs, &StampOptions::default())?;
 
         Ok(RenderResult::new(
             vec![Artifact::new(stamped, OutputFormat::Pdf)],
@@ -277,9 +275,4 @@ fn standard_font_settings() -> InterpreterSettings {
         }),
         ..Default::default()
     }
-}
-
-/// Owned by the backend, never defaulted from the leaf spine's version.
-fn default_producer() -> String {
-    format!("Quillmark {}", env!("CARGO_PKG_VERSION"))
 }

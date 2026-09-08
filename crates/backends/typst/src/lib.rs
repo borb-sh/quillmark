@@ -293,7 +293,6 @@ impl SessionHandle for TypstSession {
             format,
             opts.ppi_or_default(),
             &self.live.field_specs,
-            opts.producer.as_deref(),
         )
     }
 

@@ -838,7 +838,7 @@ export class Engine {
 	 * synchronously before the first await.
 	 * @param {Quill} quill
 	 * @param {Document} doc
-	 * @param {object} [options] render options (`{ format, ppi, pages, producer }`)
+	 * @param {object} [options] render options (`{ format, ppi, pages, regions }`)
 	 * @returns {Promise<import('./runtime.js').RenderResult>}
 	 */
 	async render(quill, doc, options) {

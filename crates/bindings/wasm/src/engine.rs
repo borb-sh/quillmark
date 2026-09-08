@@ -1220,23 +1220,6 @@ impl Document {
         }
     }
 
-    /// The value stored under `$ext[ns]` at `addr` (a card address, absent `card`
-    /// = main), or `undefined`. Throws on a present `field` or an out-of-range
-    /// card.
-    #[wasm_bindgen(js_name = getExtNamespace, unchecked_return_type = "unknown")]
-    pub fn get_ext_namespace(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "CardAddr")] addr: JsValue,
-        ns: &str,
-    ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js(&addr)?;
-        addr.require_card_only("getExtNamespace")?;
-        match self.addr_card_ref(&addr)?.ext().and_then(|m| m.get(ns)) {
-            Some(v) => serialize_or_throw(v, "getExtNamespace"),
-            None => Ok(JsValue::UNDEFINED),
-        }
-    }
-
     /// Number of composable cards, excluding the main card.
     #[wasm_bindgen(getter, js_name = cardCount)]
     pub fn card_count(&self) -> usize {
@@ -1406,8 +1389,10 @@ impl Document {
 
     /// Replace the opaque `$ext` map on the card `addr` targets (absent `card` =
     /// main). `value` must be a plain object. `$ext` carries out-of-band consumer
-    /// state and never reaches the rendered output. Throws on a present `field`
-    /// or an out-of-range card.
+    /// state and never reaches the rendered output. The whole map is the write,
+    /// so a consumer holding one namespace merges the rest:
+    /// `{...doc.getExt(addr), [ns]: v}`. Throws on a present `field` or an
+    /// out-of-range card.
     #[wasm_bindgen(js_name = storeExt)]
     pub fn store_ext(
         &mut self,
@@ -1424,8 +1409,8 @@ impl Document {
     }
 
     /// Remove the `$ext` map on the card `addr` targets entirely, returning the
-    /// previous map or `undefined`. Discards every namespace at once; prefer
-    /// `removeExtNamespace`. Throws on a present `field` or an out-of-range card.
+    /// previous map or `undefined`. Discards every namespace at once. Throws on
+    /// a present `field` or an out-of-range card.
     #[wasm_bindgen(js_name = removeExt, unchecked_return_type = "Record<string, unknown> | undefined")]
     pub fn remove_ext(
         &mut self,
@@ -1434,40 +1419,6 @@ impl Document {
         let addr = Addr::from_js(&addr)?;
         addr.require_card_only("removeExt")?;
         ext_map_to_js(self.addr_card_mut(&addr)?.remove_ext())
-    }
-
-    /// Merge `value` into `$ext[ns]` on the card `addr` targets, preserving
-    /// sibling namespaces: the recommended `$ext` write. Throws on a present
-    /// `field` or an out-of-range card.
-    #[wasm_bindgen(js_name = storeExtNamespace)]
-    pub fn store_ext_namespace(
-        &mut self,
-        #[wasm_bindgen(unchecked_param_type = "CardAddr")] addr: JsValue,
-        ns: &str,
-        value: JsValue,
-    ) -> Result<(), JsValue> {
-        let addr = Addr::from_js(&addr)?;
-        addr.require_card_only("storeExtNamespace")?;
-        let json = js_value_to_json(value, "storeExtNamespace")?;
-        let base = self.addr_base(&addr);
-        self.addr_card_mut(&addr)?
-            .store_ext_namespace(ns, json)
-            .map_err(|e| edit_error_to_js(&e, &base))
-    }
-
-    /// Remove `$ext[ns]` on the card `addr` targets, returning its value or
-    /// `undefined`; drops `$ext` once empty. `addr` is a card address (absent =
-    /// main). Preserves sibling namespaces. Throws on a present `field` or an
-    /// out-of-range card.
-    #[wasm_bindgen(js_name = removeExtNamespace)]
-    pub fn remove_ext_namespace(
-        &mut self,
-        #[wasm_bindgen(unchecked_param_type = "CardAddr")] addr: JsValue,
-        ns: &str,
-    ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js(&addr)?;
-        addr.require_card_only("removeExtNamespace")?;
-        json_value_to_js(self.addr_card_mut(&addr)?.remove_ext_namespace(ns))
     }
 
     /// Merge a card-kind's seed `overlay` into the **main** card's `$seed` map

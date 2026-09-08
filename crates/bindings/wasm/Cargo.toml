@@ -58,9 +58,6 @@ pdfform = ["quillmark/pdfform", "dep:web-sys"]
 # / seed / blueprint). No engine, no Typst; `scripts/build-wasm.sh` enforces its
 # gzip ceiling.
 
-[dev-dependencies]
-wasm-bindgen-test = "0.3"
-
 [package.metadata.cargo-machete]
 # serde_bytes is used via `#[serde(with = "serde_bytes")]` in src/types.rs,
 # which cargo-machete cannot see.

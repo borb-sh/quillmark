@@ -50,11 +50,7 @@ fn exercise(pdf: &[u8]) {
     let _ = PdfUpdate::begin(&idx, None);
     let _ = PdfUpdate::begin(&idx, Some("quillmark-fuzz"));
     let _ = stamp(pdf.to_vec(), &[], &StampOptions::default());
-    let _ = stamp(
-        pdf.to_vec(),
-        &every_field_kind(),
-        &StampOptions::default().with_producer("quillmark-fuzz".into()),
-    );
+    let _ = stamp(pdf.to_vec(), &every_field_kind(), &StampOptions::default());
 }
 
 proptest! {

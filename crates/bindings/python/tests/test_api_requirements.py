@@ -410,29 +410,17 @@ def test_ext_round_trips_through_markdown():
     assert reparsed.main["ext"]["agent"]["pinned"] is True
 
 
-def test_store_ext_namespace_preserves_siblings():
+def test_namespace_scoped_write_is_a_merge_over_the_whole_map():
+    """`main["ext"]`'s read shape is store_ext's write shape, which is what
+    makes the whole-map verb enough for a consumer owning one namespace."""
     doc = Document.from_markdown(SIMPLE_MD)
-    doc.store_ext_namespace("presentation", {"title": "A"})
-    doc.store_ext_namespace("agent", {"pinned": True})
-    doc.store_ext_namespace("presentation", {"title": "B"})
+    doc.store_ext({"presentation": {"title": "A"}})
+    doc.store_ext({**doc.main["ext"], "agent": {"pinned": True}})
+    doc.store_ext({**doc.main["ext"], "presentation": {"title": "B"}})
     assert doc.main["ext"] == {
         "presentation": {"title": "B"},
         "agent": {"pinned": True},
     }
-
-
-def test_remove_ext_namespace_clears_one_slot_and_drops_when_empty():
-    doc = Document.from_markdown(SIMPLE_MD)
-    doc.store_ext_namespace("presentation", {"title": "A"})
-    doc.store_ext_namespace("tutorial", ["step-1", "step-2"])
-    # Returns the removed value; siblings survive.
-    assert doc.remove_ext_namespace("tutorial") == ["step-1", "step-2"]
-    assert doc.main["ext"] == {"presentation": {"title": "A"}}
-    # Removing the last namespace clears $ext entirely.
-    doc.remove_ext_namespace("presentation")
-    assert doc.main["ext"] is None
-    # Absent namespace is a no-op returning None.
-    assert doc.remove_ext_namespace("nope") is None
 
 
 def test_remove_ext_returns_previous_and_clears():
@@ -453,27 +441,12 @@ def test_card_ext_mutators():
     assert doc.cards[0]["ext"] is None
 
 
-def test_card_ext_namespace_mutators():
-    """store/remove_ext_namespace with card=i preserve siblings and clear when empty."""
-    doc = Document.from_markdown(MD_WITH_CARDS)
-    doc.store_ext_namespace("presentation", {"title": "A"}, card=0)
-    doc.store_ext_namespace("tutorial", ["step-1"], card=0)
-    assert doc.remove_ext_namespace("tutorial", card=0) == ["step-1"]
-    assert doc.cards[0]["ext"] == {"presentation": {"title": "A"}}
-    doc.remove_ext_namespace("presentation", card=0)
-    assert doc.cards[0]["ext"] is None
-
-
 def test_card_ext_mutators_out_of_range():
     doc = Document.from_markdown(SIMPLE_MD)  # 0 cards
     with raises_edit_code("edit::index_out_of_range"):
         doc.store_ext({}, card=0)
     with raises_edit_code("edit::index_out_of_range"):
         doc.remove_ext(card=0)
-    with raises_edit_code("edit::index_out_of_range"):
-        doc.store_ext_namespace("a", {}, card=0)
-    with raises_edit_code("edit::index_out_of_range"):
-        doc.remove_ext_namespace("a", card=0)
 
 
 def test_mutators_do_not_touch_warnings():
@@ -481,7 +454,7 @@ def test_mutators_do_not_touch_warnings():
     initial = list(doc.warnings)
     doc.remove_field("title")
     doc.insert_card({"kind": "new_card"})
-    doc.store_ext_namespace("agent", {"n": 1})
+    doc.store_ext({"agent": {"n": 1}})
     assert list(doc.warnings) == initial
 
 

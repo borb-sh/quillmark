@@ -346,7 +346,6 @@ export interface RenderOptions {
 	 */
 	ppi?: number;
 	pages?: number[];
-	producer?: string;
 	/**
 	 * Populate {@link RenderResult.regions} with schema-field geometry, for
 	 * consumers without a live session. Defaults to `false`.

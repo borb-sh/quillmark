@@ -165,10 +165,6 @@ pub struct RenderOptions {
     /// backend emits whole — PDF on both built-in backends — fails with
     /// `backend::page_selection_not_supported` when this is `Some`.
     pub pages: Option<Vec<usize>>,
-    /// Override for the PDF `/Info` `/Producer` metadata string. `None` uses
-    /// the backend default (`Quillmark <version>` for the Typst backend).
-    /// Applies to PDF output only; ignored by SVG/PNG.
-    pub producer: Option<String>,
     /// Populate [`RenderResult::regions`](crate::RenderResult) with the
     /// schema-field geometry sidecar, for consumers without a live session.
     /// Default `false`, so exports pay no introspection cost.
@@ -200,11 +196,6 @@ impl RenderOptions {
 
     pub fn with_pages(mut self, pages: Vec<usize>) -> Self {
         self.pages = Some(pages);
-        self
-    }
-
-    pub fn with_producer(mut self, producer: String) -> Self {
-        self.producer = Some(producer);
         self
     }
 

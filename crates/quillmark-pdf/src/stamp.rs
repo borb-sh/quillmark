@@ -82,24 +82,23 @@ fn fonts_used(fields: &[FieldSpec]) -> Vec<FormFont> {
 }
 
 /// Options for [`stamp`](crate::stamp).
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct StampOptions {
-    /// `None` leaves the base PDF's `/Producer` untouched. The spine never
-    /// defaults this from its own crate version.
-    pub producer: Option<String>,
+    /// The `/Info` `/Producer` this stamp writes over whatever the base carries.
+    pub producer: String,
 }
 
-impl StampOptions {
-    /// Set [`producer`](Self::producer).
-    pub fn with_producer(mut self, producer: String) -> Self {
-        self.producer = Some(producer);
-        self
+impl Default for StampOptions {
+    fn default() -> Self {
+        Self {
+            producer: format!("Quillmark {}", env!("CARGO_PKG_VERSION")),
+        }
     }
 }
 
 /// Stamp `fields` onto `base` as a fresh AcroForm via one incremental update,
-/// optionally stamping `/Info` `/Producer`. Geometry is not produced here; it is
-/// a session-level query (see [`regions_of`]).
+/// and `/Info` `/Producer` with it. Geometry is not produced here; it is a
+/// session-level query (see [`regions_of`]).
 ///
 /// `base` must satisfy the reader's input contract (traditional-xref,
 /// unencrypted, inline-annots, bounded-tree) and carry no `/AcroForm` of its
@@ -110,18 +109,13 @@ pub fn stamp(
     fields: &[FieldSpec],
     opts: &StampOptions,
 ) -> Result<Vec<u8>, PdfError> {
-    // Return the base as-is rather than append an empty revision.
-    if opts.producer.is_none() && fields.is_empty() {
-        return Ok(base);
-    }
-
     for spec in fields {
         spec.assert_finite_rect()?;
     }
 
     let pdf = base;
     let idx = ObjectIndex::new(&pdf);
-    let mut up = PdfUpdate::begin(&idx, opts.producer.as_deref())?;
+    let mut up = PdfUpdate::begin(&idx, Some(opts.producer.as_str()))?;
 
     if !fields.is_empty() {
         // Before any allocation: a second `/AcroForm` on the catalog is a dict

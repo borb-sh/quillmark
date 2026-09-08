@@ -321,9 +321,6 @@ pub struct RenderOptions {
     /// for PDF output: throws `backend::page_selection_not_supported`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pages: Option<Vec<usize>>,
-    /// PDF `/Info` `/Producer` override; defaults to `Quillmark <version>`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub producer: Option<String>,
     /// Populate `RenderResult.regions` with schema-field geometry, for consumers
     /// without a live session. Defaults to `false`. Page indices are
     /// document-space even when `pages` selects a subset.
@@ -338,7 +335,6 @@ impl Default for RenderOptions {
             format: Some(OutputFormat::Pdf),
             ppi: None,
             pages: None,
-            producer: None,
             regions: None,
         }
     }
@@ -351,7 +347,6 @@ impl From<RenderOptions> for quillmark_core::RenderOptions {
         core.output_format = opts.format.map(|f| f.into());
         core.ppi = opts.ppi;
         core.pages = opts.pages;
-        core.producer = opts.producer;
         core.regions = opts.regions.unwrap_or(false);
         core
     }

@@ -44,8 +44,7 @@ impl PyQuillmark {
     ///
     /// `pages` selects 0-based page indices counting from the first page; a
     /// negative one selects no page and raises like an index past the last.
-    #[pyo3(signature = (quill, doc, format=None, ppi=None, pages=None, producer=None, regions=false))]
-    #[allow(clippy::too_many_arguments)] // kwargs mirror RenderOptions 1:1; the signature IS the Python API
+    #[pyo3(signature = (quill, doc, format=None, ppi=None, pages=None, regions=false))]
     fn render(
         &self,
         quill: &PyQuill,
@@ -53,14 +52,12 @@ impl PyQuillmark {
         format: Option<PyOutputFormat>,
         ppi: Option<f32>,
         pages: Option<Vec<isize>>,
-        producer: Option<String>,
         regions: bool,
     ) -> PyResult<PyRenderResult> {
         let mut opts = quillmark_core::RenderOptions::default();
         opts.output_format = format.map(OutputFormat::from);
         opts.ppi = ppi;
         opts.pages = pages.map(page_indices).transpose()?;
-        opts.producer = producer;
         opts.regions = regions;
         let start = Instant::now();
         let mut result = self
@@ -537,9 +534,9 @@ impl PyDocument {
 
     /// Replace the opaque `$ext` map on a card. `value` must be a dict; raises
     /// `ValueError` otherwise. `$ext` carries out-of-band consumer state and never
-    /// reaches the rendered output; pass `{}` for an explicit empty `$ext`. Prefer
-    /// `store_ext_namespace` to write one slot without clobbering sibling
-    /// consumers'.
+    /// reaches the rendered output; pass `{}` for an explicit empty `$ext`. The
+    /// whole map is the write, so a consumer holding one namespace merges the
+    /// rest: `{**doc.main["ext"], ns: v}`.
     #[pyo3(signature = (value, card=None))]
     fn store_ext(&mut self, value: Bound<'_, PyAny>, card: Option<isize>) -> PyResult<()> {
         let map = py_to_object(&value, "store_ext")?;
@@ -551,7 +548,7 @@ impl PyDocument {
     }
 
     /// Remove the `$ext` map from a card entirely, returning the previous map or
-    /// `None`. Discards every namespace at once; prefer `remove_ext_namespace`.
+    /// `None`. Discards every namespace at once.
     #[pyo3(signature = (card=None))]
     fn remove_ext<'py>(
         &mut self,
@@ -560,37 +557,6 @@ impl PyDocument {
     ) -> PyResult<Bound<'py, PyAny>> {
         let prev = self.addr_card_mut(card)?.remove_ext();
         ext_map_to_py(py, prev)
-    }
-
-    /// Merge `value` into a card's `$ext` map under `namespace`, creating the map
-    /// when absent and replacing any existing value at that key. Sibling
-    /// namespaces are preserved.
-    #[pyo3(signature = (namespace, value, card=None))]
-    fn store_ext_namespace(
-        &mut self,
-        namespace: &str,
-        value: Bound<'_, PyAny>,
-        card: Option<isize>,
-    ) -> PyResult<()> {
-        let json = py_to_json(&value)?;
-        let base = self.addr_base(card);
-        self.addr_card_mut(card)?
-            .store_ext_namespace(namespace, json)
-            .map_err(|e| convert_edit_error(e, &base))?;
-        Ok(())
-    }
-
-    /// Remove `namespace` from a card's `$ext` map, returning the value stored
-    /// there or `None`; sibling namespaces survive, and the `$ext` entry drops
-    /// entirely once its last namespace is removed (not left as `$ext: {}`).
-    #[pyo3(signature = (namespace, card=None))]
-    fn remove_ext_namespace<'py>(
-        &mut self,
-        py: Python<'py>,
-        namespace: &str,
-        card: Option<isize>,
-    ) -> PyResult<Bound<'py, PyAny>> {
-        ext_value_to_py(py, self.addr_card_mut(card)?.remove_ext_namespace(namespace))
     }
 
     /// Merge a card-kind's seed `overlay` into the main card's `$seed` map

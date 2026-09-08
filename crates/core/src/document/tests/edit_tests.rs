@@ -975,57 +975,6 @@ fn test_remove_ext_returns_previous_and_clears() {
     assert!(doc.main_mut().remove_ext().is_none());
 }
 
-#[test]
-fn test_store_ext_namespace_preserves_siblings() {
-    let mut doc = make_doc();
-    doc.main_mut()
-        .store_ext_namespace("presentation", serde_json::json!({ "title": "A" }))
-        .expect("set_ext_namespace");
-    doc.main_mut()
-        .store_ext_namespace("agent", serde_json::json!({ "pinned": true }))
-        .expect("set_ext_namespace");
-
-    let ext = doc.main().ext().unwrap();
-    assert_eq!(ext["presentation"]["title"].as_str(), Some("A"));
-    assert_eq!(ext["agent"]["pinned"].as_bool(), Some(true));
-
-    doc.main_mut()
-        .store_ext_namespace("presentation", serde_json::json!({ "title": "B" }))
-        .expect("set_ext_namespace");
-    let ext = doc.main().ext().unwrap();
-    assert_eq!(ext["presentation"]["title"].as_str(), Some("B"));
-    assert_eq!(ext["agent"]["pinned"].as_bool(), Some(true));
-}
-
-#[test]
-fn test_remove_ext_namespace_preserves_siblings() {
-    let mut doc = make_doc();
-    doc.main_mut()
-        .store_ext_namespace("presentation", serde_json::json!({ "title": "A" }))
-        .expect("set_ext_namespace");
-    doc.main_mut()
-        .store_ext_namespace("tutorial", serde_json::json!(["step-1", "step-2"]))
-        .expect("set_ext_namespace");
-
-    let removed = doc.main_mut().remove_ext_namespace("tutorial").unwrap();
-    assert_eq!(removed, serde_json::json!(["step-1", "step-2"]));
-    let ext = doc.main().ext().unwrap();
-    assert_eq!(ext["presentation"]["title"].as_str(), Some("A"));
-    assert!(!ext.contains_key("tutorial"));
-}
-
-#[test]
-fn test_remove_ext_namespace_drops_ext_when_empty() {
-    let mut doc = make_doc();
-    doc.main_mut()
-        .store_ext_namespace("tutorial", serde_json::json!(["step-1"]))
-        .expect("set_ext_namespace");
-
-    let removed = doc.main_mut().remove_ext_namespace("tutorial").unwrap();
-    assert_eq!(removed, serde_json::json!(["step-1"]));
-    assert!(doc.main().ext().is_none());
-}
-
 /// Nests `{"a":…}` `depth` levels iteratively, so the test itself stays stack-safe.
 fn deep_value(depth: usize) -> serde_json::Value {
     let mut v = serde_json::json!(1);
@@ -1056,14 +1005,9 @@ fn store_field_rejects_value_past_depth_limit() {
         unreachable!()
     };
     assert!(doc.main_mut().store_ext(map).is_err());
-    assert!(doc
-        .main_mut()
-        .store_ext_namespace("ns", deep_value(150))
-        .is_err());
 }
 
-/// The `$ext` map is itself a level, so its values carry `MAX_JSON_DEPTH - 1`:
-/// the wholesale store and the namespace merge bound the merged map identically.
+/// The `$ext` map is itself a level, so its values carry `MAX_JSON_DEPTH - 1`.
 #[test]
 fn store_ext_charges_the_map_its_own_level() {
     let mut doc =
@@ -1086,9 +1030,29 @@ fn store_ext_charges_the_map_its_own_level() {
         Some(&deep_value(127)),
         "the refused map leaves the stored one untouched"
     );
+}
 
-    doc.main_mut().store_ext_namespace("ns", deep_value(127)).expect("the merge bound matches");
-    assert!(doc.main_mut().store_ext_namespace("ns", deep_value(128)).is_err());
+/// The namespace merge behind `$seed` charges the map the same level the
+/// wholesale `$ext` store does, so one overlay is bounded at
+/// `MAX_JSON_DEPTH - 1` however many kinds sit beside it.
+#[test]
+fn store_seed_overlay_charges_the_map_its_own_level() {
+    let mut doc =
+        crate::document::Document::parse("~~~\n$quill: q@1.0\n$kind: main\n~~~\n").unwrap().document;
+
+    doc.main_mut()
+        .store_seed_overlay("note", deep_value(127))
+        .expect("127 levels under the map is exactly the limit");
+    let err = doc.main_mut().store_seed_overlay("memo", deep_value(128)).unwrap_err();
+    assert!(
+        matches!(err, crate::document::EditError::ValueTooDeep { max: 128 }),
+        "expected ValueTooDeep, got {err:?}"
+    );
+    assert_eq!(err.code(), "edit::value_too_deep");
+
+    let seed = doc.main().seed().expect("the accepted overlay is still there");
+    assert_eq!(seed.get("note"), Some(&deep_value(127)));
+    assert!(!seed.contains_key("memo"), "the refused overlay is not written");
 }
 
 #[test]

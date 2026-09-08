@@ -47,7 +47,7 @@ parse, storage, structure, `$ext` / `$seed`, and `remove_field`. Names follow
 ```python
 engine = Quillmark()
 engine.registered_backends()              # ['typst', 'pdfform'] (order not guaranteed)
-engine.render(quill, parsed, OutputFormat.PDF)   # ppi=, pages=, producer= optional
+engine.render(quill, parsed, OutputFormat.PDF)   # ppi=, pages= optional
 engine.supported_formats(quill)           # [OutputFormat.PDF, ...] (raises if backend unregistered)
 ```
 
@@ -162,8 +162,8 @@ doc.remove_field("title")                        # remove has no lane; card=i ta
 
 # Out-of-band consumer state (never rendered):
 doc.store_ext({"agent": {"pinned": True}})       # whole $ext map; card=i for a composable card
-doc.store_ext_namespace("agent", {"n": 1})       # one slot, siblings preserved; card=i too
-doc.remove_ext_namespace("agent"); doc.remove_ext()
+doc.store_ext({**doc.main["ext"], "agent": {"n": 1}})   # one namespace: merge, then store
+doc.remove_ext()                                 # every namespace at once
 doc.store_seed_overlay("note", {"tag": "T"})     # per-kind $seed overlay; new cards spawn with it
 doc.remove_seed_overlay("note")
 ```

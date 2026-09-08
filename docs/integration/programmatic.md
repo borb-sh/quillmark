@@ -85,7 +85,8 @@ It is a projection, not a storage format — persist with `to_stored` ([Persiste
 Card mutators address by index, and the engine offers no durable card handle: a `remove_card` / `add_card` moves every index after it. For patch-and-re-render automation (a source row changed, re-render the document), carry your own key in the card's `$ext` under a namespace you own, and resolve the index when patching:
 
 ```python
-doc.store_ext_namespace("myapp", {"row_id": row_id}, card=index)   # at build time
+ext = doc.cards[index]["ext"] or {}                                # at build time
+doc.store_ext({**ext, "myapp": {"row_id": row_id}}, card=index)
 idx = next(i for i, c in enumerate(doc.cards)                      # at patch time
            if (c["ext"] or {}).get("myapp", {}).get("row_id") == row_id)
 quill.writer(doc).card(idx).set_all({"qty": new_qty})

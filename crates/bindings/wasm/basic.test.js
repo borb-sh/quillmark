@@ -1477,28 +1477,14 @@ describe('Document editor surface: $ext mutators', () => {
     expect(reparsed.main.ext.agent.pinned).toBe(true)
   })
 
-  it('storeExtNamespace preserves sibling namespaces', () => {
+  // getExt's read shape is storeExt's write shape, which is what makes the
+  // whole-map verbs enough for a consumer owning one namespace.
+  it('a namespace-scoped write is a merge over the whole map', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.storeExtNamespace({}, 'editor', { title: 'A' })
-    doc.storeExtNamespace({}, 'agent', { pinned: true })
-    doc.storeExtNamespace({}, 'editor', { title: 'B' })
-    expect(doc.main.ext.editor.title).toBe('B')
-    expect(doc.main.ext.agent.pinned).toBe(true)
-  })
-
-  it('removeExtNamespace clears one slot and drops $ext once empty', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.storeExtNamespace({}, 'editor', { title: 'A' })
-    doc.storeExtNamespace({}, 'tutorial', ['step-1', 'step-2'])
-    // Returns the removed value; siblings survive.
-    expect(doc.removeExtNamespace({}, 'tutorial')).toEqual(['step-1', 'step-2'])
-    expect(doc.main.ext.editor.title).toBe('A')
-    expect(doc.main.ext.tutorial).toBeUndefined()
-    // Removing the last namespace clears $ext entirely.
-    doc.removeExtNamespace({}, 'editor')
-    expect(doc.main.ext == null).toBe(true)
-    // Absent namespace is a no-op returning undefined.
-    expect(doc.removeExtNamespace({}, 'nope')).toBeUndefined()
+    doc.storeExt({}, { ...doc.getExt({}), editor: { title: 'A' } })
+    doc.storeExt({}, { ...doc.getExt({}), agent: { pinned: true } })
+    doc.storeExt({}, { ...doc.getExt({}), editor: { title: 'B' } })
+    expect(doc.main.ext).toEqual({ editor: { title: 'B' }, agent: { pinned: true } })
   })
 
   it('removeExt returns the previous map and clears it', () => {
@@ -1518,23 +1504,10 @@ describe('Document editor surface: $ext mutators', () => {
     expect(doc.cards[0].ext == null).toBe(true)
   })
 
-  it('card-level namespace mutators preserve siblings and clear when empty', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.insertCard({ kind: 'note', body: 'x' })
-    doc.storeExtNamespace({ card: 0 }, 'editor', { title: 'A' })
-    doc.storeExtNamespace({ card: 0 }, 'tutorial', ['step-1'])
-    expect(doc.removeExtNamespace({ card: 0 }, 'tutorial')).toEqual(['step-1'])
-    expect(doc.cards[0].ext.editor.title).toBe('A')
-    doc.removeExtNamespace({ card: 0 }, 'editor')
-    expect(doc.cards[0].ext == null).toBe(true)
-  })
-
   it('card-level ext mutators throw IndexOutOfRange', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     expectEditCode(() => doc.storeExt({ card: 5 }, {}), 'edit::index_out_of_range')
     expectEditCode(() => doc.removeExt({ card: 5 }), 'edit::index_out_of_range')
-    expectEditCode(() => doc.storeExtNamespace({ card: 5 }, 'a', {}), 'edit::index_out_of_range')
-    expectEditCode(() => doc.removeExtNamespace({ card: 5 }, 'a'), 'edit::index_out_of_range')
   })
 })
 
@@ -1546,24 +1519,13 @@ describe('Document editor surface: $ext reads', () => {
     expect(doc.getExt({})).toEqual({ editor: { title: 'A' }, agent: { pinned: true } })
   })
 
-  it('getExtNamespace reads one slot, non-destructively', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.storeExtNamespace({}, 'tutorial', ['step-1', 'step-2'])
-    expect(doc.getExtNamespace({}, 'tutorial')).toEqual(['step-1', 'step-2'])
-    expect(doc.getExtNamespace({}, 'nope')).toBeUndefined()
-    // Unlike removeExtNamespace, reading twice yields the same value.
-    expect(doc.getExtNamespace({}, 'tutorial')).toEqual(['step-1', 'step-2'])
-  })
-
-  it('both reads are card-indexed and take a card address only', () => {
+  it('the read is card-indexed and takes a card address only', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     doc.insertCard({ kind: 'note', body: 'x' })
     doc.storeExt({ card: 0 }, { agent: { note: 'y' } })
     expect(doc.getExt({ card: 0 }).agent.note).toBe('y')
-    expect(doc.getExtNamespace({ card: 0 }, 'agent')).toEqual({ note: 'y' })
     expect(() => doc.getExt({ field: 'title' })).toThrow(/getExt/)
     expectEditCode(() => doc.getExt({ card: 5 }), 'edit::index_out_of_range')
-    expectEditCode(() => doc.getExtNamespace({ card: 5 }, 'agent'), 'edit::index_out_of_range')
   })
 })
 

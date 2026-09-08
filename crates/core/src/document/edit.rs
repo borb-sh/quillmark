@@ -781,6 +781,9 @@ impl Card {
     /// replaced `$ext` are dropped. Returns [`EditError::ValueTooDeep`] when the
     /// map nests past the §8 depth limit: `$ext` flows through the recursive
     /// emit and DTO paths like any other value.
+    ///
+    /// The whole map is the write, so a consumer holding one namespace merges
+    /// the rest of [`ext`](Card::ext) into what it stores.
     pub fn store_ext(
         &mut self,
         value: serde_json::Map<String, serde_json::Value>,
@@ -791,36 +794,10 @@ impl Card {
         Ok(())
     }
 
-    /// Remove the card's `$ext` map *entirely*, returning the previous map. This
-    /// discards every namespace at once; [`Card::remove_ext_namespace`] drops
-    /// only one slot and leaves sibling consumers' state intact.
+    /// Remove the card's `$ext` map *entirely*, returning the previous map.
+    /// Discards every namespace at once.
     pub fn remove_ext(&mut self) -> Option<serde_json::Map<String, serde_json::Value>> {
         self.payload_mut().take_ext()
-    }
-
-    /// Merge `value` into the card's `$ext` map under `namespace`, creating
-    /// the map when absent and replacing any existing value at that key.
-    ///
-    /// Sibling namespaces are preserved, so independent consumers keying on
-    /// their own slot don't clobber each other. Returns
-    /// [`EditError::ValueTooDeep`] when the merged map nests past the §8 depth
-    /// limit; the card's `$ext` is unchanged on error.
-    pub fn store_ext_namespace(
-        &mut self,
-        namespace: impl Into<String>,
-        value: serde_json::Value,
-    ) -> Result<(), EditError> {
-        self.merge_meta_namespace(MetaKey::Ext, namespace.into(), value)
-    }
-
-    /// Remove `namespace` from the card's `$ext` map, returning the value
-    /// that was stored there (or `None` when the map or the key was absent).
-    ///
-    /// The namespace-scoped inverse of [`Card::store_ext_namespace`]: siblings
-    /// are preserved, where [`Card::remove_ext`] wipes them all. Emptying the
-    /// map drops the `$ext` entry entirely rather than leaving `$ext: {}`.
-    pub fn remove_ext_namespace(&mut self, namespace: &str) -> Option<serde_json::Value> {
-        self.remove_meta_namespace(MetaKey::Ext, namespace)
     }
 
     /// The map is written back only after the depth check passes, so the card is

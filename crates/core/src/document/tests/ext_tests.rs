@@ -155,7 +155,7 @@ Body content.
 ";
     let mut doc = parse(src);
     doc.main_mut()
-        .store_ext_namespace("editor", json!({}))
+        .store_ext(json!({ "editor": {} }).as_object().unwrap().clone())
         .expect("store empty namespace");
 
     let emitted = doc.to_markdown();
@@ -179,7 +179,12 @@ title: Body
 ";
     let mut doc = parse(src);
     doc.main_mut()
-        .store_ext_namespace("editor", json!({ "tips": {} }))
+        .store_ext(
+            json!({ "editor": { "tips": {} } })
+                .as_object()
+                .unwrap()
+                .clone(),
+        )
         .expect("store nested empty mapping");
 
     let emitted = doc.to_markdown();

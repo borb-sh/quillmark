@@ -9,7 +9,6 @@ use typst_render::RenderOptions;
 use typst_svg::SvgOptions;
 
 use crate::error_mapping::map_typst_errors;
-use crate::overlay;
 use crate::world::QuillWorld;
 use quillmark_core::{
     page_selection_not_supported, selected_pages, Artifact, Diagnostic, OutputFormat, RenderError,
@@ -43,15 +42,13 @@ pub(crate) fn compile_document(
     }
 }
 
-/// `field_specs` are stamped as AcroForm widgets by the PDF path only;
-/// `producer` overrides the PDF `/Info` `/Producer` string.
+/// `field_specs` are stamped as AcroForm widgets by the PDF path only.
 pub(crate) fn render_document_pages(
     document: &PagedDocument,
     pages: Option<&[usize]>,
     format: OutputFormat,
     ppi: f32,
     field_specs: &[FieldSpec],
-    producer: Option<&str>,
 ) -> Result<RenderResult, RenderError> {
     if format == OutputFormat::Pdf && pages.is_some() {
         return Err(page_selection_not_supported(format));
@@ -96,11 +93,7 @@ pub(crate) fn render_document_pages(
                     format!("PDF generation failed: {e:?}"),
                 )
             })?;
-            let producer = producer
-                .map(str::to_string)
-                .unwrap_or_else(overlay::default_producer);
-            let opts = StampOptions::default().with_producer(producer);
-            let stamped = stamp(pdf, field_specs, &opts)?;
+            let stamped = stamp(pdf, field_specs, &StampOptions::default())?;
             Ok(RenderResult::new(
                 vec![Artifact::new(stamped, OutputFormat::Pdf)],
                 OutputFormat::Pdf,
