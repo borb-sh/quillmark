@@ -204,17 +204,11 @@ pub(crate) fn append_incremental_update(
 /// A base PDF and the offset of every indirect object header in it, collected in
 /// one forward pass. Every read of an object goes through this.
 ///
-/// A per-object scan cannot stop early — a base carrying prior incremental
-/// updates serializes an id more than once and the live copy is the last — so
-/// reading one object without an index walks the whole buffer, and a stamp or
-/// flatten pass reads O(pages) objects.
-///
-/// A header is `<id> <generation> obj` at a token boundary, so `19 0 obj` is not
-/// found inside `519 0 obj`, at any generation (re-saved PDFs carry non-zero
-/// ones). A later occurrence overwrites an earlier one, so a lookup answers with
-/// the live copy. Strings, `%`-comments and stream bodies are skipped, so header
-/// bytes inside a string value or inside stream data cannot shadow the real
-/// object.
+/// A header is `<id> <generation> obj` at a token boundary and at any generation,
+/// so `19 0 obj` is not found inside `519 0 obj`. Strings, `%`-comments and
+/// stream bodies are skipped, so bytes inside them cannot shadow a real header.
+/// A base carrying prior incremental updates serializes an id more than once and
+/// the live copy is the last, which is the one a lookup answers with.
 pub struct ObjectIndex<'a> {
     pdf: &'a [u8],
     starts: HashMap<u32, usize>,
@@ -275,16 +269,11 @@ impl<'a> ObjectIndex<'a> {
         std::str::from_utf8(&rest[..n]).ok()?.parse().ok()
     }
 
-    /// Reject overwriting a base object that lives at a non-zero generation.
-    ///
-    /// The update writer re-emits overwritten objects at generation 0 and
-    /// references them as generation 0, while the reader accepts a header at any
-    /// generation. A base whose catalog / page / `/Info` sits at a non-zero
-    /// generation therefore parses fine yet would produce a malformed update: the
-    /// new `/Root` points at generation 0 while the prior xref resolves the true
-    /// generation.
-    ///
-    /// `None` (object absent) is left for the caller's not-found error path.
+    /// Reject overwriting a base object that lives at a non-zero generation: the
+    /// update writer re-emits and references overwritten objects at generation 0,
+    /// so the new `/Root` would point at generation 0 while the prior xref
+    /// resolves the true one. An absent object is left to the caller's not-found
+    /// path.
     pub(crate) fn assert_overwrite_gen_zero(&self, id: u32, what: &str) -> Result<(), PdfError> {
         match self.generation(id) {
             Some(0) | None => Ok(()),
@@ -423,10 +412,9 @@ fn skip_ws_and_comments(b: &[u8], start: usize) -> usize {
 
 /// If `b[i]` opens a string — literal or hex — or a `%`-comment, the index just
 /// past it, so a scanner steps over raw `<<`/`>>`/`[`/`]`/`endobj` bytes without
-/// reading them as structure. A hex string's closing `>` is one of those:
-/// against the enclosing dict's `>>` it forms a `>>` that is not the dict's. A
-/// `<` followed by `<` opens a dict, not a hex string. `None` when `b[i]` opens
-/// none of them, and the caller advances one byte.
+/// reading them as structure; the sharp case is a hex string's closing `>`
+/// forming a `>>` against the enclosing dict's own. `None` when `b[i]` opens none
+/// of them.
 fn skip_string_or_comment(b: &[u8], i: usize) -> Option<usize> {
     match b.get(i)? {
         b'(' => Some(skip_pdf_string(b, i)),
@@ -443,11 +431,10 @@ fn skip_string_or_comment(b: &[u8], i: usize) -> Option<usize> {
 }
 
 /// If `b[i]` opens a stream body — the `stream` keyword at a token boundary,
-/// followed by CRLF or LF per ISO 32000 §7.3.8 — the index just past the
-/// `endstream` closing it, so raw stream data is never read as structure. `None`
-/// when `b[i]` opens no stream, and when no `endstream` follows: a truncated
-/// stream is then scanned as ordinary bytes rather than swallowing the rest of
-/// the file.
+/// followed by CRLF or LF per ISO 32000 §7.3.8 — the index just past its
+/// `endstream`, so raw stream data is never read as structure. `None` also when
+/// no `endstream` follows, so a truncated stream is scanned as ordinary bytes
+/// rather than swallowing the rest of the file.
 fn skip_stream_body(b: &[u8], i: usize) -> Option<usize> {
     const OPEN: &[u8] = b"stream";
     const CLOSE: &[u8] = b"endstream";
@@ -759,13 +746,11 @@ fn root_pages_id(idx: &ObjectIndex, catalog_id: u32) -> Result<u32, PdfError> {
         .ok_or_else(|| err(CODE_PARSE, "catalog /Pages reference not found"))
 }
 
-/// Reject a page with a non-zero `/Rotate`, its own value or the one inherited
-/// from its nearest ancestor `/Pages` node. The stamp and flatten paths write
-/// geometry in unrotated user space and do not compensate, so a rotated base
-/// page would display every widget away from its intended box. The first
-/// *present* value binds, and one that is not a direct integer — an indirect
-/// reference, say — is an error rather than an absence falling to the default
-/// zero.
+/// Reject a page whose `/Rotate`, its own or inherited, is non-zero: the stamp
+/// and flatten paths write geometry in unrotated user space and do not
+/// compensate, so every widget would display away from its box. The first
+/// *present* value binds, and a non-integer one errors rather than falling to the
+/// default zero.
 pub(crate) fn assert_unrotated_pages<'p>(
     idx: &ObjectIndex,
     pages: impl IntoIterator<Item = &'p Page>,
@@ -915,9 +900,8 @@ fn canvas_box(idx: &ObjectIndex, page: &Page) -> Result<[f32; 4], PdfError> {
 }
 
 /// The page box `key`, normalized, from the first ancestor-chain node carrying
-/// one. The first *present* value binds, and one that is not a direct
-/// `[x0 y0 x1 y1]` array — an indirect reference, say — is an error rather than
-/// an absence to climb past: a renderer resolving it would draw a different box.
+/// one. A value that is not a direct `[x0 y0 x1 y1]` array errors rather than
+/// counting as absent: a renderer resolving it would draw a different box.
 fn page_box(idx: &ObjectIndex, page: &Page, key: &str) -> Result<Option<[f32; 4]>, PdfError> {
     let Some(raw) = page.inherited_attribute(idx, key, |raw| Some(raw.trim_ascii().to_vec()))
     else {

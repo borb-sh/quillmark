@@ -6,24 +6,20 @@
 //! `pulldown_cmark` (CommonMark + strikethrough + pipe tables) and walked into
 //! a [`Content`]. This is the one place the `<u>` allowlist runs.
 //!
-//! ## Canonicalizations (documented, not bugs)
+//! ## Canonicalizations
 //!
-//! - **Soft breaks → space; hard breaks → a `continues` line**, kept distinct
-//!   from a paragraph boundary. Inside a heading a hard break is a space
-//!   instead, a heading being one line; a setext heading spans two source lines
-//!   and can carry one.
-//! - **Adjacent sibling containers keep their boundary.** Two consecutive lists
-//!   of one shape, and two consecutive block quotes, are told apart by
+//! - A soft break is a space and a hard break a `continues` line, distinct from
+//!   a paragraph boundary. Inside a heading a hard break is a space, a heading
+//!   being one line; a setext heading spans two source lines and can carry one.
+//! - Two adjacent sibling containers keep their boundary, told apart by
 //!   `Container::instance`, minted here and canonicalized by `normalize`.
-//! - **An empty heading, code block or container keeps its line**, so the
-//!   structure survives rather than vanishing. An empty paragraph drops,
-//!   markdown having no syntax to write one back.
-//! - **Island ids are minted sequentially** (`isl-0`, `isl-1`, …), so import is
-//!   a deterministic function of its markdown and never reads an ambient source.
-//!   Export drops the ids and re-import re-mints the same sequence.
-//! - **Tables and images are islands**, block and inline respectively, both
-//!   `Lossless`.
-//! - **Thematic breaks are `Rule` lines** carrying no text.
+//! - An empty heading, code block or container keeps its line. An empty
+//!   paragraph drops, markdown having no syntax to write one back.
+//! - Island ids are minted sequentially (`isl-0`, `isl-1`, …), so import is a
+//!   deterministic function of its markdown. Export drops the ids and re-import
+//!   re-mints the same sequence.
+//! - Tables and images are islands, block and inline respectively, both
+//!   `Lossless`; a thematic break is a `Rule` line carrying no text.
 
 use crate::model::{
     Container, Island, Line, LineKind, Loss, Mark, MarkKind, Content, Normalized, ISLAND_SLOT,
@@ -639,8 +635,6 @@ impl Builder {
             self.inline.push_text(seg);
         }
     }
-
-    // ---- table ----
 
     /// Route one table event: structural events shape the accumulator, inline
     /// events build the open cell with the same [`Inline`] machinery prose uses.
@@ -1293,8 +1287,6 @@ mod tests {
         }
     }
 
-    /// The canonical `instance` is 0 wherever nothing adjacent needs telling
-    /// apart, so an ordinary document carries no discriminator at all.
     #[test]
     fn instance_stays_zero_without_an_adjacent_sibling() {
         for md in ["- a\n- b\n- c", "> a\n>\n> b", "1. a\n2. b", "- a\n\npara\n\n- b"] {

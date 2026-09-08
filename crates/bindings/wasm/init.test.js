@@ -63,7 +63,7 @@ describe('the gated surface', () => {
 
   it('is reachable no other way', () => {
     // A static export of any of these would reopen the door the type system
-    // cannot otherwise close, which is the whole point of the gate.
+    // cannot otherwise close.
     for (const name of expected) expect(runtime[name]).toBeUndefined()
   })
 })

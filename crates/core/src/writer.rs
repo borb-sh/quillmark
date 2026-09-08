@@ -155,22 +155,14 @@ impl<'a> TypedWriter<'a> {
     /// - `ext`: `None` removes `$ext`, an empty map records an explicit
     ///   `$ext: {}`, a map replaces; each skipped when equal.
     ///
-    /// So `set_values(&reader.values())` is a byte no-op on any document,
-    /// carrying through every untouched cell what a re-import cannot
-    /// reproduce: identity anchors, content-only marks, `!must_fill` markers,
-    /// YAML comments, a leaf that decodes under neither encoding, and a scalar
-    /// shorthand. Nothing is normalized that the consumer did not change.
-    ///
-    /// All-or-nothing: every cell resolves before any is written, and every
-    /// refusal comes back with the [`DocPath`] it anchors at.
+    /// All-or-nothing: every cell resolves before any is written.
     ///
     /// A changed content cell is a **cold import**, as on [`set`](Self::set):
-    /// anchors on it do not survive. Reach for
-    /// [`revise_field`](Self::revise_field) per cell where they must. Cards
-    /// match by position and kind, so deleting, inserting or reordering an
-    /// entry rewrites every card after it; the structural verbs
-    /// ([`add_card`](Self::add_card), [`remove_card`](Self::remove_card),
-    /// `Document::move_card`) are the path that does not.
+    /// anchors on it do not survive, and [`revise_field`](Self::revise_field)
+    /// per cell is what keeps them. Cards match by position and kind, so
+    /// deleting, inserting or reordering an entry rewrites every card after it;
+    /// the structural verbs ([`add_card`](Self::add_card),
+    /// [`remove_card`](Self::remove_card), `Document::move_card`) do not.
     pub fn set_values(
         &mut self,
         values: &DocumentValues,

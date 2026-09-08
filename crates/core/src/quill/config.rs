@@ -52,11 +52,9 @@ fn lenient_string(value: &serde_json::Value) -> Option<String> {
 /// Top-level configuration for a Quillmark project
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QuillConfig {
-    /// Quill package name
     pub name: String,
-    /// Human-readable description of the quill itself (parsed from
-    /// `quill.description`). Distinct from `main.description`, which describes
-    /// the main card's schema.
+    /// `quill.description`: the quill itself, not `main.description`, which
+    /// describes the main card's schema.
     pub description: String,
     /// The entry-point card schema (parsed from the Quill.yaml `main:` section).
     pub main: CardSchema,
@@ -69,10 +67,8 @@ pub struct QuillConfig {
     /// The quill's own semantic version, checked at render against the
     /// selector a document's `$quill` carries.
     pub version: String,
-    /// Author of the project
     pub author: String,
-    /// Backend-specific configuration parsed from the top-level YAML section
-    /// whose key matches `backend`.
+    /// The top-level YAML section whose key matches `backend`.
     #[serde(default)]
     pub backend_config: HashMap<String, QuillValue>,
 }
@@ -140,16 +136,11 @@ impl CoercionError {
     /// The facts this error's message interpolates. See
     /// [`Diagnostic::args`](crate::error::Diagnostic::args).
     ///
-    /// Two of the four fields stay behind. `path` is a schema-space anchor
-    /// (`card_kinds.<kind>.<field>`) that `ERROR.md` § "Three grammars, one
-    /// that crosses" keeps engine-internal, and an args key would re-open that
-    /// door under a new name. `reason` is English minted at ~20 coercion arms,
-    /// sometimes wrapping a decode error's own prose; under a key it would be
-    /// interpolated into a translated sentence, so it stays in `message` where
-    /// a consumer takes it whole or not at all.
-    ///
-    /// What remains states the failure at lower resolution than the English
-    /// does ("`{value}` is not a `{target}`"), which is the contract.
+    /// `path` stays behind: it is a schema-space anchor that `ERROR.md`
+    /// § "Three grammars, one that crosses" keeps engine-internal. So does
+    /// `reason`, English minted at ~20 coercion arms and sometimes wrapping a
+    /// decode error's own prose, which a key would interpolate into a
+    /// translated sentence.
     pub fn args(&self) -> BTreeMap<String, serde_json::Value> {
         match self {
             CoercionError::Uncoercible {
@@ -165,57 +156,39 @@ impl CoercionError {
     }
 }
 
-/// Write-side leniency mode for [`QuillConfig::conform_value`]: the one axis
-/// that separates the render floor's forgiving coercion from a strict typed
-/// write.
-///
-/// The dispatch is shared; only the arms that *defer to the validation layer*
-/// or *cross type boundaries* branch on this. See `conform_value`.
+/// The leniency [`QuillConfig::conform_value`] coerces under.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Leniency {
-    /// The render floor's forgiving cascade: cross-type scalar coercions apply
-    /// and a shape a type cannot adopt falls through unchanged for the
-    /// validation layer to report.
+    /// The render floor's forgiving cascade: a shape a type cannot adopt falls
+    /// through unchanged for the validation layer to report.
     Render,
-    /// A strict typed write ([`Card::commit_field`](crate::document::Card::commit_field)):
-    /// value-parsing normalizations still apply (`"3"` → `3`, a bare scalar
-    /// wraps into a singleton array, richtext markdown imports to content), but
-    /// cross-type `Boolean`↔`Number` coercions are dropped and every
-    /// defer-to-validation fall-through becomes a `CoercionError`, so a
-    /// mismatched value fails at the write, not silently at a later render.
+    /// The strict typed write ([`Card::commit_field`](crate::document::Card::commit_field)),
+    /// and the resting form [`Quill::conform`](crate::Quill::conform) lands a
+    /// content field at.
     ///
-    /// This mode is also the **resting form** a content field converges to
-    /// ([`Quill::conform`](crate::Quill::conform)): `richtext` rests as the
-    /// canonical content object, `plaintext` as its literal string. Only the
-    /// `PlainText` arm's output shape differs between the two modes; the plate
-    /// keeps the content object under `Render`.
-    ///
-    /// "Strict" is asymmetric by target, not absolute: `string` and `array` are
+    /// "Strict" is asymmetric by target, not absolute. `string` and `array` are
     /// universal sinks, so a scalar→`string` (`true` → `"true"`) and a
-    /// scalar→singleton-`array` wrap stay lenient even here (both are lossless,
-    /// unambiguous, and author-intended); only the lossy/ambiguous crossings
+    /// scalar→singleton-`array` wrap stay lenient even here, both crossings
+    /// being lossless and unambiguous; only the lossy or ambiguous ones
     /// (scalar→`object`, `String`→`number`/`bool`, `Boolean`↔`Number`) are
-    /// rejected. A strict write thus still reshapes toward `string`/`array`
-    /// while refusing to invent structure or reinterpret a scalar's type.
+    /// rejected. So a strict write still reshapes toward `string`/`array` while
+    /// refusing to invent structure or reinterpret a scalar's type.
     Write,
 }
 
 impl QuillConfig {
-    /// Returns a named card-kind schema by name.
     pub fn card_kind(&self, name: &str) -> Option<&CardSchema> {
         self.card_kinds.iter().find(|card| card.name == name)
     }
 
-    /// Full schema including `ui` hints.
-    ///
-    /// Describes the user-fillable fields of the main card and each named
-    /// card kind. The quill reference (constructed as `name@version` from
-    /// quill metadata) and card-kind discriminators are document-level
-    /// metadata, not fields, so they do not appear here.
+    /// The declaration view: the user-fillable fields of the main card and each
+    /// named card kind, `ui` hints included. The quill reference and the
+    /// card-kind discriminators are document-level metadata, not fields, so
+    /// they do not appear (`SCHEMAS.md` §"Schema emission").
     ///
     /// Key order is the ordering contract: fields, nested properties, and card
-    /// kinds all emit in declaration order (`preserve_order` end-to-end), so a
-    /// consumer walking the maps in key order renders the authored layout.
+    /// kinds all emit in declaration order, so a consumer walking the maps in
+    /// key order renders the authored layout.
     pub fn schema(&self) -> serde_json::Value {
         let mut obj = serde_json::Map::new();
 
@@ -239,7 +212,7 @@ impl QuillConfig {
         serde_json::Value::Object(obj)
     }
 
-    /// Coerce typed payload fields (IndexMap of user fields only).
+    /// Coerce the main card's user fields.
     pub fn coerce_payload(
         &self,
         payload: &IndexMap<String, QuillValue>,
@@ -247,9 +220,8 @@ impl QuillConfig {
         Self::coerce_fields(&self.main, None, payload)
     }
 
-    /// Coerce typed fields for a single card (IndexMap of user fields only).
-    ///
-    /// Returns the input unchanged when the card kind is unknown.
+    /// Coerce one card's user fields, returning the input unchanged when the
+    /// card kind is unknown.
     pub fn coerce_card(
         &self,
         card_kind: &str,
@@ -315,21 +287,13 @@ impl QuillConfig {
 
         let json_value = value.as_json();
 
-        // Null ≡ absent: a present-null value (`field:`, `field: null`,
-        // `field: ~`) carries no data, so it passes through coercion unchanged
-        // for every type rather than failing as a mismatch. The render floor
-        // and the validation layer treat it the same as an omitted field. This
-        // also preserves a `!must_fill` marker riding on `value` (the fill flag
-        // is never part of the JSON projection).
+        // Null ≡ absent, so a present-null passes through at every type.
+        // Returning `value` rather than the JSON also preserves a `!must_fill`
+        // marker riding on it: the fill flag is not part of the JSON projection.
         if json_value.is_null() {
             return Ok(value.clone());
         }
 
-        // A variant-bearing enum rests as a container, so it normalizes here and
-        // every surface downstream sees one shape. The bare scalar
-        // (`classification: CUI`) is the hand-authored spelling of a world with
-        // nothing filled in, and it is adopted rather than rejected: a document
-        // only needs the map once it has a variant field to carry.
         if field_schema.is_variant_bearing() {
             return Self::conform_variant(json_value, field_schema, path, mode);
         }
@@ -342,10 +306,6 @@ impl QuillConfig {
                     vec![json_value.clone()]
                 };
 
-                // Every array carries an element schema (`items`). Coerce each
-                // element against it: scalar items (`string[]`, `integer[]`,
-                // `richtext[]`) coerce element-wise; object items recurse into
-                // the element's `properties` via the Object branch.
                 if let Some(items) = &field_schema.items {
                     let mut out = Vec::with_capacity(arr.len());
                     for (idx, elem) in arr.iter().enumerate() {
@@ -377,8 +337,6 @@ impl QuillConfig {
                         return Ok(QuillValue::from_json(serde_json::Value::Bool(false)));
                     }
                 }
-                // Cross-type number→boolean is a render-floor leniency; a strict
-                // write requires an actual boolean or its `"true"`/`"false"` text.
                 if mode == Leniency::Render {
                     if let Some(n) = json_value.as_i64() {
                         return Ok(QuillValue::from_json(serde_json::Value::Bool(n != 0)));
@@ -420,7 +378,6 @@ impl QuillConfig {
                         "string is not a valid number",
                     ));
                 }
-                // Cross-type boolean→number is a render-floor leniency only.
                 if mode == Leniency::Render {
                     if let Some(b) = json_value.as_bool() {
                         let n = if b { 1 } else { 0 };
@@ -463,7 +420,6 @@ impl QuillConfig {
                         "string is not a valid integer",
                     ));
                 }
-                // Cross-type boolean→integer is a render-floor leniency only.
                 if mode == Leniency::Render {
                     if let Some(b) = json_value.as_bool() {
                         let n = if b { 1 } else { 0 };
@@ -480,23 +436,15 @@ impl QuillConfig {
                     "value is not coercible to integer",
                 ))
             }
-            // Enum is open scalar data drawn from a closed domain: coerced as a
-            // string here; domain membership is checked at the validation layer
-            // (an out-of-domain string is a value error, not a type error).
+            // An enum coerces as a string; domain membership is the validation
+            // layer's, an out-of-domain string being a value error.
             FieldType::String | FieldType::Enum => {
                 if json_value.is_string() {
                     return Ok(value.clone());
                 }
-                // Gracious leniency: unwrap a length-1 array's sole string
-                // element, or adopt a bare bool/number's canonical text (an
-                // author writing `verified: true` for a `string` field), rather
-                // than reject it. Null is handled above; other collections fall
-                // through.
                 if let Some(text) = lenient_string(json_value) {
                     return Ok(QuillValue::from_json(serde_json::Value::String(text)));
                 }
-                // A non-stringifiable shape (object, multi-element array): the
-                // render floor defers to validation, a strict write fails now.
                 match mode {
                     Leniency::Render => Ok(value.clone()),
                     Leniency::Write => Err(CoercionError::uncoercible(
@@ -508,18 +456,8 @@ impl QuillConfig {
                 }
             }
             FieldType::PlainText { inline } => {
-                // Plaintext rides the same content as richtext but through the
-                // *literal* codec: a string is imported verbatim via
-                // `from_plaintext` (no markdown parsing, no escaping), an
-                // already-structured content is validated plain. A wire content
-                // carrying marks or islands is rejected, not silently stripped:
-                // matching the `inline` precedent and keeping coercion lossless.
-                //
-                // `Write` commits the literal string because the codec is
-                // lossless on plain content (`to_plaintext ∘ from_plaintext` is
-                // identity), so the string loses nothing, while object rest
-                // would: emit is schema-free and markdown-escapes any content
-                // object it projects (`a *literal* line` → `a \*literal\* line`).
+                // The literal codec and its two rests: `SCHEMAS.md`
+                // §"Content fields rest per codec".
                 let plain_check =
                     |rt: &quillmark_content::Content| -> Result<(), CoercionError> {
                         if !rt.is_plain() {
@@ -565,8 +503,6 @@ impl QuillConfig {
                     plain_check(&rt)?;
                     return Ok(commit(&rt));
                 }
-                // Reduce to the authored literal string via the shared leniency
-                // cascade, then import verbatim.
                 let Some(text) = lenient_string(json_value) else {
                     return match mode {
                         Leniency::Render => Ok(value.clone()),
@@ -583,19 +519,10 @@ impl QuillConfig {
                 Ok(commit(&rt))
             }
             FieldType::RichText { inline } => {
-                // The seam carries the content, so coercion commits the content
-                // form: an already-structured value (editor / re-render) is
-                // validated and re-canonicalized; an authored markdown string is
-                // imported. Determinism is inherited from `import` being pure.
-                // An `inline` field additionally requires the resulting content to
-                // be single-`Para` (`richtext(inline)`): editors mount a one-line
-                // surface, so multi-block content is a coercion error here, in
-                // lockstep with the validation-layer `validation::not_inline` check.
-                //
-                // This is the deliberately-lenient sibling of the strict
-                // decoders: `document::canonical_richtext_value` at the write
-                // and literal sites, `Codec::Richtext.decode_value` at the wire
-                // and validation sites. The string branch below reduces a bare
+                // The deliberately-lenient sibling of the strict decoders
+                // (`document::canonical_richtext_value` at the write and literal
+                // sites, `Codec::Richtext.decode_value` at the wire and
+                // validation sites). The string branch below reduces a bare
                 // scalar or length-1 array to text before importing, which a
                 // strict decoder must not do, so it stays open-coded here.
                 let inline_err = || {
@@ -652,13 +579,9 @@ impl QuillConfig {
                         quillmark_content::serial::to_canonical_value(&rt),
                     ));
                 }
-                // Reduce to the authored markdown string via the shared
-                // leniency cascade (bare string, length-1 array unwrap, or bare
-                // scalar), then import.
                 let Some(markdown) = lenient_string(json_value) else {
-                    // A shape that is neither content nor stringifiable (e.g. a
-                    // multi-element array): leave it for the validation layer to
-                    // report, matching the String branch's fall-through.
+                    // Neither content nor stringifiable: left for the validation
+                    // layer, as the String branch leaves it.
                     return Ok(value.clone());
                 };
                 let rt = quillmark_content::import::from_markdown(&markdown).map_err(|e| {
@@ -714,10 +637,8 @@ impl QuillConfig {
                     ));
                 };
 
-                // The two date types share extraction and verbatim storage;
-                // only the grammar differs. A `date` rejects any time component,
-                // a `datetime` rejects offsets/space/fraction/bare-date: neither
-                // truncates, so the stored string is exactly the authored one.
+                // Both types store verbatim; only the grammar differs, and
+                // neither truncates (`formats`).
                 let (valid, reason) = match field_schema.r#type {
                     FieldType::Date => {
                         (super::formats::is_valid_date(&text), "invalid date format")
@@ -749,8 +670,6 @@ impl QuillConfig {
                         Ok(value.clone())
                     }
                 } else {
-                    // A non-object value: the render floor defers to validation,
-                    // a strict write fails now.
                     match mode {
                         Leniency::Render => Ok(value.clone()),
                         Leniency::Write => Err(CoercionError::uncoercible(
@@ -797,22 +716,13 @@ impl QuillConfig {
     }
 
     /// Coerce a variant-bearing enum to its container form, `{value: <member>,
-    /// …}`. Two authored shapes reach here and both normalize to one:
+    /// …}`, from either authored shape: the bare scalar (`classification: CUI`)
+    /// or the map. A key no variant declares carries through verbatim, and a key
+    /// a *non-active* variant declares is coerced by that variant's schema and
+    /// kept (`SCHEMAS.md` §"Enum variants").
     ///
-    /// - a **bare scalar** (`classification: CUI`), the hand-authored spelling of
-    ///   a world carrying no variant answers, wrapped as `{value: "CUI"}`;
-    /// - a **map**, whose `value` coerces as the enum's string and whose other
-    ///   keys coerce against whichever variant declares them.
-    ///
-    /// A key no variant declares carries through verbatim, as an undeclared key
-    /// on a typed dictionary does: the schema is a floor here too. A key declared
-    /// by a *non-active* variant is coerced by that variant's schema and kept, so
-    /// flipping the discriminant in an editor and flipping back does not cost the
-    /// author their answers; `validation::out_of_variant` reports it, and the
-    /// render floor drops it from the plate.
-    ///
-    /// Names may repeat across variants, and the lookup takes the first variant
-    /// declaring one without consulting the discriminant. That is total because
+    /// The cell lookup takes the first variant declaring a name without
+    /// consulting the discriminant. That is total because
     /// `quill::variant_field_collision` rejects a name two worlds declare
     /// *differently*, so every repetition is the same declaration.
     fn conform_variant(
@@ -837,8 +747,6 @@ impl QuillConfig {
                     );
                     Ok(QuillValue::from_json(serde_json::Value::Object(out)))
                 }
-                // A shape that is neither a member nor a container: the render
-                // floor defers to validation, a strict write fails now.
                 None => match mode {
                     Leniency::Render => Ok(QuillValue::from_json(json_value.clone())),
                     Leniency::Write => Err(CoercionError::uncoercible(
@@ -922,10 +830,6 @@ impl QuillConfig {
                 ),
             );
         }
-        // `inline` on a non-prose field is rejected earlier and once, when
-        // `from_quill_value` folds the wire key into the `FieldType` enum
-        // (`resolve_prose_inline`); no second check belongs here.
-
         // `ui.group` clusters card-level fields only: the blueprint's grouping
         // pass never descends into object properties or array items, so a nested
         // `group` is an inert knob. Reject it rather than let it silently do
@@ -942,10 +846,7 @@ impl QuillConfig {
         }
 
         if let Some(variants) = &schema.variants {
-            // A variant's shape is a function of the schema *and* the
-            // discriminant, so every projection downstream is the union of its
-            // worlds: sound one level deep, a chain at two (`SCHEMAS.md`
-            // §"Enum variants").
+            // One level only, for the reason `SCHEMAS.md` §"Enum variants" gives.
             if !at_card_level {
                 return err(
                     "quill::variant_placement",
@@ -979,8 +880,6 @@ impl QuillConfig {
             for (member, fields) in variants {
                 let member_owner = format!("{owner}.variants.{member}");
                 if !values.iter().any(|v| v == member) {
-                    // The blank lands here too, and its message is the pointed
-                    // one: it is not a member, so it owns no field set.
                     return err(
                         "quill::variant_unknown_value",
                         format!(
@@ -1030,9 +929,6 @@ impl QuillConfig {
                     ) {
                         return Some(diag);
                     }
-                    // The coercion lookup and the transform schema both key on
-                    // the name alone, never the discriminant, so a name resolves
-                    // to one slot however many worlds declare it.
                     if let Some((first, _)) = variants
                         .iter()
                         .take_while(|(m, _)| *m != member)
@@ -1272,7 +1168,6 @@ impl QuillConfig {
                         );
                     }
                 }
-                // One diagnostic per distinct unresolved reference.
                 let unresolved: BTreeSet<&str> =
                     referenced.iter().copied().filter(|g| !ids.contains(g)).collect();
                 for group in unresolved {
@@ -1310,15 +1205,11 @@ impl QuillConfig {
         }
     }
 
-    /// Refuse a `default:` / `example:` declared on a **typed dictionary**, which
-    /// is a namespace rather than a cell: a literal on the container is a second
-    /// declaration of a fact its properties already carry, and the two axes read
-    /// different ones — `default: {name: A}` renders `A` while `must_fill`
-    /// derives per property and still reports `name` unauthored.
-    ///
-    /// The variant container refuses the same shape for the same reason
-    /// (`quill::{default,example}_type_mismatch`). An `array` keeps its literal:
-    /// `items:` fixes the element type but never the arity, so it *is* a cell.
+    /// Refuse a `default:` / `example:` declared on a **typed dictionary**, a
+    /// namespace rather than a cell (`SCHEMAS.md` §"Cells and namespaces"). The
+    /// variant container refuses the same shape under
+    /// `quill::{default,example}_type_mismatch`; an `array` keeps its literal,
+    /// `items:` fixing the element type but never the arity.
     fn reject_namespace_literal(
         slot: &str,
         schema: &FieldSchema,
@@ -1547,11 +1438,10 @@ impl QuillConfig {
     }
 
     /// Parse fields from a JSON map into `FieldSchema`s (both `main.fields` and
-    /// a card kind's `fields`). Declaration order rides the map itself: the
-    /// source map preserves key order (serde_json's `preserve_order`) and the
-    /// returned `IndexMap` keeps insertion order, so no ordering pass runs.
-    /// `context` labels error messages (e.g. `"field schema"`,
-    /// `"card_kind 'note' field"`).
+    /// a card kind's `fields`), in declaration order: the source map preserves
+    /// key order and the returned `IndexMap` keeps insertion order, so no
+    /// ordering pass runs. `context` labels error messages (e.g.
+    /// `"field schema"`, `"card_kind 'note' field"`).
     fn parse_fields(
         fields_map: &serde_json::Map<String, serde_json::Value>,
         context: &str,
@@ -1579,9 +1469,6 @@ impl QuillConfig {
             let quill_value = QuillValue::from_json(field_value.clone());
             match FieldSchema::from_quill_value(field_name.clone(), &quill_value) {
                 Ok(schema) => {
-                    // One recursive pass enforces the whole shape contract:
-                    // containers carry the right child schema (`object` →
-                    // `properties`, `array` → `items`).
                     if let Some(diag) =
                         Self::validate_field_schema_shape(&schema, field_name, true)
                     {
@@ -1644,8 +1531,8 @@ impl QuillConfig {
         let mut warnings: Vec<Diagnostic> = Vec::new();
         let mut errors: Vec<Diagnostic> = Vec::new();
 
-        // Parse YAML into serde_json::Value via serde_saphyr.
-        // Note: serde_json with "preserve_order" feature is required for this to work as expected
+        // Declaration order survives this only under serde_json's
+        // `preserve_order`, which the ordering contract rides end to end.
         let quill_yaml_val: serde_json::Value = match serde_saphyr::from_str(yaml_content) {
             Ok(v) => v,
             Err(e) => {
@@ -1657,8 +1544,7 @@ impl QuillConfig {
             }
         };
 
-        // Extract [quill] section (required): fail immediately if absent since all
-        // subsequent validation depends on it.
+        // Everything below reads this section, so its absence is fatal here.
         let quill_section = match quill_yaml_val.get("quill") {
             Some(v) => v,
             None => {
@@ -1674,7 +1560,6 @@ impl QuillConfig {
             }
         };
 
-        // Validate that no unknown keys appear in the [quill] section.
         const KNOWN_QUILL_KEYS: &[&str] =
             &["name", "backend", "description", "version", "author", "ui"];
         if let Some(quill_obj) = quill_section.as_object() {
@@ -1692,7 +1577,6 @@ impl QuillConfig {
             }
         }
 
-        // Extract required fields: collect all missing-field errors before returning.
         let name = match quill_section.get("name").and_then(|v| v.as_str()) {
             Some(n) => {
                 if !Self::is_snake_case_identifier(n) {
@@ -1773,10 +1657,8 @@ impl QuillConfig {
             }
         };
 
-        // Extract the required `version` field.
         let version = match quill_section.get("version") {
             Some(version_val) => {
-                // Handle version as string or number (YAML might parse 1.0 as number)
                 // A YAML `1.0` arrives as a number; rendering the JSON number
                 // keeps its fraction, which `f64::to_string` drops (`1.0` → `1`).
                 let raw = if let Some(s) = version_val.as_str() {
@@ -1845,7 +1727,6 @@ impl QuillConfig {
             &mut errors,
         );
 
-        // Extract optional backend-specific section (keyed by `quill.backend`).
         let mut backend_config = HashMap::new();
         if !backend.is_empty() {
             if let Some(section_val) = quill_yaml_val.get(&backend) {
@@ -1857,9 +1738,7 @@ impl QuillConfig {
             }
         }
 
-        // Reject unknown top-level sections. Known sections are: quill, main, card_kinds,
-        // and the backend name (e.g. typst). Everything else is a mistake. `fields` gets
-        // a targeted hint since it's the most common shape mistake.
+        // `fields` earns a targeted hint: it is the most common shape mistake.
         if let Some(top_obj) = quill_yaml_val.as_object() {
             for key in top_obj.keys() {
                 let is_known = key == "quill"
@@ -1922,12 +1801,9 @@ impl QuillConfig {
             &mut errors,
         );
 
-        // `main.description` describes the main card's schema, independent of
-        // `quill.description`.
         let main_description = main_def.description;
         Self::validate_description_singleline(main_description.as_deref(), "main", &mut errors);
 
-        // The main entry-point card.
         let mut main = CardSchema {
             name: "main".to_string(),
             description: main_description,
@@ -1936,7 +1812,6 @@ impl QuillConfig {
             body: main_body,
         };
 
-        // Extract [card_kinds] section (optional)
         let mut card_kinds: Vec<CardSchema> = Vec::new();
         if let Some(card_kinds_val) = quill_yaml_val.get("card_kinds") {
             match card_kinds_val.as_object() {
@@ -2015,8 +1890,6 @@ impl QuillConfig {
             }
         }
 
-        // Warn when `body.example` is set together with `body.enabled: false`:
-        // the example has no effect since the body editor is disabled.
         let warn_example_unused = |label: &str, card: &CardSchema| -> Option<Diagnostic> {
             let body = card.body.as_ref()?;
             if !card.body_enabled() && body.example.is_some() {
@@ -2054,14 +1927,10 @@ impl QuillConfig {
             }
         }
 
-        // Validate each card's group registry and its fields' group references.
         for (label, card) in &labeled {
             Self::validate_card_groups(label, card, &mut errors);
         }
 
-        // Error when `body.example` contains a line that the document parser
-        // would interpret as a `~~~` card-yaml block opener. Such a line would
-        // start a new metadata block, corrupting document structure.
         let err_example_contains_fence = |label: &str,
                                           body: &Option<BodyCardSchema>|
          -> Option<Diagnostic> {
@@ -2167,13 +2036,8 @@ pub(crate) fn field_contains_content(field: &FieldSchema) -> bool {
 /// its markdown literals, and every nested declaration's from its own. No-op
 /// where the type tree bears no content leaf, since nothing below it does either;
 /// a failed import or a `richtext(inline)` violation is appended to `errors` as a
-/// load diagnostic.
-///
-/// **The walk is over the schema, not the card's field map.** The render floor
-/// reads the companion off whichever leaf it resolves, so covering every
-/// declaration position is what makes its `None` mean "no literal to cache"
-/// rather than "not walked to"; a position left out blank-fills and drops the
-/// author's `default:` silently.
+/// load diagnostic. The walk covers every declaration position, for the reason
+/// `SCHEMAS.md` §"Document seeding" gives.
 ///
 /// `card` labels the owning card and `path` the field's declaration path
 /// (`dict.note`, `rows[].note`, `c.variants.CUI.note`), the spelling
@@ -2285,10 +2149,8 @@ fn literal_content(
                 })
         }
         FieldType::PlainText { inline } => {
-            // Plaintext literals are authored as literal strings and imported
-            // verbatim (never markdown), so the cached content is plain by
-            // construction; a content-object literal is revalidated. Shares the
-            // one object-vs-string dispatch with the validation shape check.
+            // Shares the one object-vs-string dispatch with the validation
+            // shape check.
             let rt = match crate::document::Codec::Plaintext.decode_value(json) {
                 Some(Ok(rt)) => rt,
                 Some(Err(e)) => {

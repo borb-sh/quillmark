@@ -5,17 +5,7 @@
 //! stored value, schema-free and round-trippable. Projecting a field to markdown
 //! is *interpretation*, a question a schema-free `Document` cannot answer
 //! without guessing which fields are richtext, so the projection binds the
-//! schema:
-//!
-//! ```ignore
-//! let v = quill.reader(&doc);
-//! v.get("subject")?;            // richtext → Some("Hello **world**")
-//! v.get("qty")?;                // integer  → Some("3"), as stored
-//! v.get("absent")?;             // absent   → None
-//! v.get("nope");                // unknown name → Err(UnknownField)
-//! v.card(2)?.get("body")?;      // card field, kind resolves its schema
-//! v.values();                   // the whole document in the same form
-//! ```
+//! schema.
 //!
 //! Every read here answers in the **values form**: the stored value with each
 //! content leaf decoded to its codec's text (`richtext` markdown, `plaintext`
@@ -26,19 +16,14 @@
 //! Scalars are never coerced by a read: `qty: "3"` reads `"3"` here and `3`
 //! in [`resolve`](TypedReader::resolve), the render view.
 //!
-//! **Absence returns; mismatch raises; an unknown name is a typo.** A present
-//! value that does not decode under a content leaf raises
-//! [`EditError::FieldDecode`], and an undeclared name raises
-//! [`EditError::UnknownField`], as
+//! **Absence returns; mismatch raises; an unknown name is a typo**, as
 //! [`TypedWriter::set`](crate::TypedWriter::set) does on the write side.
 //!
 //! [`get_content`](TypedReader::get_content) is the same read at the other end
-//! of the codec, and is total over the storage form. It binds the quill because
-//! decoding needs the declared type: a `richtext` string is markdown and a
-//! `plaintext` string is literal text, so the same bytes decode two ways.
-//!
-//! The body read stays quill-free: a body's type is a format fact, not a schema
-//! fact.
+//! of the codec, and is total over the storage form. It binds the quill too: a
+//! `richtext` string is markdown and a `plaintext` string is literal text, so
+//! the same bytes decode two ways. The body read stays quill-free — a body's
+//! type is a format fact, not a schema fact.
 //!
 //! Like [`TypedWriter`](crate::TypedWriter), a bound reader holds `&Document`
 //! and `&QuillConfig`, so it cannot cross a lifetime-free binding boundary;
@@ -103,25 +88,22 @@ impl<'a> TypedReader<'a> {
     /// both (`cells[1].notes`), or a variant's cell.
     /// [`get_content`](Self::get_content) is the empty path.
     ///
-    /// The codec is the leaf's, resolved by walking `at` through the field
-    /// schema — the same walk `conform` and rest enforcement take, so a stored
-    /// leaf reads back at the codec it was conformed at whatever its resting
-    /// form.
+    /// The codec is the leaf's, resolved by the same schema walk `conform` and
+    /// rest enforcement take, so a leaf reads back at the codec it was conformed
+    /// at whatever its resting form.
     ///
     /// `Ok(None)` for an absent field **and for a path that names nothing in
     /// the stored value**: an editor's row index goes stale between derive and
     /// read, so absence on the axis a repeater mutates is a read, not a fault.
-    /// A cell of a variant world that is not live reads the same way, the
-    /// schema walk unioning the worlds. A bad *card* index still raises,
+    /// A cell of a variant world that is not live reads the same way, the schema
+    /// walk unioning the worlds. A bad *card* index still raises,
     /// [`card`](Self::card) being guarded by a count the caller holds.
     ///
     /// [`EditError::UnknownField`] for a name at any depth the schema does not
-    /// declare, anchored at that name (`main.letterhead.nope`) rather than
-    /// reading as a claim about a top-level field;
-    /// [`EditError::FieldNotContent`] when `at` resolves to no content
-    /// leaf, either through a step the schema cannot take or at a non-content
-    /// terminal; [`EditError::FieldDecode`], anchored at the addressed path,
-    /// when the value there decodes under neither encoding.
+    /// declare, anchored at that name (`main.letterhead.nope`);
+    /// [`EditError::FieldNotContent`] when `at` resolves to no content leaf;
+    /// [`EditError::FieldDecode`], anchored at the addressed path, when the
+    /// value there decodes under neither encoding.
     pub fn get_content_at(
         &self,
         name: &str,

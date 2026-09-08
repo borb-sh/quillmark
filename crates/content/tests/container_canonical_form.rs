@@ -9,10 +9,9 @@
 //! 1. **Idempotence.** `normalize` is the fixed point the canonical
 //!    serialization commits to, so a second pass must change nothing.
 //! 2. **One canonical form per document.** `from_markdown(to_markdown(rt)) == rt`
-//!    for normalized `rt`, which is `export`'s documented contract. A break here
-//!    means two normalized contents project to one markdown, so the model holds
-//!    a distinction it cannot write down — the exact defect class #1359 is
-//!    about, caught on the lane that mints it rather than on an import.
+//!    for normalized `rt`, which is `export`'s contract. A break here means two
+//!    normalized contents project to one markdown, so the model holds a
+//!    distinction it cannot write down.
 
 use quillmark_content::model::{Container, Content, Line, LineKind, Normalized};
 use quillmark_content::{from_markdown, to_markdown};
@@ -87,10 +86,9 @@ fn normalize_is_idempotent_over_every_two_line_path_pair() {
     assert!(n > 400);
 }
 
-/// The property the review caught: an inner run must not continue across an
-/// *item* boundary. Two inner lists under two outer items are two lists, so
-/// each restarts at ordinal 0 and neither needs a discriminator — and the
-/// markdown projection has to agree.
+/// An inner run must not continue across an *item* boundary: two inner lists
+/// under two outer items are two lists, so each restarts at ordinal 0 and
+/// neither needs a discriminator — and the markdown projection has to agree.
 #[test]
 fn every_normalized_pair_is_a_markdown_fixed_point() {
     let ps = paths(false);
@@ -169,9 +167,8 @@ fn a_start_only_difference_separates_the_runs_and_still_costs_a_discriminator() 
 }
 
 /// The projection rule is coarser than the identity rule, never finer: two runs
-/// the walks read as one can never need a discriminator to stay apart. Three
-/// doc comments and the migration guide state it; this holds it. `start` is the
-/// axis the two differ on, so the space here carries both.
+/// the walks read as one can never need a discriminator to stay apart. `start`
+/// is the axis the two differ on, so the space here carries both.
 #[test]
 fn same_run_implies_same_weld() {
     let mut space = alphabet(true);

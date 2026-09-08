@@ -39,41 +39,8 @@ impl Document {
     ///
     /// Byte-equality with the *original source* is **not** guaranteed.
     ///
-    /// # Emission rules (§9)
-    ///
-    /// - Line endings: `\n` only.  CRLF normalization happens on import.
-    /// - Every block is emitted as a `~~~` card-yaml fence: a bare `~~~`
-    ///   opener, the `$`-prefixed system-metadata lines (`$quill: <ref>` for
-    ///   the root block, `$kind: <kind>` for composable cards) leading the
-    ///   YAML payload, the user-defined data fields, then a closing `~~~`.
-    /// - Cards: one blank line before each, then the block, then the card body.
-    /// - Body: emitted verbatim after the root block (and after each card).
-    /// - Mappings and sequences: **block style** at every nesting level.
-    /// - Scalars: delegated to `serde-saphyr`, which emits the type-canonical
-    ///   form and quotes strings only when the unquoted form would be misread.
-    ///   The quoting *form* is not stable; the round-tripped variant is.
-    /// - Multi-line strings: emitted as inline double-quoted scalars with
-    ///   `\n` escapes; no `|` / `>` block forms.
-    ///
-    /// - **Empty containers.** An empty object emits as `key: {}\n`; an empty
-    ///   array emits as `key: []\n`. Neither collapses to a bare `key:`, which
-    ///   reads back as null.
-    ///
-    /// # What is preserved
-    ///
-    /// - **YAML comments**: own-line and inline trailing comments round-trip
-    ///   at their source position. Comments whose host disappears at emit time
-    ///   (programmatic field removal) degrade to own-line comments at the same
-    ///   indent so the comment text is preserved even when its position shifts.
-    /// - **`!must_fill` tags**: round-trip via the `fill` flag on `PayloadItem::Field`.
-    ///
-    /// # What is lost
-    ///
-    /// - **Other custom tags** (`!include`, `!env`, …): the tag is dropped;
-    ///   the scalar value is preserved.
-    /// - **Original quoting style**: strings are re-emitted in saphyr's
-    ///   canonical form (plain when safe, quoted when ambiguous). The
-    ///   form chosen for emit may not match the form in the source.
+    /// The emitted form, and what survives it:
+    /// `prose/references/markdown-spec.md` §9 and §3.4.
     pub fn to_markdown(&self) -> String {
         let mut out = String::new();
 
@@ -640,8 +607,6 @@ fn emit_key_at(out: &mut String, key: &str, indent: usize) {
     }
 }
 
-/// `prefer_block_scalars: false` forces multi-line strings to double-quoted
-/// inline scalars (no `|` / `>` block forms in v1).
 fn saphyr_opts() -> SerializerOptions {
     serde_saphyr::ser_options! {
         prefer_block_scalars: false,
@@ -656,7 +621,7 @@ pub(crate) fn saphyr_emit_scalar(value: &JsonValue) -> String {
         buf.pop();
     }
 
-    // Saphyr 0.0.23's emitter and parser disagree about which plain scalars are
+    // Saphyr's emitter and parser disagree about which plain scalars are
     // string-safe: it emits `String`s unquoted that its own parser reads back as
     // a number (`_0` → 0) or as a different string (edge whitespace, which YAML
     // strips from plain scalars). So re-parse anything it emitted unquoted and

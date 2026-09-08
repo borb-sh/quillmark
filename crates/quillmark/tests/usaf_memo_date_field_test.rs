@@ -14,14 +14,10 @@ mod common;
 
 const PT_PER_IN: f32 = 72.0;
 
-/// Advance width of `"September 28, 2026"` — the longest date either memo style
-/// produces, the DAF ordering being wider than USAF's `"28 September 2026"`
-/// (93.32pt) — set in 12pt Times-Roman, the face the widget's `/DA` names. Days
-/// are tabular digits and the year is four of them, so the only free variable is
-/// the month name, making this a measured maximum rather than an estimate.
-///
-/// The widget must hold it: auto-size would have shrunk an overlong value to
-/// fit, but a fixed size clips it instead, so the box is what guarantees the fit.
+/// Advance width of `"September 28, 2026"` in 12pt Times-Roman, the face the
+/// widget's `/DA` names: the longest date either memo style produces (the DAF
+/// ordering; USAF's `"28 September 2026"` is 93.32pt). A fixed font size clips
+/// an overlong value rather than shrinking it, so the box is what fits it.
 const LONGEST_DATE_PT: f32 = 96.32;
 
 /// The seeded document leaves `font_size` at its schema default.

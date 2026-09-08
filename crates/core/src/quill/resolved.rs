@@ -1,9 +1,8 @@
 //! The resolved-value view: [`Quill::resolve`].
 //!
-//! For every declared field, the value the render projection would use and
-//! the [`FieldSource`] rung it came from, cut through the same producer
-//! (`super::compose::resolve_card_sourced`) the render plate cuts: never a
-//! parallel precedence policy.
+//! For every declared field, the value the render projection would use and the
+//! [`FieldSource`] rung it came from, cut through the same producer
+//! (`super::compose::resolve_card_sourced`) the render plate cuts.
 
 use indexmap::IndexMap;
 use serde::Serialize;
@@ -38,12 +37,8 @@ impl FieldSource {
         }
     }
 
-    /// The more committed of two rungs.
-    ///
-    /// A container has no rung of its own — it is a namespace, and its value is
-    /// the composition of its cells' — so it reports the strongest rung that
-    /// contributed to it: authored if the document wrote any of it, else
-    /// `default` if any cell below resolved to one, else the floor.
+    /// The more committed of two rungs. A namespace has no rung of its own, so
+    /// it reports the strongest one that contributed to it.
     pub(crate) fn join(self, other: Self) -> Self {
         if other.commitment() > self.commitment() {
             other
@@ -63,11 +58,10 @@ impl FieldSource {
 }
 
 /// One resolved row: its `name`, the value the render projection would use, and
-/// the [`FieldSource`] rung that value came from. A row carries its own name so
-/// declaration order is structural: an ordered array, not JSON object key
-/// order. The card body is a [`ResolvedMain::body`] / [`ResolvedCard::body`]
-/// sibling, never a row in `fields`, so a consumer iterating declared fields
-/// never trips over it.
+/// the [`FieldSource`] rung that value came from. A row carries its own name, so
+/// declaration order is structural: an ordered array, not JSON key order. The
+/// card body is a [`ResolvedMain::body`] / [`ResolvedCard::body`] sibling, never
+/// a row here.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ResolvedField {
     pub name: String,
@@ -133,13 +127,10 @@ pub(crate) fn resolve_document(config: &QuillConfig, doc: &Document) -> Resolved
 /// Resolve one card (main or a schema-declared kind) into its ordered
 /// [`ResolvedField`] rows and its body row (present iff the kind enables a body).
 ///
-/// The value and source of every field come from the one shared resolver
-/// [`resolve_card_sourced`] (the same producer [`compile_data`] cuts for the
-/// plate) so the two projections cannot drift. This layer only re-cuts the
-/// **presentation order**: declared fields first in declaration order (the canon
-/// ordering contract, carried structurally by the row array, not the validation
-/// walker's alphabetical sort), then undeclared authored fields in authored
-/// order. The body is a sibling row, never an entry in `fields`.
+/// Value and source come from the one shared resolver [`resolve_card_sourced`],
+/// the same producer [`compile_data`] cuts for the plate. This layer only
+/// re-cuts the **presentation order**: declared fields first in declaration
+/// order, then undeclared authored fields in authored order.
 ///
 /// [`compile_data`]: crate::Quill::compile_data
 fn resolve_card_fields(schema: &CardSchema, card: &Card) -> (Vec<ResolvedField>, Option<ResolvedField>) {
@@ -160,9 +151,8 @@ fn resolve_card_fields(schema: &CardSchema, card: &Card) -> (Vec<ResolvedField>,
         });
     }
 
-    // Undeclared authored fields, appended in authored order under their NFC
-    // keys: the schema is a floor, not an allowlist, so these reach both
-    // projections too, value verbatim, source Authored.
+    // Undeclared authored fields, under their NFC keys: the schema is a floor,
+    // not an allowlist.
     for (name, (value, source)) in &sourced {
         if !schema.fields.contains_key(name) {
             fields.push(ResolvedField {
@@ -196,8 +186,7 @@ fn card_states(config: &QuillConfig, card: &Card, index: usize) -> ResolvedCard 
             }
         }
         None => {
-            // An unknown-kind card carries its authored fields verbatim: no
-            // schema, no ladder, and `to_index_map` drops `$` keys, so no body.
+            // `to_index_map` drops `$` keys, so no body row either.
             let fields = card
                 .payload()
                 .to_index_map()
@@ -294,7 +283,6 @@ card_kinds:
         type: string
 "#;
 
-    // ── Sources ──────────────────────────────────────────────────────────────
 
     #[test]
     fn scalar_sources_authored_default_blank() {
@@ -397,7 +385,6 @@ main:
         assert_eq!(r.value.as_json(), &serde_json::json!({ "street": "" }));
     }
 
-    // ── Byte-for-byte with the render projection ─────────────────────────────
     // Both projections cut the one shared ladder (`ladder_sourced`), but over
     // separately-conformed input: the render gate's fallible conform vs the
     // view's keep-raw `conform_card_render`. This pins that those two conform
@@ -471,7 +458,6 @@ main:
         assert_eq!(r.value.as_json(), &serde_json::json!("hot"));
     }
 
-    // ── The body row ─────────────────────────────────────────────────────────
 
     #[test]
     fn body_row_authored_vs_blank_source() {
@@ -523,7 +509,6 @@ card_kinds:
         assert!(has_row(&card.fields, "label"), "declared rows still present");
     }
 
-    // ── Unknown-kind card ────────────────────────────────────────────────────
 
     #[test]
     fn unknown_kind_card_shape() {
@@ -543,7 +528,6 @@ card_kinds:
         assert!(card.body.is_none());
     }
 
-    // ── Undeclared authored field ────────────────────────────────────────────
 
     #[test]
     fn undeclared_authored_field_row_is_authored() {
@@ -557,7 +541,6 @@ card_kinds:
         assert_eq!(r.value.as_json(), &serde_json::json!("whatever"));
     }
 
-    // ── Wire shape ───────────────────────────────────────────────────────────
 
     #[test]
     fn field_source_serializes_the_blank_token() {

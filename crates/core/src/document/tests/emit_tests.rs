@@ -330,10 +330,9 @@ Body.
     );
 }
 
-/// A plaintext-codec field mints through `from_plaintext`, which keeps a line's
-/// edge whitespace verbatim, and emit projects any canonical content object
-/// through the markdown exporter. So an indented sample reaches the re-parse
-/// only if the projection escapes what markdown strips at a line's edges.
+/// Emit projects a canonical content object through the markdown exporter, so an
+/// indented plaintext sample survives the re-parse only if the projection escapes
+/// what markdown strips at a line's edges.
 #[test]
 fn an_indented_plaintext_field_survives_emit_and_reparse() {
     use crate::document::{Card, Payload};

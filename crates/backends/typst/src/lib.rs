@@ -57,10 +57,8 @@ struct TypstSession {
 struct Compiled {
     document: typst_layout::PagedDocument,
     /// This compile's form fields in the spine's coordinates: what a PDF render
-    /// stamps and what `widget_regions` projects.
+    /// stamps.
     field_specs: Vec<quillmark_pdf::FieldSpec>,
-    /// The specs as regions, the single derivation `regions` and `field_at`
-    /// both read.
     widget_regions: Vec<RenderedRegion>,
     /// The span scan's classification table: generated content-block windows
     /// then the plate's scalar reference-site windows.
@@ -169,10 +167,8 @@ fn declined_image_warnings(
         .collect()
 }
 
-/// The quill's load warnings, then this compile's own, then one per runaway
-/// `field-region`, then one per field whose images this backend declined. One
-/// order, built in one place, so an `update` that swaps only what it recompiled
-/// keeps the load half.
+/// One order, built in one place, so an `update` that swaps only what it
+/// recompiled keeps the quill's load warnings ahead of its own.
 fn session_warnings(
     world: &world::QuillWorld,
     compile: Vec<Diagnostic>,
@@ -300,8 +296,6 @@ impl SessionHandle for TypstSession {
         self.live.document.pages().len()
     }
 
-    /// Transactional: the live compile swaps in whole only after [`recompile`]
-    /// succeeds, so on `Err` every read keeps serving the last-good one.
     fn update(&mut self, json_data: &serde_json::Value) -> Result<ChangeSet, RenderError> {
         let compiled = recompile(
             &mut self.world,
@@ -330,8 +324,6 @@ impl SessionHandle for TypstSession {
         Some((size.x.to_pt() as f32, size.y.to_pt() as f32))
     }
 
-    /// Non-premultiplied RGBA8 at `scale`× the natural 72 ppi, returned as
-    /// `(width_px, height_px, rgba)` with `w * h * 4` row-major bytes.
     fn render_rgba(
         &self,
         page: usize,
@@ -356,10 +348,6 @@ impl SessionHandle for TypstSession {
         Ok(Some((width, height, rgba)))
     }
 
-    /// Widgets first (one fixed-size box each), then span-tracked content in
-    /// (page, field, site) order. `field` is not unique: page fragments, several
-    /// scalar reference sites, or tracked content plus a bound widget all
-    /// repeat it, so consumers group by field.
     fn regions(&self) -> Vec<quillmark_core::RenderedRegion> {
         let mut regions = self.live.widget_regions.clone();
         regions.extend(self.scan().regions());
@@ -530,11 +518,10 @@ fn read_plate(source: &Quill) -> Result<String, RenderError> {
 /// schema pruned to its address grammar.
 ///
 /// A node offers a property step (`props`), an index step (`item`), or neither.
-/// A typed dictionary and a variant container both project as `type: object`
-/// carrying `properties` — the container's own `value` among them — so one
-/// shape spans both, and a richtext field, an `object` declaring no
-/// `properties`, offers no step at all. An array always offers its index step,
-/// whatever its element.
+/// One `object` shape spans a typed dictionary and a variant container alike
+/// (`prose/canon/PLATE_DATA.md`), while a richtext field, an `object` declaring
+/// no `properties`, offers no step at all. An array always offers its index
+/// step, whatever its element.
 #[derive(Debug, Default)]
 pub(crate) struct AddressNode {
     pub(crate) props: BTreeMap<String, AddressNode>,

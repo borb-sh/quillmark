@@ -1,9 +1,5 @@
 //! Spec requirements from `prose/references/markdown-spec.md` that have no
 //! owner among the `document/tests/` unit modules.
-//!
-//! What those modules do not carry: the §8 input caps (sole coverage in the
-//! workspace), the bidi strip a card body takes at parse, and the ASCII gate a
-//! field name passes at parse.
 
 use quillmark_core::{Document, ParseError};
 
@@ -85,8 +81,8 @@ fn card_count_cap_is_per_card() {
 }
 
 /// `docs/integration/operations.md` tells an integrator to read the caps rather
-/// than copy the numbers, so what this pins is the paths, not the values. Written
-/// out-of-crate, as a consumer writes them.
+/// than copy the numbers, so this pins the paths, not the values — from
+/// out-of-crate, as a consumer reads them.
 #[test]
 fn spec_caps_are_reachable_at_their_documented_paths() {
     use quillmark_core::error::{

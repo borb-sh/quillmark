@@ -257,11 +257,6 @@ impl Container {
     /// otherwise [weld](Self::same_weld) the two** — so a document needing no
     /// discriminator carries none and one that needs it alternates
     /// `0, 1, 0, 1`. Non-adjacent runs never collide, so two values suffice.
-    ///
-    /// The two rules answer different questions, and a pair can fall between
-    /// them. `1. a` beside `3. b` differs by `start`, so `same_run` separates
-    /// the runs and a producer writes nothing. Markdown reads only a list's
-    /// first number, so the canonical form spends a discriminator anyway.
     pub fn instance(&self) -> u64 {
         match self {
             Container::ListItem { instance, .. }
@@ -369,32 +364,25 @@ impl Container {
 }
 
 /// A [`Content`] that [`Content::normalize`] has run on: the precondition both
-/// projections carry.
-///
-/// Minted only by [`Content::into_normalized`], which the codecs decode
-/// through. Reads borrow through to the [`Content`]; the mutations that
-/// re-establish the invariant are forwarded, and any other one takes
-/// [`into_content`](Self::into_content) and mints again.
-///
-/// `normalize` **repairs** rather than rejects, so this states that the value is
-/// canonical, not that its producer meant it.
+/// projections carry. Minted only by [`Content::into_normalized`], which the
+/// codecs decode through; a mutation that does not re-establish the invariant
+/// takes [`into_content`](Self::into_content) and mints again.
 ///
 /// ## Canonical, not valid
 ///
 /// [`validate`](Content::validate) rejects a different set: nothing
 /// normalization does brings a container path under
 /// [`MAX_NESTING_DEPTH`](crate::MAX_NESTING_DEPTH), so a token can hold a
-/// content `validate` refuses. The mint stays infallible on that split, since
-/// canonicalizing is total and checking is a separate question. The codecs ask
-/// it, calling `validate` after minting; every other producer is a Rust
-/// embedder hand-building a [`Content`], and this token does not speak for them.
+/// content `validate` refuses, and the mint stays infallible on that split. The
+/// codecs call `validate` after minting; a Rust embedder hand-building a
+/// [`Content`] may not.
 ///
-/// A projection taking one may therefore assume only what the mint establishes,
-/// and must be **total over any token**. [`to_markdown`](crate::to_markdown)
-/// walks containers on an explicit stack rather than a call frame per level,
-/// and `emit_content` checks the depth and returns an error. Neither trusts a
-/// bound only `validate` enforces: an unguarded recursion aborts the process,
-/// which no `Result` can catch.
+/// A projection taking a token may therefore assume only what the mint
+/// establishes, and must be **total over any token**:
+/// [`to_markdown`](crate::to_markdown) walks containers on an explicit stack
+/// rather than a frame per level, and `emit_content` checks the depth and
+/// returns an error. An unguarded recursion aborts the process, which no
+/// `Result` can catch.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Normalized(Content);
 
@@ -811,8 +799,7 @@ pub enum Invariant {
     /// A line has `continues: true` but sits in a different container path than
     /// the line before it, so the block it claims to continue is not the block
     /// above. `normalize` clears the flag; this catches a hand-built content
-    /// that skipped it, the same pairing as
-    /// [`LineKindMismatch`](Invariant::LineKindMismatch).
+    /// that skipped it.
     ContinuesAcrossContainers { line: usize },
     /// A line has `continues: true` but the line before it opens a block whose
     /// kind renders one line ([`LineKind::takes_continuations`]), so the
@@ -854,15 +841,13 @@ pub enum Invariant {
     /// empty array (a zero-column, content-free table).
     TableHeaderNotArray,
     /// A line's [`LineKind`] contradicts its text. Export trusts the kind and
-    /// never re-reads the segment, so an unchecked mismatch is silent text loss
-    /// (an `Island`-tagged prose line projects to its resolved island alone).
+    /// never re-reads the segment, so an unchecked mismatch is silent text loss.
     LineKindMismatch { line: usize, mismatch: LineKindMismatch },
     /// A block-only island's slot
     /// ([`KnownIslandType::block_only`](crate::KnownIslandType::block_only))
-    /// shares its line with other content. A table's markdown is a block, so
-    /// there is no inline spelling: written mid-paragraph it lands as pipes the
-    /// re-import reads as prose, with the island gone. `normalize` breaks the
-    /// line around the slot; the lanes that author one refuse the placement
+    /// shares its line with other content, which has no markdown spelling.
+    /// `normalize` breaks the line around the slot; the lanes that author one
+    /// refuse the placement
     /// ([`ApplyError::BlockIslandNotAlone`](crate::ApplyError::BlockIslandNotAlone)).
     BlockIslandNotAlone { at: Usv },
     /// A line's container path is nested deeper than
@@ -1627,7 +1612,6 @@ mod tests {
         }
     }
 
-    /// A line kind that contradicts the line's text is refused.
     /// Export trusts the kind and never re-reads the segment, so `Island` over
     /// prose projects to the island alone and `Rule` over prose to `---`: the
     /// text silently gone.
@@ -1706,10 +1690,9 @@ mod tests {
     }
 
     /// Markdown spells a slot-alone `Para` line and a slot-alone `Island` line
-    /// alike, so which one a document holds is the island type's to settle:
-    /// table markup is a block and re-imports as `Island`, an image is inline
-    /// and re-imports as `Para`. Both spellings of each converge on the one the
-    /// round trip yields, so no document holds a kind its own markdown denies.
+    /// alike, so which one a document holds is the island type's to settle. Both
+    /// spellings converge on the one the round trip yields, so no document holds
+    /// a kind its own markdown denies.
     #[test]
     fn an_island_alone_on_a_line_takes_the_kind_its_type_projects() {
         let image = Island::new("isl-0".into(), "image".into())
@@ -1960,9 +1943,8 @@ mod tests {
             .collect()
     }
 
-    /// `ordinal` is a gapless index within a run and `instance` the minimal
-    /// discriminator the adjacency needs; both are read off run structure, so
-    /// a producer's arbitrary values collapse to one spelling.
+    /// Both are read off run structure, so a producer's arbitrary values
+    /// collapse to one spelling.
     #[test]
     fn normalize_canonicalizes_container_paths() {
         // A repeat continues one item across its paragraphs; any change opens
@@ -2185,7 +2167,6 @@ mod tests {
         assert_eq!(rt.validate(), Ok(()));
     }
 
-    /// Cell marks canonicalize to the same result whatever the input order.
     #[test]
     fn table_cell_marks_normalize_and_are_idempotent() {
         fn table(cell_marks: serde_json::Value) -> Content {

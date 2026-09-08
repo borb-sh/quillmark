@@ -101,8 +101,6 @@ main:
     format!("{err:?}")
 }
 
-// ---------------------------------------------------------------- load errors
-
 #[test]
 fn variants_on_a_non_enum_field_is_a_load_error() {
     assert!(load_error(
@@ -119,8 +117,7 @@ fn a_variant_keyed_by_a_non_member_is_a_load_error() {
     assert!(err.contains("quill::variant_unknown_value"));
 }
 
-/// The blank is not a member, so it owns no field set: the same rule
-/// `quill::enum_blank_member` states from the `values:` side.
+/// The same rule `quill::enum_blank_member` states from the `values:` side.
 #[test]
 fn a_variant_keyed_by_the_blank_is_a_load_error() {
     let err = load_error(
@@ -129,8 +126,6 @@ fn a_variant_keyed_by_the_blank_is_a_load_error() {
     assert!(err.contains("quill::variant_unknown_value"));
 }
 
-/// Every reader of a `default:` takes it through `as_str`, so load reads it as
-/// written — exactly as a plain enum's is read.
 #[test]
 fn a_non_string_variant_default_is_a_load_error() {
     let variant = load_error(
@@ -175,12 +170,8 @@ fn an_empty_variant_and_an_empty_variants_map_are_load_errors() {
     );
 }
 
-/// A variant carries any leaf type a card field may. The four rich types were
-/// refused while lowering read flat top-level name tables that could not
-/// descend into a container; the schema-node walk reads a cell's own
-/// declaration, so the ceiling had no mechanism left to protect.
-///
-/// Each surface is pinned separately below; this one is load.
+/// A variant carries any leaf type a card field may; every surface below pins
+/// one, and this one is load.
 #[test]
 fn a_variant_carries_any_leaf_type() {
     for ty in ["richtext", "plaintext", "date", "datetime"] {
@@ -291,12 +282,10 @@ classification:
     assert_eq!(blank_plate, json!({ "value": "" }));
 }
 
-/// A variant cell carries any type a card field does, containers included. The
-/// two card-level keys are what it may not carry.
+/// The two card-level keys are what a cell may not carry.
 #[test]
 fn a_variant_field_may_not_carry_variants_or_a_group() {
-    // Variant fields inherit the discriminant's group; declaring one is the
-    // same dead knob a nested `ui.group` always was.
+    // A cell inherits the discriminant's group, so declaring one is a dead knob.
     assert!(load_error(
         "    c:\n      type: enum\n      values: [A]\n      variants:\n        A:\n          x: { type: string, ui: { group: g } }\n"
     )
@@ -308,7 +297,7 @@ fn a_variant_field_may_not_carry_variants_or_a_group() {
 }
 
 /// The union projection is what stays one level deep; the shapes below it do
-/// not, so a cell holds a typed dictionary and a typed table like any field.
+/// not.
 #[test]
 fn a_variant_field_holds_a_container() {
     for cell in [
@@ -324,8 +313,7 @@ fn a_variant_field_holds_a_container() {
 }
 
 /// Two spellings of one name would coerce a live value under the other world's
-/// type, failing `validation::type_mismatch` on a document valid against the
-/// world it selected.
+/// type.
 #[test]
 fn a_name_two_worlds_declare_differently_is_a_load_error() {
     let err = load_error(
@@ -353,8 +341,6 @@ fn a_name_two_worlds_declare_identically_loads() {
     assert_eq!(data["classification"]["controlled_by"], json!("SAF/AA"));
 }
 
-/// A variant turns its field into a container, and a container may not sit
-/// inside one.
 #[test]
 fn variants_below_card_level_is_a_load_error() {
     let err = load_error(
@@ -363,10 +349,6 @@ fn variants_below_card_level_is_a_load_error() {
     assert!(err.contains("quill::variant_placement"));
 }
 
-// ----------------------------------------------------------------- the blank
-
-/// The blank activates no variant, so the container carries nothing but the
-/// unanswered discriminant.
 #[test]
 fn the_blank_of_a_variant_bearing_enum_is_the_container_holding_the_blank() {
     let schema = field(
@@ -375,23 +357,18 @@ fn the_blank_of_a_variant_bearing_enum_is_the_container_holding_the_blank() {
     assert_eq!(blank(&schema).into_json(), json!({ "value": "" }));
 }
 
-/// A plain enum is untouched: `variants:` is the one thing that changes the
-/// resting shape.
 #[test]
 fn a_variantless_enum_still_blanks_to_the_bare_string() {
     let schema = field("type: enum\nvalues: [A]\n");
     assert_eq!(blank(&schema).into_json(), json!(""));
 }
 
-// ------------------------------------------------------- the wire (per-world)
-
 #[test]
 fn an_empty_document_renders_the_container_with_no_variant_fields() {
     assert_eq!(plate(&doc("")), json!({ "value": "" }));
 }
 
-/// Inside the world a plate branches into, every declared field is present —
-/// that is what makes an unguarded read total there.
+/// What makes an unguarded read total inside the branch a plate writes.
 #[test]
 fn the_live_world_arrives_complete_and_blank_filled() {
     assert_eq!(
@@ -400,9 +377,8 @@ fn the_live_world_arrives_complete_and_blank_filled() {
     );
 }
 
-/// The container is a closed shape: a value belonging to a world nobody selected
-/// never reaches the plate, so a payload cannot arrive under a tag that disowns
-/// it.
+/// The container is a closed shape, so a payload cannot arrive under a tag that
+/// disowns it.
 #[test]
 fn a_dormant_worlds_fields_never_reach_the_plate() {
     assert_eq!(
@@ -433,8 +409,7 @@ fn the_discriminant_falls_to_the_default_and_carries_its_world() {
     );
 }
 
-/// Null ≡ absent holds through the container: a present-null discriminant
-/// blank-fills exactly as an omitted one does.
+/// Null ≡ absent holds through the container.
 #[test]
 fn a_null_discriminant_blank_fills() {
     assert_eq!(
@@ -443,10 +418,8 @@ fn a_null_discriminant_blank_fills() {
     );
 }
 
-// -------------------------------------------------------------- resolve() parity
-
-/// `resolve()`'s contract is byte-parity with the plate, and the container is
-/// one cell carrying one rung (as a typed dictionary is).
+/// `resolve()`'s contract is byte-parity with the plate, the container being one
+/// cell carrying one rung as a typed dictionary is.
 #[test]
 fn resolve_reports_the_container_as_one_cell_matching_the_plate() {
     let quill = quill();
@@ -566,8 +539,6 @@ fn an_authored_cell_lifts_a_defaulted_discriminant() {
     assert_eq!(row.source, crate::quill::resolved::FieldSource::Authored);
 }
 
-// ------------------------------------------------------------------ validation
-
 /// The conditional-obligation payoff: a field with no `default:` is obliged in
 /// its own world and silent everywhere else — the thing `must_fill` alone cannot
 /// say.
@@ -653,8 +624,6 @@ fn only_the_live_worlds_fields_are_type_checked() {
         .iter()
         .any(|(code, _)| code == "validation::type_mismatch"));
 }
-
-// --------------------------------------------------------- authoring surfaces
 
 /// A blueprint is a document, so it shows one world and *names* the rest.
 #[test]

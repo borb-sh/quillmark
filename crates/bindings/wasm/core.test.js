@@ -155,8 +155,7 @@ title: Draft
     expect(doc.cards[0].kind).toBe('note')
 
     doc.storeField({ card: 0, field: 'author' }, 'Bob')
-    // Keyed card read: mirrors the write, no payloadItems walk. Agrees
-    // with the hand-rolled projection it replaces.
+    // Keyed card read: mirrors the write, no payloadItems walk.
     expect(doc.getStored({ card: 0, field: 'author' })).toBe('Bob')
     expect(doc.getStored({ card: 0, field: 'author' })).toBe(field(doc.cards[0], 'author'))
 

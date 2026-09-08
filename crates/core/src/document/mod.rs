@@ -256,9 +256,8 @@ impl Card {
         self.payload.ext()
     }
 
-    /// The card's card-yaml storage as a read view. Writes go through the
-    /// enforcing verbs ([`store_field`](Card::store_field),
-    /// [`TypedWriter`](crate::TypedWriter)).
+    /// The card's card-yaml storage as a read view; writes go through the verbs
+    /// [`Payload`] names.
     pub fn payload(&self) -> &Payload {
         &self.payload
     }
@@ -332,20 +331,14 @@ pub struct SeedOverlay {
 }
 
 impl SeedOverlay {
-    /// Parse an overlay from a `$seed[<kind>]` JSON value, or `None` when it is
-    /// not a mapping. Use this to turn the raw overlay object a consumer reads
-    /// from the main card's `$seed` map ([`Card::seed`]) into a typed overlay to
-    /// hand to [`crate::Quill::seed_card`]; e.g.
+    /// Parse an overlay from a `$seed[<kind>]` JSON value, `None` when it is not
+    /// a mapping:
     /// `doc.main().seed().and_then(|m| m.get(kind)).and_then(SeedOverlay::from_json)`.
     pub fn from_json(value: &serde_json::Value) -> Option<Self> {
         value.as_object().map(Self::from_json_map)
     }
 
-    /// Build an overlay from a single `$seed[<kind>]` JSON map: the reserved
-    /// `$body` string becomes [`body`](Self::body); every other user-field entry
-    /// becomes a field. A non-string `$body` is ignored (no body override). Any
-    /// other `$`-prefixed key is reserved and dropped (never stored as a user
-    /// field) since an overlay only ever carries user fields plus `$body`.
+    /// A non-string `$body` is ignored: no body override.
     fn from_json_map(map: &serde_json::Map<String, serde_json::Value>) -> Self {
         let mut fields = indexmap::IndexMap::new();
         let mut body = None;
@@ -355,8 +348,6 @@ impl SeedOverlay {
                     body = Some(s.to_string());
                 }
             } else if key.starts_with('$') {
-                // Reserved key other than `$body`: not a user field. Drop it
-                // rather than smuggle a `$`-key into the field set.
                 continue;
             } else {
                 fields.insert(
@@ -442,7 +433,7 @@ impl Document {
         &mut self.main
     }
 
-    /// The `$quill` reference from the root block. Always present on parsed documents.
+    /// The root block's `$quill` reference, which parse validates present.
     pub fn quill_reference(&self) -> QuillReference {
         self.main
             .quill()
@@ -513,10 +504,9 @@ impl Document {
             serde_json::Value::String(self.quill_reference().to_string()),
         );
 
-        // The seam carries the body as canonical Content-JSON (Option A): a
-        // nested content object, byte-identical to `to_canonical_json`, never a lossy
-        // markdown string. Backends lower the content (typst → markup + source
-        // map; pdfform → `.text`); the markdown projection is `body_markdown`.
+        // The seam carries the body as canonical Content-JSON: a nested content
+        // object, byte-identical to `to_canonical_json`, never a lossy markdown
+        // string. The markdown projection is `body_markdown`.
         if main_body {
             map.insert(
                 "$body".to_string(),

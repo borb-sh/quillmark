@@ -74,15 +74,13 @@ pub enum LineOp {
 #[derive(Debug, Clone, PartialEq)]
 pub enum IslandOp {
     /// Replace the entry `island.id` names, in place. The id is the target *and*
-    /// the stored value, so an island cannot be renamed through this op. An id no
+    /// the stored value, so an island cannot be renamed through this op; an id no
     /// island carries is [`ApplyError::UnknownIslandId`], never a silent no-op.
     ///
-    /// `props`, `island_type` and `loss` all come from the op; nothing derives
-    /// `loss` from the props.
-    ///
-    /// The type comes from the op too, so retyping an inline island into a
-    /// block-only one over a slot that shares its line is
-    /// [`ApplyError::BlockIslandNotAlone`], as landing one there is.
+    /// `props`, `island_type` and `loss` all come from the op, nothing deriving
+    /// `loss` from the props — so retyping an inline island into a block-only one
+    /// over a slot that shares its line is [`ApplyError::BlockIslandNotAlone`],
+    /// as landing one there is.
     Set { island: Island },
     /// Insert an island: the [`ISLAND_SLOT`] at `at` and its backing entry in
     /// one op, so a slot never exists without the [`Island`] behind it.
@@ -97,18 +95,17 @@ pub enum IslandOp {
     /// ([`ApplyError::EmptyIslandId`], [`ApplyError::IslandIdCollision`]); a
     /// delete earlier in the same bundle frees its id for reuse here.
     ///
-    /// **Block islands.** The slot alone is an *inline* island (a slot in a
-    /// `Para`). A block island is that slot alone on its own line under
-    /// [`LineKind::Island`], which takes three channels in one bundle: the text
-    /// delta inserts the `\n`, this op inserts the slot, and
-    /// [`LineOp::SetKind`] tags the line. That order is why island ops run
-    /// *before* line ops: `SetKind` validates the kind against the text already
-    /// on the line. `LineOp::Split` cannot stand in for the delta's `\n`: it
-    /// runs in the later stage.
+    /// **Block islands.** The slot alone is an *inline* island. A block island
+    /// is that slot alone on its own line under [`LineKind::Island`], which takes
+    /// three channels in one bundle: the text delta inserts the `\n`, this op
+    /// inserts the slot, [`LineOp::SetKind`] tags the line. That order is why
+    /// island ops run *before* line ops — `SetKind` validates the kind against
+    /// the text already on the line — and why `LineOp::Split` cannot stand in for
+    /// the delta's `\n`.
     ///
     /// A type markdown writes as a block
-    /// ([`KnownIslandType::block_only`](crate::KnownIslandType::block_only), a
-    /// `table`) has no inline placement: `at` must be an empty line, else
+    /// ([`KnownIslandType::block_only`](crate::KnownIslandType::block_only)) has
+    /// no inline placement: `at` must be an empty line, else
     /// [`ApplyError::BlockIslandNotAlone`].
     ///
     /// A slot inserted onto a line whose kind names its content (`Code`, `Rule`)
@@ -171,11 +168,9 @@ impl ChangeBundle {
     }
 }
 
-// The op readers below reuse `serial`'s hand-written readers for `MarkKind` /
-// `LineKind` / `Container`, so an `applyChange` bundle speaks the same shapes
-// the content read surface does rather than a second serde-derived dialect.
-// The wire is a reading direction: bundles are authored on the JS/Python side,
-// and no encoder answers these.
+// The op readers below reuse `serial`'s hand-written readers, so a bundle
+// speaks the shapes the content read surface does rather than a second dialect.
+// The wire is a reading direction: bundles are authored on the JS/Python side.
 
 use crate::serial::{
     container_from_authored_value, island_from_authored_value, line_kind_from_authored_value,
@@ -1166,9 +1161,8 @@ mod tests {
         }
     }
 
-    /// The op wire is authored-now, so it refuses the `@0.93.0` payload
-    /// spelling the storage lane still reads: a host writing it holds a stale
-    /// copy of the encoding, and the write would land where it did not aim.
+    /// The op wire is authored-now, so it refuses the `@0.93.0` payload spelling
+    /// the storage lane still reads: the write would land where it did not aim.
     #[test]
     fn op_wire_rejects_the_legacy_payload_spelling() {
         let bad = serde_json::json!({
@@ -1322,7 +1316,6 @@ mod tests {
         assert_eq!(anchor_at(&via_line), (6, 6));
     }
 
-    /// An insertion at either edge of a range grows text outside the span.
     #[test]
     fn an_insert_at_a_range_marks_edge_stays_outside_the_span() {
         let mut at_start = from_markdown("hello world").unwrap();
@@ -1437,7 +1430,6 @@ mod tests {
         }
     }
 
-    /// `map_marks` reads; a bundle it rejects leaves the content alone.
     #[test]
     fn map_marks_reports_an_out_of_bounds_bundle_without_touching_the_content() {
         let rt = anchored("hello world", 6);
@@ -2160,10 +2152,9 @@ mod tests {
         assert_eq!(rt, before, "same content, original id and kind included");
     }
 
-    /// Markdown writes a table as a block, so its slot has to be a line's whole
-    /// content: an op landing one inside a paragraph would write pipes that
-    /// re-import as prose. An image is inline markup and keeps every position,
-    /// and `Set` carries the type, so retyping one is the same refusal.
+    /// An op landing a table's slot inside a paragraph would write pipes that
+    /// re-import as prose. `Set` carries the type, so retyping is the same
+    /// refusal.
     #[test]
     fn a_block_only_island_lands_only_on_a_line_of_its_own() {
         let table = |id: &str| {

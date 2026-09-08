@@ -300,8 +300,6 @@ fn test_store_fill_refuses_a_mapping() {
     let _ = crate::document::Document::parse(&md).expect("the emitted document re-parses");
 }
 
-/// The batch carries the same fill-target rule as the single write: a marker on
-/// a nested mapping emits as an unmarked key and reloads as a DTO violation.
 #[test]
 fn test_card_store_fields_refuses_a_nested_fill_on_a_mapping() {
     let marked = || {
@@ -339,8 +337,7 @@ fn test_card_store_fields_clears_fill_and_repeated_name_last_wins() {
 }
 
 /// The payload item's flag is the sole carrier of a root `!must_fill`, so a
-/// value arriving with its own root bit set is stored under the marker the
-/// mutator names: `Payload::is_fill` and [`QuillValue::fill`] agree afterwards.
+/// value arriving with its own root bit set is stored under the mutator's.
 #[test]
 fn test_store_clears_a_root_fill_bit_on_the_incoming_value() {
     let mut marked = qv("draft");
@@ -1178,8 +1175,6 @@ fn test_insert_card_refuses_root_only_entries() {
     Card::try_from(main).expect("the main card still crosses the wire");
 }
 
-/// A card the wire refuses never reaches placement: the payload invariants that
-/// are card-local are checked where the card is built.
 #[test]
 fn test_wire_refuses_payload_level_violations() {
     use crate::document::edit::PayloadViolation;
@@ -1271,8 +1266,7 @@ fn storage_dto_polices_root_kind_and_repeated_entries() {
     }
 }
 
-/// A comment carrying a newline emits bare YAML after its first line: the
-/// storage twin of the wire's injection guard.
+/// A comment carrying a newline emits bare YAML after its first line.
 #[test]
 fn storage_dto_refuses_a_multi_line_comment() {
     let err = serde_json::from_value::<crate::document::Document>(serde_json::json!({
@@ -1291,10 +1285,8 @@ fn storage_dto_refuses_a_multi_line_comment() {
     assert!(err.to_string().contains("one line"), "got: {err}");
 }
 
-/// One violation, the three ingestion boundaries that spell it. Parse and
-/// storage render the text `FieldViolation` owns, naming the key; the wire is a
-/// mutator door, so it renders the `EditError` `store_field` raises for the
-/// same name.
+/// Parse and storage render the text `FieldViolation` owns; the wire is a
+/// mutator door, so it renders the `EditError` `store_field` raises.
 #[test]
 fn every_ingestion_boundary_renders_its_violation_text() {
     use crate::document::edit::FieldViolation;

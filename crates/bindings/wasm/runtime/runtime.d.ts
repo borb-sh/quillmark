@@ -1,11 +1,6 @@
 // The canonical consumer API, and the package's sole export: `@quillmark/wasm`
 // resolves here.
 //
-// The render-side types are defined HERE as the backend-neutral render contract,
-// not sourced from any one private backend build; `runtime.types.test-d.ts`
-// asserts they stay mutually assignable with the Typst backend's generated
-// declarations.
-//
 // The `Quill`/`Document` `init` resolves to ARE the core build's classes, never
 // wrappers. Two copies of this package are two WASM linear memories and two
 // `Quill`/`Document` classes, so every method taking a handle refuses one
@@ -116,18 +111,10 @@ export type {
 
 // Content edit vocabulary: the op-grained content model `Document`'s methods
 // speak (`applyChange(addr, bundle)`, `overwrite(addr, rt)`, `revise(…) => Delta`).
-// Declared in the core build; re-exported here so the single public entry point
-// names every type its own re-exported surface already references: `Card.body`
-// is a `Content`, `PayloadItem.nestedFills` a `PathStep[][]`, `CardInput.body` a
-// `Content | string`: rather than forcing consumers to derive them structurally
-// off the `Document` handle. The content write path (a ProseMirror↔content codec)
-// must name all of them; they are its correctness core, not edge types.
-// `ContentLineKind` is the shared half of `ContentLine` and `setKind`, so lifting
-// a line's kind whole (destructure off `containers`/`continues`, spread the rest
-// into the op) is the version-proof spelling of building a `setKind`. Naming it
-// is what makes that spelling type-check without a cast. The alternative, an
-// arm-by-arm switch, means guessing at the open arm's shape and re-editing on
-// every arm added.
+// `ContentLineKind` is the shared half of `ContentLine` and `setKind`: lifting a
+// line's kind whole — destructure off `containers`/`continues`, spread the rest
+// into the op — is the version-proof spelling of a `setKind`, and naming the
+// type is what makes that spelling type-check without a cast.
 export type {
 	Content,
 	ContentLine,
@@ -152,13 +139,9 @@ export type {
 } from '../core/wasm.js';
 
 // The two schema-bound whole-document reads on `quill.reader(doc)`: the values
-// form (`reader.values()`, what the document carries, content leaves as their
-// codec's text) and the resolved view (`reader.resolve()`, value + source rung
-// per declared field, the body a `body` sibling on its card, never a row in
-// `fields`); diagnostics stay `quill.validate`, guidance stays `quill.schema`.
-// Declared in the core build's generated `.d.ts` via a
-// `typescript_custom_section`; re-exported here so the single public entry
-// point names them.
+// form (`reader.values()`, what the document carries) and the resolved view
+// (`reader.resolve()`, value + source rung per declared field, the body a `body`
+// sibling on its card and never a row in `fields`).
 export type {
 	FieldSource,
 	ResolvedField,
@@ -170,8 +153,6 @@ export type {
 	CardValuesInput,
 	DocumentValuesInput
 } from '../core/wasm.js';
-
-// ── Error contract ──────────────────────────────────────────────────────────
 
 /**
  * The error every fallible method in this package throws: parse
@@ -285,12 +266,6 @@ export declare function isUnknownIsland(
 	island: ContentIsland
 ): island is ContentIsland & { type: string; props: unknown };
 
-// `ContentContainer.instance` is required, so a checker reports an omission; it
-// cannot report a `0` stamped on every run, which is the same write. Adjacent
-// runs of one shape sharing a value arrive welded, and nothing reports that
-// either: the flat `containers` form cannot tell it from one container spanning
-// two paragraphs. This carries the rule a codec would otherwise re-derive.
-
 /**
  * Stamp `instance` across one parent's blocks at one depth, in document order,
  * returning containers ready to write.
@@ -390,26 +365,17 @@ export interface ContentHit {
  * direction use {@link LiveSession.fieldAt}, which resolves a point on *any*
  * placement, not just the first one surfaced here.
  *
- * COORDINATE TRANSFORM. `rect` is in PDF points with a **bottom-left** origin.
- *
- * For an **HTML/CSS overlay** on a `width:100%` canvas, position hotspots as
- * percentages of the page, so they track the displayed size across DPI and pane
- * resize for free; only the Y axis flips:
+ * COORDINATE TRANSFORM. `rect` is in PDF points with a **bottom-left** origin
+ * where a canvas or CSS overlay is top-left, so only the Y axis flips, off `y1`
+ * — the rect's *upper* edge — and never off `y0`:
  *
  * ```js
- * const [x0, y0, x1, y1] = region.rect;            // PDF pt, bottom-left origin
- * const left   = (x0 / pageWidthPt) * 100;         // % of page (from PageSize.widthPt)
- * const top    = (1 - y1 / pageHeightPt) * 100;    // %: flip Y (from PageSize.heightPt)
- * const width  = ((x1 - x0) / pageWidthPt) * 100;
- * const height = ((y1 - y0) / pageHeightPt) * 100;
- * ```
- *
- * For painting **into a raster** at `renderScale` (= `layoutScale × densityScale`),
- * use the device-pixel form instead:
- *
- * ```js
- * const left   = x0 * renderScale;
- * const top    = (pageHeightPt - y1) * renderScale;  // flip Y
+ * const [x0, y0, x1, y1] = region.rect;
+ * // Into a raster painted at renderScale (= layoutScale × densityScale):
+ * const left = x0 * renderScale, top = (pageHeightPt - y1) * renderScale;
+ * // Or, for an HTML overlay on a width:100% canvas, as % of the page, which
+ * // tracks the displayed size across DPI and pane resize with no scale to thread:
+ * const leftPct = (x0 / pageWidthPt) * 100, topPct = (1 - y1 / pageHeightPt) * 100;
  * ```
  */
 export interface FieldRegion {
@@ -663,8 +629,6 @@ export declare class LiveSession {
 	): PaintResult;
 	free(): void;
 }
-
-// ── Typed writer: the schema-bound front door ───────────────────────────────
 
 // `quill.writer(doc)` is patched onto the re-exported `Quill` prototype (the
 // class is re-exported verbatim, so the method is declared by merging into the

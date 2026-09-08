@@ -1,14 +1,7 @@
 //! The values shape: [`DocumentValues`] / [`CardValues`], read by
 //! [`TypedReader::values`](crate::TypedReader::values) and written by
-//! [`TypedWriter::set_values`](crate::TypedWriter::set_values).
-//!
-//! Three forms of a document exist, one per question. **Stored** is the at-rest
-//! value, verbatim and quill-free. **Values** is stored with every content leaf
-//! decoded to its codec's text, so a consumer edits plain values. **Resolved**
-//! ([`Quill::resolve`](crate::Quill::resolve)) is values blank-filled and
-//! render-coerced, each cell tagged with the rung it came from. A read never
-//! coerces a scalar: `qty: "3"` is `"3"` here and `3` only in the resolved
-//! view, because canonicalizing is what a write does.
+//! [`TypedWriter::set_values`](crate::TypedWriter::set_values). It is one of a
+//! document's three forms; `SCHEMAS.md` § "The values form" separates them.
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Deserializer, Serialize};
@@ -21,16 +14,13 @@ use crate::Card;
 
 /// A document in the values form: the fields the main card carries, its body as
 /// markdown, its `$ext`, and every composable card. Every content leaf is its
-/// codec's text (`richtext` markdown, `plaintext` literal) at every depth the
-/// field's type tree reaches; every other value is as stored, a present-null as
-/// `null`. Declared fields come first in declaration order, then undeclared
-/// fields verbatim in authored order.
+/// codec's text at every depth the field's type tree reaches; every other value
+/// is as stored, a present-null as `null`. Declared fields come first in
+/// declaration order, then undeclared fields verbatim in authored order.
 ///
-/// **Sparse**: an absent field is absent here too, never materialized from its
-/// `default:`. **A projection, never a storage format**: markdown does not
-/// carry anchors, island ids, or content-only marks, and `$quill`, `$seed`,
-/// `!must_fill` markers and YAML comments are not carried. Persist a document
-/// through [`StoredDocument`](crate::document).
+/// **A projection, never a storage format**, and a sparse one; persist a
+/// document through [`StoredDocument`](crate::document). What a cycle does and
+/// does not keep is `SCHEMAS.md` § "The values form".
 ///
 /// The read fills every axis. On the way into
 /// [`set_values`](crate::TypedWriter::set_values) each axis is optional and an

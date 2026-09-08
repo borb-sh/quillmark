@@ -87,8 +87,8 @@ fn custom_tags_lose_tag_but_keep_value() {
     );
 }
 
-/// In a flow collection or on a bare sequence element the YAML parser drops the
-/// marker silently, so prescan warns instead.
+/// The YAML parser drops a marker in these positions silently, so prescan warns
+/// instead.
 #[test]
 fn unsupported_fill_position_warns_not_silently_dropped() {
     let code = "parse::fill_marker_unsupported_position";
@@ -133,8 +133,7 @@ fn unsupported_fill_position_warns_not_silently_dropped() {
 }
 
 /// A `$seed` / `$ext` value carries no fill markers, so a marker nested inside
-/// one is dropped like any other unpreservable position: the warning names the
-/// cell that lost it.
+/// one is dropped like any other unpreservable position.
 #[test]
 fn fill_marker_inside_meta_value_warns_with_its_path() {
     let cases = [
@@ -168,8 +167,7 @@ fn fill_marker_inside_meta_value_warns_with_its_path() {
 }
 
 /// The prescan splits on `\n`, so CRLF input reaches it with a trailing `\r` on
-/// every line. Line endings carry no meaning of their own: the parse must land
-/// where the LF twin lands.
+/// every line.
 #[test]
 fn crlf_input_parses_as_its_lf_twin() {
     let lf = "~~~card-yaml\n$quill: q\n$kind: main\n# note\nx: !must_fill\ny: keep\n~~~\n\nBody.\n";
@@ -193,8 +191,8 @@ fn crlf_input_parses_as_its_lf_twin() {
     );
 }
 
-/// `key: !must_fill` spelled inside a block scalar or a quoted scalar is that
-/// scalar's text: the value keeps it verbatim and no marker is reported lost.
+/// `key: !must_fill` inside a block or quoted scalar is that scalar's text,
+/// kept verbatim.
 #[test]
 fn fill_marker_text_inside_a_scalar_does_not_warn() {
     let cases = [
@@ -668,8 +666,8 @@ fn nested_empty_mapping_survives_round_trip() {
     assert_eq!(emitted, doc2.to_markdown(), "round-trip must be idempotent");
 }
 
-/// `- key: !must_fill` puts the marker on the dash line, where prescan must
-/// inspect it inline.
+/// `- key: !must_fill` puts the marker on the dash line, where prescan inspects
+/// it inline.
 #[test]
 fn seq_item_inline_first_key_fill_round_trips() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\nrecipients:\n  - name: !must_fill\n    role: lead\n~~~\n\nBody.\n";

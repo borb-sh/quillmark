@@ -17,20 +17,18 @@
 //! cost is that an importer change moves exporter output, and that every
 //! [`to_markdown`] call depends on `pulldown_cmark`.
 //!
-//! ## Documented codec limits
+//! ## Codec limits
 //!
 //! Four shapes markdown cannot represent do **not** round-trip. A mark spanning
 //! a hard break splits into two per-line marks, and an empty first line in a
 //! hard-break block is dropped, markdown having no blank-then-forced-break
-//! syntax (`tests::known_hard_break_limits`). An image `alt` loses its edge
-//! whitespace: the parser trims alt *after* decoding the character reference
-//! that carries an edge run everywhere else (`tests::known_image_alt_limit`).
-//! A link or image `url` carrying a line ending comes back percent-encoded
-//! (`%0A`/`%0D`): CommonMark admits none in a destination, and the import
-//! decodes no percent escape
-//! (`tests::a_url_carrying_a_line_ending_still_projects_as_a_link`). Each arises
-//! only from adversarial delimiter/break placement, a hand-built island prop, or
-//! a stored url the authored lanes refuse.
+//! syntax. An image `alt` loses its edge whitespace: the parser trims alt
+//! *after* decoding the character reference that carries an edge run everywhere
+//! else. A link or image `url` carrying a line ending comes back
+//! percent-encoded (`%0A`/`%0D`): CommonMark admits none in a destination, and
+//! the import decodes no percent escape. Each arises only from adversarial
+//! delimiter/break placement, a hand-built island prop, or a stored url the
+//! authored lanes refuse.
 
 use crate::island::KnownIslandType;
 use crate::model::{
@@ -81,12 +79,9 @@ struct Ctx<'a> {
 }
 
 /// One line's char range `[start, end)` into the content, with the matching byte
-/// range and the count of island slots before the line, so a caller indexes
-/// the content text and the island list in O(1) without rescanning.
-///
-/// A derived view [`line_segments`] recomputes whole; its five fields are one
-/// line's position in the two coordinate spaces the model has. A sixth field
-/// means a third space, which moves the model first.
+/// range and the count of island slots before the line, so a caller indexes the
+/// content text and the island list in O(1) without rescanning. A derived view
+/// [`line_segments`] recomputes whole.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Segment {
     /// USV index of the line's first char.
@@ -632,8 +627,8 @@ struct SlotMarkup {
 ///   unbalanced. [`clip_fmt_to_atomic`] pulls such edges to the span boundary.
 /// - **`*`/`**` share a delimiter character**, so a reopened `*` abutting a `**`
 ///   merges into an ambiguous `***` run CommonMark re-segments wrong.
-///   [`clip_asterisk_overlap`] nests the two by truncation: a documented codec
-///   limit, keeping the text but losing the crossing tail.
+///   [`clip_asterisk_overlap`] nests the two by truncation, keeping the text and
+///   losing the crossing tail.
 #[allow(clippy::too_many_arguments)]
 fn render_marked_core(
     chars: &[char],
@@ -1141,8 +1136,7 @@ mod tests {
 
     /// The lane [`Normalized`] does not close: a Rust embedder hand-builds a
     /// content nested past `MAX_NESTING_DEPTH`, which `normalize` cannot repair
-    /// and no mint rejects. `DEPTH` clears the few-thousand-frame ceiling a
-    /// test thread's stack holds.
+    /// and no mint rejects.
     #[test]
     fn nesting_past_what_validate_allows_projects_rather_than_overflowing() {
         const DEPTH: usize = 10_000;
@@ -1153,11 +1147,10 @@ mod tests {
         assert_eq!(to_markdown(&rt), format!("{}x", "> ".repeat(DEPTH)));
     }
 
-    /// Coincident marks nest in the order the canonical form stores, which is
-    /// `MarkKind::sort_key` at a tie — the same rule the Typst emitter follows,
-    /// and the reason this projection's bytes move when that key does. Both
-    /// spellings re-import to one content, so the fixed point is over the
-    /// content, not over the markdown.
+    /// Coincident marks nest in the stored order, `MarkKind::sort_key` at a tie,
+    /// so this projection's bytes move when that key does. Both spellings
+    /// re-import to one content: the fixed point is over the content, not over
+    /// the markdown.
     #[test]
     fn coincident_marks_project_in_the_stored_order() {
         let rt = Content::new("x".to_string(), vec![Line::new(LineKind::Para)])
@@ -1189,14 +1182,14 @@ mod tests {
         }]
     }
 
-    /// The shapes #1357 recorded as inexpressible, now spelled by `instance`
-    /// and carried through markdown by the marker alternation CommonMark
-    /// already reads. Each is checked *from storage*, not from an import, since
-    /// a client writing `Content` directly is the lane that mints them.
+    /// `instance` spells these, and the marker alternation CommonMark already
+    /// reads carries them through markdown. Each is checked *from storage*, not
+    /// from an import, since a client writing `Content` directly is the lane
+    /// that mints them.
     #[test]
     fn adjacent_sibling_containers_project_and_return() {
         let cases: &[(Normalized, &str)] = &[
-            // Two one-item lists: the shape that used to come back as one item
+            // Two one-item lists, which weld into one without a discriminator
             // with an unnumbered continuation paragraph.
             (stored("a\nb", vec![li(0, 0), li(0, 1)]), "- a\n\n+ b"),
             // Which is still distinct from one item spanning two paragraphs.
@@ -1237,10 +1230,9 @@ mod tests {
         }
     }
 
-    /// The alternate markers meet the rule collision the primary ones already
-    /// dodge. `+ ***` is a list item holding a thematic break; `* ***` would be
-    /// four asterisks separated by spaces, which is a break outright and takes
-    /// the item with it — which is why the second bullet is `+`.
+    /// `+ ***` is a list item holding a thematic break; `* ***` would be four
+    /// spaced asterisks, a break outright that takes the item with it — which is
+    /// why the second bullet is `+`.
     #[test]
     fn alternate_markers_do_not_collide_with_a_rule() {
         let mut rt = stored("a\n\nb", vec![li(0, 0), li(0, 1), li(1, 1)]).into_content();
@@ -1985,8 +1977,6 @@ mod tests {
         assert_eq!(rt2.islands[0].props["alt"], "a]b");
     }
 
-    /// Image and link URLs carrying the destination-terminating specials
-    /// (spaces, unbalanced parens, `&`, `<`/`>`, backslash) all round-trip.
     #[test]
     fn url_specials_round_trip() {
         round_trips("a [t](<foo bar>) b");
@@ -1998,8 +1988,6 @@ mod tests {
         round_trips("see [t](<a\\\\b>) x");
     }
 
-    /// `emit_url` angle-wraps only when a special forces it, so common URLs stay
-    /// unbracketed.
     #[test]
     fn emit_url_bare_when_safe() {
         let mut bare = String::new();

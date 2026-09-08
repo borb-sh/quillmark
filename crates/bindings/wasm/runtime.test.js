@@ -862,9 +862,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
   })
 
   it('pdfform manifest cannot drift from the loaded backend (drift guard)', async () => {
-    // Same drift guard as typst, but for the pdfform backend: the static
-    // `formats` manifest in DEFAULT_BACKENDS must match what the loaded
-    // pdfform binary actually reports.
+    // `DEFAULT_BACKENDS`' static manifest against what the binary reports.
     const engine = new Engine()
     const quill = Quill.fromTree(makeSampleFormQuill())
     expect(quill.backendId).toBe('pdfform')
@@ -1215,9 +1213,8 @@ main:
   it('caller may free() its handles as soon as render/open returns (pre-await snapshot)', async () => {
     // Both caller handles are snapshotted before the first await inside
     // render/open (the backend load: a real suspension point on first call),
-    // so a synchronous free() right after the call cannot race the clone.
-    // Regression pin for the "null pointer passed to rust" panic:
-    // each engine below is fresh, so its first call has the load pending when
+    // so a synchronous free() right after the call cannot race the clone. Each
+    // engine below is fresh, so its first call has the load pending when
     // free() runs.
     const renderEngine = new Engine()
     const renderQuill = makeRuntimeQuill()
@@ -1243,11 +1240,9 @@ main:
   })
 
   it('propagates a clone-construction failure (doc clone), leaving the quill clone cached', async () => {
-    // Exercises the teardown path when the doc clone (Document.fromStored) throws:
-    // the quill clone is already materialized and cached (NOT freed here, that
-    // is the T3 caching contract), only the per-call doc clone is freed in the
-    // finally. We can only assert the error surfaces (cache/leak state is not
-    // observable from JS), but this pins the throw path #withClones guards.
+    // The quill clone is already materialized and cached, and stays cached;
+    // only the per-call doc clone is freed in the `finally`. Cache and leak
+    // state are not observable from JS, so the assertion is the error itself.
     //
     // The failure is injected through the backend REGISTRY, not through a
     // stand-in Document: both caller handles are checked before the clone runs

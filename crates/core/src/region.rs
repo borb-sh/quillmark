@@ -7,38 +7,13 @@
 //! that produced it. `regions` answers *field → rectangle*, `field_at` answers
 //! *point → field*.
 //!
-//! Three producers feed regions, all keyed on the schema path:
+//! What produces a region — content spans, direct scalar references, marker
+//! claims, form-field widgets — and why a content value placed twice surfaces
+//! only its first placement: `prose/canon/PREVIEW.md`.
 //!
-//! - **Content fields** are tracked by the spans their glyphs carry, so the
-//!   origin survives a package that rebuilds the content. A field that draws
-//!   nothing surfaces no region: present-but-empty is not placed.
-//! - **Direct scalar references** — each `data.<field>` expression in the
-//!   plate is its own site, so a scalar in both header and footer surfaces
-//!   twice. `#upper(data.subject)` attributes the whole expression as long as
-//!   it holds one reference, and a read stepping into a declared container
-//!   (`data.classification.poc`) attributes the property rather than the
-//!   container. A read through a `let` alias bound exactly once to one whole
-//!   chain tracks where that chain would. Not tracked: an expression mixing
-//!   several fields, a value laundered past the alias (a function parameter, a
-//!   destructured binding), and card scalars read from the per-card loop
-//!   variable (one site shared by every instance — bind a widget for those).
-//! - **Form-field widgets** carry a schema path explicitly. A widget that
-//!   binds none produces no region: only schema-addressable fields surface.
-//!
-//! **First placement only.** A content value placed twice surfaces one region
-//! set, because span data cannot distinguish "package chrome interrupting one
-//! placement" from "a second placement", and a union would claim the ink
-//! between them. That placement is one region per page it touches, in page
-//! order: page marginals between one page's body and the next's do not end it,
-//! but foreign ink within a page shrinks the region to the placement's true
-//! start. Later placements stay reachable point-wise through
-//! [`field_at`](crate::LiveSession::field_at), since a concrete point
-//! identifies one drawn item.
-//!
-//! Regions are an overlay sidecar, never a compositing input: every canvas
-//! backend hands back a complete page raster. A one-shot byte render carries
-//! the same sidecar on request ([`RenderOptions::regions`](crate::RenderOptions)).
-//! Empty for backends that place no schema fields.
+//! A one-shot byte render carries the same sidecar on request
+//! ([`RenderOptions::regions`](crate::RenderOptions)). Empty for backends that
+//! place no schema fields.
 
 /// One schema field placement's extent on a rendered page.
 ///
@@ -177,21 +152,12 @@ pub fn field_boxes(regions: &[RenderedRegion], field: &str) -> Vec<RenderedRegio
 
 // Address translation: plate-space geometry ⇄ DocPath.
 //
-// A backend keys a region on the plate-space address its compiled plate
-// composes: a `$cards` sigil, dot separators, and per-kind ordinals. That
-// grammar is the template-author contract inside the plate and must not cross
-// to a consumer, so the session resolves the per-kind ordinal to the
-// document-array absolute index (and back) against the current compile's
-// ordered card kinds.
-//
-// The tail is parsed and rendered segment-wise, which is what keeps the minted
-// `DocPath` stable across `Display` → `FromStr`: a tail carried whole into one
-// `Field` renders `main.references.0`, which reparses as a field named `"0"`.
-//
-// `.N` reads as an index here and not in `DocPath::from_str`, because plate
-// addresses are schema-derived and carry no digit map key, while a nested YAML
-// map key is unconstrained (`collect_fill_diags` mints `main.m.0` as
-// `Field{"0"}`). Teaching the parser `.N` would cost that reading.
+// A plate address is the template-author contract inside the plate and must not
+// cross to a consumer, so the session resolves its per-kind ordinal to the
+// document-array absolute index (and back) against the current compile's ordered
+// card kinds. The tail is parsed and rendered segment-wise, which keeps the
+// minted `DocPath` stable across `Display` → `FromStr`: a tail carried whole into
+// one `Field` renders `main.references.0`, which reparses as a field named `"0"`.
 
 use crate::path::{DocPath, DocSeg};
 

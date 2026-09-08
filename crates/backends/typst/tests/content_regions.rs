@@ -1,8 +1,6 @@
-//! Span-tracked content produces schema-path-keyed regions read from the
-//! laid-out frames: each field's first placement, one region per page it
-//! touches, keyed on the canonical schema path (for cards,
-//! `$cards.<kind>.<n>.<field>`). Plus the `form-field` `field:` binding and the
-//! forward `field_at`/`position_at`/`locate` navigation directions.
+//! Regions read off the laid-out frames — span-tracked content, scalar
+//! reference sites, the `form-field` `field:` binding — and the forward
+//! `field_at`/`position_at`/`locate` navigation over them.
 
 use quillmark_core::Backend;
 use quillmark_typst::TypstBackend;
@@ -80,9 +78,6 @@ main:
 
 #[test]
 fn field_placed_twice_surfaces_first_region_but_field_at_resolves_every_placement() {
-    // Span data cannot distinguish a genuine second placement from package
-    // chrome interrupting one, so `regions()` promises the first placement
-    // only. A click identifies one drawn item, so `field_at` answers on both.
     const YAML: &str = r#"
 quill:
   name: two_placements
@@ -162,8 +157,6 @@ main:
 
 #[test]
 fn scalar_reference_sites_each_surface_a_region() {
-    // Two source expressions are two origins, not one value counted twice, so a
-    // field shown in both header and body surfaces both sites.
     const YAML: &str = r#"
 quill:
   name: scalar_sites
@@ -212,9 +205,7 @@ typst:
 
 #[test]
 fn widget_and_tracked_content_both_surface_widget_ordered_first() {
-    // A field bound to both a widget and a tracked content placement surfaces
-    // both, deterministically ordered widget-first: the
-    // contract documented on `SessionHandle::regions` and `TypstSession::regions`.
+    // The order is `SessionHandle::regions`'s contract.
     const YAML: &str = r#"
 quill:
   name: widget_and_content
@@ -262,8 +253,6 @@ typst:
 
 #[test]
 fn content_survives_a_rebuilding_show_rule() {
-    // Spans are a property of the glyphs, so they ride through a `show`-rule
-    // pass that captures paragraphs into a state buffer and re-emits them.
     const YAML: &str = r#"
 quill:
   name: rebuild_survival
@@ -346,7 +335,6 @@ typst:
             "each richtext[] element gets its own eval site and region {expected:?}: {regions:?}"
         );
     }
-    // Elements are distinct placements, not one unioned `refs` blob.
     assert!(
         !regions.iter().any(|r| r.field == "refs"),
         "the array itself is not a region key: {regions:?}"
@@ -420,7 +408,6 @@ card_kinds:
             "expected a region keyed {expected:?}; got {fields:?}"
         );
     }
-    // No positional/absolute card address leaks through.
     assert!(
         !fields.iter().any(|f| f.starts_with("$cards.0.")
             || f.starts_with("$cards.1.")
@@ -488,11 +475,8 @@ main:
 #[test]
 fn card_dates_surface_per_instance_regions_through_laundering() {
     // `scalar_windows` does not chase the shared `card.<field>` loop variable,
-    // so a card date surfaces only through its own per-instance `text(..)` node.
-    // `display` reaches that node by address rather than through the value, so
-    // the card composes the address from its `$path` exactly as it does for
-    // `plaintext`, and the region survives the loop variable the value's own
-    // type never could.
+    // so a card date surfaces only through its own per-instance `text(..)` node,
+    // which `display` reaches by address rather than through the value.
     const YAML: &str = r#"
 quill:
   name: card_date_region
@@ -660,8 +644,6 @@ main:
 
 #[test]
 fn continuation_fragments_survive_page_marginals() {
-    // Header/footer ink walks between one page's body and the next's, suspending
-    // the run at the page boundary; it must resume on the following page.
     const YAML: &str = r#"
 quill:
   name: marginal_fragments
@@ -709,9 +691,6 @@ main:
 
 #[test]
 fn wrapped_scalar_expression_attributes_to_its_field() {
-    // A wrapped reference stamps its ink with the whole expression's span; the
-    // enclosing-expression window attributes it while the field is its only
-    // reference.
     const YAML: &str = r#"
 quill:
   name: wrapped_scalar
@@ -874,9 +853,6 @@ main:
 
 #[test]
 fn segment_regions_carry_span_and_field_union_is_striped() {
-    // A content field breaks into one region per paragraph, each keyed on its
-    // content span, so the consumer's union leaves the inter-paragraph
-    // whitespace uncovered.
     const YAML: &str = r#"
 quill:
   name: segment_regions
@@ -1071,9 +1047,6 @@ main:
 
 #[test]
 fn position_at_on_a_raw_block_degrades_to_the_segment_start() {
-    // Every physical line of a multi-line `#raw(block: true, "…")` fence shares
-    // one resolved node wider than any per-line run, so per-run inversion cannot
-    // pick a line and `position_at` floors to the code segment's start.
     const YAML: &str = r#"
 quill:
   name: raw_degrade

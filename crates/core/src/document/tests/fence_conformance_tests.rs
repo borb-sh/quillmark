@@ -1,11 +1,7 @@
 //! Cross-checks the hand-rolled fence scanner (`super::super::fences`) against
 //! pulldown-cmark, the CommonMark parser the typst backend renders bodies with.
-//! The two must agree about where fenced blocks begin and end, or the splitter
-//! could slice through something the renderer treats as one code block.
-//!
 //! The relation is one-directional (⊆): pulldown legitimately sees more fenced
-//! blocks than we do (code inside prose bodies, `~~~` fences failing our
-//! blank-line-above rule). We require only that no block of ours invents or
+//! blocks than we do, so what is required is that no block of ours invents or
 //! misplaces a fence relative to CommonMark.
 //!
 //! pulldown excludes the closer's trailing newline from its span and we include

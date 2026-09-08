@@ -216,12 +216,10 @@ impl EditError {
     /// The facts this error's message interpolates. See
     /// [`Diagnostic::args`](crate::error::Diagnostic::args).
     ///
-    /// `field` and `kind` ride here even though [`doc_path`](Self::doc_path)
-    /// also folds them into the anchor: [`DocPath`](crate::path::DocPath)
-    /// renders field segments unescaped and parses on `.` and `[`, so a
-    /// malformed name cannot be recovered from the rendered path. An `at` path
-    /// rides the anchor only, its segments being structural and recoverable
-    /// there.
+    /// `field` and `kind` ride here as well as in the anchor, because
+    /// [`DocPath`](crate::path::DocPath) renders field segments unescaped and
+    /// parses on `.` and `[`: a malformed name cannot be recovered from the
+    /// rendered path. An `at` path is structural, so it rides the anchor alone.
     pub fn args(&self) -> BTreeMap<String, serde_json::Value> {
         match self {
             EditError::InvalidFieldName(field) => diag_args! { "field" => field },
@@ -276,13 +274,11 @@ impl EditError {
     /// `base`: the card root the mutator ran against, empty for a card built
     /// before placement.
     ///
-    /// A field-named variant anchors at its field under `base`, extended by the
-    /// variant's `at` path when it carries one, so an element read anchors at
-    /// `main.<field>[<i>]` rather than at the whole field;
-    /// [`IndexOutOfRange`](Self::IndexOutOfRange) at the document-array slot
-    /// `cards[index]`, base-independent because a structural op names a slot,
-    /// not a field; the rest anchor at `base` when it names a card, else carry
-    /// no anchor.
+    /// - A field-named variant: its field under `base`, extended by the
+    ///   variant's `at` path, so an element read anchors at `main.<field>[<i>]`.
+    /// - [`IndexOutOfRange`](Self::IndexOutOfRange): the document-array slot
+    ///   `cards[index]`, base-independent — a structural op names a slot.
+    /// - The rest: `base` when it names a card, else no anchor.
     pub fn doc_path(&self, base: &crate::path::DocPath) -> Option<crate::path::DocPath> {
         use crate::path::DocPath;
         match self {
@@ -775,15 +771,10 @@ impl Card {
     /// canonical position (after `$quill`/`$kind`, before user fields)
     /// when none existed. Passing an empty map records an explicit `$ext: {}`.
     ///
-    /// `$ext` carries out-of-band consumer state (editor renames, agent
-    /// annotations, …) and is stripped from the backend plate, so a
-    /// write here can never affect a render. Nested comments attached to a
-    /// replaced `$ext` are dropped. Returns [`EditError::ValueTooDeep`] when the
-    /// map nests past the §8 depth limit: `$ext` flows through the recursive
-    /// emit and DTO paths like any other value.
-    ///
     /// The whole map is the write, so a consumer holding one namespace merges
-    /// the rest of [`ext`](Card::ext) into what it stores.
+    /// the rest of [`ext`](Card::ext) into what it stores; nested comments
+    /// attached to the replaced map are dropped. [`EditError::ValueTooDeep`]
+    /// when the map nests past the §8 depth limit.
     pub fn store_ext(
         &mut self,
         value: serde_json::Map<String, serde_json::Value>,
@@ -909,23 +900,10 @@ impl Card {
     /// `type` and store the canonical form. The typed sibling of the opaque
     /// [`store_field`](Self::store_field), which defers coercion to render.
     ///
-    /// Behavior by `type`:
-    /// - **richtext**: imports a markdown string / adopts a content object and
-    ///   stores canonical content JSON, so identity marks (anchors, island ids)
-    ///   live on the stored value from the write; a `richtext(inline)` schema
-    ///   rejects a multi-block value with [`EditError::FieldNotInline`].
-    /// - **plaintext**: stores the **literal string**, importing a string
-    ///   verbatim or projecting a content object through `to_plaintext`. A value
-    ///   carrying marks, islands, or block formatting is rejected, not stripped.
-    /// - **scalars** (`string`/`integer`/`number`/`boolean`/`datetime`): stores
-    ///   the coerced canonical (`"3"` → `3`), applying only value-parsing
-    ///   normalizations; a cross-type value that the render floor would coerce
-    ///   (e.g. `1` → `true`) or a shape mismatch fails here instead.
-    /// - **array** / **object**: coerces each element/property against the
-    ///   element/property schema.
-    /// - **null**: passes through unchanged (the null ≡ absent rule); nothing
-    ///   is coerced (a richtext `null` reads back as the empty content via
-    ///   [`TypedReader::get_content`](crate::TypedReader::get_content)).
+    /// The resting form each `type` commits to is
+    /// `prose/canon/SCHEMAS.md` § "Content fields rest per codec". Stricter than
+    /// the render floor: a cross-type value the floor would coerce (`1` → `true`)
+    /// fails here. `null` passes through unchanged, under the null ≡ absent rule.
     ///
     /// The caller supplies `schema` because a [`Document`] holds only a `$quill`
     /// *reference*; [`crate::TypedWriter`] resolves it per field and calls this.
@@ -1007,21 +985,13 @@ impl Card {
         Ok(delta)
     }
 
-    /// Revise a richtext field from markdown **with schema enforcement**: diff
-    /// the markdown against the field's current content so surviving anchors
-    /// rebase (as [`revise_field`](Self::revise_field)), then enforce `schema` on
-    /// the diffed result through the typed-conform path
-    /// [`commit_field`](Self::commit_field) runs. Returns the text [`Delta`].
+    /// Revise a content field from authored text **with schema enforcement**:
+    /// [`revise_field`](Self::revise_field)'s anchor-rebasing diff, then the
+    /// conform [`commit_field`](Self::commit_field) runs. Returns the text
+    /// [`Delta`], and leaves the field unchanged on any error.
     ///
-    /// Errors: [`EditError::InvalidFieldName`], [`EditError::FieldDecode`] when
-    /// the field is present but not a content, [`EditError::Import`] on an
-    /// over-nested input, and the conform errors of
-    /// [`commit_field`](Self::commit_field) on the diffed result. On any error
-    /// the field is unchanged.
-    ///
-    /// **Hidden** on the same terms as [`commit_field`](Self::commit_field):
-    /// its door is
-    /// [`TypedWriter::revise_field`](crate::TypedWriter::revise_field).
+    /// **Hidden** on the same terms as [`commit_field`](Self::commit_field): its
+    /// door is [`TypedWriter::revise_field`](crate::TypedWriter::revise_field).
     #[doc(hidden)]
     pub fn revise_field_checked(
         &mut self,

@@ -1,35 +1,13 @@
 /* @ts-self-types="./runtime.d.ts" */
 //
-// The canonical consumer API, and the package's sole export: `@quillmark/wasm`
-// resolves here.
+// The canonical consumer API, and the package's sole export. Its contract is
+// `runtime.d.ts`, which a consumer's TypeScript reads through the package's
+// `exports.types` map; the multi-binary design it implements is
+// `prose/canon/BINDINGS.md`.
 //
-// The package ships multiple WASM binaries with SEPARATE linear memories: a
-// Typst-less `core` build (small, eager) that is the canonical home of
-// `Quill`/`Document`, and one private binary per backend that carries an engine.
-// A handle from one memory cannot be used by another; this module hides that
-// seam behind `await init()` and a static `Engine`.
-//
-//   - `Quill` and `Document` ARE the core build's classes, handed out by the
-//     gate below, never subclasses or wrappers: that identity is what makes
-//     `instanceof` the whole membership test, so a handle either belongs to this
-//     copy or to another copy, and the second is always a consumer bug.
-//     `runtime.test.js` guards it (`Quill === CoreQuill`). No backend is loaded
-//     to use them, so the editor path never pays for a multi-MB binary.
-//
-//   - `Engine` is the render dispatcher. It routes on `quill.backendId`, lazily
-//     imports that backend's build, clones the canonical `Quill`/`Document` into
-//     the backend's memory as data (`toTree`→`fromTree`, `toStored`→`fromStored`),
-//     renders, and never lets the backend handles escape.
-//
-//     CLONE LIFETIMES: the per-call `Document` clone is transient, since
-//     documents are small and mutate freely. The `Quill` clone is CACHED,
-//     because re-cloning re-serializes its whole file tree, copies it into
-//     backend memory, and re-parses + re-validates the bundle every call. Each
-//     `Engine` memoizes it in a `WeakMap` keyed on the canonical `Quill`, so
-//     dropping the core quill makes the entry collectable and `--weak-refs`
-//     frees the backend handle. The contract this buys: a `Quill` instance's
-//     contents never change after construction — mutate by replacing the
-//     instance.
+// A `Quill` instance's contents never change after construction — mutate by
+// replacing the instance — which is what makes the cached backend clone below
+// safe to hand out for the instance's whole life.
 
 // Local bindings, so this module can augment them: `quill.writer(doc)` is
 // patched onto the prototype below, and `instanceof` reads them directly. The
@@ -44,32 +22,11 @@ import { toModuleSource } from '#quillmark-env';
 import { importMarkdown, exportMarkdown, rebase, mapPos, mapMarks } from '../core/wasm.js';
 import { parseDocPath, formatDocPath } from '../core/wasm.js';
 
-// ── Initialization ──────────────────────────────────────────────────────────
-// The builds are `--target web`: they export their classes synchronously but
-// carry no wasm instance until something instantiates them. This module owns
-// that for core, behind one awaited gate; `Engine` owns it for the backends,
-// inside their lazy load.
-//
-// THE GATE IS THE ONLY DOOR: `init` resolves to the core surface and nothing
-// here exports it statically, so a handle is unobtainable without having
-// awaited, and package.json's `exports` map carries exactly one entry. The
-// guarded surface cannot be async (`Quill.fromTree` and `quill.seedDocument`
-// return synchronously), so there is nowhere to hide an await except in front.
-//
-// WHAT STAYS A STATIC EXPORT is what needs no instance: `MAIN_CARD_ADDR`, the
-// open-set guards, and `isQuillmarkError` are pure JS over plain objects.
-// `Engine`, `LiveSession` and the four writer/reader classes stay static too,
-// gated by their ARGUMENTS instead — every verb takes a `Quill` or both
-// handles, so a caller who has not awaited cannot produce an argument, and the
-// two constructors taking no handle reach no wasm. None carries a static
-// method, the one member shape an argument cannot gate. `gate.test.js` drives
-// the whole static surface before `init`. Holding them out of the gate also
-// keeps them tree-shakable.
-//
-// FAILURE DELIVERY follows the FUNCTION kind, not the failure kind: a sync verb
-// throws, a promise-returning verb rejects, and nothing does both. `init` is the
-// one promise-returning export not declared `async`, because the memo is
-// returned by identity; its conflict guard rejects explicitly to hold the rule.
+// A `--target web` build exports its classes synchronously but carries no wasm
+// instance until something instantiates it. This module owns that for core,
+// behind one awaited gate; `Engine` owns it for the backends, inside their lazy
+// load. Which values that gate holds and which stay static exports:
+// `prose/canon/BINDINGS.md`.
 
 /**
  * The gated surface: the core build's values, which are exactly the ones its
@@ -105,38 +62,8 @@ let coreInit;
 let coreInitSource;
 
 /**
- * Instantiate the core WASM build and resolve to its surface.
- *
- * ```js
- * import { init } from '@quillmark/wasm';
- * const { Quill, Document } = await init();
- * ```
- *
- * The classes and the free functions come from here and nowhere else, so the
- * pre-init mistake is not expressible. Destructure at each entry point (route
- * loader, hydration path, worker) rather than threading one result around: the
- * gate is memoized, so every await after the first is free.
- *
- * Identical in every environment: in a browser the binary is fetched and
- * streamed, under Node it is read off disk, and the call site is the same line.
- *
- * Idempotent and concurrency-safe: every non-conflicting call returns the same
- * promise, so several entry points cost one instantiation. A failed init clears
- * the memo, so a retry is possible.
- *
- * Both failures reject (§ "Initialization", FAILURE DELIVERY): one `catch`
- * around `await init(...)` covers `runtime::init_conflict` and
- * `runtime::init_failed` alike.
- *
- * @param {import('../core/wasm.js').InitInput} [source] override the binary's
- *   source (bytes, a `Response`, a `WebAssembly.Module`, a URL) for hosts that
- *   route assets themselves or embed the binary. Pass it on the FIRST call; a
- *   later call passing a *different* source rejects with
- *   `runtime::init_conflict` rather than silently ignoring it. Passing the same
- *   value again is fine, so several entry points may each `await init(BYTES)`
- *   against one constant.
- * @returns {Promise<import('./runtime.js').CoreSurface>} the core surface, once
- *   its instance is live
+ * @param {import('../core/wasm.js').InitInput} [source]
+ * @returns {Promise<import('./runtime.js').CoreSurface>}
  */
 export function init(source) {
 	if (coreInit) {
@@ -196,46 +123,17 @@ async function instantiateCore(source) {
 	}
 }
 
-// ── The main-card address ───────────────────────────────────────────────────
 /**
- * The main card's address: the default target of the card-scoped verbs
- * (`storeFields` / `storeExt` / `commitFields` / …). A named, `CardAddr`-typed
- * alias for the empty address `{}`, so a main-card write names its target:
- * `doc.storeFields(MAIN_CARD_ADDR, fields)`. It IS `{}` (frozen), a pure alias:
- * `{}` and `undefined` stay equally valid. Card axis only: a card selector,
- * never a field address.
  * @type {import('../core/wasm.js').CardAddr}
  */
 export const MAIN_CARD_ADDR = Object.freeze({});
 
-// ── The variant discriminant key ────────────────────────────────────────────
 /**
- * The key carrying the discriminant inside a variant-bearing enum's value.
- *
- * A field declaring `variants:` rests as a container, `{value: <member>, …that
- * member's fields}`, so reading or writing one means naming this key:
- * `doc.storeFields(MAIN_CARD_ADDR, { classification: { [VARIANT_DISCRIMINANT_KEY]: 'CUI' } })`.
- * It crosses the boundary inside untyped container data, with no type to read
- * it off.
- *
- * Reserved: no variant may declare a field under it
- * (`quill::variant_reserved_field_name`), and `QuillFieldSchema.variants`,
- * keyed by member, never contains it.
  * @type {'value'}
  */
 export const VARIANT_DISCRIMINANT_KEY = 'value';
 
 /**
- * Narrow an unknown caught value to a `QuillmarkError`, the error every
- * fallible method in this package throws: a real `Error` with a non-empty
- * `diagnostics` array attached (same entry shape as `RenderResult.warnings`).
- *
- * Structural by necessity AND by design: the WASM layer constructs a plain
- * `Error` and attaches the property (there is no error class to `instanceof`),
- * and a structural check narrows errors from any build or WASM instance in the
- * page. The deliberate exception to § "Handles from another copy": an error is
- * data, not a handle, so nothing is gained by refusing one that crossed.
- *
  * @param {unknown} e
  * @returns {e is Error & { diagnostics: import('../core/wasm.js').Diagnostic[] }}
  */
@@ -259,28 +157,15 @@ function quillmarkError(code, message, hint) {
 	return err;
 }
 
-// ── Handles from another copy: always a bug ─────────────────────────────────
-// A duplicate install is two `core` builds: two linear memories and two distinct
-// `Quill`/`Document` classes. No topology legitimately loads a multi-megabyte
-// WASM package twice AND needs handles to cross between the copies, so a
-// crossing is a consumer bug, and every seam taking a core handle says so.
-//
-// Crossing read-only handles as data is mechanically possible (`toStored` and
-// `toTree` serialize either way) and is not done: it leaves a package where some
-// verbs work and some throw, and it hides a cliff, since a crossed read is a
-// whole-document `toStored` + `fromStored` and a form reading fifty fields pays
-// fifty round trips.
-//
-// What the checks deliver is the ERROR, not the rejection. wasm-bindgen's glue
-// already rejects a foreign class wherever a method declares a reference
-// parameter, but its `_assertClass` throws a bare `Error` reading
-// `expected instance of Document` at a value that IS a `Document`, so
-// `isQuillmarkError` returns false and the failure leaves this package's error
-// contract. The checks front-run it with a `QuillmarkError` naming both cause
-// and cure, and cover the seams with no `_assertClass` to front-run: `Engine`
-// and `LiveSession.update` cross into backend memory as data, where a foreign
-// handle would silently work at the price of that round trip and a per-copy
-// split of the quill clone cache.
+// These checks deliver the ERROR, not the rejection. wasm-bindgen's glue already
+// refuses a foreign class wherever a method declares a reference parameter, but
+// its `_assertClass` throws a bare `Error` reading `expected instance of
+// Document` at a value that IS a `Document`, so `isQuillmarkError` returns false
+// and the failure leaves this package's error contract. They also cover the
+// seams with no `_assertClass` to front-run: `Engine` and `LiveSession.update`
+// cross into backend memory as data, where a foreign handle would silently work
+// at the price of a whole-document round trip and a per-copy split of the quill
+// clone cache.
 
 /** Per class: the code and hint for "not one at all", and the from-another-copy probe. */
 const HANDLE_KINDS = {
@@ -393,20 +278,6 @@ for (const name of /** @type {const} */ (['validate', 'conform'])) {
 // `Document`: a foreign document carries its OWN prototype, so patching this
 // copy's would never run.
 
-// ── Open-set discriminant guards ────────────────────────────────────────────
-// `ContentIsland.type`, `ContentMark.type`, `ContentLine.kind`, and
-// `ContentContainer.container` are OPEN sets: each union carries a residual
-// `{ …: string; … }` arm, so a bare `x.type === 'table'` check never narrows the
-// payload, TS keeps the residual arm live (a `string` can be `'table'`),
-// leaving `props` / the mark payload / `level` opaque at every consumer. These
-// are the checked narrowing path: on the true branch the payload's pinned shape
-// is asserted. Only the payload-carrying arms get a guard: an island always
-// carries `props`, and a `link`/`anchor` mark, a `heading`/`code` line and a
-// `list_item` container each carry their payload in `attrs`; the payload-free
-// arms (`strong`/`emph`/`underline`/`strike`/`code` marks, `para`/`island`/
-// `rule` lines, `quote`) omit `attrs` and narrow to nothing. An unrecognized
-// discriminant fails every guard and carries the same `attrs` a known one
-// would.
 
 /**
  * @param {import('../core/wasm.js').ContentIsland} island
@@ -464,18 +335,10 @@ export function isListItemContainer(container) {
 	return container.container === 'list_item';
 }
 
-// ── Open-set membership guards ──────────────────────────────────────────────
-// The guards above each answer "is this arm X". These four answer "is this a
-// value this build knows?", the question any read-modify-write consumer must
-// ask, since lowering an edit restates every line's kind and containers. A
-// predicate rather than an exported name list, because the tables below are
-// upstream's business: they are pinned against the Rust source by
-// `tests/known_names_drift.rs`, so adding a built-in means editing there, here,
-// and the TS unions in `src/engine.rs` in one commit.
-//
-// These classify unknown *tags*, not unknown *payloads on known tags*. A future
-// `kind: "footnote"` with a sibling `ref` loses `ref` at a consumer that predates
-// it either way.
+// A predicate rather than an exported name list, because these tables are
+// upstream's business: `tests/known_names_drift.rs` pins them against the Rust
+// source, so adding a built-in means editing there, here, and the TS unions in
+// `src/engine.rs` in one commit.
 
 const KNOWN_LINE_KINDS = new Set(['para', 'heading', 'code', 'island', 'rule']);
 const KNOWN_CONTAINERS = new Set(['list_item', 'quote']);
@@ -514,18 +377,11 @@ export function isUnknownIsland(island) {
 	return typeof island?.type === 'string' && !KNOWN_ISLAND_TYPES.has(island.type);
 }
 
-// ── Container run boundaries ────────────────────────────────────────────────
-// `ContentContainer.instance` is what keeps two adjacent runs of one shape
-// apart, and only a writer knows where a boundary is: the flat `containers`
-// form cannot tell a list ending beside another from one list of two items, so
-// an omitted discriminator welds them and nothing reports it.
-//
 // WELD_KEYS is the rule `Container::same_weld` owns upstream: which `attrs`
 // entries two adjacent runs must share for the markdown projection to read them
-// as one, and therefore for the canonical form to have to spend a
-// discriminator. `start` is not among them, since CommonMark reads only a
-// list's first number — a subset, which is why a built-in needs an entry rather
-// than the unknown branch's whole-bag compare. A table rather than a switch, so
+// as one. `start` is not among them, since CommonMark reads only a list's first
+// number — a subset, which is why a built-in needs an entry rather than the
+// unknown branch's whole-bag compare. A table rather than a switch, so
 // `tests/known_names_drift.rs` can pin it against the Rust predicate.
 
 const WELD_KEYS = { list_item: ['ordered'], quote: [] };
@@ -612,13 +468,9 @@ function backendLoad(id, importThunk, wasmUrl) {
 }
 
 // Backend builds are NEVER statically imported here: that would pull a multi-MB
-// binary into the eager graph and defeat lazy loading. Each entry is a
-// DESCRIPTOR: `load` dynamically imports and instantiates a backend's chunk, so
-// the binary is fetched only when something renders against it; `formats` is the
-// required static capability manifest, so `supportedFormats` answers without
-// loading the binary or cloning the quill. The manifest mirrors each backend's
-// Rust `SUPPORTED_FORMATS`, pinned by a `runtime.test.js` drift guard that
-// renders once and compares.
+// binary into the eager graph and defeat lazy loading. Each `formats` manifest
+// mirrors that backend's Rust `SUPPORTED_FORMATS`, pinned by a
+// `runtime.test.js` drift guard that renders once and compares.
 const DEFAULT_BACKENDS = {
 	typst: {
 		load: backendLoad(
@@ -660,11 +512,6 @@ function validateBackend(id, entry) {
 	return { load, formats };
 }
 
-/**
- * Render dispatcher over the canonical `Quill`/`Document`. One `Engine`
- * instance can drive every backend; it resolves the right backend build from
- * each quill's declared `backendId` and loads it lazily on first use.
- */
 export class Engine {
 	/** backendId → Promise<backend module>, memoized so each build loads once. */
 	#modules = new Map();
@@ -681,15 +528,10 @@ export class Engine {
 	#quillClones = new Map();
 
 	/**
+	 * `load` must resolve to a READY module: a registrant shipping its own
+	 * `--target web` build instantiates inside the thunk, and more than one
+	 * `Engine` may call it, so memoize (the built-ins do, at module scope).
 	 * @param {{ backends?: Record<string, { load: () => Promise<unknown>, formats: string[] }> }} [options]
-	 *   Extra or overriding backend descriptors, merged over the built-ins. Each
-	 *   is `{ load, formats }` with the manifest REQUIRED, since that is what
-	 *   makes `supportedFormats` free; malformed entries throw here, at
-	 *   construction.
-	 *
-	 *   `load` resolves to a READY module: a registrant shipping its own
-	 *   `--target web` build instantiates inside the thunk. More than one
-	 *   `Engine` may call it, so memoize (the built-ins do, at module scope).
 	 */
 	constructor(options) {
 		const merged = { ...DEFAULT_BACKENDS, ...(options?.backends ?? {}) };
@@ -834,8 +676,6 @@ export class Engine {
 	}
 
 	/**
-	 * Render `doc` against `quill` in one shot. Both handles are read
-	 * synchronously before the first await.
 	 * @param {Quill} quill
 	 * @param {Document} doc
 	 * @param {object} [options] render options (`{ format, ppi, pages, regions }`)
@@ -855,9 +695,6 @@ export class Engine {
 	}
 
 	/**
-	 * Open a live render session. It retains what `update` needs, so the
-	 * transient clones are freed before this returns; the caller owns the session
-	 * and must `.free()` it.
 	 * @param {Quill} quill
 	 * @param {Document} doc
 	 * @returns {Promise<LiveSession>}
@@ -872,8 +709,6 @@ export class Engine {
 	}
 
 	/**
-	 * The output formats `quill`'s backend can emit: an always-free probe over
-	 * the descriptor's manifest. `async` for API stability; it awaits nothing.
 	 * @param {Quill} quill
 	 * @returns {Promise<import('./runtime.js').OutputFormat[]>}
 	 */
@@ -885,9 +720,9 @@ export class Engine {
 }
 
 /**
- * Thin wrapper over a backend's live render session; see `runtime.d.ts` for the
- * contract. The quill/document clones it was opened from have already been
- * freed: the session retains what `update` needs.
+ * Thin wrapper over a backend's live render session. The quill/document clones
+ * it was opened from have already been freed: the session retains what `update`
+ * needs.
  */
 export class LiveSession {
 	/**
@@ -996,28 +831,11 @@ export class LiveSession {
 	}
 }
 
-// ── Typed-writer sugar: bind the quill once ─────────────────────────────────
-// Rust exposes `quill.writer(&mut doc)` so a caller issues bare `set` / `set_all`
-// without threading the schema per write. The WASM `commit*` verbs can't borrow
-// like that: a `Document` carries only a `$quill` REFERENCE, not the resolved
-// schema, so each `commit*` method takes the `quill` handle as its first
-// argument. These pure-JS classes restore the Rust ergonomics: bind `quill` +
-// `doc` once, then issue `set` / `setAll` / `card(i).set`.
-//
-// They hold JS references to the caller's EXISTING handles (no WASM object of
-// their own, no `free()` burden, no second owner of either handle) and every
-// write delegates straight to the underlying `commit*` verb: a schema field is
-// typed-committed (coerced to canonical form, mismatch throws now), and a name
-// the schema does not declare throws `UnknownField` rather than falling to the
-// opaque store, on the typed path an undeclared name is a typo. Opaque storage
-// stays available through the raw addressed `Document.storeField` verb.
+// These pure-JS classes bind a `quill` + `doc` pair once and delegate to the
+// `_commit*` / `_reader*` verbs, which take the quill per call. They hold JS
+// references to the caller's existing handles, so there is no WASM object of
+// their own, no `free()` burden, and no second owner of either handle.
 
-/**
- * A {@link Document} bound to its {@link Quill} for typed writes: the JS twin
- * of Rust's `quill.writer(&mut doc)`. Writes target the main card; use
- * {@link card} for a composable card. Holds both handles by reference and owns
- * neither, so there is nothing to `free()`.
- */
 export class DocumentWriter {
 	#quill;
 	#doc;
@@ -1031,13 +849,10 @@ export class DocumentWriter {
 		this.#quill = quill;
 		this.#doc = doc;
 	}
-	/** The bound document: the same instance passed in, mutated in place. */
 	get document() {
 		return this.#doc;
 	}
 	/**
-	 * Typed-commit one main-card field (strict coerce, mismatch throws now).
-	 * Throws `UnknownField` for a name the schema does not declare.
 	 * @param {string} name
 	 * @param {unknown} value
 	 * @returns {void}
@@ -1046,9 +861,6 @@ export class DocumentWriter {
 		return this.#doc._commitField(this.#quill, name, value);
 	}
 	/**
-	 * Typed-commit several main-card fields atomically: nothing is applied on
-	 * error (throws a per-field diagnostic bundle, including an `UnknownField`
-	 * for each undeclared name).
 	 * @param {Record<string, unknown>} fields
 	 * @returns {void}
 	 */
@@ -1056,8 +868,6 @@ export class DocumentWriter {
 		return this.#doc._commitFields(this.#quill, MAIN_CARD_ADDR, fields);
 	}
 	/**
-	 * Revise the main body from markdown; anchors rebase. A body carries no field
-	 * schema, so this is the content lane's `revise` reached through the writer.
 	 * @param {string} markdown
 	 * @returns {import('../core/wasm.js').Delta}
 	 */
@@ -1065,10 +875,6 @@ export class DocumentWriter {
 		return this.#doc.revise({}, markdown);
 	}
 	/**
-	 * Revise the content main-card field `name` from authored text: typed *and*
-	 * anchor-preserving. Anchors rebase, then the diffed result is
-	 * schema-conformed. The codec comes from the declared type: `richtext` diffs
-	 * markdown, `plaintext` the literal text.
 	 * @param {string} name
 	 * @param {string} text
 	 * @returns {import('../core/wasm.js').Delta}
@@ -1077,10 +883,6 @@ export class DocumentWriter {
 		return this.#doc._reviseField(this.#quill, name, text);
 	}
 	/**
-	 * Build a composable card of `kind`, typed-commit `fields` onto it, set its
-	 * body from optional markdown, and place it. Transactional: the card is
-	 * committed in full before it joins the document, so a rejected field, kind,
-	 * body, or position leaves the document untouched.
 	 * @param {string} kind
 	 * @param {Record<string, unknown>} [fields]
 	 * @param {string} [body]
@@ -1098,20 +900,6 @@ export class DocumentWriter {
 		return this.#doc.removeCard(index);
 	}
 	/**
-	 * Write the document in the values form: the write twin of
-	 * `reader.values()`. An absent axis is untouched; a present one is
-	 * replaced: `fields` is the whole truth for declared names (an unnamed one
-	 * is removed; an undeclared one the card holds is accepted unchanged and
-	 * refused changed), `cards` is the card list, `body` the body, `ext: null`
-	 * removes `$ext` and `{}` records an explicit empty one. All-or-nothing:
-	 * nothing is applied on error and every refused cell is one diagnostic
-	 * carrying its own `path`.
-	 *
-	 * A cell whose value equals its projection is not written, so writing back
-	 * an unedited read changes no bytes. A changed content cell is a cold
-	 * import — `reviseField` per cell is what keeps its anchors — and cards
-	 * match by position and kind, so deleting or reordering an entry rewrites
-	 * every card after it. An `undefined` member reads as absent.
 	 * @param {DocumentValuesInput} values
 	 * @returns {void}
 	 */
@@ -1119,9 +907,6 @@ export class DocumentWriter {
 		return this.#doc._setValues(this.#quill, MAIN_CARD_ADDR, withoutUndefined(values));
 	}
 	/**
-	 * A {@link CardWriter} bound to the composable card at `index`, checked
-	 * lazily at the write. It holds `index`, not the card, so a
-	 * `removeCard`/`addCard` between binding and writing silently retargets it.
 	 * @param {number} index
 	 * @returns {CardWriter}
 	 */
@@ -1154,11 +939,6 @@ function withoutUndefined(values) {
 	return out;
 }
 
-/**
- * A single composable card bound to its {@link Quill} for typed writes, from
- * {@link DocumentWriter.card}. Same `set` / `setAll` verbs as
- * {@link DocumentWriter}, targeting the card at its bound index.
- */
 export class CardWriter {
 	#quill;
 	#doc;
@@ -1175,22 +955,16 @@ export class CardWriter {
 		this.#doc = doc;
 		this.#index = index;
 	}
-	/** The bound card index. */
 	get index() {
 		return this.#index;
 	}
 	/**
-	 * The bound card's `$kind`, empty string when it carries none. Throws
-	 * `IndexOutOfRange` for a bad bound index.
 	 * @returns {string}
 	 */
 	get kind() {
 		return this.#doc.card(this.#index).kind;
 	}
 	/**
-	 * Typed-commit one field on this card, addressed at `{ card, field }`. Throws
-	 * `UnknownField` for an undeclared name and `IndexOutOfRange` if the bound
-	 * index is out of range.
 	 * @param {string} name
 	 * @param {unknown} value
 	 * @returns {void}
@@ -1199,9 +973,6 @@ export class CardWriter {
 		return this.#doc._commitField(this.#quill, { card: this.#index, field: name }, value);
 	}
 	/**
-	 * Typed-commit several fields on this card atomically, addressed at
-	 * `{ card }`. Throws a per-field diagnostic bundle on error and
-	 * `IndexOutOfRange` if the bound index is out of range.
 	 * @param {Record<string, unknown>} fields
 	 * @returns {void}
 	 */
@@ -1209,7 +980,6 @@ export class CardWriter {
 		return this.#doc._commitFields(this.#quill, { card: this.#index }, fields);
 	}
 	/**
-	 * The card twin of {@link DocumentWriter.reviseBody}.
 	 * @param {string} markdown
 	 * @returns {import('../core/wasm.js').Delta}
 	 */
@@ -1217,8 +987,6 @@ export class CardWriter {
 		return this.#doc.revise({ card: this.#index }, markdown);
 	}
 	/**
-	 * The card twin of {@link DocumentWriter.reviseField}. Throws `UnknownField`
-	 * for an undeclared name and `IndexOutOfRange` for a bad bound index.
 	 * @param {string} name
 	 * @param {string} text
 	 * @returns {import('../core/wasm.js').Delta}
@@ -1227,10 +995,6 @@ export class CardWriter {
 		return this.#doc._reviseField(this.#quill, { card: this.#index, field: name }, text);
 	}
 	/**
-	 * Write this card in the values form: {@link DocumentWriter.setValues}
-	 * restricted to one slot, under the same per-axis rule. An absent `kind`
-	 * keeps the card's; a differing one rebuilds the slot. Refusals anchor at
-	 * `cards.<kind>[index]`; throws `IndexOutOfRange` for a bad bound index.
 	 * @param {CardValuesInput} values
 	 * @returns {void}
 	 */
@@ -1239,13 +1003,10 @@ export class CardWriter {
 	}
 }
 
-// ── `quill.writer(doc)`, the typed front door ──────────────────────────────
 // Patched onto the re-exported `Quill` prototype rather than wrapped, so
 // `Quill === CoreQuill` stays true: this only adds a method constructing the
 // pure-JS writer, which owns no WASM handle.
 /**
- * A {@link DocumentWriter} binding this quill's schema to `doc`. It holds both
- * handles by reference and owns neither: bind, write, discard.
  * @this {Quill}
  * @param {Document} doc the document to mutate, held by reference (not owned)
  * @returns {DocumentWriter}
@@ -1254,17 +1015,10 @@ Quill.prototype.writer = function writer(doc) {
 	return new DocumentWriter(this, doc);
 };
 
-// ── Typed-reader sugar: the schema-plane read surface ─────────────────────────
 // The transport `Document.getStored` is schema-free, so an unknown field name
 // reads back `undefined` rather than as the typo it is. Binding the quill's
-// schema lets one `get` interpret by declared type and throw `UnknownField` on a
-// name the schema does not declare.
+// schema lets one `get` interpret by declared type and throw `UnknownField`.
 
-/**
- * A {@link Document} bound to its {@link Quill} for typed reads, the read
- * counterpart of {@link DocumentWriter}. Reads target the main card; use
- * {@link card} for a composable one. Owns neither handle.
- */
 export class DocumentReader {
 	#quill;
 	#doc;
@@ -1278,17 +1032,10 @@ export class DocumentReader {
 		this.#quill = quill;
 		this.#doc = doc;
 	}
-	/** The bound document: the same instance passed in. */
 	get document() {
 		return this.#doc;
 	}
 	/**
-	 * Read the value at `addr`, interpreted by its declared type: a richtext field
-	 * to markdown, every other type verbatim. A bare string is `Addr` shorthand
-	 * for `{ field }`; an absent `addr.field` reads the body markdown. `undefined`
-	 * for an absent field; throws `UnknownField` for a name the schema does not
-	 * declare, `FieldDecode` for a richtext field holding an undecodable
-	 * value, and `IndexOutOfRange` for a bad `addr.card`.
 	 * @param {import('../core/wasm.js').Addr | string} addr
 	 * @returns {unknown}
 	 */
@@ -1296,11 +1043,6 @@ export class DocumentReader {
 		return this.#doc._readerGet(this.#quill, addr);
 	}
 	/**
-	 * Read the content field at `addr` as canonical `Content`: the twin of
-	 * {@link get}, which projects. An absent `addr.field` reads the body
-	 * `Content`. `undefined` for an absent field; throws `UnknownField`,
-	 * `FieldNotContent` for a type that is not a content leaf, `FieldDecode` for
-	 * an undecodable value, and `IndexOutOfRange` for a bad `addr.card`.
 	 * @param {import('../core/wasm.js').Addr | string} addr
 	 * @returns {import('../core/wasm.js').Content | undefined}
 	 */
@@ -1308,13 +1050,6 @@ export class DocumentReader {
 		return this.#doc._readerGetContent(this.#quill, addr);
 	}
 	/**
-	 * Read the `Content` nested inside the composite field at `addr`, at `path`:
-	 * `[0]` an `array<richtext>` element, `["motto"]` an object's content property,
-	 * `[1, "notes"]` a leaf under both, `["controlled_by"]` a variant's cell. The
-	 * codec is the leaf's declared type's.
-	 * `undefined` for an absent field and for a path that names nothing stored;
-	 * throws `UnknownField`, `FieldNotContent` when `path` resolves to no content
-	 * leaf, `FieldDecode` anchored at the addressed path, and `IndexOutOfRange`.
 	 * @param {import('../core/wasm.js').Addr | string} addr
 	 * @param {import('../core/wasm.js').PathStep[]} path
 	 * @returns {import('../core/wasm.js').Content | undefined}
@@ -1323,39 +1058,24 @@ export class DocumentReader {
 		return this.#doc._readerGetContentAt(this.#quill, addr, path);
 	}
 	/**
-	 * The main body's markdown: the quill-free body read. Equals `get({})`.
 	 * @returns {string}
 	 */
 	bodyMarkdown() {
 		return this.#doc._readerGet(this.#quill, {});
 	}
 	/**
-	 * The whole document in the values form: the main card's fields, body and
-	 * `$ext`, and every composable card, every content leaf as its codec's
-	 * text, everything else as stored. Every axis is present, so the result is
-	 * a valid {@link DocumentWriter.setValues} input and writing it back
-	 * unedited changes no bytes. Never throws: a content leaf that decodes
-	 * under neither encoding rides out as stored where {@link get} would throw.
 	 * @returns {DocumentValues}
 	 */
 	values() {
 		return this.#doc._readerValues(this.#quill, MAIN_CARD_ADDR);
 	}
 	/**
-	 * The resolved-value view: for every declared field, the value the render
-	 * projection would use and the rung it came from (`authored` / `default` /
-	 * `blank`). The one read that blank-fills and coerces; {@link values} reports
-	 * what the document carries. Value and provenance only; completeness stays
-	 * `quill.validate`'s.
 	 * @returns {Resolved}
 	 */
 	resolve() {
 		return this.#quill._resolve(this.#doc);
 	}
 	/**
-	 * A {@link CardReader} bound to the composable card at `index`, checked lazily
-	 * at the read. It holds `index`, not the card, so a `removeCard`/`addCard`
-	 * between binding and reading silently retargets it.
 	 * @param {number} index
 	 * @returns {CardReader}
 	 */
@@ -1364,11 +1084,6 @@ export class DocumentReader {
 	}
 }
 
-/**
- * A single composable card bound to its {@link Quill} for typed reads, from
- * {@link DocumentReader.card}. Same `get` / `bodyMarkdown` verbs as
- * {@link DocumentReader}, reading the card at its bound index.
- */
 export class CardReader {
 	#quill;
 	#doc;
@@ -1385,22 +1100,16 @@ export class CardReader {
 		this.#doc = doc;
 		this.#index = index;
 	}
-	/** The bound card index. */
 	get index() {
 		return this.#index;
 	}
 	/**
-	 * The bound card's `$kind` (empty string when it carries none), read through
-	 * the document. Throws `IndexOutOfRange` if the bound index is out of range.
 	 * @returns {string}
 	 */
 	get kind() {
 		return this.#doc.card(this.#index).kind;
 	}
 	/**
-	 * Read the field `name` on this card, interpreted by its declared type,
-	 * addressed at `{ card, field }`. `undefined` when absent; throws
-	 * `UnknownField` for an undeclared name and `IndexOutOfRange` for a bad index.
 	 * @param {string} name
 	 * @returns {unknown}
 	 */
@@ -1408,7 +1117,6 @@ export class CardReader {
 		return this.#doc._readerGet(this.#quill, { card: this.#index, field: name });
 	}
 	/**
-	 * The card twin of {@link DocumentReader.getContent}.
 	 * @param {string} name
 	 * @returns {import('../core/wasm.js').Content | undefined}
 	 */
@@ -1416,7 +1124,6 @@ export class CardReader {
 		return this.#doc._readerGetContent(this.#quill, { card: this.#index, field: name });
 	}
 	/**
-	 * The card twin of {@link DocumentReader.getContentAt}.
 	 * @param {string} name
 	 * @param {import('../core/wasm.js').PathStep[]} path
 	 * @returns {import('../core/wasm.js').Content | undefined}
@@ -1425,15 +1132,12 @@ export class CardReader {
 		return this.#doc._readerGetContentAt(this.#quill, { card: this.#index, field: name }, path);
 	}
 	/**
-	 * The card twin of {@link DocumentReader.bodyMarkdown}.
 	 * @returns {string}
 	 */
 	bodyMarkdown() {
 		return this.#doc._readerGet(this.#quill, { card: this.#index });
 	}
 	/**
-	 * This card in the values form: {@link DocumentReader.values} restricted to
-	 * one slot. Throws `IndexOutOfRange` for a bad bound index.
 	 * @returns {CardValues}
 	 */
 	values() {
@@ -1441,11 +1145,8 @@ export class CardReader {
 	}
 }
 
-// ── `quill.reader(doc)`: the schema-plane read front door ─────────────────────
 // Patched onto the same re-exported `Quill` prototype as `writer`.
 /**
- * A {@link DocumentReader} binding this quill's schema to `doc`. It holds both
- * handles by reference and owns neither: bind, read, discard.
  * @this {Quill}
  * @param {Document} doc the document to read, held by reference (not owned)
  * @returns {DocumentReader}

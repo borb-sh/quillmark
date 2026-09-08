@@ -525,7 +525,6 @@ fn card_kinds_of(doc: &quillmark_core::Document) -> Vec<Option<String>> {
         .collect()
 }
 
-/// Typed in-memory Quillmark document.
 #[wasm_bindgen]
 pub struct Document {
     inner: quillmark_core::Document,
@@ -1578,10 +1577,7 @@ impl Document {
     /// Typed field write at `addr`, resolving the field's schema `type` from
     /// `quill`: the stable ABI under the runtime `writer.set`. One verb for every
     /// field type; the schema carries the `inline` constraint, so no type token
-    /// is passed. A richtext-typed field stores canonical content, so identity
-    /// marks (anchors, island ids) and content-only marks survive compiles and
-    /// the storage DTO. Values use the encoding the seam already speaks: content
-    /// object or markdown string for richtext, scalar/array/object otherwise.
+    /// is passed.
     ///
     /// A bare string is `Addr` shorthand for `{ field }`. A body address throws,
     /// having no field schema. A declared field is strict-committed, so a

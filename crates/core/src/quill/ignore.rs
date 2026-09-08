@@ -11,7 +11,6 @@ const MATCH: MatchOptions = MatchOptions {
     require_literal_leading_dot: false,
 };
 
-/// Gitignore-style pattern matcher for .quillignore
 #[derive(Debug, Clone)]
 pub struct QuillIgnore {
     rules: Vec<Rule>,
@@ -50,14 +49,12 @@ impl Default for QuillIgnore {
 }
 
 impl QuillIgnore {
-    /// Create a new QuillIgnore from pattern strings
     pub fn new(patterns: Vec<String>) -> Self {
         Self {
             rules: patterns.into_iter().map(Rule::parse).collect(),
         }
     }
 
-    /// Parse .quillignore content into patterns
     pub fn from_content(content: &str) -> Self {
         Self::new(
             content
@@ -69,7 +66,6 @@ impl QuillIgnore {
         )
     }
 
-    /// Check if a path should be ignored
     pub fn is_ignored<P: AsRef<Path>>(&self, path: P) -> bool {
         let path = path
             .as_ref()

@@ -71,17 +71,10 @@ fn discriminant_schema(field: &FieldSchema) -> serde_json::Value {
 pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
     fn field_to_schema(field: &FieldSchema) -> serde_json::Value {
         let mut schema = serde_json::Map::new();
-        // A finite domain projects to the idiomatic JSON-Schema spelling
-        // `{type: string, enum: [...]}`: exactly what a backend dispatches on
-        // today (a plain string), plus the domain. Keyed on the domain, as the
-        // render floor, the pdfform widget and the blueprint annotation all are,
-        // so a `FieldSchema` built outside the loader projects its domain too.
-        // A variant-bearing enum crosses as the container it rests as: the
-        // discriminant under `value`, and every world's fields flattened beside
-        // it. The schema describes resting shapes, and at schema time there is
-        // no live world, so the union is the only projection available. Which
-        // member owns a cell is not restated here: `variants:` on the
-        // declaration view (`QuillConfig::schema`) carries that, keyed by member.
+        // A variant-bearing enum crosses as the container it rests as, every
+        // world's fields flattened beside the discriminant: at schema time there
+        // is no live world, so the union is the only projection available
+        // (`SCHEMAS.md` § "Schema emission").
         if let Some(variants) = &field.variants {
             let mut properties = serde_json::Map::new();
             properties.insert(
@@ -90,8 +83,8 @@ pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
             );
             for fields in variants.values() {
                 for (name, variant_field) in fields {
-                    // One slot per name: every repetition is the same
-                    // declaration (`quill::variant_field_collision`).
+                    // Every repetition is the same declaration
+                    // (`quill::variant_field_collision`).
                     if properties.contains_key(name) {
                         continue;
                     }

@@ -2,40 +2,32 @@
 use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::path::{Path, PathBuf};
-/// A node in the file tree structure
-///
-/// Out-of-crate callers build these; `Quill::from_tree` takes one.
-///
-/// Symlinks are refused at the loader rather than modelled here.
+/// A node in a quill bundle's file tree. Out-of-crate callers build these;
+/// `Quill::from_tree` takes one. Symlinks are refused at the loader rather than
+/// modelled here.
 #[derive(Debug, Clone)]
 pub enum FileTreeNode {
-    /// A file with its contents
     File {
-        /// The file contents as bytes or UTF-8 string
         contents: Vec<u8>,
     },
-    /// A directory containing other files and directories
     Directory {
-        /// The files and subdirectories in this directory
         files: HashMap<String, FileTreeNode>,
     },
 }
 
 impl FileTreeNode {
-    /// Get a file or directory node by path
+    /// The node at `path`, the empty path being the receiver. A `..`, `.`, or
+    /// absolute-root component resolves to `None` rather than being dropped:
+    /// dropping it makes `get_file("a/../b")` navigate to `a/b`, an asymmetry
+    /// with [`insert`](Self::insert) that would mask a caller assuming this
+    /// normalizes.
     pub fn get_node<P: AsRef<Path>>(&self, path: P) -> Option<&FileTreeNode> {
         let path = path.as_ref();
 
-        // Handle root path
         if path == Path::new("") {
             return Some(self);
         }
 
-        // Collect path components, rejecting any non-Normal component so that
-        // `..`, `.`, and absolute roots resolve to `None` rather than being
-        // silently dropped. Dropping them makes `get_file("a/../b")` navigate to
-        // `a/b`, an asymmetry with `insert` (which rejects such paths) that
-        // could mask path handling that assumes `get_node` normalizes.
         let mut components: Vec<&str> = Vec::new();
         for c in path.components() {
             match c {
@@ -51,7 +43,6 @@ impl FileTreeNode {
             return Some(self);
         }
 
-        // Navigate through the tree
         let mut current_node = self;
         for component in components {
             match current_node {
@@ -67,7 +58,6 @@ impl FileTreeNode {
         Some(current_node)
     }
 
-    /// Get file contents by path
     pub fn get_file<P: AsRef<Path>>(&self, path: P) -> Option<&[u8]> {
         match self.get_node(path)? {
             FileTreeNode::File { contents } => Some(contents.as_slice()),
@@ -113,7 +103,8 @@ impl FileTreeNode {
         matches
     }
 
-    /// Insert a file or directory at the given path
+    /// Insert `node` at `path`, creating parent directories. A `..`, `.`, or
+    /// absolute-root component is an error rather than a silent no-op.
     pub fn insert<P: AsRef<Path>>(
         &mut self,
         path: P,
@@ -121,8 +112,6 @@ impl FileTreeNode {
     ) -> Result<(), Box<dyn StdError + Send + Sync>> {
         let path = path.as_ref();
 
-        // Validate and collect path components, rejecting any non-Normal component
-        // so that `..`, `.`, and absolute roots are errors rather than silent no-ops.
         let mut components: Vec<String> = Vec::new();
         for c in path.components() {
             match c {
@@ -149,7 +138,6 @@ impl FileTreeNode {
             return Err("Cannot insert at root path".into());
         }
 
-        // Navigate to parent directory, creating directories as needed
         let mut current_node = self;
         for component in &components[..components.len() - 1] {
             match current_node {
@@ -167,7 +155,6 @@ impl FileTreeNode {
             }
         }
 
-        // Insert the new node
         let filename = &components[components.len() - 1];
         match current_node {
             FileTreeNode::Directory { files } => {
@@ -185,11 +172,8 @@ impl FileTreeNode {
     /// Output is sorted by path for deterministic ordering (the construction
     /// side stores children in a `HashMap`, which has no inherent order).
     ///
-    /// Only files are emitted: an EMPTY directory yields no entry and so is not
-    /// reconstructed by a `flatten` → `insert` round trip. This is intentional
-    /// (quill bundles are file-addressed and nothing in load/render depends on
-    /// empty directories) but it means the round trip preserves file contents,
-    /// not exact directory structure.
+    /// Only files are emitted, so an empty directory yields no entry and the
+    /// round trip preserves file contents, not exact directory structure.
     pub fn flatten(&self) -> Vec<(String, Vec<u8>)> {
         let mut out = Vec::new();
         self.for_each_file(&mut |path, contents| out.push((path.to_string(), contents.to_vec())));
@@ -251,10 +235,7 @@ mod tests {
     #[test]
     fn get_node_rejects_traversal_components() {
         let t = sample();
-        // Normal lookups resolve.
         assert!(t.get_file("a/b.txt").is_some());
-        // `..`, `.`, and absolute roots resolve to None rather than being
-        // silently dropped (which would make `a/../b.txt` navigate to `a/b.txt`).
         assert!(t.get_node("a/../b.txt").is_none());
         assert!(t.get_node("./a/b.txt").is_none());
         assert!(t.get_node("/a/b.txt").is_none());

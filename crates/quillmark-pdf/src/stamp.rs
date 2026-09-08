@@ -1,18 +1,13 @@
 //! Write a fresh `/AcroForm` (and an `/Info` `/Producer` stamp) onto a base PDF
 //! via one incremental-update append.
 //!
-//! Technique A: style the real AcroForm fields and set `/NeedAppearances`, never
-//! baking `/AP` appearance streams. Appearance synthesis is the viewer's job, so
-//! flat rasterizers render the fields blank and values reach non-interactive
-//! output only via the [`RenderedRegion`] sidecar.
+//! Technique A: the real AcroForm fields carry `/NeedAppearances` and no baked
+//! `/AP`, so appearance synthesis is the viewer's job and a flat rasterizer
+//! renders every field blank — values reach non-interactive output only through
+//! the [`RenderedRegion`] sidecar.
 //!
-//! The background owns all visual chrome, so a widget is a transparent input
-//! over it: no borders, no fills, and black as the only text color. What a
-//! widget does choose is the type its value is *set in*, since that has to
-//! match the background it sits on rather than decorate it: each field names
-//! its own face, size, and justification, and every face so named is registered
-//! in the form `/DR`. The form is built fresh from the spec; a foreign AcroForm
-//! is never reconciled.
+//! The background owns the visual chrome, so a widget is a transparent input over
+//! it: no borders, no fills, black text.
 
 use pdf_writer::types::{AnnotationFlags, FieldFlags, FieldType as PwFieldType, Quadding, SigFlags};
 use pdf_writer::writers::{Field, Form};
@@ -43,13 +38,10 @@ pub const CHECKBOX_ON_STATE: &str = "Yes";
 const DEFAULT_APPEARANCE: &[u8] = b"/Helv 0 Tf 0 g";
 
 /// One widget's `/DA`: its face and size over the house black fill. `f32`'s
-/// `Display` drops the trailing `.0`, so a whole-point size writes `12`, and an
-/// absent size writes the `0 Tf` that defers to the viewer's auto-size.
-///
-/// A size that is not positive and finite falls back to that same `0 Tf`:
-/// `font_size` is public, so the Typst helper's call-site asserts do not cover
-/// every caller, and `NaN`/`inf` reach the `/DA` as a token no PDF number
-/// grammar admits.
+/// `Display` drops the trailing `.0`, so a whole-point size writes `12`. An
+/// absent size — or one not positive and finite, `font_size` being public and
+/// `NaN`/`inf` being tokens no PDF number grammar admits — writes the `0 Tf`
+/// that defers to the viewer's auto-size.
 fn field_appearance(spec: &FieldSpec) -> Vec<u8> {
     let size = spec
         .font_size

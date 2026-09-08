@@ -25,10 +25,9 @@ macro_rules! diag_args {
 
 pub(crate) use diag_args;
 
-/// Maximum input size for markdown (10 MiB)
+/// Maximum markdown input size.
 pub const MAX_INPUT_SIZE: usize = 10 * 1024 * 1024;
 
-/// Maximum YAML size (1 MiB)
 pub const MAX_YAML_SIZE: usize = 1024 * 1024;
 
 /// Maximum nesting depth for markdown structures (100 levels). Owned by the
@@ -40,11 +39,11 @@ pub use quillmark_content::MAX_NESTING_DEPTH;
 /// Maximum nesting depth storage accepts for an opaque JSON payload (128 levels).
 pub use quillmark_content::MAX_JSON_DEPTH;
 
-/// Maximum number of card blocks allowed per document
+/// Maximum card blocks per document.
 pub const MAX_CARD_COUNT: usize = 1000;
 
-/// Maximum number of user fields allowed per card-yaml block. Counted after
-/// `$`-key extraction, so system metadata is not charged against it.
+/// Maximum user fields per card-yaml block, counted after `$`-key extraction,
+/// so system metadata is not charged against it.
 pub const MAX_FIELD_COUNT: usize = 1000;
 
 /// A YAML parse or emit failure, owned by this crate.
@@ -704,9 +703,7 @@ mod args_canon {
             add(e.code(), e.args());
         }
 
-        // The `conform::*` family: the strict write's refusals, re-namespaced by
-        // `conform_diagnostic`. Minted through that function rather than
-        // re-derived, so the table cannot drift from the code that stamps it.
+        // The `conform::*` family: the strict write's refusals, re-namespaced.
         for e in [
             EditError::InvalidFieldName("9bad".into()),
             EditError::ValueTooDeep { max: 8 },
@@ -738,9 +735,9 @@ mod args_canon {
             add(diag.code.as_deref().expect("parse errors carry a code"), diag.args);
         }
 
-        // Two codes are minted beside their error rather than from a variant:
-        // `compose::coercion_error` wraps the whole `CoercionError`, and
-        // `compose::fill_warning` has no error type at all.
+        // The rest have no error variant to iterate: `validation::coercion_failed`
+        // wraps a whole `CoercionError`, and the four warnings are minted at a walk
+        // where nothing failed.
         add(
             "validation::coercion_failed",
             CoercionError::Uncoercible {
@@ -751,8 +748,6 @@ mod args_canon {
             }
             .args(),
         );
-        // Two constructors, one code: sampling one and pinning the other against
-        // it is what stops the pair from drifting into two key sets.
         let path = crate::path::DocPath::main().field("subject");
         let marker = crate::quill::compose::fill_warning(&path);
         let unauthored = crate::quill::compose::unauthored_warning(&path);
@@ -762,22 +757,16 @@ mod args_canon {
             "both `validation::must_fill` triggers must carry one key set"
         );
         add("validation::must_fill", marker.args);
-        // Built at the variant walk rather than from an error type: a stranded
-        // value is well-formed, so there is nothing to fail.
         add(
             "validation::out_of_variant",
             crate::quill::compose::out_of_variant_warning(&path, "CUI", "UNCLASSIFIED").args,
         );
-        // Built at the pre-render walk rather than from an error type: a quill
-        // declares the construct, so there is nothing to fail.
         add("plate::unsupported_construct", {
             let mut args = BTreeMap::new();
             args.insert("construct".to_string(), "rule".into());
             args.insert("count".to_string(), 3.into());
             args
         });
-        // Its observed twin, minted by a backend that declines a construct
-        // outright; core owns the constructor so the pair cannot drift.
         add(
             "backend::declined_construct",
             crate::backend::declined_construct(

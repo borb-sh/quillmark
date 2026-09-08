@@ -167,11 +167,10 @@ fn flip_rect(r: Rect, canvas_box: [f32; 4]) -> [f32; 4] {
 
 /// Resolve a `schema_field` path to the leaf [`FieldSchema`] it addresses.
 ///
-/// The root segment resolves in `main.fields`, or is the reserved `$cards`.
-/// `$cards.<kind>.<i>.<field>…` addresses a card field: `<i>` is the instance
-/// index, selected at value time. Absolute-index addressing (`$cards.<i>.…`) is
-/// rejected — the widget kind must be statically derivable, and only kind+index
-/// identifies the schema field.
+/// The root segment resolves in `main.fields`, or is the reserved `$cards`:
+/// `$cards.<kind>.<i>.<field>…` addresses a card field. An absolute index
+/// (`$cards.<i>.…`) is rejected — only the kind names which schema field the
+/// slot binds, and the widget's kind must be derivable at load.
 ///
 /// A variant container is addressed through its resting shape rather than as a
 /// whole: `classification.value` is the discriminant and `classification.<cell>`
@@ -410,11 +409,9 @@ card_kinds:
         assert_eq!(kind("agree").unwrap(), WidgetType::Checkbox);
     }
 
-    /// A schema-bound enum's options lead with its blank, so a blank cell has
-    /// an option to land on: `resolve::coerce_choice` keeps a value only when it
-    /// matches a declared option. An unbound widget declaring its own options
-    /// (the `widgets:` path in form.json) has no schema field behind it and so
-    /// no blank — pinned by `unbound_widgets_bind_without_schema_fields`.
+    /// The blank leads so a blank cell has an option to land on:
+    /// `resolve::coerce_choice` keeps a value only when it matches a declared
+    /// option.
     #[test]
     fn a_schema_bound_enum_leads_its_choices_with_the_blank() {
         assert_eq!(

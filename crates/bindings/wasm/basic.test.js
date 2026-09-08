@@ -409,10 +409,9 @@ main:
   })
 
   it('session.regions() is always a non-null array, keyed by DocPath', () => {
-    // Regions are a session-level query, not on the render result. The document
-    // body is a markdown content field, so it auto-tags one region; its address
-    // is the canonical DocPath `main.body` (the backend's plate-space `$body` is
-    // translated at the session boundary). The result is always an array.
+    // The body is a markdown content field, so it auto-tags one region, at the
+    // canonical DocPath `main.body`: the backend's plate-space `$body` is
+    // translated at the session boundary.
     const engine = new Quillmark()
     const quill = Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
@@ -1172,8 +1171,6 @@ Card two.
   })
 
   it('removeCard → insertCard round-trips a card with fields (read shape == write shape)', () => {
-    // The whole point of the one-Card-shape change: a card returned by
-    // removeCard feeds straight back into insertCard with its fields intact.
     const doc = Document.fromMarkdown(MD_WITH_CARDS) // `note` (foo: bar) + `summary`
     const initialCount = doc.cards.length
     const removed = doc.removeCard(0) // the `note` card
@@ -1197,7 +1194,6 @@ Card two.
   })
 
   it('makeCard treats fields and body as optional', () => {
-    // Both `fields` and `body` are omittable; a bare kind yields an empty card.
     // The `.d.ts` marks them `fields?` / `body?` to match (see makeCard's
     // unchecked_optional_param_type bindings).
     const bare = Document.makeCard('note')
@@ -1649,7 +1645,7 @@ card_kinds:
     expect(meta.backend).toBe('typst')
     expect(meta.author).toBe('Unknown')
     expect(meta.description).toBe('Metadata test')
-    // supportedFormats moved off metadata onto the engine.
+    // `supportedFormats` is the engine's answer, not the quill's metadata.
     expect(meta.supportedFormats).toBeUndefined()
     const supportedFormats = engine.supportedFormats(quill)
     expect(Array.isArray(supportedFormats)).toBe(true)

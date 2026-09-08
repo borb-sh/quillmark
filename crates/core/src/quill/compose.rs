@@ -29,7 +29,7 @@ impl Quill {
         self.config().compile_checked(doc)
     }
 
-    /// Validate without backend compilation.
+    /// [`QuillConfig::dry_run`] on this quill's config.
     pub fn dry_run(&self, doc: &Document) -> Result<(), RenderError> {
         self.config().dry_run(doc)
     }
@@ -46,22 +46,14 @@ impl Quill {
 /// compiles data (e.g. a live session's `update`) retain the config alone
 /// rather than the whole quill with its font/package bytes.
 impl QuillConfig {
-    /// Applies coercion, validation, normalization, and **blank-filled render**:
-    /// every absent schema field is resolved to its authored value, else its
-    /// schema default, else the field's blank, in this plate-JSON
-    /// projection only, never in the persisted document. A merely *incomplete*
-    /// document compiles fine; only a *malformed* one (a value that won't
-    /// coerce/validate) errors. A `!must_fill` placeholder never gates render:
-    /// it surfaces as a non-fatal warning from `validate`. See
-    /// `prose/canon/SCHEMAS.md`.
+    /// Coercion, validation, normalization and blank-filled render into the
+    /// plate-JSON projection (`prose/canon/SCHEMAS.md` § "Blank-filled render").
+    /// An *incomplete* document compiles fine; only a *malformed* one — a value
+    /// that will not coerce or validate — errors.
     pub fn compile_data(&self, doc: &Document) -> Result<serde_json::Value, RenderError> {
-        // The gate is the **one** coercion pass: `coerce_and_validate` conforms
-        // every field (Render leniency, fallible) and validates, erroring on a
-        // malformed document. The ladder below consumes its coerced, NFC-normalized
-        // output rather than re-conforming: a document that reaches the ladder is
-        // already Render-conformed, so the plate is the sourced ladder with its
-        // rungs dropped. `resolve()` runs the total (keep-raw) conform for its own
-        // fallibility-free path; both cut the same [`ladder_sourced`].
+        // The one coercion pass. The ladder below consumes its coerced,
+        // NFC-normalized output rather than re-conforming, so the plate is the
+        // sourced ladder with its rungs dropped.
         let coerced = self.coerce_and_validate(doc)?;
         let normalized = normalize_document(coerced);
 
@@ -76,11 +68,9 @@ impl QuillConfig {
             normalized.main().body().clone(),
         );
         // A card's `$body` is defined for the plate iff its kind resolves to a
-        // body-enabled schema: the `$body` half of "absent on
-        // undefined". Capture it here, where the schema is already in hand for
-        // field lowering, and hand it to the plate builder, so the decision is
-        // never re-derived from the serialized plate. (`$kind`, the document-
-        // defined half, is gated structurally by the plate builder.)
+        // body-enabled schema. Captured here, where the schema is already in
+        // hand for field lowering, so the decision is never re-derived from the
+        // serialized plate; `$kind` is gated structurally by the plate builder.
         let mut card_bodies: Vec<bool> = Vec::with_capacity(normalized.cards().len());
         let cards_resolved: Vec<Card> = normalized
             .cards()
@@ -92,8 +82,7 @@ impl QuillConfig {
                     Some(schema) => {
                         plate_fields(ladder_sourced(schema, &card.payload().to_index_map()))
                     }
-                    // Unknown-kind card: authored fields verbatim, no ladder, as
-                    // the resolved-value view leaves it (`card_states`).
+                    // No ladder, as `resolved::card_states` leaves it.
                     None => card.payload().to_index_map(),
                 };
                 Card::from_parts(rebuild_payload_with_meta(card, fields), card.body().clone())
@@ -104,16 +93,14 @@ impl QuillConfig {
             .to_plate_json_gated(self.main.body_enabled(), Some(&card_bodies)))
     }
 
-    /// [`compile_data`](Self::compile_data) behind the `$quill` pairing check:
-    /// the render door's whole preamble, in the one place that owns it. Every
-    /// door that turns a document into plate data for *this* schema goes
+    /// [`compile_data`](Self::compile_data) behind the `$quill` pairing check.
+    /// Every door that turns a document into plate data for *this* schema goes
     /// through here (`Quillmark::open` for a session's first compile,
     /// [`LiveSession::update`](crate::LiveSession::update) for each edit), so
     /// the pairing cannot be checked at one and skipped at the other.
-    ///
-    /// [`compile_data`](Self::compile_data) stays available unchecked for a
-    /// caller that wants the plate alone (the CLI's `--output-data`), where no
-    /// render follows and the pairing is the caller's to assert.
+    /// [`compile_data`](Self::compile_data) stays available unchecked where no
+    /// render follows and the pairing is the caller's to assert (the CLI's
+    /// `--output-data`).
     pub fn compile_checked(&self, doc: &Document) -> Result<serde_json::Value, RenderError> {
         self.check_quill_reference(doc)?;
         self.compile_data(doc)
@@ -147,11 +134,6 @@ impl QuillConfig {
         );
         let coerced_doc = Document::from_main_and_cards(coerced_main, coerced_cards);
 
-        // Only *malformed* input is fatal (a value that won't coerce/validate).
-        // An incomplete document (absent fields or `!must_fill` placeholders)
-        // renders fine via blank-fill. `validate_document` returns `Err` only
-        // with a non-empty error list; each error keeps its own `path` for UI
-        // navigation.
         self.validate_document(&coerced_doc).map_err(|errors| {
             RenderError::new(errors.iter().map(|e| e.to_diagnostic()).collect())
         })?;
@@ -160,22 +142,15 @@ impl QuillConfig {
     }
 
     /// Enforce the document's `$quill` reference (`name@selector`) against this
-    /// quill, failing with a `quill::name_mismatch` / `quill::version_mismatch`
-    /// diagnostic if either component diverges. The document is well-formed; it
-    /// was paired with the wrong quill
-    /// (a different format, or an incompatible version of one) which yields
-    /// undefined output, so it errors rather than warns.
-    ///
-    /// Every schema-bound door runs it, the bound ingestion
+    /// quill. Every schema-bound door runs it, the bound ingestion
     /// ([`Quill::parse`](crate::Quill::parse) /
     /// [`Quill::conform`](crate::Quill::conform)) included, so the message names
     /// the pairing rather than a verb.
     ///
-    /// Name is the prerequisite (a selector belongs to a *named* quill): a name
-    /// mismatch (`quill::name_mismatch`) short-circuits and the version is left
-    /// unevaluated; otherwise the selector is checked (`quill::version_mismatch`).
-    /// The version parses infallibly in practice (validated at load); if it
-    /// somehow doesn't, the version check is skipped.
+    /// A selector belongs to a *named* quill, so `quill::name_mismatch`
+    /// short-circuits and leaves the version unevaluated; otherwise the selector
+    /// is checked (`quill::version_mismatch`). A quill version that will not
+    /// parse — load validates it, so nothing in practice — skips that check.
     pub(crate) fn check_quill_reference(&self, doc: &Document) -> Result<(), RenderError> {
         let doc_ref = doc.quill_reference();
 
@@ -210,33 +185,15 @@ impl QuillConfig {
 
 impl Quill {
     /// Validate `doc` against this quill's schema, returning every diagnostic
-    /// (an empty `Vec` when the document is valid).
+    /// (an empty `Vec` when the document is valid): the editor-facing surface.
     ///
-    /// The editor-facing validation surface. Forwards the canonical
-    /// `validation::*` diagnostics verbatim (same code, `path`, `hint`) so
-    /// consumers route on the code without parsing message text: type
-    /// mismatches, unknown card kinds, body-on-disabled-body, and the non-fatal
-    /// warnings (`validation::must_fill`, `validation::out_of_variant`); the
-    /// rest are blockers.
-    ///
-    /// **A blocker here means the document does not render, and a value the
-    /// render floor refuses is a blocker here.** Values are judged in the form
-    /// the floor builds from them (`conform_value` at `Leniency::Render`), so a
-    /// bare scalar for an `array`, `"3"` for an `integer`, and a length-1 array
-    /// for a `string` are valid, while a value the floor cannot conform is a
-    /// `validation::type_mismatch` even where its authored shape reads
-    /// well-typed. The leniencies are listed under `prose/canon/SCHEMAS.md`
-    /// §"Type coercion".
-    ///
-    /// `validation::must_fill` has **two triggers**, covering disjoint failures
-    /// under one code: a `!must_fill` marker the document carries
-    /// (`validate_fills`), and a schema-side must-fill cell nobody authored
-    /// (`validate_unauthored`). Neither subsumes the other — a document that
-    /// never saw a blueprint carries no marker, and a seeded `example` is
-    /// present, in-domain, and structurally indistinguishable from authored
-    /// content — so both run, and the `trigger` arg tells a consumer which
-    /// fired. Where both would fire on one path (a bare marker on an unauthored
-    /// cell) the marker wins: its hint is the actionable one.
+    /// The `validation::*` diagnostics are forwarded verbatim — same code,
+    /// `path`, `hint` — so a consumer routes on the code without parsing message
+    /// text. A blocker here means the document does not render, and a value the
+    /// render floor refuses is a blocker here: values are judged in the form the
+    /// floor builds from them (`conform_value` at `Leniency::Render`).
+    /// `prose/canon/SCHEMAS.md` §"Type coercion" and §"Native validation" carry
+    /// the leniencies and the two `validation::must_fill` triggers.
     ///
     /// Field values, defaults, and presentation order are not part of this
     /// surface: read them from the [`Document`] payload and the quill schema
@@ -259,18 +216,15 @@ impl Quill {
         diags
     }
 
-    /// Advisory validation of the main card's `$seed` overlays.
+    /// Advisory validation of the main card's `$seed` overlays: editor-surface
+    /// only, never gating render, so every diagnostic is a **warning** rooted at
+    /// `$seed.<kind>[.<field>]`.
     ///
-    /// Seed overlays are editor-surface only: they never gate render
-    /// (`compile_data` / `dry_run` ignore `$seed`), so every diagnostic here is
-    /// a **warning** rooted at `$seed.<kind>[.<field>]`. An overlay keyed by a
-    /// name that is not a declared `card_kind` is flagged; otherwise each
-    /// overlaid field is checked against that kind's schema as the **document**
-    /// value it is — an overlay cell is what `seed_card` commits into a new
-    /// card — so the variant container is a spelling it accepts, a present-null
-    /// cell reads as absent, and an omitted field raises nothing.
-    /// The reserved `$body` key is the body override, not a field, and is
-    /// skipped.
+    /// An overlaid field is checked as the **document** value it is — an overlay
+    /// cell is what `seed_card` commits into a new card — so the variant
+    /// container is a spelling it accepts, a present-null cell reads as absent,
+    /// and an omitted field raises nothing. The reserved `$body` key is the body
+    /// override, not a field.
     fn validate_seed(&self, doc: &Document) -> Vec<Diagnostic> {
         let Some(seed_map) = doc.main().payload().seed() else {
             return Vec::new();
@@ -394,13 +348,10 @@ fn coercion_error(e: CoercionError) -> RenderError {
 }
 
 /// The total (keep-raw) resolver behind [`Quill::resolve`](crate::Quill::resolve):
-/// conform each authored value under Render leniency (keep-raw on failure, the
-/// fallibility-free path a consumer-side view needs), NFC-normalize the key, then
-/// cut the shared [`ladder_sourced`]. The render plate reaches the same rows by a
-/// different route: its gate does the fallible conform, and `compile_data` hands
-/// the coerced result straight to `ladder_sourced`, so the two cut one ladder
-/// over equal input (a document that passes the gate never takes the keep-raw
-/// branch), never a parallel precedence policy.
+/// conform each authored value under Render leniency, NFC-normalize the key,
+/// then cut the shared [`ladder_sourced`]. `compile_data` reaches the same rows
+/// through its own fallible conform, and a document that passes that gate never
+/// takes the keep-raw branch, so the two cut one ladder over equal input.
 pub(crate) fn resolve_card_sourced(
     schema: &CardSchema,
     card: &Card,
@@ -408,15 +359,12 @@ pub(crate) fn resolve_card_sourced(
     ladder_sourced(schema, &conform_card_render(schema, card))
 }
 
-/// Conform one card's authored fields under Render leniency, keep-raw on failure,
-/// NFC-normalizing each key: the total (infallible) coercion the resolved-value
-/// view runs in place of the render gate's fallible one. Every validated ingress
-/// (parse, the mutators) restricts field names to ASCII (NFC-invariant), so the
+/// Conform one card's authored fields under Render leniency, keep-raw on
+/// failure, NFC-normalizing each key. Every validated ingress (parse, the
+/// mutators) restricts field names to ASCII, which is NFC-invariant, so the
 /// normalization only respells keys on a directly-constructed payload
-/// (`Payload::from_index_map`), under the same NFC key the plate carries. A value
-/// Render coercion cannot conform is kept raw (the ladder reads it Authored); on a
-/// document that passes the gate that branch never fires, so this equals the gated
-/// path byte-for-byte.
+/// (`Payload::from_index_map`). A value Render coercion cannot conform is kept
+/// raw and the ladder reads it Authored.
 fn conform_card_render(schema: &CardSchema, card: &Card) -> IndexMap<String, QuillValue> {
     let mut coerced: IndexMap<String, QuillValue> = IndexMap::new();
     for (raw_name, value) in card.payload().to_index_map() {
@@ -434,29 +382,23 @@ fn conform_card_render(schema: &CardSchema, card: &Card) -> IndexMap<String, Qui
 }
 
 /// The shared sourced ladder both canon projections cut, the render-fidelity
-/// plate ([`compile_data`](QuillConfig::compile_data)) and the resolved-value view
-/// ([`Quill::resolve`](crate::Quill::resolve)), over an already-coerced,
+/// plate ([`compile_data`](QuillConfig::compile_data)) and the resolved-value
+/// view ([`Quill::resolve`](crate::Quill::resolve)), over an already-coerced,
 /// NFC-normalized field map. For every declared field it reports the value the
-/// render projection uses and the [`FieldSource`] rung that produced it; undeclared
-/// authored fields carry through verbatim ([`Authored`](FieldSource::Authored)):
-/// the schema is a floor, not an allowlist.
+/// render projection uses and the [`FieldSource`] rung that produced it;
+/// undeclared authored fields carry through verbatim as
+/// [`Authored`](FieldSource::Authored), the schema being a floor, not an
+/// allowlist.
 ///
 /// Field order is authored-first with declared-but-absent fields appended: the
 /// render plate's order. Each projection re-cuts the presentation order it wants
-/// from this one value-and-source map (the view rows declared fields first in
-/// declaration order) rather than re-deriving the ladder against a parallel
-/// precedence policy (`prose/canon/SCHEMAS.md` § "Value sources and projections").
-/// Null ≡ absent applies recursively inside [`resolve_value_sourced`], so no bare
-/// null reaches either projection.
+/// from this one map.
 pub(crate) fn ladder_sourced(
     schema: &CardSchema,
     coerced: &IndexMap<String, QuillValue>,
 ) -> IndexMap<String, (QuillValue, FieldSource)> {
-    // Undeclared authored fields seed the map in authored order (verbatim,
-    // Authored); the declared fields then overlay in place (or append when
-    // absent) each carrying its ladder value and the source rung that produced
-    // it. Insert on an existing key preserves its authored position, so the
-    // order is authored-first, declared-but-absent appended.
+    // Insert on an existing key preserves its authored position, which is what
+    // makes the order authored-first with declared-but-absent appended.
     let mut out: IndexMap<String, (QuillValue, FieldSource)> = coerced
         .iter()
         .map(|(name, value)| (name.clone(), (value.clone(), FieldSource::Authored)))
@@ -493,25 +435,14 @@ fn resolve_value(value: Option<&QuillValue>, field: &FieldSchema) -> QuillValue 
 /// reporting the [`FieldSource`] rung that produced it, and applying null ≡
 /// absent recursively so no bare null reaches the plate.
 ///
-/// **The ladder is per cell, and resolution is a descent rather than a return.**
-/// A cell is a leaf, an `array` (arity is a fact no leaf carries), or a variant
-/// discriminant; an `object` is a *namespace*, whose value is the composition of
-/// its cells'. So this picks a **seed** — the authored value, else the schema
-/// `default:` — and then hands it to [`compose`], which rebuilds a container from
-/// its declared members whichever rung the seed came from, and floors a leaf at
-/// its [`blank`]. Absence is *inherited*, not terminal: an absent container makes
-/// every cell below it absent, and each cell then cuts its own ladder.
-///
-/// This is what makes the plate total at every depth: a declared address is
-/// present however much of its container the document left out
-/// (`prose/canon/PLATE_DATA.md`), which is what lets a plate read one directly
-/// rather than through a guarded accessor.
+/// Resolution is a descent, not a return (`prose/canon/SCHEMAS.md` § "Cells and
+/// namespaces"): this picks a **seed** — the authored value, else the schema
+/// `default:` — and hands it to [`compose`], which rebuilds a container from its
+/// declared members whichever rung the seed came from and floors a leaf at its
+/// [`blank`].
 ///
 /// The rung is the seed's, joined with what the descent found
-/// ([`FieldSource::join`]). It is the byproduct of the same walk that computes
-/// the value, so the render projection ([`resolve_value`]) and the
-/// resolved-value view cut the one commitment ladder rather than each re-deriving
-/// precedence (`prose/canon/SCHEMAS.md` § "Value sources and projections").
+/// ([`FieldSource::join`]), computed by that same walk.
 pub(crate) fn resolve_value_sourced(
     value: Option<&QuillValue>,
     field: &FieldSchema,
@@ -554,13 +485,9 @@ fn seed_default(field: &FieldSchema) -> Option<QuillValue> {
 /// into the schema tree.
 ///
 /// A typed dictionary's cells each cut their own ladder over their slice of the
-/// seed, so an absent property resolves to *its* `default:` before its blank. A
-/// seed key the schema does not declare passes through verbatim, matching
-/// `config::coerce_object_props`: the schema is a floor, not an allowlist, so an
-/// undeclared `note:` on a typed dict reaches the plate instead of being
-/// silently dropped.
-///
-/// `seed_rung` is the rung that supplied `seed`, and it ceilings the cells'
+/// seed, so an absent property resolves to *its* `default:` before its blank,
+/// and an undeclared seed key passes through verbatim as
+/// `config::coerce_object_props` passes it. `seed_rung` ceilings the cells'
 /// ([`compose_members`]).
 fn compose(
     seed: Option<&QuillValue>,
@@ -620,15 +547,11 @@ fn composes_as(seed: Option<&QuillValue>, shape: fn(&serde_json::Value) -> bool)
 /// Resolve every declared member of a namespace over its slice of `seed` into
 /// `out`, reporting the strongest rung any of them contributed. The two
 /// namespaces a schema can spell — a typed dictionary's `properties` and the
-/// live world of a variant container — compose identically; only the seed and
-/// the discriminant differ.
+/// live world of a variant container — compose identically.
 ///
-/// `seed_rung` is where the seed itself came from, and it **ceilings** its
-/// members': a value the document did not write may not read
-/// [`Authored`](FieldSource::Authored) one level down.
-/// [`resolve_value_sourced`] cannot tell a seeded value from a written one, so
-/// without the ceiling a cell fed from a container `default:` would report
-/// itself authored.
+/// `seed_rung` **ceilings** its members': [`resolve_value_sourced`] cannot tell
+/// a seeded value from a written one, so without the ceiling a cell fed from a
+/// container `default:` would report itself authored.
 fn compose_members(
     seed: Option<&serde_json::Map<String, serde_json::Value>>,
     members: &IndexMap<String, Box<FieldSchema>>,
@@ -653,21 +576,14 @@ fn compose_members(
 
 /// Resolve a variant-bearing enum into the container the plate receives:
 /// `{value: <member>}` plus, when that member owns a field set, exactly that
-/// set — each cell blank-filled by the ordinary ladder.
+/// set — each cell blank-filled by the ordinary ladder. Only the live world's
+/// fields cross, which is the closed shape `prose/canon/SCHEMAS.md` §"Enum
+/// variants" describes.
 ///
-/// **The container is a closed shape.** Only the live world's fields cross, so a
-/// value stranded by a discriminant flip and a key belonging to another variant
-/// are both dropped here rather than shipped alongside a tag that disowns them.
-/// That is what makes the plate contract total *per world*: inside the branch a
-/// plate is already obliged to write over `values ∪ blank`
-/// (`prose/canon/SCHEMAS.md` § "Blank-filled render"), every declared field of
-/// that world is present, so no guarded access is needed; outside it, none is.
-///
-/// The discriminant cuts the same ladder as any enum (authored › `default:` ›
-/// blank), but the container's own rung is the *cell's*: one the document wrote
-/// reads authored whichever rung filled the tag, joined with what its live
-/// world's cells contributed ([`compose_members`]) — the rule every namespace
-/// follows (`prose/canon/SCHEMAS.md` § "The resolved-value view").
+/// The discriminant cuts the same ladder as any enum, but the container's own
+/// rung is the *cell's*: one the document wrote reads authored whichever rung
+/// filled the tag, joined with what its live world's cells contributed
+/// ([`compose_members`]).
 fn resolve_variant_sourced(
     value: Option<&QuillValue>,
     field: &FieldSchema,
@@ -913,15 +829,9 @@ fn collect_unauthored_field(
 }
 
 /// Report every authored cell that belongs to a variant the discriminant does
-/// not select, across the main card and every composable card.
-///
-/// **Carried, not dropped.** The value stays in the document and the diagnostic
-/// is non-fatal, because the alternative punishes the ordinary editor gesture:
-/// choose CUI, fill the block, flip to UNCLASSIFIED to compare, flip back. A
-/// coercion-time drop would spend the author's answers on that flip; gating
-/// render would hand them an undraftable document. So the wire stays honest —
-/// the render floor emits only the live world — and the document keeps what a
-/// human typed until a human clears it.
+/// not select, across the main card and every composable card. The value stays
+/// in the document and the diagnostic is non-fatal (`prose/canon/SCHEMAS.md`
+/// §"Enum variants": carried, not dropped).
 fn validate_variants(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     for (schema, card, path) in schema_cards(config, doc) {

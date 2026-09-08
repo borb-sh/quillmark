@@ -1,37 +1,22 @@
 // Auto-generated quillmark-helper package
 // Version: {version}
 //
-// The Rust backend regenerates this file per render. Everything the document
-// needs is *generated source text*: content fields as markup blocks, the
-// document data as a Typst literal, the schema address tables as a literal,
-// so the file carries no runtime data processing. The only hand-written logic
-// is `form-field` / `signature-field` (widget geometry + metadata hand-off),
-// `field-region` (the same hand-off for a region with no widget),
-// `_qm-known-path` (path validation, reading the generated `_qm-meta`), and
-// `display` (a date field's content projection, reading `_qm-display`).
+// The Rust backend regenerates this file per render. Content fields, the
+// document data and the schema address tables are all generated source text,
+// so nothing here processes data at runtime.
 
 /// Backend-generated schema address tree (`fields` for the main card, `cards`
-/// keyed by kind) that validates `form-field` paths: the schema pruned to the
-/// steps it offers, each node carrying `props` and `item` where it admits a
-/// property or an index step. A generated literal: never parsed from document
-/// data.
+/// keyed by kind): the schema pruned to the steps it offers, each node carrying
+/// `props` and `item` where it admits a property or an index step.
 #let _qm-meta = {meta_literal}
 
 /// Whether `path` parses against the schema address tree: a top-level field
 /// (`subject`), an array element (`refs.2`), a container property
 /// (`classification.poc`, `contact.address.city`), or a card address
-/// (`$cards.<kind>.<n>.<field>` with any of those suffixes).
-///
-/// Each step is gated on what the node it steps out of actually offers, so
-/// `subject.0` and `subject.poc` are both rejected on a scalar `subject` even
-/// though the name itself is known — a scalar has neither an element nor a
-/// property for the address to resolve to. A container's properties are those
-/// its schema declares, so a variant container admits its `value` discriminant
-/// and every world's cells, and a typed dictionary its own keys. This is the
-/// pdfform resolver's grammar (`bind.rs`), so one schema address binds on
-/// either backend. Distinct from a present-but-empty tree (e.g. a body-disabled
-/// main with no other fields and no cards), which offers no step and so rejects
-/// every address.
+/// (`$cards.<kind>.<n>.<field>` with any of those suffixes). Each step is gated
+/// on what the node it steps out of actually offers, so `subject.0` and
+/// `subject.poc` are both rejected on a scalar `subject`. A present-but-empty
+/// tree offers no step and so rejects every address.
 #let _qm-known-path(path) = {
   let fields = _qm-meta.at("fields", default: (:))
   let cards = _qm-meta.at("cards", default: (:))
@@ -62,49 +47,23 @@
   steps-ok(fields, parts)
 }
 
-/// Emit an unsigned form field. PDF: a clickable AcroForm widget here (a text
-/// box, checkbox, dropdown, or signature). SVG/PNG: same invisible layout
-/// space.
-///
-/// `name` must be unique and match `[A-Za-z0-9_.]+` ('.' allowed for
-/// fully-qualified names). `type` is one of `"text"`, `"checkbox"`, `"choice"`,
-/// `"signature"`. `width` / `height` must be absolute lengths (pt/mm/cm/in).
-///
-/// Value binding is the plate author's job: pass `value:` from your data, e.g.
-/// `form-field("Agree", type: "checkbox", value: data.agree)`. There is no
-/// resolver on the Typst side, the helper forwards the value verbatim and the
-/// Rust adapter maps it to the AcroForm value:
-///   - text:      `value` is a string (numbers stringify); blank ⇒ no `/V`.
-///   - checkbox:  `value` is a bool; `true` ⇒ checked.
-///   - choice:    `value` is a string; bound only if it matches an `options` entry.
-///   - signature: `value` is ignored.
-/// `options` is an array of display strings for `type: "choice"`. `multiline`
-/// toggles the multi-line flag for `type: "text"`.
-///
-/// `field` is the schema-field path the region sidecar keys this widget on
-/// (`session.regions()`), e.g. `signature-field("Signature", field:
-/// "signature_block")` so a click routes to the schema field rather than the
-/// AcroForm `/T`. It is region-only: the `/T` widget name stays `name`. Omitted
-/// (`none`), the widget exposes **no** region: its `/T` name is not a schema
-/// address, so there is nothing for a consumer to route to.
-///
-/// `font`, `size`, and `align` set the type the *viewer* draws the value in,
-/// and apply to `"text"` and `"choice"` only (the other two carry no variable
-/// text, so passing a non-default there is an error rather than a silent
-/// no-op). `font` is one of `"helvetica"`, `"times"`, `"courier"`: the base-14
-/// families every viewer has, since a widget cannot carry a font program.
-/// `size` is an absolute length, or `auto` to let the viewer fit text to the
-/// box (which refits as the user types, so pass a size wherever the value must
-/// match surrounding text). `align` is `"left"`, `"center"`, or `"right"`, and
-/// is the only way to pin a value to an edge: the widget box is sized for the
-/// longest plausible value, so its width says nothing about where the text
-/// lands.
+/// Emit an unsigned form field: a clickable AcroForm widget on PDF output, the
+/// same invisible layout space on SVG/PNG. `value` is forwarded verbatim and
+/// the Rust adapter maps it per `type` — a string for `"text"` (blank ⇒ no
+/// `/V`), a bool for `"checkbox"`, an `options` entry for `"choice"`, nothing
+/// at all for `"signature"`. `field` keys the widget's region on a schema
+/// address and is region-only: the `/T` widget name stays `name`, and omitting
+/// it leaves the widget with no region for a consumer to route to.
+/// `font`/`size`/`align` set the type the *viewer* draws the value in;
+/// `size: auto` refits as the user types, and `align` is the only way to pin a
+/// value to an edge of a box sized for the longest plausible value. Parameters
+/// and examples: `docs/quills/typst-backend.md`.
 ///
 /// `<__qm_field__>` and `kind: "__qm_field__"` are reserved for this hand-off.
-/// Note: this emits a `metadata` element, so plates/packages that read their
-/// own config via an unfiltered `query(metadata)` (e.g. `.last()`) must query
-/// by a dedicated label or filter on a key they own, or they will read this
-/// field's metadata by accident.
+/// This emits a `metadata` element, so a plate or package reading its own
+/// config through an unfiltered `query(metadata)` must query by a dedicated
+/// label or filter on a key it owns, or it will read this field's metadata by
+/// accident.
 #let form-field(
   name,
   type: "text",
@@ -165,9 +124,8 @@
   ))<__qm_field__>]
 }
 
-/// Emit an unsigned signature field. A thin wrapper over `form-field` with
-/// `type: "signature"` (value-free). `field` forwards the region schema-field
-/// binding (see `form-field`). Retained so existing plates keep working.
+/// Emit an unsigned signature field: `form-field` with `type: "signature"`,
+/// which carries no value. `field` forwards the region binding.
 #let signature-field(name, width: 200pt, height: 50pt, field: none) = form-field(
   name,
   type: "signature",
@@ -177,25 +135,16 @@
 )
 
 /// Claim the ink `body` draws for schema field `field`, so `session.regions()`
-/// lists it and `session.fieldAt(..)` resolves a click on it, exactly as for
-/// content the field generated. For presentations a plate composes rather than
-/// reads straight off `data`: a banner keyed on `data.classification`, a
-/// package-built address block, a computed table.
+/// lists it and `session.fieldAt(..)` resolves a click on it — for a
+/// presentation the plate composes rather than reads straight off `data`: a
+/// banner keyed on `data.classification`, a package-built address block, a
+/// computed table. Layout-neutral: `body` is returned untouched, bracketed by
+/// two invisible `metadata` markers.
 ///
-/// Layout-neutral. `body` is returned untouched, bracketed by two invisible
-/// `metadata` markers; the backend claims the ink between them.
-///
-/// It is a **fallback** claim, not an override: ink already tracked to a field
-/// (a richtext field's generated block, a `data.<field>` reference in the plate,
-/// a nested `field-region`) keeps that field, and this wrapper takes only what
-/// nothing more specific took, so wrapping never moves a region off its field.
-/// Ink Typst attributes to no source position (list bullets, underline rules)
-/// stays unclaimed here as everywhere.
-///
-/// `field` is a schema address, same grammar as `form-field`'s `field:`, but
-/// it need not be a literal: each *call* claims independently, so a wrapper
-/// invoked once per card with `card.at("$path") + "$body"` yields one region
-/// per card.
+/// The claim is a **fallback**, not an override: ink already tracked to a field
+/// keeps that field, so wrapping only ever adds a region and never moves one.
+/// Each *call* claims independently, so a wrapper invoked once per card with
+/// `card.at("$path") + "$body"` yields one region per card.
 ///
 /// `<__qm_region__>` and `kind: "__qm_region__"` are reserved for this
 /// hand-off; the `query(metadata)` caveat on `form-field` applies here too.
@@ -209,33 +158,24 @@
   [#metadata((kind: "__qm_region__", field: field, close: true))<__qm_region__>]
 }
 
-// Per-field content, generated by the Rust backend: each content field,
-// `richtext[]` element, and card content field present in the document data
-// (keyed by name below in `data`) is bound here as a markup **block**
-// (`#let _qm_cN = [ .. ]`). The file parser parses each block once; every
-// glyph the block places carries its own syntax node's span (word/run
-// granularity), which `session.regions()` reads placement geometry back from.
-// The backend records each block's bracketed byte window at generation time.
+// Per-field content, generated by the Rust backend: one markup block
+// (`#let _qm_cN = [ .. ]`) per content field, `richtext[]` element and card
+// content field present in the document data. Every glyph a block places
+// carries its own syntax node's span, which `session.regions()` reads
+// placement geometry back from.
 {content_blocks}
 
 /// Document data as a dictionary: a backend-generated Typst literal. Every
 /// value is at its **native** Typst type — a present `date`/`datetime` is a
 /// `datetime(..)` (blank ⇒ `none`), a number an int or float, a typed
-/// dictionary a dict — with one exception, the content types, whose authored
-/// text is a canonical rendering and so reference their `_qm_cN` markup block.
-/// The rule holds at every depth: the backend read each value's own schema node
-/// to lower it, so a `date` inside an `object` or an `array` row is the same
-/// `datetime` a card-level one is. `$cards` carry their per-kind-ordinal `$path`
-/// prefix. The backend did every transform at generation time, so this file runs
-/// no data processing at all.
+/// dictionary a dict — save the content types, whose authored text is a
+/// canonical rendering and so reference their `_qm_cN` markup block. The rule
+/// holds at every depth. `$cards` carry their per-kind-ordinal `$path` prefix.
 #let data = {data_literal}
 
-/// Backend-generated content projection for every present `date`/`datetime`
-/// field, keyed by schema address (a field name `issued`, an array element
-/// `stamps.2`, a container property `contact.reply_by`, or a card path
-/// `$cards.<kind>.<n>.<field>`). Each value is a `_qm_dN` closure block, so the
-/// ink it places is born in generated source. A generated literal; blank dates
-/// are absent.
+/// Backend-generated content projection for every **present** `date`/`datetime`
+/// field, keyed by schema address. Each value is a `_qm_dN` closure block, so
+/// the ink it places is born in generated source.
 #let _qm-display = {display_literal}
 
 /// A date field's **content** projection, formatted with Typst's own
@@ -248,11 +188,9 @@
 ///
 /// `field` is the schema address (compose a card field from the card's `$path`:
 /// `display(card.at("$path") + "on", "[year]")`). An address the schema does not
-/// have is a compile error, as it is for `form-field` and `field-region`:
-/// `_qm-display` holds an entry per *present* date, so a typo and a blank date
-/// are both absent from it and only the schema tells them apart. Returns `none`
-/// where a known address carries no date — a blank one, or a field that is not a
-/// date — so a `== none` fallback still fires.
+/// have is a compile error; a known address carrying no date — a blank one, or a
+/// field that is not a date — returns `none`, so a `== none` fallback still
+/// fires.
 #let display(field, ..args) = {
   assert(std.type(field) == str,
     message: "display: field must be a string, got " + repr(std.type(field)))

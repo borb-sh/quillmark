@@ -2,13 +2,9 @@
 //! document data to Typst plates.
 //!
 //! `lib.typ` is regenerated per render as pure source text: no runtime data
-//! processing. [`Codegen::emit_value`] walks the document data beside the
-//! transform-schema node declaring it, so what a value lowers to is read off
-//! that node at any depth. Content lowers to markup block bindings (`#let _qm_cN
-//! = [ .. ]`) via [`emit_content`], every other type to its native Typst value;
-//! the document data is a Typst literal (`#let data = ( .. )`) referencing those
-//! blocks. The date closures behind `display` are keyed by schema address
-//! instead, since a plate reaches for them by name rather than through a value.
+//! processing. What each schema node lowers to, and why the date closures
+//! behind `display` are keyed by schema address instead of carried on the
+//! value: `prose/canon/PLATE_DATA.md`.
 //!
 //! Output is **canonical**: dict keys emit in sorted order at every level (via
 //! [`sorted`]), so equal data produces byte-equal source regardless of the
@@ -169,12 +165,8 @@ impl<'m> Codegen<'m> {
 
     /// The date sibling of [`content_block`](Self::content_block): a closure
     /// whose `text(..)` body is where the glyphs are born, so they carry this
-    /// generated span wherever the plate finally calls it. That is what
-    /// `display(addr, ..)` survives laundering on and a native `datetime` does
-    /// not, and one block per cell is what gives a card its per-instance region.
-    ///
-    /// Formatting through the date's own `display` inherits its type, so a
-    /// date-only field throws Typst's native `[hour]`-pattern error.
+    /// generated span wherever the plate finally calls it, which is what
+    /// `display(addr, ..)` survives laundering on.
     fn display_block(&mut self, path: &str, constructor: &str) {
         let id = format!("_qm_d{}", self.display.len());
         self.blocks.push_str("#let ");
@@ -193,11 +185,9 @@ impl<'m> Codegen<'m> {
         self.display.push((path.to_string(), id));
     }
 
-    /// A date lowers to its **native** `datetime(..)`, so arithmetic,
-    /// comparison, components and package interop are ordinary Typst. Blank ⇒
-    /// `none`, so `!= none` guards are untouched. A non-blank value that will not
-    /// parse raises `backend::invalid_date` from here, the one site that parses,
-    /// which is what makes the check total over depth.
+    /// Blank ⇒ `none`, so a plate's `!= none` guard is untouched. A non-blank
+    /// value that will not parse raises `backend::invalid_date` from here, the
+    /// one site that parses, which is what makes the check total over depth.
     fn date_field(&mut self, path: &str, s: &str, kind: DateKind) -> String {
         match datetime_constructor(s, kind) {
             Some(constructor) => {
@@ -303,11 +293,9 @@ impl<'m> Codegen<'m> {
     }
 
     /// Lower one value against the schema node that declares it, recursing on
-    /// shape: the exact inverse of the walk `field_to_schema` builds the node
-    /// with, which is why it cannot be shallower than the schema is.
-    ///
-    /// `path` is the value's schema address, so every generated projection keys
-    /// on an address the recursion produced rather than one reassembled.
+    /// shape. `path` is the value's schema address, so every generated
+    /// projection keys on an address the recursion produced rather than one
+    /// reassembled.
     ///
     /// A value whose shape contradicts its declaration reaches here through a
     /// direct `update`, never the seam, and falls to its literal.
@@ -344,13 +332,9 @@ impl<'m> Codegen<'m> {
     }
 }
 
-/// What a schema node lowers to: the codegen walk's whole dispatch.
-///
-/// A declared type means the same thing wherever it is declared, and every type
-/// lowers to its native Typst value unless it has a canonical rendering. Only
-/// the content types have one — the authored text — so only they lower to
-/// content; a date's rendering is a typographic decision the plate owns, and
-/// reaches ink through `display(addr, ..)` instead.
+/// What a schema node lowers to: the codegen walk's whole dispatch. Why only
+/// the content types lower to content and a date does not:
+/// `prose/canon/PLATE_DATA.md`.
 enum Lower<'a> {
     /// `richtext` / `plaintext`, which share everything downstream of this
     /// classification. `inline` lowers to pure inline markup, with no block
@@ -383,7 +367,7 @@ fn lowering(node: Option<&serde_json::Value>) -> Lower<'_> {
     match str_key("type") {
         Some("array") => Lower::Array(node.get("items")),
         // A richtext node is `type: object` too, and the media type claimed it
-        // above; what is left here is a typed dictionary or a variant container.
+        // above.
         Some("object") => match node.get("properties").and_then(|v| v.as_object()) {
             Some(props) => Lower::Object(props),
             None => Lower::Native,
@@ -845,10 +829,8 @@ mod tests {
         );
     }
 
-    /// A typed dictionary and a variant container reach the same table: both
-    /// project as `type: object` carrying `properties`, the container's `value`
-    /// discriminant among them. A richtext field is `type: object` too and must
-    /// stay out of it, offering no property step.
+    /// A variant container's cells reach the table a typed dictionary's do,
+    /// and a richtext field stays out of it, offering no property step.
     #[test]
     fn object_fields_table_carries_every_declared_container() {
         let meta = meta_from(serde_json::json!({

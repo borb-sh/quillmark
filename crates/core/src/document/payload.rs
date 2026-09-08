@@ -292,7 +292,6 @@ impl Payload {
         })
     }
 
-    /// The `$kind` value, if declared.
     pub fn kind(&self) -> Option<&str> {
         self.items.iter().find_map(|i| match i {
             PayloadItem::Kind { value } => Some(value.as_str()),
@@ -300,7 +299,6 @@ impl Payload {
         })
     }
 
-    /// The map for the given out-of-band meta key, if declared.
     pub(crate) fn meta(&self, want: MetaKey) -> Option<&JsonMap<String, JsonValue>> {
         self.items.iter().find_map(|i| match i {
             PayloadItem::Meta { key, value, .. } if *key == want => Some(value),
@@ -308,8 +306,7 @@ impl Payload {
         })
     }
 
-    /// The `$ext` map, if declared. Opaque: never interpreted, never emitted
-    /// into the plate JSON.
+    /// Opaque: never interpreted, never emitted into the plate JSON.
     pub fn ext(&self) -> Option<&JsonMap<String, JsonValue>> {
         self.meta(MetaKey::Ext)
     }
@@ -428,7 +425,6 @@ impl Payload {
             .count()
     }
 
-    /// `true` when there are no user-field items.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }

@@ -86,7 +86,6 @@ pub fn parse_datetime(s: &str) -> Option<(i32, u8, u8, u8, u8, u8)> {
 mod tests {
     use super::*;
 
-    // ── Strict `type: date` grammar ──────────────────────────────────────────
 
     #[test]
     fn parse_date_accepts_bare_calendar_dates() {
@@ -116,7 +115,6 @@ mod tests {
         }
     }
 
-    // ── Strict `type: datetime` grammar ──────────────────────────────────────
 
     #[test]
     fn parse_datetime_accepts_offsetless_wall_clock() {

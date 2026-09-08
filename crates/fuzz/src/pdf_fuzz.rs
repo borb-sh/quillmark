@@ -1,15 +1,9 @@
 //! The AcroForm stamp spine's byte-level reads: arbitrary and corrupted PDF
-//! bytes yield `Err`, never a panic. Nothing in the workspace catches unwind,
-//! so a panic kills the CLI and the Python extension and poisons the WASM
-//! module.
+//! bytes yield `Err`, never a panic. Nothing in the workspace catches unwind, so
+//! one panic kills the CLI and the Python extension and poisons the WASM module.
 //!
-//! The oracle is deliberately weak — a refusal is an acceptable answer. The
-//! reader's input contract (traditional-xref, unencrypted, inline-annots,
-//! bounded-tree) refuses most well-formed PDFs too, so `Ok` is not assertable.
-//!
-//! Two input populations, because they fail differently: arbitrary bytes almost
-//! never reach past the trailer scan, while a real form with one byte changed
-//! gets deep into object parsing carrying a length or delimiter that lies.
+//! `Ok` is not assertable — the reader's input contract refuses most well-formed
+//! PDFs too — so a refusal is an acceptable answer for every case here.
 
 use std::sync::LazyLock;
 
@@ -19,7 +13,7 @@ use quillmark_pdf::{
 };
 
 /// A real AcroForm the spine accepts, so a mutant of it exercises parse paths a
-/// random buffer never reaches. Read once: thousands of cases mutate a copy.
+/// random buffer never reaches.
 static BASE_PDF: LazyLock<Vec<u8>> = LazyLock::new(|| {
     let path = quillmark_fixtures::quills_path("sample_form").join("form.pdf");
     std::fs::read(&path).expect("the sample_form fixture ships a form.pdf")
@@ -54,8 +48,8 @@ fn exercise(pdf: &[u8]) {
 }
 
 proptest! {
-    // Above proptest's default 256: a case is one parse over a few kilobytes
-    // with no oracle and no I/O, so the wider net is close to free.
+    // Above proptest's default 256: a case is one parse over a few kilobytes,
+    // no oracle and no I/O, so the wider net is close to free.
     #![proptest_config(ProptestConfig::with_cases(1024))]
 
     /// Nothing checks for a `%PDF-` header (`PdfUpdate::begin` scans backwards

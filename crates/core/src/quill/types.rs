@@ -6,12 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::value::QuillValue;
 
-/// UI-specific metadata for field rendering.
-///
-/// Display order is not a `ui` knob: declaration order in Quill.yaml **is**
-/// display order, carried structurally by the schema's ordered field maps
-/// ([`CardSchema::fields`], [`FieldSchema::properties`]) and by key order on
-/// the emitted-schema wire.
+/// A field's `ui:` block.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UiFieldSchema {
@@ -32,13 +27,10 @@ pub struct UiFieldSchema {
     pub blank_title: Option<String>,
 }
 
-/// A block construct a body can hold: the block kinds the content model
-/// distinguishes, minus the paragraph, which is the floor and cannot be
+/// A block construct a body can hold, and the vocabulary
+/// [`BodyCardSchema::unsupported`] declines one in: the block kinds the content
+/// model distinguishes, minus the paragraph, which is the floor and cannot be
 /// declined.
-///
-/// The vocabulary a quill declines constructs in
-/// ([`BodyCardSchema::unsupported`]). A closed set, so a misspelled construct
-/// is a load error rather than a declaration that matches nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BlockConstruct {
@@ -89,26 +81,16 @@ pub struct BodyCardSchema {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub example: Option<String>,
     /// Canonical-content form of [`example`](Self::example), imported once at
-    /// quill load (`QuillConfig::from_yaml_with_warnings`) and cached here: a
-    /// pure function of the Quill.yaml bytes, never serialized. Seeding commits
-    /// this instead of re-importing the markdown per document, so a seeded body
-    /// is content from birth. `None` when there is no example or the schema was
-    /// built outside the loader (e.g. a hand-built test schema), in which case
-    /// consumers fall back to importing `example`.
+    /// quill load and cached here. `None` when there is no example or the schema
+    /// was built outside the loader, in which case consumers fall back to
+    /// importing `example`.
     #[serde(skip)]
     pub example_content: Option<QuillValue>,
     /// The block constructs this quill's plate does not typeset in this body.
-    ///
-    /// A plate is free to reinterpret or drop a construct — absorb it into a
-    /// neighbour, move its text, typeset nothing at all — and only the quill
-    /// knows it did. This is where it says so, once, as data: an editor reads
-    /// it off the schema and declines the gesture before the author makes it,
-    /// and content that arrives by another door (an import, a repack, the CLI)
-    /// draws `plate::unsupported_construct` on the pre-render walk.
-    ///
-    /// Empty by default, so a quill that declares nothing keeps saying nothing.
-    /// A declaration is a claim about the plate that nothing verifies: it is
-    /// documentation with a diagnostic attached, not a proof.
+    /// An editor reads it off the schema and declines the gesture before the
+    /// author makes it; content arriving by another door draws
+    /// `plate::unsupported_construct` on the pre-render walk. A claim about the
+    /// plate that nothing verifies (`ERROR.md`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unsupported: Vec<BlockConstruct>,
 }
@@ -132,29 +114,24 @@ pub struct UiCardSchema {
     pub groups: Option<GroupRegistry>,
 }
 
-/// One entry in a card's [`GroupRegistry`]: a snake_case identity plus an
-/// optional display-label override. The `id` decouples identity from label the
-/// same way a field's snake_case key decouples from its `ui.title`: a rename
-/// of the label touches one line and never breaks a `ui.group` reference or
-/// persisted per-group editor state. When `title` is `None`, consumers derive
-/// the label from `id` (`memo_for` → "Memo For"), exactly as they derive a
-/// field label from its key.
+/// One entry in a card's [`GroupRegistry`]. The `id` decouples identity from
+/// label as a field's snake_case key decouples from its `ui.title`: renaming
+/// the label breaks no `ui.group` reference and no persisted per-group state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupSchema {
     /// snake_case identity; rides the registry map key (or list item) on the wire.
     pub id: String,
-    /// Display-label override; `None` means derive the label from `id`.
+    /// `None` derives the label from `id` (`memo_for` → "Memo For"), as a field
+    /// label derives from its key.
     pub title: Option<String>,
 }
 
 /// A card's ordered group registry (`main.ui.groups` or a card kind's
-/// `ui.groups`). Declaration order **is** display order (the same contract
-/// fields carry through their ordered map) so it is held as a `Vec` that
-/// survives regardless of surface form. Authored as either a sequence of ids
+/// `ui.groups`). Declaration order is display order, so it is held as a `Vec`
+/// whichever surface form it was authored in: a sequence of ids
 /// (`[addressing, letterhead]`, titles derived) or a mapping of id to
-/// attributes (`{ letterhead: { title: … } }`, for label overrides); both fold
-/// into the same ordered list. Serializes back to the canonical mapping form,
-/// declaration order preserved.
+/// attributes (`{ letterhead: { title: … } }`). Serializes back as the
+/// mapping.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupRegistry(pub Vec<GroupSchema>);
 
@@ -244,8 +221,8 @@ pub struct CardSchema {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Declaration order is display order: the map preserves Quill.yaml key
-    /// order end-to-end (parse, iteration, `schema()` emission), so ordering
-    /// needs no side-channel knob.
+    /// order end to end (parse, iteration, `schema()` emission), so ordering
+    /// needs no side-channel knob and no `ui` one exists.
     pub fields: IndexMap<String, FieldSchema>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ui: Option<UiCardSchema>,
@@ -284,74 +261,40 @@ impl CardSchema {
     }
 }
 
-/// Field type hint enum for type-safe field type definitions.
+/// A field's declared `type:`. Each type's meaning and grammar is the
+/// `SCHEMAS.md` §"Quill.yaml DSL" table.
 ///
-/// Serializes as its type expression (`FieldType::as_str`) and deserializes by
-/// parsing that string (`FieldType::from_str`), so a YAML `type:` value round-
-/// trips as the one token that names it. Richtext inline shape is declared with
-/// the sibling `inline:` key (folded into `FieldType::RichText { inline }`), not
-/// in the `type:` token.
+/// Serializes as its type token ([`as_str`](Self::as_str)) and deserializes by
+/// parsing one ([`from_str`](Self::from_str)), so the token is the whole `type:`
+/// value: the prose types' single-line shape rides the sibling `inline:` key,
+/// folded into the variant payload here.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldType {
     String,
-    /// Integers and decimals
     Number,
     Integer,
     Boolean,
     Array,
     Object,
-    /// A calendar date, `YYYY-MM-DD`, stored verbatim as a string. Rejects any
-    /// time component: a time-bearing string is a [`DateTime`](Self::DateTime),
-    /// not a truncated date. The common case in a document engine, so it is the
-    /// unmarked date type. Lowers to Typst `datetime(year:, month:, day:)`.
     Date,
-    /// An offset-less wall-clock datetime, `YYYY-MM-DDThh:mm[:ss]`, stored
-    /// verbatim as a string. Rejects timezone offsets (`Z`, `±HH:MM`), the space
-    /// separator, fractional seconds, and a bare date (which is a
-    /// [`Date`](Self::Date)); seconds are optional and zero-fill. The engine does
-    /// no zone math: an offset is rejected, never dropped. Lowers to the
-    /// six-component Typst `datetime(year:, month:, day:, hour:, minute:,
-    /// second:)`.
     DateTime,
-    /// Rich text: the canonical content model ([`Content`]). Surfaced
-    /// as `type: richtext`; single-line shape is declared with the sibling `inline:` key.
-    /// The transform schema marks it `contentMediaType:
-    /// application/quillmark-content+json` and, when inline, `quillmark:inline:
-    /// true`.
-    ///
-    /// [`Content`]: quillmark_content::Content
+    /// Formatted prose over the canonical content model,
+    /// [`Content`](quillmark_content::Content); markdown is a projection of it.
     RichText {
-        /// When `true`, the field is `richtext(inline)`: exactly one `Para`
-        /// line, no container, no islands. Populated from the wire `inline:` key
-        /// at load; editors mount a one-line surface. Enforced at coercion,
-        /// validation, and load-time example import.
+        /// Exactly one `Para` line, no container, no islands. Enforced at
+        /// coercion, validation, and load-time literal import.
         inline: bool,
     },
-    /// Plain text, the same [`Content`] as the `richtext` codec produces,
-    /// constrained mark-free and island-free (all `Para` lines, no containers),
-    /// but authored and projected through a *literal* codec
-    /// ([`from_plaintext`]/[`to_plaintext`]) rather than markdown: `*hi*` is four
-    /// literal characters, verbatim both ways, never emphasis. Surfaced as
-    /// `type: plaintext`; single-line shape is declared with the sibling
-    /// `inline:` key, as richtext. The transform schema marks it with the same
-    /// `contentMediaType: application/quillmark-content+json` plus a
-    /// `quillmark:plain: true` annotation. Enforced at coercion, validation
-    /// (`NotPlain`), and load-time example import via [`Content::is_plain`].
-    ///
-    /// [`Content`]: quillmark_content::Content
-    /// [`Content::is_plain`]: quillmark_content::Content::is_plain
-    /// [`from_plaintext`]: quillmark_content::from_plaintext
-    /// [`to_plaintext`]: quillmark_content::to_plaintext
+    /// The same [`Content`](quillmark_content::Content) through a *literal*
+    /// codec ([`from_plaintext`](quillmark_content::from_plaintext) /
+    /// [`to_plaintext`](quillmark_content::to_plaintext)): `*hi*` is four
+    /// characters, verbatim both ways, never emphasis.
     PlainText {
-        /// When `true`, the field is single-line plaintext: one `Para` line, no
-        /// container. Populated from the wire `inline:` key at load, mirroring
-        /// richtext. Enforced at coercion, validation, and load-time import.
+        /// A single line, enforced where [`RichText`](Self::RichText)'s is.
         inline: bool,
     },
-    /// A closed finite domain of string values. Surfaced as `type: enum` with a
-    /// required `values:` list (carried in [`FieldSchema::enum_values`]) and
-    /// projected to JSON-Schema `{type: string, enum: [...]}`. Members are
-    /// string-valued only.
+    /// A closed finite domain, its members carried in
+    /// [`FieldSchema::enum_values`] and string-valued only.
     Enum,
 }
 
@@ -414,35 +357,16 @@ pub type VariantFields = IndexMap<String, Box<FieldSchema>>;
 /// (`quill::variant_reserved_field_name`).
 pub const VARIANT_DISCRIMINANT_KEY: &str = "value";
 
-/// Schema definition for a template field.
+/// Schema definition for a template field. `default:` answers both the value
+/// axis and the obligation one ([`must_fill`](Self::must_fill)); `SCHEMAS.md`
+/// §"Value and obligation: one declaration" is the rule.
 ///
-/// `default` and `example` are both type-valid values with opposite intent:
-/// `default` is the value most authors want (interpolated when the field is
-/// omitted), while `example` matches the desired type and shape but is not
-/// the value most authors want (it documents shape only, never rendering).
-///
-/// `default:` is the only declaration, and it answers both questions a field
-/// raises. The **value** axis is `default:` › `example:` › the field's
-/// [`blank`](crate::quill::blank), and decides what a cell holds. The
-/// **obligation** axis, [`must_fill()`](Self::must_fill), is a reading of the
-/// same declaration: a field nobody supplied a value for is one a human must
-/// answer.
-///
-/// Obligation is a warning, never a gate: an unauthored must-fill field
-/// blank-fills and renders, and the only signal is the non-fatal
-/// `validation::must_fill` warning. There is no separate `required:` axis and
-/// no `must_fill:` key.
-///
-/// The richtext single-line constraint has **one** carrier: the
-/// `FieldType::RichText { inline }` enum. The wire's sibling `inline:` key folds
-/// into that enum at deserialize (via [`from_quill_value`](Self::from_quill_value),
-/// which the custom `Deserialize` below routes through), and the custom
-/// `Serialize` re-emits it from the enum, so the flag can never live in two
-/// places that disagree.
-///
-/// `Serialize`/`Deserialize` are hand-written (below) rather than derived: the
-/// wire folds a sibling `inline:` key into the `FieldType` enum, `name` rides
-/// the map key, and the `*_content` caches never serialize.
+/// The prose types' single-line constraint has **one** carrier, the
+/// `inline` payload on [`FieldType::RichText`] / [`FieldType::PlainText`]. The
+/// wire's sibling `inline:` key folds into it at deserialize (through
+/// [`from_quill_value`](Self::from_quill_value)) and the hand-written
+/// `Serialize` re-emits it from there, so the flag cannot live in two places
+/// that disagree.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldSchema {
     /// The map key carries this on the wire; not serialized, to avoid duplication.
@@ -459,35 +383,26 @@ pub struct FieldSchema {
     /// The members of an `enum` field; no other type accepts them.
     /// Serializes as `values`.
     pub enum_values: Option<Vec<String>>,
-    /// Per-member field sets on an `enum` field: the fields that exist only in
-    /// the world where the discriminant holds that member. Keyed by member (a
-    /// subset of [`enum_values`](Self::enum_values); the blank owns no set).
-    ///
-    /// Declaring it is what turns the field into a **container**: a
-    /// variant-bearing enum rests as `{value: <member>, …the member's fields}`
-    /// rather than a bare string, at every projection. A member absent from this
-    /// map is a world with no fields of its own, spelled `{value: <member>}`.
+    /// Per-member field sets on an `enum` field, keyed by member (a subset of
+    /// [`enum_values`](Self::enum_values); the blank owns no set). Declaring it
+    /// is what turns the field into a container (`SCHEMAS.md` §"Enum
+    /// variants").
     pub variants: Option<IndexMap<String, VariantFields>>,
-    /// Nested field schemas for `object` types (the typed dictionary's
-    /// properties). Ordered: declaration order is display order at every
-    /// nesting level, carried by the map itself.
+    /// A typed dictionary's properties, in declaration order.
     pub properties: Option<IndexMap<String, Box<FieldSchema>>>,
-    /// Element schema for `array` types. Required on every `array` field:
-    /// the element type gives the array a concrete element type (`string[]`,
-    /// `integer[]`, `richtext[]`, …). For a typed table the element is an
-    /// `object` carrying its own `properties`.
+    /// Element schema, required on every `array` field. A typed table's element
+    /// is an `object` carrying its own `properties`.
     pub items: Option<Box<FieldSchema>>,
-    /// Canonical-content form of [`default`](Self::default) for a richtext-bearing
-    /// field, imported once at quill load and cached: never serialized. The
-    /// render floor (`resolve_value_sourced`) commits this for an absent field, so a
-    /// richtext default crosses the seam as content, not a re-imported string.
-    /// `None` for a non-richtext field, a null/absent default, or a schema built
+    /// Canonical-content form of [`default`](Self::default) for a
+    /// content-bearing field, imported once at quill load and never serialized.
+    /// The render floor commits it uncoerced, so a content default crosses the
+    /// seam as content rather than as a re-imported string. `None` for a field
+    /// bearing no content leaf, a null or absent default, or a schema built
     /// outside the loader.
     pub default_content: Option<QuillValue>,
-    /// Canonical-content form of [`example`](Self::example) for a richtext-bearing
-    /// field, imported once at quill load and cached: never serialized. Seeding
-    /// commits this so a seeded field is content from birth. `None` under the same
-    /// conditions as [`default_content`](Self::default_content).
+    /// Canonical-content form of [`example`](Self::example), cached and absent
+    /// under the same conditions as
+    /// [`default_content`](Self::default_content). Seeding commits it.
     pub example_content: Option<QuillValue>,
 }
 
@@ -538,9 +453,8 @@ impl FieldSchema {
     }
 
     /// The declaration of the cell `name` under *any* of this field's variants,
-    /// active world or not. A name several worlds declare is one cell
-    /// (`quill::variant_field_collision` rejects disagreement at load), so the
-    /// first match is the declaration.
+    /// active world or not. `quill::variant_field_collision` rejects
+    /// disagreement at load, so the first match is the declaration.
     pub fn variant_field(&self, name: &str) -> Option<&FieldSchema> {
         self.variants
             .as_ref()?
@@ -550,8 +464,8 @@ impl FieldSchema {
     }
 
     /// Whether this field rests as a variant container (`{value: …, …}`) rather
-    /// than a bare scalar. Keyed on `variants:`, the one thing that changes the
-    /// resting shape: a plain `enum` stays a string everywhere.
+    /// than a bare scalar. `variants:` is the one key that changes a resting
+    /// shape.
     pub fn is_variant_bearing(&self) -> bool {
         self.variants.is_some()
     }
@@ -578,11 +492,10 @@ impl FieldSchema {
             .to_string()
     }
 
-    /// Whether a human must author this cell. Keyed on `default`'s *presence*,
-    /// so a `default: ""` stays a skippable cell rather than becoming a marker.
-    ///
-    /// The blueprint's marker, the seeding stamp and the `Quill::validate`
-    /// predicate are one answer, and it is this one.
+    /// Whether a human must author this cell: the one answer the blueprint's
+    /// marker, the seeding stamp and the `Quill::validate` predicate all read.
+    /// Keyed on `default`'s *presence*, so a `default: ""` stays a skippable
+    /// cell rather than becoming a marker.
     pub fn must_fill(&self) -> bool {
         self.default.is_none()
     }
@@ -590,12 +503,9 @@ impl FieldSchema {
     pub fn from_quill_value(key: String, value: &QuillValue) -> Result<Self, String> {
         let def: FieldSchemaDef = serde_json::from_value(value.clone().into_json())
             .map_err(|e| format!("Failed to parse field schema: {}", e))?;
-        // The sole inline sync point: the wire `inline:` key folds into the enum
-        // here, so `FieldType::RichText { inline }` (and its `PlainText` sibling)
-        // is the one carrier thereafter.
+        // The sole inline sync point: past here the variant payload is the
+        // flag's one carrier.
         let r#type = Self::resolve_prose_inline(def.r#type, def.inline)?;
-        // `type: enum` requires `values:`; `values:` on any other type is a
-        // hard error.
         let enum_values = Self::resolve_enum_values(&r#type, def.values)?;
         let schema = Self {
             name: key.clone(),
@@ -630,9 +540,6 @@ impl FieldSchema {
                 None => None,
             },
             properties: if let Some(props) = def.properties {
-                // Declaration order (preserved by serde_json's `preserve_order`)
-                // carries straight into the `IndexMap`, so nested properties
-                // render in authored order at every depth.
                 let mut p = IndexMap::new();
                 for (key, value) in props {
                     let prop =
@@ -651,19 +558,16 @@ impl FieldSchema {
             } else {
                 None
             },
-            // Content caches are populated by the loader's post-pass
-            // (`QuillConfig::from_yaml_with_warnings`), which alone imports and
-            // validates the markdown literals; a bare `from_quill_value` leaves
-            // them empty.
+            // Filled by the loader's post-pass, which alone imports and
+            // validates the literals; a bare `from_quill_value` leaves them empty.
             default_content: None,
             example_content: None,
         };
         Ok(schema)
     }
 
-    /// Fold the sibling `inline:` key into a prose type's enum payload. Both
-    /// `richtext` and `plaintext` carry the single-line constraint; every other
-    /// type rejects `inline:`.
+    /// Fold the sibling `inline:` key into a prose type's payload. Every other
+    /// type rejects `inline:`, here and nowhere else.
     fn resolve_prose_inline(
         r#type: FieldType,
         inline: Option<bool>,
@@ -684,9 +588,8 @@ impl FieldSchema {
         }
     }
 
-    /// Resolve the domain into [`FieldSchema::enum_values`]. `type: enum`
-    /// requires a non-empty `values:` list and is the one spelling of a finite
-    /// domain; `values:` elsewhere is an error.
+    /// Resolve the domain into [`FieldSchema::enum_values`]: `type: enum`
+    /// requires a non-empty `values:` list, and `values:` elsewhere is an error.
     fn resolve_enum_values(
         r#type: &FieldType,
         values_key: Option<Vec<String>>,
@@ -712,9 +615,6 @@ impl FieldSchema {
 impl Serialize for FieldSchema {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         use serde::ser::SerializeMap;
-        // `inline: true` is projected back out of the enum (the flag's single
-        // carrier) so the wire round-trips. `name` rides the map key; the
-        // `*_content` caches are load-time derivations, never serialized.
         let inline = matches!(
             self.r#type,
             FieldType::RichText { inline: true } | FieldType::PlainText { inline: true }
@@ -731,8 +631,7 @@ impl Serialize for FieldSchema {
             + self.properties.is_some() as usize
             + self.items.is_some() as usize;
         // Field order matches the struct declaration (what a derived impl
-        // emits), so `inline` trails the block: golden schema snapshots don't
-        // drift.
+        // emits), so `inline` trails the block and golden snapshots hold.
         let mut map = serializer.serialize_map(Some(len))?;
         map.serialize_entry("type", &self.r#type)?;
         if let Some(v) = &self.description {
@@ -768,10 +667,9 @@ impl Serialize for FieldSchema {
 
 impl<'de> Deserialize<'de> for FieldSchema {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        // One deserialize path, shared with `from_quill_value`, so the sibling
-        // `inline:` key always folds into `FieldType::RichText { inline }` and
-        // two-carrier drift is impossible. `name` is filled from the map key by
-        // the container; a bare schema deserializes nameless.
+        // Through `from_quill_value`, so the `inline:` fold has one path.
+        // `name` is filled from the map key by the container; a bare schema
+        // deserializes nameless.
         let value = serde_json::Value::deserialize(deserializer)?;
         FieldSchema::from_quill_value(String::new(), &QuillValue::from_json(value))
             .map_err(serde::de::Error::custom)

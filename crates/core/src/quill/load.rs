@@ -9,11 +9,8 @@ fn diag(message: impl Into<String>, code: &str) -> Diagnostic {
 }
 
 impl Quill {
-    /// Create a Quill from a tree structure.
-    ///
-    /// This is the authoritative method for creating a Quill from an
-    /// in-memory file tree. Filesystem walking belongs upstream (see
-    /// `quillmark::quill_from_path`).
+    /// Build a Quill from an in-memory file tree. Filesystem walking belongs
+    /// upstream (see `quillmark::quill_from_path`).
     ///
     /// # Errors
     ///
@@ -39,14 +36,11 @@ impl Quill {
             )]
         })?;
 
-        // Parse YAML into QuillConfig: propagate the full diagnostic vector
-        // so every Quill.yaml error reaches the caller.
         let (config, warnings) = QuillConfig::from_yaml_with_warnings(&quill_yaml_content)?;
 
         Ok(Self::from_config(config, root, warnings))
     }
 
-    /// Create a Quill from a QuillConfig and file tree.
     fn from_config(config: QuillConfig, root: FileTreeNode, warnings: Vec<Diagnostic>) -> Self {
         let mut metadata: std::collections::HashMap<String, QuillValue> =
             std::collections::HashMap::new();

@@ -6,12 +6,6 @@
 //! the Typst plate reads as `data.*` — so blank-fill, validation, defaults and
 //! scalar coercion are inherited rather than re-implemented. Addressing is a
 //! shallow path (`field`, `field.0`, `field.sub`); absent or null renders blank.
-//!
-//! A path rooted at the reserved `$cards` key selects by kind and index:
-//! `$cards.<kind>.<i>.<field>` is the `i`-th card whose `$kind` is `<kind>`, so
-//! it survives reordering and intervening cards of other kinds. Absolute-index
-//! addressing (`$cards.<i>`) is not supported: the widget kind must be
-//! statically derivable at load, and only the kind names the field.
 
 use quillmark_pdf::{FieldSpec, FieldType, CHECKBOX_ON_STATE};
 use serde_json::Value;

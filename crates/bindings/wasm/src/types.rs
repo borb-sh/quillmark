@@ -65,7 +65,6 @@ impl From<Severity> for quillmark_core::Severity {
     }
 }
 
-/// Source location for errors and warnings
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[serde(rename_all = "camelCase")]
 pub struct Location {
@@ -90,7 +89,6 @@ impl From<Location> for quillmark_core::Location {
     }
 }
 
-/// Diagnostic message (error or warning)
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[tsify(hashmap_as_object)]
 #[serde(rename_all = "camelCase")]
@@ -153,7 +151,6 @@ impl From<Diagnostic> for quillmark_core::Diagnostic {
     }
 }
 
-/// Rendered artifact (PDF, SVG, etc.).
 #[cfg(any(feature = "typst", feature = "pdfform"))]
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[serde(rename_all = "camelCase")]
@@ -187,7 +184,6 @@ impl From<quillmark_core::Artifact> for Artifact {
     }
 }
 
-/// Result of a render operation.
 #[cfg(any(feature = "typst", feature = "pdfform"))]
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[tsify(hashmap_as_object)]
@@ -216,15 +212,9 @@ pub struct ChangeSet {
     pub dirty_pages: Vec<usize>,
 }
 
-/// A schema field address plus its geometry on the page, for scrolling to or
-/// highlighting a field; use `LiveSession.fieldAt` for the click direction.
-///
-/// `field` is **not** unique: content fields surface one region per segment
-/// (paragraph, heading, whole code fence) and per page each touches, a scalar
-/// referenced at several plate sites surfaces each site, and tracked content
-/// plus a `field:`-bound widget yields both. Group by `field`. The whole-field
-/// highlight is the union of a page's `span`-bearing rects, so inter-paragraph
-/// whitespace stays uncovered; `LiveSession.fieldBoxes(field)` owns that union.
+/// A schema field address plus its geometry on the page. `field` is **not**
+/// unique, and the whole-field highlight is a union `LiveSession.fieldBoxes`
+/// owns: the consumer's copy of this contract is `runtime/runtime.d.ts`.
 #[cfg(any(feature = "typst", feature = "pdfform"))]
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[serde(rename_all = "camelCase")]
@@ -306,7 +296,6 @@ impl From<quillmark_core::ContentHit> for ContentHit {
     }
 }
 
-/// Options for rendering.
 #[cfg(any(feature = "typst", feature = "pdfform"))]
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[serde(rename_all = "camelCase")]

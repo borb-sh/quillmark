@@ -14,25 +14,16 @@ use crate::{Card, Document, Payload, QuillReference, QuillValue, SeedOverlay};
 /// Build the seeded `(payload, body)` for one card schema, layering an optional
 /// [`SeedOverlay`] over the schema-example base. Per field the precedence is
 /// `overlay › example › absent`; the overlay may also add a field the base
-/// omits (a `default`-only field with no `example`). The final fields are
-/// ordered by schema declaration order (matching the blueprint). Only fields declared on the
-/// schema are included: an overlay key naming no schema field is ignored here
-/// (the editor-surface validator flags it). Body: `overlay › body.example ›
-/// empty`, honored only when the kind enables bodies. The `$quill` / `$kind`
-/// system metadata is attached by the caller.
+/// omits. Body: `overlay › body.example › empty`, honored only when the kind
+/// enables bodies. The `$quill` / `$kind` system metadata is attached by the
+/// caller.
 ///
-/// **Seed-commits-rest**: every seeded content field lands at the resting form
-/// [`Quill::conform`](crate::Quill::conform) enforces (`richtext` canonical
-/// content, `plaintext` its literal string), so a seeded document is at rest
-/// from birth and `conform(seed_document())` is a byte no-op. The commit runs
-/// through the same strict write the typed writer uses ([`seeded_rest`]), which
-/// is what makes the two agree; a schema-aware writer that left non-canonical
-/// rest would recreate the construction-dependent divergence internally, moving
-/// a hash on a seed → store → load → conform cycle nobody edited.
+/// Every seeded content field commits through [`seeded_rest`], the same strict
+/// write the typed writer uses, so a seed is at rest from birth
+/// (`SCHEMAS.md` § "Document seeding": seed-commits-rest).
 fn seed_parts(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> (Payload, Normalized) {
-    // Drive by `schema.fields` (declaration order), so the result is in
-    // declaration order natively: no merge-then-sort. An overlay key naming no
-    // schema field is skipped: it is never iterated here.
+    // Driven by `schema.fields`, so the result is in declaration order natively
+    // and an overlay key naming no schema field is never reached.
     let mut items: Vec<PayloadItem> = Vec::new();
     for (name, field) in &schema.fields {
         let overlaid = overlay.and_then(|o| o.fields.get(name));
@@ -91,19 +82,14 @@ struct Seeded {
 }
 
 /// The `example:` a field commits, descending a typed dictionary to reach the
-/// examples its properties declare.
+/// examples its properties declare: a namespace carries no `example:` of its
+/// own (`quill::example_on_namespace`), so its seed composes from whatever its
+/// cells commit and stays `None` when none do.
 ///
-/// A typed dictionary carries no `example:` of its own
-/// (`quill::example_on_namespace`), so its seed composes from whatever its cells
-/// commit and stays `None` when none of them commit anything. Nothing else
-/// reaches a nested `example:`: the render floor never emits one, and the
-/// blueprint is a different document. The commit is *sparse*, as at card level —
-/// only the cells with an example appear, the rest deferring to the render floor.
-///
-/// The content companion is read before the raw `example:` so a content field
-/// seeds its resting form. An overlay covers the whole field, cells included, and
-/// lifts the marker: `$seed` is a template author deciding, which is the act the
-/// marker asks for.
+/// The content companion is read before the raw `example:`, so a content field
+/// seeds its resting form. An overlay covers the whole field, cells included,
+/// and lifts the marker: `$seed` is a template author deciding, which is the
+/// act the marker asks for.
 fn seed_field(field: &crate::quill::FieldSchema, overlaid: Option<&QuillValue>) -> Option<Seeded> {
     if let Some(value) = overlaid {
         return Some(Seeded {
@@ -138,9 +124,8 @@ fn seed_field(field: &crate::quill::FieldSchema, overlaid: Option<&QuillValue>) 
         .as_ref()
         .or(field.example.as_ref())?
         .clone();
-    // An `example` on a must-fill field is shape documentation, not the answer,
-    // so it commits *carrying the marker*: that is what lands a seed on the same
-    // cells the blueprint stamps.
+    // An `example` documents shape, not the answer, so it commits *carrying the
+    // marker*, landing a seed on the cells the blueprint stamps.
     let fills = if field.must_fill() {
         vec![Vec::new()]
     } else {
@@ -150,28 +135,18 @@ fn seed_field(field: &crate::quill::FieldSchema, overlaid: Option<&QuillValue>) 
 }
 
 /// Seed one variant-bearing enum, or `None` where neither the overlay nor any
-/// `example:` in the selected world has anything to commit (the field stays
-/// absent and the render floor supplies the container, as for every other type).
+/// `example:` in the selected world has anything to commit.
 ///
 /// **The discriminant resolves first.** Which world is live decides which fields
-/// are even candidates, so an overlay that names the discriminant must be read
+/// are even candidates, so an overlay naming the discriminant must be read
 /// before the field set is walked — otherwise the seed commits one world's tag
 /// beside another world's answers.
 ///
 /// The world walked is `overlay › example: › default: › blank`, the render
 /// floor's own selection, so a cell lands under the member the seeded card
 /// renders. Only a member the overlay or an `example:` named is *written*: a
-/// `default:` is read-only here as everywhere, and the container it leaves
-/// without a `value` is the spelling the ladder fills.
-///
-/// Per cell the precedence is the ordinary `overlay › example: › absent`, and
-/// the `!must_fill` marker rides a committed `example` exactly as elsewhere: an
-/// example documents shape, so it is not an answer. An overlay value is exempt —
-/// supplying one is a template author deciding.
-///
-/// The assembled container commits through [`seeded_rest`], the same strict
-/// write every other field's seed takes: a content cell rests as a content
-/// object, so `conform(seed_document())` stays a byte no-op.
+/// `default:` is read-only here as everywhere. Per cell the precedence is the
+/// ordinary `overlay › example: › absent`.
 fn seed_variant(
     name: &str,
     field: &crate::quill::FieldSchema,

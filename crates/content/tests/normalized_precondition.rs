@@ -47,14 +47,14 @@ fn an_off_by_one_ordinal_pair_renumbers_before_it_renders() {
     assert_eq!(from_markdown(&to_markdown(&rt)).unwrap(), rt);
 }
 
-/// Minting is idempotent: a token's content re-mints to the same token.
+/// Minting is idempotent.
 #[test]
 fn re_minting_a_token_changes_nothing() {
     let rt = built(vec![li(false, 0, 2), li(false, 1, 2)]).into_normalized();
     assert_eq!(rt.clone().into_content().into_normalized(), rt);
 }
 
-/// The other mint: what it hands out is what `normalize` would produce.
+/// The empty mint hands out what `normalize` would produce.
 #[test]
 fn the_empty_mint_is_canonical() {
     assert_eq!(Content::empty().into_normalized(), quillmark_content::Normalized::empty());

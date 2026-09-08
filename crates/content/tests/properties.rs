@@ -170,8 +170,8 @@ fn partial_overlap(marks: &[Mark]) -> bool {
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(400))]
 
-    /// Property 1: the content is a fixed point of export∘import, and every
-    /// imported content satisfies its invariants.
+    /// Property 1: export∘import is the identity, and every imported content
+    /// satisfies its invariants.
     #[test]
     fn content_round_trip_and_invariants(md in document()) {
         let rt = from_markdown(&md).unwrap();
@@ -182,11 +182,10 @@ proptest! {
         prop_assert_eq!(&rt, &rt2, "not a fixed point.\n in:  {:?}\n out: {:?}", md, md2);
     }
 
-    /// Property 1a: editor text is a fixed point at the line edges the other
-    /// generators keep clear. `document()` builds markdown, which cannot mint a
+    /// Property 1a: the line edges `document()` cannot reach. Markdown mints no
     /// line leading or trailing with whitespace, and `plain_word` pins its first
-    /// char alphanumeric so no block marker leads a token. `apply_text_delta` and
-    /// `from_plaintext` mint both freely.
+    /// char alphanumeric so no block marker leads a token; `apply_text_delta`
+    /// and `from_plaintext` mint both freely.
     #[test]
     fn edge_whitespace_and_block_markers_round_trip(
         lead in prop::collection::vec(prop::sample::select(vec![' ', '\t']), 0..5),
@@ -219,10 +218,8 @@ proptest! {
     /// Property 1b: free (Peritext-style) overlap, which `apply_mark_ops`
     /// produces but markdown import never does, exports to *balanced* markdown.
     /// The shape is a staircase (`s1 < s2 < e1 < e2 == n`) over contiguous
-    /// word-char text, the family markdown can carry. The export must preserve
-    /// the text exactly, round-trip exactly for distinct delimiters, and stay
-    /// text-safe for the `strong`+`emph` asterisk clash, whose overlap is
-    /// unrepresentable and degrades to its nested subset.
+    /// word-char text. The `strong`+`emph` asterisk clash is unrepresentable and
+    /// degrades to its nested subset; the text survives either way.
     #[test]
     fn overlapping_marks_export_is_text_safe(
         raw in "[a-z]{4,8}",
@@ -343,7 +340,7 @@ proptest! {
         prop_assert_eq!(&rt, &rt2, "alt/url specials not a fixed point.\n  md: {:?}", md);
     }
 
-    /// Property 2a: canonical JSON is a fixed point.
+    /// Property 2a: the *byte* fixed point.
     #[test]
     fn canonical_json_fixed_point(md in document()) {
         let rt = from_markdown(&md).unwrap();
@@ -352,9 +349,8 @@ proptest! {
         prop_assert_eq!(back.to_canonical_json(), json);
     }
 
-    /// Property 2a': the *value* fixed point, which is the other promise and
-    /// not the same one. Bytes can hold while a value that encodes to some
-    /// other value's bytes loses this.
+    /// Property 2a': the *value* fixed point, the other promise. Bytes can hold
+    /// while a value that encodes to some other value's bytes loses this.
     #[test]
     fn canonical_value_fixed_point(md in document()) {
         let rt = from_markdown(&md).unwrap();
@@ -375,8 +371,7 @@ proptest! {
         );
     }
 
-    /// Property 3: an anchor over text that survives a rewrite is carried
-    /// forward by diff-import.
+    /// Property 3: an anchor over surviving text is carried forward.
     #[test]
     fn diff_import_preserves_surviving_anchor(a in "[a-z]{3,8}", b in "[a-z]{3,8}") {
         let base_md = format!("keep {a} here");
@@ -478,10 +473,8 @@ proptest! {
         }
     }
 
-    /// An anchor's `id` is bit-invariant under a random splice + rebase: the
-    /// mark may drop or move, but a surviving anchor carries the exact id it
-    /// started with. The astral char in the seeded id would expose byte-level
-    /// munging.
+    /// A surviving anchor carries the exact id it started with. The astral char
+    /// in the seeded id would expose byte-level munging.
     #[test]
     fn anchor_id_bit_invariant_under_splice(
         md in document(),
@@ -654,8 +647,8 @@ fn table_content(aligns: Vec<&str>, header: Vec<Value>, rows: Vec<Vec<Value>>) -
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(200))]
 
-    /// A structurally ill-shaped table island normalizes to a valid content and
-    /// is a fixed point of export∘import.
+    /// An ill-shaped table island normalizes to a valid content that is a fixed
+    /// point of export∘import.
     #[test]
     fn table_island_normalizes_and_round_trips(
         header in prop::collection::vec(cell_content(), 0..4),

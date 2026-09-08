@@ -65,10 +65,9 @@ pub trait SessionHandle: Send + Sync + 'static {
     /// canvas painter. The other half of the seam paired with
     /// [`page_size_pt`](Self::page_size_pt).
     ///
-    /// A backend that returns `Some` here guarantees a **complete** raster:
-    /// every piece of page content is already in the returned pixels and the
-    /// caller composites nothing. [`regions`](Self::regions) is for overlay and
-    /// cross-navigation UIs, never required to complete the raster.
+    /// A `Some` result is a **complete** raster: every piece of page content is
+    /// already in the pixels, and [`regions`](Self::regions) is overlay, never a
+    /// compositing input.
     ///
     /// A scale the page cannot be rasterized at is the `Err`: run it through
     /// [`check_raster`](crate::check_raster), which every raster path shares.
@@ -107,12 +106,9 @@ pub trait SessionHandle: Send + Sync + 'static {
     /// [`regions`](Self::regions), *every* placement should answer: one concrete
     /// point identifies one drawn item.
     ///
-    /// `tol` is what a pointer cannot hit exactly, so a caller derives it from
-    /// the scale it drew the page at rather than passing a document constant: a
-    /// tolerance fixed in points shrinks on screen as the page does, which is
-    /// where a target is already hardest to hit. Zero is exact containment, and
-    /// widening it never changes an answer — the nearest placement wins and
-    /// containment is distance zero.
+    /// `tol` is the slack a pointer misses the ink by, derived by the caller from
+    /// the scale it drew the page at; the nearest placement within it answers, so
+    /// zero is exact containment and widening never unseats a resolved answer.
     ///
     /// The default hit-tests [`regions`](Self::regions), which is complete only
     /// for a backend whose regions enumerate every placement. A backend that
@@ -217,8 +213,7 @@ impl LiveSession {
 
     /// Rasterize `page` to non-premultiplied RGBA8 at `scale`× 72 ppi, or
     /// `Ok(None)` if `page` is out of range or the backend has no canvas
-    /// painter. A `Some` result is a **complete** raster: all content visible,
-    /// no caller-side compositing.
+    /// painter. See [`SessionHandle::render_rgba`] for the raster's contract.
     ///
     /// `scale` is device pixels per point, and must be finite, positive, and
     /// small enough to keep the page under
@@ -265,12 +260,7 @@ impl LiveSession {
     /// origin, as [`RenderedRegion::rect`]. Every placement answers, not just
     /// the first surfaced by [`regions`](Self::regions). `None` past `tol` from
     /// any field's ink, out of range, or for backends that place no schema
-    /// fields.
-    ///
-    /// The nearest placement answers, so `tol` only ever fills a miss: a point
-    /// inside ink is at distance zero and keeps that ink whatever `tol` is.
-    /// Pass what a pointer's imprecision is worth at the scale the page was
-    /// drawn at — a screen-space slack converted to points, not a constant.
+    /// fields. `tol` reads as on [`SessionHandle::field_at`].
     pub fn field_at(&self, page: usize, x: f32, y: f32, tol: f32) -> Option<String> {
         self.inner.field_at(page, x, y, tol)
     }
@@ -278,10 +268,8 @@ impl LiveSession {
     /// A point → **content position**: the field *and* a USV offset into its
     /// `Content`. The offset is cluster-exact and degrades to the containing
     /// segment's start on origin-less ink. `tol` reads as on
-    /// [`field_at`](Self::field_at), and buys the most here: the leading
-    /// between two lines is inside a paragraph and on no glyph.
-    /// `None` past `tol` from all content ink, on a scalar/widget, or for
-    /// backends with no content map.
+    /// [`field_at`](Self::field_at). `None` past `tol` from all content ink, on
+    /// a scalar/widget, or for backends with no content map.
     ///
     /// Resolves against the current compile; the editor anchors the caret it
     /// places across later edits itself.
@@ -334,13 +322,6 @@ impl LiveSession {
 
     /// [`update`](Self::update) with the schema layer cut away: plate data
     /// straight to the backend, no `$quill` check and no compile.
-    ///
-    /// For a backend's own acceptance tests, which drive a session against
-    /// synthetic plate data — including data a schema would reject, the only
-    /// lever that makes a backend's compile fail on demand.
-    ///
-    /// Feature-gated rather than merely `#[doc(hidden)]`, so the seam is absent
-    /// from a consumer build unless that crate asks for it.
     #[cfg(feature = "internal-test-seam")]
     #[doc(hidden)]
     pub fn update_data(&mut self, json_data: &serde_json::Value) -> Result<ChangeSet, RenderError> {

@@ -63,7 +63,6 @@ pub struct Quill {
 }
 
 impl Quill {
-    /// The quill's declared name.
     pub fn name(&self) -> &str {
         &self.config.name
     }
@@ -73,12 +72,10 @@ impl Quill {
         &self.config.backend
     }
 
-    /// Quill-specific metadata parsed from Quill.yaml.
     pub fn metadata(&self) -> &HashMap<String, QuillValue> {
         &self.metadata
     }
 
-    /// The parsed schema configuration.
     pub fn config(&self) -> &QuillConfig {
         &self.config
     }
@@ -105,7 +102,6 @@ impl Quill {
         crate::TypedReader::new(&self.config, doc)
     }
 
-    /// The in-memory file tree for this quill.
     pub fn files(&self) -> &FileTreeNode {
         &self.files
     }

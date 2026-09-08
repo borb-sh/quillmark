@@ -2,14 +2,11 @@
 //!
 //! [`CardWire`] is the single, core-owned translation between a [`Card`] and the
 //! flat `{ kind, payloadItems, … }` shape the WASM and Python bindings exchange,
-//! so the field/comment/`$`-entry mapping lives in one place.
+//! so the field/comment/`$`-entry mapping lives in one place. Separate from the
+//! versioned storage DTO (`document::dto`): `CardWire` is the current API shape
+//! and evolves with the bindings, and coupling the two would chain their change
+//! cadences.
 //!
-//! Separate from the versioned storage DTO (`document::dto`), which is frozen per
-//! schema version: `CardWire` is the current API shape and evolves with the
-//! bindings, and coupling the two would chain their change cadences.
-//!
-//! The `$` system entries are hoisted to named fields (`kind`, `quill`, `ext`,
-//! `seed`); `payload_items` carries only user fields and comments, in order.
 //! Nested comments are not represented here: they survive the Markdown and
 //! storage round-trips, not this editable projection.
 
@@ -118,12 +115,8 @@ impl CardWire {
     }
 }
 
-/// Failure converting a [`CardWire`] back into a [`Card`].
-///
-/// Building a card from a wire is a mutator door, so every violation travels
-/// under the [`code`](Self::code) the *addressed* mutator onto it mints —
-/// [`Card::store_field`]'s for a field name, `parse::invalid_quill_reference`
-/// for a `$quill` string — and a binding routes one door as it routes the other.
+/// Failure converting a [`CardWire`] back into a [`Card`]. Building a card from
+/// a wire is a mutator door, so a binding routes it as it routes the mutators.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum WireError {
     /// The `quill` string is not a valid `name@version` reference.
@@ -253,12 +246,8 @@ impl TryFrom<CardWire> for Card {
             payload.set_quill(reference);
         }
         // No `$kind` check, and none on `$quill`/`$seed` above: all three are
-        // positional — `main` is right for the root and reserved for a
-        // composable card, `$quill`/`$seed` bind the root — and a `CardWire` is
-        // equally how the main card is read back and rewritten, so it carries no
-        // signal of which it is. All three belong to `push_card`/`insert_card`.
-        // Checking only the grammar here would split one user-facing concept
-        // across two error types and shadow the routable `EditError` code.
+        // positional and belong to `Document::push_card` / `insert_card`
+        // (`check_composable_placement`).
         if !wire.kind.is_empty() {
             payload.set_kind(wire.kind);
         }
@@ -425,7 +414,6 @@ mod tests {
         assert!(read.marks.iter().any(|m| matches!(m.kind, MarkKind::Underline)));
     }
 
-    /// A field-and-comment card with `$kind` round-trips Card → wire → Card.
     #[test]
     fn card_wire_round_trips_fields_and_comment() {
         let mut payload = Payload::from_items(vec![
@@ -449,7 +437,6 @@ mod tests {
         assert_eq!(back, card, "Card → wire → Card must be identity");
     }
 
-    /// `$quill` (main card) survives the round-trip and parses back.
     #[test]
     fn card_wire_round_trips_quill() {
         let mut payload = Payload::from_index_map(Default::default());
@@ -508,9 +495,6 @@ mod tests {
         );
     }
 
-    /// Two doors onto one violation: a card built from a wire refuses under the
-    /// code the addressed mutator mints for the same field, so `insertCard` and
-    /// `storeField` are routable alike.
     #[test]
     fn card_wire_refuses_a_field_under_the_mutator_code() {
         let refused = |key: &str, value: JsonValue, fill: bool| {
@@ -553,9 +537,6 @@ mod tests {
         }
     }
 
-    /// `$body` reads through the richtext codec: a null is the empty content, a
-    /// markdown string imports, and any other shape is refused under the codec's
-    /// own sentence, naming the shape that arrived.
     #[test]
     fn card_wire_body_reads_through_the_richtext_codec() {
         let with_body = |body: JsonValue| Card::try_from(CardWire::new("note".to_string(), body));
@@ -587,9 +568,8 @@ mod tests {
         }
     }
 
-    /// Construction accepts a kind the mutators reject: `make_card` is
-    /// permissive data-shaping and `insert_card` is the gate, so the grammar
-    /// check belongs there, not here.
+    /// Construction accepts a kind the mutators reject: `insert_card` is the
+    /// gate, so the grammar check belongs there.
     #[test]
     fn card_wire_accepts_any_kind() {
         let card = Card::try_from(CardWire {

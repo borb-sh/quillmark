@@ -1,15 +1,8 @@
 //! # quillmark-pdf: the AcroForm stamping spine
 //!
-//! Typst-free infra (not a backend) whose whole job is one pure operation:
-//!
-//! ```text
-//! (base_pdf_bytes, &[FieldSpec]) -> { stamped_pdf, regions }
-//! ```
-//!
-//! via a single incremental-update append. Both backends — Typst (geometry from
-//! introspection) and `pdfform` (geometry from `form.json`) — produce a base PDF
-//! plus [`FieldSpec`]s, and unify exactly at that seam. The crate owns its own
-//! [`PdfError`]; each backend maps it to `quillmark_core::RenderError`.
+//! `(base_pdf_bytes, &[FieldSpec]) -> { stamped_pdf, regions }`, via a single
+//! incremental-update append. A backend meets the spine at [`FieldSpec`],
+//! whatever it derived the geometry from.
 //!
 //! `crate::reader`'s docs carry the input contract the base PDF must satisfy.
 
@@ -118,7 +111,8 @@ impl FieldSpec {
 }
 
 /// A field's definition, never a runtime value (that rides in
-/// [`FieldSpec::value`]).
+/// [`FieldSpec::value`]). Only `Text` and `Choice` carry variable text, so
+/// [`FormFont`] and [`TextAlign`] are inert on the other two.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldType {
     Text { multiline: bool },
@@ -130,15 +124,9 @@ pub enum FieldType {
     Signature,
 }
 
-/// The base-14 face a widget's value text is set in.
-///
-/// Restricted to the three text families the PDF viewer is required to have, so
-/// a `/DA` never names a font the document does not carry: embedding an
-/// arbitrary face would mean shipping font programs the background already
-/// carries, which the two-asset model leaves to the background.
-///
-/// Only the [`FieldType::Text`] and [`FieldType::Choice`] widgets have variable
-/// text; this is inert on the other two.
+/// The base-14 face a widget's value text is set in. Only the three families a
+/// viewer is required to have, so a `/DA` never names a font the document does
+/// not carry; embedding a face is the background's job.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FormFont {
     #[default]
@@ -168,14 +156,9 @@ impl FormFont {
     }
 }
 
-/// Justification of a widget's value text, written to `/Q`.
-///
-/// A fillable widget's box is sized for the longest plausible value, not the
-/// value itself, so this is the only thing that pins text to an edge: geometry
-/// cannot, the text extent being unknown until someone types it.
-///
-/// Only the [`FieldType::Text`] and [`FieldType::Choice`] widgets have variable
-/// text; this is inert on the other two.
+/// Justification of a widget's value text, written to `/Q`. A fillable widget's
+/// box is sized for the longest plausible value, so nothing but this pins text
+/// to an edge: the extent is unknown until someone types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TextAlign {
     #[default]

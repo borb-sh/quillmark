@@ -73,23 +73,13 @@ impl Quill {
     /// `quill::version_mismatch`) leaves `doc` untouched.
     ///
     /// The walk covers the main card and every composable card whose `$kind`
-    /// resolves, recursing through array `items` and object `properties`. Per
-    /// field:
+    /// resolves, recursing through array `items` and object `properties`; what
+    /// it skips and what it warns about is `BINDINGS.md` § "The bound door".
     ///
-    /// - A `!must_fill` marker **anywhere** in the value skips the whole field:
-    ///   the marker already names the state, and transporting one through a
-    ///   reshaping coercion is ill-defined.
-    /// - The value commits through the same strict write the typed writer runs,
-    ///   so `richtext` lands as canonical content and `plaintext` as its literal
-    ///   string; a refusal leaves the value authored and adds a diagnostic.
-    /// - An equal value is **not written**: every write path clears the field's
-    ///   `nested_comments`, so an unguarded conform would strip YAML comments and
-    ///   move bytes on an untouched document.
-    ///
-    /// Undeclared fields, unknown card kinds, and nulls pass untouched, and a
-    /// field whose declared type carries no content is the typed write's to
-    /// canonicalize. Idempotent: a second call is a byte no-op and re-emits the
-    /// identical diagnostics.
+    /// An equal value is **not written**: every write path clears the field's
+    /// `nested_comments`, so an unguarded conform would strip YAML comments and
+    /// move bytes on an untouched document. Idempotent: a second call is a byte
+    /// no-op and re-emits the identical diagnostics.
     pub fn conform(&self, doc: &mut Document) -> Result<Vec<Diagnostic>, RenderError> {
         self.check_quill_reference(doc)?;
         let config = self.config();
@@ -139,15 +129,13 @@ fn conform_card(
         };
         // Only a field whose type tree bears a content leaf has a resting form
         // to enforce; a scalar field's shorthands are the typed write's to
-        // canonicalize, not conform's. Inside a content-bearing field the whole
-        // subtree conforms, which is what the typed write does to it too.
+        // canonicalize.
         if !field_contains_content(field) {
             continue;
         }
-        // A marker anywhere in the value is the state: the payload item's own
-        // flag carries a root marker, the value tree the nested ones. A null
-        // needs no guard, since the strict write passes it through and the
-        // no-op check below then skips the write.
+        // The payload item's own flag carries a root marker, the value tree the
+        // nested ones. A null needs no guard: the strict write passes it
+        // through and the no-op check below then skips the write.
         if *fill || !value.fill_paths().is_empty() {
             continue;
         }

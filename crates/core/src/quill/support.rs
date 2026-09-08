@@ -109,24 +109,17 @@ pub(crate) fn plural(construct: BlockConstruct, count: usize) -> String {
     }
 }
 
-/// How many of each block construct `body` holds.
+/// How many of each block construct `body` holds, which is the `count` arg a
+/// `plate::unsupported_construct` diagnostic carries. Four counting rules:
 ///
-/// A container counts once per contiguous **run**, not once per line or per
-/// item: a three-item list is one list, and a multi-paragraph quote is one
-/// quote. `quillmark_content::traverse` decides where a run opens, so a sibling
-/// item (differing only by `ordinal`) continues its list rather than opening
-/// another, while an adjacent list of identical shape opens its own.
-///
-/// Runs nest by *item*, an item being a parent: a quote in each of two list
-/// items is two quotes, however alike the two paths look.
-///
-/// A leaf block counts per block: a rule and a heading are one line each, and a
-/// code fence is counted at the line that opens it.
-///
-/// Islands are counted off `islands` rather than off the lines that hold them,
-/// so an image counts wherever it sits — alone on its line as a block island,
-/// or mid-sentence as an inline one. A quill that does not typeset images does
-/// not typeset either.
+/// - A container counts once per contiguous **run**: a three-item list is one
+///   list, a multi-paragraph quote one quote. `quillmark_content::traverse`
+///   decides where a run opens, so a sibling item continues its list while an
+///   adjacent list of identical shape opens its own.
+/// - Runs nest by *item*: a quote in each of two list items is two quotes.
+/// - A leaf block counts per block, a code fence at its opening line.
+/// - An island counts off `islands`, not off the line holding it, so an image
+///   counts alone on its line and mid-sentence alike.
 fn census(body: &Content) -> BTreeMap<BlockConstruct, usize> {
     use quillmark_content::model::Container;
     use quillmark_content::traverse::{items, runs};

@@ -6,38 +6,9 @@
 //! serializes through it via `#[serde(into / try_from)]`, so the ordinary serde
 //! entry points produce and consume the versioned form transparently.
 //!
-//! ## Schema versions
-//!
-//! - **`quillmark/document@0.112.0`**: current, and what new writes carry. The
-//!   V0_93_0 tree over a content whose every vocabulary member spells its
-//!   payload in one `attrs` bag, built-ins included. The two differ inside the
-//!   `body` and nowhere else.
-//! - **`quillmark/document@0.93.0`**: the same tree over the content form that
-//!   spelled a built-in's payload as named siblings (`{"kind":"heading",
-//!   "level":1}`). Read-only. The hop is a tag change and nothing else: the
-//!   content decoder reads both spellings, which it must, since most stored
-//!   content is not reachable from here at all — a `richtext` field rests as a
-//!   content object inside an opaque payload value, under no schema tag of its
-//!   own.
-//! - **`quillmark/document@0.92.0`**: the unified [`Payload`] item list with a
-//!   per-field `nested_fills` list and the `$seed` item variant, body as a
-//!   markdown string. Read-only: the body cold-imports and the document
-//!   migrates forward on read.
-//! - **`quillmark/document@0.82.0`**: the same item list without
-//!   `nested_fills` or `$seed`, plus `$id`. The tag names a shape **union**
-//!   rather than one frozen format — `$ext` entered under it unchanged — so
-//!   the reader accepts every shape stamped with it. Read-only, and the one
-//!   **lossy** hop: `$id` has no live counterpart and is dropped.
-//! - **`quillmark/document@0.81.0`**: the oldest wire format still read. The
-//!   pre-unification shape: a separate `sentinel` (the typed `$quill` /
-//!   `$kind`) beside a `frontmatter` item list carrying user fields and
-//!   comments only. Read-only, migrated forward to V0_82_0 on read.
-//!
-//! The canonical design (including the step-by-step procedure for adding
-//! a schema version) is `prose/canon/DOCUMENT_STORAGE.md`.
+//! The schema versions, the shape each names, and the procedure for adding one:
+//! `prose/canon/DOCUMENT_STORAGE.md`.
 
-// Storage DTO types are named after the crate version that fixed their shape
-// (e.g. `DocumentV0_92_0`); the underscores are intentional.
 #![allow(non_camel_case_types)]
 
 use std::str::FromStr;
@@ -79,34 +50,21 @@ pub fn peek_storage_version(json: &str) -> Option<String> {
 
 /// Versioned envelope for a persisted [`Document`].
 ///
-/// The `schema` field selects the payload version. Deserialization
-/// dispatches on it; unknown values are rejected. New schema versions are
-/// added as new variants, leaving existing ones byte-stable.
+/// The `schema` field selects the payload version. Deserialization dispatches
+/// on it; unknown values are rejected. Every variant below the newest is
+/// read-only and migrates forward on reconstruction, and a new version is a new
+/// variant, leaving existing ones byte-stable.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "schema")]
 pub enum StoredDocument {
-    /// Current (V0_112_0) document model: the V0_92_0 payload with the card
-    /// `body` embedded as the canonical content (a nested object), every
-    /// vocabulary member spelling its payload in one `attrs` bag.
     #[serde(rename = "quillmark/document@0.112.0")]
     V0_112_0(DocumentV0_112_0),
-    /// Legacy (V0_93_0) document model: the same tree over the content form
-    /// that spelled a built-in's payload as named siblings. Read-only;
-    /// migrated forward on reconstruction.
     #[serde(rename = "quillmark/document@0.93.0")]
     V0_93_0(DocumentV0_93_0),
-    /// Legacy (V0_92_0) document model: unified payload items with per-field
-    /// nested fill paths and `$seed`, body as a markdown string. Read-only;
-    /// migrated forward to V0_112_0 on reconstruction.
     #[serde(rename = "quillmark/document@0.92.0")]
     V0_92_0(DocumentV0_92_0),
-    /// Legacy (V0_82_0) document model: unified payload items without
-    /// `nested_fills` or `$seed`, carrying `$id`. Read-only; migrated forward
-    /// on reconstruction, dropping `$id`.
     #[serde(rename = "quillmark/document@0.82.0")]
     V0_82_0(DocumentV0_82_0),
-    /// Legacy (V0_81_0) document model: a separate `sentinel` beside a
-    /// `frontmatter` item list. Read-only; migrated forward on reconstruction.
     #[serde(rename = "quillmark/document@0.81.0")]
     V0_81_0(DocumentV0_81_0),
 }
@@ -142,8 +100,6 @@ impl std::fmt::Display for StorageError {
 }
 
 impl std::error::Error for StorageError {}
-
-// ─── V0_112_0 wire format (current) ───────────────────────────────────────────
 
 /// Frozen `0.112.0` representation of a [`Document`]. Mirrors `DocumentV0_92_0`;
 /// the only structural change is `Card.body` (see [`CardV0_112_0`]).
@@ -208,8 +164,6 @@ impl<'de> Deserialize<'de> for CanonicalContent {
     }
 }
 
-// ─── V0_93_0 wire format ──────────────────────────────────────────────────────
-
 /// Frozen `0.93.0` representation of a [`Document`]: structurally the V0_112_0
 /// tree, over the content form that spelled a built-in's payload as named
 /// siblings rather than in the `attrs` bag.
@@ -237,12 +191,9 @@ pub struct CardV0_93_0 {
 /// document versions differ.
 pub type PayloadV0_93_0 = PayloadV0_92_0;
 
-// ─── V0_92_0 wire format ──────────────────────────────────────────────────────
-//
-// Dual role: `DocumentV0_92_0` / `CardV0_92_0` are read + migrate-forward only
-// (a 0.92 blob migrates to V0_112_0 on read), while the payload types
-// (`PayloadV0_92_0`, `PayloadItemV0_92_0`, …) are also the *current* write path,
-// `PayloadV0_112_0` aliases them and `From<&Document>` builds them.
+// `DocumentV0_92_0` / `CardV0_92_0` are read + migrate-forward only, but the
+// payload types under them are also the *current* write path: `PayloadV0_112_0`
+// aliases them and `From<&Document>` builds them.
 
 /// Frozen `0.92.0` representation of a [`Document`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -325,12 +276,6 @@ pub enum CommentPathSegmentV0_92_0 {
     Key(String),
     Index(usize),
 }
-
-// ─── Document → V0_112_0 (write) ──────────────────────────────────────────────
-//
-// The write path targets the newest version only. Payload conversion still
-// runs through the V0_92_0 `PayloadItem` DTOs (`PayloadV0_112_0` aliases them);
-// the body is embedded as the canonical content.
 
 impl From<Document> for StoredDocument {
     fn from(doc: Document) -> Self {
@@ -550,19 +495,10 @@ impl TryFrom<CardV0_112_0> for Card {
     }
 }
 
-// ─── V0_93_0 → V0_112_0 migration (a decode, no re-spell) ─────────────────────
-//
-// Structurally nothing moves: the trees are the same shape, and the content
-// decoder reads the `@0.93.0` payload spelling as it reads the current one. So
-// the hop is the decode the frozen tree's raw `body` defers — which is also
+// The trees are the same shape and the content decoder reads both spellings, so
+// the hop is only the decode the frozen tree's raw `body` defers — which is also
 // where an invalid legacy body is caught, `CanonicalContent`'s parse-time check
 // not being available to a raw field.
-//
-// It reaches only the `body`. Every other stored content — a `richtext` or
-// `plaintext` field, a `$seed` overlay — sits inside an opaque payload value
-// with no schema tag over it, and no migration can find it without guessing at
-// the shape of host data. What opens those is the decoder's tolerance, not this
-// hop.
 
 impl TryFrom<DocumentV0_93_0> for DocumentV0_112_0 {
     type Error = StorageError;
@@ -592,8 +528,6 @@ impl TryFrom<CardV0_93_0> for CardV0_112_0 {
     }
 }
 
-// ─── V0_92_0 → V0_112_0 migration (fallible cold import) ──────────────────────
-//
 // The stored markdown body cold-imports to a content. An over-nested body never
 // rendered, so mapping it to `StorageError::Malformed` loses nothing
 // renderable. Byte-stability of a *migrated* row is therefore conditional on
@@ -731,12 +665,6 @@ impl From<CommentPathSegmentV0_92_0> for PathSegment {
     }
 }
 
-// ─── V0_81_0 wire format ──────────────────────────────────────────────────────
-//
-// Read + migrate-forward only. One release wrote this tag, so unlike `@0.82.0`
-// it names one frozen shape. It carries neither `$id` nor `$ext`, so the hop
-// below is lossless.
-
 /// Frozen `0.81.0` representation of a [`Document`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DocumentV0_81_0 {
@@ -807,8 +735,6 @@ pub enum CommentPathSegmentV0_81_0 {
     Index(usize),
 }
 
-// ─── V0_81_0 → V0_82_0 migration ──────────────────────────────────────────────
-//
 // Quill-reference, field-name, and depth validation happen once, further down
 // the chain.
 
@@ -891,12 +817,6 @@ impl From<CommentPathSegmentV0_81_0> for CommentPathSegmentV0_82_0 {
     }
 }
 
-// ─── V0_82_0 wire format ──────────────────────────────────────────────────────
-//
-// Read + migrate-forward only. The tag names a shape union, not one frozen
-// format: `Ext` entered under it unchanged. Accepting the union is what lets a
-// row from any writer that stamped `@0.82.0` decode here.
-
 /// Frozen `0.82.0` representation of a [`Document`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DocumentV0_82_0 {
@@ -969,10 +889,7 @@ pub enum CommentPathSegmentV0_82_0 {
     Index(usize),
 }
 
-// ─── V0_82_0 → V0_92_0 migration ──────────────────────────────────────────────
-//
-// Lossy by decision: `$id` has no live counterpart, and dropping it is chosen
-// over refusing the row.
+// Lossy by decision: `$id` has no live counterpart.
 
 impl From<DocumentV0_82_0> for DocumentV0_92_0 {
     fn from(d: DocumentV0_82_0) -> Self {
@@ -1185,8 +1102,6 @@ This body and the metadata above are an indorsement card.
         assert!(serde_json::from_str::<Document>(json).is_err());
     }
 
-    /// A real `@0.93.0` row: its `body` spells every built-in's payload as named
-    /// siblings, and the hop reads it into the current form.
     #[test]
     fn a_0_93_0_row_migrates_its_body_forward() {
         let legacy = serde_json::json!({
@@ -1240,10 +1155,9 @@ This body and the metadata above are an indorsement card.
         assert!(rewritten.contains(r#""attrs":{"level":2}"#), "{rewritten}");
     }
 
-    /// The half no migration reaches. A `richtext` field rests as a content
-    /// object inside an opaque payload value: it carries no schema tag, the hop
-    /// cannot find it without guessing at the shape of host data, and it is read
-    /// by the decoder's own tolerance or not at all.
+    /// The half no migration reaches: a `richtext` field rests as a content
+    /// object inside an opaque payload value, under no schema tag of its own, so
+    /// the decoder's own tolerance is what reads it.
     #[test]
     fn a_legacy_content_field_reads_without_a_migration() {
         let stored = serde_json::json!({
@@ -1765,10 +1679,9 @@ title: Hi
         assert!(err.to_string().contains("card body"));
     }
 
-    /// A body that will not decode is refused under either tag, though by
-    /// different machinery: `CanonicalContent`'s parse-time check under the
-    /// current one, the hop's own decode under `@0.93.0`, whose frozen tree
-    /// carries the body raw.
+    /// Both tags refuse it, by different machinery: `CanonicalContent`'s
+    /// parse-time check under the current one, the hop's own decode under
+    /// `@0.93.0`, whose frozen tree carries the body raw.
     #[test]
     fn deserialize_rejects_invalid_content_body() {
         for schema in [STORAGE_V0_112_0, STORAGE_V0_93_0] {

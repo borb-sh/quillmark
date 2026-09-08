@@ -531,19 +531,15 @@ pub fn mark_from_value(v: &Value) -> Result<Mark, ParseError> {
 // Authored-lane readers, strict about the payload spelling.
 //
 // [`payload`] reads a built-in's payload from a named sibling where there is no
-// bag, so `{"type": "link", "url": "…"}` decodes. The two wire lanes want
-// opposite answers to that, and the seam is authored-now vs read-back:
-//
-// - **Storage** (`Content::from_canonical_json`) stays lenient. Stored content
-//   in that spelling is mostly beyond any migration's reach: a `richtext` field
-//   rests as the content object inside an opaque payload value, with no schema
-//   tag over it.
-// - **Authored** (the `crate::ops` wire, and `install` through
-//   [`from_authored_value`]) rejects it: the host is writing now, so the shape
-//   means a stale copy of the encoding and the read is a guess at its intent.
+// bag, so `{"type": "link", "url": "…"}` decodes. The two lanes answer that
+// oppositely. Storage (`Content::from_canonical_json`) stays lenient: content
+// stored in that spelling is beyond any migration's reach, a `richtext` field
+// resting as a content object under no schema tag. Authored (the `crate::ops`
+// wire, and `install` through [`from_authored_value`]) rejects it, the shape
+// meaning a stale copy of the encoding.
 //
 // The rule is narrow on purpose: a *legacy payload key* beside the name that
-// spelled it, nothing else. It reads the same frozen table [`payload`] does.
+// spelled it, nothing else, off the same frozen table [`payload`] reads.
 
 /// [`line_kind_from_value`] for the authored lane: a legacy payload sibling, or
 /// a `lang` the storage decode would reduce, is a shape error rather than a
@@ -759,13 +755,11 @@ fn reject_legacy_siblings(
     Ok(())
 }
 
-// A pipe-table cell is inline-only: its own plain `text` plus `marks` whose
-// ranges are USV offsets into that text. The marks ride the same wire shape
-// prose marks use, so nothing forks the encoding.
-
 /// Parse a table-cell object `{text, marks}` leniently: its plain text plus the
-/// marks over it. A malformed mark is skipped rather than failing. Public so the
-/// typst emitter renders a cell through the same parse the codecs use.
+/// marks over it, their ranges USV offsets into that text and their wire shape
+/// the one prose marks use. A malformed mark is skipped rather than failing.
+/// Public so the typst emitter renders a cell through the same parse the codecs
+/// use.
 pub fn parse_cell(v: &Value) -> (String, Vec<Mark>) {
     let text = v
         .get("text")
@@ -995,10 +989,8 @@ pub(crate) fn island_from_value(v: &Value) -> Result<Island, ParseError> {
 #[cfg(test)]
 mod tests {
 
-    /// `instance` is written only where it is doing work, so a row stored
-    /// before the field existed decodes, re-encodes, and content-hashes exactly
-    /// as it did: the discriminator costs bytes only in the documents that
-    /// carry an adjacent same-shape sibling.
+    /// `instance` is written only where it is doing work, so it costs bytes
+    /// only in the documents carrying an adjacent same-shape sibling.
     #[test]
     fn instance_is_absent_from_the_wire_until_it_is_needed() {
         let plain = r#"{"islands":[],"lines":[{"containers":[{"attrs":{"ordered":false,"ordinal":0,"start":1},"container":"list_item"}],"kind":"para"},{"containers":[{"attrs":{"ordered":false,"ordinal":1,"start":1},"container":"list_item"}],"kind":"para"}],"marks":[],"text":"a\nb"}"#;
@@ -1020,8 +1012,7 @@ mod tests {
         assert_eq!(rt2.to_canonical_json(), two);
     }
 
-    /// One value, two forms: each decodes to the other's content.
-    #[test]
+        #[test]
     fn the_seam_spells_a_zero_instance_storage_omits() {
         let storage = r#"{"islands":[],"lines":[{"containers":[{"container":"quote"}],"kind":"para"}],"marks":[],"text":"a"}"#;
         let seam = r#"{"islands":[],"lines":[{"containers":[{"container":"quote","instance":0}],"kind":"para"}],"marks":[],"text":"a"}"#;
@@ -1132,9 +1123,9 @@ mod tests {
     }
 
     /// The cap admits every payload a stored blob can carry, so closing the
-    /// `Value` lane costs no stored population. Stated as the implication rather
-    /// than an offset, since `serde_json::from_str`'s own limit counts from the
-    /// document root, not from the bag.
+    /// `Value` lane costs no stored population. Stated as the implication
+    /// rather than an offset, `serde_json::from_str`'s own limit counting
+    /// from the document root rather than from the bag.
     #[test]
     fn json_depth_cap_admits_every_storable_payload() {
         let content = |props: Value| {
@@ -1337,9 +1328,7 @@ mod tests {
         }
     }
 
-    /// The whole assembled tree, table cells and all: what the backstop actually
-    /// scans.
-    #[test]
+        #[test]
     fn the_canonical_tree_needs_no_repair() {
         use crate::model::is_value_key_sorted;
         let mut rt = Content::empty();
@@ -1462,8 +1451,7 @@ mod tests {
         assert_eq!(rt.to_canonical_json(), json);
     }
 
-    /// Every class `Fidelity` names round-trips to its own level, so the closed
-    /// view and the wire spellings cannot drift apart.
+    /// So the closed view and the wire spellings cannot drift apart.
     #[test]
     fn every_fidelity_level_round_trips_through_its_class() {
         assert_eq!(Loss::new("lossless"), Loss::LOSSLESS);
@@ -1472,8 +1460,7 @@ mod tests {
         }
     }
 
-    /// A `kind`/`container` this build lacks decodes to `Unknown` and re-encodes
-    /// byte-identically, so the document opens and the construct survives.
+    /// So the document opens and the construct survives.
     #[test]
     fn unknown_line_kind_and_container_round_trip_opaque() {
         let json = concat!(
@@ -1547,11 +1534,10 @@ mod tests {
         );
     }
 
-    /// The authored lane refuses the `@0.93.0` payload spelling the storage lane
-    /// still reads. A host writing it now holds a stale copy of the encoding,
-    /// and where a bag sits beside it the sibling it meant is not the one
-    /// [`payload`] reads. The last case is a cell mark that will not parse at
-    /// all, the one axis with no strict decode behind it.
+    /// A host writing the `@0.93.0` spelling now holds a stale copy of the
+    /// encoding, and where a bag sits beside it the sibling it meant is not
+    /// the one [`payload`] reads. The last case is a cell mark that will not
+    /// parse at all, the one axis with no strict decode behind it.
     #[test]
     fn authored_lane_rejects_the_legacy_payload_spelling() {
         let bad = [
@@ -1832,11 +1818,9 @@ mod tests {
         assert!(from_authored_value(&v).is_ok(), "inline island refused");
     }
 
-    /// A stored blob carrying the placement loads, comes back split, and is
-    /// then a fixed point of the markdown projection with its island and its
-    /// marks intact: the write reads a shape that is already right. The mark
-    /// spans the slot, so the rebase the split owes it is what keeps `bold`
-    /// addressed.
+    /// The blob loads, comes back split, and is then a fixed point of the
+    /// markdown projection. The mark spans the slot, so the rebase the split
+    /// owes it is what keeps `bold` addressed.
     #[test]
     fn a_stored_inline_block_island_survives_the_markdown_round_trip() {
         let slot = crate::model::ISLAND_SLOT;
@@ -1859,10 +1843,9 @@ mod tests {
     }
 
     /// The `@0.93.0` spelling — every built-in's payload in named siblings —
-    /// decodes unchanged. The frozen artifact: delete it with the sibling read,
-    /// once no stored content is left in that shape, which no schema tag can
-    /// answer since a `richtext` field rests as a content object under no tag of
-    /// its own.
+    /// decodes unchanged. It goes with the sibling read, once no stored
+    /// content is left in that shape: a question no schema tag can answer,
+    /// since a `richtext` field rests as a content object under no tag.
     #[test]
     fn built_in_decoders_read_the_legacy_sibling_form() {
         let cases: [(Value, LineKind); 2] = [
@@ -1932,10 +1915,9 @@ mod tests {
         );
     }
 
-    /// An empty bag is not a bag: it is one of the two spellings of *no
-    /// payload*, so it cannot out-vote the sibling read the way a real one
-    /// does. Reading it as a bag would fail a `heading` outright and renumber a
-    /// list item in silence.
+    /// An empty bag is one of the two spellings of *no payload*, so it cannot
+    /// out-vote the sibling read a real one does: reading it as a bag would
+    /// fail a `heading` outright and renumber a list item in silence.
     #[test]
     fn an_empty_bag_does_not_shadow_the_legacy_sibling() {
         assert_eq!(

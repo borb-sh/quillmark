@@ -7,17 +7,12 @@ use crate::quill::formats::{is_valid_date, is_valid_datetime};
 use crate::quill::{CardSchema, FieldSchema, FieldType, QuillConfig, VARIANT_DISCRIMINANT_KEY};
 use crate::value::QuillValue;
 
-/// Validation error with a structured field path.
+/// Validation error with a structured field path. A variant carries enough for
+/// `Display` to render the uniform message `ERROR.md` § "Validation message
+/// contract" describes.
 ///
-/// Field-level type and presence errors carry the field path, the
-/// schema-declared type, and any verbatim YAML source token / default:
-/// enough for the `Display` impl to render the uniform diagnostic message
-/// described in `ERROR.md` ("Validation message contract").
-///
-/// Two concerns are deliberately *not* well-formedness errors and so have no
-/// variant here: the `!must_fill` marker (surfaced as a non-fatal warning by
-/// `Quill::validate`) and field absence (an absent or present-null field
-/// blank-fills at render). Both are handled outside the value-layer checks below.
+/// The `!must_fill` marker and field absence are completeness concerns, not
+/// well-formedness ones, so neither has a variant here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationError {
     TypeMismatch {
@@ -56,20 +51,16 @@ pub enum ValidationError {
         card: String,
     },
 
-    /// An `inline: true` field whose content is not a single line (a block, a
-    /// list/quote container, or an island). Same fatality class as
-    /// `TypeMismatch`: the value is well-typed content but the wrong *shape*
-    /// for an inline field. Both prose codecs declare `inline`, so this is one
-    /// condition under one code, the validation twin of
+    /// An `inline: true` field whose content is not a single line: a block, a
+    /// list or quote container, or an island. Both prose codecs declare
+    /// `inline`, so this is one condition under one code, the validation twin of
     /// [`EditError::FieldNotInline`](crate::EditError::FieldNotInline).
     NotInline {
         path: String,
     },
 
     /// A `plaintext` field whose content carries marks, islands, or block
-    /// formatting. Same fatality class as `TypeMismatch`: the value is a
-    /// well-formed content but the wrong *shape* for a plaintext field, which
-    /// takes prose the author navigates but no formatting.
+    /// formatting.
     NotPlain {
         path: String,
     },
@@ -87,7 +78,6 @@ impl std::fmt::Display for ValidationError {
                 source_token,
                 default,
             } => {
-                // Line 1: what we got vs what the schema says.
                 write!(
                     f,
                     "Field `{path}` got {actual} `{source_token}`, schema declares `{expected}`"
@@ -161,14 +151,13 @@ fn type_mismatch_hint(expected: &str, actual: &str, default: Option<&str>) -> St
     }
 }
 
-/// Actionable exit clause for a `BodyDisabled` error. Same text in both the
-/// prose message and the structured hint.
+/// Actionable exit clause for a `BodyDisabled` error.
 fn body_disabled_hint() -> &'static str {
     "remove the body content or set `body.enabled: true` on the card kind"
 }
 
-/// Actionable exit clause for a `NotInline` error. Codec-neutral: both prose
-/// types declare `inline`, and the way out is the same for either.
+/// Actionable exit clause for a `NotInline` error, codec-neutral because both
+/// prose types declare `inline`.
 fn not_inline_hint() -> &'static str {
     "keep the value to a single line (no blank lines, headings, lists, \
      quotes, or tables), or drop `inline: true` from the schema"
@@ -335,16 +324,13 @@ fn yaml_scalar_type(value: &serde_json::Value) -> &'static str {
 }
 
 /// Validate a typed [`Document`] (typed [`Payload`] + typed `Card` list).
-///
-/// This is the typed entry point used by `QuillConfig::validate_document`.
 pub fn validate_typed_document(
     config: &QuillConfig,
     doc: &Document,
 ) -> Result<(), Vec<ValidationError>> {
     let mut errors = validate_fields_for_card(&config.main, doc.main().payload(), &DocPath::main());
 
-    // Enforce body.enabled on the main card. Whitespace-only bodies are
-    // treated as empty: only meaningful prose triggers the diagnostic.
+    // A whitespace-only body is empty: only meaningful prose triggers this.
     if !config.main.body_enabled() && !doc.main().body().is_blank() {
         errors.push(ValidationError::BodyDisabled {
             path: DocPath::main_body().to_string(),
@@ -400,9 +386,7 @@ fn validate_fields_for_card(
     for field_name in field_names {
         let schema = &card.fields[field_name];
         let path = base.field(field_name);
-        // Absence is a completeness concern, not a well-formedness one: an
-        // absent field (like a present-null one) is blank-filled at render and
-        // raises nothing here.
+        // Absence is a completeness concern, not a well-formedness one.
         if let Some(value) = fields.get(field_name) {
             errors.extend(validate_field(schema, value, &path));
         }
@@ -431,17 +415,9 @@ enum ValueContext {
 /// document-only behaviors (see [`ValueContext`]).
 ///
 /// A document value is judged in the form the render floor builds from it, not
-/// as authored: `conform_value` at `Leniency::Render` runs first. Validity is
-/// therefore renderability, in both directions — `Quill::validate` neither
-/// refuses a document `compile_data` accepts nor passes one it refuses. A leaf
-/// the floor refuses is judged as authored, so the type check names the value
-/// the author wrote, and is refused even where that check finds the authored
-/// shape well-typed. Conforming runs per node rather than per field, so one
-/// refused element does not mistype its siblings.
-///
-/// Schema literals are judged as written: an `example:`/`default:` is the
-/// blueprint's own text, and coercing it would let the blueprint emit a
-/// spelling it then teaches authors to write.
+/// as authored: `conform_value` at `Leniency::Render` runs first, per node
+/// rather than per field. A schema literal is judged as written. Both rules and
+/// what follows from them are `SCHEMAS.md` § "Type coercion".
 fn validate_value(
     field: &FieldSchema,
     value: &QuillValue,
@@ -483,13 +459,12 @@ fn validate_value(
     let mut errors = Vec::new();
 
     let type_valid = match field.r#type {
-        // Enum is string-valued data (domain membership is checked separately
-        // below), so it is type-valid exactly where a string is.
+        // An enum is type-valid exactly where a string is; the domain check is
+        // below.
         FieldType::String | FieldType::Enum => value.as_str().is_some(),
-        // A conformed richtext/plaintext value is a canonical content object;
-        // an authored `default`/`example` is a string (markdown for richtext,
-        // literal for plaintext). The plaintext-specific plain constraint is
-        // checked in the shape pass below, parallel to the inline check.
+        // A conformed value is a canonical content object; an authored
+        // `default`/`example` is the codec's string. The shape pass below
+        // checks `inline` and `plain`.
         FieldType::RichText { .. } | FieldType::PlainText { .. } => {
             value.as_json().is_object() || value.as_str().is_some()
         }
@@ -523,10 +498,6 @@ fn validate_value(
         }
         FieldType::Array => match value.as_array() {
             Some(items) => {
-                // Validate each element against the array's `items` schema.
-                // Scalar elements (`string[]`, `integer[]`, `richtext[]`, …)
-                // are type-checked element-wise; object elements recurse into
-                // their properties via the Object branch.
                 if let Some(item_schema) = &field.items {
                     for (idx, item) in items.iter().enumerate() {
                         let row_path = path.index(idx);
@@ -550,9 +521,7 @@ fn validate_value(
                     for property_name in property_names {
                         let property_schema = &properties[property_name];
                         let property_path = path.field(property_name);
-                        // Absent object property: completeness, not
-                        // well-formedness. Like a top-level absent field, it
-                        // blank-fills at render and raises nothing here.
+                        // Absent: completeness, not well-formedness.
                         if let Some(property_value) = object.get(property_name) {
                             errors.extend(validate_value(
                                 property_schema,
@@ -569,13 +538,10 @@ fn validate_value(
         },
     };
 
-    // Content shape checks, run only on a type-valid value (a mistyped value
-    // already raises TypeMismatch below, and a null/absent field blank-fills to
-    // the empty content, which is both inline and plain). Mirror the
-    // coercion-layer checks so a content that bypassed coercion (e.g. a direct
-    // `validate_document`) is still caught. A decode failure names no shape:
-    // for a document it is the floor's refusal, reported below; for a schema
-    // literal it is the load-time content import's.
+    // Shape checks on a type-valid value only, mirroring the coercion layer's so
+    // a content that bypassed coercion is still caught. A decode failure names
+    // no shape: for a document it is the floor's refusal, reported below; for a
+    // schema literal it is the load-time import's.
     if type_valid {
         match field.r#type {
             FieldType::RichText { inline: true } => {
@@ -591,10 +557,8 @@ fn validate_value(
                 }
             }
             FieldType::PlainText { inline } => {
-                // Plaintext strings are literal, not markdown, so a schema
-                // literal decodes through the literal codec; a Document value is
-                // a canonical content object. The plain constraint is primary;
-                // the single-line constraint applies only when `inline`.
+                // A schema literal decodes through the literal codec, a
+                // document value being a canonical content object already.
                 if let Some(rt) = crate::document::Codec::Plaintext
                     .decode_value(value.as_json())
                     .and_then(Result::ok)

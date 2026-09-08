@@ -1,12 +1,8 @@
-//! WebAssembly bindings for Quillmark.
-//!
-//! Three build variants ship from this one crate: a Typst-less **core** build
-//! (`pkg/core/`) with no engine, and two engine-carrying backend binaries
-//! (`pkg/backends/typst/`, `pkg/backends/pdfform/`) gated by the `typst` /
-//! `pdfform` cargo features. None of them is a public npm export: the package
-//! root `@quillmark/wasm` is the hand-written canonical layer (`pkg/runtime/`),
-//! which re-exports the core build's `Quill` / `Document` and wraps the FFI
-//! [`Quillmark`] below in an `Engine` that lazily loads a backend.
+//! WebAssembly bindings for Quillmark: the FFI under the hand-written canonical
+//! layer (`pkg/runtime/`), which re-exports the core build's `Quill` /
+//! `Document` and wraps [`Quillmark`] in an `Engine` that lazily loads a
+//! backend. No build this crate emits is a public npm export; which variants
+//! ship and what each carries: `prose/canon/BINDINGS.md`.
 
 use wasm_bindgen::prelude::*;
 

@@ -1,11 +1,7 @@
-//! Core types for rendering and output formats.
-
-/// Output formats supported by backends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum OutputFormat {
     Svg,
     Pdf,
-    /// Raster output.
     Png,
 }
 

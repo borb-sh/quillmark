@@ -43,18 +43,12 @@ pub const DECLINED_CONSTRUCT: &str = "backend::declined_construct";
 
 /// The warning a backend owes a content field holding a construct it typesets
 /// nothing for: `count` of `construct` in the field `path` anchors, from
-/// `backend`.
+/// `backend`. One diagnostic per (field, construct), so a producer that sees
+/// every occurrence at once collapses them into `count`. Non-fatal: the content
+/// stores and round-trips, and it is the page that will not carry it.
 ///
 /// The observed twin of quill-declared
-/// [`plate::unsupported_construct`](crate::quill::UNSUPPORTED_CONSTRUCT), which
-/// exists because core cannot see a plate drop a construct. A backend declining
-/// one outright *is* the observer, so it says so itself, per field rather than
-/// per body and at the compile that dropped it rather than at the pre-render
-/// walk. One diagnostic per (field, construct): a producer that sees every
-/// occurrence at once collapses them into `count`.
-///
-/// Non-fatal by construction, for the same reason as its twin: the content
-/// stores and round-trips, and it is the page that will not carry it.
+/// [`plate::unsupported_construct`](crate::quill::UNSUPPORTED_CONSTRUCT).
 pub fn declined_construct(
     backend: &str,
     construct: crate::quill::BlockConstruct,
@@ -86,9 +80,7 @@ pub fn declined_construct(
 /// rasterizers' own 32-bit dimension arithmetic wraps. It is also the area of
 /// the WASM painter's 16384-px-per-side backing-store clamp
 /// ([PREVIEW.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PREVIEW.md)),
-/// so every raster that clamp admits still renders. US Letter at
-/// [`RenderOptions::DEFAULT_PPI`](crate::RenderOptions::DEFAULT_PPI) is 1.9 Mpx,
-/// 138× under it.
+/// so every raster that clamp admits still renders.
 pub const MAX_RASTER_PIXELS: u64 = 16_384 * 16_384;
 
 fn invalid_raster_scale(message: String, hint: &str) -> RenderError {

@@ -101,7 +101,6 @@ impl QuillWorld {
             Bytes::new(helper::generate_typst_toml().into_bytes()),
         );
 
-        // Create main source
         let main_id = file_id(
             None,
             VirtualPath::new("main.typ").expect("\"main.typ\" is a valid virtual path"),
@@ -123,14 +122,10 @@ impl QuillWorld {
         &self.load_warnings
     }
 
-    /// Like [`new`](Self::new), but injects `json_data` as a virtual
-    /// `@local/quillmark-helper:0.1.0` package. Plates import that package to
-    /// access document data and auto-evaluated markup fields. Returns the
-    /// world plus the generated content windows (see
-    /// [`inject_helper_package`](Self::inject_helper_package)).
-    ///
-    /// Test-only: boxing collapses codegen's own error, so `open` runs the two
-    /// steps itself to keep a bad date's diagnostic code.
+    /// Test-only: boxing collapses codegen's own error, so `open` runs
+    /// [`new`](Self::new) and
+    /// [`inject_helper_package`](Self::inject_helper_package) itself to keep a
+    /// bad date's diagnostic code.
     #[cfg(test)]
     pub fn new_with_data(
         source: &Quill,
@@ -141,7 +136,6 @@ impl QuillWorld {
     {
         let mut world = Self::new(source, main)?;
 
-        // Inject the quillmark-helper package
         let (windows, _declined) = world.inject_helper_package(data, meta)?;
 
         Ok((world, windows))
@@ -211,7 +205,6 @@ impl QuillWorld {
         Ok((windows, declined))
     }
 
-    /// Loads fonts from quill's in-memory file system.
     fn load_fonts_from_quill(
         source: &Quill,
     ) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
@@ -236,8 +229,8 @@ impl QuillWorld {
         Ok(font_data)
     }
 
-    /// Loads assets from quill's in-memory file system. Project root only: an
-    /// asset is the plate's to reach, and nothing generated names one.
+    /// Project root only: an asset is the plate's to reach, and nothing
+    /// generated names one.
     fn load_assets_from_quill(
         source: &Quill,
         binaries: &mut HashMap<FileId, Bytes>,
@@ -262,7 +255,6 @@ impl QuillWorld {
         Ok(())
     }
 
-    /// Loads packages from quill's in-memory file system.
     fn load_packages_from_quill(
         source: &Quill,
         sources: &mut HashMap<FileId, Source>,
@@ -352,7 +344,6 @@ impl QuillWorld {
         Ok(())
     }
 
-    /// Loads files from a package directory in quill's in-memory file system.
     fn load_package_files_from_quill(
         source: &Quill,
         package_dir: &Path,

@@ -20,14 +20,14 @@
 //! Anchoring a captured position across edits is the editor's job; the content
 //! carries no session-side change log.
 //!
-//! ## The move weak spot (documented limit)
+//! ## The move weak spot
 //!
 //! A paragraph reorder is delete-here + insert-there to any char differ, so a
 //! naive rebase collapses an anchor in the moved text to the deletion point. The
-//! detector re-homes an anchor onto a **single, verbatim block move** by locating
-//! the moved text in the new content. Text both *moved and rewritten* in one round
-//! (the match is lost) drops the anchor: the accepted residual, stated not
-//! hidden.
+//! detector re-homes an anchor onto a **single, verbatim block move** by
+//! locating the moved text in the new content. Text both *moved and rewritten*
+//! in one round loses the match, and the anchor with it: the accepted
+//! residual.
 
 use crate::model::{Mark, Content, Normalized};
 use serde::{Deserialize, Serialize};

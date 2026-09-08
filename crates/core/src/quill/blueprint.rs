@@ -91,10 +91,8 @@ fn build_main_card(card: &CardSchema, quill_ref: &str, description: Option<Strin
     append_fields(&mut items, card);
     Card::from_parts(
         Payload::from_items(items),
-        // The blueprint's output *is* the markdown surface, so it imports the
-        // body text (a trusted example or a generated placeholder) here and
-        // re-emits it via `to_markdown`. The empty-content fallback is defensive:
-        // a placeholder or a load-validated example never over-nests.
+        // The empty-content fallback is defensive: a placeholder or a
+        // load-validated example never over-nests.
         crate::document::import_body(&body_text(card, "main"))
             .unwrap_or_else(|_| quillmark_content::Normalized::empty()),
     )
@@ -122,9 +120,7 @@ fn build_card(card: &CardSchema) -> Card {
     )
 }
 
-/// Append every field of a card as payload items, clustered by `ui.group` and
-/// ordered by declaration order. Group order follows the card's `ui.groups`
-/// registry when present.
+/// Append every field of a card as payload items, in [`group_fields`] order.
 fn append_fields(items: &mut Vec<PayloadItem>, card: &CardSchema) {
     let registry: Vec<&str> = card
         .ui
@@ -137,11 +133,9 @@ fn append_fields(items: &mut Vec<PayloadItem>, card: &CardSchema) {
     }
 }
 
-/// Order fields by `ui.group` (ungrouped lead, then grouped clusters in
-/// `registry` declaration order), preserving declaration order within each
-/// cluster (`fields` arrives in declaration order and the clustering is
-/// stable). Grouping is purely positional (no banner); the clusters are
-/// flattened into a single field stream.
+/// Order fields by `ui.group`: ungrouped lead, then grouped clusters in
+/// `registry` declaration order, each cluster keeping declaration order. The
+/// clusters flatten into one field stream, grouping being positional only.
 fn group_fields<'a, I: IntoIterator<Item = &'a FieldSchema>>(
     fields: I,
     registry: &[&str],
@@ -173,7 +167,6 @@ fn group_fields<'a, I: IntoIterator<Item = &'a FieldSchema>>(
 /// typed dictionaries (`object` with `properties`) to their per-property
 /// builders; everything else is a scalar/array cell.
 fn append_field(items: &mut Vec<PayloadItem>, field: &FieldSchema) {
-    // Variant-bearing enum: a container whose live world the discriminant picks.
     if field.is_variant_bearing() {
         append_variant(items, field);
         return;
@@ -342,9 +335,9 @@ fn property_cell(
 /// carries, at `path` relative to the field value (`[]` at card level).
 ///
 /// An **array** `default:` is shippable as-is, so it renders verbatim and its
-/// subtree carries neither marker nor annotation. A **typed dictionary** holds no
-/// literal to render (`quill::default_on_namespace`), so it always expands per
-/// property — the cells the render floor fills from those same declarations.
+/// subtree carries neither marker nor annotation. A **typed dictionary** holds
+/// no literal (`quill::default_on_namespace`), so it always expands per
+/// property.
 fn container_cell(
     field: &FieldSchema,
     path: &[PathSegment],
@@ -378,19 +371,10 @@ fn container_cell(
     }
 }
 
-/// Append a variant-bearing enum: the container, its discriminant cell, and the
-/// fields of the world that discriminant selects.
-///
-/// A blueprint **is** a document, so it can only show one world — the one its own
-/// discriminant names (`default:` › `example:` › blank). The worlds it cannot
-/// show are named instead, one `# when <MEMBER>: <fields>` line each, so a reader
-/// filling the form learns that choosing a different member brings different
-/// cells. A member owning a field set gets a line, the shown one included; one
-/// bringing no cells gets none. The lines are the map, the cells are the position.
-///
-/// The discriminant carries the container's `!must_fill` marker (a mapping
-/// cannot hold one) and no inline annotation of its own — the container line
-/// already carries `enum<…>`, and `value` is that enum.
+/// Append a variant-bearing enum: the container, its discriminant cell, the
+/// fields of the world that discriminant selects, and a
+/// `# when <MEMBER>: <fields>` line for every other world that owns a field set
+/// (`prose/canon/BLUEPRINT.md` § "Enum variants").
 fn append_variant(items: &mut Vec<PayloadItem>, field: &FieldSchema) {
     push_leading(items, field, field.default.is_some());
     if let Some(variants) = &field.variants {

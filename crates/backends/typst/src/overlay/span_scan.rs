@@ -1,42 +1,15 @@
 //! Recover schema-field regions from *glyph spans*: the origin every drawn
-//! frame item already carries. Content fields are codegen'd as markup block
-//! bindings (`#let _qm_cN = [ .. ]`) in the generated helper `lib.typ`, so
-//! every glyph's span nests inside its field's byte window; the backend
-//! records that window plus a per-segment source map ([`FieldWindow`]) and
-//! classifies each frame item by containment, two-tier: which window, then
-//! which segment. Regions key on `(window, segment)`. A scalar the plate
-//! interpolates directly (`#data.subject`) has no segments; its window comes
-//! from [`scalar_windows`]. Spans survive any `show`-rule content rebuild
-//! because they are a property of the glyph, not a sibling element.
+//! frame item already carries, surviving a `show`-rule content rebuild because
+//! it is a property of the glyph and not of a sibling element. Content fields
+//! are codegen'd as markup block bindings (`#let _qm_cN = [ .. ]`) in the
+//! generated helper `lib.typ`, so every glyph's span nests inside its field's
+//! byte window; the walk classifies each frame item by containment, two-tier —
+//! which window ([`FieldWindow`]), then which segment — and regions key on
+//! `(window, segment)`. A scalar the plate interpolates directly
+//! (`#data.subject`) has no segments; its window comes from [`scalar_windows`].
 //!
-//! **Resolution goes through the compile's own helper source.** The session
-//! serves reads from its last-good compile, but a failed `update` has already
-//! written the *next* injection's helper text into the world; resolving the
-//! served document's spans against that text would shift every range. Only
-//! non-helper spans (plate, vendored packages: stable within a session)
-//! resolve through the live world.
-//!
-//! **Marker claims.** A plate composes ink no field generated (a banner keyed
-//! on a field, a package-built block). The helper's `field-region` brackets such
-//! content with two invisible `metadata` markers, and the frame walk keeps a
-//! stack of the open ones: ink that resolves to no window is claimed by the
-//! innermost open marker instead of counting as foreign. Each *call* is its own
-//! claim, so a wrapper invoked per card yields one region per card.
-//!
-//! The stack persists across pages so a claim can span a page break, which means
-//! an open marker whose close never reaches the frame would claim every
-//! unattributed hit to the end of the document. [`unclosed_claims`] names those
-//! ahead of the scan and both queries suppress them, so an unbounded claim
-//! yields nothing rather than everything.
-//!
-//! **First placement only.** Each span-window key's region is its first maximal
-//! run of consecutive matching frame items. Span data cannot distinguish
-//! "package chrome between two placements" from "a second placement" (both are a
-//! gap of foreign spans), so later runs are not enumerated. One tolerance keeps
-//! continuation pages covered: page marginals walk between one page's body and
-//! the next's, so a run may resume on the immediately following page; a
-//! same-page gap still ends it. A marker claim is exempt: its extent is
-//! delimited explicitly, so every hit inside it accrues.
+//! What a region means to a consumer — the producers, the marker-claim
+//! fallback, the first-placement rule: `prose/canon/PREVIEW.md`.
 //!
 //! Geometry composes the group-transform stack exactly like
 //! `typst_layout::introspect::discover_frame`, transforming all four corners of

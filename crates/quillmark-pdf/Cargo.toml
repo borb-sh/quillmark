@@ -17,5 +17,4 @@ pdf-writer = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-# Acceptance tests reparse the stamped PDF to validate AcroForm structure.
 lopdf = { workspace = true }
