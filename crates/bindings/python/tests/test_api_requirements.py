@@ -60,6 +60,8 @@ def test_quill_properties(engine, taro_quill_dir):
     metadata = quill.metadata
     assert isinstance(metadata, dict)
     assert metadata["name"] == "taro"
+    # The key order BINDINGS.md pins across both surfaces.
+    assert list(metadata) == ["name", "version", "backend", "author", "description"]
     # metadata is a pure config snapshot: no capability key baked in.
     assert "supportedFormats" not in metadata
     assert quill.backend_id == "typst"

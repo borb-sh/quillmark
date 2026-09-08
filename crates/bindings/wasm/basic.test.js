@@ -1637,9 +1637,10 @@ card_kinds:
       makeQuill({ name: 'meta_test_quill', plate: TEST_PLATE, quillYaml: META_QUILL_YAML }),
     )
 
-    // metadata mirrors the `quill:` section of Quill.yaml: identity only.
+    // metadata mirrors the `quill:` section of Quill.yaml: identity only, and
+    // its key order is the one BINDINGS.md pins across both surfaces.
     const meta = quill.metadata
-    expect(meta).toBeDefined()
+    expect(Object.keys(meta)).toEqual(['name', 'version', 'backend', 'author', 'description'])
     expect(meta.name).toBe('meta_test_quill')
     expect(meta.version).toBe('0.2.1')
     expect(meta.backend).toBe('typst')
@@ -1698,40 +1699,6 @@ card_kinds:
     )
 
     expect(quill.warnings.map((d) => d.code)).toEqual(['quill::body_example_unused'])
-  })
-
-  it('orders the five standard keys first, then the extra keys sorted by name', () => {
-    const EXTRAS_QUILL_YAML = `quill:
-  name: meta_test_quill
-  version: "0.2.1"
-  backend: typst
-  description: Metadata test
-
-typst:
-  zeta: z
-  plate_file: plate.typ
-  alpha: a
-  nu: n
-  beta: b
-  mu: m
-`
-    const quill = Quill.fromTree(
-      makeQuill({ name: 'meta_test_quill', plate: TEST_PLATE, quillYaml: EXTRAS_QUILL_YAML }),
-    )
-
-    expect(Object.keys(quill.metadata)).toEqual([
-      'name',
-      'version',
-      'backend',
-      'author',
-      'description',
-      'typst_alpha',
-      'typst_beta',
-      'typst_mu',
-      'typst_nu',
-      'typst_plate_file',
-      'typst_zeta',
-    ])
   })
 
   it('metadata and schema are JSON.stringify-able (plain objects)', () => {

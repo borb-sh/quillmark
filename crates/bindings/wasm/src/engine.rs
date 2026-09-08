@@ -5,7 +5,7 @@ use crate::types::{ChangeSet, ContentHit, FieldRegion, RenderOptions, RenderResu
 use js_sys::{Array, Uint8Array};
 #[cfg(any(feature = "typst", feature = "pdfform"))]
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use tsify::Ts;
 use wasm_bindgen::prelude::*;
 
@@ -115,9 +115,6 @@ export interface QuillSchema {
  * Identity snapshot mirroring the `quill:` section of `Quill.yaml`. The schema
  * lives on `Quill.schema`; output formats are a resolved-backend capability read
  * from `Quillmark.supportedFormats`, not part of this config snapshot.
- *
- * These five keys come first in the order below; any extra `quill:` keys follow
- * in sorted order.
  */
 export interface QuillMetadata {
     name: string;
@@ -670,37 +667,20 @@ impl Quill {
         serialize_or_throw(&value, "schema")
     }
 
-    /// Identity snapshot of the `quill:` section of `Quill.yaml` plus any extra
-    /// `quill:` keys. Pure config: output formats are a resolved-backend
-    /// capability read from `Quillmark.supportedFormats`, not part of this.
-    ///
-    /// The five standard keys come first in their declared order, then the
-    /// extra keys sorted by name, so the object's key order is a function of
-    /// the quill alone.
+    /// Identity snapshot of the `quill:` section of `Quill.yaml`. Pure config:
+    /// output formats are a resolved-backend capability read from
+    /// `Quillmark.supportedFormats`, not part of this.
     #[wasm_bindgen(getter, js_name = metadata, unchecked_return_type = "QuillMetadata")]
     pub fn metadata(&self) -> Result<JsValue, JsValue> {
-        let source = &self.inner;
-        let config = source.config();
+        let config = self.inner.config();
 
-        let mut value = serde_json::json!({
+        let value = serde_json::json!({
             "name": config.name,
             "version": config.version,
             "backend": config.backend,
             "author": config.author,
             "description": config.description,
         });
-        let serde_json::Value::Object(obj) = &mut value else {
-            unreachable!("json! builds an object")
-        };
-        let extras: BTreeMap<&str, &serde_json::Value> = source
-            .metadata()
-            .iter()
-            .filter(|(key, _)| !quillmark_core::STANDARD_METADATA_KEYS.contains(&key.as_str()))
-            .map(|(key, value)| (key.as_str(), value.as_json()))
-            .collect();
-        for (key, extra) in extras {
-            obj.insert(key.to_string(), extra.clone());
-        }
 
         serialize_or_throw(&value, "metadata")
     }
