@@ -61,7 +61,7 @@ The rule scales from a field to the document without a new receiver: `reader.val
 
 `reviseField` is the writer verb that is both typed *and* anchor-preserving: it rebases surviving anchors like the content `revise`, then conforms the diffed result to the field schema like `set`. Because it needs the schema, it lives on the writer: wrapping core's `Card::revise_field_checked` primitive, which `Document` does not expose.
 
-**The writer is the only typed door, core included.** The typed primitives (`Card::commit_field`, `Card::revise_field_checked`) are `#[doc(hidden)]`, unpromised on the same terms as the other hidden items ([COMPATIBILITY.md](COMPATIBILITY.md)). A resolved `FieldSchema` argument is the only thing that tells them from their opaque and schema-blind neighbours, and disambiguating by argument is a third mechanism beside the receiver and the verb: one the rule below does not name and a caller cannot see.
+**The writer is the only typed door, core included.** The typed primitives (`Card::commit_field`, `Card::revise_field_checked`) are `#[doc(hidden)]`. A resolved `FieldSchema` argument is the only thing that tells them from their opaque and schema-blind neighbours, and disambiguating by argument is a third mechanism beside the receiver and the verb: one the rule below does not name and a caller cannot see.
 
 **The verb carries the lane.** One vocabulary rule, stated once here:
 

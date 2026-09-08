@@ -56,7 +56,6 @@ pub fn page_canvas_boxes(base: &[u8]) -> Result<Vec<[f32; 4]>, PdfError> {
 /// `rect` is final geometry, so the spine never reasons about page height or
 /// reflow.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub struct FieldSpec {
     /// Fully-qualified field name, written to `/T`.
     pub name: String,
@@ -120,12 +119,6 @@ impl FieldSpec {
 
 /// A field's definition, never a runtime value (that rides in
 /// [`FieldSpec::value`]).
-///
-/// Deliberately exhaustive, unlike the other public enums here: `pdfform`'s
-/// value resolver and content-stream flattener both dispatch over the whole set,
-/// and a variant neither handles draws nothing and reports nothing, so the
-/// compile error is the guardrail. The price is that a new widget type is
-/// semver-major, which the AcroForm widget kinds do not make likely.
 #[derive(Debug, Clone, PartialEq)]
 pub enum FieldType {
     Text { multiline: bool },
@@ -147,7 +140,6 @@ pub enum FieldType {
 /// Only the [`FieldType::Text`] and [`FieldType::Choice`] widgets have variable
 /// text; this is inert on the other two.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[non_exhaustive]
 pub enum FormFont {
     #[default]
     Helvetica,
@@ -185,7 +177,6 @@ impl FormFont {
 /// Only the [`FieldType::Text`] and [`FieldType::Choice`] widgets have variable
 /// text; this is inert on the other two.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[non_exhaustive]
 pub enum TextAlign {
     #[default]
     Left,

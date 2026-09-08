@@ -161,7 +161,6 @@ pub fn validate_composable_kind(kind: &str) -> Result<(), CardKindError> {
 
 /// Reason [`validate_composable_kind`] rejected a kind string.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum CardKindError {
     /// Kind did not match `[a-z_][a-z0-9_]*`.
     InvalidName,

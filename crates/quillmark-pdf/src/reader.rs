@@ -124,7 +124,6 @@ fn write_trailer_tail(out: &mut Vec<u8>, prior_trailer: &[u8], new_info_ref: Opt
 
 /// One object emitted into an incremental update, in full serialized form
 /// (`<id> 0 obj … endobj`).
-#[non_exhaustive]
 pub struct UpdatedObject {
     pub id: u32,
     pub bytes: Vec<u8>,

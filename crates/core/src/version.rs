@@ -8,7 +8,6 @@ use std::str::FromStr;
 ///
 /// Field order is the comparison order: the derived `Ord` is semver precedence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[non_exhaustive]
 pub struct Version {
     pub major: u32,
     pub minor: u32,
@@ -72,7 +71,6 @@ impl fmt::Display for Version {
 
 /// Specifies which version of a Quill template to use.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[non_exhaustive]
 pub enum VersionSelector {
     /// Match exactly this version (e.g., "@2.1.0")
     Exact(Version),
@@ -180,7 +178,6 @@ pub fn quill_ref_hint() -> &'static str {
 ///
 /// Name charset: `[a-z_][a-z0-9_]*`. Selector defaults to `Latest` when omitted.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-#[non_exhaustive]
 pub struct QuillReference {
     pub name: String,
     pub selector: VersionSelector,

@@ -54,7 +54,6 @@ use std::str::FromStr;
 /// the editor a structured array it routes on, never a string it splits.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "seg", rename_all = "lowercase")]
-#[non_exhaustive]
 pub enum DocSeg {
     /// The main-card root.
     Main,
@@ -191,7 +190,6 @@ fn write_escaped_field(f: &mut fmt::Formatter<'_>, name: &str) -> fmt::Result {
 /// A [`DocPath`] parse failure. The parser is total over every path
 /// [`Display`](std::fmt::Display) emits.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct DocPathParseError {
     pub input: String,
     pub reason: &'static str,

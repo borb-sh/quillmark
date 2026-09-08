@@ -4,22 +4,12 @@ use crate::error::RenderError;
 use crate::quill::Quill;
 use crate::{LiveSession, OutputFormat};
 
-#[doc(hidden)]
-pub mod sealed {
-    /// The seal on [`Backend`](super::Backend), implemented by the workspace's
-    /// own backends. Naming it from elsewhere names a hidden item, which is the
-    /// declaration that the seam behind it moves without notice.
-    pub trait Sealed {}
-}
-
 /// Backend trait for rendering different output formats.
 ///
 /// Implementing it outside the workspace is unsupported: [`Backend::open`]
 /// returns a [`LiveSession`], which only a `#[doc(hidden)]` `SessionHandle`
-/// implementation can build. The [`sealed::Sealed`] supertrait states that in
-/// the type system — a declaration, not a barrier — so adding a method here
-/// stays a minor release.
-pub trait Backend: sealed::Sealed + Send + Sync + std::fmt::Debug {
+/// implementation can build.
+pub trait Backend: Send + Sync + std::fmt::Debug {
     /// The backend identifier, e.g. `"typst"`.
     fn id(&self) -> &'static str;
 

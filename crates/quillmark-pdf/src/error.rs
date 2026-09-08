@@ -3,7 +3,6 @@
 /// forwards the code intact across a backend boundary.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("{message}")]
-#[non_exhaustive]
 pub struct PdfError {
     /// Stable error code, e.g. `pdf::xref_stream`, `pdf::encrypted`.
     pub code: &'static str,

@@ -430,8 +430,6 @@ fn helper_source(world: &world::QuillWorld) -> Result<typst::syntax::Source, Ren
         })
 }
 
-impl quillmark_core::backend::sealed::Sealed for TypstBackend {}
-
 impl Backend for TypstBackend {
     fn id(&self) -> &'static str {
         "typst"

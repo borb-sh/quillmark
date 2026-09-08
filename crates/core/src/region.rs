@@ -56,7 +56,6 @@
 /// [`field_boxes`].
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[non_exhaustive]
 pub struct RenderedRegion {
     /// The field's plate-space schema address as the backend keys it:
     /// `"signature_block"`, `"references.0"` (a numeric segment per array
@@ -362,7 +361,6 @@ pub fn doc_path_to_plate_addr(path: &DocPath, card_kinds: &[Option<&str>]) -> Op
 /// How precisely a [`ContentHit::pos`] resolved. Never sub-cluster.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[non_exhaustive]
 pub enum HitGranularity {
     /// `pos` is the first content char of the grapheme cluster under the point.
     /// A caret UI can place the caret there directly.
@@ -385,7 +383,6 @@ pub enum HitGranularity {
 /// to nothing. [`granularity`](Self::granularity) reports which happened.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[non_exhaustive]
 pub struct ContentHit {
     /// The content field's schema path (same address space as
     /// [`RenderedRegion::field`]).

@@ -106,11 +106,5 @@ pub(crate) fn render_document_pages(
                 OutputFormat::Pdf,
             ))
         }
-        // Forced by `#[non_exhaustive]`.
-        other => Err(quillmark_core::unsupported_format(
-            other,
-            "typst",
-            crate::SUPPORTED_FORMATS,
-        )),
     }
 }

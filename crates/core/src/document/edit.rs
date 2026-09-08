@@ -58,7 +58,6 @@ pub const CODEC_PLAINTEXT: &str = "plaintext";
 
 /// Errors returned by document and card mutators.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
-#[non_exhaustive]
 pub enum EditError {
     #[error("invalid field name '{0}': must match [A-Za-z_][A-Za-z0-9_]*")]
     InvalidFieldName(String),
@@ -310,7 +309,6 @@ impl EditError {
 /// offending key itself; [`message`](Self::message) names the key inline for the
 /// boundaries whose error type does not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum FieldViolation {
     /// The field name does not match `[A-Za-z_][A-Za-z0-9_]*` (spec §3.4 / §10).
     InvalidName,
@@ -359,7 +357,6 @@ impl std::fmt::Display for FieldViolation {
 /// [`MultiLineComment`](Self::MultiLineComment), which re-reads cleanly as a
 /// different document.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum PayloadViolation {
     /// Two user fields share a key; a YAML mapping admits each key once.
     DuplicateField { key: String },
@@ -963,7 +960,7 @@ impl Card {
     /// past the §8 depth limit.
     ///
     /// **Hidden**: the typed primitive, whose door is
-    /// [`Quill::writer`](crate::Quill::writer). Unpromised (`COMPATIBILITY.md`).
+    /// [`Quill::writer`](crate::Quill::writer).
     #[doc(hidden)]
     pub fn commit_field(
         &mut self,

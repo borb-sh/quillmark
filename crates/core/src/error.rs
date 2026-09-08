@@ -122,12 +122,8 @@ impl std::error::Error for YamlError {}
 /// stage that emits it, `Warning` never does. There is no lint-level
 /// configuration and no warning-to-error promotion; an informational aside is
 /// a [`Diagnostic::hint`], not a severity.
-///
-/// The enum is open; a `_` arm should escalate to [`Severity::Error`], since
-/// over-reporting an unrecognized level is safer than hiding it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
-#[non_exhaustive]
 pub enum Severity {
     /// Blocks the stage that emits it.
     Error,
@@ -137,7 +133,6 @@ pub enum Severity {
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[non_exhaustive]
 pub struct Location {
     /// Source file name, e.g. `"plate.typ"` or `"input.md"`.
     pub file: String,
@@ -159,7 +154,6 @@ impl Location {
 /// `Clone` and serializable across every binding boundary.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[non_exhaustive]
 pub struct Diagnostic {
     pub severity: Severity,
     /// Stable error code, e.g. `"parse::empty_input"` or `"typst::type_error"`.
@@ -286,7 +280,6 @@ impl std::fmt::Display for Diagnostic {
 }
 
 #[derive(thiserror::Error, Debug)]
-#[non_exhaustive]
 pub enum ParseError {
     #[error("Input too large: {size} bytes (max: {max} bytes)")]
     InputTooLarge { size: usize, max: usize },
@@ -528,7 +521,6 @@ impl From<ParseError> for RenderError {
 }
 
 #[derive(Debug)]
-#[non_exhaustive]
 pub struct RenderResult {
     pub artifacts: Vec<crate::Artifact>,
     pub warnings: Vec<Diagnostic>,

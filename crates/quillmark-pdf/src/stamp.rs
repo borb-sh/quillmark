@@ -83,7 +83,6 @@ fn fonts_used(fields: &[FieldSpec]) -> Vec<FormFont> {
 
 /// Options for [`stamp`](crate::stamp).
 #[derive(Debug, Clone, Default)]
-#[non_exhaustive]
 pub struct StampOptions {
     /// `None` leaves the base PDF's `/Producer` untouched. The spine never
     /// defaults this from its own crate version.

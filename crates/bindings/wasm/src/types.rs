@@ -36,9 +36,6 @@ impl From<quillmark_core::OutputFormat> for OutputFormat {
             quillmark_core::OutputFormat::Pdf => OutputFormat::Pdf,
             quillmark_core::OutputFormat::Svg => OutputFormat::Svg,
             quillmark_core::OutputFormat::Png => OutputFormat::Png,
-            // Forced by `#[non_exhaustive]`; the two variant lists ship
-            // together. No fallback is honest, so the arm refuses.
-            other => unreachable!("OutputFormat::{other:?} has no TS member"),
         }
     }
 }
@@ -54,8 +51,7 @@ impl From<quillmark_core::Severity> for Severity {
     fn from(severity: quillmark_core::Severity) -> Self {
         match severity {
             quillmark_core::Severity::Warning => Severity::Warning,
-            // Unrecognized levels escalate: the other direction hides a fatal.
-            quillmark_core::Severity::Error | _ => Severity::Error,
+            quillmark_core::Severity::Error => Severity::Error,
         }
     }
 }
@@ -279,9 +275,6 @@ impl From<quillmark_core::HitGranularity> for HitGranularity {
         match g {
             quillmark_core::HitGranularity::Cluster => HitGranularity::Cluster,
             quillmark_core::HitGranularity::Segment => HitGranularity::Segment,
-            // `#[non_exhaustive]`: degrading keeps the reported precision a
-            // lower bound, never a claim of more exactness than was carried.
-            _ => HitGranularity::Segment,
         }
     }
 }

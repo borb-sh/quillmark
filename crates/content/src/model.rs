@@ -29,7 +29,6 @@ pub const ISLAND_SLOT: char = '\u{FFFC}';
 /// of [`ISLAND_SLOT`] equals `islands.len()`; `lines.len()` equals the number of
 /// `\n`-separated segments; marks are normalized (sorted, unioned).
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub struct Content {
     /// The content. `\n` is a line boundary; [`ISLAND_SLOT`] is an island slot.
     pub text: String,
@@ -47,7 +46,6 @@ pub struct Content {
 
 /// A line's attributes: its block role plus the container path it sits in.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub struct Line {
     pub kind: LineKind,
     /// Ancestor containers, outermost first. A multi-paragraph list item is two
@@ -99,7 +97,6 @@ impl Line {
 /// the document, while the opaque tag+attrs still reach a reader that
 /// understands them.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub enum LineKind {
     Para,
     /// ATX/Setext heading, level 1..=6.
@@ -213,7 +210,6 @@ fn collapse_empty_bag(v: &mut JsonValue) {
 /// [`Container::Unknown`] and projects *transparently*, its lines render at the
 /// enclosing level, with no prefix, no wrapper, and no grouping of their own.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub enum Container {
     /// A list item. `ordered` distinguishes `1.` from `-`; `start` is the list's
     /// first number (1 by default); `ordinal` is this item's 0-based index in
@@ -436,7 +432,6 @@ impl std::ops::Deref for Normalized {
 /// A mark over a char range `[start, end)`. `start == end` (zero-width) is legal
 /// only for [`MarkKind::Anchor`]; normalization drops zero-width formatting.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub struct Mark {
     pub start: Usv,
     pub end: Usv,
@@ -454,7 +449,6 @@ impl Mark {
 /// algebra classes: formatting is a property of a range (two coincident are
 /// redundant); identity is a handle (two over the same range are two things).
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub enum MarkKind {
     // Formatting: round-trippable projection marks. `is_formatting()`.
     Strong,
@@ -484,7 +478,6 @@ pub enum MarkKind {
 /// A structured object with no honest text encoding (a table, figure, or future
 /// embed) occupying one [`ISLAND_SLOT`] in the content.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub struct Island {
     /// Deterministically minted, session-stable id: `isl-{n}` by import
     /// position. Part of the canonical form and thus hash input, so it is never
@@ -795,7 +788,6 @@ pub(crate) fn sort_keys_owned(v: JsonValue) -> JsonValue {
 /// Ways a [`Content`] can violate its invariants. Returned by
 /// [`Content::validate`]; import normalization guarantees none of these.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum Invariant {
     /// `\r` in the text (line endings must be normalized to `\n`).
     CarriageReturn,
@@ -895,7 +887,6 @@ pub enum Invariant {
 /// carry arbitrary text including slots (an inline image is a slot in a `Para`),
 /// so only the three kinds whose contract *names* their content constrain it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum LineKindMismatch {
     /// [`LineKind::Island`] whose text is not exactly one [`ISLAND_SLOT`].
     IslandNotOneSlot,

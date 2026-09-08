@@ -43,8 +43,6 @@ const SUPPORTED_FORMATS: &[OutputFormat] =
 #[derive(Debug, Default)]
 pub struct PdfformBackend;
 
-impl quillmark_core::backend::sealed::Sealed for PdfformBackend {}
-
 impl Backend for PdfformBackend {
     fn id(&self) -> &'static str {
         "pdfform"

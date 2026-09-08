@@ -30,7 +30,6 @@ use quillmark_content::Normalized;
 /// The `$` system entries are hoisted onto [`CardWire`] itself, never here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
-#[non_exhaustive]
 pub enum PayloadItemWire {
     /// A user-defined field.
     Field {
@@ -66,7 +65,6 @@ pub enum PayloadItemWire {
 /// loudly rather than deserialize into an empty card.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-#[non_exhaustive]
 pub struct CardWire {
     /// The block's `$kind` (e.g. `"endorsement"`); empty string when the block
     /// declares no `$kind`. Kept non-optional to match the binding read shape.
@@ -127,7 +125,6 @@ impl CardWire {
 /// [`Card::store_field`]'s for a field name, `parse::invalid_quill_reference`
 /// for a `$quill` string — and a binding routes one door as it routes the other.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
-#[non_exhaustive]
 pub enum WireError {
     /// The `quill` string is not a valid `name@version` reference.
     #[error("invalid `quill` reference {value:?}: {reason}")]

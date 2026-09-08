@@ -44,7 +44,6 @@ enum Kind {
 /// `["addr", "street"]` or `["recipients", 0, "name"]`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(untagged)]
-#[non_exhaustive]
 pub enum PathSegment {
     Key(String),
     Index(usize),

@@ -38,7 +38,6 @@ use crate::Card;
 /// and a full read written back is a byte no-op.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub struct DocumentValues {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fields: Option<IndexMap<String, JsonValue>>,
@@ -64,7 +63,6 @@ pub struct DocumentValues {
 /// verbatim, there being no declared type to project them through.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub struct CardValues {
     /// Absent on input keeps the kind of the card at that position.
     #[serde(

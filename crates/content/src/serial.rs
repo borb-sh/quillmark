@@ -27,7 +27,6 @@ use std::borrow::Cow;
 /// Why canonical-JSON parsing failed. Structural only: a well-formed producer
 /// (this crate's serializer, the seam, storage) never trips these.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum ParseError {
     /// Top-level JSON was not an object, or a required key was missing/mistyped.
     Shape(&'static str),

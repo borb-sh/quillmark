@@ -248,9 +248,7 @@ fn regression_t2_array_of_object_path() {
     let err = config
         .coerce_payload(&single_field_payload(val))
         .expect_err("string-to-integer should fail");
-    let CoercionError::Uncoercible { path, .. } = err else {
-        panic!("expected an Uncoercible path error, got: {err:?}");
-    };
+    let CoercionError::Uncoercible { path, .. } = err;
     assert_eq!(path, "f[0].x");
     assert!(validate_path_grammar(&path));
 }

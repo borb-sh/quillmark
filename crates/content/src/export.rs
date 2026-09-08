@@ -84,10 +84,9 @@ struct Ctx<'a> {
 /// range and the count of island slots before the line, so a caller indexes
 /// the content text and the island list in O(1) without rescanning.
 ///
-/// **Deliberately not `#[non_exhaustive]`**, unlike the model types it indexes:
-/// it is a derived view that [`line_segments`] recomputes whole, and its five
-/// fields are one line's position in the two coordinate spaces the model has. A
-/// sixth field means a third space, which moves the model first.
+/// A derived view [`line_segments`] recomputes whole; its five fields are one
+/// line's position in the two coordinate spaces the model has. A sixth field
+/// means a third space, which moves the model first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Segment {
     /// USV index of the line's first char.

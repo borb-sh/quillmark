@@ -22,7 +22,6 @@ const SUPPORTED_MAJOR_MINOR: &str = "0.2";
 /// A parsed `form.json`. The `schema` tag is version-gated separately
 /// ([`SchemaTag`]) before this is deserialized, and ignored here.
 #[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
 pub struct FormSpec {
     /// Widgets bound to a [`FieldSchema`](quillmark_core::FieldSchema).
     #[serde(default)]
@@ -36,7 +35,6 @@ pub struct FormSpec {
 /// that field's `description`. `rect` is top-left and page-relative, flipped to
 /// the spine's bottom-left origin by the loader.
 #[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
 pub struct BoundField {
     pub name: String,
     /// A path that does not resolve against the quill schema is a load error.
@@ -49,7 +47,6 @@ pub struct BoundField {
 
 /// A widget bound to no schema field, so its intrinsics are declared here.
 #[derive(Debug, Clone, Deserialize)]
-#[non_exhaustive]
 pub struct UnboundWidget {
     pub name: String,
     pub page: usize,
@@ -62,7 +59,6 @@ pub struct UnboundWidget {
 
 /// A top-left rectangle in PDF points (1/72").
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
-#[non_exhaustive]
 pub struct Rect {
     pub x: f32,
     pub y: f32,
@@ -74,7 +70,6 @@ pub struct Rect {
 /// flat while invalid combinations (a `signature` with `options`) cannot parse.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
-#[non_exhaustive]
 pub enum WidgetKind {
     Text {
         #[serde(default)]
@@ -89,7 +84,6 @@ pub enum WidgetKind {
 
 /// Why a `form.json` failed to parse.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum FormParseError {
     /// The bytes were not valid JSON, or did not match the schema.
     Json(serde_json::Error),

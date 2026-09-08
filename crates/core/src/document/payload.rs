@@ -28,7 +28,6 @@ use crate::version::QuillReference;
 /// seeding layer interprets them ([`crate::SeedOverlay::from_json`] reads
 /// `$seed`; `$ext` stays opaque).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[non_exhaustive]
 pub enum MetaKey {
     /// `$ext`: opaque out-of-band consumer state (editor renames, agent
     /// annotations). Allowed on any card.
@@ -70,7 +69,6 @@ impl MetaKey {
 /// The live in-memory model, deliberately **not** `Serialize`/`Deserialize`:
 /// storage goes through the versioned DTOs in `document::dto`.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub enum PayloadItem {
     /// `$quill` system metadata, holding the parsed quill reference.
     Quill { reference: QuillReference },

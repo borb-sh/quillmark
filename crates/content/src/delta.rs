@@ -40,10 +40,6 @@ use similar::{ChangeTag, TextDiff};
 /// Serializes as `{ "ops": [ {"retain": n} | {"insert": s} | {"delete": n} ] }`:
 /// the wire the `rebase` codec and `applyChange` bundle carry across the
 /// language bindings.
-///
-/// **Deliberately not `#[non_exhaustive]`**, unlike the model types: `{ops}`
-/// *is* the wire, so a second field is a wire change every binding's codec has
-/// to learn either way.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Delta {
     pub ops: Vec<Op>,
@@ -53,7 +49,6 @@ pub struct Delta {
 /// (`{"retain": 5}`, `{"insert": "x"}`, `{"delete": 2}`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-#[non_exhaustive]
 pub enum Op {
     /// Keep `n` chars of the base unchanged.
     Retain(usize),
@@ -67,7 +62,6 @@ pub enum Op {
 /// as `"before"` / `"after"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
-#[non_exhaustive]
 pub enum Assoc {
     /// Stay before inserted text.
     Before,
@@ -77,9 +71,6 @@ pub enum Assoc {
 
 /// A delta's expected base length disagreed with the text it was applied to:
 /// the delta was built against a different revision of the base.
-///
-/// **Deliberately not `#[non_exhaustive]`**, unlike the model types: the two
-/// lengths are the whole of the disagreement.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BaseLengthMismatch {
     pub expected: usize,

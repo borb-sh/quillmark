@@ -663,9 +663,8 @@ impl<'a> Emit<'a> {
                 (g0, Vec::new())
             }
             LineKind::Code { .. } => unreachable!("code handled by early return"),
-            // `LineKind` is `#[non_exhaustive]`: any role added after this
-            // build lowers as a paragraph rather than failing.
-            _ => {
+            // An island's slot and an unknown role both lower as a paragraph.
+            LineKind::Para | LineKind::Island | LineKind::Unknown { .. } => {
                 let g0 = self.out.len();
                 (g0, self.emit_inline(lo, hi))
             }
@@ -937,9 +936,8 @@ fn wraps_and_codes(marks: &[Mark], lo: usize, hi: usize) -> (Vec<Wrap>, Vec<(usi
                 end: e,
                 open: format!("#link(\"{}\")[", escape_string(url)),
             }),
-            // `Anchor` is identity, `Unknown` has no Typst spelling, and
-            // `MarkKind` is `#[non_exhaustive]`: none contributes a wrap.
-            _ => {}
+            // `Anchor` is identity and `Unknown` has no Typst spelling.
+            MarkKind::Anchor { .. } | MarkKind::Unknown { .. } => {}
         }
     }
     codes.sort_unstable();

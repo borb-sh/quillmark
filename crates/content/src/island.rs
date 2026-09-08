@@ -8,12 +8,8 @@ use serde_json::Value;
 /// string [`Island::island_type`](crate::model::Island::island_type), which an
 /// unknown type round-trips through opaquely.
 ///
-/// **Deliberately not `#[non_exhaustive]`**, unlike this crate's other public
-/// enums. The Typst emitter dispatches over the whole set from another crate,
-/// where the attribute's forced `_` arm would swallow the compile error that
-/// makes adding a variant wire it up everywhere. The cost, a semver-major per
-/// new variant, is paid on purpose: an island type wired into some emitters and
-/// not others projects the island away silently.
+/// Every emitter dispatches over the whole set: an island type wired into some
+/// and not others projects the island away silently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KnownIslandType {
     /// `{header, rows, aligns}` with inline `{text, marks}` cells. Mark-carrying,

@@ -17,7 +17,7 @@ impl Quillmark {
     /// An engine with a backend registered per enabled cargo feature.
     pub fn new() -> Self {
         // `mut` is unused when no backend features are enabled (e.g. a
-        // Typst-less core build), so allow it rather than cfg-juggle.
+        // Typst-less core build).
         #[allow(unused_mut)]
         let mut engine = Self {
             backends: HashMap::new(),
@@ -36,8 +36,8 @@ impl Quillmark {
         engine
     }
 
-    /// Register a backend, replacing any registered under the same id.
-    pub fn register_backend(&mut self, backend: Box<dyn Backend>) {
+    #[cfg(any(feature = "typst", feature = "pdfform"))]
+    fn register_backend(&mut self, backend: Box<dyn Backend>) {
         let id = backend.id().to_string();
         self.backends.insert(id, Arc::from(backend));
     }

@@ -19,7 +19,6 @@ use crate::value::QuillValue;
 /// `Quill::validate`) and field absence (an absent or present-null field
 /// blank-fills at render). Both are handled outside the value-layer checks below.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum ValidationError {
     TypeMismatch {
         path: String,

@@ -14,7 +14,6 @@ use std::borrow::Cow;
 
 /// A mark edit in final-text coordinates (post-delta, post-line-op).
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub enum MarkOp {
     /// Add a mark over `[start, end)`. An anchor `kind` must carry a non-empty
     /// `id` not already live in the field ([`ApplyError::AnchorIdCollision`] /
@@ -41,7 +40,6 @@ pub enum MarkOp {
 /// A line/block edit. Split/join splice `\n` in `text`; set ops touch metadata
 /// only.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub enum LineOp {
     /// Paragraph break at `at`: insert `\n` and split the line metadata.
     Split { at: Usv },
@@ -74,7 +72,6 @@ pub enum LineOp {
 /// itself. A *block* island's line demotes to `Para` when its slot goes, so
 /// re-landing one re-tags the line too.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub enum IslandOp {
     /// Replace the entry `island.id` names, in place. The id is the target *and*
     /// the stored value, so an island cannot be renamed through this op. An id no
@@ -313,7 +310,6 @@ fn op_array<T>(
 /// Why an apply failed: range or line index out of bounds, or invariants
 /// broken before normalization could repair them.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum ApplyError {
     MarkOutOfRange {
         start: Usv,

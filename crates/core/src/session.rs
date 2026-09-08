@@ -7,7 +7,6 @@ use std::sync::OnceLock;
 
 /// What a committed [`LiveSession::update`] changed.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct ChangeSet {
     /// Page count after the edit.
     pub page_count: usize,

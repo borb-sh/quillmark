@@ -13,7 +13,6 @@ use crate::form::{BoundField, FormSpec, Rect, UnboundWidget, WidgetKind};
 /// A `form.json` field with its static parts resolved: `rect` is final
 /// bottom-left PDF geometry, and the widget type is value-free.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub struct BoundWidget {
     pub name: String,
     pub schema_field: Option<String>,
@@ -25,7 +24,6 @@ pub struct BoundWidget {
 
 /// Why binding a `form.json` field failed. Every variant is a load error.
 #[derive(Debug)]
-#[non_exhaustive]
 pub enum BindError {
     /// A `schema_field` path does not resolve; names the failing segment.
     Dangling {
@@ -273,9 +271,9 @@ pub fn project_kind(
             Some(items) if is_scalar_or_prose(items) => WidgetType::Text { multiline: true },
             _ => return Err(unbindable()),
         },
-        // `Object`, plus any type added to the `#[non_exhaustive]` `SchemaType`
-        // that this build has no widget shape for.
-        _ => return Err(unbindable()),
+        // An `Enum` reaching here carries no `enum_values`, so it has no options
+        // to offer; an `Object` has no widget shape at all.
+        SchemaType::Enum | SchemaType::Object => return Err(unbindable()),
     })
 }
 

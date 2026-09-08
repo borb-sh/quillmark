@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- refactor(all)!: **the crate-compatibility ceremony is withdrawn:
+  `#[non_exhaustive]`, the `Backend` seal, public `register_backend`, and the
+  SemVer promise `COMPATIBILITY.md` carried.** The attribute leaves the 86
+  items that held it, so a struct literal, functional update and exhaustive
+  destructuring compile out-of-crate again —
+  `RenderOptions { .., ..Default::default() }` among them. Its one observable
+  effect was the forced `_` arm, which hides a variant a build has not learned
+  instead of reporting it: the WASM and Python `Severity` conversions folded an
+  unmatched level into `Error`, and both now match every variant. `Backend`
+  loses its `sealed::Sealed` supertrait and the `sealed` module goes with it;
+  implementing the trait outside the workspace stays impossible, because
+  `Backend::open` returns a `LiveSession` only a `#[doc(hidden)]`
+  `SessionHandle` builds and `Quillmark::register_backend` is private, leaving
+  `Quillmark::new` as the whole registry. `prose/canon/COMPATIBILITY.md` is
+  deleted — a promise to crates.io consumers that, per its own text, no CI job
+  checked; its table of `pub` seams that serve the workspace rather than a
+  consumer moves into `ARCHITECTURE.md`'s backend section.
 - feat(core,wasm,python)!: **a quill carries the load's advisory diagnostics,
   so they reach a binding host at last.** `Quill::warnings()` is new, mirrored
   as `quill.warnings` in WASM and Python, and it answers whatever

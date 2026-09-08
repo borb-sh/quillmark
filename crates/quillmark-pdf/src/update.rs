@@ -14,7 +14,6 @@ use crate::FieldSpec;
 const CODE_PARSE: &str = "pdf::update_parse";
 
 /// One incremental-update revision in progress.
-#[non_exhaustive]
 pub struct PdfUpdate {
     xref_offset: usize,
     /// The base PDF's catalog (`/Root`) object id.

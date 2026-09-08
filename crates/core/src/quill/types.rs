@@ -14,7 +14,6 @@ use crate::value::QuillValue;
 /// the emitted-schema wire.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub struct UiFieldSchema {
     /// Display label for the field: decoupled from the snake_case wire key.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -42,7 +41,6 @@ pub struct UiFieldSchema {
 /// is a load error rather than a declaration that matches nothing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
-#[non_exhaustive]
 pub enum BlockConstruct {
     Heading,
     Rule,
@@ -82,7 +80,6 @@ pub(crate) const BODY_CARD_SCHEMA_KEYS: &[&str] = &["enabled", "example", "unsup
 /// Body namespace configuration for a card kind
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub struct BodyCardSchema {
     /// When false, consumers must not accept or store body content for instances of this card kind.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -122,7 +119,6 @@ pub(crate) const UI_CARD_SCHEMA_KEYS: &[&str] = &["title", "groups"];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-#[non_exhaustive]
 pub struct UiCardSchema {
     /// Display label for the card kind: literal string or `{field_name}`
     /// template. See `docs/quills/quill-yaml-reference.md`.
@@ -144,7 +140,6 @@ pub struct UiCardSchema {
 /// the label from `id` (`memo_for` → "Memo For"), exactly as they derive a
 /// field label from its key.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub struct GroupSchema {
     /// snake_case identity; rides the registry map key (or list item) on the wire.
     pub id: String,
@@ -242,7 +237,6 @@ impl Serialize for GroupRegistry {
 
 /// Schema definition for a card kind (composable content blocks)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[non_exhaustive]
 pub struct CardSchema {
     /// The map key carries this on the wire; skipped during serialization to avoid duplication.
     #[serde(skip_serializing, default)]
@@ -298,7 +292,6 @@ impl CardSchema {
 /// the sibling `inline:` key (folded into `FieldType::RichText { inline }`), not
 /// in the `type:` token.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub enum FieldType {
     String,
     /// Integers and decimals
@@ -451,7 +444,6 @@ pub const VARIANT_DISCRIMINANT_KEY: &str = "value";
 /// wire folds a sibling `inline:` key into the `FieldType` enum, `name` rides
 /// the map key, and the `*_content` caches never serialize.
 #[derive(Debug, Clone, PartialEq)]
-#[non_exhaustive]
 pub struct FieldSchema {
     /// The map key carries this on the wire; not serialized, to avoid duplication.
     pub name: String,

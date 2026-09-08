@@ -16,7 +16,6 @@ use crate::{Card, Document, QuillValue};
 /// Serializes lowercase (`"authored" | "default" | "blank"`).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[serde(rename_all = "lowercase")]
-#[non_exhaustive]
 pub enum FieldSource {
     /// The authored value: the document's own content.
     Authored,
@@ -70,7 +69,6 @@ impl FieldSource {
 /// sibling, never a row in `fields`, so a consumer iterating declared fields
 /// never trips over it.
 #[derive(Debug, Clone, PartialEq, Serialize)]
-#[non_exhaustive]
 pub struct ResolvedField {
     pub name: String,
     pub value: QuillValue,
@@ -80,7 +78,6 @@ pub struct ResolvedField {
 /// The main card's resolved rows in declaration order, plus its body row when
 /// the main enables a body.
 #[derive(Debug, Clone, PartialEq, Serialize)]
-#[non_exhaustive]
 pub struct ResolvedMain {
     pub fields: Vec<ResolvedField>,
     pub body: Option<ResolvedField>,
@@ -90,7 +87,6 @@ pub struct ResolvedMain {
 /// for an unknown kind, which carries its fields verbatim), its document-array
 /// `index`, and its body row when the kind enables a body.
 #[derive(Debug, Clone, PartialEq, Serialize)]
-#[non_exhaustive]
 pub struct ResolvedCard {
     pub kind: Option<String>,
     pub index: usize,
@@ -100,7 +96,6 @@ pub struct ResolvedCard {
 
 /// The whole resolved-value view: the main card and every composable card.
 #[derive(Debug, Clone, PartialEq, Serialize)]
-#[non_exhaustive]
 pub struct Resolved {
     pub main: ResolvedMain,
     pub cards: Vec<ResolvedCard>,

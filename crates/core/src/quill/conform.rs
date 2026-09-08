@@ -20,7 +20,6 @@ use super::CardSchema;
 /// warning; [`to_diagnostics`](Self::to_diagnostics) flattens either half for a
 /// consumer that only routes on codes.
 #[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
 pub enum BoundParseError {
     /// The markdown is not a well-formed card-yaml document.
     #[error(transparent)]

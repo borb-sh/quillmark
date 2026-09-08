@@ -2,7 +2,6 @@
 
 /// Output formats supported by backends.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-#[non_exhaustive]
 pub enum OutputFormat {
     Svg,
     Pdf,
@@ -47,7 +46,6 @@ impl std::fmt::Display for OutputFormat {
 /// Error returned when a string does not name an [`OutputFormat`]. The field
 /// is the input as parsed, lowercased.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct ParseOutputFormatError(pub String);
 
 impl ParseOutputFormatError {
@@ -121,7 +119,6 @@ mod tests {
 
 /// An artifact produced by rendering.
 #[derive(Debug)]
-#[non_exhaustive]
 pub struct Artifact {
     pub bytes: Vec<u8>,
     pub output_format: OutputFormat,
@@ -147,12 +144,7 @@ impl Artifact {
 ///     .with_output_format(OutputFormat::Png)
 ///     .with_ppi(300.0);
 /// ```
-///
-/// `#[non_exhaustive]` forbids every out-of-crate struct expression, functional
-/// update included, so the setters are the construction path. Assigning an
-/// individual field still works: `opts.ppi = Some(300.0)` is the setter.
 #[derive(Debug, Clone, Default)]
-#[non_exhaustive]
 pub struct RenderOptions {
     pub output_format: Option<OutputFormat>,
     /// Pixels per inch for raster output formats (e.g., PNG).

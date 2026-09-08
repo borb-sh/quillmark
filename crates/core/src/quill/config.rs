@@ -51,7 +51,6 @@ fn lenient_string(value: &serde_json::Value) -> Option<String> {
 
 /// Top-level configuration for a Quillmark project
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[non_exhaustive]
 pub struct QuillConfig {
     /// Quill package name
     pub name: String,
@@ -113,7 +112,6 @@ struct CardSchemaDef {
 }
 
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum CoercionError {
     #[error("cannot coerce `{value}` to type `{target}` at `{path}`: {reason}")]
     Uncoercible {
