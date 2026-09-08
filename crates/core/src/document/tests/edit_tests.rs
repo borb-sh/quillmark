@@ -1032,6 +1032,29 @@ fn store_ext_charges_the_map_its_own_level() {
     );
 }
 
+/// The namespace merge behind `$seed` charges the map the same level the
+/// wholesale `$ext` store does, so one overlay is bounded at
+/// `MAX_JSON_DEPTH - 1` however many kinds sit beside it.
+#[test]
+fn store_seed_overlay_charges_the_map_its_own_level() {
+    let mut doc =
+        crate::document::Document::parse("~~~\n$quill: q@1.0\n$kind: main\n~~~\n").unwrap().document;
+
+    doc.main_mut()
+        .store_seed_overlay("note", deep_value(127))
+        .expect("127 levels under the map is exactly the limit");
+    let err = doc.main_mut().store_seed_overlay("memo", deep_value(128)).unwrap_err();
+    assert!(
+        matches!(err, crate::document::EditError::ValueTooDeep { max: 128 }),
+        "expected ValueTooDeep, got {err:?}"
+    );
+    assert_eq!(err.code(), "edit::value_too_deep");
+
+    let seed = doc.main().seed().expect("the accepted overlay is still there");
+    assert_eq!(seed.get("note"), Some(&deep_value(127)));
+    assert!(!seed.contains_key("memo"), "the refused overlay is not written");
+}
+
 #[test]
 fn storage_dto_rejects_value_past_depth_limit() {
     let stored = serde_json::json!({
