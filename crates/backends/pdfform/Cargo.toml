@@ -19,12 +19,11 @@ quillmark-pdf = { workspace = true }
 quillmark-content = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-# PDF-flatten → hayro raster, backing the SVG and PNG render outputs. Always
-# linked: SVG and PNG are unconditional outputs of this backend, so the raster
-# tree is not feature-gated. (The no-features WASM `core` build excludes the
-# whole pdfform crate, so hayro never reaches it.)
+# PDF-flatten → hayro raster, backing the canvas paint seam (`render_rgba`).
+# Always linked: canvas paint is unconditional, so the raster tree is not
+# feature-gated. (The no-features WASM `core` build excludes the whole pdfform
+# crate, so hayro never reaches it.)
 hayro = "0.7.1"
-hayro-svg = "0.7.0"
 
 [dev-dependencies]
 quillmark-fixtures = { workspace = true }

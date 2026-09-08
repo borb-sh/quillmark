@@ -614,12 +614,11 @@ function backendLoad(id, importThunk, wasmUrl) {
 // Backend builds are NEVER statically imported here: that would pull a multi-MB
 // binary into the eager graph and defeat lazy loading. Each entry is a
 // DESCRIPTOR: `load` dynamically imports and instantiates a backend's chunk, so
-// the binary is fetched only when something renders against it; `formats` and
-// `canvas` are the required static capability manifest, so the probes
-// (`supportedFormats` / `supportsCanvas`) answer without loading the binary or
-// cloning the quill. The manifest mirrors each backend's Rust `SUPPORTED_FORMATS`
-// (and `formats_support_canvas`: true iff the list includes `svg` or `png`),
-// pinned by a `runtime.test.js` drift guard that renders once and compares.
+// the binary is fetched only when something renders against it; `formats` is the
+// required static capability manifest, so `supportedFormats` answers without
+// loading the binary or cloning the quill. The manifest mirrors each backend's
+// Rust `SUPPORTED_FORMATS`, pinned by a `runtime.test.js` drift guard that
+// renders once and compares.
 const DEFAULT_BACKENDS = {
 	typst: {
 		load: backendLoad(
@@ -627,8 +626,7 @@ const DEFAULT_BACKENDS = {
 			() => import('../backends/typst/wasm.js'),
 			() => new URL('../backends/typst/wasm_bg.wasm', import.meta.url)
 		),
-		formats: ['pdf', 'svg', 'png'], // crates/backends/typst/src/lib.rs SUPPORTED_FORMATS
-		canvas: true // has svg/png → formats_support_canvas == true
+		formats: ['pdf', 'svg', 'png'] // crates/backends/typst/src/lib.rs SUPPORTED_FORMATS
 	},
 	pdfform: {
 		load: backendLoad(
@@ -636,37 +634,30 @@ const DEFAULT_BACKENDS = {
 			() => import('../backends/pdfform/wasm.js'),
 			() => new URL('../backends/pdfform/wasm_bg.wasm', import.meta.url)
 		),
-		// crates/backends/pdfform/src/lib.rs SUPPORTED_FORMATS == [Pdf, Svg, Png]
-		formats: ['pdf', 'svg', 'png'],
-		canvas: true // has svg/png → formats_support_canvas == true
+		formats: ['pdf'] // crates/backends/pdfform/src/lib.rs SUPPORTED_FORMATS
 	}
 };
 
 /**
  * Validate a backend registry descriptor, naming the backend id on any
  * malformed entry. Failing at construction rather than deep inside a render is
- * what lets the capability probes answer from the manifest unconditionally.
+ * what lets `supportedFormats` answer from the manifest unconditionally.
  * @param {string} id
  * @param {unknown} entry
- * @returns {{ load: () => Promise<unknown>, formats: string[], canvas: boolean }}
+ * @returns {{ load: () => Promise<unknown>, formats: string[] }}
  */
 function validateBackend(id, entry) {
 	if (!entry || typeof entry !== 'object') {
-		throw new Error(
-			`Engine: backend '${id}' must be a descriptor { load, formats, canvas }.`
-		);
+		throw new Error(`Engine: backend '${id}' must be a descriptor { load, formats }.`);
 	}
-	const { load, formats, canvas } = /** @type {any} */ (entry);
+	const { load, formats } = /** @type {any} */ (entry);
 	if (typeof load !== 'function') {
 		throw new Error(`Engine: backend '${id}' descriptor needs a callable 'load'.`);
 	}
 	if (!Array.isArray(formats)) {
 		throw new Error(`Engine: backend '${id}' descriptor needs a 'formats' array.`);
 	}
-	if (typeof canvas !== 'boolean') {
-		throw new Error(`Engine: backend '${id}' descriptor needs a boolean 'canvas'.`);
-	}
-	return { load, formats, canvas };
+	return { load, formats };
 }
 
 /**
@@ -679,7 +670,7 @@ export class Engine {
 	#modules = new Map();
 	/** backendId → that backend's engine instance (the WASM backend registry). */
 	#engines = new Map();
-	/** backendId → descriptor `{ load, formats, canvas }`. */
+	/** backendId → descriptor `{ load, formats }`. */
 	#loaders;
 	/**
 	 * backendId → WeakMap<canonical Quill, backend-memory clone>, caching the
@@ -690,11 +681,11 @@ export class Engine {
 	#quillClones = new Map();
 
 	/**
-	 * @param {{ backends?: Record<string, { load: () => Promise<unknown>, formats: string[], canvas: boolean }> }} [options]
+	 * @param {{ backends?: Record<string, { load: () => Promise<unknown>, formats: string[] }> }} [options]
 	 *   Extra or overriding backend descriptors, merged over the built-ins. Each
-	 *   is `{ load, formats, canvas }` with the manifest REQUIRED, since that is
-	 *   what makes `supportedFormats` / `supportsCanvas` free; malformed entries
-	 *   throw here, at construction.
+	 *   is `{ load, formats }` with the manifest REQUIRED, since that is what
+	 *   makes `supportedFormats` free; malformed entries throw here, at
+	 *   construction.
 	 *
 	 *   `load` resolves to a READY module: a registrant shipping its own
 	 *   `--target web` build instantiates inside the thunk. More than one
@@ -702,7 +693,7 @@ export class Engine {
 	 */
 	constructor(options) {
 		const merged = { ...DEFAULT_BACKENDS, ...(options?.backends ?? {}) };
-		/** @type {Record<string, { load: () => Promise<unknown>, formats: string[], canvas: boolean }>} */
+		/** @type {Record<string, { load: () => Promise<unknown>, formats: string[] }>} */
 		const loaders = {};
 		for (const [id, entry] of Object.entries(merged)) {
 			loaders[id] = validateBackend(id, entry);
@@ -715,7 +706,7 @@ export class Engine {
 	 * `engine::backend_not_found` throw core raises for the same condition.
 	 * Touches no binary.
 	 * @param {string} backendId
-	 * @returns {{ load: () => Promise<unknown>, formats: string[], canvas: boolean }}
+	 * @returns {{ load: () => Promise<unknown>, formats: string[] }}
 	 */
 	#descriptorFor(backendId) {
 		const descriptor = this.#loaders[backendId];
@@ -891,18 +882,6 @@ export class Engine {
 		// Defensive copy so callers can't mutate the shared manifest.
 		return descriptor.formats.slice();
 	}
-
-	/**
-	 * Whether `quill`'s backend can paint to a canvas: a pre-session estimate over
-	 * the descriptor's manifest, so it can answer `true` where the resulting
-	 * `LiveSession.supportsCanvas` answers `false`.
-	 * @param {Quill} quill
-	 * @returns {Promise<boolean>}
-	 */
-	async supportsCanvas(quill) {
-		const descriptor = this.#descriptorFor(this.#backendOf(quill, 'engine.supportsCanvas(quill)'));
-		return descriptor.canvas;
-	}
 }
 
 /**
@@ -942,15 +921,6 @@ export class LiveSession {
 	}
 	get backendId() {
 		return this.#inner.backendId;
-	}
-	/**
-	 * `true` iff `paint`/`pageSize` will succeed for THIS compile: the
-	 * authoritative answer, which can be `false` where `Engine.supportsCanvas`
-	 * answered `true` for the same quill.
-	 * @returns {boolean}
-	 */
-	get supportsCanvas() {
-		return this.#inner.supportsCanvas;
 	}
 	get warnings() {
 		return this.#inner.warnings;

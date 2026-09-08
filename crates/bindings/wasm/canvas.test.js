@@ -167,14 +167,12 @@ function expectInkAndOpaquePixels(call) {
 }
 
 describe('LiveSession canvas preview', () => {
-  it('exposes pageCount, backendId, supportsCanvas, warnings, and pageSize on a Typst session', () => {
+  it('exposes pageCount, backendId, warnings, and pageSize on a Typst session', () => {
     const { engine, quill } = openQuill()
-    expect(engine.supportsCanvas(quill)).toBe(true)
 
     const session = engine.open(quill, Document.fromMarkdown(TEST_MARKDOWN))
     expect(session.pageCount).toBeGreaterThan(0)
     expect(session.backendId).toBe('typst')
-    expect(session.supportsCanvas).toBe(true)
     expect(Array.isArray(session.warnings)).toBe(true)
     // Each entry crosses as a plain Diagnostic object, not a handle.
     for (const w of session.warnings) {
@@ -373,15 +371,14 @@ describe('LiveSession canvas preview (pdfform backend)', () => {
     return engine.open(quill, PdfformDocument.fromMarkdown(SAMPLE_FORM_MARKDOWN))
   }
 
-  it('reports canvas support and page geometry for a pdfform quill', () => {
+  it('reports page geometry for a pdfform quill', () => {
     const { engine, quill } = openPdfformQuill()
-    // The pdfform backend rasterizes pre-flattened pages.
-    expect(engine.supportsCanvas(quill)).toBe(true)
 
+    // The pdfform backend rasterizes pre-flattened pages, so `pageSize`
+    // answers rather than throwing.
     const session = engine.open(quill, PdfformDocument.fromMarkdown(SAMPLE_FORM_MARKDOWN))
     expect(session.pageCount).toBeGreaterThan(0)
     expect(session.backendId).toBe('pdfform')
-    expect(session.supportsCanvas).toBe(true)
 
     const size = session.pageSize(0)
     expect(size.widthPt).toBeGreaterThan(0)

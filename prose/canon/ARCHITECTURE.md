@@ -58,12 +58,11 @@ scratch. It resolves card values against the quill's `form.json` spec and stamps
 them onto the base `form.pdf` as real interactive fields (Technique A:
 `NeedAppearances`, no baked appearance streams).
 
-The PDF deliverable is always an interactive AcroForm. The backend also emits
-SVG and PNG (and a WASM canvas raster) by pre-flattening values into the page
-content streams and rasterizing that with hayro. Field geometry is a
-session-level query
-(`LiveSession::regions()`): per-field geometry keyed on the schema field path,
-no bound value. Quill-authoring surface:
+The PDF deliverable is always an interactive AcroForm, the one output format
+this backend emits. It paints a WASM canvas raster by pre-flattening values into
+the page content streams and rasterizing that with hayro. Field geometry is a
+session-level query (`LiveSession::regions()`): per-field geometry keyed on the
+schema field path, no bound value. Quill-authoring surface:
 [docs/quills/pdfform-backend.md](../../docs/quills/pdfform-backend.md); preview
 seam: [PREVIEW.md](PREVIEW.md).
 
@@ -94,9 +93,9 @@ input. Per-target coverage:
 
 ## Core Interfaces
 
-- **`Quillmark`**, Engine: a backend registry + render dispatcher. Auto-registers one backend per enabled feature (`TypstBackend` under `typst`, `PdfformBackend` under `pdfform`; both are default). Resolves a quill's declared backend at render time (erroring `engine::backend_not_found` on no match) and owns the backend-dependent surface: `render`, `open`, `supported_formats(&quill)`, `supports_canvas(&quill)`. It does not construct quills.
+- **`Quillmark`**, Engine: a backend registry + render dispatcher. Auto-registers one backend per enabled feature (`TypstBackend` under `typst`, `PdfformBackend` under `pdfform`; both are default). Resolves a quill's declared backend at render time (erroring `engine::backend_not_found` on no match) and owns the backend-dependent surface: `render`, `open`, `supported_formats(&quill)`. It does not construct quills.
 - **`Quill`**, The single quill type in `quillmark-core`: declarative data (file bundle + config + metadata, tagged with a declared backend id), held by value and carrying the pure config-read operations (`validate`, `schema`, `blueprint`, `seed_*`, `compile_data`, `dry_run`). Construct with `Quill::from_tree` or `quillmark::quill_from_path`; see [QUILL.md](QUILL.md)
-- **`Backend`**, Trait for output formats (`Send + Sync`): `id()`, `supported_formats()`, `open(&Quill, json)`. There is no universal template input: a backend reads whatever static inputs it needs (a Typst plate, a `form.pdf`) from the quill's own files. No canvas-capability method: capability is derived (`LiveSession::supports_canvas()` from the session seam; `formats_support_canvas()` as a pre-session hint)
+- **`Backend`**, Trait for output formats (`Send + Sync`): `id()`, `supported_formats()`, `open(&Quill, json)`. There is no universal template input: a backend reads whatever static inputs it needs (a Typst plate, a `form.pdf`) from the quill's own files. No canvas-capability method: capability is derived from the session seam, as `LiveSession::supports_canvas()`
 - **`LiveSession`**, Opaque live session returned by `Backend::open()`: a persistent compiler whose reads serve its current compile and whose `update(&Document)` recompiles in place, transactionally, returning a `ChangeSet` of dirty pages. Born bound to the `QuillConfig` it was opened against, so the edit verb checks the `$quill` pairing and compiles through the same door as the first compile (`QuillConfig::compile_checked`) rather than trusting a caller to have done both. The canvas seam lives on `SessionHandle` (`page_size_pt`/`render_rgba`), so a canvas backend overrides two methods and the WASM painter dispatches generically; see [PREVIEW.md](PREVIEW.md)
 - **`Document`**: Typed in-memory representation of a Quillmark Markdown file (root block, body, cards). Serializes via `serde` to a versioned JSON envelope (`StoredDocument`) for database persistence, decoupled from the evolving Markdown syntax; see [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)
 - **`Diagnostic`**: Structured error with severity, code, message, location, hint, source chain

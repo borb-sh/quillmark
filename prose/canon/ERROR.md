@@ -180,7 +180,7 @@ Python and WASM bindings delegate to core types:
 
 **WASM delivery follows the function kind, not the failure kind.** A synchronous verb throws; a promise-returning verb rejects; nothing does both.
 
-- The promise-returning surface is `init` plus the four `Engine` verbs (`render`, `open`, `supportedFormats`, `supportsCanvas`). A programming error reached through one of them (`runtime::foreign_handle`, an unregistered backend) arrives as a rejection like any other failure.
+- The promise-returning surface is `init` plus the three `Engine` verbs (`render`, `open`, `supportedFormats`). A programming error reached through one of them (`runtime::foreign_handle`, an unregistered backend) arrives as a rejection like any other failure.
 - `init` is the one promise-returning export not declared `async`: its memo is returned by identity rather than re-wrapped per call. Its conflict guard therefore returns `Promise.reject(runtime::init_conflict)` where an `async` body would have converted a throw.
 - A synchronous throw from `init` would lose the rule at exactly one export, and silently: `Promise<void>` cannot declare it, so the declaration invites `init(BYTES).catch(…)` and the throw escapes.
 

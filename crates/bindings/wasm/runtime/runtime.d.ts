@@ -494,23 +494,22 @@ export interface ChangeSet {
 
 /**
  * A backend registry entry. `load` is the lazy thunk returning the
- * dynamically-imported backend build module; `formats`/`canvas` are the required
- * static capability manifest, which is what makes `Engine.supportedFormats` and
- * `Engine.supportsCanvas` free: they answer from it without loading a backend
- * binary or cloning a quill. A malformed descriptor throws at `new Engine(...)`.
+ * dynamically-imported backend build module; `formats` is the required static
+ * capability manifest, which is what makes `Engine.supportedFormats` free: it
+ * answers from it without loading a backend binary or cloning a quill. A
+ * malformed descriptor throws at `new Engine(...)`.
  */
 export interface BackendDescriptor {
 	load: () => Promise<unknown>;
 	formats: OutputFormat[];
-	canvas: boolean;
 }
 
 export interface EngineOptions {
 	/**
 	 * Extra or overriding backend descriptors, merged over the built-ins. Keys are
 	 * backend ids (as declared by `Quill.yaml`'s `backend:` and reported by
-	 * `Quill.backendId`). Each value is a `BackendDescriptor`: `formats`/`canvas`
-	 * are required, so capability probes are ALWAYS free (no binary load, no quill
+	 * `Quill.backendId`). Each value is a `BackendDescriptor`: `formats` is
+	 * required, so the format probe is ALWAYS free (no binary load, no quill
 	 * clone). Malformed entries throw at construction. The default registry maps
 	 * `"typst"` and `"pdfform"` to the bundled backend builds.
 	 */
@@ -557,17 +556,6 @@ export declare class Engine {
 	 * backend binary or cloning the quill. Async for API stability.
 	 */
 	supportedFormats(quill: Quill): Promise<OutputFormat[]>;
-
-	/**
-	 * Whether `quill`'s backend can paint sessions to a canvas: a pre-session
-	 * estimate, not a fact about any particular compile, answered from the
-	 * descriptor's `canvas` manifest like `supportedFormats`. A specific compile
-	 * can still refuse to paint (a 0-page document, say), so this can answer
-	 * `true` while the resulting {@link LiveSession.supportsCanvas} answers
-	 * `false`. Gate mounting a canvas UI on this, and the `paint` call itself on
-	 * the session's getter.
-	 */
-	supportsCanvas(quill: Quill): Promise<boolean>;
 }
 
 /**
@@ -579,19 +567,15 @@ export declare class Engine {
  * values into the page content to satisfy this. {@link LiveSession.regions}
  * carries schema-field geometry for overlays drawn on top; it is never needed to
  * complete the picture.
+ *
+ * A backend with no canvas painter, and a compile with no pages, throw from
+ * {@link LiveSession.pageSize} and {@link LiveSession.paint} naming the resolved
+ * `backendId`. That throw is how a consumer learns; there is no capability flag.
  */
 export declare class LiveSession {
 	private constructor();
 	readonly pageCount: number;
 	readonly backendId: string;
-	/**
-	 * `true` iff `paint`/`pageSize` will succeed for THIS compile: the
-	 * authoritative answer, which can be `false` even where
-	 * {@link Engine.supportsCanvas} answered `true` for the same `quill` (a
-	 * canvas-capable backend compiled to a 0-page document has nothing to paint).
-	 * Re-check it after `open()` rather than relying on the engine hint.
-	 */
-	readonly supportsCanvas: boolean;
 	readonly warnings: Diagnostic[];
 	/**
 	 * Recompile the session against `doc`: the edit verb of a live preview.

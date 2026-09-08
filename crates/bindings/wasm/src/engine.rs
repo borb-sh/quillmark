@@ -607,14 +607,6 @@ impl Quillmark {
         let out: Vec<crate::types::OutputFormat> = formats.iter().map(|f| (*f).into()).collect();
         serialize_or_throw(&out, "supportedFormats")
     }
-
-    /// Whether `quill`'s backend can paint sessions to a canvas; `false` when the
-    /// backend is unsupported. A cheap probe before mounting a preview UI. The
-    /// authoritative answer is the session's `supportsCanvas` getter.
-    #[wasm_bindgen(js_name = supportsCanvas)]
-    pub fn supports_canvas(&self, quill: &Quill) -> bool {
-        self.inner.supports_canvas(&quill.inner)
-    }
 }
 
 #[wasm_bindgen]
@@ -2809,12 +2801,6 @@ impl LiveSession {
     #[wasm_bindgen(getter, js_name = backendId)]
     pub fn backend_id(&self) -> String {
         self.backend_id.clone()
-    }
-
-    /// `true` iff `paint` and `pageSize` will succeed for this session.
-    #[wasm_bindgen(getter, js_name = supportsCanvas)]
-    pub fn supports_canvas(&self) -> bool {
-        self.inner.supports_canvas()
     }
 
     /// Non-fatal diagnostics of the session's **current compile**, refreshed by

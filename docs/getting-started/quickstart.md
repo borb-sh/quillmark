@@ -87,10 +87,9 @@
     ## Live Preview (Canvas)
 
     For editor-style previews, paint pages directly into a `<canvas>` instead
-    of round-tripping through PNG/SVG. `paint` is WASM-only: both the Typst
-    and `pdfform` backends support it; probe with `engine.supportsCanvas(quill)`
-    before mounting canvas UI, and shares the cached compile with the
-    byte-output `render` path.
+    of round-tripping through PNG/SVG. `paint` is WASM-only, both the Typst
+    and `pdfform` backends support it, and it shares the cached compile with
+    the byte-output `render` path.
 
     ```javascript
     const session = await engine.open(quill, doc);     // compile once (async)

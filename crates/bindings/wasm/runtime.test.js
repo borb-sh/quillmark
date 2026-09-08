@@ -780,7 +780,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
     expect(doc.quillRef).toBe('test_quill')
   })
 
-  it('renders to SVG and reports supported formats / canvas capability', async () => {
+  it('renders to SVG and reports supported formats', async () => {
     const engine = new Engine()
     const quill = makeRuntimeQuill()
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
@@ -790,7 +790,6 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
 
     const formats = await engine.supportedFormats(quill)
     expect(formats).toContain('svg')
-    expect(typeof (await engine.supportsCanvas(quill))).toBe('boolean')
   })
 
   // ERROR.md § "Warning flow": `RenderResult.warnings` is pipeline order, the
@@ -811,9 +810,9 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
     expect(doc.warnings.map((d) => d.code)).toEqual(loadCodes)
   })
 
-  it('manifest-backed capability probes do NOT load the backend', async () => {
+  it('the manifest-backed format probe does NOT load the backend', async () => {
     // A descriptor-form counting loader: it carries the same manifest the
-    // default registry uses, so probes answer from the manifest (no load),
+    // default registry uses, so the probe answers from the manifest (no load),
     // while still counting any real binary load triggered by render.
     let loaded = 0
     const engine = new Engine({
@@ -823,18 +822,16 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
             loaded++
             return import('../../../pkg/backends/typst/wasm.js')
           },
-          formats: ['pdf', 'svg', 'png'],
-          canvas: true
+          formats: ['pdf', 'svg', 'png']
         }
       }
     })
     const quill = makeRuntimeQuill()
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
 
-    // Descriptor WITH a manifest → probes answer from the manifest, no load.
+    // Descriptor WITH a manifest → the probe answers from the manifest, no load.
     const formats = await engine.supportedFormats(quill)
     expect(formats).toContain('pdf')
-    expect(typeof (await engine.supportsCanvas(quill))).toBe('boolean')
     expect(loaded).toBe(0)
 
     // A real render still triggers exactly one load.
@@ -849,7 +846,6 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
 
     // What the static manifest reports (no load).
     const manifestFormats = await engine.supportedFormats(quill)
-    const manifestCanvas = await engine.supportsCanvas(quill)
 
     // Force the backend to actually load, then ask the real engine directly.
     await engine.render(quill, doc, { format: 'svg' })
@@ -858,10 +854,8 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
     const backendQuill = mod.Quill.fromTree(quill.toTree())
     try {
       const realFormats = backendEngine.supportedFormats(backendQuill)
-      const realCanvas = backendEngine.supportsCanvas(backendQuill)
       // The manifest must match what the binary reports, both directions.
       expect([...manifestFormats].sort()).toEqual([...realFormats].sort())
-      expect(manifestCanvas).toBe(realCanvas)
     } finally {
       backendQuill.free()
     }
@@ -869,8 +863,8 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
 
   it('pdfform manifest cannot drift from the loaded backend (drift guard)', async () => {
     // Same drift guard as typst, but for the pdfform backend: the static
-    // `{ formats, canvas }` manifest in DEFAULT_BACKENDS must match what the
-    // loaded pdfform binary actually reports.
+    // `formats` manifest in DEFAULT_BACKENDS must match what the loaded
+    // pdfform binary actually reports.
     const engine = new Engine()
     const quill = Quill.fromTree(makeSampleFormQuill())
     expect(quill.backendId).toBe('pdfform')
@@ -878,9 +872,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
 
     // What the static manifest reports (no load).
     const manifestFormats = await engine.supportedFormats(quill)
-    const manifestCanvas = await engine.supportsCanvas(quill)
-    expect([...manifestFormats].sort()).toEqual(['pdf', 'png', 'svg'])
-    expect(manifestCanvas).toBe(true)
+    expect(manifestFormats).toEqual(['pdf'])
 
     // Force the pdfform backend to load, then ask the real engine directly.
     await engine.render(quill, doc, { format: 'pdf' })
@@ -889,27 +881,25 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
     const backendQuill = mod.Quill.fromTree(quill.toTree())
     try {
       const realFormats = backendEngine.supportedFormats(backendQuill)
-      const realCanvas = backendEngine.supportsCanvas(backendQuill)
       expect([...manifestFormats].sort()).toEqual([...realFormats].sort())
-      expect(manifestCanvas).toBe(realCanvas)
     } finally {
       backendQuill.free()
     }
   })
 
   it('throws at construction for a malformed backend descriptor (names the id)', () => {
-    // A backend entry must be a descriptor `{ load, formats, canvas }`; a bare thunk is rejected.
+    // A backend entry must be a descriptor `{ load, formats }`; a bare thunk is rejected.
     expect(() => new Engine({ backends: { typst: () => import('../../../pkg/backends/typst/wasm.js') } })).toThrow(
       /typst/
     )
     // Missing/invalid manifest fields also fail fast at construction.
     expect(
-      () => new Engine({ backends: { mybackend: { load: () => Promise.resolve({}), canvas: true } } })
+      () => new Engine({ backends: { mybackend: { load: () => Promise.resolve({}) } } })
     ).toThrow(/mybackend/)
     expect(
       () =>
         new Engine({
-          backends: { mybackend: { load: () => Promise.resolve({}), formats: ['pdf'], canvas: 'yes' } }
+          backends: { mybackend: { load: () => Promise.resolve({}), formats: 'pdf' } }
         })
     ).toThrow(/mybackend/)
   })
@@ -944,8 +934,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
               }
             })
           },
-          formats: ['pdf', 'svg', 'png'],
-          canvas: true
+          formats: ['pdf', 'svg', 'png']
         }
       }
     })
@@ -1042,7 +1031,6 @@ A single line of body ink.`
       // Getters.
       expect(session.pageCount).toBeGreaterThan(0)
       expect(session.backendId).toBe('typst')
-      expect(typeof session.supportsCanvas).toBe('boolean')
       expect(Array.isArray(session.warnings)).toBe(true)
 
       // render.
@@ -1168,8 +1156,7 @@ main:
             loaded++
             return import('../../../pkg/backends/typst/wasm.js')
           },
-          formats: ['pdf', 'svg', 'png'],
-          canvas: true
+          formats: ['pdf', 'svg', 'png']
         }
       }
     })
@@ -1189,8 +1176,7 @@ main:
             loaded++
             return import('../../../pkg/backends/typst/wasm.js')
           },
-          formats: ['pdf', 'svg', 'png'],
-          canvas: true
+          formats: ['pdf', 'svg', 'png']
         }
       }
     })
@@ -1291,7 +1277,6 @@ main:
             })
           },
           formats: ['pdf', 'svg', 'png'],
-          canvas: true,
         },
       },
     })

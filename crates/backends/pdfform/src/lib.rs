@@ -29,15 +29,13 @@ use {
     hayro::hayro_syntax::Pdf as HayroPdf,
     hayro::vello_cpu::Pixmap,
     hayro::{render as hayro_render, RenderCache, RenderSettings},
-    hayro_svg::{convert as hayro_svg_convert, RenderCache as SvgCache, SvgRenderSettings},
     std::sync::Arc,
 };
 
 const FORM_PDF: &str = "form.pdf";
 const FORM_JSON: &str = "form.json";
 
-const SUPPORTED_FORMATS: &[OutputFormat] =
-    &[OutputFormat::Pdf, OutputFormat::Svg, OutputFormat::Png];
+const SUPPORTED_FORMATS: &[OutputFormat] = &[OutputFormat::Pdf];
 
 /// The PDF-form backend.
 #[derive(Debug, Default)]
@@ -123,7 +121,7 @@ fn resolve_field_specs(bound: &[BoundWidget], json_data: &serde_json::Value) -> 
 /// are set are the two places the derived PDF moves.
 ///
 /// A parse failure is this crate flattening to something malformed, never a
-/// property of the output format asking for it.
+/// property of the document being rendered.
 fn flatten_and_parse(base_pdf: &[u8], field_specs: &[FieldSpec]) -> Result<HayroPdf, RenderError> {
     let flat = flatten_to_pdf(base_pdf.to_vec(), field_specs)?;
     HayroPdf::new(flat).map_err(|_| {
@@ -142,7 +140,7 @@ struct PdfformSession {
     /// lower-left corner is the canvas origin. Cached so `page_size_pt` need not
     /// reparse.
     canvas_boxes: Vec<[f32; 4]>,
-    /// The base with `field_specs` baked in, parsed: the render paths hold
+    /// The base with `field_specs` baked in, parsed: the canvas path holds
     /// pages rather than bytes to reparse per paint.
     flat: HayroPdf,
 }
@@ -158,28 +156,20 @@ impl SessionHandle for PdfformSession {
             ));
         }
 
-        if format == OutputFormat::Pdf {
-            if opts.pages.is_some() {
-                return Err(quillmark_core::page_selection_not_supported(format));
-            }
-
-            // PDF output is always an interactive AcroForm; value-flattening
-            // backs only the raster paths, never a PDF deliverable.
-            let producer = opts.producer.clone().unwrap_or_else(default_producer);
-            let stamp_opts = StampOptions::default().with_producer(producer);
-            let stamped = stamp(self.base_pdf.clone(), &self.field_specs, &stamp_opts)?;
-
-            return Ok(RenderResult::new(
-                vec![Artifact::new(stamped, OutputFormat::Pdf)],
-                OutputFormat::Pdf,
-            ));
+        if opts.pages.is_some() {
+            return Err(quillmark_core::page_selection_not_supported(format));
         }
 
-        let pages = quillmark_core::selected_pages(opts.pages.as_deref(), self.flat.pages().len())?;
-        if format == OutputFormat::Svg {
-            return self.render_svg(&pages);
-        }
-        self.render_png(&pages, quillmark_core::raster_scale(opts.ppi_or_default())?)
+        // PDF output is always an interactive AcroForm; value-flattening backs
+        // only the canvas raster, never a PDF deliverable.
+        let producer = opts.producer.clone().unwrap_or_else(default_producer);
+        let stamp_opts = StampOptions::default().with_producer(producer);
+        let stamped = stamp(self.base_pdf.clone(), &self.field_specs, &stamp_opts)?;
+
+        Ok(RenderResult::new(
+            vec![Artifact::new(stamped, OutputFormat::Pdf)],
+            OutputFormat::Pdf,
+        ))
     }
 
     fn page_count(&self) -> usize {
@@ -264,60 +254,8 @@ impl PdfformSession {
         let cache = RenderCache::new();
         Ok(Some(hayro_render(p, &cache, interp, settings)))
     }
-
-    fn render_svg(&self, pages: &[usize]) -> Result<RenderResult, RenderError> {
-        let interp = standard_font_settings();
-        let svg_settings = SvgRenderSettings {
-            bg_color: [255, 255, 255, 255],
-        };
-        let all = self.flat.pages();
-        let artifacts: Vec<Artifact> = pages
-            .iter()
-            .map(|&idx| {
-                let cache = SvgCache::new();
-                let svg = hayro_svg_convert(&all[idx], &cache, &interp, &svg_settings);
-                Artifact::new(svg.into_bytes(), OutputFormat::Svg)
-            })
-            .collect();
-
-        Ok(RenderResult::new(artifacts, OutputFormat::Svg))
-    }
-
-    /// `scale` is device pixels per PDF point (`ppi / 72`).
-    fn render_png(&self, pages: &[usize], scale: f32) -> Result<RenderResult, RenderError> {
-        let interp = standard_font_settings();
-        let render_settings = scaled_render_settings(scale);
-
-        let mut artifacts = Vec::with_capacity(pages.len());
-        for &idx in pages {
-            // `selected_pages` bounded these against the same page list, so a
-            // miss is the two disagreeing. Refuse: a short artifact list reads
-            // as a document with fewer pages.
-            let Some(pixmap) = self.raster(idx, &interp, &render_settings)? else {
-                return Err(RenderError::coded_hint(
-                    "backend::page_index_out_of_bounds",
-                    format!(
-                        "page {idx} is past the flattened document's {} pages",
-                        self.flat.pages().len()
-                    ),
-                    "Read the session's page count before requesting pages.",
-                ));
-            };
-            let png = pixmap.into_png().map_err(|e| {
-                RenderError::coded(
-                    "pdfform::png_encoding",
-                    format!("failed to encode page as PNG: {e}"),
-                )
-            })?;
-            artifacts.push(Artifact::new(png, OutputFormat::Png));
-        }
-
-        Ok(RenderResult::new(artifacts, OutputFormat::Png))
-    }
 }
 
-/// Shared by the RGBA canvas path and the PNG artifact path, which must agree
-/// or a preview and its export drift apart.
 fn scaled_render_settings(scale: f32) -> RenderSettings {
     use hayro::vello_cpu::color::palette::css::WHITE;
     RenderSettings {

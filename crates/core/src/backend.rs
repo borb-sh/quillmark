@@ -175,23 +175,6 @@ pub fn page_selection_not_supported(format: OutputFormat) -> RenderError {
     )
 }
 
-/// Pre-session hint for whether a backend with these `formats` can paint pages
-/// to a canvas, used before a session exists (e.g. a GUI deciding whether to
-/// mount a canvas preview without first paying to open one).
-///
-/// Canvas paint needs a per-page visual image of the laid-out page, so the
-/// predicate keys off the visual-page formats ([`OutputFormat::Png`],
-/// [`OutputFormat::Svg`]) rather than [`OutputFormat::Pdf`].
-///
-/// Only a hint: the authoritative answer is
-/// [`LiveSession::supports_canvas`](crate::LiveSession::supports_canvas),
-/// derived from the session's own canvas seam.
-pub fn formats_support_canvas(formats: &[OutputFormat]) -> bool {
-    formats
-        .iter()
-        .any(|f| matches!(f, OutputFormat::Png | OutputFormat::Svg))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -254,15 +237,5 @@ mod tests {
             err.diagnostics()[0].code.as_deref(),
             Some("backend::page_index_out_of_bounds")
         );
-    }
-
-    #[test]
-    fn formats_support_canvas_keys_off_visual_formats() {
-        use OutputFormat::*;
-        assert!(formats_support_canvas(&[Pdf, Svg, Png]));
-        assert!(formats_support_canvas(&[Pdf, Svg]));
-        assert!(formats_support_canvas(&[Png]));
-        assert!(!formats_support_canvas(&[Pdf]));
-        assert!(!formats_support_canvas(&[]));
     }
 }

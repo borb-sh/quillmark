@@ -119,18 +119,17 @@ A load failure surfaces as `runtime::init_failed`, whose hint names that line.
 Create the render dispatcher. Routes each quill to its backend by
 `quill.backendId`, lazily loads that backend binary, and renders: cloning the
 quill/document into the backend's memory and freeing the clones internally.
-`render`, `open`, `supportedFormats`, and `supportsCanvas` are **async** (the
-first call may load a backend). Pass `{ backends }` to register or override
-backend descriptors. Each entry is a descriptor
-(`{ [backendId]: { load, formats, canvas } }`) where `load` is the lazy thunk
-returning the backend module and `formats`/`canvas` are the **required** static
-capability manifest. A malformed descriptor throws at `new Engine(...)`, naming
-the backend id.
+`render`, `open`, and `supportedFormats` are **async** (the first call may load
+a backend). Pass `{ backends }` to register or override backend descriptors.
+Each entry is a descriptor (`{ [backendId]: { load, formats } }`) where `load`
+is the lazy thunk returning the backend module and `formats` is the
+**required** static capability manifest. A malformed descriptor throws at
+`new Engine(...)`, naming the backend id.
 
-**Capability probes are always free.** `supportedFormats` and `supportsCanvas`
-depend only on `quill.backendId`, and answer from the descriptor's required
-`formats`/`canvas` manifest: never loading the multi-MB backend binary and
-never cloning the quill. Use them as non-failing pre-render probes.
+**The format probe is always free.** `supportedFormats` depends only on
+`quill.backendId`, and answers from the descriptor's required `formats`
+manifest: never loading the multi-MB backend binary and never cloning the
+quill. Use it as a non-failing pre-render probe.
 
 ### The two doors: `Document.fromMarkdown` vs `quill.parse` / `quill.conform`
 
@@ -399,9 +398,9 @@ canvas.style.height = `${result.layoutHeight}px`;
 - In a Worker, pass an `OffscreenCanvasRenderingContext2D`; the layout
   dimensions are informational there. Loading the WASM module inside the Worker
   is the host's responsibility.
-- Backend support is gated by `supportsCanvas`. Probe upfront with
-  `engine.supportsCanvas(quill)`; the throw on `paint` / `pageSize` remains the
-  enforcement contract and names the resolved `backendId`.
+- A backend with no canvas painter, and a compile with no pages, throw on
+  `paint` / `pageSize`, naming the resolved `backendId`. That throw is the whole
+  contract: open the session and handle the failure.
 
 ### Schema model
 
@@ -446,9 +445,9 @@ try {
 
 **Delivery follows the function, not the failure.** A synchronous method throws;
 a promise-returning one rejects. The promise-returning surface is `init` and the
-four `Engine` verbs (`render`, `open`, `supportedFormats`, `supportsCanvas`), so
-a programming error reached through one of them (a foreign handle, an
-unregistered backend) rejects like any other failure. Nothing here both returns
+three `Engine` verbs (`render`, `open`, `supportedFormats`), so a programming
+error reached through one of them (a foreign handle, an unregistered backend)
+rejects like any other failure. Nothing here both returns
 a promise and throws, so a `.catch` on a promise-returning call is a whole
 guard.
 

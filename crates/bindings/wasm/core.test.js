@@ -46,10 +46,9 @@ describe('@quillmark/wasm/core surface', () => {
   it('loads a quill via Quill.fromTree with no engine', () => {
     const quill = Quill.fromTree(makeCoreQuill())
     expect(quill.backendId).toBe('typst')
-    // No render/open/capability methods on the core Quill.
+    // No render/open methods on the core Quill.
     expect(quill.render).toBeUndefined()
     expect(quill.open).toBeUndefined()
-    expect(quill.supportsCanvas).toBeUndefined()
   })
 
   it('metadata is identity-only: no supportedFormats', () => {

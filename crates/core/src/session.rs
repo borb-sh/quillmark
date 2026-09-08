@@ -203,8 +203,7 @@ impl LiveSession {
 
     /// Whether this session can paint pages to a canvas, derived from the
     /// canvas seam rather than a separate flag. A canvas-capable backend with
-    /// zero pages reports `false`. For a pre-session estimate see
-    /// [`formats_support_canvas`](crate::formats_support_canvas).
+    /// zero pages reports `false`.
     pub fn supports_canvas(&self) -> bool {
         self.inner.page_count() > 0 && self.inner.page_size_pt(0).is_some()
     }

@@ -225,34 +225,26 @@ The widget is unsigned: Quillmark performs no cryptography. To produce a signed 
 
 ## Output formats
 
-| Format | Support |
-|---|---|
-| **PDF** | The deliverable; always an interactive AcroForm (Technique A). |
-| **SVG** | A `render()` output format: one SVG document per page. |
-| **PNG** | A `render()` output format: one raster per page at `RenderOptions::ppi` (default 144). |
+The backend's formats are `[Pdf]`: the deliverable, always an interactive
+AcroForm (Technique A). SVG and PNG error with `backend::format_not_supported`,
+the code both built-in backends share.
 
-The backend's formats are `[Pdf, Svg, Png]`: every `OutputFormat` there is. A
-format added to the enum and not to this backend errors with
-`backend::format_not_supported`, the code both built-in backends share.
+PDF is emitted whole, so a `RenderOptions::pages` selection errors with
+`backend::page_selection_not_supported`.
 
-`RenderOptions::pages` narrows SVG and PNG to the named pages, in the order
-given; an index past the form's last page errors with
-`backend::page_index_out_of_bounds`. PDF is emitted whole, so a selection there
-errors with `backend::page_selection_not_supported`.
-
-**Canvas** is a separate surface from the `render()` output formats above: it is
-the WASM `paint()` raster path (`render_rgba`), not an `OutputFormat`. See
+**Canvas** is a separate surface from `render()`: it is the WASM `paint()`
+raster path (`render_rgba`), not an `OutputFormat`, and this backend paints. See
 [PREVIEW.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PREVIEW.md).
 
 The PDF is the real deliverable. By design (Technique A: real fields plus `NeedAppearances`, no baked appearance streams), **values appear only in viewers that synthesize appearances**: Acrobat, Chrome/pdfium, Preview.app, pdf.js's forms layer. A flat, non-interactive rasterizer renders the fields blank.
 
-To get values into the SVG/PNG/canvas output, the backend pre-flattens them: it bakes each value into the page content stream so the raster is complete rather than background-only. This flattening backs the SVG/PNG/canvas surfaces only: never the AcroForm PDF deliverable, which is always stamped.
+To get values into the canvas raster, the backend pre-flattens them: it bakes each value into the page content stream so the raster is complete rather than background-only. This flattening backs the canvas surface only: never the AcroForm PDF deliverable, which is always stamped.
 
 ### Flatten fidelity limits
 
-The stamped PDF is always faithful; the **flattened preview surfaces (SVG/PNG/canvas) are a lossy approximation** in two cases, because the flatten path bakes a fixed Helvetica appearance clipped to the field box rather than deferring to a viewer's form renderer. In both, the delivered PDF is correct: only the preview differs, and no diagnostic is raised.
+The stamped PDF is always faithful; the **flattened canvas preview is a lossy approximation** in two cases, because the flatten path bakes a fixed Helvetica appearance clipped to the field box rather than deferring to a viewer's form renderer. In both, the delivered PDF is correct: only the preview differs, and no diagnostic is raised.
 
-- **Non-WinAnsi characters render as `?`.** The flatten path encodes text as WinAnsi (CP1252). Any code point outside that range (CJK, emoji, and many symbols) is substituted with `?` in the preview, while the stamped PDF keeps full Unicode (UTF-16BE `/V`). A field whose value is `日本語` shows correctly in Acrobat but as `???` in the SVG/PNG/canvas.
+- **Non-WinAnsi characters render as `?`.** The flatten path encodes text as WinAnsi (CP1252). Any code point outside that range (CJK, emoji, and many symbols) is substituted with `?` in the preview, while the stamped PDF keeps full Unicode (UTF-16BE `/V`). A field whose value is `日本語` shows correctly in Acrobat but as `???` on the canvas.
 - **Multi-line overflow is clipped.** A multi-line value taller than its field box has its overflow lines clipped in the preview (the content is masked to the box), whereas the stamped PDF keeps the full value and lets the viewer wrap or scroll it. A preview can therefore look truncated where the delivered PDF is complete.
 
 Treat the stamped PDF, not the raster preview, as the source of truth for what a field actually contains.

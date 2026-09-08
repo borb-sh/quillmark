@@ -97,17 +97,6 @@ impl Quillmark {
     pub fn supported_formats(&self, quill: &Quill) -> Result<&'static [OutputFormat], RenderError> {
         Ok(self.resolve_backend(quill)?.supported_formats())
     }
-
-    /// Pre-session hint for whether `quill`'s backend can paint sessions to a
-    /// canvas, derived from its output formats; `false` when the backend is
-    /// unregistered. Compiles nothing. Once a session exists,
-    /// [`LiveSession::supports_canvas`](quillmark_core::LiveSession::supports_canvas)
-    /// is authoritative.
-    pub fn supports_canvas(&self, quill: &Quill) -> bool {
-        self.resolve_backend(quill)
-            .map(|b| quillmark_core::formats_support_canvas(b.supported_formats()))
-            .unwrap_or(false)
-    }
 }
 
 impl Default for Quillmark {

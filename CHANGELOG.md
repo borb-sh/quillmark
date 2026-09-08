@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- refactor(pdfform)!: **the SVG and PNG output formats go; canvas paint stays.**
+  `supported_formats` reports `[Pdf]`, so a `render` asking for either fails
+  under `backend::format_not_supported` and `quillmark render --format png` on
+  a pdfform quill does too. The two formats were views of the flattened form
+  consumed by nothing but their own test. `render_rgba` and the `hayro`
+  dependency stay, so a WASM consumer paints pdfform pages exactly as before:
+  paint is a `SessionHandle` seam, not an output format. `hayro-svg` goes with
+  the SVG artifact path, its only caller.
+- refactor(core,wasm)!: **the pre-session `supportsCanvas` probe is deleted at
+  every layer.** `Quillmark::supports_canvas`,
+  `quillmark_core::formats_support_canvas`, the WASM
+  `Engine.supportsCanvas(quill)` and `LiveSession.supportsCanvas` getters, and
+  the `canvas` key of a runtime `BackendDescriptor` all go; a descriptor's
+  manifest is `formats` alone. The probe keyed on output formats — true iff the
+  backend emitted PNG or SVG — while canvas paint is a `SessionHandle` seam a
+  backend overrides independently of the formats it emits, so the two could
+  disagree; every backend the workspace ships paints, so it answered `true` in
+  every build. `LiveSession::supports_canvas()` stays: it is derived from the
+  seam it gates and cannot drift. A JS consumer opens the session and handles
+  the throw `paint` / `pageSize` already owe a compile with nothing to paint.
 - refactor(all)!: **the crate-compatibility ceremony is withdrawn:
   `#[non_exhaustive]`, the `Backend` seal, public `register_backend`, and the
   SemVer promise `COMPATIBILITY.md` carried.** The attribute leaves the 86
@@ -30,11 +50,6 @@
   the door every binding took and the one that dropped them, so the channel's
   output — `quill::implicit_group` and `quill::body_example_unused` — was
   visible only to the CLI's `validate`.
-- fix(pdfform): **a PNG render refuses a page index past the flattened
-  document** under `backend::page_index_out_of_bounds` rather than skipping it.
-  `selected_pages` bounds the indices against the same page list, so a miss is
-  the two disagreeing; a short artifact list reads as a document with fewer
-  pages.
 - feat(core)!: **five retired `Quill.yaml` keys lose their tailored migration
   message, and an implicit group is a load error.** `must_fill`, `enum`,
   `ui.order`, the `richtext(inline)` type token and `markdown` were retired

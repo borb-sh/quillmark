@@ -9,8 +9,8 @@
 //! true of any background with balanced `q`/`Q` and no dangling `cm`. Colour and
 //! text state carry no such guarantee — a `/Contents` array is one stream, and
 //! neither `BT` nor an unpaired `0.9 g` or `3 Tr` is undone — so each drawn
-//! value opens by asserting the defaults the stamped `/DA` writes. Backs every
-//! rendered output but the AcroForm PDF deliverable, which is stamped.
+//! value opens by asserting the defaults the stamped `/DA` writes. Backs the
+//! canvas raster; the AcroForm PDF deliverable is stamped instead.
 
 use quillmark_pdf::{
     reader::{
@@ -31,7 +31,7 @@ const CODE_PARSE: &str = "pdfform::flatten_parse";
 const STATE_RESET: &[u8] = b"0 g 0 Tr 0 Tc 0 Tw 100 Tz 0 Ts\n";
 
 /// Flatten `fields` onto `base` by drawing values as content stream operators.
-/// Backs raster output only, so it stamps no `/Info /Producer`.
+/// Backs the canvas raster only, so it stamps no `/Info /Producer`.
 pub fn flatten(base: Vec<u8>, fields: &[FieldSpec]) -> Result<Vec<u8>, PdfError> {
     // Nothing to draw is the base itself: an update carrying only the two font
     // objects would be a revision no page references.
