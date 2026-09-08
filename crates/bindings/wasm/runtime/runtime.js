@@ -900,43 +900,12 @@ export class DocumentWriter {
 		return this.#doc.removeCard(index);
 	}
 	/**
-	 * @param {DocumentValuesInput} values
-	 * @returns {void}
-	 */
-	setValues(values) {
-		return this.#doc._setValues(this.#quill, MAIN_CARD_ADDR, withoutUndefined(values));
-	}
-	/**
 	 * @param {number} index
 	 * @returns {CardWriter}
 	 */
 	card(index) {
 		return new CardWriter(this.#quill, this.#doc, index);
 	}
-}
-
-/**
- * The values shape with every `undefined` member dropped, at the shape's own
- * members, its `fields` entries, and each card entry's. `undefined` is absent
- * (untouched) where `null` is a value (a removal, a present-null), and the
- * wasm boundary would fold the two together.
- * @param {unknown} values
- * @returns {unknown}
- */
-function withoutUndefined(values) {
-	if (values === null || typeof values !== 'object' || Array.isArray(values)) return values;
-	const out = {};
-	for (const [key, value] of Object.entries(values)) {
-		if (value === undefined) continue;
-		if (key === 'cards' && Array.isArray(value)) {
-			out[key] = value.map(withoutUndefined);
-		} else if (key === 'fields' && value !== null && typeof value === 'object') {
-			out[key] = Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined));
-		} else {
-			out[key] = value;
-		}
-	}
-	return out;
 }
 
 export class CardWriter {
@@ -993,13 +962,6 @@ export class CardWriter {
 	 */
 	reviseField(name, text) {
 		return this.#doc._reviseField(this.#quill, { card: this.#index, field: name }, text);
-	}
-	/**
-	 * @param {CardValuesInput} values
-	 * @returns {void}
-	 */
-	setValues(values) {
-		return this.#doc._setValues(this.#quill, { card: this.#index }, withoutUndefined(values));
 	}
 }
 
@@ -1062,12 +1024,6 @@ export class DocumentReader {
 	 */
 	bodyMarkdown() {
 		return this.#doc._readerGet(this.#quill, {});
-	}
-	/**
-	 * @returns {DocumentValues}
-	 */
-	values() {
-		return this.#doc._readerValues(this.#quill, MAIN_CARD_ADDR);
 	}
 	/**
 	 * @returns {Resolved}
@@ -1136,12 +1092,6 @@ export class CardReader {
 	 */
 	bodyMarkdown() {
 		return this.#doc._readerGet(this.#quill, { card: this.#index });
-	}
-	/**
-	 * @returns {CardValues}
-	 */
-	values() {
-		return this.#doc._readerValues(this.#quill, { card: this.#index });
 	}
 }
 

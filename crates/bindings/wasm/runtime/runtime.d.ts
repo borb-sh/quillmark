@@ -138,20 +138,15 @@ export type {
 	DocPathSeg
 } from '../core/wasm.js';
 
-// The two schema-bound whole-document reads on `quill.reader(doc)`: the values
-// form (`reader.values()`, what the document carries) and the resolved view
-// (`reader.resolve()`, value + source rung per declared field, the body a `body`
-// sibling on its card and never a row in `fields`).
+// The schema-bound whole-document read on `quill.reader(doc)`: the resolved
+// view (`reader.resolve()`, value + source rung per declared field, the body a
+// `body` sibling on its card and never a row in `fields`).
 export type {
 	FieldSource,
 	ResolvedField,
 	ResolvedMain,
 	ResolvedCard,
-	Resolved,
-	CardValues,
-	DocumentValues,
-	CardValuesInput,
-	DocumentValuesInput
+	Resolved
 } from '../core/wasm.js';
 
 /**
@@ -707,24 +702,6 @@ export declare class DocumentWriter {
 	 * untouched.
 	 */
 	addCard(kind: string, fields?: Record<string, unknown>, body?: string, at?: number): void;
-	/**
-	 * Write the document in the values form: the write twin of
-	 * {@link DocumentReader.values}. An absent axis is untouched; a present one
-	 * is replaced: `fields` is the whole truth for declared names (an unnamed
-	 * one is removed; an undeclared one the card holds is accepted unchanged and
-	 * refused changed), `cards` is the card list, `body` the body, `ext: null`
-	 * removes `$ext` and `{}` records an explicit empty one. All-or-nothing:
-	 * nothing is applied on error and every refused cell is one diagnostic
-	 * carrying its own `path`.
-	 *
-	 * A cell whose value equals its projection is not written, so writing back
-	 * an unedited read changes no bytes. A changed content cell is a cold
-	 * import — {@link DocumentWriter.reviseField} per cell is what keeps its
-	 * anchors — and cards match by position and kind, so deleting or reordering
-	 * an entry rewrites every card after it. An `undefined` member reads as
-	 * absent.
-	 */
-	setValues(values: DocumentValuesInput): void;
 	/** Remove the composable card at `index`, returning it (or `undefined`). */
 	removeCard(index: number): Card | undefined;
 	/**
@@ -761,13 +738,6 @@ export declare class CardWriter {
 	 * for an undeclared name and `IndexOutOfRange` for a bad bound index.
 	 */
 	reviseField(name: string, text: string): Delta;
-	/**
-	 * Write this card in the values form: {@link DocumentWriter.setValues}
-	 * restricted to one slot, under the same per-axis rule. An absent `kind`
-	 * keeps the card's; a differing one rebuilds the slot. Refusals anchor at
-	 * `cards.<kind>[index]`; throws `IndexOutOfRange` for a bad bound index.
-	 */
-	setValues(values: CardValuesInput): void;
 }
 
 /**
@@ -830,20 +800,11 @@ export declare class DocumentReader {
 	/** The main body's markdown: the quill-free body read. Equals `get({})`. */
 	bodyMarkdown(): string;
 	/**
-	 * The whole document in the values form: the main card's fields, body and
-	 * `$ext`, and every composable card, every content leaf as its codec's text,
-	 * everything else as stored. Every axis is present, so the result is a valid
-	 * {@link DocumentWriter.setValues} input and writing it back unedited changes
-	 * no bytes. Never throws: a content leaf that decodes under neither encoding
-	 * rides out as stored where {@link get} would throw.
-	 */
-	values(): DocumentValues;
-	/**
 	 * The resolved-value view: for every declared field, the value the render
 	 * projection would use and the rung it came from (`authored` / `default` /
-	 * `blank`). The one read that blank-fills and coerces; {@link values}
-	 * reports what the document carries. Value and provenance only;
-	 * completeness stays `quill.validate`'s.
+	 * `blank`). The one read that blank-fills and coerces; {@link get} reports
+	 * what the document carries. Value and provenance only; completeness stays
+	 * `quill.validate`'s.
 	 */
 	resolve(): Resolved;
 	/**
@@ -884,9 +845,4 @@ export declare class CardReader {
 	getContentAt(name: string, path: PathStep[]): Content | undefined;
 	/** This card's body markdown: the card twin of {@link DocumentReader.bodyMarkdown}. */
 	bodyMarkdown(): string;
-	/**
-	 * This card in the values form: {@link DocumentReader.values} restricted to
-	 * one slot. Throws `IndexOutOfRange` for a bad bound index.
-	 */
-	values(): CardValues;
 }

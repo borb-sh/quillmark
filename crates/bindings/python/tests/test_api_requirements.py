@@ -611,7 +611,6 @@ def test_every_mutator_verb_anchors_its_diagnostic_at_one_doc_path():
     cases = [
         ("set", lambda: writer.set("stray", "x"), "main.stray"),
         ("set_all", lambda: writer.set_all({"stray": "x"}), "main.stray"),
-        ("set_values", lambda: writer.set_values({"fields": {"stray": "x"}}), "main.stray"),
         ("card.set", lambda: writer.card(0).set("stray", "x"), "cards.quotes[0].stray"),
         ("add_card", lambda: writer.add_card("quotes", {}, at=99), "$kind"),
         ("set_card_kind", lambda: doc.set_card_kind(9, "quotes"), "cards[9]"),

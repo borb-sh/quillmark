@@ -181,8 +181,7 @@ leaf it reaches: an `array<richtext>` reads as an array of markdown strings, and
 a mixed `object` reads its content property as text beside its verbatim
 scalars. A field whose type tree bears no content leaf reads as stored, the walk
 being the identity on it, and a present-null reads `null` at every type. That
-is the [values form](#the-values-form-values--set_values), and `get` is
-`values()` restricted to one field.
+is the [values form](#the-values-form).
 Without it the caller reads the stored element and decides for itself what the
 bytes mean, which is the judgement the resting form exists to remove. The caller
 also has less to decide with: the codec is a schema fact, and the stored shape
@@ -397,7 +396,7 @@ field maps rather than a sort key):
 | seeding | `example:` › absent, stamped `!must_fill` where the schema obliges | (deferred to render floor) | committed `Document`: [Document seeding](#document-seeding) |
 | add-card (into a document) | `$seed` overlay › `example:` › absent | (deferred to render floor) | a new composable `Card`: [Document seeding](#document-seeding) |
 | editor (consumer-side) | authored › `default:` › blank, resolved per field and **tagged with its source rung** | blank | the engine's [`resolve()`](#the-resolved-value-view-resolve) resolved-value view: value and source rung per field |
-| values (`reader.values()`) | authored only, as stored: an absent field stays absent, a scalar shorthand stays a shorthand | **none**: the shape is sparse | the [values form](#the-values-form-values--set_values): `DocumentValues`, content leaves as their codec's text |
+| values (`reader.get()`) | authored only, as stored: an absent field stays absent, a scalar shorthand stays a shorthand | **none**: an absent field reads absent | the [values form](#the-values-form): the field's value with content leaves as their codec's text |
 
 ### Cells and namespaces
 
@@ -488,94 +487,55 @@ consumer code. Schema guidance (`example:`, labels, groups) reads from
 `Quill::schema`. Python is out of scope until a Python consumer names a call
 site (the Tier-1 cut, [BINDINGS.md](BINDINGS.md)).
 
-### The values form (`values()` / `set_values()`)
+### The values form
 
 A document has three forms, one per question. **Stored** is the at-rest
 value, verbatim and quill-free ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)).
 **Values** is stored with every content leaf decoded to its codec's text, so a
 consumer edits plain values. **Resolved**
 ([`resolve()`](#the-resolved-value-view-resolve)) is values blank-filled and
-render-coerced, each cell tagged with its rung. `reader.values()` answers what
-the document *carries*; `reader.resolve()` answers what the render projection
+render-coerced, each cell tagged with its rung. `reader.get()` answers what the
+document *carries*; `reader.resolve()` answers what the render projection
 *would use*. A read never coerces a scalar: `qty: "3"` is `"3"` in `get` and
-in `values()` and `3` only in `resolve()`, because canonicalizing is what a
-write does ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Byte-stability"),
-which is what makes `reader.get(name)` equal `reader.values().fields[name]` on
-every field that decodes.
+`3` only in `resolve()`, because canonicalizing is what a write does
+([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Byte-stability").
 
-The shape is `{fields, body, cards: [{kind, fields, body, ext}], ext}`, every
-axis present on a read. Every content leaf is its codec's text — `richtext`
-markdown, `plaintext` literal — at **every depth the field's type tree
-reaches**: an `array<richtext>` is an array of markdown strings, a mixed
-`object` projects its content property and passes its scalars verbatim, a
-variant carries its discriminant verbatim and each cell through its own codec.
-`fields` carries the declared fields the card holds in declaration order, then
-undeclared ones verbatim in authored order: the schema is a floor, not an
-allowlist, here as in `resolve`. A present-null rides as `null` at every type,
-apart from authored-empty. `kind` is `null` for a kindless card; `ext` is `null`
-for a card carrying no `$ext` and `{}` for an explicit `$ext: {}`.
+`reader.get(name)` reads one main-card field in the form and
+`reader.card(i).get(name)` one field of one card. Every content leaf is its
+codec's text — `richtext` markdown, `plaintext` literal — at **every depth the
+field's type tree reaches**: an `array<richtext>` is an array of markdown
+strings, a mixed `object` projects its content property and passes its scalars
+verbatim, a variant carries its discriminant verbatim and each cell through its
+own codec. A present-null rides as `null` at every type, apart from
+authored-empty.
 
-It is **sparse**: an absent field is absent here too, never materialized from
-its `default:`, so writing the shape back cannot erase an absence signal
-([Non-persist invariant](#blank-filled-render)). It is **total**: it never
-raises, a leaf that decodes under neither encoding riding out as stored where
-the single-cell `get` raises — the load that admitted it already warned, and an
-ingestion must open a document it can repair. Whole-scope reads are total;
-single-cell reads raise.
+The form is **sparse**: an absent field reads absent, never materialized from
+its `default:` ([Non-persist invariant](#blank-filled-render)). A leaf that
+decodes under neither encoding raises `edit::field_decode`; the verbatim
+`payload().get` is the read that opens a document too dirty to project, and the
+load that admitted it already warned.
 
-`TypedWriter::set_values(values)` is the write twin, the typed lane widened
-from one field (`set`) to the document; `writer.card(i).set_values` is the same
-restricted to one slot. **An absent axis is untouched; a present one is
-replaced**, at both scopes:
-
-- `fields` is the whole truth for declared names: a named one is written, an
-  unnamed one removed. An undeclared name the card holds at that value is
-  accepted, since the read emits it; changed or new it is
-  `edit::unknown_field`; unnamed it is left alone. A kind the schema does not
-  declare is therefore readable and immutable through this lane.
-- `cards` *is* the card list: a position whose kind matches (or whose `kind`
-  is absent) is patched in place, a differing kind rebuilds the slot, an entry
-  past the end appends, document cards past the list are removed. A position
-  holding no card and naming no kind, or naming `null`, is refused at
-  `cards[<i>]`: a kindless card is a parse artifact the mutators cannot build.
-- `body` is replaced from markdown.
-- `ext: null` removes `$ext`, `{}` records an explicit empty one, a map
-  replaces.
-
-So `DocumentValues::default()` is the empty patch, and `set_all` remains the
-merge batch beside it. All-or-nothing, every refusal carrying the `DocPath` it
-anchors at.
-
-**A cell whose incoming value equals its projection is not written.** That
-guard, comparing at the projection rather than at the stored bytes, is what
-makes `set_values(reader.values())` a byte no-op on any document the bound door
-admits — comparing at the storage level would call an anchor-bearing content
-changed, its re-import lacking the anchor. So an untouched cell keeps what a
-re-import cannot reproduce, and **nothing is normalized that the consumer did
-not change**: a scalar shorthand (`qty: "3"`) stays as authored until that cell
-is edited.
+`set` writes one cell of the form and `set_all` a batch, every field resolving
+before any is applied, so a consumer submitting a whole form sees every typo in
+one pass. Both **canonicalize what they write**: a cell keeps its authored
+shorthand until that cell is written. A content cell written through either is
+a cold import — anchors on it do not survive, and `revise_field` is the write
+that keeps them.
 
 **A projection, never a storage format** ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)).
-What it does not carry, and what a cycle does to it:
+What a read does not carry, and what a write does to it:
 
-| Not carried | A cycle |
+| Not carried | Written back |
 |---|---|
-| identity anchors, content-only marks | kept on an untouched cell; lost on an edited one, which is a cold import |
-| `!must_fill` markers, nested YAML comments | kept on an untouched cell; cleared on a written one, as every write path clears them. The marker's suggested value reads as a plain value: the marker is the obligation plane's (`validate`, `isFill`), not this one's |
+| identity anchors, content-only marks | lost on the written cell, which is a cold import |
+| `!must_fill` markers, nested YAML comments | cleared on the written cell, as every write path clears them. The marker's suggested value reads as a plain value: the marker is the obligation plane's (`validate`, `isFill`), not this one's |
 | the author's exact markdown | export canonicalizes: mark nesting, escaping, trailing whitespace. The *document* round-trips, not the string a consumer sent |
-| `default:` rungs, blanks, `example:` | never present (sparse) |
-| `$quill`, `$seed` | absent from the shape and untouched by `set_values` |
-| card identity | position + kind is the only match, so deleting, inserting or reordering an entry rewrites every card after it. Structural edits belong to the structural verbs |
+| `default:` rungs, blanks, `example:` | never read (sparse) |
 
-`$ext` **is** carried, on the main card and each card: it is the consumer's own
-card key ([PROGRAMMATIC.md](PROGRAMMATIC.md) § "Addressing cards for
-re-render"), so a shape that dropped it would break the bookkeeping it exists to
-serve. It is an open namespace this caller may not be the only writer of, which
-is why only a present `ext` touches it.
-
-Unlike `resolve`, both verbs reach Python: this shape is the API contract a
-consumer reads, edits, and hands back, and it is the element type of a bulk
-generation spec's `documents` list.
+`$ext` is the consumer's own card key ([PROGRAMMATIC.md](PROGRAMMATIC.md)
+§ "Addressing cards for re-render") and no field write reaches it: it has its
+own verbs (`Card::ext` / `Card::store_ext`), so bookkeeping stamped there
+survives every write through this lane.
 
 ## Blank-filled render
 

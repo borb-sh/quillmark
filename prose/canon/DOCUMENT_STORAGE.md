@@ -16,15 +16,14 @@ syntax also evolves), `Document` serializes to a **versioned JSON envelope**,
 |---|---|---|
 | Markdown (`Document::to_markdown`) | Yes | No: syntax evolves |
 | `StoredDocument` JSON | Yes: lossless | Yes: frozen per schema version |
-| `DocumentValues` JSON (`reader.values()`) | The *document* does: `set_values(reader.values())` is a no-op. The values canonicalize once | **No**: a consumer projection, lossy by design |
 
 Use `StoredDocument` JSON whenever a `Document` must survive a process
 restart or a crate upgrade: database rows, caches, message payloads.
 
-`reader.values()` is the values form, the one a consumer edits: the stored
-value with content as its codec's text, sparse, and carrying neither anchors
-nor `$quill` ([SCHEMAS.md](SCHEMAS.md) § "The values form"). It is an API
-shape, never a row.
+What a schema-bound read hands a consumer is the values form: the stored value
+with content as its codec's text, sparse, and carrying neither anchors nor
+`$quill` ([SCHEMAS.md](SCHEMAS.md) § "The values form"). It is a projection,
+never a row.
 
 The plate JSON a render hands a backend is a lossy, one-way export,
 crate-internal to `quillmark-core` and never a storage option.
