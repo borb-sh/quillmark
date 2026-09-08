@@ -549,7 +549,7 @@ fn nonzero_generation_catalog_rejected_cleanly() {
     replace_first(&mut base, b"1 0 obj", b"1 2 obj");
     replace_first(&mut base, b"/Root 1 0 R", b"/Root 1 2 R");
     let err = stamp(base, &[], &StampOptions::default())
-    .expect_err("non-zero generation catalog rejected");
+        .expect_err("non-zero generation catalog rejected");
     assert_eq!(err.code, "pdf::nonzero_generation");
     assert!(err.message.contains("generation 2"), "{}", err.message);
 }
@@ -572,7 +572,7 @@ fn encrypted_pdf_rejected_cleanly() {
     let base = build_base_pdf(1);
     let tampered = insert_after(&base, b"/Root 1 0 R", b" /Encrypt 1 0 R");
     let err = stamp(tampered, &[], &StampOptions::default())
-    .expect_err("encrypted PDF rejected");
+        .expect_err("encrypted PDF rejected");
     assert_eq!(err.code, "pdf::encrypted");
 }
 
@@ -583,7 +583,7 @@ fn xref_stream_rejected_cleanly() {
     let mut base = build_base_pdf(1);
     replace_first(&mut base, b"xref\n0", b"1 0 \n0");
     let err = stamp(base, &[], &StampOptions::default())
-    .expect_err("xref stream rejected");
+        .expect_err("xref stream rejected");
     assert_eq!(err.code, "pdf::xref_stream");
 }
 
