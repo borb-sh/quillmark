@@ -31,13 +31,12 @@ per-keystroke cost is *incremental recompile + repaint of `dirty ∩ visible`*.
 
 ## The seam
 
-`core` carries a backend-neutral session seam on `SessionHandle`
+`core` carries a backend-neutral session seam, `SessionHandle`
 (`crates/core/src/session.rs`); the WASM painter dispatches through it
-generically, never downcasting to a backend session type. Past `render` and
-`page_count`, every method carries a default that reads as *absent*: `update`
-an `Err`, the canvas, geometry, and warnings reads `None` or empty. A backend
-answers the ones it can, and its capabilities are exactly the defaults it
-overrode.
+generically, never downcasting to a backend session type. Compiling and
+counting pages is all the trait requires — update, canvas, geometry and
+warnings each carry a default, and each method states what a backend leaving
+its default costs a consumer. A backend answers the ones it can.
 
 A backend opts into canvas by overriding the two seam methods; there is
 no separate capability flag. Capability is **derived** from the seam:
@@ -319,68 +318,9 @@ same distance above it, and a point off the text block resolves to nothing.
 Capability and rendering live on the **engine** (it holds the resolved
 backend); `Quill` is declarative data. Canvas is in the backend builds only.
 
-```ts
-class Engine {
-  supportedFormats(quill: Quill): Promise<OutputFormat[]>;
-  open(quill: Quill, doc: Document): Promise<LiveSession>;
-  render(quill: Quill, doc: Document, opts?: RenderOptions): Promise<RenderResult>;
-}
-
-class LiveSession {
-  readonly pageCount: number;
-  readonly backendId: string;
-  readonly warnings: Diagnostic[];
-
-  update(doc: Document): ChangeSet;     // in-place recompile; transactional
-  render(opts?: RenderOptions): RenderResult;
-  regions(): FieldRegion[];             // field → rects (one per segment); session query, no render
-  fieldBoxes(field: string): FieldRegion[];  // derived whole-field box: one union rect per page (content only)
-  fieldAt(page: number, x: number, y: number, tolPt?: number): string | undefined;
-                                        // point → field; PDF pt, bottom-left; tolPt slack, default 0
-  positionAt(page: number, x: number, y: number, tolPt?: number): ContentHit | undefined;
-                                        // point → { field, pos }; cluster-exact USV offset
-  locate(field: string, pos: number): FieldRegion | undefined;
-                                        // content pos → caret rect
-  pageSize(page: number): PageSize;     // { widthPt, heightPt } in pt; report-only
-  paint(
-    ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
-    page: number,
-    opts?: PaintOptions,
-  ): PaintResult;
-}
-
-interface ChangeSet {
-  pageCount: number;      // page count after the edit
-  dirtyPages: number[];   // repaint dirty ∩ visible; removed pages implied by pageCount
-}
-
-interface PaintOptions {
-  layoutScale?: number;   // layout px per pt; layout decision; default 1
-  densityScale?: number;  // backing-store density multiplier; default 1
-}
-
-interface PaintResult {
-  layoutWidth: number;    // canvas.style.width target; independent of densityScale
-  layoutHeight: number;
-  pixelWidth: number;     // canvas.width the painter wrote (clamped at 16384)
-  pixelHeight: number;
-  clamped: boolean;       // MAX_BACKING_DIMENSION forced densityScale down
-  effectiveDensityScale: number;  // densityScale actually applied (== requested unless clamped)
-}
-
-interface FieldRegion {
-  field: string;          // quill schema field path, not a widget name
-  page: number;           // 0-based
-  rect: [number, number, number, number];   // [x0,y0,x1,y1] PDF pt, bottom-left
-  span?: [number, number];// USV [start,end) of the covered content; absent for scalar/widget
-}
-
-interface ContentHit {
-  field: string;
-  pos: number;            // USV offset into the field's Content (cluster floor)
-  granularity?: 'cluster' | 'segment';  // was pos cluster-exact or floored to the segment start?
-}
-```
+The declarations are `crates/bindings/wasm/runtime/runtime.d.ts`, which carries
+the per-member contract and which `npm run typecheck` holds to the runtime
+beside it.
 
 ### DPR / clamp math
 

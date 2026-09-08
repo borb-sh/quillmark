@@ -28,7 +28,7 @@ recorded and the last place to catch a missing one.
   address, a wire token, a diagnostic code, a rendered value — anything a
   working consumer reads that stops meaning what it meant. A break a type
   checker cannot report is the one that most needs the marker.
-- A release carrying a `!` ships `docs/migrations/<prev>-to-<next>.md`, and a
-  row in `docs/migrations/index.md` and `mkdocs.yml`'s `not_in_nav`. Lead the
-  guide with the breaks no type checker reports; the changelog is organized by
-  feature, which is the wrong index for an upgrade.
+- A release carrying a `!` ships `docs/migrations/<prev>-to-<next>.md` and a row
+  in `docs/migrations/index.md`; `mkdocs.yml` globs the directory, so the nav
+  needs nothing. Lead the guide with the breaks no type checker reports; the
+  changelog is organized by feature, which is the wrong index for an upgrade.

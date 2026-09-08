@@ -57,42 +57,10 @@ nav:
       - Markdown Specification: reference/markdown-spec.md
   - Migration: migrations/index.md
 
-# The guides stay published (reachable from the Migration overview and by URL)
-# but the nav carries only the overview, which is the one list to maintain.
+# Every guide is built and reachable by URL and from the Migration overview;
+# the nav carries only the overview.
 not_in_nav: |
-  /migrations/wasm-0.77-to-0.80.md
-  /migrations/0.81-to-0.82.md
-  /migrations/0.82-to-0.83.md
-  /migrations/0.83-to-0.84.md
-  /migrations/0.85-to-0.86.md
-  /migrations/0.86-to-0.87.md
-  /migrations/0.87-to-0.88.md
-  /migrations/0.88-to-0.89.md
-  /migrations/0.89-to-0.90.md
-  /migrations/0.90-to-0.91.md
-  /migrations/0.91-to-0.92.md
-  /migrations/0.92-to-0.93.md
-  /migrations/0.93-to-0.94.md
-  /migrations/0.94-to-0.95.md
-  /migrations/0.95-to-0.96.md
-  /migrations/0.96-to-0.97.md
-  /migrations/0.97-to-0.98.md
-  /migrations/0.98-to-0.99.md
-  /migrations/0.99-to-0.100.md
-  /migrations/0.100-to-0.101.md
-  /migrations/0.101-to-0.102.md
-  /migrations/0.102-to-0.103.md
-  /migrations/0.103-to-0.104.md
-  /migrations/0.104-to-0.105.md
-  /migrations/0.105-to-0.106.md
-  /migrations/0.106-to-0.107.md
-  /migrations/0.107-to-0.108.md
-  /migrations/0.108-to-0.109.md
-  /migrations/0.109-to-0.110.md
-  /migrations/0.110-to-0.111.md
-  /migrations/0.111-to-0.112.md
-  /migrations/0.112-to-0.113.md
-  /migrations/0.92-to-0.102.md
+  /migrations/*.md
 
 markdown_extensions:
   - pymdownx.highlight:

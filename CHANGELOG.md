@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+- docs(core,wasm): **`PREVIEW.md` points at the two surfaces it was copying.**
+  § "The seam" claimed every `SessionHandle` method past `render` and
+  `page_count` defaults to *absent* and that a backend's capabilities are
+  exactly the defaults it overrode. `field_at` breaks both: its default
+  hit-tests whatever `regions()` returns, so overriding `regions` alone buys a
+  working `field_at`. The section now says what the seam is and leaves the
+  per-method contract to `crates/core/src/session.rs`, where each default is
+  already documented beside its method. § "TypeScript surface" loses its 62-line
+  transcription of `crates/bindings/wasm/runtime/runtime.d.ts`, which carries
+  more per-member contract than the copy did and is the file `npm run
+  typecheck` checks.
+- docs: **the twenty pre-0.100 migration guides leave the published site.**
+  `wasm-0.77-to-0.80.md` through `0.99-to-0.100.md` and the `0.92-to-0.102.md`
+  span guide go, with their rows in the Migration overview: 5,519 lines routing
+  a consumer onto `RenderSession`, `` ```card `` fences, `QUILL:` frontmatter,
+  `$id` and `!fill`, none of which any release since 0.100 carries in any form.
+  The guides from 0.100 onward stay. What keeps a pre-0.100 stored blob loading
+  is the reader in `crates/core/src/document/dto.rs`, specified in
+  `prose/canon/DOCUMENT_STORAGE.md`; no guide was ever load-bearing for it.
+  `mkdocs.yml` states the nav exclusion as `/migrations/*.md`, one line in
+  place of the 33 a release had to extend. Entries below still name the
+  deleted paths: a changelog records the moment it was written.
 - test(wasm): **the `run_in_browser` test file goes; what it looked like it
   covered is covered by suites that run.** `tests/wasm_bindings.rs` held nine
   `#[wasm_bindgen_test]` cases and no runner — nothing under `.github/`,
