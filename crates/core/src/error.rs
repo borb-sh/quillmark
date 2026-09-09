@@ -761,6 +761,63 @@ mod args_canon {
             "validation::out_of_variant",
             crate::quill::compose::out_of_variant_warning(&path, "CUI", "UNCLASSIFIED").args,
         );
+        add(
+            "validation::misplaced_field",
+            crate::quill::compose::misplaced_warning(
+                &crate::DocPath::main().field("controlled_by"),
+                &crate::DocPath::main()
+                    .field("classification")
+                    .field("controlled_by"),
+                "classification",
+                "CUI",
+            )
+            .args,
+        );
+        // The `$seed` checks are minted at the overlay walk, so the sample is a
+        // document that trips them: two overlays, three codes.
+        let seed_quill = crate::quill::quill_from_yaml(
+            r#"
+quill:
+  name: seed_probe
+  version: "0.1.0"
+  backend: typst
+  description: Seed overlay probe
+
+typst:
+  plate_file: plate.typ
+
+main:
+  fields:
+    title: { type: string, default: "" }
+card_kinds:
+  sig:
+    fields:
+      label: { type: string }
+"#,
+        );
+        let seed_diags: Vec<crate::Diagnostic> = ["  ghost: {}\n  sig: nope\n", "  sig:\n    nope: 1\n"]
+            .iter()
+            .flat_map(|overlay| {
+                let markdown = format!(
+                    "~~~\n$quill: seed_probe@0.1.0\n$kind: main\n$seed:\n{overlay}~~~\n"
+                );
+                let doc = crate::document::Document::parse(&markdown)
+                    .expect("seed probe parses")
+                    .document;
+                seed_quill.validate(&doc)
+            })
+            .collect();
+        for code in [
+            "validation::seed_unknown_kind",
+            "validation::seed_overlay_shape",
+            "validation::seed_unknown_field",
+        ] {
+            let sample = seed_diags
+                .iter()
+                .find(|d| d.code.as_deref() == Some(code))
+                .unwrap_or_else(|| panic!("no `{code}` sample from the seed probe"));
+            add(code, sample.args.clone());
+        }
         add("plate::unsupported_construct", {
             let mut args = BTreeMap::new();
             args.insert("construct".to_string(), "rule".into());

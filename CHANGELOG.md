@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- feat(core): **a variant cell written one level above its container draws
+  `validation::misplaced_field`.** A card-level key the card does not declare,
+  whose name a variant world of that card does, rides to the plate at the
+  address it was written while the cell it was meant for renders blank. The only
+  diagnostic was the `must_fill` at that cell, which aims a strict consumer's
+  retry at a path the author believes they already filled; on a quill whose
+  variant leaves carry a `default:` there was none at all. The warning is
+  non-fatal and carries `owner` and `variant` — the container, and the member
+  that brings the cell into play — and fires whichever world the discriminant
+  selects, since a variant cell is unconditionally addressable and only
+  conditionally live. A key **no** world declares stays silent: that tolerance is
+  what keeps a document outliving a schema edit authorable, so the check indicts
+  only names the quill can place, which `quill::variant_field_collision` makes
+  one cell rather than a candidate set. `ERROR.md`'s args table gains the row,
+  and the three `validation::seed_*` codes it claimed to cover but omitted.
 - docs: **two copies that were copies, not two ends of a subject.**
   `prose/README.md` divides canon and `docs/` by audience and says neither
   restates the other. § "Addressing cards for re-render" was in both, code block

@@ -317,6 +317,13 @@ in a CUI block leaves those values in the document and warns
 (`validation::out_of_variant`); they simply stop rendering. Flip back and they
 are still there. Remove the field to drop the value for good.
 
+**Writing a variant cell at card level warns too.** `controlled_by:` beside
+`classification:` rather than under it is `validation::misplaced_field`, naming
+the container and the member that brings the cell into play. The key is carried
+as authored and reaches the plate at the address it was written, so the cell it
+was meant for renders blank. A key no variant declares stays silent: only a name
+this quill can place is worth a notice.
+
 A variant cell is an ordinary field: any type a card field may carry, prose,
 dates and containers included, reaching the plate exactly as a card-level one
 does. What it cannot carry is `variants:` of its own. `variants:` itself

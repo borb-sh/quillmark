@@ -124,7 +124,8 @@ families:
   more lenient than the write, and what it adopts is valid.
 - **Validation warnings**: `Quill::validate(doc)` returns every
   `validation::*` diagnostic, mixing severities; `validation::must_fill`,
-  `validation::out_of_variant` and the `$seed` checks are the non-fatal ones.
+  `validation::out_of_variant`, `validation::misplaced_field` and the `$seed`
+  checks are the non-fatal ones.
   This is the editor-facing surface; the render pipeline blank-fills instead of
   warning on incomplete documents. A **fatal** row here means the document does
   not render: values are judged in the form the render floor builds from them
@@ -380,6 +381,10 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `validation::coercion_failed` | `value`, `target` | structured, coarser |
 | `validation::must_fill` | `trigger` | structured |
 | `validation::out_of_variant` | `variant`, `selected` | structured |
+| `validation::misplaced_field` | `owner`, `variant` | structured |
+| `validation::seed_unknown_kind` | — | code-determined |
+| `validation::seed_overlay_shape` | — | code-determined |
+| `validation::seed_unknown_field` | — | code-determined |
 | `validation::not_inline` | — | code-determined |
 | `validation::not_plain` | — | code-determined |
 | `edit::invalid_field_name` | `field` | structured |

@@ -837,6 +837,7 @@ fn validate_variants(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
     for (schema, card, path) in schema_cards(config, doc) {
         let Some(schema) = schema else { continue };
         collect_variant_diags(schema, card, &path, &mut diags);
+        collect_misplaced_diags(schema, card, &path, &mut diags);
     }
     diags
 }
@@ -882,6 +883,77 @@ fn collect_variant_diags(
             ));
         }
     }
+}
+
+/// Report every card-level key the card does not declare that names a cell of
+/// one of its own variant worlds — the container's fields written one level
+/// above the container.
+///
+/// Every other undeclared key stays silent — one no variant of *this* card
+/// declares included — because it is carried verbatim by every surface, which is
+/// what lets a document outlive a schema edit. This warns only where the card
+/// can name the cell the key was reaching for, so a foreign key is never
+/// indicted.
+fn collect_misplaced_diags(
+    schema: &CardSchema,
+    card: &Card,
+    base: &DocPath,
+    out: &mut Vec<Diagnostic>,
+) {
+    for key in card.payload().keys() {
+        if schema.fields.contains_key(key) {
+            continue;
+        }
+        let Some((owner, member)) = variant_home(schema, key) else {
+            continue;
+        };
+        out.push(misplaced_warning(
+            &base.field(key),
+            &base.field(owner).field(key),
+            owner,
+            &member,
+        ));
+    }
+}
+
+/// The container field and member declaring `key` among this card's
+/// variant-bearing fields. `quill::variant_field_collision` makes one name one
+/// cell within a field, so a match names one home rather than a candidate set.
+fn variant_home<'a>(schema: &'a CardSchema, key: &str) -> Option<(&'a str, String)> {
+    schema.fields.iter().find_map(|(name, field)| {
+        let member = field
+            .variants
+            .as_ref()?
+            .iter()
+            .find(|(_, set)| set.contains_key(key))?
+            .0;
+        Some((name.as_str(), member.clone()))
+    })
+}
+
+pub(crate) fn misplaced_warning(
+    path: &DocPath,
+    home: &DocPath,
+    owner: &str,
+    member: &str,
+) -> Diagnostic {
+    let path = path.to_string();
+    let home = home.to_string();
+    Diagnostic::new(
+        Severity::Warning,
+        format!(
+            "Field `{path}` is undeclared, and `{home}` is the cell of that name: the value stays \
+             at this address and the cell renders blank."
+        ),
+    )
+    .with_code("validation::misplaced_field".to_string())
+    .with_path(path)
+    .with_arg("owner", owner.into())
+    .with_arg("variant", member.into())
+    .with_hint(format!(
+        "Nest it under `{owner}`, whose `{VARIANT_DISCRIMINANT_KEY}: {member}` brings the cell \
+         into play, or remove it."
+    ))
 }
 
 pub(crate) fn out_of_variant_warning(path: &DocPath, owner: &str, member: &str) -> Diagnostic {

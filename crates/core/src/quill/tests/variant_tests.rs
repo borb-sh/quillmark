@@ -598,6 +598,66 @@ fn an_undeclared_key_draws_no_variant_warning() {
         .any(|d| d.code.as_deref() == Some("validation::out_of_variant")));
 }
 
+/// A variant cell written one level above its container: the answer is in the
+/// document and out of the render at once. Without the notice the `must_fill` at
+/// `main.classification.controlled_by` sends a retry at a path the author
+/// believes they already filled.
+#[test]
+fn a_misplaced_variant_cell_names_its_home() {
+    let document = doc("classification:\n  value: CUI\ncontrolled_by: SAF/AA\n");
+    let diags = quill().validate(&document);
+    let misplaced = diags
+        .iter()
+        .find(|d| d.code.as_deref() == Some("validation::misplaced_field"))
+        .expect("misplaced_field warning");
+    assert_eq!(misplaced.severity, crate::Severity::Warning);
+    assert_eq!(misplaced.path.as_deref(), Some("main.controlled_by"));
+    assert_eq!(misplaced.args["owner"], json!("classification"));
+    assert_eq!(misplaced.args["variant"], json!("CUI"));
+    assert!(
+        misplaced
+            .message
+            .contains("main.classification.controlled_by"),
+        "the message names the home cell: {}",
+        misplaced.message
+    );
+    // Kept in the document…
+    assert_eq!(
+        document.main().payload().get("controlled_by").unwrap().as_json(),
+        &json!("SAF/AA")
+    );
+    // …riding to the plate at an address no template reads, while the cell it
+    // was aimed at renders blank. That gap is what the notice names.
+    let data = config().compile_data(&document).expect("compile_data");
+    assert_eq!(data["controlled_by"], json!("SAF/AA"));
+    assert_eq!(data["classification"]["controlled_by"], json!(""));
+}
+
+/// The narrowness is the design: a key the quill cannot place is carried without
+/// comment, which is what lets a document outlive a schema edit or carry a
+/// sibling quill's key.
+#[test]
+fn a_foreign_card_level_key_stays_silent() {
+    let document = doc("classification:\n  value: CUI\nsubjekt: Quarterly Review\n");
+    assert!(!quill()
+        .validate(&document)
+        .iter()
+        .any(|d| d.code.as_deref() == Some("validation::misplaced_field")));
+}
+
+/// A variant cell is unconditionally *addressable* and only conditionally
+/// *live* (`prose/canon/SCHEMAS.md` §"Enum variants"), so the misplacement is
+/// the same mistake whichever world the discriminant selects.
+#[test]
+fn misplacement_does_not_depend_on_the_selected_world() {
+    let document = doc("classification:\n  value: UNCLASSIFIED\ncontrolled_by: SAF/AA\n");
+    let found = codes(&document);
+    assert!(found.contains(&(
+        "validation::misplaced_field".to_string(),
+        "main.controlled_by".to_string()
+    )));
+}
+
 #[test]
 fn the_domain_check_lands_on_the_discriminant_path() {
     let found = codes(&doc("classification:\n  value: NATO\n"));

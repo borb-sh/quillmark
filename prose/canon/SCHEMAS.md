@@ -85,6 +85,18 @@ would spend the author's answers on the ordinary editor gesture — choose CUI,
 fill the block, flip to UNCLASSIFIED to compare, flip back — and gating render
 would hand them an undraftable document. Only the wire is strict.
 
+**A cell written outside its container draws `validation::misplaced_field`.** A
+card-level key the card does not declare, whose name a variant world of that
+card does, is the right answer at the wrong address: it rides to the plate where
+it was written, and the cell it was meant for renders blank. The warning carries
+the container and the member that brings the cell into play, and fires whichever
+world the discriminant selects — a variant cell is unconditionally *addressable*
+and only conditionally *live*, so the misplacement does not depend on the
+selection. A key **no** world declares stays silent, which is what keeps a
+document that outlives a schema edit authorable: the check indicts only names
+the quill can place. `quill::variant_field_collision` is what makes that home
+one cell rather than a candidate set.
+
 The ceiling is deliberate and enforced at load rather than discovered at render:
 
 | Rule | Code |
