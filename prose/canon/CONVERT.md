@@ -36,9 +36,9 @@ Only a `para`, `code` or unknown block takes continuations
 (`LineKind::takes_continuations`), and a continuation stays inside one container
 path. A heading, an island and a rule are one line, and both emitters render
 that line alone, so a `continues` line after one would be text neither
-projection reaches: `Content::normalize` clears the flag there,
-`Content::validate` rejects it (`Invariant::ContinuesSingleLineBlock`,
-`ContinuesAcrossContainers`), and `LineOp::SetContinues` refuses to write it.
+projection reaches: `Content::normalize` clears the flag there, as it does on
+the first line and across a container boundary. `LineOp::SetContinues` writes
+what it is given and the mint settles it.
 
 ## Escape functions
 

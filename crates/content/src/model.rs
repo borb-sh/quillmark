@@ -926,7 +926,7 @@ impl Content {
         }
         // A table island's props are repaired (padded to one column count, cell
         // `\n` rewritten to a space, cell marks canonicalized) before the key
-        // sort, so equal cells serialize to equal bytes and `validate` holds.
+        // sort, so equal cells serialize to equal bytes.
         for island in &mut self.islands {
             island.island_type.normalize_props(&mut island.props);
             canonicalize_keys(&mut island.props);

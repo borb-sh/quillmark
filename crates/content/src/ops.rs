@@ -672,9 +672,9 @@ impl Content {
     ///
     /// **Stage order is a coordinate contract**: each stage reads the text the
     /// earlier ones left. An island insert splices a slot, so a
-    /// `LineOp::SetKind { kind: Island }` in the same bundle can only validate
-    /// against a line that already carries it, and `Split`/`Join` and every mark
-    /// range are then measured in a frame that includes the new slots.
+    /// `LineOp::SetKind { kind: Island }` in the same bundle settles against a
+    /// line that already carries it, and `Split`/`Join` and every mark range are
+    /// then measured in a frame that includes the new slots.
     ///
     /// One terminal normalize suffices because split/join rebase marks through
     /// their `\n` splice, so the formatting-edge `\n`-trim commutes with the
@@ -1865,7 +1865,7 @@ mod tests {
         }
     }
 
-    /// A one-cell table island's props, a shape `normalize` and `validate` accept.
+    /// A one-cell table island's props, the shape `normalize` leaves alone.
     fn table_props(header: &str, cell: &str) -> serde_json::Value {
         serde_json::json!({
             "header": [{ "text": header, "marks": [] }],
