@@ -362,12 +362,15 @@ payload spelled as a **named sibling**, which is how every release through
   neither and the two spellings stay split by release rather than by which names
   a build knows.
 
-  The authored lane is the whole-content doors — `overwrite`, `install`,
-  `CardInput.body`, the op wire. A **typed field write** is not among them:
-  `document::canonical_richtext_value` decodes storage-lane on purpose, sharing
-  that entry point with a quill's schema literals, which are read out of a
-  `Quill.yaml` that may predate the release. It re-canonicalizes what it
-  decodes, so the value rests in the current spelling either way.
+  The authored lane is `overwrite` and the op wire. Two doors that take a whole
+  content sit outside it. **`CardInput.body`** decodes storage-lane
+  (`wire::body_from_wire`, through `Codec::decode_field`): every `Card` a read
+  hands back is a valid `CardInput`, so the card wire must accept whatever a
+  read emits, a stored-only tolerance included. A **typed field
+  write** does too: `document::canonical_richtext_value` shares that entry point
+  with a quill's schema literals, which are read out of a `Quill.yaml` that may
+  predate the release. Both re-canonicalize what they decode, so the value rests
+  in the current spelling either way.
 
 The same split governs an unreadable **table-cell mark**. Storage skips it:
 `serial::parse_cell` is lenient, and normalization makes the skip permanent. The
@@ -429,6 +432,14 @@ problem, and the boundary answers it: `isUnknownLine` / `isUnknownContainer` /
 and the `RESERVED_*` lists in Rust. A consumer that re-derives the built-in list
 has re-coupled to a closed set, and misreads the first release that adds a
 built-in.
+
+That consumer is also the only one who can catch a misspelled name, which is why
+no lane refuses one. `kind: "headding"` and `kind: "callout"` are the same bytes
+to a decoder: one is a typo, the other a tag a newer build wrote, and nothing on
+the wire separates them. Refusing an unknown name at the authored door would
+refuse a carried unknown on its way back out, which is the write the carrier
+exists to make. The host knows which it authored, and `isUnknown*` over its own
+input before the write is where that knowledge lives.
 
 The bound: **the carrier preserves unknown tags, not unknown payloads on known
 tags.** A future `kind: "footnote"` carrying an `attrs.ref` loses `ref` at any
