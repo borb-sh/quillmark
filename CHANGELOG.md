@@ -2,505 +2,73 @@
 
 ## Unreleased
 
-- docs(cli): **the CLI prose stops naming one accepted opener.**
-  `docs/cli/reference.md` and `prose/canon/CLI.md` named `~~~card-yaml` as the
-  alternative to a bare `~~~`, where the opener's info string is no longer read
-  at all.
-- docs(bindings,migrations): **the parity table records differences; the
-  migration index records steps.** `BINDINGS.md`'s table drops the six rows
-  whose class was `identical`, which now read as one line above it, and three
-  rows stop restating the model the section states 90 lines up. What the table
-  holds is one row per forced difference. The migration index cuts each row to
-  the step's headline break, from 3,729 words of table cells to 594 for the
-  whole page: a chooser, not a fifth copy of each guide beside the commit, the
-  changelog and the guide itself. The one storage-format move across the
-  thirteen steps (0.111 → 0.112) is stated once in the preamble rather than
-  re-derived from thirteen "stored blobs are untouched" clauses. No guide is
-  deleted; keeping the early ones costs nothing. Closes #1701.
-- feat(core)!: **every column-zero `~~~` block is a card, whatever its info
-  string.** The opener's info string is no longer read. `~~~card-yaml` and
-  `~~~yaml` were accepted aliases and `~~~rust` opened an ordinary code block;
-  all of them open a card now. The spec already stated the widened rule in
-  §3.2 — "because every column-zero `~~~` block is a card-yaml block, write a
-  literal fenced code block with a backtick fence" — and then exempted language
-  info strings in the next sentence, so a tilde escape hatch was half-promised
-  and half-withheld. It was also already unavailable for the two shapes anyone
-  would reach for: a YAML block, claimed by the `yaml` alias, and a nested
-  backtick block, which is written with a bare `~~~`. Nothing first-party emits
-  a language-tagged tilde fence. A backtick fence is the escape hatch, and it
-  is the whole of it. The widening deletes what the exemption needed: the
-  accepted-alias list, the `RootFault::InfoString` diagnostic that existed to
-  explain why `~~~metadata` opened no block, and `code_fence_info`, whose last
-  caller it was; `RootFault` collapses to the `UnclosedRoot` struct it now is.
-  CommonMark conformance is unchanged — `fence_conformance_tests` holds every
-  card block to a pulldown-cmark fenced span at the same offsets, and a claimed
-  span is one CommonMark already fences — so the widening moves toward equality
-  rather than away. The `body.example` blueprint guard tightens with the parser
-  it delegates to, catching the language-tagged openers it used to pass.
-  Refs #1698.
-- refactor(core,wasm)!: **canvas preview is part of the backend contract.**
-  `SessionHandle::page_size_pt` and `render_rgba` lose their absent-reading
-  defaults and become required, so a session paints by construction rather than
-  by opting in. Each return value carried two meanings and now carries one:
-  `None` and `Ok(None)` say the page is past `page_count()`, where they also
-  used to say the backend had no painter, and a caller reading one knows it
-  asked for a page the compile does not have. `update`, `regions` and
-  `field_at` keep their defaults — this closes the canvas door alone.
-  `LiveSession::supports_canvas()` goes with the derivation it performed: it
-  reduced to `page_count() > 0`, which is what a Rust caller writes instead.
-  Both shipped backends already implement the pair, so the trait change moves
-  no rendered pixel. The WASM `paint` / `pageSize` capability throw goes with
-  it: a compile with nothing to paint now meets the out-of-range refusal,
-  `"paint: page index 0 out of range (pageCount=0)"`, in place of a message
-  naming a painter the backend has. Closes #1706.
-- refactor(content,wasm)!: **`Content::normalize` settles the lenient/strict
-  split alone.** Eleven `Invariant` arms named shapes the mint repairs — a
-  zero-width or newline-edged formatting mark, a `continues` flag on the first
-  line, across a container boundary or after a one-line block, a line kind its
-  text contradicts, the four table shapes, and a block island's slot sharing its
-  line — and every door mints before it validates, so each fired only on a
-  hand-built content. The op channel refused three of them a third time. All of
-  it goes: `validate` reports what normalization cannot repair (a forbidden
-  character with no substitute, two counts with no rule saying which is right, a
-  range or depth past a bound, a colliding id), and `setKind` / `setContinues`
-  land and the terminal normalize settles them — a contradicted kind becomes
-  `para`, an impossible `continues` clears, line 0 included. So `applyChange`
-  resolves where it threw, and `Ok` stops meaning the op landed as written: an
-  editor mirroring ops into its own model reads the content back. The one
-  content-changing case is a heading retagged `island` or `rule`, which is a
-  paragraph afterward. `BadHeadingLevel` and the block-island placement stay
-  refused, the first having no principled rewrite and the second being the
-  authored lane's policy rather than a second reading of a repair. The property
-  suite's oracle is the mint's fixed point beside the surviving `validate`.
-  `LineKindMismatch` leaves the crate with `ApplyError::LineKindMismatch`,
-  `ContinuesAcrossContainers`, `ContinuesSingleLineBlock` and
-  `FirstLineContinues`. Stored bytes are untouched, and the one reader change is
-  a loosening: a blob spelling `continues: true` on line 0 loads cleared where
-  it failed. Closes #1699.
+Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
+
+### The content model
+
 - feat(content,wasm)!: **the content vocabularies close.** A line `kind`,
   container, mark `type`, island `type` or `loss` outside the built-ins was an
   open set: it round-tripped opaque and projected as its nearest safe
   neighbour. All five are closed, so a name outside them is
   `ParseError::UnknownName { axis, name }` at every decoder and a stored row
-  holding one stops opening. Refusing is the only reading that keeps the reader
-  honest — projecting an unknown `kind` as `para` re-encodes the row and moves
-  canonical bytes on a read with no edit. No first-party writer ever produced
+  holding one stops opening. Projecting an unknown `kind` as `para` would
+  re-encode the row and move canonical bytes on a read with no edit, which is
+  why refusing is the only honest reading. No first-party writer ever produced
   another name, so the affected population is exactly the rows a host authored
-  one into through `overwrite`, `applyChange` or a card body. The three
+  one into through `overwrite`, `applyChange` or a card body. The mark axis
+  closes inside a table island's cells too, where the read is otherwise lenient
+  — `canon_cell` re-mints from what `parse_cell` returned, so a skipped name
+  would leave stored bytes behind on a read with no edit. A *malformed* cell
+  mark is still skipped; that split is about shape, not vocabulary. The three
   `Unknown` carriers, `RESERVED_*` and the three `ReservedUnknown*` invariants
-  go with them; `Island::island_type` becomes the `IslandType` enum and `Loss`
-  becomes the enum `Fidelity` was. The mark axis closes inside a table island's
-  cells as well, where the read is otherwise lenient: `canon_cell` re-mints a
-  cell from what `parse_cell` returned, so a skipped name would leave the
-  stored bytes on a read with no edit, and the decoder refuses the row instead.
-  A *malformed* cell mark is still skipped — that split is about shape. On the WASM surface the six unions lose
-  their open arm, so `line.kind === 'heading'` narrows `line.attrs` with no
-  guard, and the four `isUnknown*` guards are deleted — a read never returns
-  one and a write of one throws. The storage tag is unchanged: every byte the
-  writer emits is the same, and only the reader's accepted domain narrowed.
-  Adding a construct is a storage-version event from here on. Closes #1693.
-- refactor(core)!: **prescan's cleaned YAML is line-for-line with its source.**
-  A comment line was dropped from the string handed to the parser, so the two
-  numberings diverged and a `PreScan::source_lines` table existed to map a
-  reported position back. The line now passes through — it is a comment to the
-  parser too — and the table, the `Cleaned` pair it rode in, and the
-  fall-back-to-the-last-line lookup go with it. Blanking the line instead, which
-  the same table would have bought, is what this does *not* do: a blank line is
-  content under keep chomping, so `bio: |+` followed by a comment would have
-  gained a newline. One break: a comment indented inside a multi-line plain
-  scalar now ends it, as it does in YAML, so `key: aaa` / `  # c` / `  bbb`
-  raises a located `parse::yaml_error` where it used to fold to `"aaa bbb"` —
-  a value no YAML parser reads out of that document.
-- refactor(core)!: **nested comments hang off the payload, not each item.**
-  `PayloadItem::Field` / `Meta` lose `nested_comments`; one list on `Payload`
-  carries them, at paths whose head segment names the owning entry. That is the
-  form prescan already produced and the storage DTO already stored, so the
-  flat → per-item → flat conversion at both ends is gone. `Payload` gains the
-  public `nested_comments()` and `rename_field`, which carries a field's
-  comments with its key; `items_mut` is withdrawn, having existed only for the
-  rename that now has a verb — which is what kept `normalize_document` from
-  orphaning them. The wire is untouched: `PayloadV0_92_0.nested_comments` was
-  already the flat sidecar.
-- refactor(core): **`QuillValue` holds its JSON, not a mirror of it.**
-  The value carried a private `Node`/`Kind` tree annotating every node with one
-  `fill` bit, plus a seeded `serde_json::Value` cache of the same data — so
-  `from_json` deep-cloned the whole document to record markers almost none of it
-  carries, and `get` cloned a subtree twice to read one child. No consumer wanted
-  the tree: emit, both wire formats, seeding, compose and conform all ask for a
-  flat path list, which is what `Seeded` already wrote by hand and what the DTO's
-  `nested_fills` already stores. `QuillValue` is now that pair — the JSON beside
-  a duplicate-free `Vec<Vec<PathSegment>>` — so the two node walkers
-  collapse to one `json_at`, and `OnceLock` and the hand-written `Clone` /
-  `PartialEq` go with them. The public surface is unchanged; `set_fill_at` still
-  refuses a path that addresses nothing, which is what keeps a recorded marker
-  from outliving its node, and records it where a walk of the JSON meets it, so
-  `fill_paths` reads in declaration order as the annotated tree did and the
-  `nested_fills` a stored document carries are byte-for-byte what 0.112 wrote.
-- docs(content,core): **the authored lane is `overwrite` and the op wire.**
-  Canon and the 0.112 guide also named `install`, gone since 0.102, and
-  `CardInput.body`, which has never rejected anything the storage lane takes.
-  The card wire decodes storage-lane (`wire::body_from_wire` through
-  `Codec::decode_field`) and owes that: every `Card` a read hands back is typed
-  a valid `CardInput`, and a read emits a stored-only tolerance verbatim.
-  `card_wire_body_decodes_storage_lane` pins the door's lane, which had drifted
-  across canon, a released guide and four code comments with nothing catching
-  it. `Content::validate` also drops a reserved-tag check on table-cell marks that
-  nothing reaches — `parse_cell` resolves every built-in name before its
-  `Unknown` arm, so a cell mark is never a reserved-tag unknown.
-- docs(core): **`ERROR.md`'s args table covers the three `validation::seed_*`
-  codes it claimed.** The table is the `code` + `args` consumer contract, and
-  `diagnostic_args_match_canon` holds it to the minted set — but
-  `seed_unknown_kind`, `seed_overlay_shape` and `seed_unknown_field` were missing
-  from both, so the two agreed by omitting the same three and a consumer reading
-  the table saw a family it covered less of than it said. The rows are now minted
-  from the overlay walk itself, on a document that trips all three, so each row
-  and its construction site check each other.
-- docs: **two copies that were copies, not two ends of a subject.**
-  `prose/README.md` divides canon and `docs/` by audience and says neither
-  restates the other. § "Addressing cards for re-render" was in both, code block
-  included; canon keeps the rule (no durable card handle, `$ext` guarantees
-  nothing, namespacing is a convention) and points at the page that carries the
-  recipe. The text-type 2×2 table was in `creating-quills.md` and
-  `quill-yaml-reference.md`, two pages of the same site, with the tutorial
-  already linking at the reference for the fuller treatment; the tutorial keeps
-  the two questions that pick a type and drops the table.
-- test(fixtures): **`classic_resume` and `cmu_letter` leave the fixture tree.**
-  2.7 MB of the 4.3 MB was their fonts (EB Garamond ×4, OpenSans ×4). No test
-  named `cmu_letter`; `classic_resume` was named by one three-line gate that
-  also runs on `taro` and `usaf_memo`, and by the usage line of
-  `print_blueprint`. What they exercised beyond the other five is covered
-  without them: `body.enabled: false` by `sample_form` and `richtext_form`, a
-  templated `ui.title` by `core/src/quill/tests.rs`, an object-typed schema by
-  `address_grammar.rs` and `default_values_test.rs`. The
-  `quillmark-fixtures` crate is `publish = false`, so nothing outside the
-  workspace read them. `BLUEPRINT.md`'s worked example still spells
-  `$quill: cmu_letter@0.1.0`: it teaches the annotation grammar and loads no
-  quill. Both READMEs lose a hand-kept inventory — the fixture crate's
-  per-backend quill list (the render sweep walks the directory) and the fuzz
-  crate's module table (each module states its own target, and two that did
-  not now do).
-- refactor(core,wasm,python): **the values form's whole-document verbs are
-  withdrawn before they ship: `reader.values()` / `writer.set_values` and their
-  card twins go.** The projection landed this cycle with no visible consumer:
-  the reader and writer are driven by both bindings throughout, while nothing
-  in the repo fills a document from one dict. It was also the largest single
-  chunk of the reader/writer layer — `DocumentValues` / `CardValues` and their
-  producers, the per-axis card planner behind `set_values`, 385 lines of its
-  own tests, the Python `values` / `set_values` pair, and the WASM
-  `_readerValues` / `_setValues` ABI with its four TypeScript interfaces.
-  The values **form** is unchanged and is still what every schema-bound read
-  answers in: `reader.get` reads one field in it, `set` / `set_all` write it,
-  and `reader.card(i)` / `writer.card(i)` carry both one slot in. A consumer
-  filling a document from one map folds it over those verbs, `add_card` and
-  `revise_body`; `$ext` keeps its own (`store_ext` / `remove_ext`, `getExt` /
-  `storeExt` / `removeExt`), so no axis loses a read or a write. What the cut
-  does cost is a read at card scope: `add_card` builds a card from plain
-  values in one call and nothing reads one back that way, the stored read
-  being undecoded and `resolve()` blank-filled. `ProjectMode` goes with them —
-  its `Total` arm existed for the whole-document read alone — so the one
-  projection walk is strict everywhere. Nothing released carries these verbs:
-  they were added and removed inside this cycle, so the 0.112 → 0.113 guide
-  and its overview row no longer announce them. Closes #1696.
-
-- docs(core,wasm): **`PREVIEW.md` points at the two surfaces it was copying.**
-  § "The seam" claimed every `SessionHandle` method past `render` and
-  `page_count` defaults to *absent* and that a backend's capabilities are
-  exactly the defaults it overrode. `field_at` breaks both: its default
-  hit-tests whatever `regions()` returns, so overriding `regions` alone buys a
-  working `field_at`. The section now says what the seam is and leaves the
-  per-method contract to `crates/core/src/session.rs`, where each default is
-  already documented beside its method. § "TypeScript surface" loses its 62-line
-  transcription of `crates/bindings/wasm/runtime/runtime.d.ts`, which carries
-  more per-member contract than the copy did and is the file `npm run
-  typecheck` checks.
-- docs: **the twenty pre-0.100 migration guides leave the published site.**
-  `wasm-0.77-to-0.80.md` through `0.99-to-0.100.md` and the `0.92-to-0.102.md`
-  span guide go, with their rows in the Migration overview: 5,519 lines routing
-  a consumer onto `RenderSession`, `` ```card `` fences, `QUILL:` frontmatter,
-  `$id` and `!fill`, none of which any release since 0.100 carries in any form.
-  The guides from 0.100 onward stay. What keeps a pre-0.100 stored blob loading
-  is the reader in `crates/core/src/document/dto.rs`, specified in
-  `prose/canon/DOCUMENT_STORAGE.md`; no guide was ever load-bearing for it.
-  `mkdocs.yml` states the nav exclusion as `/migrations/*.md`, one line in
-  place of the 33 a release had to extend. Entries below still name the
-  deleted paths: a changelog records the moment it was written.
-- test(wasm): **the `run_in_browser` test file goes; what it looked like it
-  covered is covered by suites that run.** `tests/wasm_bindings.rs` held nine
-  `#[wasm_bindgen_test]` cases and no runner — nothing under `.github/`,
-  `scripts/` or `.cargo/` names wasm-pack or a browser harness, and
-  `cargo test --workspace` compiles the file and runs zero tests out of it.
-  Every assertion it made is made by a suite that does run: `basic.test.js`
-  for the render, `Uint8Array`, storage-DTO, object-tree, metadata/schema and
-  clone cases, `canvas.test.js` for the region / `positionAt` / `locate`
-  crossing, `core.test.js` for the seed verbs, `quill/tests.rs` for a field's
-  `ui` in the schema, and `content_regions.rs` for the caret span. One was
-  uncovered — `seedCard` on an undeclared kind answering `undefined` rather
-  than throwing — and `core.test.js` now asserts it. `wasm-bindgen-test`
-  leaves the dev-dependencies with the file.
-- refactor(core,wasm,python)!: **the `$ext` namespace verbs collapse into the
-  whole-map three.** `storeExtNamespace` / `removeExtNamespace` /
-  `getExtNamespace`, the Python `store_ext_namespace` / `remove_ext_namespace`,
-  and the `Card::store_ext_namespace` / `remove_ext_namespace` they delegated
-  to are deleted. `getExt` / `storeExt` / `removeExt` (Python `store_ext` /
-  `remove_ext`) keep the whole surface, `card` selector included: `$ext` is a
-  map the engine never inspects, so a namespace write is
-  `{...getExt(addr), [ns]: v}` on the client and the read shape is the write
-  shape. The one behavior the spread does not carry is the drop-when-empty —
-  `removeExtNamespace` dropped `$ext` with its last namespace where
-  `storeExt({})` records an explicit `$ext: {}` — for which `removeExt` is the
-  call. Stored bytes, the Markdown round trip and the plate strip are
-  untouched.
-- refactor(core,wasm,python)!: **the `producer` render option goes; the
-  `/Producer` stamp it overrode stays.** `RenderOptions::producer` and
-  `with_producer`, the WASM `RenderOptions.producer` key and Python's
-  `producer=` keyword are deleted. No first-party caller set it, and the engine
-  carried the string through four crates and two bindings to reach a writer a
-  host can reach directly. Every rendered PDF still carries
-  `Quillmark <version>`: the default now sits in `quillmark-pdf`'s
-  `StampOptions::default()`, one `format!` over `version.workspace = true` in
-  place of a `default_producer()` in each backend. `StampOptions::producer`
-  becomes a plain `String` and `with_producer` goes with the `Option`, so
-  `stamp` always appends its `/Info` revision where a producer-less call over
-  an empty field list returned the base bytes; both backends always passed a
-  producer, so no render changes.
-- refactor(pdfform)!: **the SVG and PNG output formats go; canvas paint stays.**
-  `supported_formats` reports `[Pdf]`, so a `render` asking for either fails
-  under `backend::format_not_supported` and `quillmark render --format png` on
-  a pdfform quill does too. The two formats were views of the flattened form
-  consumed by nothing but their own test. `render_rgba` and the `hayro`
-  dependency stay, so a WASM consumer paints pdfform pages exactly as before:
-  paint is a `SessionHandle` seam, not an output format. `hayro-svg` goes with
-  the SVG artifact path, its only caller.
-- refactor(core,wasm)!: **the pre-session `supportsCanvas` probe is deleted at
-  every layer.** `Quillmark::supports_canvas`,
-  `quillmark_core::formats_support_canvas`, the WASM
-  `Engine.supportsCanvas(quill)` and `LiveSession.supportsCanvas` getters, and
-  the `canvas` key of a runtime `BackendDescriptor` all go; a descriptor's
-  manifest is `formats` alone. The probe keyed on output formats — true iff the
-  backend emitted PNG or SVG — while canvas paint is a `SessionHandle` seam a
-  backend overrides independently of the formats it emits, so the two could
-  disagree; every backend the workspace ships paints, so it answered `true` in
-  every build. A JS consumer opens the session and handles the throw `paint` /
-  `pageSize` already owe a compile with nothing to paint.
-- refactor(all)!: **the crate-compatibility ceremony is withdrawn:
-  `#[non_exhaustive]`, the `Backend` seal, public `register_backend`, and the
-  SemVer promise `COMPATIBILITY.md` carried.** The attribute leaves the 86
-  items that held it, so a struct literal, functional update and exhaustive
-  destructuring compile out-of-crate again —
-  `RenderOptions { .., ..Default::default() }` among them. Its one observable
-  effect was the forced `_` arm, which hides a variant a build has not learned
-  instead of reporting it: the WASM and Python `Severity` conversions folded an
-  unmatched level into `Error`, and both now match every variant. `Backend`
-  loses its `sealed::Sealed` supertrait and the `sealed` module goes with it;
-  implementing the trait outside the workspace stays impossible, because
-  `Backend::open` returns a `LiveSession` only a `#[doc(hidden)]`
-  `SessionHandle` builds and `Quillmark::register_backend` is private, leaving
-  `Quillmark::new` as the whole registry. `prose/canon/COMPATIBILITY.md` is
-  deleted — a promise to crates.io consumers that, per its own text, no CI job
-  checked; its table of `pub` seams that serve the workspace rather than a
-  consumer moves into `ARCHITECTURE.md`'s backend section.
-- feat(core,wasm,python)!: **a quill carries the load's advisory diagnostics,
-  so they reach a binding host at last.** `Quill::warnings()` is new, mirrored
-  as `quill.warnings` in WASM and Python, and it answers whatever
-  `QuillConfig::from_yaml_with_warnings` collected. Every construction door
-  keeps them, which retires the two that existed only because the field was
-  missing: `Quill::from_tree_with_warnings` and
-  `quillmark::quill_from_path_with_warnings` are gone, and `from_tree` /
-  `quill_from_path` are the whole surface. Closes #1625: `Quill::from_tree` was
-  the door every binding took and the one that dropped them, so the channel's
-  output — `quill::implicit_group` and `quill::body_example_unused` — was
-  visible only to the CLI's `validate`.
-- feat(core)!: **five retired `Quill.yaml` keys lose their tailored migration
-  message, and an implicit group is a load error.** `must_fill`, `enum`,
-  `ui.order`, the `richtext(inline)` type token and `markdown` were retired
-  across 0.94, 0.104 and 0.108, each with a hand-written sentence naming its
-  replacement. All five still fail to load, now under the same
-  `quill::field_parse_error` code with serde's unknown-key text and no hint.
-  Separately, a `ui.group` on a card with no `ui.groups` registry is
-  `quill::implicit_group` at **error** severity, the promotion that warning's
-  own text scheduled. Note for a WASM or Python host: that warning never
-  reached you — `Quill::from_tree` drops config warnings (#1625) — so the
-  error is the first notice. Declare the registry; a group has one
-  declaration site.
-- feat(typst,pdfform,cli)!: **`pdfform::form_schema_version` retires, and the
-  CLI loses three flags.** A `form@0.1.0` file still fails to load, now as an
-  unrecognised tag under `pdfform::invalid_form_json`; the retired-version
-  arm and its migration pointer are gone. `render --verbose` is deleted, so
-  `--quiet` states what it suppresses on its own: the warning block and the
-  output-destination line. `schema -o` and `blueprint -o` are deleted — both
-  commands write to stdout, where `>` does the rest; `render -o` is
-  unchanged. `validate` now reads `plate_file` from the loaded quill rather
-  than the filesystem, so a plate the load excludes fails validation, which
-  is what rendering it already did; `cli::plate_file_escapes_quill` and
-  `cli::plate_file_missing` stay distinct.
+  go; `Island::island_type` becomes the `IslandType` enum and `Loss` becomes
+  the enum `Fidelity` was. On the WASM surface the six unions lose their open
+  arm, so `line.kind === 'heading'` narrows `line.attrs` with no guard, and the
+  eleven content guards (`isTableIsland`, `isImageIsland`, `isLinkMark`,
+  `isAnchorMark`, `isHeadingLine`, `isCodeLine`, `isListItemContainer` and the
+  four `isUnknown*`) are deleted — each was one discriminant check the
+  narrowing now performs. The storage tag is unchanged: every byte the writer
+  emits is the same, and only the reader's accepted domain narrowed. Adding a
+  construct is a storage-version event from here on. Closes #1693.
+- refactor(content,wasm)!: **`Content::normalize` settles the lenient/strict
+  split alone.** Eleven `Invariant` arms named shapes the mint repairs — a
+  zero-width or newline-edged formatting mark, a `continues` flag on the first
+  line, across a container boundary or after a one-line block, a line kind its
+  text contradicts, the four table shapes, and a block island's slot sharing
+  its line — and every door mints before it validates, so each fired only on a
+  hand-built content. All of it goes: `validate` reports what normalization
+  cannot repair (a forbidden character with no substitute, two counts with no
+  rule saying which is right, a range or depth past a bound, a colliding id),
+  and `setKind` / `setContinues` land with the terminal normalize settling them
+  — a contradicted kind becomes `para`, an impossible `continues` clears, line
+  0 included. So `applyChange` resolves where it threw, and `Ok` stops meaning
+  the op landed as written: an editor mirroring ops into its own model reads
+  the content back. The one content-changing case is a heading retagged
+  `island` or `rule`, which is a paragraph afterward. `BadHeadingLevel` and the
+  block-island placement stay refused — the first has no principled rewrite,
+  the second is the authored lane's policy rather than a second reading of a
+  repair. `LineKindMismatch` leaves the crate, and so do
+  `ApplyError::LineKindMismatch`, `ContinuesAcrossContainers`,
+  `ContinuesSingleLineBlock` and `FirstLineContinues`;
+  `LineKind::takes_continuations` names the kinds a continuation is legal after
+  (`Para`, `Code`, `Unknown`), since export renders only the first line of a
+  heading, island or rule. Stored bytes are untouched, and the one reader
+  change is a loosening: a blob spelling `continues: true` on line 0 loads
+  cleared where it failed. Closes #1699.
 - feat(content)!: **a block-only island takes a line of its own in the model,
-  not only on the way out.** `to_markdown` broke the line around such a slot
-  at write time, so the model could hold a shape markdown cannot spell.
-  `Content::normalize` performs the break and the export writes the lines it is
-  given. A stored blob carrying the shape still loads, now already split with
-  its marks rebased — the content `to_markdown` would have written. An
-  accepted `LineOp::Join` that runs a slot back into its prose is taken apart
-  again by the mint; the authored lane still refuses the placement up front.
-  `normalize_markdown` narrows to `pub(crate)`.
-- feat(core)!: **five `quillmark-core` document verbs with no caller are
-  gone.** `Document::to_plate_json` was the schema-free spelling of the
-  crate-internal `to_plate_json_gated` every render already takes, so the
-  plate export leaves the public Rust surface; no binding ever carried it.
-  `Document::card_kinds` had one caller, a test. `impl IntoIterator for
-  &Payload` duplicated `Payload::iter`. `MetaKey::ALL` and
-  `MetaKey::is_root_only` enumerated a two-member set to find `Seed`, which
-  both call sites name directly. `PathStepWire` and the `CommentPathSegment`
-  alias were a second and third name for `PathSegment`, which carries the
-  untagged serde form itself, so `PayloadItemWire::Field`'s `nested_fills` is
-  `Vec<Vec<PathSegment>>`. The bytes do not move: a nested-fill path crosses
-  the wire as the JSON it always did, a string per key and a number per index.
-- feat(core,content)!: **unread accessors leave `quillmark-core` and
-  `quillmark-content`.** `YamlError::line` / `column` / `hint` had no caller
-  outside one test; a consumer reads the position off `to_diagnostic`.
-  `RenderedRegion::contains` had none outside its own, and `field_at` never
-  shared it — it ranks by `distance` under a tolerance. `print_errors` had one
-  caller and now lives in it, the CLI. `normalize_document` returns a
-  `Document` rather than a `Result` it never filled. `Delta::apply`, which
-  panicked on a delta built against a longer revision, folds into the checked
-  `try_apply`; `ChangeBundle::from_delta` had two callers, both tests. Two
-  additions come with them: `RenderError::coded_hint`, the coded-plus-hint
-  shape four `backend.rs` refusals built by hand, and `region::nearest_region`,
-  the tolerant search `SessionHandle::field_at` and the Typst backend each
-  carried a copy of.
-- fix(wasm): **a failed conversion at the typed boundary throws instead of
-  stranding the JS handle.** `RenderOptions`, `RenderResult`, `Diagnostic`,
-  `ChangeSet`, `ContentHit` and `FieldRegion` cross as `tsify::Ts<T>`, whose
-  handle the wasm-bindgen shim owns and frees; the deprecated `into_wasm_abi` /
-  `from_wasm_abi` impls they carried leaked it on the way out (tsify#65), and
-  took the module down with a trap rather than a catchable error when
-  serialization failed. The TypeScript surface is byte-identical, and the crate
-  compiles warning-free, so the next deprecation is visible.
-- fix(docs): **the 57 comments and doc claims that contradicted the code now
-  state it.** The user-visible ones: the Typst backend never searched system
-  fonts, so its docs stop promising `#set text(font: "Arial")` and name what a
-  world loads (`assets/fonts/*`, `packages/**`, the embedded Figtree fallback);
-  the quickstart teaches `quill.parse`, the bound door, rather than the
-  transport door; `@quillmark/wasm` has no `/runtime` subpath, and the seven
-  places that named one now spell the package's sole export.
-- fix(content): **`change_bundle_from_value` reads camelCase keys only.** The
-  snake_case fallback served a Python content lane that does not exist; every
-  caller sends `islandOps`/`lineOps`/`markOps`.
-- fix(typst): the font loader drops its `woff`/`woff2` extension arms, which
-  parsed nothing, and the data codegen drops its skip of a `__meta__` key
-  nothing produces.
-- fix(core): **a `ParseError` spells its English once.** `to_diagnostic()`
-  renders the variant's `Display` instead of a second copy of the same
-  sentence, and the copies had drifted: `InvalidStructure` displayed under an
-  `Invalid YAML structure: ` prefix the diagnostic dropped. A Rust caller
-  formatting `{err}` from `Document::parse` now reads that variant without the
-  prefix, matching the message every binding and the CLI have always shown.
-- fix(core): **a blank `main.description` emits no description line in the
-  blueprint.** The main card tested the raw string for emptiness and collapsed
-  whitespace afterwards, so `main: { description: "   " }` passed the test and
-  landed as a bare `# ` above the first field. The collapse now runs first, the
-  same order every other description takes, and a description that collapses to
-  nothing falls through to `quill.description`.
-- fix(core)!: **`main:` parses under the same strict card-schema shape as a
-  card kind.** A `main:` that is not a mapping, an unknown key under it
-  (`feilds:`, `title:`), and a `main.fields` that is not a mapping all loaded
-  as a main card with zero fields and no diagnostic; each is now
-  `quill::invalid_card_schema`. `main` and `card_kinds.<name>` accept
-  `description`, `fields`, `ui`, and `body` only, and a malformed `ui` or
-  `body` block under either reports `quill::invalid_ui` or
-  `quill::invalid_body` with the hint naming that block's keys, where a card
-  kind drew the whole-card `quill::invalid_card_schema`.
-- fix(core)!: **`Quill::validate` refuses every value the render floor
-  refuses.** Validation judged a floor refusal by the authored value's own
-  shape, and two shapes read well-typed there: a content object that is not
-  canonical content on a `richtext` or `plaintext` field (`{prose: older}`),
-  and an integer past `i64` on an `integer` field (`18446744073709551615`).
-  Both audited clean while `compile_data` and `dry_run` refused them, so the
-  `validate`/`dry_run` pairing an editor runs on gave two verdicts. A leaf the
-  floor cannot conform is now a `validation::type_mismatch` at the field's
-  path, unless a shape check already names the refusal
-  (`validation::not_inline`, `validation::not_plain`,
-  `validation::format_violation`); a container's refusal stays the element's or
-  property's, at its own path. A numeric literal past `i64` reports `actual:
-  number`, the type that does carry it, so the mismatch hint stays true, and
-  such a literal in a `default:` or `example:` is a load error.
-- fix(core): **a seeded variant commits its cells without a discriminant to
-  name their world.** `seed_card` needed the overlay or an `example:` to name a
-  member and dropped the whole field otherwise, so a `$seed` entry was honored
-  for a card's plain fields and silently discarded for its variant-bearing one.
-  The world walked is now the render floor's own selection — overlay ›
-  `example:` › `default:` › blank — and the container commits whenever a cell
-  has something to commit. `value` is written only where the overlay or an
-  `example:` named the member, so a `default:` stays deferred to the floor and
-  the container it leaves without a `value` resolves to the default's world.
-- fix(core): **a `!must_fill` marker nested inside `$seed` or `$ext` warns
-  instead of vanishing.** A `$` metadata value is a plain tree with no fill
-  carrier, so a marker under one reached neither storage nor emit and the cell
-  it marked read back as `null`. Parse now emits a
-  `parse::fill_marker_unsupported_position` warning naming the cell
-  (`$seed.note.from`), the family every other unpreservable marker position
-  already draws. The value under the marker is kept, as it was; a marker on the
-  `$` key itself remains a parse error.
-- fix(content): **VT, FF and NEL in document text become a space.** Typst's
-  lexer reads all three as line breaks, like the U+2028/U+2029 separators the
-  ingress already spaced, so one mid-paragraph reopens `at_start` and the
-  characters behind it are read as a block marker — `"intro\u{c}- item"`
-  rendered a bullet — and two in a row split the paragraph. The spaced set is
-  Typst's whole newline set less `\n`, named by
-  `normalize::is_line_separator`, refused by `validate`, and replaced at every
-  text ingress: `from_plaintext`, markdown import, an `Op::Insert` through
-  `apply_text_delta`, and a table cell's text. Markdown-spec §7 states it.
-- fix(typst): **`escape_markup` lowers every character Typst reads as a newline
-  to a space.** A content that reached the emitter without passing the ingress
-  — hand-built, or decoded from storage — could still carry `\r`, VT, FF, NEL,
-  U+2028 or U+2029, and the emitter wrote it through: the text behind it parsed
-  as a heading, list or term marker the document never wrote. One character to
-  one byte, so the per-character span scan stays exact, and the space is trivia
-  to the line-anchor guard, which lands on the marker behind it.
-- fix(typst,pdfform)!: **a raster nobody can allocate is refused, not
-  attempted.** `RenderOptions.ppi` and the `render_rgba` canvas scale reached
-  tiny-skia and hayro unchecked; both size their buffer from the value and
-  unwrap it, so `ppi: Infinity` or `1e9` panicked the process — in WASM a trap
-  that takes the engine instance with it — while NaN, zero and a negative
-  quietly rasterized a 1×1 image. Every raster path now refuses under
-  `backend::invalid_raster_scale` a scale that is not finite and positive, or
-  that would put a page past `MAX_RASTER_PIXELS` (16384² px: a 1 GiB RGBA
-  buffer, and the area of the WASM painter's per-side clamp, so nothing that
-  clamp admits is refused). US Letter at the default 144 ppi is 138× under it.
-  `SessionHandle::render_rgba` and `LiveSession::render_rgba` return
-  `Result<Option<(u32, u32, Vec<u8>)>, RenderError>` to carry the refusal;
-  `Ok(None)` is still the out-of-range page.
-- fix(pdfform)!: **flatten's own parse failure is `pdfform::flatten_parse`.** A
-  page dict or `/Contents` the content-stream flattener cannot read raised
-  `pdf::flatten_parse`, naming the stamp spine for a failure of the backend's
-  own code; it carries the `pdfform::*` namespace every other pdfform code
-  uses. `pdf::bad_rect` stays the spine's and is minted in one place,
-  `FieldSpec::assert_finite_rect`, which the stamp and flatten paths both call.
-- fix(typst,pdfform)!: **`RenderOptions::pages` means one thing on every
-  backend, under `backend::*` codes.** The PDF-form backend ignored the option:
-  SVG and PNG rendered every page whatever was asked for, PDF returned bytes
-  instead of refusing, and an out-of-range index passed silently. It now
-  narrows SVG and PNG to the named pages, in the order given, and refuses a
-  selection for PDF. Both backends mint the two refusals from the shared
-  constructors in `quillmark_core::backend`, so the codes are
-  `backend::page_index_out_of_bounds` and
-  `backend::page_selection_not_supported` in place of the Typst-private
-  `typst::page_index_out_of_bounds` and
-  `typst::pdf_page_selection_not_supported`.
-- fix(pdfform)!: **canvas geometry measures from the page's canvas box.** hayro
-  rasterizes `/CropBox` ∩ `/MediaBox` and draws that box's lower-left corner at
-  the raster's origin, while `page_size_pt` reported the `/MediaBox` extent and
-  `regions()` reported widget `/Rect`s in raw user space. An overlay over a
-  `pdfcrop`ped background (`/MediaBox [96 133 500 700]`) therefore sat 96 × 133
-  pt off its ink, and a `/CropBox` inside the MediaBox reported a page bigger
-  than its own raster. `page_size_pt` is the canvas box's extent, `regions()`
-  subtracts its lower-left corner, and `form.json`'s top-left rects flip against
-  it, so `pageSize`, `regions`, the point queries, and the raster share one
-  origin. Values move only on a page whose canvas box does not start at
-  `(0, 0)`: a background on `[0 0 W H]` with no `/CropBox` reports what it always
-  did. The stamped PDF's widget `/Rect`s stay in user space.
-  `quillmark_pdf::page_media_boxes` is `page_canvas_boxes`, and it refuses a
-  canvas box under a point per side (`pdf::degenerate_page_box`) and a page box
-  that is not a direct array of numbers.
+  not only on the way out.** A `table`'s markdown is a block, so a slot spliced
+  into a paragraph exported as pipes mid-line — `a| h |\n| --- |\n| c |b` — and
+  re-imported as prose with the island gone. `Content::normalize` performs the
+  break the export used to perform at write time, so the model can no longer
+  hold a shape markdown cannot spell. `IslandOp::Insert` refuses an `at` that
+  is not an empty line, `IslandOp::Set` refuses retyping an inline island into
+  a block-only one (`ApplyError::BlockIslandNotAlone`), and `overwrite` refuses
+  the same placement through `serial::from_authored_value`. Storage stays
+  lenient: a stored blob in that shape loads already split with its marks
+  rebased, and `to_markdown` writes a paragraph, the table, and a paragraph, so
+  the island survives re-import. An accepted `LineOp::Join` that runs a slot
+  back into its prose is taken apart again by the mint. `normalize_markdown`
+  narrows to `pub(crate)`.
 - fix(content)!: **a link or image `url` carrying a line ending is refused
   where it is authored, and percent-encoded where it is written.** CommonMark
   admits no line ending in a destination, bare or angle-wrapped, so `"a\nb"`
@@ -508,241 +76,561 @@
   re-import came back `[t]()` with the mark gone, and an image the same way
   with its island gone. An authored lane that *stores* a url now refuses one —
   `MarkOp::Add` of a `link`, `IslandOp::Insert` and `IslandOp::Set` of an
-  `image`, and the whole-content doors (`install`, `overwrite`,
-  `CardInput.body`) — the way an unwritable code-fence `lang` is refused.
-  `MarkOp::Remove` still takes it, matching on kind equality against a mark the
-  field already holds. Storage stays lenient, and `to_markdown` writes the line
-  ending as `%0A`/`%0D`, so the link survives and re-imports addressing the
-  encoded url.
-- fix(content)!: **a block-only island lands only on a line of its own, and the
-  markdown write breaks the paragraph around one already stored inline.** A
-  `table`'s markdown is a block, so a slot spliced into a paragraph exported as
-  pipes mid-line — `a| h |\n| --- |\n| c |b` — which re-imported as prose with
-  the island gone. `IslandOp::Insert` refuses an `at` that is not an empty line,
-  `IslandOp::Set` refuses retyping an inline island into a block-only one
-  (`ApplyError::BlockIslandNotAlone`), and the authored whole-content door
-  (`overwrite`, through `serial::from_authored_value`) refuses the same
-  placement. Storage stays lenient: `to_markdown` writes a content already in
-  that shape as a paragraph, the table, and a paragraph, so the island survives
-  re-import.
-- fix(content): **a paragraph emptied by HTML stripping leaves no line.**
-  `<span></span>` on its own imported as an empty `Para` line, which markdown
-  has no syntax to write, so `to_markdown` emitted a stray blank line and
-  re-import collapsed it: `from_markdown("a\n\n<span></span>\n\nb")` was not a
-  fixed point. Import now drops such a paragraph. An empty heading, code block
-  and container keep their line, markdown being able to write those back.
+  `image`, and the whole-content doors (`overwrite`, `CardInput.body`) — the
+  way an unwritable code-fence `lang` is refused. `MarkOp::Remove` still takes
+  it, matching on kind equality against a mark the field already holds. Storage
+  stays lenient, and `to_markdown` writes the line ending as `%0A`/`%0D`.
 - fix(content): **an island alone on a line takes the line kind its type
   projects.** An `image` slot alone on a `LineKind::Island` line and the same
   slot on a `Para` line both wrote `![alt](url)`, which re-imports as `Para`,
   and a `table` alone on a `Para` line wrote a pipe table, which re-imports as
   `Island`: two normalized contents per document and one markdown, so any write
-  and read back flipped the kind. `KnownIslandType::block_only` names which
-  markup is a block, and `Content::normalize` writes the kind the round trip
-  yields — `Island` for a `table`, `Para` for an `image`. A type this build
-  cannot read keeps the kind it was stored with, its placeholder naming none.
-- fix(wasm,python): **`quill.metadata` key order is a function of the quill.**
-  The five standard keys (`name`, `version`, `backend`, `author`,
-  `description`) come first in that order, then the extra keys sorted by name,
-  so `JSON.stringify` / `json.dumps` of a metadata snapshot is stable across
-  processes. The extras rode core's `HashMap` iteration order.
-- docs(wasm,typst,core): **the live session's edit verb is `update` in prose
-  too.** The `@quillmark/wasm` README and the `LiveSession` rustdoc named an
-  `apply(doc)` the class does not carry, so a consumer following them reached
-  `session.apply is not a function`; the same stale name sat in the Typst
-  backend's and core's comments for `SessionHandle::update`. The README also
-  called `pageCount` and `pageSize(page)` stable for the session's lifetime,
-  which a committed `update` invalidates: they read the current compile, the
-  new count is `ChangeSet.pageCount`, and every page in `ChangeSet.dirtyPages`
-  needs its `pageSize` re-read.
-- fix(wasm): **an unregistered backend rejects with `engine::backend_not_found`
-  like every other failure.** The four `Engine` verbs threw a bare `Error` for a
-  quill whose declared `backend:` has no loader, so `isQuillmarkError` answered
-  `false` and the README's own `catch` example re-threw it as a foreign
-  failure. The rejection now carries one diagnostic under the code core and the
-  Python binding already raise, hinting the registered backend ids.
-- fix(wasm): **`Engine.render` returns the document's load warnings ahead of
-  the compile's own.** The engine renders a backend-memory clone built by
-  `Document.fromStored`, which carries no warnings, so a `@quillmark/wasm`
-  consumer got compile warnings only and a parse, `conform::*` or
-  `plate::unsupported_construct` diagnostic reached `RenderResult.warnings`
-  from no public surface. `Engine.render` now snapshots `doc.warnings` beside
-  the storage DTO and fronts the result with it, the pipeline order ERROR.md
-  states. `doc.warnings` still carries the same list, and
-  `LiveSession.render` carries the compile half alone.
-- fix(core,wasm,python)!: **a card built from a wire refuses under the code its
-  addressed mutator mints.** `makeCard` / `insertCard` folded a malformed field
-  name, a bad `$quill` reference, a `!must_fill` on a mapping and a malformed
-  item list into one code-less refusal, so `diagnostics[0].code` was `undefined`
-  in JS and Python raised a bare `ValueError` — while `storeField` /
-  `setQuillRef` carried `edit::invalid_field_name`,
-  `parse::invalid_quill_reference` and `edit::fill_on_mapping` for the same
-  violations. `WireError` now carries the `EditError` its addressed twin raises
-  and both bindings stamp `WireError::code()` on the diagnostic. A card dict
-  Python cannot read as a card at all is still a `ValueError`; one that
-  deserializes and then violates an invariant is a `QuillmarkError` under its
-  code. The list-level violations (a duplicate key, a field count past the §8
-  bound, a `$` entry twice, a comment spanning lines) carry the new
-  `edit::invalid_payload`.
-- fix(python): **`OutputFormat` and `Severity` members are hashable.** The two
-  pyclass mirrors declared `eq` alone, which fills `tp_richcompare` and leaves
-  no `tp_hash`, so CPython stamped `__hash__ = None` and every variant was
-  rejected as a set member or a dict key: `set(engine.supported_formats(quill))`
-  and `Counter(d.severity for d in exc.diagnostics)` raised `TypeError`. Both
-  are now frozen and hash by variant, one slot per member.
-- fix(python)!: **a negative index is an out-of-range index, not an
-  `OverflowError`.** Every index parameter was a `usize`, so `doc.card(-1)`,
-  `doc.move_card(-1, 0)`, `writer.card(-1).set(..)` and `render(pages=[-1])`
-  died in the boundary conversion with a third exception type, outside the two
-  the binding documents. Indices are signed at the boundary now. A negative one
-  addresses nothing — it is not the last card, and the binding does not index
-  from the end — so it takes the answer its site already gives an index past the
-  end: `edit::index_out_of_range` where the verb raises,
-  `backend::page_index_out_of_bounds` for a page, `None` where `remove_card`
-  answers absence.
-- perf(python): **reading `RenderResult.artifacts` copies no bytes.** The
-  getter rebuilt its list on every read, cloning each artifact's buffer, and
-  `Artifact.bytes` cloned that again on the way into a `bytes`, so a `save`
-  followed by one `bytes` read moved a multi-MB PDF three times. The
-  `Artifact` and `Diagnostic` objects are built once, with the result, and
-  every `artifacts` or `warnings` read hands the same objects back; `bytes`
-  makes the one Rust→Python copy and `save` writes without one.
-- docs(cli): **the exit-code table separates a usage error from a refusal.**
-  The CLI reference and the crate README both promised `1` on any error, while
-  `clap` exits `2` on an invocation it cannot parse — an unknown flag, a missing
-  argument, an unknown subcommand — before any command runs. `1` is the command
-  running and refusing: an invalid quill, a missing file, a failed render, an
-  argument value the command itself rejects (`-f docx`). `--help` and
-  `--version` exit `0`. Stated in `prose/canon/CLI.md`, the reference, and the
-  README; a smoke test pins the `2`.
+  and read back flipped the kind. `IslandType::block_only` names which markup
+  is a block, and `normalize` writes the kind the round trip yields.
+- fix(content): **VT, FF, NEL, U+2028 and U+2029 in document text become a
+  space.** Typst's lexer reads all five as line breaks, so one mid-paragraph
+  reopens `at_start` and the characters behind it are read as a block marker —
+  `"intro\u{c}- item"` rendered a bullet — and two in a row split the
+  paragraph. No escape reaches them, a `\` before whitespace being Typst's own
+  linebreak. The spaced set is Typst's whole newline set less `\n`, named by
+  `normalize::is_line_separator`, refused by `validate`, and replaced at every
+  text ingress: `from_plaintext`, markdown import, an `Op::Insert` through
+  `apply_text_delta`, and a table cell's text. A space rather than a drop, both
+  being Unicode whitespace, so the words either side stay parted. Markdown-spec
+  §7 states it.
+- fix(content): **a paragraph emptied by HTML stripping leaves no line.**
+  `<span></span>` on its own imported as an empty `Para` line, which markdown
+  has no syntax to write, so `to_markdown` emitted a stray blank line and
+  re-import collapsed it. An empty heading, code block and container keep their
+  line, markdown being able to write those back.
+- fix(content): **a code span whose content touches its fence exports with the
+  CommonMark space pad.** Export emitted `fence + content + fence`, so an edge
+  backtick joined the fence run (text `` `a `` came back as ` ```a`` `) and a
+  span that begins and ends with a space lost one off each side on re-import. A
+  pad space now flanks the content in exactly those two cases, which import
+  strips back off; a span of nothing but spaces is exempt from the strip.
+- fix(content): **a mark flanking an unknown island's placeholder survives
+  export.** The verify-and-drop net re-imports the rendered line and expects
+  the line's own text back, island slot included, but a type this build has no
+  projection for renders as a comment placeholder that re-imports as nothing —
+  so the probe could never match and every `**` / `*` / `~~` on such a line was
+  dropped as unrepresentable. The expected text now omits the slots of islands
+  with no markdown projection, so the probe measures delimiter leakage alone.
+- fix(content): **`diff_import` carries unknown marks forward beside anchors.**
+  The rebase loop matched `MarkKind::Anchor` alone, so a full-document rewrite
+  through the stale-text writer lane dropped every open-set mark, even one over
+  text the rewrite left untouched. It rebases every non-formatting mark —
+  formatting is what the fresh import re-derives, and the rest lives in the
+  content but not in markdown.
+- fix(content): **a change bundle whose `retain`/`delete` counts sum past
+  `usize` is a base mismatch, not a panic.** `Delta::expected_base_len` summed
+  the counts unchecked, so `{"retain": 18446744073709551615}` aborted in debug
+  and wrapped in release, where the wrapped total let `apply` slice past the
+  base. The sum saturates past any real base, so `try_apply` and
+  `apply_field_change` return the `DeltaBaseMismatch` the contract already
+  names.
+- fix(content): **`change_bundle_from_value` reads camelCase keys only.** The
+  snake_case fallback served a Python content lane that does not exist.
+
+### Parsing and the card block
+
+- feat(core)!: **every column-zero `~~~` block is a card, whatever its info
+  string.** The opener's info string is no longer read. `~~~card-yaml` and
+  `~~~yaml` were accepted aliases and `~~~rust` opened an ordinary code block;
+  all of them open a card now. The spec already stated the widened rule in §3.2
+  and then exempted language info strings in the next sentence, so a tilde
+  escape hatch was half-promised and half-withheld — and already unavailable
+  for the two shapes anyone would reach for: a YAML block, claimed by the
+  `yaml` alias, and a nested backtick block, written with a bare `~~~`. Nothing
+  first-party emits a language-tagged tilde fence. A backtick fence is the
+  escape hatch, and the whole of it. The widening deletes what the exemption
+  needed: the accepted-alias list, the `RootFault::InfoString` diagnostic that
+  explained why `~~~metadata` opened no block, and `code_fence_info`, whose
+  last caller it was; `RootFault` collapses to the `UnclosedRoot` struct it now
+  is. CommonMark conformance is unchanged — `fence_conformance_tests` holds
+  every card block to a pulldown-cmark fenced span at the same offsets — so the
+  widening moves toward equality rather than away. The `body.example` blueprint
+  guard tightens with the parser it delegates to. `docs/cli/reference.md` and
+  `prose/canon/CLI.md` stop naming an alternative opener. Refs #1698.
+- fix(core)!: **`main:` parses under the same strict card-schema shape as a
+  card kind.** A `main:` that is not a mapping, an unknown key under it
+  (`feilds:`, `title:`), and a `main.fields` that is not a mapping all loaded
+  as a main card with zero fields and no diagnostic; each is now
+  `quill::invalid_card_schema`. `main` and `card_kinds.<name>` accept
+  `description`, `fields`, `ui` and `body` only, and a malformed `ui` or `body`
+  block under either reports `quill::invalid_ui` or `quill::invalid_body` with
+  the hint naming that block's keys, where a card kind drew the whole-card
+  refusal.
+- fix(core)!: **the §8 count caps report a count, not a byte size.** The
+  card-count and per-block field-count caps raised `parse::input_too_large`,
+  whose one message shape is `Input too large: {size} bytes (max: {max}
+  bytes)`, so 1001 fields read as 1001 bytes. Each cap has its own variant and
+  code: `ParseError::TooManyFields` / `parse::too_many_fields` and
+  `ParseError::TooManyCards` / `parse::too_many_cards`, both carrying `count`
+  and `max`. `parse::input_too_large` keeps the two byte caps.
 - change(core)!: **YAML nesting depth is the parser's to bound, and
   `MAX_YAML_DEPTH` is gone.** The constant set `serde_saphyr`'s depth budget
   and doubled as the bound on host values crossing into the document, so one
-  number spoke for two unrelated limits. YAML parsing now runs on
-  `serde_saphyr`'s own budget, and the write surfaces (`store_field`,
-  `store_ext`, the wire and storage DTOs, the bindings' converters) bound
-  values at `MAX_JSON_DEPTH` (128), the depth storage already accepts —
-  raising the accepted depth on those paths from 100. Read the cap from
-  `quillmark_core::error::MAX_JSON_DEPTH`; `§8 Limits` no longer fixes a YAML
-  nesting number.
-- change(typst): **an image in a content field draws nothing and warns.** What
-  a content image's `url` names is undecided — a document is quill-free but for
-  `$quill`, which selects a *range* of versions, and declares everything else it
-  references — so the Typst backend lowers an `image` island to nothing rather
-  than binding one reading of the string. A quill asset stays the plate's to
-  draw (`#image("assets/logo.svg")`), unchanged. The refusal is legible where it
-  used to be a Typst file-not-found error about a generated file the author never
-  wrote: one **`backend::declined_construct`** warning per content field, `args`
-  `{backend, construct, count}` and the field's `DocPath` in `path`, minted by
-  the new `quillmark_core::declined_construct` so it cannot drift from
-  quill-declared `plate::unsupported_construct` — the sixth warning family, and
-  the first a backend *observes* rather than a quill declares. **A consumer
-  routing on diagnostic codes gains a warning family** and needs an arm for it.
-  Storage is untouched: an `image` island still parses, stores, round-trips to
-  markdown and reaches an editor with its `{url, alt}` props.
-- fix(typst): **a compile diagnostic carries a code from a closed set.** The
-  code was the message up to its first `:`, so a missing asset minted
-  `typst::file not found (searched at assets/logo.png)` — the author's path
-  inside what consumers route on, one code per input — and a URL truncated
-  mid-value to `typst::file not found (searched at https`. Most Typst messages
-  hold no `:` at all, so the whole sentence became the code. The mapping now
-  classifies: `typst::file_not_found`, `typst::unknown_variable`,
-  `typst::type_error`, and `typst::compile` for every message the set does not
-  name, warnings included. Typst's sentence, and the path it searched, stay in
-  `message`.
+  number spoke for two unrelated limits. YAML parsing runs on `serde_saphyr`'s
+  own budget, and the write surfaces (`store_field`, `store_ext`, the wire and
+  storage DTOs, the bindings' converters) bound values at `MAX_JSON_DEPTH`
+  (128), the depth storage already accepts — raising the accepted depth on
+  those paths from 100. `§8 Limits` no longer fixes a YAML nesting number.
+- refactor(core)!: **prescan's cleaned YAML is line-for-line with its source.**
+  A comment line was dropped from the string handed to the parser, so the two
+  numberings diverged and a `PreScan::source_lines` table existed to map a
+  reported position back. The line passes through — it is a comment to the
+  parser too — and the table, the `Cleaned` pair it rode in, and the
+  fall-back-to-the-last-line lookup go with it. Blanking the line instead is
+  what this does *not* do: a blank line is content under keep chomping, so
+  `bio: |+` followed by a comment would have gained a newline. One break: a
+  comment indented inside a multi-line plain scalar now ends it, as it does in
+  YAML, so `key: aaa` / `  # c` / `  bbb` raises a located `parse::yaml_error`
+  where it used to fold to `"aaa bbb"` — a value no YAML parser reads out of
+  that document.
+- refactor(core)!: **nested comments hang off the payload, not each item.**
+  `PayloadItem::Field` / `Meta` lose `nested_comments`; one list on `Payload`
+  carries them, at paths whose head segment names the owning entry. That is the
+  form prescan already produced and the storage DTO already stored, so the flat
+  → per-item → flat conversion at both ends is gone. `Payload` gains the public
+  `nested_comments()` and `rename_field`, which carries a field's comments with
+  its key; `items_mut` is withdrawn, having existed only for the rename that
+  now has a verb. The wire is untouched: `PayloadV0_92_0.nested_comments` was
+  already the flat sidecar.
 - fix(core): **an unclosed root `~~~` block is reported as unclosed.** A
   document that opens with `~~~` and `$quill` but never closes the fence drew
   the generic `parse::missing_quill` text, telling the author to open a block
   they had already opened while the scanner's unclosed-fence signal was
-  dropped. That signal now reaches the diagnostic: the message names the
-  opener's line, the field to close after, and — for a `~~` run or an indented
-  `~~~` — the line that failed to close it. A root opener carrying a foreign
-  info string (`~~~metadata`) is named the same way.
+  dropped. The message names the opener's line, the field to close after, and —
+  for a `~~` run or an indented `~~~` — the line that failed to close it.
 - fix(core): **a card-yaml parse failure carries a document `Location`.**
   `YamlErrorWithLocation` keeps the engine's line and column, translated
   through the comment lines prescan drops and the leading whitespace `trim`
   removes onto the document's own coordinates, and `to_diagnostic()` sets them
   as the `Location` (`input.md`). The message names the block (`YAML error in
-  the root card-yaml block: …`, `… in card-yaml block 2: …`) in place of the
-  block-relative `at line N (block K)` prefix, and `args` no longer carries
-  `line`.
-- feat(core): **`~~~yaml` opens a card-yaml block**, a second non-canonical
-  alias beside `~~~card-yaml`; both re-emit as bare `~~~`. A YAML *code* block
-  in prose is a backtick fence (```` ```yaml ````), unchanged.
+  the root card-yaml block: …`) in place of the block-relative `at line N
+  (block K)` prefix, and `args` no longer carries `line`.
+- fix(core): **a card fence with CRLF line endings parses as its LF twin
+  does.** The prescan splits the fence body on `\n`, so every CRLF line reached
+  the matchers with a trailing `\r`: a bare `x: !must_fill` matched neither
+  spelling the fill-tag stripper accepts, so the marker was read as an unknown
+  tag — dropped with two warnings, a `null` value and an `x: null` emit — and a
+  lone `-` opening a sequence item was not one. The scan strips one trailing
+  `\r` per line up front.
+- fix(core): **`key: !must_fill` written inside a block scalar or a quoted
+  scalar is that scalar's text, and warns about nothing.** The
+  `parse::fill_marker_unsupported_position` check re-read every cleaned line
+  after the prescan, block-scalar bodies among them, and accepted any `:` plus
+  whitespace as the tag's left boundary. The prescan decides the warning per
+  line as it reads one, where a block-scalar body and a quoted value are known
+  for what they are; the four positions the marker genuinely cannot survive
+  still warn.
+- fix(core): **a `!must_fill` marker nested inside `$seed` or `$ext` warns
+  instead of vanishing.** A `$` metadata value is a plain tree with no fill
+  carrier, so a marker under one reached neither storage nor emit and the cell
+  it marked read back as `null`. Parse emits a
+  `parse::fill_marker_unsupported_position` warning naming the cell
+  (`$seed.note.from`). The value under the marker is kept; a marker on the `$`
+  key itself remains a parse error.
+- fix(core): **a field name is ASCII as written, not as it normalises.**
+  `is_valid_field_name` ran NFC before matching `[A-Za-z_][A-Za-z0-9_]*`, so
+  `store_field("\u{212A}elvin", …)` was accepted, emitted verbatim, and re-read
+  as a nested key: the document did not survive `parse(to_markdown())`. The
+  check reads the name's own characters, matching the raw bytes the parser's
+  key grammar accepts.
+- fix(core): **a new `$` entry lands after the preceding `$` line's inline
+  comment, not between the line and its comment.** `Payload::upsert_meta`
+  inserted one past the last lower-ranked `$` item, which is the index the
+  trailing comment occupies, so `$quill: q@1.0 # note` with no explicit `$kind`
+  emitted `$kind: main # note`. The four callers now leave the trailer on its
+  own key and `parse(to_markdown())` holds.
+- fix(core): **a comment between a bare `-` and the item's first key stays
+  inside the item.** The prescan records such a comment against the item, but
+  emit wrote it above the `- ` line, where it re-parses as a comment on the
+  sequence — a parse-emit-parse inequality settling only on the second emit. A
+  sequence item whose mapping carries an own-line comment before its first key
+  emits in the bare-dash form, so the first emit is the fixed point. A
+  blueprint's typed-table row takes that form too.
+- fix(core): **a field write clears a root `!must_fill` bit riding on the value
+  it is handed.** The payload item's own `fill` flag is the one carrier of a
+  root marker — emit, the wire and the storage DTO all read it there — while
+  `QuillValue::set_fill_at(&[])` marks the value tree's root, and a value
+  stored after that call kept both bits. `Payload` clears the tree's root bit
+  on insert, so a document compares equal to itself across the markdown and
+  storage round trips. Parse skips a nested-fill path naming only its own key,
+  the route reaching the same split from source.
+- fix(core): **`Card::store_fields` refuses a `!must_fill` marker targeting a
+  mapping, as `Card::store_field` does.** The batch checked the field-name
+  grammar and value depth only, so a marker on a nested object node was stored,
+  emitted with the marker dropped, and refused by the `@0.92.0` storage DTO on
+  reload. `edit::validate_fill_targets` runs per field in the same
+  all-or-nothing pass, so the offending name rides the batch's error vector as
+  `edit::fill_on_mapping`. The WASM `storeFields` inherits it.
+- fix(core): **a `ParseError` spells its English once.** `to_diagnostic()`
+  renders the variant's `Display` instead of a second copy of the same
+  sentence, and the copies had drifted: `InvalidStructure` displayed under an
+  `Invalid YAML structure: ` prefix the diagnostic dropped. A Rust caller
+  formatting `{err}` from `Document::parse` reads that variant without the
+  prefix, matching what every binding and the CLI have always shown.
+- fix(core): **body prose left inside a card block is told to close the block,
+  not to wrap itself in a block scalar.** A closing `~~~` placed after the
+  prose body fails YAML on the first prose line, and `simple key expected`
+  answered every such line with the wrapped-scalar advice: rewriting the memo
+  as `body: |` keeps the body inside the block and fails again. The hint reads
+  the flagged line the parser names and names the real fix — close the block
+  before the prose. A genuine plain scalar wrapped onto a second line keeps the
+  block-scalar hint.
+- fix(core): **a leading space before a top-level key gets its own hint.** One
+  stray space folds the line into the preceding plain scalar, and YAML raises
+  the same `mapping values are not allowed` an unquoted `:` inside a value
+  raises — so the hint sent the reader hunting for a colon that is not in the
+  block, and four models quoted the `subject:` above it instead. Where the
+  flagged line starts with a space, reads as `key:` or `key: value`, and
+  follows a column-zero key line, the hint names the space.
 
-- feat(core): **the values form: `reader.values()` reads a document as plain
-  values and `writer.set_values(values)` writes them back.** A document has
-  three forms: *stored* (verbatim, quill-free), *values* (stored with every
-  content leaf decoded to its codec's text — `richtext` markdown, `plaintext`
-  literal — at every depth), and *resolved* (values blank-filled,
-  render-coerced and rung-tagged). `DocumentValues` / `CardValues` are the
-  middle one: `{fields, body, cards: [{kind, fields, body, ext}], ext}`, every
-  axis present on a read, bodies as markdown, `$ext` on the main card and each
-  card (`null` when none), `kind` `null` for a kindless card, a present-null
-  as `null`, declared fields first then undeclared ones verbatim. A read never
-  coerces: `qty: "3"` reads `"3"` here and `3` only in `resolve`. **Sparse**
-  (an absent field is absent, never its `default:`) and **total** (a leaf that
-  decodes under neither encoding rides out as stored where `get` raises). A
-  projection, never a storage format: markdown carries no anchors, island ids
-  or content-only marks, and `$quill`, `$seed`, `!must_fill` markers and YAML
-  comments are not carried. `reader.card(i).values()` /
-  `writer.card(i).set_values` are the same pair for one card.
-  `set_values` is the typed lane widened to the document: **an absent axis is
-  untouched, a present one is replaced.** `fields` is the whole truth for
-  declared names (an unnamed one is removed; an undeclared one the card holds
-  is accepted unchanged, refused changed, left alone unnamed), `cards` *is*
-  the card list (matched by position and kind, a differing kind rebuilds the
-  slot, past the end appends, past the list removes; an absent `kind` keeps
-  the card's), `body` is replaced, `ext: null` removes `$ext` and `{}` records
-  an explicit empty one. All-or-nothing, every refusal under its own `DocPath`
-  (`main.qty`, `cards.line_item[0].desc`). **A cell whose incoming value
-  equals its projection is not written**, so `set_values(reader.values())`
-  moves no bytes on any document the bound door admits, carrying through what
-  a re-import cannot reproduce: identity anchors, content-only marks,
-  `!must_fill` markers, YAML comments, a leaf that decodes under neither
-  encoding, a scalar shorthand, an explicit `$ext: {}`. A changed content cell
-  is a cold import, as on `set`; `revise_field` per cell keeps anchors.
+### The binding surface
+
 - feat(core)!: **`reader.get` answers in the values form, and `ReadValue` is
-  gone.** `get` returns the plain value: every content leaf in the field's
-  type tree as its codec's text, descending `items` / `properties` /
-  `variants`, so `reader.get("paragraphs")` is `["Para **one**", …]` and a
-  mixed object projects its content property beside its verbatim scalars,
-  where an `array<richtext>` used to return the stored content objects. A
-  present-null reads `null` rather than `""`. A leaf that does not decode
-  raises `edit::field_decode` anchored at the element (`main.paragraphs[1]`).
-  `get(name)` equals `values().fields[name]` on every field that decodes.
-  `reader.getContent` / `getContentAt` are unchanged.
+  gone.** `get` returns the plain value: every content leaf in the field's type
+  tree as its codec's text (`richtext` markdown, `plaintext` literal),
+  descending `items` / `properties` / `variants`, so `reader.get("paragraphs")`
+  is `["Para **one**", …]` where an `array<richtext>` used to return the stored
+  content objects. A present-null reads `null` rather than `""`. A leaf that
+  does not decode raises `edit::field_decode` anchored at the element
+  (`main.paragraphs[1]`). A read never coerces: `qty: "3"` reads `"3"` here and
+  `3` only in `resolve`. `reader.getContent` is unchanged; `getContentAt` is
+  retired below.
+- feat(bindings)!: **the storage DTO verbs name their lane, not their
+  encoding.** `Document.toJson` / `fromJson` / `loadJson` become `toStored` /
+  `fromStored` / `loadStored`, and Python's `to_json` / `from_json` become
+  `to_stored` / `from_stored`. `storageVersionOf` and `currentStorageVersion`
+  are unchanged, already naming storage. "Stored" is the at-rest form
+  throughout, so the pair completes the family `getStored` started; the bare
+  `store` stays the field-write lane's verb. The old names are removed rather
+  than aliased. Stored blobs, the `schema` tag, and every byte these verbs
+  write are untouched.
 - feat(bindings)!: **`resolve` lives on the reader.** `quill.resolve(doc)`
-  becomes `quill.reader(doc).resolve()`, beside `values()`: a verb that needs a
-  schema lives on the cursor, and the two whole-document reads sit together.
-  WASM-only, as before.
+  becomes `quill.reader(doc).resolve()`: a verb that needs a schema lives on
+  the cursor. WASM-only, as before.
+- refactor(core,wasm,python,cli)!: **`Quill.metadata` loses the
+  `<backend>_<key>` mirror, and `quillmark info` loses `--json`.** A loaded
+  quill carried four identity fields verbatim plus every key under the backend
+  section flattened as `<backend>_<key>`, so `typst: { plate_file: plate.typ }`
+  surfaced as a `typst_plate_file` entry. Nothing read a mirrored key: the
+  Typst backend and the CLI read `QuillConfig::backend_config`, and both
+  bindings built their identity keys from the config and used the map only for
+  the leftovers. `quill.metadata` (JS and Python) carries exactly `name`,
+  `version`, `backend`, `author`, `description`, in that order — so a metadata
+  snapshot serializes stably across processes, where the extras rode core's
+  `HashMap` iteration order. In Rust, `Quill::metadata` and
+  `quillmark_core::STANDARD_METADATA_KEYS` are deleted. The `--json` flag's one
+  distinctive output was that mirror.
+- refactor(wasm,python)!: **six owner calls leave both bindings.** Each is a
+  call the host makes itself in a line or two from surface that stays:
+  `Document.tryFromJson` / `try_from_json` — never renamed with its lane, and
+  deleted rather than aliased, so `storageVersionOf(b) ? fromStored(b) : null`
+  is the read — `Document.makeCard` / `make_card` (a `CardInput`
+  object literal), `doc.setCardKind` / `set_card_kind` (`removeCard` +
+  `insertCard` at the same index), `reader.getContentAt` / `get_content_at`
+  (`reader.get(name)`, which projects every content leaf at its codec),
+  `result.renderTimeMs` / `render_time_ms` (clock the call), and
+  `Document.formatDiagnostic` (the CLI and Python's `str(diagnostic)` still
+  render it). They go from **both** surfaces, so WASM remains the reference
+  surface Python mirrors.
+- refactor(wasm)!: **a foreign handle on a by-reference method is a bare
+  `Error`, and `runtime::foreign_handle` retires.** The prototype patches on
+  `Document.equals`, `Quill.validate` and `Quill.conform` are gone with the
+  `Symbol.for('@quillmark/wasm:handle-checked')` marker they needed:
+  wasm-bindgen's own `_assertClass` already refuses a foreign class wherever a
+  method declares a reference parameter, and it throws a bare `Error`, so
+  `isQuillmarkError` reads `false` there. The seams that cross as **data** keep
+  their check, nothing else catching them: the four writer/reader binds, every
+  `Engine` verb, and `LiveSession.update`. A value that is not one of this
+  copy's handles is `runtime::not_a_quill` / `runtime::not_a_document`, whose
+  hint names both cures including `npm ls @quillmark/wasm`. A consumer routing
+  on `runtime::foreign_handle` routes on the two `not_a_*` codes instead.
+- refactor(python)!: **`Writer` / `Reader` take a `card=` selector.**
+  `writer.card(i)` and `reader.card(i)` returned a cursor holding the index;
+  the index is a keyword on the verb, `None` selecting the main card.
+  `CardWriter` and `CardReader` go with the cursors.
+- refactor(core,wasm,python)!: **the `$ext` namespace verbs collapse into the
+  whole-map three.** `storeExtNamespace` / `removeExtNamespace` /
+  `getExtNamespace`, the Python pair, and the `Card::*` methods they delegated
+  to are deleted. `getExt` / `storeExt` / `removeExt` keep the whole surface,
+  `card` selector included: `$ext` is a map the engine never inspects, so a
+  namespace write is `{...getExt(addr), [ns]: v}` on the client and the read
+  shape is the write shape. The one behavior the spread does not carry is the
+  drop-when-empty — `removeExtNamespace` dropped `$ext` with its last namespace
+  where `storeExt({})` records an explicit `$ext: {}` — for which `removeExt`
+  is the call. Stored bytes, the Markdown round trip and the plate strip are
+  untouched.
+- fix(core,wasm,python)!: **a card built from a wire refuses under the code its
+  addressed mutator mints.** `insertCard` folded a malformed field name, a bad
+  `$quill` reference, a `!must_fill` on a mapping and a malformed item list
+  into one code-less refusal, so `diagnostics[0].code` was `undefined` in JS
+  and Python raised a bare `ValueError` — while `storeField` / `setQuillRef`
+  carried `edit::invalid_field_name`, `parse::invalid_quill_reference` and
+  `edit::fill_on_mapping` for the same violations. `WireError` carries the
+  `EditError` its addressed twin raises and both bindings stamp
+  `WireError::code()` on the diagnostic. A card dict Python cannot read as a
+  card at all is still a `ValueError`; one that deserializes and then violates
+  an invariant is a `QuillmarkError` under its code. The list-level violations
+  (a duplicate key, a field count past the §8 bound, a `$` entry twice, a
+  comment spanning lines) carry the new `edit::invalid_payload`.
+- fix(python)!: **every `edit::*` diagnostic anchors at the `DocPath` its verb
+  ran against.** `Diagnostic.path` had two spellings for one refusal:
+  `writer.set` minted none and `writer.set_all` the bare field name. The
+  converters thread the base anchor the WASM binding does, so an undeclared
+  name is `main.stray` from every main-card verb, `cards.<kind>[<i>].stray`
+  from a card cursor, and a structural out-of-range op is `cards[<i>]`. A
+  consumer comparing against a bare field name now matches nothing.
+- fix(python)!: **a negative index is an out-of-range index, not an
+  `OverflowError`.** Every index parameter was a `usize`, so `doc.card(-1)`,
+  `doc.move_card(-1, 0)` and `render(pages=[-1])` died in the boundary
+  conversion with a third exception type, outside the two the binding
+  documents. Indices are signed at the boundary. A negative one addresses
+  nothing — it is not the last card, and the binding does not index from the
+  end — so it takes the answer its site already gives an index past the end:
+  `edit::index_out_of_range`, `backend::page_index_out_of_bounds`, or `None`
+  where `remove_card` answers absence.
+- fix(python): **`OutputFormat` and `Severity` members are hashable.** The two
+  pyclass mirrors declared `eq` alone, which fills `tp_richcompare` and leaves
+  no `tp_hash`, so CPython stamped `__hash__ = None` and every variant was
+  rejected as a set member or a dict key. Both are frozen and hash by variant.
+- fix(python): **a card dict is `CardWire`'s serde projection rather than a
+  hand copy of it.** `card_to_pydict` serializes the wire and adapts the two
+  keys Python's surface owns: snake_case `payload_items`, and an explicit
+  `None` where an absent `$quill` / `$ext` / `$seed` leaves the wire key out.
+  Every key and value is what it was; the dict iterates in the wire's own
+  order.
+- perf(python): **reading `RenderResult.artifacts` copies no bytes.** The
+  getter rebuilt its list on every read, cloning each artifact's buffer, and
+  `Artifact.bytes` cloned that again, so a `save` followed by one `bytes` read
+  moved a multi-MB PDF three times. The `Artifact` and `Diagnostic` objects are
+  built once, with the result; `bytes` makes the one Rust→Python copy and
+  `save` writes without one.
+- fix(wasm): **a failed conversion at the typed boundary throws instead of
+  stranding the JS handle.** `RenderOptions`, `RenderResult`, `Diagnostic`,
+  `ChangeSet`, `ContentHit` and `FieldRegion` cross as `tsify::Ts<T>`, whose
+  handle the wasm-bindgen shim owns and frees; the deprecated `into_wasm_abi` /
+  `from_wasm_abi` impls they carried leaked it on the way out (tsify#65), and
+  took the module down with a trap rather than a catchable error when
+  serialization failed. The TypeScript surface is byte-identical, and the crate
+  compiles warning-free.
+- fix(wasm): **an unregistered backend rejects with `engine::backend_not_found`
+  like every other failure.** The four `Engine` verbs threw a bare `Error` for
+  a quill whose declared `backend:` has no loader, so `isQuillmarkError`
+  answered `false` and the README's own `catch` example re-threw it as a
+  foreign failure. The rejection carries one diagnostic under the code core and
+  the Python binding already raise, hinting the registered backend ids.
+- fix(wasm): **`Engine.render` returns the document's load warnings ahead of
+  the compile's own.** The engine renders a backend-memory clone built by
+  `Document.fromStored`, which carries no warnings, so a parse, `conform::*` or
+  `plate::unsupported_construct` diagnostic reached `RenderResult.warnings`
+  from no public surface. `Engine.render` snapshots `doc.warnings` beside the
+  storage DTO and fronts the result with it, the pipeline order ERROR.md
+  states. `LiveSession.render` carries the compile half alone.
 
-- feat(bindings)!: **the storage DTO verbs name their lane, not their encoding.**
-  `Document.toJson` / `fromJson` / `tryFromJson` / `loadJson` become `toStored` /
-  `fromStored` / `tryFromStored` / `loadStored`, and Python's `to_json` /
-  `from_json` / `try_from_json` become `to_stored` / `from_stored` /
-  `try_from_stored`. `storageVersionOf` and `currentStorageVersion` are
-  unchanged, already naming storage. "Stored" is the at-rest form throughout, so
-  the pair completes the family `getStored` started; the bare `store` stays the
-  field-write lane's verb, which is why the adjective carries the
-  document-level pair rather than a `store` / `load` pair. The old names are
-  removed rather than aliased. Stored blobs, the `schema` tag, and every byte
-  these verbs write are untouched.
+### The engine seam and the backends
+
+- refactor(core,wasm)!: **canvas preview is part of the backend contract, and
+  the pre-session probe goes.** `SessionHandle::page_size_pt` and `render_rgba`
+  lose their absent-reading defaults and become required, so a session paints
+  by construction rather than by opting in. Each return value carried two
+  meanings and now carries one: `None` and `Ok(None)` say the page is past
+  `page_count()`, where they also used to say the backend had no painter.
+  `update`, `regions` and `field_at` keep their defaults — this closes the
+  canvas door alone. With the door shut, the probe that guessed at it goes at
+  every layer: `Quillmark::supports_canvas`,
+  `quillmark_core::formats_support_canvas`, the WASM
+  `Engine.supportsCanvas(quill)` and `LiveSession.supportsCanvas` getters, and
+  the `canvas` key of a runtime `BackendDescriptor`, leaving a descriptor's
+  manifest as `formats` alone. It keyed on output formats — true iff the
+  backend emitted PNG or SVG — while paint is a `SessionHandle` seam a backend
+  overrides independently, so the two could disagree; every backend the
+  workspace ships paints, so it answered `true` in every build.
+  `LiveSession::supports_canvas()` reduced to `page_count() > 0`, which is what
+  a Rust caller writes instead. Both shipped backends already implement the
+  pair, so no rendered pixel moves. A compile with nothing to paint meets the
+  out-of-range refusal, `"paint: page index 0 out of range (pageCount=0)"`, in
+  place of a message naming a painter the backend has. Closes #1706.
+- refactor(pdfform)!: **the SVG and PNG output formats go; canvas paint
+  stays.** `supported_formats` reports `[Pdf]`, so a `render` asking for either
+  fails under `backend::format_not_supported`, and `quillmark render --format
+  png` on a pdfform quill does too. The two formats were views of the flattened
+  form consumed by nothing but their own test. `render_rgba` and the `hayro`
+  dependency stay, so a WASM consumer paints pdfform pages exactly as before:
+  paint is a `SessionHandle` seam, not an output format. `hayro-svg` goes with
+  the SVG artifact path, its only caller.
+- refactor(core,wasm,python)!: **the `producer` render option goes; the
+  `/Producer` stamp it overrode stays.** `RenderOptions::producer` and
+  `with_producer`, the WASM key and Python's `producer=` keyword are deleted.
+  No first-party caller set it, and the engine carried the string through four
+  crates and two bindings to reach a writer a host can reach directly. Every
+  rendered PDF still carries `Quillmark <version>`: the default sits in
+  `quillmark-pdf`'s `StampOptions::default()`, one `format!` over
+  `version.workspace = true` in place of a `default_producer()` in each
+  backend. `StampOptions::producer` becomes a plain `String`, so `stamp` always
+  appends its `/Info` revision where a producer-less call over an empty field
+  list returned the base bytes; both backends always passed a producer, so no
+  render changes.
+- refactor(all)!: **the crate-compatibility ceremony is withdrawn:
+  `#[non_exhaustive]`, the `Backend` seal, public `register_backend`, and the
+  SemVer promise `COMPATIBILITY.md` carried.** The attribute leaves the 86
+  items that held it, so a struct literal, functional update and exhaustive
+  destructuring compile out-of-crate again — `RenderOptions { ..,
+  ..Default::default() }` among them. Its one observable effect was the forced
+  `_` arm, which hides a variant a build has not learned instead of reporting
+  it: the WASM and Python `Severity` conversions folded an unmatched level into
+  `Error`, and both now match every variant. `Backend` loses its
+  `sealed::Sealed` supertrait; implementing the trait outside the workspace
+  stays impossible, because `Backend::open` returns a `LiveSession` only a
+  `#[doc(hidden)]` `SessionHandle` builds and `Quillmark::register_backend` is
+  private, leaving `Quillmark::new` as the whole registry.
+  `prose/canon/COMPATIBILITY.md` is deleted — a promise to crates.io consumers
+  that, per its own text, no CI job checked; its table of `pub` seams that
+  serve the workspace rather than a consumer moves into `ARCHITECTURE.md`'s
+  backend section.
+- fix(typst,pdfform)!: **`RenderOptions::pages` means one thing on every
+  backend, under `backend::*` codes.** The PDF-form backend ignored the option:
+  it rendered every page whatever was asked for, and an out-of-range index
+  passed silently. It refuses a selection now, PDF being its one format, and
+  both backends mint the two refusals from the shared constructors in
+  `quillmark_core::backend`, so the codes are
+  `backend::page_index_out_of_bounds` and
+  `backend::page_selection_not_supported` in place of the Typst-private
+  `typst::*` pair.
+- fix(typst,pdfform)!: **a raster nobody can allocate is refused, not
+  attempted.** `RenderOptions.ppi` and the `render_rgba` canvas scale reached
+  tiny-skia and hayro unchecked; both size their buffer from the value and
+  unwrap it, so `ppi: Infinity` or `1e9` panicked the process — in WASM a trap
+  that takes the engine instance with it — while NaN, zero and a negative
+  quietly rasterized a 1×1 image. Every raster path refuses under
+  `backend::invalid_raster_scale` a scale that is not finite and positive, or
+  that would put a page past `MAX_RASTER_PIXELS` (16384² px: a 1 GiB RGBA
+  buffer, and the area of the WASM painter's per-side clamp, so nothing that
+  clamp admits is refused). US Letter at the default 144 ppi is 138× under it.
+  `SessionHandle::render_rgba` and `LiveSession::render_rgba` return
+  `Result<Option<(u32, u32, Vec<u8>)>, RenderError>` to carry the refusal;
+  `Ok(None)` is still the out-of-range page.
+- fix(pdfform)!: **canvas geometry measures from the page's canvas box.** hayro
+  rasterizes `/CropBox` ∩ `/MediaBox` and draws that box's lower-left corner at
+  the raster's origin, while `page_size_pt` reported the `/MediaBox` extent and
+  `regions()` reported widget `/Rect`s in raw user space. An overlay over a
+  `pdfcrop`ped background (`/MediaBox [96 133 500 700]`) therefore sat 96 × 133
+  pt off its ink, and a `/CropBox` inside the MediaBox reported a page bigger
+  than its own raster. `page_size_pt` is the canvas box's extent, `regions()`
+  subtracts its lower-left corner, and `form.json`'s top-left rects flip
+  against it, so `pageSize`, `regions`, the point queries and the raster share
+  one origin. Values move only on a page whose canvas box does not start at
+  `(0, 0)`. The stamped PDF's widget `/Rect`s stay in user space.
+  `quillmark_pdf::page_media_boxes` is `page_canvas_boxes`, and it refuses a
+  canvas box under a point per side (`pdf::degenerate_page_box`) and a page box
+  that is not a direct array of numbers.
+- fix(pdfform)!: **flatten's own parse failure is `pdfform::flatten_parse`.** A
+  page dict or `/Contents` the content-stream flattener cannot read raised
+  `pdf::flatten_parse`, naming the stamp spine for a failure of the backend's
+  own code. `pdf::bad_rect` stays the spine's and is minted in one place,
+  `FieldSpec::assert_finite_rect`, which the stamp and flatten paths both call.
+- feat(typst,pdfform,cli)!: **`pdfform::form_schema_version` retires, and the
+  CLI loses three flags.** A `form@0.1.0` file still fails to load, now as an
+  unrecognised tag under `pdfform::invalid_form_json`. `render --verbose` is
+  deleted, so `--quiet` states what it suppresses on its own; `schema -o` and
+  `blueprint -o` are deleted, both commands writing to stdout where `>` does
+  the rest. `render -o` is unchanged. `validate` reads `plate_file` from the
+  loaded quill rather than the filesystem, so a plate the load excludes fails
+  validation, which is what rendering it already did.
+- change(typst): **an image in a content field draws nothing and warns.** What
+  a content image's `url` names is undecided — a document is quill-free but for
+  `$quill`, which selects a *range* of versions, and declares everything else
+  it references — so the Typst backend lowers an `image` island to nothing
+  rather than binding one reading of the string. A quill asset stays the
+  plate's to draw (`#image("assets/logo.svg")`), unchanged. The refusal is
+  legible where it used to be a Typst file-not-found error about a generated
+  file the author never wrote: one **`backend::declined_construct`** warning
+  per content field, `args` `{backend, construct, count}` and the field's
+  `DocPath` in `path`, minted by the new `quillmark_core::declined_construct`
+  so it cannot drift from quill-declared `plate::unsupported_construct` — the
+  sixth warning family, and the first a backend *observes* rather than a quill
+  declares. **A consumer routing on diagnostic codes gains a warning family**
+  and needs an arm for it. Storage is untouched: an `image` island still
+  parses, stores, round-trips to markdown and reaches an editor with its `{url,
+  alt}` props.
+- fix(typst): **a compile diagnostic carries a code from a closed set.** The
+  code was the message up to its first `:`, so a missing asset minted
+  `typst::file not found (searched at assets/logo.png)` — the author's path
+  inside what consumers route on, one code per input — and a URL truncated
+  mid-value to `typst::file not found (searched at https`. Most Typst messages
+  hold no `:` at all, so the whole sentence became the code. The mapping
+  classifies: `typst::file_not_found`, `typst::unknown_variable`,
+  `typst::type_error`, and `typst::compile` for every message the set does not
+  name, warnings included. Typst's sentence, and the path it searched, stay in
+  `message`.
+- fix(typst): **a `form-field` widget's rect is the box it prints in, whatever
+  the layout context.** The helper emitted its `<__qm_field__>` metadata beside
+  the box rather than inside it, and a tag's own position is the line's
+  baseline inline and the flow cursor's left edge in a block: an inline widget
+  reported a rect one box-height low, and one under `#align(center, ..)`
+  reported the left margin. The tag rides in the box body, whose origin is the
+  box's top-left in every layout context, so `session.regions()`, `fieldAt` and
+  the stamped AcroForm `/Rect` all land on the widget. A plate that compensated
+  for the offset shifts by that much.
+- fix(typst): **`escape_markup` lowers every character Typst reads as a newline
+  to a space.** A content that reached the emitter without passing the ingress
+  — hand-built, or decoded from storage — could still carry `\r`, VT, FF, NEL,
+  U+2028 or U+2029, and the emitter wrote it through: the text behind it parsed
+  as a heading, list or term marker the document never wrote. One character to
+  one byte, so the per-character span scan stays exact.
+- fix(typst): the font loader drops its `woff`/`woff2` extension arms, which
+  parsed nothing, and the data codegen drops its skip of a `__meta__` key
+  nothing produces.
+- refactor(typst): **a compile's form fields cross to the PDF spine as one
+  derivation.** `Compiled` carries `field_specs: Vec<FieldSpec>` built with the
+  compile: `widget_regions` is `regions_of` over it and `render_document_pages`
+  stamps it directly, where each PDF render had rebuilt the specs from the
+  placements, page-height scan included. A placement naming a page outside the
+  document fails the compile alongside the extraction errors it sits with,
+  instead of emptying the session's regions and surfacing at render.
+- fix(core): **the default `field_at` hands a tie to the later-painted
+  placement.** It ranked `regions()` with `min_by`, which keeps the first of
+  equal distances, so two placements on one rect resolved to the one underneath
+  — against the documented contract and against the Typst backend, which
+  overrides `field_at` with later-wins. The default walks `regions()` in
+  reverse, so a pdfform quill whose widgets overlap answers with the
+  last-stamped one.
+- refactor(core,typst,pdfform): **the default PPI is stated once, as
+  `RenderOptions::DEFAULT_PPI`.** Each raster backend carried its own
+  `DEFAULT_PPI = 144.0` const, one of them documented as mirroring a core
+  constant that did not exist. `RenderOptions::ppi_or_default()` resolves the
+  option against that constant and both backends call it. Additive on the core
+  API; the resolved value is unchanged.
+
+### The PDF spine
+
 - fix(pdf): **a stamped trailer carries one `/Info`, whatever shape the base's
   `/Info` had.** The producer stamp allocated a fresh information dictionary
   whenever the trailer's `/Info` did not parse as an indirect reference, while
   the trailer writer copied the old value forward regardless, so a direct-dict
   `/Info << /Title (x) >>` came out as two `/Info` keys in one dict — undefined
-  per spec, parser-dependent in practice. The fresh reference now supersedes the
+  per spec, parser-dependent in practice. The fresh reference supersedes the
   old value, and a direct dict's entries seed the object it names, so `/Title`
   and the rest survive the stamp.
 - fix(pdf): **the object index skips literal strings, `%`-comments and stream
-  bodies, so `N G obj` bytes carried as content cannot shadow the real object.**
-  The scan accepted any `<id> <gen> obj` at a token boundary and a later
-  occurrence overwrites an earlier one, so a header spelled inside a string value
-  (`/Subject (see 4 0 obj)`) or inside raw stream data displaced the real
-  object's offset, and every read of that object parsed from the false position.
-  `find_endobj_end` skips stream bodies too: `endobj` bytes in stream data
-  truncated the object body.
+  bodies, so `N G obj` bytes carried as content cannot shadow the real
+  object.** The scan accepted any `<id> <gen> obj` at a token boundary and a
+  later occurrence overwrites an earlier one, so a header spelled inside a
+  string value (`/Subject (see 4 0 obj)`) or inside raw stream data displaced
+  the real object's offset. `find_endobj_end` skips stream bodies too: `endobj`
+  bytes in stream data truncated the object body.
+- fix(pdf): **a dict ending in a hex string parses to its real `>>`.** The
+  scanner stepped over literal strings and `%`-comments but read a hex string
+  as ordinary bytes, so the string's own `>` abutting the dict's `>>` closed
+  the dict one byte early: `<< /T <41>>>` read as ` /T <41`, and a `/Producer`
+  stamp rewrote the `/Info` with an unterminated `<…` — a title lost to any
+  reader. `skip_string_or_comment` steps a `<` that no `<` follows to just past
+  its `>`, which the dict, array and `endobj` scans all inherit. The trigger is
+  real: pdf-writer's compact mode, which krilla and typst-pdf use, writes a
+  non-ASCII `/Title` or `/Author` exactly this way.
 - fix(pdf): **an inheritable page attribute resolves along the page's own
   ancestor chain, not the root `/Pages` node alone.** `/Rotate` and `/MediaBox`
   were read from the page dict and then from the root, so a base whose
@@ -751,386 +639,321 @@
   `/MediaBox` from an intermediate node was flipped against the root's page
   height. The `/Kids` walk carries each page's ancestor ids, nearest first, and
   both readers consult the page dict then that chain (ISO 32000-1 §7.7.3.4).
+- fix(pdf): **a `/Rotate` the reader cannot read as an integer refuses the
+  stamp.** `assert_unrotated_pages` parsed the raw value and treated a failure
+  as an absence, so `/Rotate 7 0 R` — legal for any dict value — climbed past
+  the page and fell to the default zero, stamping every widget in unrotated
+  user space onto a page the viewer turns. The first *present* value along the
+  ancestor chain binds: a direct integer is checked as before
+  (`pdf::rotated_page`), anything else is `pdf::parse`.
+- fix(pdf): **a base PDF whose trailer `/Size` sits above `i32::MAX` is refused
+  rather than panicking mid-stamp.** `alloc_id` bounded only `u32` overflow, so
+  a `/Size` in `2^31 ..= 2^32-2` handed out ids that cast to a negative `i32`
+  and pdf-writer's `Ref::new` panicked — a crafted `form.pdf` opened cleanly
+  and then took down the process, and with it a WASM module. `alloc_id` stops
+  at `i32::MAX`, and every id that becomes a reference goes through a checked
+  `to_ref`, which also covers the base page ids that never pass through
+  `alloc_id`.
 - fix(pdfform): **flatten keeps the background's resources and its own
-  `/Contents`.** `/Resources` is inheritable, so writing a fresh one onto a page
-  that carried none shadowed the ancestor's dict and unbound every name the
-  background stream selects; the effective dict is now resolved up `/Parent`,
+  `/Contents`.** `/Resources` is inheritable, so writing a fresh one onto a
+  page that carried none shadowed the ancestor's dict and unbound every name
+  the background stream selects; the effective dict is resolved up `/Parent`,
   inlined onto the page and extended there. The drawn fonts take names free in
   that dict (`Helv2` where `Helv` is taken), since a second binding for a name
   the background uses rebinds it under a last-wins parser. A `/Contents`
   reference naming an *array* object expands to its elements instead of being
-  wrapped, which had left an array as an element of the `/Contents` array.
+  wrapped.
+- fix(pdfform): **a flattened value asserts black fill and the default text
+  state before it draws.** The appended stream opened with `q` and set only
+  `Tf`, and a page's `/Contents` array is one stream, so a background's
+  unpaired `0.9 g` or `3 Tr` — a shaded field box, a scanned form's invisible
+  OCR layer — carried into the drawn value and rastered it near-white or blank,
+  with no diagnostic. Both writers open with `0 g 0 Tr 0 Tc 0 Tw 100 Tz 0 Ts`,
+  the state the stamped `/DA` starts from. Canvas paint only: the AcroForm PDF
+  deliverable is stamped, not flattened.
 - refactor(pdf): **one ancestor chain per page.** `PdfUpdate::resolve_pages`
   returns `Vec<Page>` rather than page ids: each `Page` carries its `/Pages`
   ancestors from the `/Kids` walk and resolves any inheritable attribute
   through `Page::inherited_attribute`. Flatten reads `/Resources` through it
   instead of climbing `/Parent` on its own, so rotation, media box and
   resources answer from the same chain under the same cycle and depth guards.
-- fix(core): **`Quill::resolve` keeps a mis-shaped container value raw rather
-  than blanking it under the document's own label.** A seed the render
-  coercion cannot conform — `rows: abc` on an `array`, `addr: 5` on a typed
-  dictionary, a list where a variant container belongs — was rebuilt from the
-  schema anyway, so the row showed an empty container still tagged
-  `authored`. The container arms now compose an absent or already-shaped seed
-  only, and anything else falls through to the keep-raw path
-  `conform_card_render` documents. The render gate refuses the shape, so the
-  plate is unchanged.
-- fix(content): **a U+2028 or U+2029 in document text becomes a space.**
-  Typst's lexer reads both as line breaks, so one mid-paragraph reopens
-  `at_start` and the characters behind it are read as a block marker:
-  `"intro\u{2028}- item"` rendered a bullet, `- item` on its own line. No
-  escape reaches them — a `\` before whitespace is Typst's own linebreak — so
-  the separators join `\r` and the bidi controls as characters the content
-  forbids, refused by `validate` and replaced at every text ingress:
-  `from_plaintext`, markdown import, and an `Op::Insert` through
-  `apply_text_delta`. A space rather than a drop, both being Unicode
-  whitespace, so the words either side stay parted.
-- fix(content): **a change bundle whose `retain`/`delete` counts sum past
-  `usize` is a base mismatch, not a panic.** `Delta::expected_base_len` summed
-  the counts unchecked, so a host-authored bundle carrying
-  `{"retain": 18446744073709551615}` aborted in debug and wrapped in release,
-  where the wrapped total let `apply` slice past the base. The sum saturates,
-  and the saturated length exceeds any real base, so `try_apply` and
-  `apply_field_change` return the `DeltaBaseMismatch` the contract already
-  names. No wire or API change.
-- fix(content): **`diff_import` carries unknown marks forward beside anchors.**
-  The rebase loop matched `MarkKind::Anchor` alone, so a full-document rewrite
-  through the stale-text writer lane dropped every open-set mark, even one over
-  text the rewrite left untouched. It now rebases every non-formatting mark —
-  formatting is what the fresh import re-derives, and the rest lives in the
-  content but not in markdown — so an unknown tag and its attrs survive a
-  revise the way an anchor does.
-- fix(content): **a code span whose content touches its fence exports with the
-  CommonMark space pad.** Export emitted `fence + content + fence`, so an edge
-  backtick joined the fence run (text `` `a `` came back as ` ```a`` `) and a
-  span that begins and ends with a space lost one off each side on re-import
-  (`" a "` came back as `"a"`). A pad space now flanks the content in exactly
-  those two cases, which import strips back off; a span of nothing but spaces
-  is exempt from the strip and so stays unpadded.
-- fix(content): **a mark flanking an unknown island's placeholder survives
-  export.** The verify-and-drop net re-imports the rendered line and expects
-  the line's own text back, island slot included, but a type this build has no
-  projection for renders as a comment placeholder that re-imports as nothing.
-  The probe could never match, so every `**` / `*` / `~~` on such a line was
-  dropped as unrepresentable. The expected text omits the slots of islands with
-  no markdown projection and keeps every other one, so the probe measures
-  delimiter leakage alone and still reads an image's slot back.
-- fix(content): **a heading, an island and a rule take no continuation lines.**
-  `segment` grouped a `continues` line into the block above, but export renders
-  only the first line of those three kinds, so `SetContinues` on the line after
-  a heading validated clean and exported `"# a"` with the continuation dropped,
-  while the Typst emitter still rendered it. `LineKind::takes_continuations`
-  names the kinds a continuation is legal after (`Para`, `Code`, `Unknown`);
-  `SetContinues` refuses the write (`ApplyError::ContinuesSingleLineBlock`),
-  `normalize` clears a flag `SetKind` or a stored document left there, and
-  `validate` rejects a hand-built one (`Invariant::ContinuesSingleLineBlock`),
-  the repair-or-refuse split `ContinuesAcrossContainers` already carries.
-- refactor(content): **code-block import filters its text through
-  `Inline::push_text`.** `push_code_line` differed from it only in dropping a
-  `\n` where `push_text` spaces one, and its segments come from a
-  `split('\n')`, so the two agree on every input it receives.
-  `change_bundle_from_value` reads `delta` with a single lookup and
-  deserializes it from the borrowed `Value` rather than a clone, and
-  `op_array`'s absent and null cases are one `Option::filter`.
-- fix(core): **a new `$` entry lands after the preceding `$` line's inline
-  comment, not between the line and its comment.** `Payload::upsert_meta`
-  inserted one past the last lower-ranked `$` item, which is the index the
-  trailing comment occupies, and emit reads a trailer as belonging to whatever
-  item precedes it: `$quill: q@1.0 # note` with no explicit `$kind` emitted
-  `$kind: main # note`. The insert now steps over that comment, so the four
-  callers — the `$kind` synthesis on parse, `store_ext`, `store_seed_overlay`,
-  `set_quill_ref` — leave the trailer on its own key and `parse(to_markdown())`
-  holds.
-- fix(core): **a field name is ASCII as written, not as it normalises.**
-  `is_valid_field_name` ran NFC before matching `[A-Za-z_][A-Za-z0-9_]*`,
-  which no non-ASCII name can pass except a canonical singleton that composes
-  to ASCII: `store_field("\u{212A}elvin", …)` was accepted, emitted verbatim,
-  and re-read as a nested key, so the document did not survive
-  `parse(to_markdown())`. The check reads the name's own characters, matching
-  the raw bytes the parser's key grammar accepts.
-- fix(core): **`Card::store_fields` refuses a `!must_fill` marker targeting a
-  mapping, as `Card::store_field` does.** The batch checked the field-name
-  grammar and value depth only, so a `QuillValue` carrying a marker on a
-  nested object node was stored, emitted with the marker dropped, and refused
-  by the `@0.92.0` storage DTO on reload. `edit::validate_fill_targets` runs
-  per field in the same all-or-nothing pass, so the offending name rides the
-  batch's error vector as `edit::fill_on_mapping` beside every other
-  violation. The WASM `storeFields` inherits it.
-- fix(core): **a variant container the document wrote reads `authored`
-  whichever rung filled its discriminant.** `resolve()` lifted a present
-  container off the blank rung only, so `classification: {}` reported
-  `default` where the schema declared one and `authored` where it did not —
-  the reported rung turning on the schema rather than the document. A present
-  container is `authored`, as any other present value is; a present-null still
-  reads as absent and keeps the discriminant's rung. The value the row carries
-  is unchanged.
-- fix(core): **a nested richtext `example:` reaches the blueprint as its
-  `# e.g.` hint.** A richtext cell never inlines its example, and the
-  per-property builder for typed-dict properties and typed-table rows gated the
-  hint on `default:` alone, so a defaultless richtext property's `example:`
-  appeared in neither the cell nor a hint. Both gates are one helper now, and a
-  property's `example:` behaves as a card-level field's does at every depth, as
-  BLUEPRINT.md § Typed dictionaries states.
+
+### Schema, validation and the resolved view
+
+- feat(core,wasm,python)!: **a quill carries the load's advisory diagnostics,
+  so they reach a binding host at last.** `Quill::warnings()` is new, mirrored
+  as `quill.warnings` in WASM and Python, and it answers whatever
+  `QuillConfig::from_yaml_with_warnings` collected. Every construction door
+  keeps them, which retires the two that existed only because the field was
+  missing: `Quill::from_tree_with_warnings` and
+  `quillmark::quill_from_path_with_warnings` are gone, and `from_tree` /
+  `quill_from_path` are the whole surface. Closes #1625: `Quill::from_tree` was
+  the door every binding took and the one that dropped them, so
+  `quill::implicit_group` and `quill::body_example_unused` were visible only to
+  the CLI's `validate`.
+- feat(core)!: **five retired `Quill.yaml` keys lose their tailored migration
+  message, and an implicit group is a load error.** `must_fill`, `enum`,
+  `ui.order`, the `richtext(inline)` type token and `markdown` were retired
+  across 0.94, 0.104 and 0.108, each with a hand-written sentence naming its
+  replacement. All five still fail to load, now under
+  `quill::field_parse_error` with serde's unknown-key text and no hint.
+  Separately, a `ui.group` on a card with no `ui.groups` registry is
+  `quill::implicit_group` at **error** severity, the promotion that warning's
+  own text scheduled. Note for a WASM or Python host: that warning never
+  reached you (#1625), so the error is the first notice. Declare the registry.
+- fix(core)!: **`Quill::validate` refuses every value the render floor
+  refuses.** Validation judged a floor refusal by the authored value's own
+  shape, and two shapes read well-typed there: a content object that is not
+  canonical content on a `richtext` or `plaintext` field (`{prose: older}`),
+  and an integer past `i64` on an `integer` field. Both audited clean while
+  `compile_data` and `dry_run` refused them, so the `validate`/`dry_run`
+  pairing an editor runs on gave two verdicts. A leaf the floor cannot conform
+  is a `validation::type_mismatch` at the field's path, unless a shape check
+  already names the refusal (`validation::not_inline`, `validation::not_plain`,
+  `validation::format_violation`); a container's refusal stays the element's or
+  property's, at its own path. A numeric literal past `i64` reports `actual:
+  number`, the type that does carry it, and such a literal in a `default:` or
+  `example:` is a load error.
 - fix(core): **a type mismatch names the field's own declared type, so `date`,
   `datetime` and `enum` report themselves.** The validator collapsed the three
   onto `string`, so `due: 20260101` against `type: date` read "schema declares
-  `string`. Either provide a value of type `string` or change the schema's
-  `type:` to `integer`" — a type the schema does not declare and an exit that
-  discards the field's format. The declared type now has one source,
-  `FieldType::as_str`, which the schema-literal path already re-derived for its
-  own messages. `validation::type_mismatch` carries the name in `args.expected`,
-  so a consumer reading that key sees `date`, `datetime` or `enum` where it saw
-  `string`.
+  `string`" — a type the schema does not declare, with an exit that discards
+  the field's format. The declared type has one source, `FieldType::as_str`,
+  and `validation::type_mismatch` carries the name in `args.expected`.
 - fix(core): **a `$seed` overlay cell is validated as the document value it
   is.** `validate` judged each cell as a Quill.yaml schema literal, a context
   that refuses the container spelling of a variant-bearing enum and reads a
-  present-null as a typed value, so `classification: { value: CUI, note:
-  hello }` and `author: null` each drew a `validation::type_mismatch` warning
-  while `seed_card` committed both. An overlay cell is what `seed_card` writes
-  into the new card, so it takes the same pass a card's own fields take: the
-  container is a spelling it accepts, null reads as absent, and a mistyped
-  cell still warns. Overlays stay advisory and never gate render.
-- fix(core)!: **the §8 count caps report a count, not a byte size.** The
-  card-count and per-block field-count caps raised `parse::input_too_large`,
-  whose one message shape is `Input too large: {size} bytes (max: {max}
-  bytes)`, so 1001 fields read as 1001 bytes and the `size` arg rode out under
-  a code whose canon row says bytes. Each cap has its own variant and code:
-  `ParseError::TooManyFields` / `parse::too_many_fields` and
-  `ParseError::TooManyCards` / `parse::too_many_cards`, both carrying `count`
-  and `max`. `parse::input_too_large` keeps the two byte caps, document size
-  and YAML payload size. A consumer routing count overflow on
-  `parse::input_too_large` reads the two new codes instead.
-- refactor(core): **`set_values` refuses a kindless card slot through the card
-  constructor rather than a hand-built error.** `plan_slot` carried an early
-  return minting `edit::invalid_kind_name` for a position holding no card and
-  naming no kind; flattening the kind to `Option<&str>` sends that case to
-  `build_card`, where `Card::new("")` raises the same error at the same
-  `cards[<i>]` path.
-- refactor(core)!: **`ParseOutputFormatError` is `#[non_exhaustive]` and gains
-  `new`.** It was the one `pub`-field type in core's root modules without the
-  attribute COMPATIBILITY.md's struct rule asks for. Its field stays readable;
-  an out-of-crate struct literal becomes `ParseOutputFormatError::new(input)`.
-- fix(pdf): **a base PDF whose trailer `/Size` sits above `i32::MAX` is refused
-  rather than panicking mid-stamp.** `alloc_id` bounded only `u32` overflow, so
-  a `/Size` in `2^31 ..= 2^32-2` handed out ids that cast to a negative `i32`
-  and pdf-writer's `Ref::new` panicked ("indirect reference out of valid
-  range") — a crafted `form.pdf` opened cleanly and then took down the process,
-  and with it a WASM module. `alloc_id` stops at `i32::MAX`, and every id that
-  becomes a reference goes through a checked `to_ref`, which also covers the
-  base page ids that never pass through `alloc_id`. The refusal carries the
-  existing `pdf::write` id-space error.
-- fix(pdfform): **a flattened value asserts black fill and the default text
-  state before it draws.** The appended stream opened with `q` and set only
-  `Tf`, and a page's `/Contents` array is one stream, so a background's
-  unpaired `0.9 g` or `3 Tr` — a shaded field box, a scanned form's invisible
-  OCR layer — carried into the drawn value and rastered it near-white or
-  blank, with no diagnostic. Both writers now open with
-  `0 g 0 Tr 0 Tc 0 Tw 100 Tz 0 Ts`, the state the stamped `/DA` starts from.
-  SVG/PNG/canvas only: the AcroForm PDF deliverable is stamped, not flattened,
-  so no artifact changes.
-- fix(core): **the default `field_at` hands a tie to the later-painted
-  placement.** It ranked `regions()` with `min_by`, which keeps the first of
-  equal distances, so two placements on one rect resolved to the one
-  underneath — against the documented contract and against the Typst backend,
-  which overrides `field_at` with later-wins. The default now walks `regions()`
-  in reverse, so a pdfform quill whose widgets overlap answers with the
-  last-stamped one. A backend that mixes widget and content regions through the
-  default overrides `field_at` to hand a widget the tie, as Typst does.
-- fix(typst): **a `form-field` widget's rect is the box it prints in, whatever
-  the layout context.** The helper emitted its `<__qm_field__>` metadata beside
-  the box rather than inside it, and a tag's own position is the line's baseline
-  inline and the flow cursor's left edge in a block: an inline widget reported
-  a rect one box-height low, and one under `#align(center, ..)` or
-  `#align(right, ..)` reported the left margin. The tag rides in the box body,
-  whose origin is the box's top-left in every layout context, so
-  `session.regions()`, `fieldAt`, and the stamped AcroForm `/Rect` all land on
-  the widget. A plate that compensated for the offset shifts by that much.
-- refactor(typst): **a compile's form fields cross to the PDF spine as one
-  derivation.** `Compiled` carries `field_specs: Vec<FieldSpec>` built with the
-  compile: `widget_regions` is `regions_of` over it and `render_document_pages`
-  stamps it directly, where each PDF render had rebuilt the specs from the
-  placements, page-height scan included. A placement naming a page outside the
-  document now fails the compile alongside the extraction errors it sits with,
-  instead of emptying the session's regions and surfacing at render.
-- fix(fuzz): **the wide-payload property requires the parse to succeed and to
-  keep every field.** `fuzz_decompose_large_payload` swallowed a parse `Err`
-  and asserted `payload().len() <= size`, a bound `Payload::len` cannot
-  exceed, so a parse that refused the input or dropped every field passed. It
-  expects the parse and pins `len() == size`, which holds at every generated
-  width since all sit under `MAX_FIELD_COUNT`. The README's `parse_fuzz.rs`
-  row names what the file generates and `conform_fuzz.rs` gets the row it
-  lacked.
-- refactor(core): **every surface that refuses a non-content richtext value
-  spells one sentence.** `Codec::decode_field` builds the shape-mismatch
-  message and names the shape that arrived (`expected a richtext content
-  object or a markdown string, got a number`); the wire `$body` reader and the
-  richtext write coercion route through it instead of carrying their own
-  copies, so the schema-bound read and the strict projection name the shape
-  too. `Card::store_ext` bounds `$ext` depth through
-  `value::depth_check_meta_map`, the check the wire and the storage DTO run.
-  Every diagnostic code is unchanged.
-- refactor(core): **`FieldViolation` spells its own message, once.** The parse,
-  wire and storage boundaries each re-spelled the three field-invariant
-  reasons, and the wording had drifted apart ("invalid data-field name `x`:
-  field names must match…" vs `invalid field name "x": must match…` vs a keyless
-  "field names must match…"). `Display` gives the reason alone — the form
-  `WireError::InvalidField` carries beside its own `key` — and
-  `FieldViolation::message(key)` names the key inline, which all three
-  boundaries wrap. The parse path's dead `FillOnMapping` arm goes with the
-  match it lived in: `validate_field` returns `InvalidName` / `TooDeep` only.
-- refactor(core): **the prescan's frame stack carries no `kind`.**
-  `Frame.kind` and `FrameKind` were written at every push and read nowhere
-  but the write that filled them in, so both are gone, along with the
-  `ensure_frame_at_indent` parameter that carried the value.
-- docs(content,pdf,core): **six internal docs state what the code does.**
-  `NestingTooDeep` and `SetContainers` name the Typst emitter as the recursive
-  one, markdown export walking an explicit stack; the PDF reader's input
-  contract reads `bounded-tree`, a `/Pages` tree of any depth reaching each node
-  once and staying under 100 000 nodes; `flat_nested_comments` links
-  `from_items_with_flat_nested`, which resolves; `build-wasm.sh` puts the
-  `rm -rf pkg` on this script never removing files, CI caching the wasm build
-  dir alone. `spec_conformance_probe` names its body case for the parse pass
-  that does the strip and covers `normalize_document` with a field-name NFC
-  case. The hint on a malformed `main.body` lists `unsupported`, reading the key
-  list off one const beside `BodyCardSchema`.
+  present-null as a typed value, so `classification: { value: CUI, note: hello
+  }` and `author: null` each drew a `validation::type_mismatch` warning while
+  `seed_card` committed both. An overlay cell takes the same pass a card's own
+  fields take. Overlays stay advisory and never gate render.
+- fix(core): **a seeded variant commits its cells without a discriminant to
+  name their world.** `seed_card` needed the overlay or an `example:` to name a
+  member and dropped the whole field otherwise, so a `$seed` entry was honored
+  for a card's plain fields and silently discarded for its variant-bearing one.
+  The world walked is the render floor's own selection — overlay › `example:` ›
+  `default:` › blank — and the container commits whenever a cell has something
+  to commit. `value` is written only where the overlay or an `example:` named
+  the member, so a `default:` stays deferred to the floor.
+- fix(core): **`$seed` writes only on the card carrying `$kind: main`.**
+  `store_seed_overlay` is inherent on `Card` and `card_mut` / `cards_mut` hand
+  out `&mut Card`, so a root-only `$seed` reached a placed composable card
+  after the positional gate on `push_card` / `insert_card` had run, producing a
+  document that emits markdown the parser refuses and fails its own serde round
+  trip. The card answers this about itself, so both mutable doors are covered
+  at once.
+- fix(core): **`Quill::resolve` keeps a mis-shaped container value raw rather
+  than blanking it under the document's own label.** A seed the render coercion
+  cannot conform — `rows: abc` on an `array`, `addr: 5` on a typed dictionary —
+  was rebuilt from the schema anyway, so the row showed an empty container
+  still tagged `authored`. The container arms compose an absent or
+  already-shaped seed only, and anything else falls through to the keep-raw
+  path `conform_card_render` documents. The render gate refuses the shape, so
+  the plate is unchanged.
+- fix(core): **a variant container the document wrote reads `authored`
+  whichever rung filled its discriminant.** `resolve()` lifted a present
+  container off the blank rung only, so `classification: {}` reported `default`
+  where the schema declared one and `authored` where it did not — the reported
+  rung turning on the schema rather than the document. A present container is
+  `authored`; a present-null still reads as absent and keeps the discriminant's
+  rung.
+- fix(core): **a blank `main.description` emits no description line in the
+  blueprint.** The main card tested the raw string for emptiness and collapsed
+  whitespace afterwards, so `main: { description: "   " }` landed as a bare `#
+  ` above the first field. The collapse runs first, and a description that
+  collapses to nothing falls through to `quill.description`.
+- fix(core): **a nested richtext `example:` reaches the blueprint as its `#
+  e.g.` hint.** A richtext cell never inlines its example, and the per-property
+  builder for typed-dict properties and typed-table rows gated the hint on
+  `default:` alone, so a defaultless richtext property's `example:` appeared in
+  neither the cell nor a hint. Both gates are one helper, as BLUEPRINT.md §
+  Typed dictionaries states.
+
+### The CLI
+
 - fix(cli): **`render` parses a `MARKDOWN_FILE` through the bound door, so
   `conform::*` and `plate::unsupported_construct` warnings reach stderr.** The
   command called `Document::parse`, the transport door, which runs neither the
   conform walk nor the declined-construct walk: a `usaf_memo` body carrying a
   `***` rendered with an empty stderr where every other surface warns. It calls
-  `Quill::parse` instead, and the existing splice carries that door's warnings
-  into `RenderResult.warnings` unchanged. Rendered bytes are the same — the
-  coercion pass already ran in `compile_data` — and a `$quill` naming another
-  quill refuses at parse rather than at compile, with the same diagnostics and
-  the same exit 1. The seeded path (no `MARKDOWN_FILE`) is unchanged.
+  `Quill::parse` instead. Rendered bytes are the same — the coercion pass
+  already ran in `compile_data` — and a `$quill` naming another quill refuses
+  at parse rather than at compile, with the same diagnostics and the same exit
+  1.
 - fix(cli): **`validate` states each failure once.** A failing run printed its
   own summary and then a second copy through the error it returned, which
   `main` labelled `[ERROR] Invalid argument:` — including on a load failure,
   which is a quill config failure and not an argument the caller got wrong. The
   command returns `CliError::Reported` once it has written the per-diagnostic
-  lines and the summary, and a load failure carries the loader's `RenderError`
-  the way every other subcommand does. Exit status stays 1 on every path.
-- fix(cli): **`schema -o` and `blueprint -o` create the parent directories
-  their path names, as `render -o` does.** Both wrote with a bare `fs::write`,
-  so `schema ./q -o nested/dir/s.yaml` failed with "No such file or
-  directory" while the same path under `render -o` succeeded. The CLI's
-  `write_output` splits into `write_stdout(bytes)` and `write_file(path,
-  bytes, announce)` — dropping the unreachable arm that refused neither
-  stdout nor a path — and all three `-o` flags route through `write_file`.
-  `schema` and `blueprint` pass `announce: false` and stay silent on stdout;
-  `render` announces unless `--quiet`.
-- refactor(quillmark): **`Quillmark::render` resolves the backend once.** It
-  called `supported_formats` and `open`, each resolving the quill's backend
-  separately; it now holds the resolved backend and asks it for both. Same
-  diagnostics in the same order.
+  lines and the summary. Exit status stays 1 on every path.
 - fix(cli): **`-f PDF` writes `example.pdf`.** `--format` parses
   case-insensitively, but the derived output filename, the `example.<fmt>`
   fallback and the multi-page `--stdout` refusal interpolated the flag as
-  typed, so `-f PDF` wrote `example.PDF` and `-f Svg` named `Svg` in its
-  message. All three read the parsed format's lowercase id.
-- fix(core): **a card fence with CRLF line endings parses as its LF twin
-  does.** The prescan splits the fence body on `\n`, so every CRLF line
-  reached the matchers with a trailing `\r`: a bare `x: !must_fill` matched
-  neither spelling the fill-tag stripper accepts, so the marker was read as an
-  unknown tag — dropped with a `parse::unsupported_yaml_tag` warning, a second
-  `parse::fill_marker_unsupported_position` warning, a `null` value and an
-  `x: null` emit — and a lone `-` opening a sequence item was not one. The
-  scan strips one trailing `\r` per line up front, so the cleaned YAML and
-  every captured comment are `\n`-only.
-- fix(core): **`key: !must_fill` written inside a block scalar or a quoted
-  scalar is that scalar's text, and warns about nothing.** The
-  `parse::fill_marker_unsupported_position` check re-read every cleaned line
-  after the prescan, block-scalar bodies among them, and accepted any `:` plus
-  whitespace as the tag's left boundary, so `note: |` over
-  `see key: !must_fill here` kept the literal and still reported a marker
-  lost. The prescan now decides the warning per line as it reads one, where a
-  block-scalar body and a quoted value are known for what they are; the four
-  positions the marker genuinely cannot survive — a flow map, a flow
-  sequence, a bare sequence element, a flow value at depth — warn as before.
-- fix(core): **a field write clears a root `!must_fill` bit riding on the
-  value it is handed.** The payload item's own `fill` flag is the one carrier
-  of a root marker — emit, the wire and the storage DTO all read it there —
-  while `QuillValue::set_fill_at(&[])` marks the value tree's root, and a
-  value stored after that call kept both bits, disagreeing. `Payload` clears
-  the tree's root bit on insert, so `is_fill` and `QuillValue::fill` answer
-  alike and a document compares equal to itself across the markdown and the
-  storage round-trip, where the split state emitted one document and compared
-  as another. Parse skips a nested-fill path naming only its own key, the
-  route reaching the same split from source.
-- fix(core): **a comment between a bare `-` and the item's first key stays
-  inside the item.** The prescan records such a comment against the item, but
-  emit wrote it above the `- ` line, where it re-parses as a comment on the
-  sequence — a parse-emit-parse inequality on input the parser accepts without
-  a warning, settling only on the second emit. A sequence item whose mapping
-  carries an own-line comment before its first key emits in the bare-dash form,
-  the comment and the mapping indented under it, so the first emit is the fixed
-  point. A blueprint's typed-table row takes that form too, its first
-  property's description sitting inside the row with the rest.
-- fix(pdf): **a `/Rotate` the reader cannot read as an integer refuses the
-  stamp.** `assert_unrotated_pages` parsed the raw value and treated a failure
-  as an absence, so `/Rotate 7 0 R` — legal for any dict value — climbed past
-  the page and fell to the default zero, stamping every widget in unrotated
-  user space onto a page the viewer turns. The first *present* value along the
-  ancestor chain now binds: a direct integer is checked as before
-  (`pdf::rotated_page` when it is not a multiple of 360), anything else is
-  `pdf::parse`, matching how `/MediaBox` treats an unresolvable value.
-- fix(cli): **`--quiet` silences `--verbose` entirely.** Seven of the nine
-  `--verbose` lines in `render` printed regardless of `--quiet`, only the two
-  after the compile checking it, so `--verbose --quiet` still narrated the
-  load and the parse. `execute` resolves the pair once up front, and the help
-  text's "Suppress all non-error output" is what the flag does.
-- refactor(core,typst,pdfform): **the default PPI is stated once, as
-  `RenderOptions::DEFAULT_PPI`.** Each raster backend carried its own
-  `DEFAULT_PPI = 144.0` const, one of them documented as mirroring a core
-  constant that did not exist, so changing the default meant editing three
-  files. `RenderOptions::ppi_or_default()` resolves the option against that
-  constant and both backends call it. Additive on the core API; the resolved
-  value is unchanged.
+  typed. All three read the parsed format's lowercase id.
+- docs(cli): **the exit-code table separates a usage error from a refusal.**
+  The CLI reference and the crate README both promised `1` on any error, while
+  `clap` exits `2` on an invocation it cannot parse — an unknown flag, a
+  missing argument, an unknown subcommand — before any command runs. `1` is the
+  command running and refusing. `--help` and `--version` exit `0`. A smoke test
+  pins the `2`.
 
-- fix(core): **body prose left inside a card block is told to close the block,
-  not to wrap itself in a block scalar.** A closing `~~~` placed after the prose
-  body fails YAML on the first prose line, and `simple key expected` answered
-  every such line with the wrapped-scalar advice: rewriting the memo as
-  `body: |` keeps the body inside the block and fails again. The hint now reads
-  the flagged line the parser names — no `key:` outside quotes, sentence-shaped
-  or after a blank line, and not the tail of an unfinished `key: value` — and
-  names the real fix: the line reads as prose, and body text belongs after the
-  closing `~~~`, so close the block before it. A genuine plain scalar wrapped
-  onto a second line keeps the block-scalar hint.
-- fix(core): **a leading space before a top-level key gets its own hint.** One
-  stray space folds the line into the preceding plain scalar, and YAML raises
-  the same `mapping values are not allowed` an unquoted `:` inside a value
-  raises — so the hint sent the reader hunting for a colon that is not in the
-  block, and four models quoted the `subject:` above it instead. Where the
-  flagged line starts with a space, reads as `key:` or `key: value`, and
-  follows a column-zero key line, the hint names the space: top-level fields
-  begin at column 0, remove the one before `date:`. Anything else keeps the
-  quote-the-colon advice.
-- fix(pdf): **a dict ending in a hex string parses to its real `>>`.** The
-  scanner stepped over literal strings and `%`-comments but read a hex string
-  as ordinary bytes, so the string's own `>` abutting the dict's `>>` closed
-  the dict one byte early: `<< /T <41>>>` read as ` /T <41`, every
-  `find_dict_value` on that inner swallowed the rest as one hex string, and a
-  `/Producer` stamp rewrote the `/Info` with an unterminated `<…` — a title
-  lost to any reader. `skip_string_or_comment` steps a `<` that no `<` follows
-  to just past its `>`, which the dict, array and `endobj` scans all inherit.
-  The trigger is real: pdf-writer's compact mode, which krilla and typst-pdf
-  use, writes a non-ASCII `/Title` or `/Author` exactly this way.
-- fix(python)!: **every `edit::*` diagnostic anchors at the `DocPath` its verb
-  ran against.** `Diagnostic.path` had three spellings for one refusal:
-  `writer.set` minted none, `writer.set_all` the bare field name, and
-  `writer.set_values` the rooted path. The converters now thread the base
-  anchor the WASM binding does, so an undeclared name is `main.stray` from
-  every main-card verb, `cards.<kind>[<i>].stray` from a card cursor, and a
-  structural out-of-range op is `cards[<i>]`. A consumer routing on `path`
-  reads the same string from both bindings; one comparing against a bare field
-  name now matches nothing.
-- fix(python): **a card dict is `CardWire`'s serde projection rather than a hand
-  copy of it.** `card_to_pydict` serializes the wire and adapts the two keys
-  Python's surface owns: snake_case `payload_items`, and an explicit `None`
-  where an absent `$quill` / `$ext` / `$seed` leaves the wire key out. Every key
-  and value is what it was; the dict now iterates in the wire's own order, so
-  `payload_items` follows `ext` and `seed` instead of preceding them.
+### Rust surface pruning
+
+- feat(core)!: **five `quillmark-core` document verbs with no caller are
+  gone.** `Document::to_plate_json` was the schema-free spelling of the
+  crate-internal `to_plate_json_gated` every render already takes, so the plate
+  export leaves the public Rust surface; no binding ever carried it.
+  `Document::card_kinds` had one caller, a test. `impl IntoIterator for
+  &Payload` duplicated `Payload::iter`. `MetaKey::ALL` and
+  `MetaKey::is_root_only` enumerated a two-member set to find `Seed`.
+  `PathStepWire` and the `CommentPathSegment` alias were a second and third
+  name for `PathSegment`. The bytes do not move.
+- feat(core,content)!: **unread accessors leave `quillmark-core` and
+  `quillmark-content`.** `YamlError::line` / `column` / `hint` had no caller
+  outside one test; a consumer reads the position off `to_diagnostic`.
+  `RenderedRegion::contains` had none outside its own, and `field_at` never
+  shared it — it ranks by `distance` under a tolerance. `print_errors` is gone;
+  its one caller, the CLI, carries the two-line loop. `normalize_document`
+  returns a `Document` rather than a `Result` it never filled. `Delta::apply`,
+  which panicked on a delta built against a longer revision, folds into the
+  checked `try_apply`; `ChangeBundle::from_delta` had two callers, both tests.
+  Two additions come with them: `RenderError::coded_hint`, the coded-plus-hint
+  shape four `backend.rs` refusals built by hand, and `region::nearest_region`,
+  the tolerant search `SessionHandle::field_at` and the Typst backend each
+  carried a copy of.
+- refactor(core): **`QuillValue` holds its JSON, not a mirror of it.** The
+  value carried a private `Node`/`Kind` tree annotating every node with one
+  `fill` bit, plus a seeded `serde_json::Value` cache of the same data — so
+  `from_json` deep-cloned the whole document to record markers almost none of
+  it carries, and `get` cloned a subtree twice to read one child. No consumer
+  wanted the tree: emit, both wire formats, seeding, compose and conform all
+  ask for a flat path list, which is what `Seeded` already wrote by hand and
+  what the DTO's `nested_fills` already stores. `QuillValue` is that pair — the
+  JSON beside a duplicate-free `Vec<Vec<PathSegment>>` — so the two node
+  walkers collapse to one `json_at`, and `OnceLock` and the hand-written
+  `Clone` / `PartialEq` go with them. The public surface is unchanged;
+  `set_fill_at` still refuses a path that addresses nothing, and records a
+  marker where a walk of the JSON meets it, so `fill_paths` reads in
+  declaration order and the `nested_fills` a stored document carries are
+  byte-for-byte what 0.112 wrote.
+- refactor(core): **every surface that refuses a non-content richtext value
+  spells one sentence.** `Codec::decode_field` builds the shape-mismatch
+  message and names the shape that arrived (`expected a richtext content object
+  or a markdown string, got a number`); the wire `$body` reader and the
+  richtext write coercion route through it. `Card::store_ext` bounds `$ext`
+  depth through `value::depth_check_meta_map`, the check the wire and the
+  storage DTO run. Every diagnostic code is unchanged.
+- refactor(core): **`FieldViolation` spells its own message, once.** The parse,
+  wire and storage boundaries each re-spelled the three field-invariant
+  reasons, and the wording had drifted apart. `Display` gives the reason alone
+  and `FieldViolation::message(key)` names the key inline, which all three
+  boundaries wrap. The parse path's dead `FillOnMapping` arm goes with the
+  match it lived in.
+- refactor(core): **the prescan's frame stack carries no `kind`.** `Frame.kind`
+  and `FrameKind` were written at every push and read nowhere but the write
+  that filled them.
+- refactor(content): **code-block import filters its text through
+  `Inline::push_text`.** `push_code_line` differed from it only in dropping a
+  `\n` where `push_text` spaces one, and its segments come from a
+  `split('\n')`, so the two agree on every input it receives.
+- refactor(quillmark): **`Quillmark::render` resolves the backend once.** It
+  called `supported_formats` and `open`, each resolving the quill's backend
+  separately. Same diagnostics in the same order.
+- refactor(core/quill): `is_valid_quill_name` drops its exemption for the
+  literal `__default__`, a name no quill, fixture, test or doc in the tree
+  carries.
+
+### Docs and tests
+
+- docs(bindings,migrations): **the parity table records differences; the
+  migration index records steps.** `BINDINGS.md`'s table drops the six rows
+  whose class was `identical`, which now read as one line above it, and three
+  rows stop restating the model the section states 90 lines up. What the table
+  holds is one row per forced difference. The migration index cuts each row to
+  the step's headline break, from 3,729 words of table cells to 594 for the
+  whole page: a chooser, not a fifth copy of each guide beside the commit, the
+  changelog and the guide itself. The one storage-format move across the
+  thirteen steps (0.111 → 0.112) is stated once in the preamble. Closes #1701.
+- docs: **the twenty pre-0.100 migration guides leave the published site.**
+  `wasm-0.77-to-0.80.md` through `0.99-to-0.100.md` and the `0.92-to-0.102.md`
+  span guide go, with their rows in the Migration overview: 5,519 lines routing
+  a consumer onto `RenderSession`, `` ```card `` fences, `QUILL:` frontmatter,
+  `$id` and `!fill`, none of which any release since 0.100 carries in any form.
+  What keeps a pre-0.100 stored blob loading is the reader in
+  `crates/core/src/document/dto.rs`, specified in
+  `prose/canon/DOCUMENT_STORAGE.md`; no guide was ever load-bearing for it.
+  `mkdocs.yml` states the nav exclusion as `/migrations/*.md`, one line in
+  place of the 33 a release had to extend.
+- docs(core): **`ERROR.md`'s args table covers the three `validation::seed_*`
+  codes it claimed.** The table is the `code` + `args` consumer contract, and
+  `diagnostic_args_match_canon` holds it to the minted set — but
+  `seed_unknown_kind`, `seed_overlay_shape` and `seed_unknown_field` were
+  missing from both, so the two agreed by omitting the same three. The rows are
+  minted from the overlay walk itself, on a document that trips all three.
+- docs(core,wasm): **`PREVIEW.md` points at the two surfaces it was copying.**
+  § "The seam" claimed every `SessionHandle` method past `render` and
+  `page_count` defaults to *absent* and that a backend's capabilities are
+  exactly the defaults it overrode. `field_at` breaks both: its default
+  hit-tests whatever `regions()` returns, so overriding `regions` alone buys a
+  working `field_at`. The section says what the seam is and leaves the
+  per-method contract to `crates/core/src/session.rs`. § "TypeScript surface"
+  loses its 62-line transcription of `runtime.d.ts`, which carries more
+  per-member contract than the copy did and is the file `npm run typecheck`
+  checks.
+- docs(content,core): **the authored lane is `overwrite` and the op wire.**
+  Canon and the 0.112 guide also named `install`, gone since 0.102, and
+  `CardInput.body`, which has never rejected anything the storage lane takes.
+  The card wire decodes storage-lane (`wire::body_from_wire` through
+  `Codec::decode_field`) and owes that: every `Card` a read hands back is typed
+  a valid `CardInput`, and a read emits a stored-only tolerance verbatim.
+  `card_wire_body_decodes_storage_lane` pins the door's lane, which had drifted
+  across canon, a released guide and four code comments with nothing catching
+  it.
+- fix(docs): **the 57 comments and doc claims that contradicted the code now
+  state it.** The user-visible ones: the Typst backend never searched system
+  fonts, so its docs stop promising `#set text(font: "Arial")` and name what a
+  world loads (`assets/fonts/*`, `packages/**`, the embedded Figtree fallback);
+  the quickstart teaches `quill.parse`, the bound door, rather than the
+  transport door; `@quillmark/wasm` has no `/runtime` subpath, and the seven
+  places that named one now spell the package's sole export.
+- docs(wasm,typst,core): **the live session's edit verb is `update` in prose
+  too.** The `@quillmark/wasm` README and the `LiveSession` rustdoc named an
+  `apply(doc)` the class does not carry, so a consumer following them reached
+  `session.apply is not a function`. The README also called `pageCount` and
+  `pageSize(page)` stable for the session's lifetime, which a committed
+  `update` invalidates: they read the current compile, the new count is
+  `ChangeSet.pageCount`, and every page in `ChangeSet.dirtyPages` needs its
+  `pageSize` re-read.
+- docs: **two copies that were copies, not two ends of a subject.**
+  `prose/README.md` divides canon and `docs/` by audience and says neither
+  restates the other. § "Addressing cards for re-render" was in both, code
+  block included; canon keeps the rule and points at the page that carries the
+  recipe. The text-type 2×2 table was in `creating-quills.md` and
+  `quill-yaml-reference.md`, with the tutorial already linking at the
+  reference; the tutorial keeps the two questions that pick a type.
+- test(fixtures): **`classic_resume` and `cmu_letter` leave the fixture tree.**
+  2.7 MB of the 4.3 MB was their fonts. No test named `cmu_letter`;
+  `classic_resume` was named by one three-line gate that also runs on `taro`
+  and `usaf_memo`, and by the usage line of `print_blueprint`. What they
+  exercised beyond the other five is covered without them: `body.enabled:
+  false` by `sample_form` and `richtext_form`, a templated `ui.title` by
+  `core/src/quill/tests.rs`, an object-typed schema by `address_grammar.rs` and
+  `default_values_test.rs`. The `quillmark-fixtures` crate is `publish =
+  false`, so nothing outside the workspace read them.
+- test(wasm): **the `run_in_browser` test file goes; what it looked like it
+  covered is covered by suites that run.** `tests/wasm_bindings.rs` held nine
+  `#[wasm_bindgen_test]` cases and no runner — nothing under `.github/`,
+  `scripts/` or `.cargo/` names wasm-pack or a browser harness, and `cargo test
+  --workspace` compiles the file and runs zero tests out of it. Every assertion
+  it made is made by a suite that does run. One was uncovered — `seedCard` on
+  an undeclared kind answering `undefined` rather than throwing — and
+  `core.test.js` now asserts it. `wasm-bindgen-test` leaves the
+  dev-dependencies with the file.
+- fix(fuzz): **the wide-payload property requires the parse to succeed and to
+  keep every field.** `fuzz_decompose_large_payload` swallowed a parse `Err`
+  and asserted `payload().len() <= size`, a bound `Payload::len` cannot exceed,
+  so a parse that refused the input or dropped every field passed. It expects
+  the parse and pins `len() == size`.
 
 ## v0.112.0 - 2026-09-01
 

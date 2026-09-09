@@ -564,8 +564,8 @@ impl PyDocument {
 
     /// Place a composable card. `at` picks the position: `None` appends, `Some(i)`
     /// inserts at index `i` (`0..=card_count`; out of range raises
-    /// `IndexOutOfRange`). `card` is a `Card` dict, as `make_card`, `cards`,
-    /// `remove_card`, and `seed_card` return.
+    /// `IndexOutOfRange`). `card` is a `Card` dict, as `cards`, `remove_card`,
+    /// and `seed_card` return.
     #[pyo3(signature = (card, at=None))]
     fn insert_card(&mut self, card: Bound<'_, PyAny>, at: Option<isize>) -> PyResult<()> {
         let core_card = py_dict_to_card(&card)?;
