@@ -242,7 +242,7 @@ struct TableAcc {
     /// image's alt flows into the cell as plain text and its url is dropped.
     img_depth: usize,
     /// Whether any cell dropped an image's url, minting the island
-    /// [`Loss::Degraded`] rather than `LOSSLESS`.
+    /// [`Loss::Degraded`] rather than [`Loss::Lossless`].
     degraded: bool,
 }
 

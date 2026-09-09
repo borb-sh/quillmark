@@ -415,8 +415,7 @@ pub struct Island {
     /// ambient. Edits keep it stable rather than re-deriving it, so
     /// [`Content::validate`] enforces uniqueness, not positional equality.
     pub id: String,
-    /// Island type discriminator (`"table"`, `"image"`, …). Unknown types
-    /// round-trip opaque.
+    /// Island type discriminator, closed: see [`IslandType`].
     pub island_type: IslandType,
     /// Typed payload. Recursively key-sorted by normalization so it hashes
     /// deterministically despite `serde_json`'s `preserve_order`.
@@ -488,12 +487,11 @@ impl Loss {
 
 impl MarkKind {
     /// Formatting marks are a property of a range and union when coincident;
-    /// identity/unknown marks are handles and never merge.
+    /// an identity mark is a handle and never merges.
     ///
-    /// Class membership is stored meaning, not presentation: promoting an
-    /// open-set tag *into* this class starts unioning adjacent runs that
-    /// round-tripped as two marks, moving the canonical bytes of documents
-    /// nobody edited.
+    /// Class membership is stored meaning, not presentation: moving a member
+    /// *into* this class starts unioning adjacent runs that round-tripped as
+    /// two marks, moving the canonical bytes of documents nobody edited.
     pub fn is_formatting(&self) -> bool {
         matches!(
             self,
@@ -736,8 +734,7 @@ pub enum Invariant {
         depth: usize,
         max: usize,
     },
-    /// An opaque JSON payload (an island's `props`, an unknown line/container/
-    /// mark's `attrs`) nests deeper than
+    /// An opaque JSON payload (an island's `props`) nests deeper than
     /// [`MAX_JSON_DEPTH`](crate::MAX_JSON_DEPTH). `what` names the bag; no true
     /// depth is reported, since the check bails at the first over-deep
     /// container.
@@ -930,9 +927,8 @@ impl Content {
     /// Normalize in place: canonicalize container `ordinal`/`instance`, break a
     /// line around a block-only island's slot, drop zero-width formatting, union
     /// same-kind formatting that is adjacent or overlapping, recursively
-    /// key-sort island props and unknown-mark attrs, then sort marks
-    /// canonically. Idempotent: the fixed point the canonical serialization
-    /// commits to.
+    /// key-sort island props, then sort marks canonically. Idempotent: the
+    /// fixed point the canonical serialization commits to.
     pub fn normalize(&mut self) {
         canonicalize_containers(&mut self.lines);
         // A splice writes text, never kinds: typing into a table line leaves it
@@ -1304,8 +1300,8 @@ fn canonicalize_containers(lines: &mut [Line]) {
 
 /// Apply the three merge rules and the canonical sort to a flat mark list:
 /// same-kind formatting marks union when adjacent *or* overlapping, different
-/// kinds overlap freely (never split into runs), and identity/unknown marks
-/// never merge. Zero-width formatting is dropped; zero-width anchors survive.
+/// kinds overlap freely (never split into runs), and an identity mark never
+/// merges. Zero-width formatting is dropped; zero-width anchors survive.
 pub(crate) fn normalize_marks(marks: Vec<Mark>) -> Vec<Mark> {
     use std::collections::BTreeMap;
 

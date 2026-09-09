@@ -25,9 +25,9 @@ pub enum MarkOp {
     },
     /// Un-format `kind` over `[start, end)`: subtract the range from each
     /// overlapping same-kind *formatting* mark, keeping the non-overlapping
-    /// fragments. Non-formatting (identity/unknown) handles cannot be
-    /// range-fragmented, so an overlapping one is dropped whole; anchors
-    /// normally go through [`MarkOp::RemoveAnchor`].
+    /// fragments. An identity handle cannot be range-fragmented, so an
+    /// overlapping one is dropped whole; anchors normally go through
+    /// [`MarkOp::RemoveAnchor`].
     Remove {
         start: Usv,
         end: Usv,
@@ -533,7 +533,7 @@ impl Content {
                             next.push(m);
                             continue;
                         }
-                        // Identity/unknown handles have no range algebra to
+                        // An identity handle has no range algebra to
                         // subtract: drop the overlapping one whole.
                         if !kind.is_formatting() {
                             continue;

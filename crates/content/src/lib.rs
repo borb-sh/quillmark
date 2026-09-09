@@ -41,8 +41,8 @@ pub use traverse::{items, runs, segment, Span};
 /// converter share this one limit, so a document that imports also renders.
 pub const MAX_NESTING_DEPTH: usize = 100;
 
-/// Maximum nesting depth of an opaque JSON payload (an island's `props`, an
-/// unknown line/container/mark's `attrs`), in container levels from the bag.
+/// Maximum nesting depth of an opaque JSON payload (an island's `props`), in
+/// container levels from the bag.
 ///
 /// The recursive consumers (key sorting, `serde_json::Value`'s own `Drop`) spend
 /// a frame per level, so an unbounded bag overflows the stack: on wasm32 an

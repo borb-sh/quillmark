@@ -265,8 +265,6 @@ fn close_container(key: &Container, inner: &str, out: &mut String) {
             // one quote on re-import.
             prefix_quote(inner, out);
         }
-        // A container this build does not know has no markdown syntax to prefix
-        // with, so it projects transparently and survives via storage.
     }
 }
 
@@ -351,8 +349,6 @@ fn emit_leaf_block(ctx: &Ctx, range: std::ops::Range<usize>, out: &mut String) {
             }
             out.push_str(&inline);
         }
-        // An unknown block role projects as a paragraph: the role is lost to
-        // markdown (it round-trips through storage), the text is not.
         LineKind::Para => {
             let parts: Vec<String> = range.map(|i| render_inline(ctx, i, true)).collect();
             out.push_str(&parts.join("\\\n"));
@@ -537,7 +533,7 @@ fn render_inline(ctx: &Ctx, i: usize, escape_leading_block: bool) -> String {
             ctx.rt.islands.get(before).map(|isl| {
                 let mut markup = String::new();
                 emit_island(isl, &mut markup);
-                SlotMarkup { markup }
+                markup
             })
         },
     )
@@ -580,13 +576,6 @@ fn bucket_marks(
     (code_ranges, fmt, links)
 }
 
-/// One island slot's markdown, and whether re-importing that markdown yields a
-/// slot back. A type with no markdown projection renders as a placeholder
-/// comment, which re-imports as no content text.
-struct SlotMarkup {
-    markup: String,
-}
-
 /// Render marks over a standalone char slice to markdown: the projection's mark
 /// boundary sweep, shared by prose lines and table cells. `code_ranges`/`fmt`/
 /// `links` are the marks clipped to `chars` (local offsets); `escape_pipe` adds
@@ -615,7 +604,7 @@ fn render_marked_core(
     escape_punct_at: Option<usize>,
     escape_leading_block: bool,
     escape_pipe: bool,
-    island_markup_at: impl Fn(usize) -> Option<SlotMarkup>,
+    island_markup_at: impl Fn(usize) -> Option<String>,
 ) -> String {
     let n = chars.len();
 
@@ -717,7 +706,7 @@ fn render_marked_core(
                 for (i, &c) in chars[ls..le].iter().enumerate() {
                     if c == ISLAND_SLOT {
                         if let Some(slot) = island_markup_at(ls + i) {
-                            out.push_str(&slot.markup);
+                            out.push_str(&slot);
                         }
                     } else {
                         escape_char_into(c, i == 0, escape_pipe, &mut out);
@@ -761,7 +750,7 @@ fn render_marked_core(
                 let c = chars[pos];
                 if c == ISLAND_SLOT {
                     if let Some(slot) = island_markup_at(pos) {
-                        out.push_str(&slot.markup);
+                        out.push_str(&slot);
                     }
                 } else if Some(pos) == escape_punct_at {
                     out.push('\\');

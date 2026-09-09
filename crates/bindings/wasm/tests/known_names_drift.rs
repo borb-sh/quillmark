@@ -113,8 +113,7 @@ fn ts_unions_name_every_built_in() {
         &body[..body.find("\n\n").expect("unterminated type alias")]
     }
 
-    // The loss axis has no reserved list to mirror, being injective (one `Loss`
-    // per wire string), so what it pins is its closed view's spellings.
+    // The two island axes carry no payload, so each is its own tag list.
     let loss_names: Vec<_> = Loss::ALL.iter().map(|f| f.as_str()).collect();
     let island_types: Vec<_> = IslandType::ALL.iter().map(|k| k.as_str()).collect();
 

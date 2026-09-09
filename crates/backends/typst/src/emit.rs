@@ -610,7 +610,7 @@ impl<'a> Emit<'a> {
                 (g0, Vec::new())
             }
             LineKind::Code { .. } => unreachable!("code handled by early return"),
-            // An island's slot and an unknown role both lower as a paragraph.
+            // An island's slot lowers as a paragraph.
             LineKind::Para | LineKind::Island => {
                 let g0 = self.out.len();
                 (g0, self.emit_inline(lo, hi))
@@ -880,7 +880,7 @@ fn wraps_and_codes(marks: &[Mark], lo: usize, hi: usize) -> (Vec<Wrap>, Vec<(usi
                 end: e,
                 open: format!("#link(\"{}\")[", escape_string(url)),
             }),
-            // `Anchor` is identity and `Unknown` has no Typst spelling.
+            // `Anchor` is identity: a handle, with no Typst spelling.
             MarkKind::Anchor { .. } => {}
         }
     }

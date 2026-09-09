@@ -4,8 +4,8 @@
 //! `PartialEq` after [`Content::normalize`]) serialize to byte-equal JSON,
 //! insensitive to the order marks/islands were discovered in. Three order
 //! sources are closed here and in `normalize`: mark order (canonical sort),
-//! island order (slot position), and object-key order inside island `props` /
-//! unknown-mark `attrs` (recursively sorted).
+//! island order (slot position), and object-key order inside island `props`
+//! (recursively sorted).
 //!
 //! Two fixed points, and they are not the same promise. **Bytes**:
 //! `to_canonical_json(from_canonical_json(b)) == b` for canonical `b`, what a
@@ -403,7 +403,7 @@ fn container_to_value_with(c: &Container, zero: ZeroInstance) -> Value {
     insert_attrs(&mut m, c.attrs());
     m.insert("container".into(), Value::String(c.tag().to_string()));
     // Not payload: the discriminator that keeps two adjacent same-shape runs
-    // apart is an envelope key, carried on every arm including `Unknown`.
+    // apart is an envelope key, carried on every arm.
     if c.instance() != 0 || zero == ZeroInstance::Spell {
         m.insert("instance".into(), Value::from(c.instance()));
     }
@@ -458,10 +458,8 @@ struct MarkShape<'a> {
     ty: &'a str,
 }
 
-/// A mark's fallible half: the prologue of [`mark_from_value`], and the whole of
-/// what a caller wanting only the verdict needs. Building the [`MarkKind`]
-/// cannot fail, and for an unknown tag it deep-clones the opaque `attrs` bag,
-/// which a validity check has no reason to pay for.
+/// A mark's fallible half: the prologue of [`mark_from_value`], where the
+/// envelope is read and the range checked, before the `type` selects an arm.
 fn mark_shape(v: &Value) -> Result<MarkShape<'_>, ParseError> {
     let fields = v.as_object().ok_or(ParseError::Shape("mark"))?;
     let start = usv_from(fields.get("start"), "mark start")?;
@@ -657,7 +655,7 @@ fn reject_inline_block_island(rt: &Content) -> Result<(), ParseError> {
 }
 
 /// The authored-lane scan [`from_authored_value`] runs. Structural rather than a
-/// blind recursive walk: an unknown's `attrs` is opaque host payload that may
+/// blind recursive walk: an island's `props` is opaque host payload that may
 /// legitimately contain an object spelled `{"type": "link", "url": …}`, and
 /// rejecting that would make the carrier unable to carry.
 fn authored_lane_scan(v: &Value) -> Result<(), ParseError> {

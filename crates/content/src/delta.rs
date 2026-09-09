@@ -1,8 +1,8 @@
 //! The per-field edit surface: a [`Delta`] of text splices over the USV content,
 //! plus the **stale-text writer** path, cold-parse a full new markdown document,
 //! char-diff it against the base, and rebase the base's non-formatting marks
-//! (anchors/comments, unknown tags) through the diff so annotations survive an
-//! LLM full-document rewrite with no preservation contract on the LLM.
+//! (anchors/comments) through the diff so annotations survive an LLM
+//! full-document rewrite with no preservation contract on the LLM.
 //!
 //! ## Text splices, not attributed ops
 //!
@@ -314,8 +314,8 @@ fn push_insert(ops: &mut Vec<Op>, s: &str) {
 }
 
 /// The stale-text writer path: cold-parse `new_markdown`, char-diff it against
-/// `base`, and carry `base`'s non-formatting marks (anchors and unknown tags)
-/// forward, rebased through the diff (re-homing verbatim block moves). The
+/// `base`, and carry `base`'s non-formatting marks (anchors) forward, rebased
+/// through the diff (re-homing verbatim block moves). The
 /// returned content is `new_rt` (structure/marks/islands from the fresh import)
 /// plus the surviving handles.
 ///
