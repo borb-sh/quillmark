@@ -141,18 +141,18 @@ def test_the_card_scope_reads_and_writes_one_slot(tmp_path):
     quill = make_quill(tmp_path)
     doc = quill.parse(MD)
     reader = quill.reader(doc)
-    assert reader.card(0).values() == reader.values()["cards"][0]
+    assert reader.values(card=0) == reader.values()["cards"][0]
 
-    quill.writer(doc).card(0).set_values({"fields": {"desc": "Gadget"}})
-    assert reader.card(0).values()["fields"] == {"desc": "Gadget"}
+    quill.writer(doc).set_values({"fields": {"desc": "Gadget"}}, card=0)
+    assert reader.values(card=0)["fields"] == {"desc": "Gadget"}
     assert reader.values()["fields"]["subject"] == "Hello **world**"
 
     with raises_edit_code("edit::unknown_field") as excinfo:
-        quill.writer(doc).card(0).set_values({"fields": {"bad": 1}})
+        quill.writer(doc).set_values({"fields": {"bad": 1}}, card=0)
     assert excinfo.value.diagnostics[0].path == "cards.line_item[0].bad"
 
     with raises_edit_code("edit::index_out_of_range"):
-        quill.writer(doc).card(7).set_values({})
+        quill.writer(doc).set_values({}, card=7)
 
 
 def test_an_undeclared_name_is_refused_under_its_own_path(tmp_path):

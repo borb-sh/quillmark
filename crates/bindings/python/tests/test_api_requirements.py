@@ -301,12 +301,10 @@ def test_negative_index_is_out_of_range():
     typed = Document("taro@0.1.0")
     ed = quill.writer(typed)
     ed.add_card("quotes", {"author": "Basho"})
-    cursor = ed.card(-1)  # a cursor binds any index; the write checks it
-    assert cursor.index == -1
     with raises_edit_code("edit::index_out_of_range"):
-        cursor.set("author", "Issa")
+        ed.set("author", "Issa", card=-1)
     with raises_edit_code("edit::index_out_of_range"):
-        quill.reader(typed).card(-1).get("author")
+        quill.reader(typed).get("author", card=-1)
 
 
 def test_remove_card():
@@ -604,7 +602,7 @@ def test_every_mutator_verb_anchors_its_diagnostic_at_one_doc_path():
         ("set", lambda: writer.set("stray", "x"), "main.stray"),
         ("set_all", lambda: writer.set_all({"stray": "x"}), "main.stray"),
         ("set_values", lambda: writer.set_values({"fields": {"stray": "x"}}), "main.stray"),
-        ("card.set", lambda: writer.card(0).set("stray", "x"), "cards.quotes[0].stray"),
+        ("set card=", lambda: writer.set("stray", "x", card=0), "cards.quotes[0].stray"),
         ("add_card", lambda: writer.add_card("quotes", {}, at=99), "$kind"),
         ("move_card", lambda: doc.move_card(9, 0), "cards[9]"),
     ]
@@ -639,28 +637,16 @@ def test_writer_add_card_positioned():
     assert len(doc.cards) == 2  # the out-of-range insert landed nothing
 
 
-def test_writer_card_cursor_set_and_body():
-    """writer.card(i) targets the composable card; a bad index raises at the write."""
+def test_writer_card_selector_targets_the_composable_card():
+    """`card=i` targets the composable card; an index addressing none raises."""
     quill = _taro_quill()
     doc = Document("taro@0.1.0")
     ed = quill.writer(doc)
     ed.add_card("quotes", {"author": "Basho"})
-    ed.card(0).set("author", "Issa")
+    ed.set("author", "Issa", card=0)
     assert field(doc.cards[0], "author") == "Issa"
     with raises_edit_code("edit::index_out_of_range"):
-        ed.card(9).set("author", "x")
-
-
-def test_writer_card_kind_getter():
-    """writer.card(i).kind reads the bound card's $kind; a bad index raises."""
-    quill = _taro_quill()
-    doc = Document("taro@0.1.0")
-    ed = quill.writer(doc)
-    ed.add_card("quotes", {"author": "Basho"})
-    assert ed.card(0).index == 0
-    assert ed.card(0).kind == "quotes"
-    with raises_edit_code("edit::index_out_of_range"):
-        _ = ed.card(9).kind
+        ed.set("author", "x", card=9)
 
 
 def test_writer_set_coerces_richtext_to_content():
@@ -816,16 +802,16 @@ def test_view_body_read_is_quill_free():
     assert quill.reader(doc).body_markdown() == "A **taro** essay."
 
 
-def test_view_card_cursor_reads_through_kind_schema():
+def test_view_card_selector_reads_through_kind_schema():
     quill = _taro_quill()
     doc = Document("taro@0.1.0")
     ed = quill.writer(doc)
     ed.add_card("quotes", {"author": "Basho"}, "A quote body.")
     v = quill.reader(doc)
-    assert v.card(0).kind == "quotes"
-    assert v.card(0).get("author") == "Basho"
-    assert v.card(0).body_markdown() == "A quote body."
+    assert v.values(card=0)["kind"] == "quotes"
+    assert v.get("author", card=0) == "Basho"
+    assert v.body_markdown(card=0) == "A quote body."
     with raises_edit_code("edit::unknown_field"):
-        v.card(0).get("stray")
+        v.get("stray", card=0)
     with raises_edit_code("edit::index_out_of_range"):
-        v.card(9).get("author")
+        v.get("author", card=9)

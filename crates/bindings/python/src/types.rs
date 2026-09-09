@@ -650,13 +650,48 @@ fn index_error(index: usize, len: usize) -> PyErr {
     )
 }
 
+/// Which card a `Writer` / `Reader` verb addresses, and the `DocPath` its
+/// diagnostics anchor at: `None` is the main card.
+struct Target {
+    index: Option<usize>,
+    base: quillmark_core::DocPath,
+}
+
+impl Target {
+    fn resolve(doc: &quillmark_core::Document, card: Option<isize>) -> PyResult<Self> {
+        match card {
+            None => Ok(Target {
+                index: None,
+                base: quillmark_core::DocPath::main(),
+            }),
+            Some(i) => {
+                let index = card_index(i, doc.cards().len())?;
+                Ok(Target {
+                    index: Some(index),
+                    base: card_base(doc, index),
+                })
+            }
+        }
+    }
+}
+
 /// A `Document` bound to its `Quill` for typed writes, from `Quill.writer(doc)`.
-/// It re-borrows both objects per call, pyo3 objects carrying no lifetime to hold
-/// the borrow, so it is ephemeral by convention: bind, write, discard.
+/// Re-borrows both objects per call, so it is ephemeral by convention: bind,
+/// write, discard.
+///
+/// Every verb takes `card`: `None` writes the main card, an `int` the
+/// composable card at that index, raising `edit::index_out_of_range` when it
+/// addresses none. The index is read at the write, so it is never stale.
 #[pyclass(name = "Writer")]
 pub struct PyWriter {
     quill: Py<PyQuill>,
     doc: Py<PyDocument>,
+}
+
+impl PyWriter {
+    fn target(doc: &PyDocument, card: Option<isize>) -> PyResult<Target> {
+        Target::resolve(&doc.inner, card)
+    }
 }
 
 #[pymethods]
@@ -667,88 +702,155 @@ impl PyWriter {
         self.doc.clone_ref(py)
     }
 
-    /// Typed-commit one main-card field (strict coerce, mismatch raises now).
-    /// Raises `edit::unknown_field` for a name the schema does not declare.
-    fn set(&self, py: Python<'_>, name: &str, value: Bound<'_, PyAny>) -> PyResult<()> {
+    /// Typed-commit one field (strict coerce, mismatch raises now), resolving
+    /// its type from the addressed card's schema. Raises `edit::unknown_field`
+    /// for a name that schema does not declare.
+    #[pyo3(signature = (name, value, card=None))]
+    fn set(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        value: Bound<'_, PyAny>,
+        card: Option<isize>,
+    ) -> PyResult<()> {
         let qv = py_to_quillvalue(&value)?;
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
-        quill
-            .inner
-            .writer(&mut doc.inner)
-            .set(name, qv)
-            .map_err(|e| convert_edit_error(e, &quillmark_core::DocPath::main()))
+        let target = Self::target(&doc, card)?;
+        let mut writer = quill.inner.writer(&mut doc.inner);
+        match target.index {
+            None => writer.set(name, qv),
+            Some(i) => writer
+                .card(i)
+                .map_err(|e| convert_edit_error(e, &target.base))?
+                .set(name, qv),
+        }
+        .map_err(|e| convert_edit_error(e, &target.base))
     }
 
-    /// Typed-commit several main-card fields atomically: nothing is applied on
-    /// error, and the raised `QuillmarkError` carries one diagnostic per offending
-    /// field (an `edit::unknown_field` per undeclared name).
-    fn set_all(&self, py: Python<'_>, fields: Bound<'_, PyDict>) -> PyResult<()> {
+    /// Typed-commit several fields atomically: nothing is applied on error, and
+    /// the raised `QuillmarkError` carries one diagnostic per offending field
+    /// (an `edit::unknown_field` per undeclared name).
+    #[pyo3(signature = (fields, card=None))]
+    fn set_all(
+        &self,
+        py: Python<'_>,
+        fields: Bound<'_, PyDict>,
+        card: Option<isize>,
+    ) -> PyResult<()> {
         let batch = pydict_to_field_batch(&fields)?;
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
-        quill
-            .inner
-            .writer(&mut doc.inner)
-            .set_all(batch)
-            .map_err(|errs| convert_edit_errors(errs, &quillmark_core::DocPath::main()))
+        let target = Self::target(&doc, card)?;
+        let mut writer = quill.inner.writer(&mut doc.inner);
+        match target.index {
+            None => writer.set_all(batch),
+            Some(i) => writer
+                .card(i)
+                .map_err(|e| convert_edit_error(e, &target.base))?
+                .set_all(batch),
+        }
+        .map_err(|errs| convert_edit_errors(errs, &target.base))
     }
 
-    /// Write the document in the values form: the write twin of
-    /// `reader.values()`. An absent key is untouched; a present one replaces its
-    /// axis, so `fields` is the whole truth for declared names and an unnamed one
-    /// is removed. All-or-nothing: nothing is applied on error, and each refused
-    /// cell is one diagnostic under its own `path` (`main.qty`,
-    /// `cards.line_item[0].desc`); a `values` this binding cannot read as the
-    /// shape raises `ValueError` before any of it is applied.
+    /// Write in the values form: the write twin of `reader.values()`. An absent
+    /// key is untouched; a present one replaces its axis, so `fields` is the
+    /// whole truth for declared names and an unnamed one is removed.
+    /// All-or-nothing: nothing is applied on error, and each refused cell is one
+    /// diagnostic under its own `path` (`main.qty`, `cards.line_item[0].desc`);
+    /// a `values` this binding cannot read as the shape raises `ValueError`
+    /// before any of it is applied.
     ///
     /// A cell equal to its projection is not written, so handing back an unedited
     /// `values()` read changes no bytes. A changed content cell is a cold import
     /// (`revise_field` per cell is what keeps its anchors), and cards match by
     /// position and kind, so deleting or reordering one rewrites every card after
     /// it.
-    fn set_values(&self, py: Python<'_>, values: &Bound<'_, PyAny>) -> PyResult<()> {
+    ///
+    /// With `card`, the shape is one card's (`{"kind", "fields", "body",
+    /// "ext"}`): an absent `kind` keeps the card's, a differing one rebuilds the
+    /// slot.
+    #[pyo3(signature = (values, card=None))]
+    fn set_values(
+        &self,
+        py: Python<'_>,
+        values: &Bound<'_, PyAny>,
+        card: Option<isize>,
+    ) -> PyResult<()> {
         let json = py_to_json(values)?;
-        let values: quillmark_core::DocumentValues = serde_json::from_value(json)
-            .map_err(|e| PyValueError::new_err(format!("set_values: invalid values shape: {e}")))?;
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
-        quill
-            .inner
-            .writer(&mut doc.inner)
-            .set_values(&values)
-            .map_err(convert_edit_errors_at)
+        let target = Self::target(&doc, card)?;
+        let mut writer = quill.inner.writer(&mut doc.inner);
+        match target.index {
+            None => {
+                let values: quillmark_core::DocumentValues = serde_json::from_value(json)
+                    .map_err(|e| {
+                        PyValueError::new_err(format!("set_values: invalid values shape: {e}"))
+                    })?;
+                writer.set_values(&values)
+            }
+            Some(i) => {
+                let values: quillmark_core::CardValues =
+                    serde_json::from_value(json).map_err(|e| {
+                        PyValueError::new_err(format!("set_values: invalid values shape: {e}"))
+                    })?;
+                writer
+                    .card(i)
+                    .map_err(|e| convert_edit_error(e, &target.base))?
+                    .set_values(&values)
+            }
+        }
+        .map_err(convert_edit_errors_at)
     }
 
-    /// Revise the main body from markdown; anchors rebase. The `Delta` receipt is
+    /// Revise a body from markdown; anchors rebase. The `Delta` receipt is
     /// discarded, as on `revise_field`.
-    fn revise_body(&self, py: Python<'_>, markdown: &str) -> PyResult<()> {
+    #[pyo3(signature = (markdown, card=None))]
+    fn revise_body(&self, py: Python<'_>, markdown: &str, card: Option<isize>) -> PyResult<()> {
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
-        quill
-            .inner
-            .writer(&mut doc.inner)
-            .revise_body(markdown)
-            .map(|_| ())
-            .map_err(|e| convert_edit_error(e, &quillmark_core::DocPath::main()))
+        let target = Self::target(&doc, card)?;
+        let mut writer = quill.inner.writer(&mut doc.inner);
+        match target.index {
+            None => writer.revise_body(markdown),
+            Some(i) => writer
+                .card(i)
+                .map_err(|e| convert_edit_error(e, &target.base))?
+                .revise_body(markdown),
+        }
+        .map(|_| ())
+        .map_err(|e| convert_edit_error(e, &target.base))
     }
 
-    /// Revise the content main-card field `name` from authored text: typed *and*
+    /// Revise the content field `name` from authored text: typed *and*
     /// anchor-preserving, where `set` cold-imports. The codec comes from the
     /// declared type: `richtext` diffs markdown, `plaintext` the literal text.
     /// Surviving anchors rebase, then the diffed result is schema-conformed, so a
     /// `richtext(inline)` field rejects a multi-block result with
     /// `edit::field_not_inline`. Raises `edit::unknown_field` for an undeclared
     /// name. The text `Delta` is discarded.
-    fn revise_field(&self, py: Python<'_>, name: &str, text: &str) -> PyResult<()> {
+    #[pyo3(signature = (name, text, card=None))]
+    fn revise_field(
+        &self,
+        py: Python<'_>,
+        name: &str,
+        text: &str,
+        card: Option<isize>,
+    ) -> PyResult<()> {
         let quill = self.quill.borrow(py);
         let mut doc = self.doc.borrow_mut(py);
-        quill
-            .inner
-            .writer(&mut doc.inner)
-            .revise_field(name, text)
-            .map(|_| ())
-            .map_err(|e| convert_edit_error(e, &quillmark_core::DocPath::main()))
+        let target = Self::target(&doc, card)?;
+        let mut writer = quill.inner.writer(&mut doc.inner);
+        match target.index {
+            None => writer.revise_field(name, text),
+            Some(i) => writer
+                .card(i)
+                .map_err(|e| convert_edit_error(e, &target.base))?
+                .revise_field(name, text),
+        }
+        .map(|_| ())
+        .map_err(|e| convert_edit_error(e, &target.base))
     }
 
     /// Build a composable card of `kind`, typed-commit `fields` onto it, set its
@@ -800,156 +902,24 @@ impl PyWriter {
             None => Ok(None),
         }
     }
-
-    /// A `CardWriter` for the composable card at `index`. The index is checked
-    /// lazily at the write, so this never raises. The cursor is ephemeral: a
-    /// `remove_card`/`add_card` between binding and writing silently retargets
-    /// it; re-resolve the index at write time when cards may move.
-    fn card(&self, py: Python<'_>, index: isize) -> PyCardWriter {
-        PyCardWriter {
-            quill: self.quill.clone_ref(py),
-            doc: self.doc.clone_ref(py),
-            index,
-        }
-    }
-}
-
-/// A composable card bound to its `Quill` for typed writes, from `Writer.card`.
-/// Same verbs as `Writer`, targeting the card at its bound index; each write
-/// raises `edit::index_out_of_range` for an index out of range.
-#[pyclass(name = "CardWriter")]
-pub struct PyCardWriter {
-    quill: Py<PyQuill>,
-    doc: Py<PyDocument>,
-    index: isize,
-}
-
-impl PyCardWriter {
-    fn bound_index(&self, doc: &PyDocument) -> PyResult<usize> {
-        card_index(self.index, doc.inner.cards().len())
-    }
-}
-
-#[pymethods]
-impl PyCardWriter {
-    /// The bound card index.
-    #[getter]
-    fn index(&self) -> isize {
-        self.index
-    }
-
-    /// The bound card's `$kind`, or `None` when it carries none. Raises
-    /// `edit::index_out_of_range` for a bad bound index.
-    #[getter]
-    fn kind(&self, py: Python<'_>) -> PyResult<Option<String>> {
-        let quill = self.quill.borrow(py);
-        let mut doc = self.doc.borrow_mut(py);
-        let index = self.bound_index(&doc)?;
-        let base = card_base(&doc.inner, index);
-        let mut writer = quill.inner.writer(&mut doc.inner);
-        let card = writer
-            .card(index)
-            .map_err(|e| convert_edit_error(e, &base))?;
-        Ok(card.kind().map(|k| k.to_string()))
-    }
-
-    /// Typed-commit one field on this card, resolving its type from the card's
-    /// `$kind` schema. Raises `edit::unknown_field` for an undeclared name
-    /// and `edit::index_out_of_range` for a bad index.
-    fn set(&self, py: Python<'_>, name: &str, value: Bound<'_, PyAny>) -> PyResult<()> {
-        let qv = py_to_quillvalue(&value)?;
-        let quill = self.quill.borrow(py);
-        let mut doc = self.doc.borrow_mut(py);
-        let index = self.bound_index(&doc)?;
-        let base = card_base(&doc.inner, index);
-        quill
-            .inner
-            .writer(&mut doc.inner)
-            .card(index)
-            .map_err(|e| convert_edit_error(e, &base))?
-            .set(name, qv)
-            .map_err(|e| convert_edit_error(e, &base))
-    }
-
-    /// Typed-commit several fields on this card atomically: same per-field
-    /// diagnostic bundle as `Writer.set_all`.
-    fn set_all(&self, py: Python<'_>, fields: Bound<'_, PyDict>) -> PyResult<()> {
-        let batch = pydict_to_field_batch(&fields)?;
-        let quill = self.quill.borrow(py);
-        let mut doc = self.doc.borrow_mut(py);
-        let index = self.bound_index(&doc)?;
-        let base = card_base(&doc.inner, index);
-        let mut writer = quill.inner.writer(&mut doc.inner);
-        writer
-            .card(index)
-            .map_err(|e| convert_edit_error(e, &base))?
-            .set_all(batch)
-            .map_err(|errs| convert_edit_errors(errs, &base))
-    }
-
-    /// Revise this card's body from markdown (edit semantics), discarding the
-    /// `Delta` receipt as `Writer.revise_body` does.
-    fn revise_body(&self, py: Python<'_>, markdown: &str) -> PyResult<()> {
-        let quill = self.quill.borrow(py);
-        let mut doc = self.doc.borrow_mut(py);
-        let index = self.bound_index(&doc)?;
-        let base = card_base(&doc.inner, index);
-        quill
-            .inner
-            .writer(&mut doc.inner)
-            .card(index)
-            .map_err(|e| convert_edit_error(e, &base))?
-            .revise_body(markdown)
-            .map(|_| ())
-            .map_err(|e| convert_edit_error(e, &base))
-    }
-
-    /// The card twin of `Writer.revise_field`. Raises `edit::unknown_field` for
-    /// an undeclared name and `edit::index_out_of_range` for a bad index.
-    fn revise_field(&self, py: Python<'_>, name: &str, text: &str) -> PyResult<()> {
-        let quill = self.quill.borrow(py);
-        let mut doc = self.doc.borrow_mut(py);
-        let index = self.bound_index(&doc)?;
-        let base = card_base(&doc.inner, index);
-        let mut writer = quill.inner.writer(&mut doc.inner);
-        writer
-            .card(index)
-            .map_err(|e| convert_edit_error(e, &base))?
-            .revise_field(name, text)
-            .map(|_| ())
-            .map_err(|e| convert_edit_error(e, &base))
-    }
-
-    /// Write this card in the values form: `Writer.set_values` restricted to
-    /// one slot, under the same per-axis rule. An absent `kind` keeps the
-    /// card's; a differing one rebuilds the slot. Refusals anchor at
-    /// `cards.<kind>[<index>]`; raises `edit::index_out_of_range` for a bad
-    /// bound index and `ValueError` for a `values` this binding cannot read as
-    /// the shape.
-    fn set_values(&self, py: Python<'_>, values: &Bound<'_, PyAny>) -> PyResult<()> {
-        let json = py_to_json(values)?;
-        let values: quillmark_core::CardValues = serde_json::from_value(json)
-            .map_err(|e| PyValueError::new_err(format!("set_values: invalid values shape: {e}")))?;
-        let quill = self.quill.borrow(py);
-        let mut doc = self.doc.borrow_mut(py);
-        let index = self.bound_index(&doc)?;
-        let base = card_base(&doc.inner, index);
-        let mut writer = quill.inner.writer(&mut doc.inner);
-        writer
-            .card(index)
-            .map_err(|e| convert_edit_error(e, &base))?
-            .set_values(&values)
-            .map_err(convert_edit_errors_at)
-    }
 }
 
 /// A `Document` bound to its `Quill` for interpreted reads, from
 /// `Quill.reader(doc)`: the read twin of `Writer`. Re-borrows both objects per
 /// call, so it is ephemeral by convention: bind, read, discard.
+///
+/// Every verb takes `card` on `Writer`'s terms: `None` reads the main card, an
+/// `int` the composable card at that index.
 #[pyclass(name = "Reader")]
 pub struct PyReader {
     quill: Py<PyQuill>,
     doc: Py<PyDocument>,
+}
+
+impl PyReader {
+    fn target(doc: &PyDocument, card: Option<isize>) -> PyResult<Target> {
+        Target::resolve(&doc.inner, card)
+    }
 }
 
 #[pymethods]
@@ -960,47 +930,78 @@ impl PyReader {
         self.doc.clone_ref(py)
     }
 
-    /// Read a main-card field, interpreted by its declared type: a richtext field
-    /// to its markdown projection, every other type its canonical value, or
-    /// `None` when the field is absent. Raises `edit::unknown_field` for an
-    /// undeclared name and `edit::field_decode` for a richtext value that does
-    /// not decode.
-    fn get<'py>(&self, py: Python<'py>, name: &str) -> PyResult<Option<Bound<'py, PyAny>>> {
+    /// Read a field, interpreted by its declared type: a richtext field to its
+    /// markdown projection, every other type its canonical value, or `None` when
+    /// the field is absent. Raises `edit::unknown_field` for an undeclared name
+    /// and `edit::field_decode` for a richtext value that does not decode.
+    #[pyo3(signature = (name, card=None))]
+    fn get<'py>(
+        &self,
+        py: Python<'py>,
+        name: &str,
+        card: Option<isize>,
+    ) -> PyResult<Option<Bound<'py, PyAny>>> {
         let quill = self.quill.borrow(py);
         let doc = self.doc.borrow(py);
-        let read = quill
-            .inner
-            .reader(&doc.inner)
-            .get(name)
-            .map_err(|e| convert_edit_error(e, &quillmark_core::DocPath::main()))?;
+        let target = Self::target(&doc, card)?;
+        let reader = quill.inner.reader(&doc.inner);
+        let read = match target.index {
+            None => reader.get(name),
+            Some(i) => reader
+                .card(i)
+                .map_err(|e| convert_edit_error(e, &target.base))?
+                .get(name),
+        }
+        .map_err(|e| convert_edit_error(e, &target.base))?;
         read_value_to_py(py, read)
     }
 
-    /// Read a main-card content field as canonical Content-JSON (`{text, lines,
-    /// marks, islands}`): the `Content` twin of `get`, which projects. Decodes
-    /// through the codec the declared type names, so a field the writer committed
-    /// and one a markdown parse left as an authored string read back the same.
+    /// Read a content field as canonical Content-JSON (`{text, lines, marks,
+    /// islands}`): the `Content` twin of `get`, which projects. Decodes through
+    /// the codec the declared type names, so a field the writer committed and one
+    /// a markdown parse left as an authored string read back the same.
     ///
     /// `None` when the field is absent. Raises `edit::unknown_field` for an
     /// undeclared name, `edit::field_not_content` for a declared type that is not
     /// a content leaf, and `edit::field_decode` for a value that decodes under
     /// neither encoding.
-    fn get_content<'py>(&self, py: Python<'py>, name: &str) -> PyResult<Option<Bound<'py, PyAny>>> {
+    #[pyo3(signature = (name, card=None))]
+    fn get_content<'py>(
+        &self,
+        py: Python<'py>,
+        name: &str,
+        card: Option<isize>,
+    ) -> PyResult<Option<Bound<'py, PyAny>>> {
         let quill = self.quill.borrow(py);
         let doc = self.doc.borrow(py);
-        let read = quill
-            .inner
-            .reader(&doc.inner)
-            .get_content(name)
-            .map_err(|e| convert_edit_error(e, &quillmark_core::DocPath::main()))?;
+        let target = Self::target(&doc, card)?;
+        let reader = quill.inner.reader(&doc.inner);
+        let read = match target.index {
+            None => reader.get_content(name),
+            Some(i) => reader
+                .card(i)
+                .map_err(|e| convert_edit_error(e, &target.base))?
+                .get_content(name),
+        }
+        .map_err(|e| convert_edit_error(e, &target.base))?;
         content_to_py(py, read)
     }
 
-    /// The main body's markdown: quill-free, since a body's type is a format fact
-    /// rather than a schema fact. Never raises.
-    fn body_markdown(&self, py: Python<'_>) -> String {
+    /// A body's markdown: quill-free, since a body's type is a format fact
+    /// rather than a schema fact. Raises only `edit::index_out_of_range`, for a
+    /// `card` addressing none.
+    #[pyo3(signature = (card=None))]
+    fn body_markdown(&self, py: Python<'_>, card: Option<isize>) -> PyResult<String> {
         let doc = self.doc.borrow(py);
-        doc.inner.main().body_markdown()
+        let target = Self::target(&doc, card)?;
+        Ok(match target.index {
+            None => doc.inner.main().body_markdown(),
+            Some(i) => doc
+                .inner
+                .card(i)
+                .ok_or_else(|| index_error(i, doc.inner.cards().len()))?
+                .body_markdown(),
+        })
     }
 
     /// The whole document in the values form: `{"fields", "body", "cards",
@@ -1011,129 +1012,29 @@ impl PyReader {
     ///
     /// Every key is present, so the dict is a valid `writer.set_values` input and
     /// handing it back unedited changes no bytes. Sparse: an absent field is an
-    /// absent key, never its `default`. Never raises: a content leaf that decodes
-    /// under neither encoding rides out as stored where `get` would raise. A
-    /// projection, never a storage format: persist with `to_stored`.
-    fn values<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+    /// absent key, never its `default`. A content leaf that decodes under neither
+    /// encoding rides out as stored where `get` would raise. A projection, never
+    /// a storage format: persist with `to_stored`.
+    ///
+    /// With `card`, one card's slot of that shape; raises
+    /// `edit::index_out_of_range` for an index addressing none.
+    #[pyo3(signature = (card=None))]
+    fn values<'py>(&self, py: Python<'py>, card: Option<isize>) -> PyResult<Bound<'py, PyAny>> {
         let quill = self.quill.borrow(py);
         let doc = self.doc.borrow(py);
-        let values = quill.inner.reader(&doc.inner).values();
-        let json = serde_json::to_value(&values)
-            .map_err(|e| PyValueError::new_err(format!("values: serialization failed: {e}")))?;
-        json_to_py(py, &json)
-    }
-
-    /// A `CardReader` for the composable card at `index`. The index is checked
-    /// lazily at the read, so this never raises. The cursor is ephemeral: a
-    /// `remove_card`/`add_card` between binding and reading silently retargets it.
-    fn card(&self, py: Python<'_>, index: isize) -> PyCardReader {
-        PyCardReader {
-            quill: self.quill.clone_ref(py),
-            doc: self.doc.clone_ref(py),
-            index,
+        let target = Self::target(&doc, card)?;
+        let reader = quill.inner.reader(&doc.inner);
+        let json = match target.index {
+            None => serde_json::to_value(reader.values()),
+            Some(i) => serde_json::to_value(
+                reader
+                    .card(i)
+                    .map_err(|e| convert_edit_error(e, &target.base))?
+                    .values(),
+            ),
         }
-    }
-}
-
-/// A composable card bound to its `Quill` for interpreted reads, from
-/// `Reader.card`. Same verbs as `Reader`, reading the card at its bound index;
-/// each read raises `edit::index_out_of_range` for an index out of range.
-#[pyclass(name = "CardReader")]
-pub struct PyCardReader {
-    quill: Py<PyQuill>,
-    doc: Py<PyDocument>,
-    index: isize,
-}
-
-impl PyCardReader {
-    fn bound_index(&self, doc: &PyDocument) -> PyResult<usize> {
-        card_index(self.index, doc.inner.cards().len())
-    }
-}
-
-#[pymethods]
-impl PyCardReader {
-    /// The bound card index.
-    #[getter]
-    fn index(&self) -> isize {
-        self.index
-    }
-
-    /// The bound card's `$kind`, or `None` when it carries none. Raises
-    /// `edit::index_out_of_range` if the bound index is out of range.
-    #[getter]
-    fn kind(&self, py: Python<'_>) -> PyResult<Option<String>> {
-        let quill = self.quill.borrow(py);
-        let doc = self.doc.borrow(py);
-        let index = self.bound_index(&doc)?;
-        let base = card_base(&doc.inner, index);
-        let reader = quill.inner.reader(&doc.inner);
-        let card = reader
-            .card(index)
-            .map_err(|e| convert_edit_error(e, &base))?;
-        Ok(card.kind().map(|k| k.to_string()))
-    }
-
-    /// Read a field on this card, interpreted by its declared type: the
-    /// card-indexed twin of `Reader.get`. Raises `edit::unknown_field` for an
-    /// undeclared name and `edit::index_out_of_range` for a bad index.
-    fn get<'py>(&self, py: Python<'py>, name: &str) -> PyResult<Option<Bound<'py, PyAny>>> {
-        let quill = self.quill.borrow(py);
-        let doc = self.doc.borrow(py);
-        let index = self.bound_index(&doc)?;
-        let base = card_base(&doc.inner, index);
-        let reader = quill.inner.reader(&doc.inner);
-        let read = reader
-            .card(index)
-            .map_err(|e| convert_edit_error(e, &base))?
-            .get(name)
-            .map_err(|e| convert_edit_error(e, &base))?;
-        read_value_to_py(py, read)
-    }
-
-    /// The card-indexed twin of `Reader.get_content`, with the same outcomes plus
-    /// `edit::index_out_of_range` for a bad index.
-    fn get_content<'py>(&self, py: Python<'py>, name: &str) -> PyResult<Option<Bound<'py, PyAny>>> {
-        let quill = self.quill.borrow(py);
-        let doc = self.doc.borrow(py);
-        let index = self.bound_index(&doc)?;
-        let base = card_base(&doc.inner, index);
-        let reader = quill.inner.reader(&doc.inner);
-        let read = reader
-            .card(index)
-            .map_err(|e| convert_edit_error(e, &base))?
-            .get_content(name)
-            .map_err(|e| convert_edit_error(e, &base))?;
-        content_to_py(py, read)
-    }
-
-    /// This card in the values form: `Reader.values` restricted to one slot.
-    /// Raises `edit::index_out_of_range` for a bad bound index.
-    fn values<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let quill = self.quill.borrow(py);
-        let doc = self.doc.borrow(py);
-        let index = self.bound_index(&doc)?;
-        let base = card_base(&doc.inner, index);
-        let reader = quill.inner.reader(&doc.inner);
-        let values = reader
-            .card(index)
-            .map_err(|e| convert_edit_error(e, &base))?
-            .values();
-        let json = serde_json::to_value(&values)
-            .map_err(|e| PyValueError::new_err(format!("values: serialization failed: {e}")))?;
+        .map_err(|e| PyValueError::new_err(format!("values: serialization failed: {e}")))?;
         json_to_py(py, &json)
-    }
-
-    /// The card twin of `Reader.body_markdown`. Raises `edit::index_out_of_range`
-    /// for a bad bound index.
-    fn body_markdown(&self, py: Python<'_>) -> PyResult<String> {
-        let doc = self.doc.borrow(py);
-        let index = self.bound_index(&doc)?;
-        let card = doc
-            .inner
-            .card(index)
-            .ok_or_else(|| index_error(index, doc.inner.cards().len()))?;
-        Ok(card.body_markdown())
     }
 }
 
