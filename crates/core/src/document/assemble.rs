@@ -500,7 +500,6 @@ fn build_payload(
                         key,
                         value: qv,
                         fill,
-                        nested_comments: Vec::new(),
                     });
                 }
             }
@@ -519,14 +518,10 @@ fn build_payload(
             key,
             value: qv,
             fill: false,
-            nested_comments: Vec::new(),
         });
     }
 
-    Ok(Payload::from_items_with_flat_nested(
-        items,
-        pre_nested_comments,
-    ))
+    Ok(Payload::from_items_with_nested(items, pre_nested_comments))
 }
 
 /// Apply the nested `!must_fill` markers rooted at `key` onto `value`'s tree.

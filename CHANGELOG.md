@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- refactor(core)!: **nested comments hang off the payload, not each item.**
+  `PayloadItem::Field` / `Meta` lose `nested_comments`; one list on `Payload`
+  carries them, at paths whose head segment names the owning entry. That is the
+  form prescan already produced and the storage DTO already stored, so the
+  flat → per-item → flat conversion at both ends is gone. `Payload` gains the
+  public `nested_comments()` and `rename_field`, which carries a field's
+  comments with its key; `items_mut` is withdrawn, having existed only for the
+  rename that now has a verb — which is what kept `normalize_document` from
+  orphaning them. The wire is untouched: `PayloadV0_92_0.nested_comments` was
+  already the flat sidecar.
 - refactor(core): **`QuillValue` holds its JSON, not a mirror of it.**
   The value carried a private `Node`/`Kind` tree annotating every node with one
   `fill` bit, plus a seeded `serde_json::Value` cache of the same data — so

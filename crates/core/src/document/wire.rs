@@ -228,7 +228,6 @@ impl TryFrom<CardWire> for Card {
                         key,
                         value: qv,
                         fill,
-                        nested_comments: Vec::new(),
                     })
                 }
                 PayloadItemWire::Comment { text, inline } => {
@@ -295,7 +294,6 @@ mod tests {
             key: "addr".to_string(),
             value: addr,
             fill: false,
-            nested_comments: Vec::new(),
         }]);
         let card = Card::from_parts(payload, quillmark_content::Normalized::empty());
 
@@ -329,7 +327,6 @@ mod tests {
             key: "recipients".to_string(),
             value,
             fill: false,
-            nested_comments: Vec::new(),
         }]);
         let wire = CardWire::from(&Card::from_parts(
             payload,
@@ -423,7 +420,6 @@ mod tests {
                 key: "count".to_string(),
                 value: QuillValue::from_json(json!(3)),
                 fill: true,
-                nested_comments: Vec::new(),
             },
         ]);
         payload.set_kind("note");
