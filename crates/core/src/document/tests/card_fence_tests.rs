@@ -154,11 +154,18 @@ fn backtick_fence_is_the_code_block_escape_hatch() {
 }
 
 #[test]
-fn tilde_fence_with_language_info_is_an_ordinary_code_block() {
-    let src = "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~rust\nlet x = 1;\n~~~\n";
+fn tilde_fence_with_language_info_opens_a_card() {
+    let src = "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~rust\n$kind: note\nx: 1\n~~~\n";
     let doc = Document::parse(src).unwrap().document;
-    assert_eq!(doc.cards().len(), 0);
-    assert!(doc.main().body_markdown().contains("let x = 1;"));
+    assert_eq!(doc.cards().len(), 1);
+    assert_eq!(doc.cards()[0].kind(), Some("note"));
+}
+
+#[test]
+fn language_tagged_tilde_code_in_a_body_is_parsed_as_yaml() {
+    let src = "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~rust\nlet x = 1;\n~~~\n";
+    let err = Document::parse(src).unwrap_err().to_string();
+    assert!(err.contains("mapping"), "got: {err}");
 }
 
 #[test]
