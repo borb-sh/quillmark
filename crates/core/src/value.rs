@@ -14,8 +14,9 @@ use std::ops::Deref;
 /// itself is never edited in place, so a recorded path cannot come to address a
 /// node that has gone.
 ///
-/// `fills` is kept sorted and duplicate-free, so equality over it is set
-/// equality and the order a caller marks in is not observable.
+/// `fills` is kept in the order a walk of the JSON meets the nodes, and
+/// duplicate-free, so equality over it is set equality and the order a caller
+/// marks in is not observable.
 #[derive(Clone, PartialEq)]
 pub struct QuillValue {
     json: JsonValue,
@@ -46,6 +47,42 @@ fn json_at<'a>(value: &'a JsonValue, path: &[PathSegment]) -> Option<&'a JsonVal
         };
     }
     Some(cur)
+}
+
+/// Where `path` falls in a walk of `json`: each segment as its position among
+/// its parent's members, an object key by declaration order. A parent's rank is
+/// a prefix of its children's, so comparing these lexicographically is the walk
+/// itself — the order [`QuillValue::fill_paths`] reports and the storage DTO
+/// writes `nested_fills` in, which
+/// `prose/canon/DOCUMENT_STORAGE.md` § "Byte-stability" holds across releases
+/// sharing a `schema` tag.
+///
+/// A segment that addresses nothing ends the rank, which orders it beside its
+/// deepest resolving parent; [`QuillValue::set_fill_at`] refuses such a path, so
+/// no recorded one takes that arm.
+fn structural_rank(json: &JsonValue, path: &[PathSegment]) -> Vec<usize> {
+    let mut rank = Vec::with_capacity(path.len());
+    let mut cur = json;
+    for seg in path {
+        match (cur, seg) {
+            (JsonValue::Object(map), PathSegment::Key(k)) => {
+                let Some(at) = map.keys().position(|key| key == k) else {
+                    break;
+                };
+                rank.push(at);
+                cur = &map[k];
+            }
+            (JsonValue::Array(items), PathSegment::Index(i)) => {
+                let Some(child) = items.get(*i) else {
+                    break;
+                };
+                rank.push(*i);
+                cur = child;
+            }
+            _ => break,
+        }
+    }
+    rank
 }
 
 /// `true` when a value nests deeper than `max_depth` container levels: the
@@ -129,12 +166,19 @@ impl QuillValue {
     /// Mark the node at `path` (relative to the root) `!must_fill`. Returns
     /// `false`, recording nothing, if the path does not resolve to a node: a
     /// marker never outlives what it addresses.
+    ///
+    /// Recorded at its [`structural_rank`], so the list reads in the order a
+    /// walk of the JSON meets the marked nodes however a caller marked them.
     pub fn set_fill_at(&mut self, path: &[PathSegment]) -> bool {
         if json_at(&self.json, path).is_none() {
             return false;
         }
-        if let Err(i) = self.fills.binary_search_by(|p| p.as_slice().cmp(path)) {
-            self.fills.insert(i, path.to_vec());
+        let rank = structural_rank(&self.json, path);
+        let at = self
+            .fills
+            .binary_search_by(|p| structural_rank(&self.json, p).cmp(&rank));
+        if let Err(at) = at {
+            self.fills.insert(at, path.to_vec());
         }
         true
     }
@@ -212,8 +256,9 @@ impl QuillValue {
         let head = PathSegment::Key(key.to_string());
         Some(QuillValue {
             json: child.clone(),
-            // Stripping a shared head preserves the sort, so the child's list
-            // is normalized by the parent's being so.
+            // A walk of the child is the parent's walk restricted to what lies
+            // under `key`, so stripping the shared head leaves the child's list
+            // in its own structural order.
             fills: self
                 .fills
                 .iter()
@@ -361,6 +406,52 @@ mod tests {
         let mut twice = mark(["a", "b", "c"]);
         assert!(twice.set_fill_at(&key("a")));
         assert_eq!(twice, forward, "re-marking a node changes nothing");
+    }
+
+    /// The set reads back in the order a walk of the JSON meets it: an object's
+    /// keys as declared, not as named, and a parent before what it contains.
+    /// The storage DTO writes `nested_fills` in this order, and
+    /// `prose/canon/DOCUMENT_STORAGE.md` § "Byte-stability" holds those bytes
+    /// fixed across every release sharing a `schema` tag — so the reported
+    /// order is a stored fact, not a presentation choice.
+    #[test]
+    fn fill_paths_read_in_declaration_order() {
+        let mut qv = QuillValue::from_json(serde_json::json!({
+            "zip": null,
+            "street": { "line": null },
+            "city": null,
+        }));
+        let key = |k: &str| PathSegment::Key(k.to_string());
+        for path in [
+            vec![key("city")],
+            vec![key("street"), key("line")],
+            vec![key("zip")],
+            vec![key("street")],
+        ] {
+            assert!(qv.set_fill_at(&path));
+        }
+        assert_eq!(
+            qv.fill_paths(),
+            vec![
+                vec![key("zip")],
+                vec![key("street")],
+                vec![key("street"), key("line")],
+                vec![key("city")],
+            ]
+        );
+
+        let mut arr = QuillValue::from_json(serde_json::json!({"to": [{"n": null}, {"n": null}]}));
+        for i in [1usize, 0] {
+            assert!(arr.set_fill_at(&[key("to"), PathSegment::Index(i), key("n")]));
+        }
+        assert_eq!(
+            arr.fill_paths(),
+            vec![
+                vec![key("to"), PathSegment::Index(0), key("n")],
+                vec![key("to"), PathSegment::Index(1), key("n")],
+            ],
+            "an array walks by index"
+        );
     }
 
     /// A marker addresses a node or is refused, so the recorded paths always

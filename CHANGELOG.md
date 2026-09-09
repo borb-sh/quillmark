@@ -129,11 +129,13 @@
   the tree: emit, both wire formats, seeding, compose and conform all ask for a
   flat path list, which is what `Seeded` already wrote by hand and what the DTO's
   `nested_fills` already stores. `QuillValue` is now that pair — the JSON beside
-  a sorted, duplicate-free `Vec<Vec<PathSegment>>` — so the two node walkers
+  a duplicate-free `Vec<Vec<PathSegment>>` — so the two node walkers
   collapse to one `json_at`, and `OnceLock` and the hand-written `Clone` /
   `PartialEq` go with them. The public surface is unchanged; `set_fill_at` still
   refuses a path that addresses nothing, which is what keeps a recorded marker
-  from outliving its node.
+  from outliving its node, and records it where a walk of the JSON meets it, so
+  `fill_paths` reads in declaration order as the annotated tree did and the
+  `nested_fills` a stored document carries are byte-for-byte what 0.112 wrote.
 - docs(content,core): **the authored lane is `overwrite` and the op wire.**
   Canon and the 0.112 guide also named `install`, gone since 0.102, and
   `CardInput.body`, which has never rejected anything the storage lane takes.
