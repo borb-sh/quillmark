@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- refactor(core): **`QuillValue` holds its JSON, not a mirror of it.**
+  The value carried a private `Node`/`Kind` tree annotating every node with one
+  `fill` bit, plus a seeded `serde_json::Value` cache of the same data — so
+  `from_json` deep-cloned the whole document to record markers almost none of it
+  carries, and `get` cloned a subtree twice to read one child. No consumer wanted
+  the tree: emit, both wire formats, seeding, compose and conform all ask for a
+  flat path list, which is what `Seeded` already wrote by hand and what the DTO's
+  `nested_fills` already stores. `QuillValue` is now that pair — the JSON beside
+  a sorted, duplicate-free `Vec<Vec<PathSegment>>` — so the two node walkers
+  collapse to one `json_at`, and `OnceLock` and the hand-written `Clone` /
+  `PartialEq` go with them. The public surface is unchanged; `set_fill_at` still
+  refuses a path that addresses nothing, which is what keeps a recorded marker
+  from outliving its node.
 - docs(content,core): **the authored lane is `overwrite` and the op wire.**
   Canon and the 0.112 guide also named `install`, gone since 0.102, and
   `CardInput.body`, which has never rejected anything the storage lane takes.

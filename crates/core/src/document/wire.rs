@@ -286,7 +286,7 @@ mod tests {
     use serde_json::json;
 
     /// Nested `!must_fill` markers inside a field value survive Card → wire →
-    /// Card via the `nestedFills` path list (the JSON projection is fill-free).
+    /// Card via the `nestedFills` path list (the JSON itself is fill-free).
     #[test]
     fn card_wire_round_trips_nested_fill() {
         let mut addr = QuillValue::from_json(json!({"street": null, "city": "Anytown"}));
