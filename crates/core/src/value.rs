@@ -167,8 +167,8 @@ impl QuillValue {
     /// `false`, recording nothing, if the path does not resolve to a node: a
     /// marker never outlives what it addresses.
     ///
-    /// Recorded at its [`structural_rank`], so the list reads in the order a
-    /// walk of the JSON meets the marked nodes however a caller marked them.
+    /// Recorded at the node's place in a walk of the JSON, so the list reads in
+    /// that order however a caller marked them.
     pub fn set_fill_at(&mut self, path: &[PathSegment]) -> bool {
         if json_at(&self.json, path).is_none() {
             return false;
