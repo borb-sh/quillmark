@@ -687,8 +687,6 @@ pub enum Invariant {
     /// ([`ParseError::Shape`](crate::serial::ParseError::Shape)), so only a Rust
     /// caller spelling the level reaches this.
     BadHeadingLevel(u8),
-    /// The first line has `continues: true` (nothing precedes it to continue).
-    FirstLineContinues,
     /// Two islands share an `id`. Uniqueness is the id invariant `validate`
     /// enforces; positional equality is not, since edits keep an island's id
     /// stable across renumbers.
@@ -911,15 +909,16 @@ impl Content {
             slot += seg.chars().filter(|&c| c == ISLAND_SLOT).count();
         }
         self.split_block_islands();
-        // A `continues` flag under a block that cannot take one clears: a
-        // differing container path, or a one-line kind above, where export
-        // would drop the continuation's text. `Join` across two paths,
-        // `SetKind` retagging the line above and `SetContinues` itself all
-        // reach the shape. Read after the demotion above, which settles what a
-        // spliced-over kind is.
-        for i in 1..self.lines.len() {
+        // A `continues` flag under a block that cannot take one clears: nothing
+        // precedes the first line, and below it a differing container path or a
+        // one-line kind above, where export would drop the continuation's text.
+        // `Join` across two paths, `SetKind` retagging the line above and
+        // `SetContinues` itself all reach the shape. Read after the demotion
+        // above, which settles what a spliced-over kind is.
+        for i in 0..self.lines.len() {
             if self.lines[i].continues
-                && (self.lines[i].containers != self.lines[i - 1].containers
+                && (i == 0
+                    || self.lines[i].containers != self.lines[i - 1].containers
                     || !self.lines[i - 1].kind.takes_continuations())
             {
                 self.lines[i].continues = false;
@@ -1062,9 +1061,6 @@ impl Content {
                 lines: self.lines.len(),
                 segments,
             });
-        }
-        if self.lines.first().is_some_and(|l| l.continues) {
-            return Err(Invariant::FirstLineContinues);
         }
         // Anchor-id uniqueness is what `RemoveAnchor` presumes.
         let mut seen_anchor_ids = std::collections::HashSet::new();

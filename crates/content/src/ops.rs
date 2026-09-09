@@ -56,10 +56,10 @@ pub enum LineOp {
     /// previous line's block across a within-block hard break (a markdown hard
     /// break, a code fence's interior line) rather than starting a new block.
     /// Split, join and text-delta `\n` insertion all mint `continues: false`
-    /// lines, so this is the only op that reaches the flag. Setting it on line 0
-    /// is [`ApplyError::FirstLineContinues`]; the terminal normalize clears a
-    /// flag no block above can take — a differing container path, or a heading,
-    /// island or rule, each rendering one line.
+    /// lines, so this is the only op that reaches the flag. The terminal
+    /// normalize clears a flag no block above can take: line 0, which nothing
+    /// precedes, a differing container path, or a heading, island or rule above,
+    /// each rendering one line.
     SetContinues { line: usize, continues: bool },
 }
 
@@ -327,10 +327,6 @@ pub enum ApplyError {
         lines: usize,
         segments: usize,
     },
-    /// A [`LineOp::SetContinues`] set `continues: true` on line 0, which has
-    /// nothing before it to continue. Refused because `normalize` does not
-    /// repair it.
-    FirstLineContinues,
     /// The text delta's expected base length disagreed with the content:
     /// it was built against a different revision.
     DeltaBaseMismatch {
@@ -657,9 +653,6 @@ impl Content {
                     line.containers = containers.clone();
                 }
                 LineOp::SetContinues { line, continues } => {
-                    if *line == 0 && *continues {
-                        return Err(ApplyError::FirstLineContinues);
-                    }
                     let l = self.line_mut(*line)?;
                     l.continues = *continues;
                 }
@@ -1755,26 +1748,22 @@ mod tests {
         assert_eq!(rt.validate(), Ok(()));
     }
 
+    /// Nothing precedes the first line, so the flag there is dead to every
+    /// reader: the mint clears it and the content is what it was.
     #[test]
-    fn line_op_set_continues_rejects_first_line() {
+    fn line_op_set_continues_on_the_first_line_clears() {
         let mut rt = from_markdown("one two").unwrap();
         rt.apply_text_delta(&diff("one two", "one\ntwo")).unwrap();
         let before = rt.clone();
-        assert_eq!(
-            rt.apply_line_ops(&[LineOp::SetContinues {
-                line: 0,
-                continues: true,
-            }]),
-            Err(ApplyError::FirstLineContinues)
-        );
-        assert_eq!(rt, before, "rejected op leaves the content untouched");
-        // Clearing line 0 is a no-op, not an error.
-        rt.apply_line_ops(&[LineOp::SetContinues {
-            line: 0,
-            continues: false,
-        }])
-        .unwrap();
-        assert_eq!(rt.validate(), Ok(()));
+        for continues in [true, false] {
+            assert_eq!(
+                rt.apply_line_ops(&[LineOp::SetContinues { line: 0, continues }]),
+                Ok(())
+            );
+            assert!(!rt.lines[0].continues);
+            assert_eq!(rt, before, "the first line's flag reaches no projection");
+            assert_eq!(rt.validate(), Ok(()));
+        }
     }
 
     fn island(id: &str) -> Island {
