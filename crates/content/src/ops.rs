@@ -1961,7 +1961,7 @@ mod tests {
     }
 
     /// An island payload edit moves the entry alone, so an anchor elsewhere in
-    /// the field survives an edit a whole-value `install` would have cleared.
+    /// the field survives an edit a whole-value `overwrite` would have cleared.
     #[test]
     fn island_set_edits_props_and_keeps_the_field_anchors() {
         let mut rt = from_markdown("intro\n\n| H |\n| --- |\n| a |").unwrap();

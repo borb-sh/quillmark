@@ -361,12 +361,15 @@ payload spelled as a **named sibling**, which is how every release through
   neither and the two spellings stay split by release rather than by which names
   a build knows.
 
-  The authored lane is the whole-content doors — `overwrite`, `install`,
-  `CardInput.body`, the op wire. A **typed field write** is not among them:
-  `document::canonical_richtext_value` decodes storage-lane on purpose, sharing
-  that entry point with a quill's schema literals, which are read out of a
-  `Quill.yaml` that may predate the release. It re-canonicalizes what it
-  decodes, so the value rests in the current spelling either way.
+  The authored lane is `overwrite` and the op wire. Two doors that take a whole
+  content sit outside it. **`CardInput.body`** decodes storage-lane
+  (`wire::body_from_wire`, through `Codec::decode_field`): every `Card` a read
+  hands back is a valid `CardInput`, so the card wire must accept whatever a
+  read emits, a stored-only tolerance included. A **typed field
+  write** does too: `document::canonical_richtext_value` shares that entry point
+  with a quill's schema literals, which are read out of a `Quill.yaml` that may
+  predate the release. Both re-canonicalize what they decode, so the value rests
+  in the current spelling either way.
 
 The same split governs an unreadable **table-cell mark**. Storage skips it:
 `serial::parse_cell` is lenient, and normalization makes the skip permanent. The

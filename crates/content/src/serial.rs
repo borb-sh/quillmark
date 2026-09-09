@@ -535,7 +535,7 @@ pub fn mark_from_value(v: &Value) -> Result<Mark, ParseError> {
 // oppositely. Storage (`Content::from_canonical_json`) stays lenient: content
 // stored in that spelling is beyond any migration's reach, a `richtext` field
 // resting as a content object under no schema tag. Authored (the `crate::ops`
-// wire, and `install` through [`from_authored_value`]) rejects it, the shape
+// wire, and `overwrite` through [`from_authored_value`]) rejects it, the shape
 // meaning a stale copy of the encoding.
 //
 // The rule is narrow on purpose: a *legacy payload key* beside the name that
@@ -645,7 +645,7 @@ fn reject_unwritable_url(url: Option<&str>, err: &'static str) -> Result<(), Par
 }
 
 /// [`from_canonical_value`] for a content the **host authored just now**: the
-/// `install` input, not a blob read back from storage. Same decode, plus the
+/// `overwrite` input, not a blob read back from storage. Same decode, plus the
 /// legacy-spelling rule on every axis [`Content::validate`] checks — line kinds,
 /// containers, prose marks, table-cell marks — the writability rule on the urls
 /// the projection spells, and the placement rule on a block-only island.
@@ -1757,8 +1757,8 @@ mod tests {
         ));
     }
 
-    /// The whole-content authored door (`install`, `overwrite`) carries the
-    /// url rule as deep as the values the projection writes.
+    /// The whole-content authored door (`overwrite`) carries the url rule as
+    /// deep as the values the projection writes.
     #[test]
     fn the_authored_content_door_refuses_an_unwritable_url() {
         for json in [

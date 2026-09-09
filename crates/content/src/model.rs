@@ -1378,9 +1378,11 @@ impl Content {
         if let Some(at) = inline_block_islands(&chars, &self.islands).next() {
             return Err(Invariant::BlockIslandNotAlone { at });
         }
-        // Table-cell marks: the prose range/zero-width/reserved-tag rules again,
-        // but each mark is bounded by its own cell's text length (in USV). Cells
-        // hold no `\n`, so the edge-on-newline rule does not apply.
+        // Table-cell marks: the prose range and zero-width rules again, but each
+        // mark is bounded by its own cell's text length (in USV). Cells hold no
+        // `\n`, so the edge-on-newline rule does not apply, and neither does the
+        // reserved-tag rule: `parse_cell` resolves every built-in name before its
+        // `Unknown` arm, so a cell mark is never a reserved-tag unknown.
         let mut seen_ids = std::collections::HashSet::with_capacity(self.islands.len());
         for island in &self.islands {
             if !seen_ids.insert(island.id.as_str()) {
@@ -1406,11 +1408,6 @@ impl Content {
                     }
                     if m.start == m.end && m.kind.is_formatting() {
                         return Err(Invariant::ZeroWidthFormatting { at: m.start });
-                    }
-                    if let MarkKind::Unknown { tag, .. } = &m.kind {
-                        if Self::RESERVED_MARK_TYPES.contains(&tag.as_str()) {
-                            return Err(Invariant::ReservedUnknownTag(tag.clone()));
-                        }
                     }
                 }
             }
