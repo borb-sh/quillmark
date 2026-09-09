@@ -368,9 +368,12 @@ export type MarkOp =
  * A line/block edit. `split`/`join` splice `\n` in post-`delta`,
  * post-`islandOps` coordinates; `setKind`/`setContainers`/`setContinues` touch
  * metadata. `setContinues` sets or clears a line's within-block hard-break flag
- * (`ContentLine.continues`); `continues: true` is rejected on line 0, on a line
- * whose containers differ from the line above, and after a heading, island or
- * rule, each of which is a block of one line.
+ * (`ContentLine.continues`); `continues: true` is rejected on line 0, and lands
+ * as `false` on a line whose containers differ from the line above or that
+ * follows a heading, island or rule, each of which is a block of one line.
+ * `setKind` lands a kind the line's text contradicts — `island` or `rule` over
+ * prose, `code` over a slot — as `para`, which is what re-importing the line's
+ * own markdown yields. Read the content back to see where an op settled.
  */
 export type LineOp =
     | { op: "split"; at: number }

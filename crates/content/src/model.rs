@@ -715,35 +715,25 @@ pub enum Invariant {
     JsonTooDeep { what: &'static str, max: usize },
 }
 
-/// The way a line's text can contradict its [`LineKind`]. `Para` and `Heading`
-/// carry arbitrary text including slots (an inline image is a slot in a `Para`),
-/// so only the three kinds whose contract *names* their content constrain it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LineKindMismatch {
-    /// [`LineKind::Island`] whose text is not exactly one [`ISLAND_SLOT`].
-    IslandNotOneSlot,
-    /// [`LineKind::Rule`] carrying text: the break is the line itself.
-    RuleNotEmpty,
-    /// [`LineKind::Code`] carrying an [`ISLAND_SLOT`]. A fence emits its text
-    /// verbatim, so the slot lands raw in the output and re-imports as nothing:
-    /// the island and its slot both vanish.
-    CodeHasSlot,
-}
-
-/// How a line's text contradicts `kind`, if it does: the single reading behind
-/// the validate-time and op-time checks, so the two cannot drift.
-pub fn line_kind_mismatch(kind: &LineKind, seg: &str) -> Option<LineKindMismatch> {
+/// Whether a line's text contradicts its `kind`, which [`Content::normalize`]
+/// answers by demoting the line to [`LineKind::Para`].
+///
+/// `Para` and `Heading` carry arbitrary text including slots (an inline image is
+/// a slot in a `Para`), so only the three kinds whose contract *names* their
+/// content constrain it: an [`Island`](LineKind::Island) line is exactly one
+/// [`ISLAND_SLOT`], a [`Rule`](LineKind::Rule) carries no text, and a
+/// [`Code`](LineKind::Code) line carries no slot — a fence emits its text
+/// verbatim, so a slot would land raw in the output and re-import as nothing,
+/// taking the island with it.
+pub(crate) fn line_kind_contradicts_text(kind: &LineKind, seg: &str) -> bool {
     match kind {
         LineKind::Island => {
             let mut chars = seg.chars();
-            match (chars.next(), chars.next()) {
-                (Some(ISLAND_SLOT), None) => None,
-                _ => Some(LineKindMismatch::IslandNotOneSlot),
-            }
+            !matches!((chars.next(), chars.next()), (Some(ISLAND_SLOT), None))
         }
-        LineKind::Rule if !seg.is_empty() => Some(LineKindMismatch::RuleNotEmpty),
-        LineKind::Code { .. } if seg.contains(ISLAND_SLOT) => Some(LineKindMismatch::CodeHasSlot),
-        _ => None,
+        LineKind::Rule => !seg.is_empty(),
+        LineKind::Code { .. } => seg.contains(ISLAND_SLOT),
+        _ => false,
     }
 }
 
@@ -909,11 +899,10 @@ impl Content {
         // `Island` over prose, joining a fence to an image line leaves it `Code`
         // over a slot, and export reads the kind and not the text, so the
         // un-repaired line projects its content away. Demote to `Para`, which is
-        // what re-importing the line's own markdown yields. A *deliberate*
-        // mis-tag is refused up front by the op channel instead.
+        // what re-importing the line's own markdown yields.
         let mut slot = 0usize;
         for (line, seg) in self.lines.iter_mut().zip(self.text.split('\n')) {
-            if line_kind_mismatch(&line.kind, seg).is_some() {
+            if line_kind_contradicts_text(&line.kind, seg) {
                 line.kind = LineKind::Para;
             }
             if let Some(kind) = island_line_kind(&line.kind, seg, self.islands.get(slot)) {
@@ -922,12 +911,12 @@ impl Content {
             slot += seg.chars().filter(|&c| c == ISLAND_SLOT).count();
         }
         self.split_block_islands();
-        // Two accepted ops leave a `continues` line under a block it cannot
-        // continue: `Join` across differing paths, where both projections
-        // already read the flag as dead, and `SetKind` retagging the line
-        // above into a one-line block, where export would drop the text. Read
-        // after the demotion above, which settles what a spliced-over kind is;
-        // a deliberate one is refused up front by the op channel.
+        // A `continues` flag under a block that cannot take one clears: a
+        // differing container path, or a one-line kind above, where export
+        // would drop the continuation's text. `Join` across two paths,
+        // `SetKind` retagging the line above and `SetContinues` itself all
+        // reach the shape. Read after the demotion above, which settles what a
+        // spliced-over kind is.
         for i in 1..self.lines.len() {
             if self.lines[i].continues
                 && (self.lines[i].containers != self.lines[i - 1].containers
