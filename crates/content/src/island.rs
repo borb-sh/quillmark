@@ -1,7 +1,7 @@
 //! Island types: the dispatch authority over
 //! [`Island::island_type`](crate::model::Island::island_type).
 
-use crate::model::{Invariant, Island, Loss, Mark};
+use crate::model::{Invariant, Loss, Mark};
 use serde_json::Value;
 
 /// The island types. Closed: a wire `type` outside this set is

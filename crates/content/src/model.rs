@@ -1154,13 +1154,10 @@ impl Content {
                     return Err(Invariant::MarkEdgeOnNewline { at: m.end - 1 });
                 }
             }
-            match &m.kind {
-                MarkKind::Anchor { id } => {
-                    if id.is_empty() || !seen_anchor_ids.insert(id.as_str()) {
-                        return Err(Invariant::AnchorIdCollision { id: id.clone() });
-                    }
-                }
-                _ => {}
+            if let MarkKind::Anchor { id } = &m.kind
+                && (id.is_empty() || !seen_anchor_ids.insert(id.as_str()))
+            {
+                return Err(Invariant::AnchorIdCollision { id: id.clone() });
             }
         }
         // `lines.len()` already equals the segment count, so the zip is total.

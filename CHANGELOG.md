@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- feat(content,wasm)!: **the content vocabularies close.** A line `kind`,
+  container, mark `type`, island `type` or `loss` outside the built-ins was an
+  open set: it round-tripped opaque and projected as its nearest safe
+  neighbour. All five are closed, so a name outside them is
+  `ParseError::UnknownName { axis, name }` at every decoder and a stored row
+  holding one stops opening. Refusing is the only reading that keeps the reader
+  honest — projecting an unknown `kind` as `para` re-encodes the row and moves
+  canonical bytes on a read with no edit. No first-party writer ever produced
+  another name, so the affected population is exactly the rows a host authored
+  one into through `overwrite`, `applyChange` or a card body. The three
+  `Unknown` carriers, `RESERVED_*` and the three `ReservedUnknown*` invariants
+  go with them; `Island::island_type` becomes the `IslandType` enum and `Loss`
+  becomes the enum `Fidelity` was. On the WASM surface the six unions lose
+  their open arm, so `line.kind === 'heading'` narrows `line.attrs` with no
+  guard, and the four `isUnknown*` guards are deleted — a read never returns
+  one and a write of one throws. The storage tag is unchanged: every byte the
+  writer emits is the same, and only the reader's accepted domain narrowed.
+  Adding a construct is a storage-version event from here on. Closes #1693.
 - docs(content,core): **the authored lane is `overwrite` and the op wire.**
   Canon and the 0.112 guide also named `install`, gone since 0.102, and
   `CardInput.body`, which has never rejected anything the storage lane takes.
