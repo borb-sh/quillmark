@@ -10,7 +10,6 @@ use quillmark::{
 };
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Instant;
 
 use crate::enums::{PyOutputFormat, PySeverity};
 use crate::errors::{
@@ -58,18 +57,16 @@ impl PyQuillmark {
         opts.ppi = ppi;
         opts.pages = pages.map(page_indices).transpose()?;
         opts.regions = regions;
-        let start = Instant::now();
         let mut result = self
             .inner
             .render(&quill.inner, &doc.inner, &opts)
             .map_err(convert_render_error)?;
-        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         let kinds: Vec<Option<&str>> = doc.inner.cards().iter().map(|c| c.kind()).collect();
         result.regions = quillmark_core::regions_to_doc_path(result.regions, &kinds);
         result
             .warnings
             .splice(0..0, doc.parse_warnings.iter().cloned());
-        PyRenderResult::new(doc.py(), result, elapsed_ms)
+        PyRenderResult::new(doc.py(), result)
     }
 
     /// The output formats `quill`'s backend can emit. Raises `QuillmarkError`
@@ -342,16 +339,6 @@ impl PyDocument {
         })
     }
 
-    /// Like [`from_stored`] but returns `None` instead of raising.
-    #[staticmethod]
-    fn try_from_stored(json: &str) -> Option<Self> {
-        let inner: Document = serde_json::from_str(json).ok()?;
-        Some(PyDocument {
-            inner,
-            parse_warnings: Vec::new(),
-        })
-    }
-
     /// Read the storage version tag from a raw DTO string without a full parse, or `None`.
     /// The **storage** version, not a field schema; the wire key stays `"schema"`,
     /// the DTO's serde tag.
@@ -575,43 +562,6 @@ impl PyDocument {
         Ok(())
     }
 
-    /// Build a fresh `Card` dict from a kind and a flat field mapping: the
-    /// ergonomic constructor for `insert_card`, which also takes any card dict
-    /// directly. Each `fields` entry becomes a card field in insertion order;
-    /// `body` defaults to `""`.
-    ///
-    /// Checks only what a detached card can decide alone: field-name grammar and
-    /// value depth. Kind validity is positional, so `insert_card` is its gate and
-    /// any kind string is accepted here.
-    #[staticmethod]
-    #[pyo3(signature = (kind, fields=None, body=None))]
-    fn make_card<'py>(
-        py: Python<'py>,
-        kind: String,
-        fields: Option<Bound<'_, PyDict>>,
-        body: Option<String>,
-    ) -> PyResult<Bound<'py, PyDict>> {
-        let mut payload_items = Vec::new();
-        if let Some(fields) = fields {
-            for (k, v) in fields.iter() {
-                let key: String = k.extract()?;
-                payload_items.push(quillmark_core::PayloadItemWire::Field {
-                    key,
-                    value: py_to_json(&v)?,
-                    fill: false,
-                    nested_fills: Vec::new(),
-                });
-            }
-        }
-        let mut wire = quillmark_core::CardWire::new(
-            kind,
-            serde_json::Value::String(body.unwrap_or_default()),
-        );
-        wire.payload_items = payload_items;
-        let card = quillmark_core::Card::try_from(wire).map_err(convert_wire_error)?;
-        card_to_pydict(py, &card)
-    }
-
     /// Place a composable card. `at` picks the position: `None` appends, `Some(i)`
     /// inserts at index `i` (`0..=card_count`; out of range raises
     /// `IndexOutOfRange`). `card` is a `Card` dict, as `make_card`, `cards`,
@@ -657,13 +607,6 @@ impl PyDocument {
         self.inner
             .move_card(from_idx, to_idx)
             .map_err(|e| convert_edit_error(e, &quillmark_core::DocPath::new()))
-    }
-
-    fn set_card_kind(&mut self, index: isize, new_kind: &str) -> PyResult<()> {
-        let index = card_index(index, self.inner.cards().len())?;
-        self.inner
-            .set_card_kind(index, new_kind)
-            .map_err(|e| convert_edit_error(e, &quillmark_core::DocPath::card(None, index)))
     }
 
 }
@@ -1053,35 +996,6 @@ impl PyReader {
         content_to_py(py, read)
     }
 
-    /// Read the Content nested inside a composite field at `path`: `[0]` an
-    /// element of an `array<richtext>`, `[1, "notes"]` a leaf under an array and
-    /// an object both. The codec is the leaf's declared type's, resolved through
-    /// the field schema's `items` / `properties` / `variants`. An empty `path` is
-    /// `get_content`.
-    ///
-    /// `None` when the field is absent and when `path` names nothing in the stored
-    /// value: an editor's row index goes stale between derive and read, so absence
-    /// there is a read, not a fault. Raises `edit::unknown_field` for an
-    /// undeclared name at any depth, `edit::field_not_content` when `path`
-    /// resolves to no content leaf, and `edit::field_decode`, anchored at the
-    /// addressed path, for a value that decodes under neither encoding.
-    fn get_content_at<'py>(
-        &self,
-        py: Python<'py>,
-        name: &str,
-        path: &Bound<'py, PyAny>,
-    ) -> PyResult<Option<Bound<'py, PyAny>>> {
-        let at = path_from_py(path, "get_content_at")?;
-        let quill = self.quill.borrow(py);
-        let doc = self.doc.borrow(py);
-        let read = quill
-            .inner
-            .reader(&doc.inner)
-            .get_content_at(name, &at)
-            .map_err(|e| convert_edit_error(e, &quillmark_core::DocPath::main()))?;
-        content_to_py(py, read)
-    }
-
     /// The main body's markdown: quill-free, since a body's type is a format fact
     /// rather than a schema fact. Never raises.
     fn body_markdown(&self, py: Python<'_>) -> String {
@@ -1193,28 +1107,6 @@ impl PyCardReader {
         content_to_py(py, read)
     }
 
-    /// The card-indexed twin of `Reader.get_content_at`, with the same outcomes
-    /// plus `edit::index_out_of_range` for a bad index.
-    fn get_content_at<'py>(
-        &self,
-        py: Python<'py>,
-        name: &str,
-        path: &Bound<'py, PyAny>,
-    ) -> PyResult<Option<Bound<'py, PyAny>>> {
-        let at = path_from_py(path, "get_content_at")?;
-        let quill = self.quill.borrow(py);
-        let doc = self.doc.borrow(py);
-        let index = self.bound_index(&doc)?;
-        let base = card_base(&doc.inner, index);
-        let reader = quill.inner.reader(&doc.inner);
-        let read = reader
-            .card(index)
-            .map_err(|e| convert_edit_error(e, &base))?
-            .get_content_at(name, &at)
-            .map_err(|e| convert_edit_error(e, &base))?;
-        content_to_py(py, read)
-    }
-
     /// This card in the values form: `Reader.values` restricted to one slot.
     /// Raises `edit::index_out_of_range` for a bad bound index.
     fn values<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
@@ -1251,11 +1143,10 @@ pub struct PyRenderResult {
     warnings: Vec<Py<PyDiagnostic>>,
     output_format: OutputFormat,
     regions: Vec<quillmark_core::RenderedRegion>,
-    render_time_ms: f64,
 }
 
 impl PyRenderResult {
-    fn new(py: Python<'_>, result: RenderResult, render_time_ms: f64) -> PyResult<Self> {
+    fn new(py: Python<'_>, result: RenderResult) -> PyResult<Self> {
         Ok(Self {
             artifacts: result
                 .artifacts
@@ -1277,7 +1168,6 @@ impl PyRenderResult {
                 .collect::<PyResult<_>>()?,
             output_format: result.output_format,
             regions: result.regions,
-            render_time_ms,
         })
     }
 }
@@ -1299,12 +1189,6 @@ impl PyRenderResult {
     #[getter]
     fn format(&self) -> PyOutputFormat {
         self.output_format.into()
-    }
-
-    /// Wall-clock time spent inside `render`, in milliseconds.
-    #[getter]
-    fn render_time_ms(&self) -> f64 {
-        self.render_time_ms
     }
 
     /// Schema-field geometry, populated only when `render(..., regions=True)`
@@ -1379,8 +1263,7 @@ pub struct PyDiagnostic {
 
 #[pymethods]
 impl PyDiagnostic {
-    /// Canonical pretty-printed diagnostic text: the same rendering the CLI and
-    /// WASM (`Document.formatDiagnostic`) emit.
+    /// Canonical pretty-printed diagnostic text: the same rendering the CLI emits.
     fn __str__(&self) -> String {
         self.inner.fmt_pretty()
     }
@@ -1471,31 +1354,6 @@ fn quillvalue_to_py<'py>(
     json_to_py(py, value.as_json())
 }
 
-/// Read an in-field path: a `str` is an object key, a non-negative `int` an
-/// array index. A malformed step raises rather than being dropped — a skipped
-/// step reads a different address and never says so.
-fn path_from_py(path: &Bound<'_, PyAny>, ctx: &str) -> PyResult<Vec<quillmark::PathSegment>> {
-    path.try_iter()
-        .map_err(|_| {
-            PyValueError::new_err(format!(
-                "{ctx}: `path` must be a sequence of str keys and non-negative int indices"
-            ))
-        })?
-        .enumerate()
-        .map(|(i, step)| {
-            let step = step?;
-            if let Ok(key) = step.extract::<String>() {
-                return Ok(quillmark::PathSegment::Key(key));
-            }
-            match step.extract::<usize>() {
-                Ok(index) => Ok(quillmark::PathSegment::Index(index)),
-                Err(_) => Err(PyValueError::new_err(format!(
-                    "{ctx}: `path[{i}]` must be a str key or a non-negative int index"
-                ))),
-            }
-        })
-        .collect()
-}
 
 fn content_to_py<'py>(
     py: Python<'py>,

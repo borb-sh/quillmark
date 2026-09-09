@@ -165,11 +165,14 @@ const diags = quill.conform(stale);         // converges in place
 
 Persist `doc.toStored()`, not `doc.toMarkdown()`: the DTO wire format is frozen
 per `schema` version, whereas Markdown syntax evolves, and `toMarkdown` output
-is normalised rather than byte-equal to the source. `Document.tryFromStored`
-discriminates the two formats without exceptions as control flow:
+is normalised rather than byte-equal to the source. `Document.storageVersionOf`
+discriminates the two formats without exceptions as control flow: it answers
+`undefined` for anything that is not a storage DTO.
 
 ```ts
-const doc = Document.tryFromStored(content) ?? Document.fromMarkdown(content);
+const doc = Document.storageVersionOf(content)
+  ? Document.fromStored(content)
+  : Document.fromMarkdown(content);
 ```
 
 The `schema` value (`quillmark/document@0.112.0`) is the **model version**,
@@ -219,9 +222,12 @@ accepts directly:
 
 ```ts
 doc.insertCard(quill.seedCard("note"));                 // seed → append
-doc.insertCard(Document.makeCard("note", { x: 1 }));    // build from a flat map
 doc.insertCard({ kind: "note", body: "Plain **markdown**." });  // bare inline
 doc.insertCard({ kind: "note" }, 0);                    // insert at index 0
+doc.insertCard({                                        // fields → payload items
+  kind: "note",
+  payloadItems: [{ type: "field", key: "x", value: 1 }],
+});
 ```
 
 Reads and writes are two aligned shapes. A read `Card` always has `body:
@@ -229,9 +235,9 @@ Content` (canonical content, never a raw string): no narrowing, no guessing
 whether the body was normalized. The write shape `CardInput` widens `body` to
 `Content | string` (a markdown string imports to the content) and makes every
 field but `kind` optional. Every `Card` is a valid `CardInput`, so `insertCard`
-still takes exactly what `cards` / `removeCard` / `seedCard` return.
-Build a fresh card from a flat field map with
-`Document.makeCard(kind, fields?, body?)`.
+still takes exactly what `cards` / `removeCard` / `seedCard` return. A fresh
+card is an object literal: one `{ type: "field", key, value }` per field in
+`payloadItems`, in the order they should appear.
 
 **One address for the whole surface.** Reads and writes navigate by an `Addr`:
 `{ card?, field? }`, absent `card` = main, absent `field` = body, and a bare
@@ -462,7 +468,7 @@ applies to every throw site:
 
 - `Document.fromMarkdown`: parse errors (missing root `$quill` metadata, YAML
   errors, `parse::input_too_large` for inputs > 10 MiB).
-- `Document` mutators (`storeField`, `makeCard` / `insertCard`, the writer's
+- `Document` mutators (`storeField`, `insertCard`, the writer's
   `set`, etc.): mutator failures carry a namespaced `edit::*` `code` on
   `diagnostics[0]` (`edit::invalid_field_name`, `edit::unknown_field`,
   `edit::index_out_of_range`, `edit::field_coercion_failed`, …). Route on
@@ -475,11 +481,13 @@ applies to every throw site:
 - The four `Engine` verbs against a quill whose declared `backend:` is not in
   the registry: `engine::backend_not_found`, the code core raises for the same
   condition, hinting the registered ids.
-- Any method taking a `Quill` or `Document`: a handle from a *second* copy of
-  `@quillmark/wasm` is refused with `runtime::foreign_handle`, hinting `npm ls
-  @quillmark/wasm`. Two copies are two WASM memories and two `Quill`/`Document`
-  classes; dedupe to one. A value that is not a handle at all keeps its own
-  `runtime::not_a_document` / `runtime::not_a_quill`.
+- The `Engine` verbs, `session.update`, and the writer/reader binds against a
+  value that is not one of *this* copy's handles — the wrong type, or the right
+  class from a second copy of `@quillmark/wasm`: `runtime::not_a_quill` /
+  `runtime::not_a_document`, hinting `npm ls @quillmark/wasm` for the second
+  case. Two copies are two WASM memories and two `Quill`/`Document` classes;
+  dedupe to one. Elsewhere a foreign handle meets wasm-bindgen's own
+  `expected instance of …`, which is not a `QuillmarkError`.
 
 ### Lifecycle
 

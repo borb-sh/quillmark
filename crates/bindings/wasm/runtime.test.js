@@ -548,63 +548,6 @@ card_kinds:
     const v = quill.reader(doc)
     const spelled = (rt) => rt.lines.flatMap((l) => l.containers).map((c) => c.instance)
     expect(spelled(v.getContent({}))).toEqual([0, 0])
-    expect(spelled(v.getContentAt('paragraphs', [0]))).toEqual([0])
-  })
-
-  // getContentAt is that read one axis in: an element's codec is a schema fact,
-  // so naming the element is what keeps the judgement out of the consumer.
-  it('getContentAt reads an element the same from either resting form', () => {
-    const quill = buildQuill()
-    const parsed = Document.fromMarkdown(
-      "~~~card-yaml\n$quill: view_test\nrecipients: ['a *literal* line']\nparagraphs: ['Q3 **results**']\n~~~\n\nBody."
-    )
-    expect(typeof parsed.getStored('paragraphs')[0]).toBe('string')
-    const bound = quill.parse(
-      "~~~card-yaml\n$quill: view_test\nrecipients: ['a *literal* line']\nparagraphs: ['Q3 **results**']\n~~~\n\nBody."
-    )
-    expect(bound.getStored('recipients')[0]).toBe('a *literal* line')
-    expect(typeof bound.getStored('paragraphs')[0]).toBe('object')
-
-    for (const [f, text] of [
-      ['recipients', 'a *literal* line'],
-      ['paragraphs', 'Q3 results'],
-    ]) {
-      const a = quill.reader(parsed).getContentAt(f, [0])
-      const b = quill.reader(bound).getContentAt(f, [0])
-      expect(a.text).toBe(text) // decoded at the element's declared codec
-      expect(b.text).toBe(a.text)
-      expect(b.marks).toEqual(a.marks)
-    }
-  })
-
-  it('getContentAt reaches an object property and a leaf under both', () => {
-    const quill = buildQuill()
-    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: view_test\n~~~\n\nBody.')
-    doc.storeField('letterhead', { motto: 'Fly **fight**', code: '9' })
-    doc.storeField('rows', [{}, { notes: 'a *note*' }])
-    const v = quill.reader(doc)
-    expect(v.getContentAt('letterhead', ['motto']).text).toBe('Fly fight')
-    expect(v.getContentAt('rows', [1, 'notes']).text).toBe('a note')
-    expect(v.getContentAt('rows', [0, 'notes'])).toBeUndefined() // declared, unstored
-    expect(v.getContentAt('subject', [])).toBeUndefined() // empty path IS getContent
-  })
-
-  it('getContentAt: stale index, no content leaf, undeclared name, cards', () => {
-    const quill = buildQuill()
-    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: view_test\n~~~\n\nBody.')
-    doc.storeField('recipients', ['a'])
-    doc.storeField('tags', ['x'])
-    const v = quill.reader(doc)
-    expect(v.getContentAt('recipients', [7])).toBeUndefined()
-    expect(v.getContentAt('paragraphs', [0])).toBeUndefined() // field absent
-    expectEditCode(() => v.getContentAt('tags', [0]), 'edit::field_not_content')
-    expectEditCode(() => v.getContentAt('qty', [0]), 'edit::field_not_content')
-    expectEditCode(() => v.getContentAt('letterhead', ['nope']), 'edit::unknown_field')
-    expectEditCode(() => v.getContentAt('nope', [0]), 'edit::unknown_field')
-    expectEditCode(() => v.card(9).getContentAt('lines', [0]), 'edit::index_out_of_range')
-    expect(() => v.getContentAt('recipients', [null])).toThrow(/path\[0\]/)
-    expect(() => v.getContentAt('recipients', 0)).toThrow(/`path` must be an array/)
-    expect(() => v.getContentAt({}, [0])).toThrow(/body address/)
   })
 
   it('an undecodable element anchors its diagnostic at the element', () => {
@@ -613,7 +556,7 @@ card_kinds:
     doc.storeField('paragraphs', ['ok', 3])
     let caught
     try {
-      quill.reader(doc).getContentAt('paragraphs', [1])
+      quill.reader(doc).get('paragraphs')
     } catch (e) {
       caught = e
     }
@@ -628,14 +571,6 @@ card_kinds:
     ])
   })
 
-  it('card(i).getContentAt reads an element through the $kind schema', () => {
-    const quill = buildQuill()
-    const doc = seededDoc(quill)
-    doc.storeField({ card: 0, field: 'lines' }, ['a *b*'])
-    const v = quill.reader(doc)
-    expect(v.card(0).getContentAt('lines', [0]).text).toBe('a *b*') // literal codec
-    expect(v.card(0).getContentAt('lines', [4])).toBeUndefined()
-  })
 })
 
 // MAIN_CARD_ADDR names the empty main-card address `{}` the card-scoped verbs
@@ -1283,12 +1218,11 @@ main:
 
 // A duplicate install is two copies of this package: two core builds, two
 // linear memories, two distinct `Quill`/`Document` classes. A handle never
-// crosses between them; every seam taking one checks, and throws in contract
-// naming the duplicate install and `npm ls`. See runtime.js § "Handles from
-// another copy". These pin that the rule is UNIFORM: the by-reference core
-// methods (which wasm-bindgen would reject anyway, as a bare `Error`), the
-// writer and reader binds, `Engine`, and `LiveSession.update`. The last two are
-// the seams that cross as data and would otherwise silently work.
+// crosses between them. The writer and reader binds, `Engine` and
+// `LiveSession.update` check and throw in contract, naming `npm ls`; the last
+// two are the seams that cross as data and would otherwise silently work. A
+// by-reference core method is left to wasm-bindgen's own `_assertClass`, which
+// refuses it as a bare `Error`.
 //
 // A foreign handle is modelled two ways: a stand-in carrying the serializer a
 // real handle has (the shape most likely to slip a check), and a second copy of
@@ -1301,12 +1235,12 @@ describe('@quillmark/wasm: handles from another copy (duplicate install)', () =>
     backendId: quill.backendId,
   })
 
-  /** Every rejection is in contract, codes `runtime::foreign_handle`, and names `npm ls`. */
+  /** Every rejection is in contract, names the method, and names `npm ls`. */
   const assertForeign = (caught, method) => {
     // wasm-bindgen's bare `_assertClass` throw (`expected instance of Document`
     // at a value that IS a Document) fails every line below.
     expect(isQuillmarkError(caught)).toBe(true)
-    expect(caught.diagnostics[0].code).toBe('runtime::foreign_handle')
+    expect(caught.diagnostics[0].code).toMatch(/^runtime::not_a_(quill|document)$/)
     expect(caught.message).toContain(method)
     expect(caught.diagnostics[0].hint).toMatch(/npm ls @quillmark\/wasm/)
     return caught
@@ -1320,34 +1254,24 @@ describe('@quillmark/wasm: handles from another copy (duplicate install)', () =>
       (e) => assertForeign(e, method)
     )
 
-  it('rejects a foreign Document on the by-reference core methods', () => {
+  it('rejects a non-handle argument at a bind, naming the method', () => {
     const quill = makeRuntimeQuill()
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    expectEditCode(() => quill.writer(null), 'runtime::not_a_document')
+    expect(() => new DocumentWriter(null, doc)).toThrow(/expected a Quill/)
+  })
+
+  it('leaves a by-reference core method to wasm-bindgen, which refuses it too', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     const other = Document.fromMarkdown(TEST_MARKDOWN)
 
-    expectForeign(() => doc.equals(foreignDoc(other)), 'Document.equals')
-    expectForeign(() => quill.validate(foreignDoc(doc)), 'Quill.validate')
+    // Out of contract by design: `_assertClass` throws a bare Error here, so a
+    // caller routing on diagnostics sees nothing. Cheap to state, and the line
+    // that fails if a guard is ever put back without a contract to match.
+    expect(isQuillmarkError(caughtFrom(() => doc.equals(foreignDoc(other))))).toBe(false)
 
     // A local handle still takes the generated path unchanged.
     expect(doc.equals(other)).toBe(true)
-  })
-
-  it('rejects a non-handle argument with a distinct code, naming the method', () => {
-    // A different bug with a different cure: `npm ls` is the wrong advice for a
-    // caller who passed null, so the two do not share a diagnostic.
-    const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    for (const [call, method] of [
-      [() => doc.equals(null), 'Document.equals'],
-      [() => quill.validate({}), 'Quill.validate'],
-    ]) {
-      const caught = caughtFrom(call)
-      expect(isQuillmarkError(caught)).toBe(true)
-      expect(caught.message).toContain(method)
-      expect(caught.diagnostics[0].code).toBe('runtime::not_a_document')
-    }
-    expectEditCode(() => quill.writer(null), 'runtime::not_a_document')
-    expect(() => new DocumentWriter(null, doc)).toThrow(/expected a Quill/)
   })
 
   // Both handle positions on every bind, derived: an exported class whose bare
@@ -1475,8 +1399,6 @@ describe('@quillmark/wasm: handles from another copy (duplicate install)', () =>
       const docB = copyB.Document.fromMarkdown(TEST_MARKDOWN)
       const quillB = copyB.Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
 
-      expectForeign(() => docA.equals(docB), 'Document.equals')
-      expectForeign(() => quillA.validate(docB), 'Quill.validate')
       expectForeign(() => quillA.writer(docB), 'quill.writer(doc)')
       expectForeign(() => quillA.reader(docB), 'quill.reader(doc)')
       expectForeign(() => new DocumentWriter(quillB, docA), 'quill.writer(doc)')
@@ -1501,34 +1423,5 @@ describe('@quillmark/wasm: handles from another copy (duplicate install)', () =>
       expect(quillB.validate(docB)).toBeDefined()
     })
   })
-
-  // Re-evaluating the runtime module against a cached, and so already patched,
-  // core build must not wrap the wrappers: the Vite HMR / shared Vitest worker
-  // case the `Symbol.for` marker exists for. A copy of runtime.js beside the
-  // original re-evaluates while its relative `../core/wasm.js` import still
-  // resolves to the cached module.
-  it('patches once across a re-evaluation of the runtime module', async () => {
-    const before = Document.prototype.equals
-    expect(before[Symbol.for('@quillmark/wasm:handle-checked')]).toBe(true)
-
-    // The twin has to sit BESIDE the original for its `../core/wasm.js` import
-    // to resolve to the same cached module. `pkg/runtime/` is a published
-    // directory, so remove it as soon as it is loaded rather than leave a stray
-    // file that a publish from an unrebuilt pkg/ would ship.
-    const twin = path.join(PKG_DIR, 'runtime', 'runtime.hmr.js')
-    fs.copyFileSync(path.join(PKG_DIR, 'runtime', 'runtime.js'), twin)
-    let reevaluated
-    try {
-      reevaluated = await import(/* @vite-ignore */ twin)
-    } finally {
-      fs.rmSync(twin, { force: true })
-    }
-
-    // The twin's gate has its own memo but draws from the same cached core
-    // module, so it hands out that module's classes: instantiating is a no-op
-    // and the identity holds across the re-evaluation.
-    expect((await reevaluated.init()).Document).toBe(Document)
-    expect(Document.prototype.equals).toBe(before)
-    expect(Quill.prototype.validate[Symbol.for('@quillmark/wasm:handle-checked')]).toBe(true)
-  })
 })
+

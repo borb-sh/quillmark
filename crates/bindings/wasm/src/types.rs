@@ -56,15 +56,6 @@ impl From<quillmark_core::Severity> for Severity {
     }
 }
 
-impl From<Severity> for quillmark_core::Severity {
-    fn from(severity: Severity) -> Self {
-        match severity {
-            Severity::Error => quillmark_core::Severity::Error,
-            Severity::Warning => quillmark_core::Severity::Warning,
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[serde(rename_all = "camelCase")]
 pub struct Location {
@@ -80,12 +71,6 @@ impl From<quillmark_core::Location> for Location {
             line: loc.line as usize,
             column: loc.column as usize,
         }
-    }
-}
-
-impl From<Location> for quillmark_core::Location {
-    fn from(loc: Location) -> Self {
-        quillmark_core::Location::new(loc.file, loc.line as u32, loc.column as u32)
     }
 }
 
@@ -138,19 +123,6 @@ impl From<quillmark_core::Diagnostic> for Diagnostic {
     }
 }
 
-impl From<Diagnostic> for quillmark_core::Diagnostic {
-    fn from(diag: Diagnostic) -> Self {
-        let mut out = quillmark_core::Diagnostic::new(diag.severity.into(), diag.message);
-        out.code = diag.code;
-        out.location = diag.location.map(Into::into);
-        out.path = diag.path;
-        out.hint = diag.hint;
-        out.args = diag.args;
-        out.source_chain = diag.source_chain;
-        out
-    }
-}
-
 #[cfg(any(feature = "typst", feature = "pdfform"))]
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[serde(rename_all = "camelCase")]
@@ -192,7 +164,6 @@ pub struct RenderResult {
     pub artifacts: Vec<Artifact>,
     pub warnings: Vec<Diagnostic>,
     pub output_format: OutputFormat,
-    pub render_time_ms: f64,
     /// Schema-field geometry, populated only when `RenderOptions.regions` asked
     /// for it. Page indices are document-space even under a `pages` subset.
     pub regions: Vec<FieldRegion>,

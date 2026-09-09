@@ -179,64 +179,18 @@ type MainCardAddrType = typeof import('../../../pkg/runtime/runtime.d.ts').MAIN_
 const mainCardAddrIsCardAddr: CardAddr = {} as MainCardAddrType;
 void mainCardAddrIsCardAddr;
 
-// ── Open-set discriminant guards ────────────────────────────────────
-// The guards must NARROW the open `type` unions: the whole point, since a bare
-// `x.type === 'table'` check cannot (the residual `{ type: string; … }` arm
-// stays live). Each `if` body reads a payload reachable only after narrowing, so
-// a guard that stops narrowing fails `npm run typecheck`. `ContentIsland`,
-// `TableProps`, `ImageProps`, `ContentMark`, `ContentLine`, and
-// `ContentContainer` are the types imported above. (The block
-// vocabulary (`kind` and `container`) is open on the same terms.)
-import {
-	isTableIsland,
-	isImageIsland,
-	isLinkMark,
-	isAnchorMark,
-	isHeadingLine,
-	isCodeLine,
-	isListItemContainer
-} from '../../../pkg/runtime/runtime.js';
-
+// The open-set guards below take these four.
 declare const guardIsland: ContentIsland;
-if (isTableIsland(guardIsland)) {
-	const tableProps: TableProps = guardIsland.props;
-	void tableProps;
-}
-if (isImageIsland(guardIsland)) {
-	const imageProps: ImageProps = guardIsland.props;
-	void imageProps;
-}
-
 declare const guardMark: ContentMark;
-if (isLinkMark(guardMark)) {
-	const url: string = guardMark.attrs.url;
-	void url;
-}
-if (isAnchorMark(guardMark)) {
-	const id: string = guardMark.attrs.id;
-	void id;
-}
-
 declare const guardLine: ContentLine;
-if (isHeadingLine(guardLine)) {
-	const level: number = guardLine.attrs.level;
-	void level;
-}
-if (isCodeLine(guardLine)) {
-	const lang: string | undefined = guardLine.attrs?.lang;
-	void lang;
-}
-
 declare const guardContainer: ContentContainer;
-if (isListItemContainer(guardContainer)) {
-	const ordinal: number = guardContainer.attrs.ordinal;
-	void ordinal;
-}
 
 // ── Open-set membership guards ──────────────────────────────────────
-// The negative predicates the pinned-arm guards above cannot express. Each `if`
-// body reads the open arm's opaque payload, reachable only after narrowing, so a
-// guard that stops narrowing fails `npm run typecheck`.
+// `ContentIsland.type`, `ContentMark.type`, `ContentLine.kind` and
+// `ContentContainer.container` are open unions, each with a residual
+// `{ …: string; … }` arm. These predicates narrow TO that arm. Each `if` body
+// reads its opaque payload, reachable only after narrowing, so a guard that
+// stops narrowing fails `npm run typecheck`.
 import {
 	isUnknownLine,
 	isUnknownContainer,

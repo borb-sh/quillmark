@@ -19,6 +19,19 @@ def raises_edit_code(code):
     assert exc_info.value.diagnostics[0].code == code
 
 
+def make_card(kind, fields=None, body=""):
+    """A card dict from a kind, a flat field mapping and a body — the shape a
+    host writes for `insert_card`. `payload_items` is the wire's own form: one
+    `{"type": "field", "key", "value"}` per field, in insertion order."""
+    return {
+        "kind": kind,
+        "payload_items": [
+            {"type": "field", "key": k, "value": v} for k, v in (fields or {}).items()
+        ],
+        "body": body,
+    }
+
+
 def _latest_version(quill_dir: Path) -> Path:
     """Return the latest versioned subdirectory of a quill, or the dir itself."""
     if (quill_dir / "Quill.yaml").exists():
