@@ -2,6 +2,29 @@
 
 ## Unreleased
 
+- fix(wasm)!: **a `MarkOp` spells its payload where the decoder reads it.**
+  The `link` and `anchor` arms declared it as a named sibling —
+  `{ type: "link"; url }` — which is the spelling the authored lane refuses as
+  the retired `@0.93.0` encoding (`content json shape: legacy mark payload`).
+  The decoder reads a built-in's payload out of `attrs` and the canonical
+  encoder writes it there, so the type named the one shape `applyChange`
+  rejects and rejected the one it takes. It was survivable while the union
+  carried its open arm, `{ type: string; attrs: unknown }`, whose shape
+  happened to match the decoder: a correct op type-checked through the wrong
+  arm. Closing the vocabularies deleted that arm and left no spelling that both
+  compiles and runs. Nothing on the wire moves — the runtime accepted `attrs`
+  and only `attrs` throughout — so this reaches a consumer as a type that stops
+  refusing correct code, and one that stops accepting the cast a working
+  consumer had to write. `runtime.types.test-d.ts` gains the three arms spelled
+  out beside an `@ts-expect-error` pair refusing the sibling; the mutual
+  assignability it already asserted cannot catch this, holding while both
+  generated copies carry one wrong shape.
+- build(wasm): **a dev stamp names the release it is a prerelease of.**
+  `build-wasm.sh` stamped `<last released patch + 1>-dev.<sha>`, so this cycle
+  built as `0.112.1-dev` — a patch over the release it breaks, which a
+  consumer pinning `>=0.112.0` accepts. The stamp now reads the unreleased
+  changelog for the `!` marker and bumps the minor where it finds one.
+  `--release-stamp` is untouched.
 - docs(cli): **the CLI prose stops naming one accepted opener.**
   `docs/cli/reference.md` and `prose/canon/CLI.md` named `~~~card-yaml` as the
   alternative to a bare `~~~`, where the opener's info string is no longer read
