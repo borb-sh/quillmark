@@ -839,7 +839,8 @@ impl Card {
     /// existing overlay for that kind; sibling kinds are preserved. Unlike the
     /// free-form namespaces of `$ext`, `card_kind` must be a valid, non-reserved
     /// composable kind ([`EditError::InvalidKindName`] /
-    /// [`EditError::ReservedKind`] otherwise). Returns
+    /// [`EditError::ReservedKind`] otherwise). `$seed` binds the document root,
+    /// so a card that is not the root is [`EditError::RootOnlyEntry`]. Returns
     /// [`EditError::ValueTooDeep`] when the merged map nests past the §8 depth
     /// limit; the card is unchanged on error.
     pub fn store_seed_overlay(
@@ -849,7 +850,21 @@ impl Card {
     ) -> Result<(), EditError> {
         let card_kind = card_kind.into();
         check_kind(&card_kind)?;
+        self.check_carries_root_only(MetaKey::Seed)?;
         self.merge_meta_namespace(MetaKey::Seed, card_kind, value)
+    }
+
+    /// Refuse a root-only write on a card that is not the root. `$kind: main`
+    /// is the root's own marker: the parser normalizes it in, the DTO
+    /// synthesizes it, and placement refuses it as reserved, so a card answers
+    /// this about itself.
+    fn check_carries_root_only(&self, key: MetaKey) -> Result<(), EditError> {
+        if self.kind() == Some("main") {
+            return Ok(());
+        }
+        Err(EditError::RootOnlyEntry {
+            key: key.as_str().to_string(),
+        })
     }
 
     /// Remove `card_kind` from the card's `$seed` map, returning the overlay

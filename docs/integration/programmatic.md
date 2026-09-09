@@ -50,36 +50,6 @@ Markdown authoring, the [blueprint](../quills/blueprint.md) (for LLMs), and thes
 
 `reader.get_content(name)` (`getContent` in JavaScript) is the same read at the other end of the codec, returning the field's content corpus rather than its projection. Reach for it when you hold a content editor: a content field rests as a corpus when the typed writer committed it and as the authored string when a Markdown parse produced it, and this read decodes both through the codec the declared type names. A type that is not a content leaf raises `edit::field_not_content`: an `integer` has no corpus, and an `array<richtext>` carries content without having one.
 
-## The whole document as plain values
-
-`quill.reader(doc).values()` reads the document as one shape, and `quill.writer(doc).set_values(values)` writes that shape back. Reach for the pair when you hold a whole form or an API payload rather than one field; `reader.card(i).values()` / `writer.card(i).set_values(values)` are the same pair for one card.
-
-=== "Python"
-
-    ```python
-    values = quill.reader(doc).values()
-    # {"fields": {"subject": "Hello **world**", "paragraphs": ["Para **one**"]},
-    #  "body": "Body prose.", "cards": [...], "ext": {"app": {"k": 1}}}
-    values["fields"]["subject"] = "Goodbye *world*"
-    quill.writer(doc).set_values(values)
-    ```
-
-=== "JavaScript"
-
-    ```javascript
-    const values = quill.reader(doc).values();
-    values.fields.subject = 'Goodbye *world*';
-    quill.writer(doc).setValues(values);
-    ```
-
-Every content leaf is its codec's text at every depth the field's type tree reaches, so an `array<richtext>` is an array of Markdown strings; everything else is as stored, and a present-null is `null`. The shape is **sparse** — an absent field is an absent key, never its `default` — and `values()` never raises. `set_values` is the typed lane: it refuses an undeclared name exactly as `set_all` does, applies nothing on error, and reports every refused cell at once under its own path (`main.qty`, `cards.line_item[0].desc`).
-
-**An absent key is untouched; a present one replaces its axis.** `{"fields": {...}}` rewrites the main fields (a declared field the map omits is removed) and leaves the body, the cards and `$ext` alone; `"cards"` is the whole card list; `"ext": null` removes `$ext` and `{}` stores an explicit empty one. In JavaScript an `undefined` member reads as absent.
-
-Writing back an unedited read changes no bytes, so a read-edit-write cycle leaves the cells you did not touch alone — identity anchors, `!must_fill` markers and YAML comments included. A cell you *do* edit is a cold import and loses its anchors; use `revise_field` per cell where they must survive. Cards match by position and kind, so deleting or reordering an entry rewrites every card after it: reach for the structural verbs there.
-
-It is a projection, not a storage format — persist with `to_stored` ([Persistence](persistence.md)).
-
 ## Addressing cards for re-render
 
 Card mutators address by index, and the engine offers no durable card handle: a `remove_card` / `add_card` moves every index after it. For patch-and-re-render automation (a source row changed, re-render the document), carry your own key in the card's `$ext` under a namespace you own, and resolve the index when patching:
@@ -89,7 +59,7 @@ ext = doc.cards[index]["ext"] or {}                                # at build ti
 doc.store_ext({**ext, "myapp": {"row_id": row_id}}, card=index)
 idx = next(i for i, c in enumerate(doc.cards)                      # at patch time
            if (c["ext"] or {}).get("myapp", {}).get("row_id") == row_id)
-quill.writer(doc).card(idx).set_all({"qty": new_qty})
+quill.writer(doc).set_all({"qty": new_qty}, card=idx)
 ```
 
 `$ext` round-trips through Markdown and the storage DTO and never reaches a backend. The engine guarantees nothing about its contents: no uniqueness, no collision check, no repair. A key duplicated across two cards resolves to whichever the scan hits first.

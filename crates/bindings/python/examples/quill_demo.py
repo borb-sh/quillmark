@@ -48,7 +48,7 @@ I love **Taro** ice cream!
 
     result = engine.render(quill, parsed, OutputFormat.PDF)
 
-    print(f"Generated {len(result.artifacts)} artifact(s) in {result.render_time_ms:.1f} ms")
+    print(f"Generated {len(result.artifacts)} artifact(s)")
     for i, artifact in enumerate(result.artifacts):
         output_name = (
             "pdf"

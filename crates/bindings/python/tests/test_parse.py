@@ -114,21 +114,6 @@ def test_json_dto_drops_parse_warnings():
     assert restored.warnings == []
 
 
-def test_try_from_stored_round_trip(taro_md):
-    doc = Document.from_markdown(taro_md)
-    dto = doc.to_stored()
-
-    restored = Document.try_from_stored(dto)
-    assert restored is not None
-    assert restored.quill_ref == doc.quill_ref
-
-
-def test_try_from_stored_returns_none_on_markdown(taro_md):
-    assert Document.try_from_stored(taro_md) is None
-    assert Document.try_from_stored("not json at all") is None
-    assert Document.try_from_stored('{"schema":"quillmark/document@0.99.0"}') is None
-
-
 def test_schema_version_of_returns_unknown_future_versions():
     # Note: this would be rejected by from_stored, but storage_version_of returns it
     # so callers can distinguish "build too old" from "payload corrupt".
@@ -248,19 +233,24 @@ def test_depth_bound_matches_core_container_levels():
     The cutoff is container levels (128), not nodes: a scalar leaf at the
     bottom is not charged a level, so exactly 128 nested objects are accepted
     and 129 are rejected: whether the deepest container holds a scalar or
-    another (non-empty) container. Exercised through `make_card`, whose field
-    values cross the same `py_to_json` boundary the writer's `set` does.
+    another (non-empty) container. Exercised through `store_ext`, the opaque
+    door whose whole argument crosses `py_to_json`, so the mapping it takes is
+    itself the outermost charged level and the nesting below it is one short of
+    the constant.
     """
-    # Scalar-terminated: 128 objects with a scalar leaf is at the limit.
-    Document.make_card("note", {"ok_scalar": _nest(128, 1)})
+    def storing(value):
+        Document("depth_test").store_ext({"ns": value})
+
+    # Scalar-terminated: the wrapper plus 127 objects with a scalar leaf is the limit.
+    storing(_nest(127, 1))
     with pytest.raises((QuillmarkError, ValueError)):
-        Document.make_card("note", {"deep_scalar": _nest(129, 1)})
+        storing(_nest(128, 1))
 
     # Container-terminated: the deepest container, not its contents, occupies
     # the last level, so the boundary is identical.
-    Document.make_card("note", {"ok_container": _nest(127, [1, 2, 3])})
+    storing(_nest(126, [1, 2, 3]))
     with pytest.raises((QuillmarkError, ValueError)):
-        Document.make_card("note", {"deep_container": _nest(128, [1, 2, 3])})
+        storing(_nest(127, [1, 2, 3]))
 
 
 def test_nested_fill_exposed_as_nested_fills():

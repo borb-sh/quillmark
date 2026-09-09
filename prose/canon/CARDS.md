@@ -134,8 +134,10 @@ state, never reaches the backend.
 the **main card only**, round-tripping through Markdown and the storage DTO and
 stripped before backends, but the seeding layer *interprets* it. It is
 **root-only** like `$quill`: a composable card carrying `$seed` is rejected at
-parse, on storage load, and on insert (`push_card` / `insert_card`, the
-positional gate that also polices `$kind`). It answers
+parse, on storage load, on insert (`push_card` / `insert_card`, the
+positional gate that also polices `$kind`), and by `store_seed_overlay`, which
+writes only on a card carrying `$kind: main` — the root's own marker, so a card
+reached through `card_mut` is refused after placement too. It answers
 "what does a *new* card of kind K start with in this document": each entry,
 keyed by composable card-kind, is a **sparse overlay** of the user fields (plus
 an optional reserved `$body` string) a freshly-added card of that kind inherits.

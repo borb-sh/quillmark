@@ -37,6 +37,29 @@
   per-backend quill list (the render sweep walks the directory) and the fuzz
   crate's module table (each module states its own target, and two that did
   not now do).
+- refactor(core,wasm,python): **the values form's whole-document verbs are
+  withdrawn before they ship: `reader.values()` / `writer.set_values` and their
+  card twins go.** The projection landed this cycle with no visible consumer:
+  the reader and writer are driven by both bindings throughout, while nothing
+  in the repo fills a document from one dict. It was also the largest single
+  chunk of the reader/writer layer — `DocumentValues` / `CardValues` and their
+  producers, the per-axis card planner behind `set_values`, 385 lines of its
+  own tests, the Python `values` / `set_values` pair, and the WASM
+  `_readerValues` / `_setValues` ABI with its four TypeScript interfaces.
+  The values **form** is unchanged and is still what every schema-bound read
+  answers in: `reader.get` reads one field in it, `set` / `set_all` write it,
+  and `reader.card(i)` / `writer.card(i)` carry both one slot in. A consumer
+  filling a document from one map folds it over those verbs, `add_card` and
+  `revise_body`; `$ext` keeps its own (`store_ext` / `remove_ext`, `getExt` /
+  `storeExt` / `removeExt`), so no axis loses a read or a write. What the cut
+  does cost is a read at card scope: `add_card` builds a card from plain
+  values in one call and nothing reads one back that way, the stored read
+  being undecoded and `resolve()` blank-filled. `ProjectMode` goes with them —
+  its `Total` arm existed for the whole-document read alone — so the one
+  projection walk is strict everywhere. Nothing released carries these verbs:
+  they were added and removed inside this cycle, so the 0.112 → 0.113 guide
+  and its overview row no longer announce them. Closes #1696.
+
 - docs(core,wasm): **`PREVIEW.md` points at the two surfaces it was copying.**
   § "The seam" claimed every `SessionHandle` method past `render` and
   `page_count` defaults to *absent* and that a backend's capabilities are
