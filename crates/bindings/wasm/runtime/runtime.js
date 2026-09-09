@@ -157,49 +157,35 @@ function quillmarkError(code, message, hint) {
 	return err;
 }
 
-// These checks deliver the ERROR, not the rejection. wasm-bindgen's glue already
-// refuses a foreign class wherever a method declares a reference parameter, but
-// its `_assertClass` throws a bare `Error` reading `expected instance of
-// Document` at a value that IS a `Document`, so `isQuillmarkError` returns false
-// and the failure leaves this package's error contract. They also cover the
-// seams with no `_assertClass` to front-run: `Engine` and `LiveSession.update`
-// cross into backend memory as data, where a foreign handle would silently work
-// at the price of a whole-document round trip and a per-copy split of the quill
-// clone cache.
+// These checks deliver the ERROR, not the rejection, at the seams that cross
+// into backend memory as DATA — `Engine` and `LiveSession.update` — where a
+// foreign handle would otherwise work silently at the price of a whole-document
+// round trip and a per-copy split of the quill clone cache, and at the four
+// writer/reader binds, whose constructors hold both handles. A method declaring
+// a reference parameter needs none of this: wasm-bindgen's own `_assertClass`
+// refuses a foreign class there.
 
-/** Per class: the code and hint for "not one at all", and the from-another-copy probe. */
+/** Per class: the diagnostic for a value that is not one of THIS copy's handles. */
 const HANDLE_KINDS = {
 	Quill: {
 		code: 'runtime::not_a_quill',
-		probe: 'toTree',
-		hint: 'Pass a Quill built by Quill.fromTree.'
+		hint: 'Pass a Quill built by Quill.fromTree. A Quill from another copy of @quillmark/wasm is refused too — each copy is its own WASM linear memory and its own class — so run `npm ls @quillmark/wasm` and dedupe to one.'
 	},
 	Document: {
 		code: 'runtime::not_a_document',
-		probe: 'toStored',
-		hint: 'Pass a Document built by Document.fromMarkdown / fromStored or quill.seedDocument.'
+		hint: 'Pass a Document built by Document.fromMarkdown / fromStored or quill.seedDocument. A Document from another copy of @quillmark/wasm is refused too — each copy is its own WASM linear memory and its own class — so run `npm ls @quillmark/wasm` and dedupe to one.'
 	}
 };
 
 /**
- * The rejection for a value that is not one of this copy's handles. Two cures,
- * so two diagnostics: a value carrying the class's serializer is that class
- * from ANOTHER copy (dedupe the install), anything else is the wrong argument
- * (fix the call).
+ * The rejection for a value that is not one of this copy's handles.
  * @param {unknown} value
  * @param {string} method
  * @param {'Quill' | 'Document'} className
  * @returns {Error & { diagnostics: import('../core/wasm.js').Diagnostic[] }}
  */
 function notLocal(value, method, className) {
-	const { code, probe, hint } = HANDLE_KINDS[className];
-	if (value && typeof (/** @type {any} */ (value)[probe]) === 'function') {
-		return quillmarkError(
-			'runtime::foreign_handle',
-			`${method}: the ${className} belongs to a different copy of @quillmark/wasm. Handles never cross between copies: each copy is its own WASM linear memory and its own ${className} class.`,
-			'Two copies of @quillmark/wasm are installed. Run `npm ls @quillmark/wasm` and dedupe to one.'
-		);
-	}
+	const { code, hint } = HANDLE_KINDS[className];
 	return quillmarkError(
 		code,
 		`${method}: expected a ${className}, got ${value === null ? 'null' : typeof value}.`,
@@ -227,112 +213,6 @@ function requireLocalDoc(doc, method) {
 function requireLocalQuill(quill, method) {
 	if (quill instanceof Quill) return;
 	throw notLocal(quill, method, 'Quill');
-}
-
-// Marker for the patches below. `Symbol.for`, not a module-local `Symbol()`:
-// re-evaluating THIS module (Vite HMR, a Vitest worker sharing a module graph)
-// against an already-patched (because cached) core build must see the existing
-// marker, or each pass wraps the previous wrapper.
-const HANDLE_CHECKED = Symbol.for('@quillmark/wasm:handle-checked');
-
-/**
- * Replace `proto[name]` with `wrap(original)`, once.
- * @param {object} proto
- * @param {string} name
- * @param {(original: Function) => Function} wrap
- */
-function patchHandleChecked(proto, name, wrap) {
-	const original = /** @type {any} */ (proto)[name];
-	if (typeof original !== 'function' || original[HANDLE_CHECKED]) return;
-	const patched = wrap(original);
-	/** @type {any} */ (patched)[HANDLE_CHECKED] = true;
-	// Keep the method's name so a stack trace still reads `Quill.validate`.
-	Object.defineProperty(patched, 'name', { value: name, configurable: true });
-	/** @type {any} */ (proto)[name] = patched;
-}
-
-// The core methods declaring a `&Document` parameter. Each already refuses a
-// foreign handle inside `_assertClass`; the patch makes the refusal legible.
-patchHandleChecked(Document.prototype, 'equals', (original) =>
-	function equals(/** @type {any} */ other) {
-		requireLocalDoc(other, 'Document.equals');
-		return original.call(this, other);
-	}
-);
-// `_resolve` is not among them: it is reached only through `quill.reader(doc)`,
-// whose constructor checks both handles.
-for (const name of /** @type {const} */ (['validate', 'conform'])) {
-	// Named once per patch, not per call: `validate` runs per keystroke.
-	const method = `Quill.${name}`;
-	patchHandleChecked(Quill.prototype, name, (original) =>
-		function (/** @type {any} */ doc) {
-			requireLocalDoc(doc, method);
-			return original.call(this, doc);
-		}
-	);
-}
-
-// The typed writer/reader primitives (`Document._commitField` and friends) take
-// the QUILL by reference, so they hit the same `_assertClass` from the other
-// direction. Checked at the four writer/reader classes below, not patched onto
-// `Document`: a foreign document carries its OWN prototype, so patching this
-// copy's would never run.
-
-
-/**
- * @param {import('../core/wasm.js').ContentIsland} island
- * @returns {island is import('../core/wasm.js').ContentIsland & { type: 'table'; props: import('../core/wasm.js').TableProps }}
- */
-export function isTableIsland(island) {
-	return island.type === 'table';
-}
-
-/**
- * @param {import('../core/wasm.js').ContentIsland} island
- * @returns {island is import('../core/wasm.js').ContentIsland & { type: 'image'; props: import('../core/wasm.js').ImageProps }}
- */
-export function isImageIsland(island) {
-	return island.type === 'image';
-}
-
-/**
- * @param {import('../core/wasm.js').ContentMark} mark
- * @returns {mark is import('../core/wasm.js').ContentMark & { type: 'link'; attrs: { url: string } }}
- */
-export function isLinkMark(mark) {
-	return mark.type === 'link';
-}
-
-/**
- * @param {import('../core/wasm.js').ContentMark} mark
- * @returns {mark is import('../core/wasm.js').ContentMark & { type: 'anchor'; attrs: { id: string } }}
- */
-export function isAnchorMark(mark) {
-	return mark.type === 'anchor';
-}
-
-/**
- * @param {import('../core/wasm.js').ContentLine} line
- * @returns {line is import('../core/wasm.js').ContentLine & { kind: 'heading'; attrs: { level: number } }}
- */
-export function isHeadingLine(line) {
-	return line.kind === 'heading';
-}
-
-/**
- * @param {import('../core/wasm.js').ContentLine} line
- * @returns {line is import('../core/wasm.js').ContentLine & { kind: 'code'; attrs?: { lang?: string } }}
- */
-export function isCodeLine(line) {
-	return line.kind === 'code';
-}
-
-/**
- * @param {import('../core/wasm.js').ContentContainer} container
- * @returns {container is import('../core/wasm.js').ContentContainer & { container: 'list_item'; attrs: { ordered: boolean; start: number; ordinal: number }; instance?: number }}
- */
-export function isListItemContainer(container) {
-	return container.container === 'list_item';
 }
 
 // A predicate rather than an exported name list, because these tables are
@@ -1012,14 +892,6 @@ export class DocumentReader {
 		return this.#doc._readerGetContent(this.#quill, addr);
 	}
 	/**
-	 * @param {import('../core/wasm.js').Addr | string} addr
-	 * @param {import('../core/wasm.js').PathStep[]} path
-	 * @returns {import('../core/wasm.js').Content | undefined}
-	 */
-	getContentAt(addr, path) {
-		return this.#doc._readerGetContentAt(this.#quill, addr, path);
-	}
-	/**
 	 * @returns {string}
 	 */
 	bodyMarkdown() {
@@ -1078,14 +950,6 @@ export class CardReader {
 	 */
 	getContent(name) {
 		return this.#doc._readerGetContent(this.#quill, { card: this.#index, field: name });
-	}
-	/**
-	 * @param {string} name
-	 * @param {import('../core/wasm.js').PathStep[]} path
-	 * @returns {import('../core/wasm.js').Content | undefined}
-	 */
-	getContentAt(name, path) {
-		return this.#doc._readerGetContentAt(this.#quill, { card: this.#index, field: name }, path);
 	}
 	/**
 	 * @returns {string}

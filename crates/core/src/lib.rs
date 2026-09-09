@@ -64,7 +64,7 @@ pub use quillmark_content::Content;
 pub mod quill;
 pub use quill::{
     blank, BoundParseError, FieldSource, FileTreeNode, Quill, Resolved, ResolvedCard,
-    ResolvedField, ResolvedMain, QuillIgnore, STANDARD_METADATA_KEYS,
+    ResolvedField, ResolvedMain, QuillIgnore,
 };
 /// The schema model behind [`Quill::config`], and the error
 /// [`QuillConfig::validate_document`] returns.

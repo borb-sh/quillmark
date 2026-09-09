@@ -59,7 +59,7 @@ ext = doc.cards[index]["ext"] or {}                                # at build ti
 doc.store_ext({**ext, "myapp": {"row_id": row_id}}, card=index)
 idx = next(i for i, c in enumerate(doc.cards)                      # at patch time
            if (c["ext"] or {}).get("myapp", {}).get("row_id") == row_id)
-quill.writer(doc).card(idx).set_all({"qty": new_qty})
+quill.writer(doc).set_all({"qty": new_qty}, card=idx)
 ```
 
 `$ext` round-trips through Markdown and the storage DTO and never reaches a backend. The engine guarantees nothing about its contents: no uniqueness, no collision check, no repair. A key duplicated across two cards resolves to whichever the scan hits first.

@@ -84,7 +84,7 @@ peer of the render-path namespaces. Identity is the code, never message text:
 routing coercion-vs-undeclared is `edit::field_coercion_failed` vs.
 `edit::unknown_field`, read off `diagnostics[0].code`.
 
-Building a card from a `CardWire` (`makeCard` / `insertCard`) is the same
+Building a card from a `CardWire` (`insertCard`) is the same
 surface reached without an address, so it refuses under the same codes:
 `WireError` carries the `EditError` its addressed twin raises, and
 `WireError::code()` is that code. Two of its codes are not `edit::*`, or not

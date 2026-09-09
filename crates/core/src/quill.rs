@@ -34,18 +34,8 @@ pub use types::{
     UiCardSchema, UiFieldSchema, VariantFields, VARIANT_DISCRIMINANT_KEY,
 };
 
-use std::collections::HashMap;
-
-use crate::value::QuillValue;
-
-/// The quill-config keys every binding surfaces as typed, top-level fields.
-/// Bindings exclude these from the unstructured-metadata passthrough, so a
-/// typed field is never emitted twice.
-pub const STANDARD_METADATA_KEYS: &[&str] =
-    &["name", "backend", "description", "version", "author"];
-
-/// Portable, validated quill data: the file bundle, parsed config, and
-/// metadata of an authored quill, tagged with its *declared* backend id.
+/// Portable, validated quill data: the file bundle and parsed config of an
+/// authored quill, tagged with its *declared* backend id.
 ///
 /// A `Quill` holds no backend and needs no engine to construct or use: every
 /// method here is a pure read of its parsed config. Rendering is the engine's
@@ -53,7 +43,6 @@ pub const STANDARD_METADATA_KEYS: &[&str] =
 /// `quillmark::quill_from_path` (filesystem stays out of core).
 #[derive(Clone)]
 pub struct Quill {
-    pub(crate) metadata: HashMap<String, QuillValue>,
     pub(crate) config: QuillConfig,
     pub(crate) files: FileTreeNode,
     pub(crate) warnings: Vec<crate::Diagnostic>,
@@ -67,10 +56,6 @@ impl Quill {
     /// The backend identifier declared in Quill.yaml (e.g. `"typst"`).
     pub fn backend_id(&self) -> &str {
         &self.config.backend
-    }
-
-    pub fn metadata(&self) -> &HashMap<String, QuillValue> {
-        &self.metadata
     }
 
     pub fn config(&self) -> &QuillConfig {

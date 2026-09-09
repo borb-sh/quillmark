@@ -18,7 +18,7 @@ import {
   formatDocPath,
 } from '@quillmark-wasm'
 import * as typstBuild from '@quillmark-wasm'
-import { makeQuill, expectEditCode, initBuildSync } from './test-helpers.js'
+import { makeQuill, makeCard, expectEditCode, initBuildSync } from './test-helpers.js'
 
 initBuildSync(typstBuild, 'backends/typst')
 
@@ -175,7 +175,7 @@ describe('Document.toMarkdown: fromMarkdown → mutate → emit → re-parse', (
 
     // Mutate
     doc.storeField('title', 'New Title')
-    doc.insertCard(Document.makeCard('note', { author: 'Alice' }, 'Hello'))
+    doc.insertCard(makeCard('note', { author: 'Alice' }, 'Hello'))
     doc.revise({}, 'Updated body')
 
     // Emit
@@ -223,8 +223,8 @@ describe('Document JSON DTO: toStored / fromStored', () => {
   // which payloads are refused) are core's
   // (`core/src/document/dto.rs`). At this boundary the questions are narrower:
   // does the DTO cross as a plain JSON string, does a handle survive the
-  // round-trip, and do the JS-only statics (`tryFromStored`, `storageVersionOf`)
-  // answer with `undefined` where their throwing twins throw.
+  // round-trip, and does `storageVersionOf` answer with `undefined` where its
+  // throwing twin throws.
 
   it('toStored emits a plain JSON string carrying the current schema version', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
@@ -236,7 +236,7 @@ describe('Document JSON DTO: toStored / fromStored', () => {
   it('round-trips a mutated document with cards back to an equal handle', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     doc.storeField('title', 'New Title')
-    doc.insertCard(Document.makeCard('note', { author: 'Alice' }, 'Hello'))
+    doc.insertCard(makeCard('note', { author: 'Alice' }, 'Hello'))
 
     const restored = Document.fromStored(doc.toStored())
 
@@ -250,16 +250,6 @@ describe('Document JSON DTO: toStored / fromStored', () => {
     expect(() =>
       Document.fromStored('{"schema":"quillmark/document@0.99.0","main":{}}'),
     ).toThrow()
-  })
-
-  it('tryFromStored is the non-throwing twin: a Document, or undefined', () => {
-    const dto = Document.fromMarkdown(TEST_MARKDOWN).toStored()
-    expect(Document.tryFromStored(dto).equals(Document.fromMarkdown(TEST_MARKDOWN))).toBe(true)
-
-    expect(Document.tryFromStored('not json at all')).toBeUndefined()
-    expect(
-      Document.tryFromStored('{"schema":"quillmark/document@0.99.0","main":{}}'),
-    ).toBeUndefined()
   })
 
   it('storageVersionOf reads the schema tag off any payload, or undefined', () => {
@@ -280,7 +270,7 @@ describe('Document JSON DTO: toStored / fromStored', () => {
 // Authoring text: core's canonical strings, re-exposed
 // ---------------------------------------------------------------------------
 //
-// Four statics whose bodies are `quillmark_core` constants: the single source
+// Three statics whose bodies are `quillmark_core` constants: the single source
 // of truth an LLM/MCP consumer authors against. Wording is core's to assert.
 // What the binding owns is that each one reaches JS at all: a re-export that
 // returns "" is indistinguishable from a working one until a consumer pastes it
@@ -298,18 +288,6 @@ describe('Document authoring text', () => {
     expect(text).toContain('usaf_memo')
   })
 
-  it('formatDiagnostic renders a real diagnostic as pretty text', () => {
-    let diag
-    try {
-      Document.fromMarkdown(TEST_MARKDOWN).storeFields({}, { 'bad-name': 'v' })
-    } catch (err) {
-      diag = err.diagnostics[0]
-    }
-    expect(diag).toBeDefined()
-    const pretty = Document.formatDiagnostic(diag)
-    expect(pretty).toContain(diag.message)
-    expect(pretty).toContain(diag.code)
-  })
 })
 
 describe('Quillmark.quill', () => {
@@ -554,7 +532,7 @@ describe('Document editor surface: storeFields', () => {
 
   it('storeFields({ card }) is the card-indexed twin of storeFields', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.insertCard(Document.makeCard('note', { foo: 'bar' }))
+    doc.insertCard(makeCard('note', { foo: 'bar' }))
     doc.storeFields({ card: 0 }, { foo: 'baz', extra: 1 })
     expect(field(doc.cards[0], 'foo')).toBe('baz')
     expect(field(doc.cards[0], 'extra')).toBe(1)
@@ -644,24 +622,16 @@ describe('Document editor surface: setQuillRef / overwrite / revise', () => {
   })
 
   // Every door taking opaque host JSON carries the guard, not just `overwrite`:
-  // a card field value and a payload item's `value` cross on the same
-  // `serde_wasm_bindgen` recursion, so each gets its own case.
-  it('makeCard rejects a deeply nested field value instead of trapping the module', () => {
-    let deep = []
-    for (let i = 0; i < 5000; i++) deep = [deep]
-    expect(() => Document.makeCard('note', { tree: deep })).toThrow(/nests deeper/)
-    // Still serving: a trap would take every later call in the file with it.
-    expect(Document.makeCard('note', { ok: 1 }).kind).toBe('note')
-  })
-
+  // a payload item's `value` crosses on the same `serde_wasm_bindgen` recursion.
   it('insertCard rejects a deeply nested payload item value instead of trapping the module', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     let deep = []
     for (let i = 0; i < 5000; i++) deep = [deep]
-    const card = Document.makeCard('note', { ok: 1 }, 'Hello')
+    const card = makeCard('note', { ok: 1 }, 'Hello')
     card.payloadItems[0].value = deep
     expect(() => doc.insertCard(card)).toThrow(/nests deeper/)
-    doc.insertCard(Document.makeCard('note', { ok: 2 }, 'Hello'))
+    // Still serving: a trap would take every later call in the file with it.
+    doc.insertCard(makeCard('note', { ok: 2 }, 'Hello'))
     expect(doc.cardCount).toBe(1)
   })
 })
@@ -1082,7 +1052,6 @@ card_kinds:
       'cards.note[0].stray',
     )
     // …and a structural out-of-range op anchors at the array slot.
-    expect(pathOf(() => doc.setCardKind(9, 'note'))).toBe('cards[9]')
     expect(pathOf(() => doc.moveCard(9, 0))).toBe('cards[9]')
     // `pathFor` mints what the anchor carries, so a consumer's path and the
     // engine's agree without a kind table of its own.
@@ -1159,7 +1128,7 @@ Card two.
 
   it('insertCard appends a card when at is omitted', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.insertCard(Document.makeCard('note', {}, 'My card.'))
+    doc.insertCard(makeCard('note', {}, 'My card.'))
     expect(doc.cards.length).toBe(1)
     expect(doc.cards[0].kind).toBe('note')
     expect(exportMarkdown(doc.cards[0].body)).toBe('My card.')
@@ -1184,22 +1153,9 @@ Card two.
     expect(field(repushed, 'foo')).toBe('bar')
   })
 
-  it('makeCard accepts any kind; insertCard is the kind gate', () => {
-    // makeCard is pure data-shaping (permissive); the cards-list invariant is
-    // enforced at insertion, not construction.
+  it('insertCard is the kind gate: the cards-list invariant is enforced there', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const bad = Document.makeCard('BadKind', { x: 1 })
-    expect(bad.kind).toBe('BadKind') // construction succeeds
-    expectEditCode(() => doc.insertCard(bad), 'edit::invalid_kind_name') // insertion rejects
-  })
-
-  it('makeCard treats fields and body as optional', () => {
-    // The `.d.ts` marks them `fields?` / `body?` to match (see makeCard's
-    // unchecked_optional_param_type bindings).
-    const bare = Document.makeCard('note')
-    expect(bare.kind).toBe('note')
-    expect(bare.payloadItems).toEqual([])
-    expect(exportMarkdown(bare.body)).toBe('')
+    expectEditCode(() => doc.insertCard(makeCard('BadKind', { x: 1 })), 'edit::invalid_kind_name')
   })
 
   it('a stale { kind, fields } object is a loud error, not a silent empty card', () => {
@@ -1222,7 +1178,6 @@ Card two.
       () => doc.insertCard({ kind: 'note', quill: '@nope' }),
       'parse::invalid_quill_reference',
     )
-    expectEditCode(() => Document.makeCard('note', { 'bad-name': 1 }), 'edit::invalid_field_name')
   })
 
   it('insertCard inserts at specified index', () => {
@@ -1269,25 +1224,6 @@ Card two.
     expectEditCode(() => doc.moveCard(5, 0), 'edit::index_out_of_range')
   })
 
-  it('setCardKind renames the kind in place', () => {
-    const doc = Document.fromMarkdown(MD_WITH_CARDS)
-    doc.setCardKind(0, 'annotation')
-    expect(doc.cards[0].kind).toBe('annotation')
-    // Payload items preserved across rename.
-    expect(Array.isArray(doc.cards[0].payloadItems)).toBe(true)
-  })
-
-  it('setCardKind throws InvalidKindName for empty/uppercase/dashed kinds', () => {
-    const doc = Document.fromMarkdown(MD_WITH_CARDS)
-    for (const bad of ['', 'BadKind', 'with-dash']) {
-      expectEditCode(() => doc.setCardKind(0, bad), 'edit::invalid_kind_name')
-    }
-  })
-
-  it('setCardKind throws IndexOutOfRange when index >= len', () => {
-    const doc = Document.fromMarkdown(MD_WITH_CARDS) // 2 cards
-    expectEditCode(() => doc.setCardKind(5, 'annotation'), 'edit::index_out_of_range')
-  })
 
   it('cardCount reports composable card count without allocating', () => {
     const empty = Document.fromMarkdown(TEST_MARKDOWN)
@@ -1637,9 +1573,10 @@ card_kinds:
       makeQuill({ name: 'meta_test_quill', plate: TEST_PLATE, quillYaml: META_QUILL_YAML }),
     )
 
-    // metadata mirrors the `quill:` section of Quill.yaml: identity only.
+    // metadata mirrors the `quill:` section of Quill.yaml: identity only, and
+    // its key order is the one BINDINGS.md pins across both surfaces.
     const meta = quill.metadata
-    expect(meta).toBeDefined()
+    expect(Object.keys(meta)).toEqual(['name', 'version', 'backend', 'author', 'description'])
     expect(meta.name).toBe('meta_test_quill')
     expect(meta.version).toBe('0.2.1')
     expect(meta.backend).toBe('typst')
@@ -1698,40 +1635,6 @@ card_kinds:
     )
 
     expect(quill.warnings.map((d) => d.code)).toEqual(['quill::body_example_unused'])
-  })
-
-  it('orders the five standard keys first, then the extra keys sorted by name', () => {
-    const EXTRAS_QUILL_YAML = `quill:
-  name: meta_test_quill
-  version: "0.2.1"
-  backend: typst
-  description: Metadata test
-
-typst:
-  zeta: z
-  plate_file: plate.typ
-  alpha: a
-  nu: n
-  beta: b
-  mu: m
-`
-    const quill = Quill.fromTree(
-      makeQuill({ name: 'meta_test_quill', plate: TEST_PLATE, quillYaml: EXTRAS_QUILL_YAML }),
-    )
-
-    expect(Object.keys(quill.metadata)).toEqual([
-      'name',
-      'version',
-      'backend',
-      'author',
-      'description',
-      'typst_alpha',
-      'typst_beta',
-      'typst_mu',
-      'typst_nu',
-      'typst_plate_file',
-      'typst_zeta',
-    ])
   })
 
   it('metadata and schema are JSON.stringify-able (plain objects)', () => {

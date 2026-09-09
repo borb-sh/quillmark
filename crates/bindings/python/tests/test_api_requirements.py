@@ -9,7 +9,7 @@ from quillmark import (
     QuillmarkError,
     Severity,
 )
-from conftest import QUILLS_PATH, _latest_version, raises_edit_code
+from conftest import QUILLS_PATH, _latest_version, make_card, raises_edit_code
 
 
 def field(card, key):
@@ -60,6 +60,8 @@ def test_quill_properties(engine, taro_quill_dir):
     metadata = quill.metadata
     assert isinstance(metadata, dict)
     assert metadata["name"] == "taro"
+    # The key order BINDINGS.md pins across both surfaces.
+    assert list(metadata) == ["name", "version", "backend", "author", "description"]
     # metadata is a pure config snapshot: no capability key baked in.
     assert "supportedFormats" not in metadata
     assert quill.backend_id == "typst"
@@ -195,7 +197,7 @@ def test_remove_card_then_insert_card_round_trips_fields():
     its fields intact: the one-Card-shape contract. Exercises the explicit
     quill/ext=None keys the dict carries against `deny_unknown_fields`."""
     doc = Document.from_markdown(SIMPLE_MD)
-    doc.insert_card(Document.make_card("note", {"author": "Alice"}, "Body"))
+    doc.insert_card(make_card("note", {"author": "Alice"}, "Body"))
 
     removed = doc.remove_card(0)
     # The returned dict carries explicit None for the absent $ entries.
@@ -222,18 +224,12 @@ def test_insert_card_accepts_content_dict_body():
     assert doc.cards[1]["body"]["text"] == doc.cards[0]["body"]["text"]
 
 
-def test_make_card_accepts_any_kind_insert_card_is_the_gate():
-    """make_card accepts any kind string; insert_card is the gate.
-
-    Not blanket permissiveness: make_card rejects a malformed field name or an
-    over-deep value. The line is what a detached card can decide alone. Kind
-    validity is positional, so only insert_card can rule on it, and it is the
-    one reporting `edit::invalid_kind_name`."""
-    card = Document.make_card("BadKind", {"x": 1})
-    assert card["kind"] == "BadKind"  # construction succeeds
+def test_insert_card_is_the_kind_gate():
+    """Kind validity is positional, so only insert_card can rule on it, and it
+    is the one reporting `edit::invalid_kind_name`."""
     doc = Document.from_markdown(SIMPLE_MD)
     with raises_edit_code("edit::invalid_kind_name"):
-        doc.insert_card(card)
+        doc.insert_card(make_card("BadKind", {"x": 1}))
 
 
 def test_wire_refusal_carries_the_mutator_code():
@@ -257,8 +253,6 @@ def test_wire_refusal_carries_the_mutator_code():
         doc.insert_card(with_field("addr", {"a": 1}, fill=True))
     with raises_edit_code("parse::invalid_quill_reference"):
         doc.insert_card({"kind": "note", "quill": "@nope"})
-    with raises_edit_code("edit::invalid_field_name"):
-        Document.make_card("note", {"bad-name": 1})
 
 
 def test_stale_flat_input_is_a_loud_error():
@@ -296,8 +290,6 @@ def test_negative_index_is_out_of_range():
     with raises_edit_code("edit::index_out_of_range"):
         doc.move_card(-1, 0)
     with raises_edit_code("edit::index_out_of_range"):
-        doc.set_card_kind(-1, "note")
-    with raises_edit_code("edit::index_out_of_range"):
         doc.insert_card({"kind": "note"}, at=-1)
     with raises_edit_code("edit::index_out_of_range"):
         doc.store_ext({}, card=-1)
@@ -309,12 +301,10 @@ def test_negative_index_is_out_of_range():
     typed = Document("taro@0.1.0")
     ed = quill.writer(typed)
     ed.add_card("quotes", {"author": "Basho"})
-    cursor = ed.card(-1)  # a cursor binds any index; the write checks it
-    assert cursor.index == -1
     with raises_edit_code("edit::index_out_of_range"):
-        cursor.set("author", "Issa")
+        ed.set("author", "Issa", card=-1)
     with raises_edit_code("edit::index_out_of_range"):
-        quill.reader(typed).card(-1).get("author")
+        quill.reader(typed).get("author", card=-1)
 
 
 def test_remove_card():
@@ -465,7 +455,7 @@ def test_invariants_after_mutation_sequence():
     doc = Document.from_markdown(SIMPLE_MD)
 
     # Add and manipulate cards
-    doc.insert_card(Document.make_card("note", {"text": "hi"}))
+    doc.insert_card(make_card("note", {"text": "hi"}))
     doc.insert_card({"kind": "summary"})
     doc.insert_card({"kind": "appendix"})
     doc.insert_card({"kind": "intro"}, at=1)  # note, intro, summary, appendix
@@ -496,7 +486,7 @@ def test_to_markdown_general_round_trip():
 
     # Mutate: typed field + typed body + a quill-free card.
     quill.writer(doc).set("title", "New Title")
-    doc.insert_card(Document.make_card("note", {"author": "Alice"}, "Hello"))
+    doc.insert_card(make_card("note", {"author": "Alice"}, "Hello"))
     quill.writer(doc).revise_body("Updated body")
 
     # Emit
@@ -519,12 +509,12 @@ def test_to_markdown_ambiguous_string_survival():
     "on", "off", "yes", "no", "true", "false", "null" are all YAML
     booleans/null in permissive parsers. The emitter must double-quote them
     so they survive a re-parse as strings, not bools or null. Seated as card
-    fields via the quill-free `make_card`, whose values emit through the same
-    card-yaml writer the main card uses.
+    Seated as card fields, whose values emit through the same card-yaml writer
+    the main card uses.
     """
     doc = Document.from_markdown(SIMPLE_MD)
     doc.insert_card(
-        Document.make_card(
+        make_card(
             "note",
             {
                 "flag_on": "on",
@@ -611,9 +601,9 @@ def test_every_mutator_verb_anchors_its_diagnostic_at_one_doc_path():
     cases = [
         ("set", lambda: writer.set("stray", "x"), "main.stray"),
         ("set_all", lambda: writer.set_all({"stray": "x"}), "main.stray"),
-        ("card.set", lambda: writer.card(0).set("stray", "x"), "cards.quotes[0].stray"),
+        ("set card=", lambda: writer.set("stray", "x", card=0), "cards.quotes[0].stray"),
         ("add_card", lambda: writer.add_card("quotes", {}, at=99), "$kind"),
-        ("set_card_kind", lambda: doc.set_card_kind(9, "quotes"), "cards[9]"),
+        ("move_card", lambda: doc.move_card(9, 0), "cards[9]"),
     ]
     for verb, call, expected in cases:
         assert path_of(call) == expected, verb
@@ -646,28 +636,16 @@ def test_writer_add_card_positioned():
     assert len(doc.cards) == 2  # the out-of-range insert landed nothing
 
 
-def test_writer_card_cursor_set_and_body():
-    """writer.card(i) targets the composable card; a bad index raises at the write."""
+def test_writer_card_selector_targets_the_composable_card():
+    """`card=i` targets the composable card; an index addressing none raises."""
     quill = _taro_quill()
     doc = Document("taro@0.1.0")
     ed = quill.writer(doc)
     ed.add_card("quotes", {"author": "Basho"})
-    ed.card(0).set("author", "Issa")
+    ed.set("author", "Issa", card=0)
     assert field(doc.cards[0], "author") == "Issa"
     with raises_edit_code("edit::index_out_of_range"):
-        ed.card(9).set("author", "x")
-
-
-def test_writer_card_kind_getter():
-    """writer.card(i).kind reads the bound card's $kind; a bad index raises."""
-    quill = _taro_quill()
-    doc = Document("taro@0.1.0")
-    ed = quill.writer(doc)
-    ed.add_card("quotes", {"author": "Basho"})
-    assert ed.card(0).index == 0
-    assert ed.card(0).kind == "quotes"
-    with raises_edit_code("edit::index_out_of_range"):
-        _ = ed.card(9).kind
+        ed.set("author", "x", card=9)
 
 
 def test_writer_set_coerces_richtext_to_content():
@@ -815,127 +793,6 @@ def test_view_get_content_absence_unknown_and_non_content():
         taro.reader(tdoc).get_content("author")
 
 
-ELEMENT_QUILL_YAML = """quill:
-  name: element_test
-  version: 0.1.0
-  backend: typst
-  description: Content nested inside a composite field
-
-typst:
-  plate_file: plate.typ
-
-main:
-  fields:
-    recipients:
-      type: array
-      items:
-        type: plaintext
-    paragraphs:
-      type: array
-      items:
-        type: richtext
-    tags:
-      type: array
-      items:
-        type: string
-    letterhead:
-      type: object
-      properties:
-        motto:
-          type: richtext
-        code:
-          type: string
-    rows:
-      type: array
-      items:
-        type: object
-        properties:
-          notes:
-            type: richtext
-"""
-
-
-@pytest.fixture
-def element_quill(tmp_path):
-    """A quill declaring every content-bearing composite shape."""
-    root = tmp_path / "element_test" / "0.1.0"
-    root.mkdir(parents=True)
-    (root / "Quill.yaml").write_text(ELEMENT_QUILL_YAML)
-    (root / "plate.typ").write_text('#import "@local/quillmark-helper:0.1.0": data\n')
-    return Quill.from_path(str(root))
-
-
-def test_view_get_content_at_spans_both_storage_forms(element_quill):
-    """An element reads back the same Content whatever its resting form.
-
-    The bound door rests a plaintext element as its literal string and a richtext
-    one as the canonical content object; the transport door leaves both as
-    authored strings."""
-    md = (
-        "~~~card-yaml\n$quill: element_test@0.1.0\n$kind: main\n"
-        "recipients: ['a *literal* line']\nparagraphs: ['A **bold** intro.']\n~~~\n"
-    )
-    parsed = Document.from_markdown(md)
-    assert isinstance(field(parsed.main, "paragraphs")[0], str)
-
-    bound = element_quill.parse(md)
-    assert field(bound.main, "recipients")[0] == "a *literal* line"
-    assert isinstance(field(bound.main, "paragraphs")[0], dict)
-
-    for name, text in [("recipients", "a *literal* line"), ("paragraphs", "A bold intro.")]:
-        a = element_quill.reader(parsed).get_content_at(name, [0])
-        b = element_quill.reader(bound).get_content_at(name, [0])
-        assert a["text"] == text  # decoded at the element's declared codec
-        assert b["text"] == a["text"]
-        assert b["marks"] == a["marks"]
-
-
-def test_view_get_content_at_reaches_object_and_nested_leaves(element_quill):
-    """The path is the model's own in-field axis, so an object property and a
-    leaf under both array and object answer with the element."""
-    doc = Document.from_markdown(
-        "~~~card-yaml\n$quill: element_test@0.1.0\n$kind: main\n"
-        "letterhead:\n  motto: Fly **fight**\n  code: '9'\n"
-        "rows:\n  - {}\n  - notes: a *note*\n~~~\n"
-    )
-    v = element_quill.reader(doc)
-    assert v.get_content_at("letterhead", ["motto"])["text"] == "Fly fight"
-    assert v.get_content_at("rows", [1, "notes"])["text"] == "a note"
-    assert v.get_content_at("rows", [0, "notes"]) is None  # declared, unstored
-
-
-def test_view_get_content_at_stale_index_and_no_content_leaf(element_quill):
-    """A stale row index reads absent; a path resolving to no content leaf raises."""
-    doc = Document.from_markdown(
-        "~~~card-yaml\n$quill: element_test@0.1.0\n$kind: main\n"
-        "recipients: ['a']\ntags: ['x']\n~~~\n"
-    )
-    v = element_quill.reader(doc)
-    assert v.get_content_at("recipients", [7]) is None
-    assert v.get_content_at("paragraphs", [0]) is None  # field absent
-
-    with raises_edit_code("edit::field_not_content"):
-        v.get_content_at("tags", [0])  # `declared` names the element's type
-    with raises_edit_code("edit::field_not_content"):
-        v.get_content_at("recipients", [])  # the array itself has no one Content
-    with raises_edit_code("edit::unknown_field"):
-        v.get_content_at("letterhead", ["nope"])
-    with pytest.raises(ValueError, match=r"path\[0\]"):
-        v.get_content_at("recipients", [None])
-
-
-def test_view_get_content_at_names_the_element_in_a_decode_failure(element_quill):
-    """A failing element names itself, rather than reporting against the field."""
-    doc = Document.from_markdown(
-        "~~~card-yaml\n$quill: element_test@0.1.0\n$kind: main\nparagraphs: ['ok', 3]\n~~~\n"
-    )
-    with pytest.raises(QuillmarkError) as excinfo:
-        element_quill.reader(doc).get_content_at("paragraphs", [1])
-    diag = excinfo.value.diagnostics[0]
-    assert diag.code == "edit::field_decode"
-    assert diag.path == "main.paragraphs[1]"
-
-
 def test_view_body_read_is_quill_free():
     """view.body_markdown reads the main body markdown: the quill-free body read."""
     quill = _taro_quill()
@@ -944,16 +801,16 @@ def test_view_body_read_is_quill_free():
     assert quill.reader(doc).body_markdown() == "A **taro** essay."
 
 
-def test_view_card_cursor_reads_through_kind_schema():
+def test_view_card_selector_reads_through_kind_schema():
     quill = _taro_quill()
     doc = Document("taro@0.1.0")
     ed = quill.writer(doc)
     ed.add_card("quotes", {"author": "Basho"}, "A quote body.")
     v = quill.reader(doc)
-    assert v.card(0).kind == "quotes"
-    assert v.card(0).get("author") == "Basho"
-    assert v.card(0).body_markdown() == "A quote body."
+    assert doc.card(0)["kind"] == "quotes"
+    assert v.get("author", card=0) == "Basho"
+    assert v.body_markdown(card=0) == "A quote body."
     with raises_edit_code("edit::unknown_field"):
-        v.card(0).get("stray")
+        v.get("stray", card=0)
     with raises_edit_code("edit::index_out_of_range"):
-        v.card(9).get("author")
+        v.get("author", card=9)

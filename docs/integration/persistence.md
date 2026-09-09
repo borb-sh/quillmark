@@ -25,7 +25,7 @@ projection, never a stored row: persist with `to_stored`.
 
     ```javascript
     const blob = doc.toStored();
-    const doc2 = Document.fromStored(blob);   // or tryFromStored → null on bad input
+    const doc2 = Document.fromStored(blob);   // storageVersionOf(blob) first to test without throwing
     ```
 
 Every blob carries a `schema` tag (`quillmark/document@<version>`). Readers dispatch on it, accept every still-supported past version by migrating forward on read, and **reject an unknown version** rather than guessing. The current tag is `quillmark/document@0.112.0`.

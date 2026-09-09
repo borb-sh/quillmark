@@ -6,7 +6,7 @@
 import { describe, it, expect } from 'vitest'
 import * as core from '@quillmark-wasm/core'
 import { Quill, Document } from '@quillmark-wasm/core'
-import { initBuildSync } from './test-helpers.js'
+import { initBuildSync, makeCard } from './test-helpers.js'
 
 initBuildSync(core, 'core')
 
@@ -150,7 +150,7 @@ title: Draft
 
     // Edit the main card and append a composable card.
     doc.storeField('title', 'Final')
-    doc.insertCard(Document.makeCard('note', { author: 'Alice' }, 'A note.'))
+    doc.insertCard(makeCard('note', { author: 'Alice' }, 'A note.'))
     expect(doc.cardCount).toBe(1)
     expect(doc.cards[0].kind).toBe('note')
 
@@ -176,7 +176,7 @@ title: Draft
 ~~~
 
 # Body`)
-    doc.insertCard(Document.makeCard('note', { author: 'Alice' }, 'A note body.'))
+    doc.insertCard(makeCard('note', { author: 'Alice' }, 'A note body.'))
 
     // getStored: value keyed by name; undefined when the field is absent.
     expect(doc.getStored({ card: 0, field: 'author' })).toBe('Alice')

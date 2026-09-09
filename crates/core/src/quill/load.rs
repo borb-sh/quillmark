@@ -1,6 +1,5 @@
 //! Quill loading and construction routines.
 use crate::error::{Diagnostic, Severity};
-use crate::value::QuillValue;
 
 use super::{FileTreeNode, Quill, QuillConfig};
 
@@ -38,35 +37,10 @@ impl Quill {
 
         let (config, warnings) = QuillConfig::from_yaml_with_warnings(&quill_yaml_content)?;
 
-        Ok(Self::from_config(config, root, warnings))
-    }
-
-    fn from_config(config: QuillConfig, root: FileTreeNode, warnings: Vec<Diagnostic>) -> Self {
-        let mut metadata: std::collections::HashMap<String, QuillValue> =
-            std::collections::HashMap::new();
-
-        for (key, value) in [
-            ("backend", &config.backend),
-            ("description", &config.description),
-            ("author", &config.author),
-            ("version", &config.version),
-        ] {
-            metadata.insert(
-                key.to_string(),
-                QuillValue::from_json(serde_json::Value::String(value.clone())),
-            );
-        }
-
-        // Expose backend-specific config to metadata under `<backend>_<key>`.
-        for (key, value) in &config.backend_config {
-            metadata.insert(format!("{}_{}", config.backend, key), value.clone());
-        }
-
-        Quill {
-            metadata,
+        Ok(Quill {
             config,
             files: root,
             warnings,
-        }
+        })
     }
 }

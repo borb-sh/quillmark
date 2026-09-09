@@ -87,7 +87,7 @@ w.revise_body("A **taro** essay.")        # body write (edit semantics; a body h
 w.revise_field("bio", "make it **bold**") # typed *and* anchor-preserving content write (codec by declared type)
 w.add_card("quotes", {"author": "Basho"}, "…", at=None)  # make + typed commit + insert (at appends/inserts)
 w.remove_card(0)
-w.card(0).set("author", "Issa")           # a CardWriter: .index, .kind, .set, .set_all, .revise_body, .revise_field
+w.set("author", "Issa", card=0)           # every verb takes card=: None is main, an int the composable card
 ```
 
 ### `Reader`: `quill.reader(doc)`
@@ -105,9 +105,9 @@ v.get("bio")                              # richtext → markdown str; scalar �
 v.get_content("bio")                      # the `Content` dict {text, lines, marks, islands}; absent → None
                                           # a type that is not a content leaf raises FieldNotContent
 v.body_markdown()                         # the main body markdown (quill-free body read)
-v.card(0).kind                            # the composable card's $kind
-v.card(0).get("author")                   # a card field, interpreted by its $kind schema
-v.card(0).body_markdown()
+v.get("author", card=0)                   # a card field, interpreted by its $kind schema
+v.body_markdown(card=0)
+doc.card(0)["kind"]                       # the composable card's $kind
 ```
 
 ### `RenderResult` / `Artifact`
@@ -116,7 +116,6 @@ v.card(0).body_markdown()
 result.artifacts            # [Artifact, ...]
 result.warnings             # [Diagnostic, ...]
 result.format               # OutputFormat
-result.render_time_ms       # float
 
 artifact.format             # OutputFormat
 artifact.bytes              # bytes
@@ -133,9 +132,8 @@ emitted = doc.to_markdown()
 
 stored   = doc.to_stored()
 restored = Document.from_stored(stored)
-maybe    = Document.try_from_stored(blob)          # None when not a DTO
 
-Document.storage_version_of(blob)                # raw tag (incl. unknown futures)
+Document.storage_version_of(blob)                # raw tag (incl. unknown futures); None when not a DTO
 Document.current_storage_version()               # what this build writes
 
 Document.format_rules()                          # card-yaml authoring rules (static text)
@@ -151,9 +149,11 @@ doc.seed_overlay("note")                         # one $seed[kind] overlay, or N
 doc.set_quill_ref("other@1.0")
 
 # Structure (quill-free, a card kind is a name, not a schema fact):
-doc.insert_card(Document.make_card("note", {"x": 1}, "..."), at=None)  # at appends/inserts
+doc.insert_card({"kind": "note", "body": "..."}, at=None)   # at appends/inserts
+doc.insert_card({"kind": "note",                            # fields → payload items
+                 "payload_items": [{"type": "field", "key": "x", "value": 1}]})
 doc.remove_card(0)                               # returns the Card dict, or None
-doc.move_card(2, 0); doc.set_card_kind(0, "summary")
+doc.move_card(2, 0)
 doc.remove_field("title")                        # remove has no lane; card=i targets a composable card
 
 # Out-of-band consumer state (never rendered):
@@ -208,7 +208,7 @@ except QuillmarkError as exc:
 Mutator failures (invalid field names, kind names, out-of-range indices) carry a
 namespaced `edit::*` `code` on `diagnostics[0]`: `edit::invalid_field_name`,
 `edit::unknown_field`, `edit::index_out_of_range`, `edit::field_coercion_failed`,
-…. `make_card` / `insert_card` refuse a card's contents under those same codes.
+…. `insert_card` refuses a card's contents under those same codes.
 Route on `diagnostics[0].code`, never on message text.
 
 Card and page indices count from the front, so a negative one addresses nothing

@@ -175,63 +175,21 @@ export interface QuillmarkError extends Error {
  */
 export declare function isQuillmarkError(e: unknown): e is QuillmarkError;
 
-// `ContentIsland.type`, `ContentMark.type`, `ContentLine.kind`, and
-// `ContentContainer.container` are open sets: each union has a residual
-// `{ …: string; … }` arm, so a bare discriminant check never narrows the payload
-// (TS keeps the residual arm live, since a `string` can equal the literal).
-// These guards are the checked narrowing path for the pinned arms; only the
-// payload-carrying arms get one, since the rest narrow to nothing.
-
 import type {
 	ContentIsland,
-	TableProps,
-	ImageProps,
 	ContentMark,
 	ContentLine,
 	ContentContainer
 } from '../core/wasm.js';
 
-/** Narrow a {@link ContentIsland} to the pinned `table` arm (`props: TableProps`). */
-export declare function isTableIsland(
-	island: ContentIsland
-): island is ContentIsland & { type: 'table'; props: TableProps };
-
-/** Narrow a {@link ContentIsland} to the pinned `image` arm (`props: ImageProps`). */
-export declare function isImageIsland(
-	island: ContentIsland
-): island is ContentIsland & { type: 'image'; props: ImageProps };
-
-/** Narrow a {@link ContentMark} to the `link` arm (carries `attrs.url`). */
-export declare function isLinkMark(
-	mark: ContentMark
-): mark is ContentMark & { type: 'link'; attrs: { url: string } };
-
-/** Narrow a {@link ContentMark} to the `anchor` arm (carries `attrs.id`). */
-export declare function isAnchorMark(
-	mark: ContentMark
-): mark is ContentMark & { type: 'anchor'; attrs: { id: string } };
-
-/** Narrow a {@link ContentLine} to the `heading` arm (carries `attrs.level`). */
-export declare function isHeadingLine(
-	line: ContentLine
-): line is ContentLine & { kind: 'heading'; attrs: { level: number } };
-
-/** Narrow a {@link ContentLine} to the `code` arm (carries `attrs.lang`). */
-export declare function isCodeLine(
-	line: ContentLine
-): line is ContentLine & { kind: 'code'; attrs?: { lang?: string } };
-
-/** Narrow a {@link ContentContainer} to the `list_item` arm (carries its shape). */
-export declare function isListItemContainer(
-	container: ContentContainer
-): container is ContentContainer & {
-	container: 'list_item';
-	attrs: { ordered: boolean; start: number; ordinal: number };
-	instance: number;
-};
-
-// The guards above answer "is this arm X". These four answer "is this a value
-// this build knows?", the question a read-modify-write consumer must ask: an
+// `ContentIsland.type`, `ContentMark.type`, `ContentLine.kind`, and
+// `ContentContainer.container` are open sets: each union has a residual
+// `{ …: string; … }` arm, so a bare discriminant check never narrows the
+// payload (TS keeps the residual arm live, since a `string` can equal the
+// literal). A consumer switching on a known arm asserts the payload itself.
+//
+// These four answer the other question, "is this a value
+// this build knows?", the one a read-modify-write consumer must ask: an
 // edit restates every line's kind and containers, so a construct the consumer
 // cannot hold is gone on write-back unless carried inertly, and enumerating the
 // built-in names by hand re-couples to a closed set.
@@ -401,7 +359,6 @@ export interface RenderResult {
 	artifacts: Artifact[];
 	warnings: Diagnostic[];
 	outputFormat: OutputFormat;
-	renderTimeMs: number;
 	/**
 	 * Schema-field geometry, populated only when {@link RenderOptions.regions}
 	 * asked for it. Page indices are document-space even under a `pages` subset.
@@ -755,8 +712,7 @@ export declare class CardWriter {
  * `getContent` is the same read at the other end of the codec, returning the
  * `Content` rather than the projection. It binds the quill for the same reason
  * `get` does: the same stored bytes decode two ways, and only the declared type
- * says which. `getContentAt` is that read one axis further in, for a `Content`
- * nested inside a composite field.
+ * says which.
  */
 export declare class DocumentReader {
 	constructor(quill: Quill, doc: Document);
@@ -781,22 +737,6 @@ export declare class DocumentReader {
 	 * `IndexOutOfRange`.
 	 */
 	getContent(addr: Addr | string): Content | undefined;
-	/**
-	 * Read the `Content` nested inside the composite field at `addr`, at `path`:
-	 * `[0]` an element of an `array<richtext>`, `["motto"]` an object's content
-	 * property, `[1, "notes"]` a leaf under both, `["controlled_by"]` a variant's
-	 * cell. The codec is the leaf's declared type's, resolved through the field
-	 * schema's `items` / `properties` / `variants`, so the element's storage
-	 * form is not the caller's business. The empty path is {@link getContent}.
-	 *
-	 * `undefined` for an absent field and for a path that names nothing in the
-	 * stored value: a repeater's row index goes stale between derive and read,
-	 * so absence there is a read, not a fault. Throws `UnknownField` for an
-	 * undeclared name at any depth, `FieldNotContent` when `path` resolves to no
-	 * content leaf, `FieldDecode` anchored at the addressed path, and
-	 * `IndexOutOfRange` for a bad `addr.card`.
-	 */
-	getContentAt(addr: Addr | string, path: PathStep[]): Content | undefined;
 	/** The main body's markdown: the quill-free body read. Equals `get({})`. */
 	bodyMarkdown(): string;
 	/**
@@ -841,8 +781,6 @@ export declare class CardReader {
 	 * The card twin of {@link DocumentReader.getContent}.
 	 */
 	getContent(name: string): Content | undefined;
-	/** The card twin of {@link DocumentReader.getContentAt}. */
-	getContentAt(name: string, path: PathStep[]): Content | undefined;
 	/** This card's body markdown: the card twin of {@link DocumentReader.bodyMarkdown}. */
 	bodyMarkdown(): string;
 }

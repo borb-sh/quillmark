@@ -13,7 +13,7 @@ So the bound comes from the host:
 - **Server.** Render on a thread or subprocess you can abandon, under your own timeout. `Quillmark` is `Sync`, so one engine backs the whole pool.
 - **Browser.** `Engine.render` and `Engine.open` return promises, but the compile inside them is synchronous: awaiting does not yield while it runs, and `LiveSession.render` does not even return a promise. Either way the thread is blocked for the render's full duration, so a render on the main thread freezes the tab. Run the module in a Web Worker and `worker.terminate()` to abort — there is no in-band cancel, and terminate discards the module, so plan on re-instantiating it.
 
-The bindings time each render and report it: `renderTimeMs` in JavaScript, `render_time_ms` in Python. That is how a host finds which quills are the expensive ones. Rust's `RenderResult` carries no timing, so clock the `render` call.
+No surface times a render for you: clock the `render` call. That is how a host finds which quills are the expensive ones — `performance.now()` in JavaScript, `time.perf_counter()` in Python, `Instant::now()` in Rust.
 
 ## Concurrency
 
