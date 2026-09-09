@@ -29,8 +29,7 @@ quillmark-core = { workspace = true }
 serde_json = { workspace = true }
 
 # `quillmark-fixtures` is path-only, so cargo strips it from the published
-# manifest; `include` leaves `tests/` out of the archive besides. `serde_json` is
-# not repeated here: a test target sees the package's `[dependencies]` too.
+# manifest; `include` leaves `tests/` out of the archive besides.
 [dev-dependencies]
 quillmark-fixtures = { workspace = true }
 tempfile = { workspace = true }

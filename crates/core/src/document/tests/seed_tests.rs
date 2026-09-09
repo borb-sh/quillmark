@@ -277,6 +277,44 @@ $kind: main
     assert!(card.seed().is_none());
 }
 
+/// `$seed` binds the document root, so the setter refuses every card that is
+/// not it — after placement as well as at it, and through either mutable door.
+#[test]
+fn store_seed_overlay_refuses_a_card_that_is_not_the_root() {
+    use crate::document::{Card, EditError};
+
+    let mut doc = parse(
+        "\
+~~~card-yaml
+$quill: q@1.0
+$kind: main
+~~~
+",
+    );
+    doc.push_card(Card::new("indorsement").unwrap()).unwrap();
+
+    let refused = EditError::RootOnlyEntry {
+        key: MetaKey::Seed.as_str().to_string(),
+    };
+    assert_eq!(
+        doc.card_mut(0)
+            .unwrap()
+            .store_seed_overlay("indorsement", json!({ "from": "A" })),
+        Err(refused.clone())
+    );
+    assert_eq!(
+        doc.cards_mut()[0].store_seed_overlay("indorsement", json!({ "from": "A" })),
+        Err(refused)
+    );
+    assert!(doc.card(0).unwrap().seed().is_none());
+
+    // The root still carries the overlay, and the markdown it emits reparses.
+    doc.main_mut()
+        .store_seed_overlay("indorsement", json!({ "from": "A" }))
+        .unwrap();
+    assert_eq!(doc, parse(&doc.to_markdown()));
+}
+
 #[test]
 fn seed_overlay_drops_reserved_keys_other_than_body() {
     // An overlay only ever carries user fields plus the reserved `$body`;

@@ -42,15 +42,6 @@ fn info_prints_the_quill_identity() {
 }
 
 #[test]
-fn info_json_is_parseable() {
-    let quill = taro();
-    let stdout = ok(&["info", quill.to_str().unwrap(), "--json"]);
-    let value: serde_json::Value =
-        serde_json::from_str(&stdout).expect("--json emits one JSON document");
-    assert!(value.is_object(), "--json emits an object: {value}");
-}
-
-#[test]
 fn schema_emits_yaml_naming_a_declared_field() {
     let quill = taro();
     let stdout = ok(&["schema", quill.to_str().unwrap()]);

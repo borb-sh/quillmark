@@ -128,34 +128,24 @@ quillmark validate ./my-quill -v
 
 ### info
 
-Display metadata and information about a quill.
+Display a quill's identity and schema counts.
 
 ```bash
-quillmark info [OPTIONS] <QUILL_PATH>
+quillmark info <QUILL_PATH>
 ```
 
 **Arguments:**
 
 - `<QUILL_PATH>`: Path to quill directory
 
-**Options:**
-
-- `--json`: Output as machine-readable JSON instead of human-readable format
-
-**Fields shown:** name, description, version, author, backend, field count, and
-card count (when nonzero), plus a metadata section for any non-standard
-`Quill.yaml` keys: the standard keys (`backend`, `version`, `author`,
-`description`) are excluded from it. The text output additionally shows a
-defaults count when nonzero; `--json` has no defaults count.
+**Fields shown:** name, description (when nonempty), version, author, backend,
+field count, and the card and defaults counts when nonzero.
 
 **Examples:**
 
 ```bash
 # Display quill info
 quillmark info ./my-quill
-
-# Output as JSON
-quillmark info ./my-quill --json
 ```
 
 ## Exit Codes

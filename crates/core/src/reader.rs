@@ -10,11 +10,9 @@
 //! Every read here answers in the **values form**: the stored value with each
 //! content leaf decoded to its codec's text (`richtext` markdown, `plaintext`
 //! literal), at every depth the field's type tree reaches, and everything else
-//! verbatim. [`get`](TypedReader::get) reads one field in it and
-//! [`values`](TypedReader::values) the whole document, so
-//! `get(name)` is `values().fields[name]` on every field that decodes.
-//! Scalars are never coerced by a read: `qty: "3"` reads `"3"` here and `3`
-//! in [`resolve`](TypedReader::resolve), the render view.
+//! verbatim. [`get`](TypedReader::get) reads one field in it. Scalars are
+//! never coerced by a read: `qty: "3"` reads `"3"` here and `3` in
+//! [`resolve`](TypedReader::resolve), the render view.
 //!
 //! **Absence returns; mismatch raises; an unknown name is a typo**, as
 //! [`TypedWriter::set`](crate::TypedWriter::set) does on the write side.
@@ -34,10 +32,7 @@ use quillmark_content::Normalized;
 
 use crate::document::edit::field_decode;
 use crate::document::{Card, Codec, Document, EditError};
-use crate::quill::{
-    card_fields, card_values, resolve_document, CardSchema, CardValues, DocumentValues,
-    FieldSchema, FieldType, QuillConfig, Resolved,
-};
+use crate::quill::{resolve_document, CardSchema, FieldSchema, FieldType, QuillConfig, Resolved};
 use crate::value::{PathSegment, QuillValue};
 
 /// A [`Document`] bound to its [`QuillConfig`] for typed reads. Construct with
@@ -118,27 +113,6 @@ impl<'a> TypedReader<'a> {
         self.doc.main().body_markdown()
     }
 
-    /// The whole document in the values form: the main card's fields, body
-    /// and `$ext`, and every composable card, every axis filled
-    /// ([`DocumentValues`]). Total: never raises, a content leaf that decodes
-    /// under neither encoding riding out as stored, because the documents an
-    /// ingestion most needs to read are the ones that arrived dirty. The read
-    /// [`TypedWriter::set_values`](crate::TypedWriter::set_values) writes back.
-    pub fn values(&self) -> DocumentValues {
-        DocumentValues {
-            fields: Some(card_fields(Some(&self.config.main), self.doc.main())),
-            body: Some(self.doc.main().body_markdown()),
-            cards: Some(
-                self.doc
-                    .cards()
-                    .iter()
-                    .map(|card| card_values(self.config, card))
-                    .collect(),
-            ),
-            ext: Some(self.doc.main().ext().cloned()),
-        }
-    }
-
     /// The resolved view: for every declared field, the value the render
     /// projection would use and the rung it came from. The one read that
     /// blank-fills and coerces; see [`Quill::resolve`](crate::Quill::resolve).
@@ -158,19 +132,14 @@ impl<'a> TypedReader<'a> {
             .card(index)
             .ok_or(EditError::IndexOutOfRange { index, len })?;
         let schema = card.kind().and_then(|k| self.config.card_kind(k));
-        Ok(CardReader {
-            config: self.config,
-            schema,
-            card,
-        })
+        Ok(CardReader { schema, card })
     }
 }
 
 /// A single composable card bound to its [`CardSchema`], from
-/// [`TypedReader::card`]. Same `get` / `values` / `body_markdown` verbs as
+/// [`TypedReader::card`]. Same `get` / `body_markdown` verbs as
 /// [`TypedReader`], reading the card at its bound index.
 pub struct CardReader<'a> {
-    config: &'a QuillConfig,
     schema: Option<&'a CardSchema>,
     card: &'a Card,
 }
@@ -209,12 +178,6 @@ impl CardReader<'_> {
     pub fn body_markdown(&self) -> String {
         self.card.body_markdown()
     }
-
-    /// This card in the values form: [`TypedReader::values`] restricted to one
-    /// slot, every axis filled.
-    pub fn values(&self) -> CardValues {
-        card_values(self.config, self.card)
-    }
 }
 
 /// The shared read dispatch behind [`TypedReader::get`] and [`CardReader::get`].
@@ -230,13 +193,7 @@ fn read_field(
     let Some(value) = card.payload().get(name) else {
         return Ok(None);
     };
-    let projected = project_value(
-        name,
-        value.as_json(),
-        schema,
-        &mut Vec::new(),
-        ProjectMode::Strict,
-    )?;
+    let projected = project_value(name, value.as_json(), schema, &mut Vec::new())?;
     Ok(Some(QuillValue::from_json(projected)))
 }
 
@@ -272,32 +229,22 @@ fn read_content(
         .map_err(|e| field_decode(name, at, codec, e))
 }
 
-/// What a content leaf that decodes under neither encoding does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ProjectMode {
-    /// Raise [`EditError::FieldDecode`] anchored at the leaf.
-    Strict,
-    /// Pass the value verbatim.
-    Total,
-}
-
 /// Project `value` through `schema`'s type tree into the values form: every
 /// content leaf to its codec's text, every other node verbatim, descending
 /// `items` / `properties` / `variants`. `at` is the path from the field to
-/// `value`, extended on descent and read only to anchor a
-/// [`Strict`](ProjectMode::Strict) failure.
+/// `value`, extended on descent and read only to anchor an
+/// [`EditError::FieldDecode`] at the leaf that raised it.
 ///
 /// The descent is over the schema, so a node whose shape the schema cannot take
 /// stops there and passes verbatim: a value is never reshaped to match a
 /// declaration it does not fit. A null rides as null at every type, so the form
 /// keeps present-null apart from authored-empty; blank-filling is the render
 /// view's.
-pub(crate) fn project_value(
+fn project_value(
     name: &str,
     value: &serde_json::Value,
     schema: &FieldSchema,
     at: &mut Vec<PathSegment>,
-    mode: ProjectMode,
 ) -> Result<serde_json::Value, EditError> {
     if value.is_null() {
         return Ok(serde_json::Value::Null);
@@ -305,10 +252,7 @@ pub(crate) fn project_value(
     if let Some(codec) = content_codec(&schema.r#type) {
         return match codec.decode_field(value) {
             Ok(content) => Ok(serde_json::Value::String(codec.project(&content))),
-            Err(e) => match mode {
-                ProjectMode::Strict => Err(field_decode(name, at, codec, e)),
-                ProjectMode::Total => Ok(value.clone()),
-            },
+            Err(e) => Err(field_decode(name, at, codec, e)),
         };
     }
     match (&schema.r#type, value) {
@@ -319,7 +263,7 @@ pub(crate) fn project_value(
             let mut out = Vec::with_capacity(items.len());
             for (index, item) in items.iter().enumerate() {
                 at.push(PathSegment::Index(index));
-                let projected = project_value(name, item, item_schema, at, mode);
+                let projected = project_value(name, item, item_schema, at);
                 at.pop();
                 out.push(projected?);
             }
@@ -327,7 +271,7 @@ pub(crate) fn project_value(
         }
         (FieldType::Object, serde_json::Value::Object(map)) => {
             let props = schema.properties.as_ref();
-            project_map(name, map, at, mode, |key| {
+            project_map(name, map, at, |key| {
                 props.and_then(|p| p.get(key)).map(|s| &**s)
             })
         }
@@ -336,7 +280,7 @@ pub(crate) fn project_value(
         // document carries it. The discriminant declares no cell and rides
         // verbatim.
         (FieldType::Enum, serde_json::Value::Object(map)) if schema.is_variant_bearing() => {
-            project_map(name, map, at, mode, |key| schema.variant_field(key))
+            project_map(name, map, at, |key| schema.variant_field(key))
         }
         _ => Ok(value.clone()),
     }
@@ -349,7 +293,6 @@ fn project_map<'a>(
     name: &str,
     map: &serde_json::Map<String, serde_json::Value>,
     at: &mut Vec<PathSegment>,
-    mode: ProjectMode,
     cell: impl Fn(&str) -> Option<&'a FieldSchema>,
 ) -> Result<serde_json::Value, EditError> {
     let mut out = serde_json::Map::with_capacity(map.len());
@@ -358,7 +301,7 @@ fn project_map<'a>(
             None => child.clone(),
             Some(child_schema) => {
                 at.push(PathSegment::Key(key.clone()));
-                let projected = project_value(name, child, child_schema, at, mode);
+                let projected = project_value(name, child, child_schema, at);
                 at.pop();
                 projected?
             }

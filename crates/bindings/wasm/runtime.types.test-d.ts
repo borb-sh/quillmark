@@ -179,56 +179,10 @@ type MainCardAddrType = typeof import('../../../pkg/runtime/runtime.d.ts').MAIN_
 const mainCardAddrIsCardAddr: CardAddr = {} as MainCardAddrType;
 void mainCardAddrIsCardAddr;
 
-// ── Pinned-arm discriminant guards ──────────────────────────────────
-// Each guard must narrow to its arm's payload. Each `if` body reads a payload
-// reachable only after narrowing, so a guard that stops narrowing fails
-// `npm run typecheck`. `ContentIsland`, `TableProps`, `ImageProps`,
-// `ContentMark`, `ContentLine` and `ContentContainer` are imported above.
-import {
-	isTableIsland,
-	isImageIsland,
-	isLinkMark,
-	isAnchorMark,
-	isHeadingLine,
-	isCodeLine,
-	isListItemContainer
-} from '../../../pkg/runtime/runtime.js';
-
+// The narrowing assertions below take these three.
 declare const guardIsland: ContentIsland;
-if (isTableIsland(guardIsland)) {
-	const tableProps: TableProps = guardIsland.props;
-	void tableProps;
-}
-if (isImageIsland(guardIsland)) {
-	const imageProps: ImageProps = guardIsland.props;
-	void imageProps;
-}
-
 declare const guardMark: ContentMark;
-if (isLinkMark(guardMark)) {
-	const url: string = guardMark.attrs.url;
-	void url;
-}
-if (isAnchorMark(guardMark)) {
-	const id: string = guardMark.attrs.id;
-	void id;
-}
-
 declare const guardLine: ContentLine;
-if (isHeadingLine(guardLine)) {
-	const level: number = guardLine.attrs.level;
-	void level;
-}
-if (isCodeLine(guardLine)) {
-	const lang: string | undefined = guardLine.attrs?.lang;
-	void lang;
-}
-
-declare const guardContainer: ContentContainer;
-if (isListItemContainer(guardContainer)) {
-	const ordinal: number = guardContainer.attrs.ordinal;
-	void ordinal;
-}
 
 // ── The vocabularies are closed ─────────────────────────────────────
 // A name outside a union is a type error, which is the compile-time half of the

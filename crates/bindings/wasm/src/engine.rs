@@ -5,7 +5,8 @@ use crate::types::{ChangeSet, ContentHit, FieldRegion, RenderOptions, RenderResu
 use js_sys::{Array, Uint8Array};
 #[cfg(any(feature = "typst", feature = "pdfform"))]
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
+#[cfg(any(feature = "typst", feature = "pdfform"))]
 use tsify::Ts;
 use wasm_bindgen::prelude::*;
 
@@ -115,9 +116,6 @@ export interface QuillSchema {
  * Identity snapshot mirroring the `quill:` section of `Quill.yaml`. The schema
  * lives on `Quill.schema`; output formats are a resolved-backend capability read
  * from `Quillmark.supportedFormats`, not part of this config snapshot.
- *
- * These five keys come first in the order below; any extra `quill:` keys follow
- * in sorted order.
  */
 export interface QuillMetadata {
     name: string;
@@ -148,7 +146,7 @@ export type PayloadItem =
           /**
            * Paths to `!must_fill` markers nested *inside* `value` (the `value`
            * projection itself is fill-free). Absent when the field has no nested
-           * placeholders. Preserved across `insertCard` / `makeCard`.
+           * placeholders. Preserved across `insertCard`.
            */
           nestedFills?: PathStep[][];
       }
@@ -320,8 +318,7 @@ export type ContentIsland = {
  * `$kind`, and a wrong-kind path matches nothing silently.
  *
  * An `Addr` names a field, never a value inside one: every verb that takes one
- * would then carry an element axis it cannot answer. The one read that reaches
- * inside takes the path as its own argument, `reader.getContentAt(addr, path)`.
+ * would then carry an element axis it cannot answer.
  */
 export interface Addr {
     card?: number;
@@ -457,23 +454,6 @@ export interface ChangeBundle {
 #[cfg(any(feature = "typst", feature = "pdfform"))]
 const MAX_BACKING_DIMENSION: u32 = 16384;
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
-fn now_ms() -> f64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        js_sys::Date::now()
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let dur = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default();
-        dur.as_millis() as f64
-    }
-}
-
 /// Render engine: a backend registry and render dispatcher. Render build only:
 /// the core build constructs and validates quills without it.
 #[cfg(any(feature = "typst", feature = "pdfform"))]
@@ -560,7 +540,6 @@ impl Quillmark {
         doc: &Document,
         opts: Option<Ts<RenderOptions>>,
     ) -> Result<Ts<RenderResult>, JsValue> {
-        let start = now_ms();
         let rust_opts = render_options_or_throw(opts)?;
         let result = self
             .inner
@@ -574,7 +553,6 @@ impl Quillmark {
             artifacts: result.artifacts.into_iter().map(Into::into).collect(),
             warnings,
             output_format: result.output_format.into(),
-            render_time_ms: now_ms() - start,
             regions: quillmark_core::regions_to_doc_path(result.regions, &kinds)
                 .into_iter()
                 .map(Into::into)
@@ -658,37 +636,20 @@ impl Quill {
         serialize_or_throw(&value, "schema")
     }
 
-    /// Identity snapshot of the `quill:` section of `Quill.yaml` plus any extra
-    /// `quill:` keys. Pure config: output formats are a resolved-backend
-    /// capability read from `Quillmark.supportedFormats`, not part of this.
-    ///
-    /// The five standard keys come first in their declared order, then the
-    /// extra keys sorted by name, so the object's key order is a function of
-    /// the quill alone.
+    /// Identity snapshot of the `quill:` section of `Quill.yaml`. Pure config:
+    /// output formats are a resolved-backend capability read from
+    /// `Quillmark.supportedFormats`, not part of this.
     #[wasm_bindgen(getter, js_name = metadata, unchecked_return_type = "QuillMetadata")]
     pub fn metadata(&self) -> Result<JsValue, JsValue> {
-        let source = &self.inner;
-        let config = source.config();
+        let config = self.inner.config();
 
-        let mut value = serde_json::json!({
+        let value = serde_json::json!({
             "name": config.name,
             "version": config.version,
             "backend": config.backend,
             "author": config.author,
             "description": config.description,
         });
-        let serde_json::Value::Object(obj) = &mut value else {
-            unreachable!("json! builds an object")
-        };
-        let extras: BTreeMap<&str, &serde_json::Value> = source
-            .metadata()
-            .iter()
-            .filter(|(key, _)| !quillmark_core::STANDARD_METADATA_KEYS.contains(&key.as_str()))
-            .map(|(key, value)| (key.as_str(), value.as_json()))
-            .collect();
-        for (key, extra) in extras {
-            obj.insert(key.to_string(), extra.clone());
-        }
 
         serialize_or_throw(&value, "metadata")
     }
@@ -850,18 +811,6 @@ impl Document {
         })
     }
 
-    /// Like [`fromStored`](Document::from_stored) but returns `undefined` instead
-    /// of throwing when `json` is not a valid storage DTO, to discriminate format
-    /// without exceptions as control flow.
-    #[wasm_bindgen(js_name = tryFromStored)]
-    pub fn try_from_stored(json: &str) -> Option<Document> {
-        let inner: quillmark_core::Document = serde_json::from_str(json).ok()?;
-        Some(Document {
-            inner,
-            parse_warnings: Vec::new(),
-        })
-    }
-
     /// Read the storage version tag from a raw storage DTO string without a full
     /// parse, or `undefined`. Unknown future versions come back as-is, which
     /// distinguishes "build too old" from "payload corrupt" when `fromStored`
@@ -899,14 +848,6 @@ impl Document {
     #[wasm_bindgen(js_name = quillRefHint)]
     pub fn quill_ref_hint() -> String {
         quillmark_core::quill_ref_hint().to_string()
-    }
-
-    /// Render a Diagnostic as the canonical pretty-printed text, so it looks
-    /// identical whichever consumer surfaces it.
-    #[wasm_bindgen(js_name = formatDiagnostic)]
-    pub fn format_diagnostic(diag: Ts<Diagnostic>) -> Result<String, JsValue> {
-        let core: quillmark_core::Diagnostic = from_ts_or_throw(&diag)?.into();
-        Ok(core.fmt_pretty())
     }
 
     /// Emit canonical Quillmark Markdown. Round-trip safe: re-parsing the
@@ -1121,56 +1062,6 @@ impl Document {
                     ),
                 }
             }
-        }
-    }
-
-    /// Interpreted **`Content`** read of a value nested inside the composite
-    /// field at `addr`: the stable ABI under the runtime `reader.getContentAt`,
-    /// and [`reader.getContent`](Self::reader_get_content) with the path spelled
-    /// out. `path` is a `PathStep[]` from the field to the leaf — `[0]` an
-    /// element of an `array<richtext>`, `["motto"]` an `object`'s content
-    /// property, `[1, "notes"]` a leaf under both, `["controlled_by"]` a
-    /// variant's cell.
-    ///
-    /// The codec is the leaf's declared type's, so the caller stops deciding
-    /// what an element's stored bytes mean. Total over the storage form, as the
-    /// whole-field read is.
-    ///
-    /// `undefined` when the field is absent **and when `path` names nothing in
-    /// the stored value**: a repeater's row index goes stale between derive and
-    /// read, and absence there is a read, not a fault. Throws
-    /// `edit::unknown_field` for an undeclared name at any depth,
-    /// `edit::field_not_content` when `path` resolves to no content leaf,
-    /// `edit::field_decode` for a value that decodes under neither encoding
-    /// (anchored at the addressed path), and `edit::index_out_of_range` for a
-    /// bad `addr.card`. A body address throws: a body has no nested content
-    /// address.
-    #[wasm_bindgen(js_name = _readerGetContentAt, skip_typescript, unchecked_return_type = "Content | undefined")]
-    pub fn reader_get_content_at(
-        &self,
-        quill: &Quill,
-        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
-        #[wasm_bindgen(unchecked_param_type = "PathStep[]")] path: JsValue,
-    ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js_or_string(&addr)?;
-        let field = addr.require_field("reader.getContentAt")?.to_string();
-        let at = path_from_js(&path, "reader.getContentAt")?;
-        let base = self.addr_base(&addr);
-        let reader = quill.inner.reader(&self.inner);
-        let read = match addr.card {
-            None => reader.get_content_at(&field, &at),
-            Some(index) => reader
-                .card(index)
-                .map_err(|e| edit_error_to_js(&e, &base))?
-                .get_content_at(&field, &at),
-        }
-        .map_err(|e| edit_error_to_js(&e, &base))?;
-        match read {
-            None => Ok(JsValue::UNDEFINED),
-            Some(content) => serialize_or_throw(
-                &quillmark_content::serial::to_seam_value(&content),
-                "reader.getContentAt",
-            ),
         }
     }
 
@@ -1633,80 +1524,6 @@ impl Document {
         }
     }
 
-    /// The values form at `addr`: the ABI under `reader.values()` (the main-card
-    /// address, the whole document as `DocumentValues`) and
-    /// `reader.card(i).values()` (`{ card }`, that card as `CardValues`). Every
-    /// axis filled; `null` for a card without `$ext` and for a kindless card's
-    /// `kind`; a present-null field as `null`. Total on the field axis: a
-    /// content leaf that decodes under neither encoding rides out as stored.
-    /// An out-of-range `addr.card` throws.
-    #[wasm_bindgen(js_name = _readerValues, skip_typescript, unchecked_return_type = "DocumentValues | CardValues")]
-    pub fn reader_values(
-        &self,
-        quill: &Quill,
-        #[wasm_bindgen(unchecked_param_type = "CardAddr")] addr: JsValue,
-    ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js(&addr)?;
-        addr.require_card_only("readerValues")?;
-        let base = self.addr_base(&addr);
-        let reader = quill.inner.reader(&self.inner);
-        match addr.card {
-            None => serialize_nullable_or_throw(&reader.values(), "reader.values"),
-            Some(index) => serialize_nullable_or_throw(
-                &reader
-                    .card(index)
-                    .map_err(|e| edit_error_to_js(&e, &base))?
-                    .values(),
-                "reader.values",
-            ),
-        }
-    }
-
-    /// Write the values form at `addr`: the ABI under `writer.setValues` (the
-    /// main-card address, a `DocumentValuesInput`) and
-    /// `writer.card(i).setValues` (`{ card }`, a `CardValuesInput`).
-    ///
-    /// An absent axis is untouched; a present one is replaced. All-or-nothing:
-    /// nothing is applied on error and every refused cell arrives as one
-    /// `diagnostics` entry carrying its own `path` (`main.qty`,
-    /// `cards.line_item[0].desc`). A cell whose value equals its projection is
-    /// not written, so writing back an unedited `values` read is a no-op. A
-    /// malformed `values` (an unknown key, a wrong member type) throws before
-    /// any of it is read.
-    #[wasm_bindgen(js_name = _setValues, skip_typescript)]
-    pub fn set_values(
-        &mut self,
-        quill: &Quill,
-        #[wasm_bindgen(unchecked_param_type = "CardAddr")] addr: JsValue,
-        #[wasm_bindgen(unchecked_param_type = "DocumentValuesInput | CardValuesInput")]
-        values: JsValue,
-    ) -> Result<(), JsValue> {
-        let addr = Addr::from_js(&addr)?;
-        addr.require_card_only("setValues")?;
-        let base = self.addr_base(&addr);
-        let json = js_value_to_json(values, "setValues")?;
-        let shape_error = |e: serde_json::Error| {
-            WasmError::from(format!("setValues: invalid values shape: {e}")).to_js_value()
-        };
-        let mut writer = quill.inner.writer(&mut self.inner);
-        match addr.card {
-            None => {
-                let values: quillmark_core::DocumentValues =
-                    serde_json::from_value(json).map_err(shape_error)?;
-                writer.set_values(&values).map_err(edit_errors_at_to_js)
-            }
-            Some(index) => {
-                let values: quillmark_core::CardValues =
-                    serde_json::from_value(json).map_err(shape_error)?;
-                writer
-                    .card(index)
-                    .map_err(|e| edit_error_to_js(&e, &base))?
-                    .set_values(&values)
-                    .map_err(edit_errors_at_to_js)
-            }
-        }
-    }
-
     /// Build a composable card of `kind`, typed-commit `fields` onto it, set its
     /// body from optional markdown, and place it: the ABI under `writer.addCard`.
     /// `at` absent appends, a number inserts at that index (`0..=cards.length`).
@@ -1737,57 +1554,6 @@ impl Document {
             .writer(&mut self.inner)
             .add_card(kind, batch, body.as_deref(), at)
             .map_err(|errs| edit_errors_to_js(errs, &quillmark_core::DocPath::new()))
-    }
-
-    /// Build a fresh `Card` from a kind and a flat field map: the ergonomic
-    /// constructor for `insertCard`, which also takes any `Card` object
-    /// directly. Each `fields` entry becomes a card field in insertion order;
-    /// `body` defaults to `""`.
-    ///
-    /// Checks only what a detached card can decide alone: field-name grammar and
-    /// value depth. Kind validity is positional, so `insertCard` is its gate and
-    /// any kind string is accepted here.
-    #[wasm_bindgen(js_name = makeCard, unchecked_return_type = "Card")]
-    pub fn make_card(
-        kind: String,
-        #[wasm_bindgen(unchecked_optional_param_type = "Record<string, unknown>")] fields: Option<
-            JsValue,
-        >,
-        #[wasm_bindgen(unchecked_optional_param_type = "string")] body: Option<String>,
-    ) -> Result<JsValue, JsValue> {
-        let field_map: serde_json::Map<String, serde_json::Value> = match fields {
-            Some(fields) if !fields.is_undefined() && !fields.is_null() => {
-                // A backstop under `Card::try_from`'s field-depth cap, catching
-                // only what would trap before that check runs; see
-                // `reject_deep_js_value` for why it precedes `from_value`.
-                reject_deep_js_value(&fields, "makeCard")?;
-                serde_wasm_bindgen::from_value(fields).map_err(|e| {
-                    WasmError::from(format!("makeCard: `fields` must be an object: {e}"))
-                        .to_js_value()
-                })?
-            }
-            _ => serde_json::Map::new(),
-        };
-        let payload_items = field_map
-            .into_iter()
-            .map(|(key, value)| quillmark_core::PayloadItemWire::Field {
-                key,
-                value,
-                fill: false,
-                nested_fills: Vec::new(),
-            })
-            .collect();
-        let mut string_wire = quillmark_core::CardWire::new(
-            kind,
-            serde_json::Value::String(body.unwrap_or_default()),
-        );
-        string_wire.payload_items = payload_items;
-        // Round-trip through `Card` so the emitted card carries the content body,
-        // not the raw authored string.
-        let card =
-            quillmark_core::Card::try_from(string_wire).map_err(|e| wire_error_to_js(&e))?;
-        let wire = quillmark_core::CardWire::from(&card);
-        serialize_or_throw(&wire, "makeCard")
     }
 
     /// Insert a card: `at` absent appends, a number inserts at that index (in
@@ -1827,16 +1593,6 @@ impl Document {
         self.inner
             .move_card(from, to)
             .map_err(|e| edit_error_to_js(&e, &quillmark_core::DocPath::new()))
-    }
-
-    /// Replace the kind of the card at `index`. Payload and body are untouched;
-    /// schema-aware migration is the caller's responsibility.
-    /// Throws if `index` is out of range or `newKind` is invalid.
-    #[wasm_bindgen(js_name = setCardKind)]
-    pub fn set_card_kind(&mut self, index: usize, new_kind: &str) -> Result<(), JsValue> {
-        self.inner
-            .set_card_kind(index, new_kind)
-            .map_err(|e| edit_error_to_js(&e, &quillmark_core::DocPath::card(None, index)))
     }
 
 }
@@ -2065,73 +1821,6 @@ export type DocPathSeg =
 "#;
 
 #[wasm_bindgen(typescript_custom_section)]
-const VALUES_TS: &'static str = r#"
-/**
- * One composable card in the values form (`reader.card(i).values()`). `kind`
- * is the stored `$kind`, `null` for a kindless card; a kind the schema does
- * not declare carries its fields verbatim, there being no declared type to
- * project them through. `ext` is `null` when the card carries no `$ext` and
- * `{}` for an explicit `$ext: {}`.
- */
-export interface CardValues {
-    kind: string | null;
-    fields: Record<string, unknown>;
-    body: string;
-    ext: Record<string, unknown> | null;
-}
-
-/**
- * A document in the values form (`reader.values()`): the stored value with
- * every content leaf decoded to its codec's text (`richtext` markdown,
- * `plaintext` literal) at every depth, everything else as stored, a
- * present-null as `null`. `fields` carries the declared fields the card holds
- * in declaration order, then undeclared ones verbatim in authored order.
- *
- * Sparse — an absent field is an absent key, never its `default:` (`resolve`
- * is the view that blank-fills). A projection, never a storage format:
- * markdown carries no anchors, island ids or content-only marks, and
- * `$quill`, `$seed`, `!must_fill` markers and YAML comments are not carried.
- * Persist with `toStored`.
- *
- * Every axis is present on a read, so every `DocumentValues` is a valid
- * `DocumentValuesInput`, and writing one back unedited changes no bytes.
- */
-export interface DocumentValues {
-    fields: Record<string, unknown>;
-    body: string;
-    cards: CardValues[];
-    ext: Record<string, unknown> | null;
-}
-
-/**
- * `writer.card(i).setValues` input, and one entry of
- * `DocumentValuesInput.cards`. An absent axis is untouched: an absent `kind`
- * keeps the card's, an absent `fields` / `body` / `ext` leaves that axis
- * alone (empty on a card being built). `ext: null` removes `$ext`. An
- * `undefined` member reads as absent, `null` as `null`.
- */
-export interface CardValuesInput {
-    kind?: string | null;
-    fields?: Record<string, unknown>;
-    body?: string;
-    ext?: Record<string, unknown> | null;
-}
-
-/**
- * `writer.setValues` input. An absent axis is untouched; a present one is
- * replaced: `fields` is the whole truth for declared names, `cards` is the
- * card list, `body` the body, `ext: null` removes `$ext` and `{}` records an
- * explicit empty one. An `undefined` member reads as absent, `null` as `null`.
- */
-export interface DocumentValuesInput {
-    fields?: Record<string, unknown>;
-    body?: string;
-    cards?: CardValuesInput[];
-    ext?: Record<string, unknown> | null;
-}
-"#;
-
-#[wasm_bindgen(typescript_custom_section)]
 const RESOLVED_TS: &'static str = r#"
 /**
  * The commitment-ladder rung that produced a `ResolvedField.value`.
@@ -2339,24 +2028,6 @@ fn edit_errors_to_js(
     WasmError { diagnostics }.to_js_value()
 }
 
-/// The [`edit_errors_to_js`] twin for a batch spanning cards, where each
-/// refusal carries the whole [`DocPath`](quillmark_core::DocPath) it anchors at
-/// rather than a field name under one base.
-fn edit_errors_at_to_js(
-    errors: Vec<(quillmark_core::DocPath, quillmark_core::EditError)>,
-) -> JsValue {
-    let diagnostics: Vec<quillmark_core::Diagnostic> = errors
-        .into_iter()
-        .map(|(path, err)| {
-            quillmark_core::Diagnostic::new(quillmark_core::Severity::Error, err.to_string())
-                .with_code(err.code().to_string())
-                .with_args(err.args())
-                .with_path(path.to_string())
-        })
-        .collect();
-    WasmError { diagnostics }.to_js_value()
-}
-
 /// Key order is preserved (`preserve_order` is on workspace-wide), so field
 /// insertion order follows the object's.
 fn js_value_to_field_batch(
@@ -2372,36 +2043,6 @@ fn js_value_to_field_batch(
     }
 }
 
-/// Read a `PathStep[]` in-field path: a string is an object key, a non-negative
-/// integer an array index. A malformed step throws rather than being dropped —
-/// a silently skipped step reads a different address and never says so. Flat by
-/// construction, so no depth guard applies.
-fn path_from_js(value: &JsValue, ctx: &str) -> Result<Vec<quillmark_core::PathSegment>, JsValue> {
-    if !Array::is_array(value) {
-        return Err(WasmError::from(format!(
-            "{ctx}: `path` must be an array of string keys and non-negative integer indices"
-        ))
-        .to_js_value());
-    }
-    Array::from(value)
-        .iter()
-        .enumerate()
-        .map(|(i, step)| {
-            if let Some(key) = step.as_string() {
-                return Ok(quillmark_core::PathSegment::Key(key));
-            }
-            match step.as_f64() {
-                Some(n) if n >= 0.0 && n.fract() == 0.0 && n <= u32::MAX as f64 => {
-                    Ok(quillmark_core::PathSegment::Index(n as usize))
-                }
-                _ => Err(WasmError::from(format!(
-                    "{ctx}: `path[{i}]` must be a string key or a non-negative integer index"
-                ))
-                .to_js_value()),
-            }
-        })
-        .collect()
-}
 
 fn js_value_to_json(value: JsValue, ctx: &str) -> Result<serde_json::Value, JsValue> {
     reject_deep_js_value(&value, ctx)?;
@@ -2489,6 +2130,7 @@ fn to_ts_or_throw<T: tsify::Tsify + Serialize>(value: &T) -> Result<Ts<T>, JsVal
 }
 
 /// The read direction of [`to_ts_or_throw`].
+#[cfg(any(feature = "typst", feature = "pdfform"))]
 fn from_ts_or_throw<T: tsify::Tsify + serde::de::DeserializeOwned>(
     value: &Ts<T>,
 ) -> Result<T, JsValue>
@@ -2548,8 +2190,8 @@ fn js_to_card(value: &JsValue) -> Result<quillmark_core::Card, JsValue> {
                 if !ALLOWED.contains(&k.as_str()) {
                     return Err(WasmError::from(format!(
                         "card has unknown field `{k}`; expected a CardInput \
-                         {{ kind, payloadItems, body, … }}: build one with \
-                         Document.makeCard(kind, fields, body)"
+                         {{ kind, payloadItems, body, … }}, where each field is \
+                         a payload item {{ type: 'field', key, value }}"
                     ))
                     .to_js_value());
                 }
@@ -2776,7 +2418,6 @@ impl LiveSession {
 
     #[wasm_bindgen(js_name = render)]
     pub fn render(&self, opts: Option<Ts<RenderOptions>>) -> Result<Ts<RenderResult>, JsValue> {
-        let start = now_ms();
         let rust_opts = render_options_or_throw(opts)?;
 
         let result = self
@@ -2788,7 +2429,6 @@ impl LiveSession {
             artifacts: result.artifacts.into_iter().map(Into::into).collect(),
             warnings: result.warnings.into_iter().map(Into::into).collect(),
             output_format: result.output_format.into(),
-            render_time_ms: now_ms() - start,
             regions: quillmark_core::regions_to_doc_path(result.regions, &self.kinds())
                 .into_iter()
                 .map(Into::into)
