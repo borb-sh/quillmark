@@ -347,10 +347,18 @@ payload spelled as a **named sibling**, which is how every release through
   predate the release. Both re-canonicalize what they decode, so the value rests
   in the current spelling either way.
 
-The same split governs an unreadable **table-cell mark**. Storage skips it:
+The same split governs a **malformed table-cell mark**. Storage skips it:
 `serial::parse_cell` is lenient, and normalization makes the skip permanent. The
 authored lane refuses it, because a host's malformed mark vanishing with no
 signal is the silent corruption the split exists to catch.
+
+The split stops at *shape*. A cell mark whose `type` is outside the vocabulary
+is refused on **both** lanes, at the decoder
+(`IslandType::reject_unknown_cell_mark`), because the lenient read is exactly
+what would make it silent: `canon_cell` re-mints each cell from what
+`parse_cell` returned, so a skipped name leaves the stored bytes on a read with
+no edit — the byte movement § Content vocabularies refuses the row to prevent.
+The mark axis is closed everywhere a mark is spelled, cells included.
 
 It governs a **value the markdown projection cannot write** as well: a code
 fence's `lang` outside the identifier shape it is emitted in unquoted, and a

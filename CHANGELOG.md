@@ -14,7 +14,11 @@
   one into through `overwrite`, `applyChange` or a card body. The three
   `Unknown` carriers, `RESERVED_*` and the three `ReservedUnknown*` invariants
   go with them; `Island::island_type` becomes the `IslandType` enum and `Loss`
-  becomes the enum `Fidelity` was. On the WASM surface the six unions lose
+  becomes the enum `Fidelity` was. The mark axis closes inside a table island's
+  cells as well, where the read is otherwise lenient: `canon_cell` re-mints a
+  cell from what `parse_cell` returned, so a skipped name would leave the
+  stored bytes on a read with no edit, and the decoder refuses the row instead.
+  A *malformed* cell mark is still skipped — that split is about shape. On the WASM surface the six unions lose
   their open arm, so `line.kind === 'heading'` narrows `line.attrs` with no
   guard, and the four `isUnknown*` guards are deleted — a read never returns
   one and a write of one throws. The storage tag is unchanged: every byte the

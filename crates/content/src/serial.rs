@@ -950,23 +950,25 @@ pub(crate) fn island_to_value(island: &Island) -> Value {
 
 pub(crate) fn island_from_value(v: &Value) -> Result<Island, ParseError> {
     let o = v.as_object().ok_or(ParseError::Shape("island"))?;
+    let name = o
+        .get("type")
+        .and_then(Value::as_str)
+        .ok_or(ParseError::Shape("island type"))?;
+    let island_type =
+        crate::island::IslandType::parse(name).ok_or_else(|| ParseError::UnknownName {
+            axis: "island type",
+            name: name.to_string(),
+        })?;
+    let props = bag_from_wire(o, "props", "island props")?;
+    island_type.reject_unknown_cell_mark(&props)?;
     Ok(Island {
         id: o
             .get("id")
             .and_then(Value::as_str)
             .ok_or(ParseError::Shape("island id"))?
             .to_string(),
-        island_type: {
-            let name = o
-                .get("type")
-                .and_then(Value::as_str)
-                .ok_or(ParseError::Shape("island type"))?;
-            crate::island::IslandType::parse(name).ok_or_else(|| ParseError::UnknownName {
-                axis: "island type",
-                name: name.to_string(),
-            })?
-        },
-        props: bag_from_wire(o, "props", "island props")?,
+        island_type,
+        props,
         // A missing key is the faithful class: it predates the key.
         loss: match o.get("loss") {
             None => Loss::Lossless,
@@ -978,6 +980,26 @@ pub(crate) fn island_from_value(v: &Value) -> Result<Island, ParseError> {
             Some(_) => return Err(ParseError::Shape("island loss")),
         },
     })
+}
+
+/// The mark vocabulary's verdict on a table island's cells, for
+/// [`crate::island::IslandType::reject_unknown_cell_mark`].
+///
+/// A cell mark reaches no other strict decode: [`parse_cell`] reads them
+/// leniently and `canon_cell` writes the survivors back, so a name outside the
+/// vocabulary would leave the stored bytes on a read with no edit rather than
+/// refusing the row. A *malformed* cell mark stays skipped — that is the split
+/// canon § "an unreadable table-cell mark" sets, and it is about shape, not
+/// names.
+pub(crate) fn reject_unknown_cell_mark_name(props: &Value) -> Result<(), ParseError> {
+    for cell in table_cell_values(props) {
+        for m in arr_or_empty(cell, "marks") {
+            if let Err(e @ ParseError::UnknownName { .. }) = mark_from_value(m) {
+                return Err(e);
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1446,6 +1468,46 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A table cell's marks are read leniently, so without a decoder arm of
+    /// their own a name outside the vocabulary would be dropped by `canon_cell`
+    /// and the row would open with its bytes moved. It is refused instead, on
+    /// both lanes, like the mark axis everywhere else.
+    #[test]
+    fn an_unknown_cell_mark_name_is_refused_rather_than_dropped() {
+        let cell_marks = |marks: &str| {
+            format!(
+                concat!(
+                    r#"{{"islands":[{{"id":"i1","loss":"lossless","props":{{"aligns":["none"],"#,
+                    r#""header":[{{"marks":[{marks}],"text":"h"}}],"#,
+                    r#""rows":[[{{"marks":[],"text":"c"}}]]}},"type":"table"}}],"#,
+                    "\"lines\":[{{\"containers\":[],\"kind\":\"island\"}}],\"marks\":[],\"text\":\"\u{fffc}\"}}"
+                ),
+                marks = marks
+            )
+        };
+        let outside = cell_marks(r#"{"end":1,"start":0,"type":"highlight"}"#);
+        let v: Value = serde_json::from_str(&outside).unwrap();
+        for (lane, got) in [
+            ("storage", from_canonical_value(&v)),
+            ("authored", from_authored_value(&v)),
+        ] {
+            assert_eq!(
+                got.unwrap_err(),
+                ParseError::UnknownName {
+                    axis: "mark type",
+                    name: "highlight".to_string()
+                },
+                "{lane} lane accepted a cell mark type outside the vocabulary"
+            );
+        }
+
+        // The split holds: a *malformed* cell mark is still skipped, so the row
+        // opens. That rule is about shape, and predates the closure.
+        let malformed = cell_marks(r#"{"end":"x","start":0,"type":"strong"}"#);
+        let v: Value = serde_json::from_str(&malformed).unwrap();
+        assert!(from_canonical_value(&v).is_ok());
     }
 
     /// A malformed discriminator is a shape error, not a vocabulary one: the

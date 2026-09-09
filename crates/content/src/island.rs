@@ -70,6 +70,17 @@ impl IslandType {
         }
     }
 
+    /// Refuse a cell mark whose `type` is outside the mark vocabulary. The
+    /// decoder's arm of [`cell_marks`](Self::cell_marks): those read leniently,
+    /// so this is the one place the row can be refused rather than silently
+    /// re-encoded without the mark.
+    pub fn reject_unknown_cell_mark(self, props: &Value) -> Result<(), crate::serial::ParseError> {
+        match self {
+            Self::Table => crate::serial::reject_unknown_cell_mark_name(props),
+            Self::Image => Ok(()),
+        }
+    }
+
     /// Repair this type's props to canonical shape in place; a no-op for a type
     /// with no shape invariants.
     pub fn normalize_props(self, props: &mut Value) {
