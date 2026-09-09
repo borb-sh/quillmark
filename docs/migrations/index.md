@@ -9,15 +9,15 @@ Each guide covers one step. To cross several versions, work through them in
 order; each states its own breaks in full. The rows below name the step's
 headline break, enough to pick the guide.
 
-No step requires migrating a stored document. Bytes and the storage tag hold
-across every step here except 0.111 → 0.112, where canonical bytes move
+No step requires migrating a stored document: the storage DTO's bytes and tag
+hold across every step here except 0.111 → 0.112, where canonical bytes move
 (content hashes recompute) and the tag becomes `quillmark/document@0.112.0`.
 
 ## Guides
 
 | Step | What changes |
 |---|---|
-| [0.112 → 0.113](0.112-to-0.113.md) | The content vocabularies close: a line `kind`, container, mark `type`, island `type` or `loss` outside the built-ins stops opening a stored row. Also `reader.get` in the values form, `reader.resolve()`, the `toStored` / `fromStored` / `loadStored` renames, and a wide pruning sweep. |
+| [0.112 → 0.113](0.112-to-0.113.md) | The content vocabularies close: a line `kind`, container, mark `type`, island `type` or `loss` outside the built-ins stops opening a stored row. Every column-zero `~~~` block is a card whatever its info string, so a `~~~rust` fence in a body opens one where it opened a code block — a backtick fence is the escape hatch. Also `reader.get` in the values form, `reader.resolve()`, the `toStored` / `fromStored` / `loadStored` renames, and a wide pruning sweep. |
 | [0.111 → 0.112](0.111-to-0.112.md) | One spelling per name: every vocabulary member carries its payload in `attrs`, built-ins included, so a host reading `line.level` or `mark.url` reads them under `attrs` and the authored lane refuses the old spelling. |
 | [0.110 → 0.111](0.110-to-0.111.md) | A fix release: four surfaces refuse input they were producing something wrong from. The one break that can stop a render is a pdfform background carrying its own `/AcroForm` (`pdf::existing_acroform`). |
 | [0.109 → 0.110](0.109-to-0.110.md) | Every hand-built container literal must spell `instance`: the discriminator becomes a required field on the whole-document write lanes, and `ContentContainerInput` is deleted. |

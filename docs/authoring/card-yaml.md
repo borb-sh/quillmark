@@ -22,10 +22,9 @@ tags: ["important", "draft"]
 
 A card-yaml block has three parts, in order:
 
-1. **Opening fence**: a bare `~~~` (three tildes, no info string). No leading
-   indentation. The `~~~card-yaml` info string is also accepted on
-   input as a non-canonical alias; it parses identically and re-emits as a bare
-   `~~~`.
+1. **Opening fence**: a bare `~~~` (three tildes). No leading indentation. Any
+   info string is accepted on input — `~~~card-yaml` and `~~~yaml` among them —
+   and re-emits as a bare `~~~`.
 2. **YAML payload**: a standard YAML mapping. The reserved keys `$quill`,
    `$kind`, `$ext`, and `$seed` carry system metadata (see below); every
    other key is a user-defined data field.
@@ -40,11 +39,10 @@ A blank line is required immediately above every `~~~` opener,
 treated as an ordinary code block.
 
 Because every column-zero `~~~` block is a card-yaml block, writing a literal
-fenced code block in prose requires the escape hatch: use a **backtick fence**
-(or a `~~~` fence carrying a language info string, e.g. `~~~rust`). Adding more
-tildes does not escape: a `~~~~` block is still a card (its closer must just
-be at least as long). A `~~~` fence whose info string is anything other than
-`card-yaml` stays an ordinary code block.
+fenced code block in prose requires the escape hatch: use a **backtick fence**.
+Tildes offer no escape. Adding more does not help — a `~~~~` block is still a
+card (its closer must just be at least as long) — and neither does a language
+info string: `~~~rust` opens a card whose payload is your Rust.
 
 ## System Metadata (`$`)
 

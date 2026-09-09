@@ -9,7 +9,7 @@ use crate::error::ParseError;
 use crate::value::{PathSegment, QuillValue};
 use crate::{Diagnostic, Severity};
 
-use super::fences::{find_metadata_blocks, RootFault};
+use super::fences::{find_metadata_blocks, UnclosedRoot};
 use super::meta::{extract_meta_items, meta_key};
 use super::payload::{MetaKey, Payload, PayloadItem};
 use quillmark_content::Normalized;
@@ -25,47 +25,35 @@ use super::{Card, Document};
 /// A `MissingQuill` message naming the specific malformation. LLM authors hit a
 /// few recurring shapes — a bare YAML mapping with no fences, an opener whose
 /// closer is missing or misspelt — where naming the concrete edit converges
-/// faster than generic advice. `root_fault` is what the fence scanner saw at the
-/// root position, so a document that *does* open correctly is never told to open
-/// correctly.
-fn missing_block_message(markdown: &str, root_fault: Option<&RootFault>) -> String {
-    match root_fault {
-        Some(RootFault::Unclosed {
-            opener_line,
-            near_closer,
-            last_field,
-        }) => {
-            let mut msg = format!(
-                "Root card-yaml block opened at line {} is never closed.",
-                opener_line + 1
-            );
-            if let Some((line, text)) = near_closer {
-                msg.push_str(&format!(
-                    " The line `{}` at line {} does not close it: a closing fence is at \
-                     column zero and at least as long as the opener.",
-                    text,
-                    line + 1
-                ));
-            }
-            msg.push_str(" Add a line containing exactly `~~~` (three tildes, no info string) ");
-            match last_field {
-                Some(key) => msg.push_str(&format!("after the last field (`{}`), ", key)),
-                None => msg.push_str("after the last field, "),
-            }
-            msg.push_str("before the prose body.");
-            return msg;
+/// faster than generic advice. `unclosed_root` is what the fence scanner saw at
+/// the root position, so a document that *does* open correctly is never told to
+/// open correctly.
+fn missing_block_message(markdown: &str, unclosed_root: Option<&UnclosedRoot>) -> String {
+    if let Some(UnclosedRoot {
+        opener_line,
+        near_closer,
+        last_field,
+    }) = unclosed_root
+    {
+        let mut msg = format!(
+            "Root card-yaml block opened at line {} is never closed.",
+            opener_line + 1
+        );
+        if let Some((line, text)) = near_closer {
+            msg.push_str(&format!(
+                " The line `{}` at line {} does not close it: a closing fence is at \
+                 column zero and at least as long as the opener.",
+                text,
+                line + 1
+            ));
         }
-        Some(RootFault::InfoString { opener_line, info }) => {
-            return format!(
-                "Root card-yaml block opener at line {} is `~~~{}`, which opens an ordinary \
-                 code block. The card-yaml opener carries no info string: drop `{}` and open \
-                 with a bare `~~~` (the `card-yaml` and `yaml` info strings are also accepted).",
-                opener_line + 1,
-                info,
-                info
-            );
+        msg.push_str(" Add a line containing exactly `~~~` (three tildes) ");
+        match last_field {
+            Some(key) => msg.push_str(&format!("after the last field (`{}`), ", key)),
+            None => msg.push_str("after the last field, "),
         }
-        None => {}
+        msg.push_str("before the prose body.");
+        return msg;
     }
 
     let trimmed = markdown.trim_start();
@@ -74,7 +62,7 @@ fn missing_block_message(markdown: &str, root_fault: Option<&RootFault>) -> Stri
         return "Missing required root card-yaml block. Your document starts with \
                 YAML metadata but is missing the `~~~` fence. Wrap the \
                 metadata: add a line `~~~` above the `$quill:` line and a \
-                line containing exactly `~~~` (three tildes, no info string) below \
+                line containing exactly `~~~` (three tildes) below \
                 the last metadata field, before the prose body."
             .to_string();
     }
@@ -296,7 +284,7 @@ pub(super) fn decompose_with_warnings(
 
     if blocks.is_empty() {
         return Err(crate::error::ParseError::MissingQuill(
-            missing_block_message(markdown, scan.root_fault.as_ref()),
+            missing_block_message(markdown, scan.unclosed_root.as_ref()),
         ));
     }
 

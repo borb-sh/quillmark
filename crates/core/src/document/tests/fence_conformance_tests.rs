@@ -80,6 +80,10 @@ fn scanner_agrees_with_commonmark_on_synthetic_inputs() {
             "~~~card-yaml\n$quill: q\n$kind: main\n~~~\n\nBody.\n",
         ),
         (
+            "language info string",
+            "~~~rust\n$quill: q\n$kind: main\n~~~\n\nBody.\n",
+        ),
+        (
             "root + composable card",
             "~~~\n$quill: q\n$kind: main\n~~~\n\nB\n\n~~~\n$kind: note\nx: 1\n~~~\n\nAfter.\n",
         ),

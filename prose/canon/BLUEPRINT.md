@@ -40,8 +40,8 @@ $kind: <card_kind>
 Write <card_kind> body here.
 ````
 
-Every block is a bare `~~~` block (the canonical card-yaml fence; `~~~card-yaml`
-is also accepted as an alias; see
+Every block is a bare `~~~` block (the canonical card-yaml fence; the opener's
+info string is ignored; see
 [markdown-spec.md](../references/markdown-spec.md) §3): the root block carries
 the `$quill` system-metadata line; each composable card carries a
 `$kind: <card_kind>` metadata line.
@@ -424,9 +424,9 @@ one sample instance of that kind, not a required one. Delete the whole block
 when the document needs none of that kind.
 
 A `body.example` whose text contains a line that would parse as a
-card-yaml opener (a bare `~~~` (or the `~~~card-yaml` alias)) is
-rejected at `Quill.yaml` parse time (`quill::body_example_contains_fence`)
-to prevent corrupting the blueprint's document structure.
+card-yaml opener (any column-zero `~~~`) is rejected at `Quill.yaml` parse
+time (`quill::body_example_contains_fence`) to prevent corrupting the
+blueprint's document structure.
 
 ## Worked example
 
