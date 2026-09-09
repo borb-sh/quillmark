@@ -433,14 +433,6 @@ and the `RESERVED_*` lists in Rust. A consumer that re-derives the built-in list
 has re-coupled to a closed set, and misreads the first release that adds a
 built-in.
 
-That consumer is also the only one who can catch a misspelled name, which is why
-no lane refuses one. `kind: "headding"` and `kind: "callout"` are the same bytes
-to a decoder: one is a typo, the other a tag a newer build wrote, and nothing on
-the wire separates them. Refusing an unknown name at the authored door would
-refuse a carried unknown on its way back out, which is the write the carrier
-exists to make. The host knows which it authored, and `isUnknown*` over its own
-input before the write is where that knowledge lives.
-
 The bound: **the carrier preserves unknown tags, not unknown payloads on known
 tags.** A future `kind: "footnote"` carrying an `attrs.ref` loses `ref` at any
 consumer that predates it, predicates or no. What the first rule above (*payload

@@ -10,10 +10,7 @@
   a valid `CardInput`, and a read emits a stored-only tolerance verbatim.
   `card_wire_body_decodes_storage_lane` pins the door's lane, which had drifted
   across canon, a released guide and four code comments with nothing catching
-  it. Canon gains the reason no lane refuses an unknown *name*: the wire cannot
-  tell a misspelled built-in from a tag a newer build wrote, so only the host
-  that authored the value can classify it, over its own input, before the write.
-  `Content::validate` also drops a reserved-tag check on table-cell marks that
+  it. `Content::validate` also drops a reserved-tag check on table-cell marks that
   nothing reaches — `parse_cell` resolves every built-in name before its
   `Unknown` arm, so a cell mark is never a reserved-tag unknown.
 - docs: **two copies that were copies, not two ends of a subject.**
