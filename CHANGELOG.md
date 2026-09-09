@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- docs(bindings,migrations): **the parity table records differences; the
+  migration index records steps.** `BINDINGS.md`'s table drops the six rows
+  whose class was `identical`, which now read as one line above it, and three
+  rows stop restating the model the section states 90 lines up. What the table
+  holds is one row per forced difference. The migration index cuts each row to
+  the step's headline break, from 3,729 words of table cells to 594 for the
+  whole page: a chooser, not a fifth copy of each guide beside the commit, the
+  changelog and the guide itself. The one storage-format move across the
+  thirteen steps (0.111 → 0.112) is stated once in the preamble rather than
+  re-derived from thirteen "stored blobs are untouched" clauses. No guide is
+  deleted; keeping the early ones costs nothing. Closes #1701.
 - feat(content,wasm)!: **the content vocabularies close.** A line `kind`,
   container, mark `type`, island `type` or `loss` outside the built-ins was an
   open set: it round-tripped opaque and projected as its nearest safe
