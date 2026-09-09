@@ -1750,6 +1750,9 @@ mod tests {
             .expect("the hard break is there");
         assert!(rt.apply_line_ops(&[LineOp::Join { line: seam - 2 }]).is_ok());
         assert_eq!(rt.validate(), Ok(()), "the join left a storable content");
+        let mut again = rt.clone().into_content();
+        again.normalize();
+        assert_eq!(&again, &*rt, "the join left a repairable shape");
     }
 
     #[test]
