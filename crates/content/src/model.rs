@@ -24,11 +24,13 @@ pub const ISLAND_SLOT: char = '\u{FFFC}';
 
 /// One content field as a content: the text plus the structure that rides on it.
 ///
-/// Invariants (established once by import normalization, checked by
-/// [`Content::validate`]): the text holds no `\r`, no bidi controls, and no
-/// line separator (every character Typst reads as a newline but `\n`); the count
-/// of [`ISLAND_SLOT`] equals `islands.len()`; `lines.len()` equals the number of
-/// `\n`-separated segments; marks are normalized (sorted, unioned).
+/// The mint ([`Content::into_normalized`]) establishes the canonical form:
+/// marks sorted and unioned, container paths renumbered, a line's kind agreeing
+/// with its text, a block island's slot alone on its line, table props on one
+/// column count. [`Content::validate`] reports what the mint cannot repair: the
+/// text holds no `\r`, no bidi controls, and no line separator (every character
+/// Typst reads as a newline but `\n`); the count of [`ISLAND_SLOT`] equals
+/// `islands.len()`; `lines.len()` equals the number of `\n`-separated segments.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Content {
     /// The content. `\n` is a line boundary; [`ISLAND_SLOT`] is an island slot.
@@ -318,8 +320,8 @@ impl Container {
 ///
 /// ## Canonical, not valid
 ///
-/// [`validate`](Content::validate) rejects a different set: nothing
-/// normalization does brings a container path under
+/// [`validate`](Content::validate) rejects a disjoint set: what normalization
+/// cannot repair. Nothing it does brings a container path under
 /// [`MAX_NESTING_DEPTH`](crate::MAX_NESTING_DEPTH), so a token can hold a
 /// content `validate` refuses, and the mint stays infallible on that split. The
 /// codecs call `validate` after minting; a Rust embedder hand-building a
@@ -655,8 +657,14 @@ pub(crate) fn sort_keys_owned(v: JsonValue) -> JsonValue {
     }
 }
 
-/// Ways a [`Content`] can violate its invariants. Returned by
-/// [`Content::validate`]; import normalization guarantees none of these.
+/// What a [`Content`] can hold that [`Content::normalize`] cannot repair.
+/// Returned by [`Content::validate`].
+///
+/// Each names a shape the model has no principled rewrite for: a forbidden
+/// character with no substitute, two counts with no rule saying which is right,
+/// a range or depth past a bound, an id whose collision only its author can
+/// settle. What normalization *does* repair is not here — the mint establishes
+/// it, and nothing re-checks it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Invariant {
     /// `\r` in the text (line endings must be normalized to `\n`).
@@ -671,36 +679,16 @@ pub enum Invariant {
     /// `lines.len() != newline_segment_count`.
     LineCountMismatch { lines: usize, segments: usize },
     /// A mark range runs past the content or is inverted (`start > end`).
+    /// Clamping would guess which end the author meant.
     MarkOutOfRange { start: Usv, end: Usv, len: Usv },
-    /// A zero-width formatting mark survived normalization.
-    ZeroWidthFormatting { at: Usv },
-    /// A heading level outside 1..=6.
+    /// A heading level outside 1..=6. No rewrite is principled: level 0 exports
+    /// as bare text and level 7 as literal hashes, and a clamp guesses the
+    /// other way. Both wires refuse it ahead of the model
+    /// ([`ParseError::Shape`](crate::serial::ParseError::Shape)), so only a Rust
+    /// caller spelling the level reaches this.
     BadHeadingLevel(u8),
     /// The first line has `continues: true` (nothing precedes it to continue).
     FirstLineContinues,
-    /// A line has `continues: true` but sits in a different container path than
-    /// the line before it, so the block it claims to continue is not the block
-    /// above. `normalize` clears the flag; this catches a hand-built content
-    /// that skipped it.
-    ContinuesAcrossContainers { line: usize },
-    /// A line has `continues: true` but the line before it opens a block whose
-    /// kind renders one line ([`LineKind::takes_continuations`]), so the
-    /// continuation's text reaches no projection. `normalize` clears the flag;
-    /// this catches a hand-built content that skipped it.
-    ContinuesSingleLineBlock { line: usize },
-    /// A formatting mark edge sits on a `\n` (normalization should have trimmed
-    /// it): a hand-built content that skipped `normalize`.
-    MarkEdgeOnNewline { at: Usv },
-    /// A table island's `aligns` length differs from its column count (the
-    /// header width). `normalize` syncs `aligns` to the column count.
-    TableAlignsMismatch { aligns: usize, cols: usize },
-    /// A table island body row's width differs from the column count (the header
-    /// width). `normalize` pads short rows (and the header) to the widest.
-    TableRaggedRow { row: usize, width: usize, cols: usize },
-    /// A table cell's text carries a `\n`: cells are single-line (a newline
-    /// would break the exported table). `cell` is the flat header-then-rows
-    /// index; `normalize` rewrites the newline to a space.
-    TableCellNewline { cell: usize },
     /// Two islands share an `id`. Uniqueness is the id invariant `validate`
     /// enforces; positional equality is not, since edits keep an island's id
     /// stable across renumbers.
@@ -710,20 +698,6 @@ pub enum Invariant {
     /// removing one destroy both. Scope is prose marks: cell anchors are outside
     /// the op surface.
     AnchorIdCollision { id: String },
-    /// A table island's `header` prop is present but not a JSON array: it
-    /// cannot carry column cells. `normalize` rewrites a non-array header to an
-    /// empty array (a zero-column, content-free table).
-    TableHeaderNotArray,
-    /// A line's [`LineKind`] contradicts its text. Export trusts the kind and
-    /// never re-reads the segment, so an unchecked mismatch is silent text loss.
-    LineKindMismatch { line: usize, mismatch: LineKindMismatch },
-    /// A block-only island's slot
-    /// ([`IslandType::block_only`](crate::IslandType::block_only))
-    /// shares its line with other content, which has no markdown spelling.
-    /// `normalize` breaks the line around the slot; the lanes that author one
-    /// refuse the placement
-    /// ([`ApplyError::BlockIslandNotAlone`](crate::ApplyError::BlockIslandNotAlone)).
-    BlockIslandNotAlone { at: Usv },
     /// A line's container path is nested deeper than
     /// [`MAX_NESTING_DEPTH`](crate::MAX_NESTING_DEPTH). The Typst emitter
     /// recurses one frame per container and refuses a deeper path rather than
@@ -781,9 +755,8 @@ pub(crate) fn is_whole_line(chars: &[char], start: Usv, end: Usv) -> bool {
 }
 
 /// Every block-only island's slot that shares its line with other content, in
-/// text order: the single reading behind [`Invariant::BlockIslandNotAlone`], the
-/// authored lane's refusal, and the break [`Content::normalize`] performs, so
-/// the three cannot drift.
+/// text order: the single reading behind the authored lane's refusal and the
+/// break [`Content::normalize`] performs, so the two cannot drift.
 pub(crate) fn inline_block_islands<'a>(
     chars: &'a [char],
     islands: &'a [Island],
@@ -847,9 +820,10 @@ fn island_line_kind(kind: &LineKind, seg: &str, island: Option<&Island>) -> Opti
 impl Content {
     /// The text and its per-line attributes; marks and islands start empty.
     ///
-    /// Constructing does not normalize or check: the invariants in this type's
-    /// docs are the caller's until [`validate`](Self::validate) runs. The codecs
-    /// ([`crate::import`], [`Content::from_canonical_json`]) establish them.
+    /// Constructing neither normalizes nor checks: the canonical form is the
+    /// caller's until [`into_normalized`](Self::into_normalized) runs, and
+    /// [`validate`](Self::validate) reports what that cannot repair. The codecs
+    /// ([`crate::import`], [`Content::from_canonical_json`]) do both.
     pub fn new(text: String, lines: Vec<Line>) -> Self {
         Content {
             text,
@@ -1063,8 +1037,8 @@ impl Content {
         self.rebase_marks(&Delta { ops });
     }
 
-    /// Check every invariant. `Ok(())` on a well-formed content. Import
-    /// guarantees this; a hand-built content should be run through it in tests.
+    /// What the mint cannot repair. `Ok(())` on every content a codec or an
+    /// accepted op hands out; a hand-built one can fail it.
     pub fn validate(&self) -> Result<(), Invariant> {
         let mut slots = 0usize;
         let mut newlines = 0usize;
@@ -1103,32 +1077,6 @@ impl Content {
         if self.lines.first().is_some_and(|l| l.continues) {
             return Err(Invariant::FirstLineContinues);
         }
-        // The relational line invariants `validate` carries, both of them a
-        // `continues` line against the block above it. Every other container
-        // rule is a property of a line pair too, and `normalize` settles each:
-        // a non-canonical `ordinal` renumbers, a run opening under a fresh
-        // parent re-reads, this flag clears. What is left here is the
-        // assertion that it ran.
-        for (i, pair) in self.lines.windows(2).enumerate() {
-            if !pair[1].continues {
-                continue;
-            }
-            if pair[1].containers != pair[0].containers {
-                return Err(Invariant::ContinuesAcrossContainers { line: i + 1 });
-            }
-            if !pair[0].kind.takes_continuations() {
-                return Err(Invariant::ContinuesSingleLineBlock { line: i + 1 });
-            }
-        }
-        // The formatting-mark edge test and the block-island placement test are
-        // its only readers.
-        let reads_chars = self.marks.iter().any(|m| m.kind.is_formatting())
-            || self.islands.iter().any(|i| i.island_type.block_only());
-        let chars: Vec<char> = if reads_chars {
-            self.text.chars().collect()
-        } else {
-            Vec::new()
-        };
         // Anchor-id uniqueness is what `RemoveAnchor` presumes.
         let mut seen_anchor_ids = std::collections::HashSet::new();
         for m in &self.marks {
@@ -1139,33 +1087,18 @@ impl Content {
                     len,
                 });
             }
-            if m.start == m.end && m.kind.is_formatting() {
-                return Err(Invariant::ZeroWidthFormatting { at: m.start });
-            }
-            if m.kind.is_formatting() {
-                if chars.get(m.start) == Some(&'\n') {
-                    return Err(Invariant::MarkEdgeOnNewline { at: m.start });
-                }
-                if m.end > m.start && chars.get(m.end - 1) == Some(&'\n') {
-                    return Err(Invariant::MarkEdgeOnNewline { at: m.end - 1 });
-                }
-            }
             if let MarkKind::Anchor { id } = &m.kind
                 && (id.is_empty() || !seen_anchor_ids.insert(id.as_str()))
             {
                 return Err(Invariant::AnchorIdCollision { id: id.clone() });
             }
         }
-        // `lines.len()` already equals the segment count, so the zip is total.
-        for (i, (line, seg)) in self.lines.iter().zip(self.text.split('\n')).enumerate() {
+        for (i, line) in self.lines.iter().enumerate() {
             match &line.kind {
                 LineKind::Heading { level } if !(1..=6).contains(level) => {
                     return Err(Invariant::BadHeadingLevel(*level));
                 }
                 _ => {}
-            }
-            if let Some(mismatch) = line_kind_mismatch(&line.kind, seg) {
-                return Err(Invariant::LineKindMismatch { line: i, mismatch });
             }
             if line.containers.len() > crate::MAX_NESTING_DEPTH {
                 return Err(Invariant::NestingTooDeep {
@@ -1175,12 +1108,8 @@ impl Content {
                 });
             }
         }
-        if let Some(at) = inline_block_islands(&chars, &self.islands).next() {
-            return Err(Invariant::BlockIslandNotAlone { at });
-        }
-        // Table-cell marks: the prose range and zero-width rules again, but each
-        // mark is bounded by its own cell's text length (in USV). Cells hold no
-        // `\n`, so the edge-on-newline rule does not apply.
+        // Table-cell marks: the prose range rule again, but each mark is bounded
+        // by its own cell's text length (in USV).
         let mut seen_ids = std::collections::HashSet::with_capacity(self.islands.len());
         for island in &self.islands {
             if !seen_ids.insert(island.id.as_str()) {
@@ -1191,9 +1120,6 @@ impl Content {
             // Depth before any pass that walks `props`; a cell's own `attrs` is
             // a subtree, so this bounds the cell marks read below as well.
             check_json_depth(&island.props, "island props")?;
-            if let Some(e) = island.island_type.shape_error(&island.props) {
-                return Err(e);
-            }
             for (text, marks) in island.island_type.cell_marks(&island.props) {
                 let clen = text.chars().count();
                 for m in &marks {
@@ -1203,9 +1129,6 @@ impl Content {
                             end: m.end,
                             len: clen,
                         });
-                    }
-                    if m.start == m.end && m.kind.is_formatting() {
-                        return Err(Invariant::ZeroWidthFormatting { at: m.start });
                     }
                 }
             }
@@ -1408,33 +1331,24 @@ mod tests {
     }
 
     /// Export trusts the kind and never re-reads the segment, so `Island` over
-    /// prose projects to the island alone and `Rule` over prose to `---`: the
-    /// text silently gone.
+    /// prose would project to the island alone and `Rule` over prose to `---`,
+    /// the text silently gone. The mint demotes to `Para`, which is what
+    /// re-importing the line's own markdown yields.
     #[test]
-    fn line_kind_must_agree_with_line_text() {
-        assert_eq!(
-            tagged("hello world", LineKind::Island).validate(),
-            Err(Invariant::LineKindMismatch {
-                line: 0,
-                mismatch: LineKindMismatch::IslandNotOneSlot
-            })
-        );
-        assert_eq!(
-            tagged("", LineKind::Island).validate(),
-            Err(Invariant::LineKindMismatch {
-                line: 0,
-                mismatch: LineKindMismatch::IslandNotOneSlot
-            })
-        );
-        assert_eq!(
-            tagged("important text", LineKind::Rule).validate(),
-            Err(Invariant::LineKindMismatch {
-                line: 0,
-                mismatch: LineKindMismatch::RuleNotEmpty
-            })
-        );
+    fn normalize_demotes_a_stranded_line_kind() {
+        for (text, kind) in [
+            ("typed into a table line", LineKind::Island),
+            ("", LineKind::Island),
+            ("text on a rule line", LineKind::Rule),
+        ] {
+            let mut rt = tagged(text, kind.clone());
+            rt.normalize();
+            assert_eq!(rt.lines[0].kind, LineKind::Para, "{text:?} as {kind:?}");
+            assert_eq!(rt.validate(), Ok(()));
+        }
+
         // `Para`/`Heading` carry slots, so only a fence, whose text is emitted
-        // verbatim, refuses one.
+        // verbatim, strands one.
         let mut code = tagged(&format!("a{ISLAND_SLOT}b"), LineKind::Code { lang: None });
         code.islands = vec![Island {
             id: "isl-0".into(),
@@ -1442,37 +1356,25 @@ mod tests {
             props: serde_json::json!({"alt": "x", "url": "y.png"}),
             loss: Loss::Lossless,
         }];
-        assert_eq!(
-            code.validate(),
-            Err(Invariant::LineKindMismatch {
-                line: 0,
-                mismatch: LineKindMismatch::CodeHasSlot
-            })
-        );
-        let mut para = code.clone();
-        para.lines[0].kind = LineKind::Para;
-        assert_eq!(para.validate(), Ok(()));
-        let mut heading = code.clone();
-        heading.lines[0].kind = LineKind::Heading { level: 1 };
-        assert_eq!(heading.validate(), Ok(()));
-        assert_eq!(tagged("", LineKind::Rule).validate(), Ok(()));
-    }
+        for (kind, settles_to) in [
+            (LineKind::Code { lang: None }, LineKind::Para),
+            (LineKind::Para, LineKind::Para),
+            (LineKind::Heading { level: 1 }, LineKind::Heading { level: 1 }),
+        ] {
+            let mut rt = code.clone();
+            rt.lines[0].kind = kind.clone();
+            rt.normalize();
+            assert_eq!(rt.lines[0].kind, settles_to, "a slot under {kind:?}");
+            assert_eq!(rt.validate(), Ok(()));
+        }
 
-    #[test]
-    fn normalize_demotes_a_stranded_line_kind() {
-        let mut rt = tagged("typed into a table line", LineKind::Island);
-        rt.normalize();
-        assert_eq!(rt.lines[0].kind, LineKind::Para);
-        assert_eq!(rt.validate(), Ok(()));
-        let mut rt = tagged("text on a rule line", LineKind::Rule);
-        rt.normalize();
-        assert_eq!(rt.lines[0].kind, LineKind::Para);
         // A well-formed island line — a block island's slot alone — is left alone.
         let mut rt = tagged(&ISLAND_SLOT.to_string(), LineKind::Island);
         rt.islands = vec![table_island()];
         rt.normalize();
         assert_eq!(rt.lines[0].kind, LineKind::Island);
         assert_eq!(rt.validate(), Ok(()));
+        assert_eq!(tagged("", LineKind::Rule).validate(), Ok(()));
     }
 
     /// A one-cell table: the island type markdown writes as a block.
@@ -1803,8 +1705,7 @@ mod tests {
 
     /// A within-block break lives inside one container. `Join` mints the
     /// crossing shape by merging two lines of differing paths, which leaves the
-    /// *next* line continuing across the seam; `normalize` clears it, and
-    /// `validate` asserts that it ran.
+    /// *next* line continuing across the seam; `normalize` clears it.
     #[test]
     fn continues_across_a_container_boundary_is_cleared() {
         let mut rt = Content::new(
@@ -1815,11 +1716,6 @@ mod tests {
                     .with_containers(vec![Container::Quote { instance: 0 }])
                     .with_continues(true),
             ],
-        );
-        assert_eq!(
-            rt.validate(),
-            Err(Invariant::ContinuesAcrossContainers { line: 1 }),
-            "a hand-built content that skipped normalize is caught"
         );
         rt.normalize();
         assert!(!rt.lines[1].continues, "normalize clears it");
@@ -1865,7 +1761,7 @@ mod tests {
     /// A heading, an island and a rule render as their own line alone, so a
     /// `continues` line after one is text no projection reaches. `SetKind`
     /// mints the shape by retagging the line a continuation already follows;
-    /// `normalize` clears the flag, and `validate` asserts that it ran.
+    /// `normalize` clears the flag.
     #[test]
     fn continues_after_a_single_line_block_is_cleared() {
         let cases = [
@@ -1890,11 +1786,6 @@ mod tests {
                     }))],
                 _ => vec![],
             });
-            assert_eq!(
-                rt.validate(),
-                Err(Invariant::ContinuesSingleLineBlock { line: 1 }),
-                "a hand-built content that skipped normalize is caught"
-            );
             rt.normalize();
             assert!(!rt.lines[1].continues, "normalize clears it");
             assert_eq!(rt.validate(), Ok(()));
@@ -2037,43 +1928,6 @@ mod tests {
         serde_json::json!({ "text": t, "marks": [] })
     }
 
-    #[test]
-    fn validate_catches_table_shape() {
-        // Ragged row: header has 2 columns, the row has 3.
-        let rt = table_rt(serde_json::json!({
-            "aligns": ["none", "none"],
-            "header": [cell("a"), cell("b")],
-            "rows": [[cell("1"), cell("2"), cell("3")]],
-        }));
-        assert_eq!(
-            rt.validate(),
-            Err(Invariant::TableRaggedRow {
-                row: 0,
-                width: 3,
-                cols: 2
-            })
-        );
-
-        // aligns length differs from the column count.
-        let rt = table_rt(serde_json::json!({
-            "aligns": ["none"],
-            "header": [cell("a"), cell("b")],
-            "rows": [],
-        }));
-        assert_eq!(
-            rt.validate(),
-            Err(Invariant::TableAlignsMismatch { aligns: 1, cols: 2 })
-        );
-
-        // A `\n` in a cell (flat header-then-rows index 1 = the second header cell).
-        let rt = table_rt(serde_json::json!({
-            "aligns": ["none", "none"],
-            "header": [cell("a"), cell("b\nc")],
-            "rows": [],
-        }));
-        assert_eq!(rt.validate(), Err(Invariant::TableCellNewline { cell: 1 }));
-    }
-
     /// The widest row (3) drives the header width, so the markdown
     /// (header-derived) and Typst (widest-row) projections agree.
     #[test]
@@ -2118,13 +1972,12 @@ mod tests {
     }
 
     #[test]
-    fn non_array_table_header_is_rejected_then_repaired() {
+    fn non_array_table_header_is_repaired() {
         let mut rt = table_rt(serde_json::json!({
             "header": "oops",
             "aligns": [],
             "rows": [],
         }));
-        assert_eq!(rt.validate(), Err(Invariant::TableHeaderNotArray));
         rt.normalize();
         assert_eq!(rt.validate(), Ok(()));
         assert_eq!(rt.islands[0].props["header"], serde_json::json!([]));

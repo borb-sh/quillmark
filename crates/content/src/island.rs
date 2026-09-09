@@ -1,7 +1,7 @@
 //! Island types: the dispatch authority over
 //! [`Island::island_type`](crate::model::Island::island_type).
 
-use crate::model::{Invariant, Loss, Mark};
+use crate::model::{Loss, Mark};
 use serde_json::Value;
 
 /// The island types. Closed: a wire `type` outside this set is
@@ -12,7 +12,7 @@ use serde_json::Value;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IslandType {
     /// `{header, rows, aligns}` with inline `{text, marks}` cells. Mark-carrying,
-    /// shape-validated (one column count, `\n`-free cells).
+    /// shape-normalized (one column count, `\n`-free cells).
     Table,
     /// `{url, alt}`. No cell model, no shape invariants.
     Image,
@@ -89,16 +89,6 @@ impl IslandType {
             Self::Image => {}
         }
     }
-
-    /// This type's shape violation, if any (`None` for a well-formed or shape-free
-    /// island): the validate-side twin of [`normalize_props`](Self::normalize_props),
-    /// which guarantees this returns `None`.
-    pub fn shape_error(self, props: &Value) -> Option<Invariant> {
-        match self {
-            Self::Table => crate::serial::table_shape_error(props),
-            Self::Image => None,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -112,11 +102,11 @@ mod tests {
         }
     }
 
-    /// `normalize_props` guarantees `shape_error` returns `None`. An island
-    /// op's props are untyped at the wire, so a scalar where an array belongs is
-    /// a shape the two halves have to agree on.
+    /// An island op's props are untyped at the wire, so a scalar where an array
+    /// belongs reaches the mint, which answers with one column count across
+    /// `header`, `aligns` and every row, and is a fixed point on what it wrote.
     #[test]
-    fn normalize_repairs_every_props_shape_validate_refuses() {
+    fn normalize_props_settles_every_props_shape_on_one_column_count() {
         for props in [
             serde_json::json!({"header": ["h"], "aligns": "bogus", "rows": [["a"]]}),
             serde_json::json!({"header": "bogus", "aligns": ["left"], "rows": [["a"]]}),
@@ -125,11 +115,18 @@ mod tests {
         ] {
             let mut props = props;
             IslandType::Table.normalize_props(&mut props);
-            assert_eq!(
-                IslandType::Table.shape_error(&props),
-                None,
-                "normalized props still refused: {props}"
-            );
+
+            let len = |k: &str| props[k].as_array().expect("an array").len();
+            let cols = len("header");
+            assert_eq!(len("aligns"), cols, "aligns off the column count: {props}");
+            for row in props["rows"].as_array().expect("an array") {
+                let width = row.as_array().expect("an array").len();
+                assert_eq!(width, cols, "row off the column count: {props}");
+            }
+
+            let once = props.clone();
+            IslandType::Table.normalize_props(&mut props);
+            assert_eq!(props, once, "normalize_props is not a fixed point");
         }
     }
 }
