@@ -234,6 +234,28 @@ declare const liftLine: ContentLine;
 const liftedOp: LineOp = { op: 'setKind', line: 0, ...kindPart(liftLine) };
 void liftedOp;
 
+// ── A MarkOp spells its payload where the decoder reads it ──────────
+// `add`/`remove` carry the `ContentMark` vocabulary, payload spelling included.
+// The authored lane reads a built-in's payload out of `attrs` and refuses the
+// named sibling as the retired `@0.93.0` encoding, so an arm spelling
+// `{ type: 'link'; url }` would type-check a write `applyChange` rejects. There
+// is no `ContentMarkKind` to lift the payload by name — `ContentMark` bakes the
+// range into the intersection — so the arms are spelled out, and the mutual
+// assignability above cannot stand in: it passes while both copies carry the
+// same wrong shape.
+const addStrong: MarkOp = { op: 'add', start: 0, end: 1, type: 'strong' };
+const addLink: MarkOp = { op: 'add', start: 0, end: 1, type: 'link', attrs: { url: 'https://x' } };
+const addAnchor: MarkOp = { op: 'add', start: 0, end: 0, type: 'anchor', attrs: { id: 'a1' } };
+void addStrong;
+void addLink;
+void addAnchor;
+// @ts-expect-error the named sibling is the retired spelling the decoder refuses
+const legacyLinkOp: MarkOp = { op: 'add', start: 0, end: 1, type: 'link', url: 'https://x' };
+void legacyLinkOp;
+// @ts-expect-error same, for an anchor's id
+const legacyAnchorOp: MarkOp = { op: 'add', start: 0, end: 0, type: 'anchor', id: 'a1' };
+void legacyAnchorOp;
+
 // ── The gate is the only door ───────────────────────────────────────
 // The guarantee `init` exists to hold: a value needing the WASM instance is
 // reachable through the gate and nowhere else. A static export of one would

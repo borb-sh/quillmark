@@ -359,8 +359,8 @@ export type Assoc = "before" | "after";
 export type MarkOp =
     | ({ op: "add" | "remove"; start: number; end: number } & (
           | { type: "strong" | "emph" | "underline" | "strike" | "code" }
-          | { type: "link"; url: string }
-          | { type: "anchor"; id: string }
+          | { type: "link"; attrs: { url: string } }
+          | { type: "anchor"; attrs: { id: string } }
       ))
     | { op: "removeAnchor"; id: string };
 
