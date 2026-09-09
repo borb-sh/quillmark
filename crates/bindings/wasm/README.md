@@ -177,12 +177,15 @@ not the running crate version. It is a hand-set constant, bumped only when
 the `Document` model itself changes, so every `0.112.x` patch release reads
 and writes that same value.
 
-- **Upgrading is safe.** A newer build always reads documents written by an
-  older one. Each schema version's wire format is frozen and never changes;
-  when the model does change, the new build ships a migration that converts
-  old payloads on `fromStored`. A document you commit as your canonical
-  on-disk format keeps loading across crate upgrades: there is no need to
-  pin old wasm to read old data.
+- **Upgrading is safe.** A newer build reads documents an older build's
+  *writer* produced. Each schema version's wire format is frozen and never
+  changes; when the model does change, the new build ships a migration that
+  converts old payloads on `fromStored`. A document you commit as your
+  canonical on-disk format keeps loading across crate upgrades: there is no
+  need to pin old wasm to read old data. The exception is a row a host
+  authored a content construct of its own into — a line `kind`, container,
+  mark `type`, island `type` or `loss` outside the vocabulary. Those are
+  refused from 0.113 on; see that release's migration guide.
 - **Downgrading is not.** `fromStored` rejects an *unknown* (i.e. newer)
   `schema` version rather than guessing at a format it predates. Don't feed
   documents written by a newer build back into an older one.
