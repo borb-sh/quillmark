@@ -130,14 +130,12 @@ fn test_unclosed_root_fence_without_quill_keeps_the_generic_message() {
 }
 
 #[test]
-fn test_root_opener_with_foreign_info_string_names_the_info_string() {
-    let markdown = "~~~metadata\n$quill: usaf_memo@0.3.0\n$kind: main\n~~~\n\nBody.\n";
-    let msg = decompose(markdown).unwrap_err().to_string();
-    assert!(
-        msg.contains("opener at line 1 is `~~~metadata`"),
-        "got: {msg}"
-    );
-    assert!(msg.contains("drop `metadata`"), "got: {msg}");
+fn test_root_opener_with_foreign_info_string_parses_as_the_bare_form() {
+    let foreign = "~~~metadata\n$quill: usaf_memo@0.3.0\n$kind: main\n~~~\n\nBody.\n";
+    let bare = "~~~\n$quill: usaf_memo@0.3.0\n$kind: main\n~~~\n\nBody.\n";
+    let foreign_doc = decompose(foreign).expect("any info string opens the root block");
+    let bare_doc = decompose(bare).expect("bare root block parses");
+    assert_eq!(foreign_doc, bare_doc);
 }
 
 #[test]

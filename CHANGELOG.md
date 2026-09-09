@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- feat(core)!: **every column-zero `~~~` block is a card, whatever its info
+  string.** The opener's info string is no longer read. `~~~card-yaml` and
+  `~~~yaml` were accepted aliases and `~~~rust` opened an ordinary code block;
+  all of them open a card now. The spec already stated the widened rule in
+  §3.2 — "because every column-zero `~~~` block is a card-yaml block, write a
+  literal fenced code block with a backtick fence" — and then exempted language
+  info strings in the next sentence, so a tilde escape hatch was half-promised
+  and half-withheld. It was also already unavailable for the two shapes anyone
+  would reach for: a YAML block, claimed by the `yaml` alias, and a nested
+  backtick block, which is written with a bare `~~~`. Nothing first-party emits
+  a language-tagged tilde fence. A backtick fence is the escape hatch, and it
+  is the whole of it. The widening deletes what the exemption needed: the
+  accepted-alias list, the `RootFault::InfoString` diagnostic that existed to
+  explain why `~~~metadata` opened no block, and `code_fence_info`, whose last
+  caller it was; `RootFault` collapses to the `UnclosedRoot` struct it now is.
+  CommonMark conformance is unchanged — `fence_conformance_tests` holds every
+  card block to a pulldown-cmark fenced span at the same offsets, and a claimed
+  span is one CommonMark already fences — so the widening moves toward equality
+  rather than away. The `body.example` blueprint guard tightens with the parser
+  it delegates to, catching the language-tagged openers it used to pass.
+  Refs #1698.
 - feat(content,wasm)!: **the content vocabularies close.** A line `kind`,
   container, mark `type`, island `type` or `loss` outside the built-ins was an
   open set: it round-tripped opaque and projected as its nearest safe

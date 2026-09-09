@@ -1,18 +1,13 @@
 //! Line-oriented fence scanner for card-yaml blocks.
 //!
-//! A column-zero `~~~` fence (three or more tildes) with an empty info string,
-//! or one of the non-canonical `card-yaml` / `yaml` aliases, opens a card-yaml
-//! block. Openers inside an ordinary CommonMark fenced code block are literal
-//! content, so a backtick fence (or a `~~~` fence carrying a language) writes
-//! one in prose.
+//! A column-zero `~~~` fence (three or more tildes) opens a card-yaml block
+//! whatever its info string. Openers inside an ordinary CommonMark fenced code
+//! block are literal content, so a backtick fence writes one in prose.
 
 use crate::error::ParseError;
 use crate::{Diagnostic, Severity};
 
 use super::assemble::MetadataBlock;
-
-/// Accepted on input as non-canonical aliases; never emitted.
-const CARD_YAML_INFO: [&str; 2] = ["card-yaml", "yaml"];
 
 pub(super) struct Lines<'a> {
     pub(super) source: &'a str,
@@ -97,27 +92,20 @@ pub(super) fn code_fence_on_line(
     }
 }
 
-/// The text after a fence marker run of `run_len`, whitespace-trimmed.
-pub(super) fn code_fence_info(line: &str, run_len: usize) -> &str {
-    let indent = line.as_bytes().iter().take_while(|&&b| b == b' ').count();
-    line[indent + run_len..].trim()
-}
-
 /// The tilde-run length (`>= 3`) when `line` opens a card-yaml block.
 ///
-/// The opener must be at **column zero** (spec §3.2): an indented `~~~` is a
-/// valid CommonMark code fence, and claiming it would split at an offset the
-/// body renderer disagrees with. A longer run is accepted and normalised on
-/// emit; its closer must be at least as long (CommonMark fence matching).
+/// Spec §3.2. The info string is not read: every column-zero tilde fence is a
+/// card, so a language-tagged one is no escape. The opener must be at column
+/// zero — an indented `~~~` is a valid CommonMark code fence, and claiming it
+/// would split at an offset the body renderer disagrees with. A longer run is
+/// accepted and normalised on emit; its closer must be at least as long
+/// (CommonMark fence matching).
 fn card_yaml_opener_run(line: &str) -> Option<usize> {
     if line.starts_with(' ') {
         return None;
     }
     match code_fence_on_line(line, None) {
-        Some((b'~', run, false)) => {
-            let info = code_fence_info(line, run);
-            (info.is_empty() || CARD_YAML_INFO.contains(&info)).then_some(run)
-        }
+        Some((b'~', run, false)) => Some(run),
         _ => None,
     }
 }
@@ -181,28 +169,22 @@ fn closer_below(
     ((opener_k + 1)..lines.len()).find(|&j| closes(lines.line_text(j)))
 }
 
-/// What the scanner saw where the root block should have been, when the line it
-/// found there produced no block. Carried out of the scan so the `MissingQuill`
-/// message names the malformation instead of describing the shape the author
-/// already wrote.
-pub(super) enum RootFault {
-    /// A card-yaml opener declaring `$quill` that nothing closes.
-    Unclosed {
-        opener_line: usize,
-        /// The first all-tilde line below the opener: a run too short to close
-        /// it, or an indented one.
-        near_closer: Option<(usize, String)>,
-        /// The last top-level key of the payload the author wrote.
-        last_field: Option<String>,
-    },
-    /// A tilde fence declaring `$quill` whose info string opens a code block.
-    InfoString { opener_line: usize, info: String },
+/// A card-yaml opener declaring `$quill` that nothing closes. Carried out of
+/// the scan so the `MissingQuill` message names the malformation instead of
+/// describing the shape the author already wrote.
+pub(super) struct UnclosedRoot {
+    pub(super) opener_line: usize,
+    /// The first all-tilde line below the opener: a run too short to close it,
+    /// or an indented one.
+    pub(super) near_closer: Option<(usize, String)>,
+    /// The last top-level key of the payload the author wrote.
+    pub(super) last_field: Option<String>,
 }
 
 pub(super) struct FenceScan {
     pub(super) blocks: Vec<MetadataBlock>,
     pub(super) warnings: Vec<Diagnostic>,
-    pub(super) root_fault: Option<RootFault>,
+    pub(super) unclosed_root: Option<UnclosedRoot>,
 }
 
 /// The payload lines of a would-be block at `opener_k`: down to the first blank
@@ -236,7 +218,7 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
     let lines = Lines::new(markdown);
     let mut blocks: Vec<MetadataBlock> = Vec::new();
     let mut warnings: Vec<Diagnostic> = Vec::new();
-    let mut root_fault: Option<RootFault> = None;
+    let mut unclosed_root: Option<UnclosedRoot> = None;
     // (char, run_len, opener_line_index) of an open ordinary code fence.
     let mut open_code_fence: Option<(u8, usize, usize)> = None;
 
@@ -288,8 +270,9 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
                 // Per CommonMark an unclosed `~~~` fence is an ordinary code
                 // block running to EOF, so delegate rather than erroring. The
                 // end-of-document check below surfaces the warning.
-                if blocks.is_empty() && root_fault.is_none() && declares_quill_beneath(&lines, k) {
-                    root_fault = Some(RootFault::Unclosed {
+                if blocks.is_empty() && unclosed_root.is_none() && declares_quill_beneath(&lines, k)
+                {
+                    unclosed_root = Some(UnclosedRoot {
                         opener_line: k,
                         near_closer: near_closer_below(&lines, k),
                         last_field: last_field_key(&lines, k),
@@ -352,7 +335,7 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
                 return Err(ParseError::InvalidStructure(
                     "Composable card block opened with `---` but composable cards \
                      must use `~~~` fences. Replace the opening `---` and the \
-                     closing `---` with `~~~` (three tildes, no info string). The \
+                     closing `---` with `~~~` (three tildes). The \
                      `---` style is accepted only for the document's root block."
                         .to_string(),
                 ));
@@ -365,18 +348,6 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
 
         // Any other fence opener is an ordinary fenced code block.
         if let Some((ch, run_len, _)) = code_fence_on_line(text, None) {
-            if ch == b'~'
-                && blocks.is_empty()
-                && root_fault.is_none()
-                && !text.starts_with(' ')
-                && (0..k).all(|i| lines.is_blank(i))
-                && declares_quill_beneath(&lines, k)
-            {
-                root_fault = Some(RootFault::InfoString {
-                    opener_line: k,
-                    info: code_fence_info(text, run_len).to_string(),
-                });
-            }
             open_code_fence = Some((ch, run_len, k));
         }
         k += 1;
@@ -409,6 +380,6 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
     Ok(FenceScan {
         blocks,
         warnings,
-        root_fault,
+        unclosed_root,
     })
 }

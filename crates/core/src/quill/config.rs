@@ -1996,10 +1996,9 @@ impl QuillConfig {
 ///
 /// Delegates to the parser's own opener predicate
 /// ([`crate::document::fences::is_card_yaml_opener_line`]) so the guard stays
-/// in lock-step with fence detection: a column-zero tilde fence (three or more
-/// tildes) whose info string is empty or `card-yaml`. Backtick fences,
-/// language-tagged `~~~` fences, and indented fences are ordinary code blocks
-/// and are not flagged.
+/// in lock-step with fence detection: any column-zero tilde fence (three or
+/// more tildes), whatever its info string. Backtick fences and indented fences
+/// are ordinary code blocks and are not flagged.
 fn example_contains_fence_line(text: &str) -> bool {
     text.lines().any(|line| {
         let line = line.strip_suffix('\r').unwrap_or(line);
