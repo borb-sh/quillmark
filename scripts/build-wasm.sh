@@ -152,7 +152,20 @@ if [ "$RELEASE_STAMP" -ne 1 ]; then
     BASE=${VERSION%%-*}
     IFS=. read -r MAJOR MINOR PATCH <<< "$BASE"
     SHA=$(git rev-parse --short HEAD 2>/dev/null || echo local)
-    VERSION="$MAJOR.$MINOR.$((PATCH + 1))-dev.$SHA"
+    # Which number the dev stamp is a prerelease OF. `!` in the unreleased
+    # changelog is where a break is first recorded (CONTRIBUTING.md), and a
+    # break bumps the minor while the workspace is pre-1.0. Stamping the next
+    # patch over a breaking tree names a release this artifact is not: a
+    # consumer pinning `>=0.112.0` or reading the number to say which surface
+    # it built against gets a patch bump over sixteen withdrawn verbs.
+    UNRELEASED=$(awk '/^## Unreleased/ { f = 1; next } /^## / { f = 0 } f' CHANGELOG.md)
+    # Matched in-shell rather than through `grep -q`, which closes the pipe on
+    # its first hit: under `pipefail` the writer's SIGPIPE is the pipeline's
+    # status, so the test would read as "no break found" on every breaking tree.
+    case "$UNRELEASED" in
+        *'!:'*) VERSION="$MAJOR.$((MINOR + 1)).0-dev.$SHA" ;;
+        *) VERSION="$MAJOR.$MINOR.$((PATCH + 1))-dev.$SHA" ;;
+    esac
 fi
 echo ""
 echo "Creating package.json..."
