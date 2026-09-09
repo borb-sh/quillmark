@@ -23,7 +23,7 @@ quillmark render [OPTIONS] <QUILL_PATH> [MARKDOWN_FILE]
 - `<QUILL_PATH>`: Path to quill directory
 - `[MARKDOWN_FILE]`: Path to markdown file with a root card-yaml block (optional, when omitted, the quill's seeded document is rendered, each field populated from its `example:` value, with `default:` used as fallback)
 
-The file must open with a `~~~` block containing a `$quill:` key identifying the quill. The `~~~card-yaml` opener is also accepted.
+The file must open with a `~~~` block containing a `$quill:` key identifying the quill; the opener's info string is ignored.
 
 **Options:**
 

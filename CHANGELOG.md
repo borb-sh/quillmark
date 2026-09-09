@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- docs(cli): **the CLI prose stops naming one accepted opener.**
+  `docs/cli/reference.md` and `prose/canon/CLI.md` named `~~~card-yaml` as the
+  alternative to a bare `~~~`, where the opener's info string is no longer read
+  at all.
 - docs(bindings,migrations): **the parity table records differences; the
   migration index records steps.** `BINDINGS.md`'s table drops the six rows
   whose class was `identical`, which now read as one line above it, and three
