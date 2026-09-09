@@ -445,15 +445,6 @@ impl<'a> Emit<'a> {
                 self.emit_quote(i..j, depth);
                 Some(j)
             }
-            // Open set: a container this build does not know is **transparent**,
-            // its run lowers at the next depth with no wrapper markup, so the
-            // blocks inside it render where they would without it. Consuming
-            // the whole run here keeps its lines grouped as one block instead
-            // of splitting them.
-            _ => {
-                self.emit_block_level(i..j, depth + 1);
-                Some(j)
-            }
         }
     }
 
@@ -481,7 +472,7 @@ impl<'a> Emit<'a> {
         let first = &self.rt.lines[range.start];
         let (lo, _) = self.line_usv[range.start];
         let (_, hi) = self.line_usv[range.end - 1];
-        if first.kind.projects_as_para() && lo == hi {
+        if matches!(first.kind, LineKind::Para) && lo == hi {
             return;
         }
         self.open_line();
@@ -620,7 +611,7 @@ impl<'a> Emit<'a> {
             }
             LineKind::Code { .. } => unreachable!("code handled by early return"),
             // An island's slot and an unknown role both lower as a paragraph.
-            LineKind::Para | LineKind::Island | LineKind::Unknown { .. } => {
+            LineKind::Para | LineKind::Island => {
                 let g0 = self.out.len();
                 (g0, self.emit_inline(lo, hi))
             }
@@ -893,7 +884,7 @@ fn wraps_and_codes(marks: &[Mark], lo: usize, hi: usize) -> (Vec<Wrap>, Vec<(usi
                 open: format!("#link(\"{}\")[", escape_string(url)),
             }),
             // `Anchor` is identity and `Unknown` has no Typst spelling.
-            MarkKind::Anchor { .. } | MarkKind::Unknown { .. } => {}
+            MarkKind::Anchor { .. } => {}
         }
     }
     codes.sort_unstable();
@@ -1280,41 +1271,6 @@ mod tests {
         assert!(
             !items[1].starts_with("1."),
             "the second item restated the start: {out:?}"
-        );
-    }
-
-    /// A container this build does not know lowers transparently: no wrapper
-    /// markup, and no move out of the item either.
-    #[test]
-    fn an_unknown_container_in_an_item_stays_in_the_item() {
-        use quillmark_content::model::Line;
-        let item = || Container::ListItem {
-            ordered: false,
-            start: 1,
-            ordinal: 0,
-            instance: 0,
-        };
-        let roster = Container::Unknown {
-            tag: "roster".to_string(),
-            attrs: serde_json::Value::Null,
-            instance: 0,
-        };
-        let rt = Content::new(
-            "Alpha\nRoster\nBeta".to_string(),
-            vec![
-                Line::new(LineKind::Para).with_containers(vec![item()]),
-                Line::new(LineKind::Para).with_containers(vec![item(), roster]),
-                Line::new(LineKind::Para).with_containers(vec![item()]),
-            ],
-        )
-        .into_normalized();
-        assert_eq!(rt.validate(), Ok(()));
-        let out = emit_content(&rt).unwrap().markup;
-        let items = top_level(&out, SyntaxKind::ListItem);
-        assert_eq!(items.len(), 1, "the item broke apart: {out:?}");
-        assert!(
-            items[0].contains("Roster") && items[0].contains("Beta"),
-            "the container or the block after it left the item: {out:?}"
         );
     }
 
@@ -1783,47 +1739,6 @@ mod tests {
         assert_eq!(out, "#strong[ab#emph[cd]]#emph[ef]\n\n");
         // Bracket-balanced regardless.
         assert_eq!(out.matches('[').count(), out.matches(']').count());
-    }
-
-    /// A build that predates a construct renders it plainly instead of failing:
-    /// an unknown line kind as a paragraph, an unknown container transparently.
-    #[test]
-    fn unknown_block_vocabulary_lowers_as_prose() {
-        use quillmark_content::model::Line;
-        let indent = || Container::Unknown {
-            tag: "indent".to_string(),
-            attrs: serde_json::Value::Null,
-            instance: 0,
-        };
-        let rt = Content::new(
-            "heads up\nsecond".to_string(),
-            vec![
-                Line::new(LineKind::Unknown {
-                    tag: "callout".to_string(),
-                    attrs: serde_json::json!({"variant": "warn"}),
-                })
-                .with_containers(vec![indent()]),
-                Line::new(LineKind::Para)
-                    .with_containers(vec![indent()])
-                    .with_continues(true),
-            ],
-        );
-        let rt = rt.into_normalized();
-        assert_eq!(rt.validate(), Ok(()));
-        // One block (the `continues` join is a hard break), no wrapper.
-        assert_eq!(
-            emit_content(&rt).unwrap().markup,
-            "heads up#linebreak()second\n\n"
-        );
-        // Inside a known container the known wrapper still renders.
-        let mut rt = rt.into_content();
-        rt.lines[0].containers.insert(0, Container::Quote { instance: 0 });
-        rt.lines[1].containers.insert(0, Container::Quote { instance: 0 });
-        let rt = rt.into_normalized();
-        assert_eq!(
-            emit_content(&rt).unwrap().markup,
-            "#quote(block: true)[\nheads up#linebreak()second\n\n]\n\n"
-        );
     }
 
     /// Hand-placed `marks` reach the free-overlap shapes import never produces.

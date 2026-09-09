@@ -1222,10 +1222,6 @@ mod tests {
             MarkKind::Code,
             MarkKind::Link { url: "u".into() },
             MarkKind::Anchor { id: "a".into() },
-            MarkKind::Unknown {
-                tag: "kbd".into(),
-                attrs: bag(),
-            },
         ];
         let marks: Vec<Mark> = kinds
             .iter()
@@ -1248,11 +1244,6 @@ mod tests {
                 instance: 0,
             },
             Container::Quote { instance: 0 },
-            Container::Unknown {
-                tag: "indent".into(),
-                attrs: bag(),
-                instance: 0,
-            },
         ];
         for c in &containers {
             assert!(sorted(&container_to_value(c)), "container {c:?}");
@@ -1267,10 +1258,6 @@ mod tests {
             LineKind::Code { lang: None },
             LineKind::Island,
             LineKind::Rule,
-            LineKind::Unknown {
-                tag: "callout".into(),
-                attrs: bag(),
-            },
         ];
         for kind in line_kinds {
             for continues in [false, true] {
@@ -1838,9 +1825,9 @@ mod tests {
         );
     }
 
-    /// The canonical tie-break is the `(type, attrs)` pair the wire carries, so
-    /// a build that knows a member and one that reads it as `Unknown` order it
-    /// identically — against every other member, not only the built-ins.
+    /// The canonical tie-break is the `(type, attrs)` pair the wire carries,
+    /// read back off the value, so canonical order is a function of the stored
+    /// bytes rather than of variant declaration order.
     #[test]
     fn the_mark_tie_break_is_what_the_wire_carries() {
         let all = [
@@ -1851,10 +1838,6 @@ mod tests {
             MarkKind::Code,
             MarkKind::Link { url: "u".into() },
             MarkKind::Anchor { id: "a".into() },
-            MarkKind::Unknown {
-                tag: "kbd".into(),
-                attrs: Value::Null,
-            },
         ];
         // Exhaustive on purpose: a new variant is a compile error here, where
         // the rule gets read.
@@ -1866,18 +1849,20 @@ mod tests {
                 | MarkKind::Strike
                 | MarkKind::Code
                 | MarkKind::Link { .. }
-                | MarkKind::Anchor { .. }
-                | MarkKind::Unknown { .. } => {}
+                | MarkKind::Anchor { .. } => {}
             }
         }
         for k in &all {
-            // What a build lacking the name reconstructs from the same bytes.
             let wire = mark_to_value(&Mark::new(0, 1, k.clone()));
-            let unknowing = MarkKind::Unknown {
-                tag: wire["type"].as_str().unwrap().to_string(),
-                attrs: wire.get("attrs").cloned().unwrap_or(Value::Null),
+            let attrs = match wire.get("attrs") {
+                Some(a) => crate::model::canonical_json_string(a),
+                None => String::new(),
             };
-            assert_eq!(k.sort_key(), unknowing.sort_key(), "{k:?}");
+            assert_eq!(
+                k.sort_key(),
+                (wire["type"].as_str().unwrap().to_string(), attrs),
+                "{k:?}"
+            );
         }
     }
 

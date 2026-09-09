@@ -91,11 +91,9 @@ impl Line {
 /// lines with equal `kind`+`containers` are two blocks of that role (e.g. two
 /// paragraphs), never one.
 ///
-/// **Open**, on the same terms as [`MarkKind`]: an unrecognized role round-trips
-/// as [`LineKind::Unknown`] and *projects* as [`LineKind::Para`], so an older
-/// reader renders a future construct as a plain paragraph instead of refusing
-/// the document, while the opaque tag+attrs still reach a reader that
-/// understands them.
+/// **Closed**, on the same terms as [`MarkKind`]: a `kind` outside this set is
+/// [`ParseError::UnknownName`](crate::serial::ParseError::UnknownName) at every
+/// decoder, so adding a role is a storage-version event.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LineKind {
     Para,
@@ -117,45 +115,26 @@ pub enum LineKind {
     Island,
     /// A thematic break (`---`/`***`/`___`). The line carries no text.
     Rule,
-    /// Open-set escape hatch: a block role this build does not know,
-    /// round-tripped opaque and projected as [`LineKind::Para`]. Carries
-    /// arbitrary text, so no [`LineKindMismatch`] constrains it.
-    Unknown {
-        tag: String,
-        attrs: JsonValue,
-    },
 }
 
 impl LineKind {
-    /// Whether the line projects as a paragraph: [`LineKind::Para`] itself, or
-    /// an unknown role, which every projection renders as one. Use this rather
-    /// than `matches!(kind, Para)`, which reads as complete while dropping the
-    /// open arm, leaving the two emitters to drift on a construct neither knows.
-    pub fn projects_as_para(&self) -> bool {
-        matches!(self, LineKind::Para | LineKind::Unknown { .. })
-    }
-
     /// Whether a block of this kind renders the lines that [`Line::continues`]
     /// joins to its first. A paragraph spans its hard-break run and a code
     /// block its fence's interior; a heading, an island and a rule are one
     /// line, and both emitters render that line alone, so a continuation there
     /// is text the projection never reaches.
     pub fn takes_continuations(&self) -> bool {
-        matches!(
-            self,
-            LineKind::Para | LineKind::Code { .. } | LineKind::Unknown { .. }
-        )
+        matches!(self, LineKind::Para | LineKind::Code { .. })
     }
 
     /// The wire `kind` name.
-    pub fn tag(&self) -> &str {
+    pub fn tag(&self) -> &'static str {
         match self {
             LineKind::Para => "para",
             LineKind::Heading { .. } => "heading",
             LineKind::Code { .. } => "code",
             LineKind::Island => "island",
             LineKind::Rule => "rule",
-            LineKind::Unknown { tag, .. } => tag,
         }
     }
 
@@ -168,7 +147,6 @@ impl LineKind {
                 Some(l) => bag([("lang", l.as_str().into())]),
                 None => JsonValue::Null,
             }),
-            LineKind::Unknown { attrs, .. } => Cow::Borrowed(attrs),
         }
     }
 }
@@ -197,18 +175,10 @@ pub(crate) fn is_empty_bag(v: &JsonValue) -> bool {
     }
 }
 
-/// Collapse an empty bag to the one spelling. See [`is_empty_bag`].
-fn collapse_empty_bag(v: &mut JsonValue) {
-    if is_empty_bag(v) {
-        *v = JsonValue::Null;
-    }
-}
-
 /// A container a line nests inside. The ancestor path is a `Vec<Container>`.
 ///
-/// **Open**, on [`LineKind`]'s terms: an unrecognized container round-trips as
-/// [`Container::Unknown`] and projects *transparently*, its lines render at the
-/// enclosing level, with no prefix, no wrapper, and no grouping of their own.
+/// **Closed**, on [`LineKind`]'s terms: a `container` outside this set is
+/// [`ParseError::UnknownName`](crate::serial::ParseError::UnknownName).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Container {
     /// A list item. `ordered` distinguishes `1.` from `-`; `start` is the list's
@@ -229,15 +199,6 @@ pub enum Container {
     /// A block quote. Adjacent lines sharing one `Quote` are one
     /// multi-paragraph quote; two adjacent quotes differ in `instance`.
     Quote { instance: u64 },
-    /// Open-set escape hatch: a container this build does not know, kept in the
-    /// path so it round-trips, transparent to both projections. Two adjacent
-    /// lines sit in the same one iff their whole `(tag, attrs, instance)` is
-    /// equal.
-    Unknown {
-        tag: String,
-        attrs: JsonValue,
-        instance: u64,
-    },
 }
 
 impl Container {
@@ -259,18 +220,15 @@ impl Container {
     /// `0, 1, 0, 1`. Non-adjacent runs never collide, so two values suffice.
     pub fn instance(&self) -> u64 {
         match self {
-            Container::ListItem { instance, .. }
-            | Container::Quote { instance }
-            | Container::Unknown { instance, .. } => *instance,
+            Container::ListItem { instance, .. } | Container::Quote { instance } => *instance,
         }
     }
 
     /// The wire `container` name.
-    pub fn tag(&self) -> &str {
+    pub fn tag(&self) -> &'static str {
         match self {
             Container::ListItem { .. } => "list_item",
             Container::Quote { .. } => "quote",
-            Container::Unknown { tag, .. } => tag,
         }
     }
 
@@ -289,7 +247,6 @@ impl Container {
                 ("start", (*start).into()),
             ])),
             Container::Quote { .. } => Cow::Owned(JsonValue::Null),
-            Container::Unknown { attrs, .. } => Cow::Borrowed(attrs),
         }
     }
 
@@ -303,9 +260,7 @@ impl Container {
 
     fn set_instance(&mut self, n: u64) {
         match self {
-            Container::ListItem { instance, .. }
-            | Container::Quote { instance }
-            | Container::Unknown { instance, .. } => *instance = n,
+            Container::ListItem { instance, .. } | Container::Quote { instance } => *instance = n,
         }
     }
 
@@ -330,14 +285,6 @@ impl Container {
                 },
             ) => a == c && b == d,
             (Container::Quote { .. }, Container::Quote { .. }) => true,
-            (
-                Container::Unknown {
-                    tag: a, attrs: b, ..
-                },
-                Container::Unknown {
-                    tag: c, attrs: d, ..
-                },
-            ) => a == c && b == d,
             _ => false,
         }
     }
@@ -432,8 +379,8 @@ impl Mark {
     }
 }
 
-/// The mark set, **open**: an unknown kind round-trips as [`MarkKind::Unknown`],
-/// absorbed as a new *type*, never a changed semantics of a known one. Two
+/// The mark set, **closed**: a `type` outside it is
+/// [`ParseError::UnknownName`](crate::serial::ParseError::UnknownName). Two
 /// algebra classes: formatting is a property of a range (two coincident are
 /// redundant); identity is a handle (two over the same range are two things).
 #[derive(Debug, Clone, PartialEq)]
@@ -455,11 +402,6 @@ pub enum MarkKind {
     /// via diff-rebase.
     Anchor {
         id: String,
-    },
-    // Open-set escape hatch: an unknown mark type, round-tripped opaque.
-    Unknown {
-        tag: String,
-        attrs: JsonValue,
     },
 }
 
@@ -618,7 +560,7 @@ impl MarkKind {
     }
 
     /// The wire `type` name.
-    pub fn tag(&self) -> &str {
+    pub fn tag(&self) -> &'static str {
         match self {
             MarkKind::Strong => "strong",
             MarkKind::Emph => "emph",
@@ -627,7 +569,6 @@ impl MarkKind {
             MarkKind::Code => "code",
             MarkKind::Link { .. } => "link",
             MarkKind::Anchor { .. } => "anchor",
-            MarkKind::Unknown { tag, .. } => tag,
         }
     }
 
@@ -641,22 +582,18 @@ impl MarkKind {
             | MarkKind::Code => Cow::Owned(JsonValue::Null),
             MarkKind::Link { url } => Cow::Owned(bag([("url", url.as_str().into())])),
             MarkKind::Anchor { id } => Cow::Owned(bag([("id", id.as_str().into())])),
-            MarkKind::Unknown { attrs, .. } => Cow::Borrowed(attrs),
         }
     }
 
     /// The canonical sort tie-break after `(start, end)`, and the grouping key
     /// for same-kind union (two `link`s union only at one url).
     ///
-    /// It is the pair the **wire** carries, read back off the value: a build
-    /// that knows a member and a build that reads it as [`MarkKind::Unknown`]
-    /// compute the same key from the same bytes, so one document has one
-    /// canonical form whatever either build's vocabulary is.
+    /// It is the pair the **wire** carries, read back off the value, so
+    /// canonical order is a function of the stored bytes rather than of variant
+    /// declaration order: adding a member reorders nothing already stored.
     ///
     /// The attrs half comes from [`attrs`](Self::attrs) rather than a string per
-    /// arm, so it cannot disagree with what the encoder writes — which it would
-    /// do first on a member whose payload is optional, where the two builds see
-    /// an empty bag and an absent one.
+    /// arm, so it cannot disagree with what the encoder writes.
     pub fn sort_key(&self) -> (String, String) {
         let attrs = self.attrs();
         let attrs = if is_empty_bag(&attrs) {
@@ -670,7 +607,7 @@ impl MarkKind {
 
 /// A `serde_json::Value` rendered to a string with object keys recursively
 /// sorted: order-insensitive, so it is a stable comparison/grouping key.
-fn canonical_json_string(v: &JsonValue) -> String {
+pub(crate) fn canonical_json_string(v: &JsonValue) -> String {
     if is_value_key_sorted(v) {
         return serde_json::to_string(v).unwrap_or_default();
     }
@@ -806,14 +743,6 @@ pub enum Invariant {
     /// continuation's text reaches no projection. `normalize` clears the flag;
     /// this catches a hand-built content that skipped it.
     ContinuesSingleLineBlock { line: usize },
-    /// An [`MarkKind::Unknown`] reused a reserved built-in `type` name.
-    ReservedUnknownTag(String),
-    /// A [`LineKind::Unknown`] reused a reserved built-in `kind` name: its
-    /// serialization would parse back as the built-in, dropping its attrs.
-    ReservedUnknownLineKind(String),
-    /// A [`Container::Unknown`] reused a reserved built-in `container` name, the
-    /// same non-injectivity as [`Invariant::ReservedUnknownLineKind`].
-    ReservedUnknownContainer(String),
     /// A formatting mark edge sits on a `\n` (normalization should have trimmed
     /// it): a hand-built content that skipped `normalize`.
     MarkEdgeOnNewline { at: Usv },
@@ -953,9 +882,8 @@ fn fragment_line(line: &Line, span: std::ops::Range<Usv>, breaks: &[Usv], first:
 ///
 /// `None` leaves the stored kind standing, on the three counts the projection
 /// settles nothing: a line holding more than the slot, a kind whose own contract
-/// carries a slot ([`LineKind::Heading`], the open [`LineKind::Unknown`]), and
-/// an island type this build cannot read — its placeholder projects no kind
-/// back, and its spelling is not this build's to move.
+/// carries a slot ([`LineKind::Heading`]), and an island whose type projects no
+/// kind back.
 fn island_line_kind(kind: &LineKind, seg: &str, island: Option<&Island>) -> Option<LineKind> {
     if !matches!(kind, LineKind::Para | LineKind::Island) {
         return None;
@@ -1075,16 +1003,6 @@ impl Content {
                 line.kind = kind;
             }
             slot += seg.chars().filter(|&c| c == ISLAND_SLOT).count();
-            if let LineKind::Unknown { attrs, .. } = &mut line.kind {
-                canonicalize_keys(attrs);
-                collapse_empty_bag(attrs);
-            }
-            for c in &mut line.containers {
-                if let Container::Unknown { attrs, .. } = c {
-                    canonicalize_keys(attrs);
-                    collapse_empty_bag(attrs);
-                }
-            }
         }
         self.split_block_islands();
         // Two accepted ops leave a `continues` line under a block it cannot
@@ -1107,12 +1025,6 @@ impl Content {
         for island in &mut self.islands {
             crate::island::normalize_island_structure(island);
             canonicalize_keys(&mut island.props);
-        }
-        for mark in &mut self.marks {
-            if let MarkKind::Unknown { attrs, .. } = &mut mark.kind {
-                canonicalize_keys(attrs);
-                collapse_empty_bag(attrs);
-            }
         }
         // A formatting mark's edges never sit on a line boundary: markdown can't
         // bold a `\n`, so two producers that disagree only about whether the
@@ -1208,38 +1120,6 @@ impl Content {
         self.rebase_marks(&Delta { ops });
     }
 
-    /// Mark `type` names the projection reserves; an [`MarkKind::Unknown`] may
-    /// not reuse one (its serialization would parse back as the built-in,
-    /// silently dropping its attrs: non-injective).
-    ///
-    /// [`Content::validate`] is the one enforcement point, and an in-process
-    /// Rust construction the one way in: every decoder resolves a built-in name
-    /// before the `Unknown` fallthrough, so no wire value produces a
-    /// reserved-tag `Unknown` for a lane to reject.
-    ///
-    /// This list and its two siblings are re-spelled by hand on the TypeScript
-    /// surface and pinned to these constants by
-    /// `crates/bindings/wasm/tests/known_names_drift.rs`.
-    pub const RESERVED_MARK_TYPES: &'static [&'static str] = &[
-        "strong",
-        "emph",
-        "underline",
-        "strike",
-        "code",
-        "link",
-        "anchor",
-    ];
-
-    /// Line `kind` names the projection reserves: the [`LineKind`] twin of
-    /// [`RESERVED_MARK_TYPES`](Self::RESERVED_MARK_TYPES), for the same
-    /// injectivity reason.
-    pub const RESERVED_LINE_KINDS: &'static [&'static str] =
-        &["para", "heading", "code", "island", "rule"];
-
-    /// Container names the projection reserves: the [`Container`] twin of
-    /// [`RESERVED_MARK_TYPES`](Self::RESERVED_MARK_TYPES).
-    pub const RESERVED_CONTAINERS: &'static [&'static str] = &["list_item", "quote"];
-
     /// Check every invariant. `Ok(())` on a well-formed content. Import
     /// guarantees this; a hand-built content should be run through it in tests.
     pub fn validate(&self) -> Result<(), Invariant> {
@@ -1328,12 +1208,6 @@ impl Content {
                 }
             }
             match &m.kind {
-                MarkKind::Unknown { tag, attrs } => {
-                    if Self::RESERVED_MARK_TYPES.contains(&tag.as_str()) {
-                        return Err(Invariant::ReservedUnknownTag(tag.clone()));
-                    }
-                    check_json_depth(attrs, "mark attrs")?;
-                }
                 MarkKind::Anchor { id } => {
                     if id.is_empty() || !seen_anchor_ids.insert(id.as_str()) {
                         return Err(Invariant::AnchorIdCollision { id: id.clone() });
@@ -1348,21 +1222,7 @@ impl Content {
                 LineKind::Heading { level } if !(1..=6).contains(level) => {
                     return Err(Invariant::BadHeadingLevel(*level));
                 }
-                LineKind::Unknown { tag, attrs } => {
-                    if Self::RESERVED_LINE_KINDS.contains(&tag.as_str()) {
-                        return Err(Invariant::ReservedUnknownLineKind(tag.clone()));
-                    }
-                    check_json_depth(attrs, "line attrs")?;
-                }
                 _ => {}
-            }
-            for c in &line.containers {
-                if let Container::Unknown { tag, attrs, .. } = c {
-                    if Self::RESERVED_CONTAINERS.contains(&tag.as_str()) {
-                        return Err(Invariant::ReservedUnknownContainer(tag.clone()));
-                    }
-                    check_json_depth(attrs, "container attrs")?;
-                }
             }
             if let Some(mismatch) = line_kind_mismatch(&line.kind, seg) {
                 return Err(Invariant::LineKindMismatch { line: i, mismatch });
@@ -1380,9 +1240,7 @@ impl Content {
         }
         // Table-cell marks: the prose range and zero-width rules again, but each
         // mark is bounded by its own cell's text length (in USV). Cells hold no
-        // `\n`, so the edge-on-newline rule does not apply, and neither does the
-        // reserved-tag rule: `parse_cell` resolves every built-in name before its
-        // `Unknown` arm, so a cell mark is never a reserved-tag unknown.
+        // `\n`, so the edge-on-newline rule does not apply.
         let mut seen_ids = std::collections::HashSet::with_capacity(self.islands.len());
         for island in &self.islands {
             if !seen_ids.insert(island.id.as_str()) {
@@ -1760,37 +1618,6 @@ mod tests {
                 max: crate::MAX_JSON_DEPTH,
             })
         };
-
-        let mut rt = tagged("hi", LineKind::Para);
-        rt.lines[0].kind = LineKind::Unknown {
-            tag: "callout".into(),
-            attrs: nested(crate::MAX_JSON_DEPTH),
-        };
-        assert_eq!(rt.validate(), Ok(()));
-        rt.lines[0].kind = LineKind::Unknown {
-            tag: "callout".into(),
-            attrs: nested(crate::MAX_JSON_DEPTH + 1),
-        };
-        assert_eq!(rt.validate(), too_deep("line attrs"));
-
-        let mut rt = tagged("hi", LineKind::Para);
-        rt.lines[0].containers = vec![Container::Unknown {
-            tag: "indent".into(),
-            attrs: nested(crate::MAX_JSON_DEPTH + 1),
-            instance: 0,
-        }];
-        assert_eq!(rt.validate(), too_deep("container attrs"));
-
-        let mut rt = tagged("hi", LineKind::Para);
-        rt.marks = vec![Mark {
-            start: 0,
-            end: 2,
-            kind: MarkKind::Unknown {
-                tag: "sparkle".into(),
-                attrs: nested(crate::MAX_JSON_DEPTH + 1),
-            },
-        }];
-        assert_eq!(rt.validate(), too_deep("mark attrs"));
 
         let mut rt = tagged("\u{fffc}", LineKind::Island);
         rt.islands = vec![Island {

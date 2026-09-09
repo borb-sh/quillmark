@@ -1,40 +1,78 @@
-//! Drift guard for the names `runtime/runtime.js` spells for itself instead of
-//! reading off a type. Each is checked against the Rust constant it mirrors,
-//! because nothing else observes the two diverging: an `isUnknown*` table that
-//! lags a new built-in reports it as unknown, and a read-modify-write consumer
-//! then round-trips it through its unknown carrier, dropping the payload.
+//! Drift guard for the names `runtime/runtime.js` and the `engine.rs` TS unions
+//! spell for themselves instead of reading off a type. Each is checked against
+//! the Rust vocabulary it mirrors, read through an exhaustive match so a new
+//! member is a compile error here, where the mirror gets read.
 
 use quillmark_content::island::KnownIslandType;
-use quillmark_content::{Container, Content, Fidelity};
+use quillmark_content::model::{LineKind, MarkKind};
+use quillmark_content::{Container, Fidelity};
 use quillmark_core::quill::VARIANT_DISCRIMINANT_KEY;
 
 const RUNTIME_JS: &str = include_str!("../runtime/runtime.js");
 
-fn js_set(name: &str) -> Vec<String> {
-    let decl = format!("const {name} = new Set([");
-    let start = RUNTIME_JS
-        .find(&decl)
-        .unwrap_or_else(|| panic!("runtime.js has no `{decl}…`"))
-        + decl.len();
-    let body = &RUNTIME_JS[start..];
-    let end = body.find("])").expect("unterminated Set literal");
-    body[..end]
-        .split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.trim_matches('\'').trim_matches('"').to_string())
-        .collect()
+/// The wire `kind` of every line vocabulary member. Exhaustive on purpose.
+fn line_kind_tags() -> Vec<&'static str> {
+    let all = [
+        LineKind::Para,
+        LineKind::Heading { level: 1 },
+        LineKind::Code { lang: None },
+        LineKind::Island,
+        LineKind::Rule,
+    ];
+    for k in &all {
+        match k {
+            LineKind::Para
+            | LineKind::Heading { .. }
+            | LineKind::Code { .. }
+            | LineKind::Island
+            | LineKind::Rule => {}
+        }
+    }
+    all.iter().map(LineKind::tag).collect()
 }
 
-#[test]
-fn js_known_name_tables_match_the_rust_open_sets() {
-    assert_eq!(js_set("KNOWN_LINE_KINDS"), Content::RESERVED_LINE_KINDS);
-    assert_eq!(js_set("KNOWN_CONTAINERS"), Content::RESERVED_CONTAINERS);
-    assert_eq!(js_set("KNOWN_MARK_TYPES"), Content::RESERVED_MARK_TYPES);
-    // The island axis has no reserved-name rule (its `type` is a bare `String`,
-    // never an `Unknown` variant) so `KnownIslandType` is the known half.
-    let island_types: Vec<_> = KnownIslandType::ALL.iter().map(|k| k.as_str()).collect();
-    assert_eq!(js_set("KNOWN_ISLAND_TYPES"), island_types);
+/// The wire `container` of every container vocabulary member.
+fn container_tags() -> Vec<&'static str> {
+    let all = [
+        Container::ListItem {
+            ordered: false,
+            start: 1,
+            ordinal: 0,
+            instance: 0,
+        },
+        Container::Quote { instance: 0 },
+    ];
+    for c in &all {
+        match c {
+            Container::ListItem { .. } | Container::Quote { .. } => {}
+        }
+    }
+    all.iter().map(Container::tag).collect()
+}
+
+/// The wire `type` of every mark vocabulary member.
+fn mark_type_tags() -> Vec<&'static str> {
+    let all = [
+        MarkKind::Strong,
+        MarkKind::Emph,
+        MarkKind::Underline,
+        MarkKind::Strike,
+        MarkKind::Code,
+        MarkKind::Link { url: String::new() },
+        MarkKind::Anchor { id: String::new() },
+    ];
+    for k in &all {
+        match k {
+            MarkKind::Strong
+            | MarkKind::Emph
+            | MarkKind::Underline
+            | MarkKind::Strike
+            | MarkKind::Code
+            | MarkKind::Link { .. }
+            | MarkKind::Anchor { .. } => {}
+        }
+    }
+    all.iter().map(MarkKind::tag).collect()
 }
 
 /// The `.d.ts` is pinned as a string *literal* type: widened to `string` it
@@ -78,12 +116,14 @@ fn ts_unions_name_every_built_in() {
     // The loss axis has no reserved list to mirror, being injective (one `Loss`
     // per wire string), so what it pins is its closed view's spellings.
     let loss_names: Vec<_> = Fidelity::ALL.iter().map(|f| f.as_str()).collect();
+    let island_types: Vec<_> = KnownIslandType::ALL.iter().map(|k| k.as_str()).collect();
 
     for (union, names) in [
-        (ts_union("ContentLineKind"), Content::RESERVED_LINE_KINDS),
-        (ts_union("ContentContainer"), Content::RESERVED_CONTAINERS),
-        (ts_union("ContentMark"), Content::RESERVED_MARK_TYPES),
-        (ts_union("ContentLossClass"), loss_names.as_slice()),
+        (ts_union("ContentLineKind"), line_kind_tags()),
+        (ts_union("ContentContainer"), container_tags()),
+        (ts_union("ContentMark"), mark_type_tags()),
+        (ts_union("ContentLossClass"), loss_names.clone()),
+        (ts_union("ContentIsland"), island_types.clone()),
     ] {
         for name in names {
             assert!(
@@ -132,11 +172,10 @@ fn js_weld_keys_match_the_rust_weld_rule() {
         .map(|(tag, _)| tag.trim().trim_start_matches(',').trim().to_string())
         .filter(|t| !t.is_empty())
         .collect();
-    // A built-in arriving without an entry falls through to the unknown branch,
-    // which compares the whole `attrs`. Every arm carries one, so that
-    // fallthrough type-checks and still answers wrong: `list_item` welds on a
-    // *subset* of its payload (see the `start` case below).
-    assert_eq!(tags, Content::RESERVED_CONTAINERS);
+    // Every container carries an entry: `list_item` welds on a *subset* of its
+    // payload (see the `start` case below), so a missing one cannot be stood in
+    // for by comparing the bag whole.
+    assert_eq!(tags, container_tags());
 
     let li = |ordered, start, ordinal, instance| Container::ListItem {
         ordered,
@@ -164,20 +203,4 @@ fn js_weld_keys_match_the_rust_weld_rule() {
 
     assert!(keys("quote").is_empty());
     assert!(Container::Quote { instance: 0 }.same_weld(&Container::Quote { instance: 1 }));
-
-    // A tag outside the table takes the JS `sameJson(attrs)` branch, which is
-    // the run rule spelled in JS — so it holds only while `same_weld` delegates
-    // there for an unknown container.
-    let unknown = |tag: &str, n| Container::Unknown {
-        tag: tag.into(),
-        attrs: serde_json::json!({ "n": n }),
-        instance: 0,
-    };
-    for (a, b) in [
-        (unknown("x", 1), unknown("x", 2)),
-        (unknown("x", 1), unknown("y", 1)),
-        (unknown("x", 1), unknown("x", 1)),
-    ] {
-        assert_eq!(a.same_weld(&b), a.same_run(&b));
-    }
 }

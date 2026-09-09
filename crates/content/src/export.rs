@@ -267,7 +267,6 @@ fn close_container(key: &Container, inner: &str, out: &mut String) {
         }
         // A container this build does not know has no markdown syntax to prefix
         // with, so it projects transparently and survives via storage.
-        Container::Unknown { .. } => out.push_str(inner),
     }
 }
 
@@ -354,7 +353,7 @@ fn emit_leaf_block(ctx: &Ctx, range: std::ops::Range<usize>, out: &mut String) {
         }
         // An unknown block role projects as a paragraph: the role is lost to
         // markdown (it round-trips through storage), the text is not.
-        LineKind::Para | LineKind::Unknown { .. } => {
+        LineKind::Para => {
             let parts: Vec<String> = range.map(|i| render_inline(ctx, i, true)).collect();
             out.push_str(&parts.join("\\\n"));
         }
@@ -1294,46 +1293,6 @@ mod tests {
         let rt2 = from_markdown(&md).unwrap();
         assert_eq!(rt2.text, rt.text);
         assert_eq!(rt2.islands.len(), 1);
-    }
-
-    #[test]
-    fn unknown_block_vocabulary_projects_as_prose() {
-        let rt = Content {
-            text: "heads up\nstill inside".into(),
-            lines: vec![
-                Line {
-                    kind: LineKind::Unknown {
-                        tag: "callout".into(),
-                        attrs: serde_json::json!({"variant": "warn"}),
-                    },
-                    containers: vec![Container::Unknown {
-                        tag: "indent".into(),
-                        attrs: serde_json::Value::Null,
-                        instance: 0,
-                    }],
-                    continues: false,
-                },
-                Line {
-                    kind: LineKind::Para,
-                    containers: vec![Container::Unknown {
-                        tag: "indent".into(),
-                        attrs: serde_json::Value::Null,
-                        instance: 0,
-                    }],
-                    continues: false,
-                },
-            ],
-            marks: vec![Mark { start: 0, end: 5, kind: MarkKind::Strong }],
-            islands: vec![],
-        };
-        let rt = rt.into_normalized();
-        assert_eq!(rt.validate(), Ok(()));
-        assert_eq!(to_markdown(&rt), "**heads** up\n\nstill inside");
-        // An unknown container inside a known one adds no prefix of its own.
-        let mut rt = rt.into_content();
-        rt.lines[0].containers.insert(0, Container::Quote { instance: 0 });
-        rt.lines[1].containers.insert(0, Container::Quote { instance: 0 });
-        assert_eq!(to_markdown(&rt.into_normalized()), "> **heads** up\n>\n> still inside");
     }
 
     #[test]

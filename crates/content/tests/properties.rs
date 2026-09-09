@@ -391,33 +391,6 @@ proptest! {
         prop_assert_eq!(&new_rt.text[anchor.start..anchor.end], a.as_str());
     }
 
-    /// Property 3': an unknown mark has no markdown projection either, so the
-    /// fresh import cannot re-derive it and diff-import carries it forward
-    /// whole, tag and attrs intact.
-    #[test]
-    fn diff_import_preserves_surviving_unknown_mark(a in "[a-z]{3,8}", b in "[a-z]{3,8}") {
-        let base_md = format!("keep {a} here");
-        let mut base = from_markdown(&base_md).unwrap().into_content();
-        let start = 5;
-        let end = 5 + a.chars().count();
-        prop_assert_eq!(&base.text[start..end], a.as_str());
-        let kind = MarkKind::Unknown {
-            tag: "highlight".into(),
-            attrs: json!({ "color": "yellow" }),
-        };
-        base.marks.push(Mark::new(start, end, kind.clone()));
-        let base = base.into_normalized();
-
-        let new_md = format!("{b} keep {a} here");
-        let (new_rt, _delta) = diff_import(&base, &new_md).unwrap();
-        let mark = new_rt.marks.iter()
-            .find(|m| matches!(&m.kind, MarkKind::Unknown { tag, .. } if tag == "highlight"));
-        prop_assert!(mark.is_some(), "unknown mark lost across surviving edit");
-        let mark = mark.unwrap();
-        prop_assert_eq!(&new_rt.text[mark.start..mark.end], a.as_str());
-        prop_assert_eq!(&mark.kind, &kind);
-    }
-
 }
 
 // Edit-channel invariant properties: a successful apply on a valid content

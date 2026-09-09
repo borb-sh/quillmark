@@ -1582,29 +1582,24 @@ mod tests {
 
     #[test]
     fn apply_mark_ops_remove_non_formatting_drops_whole() {
-        // `Value::Null` on both sides: the one in-memory spelling of an empty
-        // bag, which `normalize` and the wire decode both settle on.
-        let unknown = || MarkKind::Unknown {
-            tag: "x".into(),
-            attrs: Value::Null,
-        };
+        let anchor = || MarkKind::Anchor { id: "a".into() };
         let mut rt = from_markdown("abcdef").unwrap().into_content();
         rt.marks.push(Mark {
             start: 0,
             end: 6,
-            kind: unknown(),
+            kind: anchor(),
         });
         let mut rt = rt.into_normalized();
         rt.apply_mark_ops(&[MarkOp::Remove {
             start: 2,
             end: 4,
-            kind: unknown(),
+            kind: anchor(),
         }])
         .unwrap();
         assert!(!rt
             .marks
             .iter()
-            .any(|m| matches!(m.kind, MarkKind::Unknown { .. })));
+            .any(|m| matches!(m.kind, MarkKind::Anchor { .. })));
     }
 
     #[test]
