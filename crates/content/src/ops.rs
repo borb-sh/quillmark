@@ -4,7 +4,7 @@
 
 use crate::delta::{Assoc, Delta, Op};
 use crate::model::{
-    is_whole_line, line_kind_mismatch, Container, Island, Line, LineKind, LineKindMismatch, Mark,
+    is_whole_line, Container, Island, Line, LineKind, Mark,
     MarkKind, Content, Usv, ISLAND_SLOT,
 };
 use crate::normalize::admit_char;
@@ -56,9 +56,10 @@ pub enum LineOp {
     /// previous line's block across a within-block hard break (a markdown hard
     /// break, a code fence's interior line) rather than starting a new block.
     /// Split, join and text-delta `\n` insertion all mint `continues: false`
-    /// lines, so this is the only op that reaches the flag. Setting it on line 0
-    /// is [`ApplyError::FirstLineContinues`]; setting it after a block that
-    /// renders one line is [`ApplyError::ContinuesSingleLineBlock`].
+    /// lines, so this is the only op that reaches the flag. The terminal
+    /// normalize clears a flag no block above can take: line 0, which nothing
+    /// precedes, a differing container path, or a heading, island or rule above,
+    /// each rendering one line.
     SetContinues { line: usize, continues: bool },
 }
 
@@ -99,9 +100,9 @@ pub enum IslandOp {
     /// is that slot alone on its own line under [`LineKind::Island`], which takes
     /// three channels in one bundle: the text delta inserts the `\n`, this op
     /// inserts the slot, [`LineOp::SetKind`] tags the line. That order is why
-    /// island ops run *before* line ops — `SetKind` validates the kind against
-    /// the text already on the line — and why `LineOp::Split` cannot stand in for
-    /// the delta's `\n`.
+    /// island ops run *before* line ops — the mint settles the kind against the
+    /// text the bundle left, and the slot has to be on the line by then — and
+    /// why `LineOp::Split` cannot stand in for the delta's `\n`.
     ///
     /// A type markdown writes as a block
     /// ([`IslandType::block_only`](crate::IslandType::block_only)) has
@@ -326,19 +327,6 @@ pub enum ApplyError {
         lines: usize,
         segments: usize,
     },
-    /// A [`LineOp::SetContinues`] set `continues: true` on line 0, which has
-    /// nothing before it to continue. Refused because `normalize` does not
-    /// repair it.
-    FirstLineContinues,
-    /// [`LineOp::SetContinues`] would make a line continue a block it is not in:
-    /// its container path differs from the previous line's, and a within-block
-    /// break lives inside one container.
-    ContinuesAcrossContainers { line: usize },
-    /// [`LineOp::SetContinues`] would make a line continue a block that renders
-    /// one line ([`LineKind::takes_continuations`]): a heading, an island or a
-    /// rule. Export reads the block's first line alone, so the write would
-    /// silently drop the continuation's text.
-    ContinuesSingleLineBlock { line: usize },
     /// The text delta's expected base length disagreed with the content:
     /// it was built against a different revision.
     DeltaBaseMismatch {
@@ -374,14 +362,6 @@ pub enum ApplyError {
     /// is refused rather than restructuring the author's blocks. `at` is the
     /// slot's position.
     BlockIslandNotAlone { at: Usv },
-    /// A [`LineOp::SetKind`] whose kind contradicts the line's text: tagging
-    /// prose `Island` or `Rule`, or a slot-bearing line `Code`. Export trusts
-    /// the kind over the text, so the write would silently drop the line's
-    /// content.
-    LineKindMismatch {
-        line: usize,
-        mismatch: LineKindMismatch,
-    },
     /// A [`LineOp::SetContainers`] nested a line deeper than
     /// [`MAX_NESTING_DEPTH`](crate::MAX_NESTING_DEPTH).
     NestingTooDeep {
@@ -647,22 +627,6 @@ impl Content {
                 LineOp::Split { at } => self.split_line(*at)?,
                 LineOp::Join { line } => self.join_line(*line)?,
                 LineOp::SetKind { line, kind } => {
-                    // Export reads the kind and never the segment, so an
-                    // `Island`/`Rule` tag over prose projects the text away.
-                    let seg = self
-                        .text
-                        .split('\n')
-                        .nth(*line)
-                        .ok_or(ApplyError::LineOutOfRange {
-                            line: *line,
-                            lines: self.lines.len(),
-                        })?;
-                    if let Some(mismatch) = line_kind_mismatch(kind, seg) {
-                        return Err(ApplyError::LineKindMismatch {
-                            line: *line,
-                            mismatch,
-                        });
-                    }
                     if let LineKind::Heading { level } = kind
                         && !(1..=6).contains(level)
                     {
@@ -689,34 +653,6 @@ impl Content {
                     line.containers = containers.clone();
                 }
                 LineOp::SetContinues { line, continues } => {
-                    if *line == 0 && *continues {
-                        return Err(ApplyError::FirstLineContinues);
-                    }
-                    // The same refusal one line further on: nothing precedes
-                    // line 0 to continue, and the line before *this* one is a
-                    // block in a different container, which is no more
-                    // continuable.
-                    if *continues
-                        && self
-                            .lines
-                            .get(*line)
-                            .zip(self.lines.get(line.wrapping_sub(1)))
-                            .is_some_and(|(l, prev)| l.containers != prev.containers)
-                    {
-                        return Err(ApplyError::ContinuesAcrossContainers { line: *line });
-                    }
-                    // The kind side of the same refusal: a heading, an island
-                    // and a rule are one line, so nothing after one is inside
-                    // the block it claims to continue.
-                    if *continues
-                        && self
-                            .lines
-                            .get(*line)
-                            .and(self.lines.get(line.wrapping_sub(1)))
-                            .is_some_and(|prev| !prev.kind.takes_continuations())
-                    {
-                        return Err(ApplyError::ContinuesSingleLineBlock { line: *line });
-                    }
                     let l = self.line_mut(*line)?;
                     l.continues = *continues;
                 }
@@ -736,9 +672,9 @@ impl Content {
     ///
     /// **Stage order is a coordinate contract**: each stage reads the text the
     /// earlier ones left. An island insert splices a slot, so a
-    /// `LineOp::SetKind { kind: Island }` in the same bundle can only validate
-    /// against a line that already carries it, and `Split`/`Join` and every mark
-    /// range are then measured in a frame that includes the new slots.
+    /// `LineOp::SetKind { kind: Island }` in the same bundle settles against a
+    /// line that already carries it, and `Split`/`Join` and every mark range are
+    /// then measured in a frame that includes the new slots.
     ///
     /// One terminal normalize suffices because split/join rebase marks through
     /// their `\n` splice, so the formatting-edge `\n`-trim commutes with the
@@ -1627,54 +1563,51 @@ mod tests {
         assert!(matches!(rt.lines[0].kind, LineKind::Heading { level: 2 }));
     }
 
+    /// A kind the line's text contradicts lands and the terminal normalize
+    /// settles it to what the text spells, leaving the text itself alone.
     #[test]
-    fn line_op_set_kind_refuses_a_kind_the_text_contradicts() {
-        let mut rt = from_markdown("hello world").unwrap();
-        assert_eq!(
-            rt.apply_line_ops(&[LineOp::SetKind {
-                line: 0,
-                kind: LineKind::Island,
-            }]),
-            Err(ApplyError::LineKindMismatch {
-                line: 0,
-                mismatch: LineKindMismatch::IslandNotOneSlot,
-            })
-        );
-        assert_eq!(
-            rt.apply_line_ops(&[LineOp::SetKind {
-                line: 0,
-                kind: LineKind::Rule,
-            }]),
-            Err(ApplyError::LineKindMismatch {
-                line: 0,
-                mismatch: LineKindMismatch::RuleNotEmpty,
-            })
-        );
-        assert_eq!(rt.text, "hello world");
-        assert_eq!(rt.lines[0].kind, LineKind::Para);
-        assert_eq!(rt.validate(), Ok(()));
+    fn line_op_set_kind_over_contradicting_text_settles_to_what_the_text_spells() {
+        for kind in [LineKind::Island, LineKind::Rule] {
+            let mut rt = from_markdown("hello world").unwrap();
+            assert_eq!(rt.apply_line_ops(&[LineOp::SetKind { line: 0, kind }]), Ok(()));
+            assert_eq!(rt.text, "hello world");
+            assert_eq!(rt.lines[0].kind, LineKind::Para);
+            assert_eq!(rt.validate(), Ok(()));
+        }
 
         // Tagging a table island's line `Code` would fence the slot, which
-        // re-imports as nothing.
+        // re-imports as nothing. The demotion runs first and `island_line_kind`
+        // reads the slot back: the line settles where it started.
         let mut tbl = from_markdown("| a | b |\n|---|---|\n| 1 | 2 |").unwrap();
         assert_eq!(
             tbl.apply_line_ops(&[LineOp::SetKind {
                 line: 0,
                 kind: LineKind::Code { lang: None },
             }]),
-            Err(ApplyError::LineKindMismatch {
-                line: 0,
-                mismatch: LineKindMismatch::CodeHasSlot,
-            })
+            Ok(())
         );
         assert_eq!(tbl.lines[0].kind, LineKind::Island);
+
+        // The one case that costs text: a heading retagged `Island` is a
+        // paragraph afterward, its `#` gone from the projection.
+        let mut heading = from_markdown("# a").unwrap();
+        assert_eq!(
+            heading.apply_line_ops(&[LineOp::SetKind {
+                line: 0,
+                kind: LineKind::Island,
+            }]),
+            Ok(())
+        );
+        assert_eq!(heading.lines[0].kind, LineKind::Para);
+        assert_eq!(crate::export::to_markdown(&heading), "a");
     }
 
-    /// The deliberate crossing is refused up front, where the incidental one
-    /// (a `Join` across two paths) is repaired by `normalize`: the same split
-    /// the line-kind rule makes.
+    /// A within-block break lives inside one container, and a heading, an
+    /// island and a rule are one line in both projections. `continues` lands
+    /// wherever it is asked for and the mint clears it where no block above can
+    /// take it, leaving the projection untouched.
     #[test]
-    fn set_continues_across_a_container_boundary_is_refused() {
+    fn set_continues_lands_only_where_a_block_can_continue() {
         let mut rt = from_markdown("- a\n\npara").unwrap();
         assert_ne!(rt.lines[0].containers, rt.lines[1].containers);
         assert_eq!(
@@ -1682,8 +1615,9 @@ mod tests {
                 line: 1,
                 continues: true
             }]),
-            Err(ApplyError::ContinuesAcrossContainers { line: 1 })
+            Ok(())
         );
+        assert!(!rt.lines[1].continues, "the crossing is cleared");
 
         // Inside one container it is an ordinary hard break.
         let mut rt = from_markdown("- a\n\n  b").unwrap();
@@ -1696,13 +1630,7 @@ mod tests {
             Ok(())
         );
         assert!(rt.lines[1].continues);
-    }
 
-    /// A heading, an island and a rule are one line in both projections, so a
-    /// line continuing one is text neither emitter reaches. Refused on the
-    /// deliberate channel, exactly as the container crossing is.
-    #[test]
-    fn set_continues_after_a_single_line_block_is_refused() {
         for markdown in ["# a\n\nb", "| h |\n| --- |\n| c |\n\nb", "***\n\nb"] {
             let mut rt = from_markdown(markdown).unwrap();
             let line = rt.lines.len() - 1;
@@ -1711,10 +1639,10 @@ mod tests {
                     line,
                     continues: true
                 }]),
-                Err(ApplyError::ContinuesSingleLineBlock { line }),
+                Ok(()),
                 "{markdown}"
             );
-            assert!(!rt.lines[line].continues);
+            assert!(!rt.lines[line].continues, "{markdown}");
             assert_eq!(crate::export::to_markdown(&rt), markdown, "{markdown}");
         }
 
@@ -1750,6 +1678,9 @@ mod tests {
             .expect("the hard break is there");
         assert!(rt.apply_line_ops(&[LineOp::Join { line: seam - 2 }]).is_ok());
         assert_eq!(rt.validate(), Ok(()), "the join left a storable content");
+        let mut again = rt.clone().into_content();
+        again.normalize();
+        assert_eq!(&again, &*rt, "the join left a repairable shape");
     }
 
     #[test]
@@ -1817,26 +1748,22 @@ mod tests {
         assert_eq!(rt.validate(), Ok(()));
     }
 
+    /// Nothing precedes the first line, so the flag there is dead to every
+    /// reader: the mint clears it and the content is what it was.
     #[test]
-    fn line_op_set_continues_rejects_first_line() {
+    fn line_op_set_continues_on_the_first_line_clears() {
         let mut rt = from_markdown("one two").unwrap();
         rt.apply_text_delta(&diff("one two", "one\ntwo")).unwrap();
         let before = rt.clone();
-        assert_eq!(
-            rt.apply_line_ops(&[LineOp::SetContinues {
-                line: 0,
-                continues: true,
-            }]),
-            Err(ApplyError::FirstLineContinues)
-        );
-        assert_eq!(rt, before, "rejected op leaves the content untouched");
-        // Clearing line 0 is a no-op, not an error.
-        rt.apply_line_ops(&[LineOp::SetContinues {
-            line: 0,
-            continues: false,
-        }])
-        .unwrap();
-        assert_eq!(rt.validate(), Ok(()));
+        for continues in [true, false] {
+            assert_eq!(
+                rt.apply_line_ops(&[LineOp::SetContinues { line: 0, continues }]),
+                Ok(())
+            );
+            assert!(!rt.lines[0].continues);
+            assert_eq!(rt, before, "the first line's flag reaches no projection");
+            assert_eq!(rt.validate(), Ok(()));
+        }
     }
 
     fn island(id: &str) -> Island {
@@ -1938,7 +1865,7 @@ mod tests {
         }
     }
 
-    /// A one-cell table island's props, a shape `normalize` and `validate` accept.
+    /// A one-cell table island's props, the shape `normalize` leaves alone.
     fn table_props(header: &str, cell: &str) -> serde_json::Value {
         serde_json::json!({
             "header": [{ "text": header, "marks": [] }],

@@ -26,13 +26,19 @@ pub fn normalize_document(doc: crate::document::Document) -> crate::document::Do
 fn normalize_card(card: &Card) -> Card {
     use crate::document::PayloadItem;
     let mut payload = card.payload().clone();
-    for item in payload.items_mut() {
-        if let PayloadItem::Field { key, .. } = item {
-            let normalized = normalize_field_name(key);
-            if normalized != *key {
-                *key = normalized;
+    let renames: Vec<(String, String)> = payload
+        .items()
+        .iter()
+        .filter_map(|item| match item {
+            PayloadItem::Field { key, .. } => {
+                let normalized = normalize_field_name(key);
+                (normalized != *key).then(|| (key.clone(), normalized))
             }
-        }
+            _ => None,
+        })
+        .collect();
+    for (from, to) in renames {
+        payload.rename_field(&from, to);
     }
     Card::from_parts(payload, card.body().clone())
 }

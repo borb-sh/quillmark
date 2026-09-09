@@ -1,7 +1,7 @@
 use crate::document::Document;
 
-/// The prescan comment-stripper must not treat `#`-leading lines inside a
-/// literal block as YAML comments.
+/// Prescan must not record `#`-leading lines inside a literal block as YAML
+/// comments: they are the scalar's own text.
 #[test]
 fn block_scalar_with_markdown_headings_round_trips() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\nbio: |-\n  ## About me\n\n  - first point\n  Plain line.\ntitle: Resume\n~~~\n";
@@ -701,4 +701,43 @@ fn array_element_nested_fill_survives_markdown_and_storage() {
         restored.to_markdown(),
         "markdown must be identical after a storage round-trip"
     );
+}
+
+/// A comment line ends a block scalar; it is not a blank line inside one. Under
+/// keep chomping (`|+` / `>+`) a blank line there would be content, so the
+/// distinction is the value, not just the numbering.
+#[test]
+fn a_comment_after_a_kept_block_scalar_adds_no_line_to_it() {
+    for marker in ["|+", ">+"] {
+        let src = format!(
+            "~~~card-yaml\n$quill: q\n$kind: main\nbio: {marker}\n  text\n# after\nnext: x\n~~~\n"
+        );
+        let doc = Document::parse(&src).unwrap().document;
+        let fm = doc.main().payload();
+        assert_eq!(
+            fm.get("bio").unwrap().as_str(),
+            Some("text\n"),
+            "`{marker}` keeps only the newlines the source held"
+        );
+        assert_eq!(fm.get("next").unwrap().as_str(), Some("x"));
+        assert!(
+            doc.to_markdown().contains("# after"),
+            "the comment survives\nGot:\n{}",
+            doc.to_markdown()
+        );
+    }
+}
+
+/// A comment ends a multi-line plain scalar, as it does in YAML, so what
+/// follows it is a mapping line the parser refuses — rather than a fold that
+/// quietly invents `"aaa bbb"` from a document no YAML parser accepts. The
+/// refusal anchors at the offending source line.
+#[test]
+fn a_comment_inside_a_plain_scalar_is_a_located_refusal() {
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\nkey: aaa\n  # c\n  bbb\n~~~\n";
+    let err = Document::parse(src).expect_err("the continuation is not a mapping entry");
+    let crate::error::ParseError::YamlErrorWithLocation { line, column, .. } = err else {
+        panic!("expected a located YAML error, got {err:?}");
+    };
+    assert_eq!((line, column), (6, 3), "anchored at `  bbb` in the source");
 }

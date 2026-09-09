@@ -95,8 +95,8 @@ input. Per-target coverage:
 
 - **`Quillmark`**, Engine: a backend registry + render dispatcher. Auto-registers one backend per enabled feature (`TypstBackend` under `typst`, `PdfformBackend` under `pdfform`; both are default). Resolves a quill's declared backend at render time (erroring `engine::backend_not_found` on no match) and owns the backend-dependent surface: `render`, `open`, `supported_formats(&quill)`. It does not construct quills.
 - **`Quill`**, The single quill type in `quillmark-core`: declarative data (file bundle + config, tagged with a declared backend id), held by value and carrying the pure config-read operations (`validate`, `schema`, `blueprint`, `seed_*`, `compile_data`, `dry_run`). Construct with `Quill::from_tree` or `quillmark::quill_from_path`; see [QUILL.md](QUILL.md)
-- **`Backend`**, Trait for output formats (`Send + Sync`): `id()`, `supported_formats()`, `open(&Quill, json)`. There is no universal template input: a backend reads whatever static inputs it needs (a Typst plate, a `form.pdf`) from the quill's own files. No canvas-capability method: capability is derived from the session seam, as `LiveSession::supports_canvas()`
-- **`LiveSession`**, Opaque live session returned by `Backend::open()`: a persistent compiler whose reads serve its current compile and whose `update(&Document)` recompiles in place, transactionally, returning a `ChangeSet` of dirty pages. Born bound to the `QuillConfig` it was opened against, so the edit verb checks the `$quill` pairing and compiles through the same door as the first compile (`QuillConfig::compile_checked`) rather than trusting a caller to have done both. The canvas seam lives on `SessionHandle` (`page_size_pt`/`render_rgba`), so a canvas backend overrides two methods and the WASM painter dispatches generically; see [PREVIEW.md](PREVIEW.md)
+- **`Backend`**, Trait for output formats (`Send + Sync`): `id()`, `supported_formats()`, `open(&Quill, json)`. There is no universal template input: a backend reads whatever static inputs it needs (a Typst plate, a `form.pdf`) from the quill's own files. No canvas-capability method: canvas is required of the session seam (`SessionHandle::page_size_pt` / `render_rgba`), not declared by the backend
+- **`LiveSession`**, Opaque live session returned by `Backend::open()`: a persistent compiler whose reads serve its current compile and whose `update(&Document)` recompiles in place, transactionally, returning a `ChangeSet` of dirty pages. Born bound to the `QuillConfig` it was opened against, so the edit verb checks the `$quill` pairing and compiles through the same door as the first compile (`QuillConfig::compile_checked`) rather than trusting a caller to have done both. The canvas seam lives on `SessionHandle` (`page_size_pt`/`render_rgba`), both required, so the WASM painter dispatches generically over any session; see [PREVIEW.md](PREVIEW.md)
 - **`Document`**: Typed in-memory representation of a Quillmark Markdown file (root block, body, cards). Serializes via `serde` to a versioned JSON envelope (`StoredDocument`) for database persistence, decoupled from the evolving Markdown syntax; see [DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)
 - **`Diagnostic`**: Structured error with severity, code, message, location, hint, source chain
 - **`RenderResult`**: Output artifacts + accumulated warnings
@@ -128,6 +128,6 @@ two ways is therefore two quills, with nothing keeping their field definitions
 in agreement.
 
 Implement the `Backend` trait and return a `LiveSession` wrapping a
-`SessionHandle` that does the format-specific rendering; to paint to a canvas,
-override that handle's `page_size_pt` / `render_rgba`. See
-`backends/quillmark-typst` for the reference implementation.
+`SessionHandle` that does the format-specific rendering, canvas paint
+(`page_size_pt` / `render_rgba`) included. See `backends/quillmark-typst` for
+the reference implementation.

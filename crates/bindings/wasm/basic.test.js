@@ -966,10 +966,10 @@ card_kinds:
     expect(exportMarkdown(doc.main.body)).not.toContain('\n\n')
     expect(doc.main.body.lines[1].continues).toBe(true)
 
-    // `continues:true` on line 0 has nothing to continue: rejected, value intact.
-    expect(() =>
-      doc.applyChange({}, { lineOps: [{ op: 'setContinues', line: 0, continues: true }] }),
-    ).toThrow()
+    // `continues:true` on line 0 has nothing to continue: the mint clears it,
+    // and a cleared flag is absent from the wire rather than spelled `false`.
+    doc.applyChange({}, { lineOps: [{ op: 'setContinues', line: 0, continues: true }] })
+    expect(doc.main.body.lines[0].continues).toBeUndefined()
     expect(doc.main.body.lines[1].continues).toBe(true)
   })
 

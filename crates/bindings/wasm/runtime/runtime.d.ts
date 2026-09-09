@@ -448,9 +448,9 @@ export declare class Engine {
  * carries schema-field geometry for overlays drawn on top; it is never needed to
  * complete the picture.
  *
- * A backend with no canvas painter, and a compile with no pages, throw from
- * {@link LiveSession.pageSize} and {@link LiveSession.paint} naming the resolved
- * `backendId`. That throw is how a consumer learns; there is no capability flag.
+ * A compile with no pages throws from {@link LiveSession.pageSize} and
+ * {@link LiveSession.paint}, naming the page index and the `pageCount` that
+ * excludes it. Every backend paints, so that is the only refusal either owes.
  */
 export declare class LiveSession {
 	private constructor();

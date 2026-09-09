@@ -87,3 +87,22 @@ fn a_canvas_scale_that_cannot_be_rasterized_is_refused_rather_than_painted() {
         "an out-of-range page still answers None"
     );
 }
+
+#[test]
+fn every_counted_page_sizes_and_rasterizes() {
+    let session = open();
+    assert!(session.page_count() > 0, "the plate draws a page");
+    for page in 0..session.page_count() {
+        assert!(
+            session.page_size_pt(page).is_some(),
+            "page {page} is counted, so it has an extent"
+        );
+        assert!(
+            session
+                .render_rgba(page, 1.0)
+                .expect("a counted page rasterizes at 1x")
+                .is_some(),
+            "page {page} is counted, so it paints"
+        );
+    }
+}

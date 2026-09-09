@@ -134,9 +134,9 @@ pub type PayloadV0_112_0 = PayloadV0_92_0;
 ///   rejected at load rather than silently round-tripped.
 ///
 /// Both directions check because [`Normalized`] is the canonical-form token and
-/// not a validity one: `normalize` repairs where `validate` rejects, and
-/// `Card::overwrite_body` takes a caller's content on that token alone. A store
-/// that checked only on load would accept bytes it cannot read back.
+/// not a validity one: `validate` refuses only what `normalize` cannot repair,
+/// and `Card::overwrite_body` takes a caller's content on that token alone. A
+/// store that checked only on load would accept bytes it cannot read back.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CanonicalContent(pub Normalized);
 
@@ -303,10 +303,8 @@ impl From<&Card> for CardV0_112_0 {
 
 impl From<&Payload> for PayloadV0_92_0 {
     fn from(payload: &Payload) -> Self {
-        // The wire format keeps `nested_comments` as a flat payload-level
-        // sidecar; the live model carries them per-item with relative paths.
         let nested_comments = payload
-            .flat_nested_comments()
+            .nested_comments()
             .iter()
             .map(NestedCommentV0_92_0::from)
             .collect();
@@ -574,7 +572,7 @@ impl TryFrom<PayloadV0_92_0> for Payload {
             .into_iter()
             .map(NestedComment::from)
             .collect();
-        Ok(Payload::from_items_with_flat_nested(items, nested))
+        Ok(Payload::from_items_with_nested(items, nested))
     }
 }
 
@@ -596,12 +594,10 @@ impl TryFrom<PayloadItemV0_92_0> for PayloadItem {
             PayloadItemV0_92_0::Ext { value } => PayloadItem::Meta {
                 key: MetaKey::Ext,
                 value: depth_check_meta_map(value, "$ext")?,
-                nested_comments: Vec::new(),
             },
             PayloadItemV0_92_0::Seed { value } => PayloadItem::Meta {
                 key: MetaKey::Seed,
                 value: depth_check_meta_map(value, "$seed")?,
-                nested_comments: Vec::new(),
             },
             PayloadItemV0_92_0::Field {
                 key,
@@ -623,7 +619,6 @@ impl TryFrom<PayloadItemV0_92_0> for PayloadItem {
                     key,
                     value: qv,
                     fill,
-                    nested_comments: Vec::new(),
                 }
             }
             PayloadItemV0_92_0::Comment { text, inline } => PayloadItem::Comment { text, inline },

@@ -141,10 +141,11 @@ serializer commits to one bit pattern); insertion order is semantic
 **Both directions validate.** `CanonicalContent` checks the body's
 invariants on the way out as well as in, failing the write with a serializer
 error. The token a body rests on (`Normalized`) states that
-`Content::normalize` has run, which is weaker than validity: `normalize`
-repairs where `validate` rejects, and `Card::overwrite_body` takes a
-caller's content on that token alone. A store that checked only on load
-would accept bytes it could not read back.
+`Content::normalize` has run, which is weaker than validity: `validate`
+refuses only what `normalize` cannot repair — a forbidden character, two
+counts that disagree, a range or depth past a bound, a colliding id — and
+`Card::overwrite_body` takes a caller's content on that token alone. A store
+that checked only on load would accept bytes it could not read back.
 
 The guarantee follows from: struct field order is fixed in the frozen
 DTO tree; `Vec` fields preserve order by definition; the two disciplines
@@ -383,11 +384,9 @@ The authored lanes refuse the placement — `ApplyError::BlockIslandNotAlone` fr
 from `serial::from_authored_value` — so a host learns at the write. Storage takes
 what it holds and the **mint** settles it: `Content::normalize` breaks the line
 around the slot, so the prose on each side becomes its own block and the island
-keeps the line its markup needs. The break lands once, on the way in, which is
-what lets `Content::validate` state the rule
-(`Invariant::BlockIslandNotAlone`) for every content the crate hands out — the
-markdown write then reads a shape that is already right rather than repairing
-one on the way past.
+keeps the line its markup needs. The break lands once, on the way in, so the
+markdown write reads a shape that is already right rather than repairing one on
+the way past.
 
 The opaque props are hash input like everything else in the canonical form, so
 they are recursively key-sorted along with the rest (see Byte-stability). Also a
@@ -505,7 +504,7 @@ different bytes for the same document.
 `0.92.0` is a unified payload-item list (typed `$` entries living alongside
 user fields and comments in a single `Vec<PayloadItem>`), a per-field
 `nested_fills` list so `!must_fill` markers nested inside a field value
-survive a storage round-trip (the JSON `value` projection is fill-free), and
+survive a storage round-trip (the JSON `value` itself is fill-free), and
 the `seed` payload-item variant (the `$seed` per-card-kind overlay map).
 `0.93.0` leaves the payload model unchanged and instead embeds the card
 `body` as the **canonical content**: structurally, as a nested object, not a

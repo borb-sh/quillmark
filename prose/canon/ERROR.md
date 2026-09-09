@@ -36,7 +36,7 @@ Two surfaces return one directly (`QuillValue::from_yaml_str`, `QuillConfig::sch
 
 Its `line`/`column` are document coordinates, not block-relative ones:
 
-- The engine reports a position inside the string it parsed: the fence content minus the comment lines prescan drops (`PreScan::source_lines` maps what survives back) and minus the whitespace `trim` takes off the front. The assembler translates that position onto the document.
+- The engine reports a position inside the string it parsed: the fence content, line-for-line (prescan strips `!must_fill` tags but leaves every line standing, comment lines included), minus the whitespace `trim` takes off the front. The assembler translates that position onto the document.
 - `to_diagnostic()` renders it as a `Location` against `DOCUMENT_FILE` (`input.md`). Markdown reaches the engine as a string, so the anchor names the input rather than a path on disk.
 - The message names the block instead of repeating a number (`YAML error in the root card-yaml block: …`, `… in card-yaml block 2: …`). The engine's own snippet inside it stays block-relative, as the engine rendered it.
 
@@ -378,6 +378,9 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `validation::coercion_failed` | `value`, `target` | structured, coarser |
 | `validation::must_fill` | `trigger` | structured |
 | `validation::out_of_variant` | `variant`, `selected` | structured |
+| `validation::seed_unknown_kind` | — | code-determined |
+| `validation::seed_overlay_shape` | — | code-determined |
+| `validation::seed_unknown_field` | — | code-determined |
 | `validation::not_inline` | — | code-determined |
 | `validation::not_plain` | — | code-determined |
 | `edit::invalid_field_name` | `field` | structured |

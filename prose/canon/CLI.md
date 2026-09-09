@@ -22,8 +22,8 @@ them.
   seeded document: each field's `example:`, with `default:`/blank interpolated,
   so a quill renders with no input file. Output defaults to
   `example.{format}`.
-- **Parsing is not relaxed for the CLI.** A `MARKDOWN_FILE` needs a root bare
-  `~~~` block (`~~~card-yaml` is also accepted) carrying a `$quill` line,
+- **Parsing is not relaxed for the CLI.** A `MARKDOWN_FILE` needs a root `~~~`
+  block (the opener's info string is ignored) carrying a `$quill` line,
   exactly as every other surface requires.
 - **Both backends by default.** The binary inherits `quillmark`'s default
   features, `typst` and `pdfform`.

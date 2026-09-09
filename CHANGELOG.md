@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- docs(cli): **the CLI prose stops naming one accepted opener.**
+  `docs/cli/reference.md` and `prose/canon/CLI.md` named `~~~card-yaml` as the
+  alternative to a bare `~~~`, where the opener's info string is no longer read
+  at all.
+- docs(bindings,migrations): **the parity table records differences; the
+  migration index records steps.** `BINDINGS.md`'s table drops the six rows
+  whose class was `identical`, which now read as one line above it, and three
+  rows stop restating the model the section states 90 lines up. What the table
+  holds is one row per forced difference. The migration index cuts each row to
+  the step's headline break, from 3,729 words of table cells to 594 for the
+  whole page: a chooser, not a fifth copy of each guide beside the commit, the
+  changelog and the guide itself. The one storage-format move across the
+  thirteen steps (0.111 → 0.112) is stated once in the preamble rather than
+  re-derived from thirteen "stored blobs are untouched" clauses. No guide is
+  deleted; keeping the early ones costs nothing. Closes #1701.
 - feat(core)!: **every column-zero `~~~` block is a card, whatever its info
   string.** The opener's info string is no longer read. `~~~card-yaml` and
   `~~~yaml` were accepted aliases and `~~~rust` opened an ordinary code block;
@@ -23,6 +38,45 @@
   rather than away. The `body.example` blueprint guard tightens with the parser
   it delegates to, catching the language-tagged openers it used to pass.
   Refs #1698.
+- refactor(core,wasm)!: **canvas preview is part of the backend contract.**
+  `SessionHandle::page_size_pt` and `render_rgba` lose their absent-reading
+  defaults and become required, so a session paints by construction rather than
+  by opting in. Each return value carried two meanings and now carries one:
+  `None` and `Ok(None)` say the page is past `page_count()`, where they also
+  used to say the backend had no painter, and a caller reading one knows it
+  asked for a page the compile does not have. `update`, `regions` and
+  `field_at` keep their defaults — this closes the canvas door alone.
+  `LiveSession::supports_canvas()` goes with the derivation it performed: it
+  reduced to `page_count() > 0`, which is what a Rust caller writes instead.
+  Both shipped backends already implement the pair, so the trait change moves
+  no rendered pixel. The WASM `paint` / `pageSize` capability throw goes with
+  it: a compile with nothing to paint now meets the out-of-range refusal,
+  `"paint: page index 0 out of range (pageCount=0)"`, in place of a message
+  naming a painter the backend has. Closes #1706.
+- refactor(content,wasm)!: **`Content::normalize` settles the lenient/strict
+  split alone.** Eleven `Invariant` arms named shapes the mint repairs — a
+  zero-width or newline-edged formatting mark, a `continues` flag on the first
+  line, across a container boundary or after a one-line block, a line kind its
+  text contradicts, the four table shapes, and a block island's slot sharing its
+  line — and every door mints before it validates, so each fired only on a
+  hand-built content. The op channel refused three of them a third time. All of
+  it goes: `validate` reports what normalization cannot repair (a forbidden
+  character with no substitute, two counts with no rule saying which is right, a
+  range or depth past a bound, a colliding id), and `setKind` / `setContinues`
+  land and the terminal normalize settles them — a contradicted kind becomes
+  `para`, an impossible `continues` clears, line 0 included. So `applyChange`
+  resolves where it threw, and `Ok` stops meaning the op landed as written: an
+  editor mirroring ops into its own model reads the content back. The one
+  content-changing case is a heading retagged `island` or `rule`, which is a
+  paragraph afterward. `BadHeadingLevel` and the block-island placement stay
+  refused, the first having no principled rewrite and the second being the
+  authored lane's policy rather than a second reading of a repair. The property
+  suite's oracle is the mint's fixed point beside the surviving `validate`.
+  `LineKindMismatch` leaves the crate with `ApplyError::LineKindMismatch`,
+  `ContinuesAcrossContainers`, `ContinuesSingleLineBlock` and
+  `FirstLineContinues`. Stored bytes are untouched, and the one reader change is
+  a loosening: a blob spelling `continues: true` on line 0 loads cleared where
+  it failed. Closes #1699.
 - feat(content,wasm)!: **the content vocabularies close.** A line `kind`,
   container, mark `type`, island `type` or `loss` outside the built-ins was an
   open set: it round-tripped opaque and projected as its nearest safe
@@ -45,6 +99,43 @@
   one and a write of one throws. The storage tag is unchanged: every byte the
   writer emits is the same, and only the reader's accepted domain narrowed.
   Adding a construct is a storage-version event from here on. Closes #1693.
+- refactor(core)!: **prescan's cleaned YAML is line-for-line with its source.**
+  A comment line was dropped from the string handed to the parser, so the two
+  numberings diverged and a `PreScan::source_lines` table existed to map a
+  reported position back. The line now passes through — it is a comment to the
+  parser too — and the table, the `Cleaned` pair it rode in, and the
+  fall-back-to-the-last-line lookup go with it. Blanking the line instead, which
+  the same table would have bought, is what this does *not* do: a blank line is
+  content under keep chomping, so `bio: |+` followed by a comment would have
+  gained a newline. One break: a comment indented inside a multi-line plain
+  scalar now ends it, as it does in YAML, so `key: aaa` / `  # c` / `  bbb`
+  raises a located `parse::yaml_error` where it used to fold to `"aaa bbb"` —
+  a value no YAML parser reads out of that document.
+- refactor(core)!: **nested comments hang off the payload, not each item.**
+  `PayloadItem::Field` / `Meta` lose `nested_comments`; one list on `Payload`
+  carries them, at paths whose head segment names the owning entry. That is the
+  form prescan already produced and the storage DTO already stored, so the
+  flat → per-item → flat conversion at both ends is gone. `Payload` gains the
+  public `nested_comments()` and `rename_field`, which carries a field's
+  comments with its key; `items_mut` is withdrawn, having existed only for the
+  rename that now has a verb — which is what kept `normalize_document` from
+  orphaning them. The wire is untouched: `PayloadV0_92_0.nested_comments` was
+  already the flat sidecar.
+- refactor(core): **`QuillValue` holds its JSON, not a mirror of it.**
+  The value carried a private `Node`/`Kind` tree annotating every node with one
+  `fill` bit, plus a seeded `serde_json::Value` cache of the same data — so
+  `from_json` deep-cloned the whole document to record markers almost none of it
+  carries, and `get` cloned a subtree twice to read one child. No consumer wanted
+  the tree: emit, both wire formats, seeding, compose and conform all ask for a
+  flat path list, which is what `Seeded` already wrote by hand and what the DTO's
+  `nested_fills` already stores. `QuillValue` is now that pair — the JSON beside
+  a duplicate-free `Vec<Vec<PathSegment>>` — so the two node walkers
+  collapse to one `json_at`, and `OnceLock` and the hand-written `Clone` /
+  `PartialEq` go with them. The public surface is unchanged; `set_fill_at` still
+  refuses a path that addresses nothing, which is what keeps a recorded marker
+  from outliving its node, and records it where a walk of the JSON meets it, so
+  `fill_paths` reads in declaration order as the annotated tree did and the
+  `nested_fills` a stored document carries are byte-for-byte what 0.112 wrote.
 - docs(content,core): **the authored lane is `overwrite` and the op wire.**
   Canon and the 0.112 guide also named `install`, gone since 0.102, and
   `CardInput.body`, which has never rejected anything the storage lane takes.
@@ -56,6 +147,14 @@
   it. `Content::validate` also drops a reserved-tag check on table-cell marks that
   nothing reaches — `parse_cell` resolves every built-in name before its
   `Unknown` arm, so a cell mark is never a reserved-tag unknown.
+- docs(core): **`ERROR.md`'s args table covers the three `validation::seed_*`
+  codes it claimed.** The table is the `code` + `args` consumer contract, and
+  `diagnostic_args_match_canon` holds it to the minted set — but
+  `seed_unknown_kind`, `seed_overlay_shape` and `seed_unknown_field` were missing
+  from both, so the two agreed by omitting the same three and a consumer reading
+  the table saw a family it covered less of than it said. The rows are now minted
+  from the overlay walk itself, on a document that trips all three, so each row
+  and its construction site check each other.
 - docs: **two copies that were copies, not two ends of a subject.**
   `prose/README.md` divides canon and `docs/` by audience and says neither
   restates the other. § "Addressing cards for re-render" was in both, code block
@@ -181,9 +280,8 @@
   backend emitted PNG or SVG — while canvas paint is a `SessionHandle` seam a
   backend overrides independently of the formats it emits, so the two could
   disagree; every backend the workspace ships paints, so it answered `true` in
-  every build. `LiveSession::supports_canvas()` stays: it is derived from the
-  seam it gates and cannot drift. A JS consumer opens the session and handles
-  the throw `paint` / `pageSize` already owe a compile with nothing to paint.
+  every build. A JS consumer opens the session and handles the throw `paint` /
+  `pageSize` already owe a compile with nothing to paint.
 - refactor(all)!: **the crate-compatibility ceremony is withdrawn:
   `#[non_exhaustive]`, the `Backend` seal, public `register_backend`, and the
   SemVer promise `COMPATIBILITY.md` carried.** The attribute leaves the 86
@@ -238,8 +336,7 @@
 - feat(content)!: **a block-only island takes a line of its own in the model,
   not only on the way out.** `to_markdown` broke the line around such a slot
   at write time, so the model could hold a shape markdown cannot spell.
-  `Content::normalize` performs the break, `validate` states it as
-  `Invariant::BlockIslandNotAlone`, and the export writes the lines it is
+  `Content::normalize` performs the break and the export writes the lines it is
   given. A stored blob carrying the shape still loads, now already split with
   its marks rebased — the content `to_markdown` would have written. An
   accepted `LineOp::Join` that runs a slot back into its prose is taken apart

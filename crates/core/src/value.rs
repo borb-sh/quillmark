@@ -1,38 +1,26 @@
 //! Value type for unified representation of YAML/JSON values.
 
-use indexmap::IndexMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value as JsonValue;
 use std::ops::Deref;
-use std::sync::OnceLock;
 
-/// Unified value type: an annotated tree of JSON-shaped data where every
-/// node additionally records whether it was tagged `!must_fill`.
+/// Unified value type: JSON-shaped data beside the paths of the nodes tagged
+/// `!must_fill`.
 ///
-/// The tree is authoritative; the data API (`as_json`, `Deref`, …) reads a
-/// lazily materialized, **fill-free** [`serde_json::Value`] projection of it.
-/// Construction leaves `fill = false`; the document layer applies the markers.
-/// No data-mutating method exists (only `set_fill_at`, which the projection
-/// ignores), so the cache never goes stale.
+/// The JSON is the data in full, fill-free, and every reader of it (`as_json`,
+/// `Deref`, `Serialize`, …) hands it out directly. Construction records no
+/// marker; the document layer applies them with
+/// [`set_fill_at`](Self::set_fill_at), which is the only mutator — the data
+/// itself is never edited in place, so a recorded path cannot come to address a
+/// node that has gone.
+///
+/// `fills` is kept in the order a walk of the JSON meets the nodes, and
+/// duplicate-free, so equality over it is set equality and the order a caller
+/// marks in is not observable.
+#[derive(Clone, PartialEq)]
 pub struct QuillValue {
-    node: Node,
-    json: OnceLock<JsonValue>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-struct Node {
-    fill: bool,
-    kind: Kind,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum Kind {
-    Null,
-    Bool(bool),
-    Number(serde_json::Number),
-    String(String),
-    Array(Vec<Node>),
-    Object(IndexMap<String, Node>),
+    json: JsonValue,
+    fills: Vec<Vec<PathSegment>>,
 }
 
 /// One step of a path into a value tree: an object key or an array index. The
@@ -42,95 +30,59 @@ enum Kind {
 /// Serializes **untagged** (a key as a JSON string, an index as a JSON number),
 /// so a path crosses the binding wire as a plain JS array like
 /// `["addr", "street"]` or `["recipients", 0, "name"]`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum PathSegment {
     Key(String),
     Index(usize),
 }
 
-fn collect_fill_paths(node: &Node, prefix: &mut Vec<PathSegment>, out: &mut Vec<Vec<PathSegment>>) {
-    if node.fill {
-        out.push(prefix.clone());
-    }
-    match &node.kind {
-        Kind::Array(items) => {
-            for (i, child) in items.iter().enumerate() {
-                prefix.push(PathSegment::Index(i));
-                collect_fill_paths(child, prefix, out);
-                prefix.pop();
-            }
-        }
-        Kind::Object(entries) => {
-            for (k, child) in entries {
-                prefix.push(PathSegment::Key(k.clone()));
-                collect_fill_paths(child, prefix, out);
-                prefix.pop();
-            }
-        }
-        _ => {}
-    }
-}
-
-fn node_at_mut<'a>(node: &'a mut Node, path: &[PathSegment]) -> Option<&'a mut Node> {
-    let mut cur = node;
+fn json_at<'a>(value: &'a JsonValue, path: &[PathSegment]) -> Option<&'a JsonValue> {
+    let mut cur = value;
     for seg in path {
-        cur = match (&mut cur.kind, seg) {
-            (Kind::Object(entries), PathSegment::Key(k)) => entries.get_mut(k)?,
-            (Kind::Array(items), PathSegment::Index(i)) => items.get_mut(*i)?,
+        cur = match (cur, seg) {
+            (JsonValue::Object(map), PathSegment::Key(k)) => map.get(k)?,
+            (JsonValue::Array(items), PathSegment::Index(i)) => items.get(*i)?,
             _ => return None,
         };
     }
     Some(cur)
 }
 
-fn node_is_object(node: &Node, path: &[PathSegment]) -> bool {
-    fn at<'a>(node: &'a Node, path: &[PathSegment]) -> Option<&'a Node> {
-        let mut cur = node;
-        for seg in path {
-            cur = match (&cur.kind, seg) {
-                (Kind::Object(entries), PathSegment::Key(k)) => entries.get(k)?,
-                (Kind::Array(items), PathSegment::Index(i)) => items.get(*i)?,
-                _ => return None,
-            };
-        }
-        Some(cur)
-    }
-    matches!(at(node, path).map(|n| &n.kind), Some(Kind::Object(_)))
-}
-
-impl Node {
-    fn from_json(value: &JsonValue) -> Node {
-        let kind = match value {
-            JsonValue::Null => Kind::Null,
-            JsonValue::Bool(b) => Kind::Bool(*b),
-            JsonValue::Number(n) => Kind::Number(n.clone()),
-            JsonValue::String(s) => Kind::String(s.clone()),
-            JsonValue::Array(items) => Kind::Array(items.iter().map(Node::from_json).collect()),
-            JsonValue::Object(map) => Kind::Object(
-                map.iter()
-                    .map(|(k, v)| (k.clone(), Node::from_json(v)))
-                    .collect(),
-            ),
-        };
-        Node { fill: false, kind }
-    }
-
-    fn to_json(&self) -> JsonValue {
-        match &self.kind {
-            Kind::Null => JsonValue::Null,
-            Kind::Bool(b) => JsonValue::Bool(*b),
-            Kind::Number(n) => JsonValue::Number(n.clone()),
-            Kind::String(s) => JsonValue::String(s.clone()),
-            Kind::Array(items) => JsonValue::Array(items.iter().map(Node::to_json).collect()),
-            Kind::Object(entries) => JsonValue::Object(
-                entries
-                    .iter()
-                    .map(|(k, n)| (k.clone(), n.to_json()))
-                    .collect(),
-            ),
+/// Where `path` falls in a walk of `json`: each segment as its position among
+/// its parent's members, an object key by declaration order. A parent's rank is
+/// a prefix of its children's, so comparing these lexicographically is the walk
+/// itself — the order [`QuillValue::fill_paths`] reports and the storage DTO
+/// writes `nested_fills` in, which
+/// `prose/canon/DOCUMENT_STORAGE.md` § "Byte-stability" holds across releases
+/// sharing a `schema` tag.
+///
+/// A segment that addresses nothing ends the rank, which orders it beside its
+/// deepest resolving parent; [`QuillValue::set_fill_at`] refuses such a path, so
+/// no recorded one takes that arm.
+fn structural_rank(json: &JsonValue, path: &[PathSegment]) -> Vec<usize> {
+    let mut rank = Vec::with_capacity(path.len());
+    let mut cur = json;
+    for seg in path {
+        match (cur, seg) {
+            (JsonValue::Object(map), PathSegment::Key(k)) => {
+                let Some(at) = map.keys().position(|key| key == k) else {
+                    break;
+                };
+                rank.push(at);
+                cur = &map[k];
+            }
+            (JsonValue::Array(items), PathSegment::Index(i)) => {
+                let Some(child) = items.get(*i) else {
+                    break;
+                };
+                rank.push(*i);
+                cur = child;
+            }
+            _ => break,
         }
     }
+    rank
 }
 
 /// `true` when a value nests deeper than `max_depth` container levels: the
@@ -165,13 +117,6 @@ pub(crate) fn depth_check_meta_map<E>(
 }
 
 impl QuillValue {
-    fn from_node(node: Node) -> Self {
-        QuillValue {
-            node,
-            json: OnceLock::new(),
-        }
-    }
-
     /// Parse a YAML string under the parser's own budget, so an over-deep
     /// document errors rather than overflowing its stack.
     pub fn from_yaml_str(yaml_str: &str) -> Result<Self, crate::error::YamlError> {
@@ -180,44 +125,35 @@ impl QuillValue {
         Ok(Self::from_json(json_val))
     }
 
-    /// The value's JSON projection, materialized on first use and cached.
-    /// Data only: `!must_fill` markers are not represented in JSON.
+    /// The value's data. `!must_fill` markers are not represented in JSON.
     pub fn as_json(&self) -> &serde_json::Value {
-        self.json.get_or_init(|| self.node.to_json())
+        &self.json
     }
 
     /// Convert into the underlying JSON value, dropping fill markers.
     pub fn into_json(self) -> serde_json::Value {
-        match self.json.into_inner() {
-            Some(json) => json,
-            None => self.node.to_json(),
+        self.json
+    }
+
+    /// Create a QuillValue from a JSON value, carrying no fill marker.
+    pub fn from_json(json_val: serde_json::Value) -> Self {
+        QuillValue {
+            json: json_val,
+            fills: Vec::new(),
         }
     }
 
-    /// Create a QuillValue from a JSON value, with every node `fill = false`.
-    pub fn from_json(json_val: serde_json::Value) -> Self {
-        let node = Node::from_json(&json_val);
-        let json = OnceLock::new();
-        // Seed the projection so the render path doesn't re-lower it, at the
-        // cost of holding the data twice.
-        let _ = json.set(json_val);
-        QuillValue { node, json }
-    }
-
-    /// Whether this value's root node carries the `!must_fill` marker.
+    /// Whether this value's root carries the `!must_fill` marker.
     pub fn fill(&self) -> bool {
-        self.node.fill
+        self.fills.iter().any(Vec::is_empty)
     }
 
     /// Paths (relative to this value's root) of every node carrying the
     /// `!must_fill` marker. The root, if filled, is reported as the empty
-    /// path. The JSON projection carries no fill, so this is the only way to
-    /// observe nested fill markers.
+    /// path. The JSON carries no fill, so this is the only way to observe
+    /// nested fill markers.
     pub fn fill_paths(&self) -> Vec<Vec<PathSegment>> {
-        let mut out = Vec::new();
-        let mut prefix = Vec::new();
-        collect_fill_paths(&self.node, &mut prefix, &mut out);
-        out
+        self.fills.clone()
     }
 
     /// Every [`fill_paths`](Self::fill_paths) entry except the empty (root)
@@ -227,29 +163,37 @@ impl QuillValue {
         self.fill_paths().into_iter().filter(|p| !p.is_empty())
     }
 
-    /// Set `fill = true` on the node at `path` (relative to the root).
-    /// Returns `false` if the path does not resolve to a node.
+    /// Mark the node at `path` (relative to the root) `!must_fill`. Returns
+    /// `false`, recording nothing, if the path does not resolve to a node: a
+    /// marker never outlives what it addresses.
+    ///
+    /// Recorded at the node's place in a walk of the JSON, so the list reads in
+    /// that order however a caller marked them.
     pub fn set_fill_at(&mut self, path: &[PathSegment]) -> bool {
-        match node_at_mut(&mut self.node, path) {
-            Some(n) => {
-                n.fill = true;
-                true
-            }
-            None => false,
+        if json_at(&self.json, path).is_none() {
+            return false;
         }
+        let rank = structural_rank(&self.json, path);
+        let at = self
+            .fills
+            .binary_search_by(|p| structural_rank(&self.json, p).cmp(&rank));
+        if let Err(at) = at {
+            self.fills.insert(at, path.to_vec());
+        }
+        true
     }
 
-    /// Clear `fill` on the root node. A stored field's root marker rides the
-    /// owning [`PayloadItem`](crate::PayloadItem)'s flag, so the tree beneath
-    /// it carries the nested markers alone.
+    /// Clear the root marker. A stored field's root marker rides the owning
+    /// [`PayloadItem`](crate::PayloadItem)'s flag, so the value beneath it
+    /// carries the nested markers alone.
     pub(crate) fn clear_root_fill(&mut self) {
-        self.node.fill = false;
+        self.fills.retain(|p| !p.is_empty());
     }
 
     /// Whether the node at `path` (relative to the root) is a mapping.
     /// Used to reject `!must_fill` on object-valued nodes.
     pub fn is_object_at(&self, path: &[PathSegment]) -> bool {
-        node_is_object(&self.node, path)
+        json_at(&self.json, path).is_some_and(JsonValue::is_object)
     }
 }
 
@@ -280,33 +224,12 @@ impl Deref for QuillValue {
     }
 }
 
-impl PartialEq for QuillValue {
-    /// Two values are equal when their annotated trees (data **and** fill)
-    /// are equal. The cached JSON projection is derived and not compared.
-    fn eq(&self, other: &Self) -> bool {
-        self.node == other.node
-    }
-}
-
-impl Clone for QuillValue {
-    fn clone(&self) -> Self {
-        let json = OnceLock::new();
-        if let Some(cached) = self.json.get() {
-            let _ = json.set(cached.clone());
-        }
-        QuillValue {
-            node: self.node.clone(),
-            json,
-        }
-    }
-}
-
 impl std::fmt::Debug for QuillValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.node.fill {
-            write!(f, "QuillValue(!must_fill {:?})", self.as_json())
+        if self.fill() {
+            write!(f, "QuillValue(!must_fill {:?})", self.json)
         } else {
-            write!(f, "QuillValue({:?})", self.as_json())
+            write!(f, "QuillValue({:?})", self.json)
         }
     }
 }
@@ -329,10 +252,21 @@ impl QuillValue {
     /// The scalar reads come from the [`Deref`] target instead, where fill is
     /// not observable anyway.
     pub fn get(&self, key: &str) -> Option<QuillValue> {
-        match &self.node.kind {
-            Kind::Object(entries) => entries.get(key).map(|n| QuillValue::from_node(n.clone())),
-            _ => None,
-        }
+        let child = self.json.as_object()?.get(key)?;
+        let head = PathSegment::Key(key.to_string());
+        Some(QuillValue {
+            json: child.clone(),
+            // A walk of the child is the parent's walk restricted to what lies
+            // under `key`, so stripping the shared head leaves the child's list
+            // in its own structural order.
+            fills: self
+                .fills
+                .iter()
+                .filter_map(|p| p.split_first())
+                .filter(|(first, _)| **first == head)
+                .map(|(_, rest)| rest.to_vec())
+                .collect(),
+        })
     }
 }
 
@@ -380,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn json_round_trips_through_the_tree() {
+    fn json_round_trips_declaration_order_included() {
         // Identity, object key order (serde_json `preserve_order`) included.
         let original = serde_json::json!({
             "z": 1,
@@ -389,10 +323,7 @@ mod tests {
         });
         let qv = QuillValue::from_json(original.clone());
         assert_eq!(qv.as_json(), &original);
-
-        // Re-lowered from the tree rather than read off the seeded cache.
-        let relowered = QuillValue::from_node(qv.node.clone()).into_json();
-        assert_eq!(relowered, original);
+        assert_eq!(qv.into_json(), original);
     }
 
     #[test]
@@ -443,7 +374,7 @@ mod tests {
     }
 
     #[test]
-    fn fill_marker_rides_on_the_node_not_the_json() {
+    fn fill_marker_rides_beside_the_json_not_in_it() {
         let filled = || {
             let mut qv = QuillValue::from("draft");
             assert!(qv.set_fill_at(&[]));
@@ -454,5 +385,107 @@ mod tests {
         assert_eq!(qv.as_json(), &serde_json::json!("draft"));
         assert_ne!(qv, QuillValue::from("draft"), "equality is fill-sensitive");
         assert_eq!(qv, filled());
+    }
+
+    /// The marking order and repetition a caller happens to use are not
+    /// observable: the same set of markers is the same value.
+    #[test]
+    fn fill_markers_normalize_to_a_set() {
+        let key = |k: &str| vec![PathSegment::Key(k.to_string())];
+        let mark = |order: [&str; 3]| {
+            let mut qv = QuillValue::from_json(serde_json::json!({"a": 1, "b": 2, "c": 3}));
+            for k in order {
+                assert!(qv.set_fill_at(&key(k)));
+            }
+            qv
+        };
+        let forward = mark(["a", "b", "c"]);
+        assert_eq!(forward, mark(["c", "a", "b"]));
+        assert_eq!(forward.fill_paths().len(), 3);
+
+        let mut twice = mark(["a", "b", "c"]);
+        assert!(twice.set_fill_at(&key("a")));
+        assert_eq!(twice, forward, "re-marking a node changes nothing");
+    }
+
+    /// The set reads back in the order a walk of the JSON meets it: an object's
+    /// keys as declared, not as named, and a parent before what it contains.
+    /// The storage DTO writes `nested_fills` in this order, and
+    /// `prose/canon/DOCUMENT_STORAGE.md` § "Byte-stability" holds those bytes
+    /// fixed across every release sharing a `schema` tag — so the reported
+    /// order is a stored fact, not a presentation choice.
+    #[test]
+    fn fill_paths_read_in_declaration_order() {
+        let mut qv = QuillValue::from_json(serde_json::json!({
+            "zip": null,
+            "street": { "line": null },
+            "city": null,
+        }));
+        let key = |k: &str| PathSegment::Key(k.to_string());
+        for path in [
+            vec![key("city")],
+            vec![key("street"), key("line")],
+            vec![key("zip")],
+            vec![key("street")],
+        ] {
+            assert!(qv.set_fill_at(&path));
+        }
+        assert_eq!(
+            qv.fill_paths(),
+            vec![
+                vec![key("zip")],
+                vec![key("street")],
+                vec![key("street"), key("line")],
+                vec![key("city")],
+            ]
+        );
+
+        let mut arr = QuillValue::from_json(serde_json::json!({"to": [{"n": null}, {"n": null}]}));
+        for i in [1usize, 0] {
+            assert!(arr.set_fill_at(&[key("to"), PathSegment::Index(i), key("n")]));
+        }
+        assert_eq!(
+            arr.fill_paths(),
+            vec![
+                vec![key("to"), PathSegment::Index(0), key("n")],
+                vec![key("to"), PathSegment::Index(1), key("n")],
+            ],
+            "an array walks by index"
+        );
+    }
+
+    /// A marker addresses a node or is refused, so the recorded paths always
+    /// resolve against the data beside them.
+    #[test]
+    fn fill_marker_on_an_absent_node_is_refused() {
+        let mut qv = QuillValue::from_json(serde_json::json!({"a": [1]}));
+        assert!(!qv.set_fill_at(&[PathSegment::Key("nope".to_string())]));
+        assert!(!qv.set_fill_at(&[
+            PathSegment::Key("a".to_string()),
+            PathSegment::Index(9),
+        ]));
+        assert!(qv.fill_paths().is_empty());
+    }
+
+    #[test]
+    fn get_carries_the_child_markers_and_drops_its_siblings() {
+        let mut qv = QuillValue::from_json(serde_json::json!({
+            "addr": { "street": "", "city": "" },
+            "name": "",
+        }));
+        let street = vec![
+            PathSegment::Key("addr".to_string()),
+            PathSegment::Key("street".to_string()),
+        ];
+        assert!(qv.set_fill_at(&street));
+        assert!(qv.set_fill_at(&[PathSegment::Key("name".to_string())]));
+
+        let addr = qv.get("addr").expect("addr is a member");
+        assert_eq!(
+            addr.fill_paths(),
+            vec![vec![PathSegment::Key("street".to_string())]],
+            "rebased onto the child, and `name` left behind"
+        );
+        assert!(!addr.fill(), "the child root carries no marker of its own");
     }
 }

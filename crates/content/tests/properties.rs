@@ -9,8 +9,24 @@ use quillmark_content::delta::diff_import;
 use quillmark_content::export::to_markdown;
 use quillmark_content::import::from_markdown;
 use quillmark_content::model::{Line, Mark, MarkKind};
-use quillmark_content::{Content, Delta, Island, IslandOp, LineKind, LineOp, MarkOp, Op};
+use quillmark_content::{
+    Content, Delta, Island, IslandOp, LineKind, LineOp, MarkOp, Normalized, Op,
+};
 use serde_json::{json, Value};
+
+/// The mint's fixed point: normalizing again changes nothing.
+///
+/// Every repair [`Content::normalize`] performs is a strict rewrite — a kind
+/// demoted, a flag cleared, a mark edge trimmed, a zero-width mark dropped, a
+/// row padded, a line broken around a block island's slot — so one equality
+/// states the whole canonical form. Paired with `validate`, which reports what
+/// the mint cannot repair, it is the oracle over an accepted op: the two
+/// together cover the content's invariants.
+fn renormalized(rt: &Normalized) -> Content {
+    let mut again = rt.clone().into_content();
+    again.normalize();
+    again
+}
 
 // A constrained markdown generator: inline tokens are space-separated so the
 // properties exercise structure and marks without depending on CommonMark's
@@ -177,6 +193,7 @@ proptest! {
     fn content_round_trip_and_invariants(md in document()) {
         let rt = from_markdown(&md).unwrap();
         prop_assert_eq!(rt.validate(), Ok(()), "invariants for {:?}", md);
+        prop_assert_eq!(&renormalized(&rt), &*rt, "import is not the mint's fixed point for {:?}", md);
 
         let md2 = to_markdown(&rt);
         let rt2 = from_markdown(&md2).unwrap();
@@ -244,6 +261,7 @@ proptest! {
             .with_marks(marks)
             .into_normalized();
         prop_assert_eq!(rt.validate(), Ok(()), "hand-built content invalid");
+        prop_assert_eq!(&renormalized(&rt), &*rt, "the mint left a repairable shape");
 
         let md = to_markdown(&rt);
         let rt2 = from_markdown(&md).unwrap();
@@ -304,6 +322,7 @@ proptest! {
             .collect();
         rt.apply_mark_ops(&ops).unwrap();
         prop_assert_eq!(rt.validate(), Ok(()), "editor marks left content invalid");
+        prop_assert_eq!(&renormalized(&rt), &*rt, "editor marks left a repairable shape");
 
         let md = to_markdown(&rt);
         let rt2 = from_markdown(&md).unwrap();
@@ -336,6 +355,7 @@ proptest! {
                 .with_props(json!({ "alt": alt, "url": img_url }))])
             .into_normalized();
         prop_assert_eq!(rt.validate(), Ok(()), "hand-built content invalid");
+        prop_assert_eq!(&renormalized(&rt), &*rt, "the mint left a repairable shape");
         let md = to_markdown(&rt);
         let rt2 = from_markdown(&md).unwrap();
         prop_assert_eq!(&rt, &rt2, "alt/url specials not a fixed point.\n  md: {:?}", md);
@@ -444,6 +464,7 @@ proptest! {
         };
         if rt.apply_text_delta(&delta).is_ok() {
             prop_assert_eq!(rt.validate(), Ok(()), "text delta broke an invariant");
+            prop_assert_eq!(&renormalized(&rt), &*rt, "text delta left a repairable shape");
         }
     }
 
@@ -493,6 +514,7 @@ proptest! {
                 }
             }
             prop_assert_eq!(rt.validate(), Ok(()), "splice broke an invariant");
+            prop_assert_eq!(&renormalized(&rt), &*rt, "the splice left a repairable shape");
         }
     }
 
@@ -513,6 +535,7 @@ proptest! {
         };
         if rt.apply_island_ops(&[op]).is_ok() {
             prop_assert_eq!(rt.validate(), Ok(()), "island op broke an invariant");
+            prop_assert_eq!(&renormalized(&rt), &*rt, "the island op left a repairable shape");
         }
     }
 
@@ -532,29 +555,40 @@ proptest! {
         let op = MarkOp::Add { start: a.min(b), end: a.max(b), kind: MarkKind::Strong };
         if rt.apply_mark_ops(&[op]).is_ok() {
             prop_assert_eq!(rt.validate(), Ok(()), "mark op broke an invariant");
+            prop_assert_eq!(&renormalized(&rt), &*rt, "the mark op left a repairable shape");
         }
     }
 
     /// `apply_line_ops` preserves `validate()` across an accepted
-    /// split/join/set-kind. Split/join splice a `\n` and rebase marks through
-    /// that one-char change, so keeping the imported marks exercises the remap.
+    /// split/join/set-kind/set-continues. Split/join splice a `\n` and rebase
+    /// marks through that one-char change, so keeping the imported marks
+    /// exercises the remap. The kinds a line's text can contradict, and a
+    /// `continues` no block above can take, land wherever they fall: the
+    /// terminal normalize settles them, and the oracle reads the outcome.
     #[test]
     fn apply_line_ops_preserves_validate(
         md in document(),
         pos_seed in 0usize..4096,
         line_seed in 0usize..64,
-        which in 0u8..3,
+        which in 0u8..7,
     ) {
         let mut rt = from_markdown(&md).unwrap();
         let len = rt.len_usv();
         let nlines = rt.lines.len().max(1);
+        let line = line_seed % nlines;
+        let kind = |k: LineKind| LineOp::SetKind { line, kind: k };
         let op = match which {
             0 => LineOp::Split { at: pos_seed % (len + 1) },
-            1 => LineOp::Join { line: line_seed % nlines },
-            _ => LineOp::SetKind { line: line_seed % nlines, kind: LineKind::Heading { level: 2 } },
+            1 => LineOp::Join { line },
+            2 => kind(LineKind::Heading { level: 2 }),
+            3 => kind(LineKind::Island),
+            4 => kind(LineKind::Rule),
+            5 => kind(LineKind::Code { lang: None }),
+            _ => LineOp::SetContinues { line, continues: true },
         };
         if rt.apply_line_ops(&[op]).is_ok() {
             prop_assert_eq!(rt.validate(), Ok(()), "line op broke an invariant");
+            prop_assert_eq!(&renormalized(&rt), &*rt, "the line op left a repairable shape");
         }
     }
 }
@@ -644,6 +678,7 @@ proptest! {
 
         let rt = table_content(aligns.clone(), header_cells, row_cells).into_normalized();
         prop_assert_eq!(rt.validate(), Ok(()), "normalized table invalid");
+        prop_assert_eq!(&renormalized(&rt), &*rt, "the table mint is not a fixed point");
 
         let props = &rt.islands[0].props;
         prop_assert_eq!(props["header"].as_array().unwrap().len(), cols);

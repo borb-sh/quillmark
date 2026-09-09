@@ -368,9 +368,12 @@ export type MarkOp =
  * A line/block edit. `split`/`join` splice `\n` in post-`delta`,
  * post-`islandOps` coordinates; `setKind`/`setContainers`/`setContinues` touch
  * metadata. `setContinues` sets or clears a line's within-block hard-break flag
- * (`ContentLine.continues`); `continues: true` is rejected on line 0, on a line
- * whose containers differ from the line above, and after a heading, island or
- * rule, each of which is a block of one line.
+ * (`ContentLine.continues`); `continues: true` lands as `false` on line 0, which
+ * nothing precedes, on a line whose containers differ from the line above, and
+ * on one following a heading, island or rule, each a block of one line.
+ * `setKind` lands a kind the line's text contradicts — `island` or `rule` over
+ * prose, `code` over a slot — as `para`, which is what re-importing the line's
+ * own markdown yields. Read the content back to see where an op settled.
  */
 export type LineOp =
     | { op: "split"; at: number }
@@ -473,8 +476,8 @@ pub struct Quill {
 /// after each committed `update`.
 ///
 /// A zero-page document yields a valid session (`pageCount === 0`) whose
-/// `paint(ctx, 0)` and `pageSize(0)` throw; branch on `pageCount === 0` rather
-/// than catching.
+/// `paint(ctx, 0)` and `pageSize(0)` throw as any out-of-range page does; branch
+/// on `pageCount === 0` rather than catching.
 #[cfg(any(feature = "typst", feature = "pdfform"))]
 #[wasm_bindgen]
 pub struct LiveSession {
@@ -2529,11 +2532,10 @@ impl LiveSession {
             .transpose()
     }
 
-    /// Page dimensions in points (1 pt = 1/72 inch).
-    /// Throws if the backend has no canvas painter or `page` is out of range.
+    /// Page dimensions in points (1 pt = 1/72 inch). Throws if `page` is out of
+    /// range, which a zero-page compile makes true of every index.
     #[wasm_bindgen(js_name = pageSize, unchecked_return_type = "PageSize")]
     pub fn page_size(&self, page: usize) -> Result<JsValue, JsValue> {
-        self.ensure_canvas("pageSize")?;
         let (width_pt, height_pt) = self
             .inner
             .page_size_pt(page)
@@ -2558,10 +2560,9 @@ impl LiveSession {
     /// its own `<canvas>`: no compositing, sub-rect, or transform reaches through
     /// this call.
     ///
-    /// Throws if the backend has no canvas painter, `page` is out of range, `ctx`
-    /// is the wrong type, either scale is non-finite or `<= 0`, or the page
-    /// cannot be rasterized at the resulting scale
-    /// (`backend::invalid_raster_scale`).
+    /// Throws if `page` is out of range, `ctx` is the wrong type, either scale is
+    /// non-finite or `<= 0`, or the page cannot be rasterized at the resulting
+    /// scale (`backend::invalid_raster_scale`).
     #[wasm_bindgen(js_name = paint, unchecked_return_type = "PaintResult")]
     pub fn paint(
         &self,
@@ -2572,7 +2573,6 @@ impl LiveSession {
         page: usize,
         #[wasm_bindgen(unchecked_param_type = "PaintOptions | undefined")] opts: JsValue,
     ) -> Result<JsValue, JsValue> {
-        self.ensure_canvas("paint")?;
         let canvas_ctx = CanvasCtx::from_js(&ctx)?;
 
         let (width_pt, height_pt) = self
@@ -2629,17 +2629,18 @@ impl LiveSession {
             .to_js_value());
         }
 
-        // `page_size_pt(page)` succeeded above, so a `None` here is a backend
-        // capability/impl disagreement, not a bad page index.
+        // `page_size_pt(page)` answered, so the page is in range and a raster is
+        // owed; a `None` here is a backend bug.
         let (pixel_w, pixel_h, mut rgba) = self
             .inner
             .render_rgba(page, render_scale as f32)
             .map_err(|e| WasmError::from(e).to_js_value())?
             .ok_or_else(|| {
                 WasmError::from(format!(
-                    "paint: backend '{}' reported a canvas painter but produced no raster \
-                     for page {page} (render_rgba returned None on an in-range page)",
-                    self.backend_id
+                    "paint: backend '{}' returned no raster for page {page}, which is in \
+                     range (pageCount={})",
+                    self.backend_id,
+                    self.inner.page_count()
                 ))
                 .to_js_value()
             })?;
@@ -2670,18 +2671,6 @@ impl LiveSession {
 
 #[cfg(any(feature = "typst", feature = "pdfform"))]
 impl LiveSession {
-    fn ensure_canvas(&self, op: &str) -> Result<(), JsValue> {
-        if self.inner.supports_canvas() {
-            Ok(())
-        } else {
-            Err(WasmError::from(format!(
-                "{op}: backend '{}' has no canvas painter",
-                self.backend_id
-            ))
-            .to_js_value())
-        }
-    }
-
     fn page_oob_error(&self, op: &str, page: usize) -> JsValue {
         WasmError::from(format!(
             "{op}: page index {page} out of range (pageCount={})",

@@ -403,9 +403,9 @@ canvas.style.height = `${result.layoutHeight}px`;
 - In a Worker, pass an `OffscreenCanvasRenderingContext2D`; the layout
   dimensions are informational there. Loading the WASM module inside the Worker
   is the host's responsibility.
-- A backend with no canvas painter, and a compile with no pages, throw on
-  `paint` / `pageSize`, naming the resolved `backendId`. That throw is the whole
-  contract: open the session and handle the failure.
+- `paint` / `pageSize` throw on a page the compile does not have, a zero-page
+  compile included, naming the index and the `pageCount` that excludes it. That
+  throw is the whole contract: open the session and handle it.
 
 ### Schema model
 

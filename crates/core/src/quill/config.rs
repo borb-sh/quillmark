@@ -289,7 +289,7 @@ impl QuillConfig {
 
         // Null ≡ absent, so a present-null passes through at every type.
         // Returning `value` rather than the JSON also preserves a `!must_fill`
-        // marker riding on it: the fill flag is not part of the JSON projection.
+        // marker riding on it: the fill flag is not part of the JSON.
         if json_value.is_null() {
             return Ok(value.clone());
         }
