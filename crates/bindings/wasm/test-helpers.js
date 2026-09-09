@@ -19,6 +19,21 @@ export function initBuildSync(mod, variant) {
   mod.initSync({ module: readFileSync(join(PKG_DIR, variant, 'wasm_bg.wasm')) })
 }
 
+/**
+ * A `CardInput` from a kind, a flat field map and a body — the shape a host
+ * writes for `insertCard`. `payloadItems` is the wire's own form: one
+ * `{ type: 'field', key, value }` per field, in insertion order.
+ *
+ * @param {string} kind
+ * @param {Record<string, unknown>} [fields]
+ * @param {string} [body]
+ */
+export const makeCard = (kind, fields = {}, body = '') => ({
+  kind,
+  payloadItems: Object.entries(fields).map(([key, value]) => ({ type: 'field', key, value })),
+  body,
+})
+
 /** An ES class, not a plain function. */
 export const isClass = (v) => typeof v === 'function' && /^class[\s{]/.test(String(v))
 

@@ -2,7 +2,7 @@ mod support_tests;
 mod variant_tests;
 
 use super::*;
-use crate::{Diagnostic, Document, Severity};
+use crate::{Diagnostic, Document, QuillValue, Severity};
 use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::fs;
@@ -250,8 +250,6 @@ fn test_from_tree() {
         quill.files().get_file("plate.typ"),
         Some(plate_content.as_bytes())
     );
-    assert!(quill.metadata.contains_key("backend"));
-    assert!(quill.metadata.contains_key("description"));
 }
 
 /// The advisory channel reaches whoever holds the quill. `from_tree` is the
@@ -479,8 +477,8 @@ fn test_quill_without_plate_file() {
 
     let quill = Quill::from_tree(root).unwrap();
 
-    assert!(!quill.metadata.contains_key("typst_plate_file"));
     assert_eq!(quill.name(), "test_no_plate");
+    assert!(!quill.config().backend_config.contains_key("plate_file"));
 }
 
 #[test]
@@ -742,39 +740,6 @@ card_kinds:
 
     let result = QuillConfig::from_yaml(yaml);
     assert!(result.is_ok());
-}
-
-#[test]
-fn test_quill_from_config_metadata() {
-    let mut root_files = HashMap::new();
-
-    let quill_yaml = r#"
-quill:
-  name: metadata_test
-  version: "1.0"
-  backend: typst
-  description: Test metadata flow
-  author: Test Author
-
-typst:
-  packages:
-    - "@preview/bubble:0.2.2"
-"#;
-    root_files.insert(
-        "Quill.yaml".to_string(),
-        FileTreeNode::File {
-            contents: quill_yaml.as_bytes().to_vec(),
-        },
-    );
-
-    let root = FileTreeNode::Directory { files: root_files };
-    let quill = Quill::from_tree(root).unwrap();
-
-    assert!(quill.metadata.contains_key("backend"));
-    assert!(quill.metadata.contains_key("description"));
-    assert!(quill.metadata.contains_key("author"));
-
-    assert!(quill.metadata.contains_key("typst_packages"));
 }
 
 #[test]

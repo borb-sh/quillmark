@@ -84,7 +84,7 @@ peer of the render-path namespaces. Identity is the code, never message text:
 routing coercion-vs-undeclared is `edit::field_coercion_failed` vs.
 `edit::unknown_field`, read off `diagnostics[0].code`.
 
-Building a card from a `CardWire` (`makeCard` / `insertCard`) is the same
+Building a card from a `CardWire` (`insertCard`) is the same
 surface reached without an address, so it refuses under the same codes:
 `WireError` carries the `EditError` its addressed twin raises, and
 `WireError::code()` is that code. Two of its codes are not `edit::*`, or not
@@ -313,9 +313,7 @@ The boundary **mints** as well as parses: `doc.pathFor(addr)` / `doc.cardPath(i)
 `DocPath` is the anchor on **every** address that crosses to a consumer, not
 only `Diagnostic.path`. Mutator (`edit::*`) diagnostics carry it (a field error
 at `main.<field>` or `cards.<kind>[<i>].<field>`, a structural out-of-range op at
-`cards[<i>]`); `set_values` reports every refused cell under its own, at
-document and card scope alike, which is why that batch keys on `DocPath` where
-`set_all`'s keys on a field name: one batch spans cards;
+`cards[<i>]`), `set_all`'s batch keying on a field name under one card's base;
 and `LiveSession` geometry (`regions` / `fieldAt` / `positionAt` / `locate`)
 keys on it: the session translates the backend's plate-space form to `DocPath`
 at the boundary, segment by segment — the `$cards.<kind>.<ordinal>` head to the

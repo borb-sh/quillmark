@@ -60,10 +60,10 @@ literals against their declared types, and referenced files. `-v` adds advisory
 warnings such as missing field descriptions. Exits 1 where the configuration is
 invalid.
 
-### `quillmark info <QUILL_PATH> [--json]`
+### `quillmark info <QUILL_PATH>`
 
-Prints quill metadata — name, version, author, backend, field and card counts.
-`--json` emits the same as one JSON object.
+Prints the quill's identity — name, version, author, backend — and its field,
+card and defaults counts.
 
 ## Exit codes
 
