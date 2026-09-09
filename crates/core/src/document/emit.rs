@@ -13,7 +13,7 @@
 use serde_json::Value as JsonValue;
 use serde_saphyr::{FlowMap, FlowSeq, SerializerOptions};
 
-use super::payload::PayloadItem;
+use super::payload::{Payload, PayloadItem};
 use super::prescan::NestedComment;
 use crate::value::PathSegment;
 use super::{Card, Document};
@@ -180,13 +180,14 @@ impl KeyPos {
 
 fn emit_block(out: &mut String, card: &Card) {
     out.push_str("~~~\n");
-    emit_payload_items(out, card.payload().items());
+    emit_payload_items(out, card.payload());
     out.push_str("~~~\n");
 }
 
 /// Walk the unified item list and emit each entry. An `inline: true` comment
 /// immediately following a non-comment item is consumed as that item's trailer.
-fn emit_payload_items(out: &mut String, items: &[PayloadItem]) {
+fn emit_payload_items(out: &mut String, payload: &Payload) {
+    let items = payload.items();
     let mut i = 0;
     while i < items.len() {
         let trailer = items.get(i + 1).and_then(|next| match next {
@@ -202,19 +203,11 @@ fn emit_payload_items(out: &mut String, items: &[PayloadItem]) {
             PayloadItem::Kind { value } => {
                 emit_meta_line(out, "kind", value, trailer);
             }
-            PayloadItem::Meta {
-                key,
-                value,
-                nested_comments,
-            } => {
-                emit_meta_block(out, key.as_str(), value, trailer, nested_comments);
+            PayloadItem::Meta { key, value } => {
+                let nested = payload.nested_comments_for(key.as_str());
+                emit_meta_block(out, key.as_str(), value, trailer, &nested);
             }
-            PayloadItem::Field {
-                key,
-                value,
-                fill,
-                nested_comments,
-            } => {
+            PayloadItem::Field { key, value, fill } => {
                 // card-yaml is the human-authored surface, so a stored content
                 // object projects back to markdown here. The projection runs
                 // marker or no marker: a seeded `example` on a must-fill content
@@ -236,6 +229,7 @@ fn emit_payload_items(out: &mut String, items: &[PayloadItem]) {
                 }
                 // Nested fill markers; the top-level one rides on `*fill`.
                 let fills = value.fill_paths();
+                let nested = payload.nested_comments_for(key);
                 emit_field_at(
                     out,
                     key,
@@ -243,7 +237,7 @@ fn emit_payload_items(out: &mut String, items: &[PayloadItem]) {
                     KeyPos::Line(0),
                     *fill,
                     EmitCtx {
-                        nested: nested_comments,
+                        nested: &nested,
                         fills: &fills,
                         ..EmitCtx::EMPTY
                     },

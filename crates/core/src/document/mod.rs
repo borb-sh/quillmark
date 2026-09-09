@@ -181,7 +181,7 @@ pub use dto::{
 pub use edit::EditError;
 pub use meta::{is_valid_kind_name, validate_composable_kind, CardKindError};
 pub use payload::{MetaKey, Payload, PayloadItem};
-// Reachable through `PayloadItem`'s `nested_comments` fields, so nameable from here.
+// Reachable through `Payload::nested_comments`, so nameable from here.
 pub use prescan::NestedComment;
 pub use wire::{CardWire, PayloadItemWire, WireError};
 

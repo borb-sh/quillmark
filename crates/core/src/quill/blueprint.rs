@@ -72,25 +72,56 @@ fn body_placeholder(kind: &str) -> String {
     format!("Write {kind} body here.")
 }
 
+/// A card's payload under construction: entries in source order beside the
+/// comments nested inside their values, which [`Payload`] keys by owner.
+#[derive(Default)]
+struct CardItems {
+    items: Vec<PayloadItem>,
+    nested: Vec<NestedComment>,
+}
+
+impl CardItems {
+    fn push(&mut self, item: PayloadItem) {
+        self.items.push(item);
+    }
+
+    /// Adopt the comments nested inside entry `key`, rebasing each onto the
+    /// payload-absolute path `Payload` addresses them by.
+    fn adopt_nested(&mut self, key: &str, nested: Vec<NestedComment>) {
+        self.nested.extend(nested.into_iter().map(|nc| {
+            let mut path = Vec::with_capacity(nc.container_path.len() + 1);
+            path.push(PathSegment::Key(key.to_string()));
+            path.extend(nc.container_path);
+            NestedComment {
+                container_path: path,
+                ..nc
+            }
+        }));
+    }
+
+    fn into_payload(self) -> Payload {
+        Payload::from_items_with_nested(self.items, self.nested)
+    }
+}
+
 /// Build the root card: `$quill` (with the `# keep verbatim` inline reminder),
 /// `$kind: main`, the optional description own-line comment, then the fields.
 fn build_main_card(card: &CardSchema, quill_ref: &str, description: Option<String>) -> Card {
     let reference = quill_ref
         .parse()
         .expect("quill name@version is always a valid QuillReference");
-    let mut items = vec![
-        PayloadItem::Quill { reference },
-        PayloadItem::comment_inline("keep verbatim"),
-        PayloadItem::Kind {
-            value: "main".into(),
-        },
-    ];
+    let mut items = CardItems::default();
+    items.push(PayloadItem::Quill { reference });
+    items.push(PayloadItem::comment_inline("keep verbatim"));
+    items.push(PayloadItem::Kind {
+        value: "main".into(),
+    });
     if let Some(desc) = description {
         items.push(PayloadItem::comment(desc));
     }
     append_fields(&mut items, card);
     Card::from_parts(
-        Payload::from_items(items),
+        items.into_payload(),
         // The empty-content fallback is defensive: a placeholder or a
         // load-validated example never over-nests.
         crate::document::import_body(&body_text(card, "main"))
@@ -102,26 +133,25 @@ fn build_main_card(card: &CardSchema, quill_ref: &str, description: Option<Strin
 /// comment, a comment naming it a deletable sample, the optional description,
 /// then the fields.
 fn build_card(card: &CardSchema) -> Card {
-    let mut items = vec![
-        PayloadItem::Kind {
-            value: card.name.clone(),
-        },
-        PayloadItem::comment("composable (0..N)"),
-        PayloadItem::comment("sample card; delete if not needed"),
-    ];
+    let mut items = CardItems::default();
+    items.push(PayloadItem::Kind {
+        value: card.name.clone(),
+    });
+    items.push(PayloadItem::comment("composable (0..N)"));
+    items.push(PayloadItem::comment("sample card; delete if not needed"));
     if let Some(desc) = collapse_opt(card.description.as_deref()) {
         items.push(PayloadItem::comment(desc));
     }
     append_fields(&mut items, card);
     Card::from_parts(
-        Payload::from_items(items),
+        items.into_payload(),
         crate::document::import_body(&body_text(card, &card.name))
             .unwrap_or_else(|_| quillmark_content::Normalized::empty()),
     )
 }
 
 /// Append every field of a card as payload items, in [`group_fields`] order.
-fn append_fields(items: &mut Vec<PayloadItem>, card: &CardSchema) {
+fn append_fields(items: &mut CardItems, card: &CardSchema) {
     let registry: Vec<&str> = card
         .ui
         .as_ref()
@@ -166,7 +196,7 @@ fn group_fields<'a, I: IntoIterator<Item = &'a FieldSchema>>(
 /// Append one top-level field. Dispatches typed tables (`array<object>`) and
 /// typed dictionaries (`object` with `properties`) to their per-property
 /// builders; everything else is a scalar/array cell.
-fn append_field(items: &mut Vec<PayloadItem>, field: &FieldSchema) {
+fn append_field(items: &mut CardItems, field: &FieldSchema) {
     if field.is_variant_bearing() {
         append_variant(items, field);
         return;
@@ -215,7 +245,7 @@ fn eg_hinted(field: &FieldSchema) -> bool {
 /// then the `# e.g.` hint. `eg_when` gates the hint: a leaf surfaces it under
 /// `eg_hinted`, while typed containers always surface it (their example never
 /// inlines).
-fn push_leading(items: &mut Vec<PayloadItem>, field: &FieldSchema, eg_when: bool) {
+fn push_leading(items: &mut CardItems, field: &FieldSchema, eg_when: bool) {
     if let Some(desc) = collapse_opt(field.description.as_deref()) {
         items.push(PayloadItem::comment(desc));
     }
@@ -251,14 +281,13 @@ fn scalar_value(field: &FieldSchema) -> JsonValue {
 
 /// Append a scalar / scalar-array / richtext field as a single payload field
 /// plus its trailing inline type annotation.
-fn append_scalar(items: &mut Vec<PayloadItem>, field: &FieldSchema) {
+fn append_scalar(items: &mut CardItems, field: &FieldSchema) {
     push_leading(items, field, eg_hinted(field));
     let (json, fill) = scalar_cell(field);
     items.push(PayloadItem::Field {
         key: field.name.clone(),
         value: QuillValue::from_json(json),
         fill,
-        nested_comments: Vec::new(),
     });
     items.push(PayloadItem::comment_inline(type_expression(field)));
 }
@@ -375,7 +404,7 @@ fn container_cell(
 /// fields of the world that discriminant selects, and a
 /// `# when <MEMBER>: <fields>` line for every other world that owns a field set
 /// (`prose/canon/BLUEPRINT.md` § "Enum variants").
-fn append_variant(items: &mut Vec<PayloadItem>, field: &FieldSchema) {
+fn append_variant(items: &mut CardItems, field: &FieldSchema) {
     push_leading(items, field, field.default.is_some());
     if let Some(variants) = &field.variants {
         for (member, fields) in variants {
@@ -430,7 +459,7 @@ fn append_variant(items: &mut Vec<PayloadItem>, field: &FieldSchema) {
 /// its trailing inline type annotation. The top-level `fill` flag is always
 /// `false`: typed containers are tagged on their leaves, never the container.
 fn push_container_field(
-    items: &mut Vec<PayloadItem>,
+    items: &mut CardItems,
     key: &str,
     value: JsonValue,
     nested_comments: Vec<NestedComment>,
@@ -441,11 +470,11 @@ fn push_container_field(
     for path in &fills {
         quill_value.set_fill_at(path);
     }
+    items.adopt_nested(key, nested_comments);
     items.push(PayloadItem::Field {
         key: key.to_string(),
         value: quill_value,
         fill: false,
-        nested_comments,
     });
     items.push(PayloadItem::comment_inline(type_expression(field)));
 }

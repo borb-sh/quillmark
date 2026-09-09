@@ -47,7 +47,6 @@ fn seed_parts(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> (Payload, N
             // mapping never carries one: its obligation sits on the leaves
             // inside it, which `fills` addresses by path.
             fill: fills.iter().any(Vec::is_empty),
-            nested_comments: Vec::new(),
         });
     }
 
@@ -214,7 +213,6 @@ fn seed_variant(
         // A mapping never carries the root marker: the obligation sits on the
         // discriminant cell inside it.
         fill: false,
-        nested_comments: Vec::new(),
     })
 }
 

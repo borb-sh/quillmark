@@ -99,6 +99,41 @@
   one and a write of one throws. The storage tag is unchanged: every byte the
   writer emits is the same, and only the reader's accepted domain narrowed.
   Adding a construct is a storage-version event from here on. Closes #1693.
+- refactor(core)!: **prescan's cleaned YAML is line-for-line with its source.**
+  A comment line was dropped from the string handed to the parser, so the two
+  numberings diverged and a `PreScan::source_lines` table existed to map a
+  reported position back. The line now passes through — it is a comment to the
+  parser too — and the table, the `Cleaned` pair it rode in, and the
+  fall-back-to-the-last-line lookup go with it. Blanking the line instead, which
+  the same table would have bought, is what this does *not* do: a blank line is
+  content under keep chomping, so `bio: |+` followed by a comment would have
+  gained a newline. One break: a comment indented inside a multi-line plain
+  scalar now ends it, as it does in YAML, so `key: aaa` / `  # c` / `  bbb`
+  raises a located `parse::yaml_error` where it used to fold to `"aaa bbb"` —
+  a value no YAML parser reads out of that document.
+- refactor(core)!: **nested comments hang off the payload, not each item.**
+  `PayloadItem::Field` / `Meta` lose `nested_comments`; one list on `Payload`
+  carries them, at paths whose head segment names the owning entry. That is the
+  form prescan already produced and the storage DTO already stored, so the
+  flat → per-item → flat conversion at both ends is gone. `Payload` gains the
+  public `nested_comments()` and `rename_field`, which carries a field's
+  comments with its key; `items_mut` is withdrawn, having existed only for the
+  rename that now has a verb — which is what kept `normalize_document` from
+  orphaning them. The wire is untouched: `PayloadV0_92_0.nested_comments` was
+  already the flat sidecar.
+- refactor(core): **`QuillValue` holds its JSON, not a mirror of it.**
+  The value carried a private `Node`/`Kind` tree annotating every node with one
+  `fill` bit, plus a seeded `serde_json::Value` cache of the same data — so
+  `from_json` deep-cloned the whole document to record markers almost none of it
+  carries, and `get` cloned a subtree twice to read one child. No consumer wanted
+  the tree: emit, both wire formats, seeding, compose and conform all ask for a
+  flat path list, which is what `Seeded` already wrote by hand and what the DTO's
+  `nested_fills` already stores. `QuillValue` is now that pair — the JSON beside
+  a sorted, duplicate-free `Vec<Vec<PathSegment>>` — so the two node walkers
+  collapse to one `json_at`, and `OnceLock` and the hand-written `Clone` /
+  `PartialEq` go with them. The public surface is unchanged; `set_fill_at` still
+  refuses a path that addresses nothing, which is what keeps a recorded marker
+  from outliving its node.
 - docs(content,core): **the authored lane is `overwrite` and the op wire.**
   Canon and the 0.112 guide also named `install`, gone since 0.102, and
   `CardInput.body`, which has never rejected anything the storage lane takes.

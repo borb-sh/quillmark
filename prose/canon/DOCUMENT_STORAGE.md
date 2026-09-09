@@ -504,7 +504,7 @@ different bytes for the same document.
 `0.92.0` is a unified payload-item list (typed `$` entries living alongside
 user fields and comments in a single `Vec<PayloadItem>`), a per-field
 `nested_fills` list so `!must_fill` markers nested inside a field value
-survive a storage round-trip (the JSON `value` projection is fill-free), and
+survive a storage round-trip (the JSON `value` itself is fill-free), and
 the `seed` payload-item variant (the `$seed` per-card-kind overlay map).
 `0.93.0` leaves the payload model unchanged and instead embeds the card
 `body` as the **canonical content**: structurally, as a nested object, not a

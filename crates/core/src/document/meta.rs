@@ -81,7 +81,6 @@ pub(super) fn extract_meta_items(payload: &mut JsonValue) -> Result<Vec<PayloadI
                     JsonValue::Object(map) => PayloadItem::Meta {
                         key: meta_key,
                         value: map,
-                        nested_comments: Vec::new(),
                     },
                     other => {
                         return Err(ParseError::InvalidStructure(format!(

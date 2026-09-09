@@ -3,9 +3,10 @@
 //!
 //! Top-level comments become [`super::PayloadItem::Comment`]. Comments inside
 //! block mappings/sequences are captured with their structural path and an
-//! ordinal, which the emitter re-injects at (see [`NestedComment`]). A
-//! `!must_fill` tag is stripped from the cleaned YAML, so serde_saphyr sees a
-//! plain scalar, and recorded as a `fill` marker.
+//! ordinal, which the emitter re-injects at (see [`NestedComment`]). The lines
+//! themselves stay in the cleaned YAML, where they are comments to serde_saphyr
+//! too. A `!must_fill` tag is stripped, so serde_saphyr sees a plain scalar, and
+//! recorded as a `fill` marker.
 //!
 //! `!must_fill` is the only recognized fill tag; every other custom tag is
 //! dropped with a `parse::unsupported_yaml_tag` warning, value kept.
@@ -41,13 +42,11 @@ pub struct NestedComment {
 /// Output of [`prescan_fence_content`].
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PreScan {
-    /// YAML with `!must_fill` tags stripped and comment lines removed; fed to serde_saphyr.
+    /// YAML with `!must_fill` tags stripped; fed to serde_saphyr. Line-for-line
+    /// with the fence content — comment lines pass through, being comments to
+    /// the parser too — so a reported position needs no mapping to travel back
+    /// to a document position.
     pub cleaned_yaml: String,
-    /// The 0-indexed line of the fence content each line of
-    /// [`Self::cleaned_yaml`] came from. Own-line comments are dropped rather
-    /// than blanked, so the two numberings diverge and a parse failure needs
-    /// this to travel back to a document position.
-    pub source_lines: Vec<usize>,
     /// Top-level fields and comments in source order.
     pub items: Vec<PreItem>,
     pub nested_comments: Vec<NestedComment>,
@@ -56,20 +55,6 @@ pub(crate) struct PreScan {
     /// value tree by the assembler. Top-level fills ride on `PreItem::Field`.
     pub nested_fills: Vec<Vec<PathSegment>>,
     pub warnings: Vec<Diagnostic>,
-}
-
-/// The emitted YAML lines paired with the source line each came from.
-#[derive(Debug)]
-struct Cleaned {
-    lines: Vec<String>,
-    source_lines: Vec<usize>,
-}
-
-impl Cleaned {
-    fn push(&mut self, source_line: usize, text: String) {
-        self.lines.push(text);
-        self.source_lines.push(source_line);
-    }
 }
 
 #[derive(Debug)]
@@ -83,10 +68,7 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
     let mut out = PreScan::default();
 
     let lines: Vec<&str> = content.split('\n').collect();
-    let mut cleaned = Cleaned {
-        lines: Vec::with_capacity(lines.len()),
-        source_lines: Vec::with_capacity(lines.len()),
-    };
+    let mut cleaned: Vec<String> = Vec::with_capacity(lines.len());
 
     let mut stack: Vec<Frame> = vec![Frame {
         indent: 0,
@@ -99,7 +81,7 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
 
     let mut unsupported_fill_tag = false;
 
-    for (source_line, raw_line) in lines.iter().enumerate() {
+    for raw_line in &lines {
         // The split is on `\n`, so a CRLF line ends in `\r`. Dropped once here:
         // every matcher below, and the cleaned YAML, see `\n`-only lines.
         let line = raw_line.strip_suffix('\r').unwrap_or(raw_line);
@@ -107,7 +89,7 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
         let trimmed = &line[indent..];
 
         if trimmed.is_empty() {
-            cleaned.push(source_line, line.to_string());
+            cleaned.push(line.to_string());
             continue;
         }
 
@@ -116,7 +98,7 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
         // A line at or below the key's indent ends the scalar.
         if let Some(key_indent) = block_scalar_indent {
             if indent > key_indent {
-                cleaned.push(source_line, line.to_string());
+                cleaned.push(line.to_string());
                 continue;
             }
             block_scalar_indent = None;
@@ -149,6 +131,9 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                     inline: false,
                 });
             }
+            // Emitted, not dropped: a comment is a comment to the parser too,
+            // and keeping the line keeps the numbering the source's.
+            cleaned.push(line.to_string());
             continue;
         }
 
@@ -223,9 +208,9 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                     None if after_dash.trim_end().is_empty() => "-".to_string(),
                     None => format!("- {}", after_dash.trim_end()),
                 };
-                cleaned.push(source_line, format!("{}{}", head, body));
+                cleaned.push(format!("{}{}", head, body));
             } else {
-                cleaned.push(source_line, line.to_string());
+                cleaned.push(line.to_string());
             }
 
             // For a `- |-` item the content is indented past the dash, so the
@@ -267,7 +252,7 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                     });
                 }
 
-                cleaned.push(source_line, format!("{}:{}", key, value_without_tag));
+                cleaned.push(format!("{}:{}", key, value_without_tag));
 
                 if let Some(c) = trailing_comment {
                     out.items.push(PreItem::Comment {
@@ -318,12 +303,9 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                     });
                 }
                 let head = format!("{:width$}", "", width = indent);
-                cleaned.push(
-                    source_line,
-                    format!("{}{}:{}", head, source_key, value_without_tag),
-                );
+                cleaned.push(format!("{}{}:{}", head, source_key, value_without_tag));
             } else {
-                cleaned.push(source_line, line.to_string());
+                cleaned.push(line.to_string());
             }
 
             if has_empty_inline_value(&value_without_tag) {
@@ -341,7 +323,7 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
         }
 
         unsupported_fill_tag |= line_has_unsupported_fill_tag(line);
-        cleaned.push(source_line, line.to_string());
+        cleaned.push(line.to_string());
     }
 
     if unsupported_fill_tag {
@@ -357,8 +339,7 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
         );
     }
 
-    out.cleaned_yaml = cleaned.lines.join("\n");
-    out.source_lines = cleaned.source_lines;
+    out.cleaned_yaml = cleaned.join("\n");
     out
 }
 
@@ -1023,23 +1004,25 @@ mod tests {
     }
 
     #[test]
-    fn source_lines_map_cleaned_lines_back_over_dropped_comments() {
+    fn cleaned_yaml_is_line_for_line_with_its_source() {
+        // A parse position is a source position only while this holds; comment
+        // lines, a fill tag lifted off a value, and block-scalar content that
+        // looks like structure all have to leave the numbering alone.
         let input = "# lead\ntitle: Doc\n\n# note\nrole: !must_fill\nbio: |\n  # not a comment\nend: x\n";
         let out = prescan_fence_content(input);
 
-        assert_eq!(out.cleaned_yaml.split('\n').count(), out.source_lines.len());
-        let source = |needle: &str| {
-            let i = out
-                .cleaned_yaml
-                .split('\n')
+        let cleaned: Vec<&str> = out.cleaned_yaml.split('\n').collect();
+        assert_eq!(cleaned.len(), input.split('\n').count());
+        let line_of = |needle: &str| {
+            cleaned
+                .iter()
                 .position(|l| l.contains(needle))
-                .expect("cleaned line present");
-            out.source_lines[i]
+                .expect("cleaned line present")
         };
-        assert_eq!(source("title:"), 1);
-        assert_eq!(source("role:"), 4);
-        assert_eq!(source("# not a comment"), 6);
-        assert_eq!(source("end:"), 7);
+        assert_eq!(line_of("title:"), 1);
+        assert_eq!(line_of("role:"), 4);
+        assert_eq!(line_of("# not a comment"), 6);
+        assert_eq!(line_of("end:"), 7);
     }
 
     #[test]

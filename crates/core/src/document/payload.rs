@@ -6,9 +6,9 @@
 //! adjacent to a `$` line round-trips through the same mechanism as one
 //! adjacent to a user field.
 //!
-//! Comments inside a structured value live on the [`PayloadItem::Field`] /
-//! [`PayloadItem::Meta`] that owns it, as `nested_comments` with paths relative
-//! to that item's value tree.
+//! Comments inside a structured value live on the [`Payload`] itself, at paths
+//! whose head segment names the entry that owns them — the form prescan
+//! produces and the storage DTO stores, so neither end converts.
 //!
 //! The map-keyed accessors filter to [`PayloadItem::Field`]; `$` entries have
 //! dedicated typed accessors.
@@ -75,24 +75,18 @@ pub enum PayloadItem {
     /// `$kind` system metadata: the card's kind name.
     Kind { value: String },
     /// `$ext` / `$seed` system metadata: an opaque mapping discriminated by
-    /// [`MetaKey`], never emitted into the plate JSON. `nested_comments` carries
-    /// YAML comments inside the mapping, at paths **relative** to the value tree.
+    /// [`MetaKey`], never emitted into the plate JSON.
     Meta {
         key: MetaKey,
         value: JsonMap<String, JsonValue>,
-        nested_comments: Vec<NestedComment>,
     },
     /// A user-defined YAML field, optionally tagged `!must_fill`.
-    ///
-    /// `nested_comments` carries YAML comments inside the field's value, at
-    /// paths **relative** to that value tree.
     Field {
         key: String,
         value: QuillValue,
         /// `true` when the field was written as `key: !must_fill <value>` or
         /// `key: !must_fill` in source.
         fill: bool,
-        nested_comments: Vec<NestedComment>,
     },
     /// A YAML comment. Text excludes the leading `#` and one optional space.
     ///
@@ -102,14 +96,24 @@ pub enum PayloadItem {
 }
 
 impl PayloadItem {
-    /// Shorthand for a plain (non-fill) field entry with no nested comments.
+    /// Shorthand for a plain (non-fill) field entry.
     #[cfg(test)]
     pub(crate) fn field(key: impl Into<String>, value: QuillValue) -> Self {
         PayloadItem::Field {
             key: key.into(),
             value,
             fill: false,
-            nested_comments: Vec::new(),
+        }
+    }
+
+    /// The key a [`Payload`]'s nested comments address this entry by: a field's
+    /// own key, or the literal `$ext` / `$seed`. `None` for the entries that
+    /// carry no structured value to nest inside.
+    fn nested_owner_key(&self) -> Option<&str> {
+        match self {
+            PayloadItem::Field { key, .. } => Some(key),
+            PayloadItem::Meta { key, .. } => Some(key.as_str()),
+            _ => None,
         }
     }
 
@@ -152,11 +156,15 @@ impl PayloadItem {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Payload {
     items: Vec<PayloadItem>,
+    nested_comments: Vec<NestedComment>,
 }
 
 impl Payload {
     pub(crate) fn new() -> Self {
-        Self { items: Vec::new() }
+        Self {
+            items: Vec::new(),
+            nested_comments: Vec::new(),
+        }
     }
 
     /// No `$` entries, no comments, no fill markers.
@@ -167,102 +175,64 @@ impl Payload {
                 key,
                 value,
                 fill: false,
-                nested_comments: Vec::new(),
             })
             .collect();
-        Self { items }
+        Self::from_items(items)
     }
 
     pub(crate) fn from_items(items: Vec<PayloadItem>) -> Self {
-        Self { items }
+        Self {
+            items,
+            nested_comments: Vec::new(),
+        }
     }
 
-    /// Partition a flat absolute-path `nested_comments` Vec onto the matching
-    /// [`PayloadItem::Field`] / [`PayloadItem::Meta`] items: the first path
-    /// segment names the owner and is stripped. Comments matching no item are
-    /// dropped, which can only arise from a hand-crafted storage DTO.
-    pub(crate) fn from_items_with_flat_nested(
-        mut items: Vec<PayloadItem>,
+    /// `nested_comments` addresses its owners by the head path segment, which
+    /// is how prescan produces them and how the storage DTO stores them. An
+    /// entry matching no item is inert: every reader filters by owner.
+    pub(crate) fn from_items_with_nested(
+        items: Vec<PayloadItem>,
         nested_comments: Vec<NestedComment>,
     ) -> Self {
-        for nc in nested_comments {
-            let Some((first, rest)) = nc.container_path.split_first() else {
-                // Empty path can't address any user field; drop.
-                continue;
-            };
-            let target_key = match first {
-                PathSegment::Key(k) => k.clone(),
-                PathSegment::Index(_) => continue,
-            };
-
-            let relative = NestedComment {
-                container_path: rest.to_vec(),
-                position: nc.position,
-                text: nc.text,
-                inline: nc.inline,
-            };
-
-            // `$ext` / `$seed` are encoded with their literal key at the head
-            // of the path; everything else is a user field.
-            let slot = if let Some(meta_key) = MetaKey::from_key_str(&target_key) {
-                items.iter_mut().find_map(|i| match i {
-                    PayloadItem::Meta {
-                        key,
-                        nested_comments,
-                        ..
-                    } if *key == meta_key => Some(nested_comments),
-                    _ => None,
-                })
-            } else {
-                items.iter_mut().find_map(|i| match i {
-                    PayloadItem::Field {
-                        key,
-                        nested_comments,
-                        ..
-                    } if key == &target_key => Some(nested_comments),
-                    _ => None,
-                })
-            };
-            if let Some(slot) = slot {
-                slot.push(relative);
-            }
+        Self {
+            items,
+            nested_comments,
         }
-        Self { items }
     }
 
-    /// The inverse of
-    /// [`from_items_with_flat_nested`](Self::from_items_with_flat_nested):
-    /// re-prefix each nested comment's path with its owning item's key, for the
-    /// storage DTO's payload-level sidecar.
-    pub(crate) fn flat_nested_comments(&self) -> Vec<NestedComment> {
-        let mut out = Vec::new();
-        for item in &self.items {
-            let (prefix, comments) = match item {
-                PayloadItem::Field {
-                    key,
-                    nested_comments,
-                    ..
-                } => (key.clone(), nested_comments),
-                PayloadItem::Meta {
-                    key,
-                    nested_comments,
-                    ..
-                } => (key.as_str().to_string(), nested_comments),
-                _ => continue,
-            };
-            for nc in comments {
-                let mut path = Vec::with_capacity(nc.container_path.len() + 1);
-                path.push(PathSegment::Key(prefix.clone()));
-                path.extend(nc.container_path.iter().cloned());
-                out.push(NestedComment {
-                    container_path: path,
+    /// Comments inside this payload's structured values, at paths whose head
+    /// segment names the owning entry: a field's key, or the literal `$ext` /
+    /// `$seed`. One list for the whole payload, which is how prescan produces
+    /// them and how the storage DTO stores them.
+    pub fn nested_comments(&self) -> &[NestedComment] {
+        &self.nested_comments
+    }
+
+    /// The comments owned by entry `key`, rebased onto that entry's own value.
+    pub(crate) fn nested_comments_for(&self, key: &str) -> Vec<NestedComment> {
+        self.nested_comments
+            .iter()
+            .filter_map(|nc| {
+                let (PathSegment::Key(head), rest) = nc.container_path.split_first()? else {
+                    return None;
+                };
+                (head == key).then(|| NestedComment {
+                    container_path: rest.to_vec(),
                     position: nc.position,
                     text: nc.text.clone(),
                     inline: nc.inline,
-                });
-            }
-        }
-        out
+                })
+            })
+            .collect()
+    }
+
+    /// Drop the comments nested inside entry `key`. Every path that replaces or
+    /// removes an entry runs it: the new value need not carry the positions the
+    /// old one's comments sat at.
+    fn prune_nested(&mut self, key: &str) {
+        self.nested_comments.retain(|nc| {
+            !matches!(nc.container_path.first(), Some(PathSegment::Key(k)) if k == key)
+        });
     }
 
     /// Ordered iterator over raw items (`$` entries, fields, comments).
@@ -270,18 +240,34 @@ impl Payload {
         &self.items
     }
 
-    /// Mutable access to the raw item list for in-place rewrites. The slice
-    /// cannot add or drop items, so the arity invariants survive any use of it;
-    /// a caller that rewrites a `Field` key owns keeping it well-formed and
-    /// distinct.
-    pub(crate) fn items_mut(&mut self) -> &mut [PayloadItem] {
-        &mut self.items
+    /// Rename user field `from` to `to`, carrying the comments nested inside it.
+    /// No-op when no such field exists; the caller owns `to` being a well-formed
+    /// name not already present.
+    pub(crate) fn rename_field(&mut self, from: &str, to: String) {
+        let Some(slot) = self.items.iter_mut().find_map(|i| match i {
+            PayloadItem::Field { key, .. } if key == from => Some(key),
+            _ => None,
+        }) else {
+            return;
+        };
+        *slot = to.clone();
+        for nc in &mut self.nested_comments {
+            if matches!(nc.container_path.first(), Some(PathSegment::Key(k)) if k == from) {
+                nc.container_path[0] = PathSegment::Key(to.clone());
+            }
+        }
     }
 
-    /// Remove and return the first item matching `pred`.
+    /// Remove and return the first item matching `pred`, with the comments
+    /// nested inside it.
     fn take_item(&mut self, pred: impl Fn(&PayloadItem) -> bool) -> Option<PayloadItem> {
         let pos = self.items.iter().position(pred)?;
-        Some(self.items.remove(pos))
+        let item = self.items.remove(pos);
+        if let Some(key) = item.nested_owner_key() {
+            let key = key.to_string();
+            self.prune_nested(&key);
+        }
+        Some(item)
     }
 
     /// The `$quill` reference, if declared.
@@ -331,14 +317,11 @@ impl Payload {
     }
 
     /// Set or replace an out-of-band meta entry at its canonical position.
-    /// Nested comments on a replaced entry are dropped (the new value tree
-    /// may not contain matching positions).
+    /// Nested comments on a replaced entry are dropped (the new value may not
+    /// contain matching positions).
     pub(crate) fn set_meta(&mut self, key: MetaKey, value: JsonMap<String, JsonValue>) {
-        self.upsert_meta(PayloadItem::Meta {
-            key,
-            value,
-            nested_comments: Vec::new(),
-        });
+        self.prune_nested(key.as_str());
+        self.upsert_meta(PayloadItem::Meta { key, value });
     }
 
     /// Set or replace the `$ext` entry, after `$quill` / `$kind` and before any
@@ -488,23 +471,17 @@ impl Payload {
                 key: k,
                 value: v,
                 fill: item_fill,
-                nested_comments,
             } = item
             {
                 if k == &key {
                     let old = std::mem::replace(v, value);
                     *item_fill = fill;
-                    nested_comments.clear();
+                    self.prune_nested(&key);
                     return Some(old);
                 }
             }
         }
-        self.items.push(PayloadItem::Field {
-            key,
-            value,
-            fill,
-            nested_comments: Vec::new(),
-        });
+        self.items.push(PayloadItem::Field { key, value, fill });
         None
     }
 
@@ -646,5 +623,94 @@ mod tests {
             })
             .collect();
         assert_eq!(comments, vec!["header", "mid"]);
+    }
+
+    /// A nested comment addressed to `key`, one segment deep.
+    fn nested(key: &str, text: &str) -> NestedComment {
+        NestedComment {
+            container_path: vec![PathSegment::Key(key.to_string())],
+            position: 0,
+            text: text.to_string(),
+            inline: false,
+        }
+    }
+
+    fn owners(fm: &Payload) -> Vec<&str> {
+        fm.nested_comments()
+            .iter()
+            .map(|nc| match &nc.container_path[0] {
+                PathSegment::Key(k) => k.as_str(),
+                PathSegment::Index(_) => unreachable!("rooted at a key"),
+            })
+            .collect()
+    }
+
+    fn payload_with_nested() -> Payload {
+        Payload::from_items_with_nested(
+            vec![
+                PayloadItem::Meta {
+                    key: MetaKey::Ext,
+                    value: JsonMap::new(),
+                },
+                PayloadItem::field("a", qv("1")),
+                PayloadItem::field("b", qv("2")),
+            ],
+            vec![nested("a", "in a"), nested("b", "in b"), nested("$ext", "in ext")],
+        )
+    }
+
+    /// Comments key off the owning entry, so touching one entry leaves every
+    /// other entry's comments where they were.
+    #[test]
+    fn replacing_an_entry_prunes_only_its_own_nested_comments() {
+        let mut fm = payload_with_nested();
+        fm.insert_unchecked("a", qv("updated"));
+        assert_eq!(owners(&fm), vec!["b", "$ext"]);
+
+        let mut fm = payload_with_nested();
+        fm.set_ext(JsonMap::new());
+        assert_eq!(owners(&fm), vec!["a", "b"]);
+    }
+
+    #[test]
+    fn removing_an_entry_takes_its_nested_comments_with_it() {
+        let mut fm = payload_with_nested();
+        fm.remove("a").expect("a is a field");
+        assert_eq!(owners(&fm), vec!["b", "$ext"]);
+
+        let mut fm = payload_with_nested();
+        fm.take_meta(MetaKey::Ext).expect("$ext is present");
+        assert_eq!(owners(&fm), vec!["a", "b"]);
+    }
+
+    /// Renaming carries them: the key is how a comment finds its value, so a
+    /// rename that left the head behind would orphan every comment inside it.
+    #[test]
+    fn renaming_a_field_carries_its_nested_comments() {
+        let mut fm = payload_with_nested();
+        fm.rename_field("a", "renamed".to_string());
+        assert_eq!(owners(&fm), vec!["renamed", "b", "$ext"]);
+        assert_eq!(fm.nested_comments_for("renamed").len(), 1);
+        assert!(fm.nested_comments_for("a").is_empty());
+    }
+
+    #[test]
+    fn nested_comments_for_rebases_onto_the_entry() {
+        let fm = Payload::from_items_with_nested(
+            vec![PayloadItem::field("a", qv("1"))],
+            vec![NestedComment {
+                container_path: vec![
+                    PathSegment::Key("a".to_string()),
+                    PathSegment::Index(2),
+                ],
+                position: 1,
+                text: "deep".to_string(),
+                inline: false,
+            }],
+        );
+        let got = fm.nested_comments_for("a");
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].container_path, vec![PathSegment::Index(2)]);
+        assert_eq!(got[0].position, 1);
     }
 }
