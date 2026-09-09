@@ -598,9 +598,9 @@ declare module '../core/wasm.js' {
 		 * {@link Quill.writer}, mirroring core's `quill.reader(&doc)`. Each field is
 		 * read in the values form (every content leaf as its codec's text, every
 		 * other value as stored) with schema authority, so a name the schema does
-		 * not declare throws rather than reading back `undefined`; the whole
-		 * document reads through `values()`, and the render view through
-		 * `resolve()`. Holds both handles by reference and owns neither (nothing
+		 * not declare throws rather than reading back `undefined`; the render
+		 * view reads through `resolve()`. Holds both handles by reference and
+		 * owns neither (nothing
 		 * to `free()`); ephemeral by convention: bind, read, discard.
 		 */
 		reader(doc: Document): DocumentReader;
