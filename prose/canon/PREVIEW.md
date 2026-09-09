@@ -12,8 +12,8 @@ serve the session's current compile; `update(doc)` recompiles in place and
 returns a `ChangeSet` naming the dirty pages. `paint` writes a rasterized page directly into a
 `CanvasRenderingContext2d`; each paint is a **complete** raster: every piece
 of page content already visible, so the consumer never composites. It is
-multi-backend: any backend whose session can rasterize a page (Typst, pdfform)
-paints through one generic painter.
+multi-backend: every backend rasterizes its pages (Typst, pdfform) through one
+generic painter.
 
 ## Why
 
@@ -33,20 +33,18 @@ per-keystroke cost is *incremental recompile + repaint of `dirty ∩ visible`*.
 
 `core` carries a backend-neutral session seam, `SessionHandle`
 (`crates/core/src/session.rs`); the WASM painter dispatches through it
-generically, never downcasting to a backend session type. Compiling and
-counting pages is all the trait requires — update, canvas, geometry and
-warnings each carry a default, and each method states what a backend leaving
-its default costs a consumer. A backend answers the ones it can.
+generically, never downcasting to a backend session type. Rendering, counting
+pages and painting them is what the trait requires: `render`, `page_count`,
+`page_size_pt` and `render_rgba` carry no default. Update, geometry and
+warnings each carry one, and each of those methods states what a backend
+leaving its default costs a consumer.
 
-A backend opts into canvas by overriding the two seam methods; there is
-no separate capability flag. Capability is **derived** from the seam:
-`LiveSession::supports_canvas()` is true exactly when the session exposes
-`page_size_pt` for its pages, so `paint`/`pageSize` succeed precisely when the
-session reports canvas: the gate cannot drift from the implementation because
-there is nothing to keep in sync. There is no pre-session estimate. A binding
-consumer opens the session and handles the throw `paint`/`pageSize` already
-owe a zero-page compile; a painterless backend, which the workspace ships
-none of, would answer through the same throw.
+Canvas is therefore not a capability a session declines. A `SessionHandle`
+implementation paints, so `paint`/`pageSize` answer for every page the compile
+has, and a `None` from `page_size_pt` or `render_rgba` says one thing: `page`
+is past `page_count()`. The throw a binding consumer handles is that
+out-of-range one, which a zero-page compile raises on index 0. There is no
+capability flag and no pre-session estimate.
 
 ## Live edits: `update` and `ChangeSet`
 
@@ -115,7 +113,7 @@ compositing of its own. Backends satisfy it differently:
   flat PDF via hayro, so field values appear in the raster on their own, with
   no regions-compositing by the caller.
 
-`Ok(None)` is the out-of-range page and the painterless backend; the `Err` is a
+`Ok(None)` is the out-of-range page; the `Err` is a
 `scale` no page can be rasterized at. Neither rasterizer bounds the buffer it
 sizes from `scale × page size`, so a scale that is not finite and positive, or
 that puts the page past `MAX_RASTER_PIXELS` (16384², the area of the per-side
@@ -417,19 +415,19 @@ with a `{ formats }` manifest, drift-guarded by `runtime.test.js`.
   we do not ship.
 - **One generic painter over the `SessionHandle` seam, not a per-backend
   downcast.** `paint` calls `page_size_pt` / `render_rgba` on the opaque
-  session; every canvas backend implements the same two methods. Adding a
-  canvas backend is overriding the two seam methods (`page_size_pt` /
-  `render_rgba`): capability is then derived from the seam, with no separate
-  flag to flip and no binding to touch.
-- **No pre-session canvas probe.** The only capability answer is the session's
-  own `supports_canvas()` and the throw `paint`/`pageSize` owe when it is
-  false. A pre-session probe answers for the backend rather than for the
-  compile, so a consumer gating its canvas UI on one still has to handle the
-  throw a zero-page document raises; keyed on output formats it also answers
-  for the wrong thing, since `render_rgba` is a seam a backend can override
-  while emitting PDF alone. Every backend the workspace ships paints, so the
-  probe had one answer everywhere; a painterless backend would need a declared
-  flag, and there is none to declare it for.
+  session; every backend implements the same two methods, both required.
+  Adding a backend is implementing them alongside `render` and `page_count`,
+  with no flag to flip and no binding to touch.
+- **Preview is part of what a backend is, not a capability it declares.**
+  `page_size_pt` and `render_rgba` are required, so a `None` from either says
+  one thing: `page` is past `page_count()`. A caller reading it knows it asked
+  for a page the compile does not have, and the `paint`/`pageSize` throw on
+  that page is the whole gate. A probe cannot replace it: keyed on the backend
+  it answers for the backend rather than for the compile, and keyed on output
+  formats it answers for the wrong thing entirely, paint being a session seam
+  pdfform serves while emitting PDF alone. Both shipped backends paint; a
+  painterless one would cost a declared flag, and there is nothing to declare
+  it for.
 - **`update` reports dirty pages, not new handles.** Page identity is the index;
   a `ChangeSet` is data. Nothing borrowed from a previous compile outlives an
   edit because reads resolve against the current compile at call time.

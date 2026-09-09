@@ -44,10 +44,8 @@ pub trait SessionHandle: Send + Sync + 'static {
         ))
     }
 
-    /// Page dimensions in points (1 pt = 1/72"), or `None` if `page` is out of
-    /// range. The canvas-preview seam: a backend that can rasterize pages
-    /// overrides this and [`render_rgba`](Self::render_rgba). Default `None`
-    /// marks the session as having no canvas painter.
+    /// Page dimensions in points (1 pt = 1/72"). `Some` for every `page` below
+    /// [`page_count`](Self::page_count); a `None` is an out-of-range page.
     ///
     /// One coordinate space serves the three canvas reads: the page's lower-left
     /// corner is the origin of this extent, of [`regions`](Self::regions), and of
@@ -55,15 +53,12 @@ pub trait SessionHandle: Send + Sync + 'static {
     /// times its `scale`. A backend drawing on a page whose own coordinates start
     /// elsewhere (a PDF background with a `/CropBox` or a translated
     /// `/MediaBox`) reports geometry relative to that corner.
-    fn page_size_pt(&self, _page: usize) -> Option<(f32, f32)> {
-        None
-    }
+    fn page_size_pt(&self, page: usize) -> Option<(f32, f32)>;
 
     /// Render `page` to a non-premultiplied RGBA8 buffer at `scale`× the natural
     /// 72-ppi size, returning `(width_px, height_px, rgba)` (row-major, `w*h*4`
-    /// bytes), or `Ok(None)` if `page` is out of range or the backend has no
-    /// canvas painter. The other half of the seam paired with
-    /// [`page_size_pt`](Self::page_size_pt).
+    /// bytes). `Some` for every `page` below [`page_count`](Self::page_count), as
+    /// [`page_size_pt`](Self::page_size_pt) is; a `None` is an out-of-range page.
     ///
     /// A `Some` result is a **complete** raster: every piece of page content is
     /// already in the pixels, and [`regions`](Self::regions) is overlay, never a
@@ -71,18 +66,11 @@ pub trait SessionHandle: Send + Sync + 'static {
     ///
     /// A scale the page cannot be rasterized at is the `Err`: run it through
     /// [`check_raster`](crate::check_raster), which every raster path shares.
-    ///
-    /// A backend with no painter overrides neither this nor
-    /// [`page_size_pt`](Self::page_size_pt), and
-    /// [`LiveSession::supports_canvas`] derives the capability from that half
-    /// of the seam rather than a separate flag.
     fn render_rgba(
         &self,
-        _page: usize,
-        _scale: f32,
-    ) -> Result<Option<(u32, u32, Vec<u8>)>, RenderError> {
-        Ok(None)
-    }
+        page: usize,
+        scale: f32,
+    ) -> Result<Option<(u32, u32, Vec<u8>)>, RenderError>;
 
     /// Schema-field geometry for the compiled session: [`RenderedRegion`]s
     /// keyed on the quill schema address each field carries.
@@ -197,23 +185,15 @@ impl LiveSession {
         self.inner.page_count()
     }
 
-    /// Whether this session can paint pages to a canvas, derived from the
-    /// canvas seam rather than a separate flag. A canvas-capable backend with
-    /// zero pages reports `false`.
-    pub fn supports_canvas(&self) -> bool {
-        self.inner.page_count() > 0 && self.inner.page_size_pt(0).is_some()
-    }
-
-    /// Page dimensions in points, or `None` if `page` is out of range or the
-    /// backend has no canvas painter. Generalized canvas-preview seam; see
-    /// [`SessionHandle::page_size_pt`].
+    /// Page dimensions in points, or `None` if `page` is out of range; see
+    /// [`SessionHandle::page_size_pt`] for the coordinate space it measures in.
     pub fn page_size_pt(&self, page: usize) -> Option<(f32, f32)> {
         self.inner.page_size_pt(page)
     }
 
     /// Rasterize `page` to non-premultiplied RGBA8 at `scale`× 72 ppi, or
-    /// `Ok(None)` if `page` is out of range or the backend has no canvas
-    /// painter. See [`SessionHandle::render_rgba`] for the raster's contract.
+    /// `Ok(None)` if `page` is out of range. See [`SessionHandle::render_rgba`]
+    /// for the raster's contract.
     ///
     /// `scale` is device pixels per point, and must be finite, positive, and
     /// small enough to keep the page under
@@ -357,31 +337,23 @@ main:
         Document::new(QuillReference::from_str("memo@1.0.0").unwrap())
     }
 
-    /// Canvas-capable: overrides the seam for `pages` pages.
-    struct CanvasHandle {
-        pages: usize,
-    }
-    impl SessionHandle for CanvasHandle {
-        fn render(&self, _: &RenderOptions) -> Result<RenderResult, RenderError> {
-            unimplemented!("render is not exercised by capability tests")
-        }
-        fn page_count(&self) -> usize {
-            self.pages
-        }
-        fn page_size_pt(&self, page: usize) -> Option<(f32, f32)> {
-            (page < self.pages).then_some((612.0, 792.0))
-        }
+    /// The canvas contract for a double whose subject is not canvas: one letter
+    /// page per counted page.
+    fn letter_page(page: usize, pages: usize) -> Option<(f32, f32)> {
+        (page < pages).then_some((612.0, 792.0))
     }
 
-    /// Non-canvas: leaves the seam at its `None` defaults.
-    struct PlainHandle;
-    impl SessionHandle for PlainHandle {
-        fn render(&self, _: &RenderOptions) -> Result<RenderResult, RenderError> {
-            unimplemented!("render is not exercised by capability tests")
-        }
-        fn page_count(&self) -> usize {
-            1
-        }
+    fn blank_raster(
+        page: usize,
+        pages: usize,
+        scale: f32,
+    ) -> Result<Option<(u32, u32, Vec<u8>)>, RenderError> {
+        let Some((w, h)) = letter_page(page, pages) else {
+            return Ok(None);
+        };
+        crate::check_raster(scale, w, h)?;
+        let (pw, ph) = ((w * scale) as u32, (h * scale) as u32);
+        Ok(Some((pw, ph, vec![255; (pw as usize) * (ph as usize) * 4])))
     }
 
     /// One warning per committed update.
@@ -409,6 +381,16 @@ main:
         }
         fn warnings(&self) -> &[Diagnostic] {
             &self.current
+        }
+        fn page_size_pt(&self, page: usize) -> Option<(f32, f32)> {
+            letter_page(page, self.page_count())
+        }
+        fn render_rgba(
+            &self,
+            page: usize,
+            scale: f32,
+        ) -> Result<Option<(u32, u32, Vec<u8>)>, RenderError> {
+            blank_raster(page, self.page_count(), scale)
         }
     }
 
@@ -462,6 +444,16 @@ main:
                 span: Some([pos, pos]),
             })
         }
+        fn page_size_pt(&self, page: usize) -> Option<(f32, f32)> {
+            letter_page(page, self.page_count())
+        }
+        fn render_rgba(
+            &self,
+            page: usize,
+            scale: f32,
+        ) -> Result<Option<(u32, u32, Vec<u8>)>, RenderError> {
+            blank_raster(page, self.page_count(), scale)
+        }
     }
 
     /// Two regions on one rect, so every hit inside it is a tie.
@@ -478,6 +470,16 @@ main:
                 .into_iter()
                 .map(|field| RenderedRegion::new(field.to_string(), 0, [0.0, 0.0, 10.0, 10.0]))
                 .collect()
+        }
+        fn page_size_pt(&self, page: usize) -> Option<(f32, f32)> {
+            letter_page(page, self.page_count())
+        }
+        fn render_rgba(
+            &self,
+            page: usize,
+            scale: f32,
+        ) -> Result<Option<(u32, u32, Vec<u8>)>, RenderError> {
+            blank_raster(page, self.page_count(), scale)
         }
     }
 
@@ -496,16 +498,5 @@ main:
         assert_eq!(boxes.len(), 1, "one span-bearing region → one box");
         assert_eq!(boxes[0].field, "subject");
         assert!(session.field_boxes("nope").is_empty());
-    }
-
-    #[test]
-    fn supports_canvas_derives_from_seam() {
-        let canvas = LiveSession::new(Box::new(CanvasHandle { pages: 2 }), config());
-        assert!(canvas.supports_canvas());
-        let plain = LiveSession::new(Box::new(PlainHandle), config());
-        assert!(!plain.supports_canvas());
-        // A canvas backend with no pages has nothing to paint.
-        let empty = LiveSession::new(Box::new(CanvasHandle { pages: 0 }), config());
-        assert!(!empty.supports_canvas());
     }
 }
