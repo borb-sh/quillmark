@@ -30,7 +30,7 @@
 //! delimiter/break placement, a hand-built island prop, or a stored url the
 //! authored lanes refuse.
 
-use crate::island::KnownIslandType;
+use crate::island::IslandType;
 use crate::model::{
     Container, Island, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT,
 };
@@ -377,27 +377,9 @@ fn slot_island<'a>(ctx: &'a Ctx, i: usize) -> Option<&'a Island> {
 }
 
 fn emit_island(isl: &Island, out: &mut String) {
-    match KnownIslandType::parse(&isl.island_type) {
-        Some(KnownIslandType::Table) => emit_table(isl, out),
-        Some(KnownIslandType::Image) => emit_image(isl, out),
-        None => {
-            // A comment placeholder re-imports as no content text (HTML comments
-            // are stripped), so the island survives via storage instead.
-            out.push_str("<!-- island:");
-            // The type is an open wire string no lane constrains: a `-->` closes
-            // the comment early and a line break ends the HTML block, either way
-            // leaking the rest as content text. Nothing reads the type back out
-            // of markdown.
-            for c in isl.island_type.chars() {
-                match c {
-                    '<' => out.push_str("&lt;"),
-                    '>' => out.push_str("&gt;"),
-                    c if c.is_control() => out.push(' '),
-                    c => out.push(c),
-                }
-            }
-            out.push_str(" -->");
-        }
+    match isl.island_type {
+        IslandType::Table => emit_table(isl, out),
+        IslandType::Image => emit_image(isl, out),
     }
 }
 
@@ -555,10 +537,7 @@ fn render_inline(ctx: &Ctx, i: usize, escape_leading_block: bool) -> String {
             ctx.rt.islands.get(before).map(|isl| {
                 let mut markup = String::new();
                 emit_island(isl, &mut markup);
-                SlotMarkup {
-                    markup,
-                    projects: KnownIslandType::parse(&isl.island_type).is_some(),
-                }
+                SlotMarkup { markup }
             })
         },
     )
@@ -606,7 +585,6 @@ fn bucket_marks(
 /// comment, which re-imports as no content text.
 struct SlotMarkup {
     markup: String,
-    projects: bool,
 }
 
 /// Render marks over a standalone char slice to markdown: the projection's mark
@@ -830,7 +808,7 @@ fn render_marked_core(
     let expected: String = chars
         .iter()
         .enumerate()
-        .filter(|&(i, &c)| c != ISLAND_SLOT || island_markup_at(i).is_some_and(|s| s.projects))
+        .filter(|&(i, &c)| c != ISLAND_SLOT || island_markup_at(i).is_some())
         .map(|(_, c)| c)
         .collect();
     let want = format!(",{expected},");
@@ -1308,9 +1286,9 @@ mod tests {
             marks: vec![],
             islands: vec![Island {
                 id: String::new(),
-                island_type: "image".into(),
+                island_type: IslandType::Image,
                 props: serde_json::Value::Null,
-                loss: Loss::UNREPRESENTABLE,
+                loss: Loss::Unrepresentable,
             }],
         }
         .into_normalized();
@@ -1526,7 +1504,7 @@ mod tests {
             lines: vec![Line::new(LineKind::Island)],
             marks: vec![],
             islands: vec![
-                Island::new("isl-0".into(), "table".into()).with_props(serde_json::json!({
+                Island::new("isl-0".into(), IslandType::Table).with_props(serde_json::json!({
                     "aligns": ["none"],
                     "header": [cell(" h ")],
                     "rows": [[cell("  a")], [cell("b  ")], [cell("   ")]],
@@ -1573,50 +1551,9 @@ mod tests {
         rt
     }
 
-    /// The unknown-island placeholder's whole property is that it re-imports as
-    /// no content text. `island_type` is an open wire string no lane constrains,
-    /// and a line break leaked at column zero opens whatever the rest spells —
-    /// a heading, or a card fence the document layer reads as another card.
-    #[test]
-    fn an_unknown_island_type_cannot_escape_its_placeholder() {
-        for island_type in [
-            "widget",
-            "x --> injected text <!-- ",
-            "a\n\n# heading",
-            "t\n\n~~~card-yaml\n$kind: injected\n~~~\n",
-            "<!--",
-            "-->",
-            "a-",
-            "",
-        ] {
-            let rt = with_islands(
-                &format!("x{ISLAND_SLOT}"),
-                vec![Island::new("isl-0".into(), island_type.into())],
-            );
-            let md = to_markdown(&rt);
-            let back = from_markdown(&md).unwrap();
-            assert_eq!(back.text, "x", "{island_type:?} leaked: {md:?}");
-            assert_eq!(back.lines.len(), 1, "{island_type:?} split its block: {md:?}");
-        }
-    }
-
-    /// An inline placeholder sits mid-paragraph, where a comment is inline HTML
-    /// and swallows nothing after it. The block-fence repair leaves that one
-    /// alone, so the text on either side stays one line.
-    #[test]
-    fn an_inline_unknown_island_leaves_its_line_whole() {
-        let rt = with_islands(
-            &format!("a{ISLAND_SLOT}b"),
-            vec![Island::new("isl-0".into(), "widget".into())],
-        );
-        let back = from_markdown(&to_markdown(&rt)).unwrap();
-        assert_eq!(back.text, "ab");
-        assert_eq!(back.lines.len(), 1);
-    }
-
     /// A one-cell table island, the block-only type.
     fn table() -> Island {
-        Island::new("isl-0".into(), "table".into()).with_props(serde_json::json!({
+        Island::new("isl-0".into(), IslandType::Table).with_props(serde_json::json!({
             "aligns": ["none"],
             "header": [{"marks": [], "text": "h"}],
             "rows": [[{"marks": [], "text": "c"}]],
@@ -1669,33 +1606,13 @@ mod tests {
         assert_eq!(back.text, format!("a\n{ISLAND_SLOT}\nmore"), "{md:?}");
     }
 
-    /// The placeholder re-imports as no content text, so the net's expected text
-    /// carries no slot for it. Reading one back there would fail every probe and
-    /// cost the line every mark markdown can carry.
-    #[test]
-    fn a_mark_flanking_an_unknown_island_placeholder_survives() {
-        let rt = Content {
-            text: format!("x{ISLAND_SLOT} bold"),
-            lines: vec![Line::new(LineKind::Para)],
-            marks: vec![Mark::new(3, 7, MarkKind::Strong)],
-            islands: vec![Island::new("isl-0".into(), "widget".into())],
-        }
-        .into_normalized();
-        assert_eq!(rt.validate(), Ok(()), "hand-built content invalid");
-        let md = to_markdown(&rt);
-        assert_eq!(md, "x<!-- island:widget --> **bold**");
-        let back = from_markdown(&md).unwrap();
-        assert_eq!(back.text, "x bold");
-        assert_eq!(back.marks, vec![Mark::new(2, 6, MarkKind::Strong)]);
-    }
-
     /// An image's markup does re-import as a slot, so the net still expects one
     /// back and a mark that would eat it is dropped. Here both `**` sit against
     /// the image's punctuation, where CommonMark flanking refuses them.
     #[test]
     fn a_mark_leaking_around_an_image_slot_is_still_dropped() {
         let image = || {
-            Island::new("isl-0".into(), "image".into())
+            Island::new("isl-0".into(), IslandType::Image)
                 .with_props(serde_json::json!({"alt": "a", "url": "u"}))
         };
         let over_slot = Content {
@@ -1731,7 +1648,7 @@ mod tests {
         let rt = with_islands(
             &ISLAND_SLOT.to_string(),
             vec![
-                Island::new("isl-0".into(), "image".into())
+                Island::new("isl-0".into(), IslandType::Image)
                     .with_props(serde_json::json!({"alt": " a ", "url": "u"})),
             ],
         );
@@ -1984,7 +1901,7 @@ mod tests {
             })
         );
 
-        let isl = crate::model::Island::new("i1".into(), "image".into())
+        let isl = crate::model::Island::new("i1".into(), IslandType::Image)
             .with_props(serde_json::json!({"alt": "a", "url": "u\rv"}));
         let rt = Content::new(format!("x{ISLAND_SLOT}"), vec![Line::new(LineKind::Para)])
             .with_islands(vec![isl])

@@ -104,7 +104,7 @@ pub enum IslandOp {
     /// the delta's `\n`.
     ///
     /// A type markdown writes as a block
-    /// ([`KnownIslandType::block_only`](crate::KnownIslandType::block_only)) has
+    /// ([`IslandType::block_only`](crate::IslandType::block_only)) has
     /// no inline placement: `at` must be an empty line, else
     /// [`ApplyError::BlockIslandNotAlone`].
     ///
@@ -368,7 +368,7 @@ pub enum ApplyError {
     /// and this bundle's earlier island ops left.
     IslandInsertOutOfRange { at: Usv, len: Usv },
     /// An island op would leave a **block-only** island's slot
-    /// ([`KnownIslandType::block_only`](crate::KnownIslandType::block_only), a
+    /// ([`IslandType::block_only`](crate::IslandType::block_only), a
     /// `table`) sharing its line with other content. Markdown writes such an
     /// island by breaking the line around it, so the op that lands one mid-line
     /// is refused rather than restructuring the author's blocks. `at` is the
@@ -587,7 +587,7 @@ impl Content {
                         })?;
                     // The type comes from the op, so a `Set` can turn an inline
                     // island into a block-only one over a slot that stays put.
-                    if crate::island::island_is_block_only(island) {
+                    if island.island_type.block_only() {
                         let chars: Vec<char> = self.text.chars().collect();
                         let at = nth_slot(&chars, idx);
                         if !is_whole_line(&chars, at, at + 1) {
@@ -615,7 +615,7 @@ impl Content {
                     }
                     // The slot lands alone on its line only where the line is
                     // empty now, which is the `\n` the bundle's delta opened.
-                    if crate::island::island_is_block_only(island)
+                    if island.island_type.block_only()
                         && !is_whole_line(&chars, *at, *at)
                     {
                         return Err(ApplyError::BlockIslandNotAlone { at: *at });
@@ -1042,6 +1042,7 @@ impl crate::model::Normalized {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::island::IslandType;
     use crate::delta::diff;
     use crate::import::from_markdown;
 
@@ -1841,9 +1842,9 @@ mod tests {
     fn island(id: &str) -> Island {
         Island {
             id: id.into(),
-            island_type: "image".into(),
+            island_type: IslandType::Image,
             props: serde_json::json!({}),
-            loss: crate::model::Loss::LOSSLESS,
+            loss: crate::model::Loss::Lossless,
         }
     }
 
@@ -1947,15 +1948,15 @@ mod tests {
     }
 
     fn image(id: &str) -> Island {
-        Island::new(id.into(), "image".into())
+        Island::new(id.into(), IslandType::Image)
             .with_props(serde_json::json!({ "url": "u", "alt": "a" }))
     }
 
     #[test]
     fn island_op_wire_decodes_each_variant() {
-        let island = Island::new("isl-0".into(), "table".into())
+        let island = Island::new("isl-0".into(), IslandType::Table)
             .with_props(table_props("H", "a"))
-            .with_loss(crate::model::Loss::DEGRADED);
+            .with_loss(crate::model::Loss::Degraded);
         let cases = vec![
             (
                 serde_json::json!({
@@ -1994,7 +1995,7 @@ mod tests {
         .unwrap();
 
         rt.apply_field_change(&island_bundle(vec![IslandOp::Set {
-            island: Island::new(id.clone(), "table".into()).with_props(table_props("H", "b")),
+            island: Island::new(id.clone(), IslandType::Table).with_props(table_props("H", "b")),
         }]))
         .unwrap();
 
@@ -2016,7 +2017,7 @@ mod tests {
         let before = rt.clone();
         assert_eq!(
             rt.apply_field_change(&island_bundle(vec![IslandOp::Set {
-                island: Island::new("isl-nope".into(), "table".into())
+                island: Island::new("isl-nope".into(), IslandType::Table)
                     .with_props(table_props("H", "b")),
             }])),
             Err(ApplyError::UnknownIslandId {
@@ -2038,7 +2039,7 @@ mod tests {
 
         rt.apply_field_change(&island_bundle(vec![IslandOp::Insert {
             at: 1,
-            island: Island::new("isl-new".into(), "image".into())
+            island: Island::new("isl-new".into(), IslandType::Image)
                 .with_props(serde_json::json!({ "url": "u", "alt": "a" })),
         }]))
         .unwrap();
@@ -2136,7 +2137,7 @@ mod tests {
             delta: diff("intro", "intro\n"),
             island_ops: vec![IslandOp::Insert {
                 at: 6,
-                island: Island::new("isl-a".into(), "table".into())
+                island: Island::new("isl-a".into(), IslandType::Table)
                     .with_props(table_props("H", "a")),
             }],
             line_ops: vec![LineOp::SetKind {
@@ -2177,7 +2178,7 @@ mod tests {
     #[test]
     fn a_block_only_island_lands_only_on_a_line_of_its_own() {
         let table = |id: &str| {
-            Island::new(id.into(), "table".into()).with_props(table_props("H", "a"))
+            Island::new(id.into(), IslandType::Table).with_props(table_props("H", "a"))
         };
         let mut rt = from_markdown("ab").unwrap();
         let before = rt.clone();
@@ -2287,7 +2288,7 @@ mod tests {
             delta: diff("intro", "intro\n"),
             island_ops: vec![IslandOp::Insert {
                 at: 6,
-                island: Island::new("isl-t".into(), "table".into())
+                island: Island::new("isl-t".into(), IslandType::Table)
                     .with_props(table_props("H", "a")),
             }],
             line_ops: vec![LineOp::SetKind {

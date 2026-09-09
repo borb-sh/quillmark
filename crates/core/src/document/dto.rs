@@ -1640,7 +1640,10 @@ title: Hi
         let body = doc.main().body();
         assert_eq!(body.islands.len(), 1, "table imports as one island");
         assert_eq!(body.islands[0].id, "isl-0", "sequential island id");
-        assert_eq!(body.islands[0].island_type, "table");
+        assert_eq!(
+            body.islands[0].island_type,
+            quillmark_content::island::IslandType::Table
+        );
         // Each table cell is inline `{text, marks}`, not a raw markdown slice.
         let key = body.to_canonical_json();
         assert_eq!(

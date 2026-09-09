@@ -24,7 +24,7 @@
 use crate::model::{
     Container, Island, Line, LineKind, Loss, Mark, MarkKind, Content, Normalized, ISLAND_SLOT,
 };
-use crate::island::KnownIslandType;
+use crate::island::IslandType;
 use crate::normalize::normalize_markdown;
 use crate::MAX_NESTING_DEPTH;
 use pulldown_cmark::{Event, Options, Parser, Tag, TagEnd};
@@ -242,7 +242,7 @@ struct TableAcc {
     /// image's alt flows into the cell as plain text and its url is dropped.
     img_depth: usize,
     /// Whether any cell dropped an image's url, minting the island
-    /// [`Loss::DEGRADED`] rather than `LOSSLESS`.
+    /// [`Loss::Degraded`] rather than `LOSSLESS`.
     degraded: bool,
 }
 
@@ -366,15 +366,13 @@ impl Builder {
         self.inline.close_mark();
     }
 
-    /// Mint an island of a *known* type: the importer can only produce the
-    /// closed set, so an unknown type enters only through storage decode.
     /// Minting `isl-{seq}` by position keeps import a pure function.
-    fn mint_island(&mut self, kind: KnownIslandType, props: serde_json::Value, loss: Loss) {
+    fn mint_island(&mut self, kind: IslandType, props: serde_json::Value, loss: Loss) {
         let id = format!("isl-{}", self.island_seq);
         self.island_seq += 1;
         self.islands.push(Island {
             id,
-            island_type: kind.as_str().to_string(),
+            island_type: kind,
             props,
             loss,
         });
@@ -749,11 +747,11 @@ impl Builder {
             // Degraded when a cell dropped an inline image's url: the projection
             // then carries the alt text but not the image.
             let loss = if acc.degraded {
-                Loss::DEGRADED
+                Loss::Degraded
             } else {
-                KnownIslandType::Table.default_loss()
+                IslandType::Table.default_loss()
             };
-            self.mint_island(KnownIslandType::Table, props, loss);
+            self.mint_island(IslandType::Table, props, loss);
         }
     }
 
@@ -764,7 +762,7 @@ impl Builder {
             "url": self.image_url,
             "alt": self.image_alt.trim(),
         });
-        self.mint_island(KnownIslandType::Image, props, KnownIslandType::Image.default_loss());
+        self.mint_island(IslandType::Image, props, IslandType::Image.default_loss());
     }
 
     fn finish(mut self) -> Content {
@@ -1174,8 +1172,8 @@ mod tests {
         assert_eq!(rt.text, "\u{FFFC}");
         assert_eq!(rt.lines[0].kind, LineKind::Island);
         assert_eq!(rt.islands.len(), 1);
-        assert_eq!(rt.islands[0].island_type, "table");
-        assert_eq!(rt.islands[0].loss, Loss::LOSSLESS);
+        assert_eq!(rt.islands[0].island_type, IslandType::Table);
+        assert_eq!(rt.islands[0].loss, Loss::Lossless);
     }
 
     /// A cell reuses the prose mark machinery through a second `Tag::Strong`
@@ -1206,11 +1204,11 @@ mod tests {
         // dropped, and the island is Degraded rather than a silent Lossless.
         let rt = imp("| a | b |\n|---|---|\n| ![a cat](cat.png) | 2 |");
         assert_eq!(rt.islands.len(), 1);
-        assert_eq!(rt.islands[0].island_type, "table");
-        assert_eq!(rt.islands[0].loss, Loss::DEGRADED);
+        assert_eq!(rt.islands[0].island_type, IslandType::Table);
+        assert_eq!(rt.islands[0].loss, Loss::Degraded);
         assert_eq!(rt.islands[0].props["rows"][0][0]["text"], "a cat");
         let plain = imp("| a | b |\n|---|---|\n| 1 | 2 |");
-        assert_eq!(plain.islands[0].loss, Loss::LOSSLESS);
+        assert_eq!(plain.islands[0].loss, Loss::Lossless);
     }
 
     #[test]
@@ -1218,7 +1216,7 @@ mod tests {
         let rt = imp("see ![a cat](cat.png) here");
         assert_eq!(rt.text, "see \u{FFFC} here");
         assert_eq!(rt.islands.len(), 1);
-        assert_eq!(rt.islands[0].island_type, "image");
+        assert_eq!(rt.islands[0].island_type, IslandType::Image);
         assert_eq!(rt.islands[0].props["url"], "cat.png");
         assert_eq!(rt.islands[0].props["alt"], "a cat");
     }

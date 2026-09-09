@@ -23,9 +23,9 @@ pub mod usv;
 pub use delta::{diff_import, Assoc, Delta, Op};
 pub use export::{to_markdown, to_plaintext};
 pub use import::{from_markdown, from_plaintext};
-pub use island::KnownIslandType;
+pub use island::IslandType;
 pub use model::{
-    Container, Fidelity, Invariant, Island, Line, LineKind, LineKindMismatch, Loss, Mark, MarkKind,
+    Container, Invariant, Island, Line, LineKind, LineKindMismatch, Loss, Mark, MarkKind,
     Content, Usv,
 };
 pub use ops::{

@@ -4,6 +4,7 @@
 //! marks markdown cannot carry.
 
 use proptest::prelude::*;
+use quillmark_content::island::IslandType;
 use quillmark_content::delta::diff_import;
 use quillmark_content::export::to_markdown;
 use quillmark_content::import::from_markdown;
@@ -331,7 +332,7 @@ proptest! {
         let rt = Content::new(text, vec![Line::new(LineKind::Para)])
             .with_marks(vec![Mark::new(0, 3, MarkKind::Link { url: link_url })])
             // The id import mints for the first island, so re-import compares equal.
-            .with_islands(vec![Island::new("isl-0".into(), "image".into())
+            .with_islands(vec![Island::new("isl-0".into(), IslandType::Image)
                 .with_props(json!({ "alt": alt, "url": img_url }))])
             .into_normalized();
         prop_assert_eq!(rt.validate(), Ok(()), "hand-built content invalid");
@@ -507,7 +508,7 @@ proptest! {
         let at = pos_seed % (rt.len_usv() + 1);
         let op = IslandOp::Insert {
             at,
-            island: Island::new("isl-prop".into(), "image".into())
+            island: Island::new("isl-prop".into(), IslandType::Image)
                 .with_props(json!({ "url": "ex.com", "alt": "a" })),
         };
         if rt.apply_island_ops(&[op]).is_ok() {
@@ -612,7 +613,7 @@ fn import_row(contents: &[String]) -> Vec<Value> {
 /// first-island id import mints (`isl-0`), so a re-imported table compares equal.
 fn table_content(aligns: Vec<&str>, header: Vec<Value>, rows: Vec<Vec<Value>>) -> Content {
     Content::new("\u{FFFC}".into(), vec![Line::new(LineKind::Island)]).with_islands(vec![
-        Island::new("isl-0".into(), "table".into())
+        Island::new("isl-0".into(), IslandType::Table)
             .with_props(json!({ "aligns": aligns, "header": header, "rows": rows })),
     ])
 }

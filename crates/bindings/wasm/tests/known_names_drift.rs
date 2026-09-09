@@ -3,9 +3,9 @@
 //! the Rust vocabulary it mirrors, read through an exhaustive match so a new
 //! member is a compile error here, where the mirror gets read.
 
-use quillmark_content::island::KnownIslandType;
+use quillmark_content::island::IslandType;
 use quillmark_content::model::{LineKind, MarkKind};
-use quillmark_content::{Container, Fidelity};
+use quillmark_content::{Container, Loss};
 use quillmark_core::quill::VARIANT_DISCRIMINANT_KEY;
 
 const RUNTIME_JS: &str = include_str!("../runtime/runtime.js");
@@ -115,8 +115,8 @@ fn ts_unions_name_every_built_in() {
 
     // The loss axis has no reserved list to mirror, being injective (one `Loss`
     // per wire string), so what it pins is its closed view's spellings.
-    let loss_names: Vec<_> = Fidelity::ALL.iter().map(|f| f.as_str()).collect();
-    let island_types: Vec<_> = KnownIslandType::ALL.iter().map(|k| k.as_str()).collect();
+    let loss_names: Vec<_> = Loss::ALL.iter().map(|f| f.as_str()).collect();
+    let island_types: Vec<_> = IslandType::ALL.iter().map(|k| k.as_str()).collect();
 
     for (union, names) in [
         (ts_union("ContentLineKind"), line_kind_tags()),

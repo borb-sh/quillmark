@@ -6,6 +6,7 @@
 //! encoded: the model stores only the resulting range, so the stored form is
 //! identical whatever the editor did.
 
+use crate::island::IslandType;
 use crate::normalize::{is_bidi_char, is_line_separator};
 use serde_json::Value as JsonValue;
 use std::borrow::Cow;
@@ -108,7 +109,7 @@ pub enum LineKind {
     },
     /// A block-level island: the line's sole content is one [`ISLAND_SLOT`]
     /// backing an island whose markdown *is* a block
-    /// ([`KnownIslandType::block_only`](crate::KnownIslandType::block_only)).
+    /// ([`IslandType::block_only`](crate::IslandType::block_only)).
     /// An image is inline markup, so a line holding one alone is
     /// [`Para`](LineKind::Para) — the kind re-importing `![alt](url)` yields,
     /// and the kind [`Content::normalize`] writes there.
@@ -416,7 +417,7 @@ pub struct Island {
     pub id: String,
     /// Island type discriminator (`"table"`, `"image"`, …). Unknown types
     /// round-trip opaque.
-    pub island_type: String,
+    pub island_type: IslandType,
     /// Typed payload. Recursively key-sorted by normalization so it hashes
     /// deterministically despite `serde_json`'s `preserve_order`.
     pub props: JsonValue,
@@ -428,12 +429,12 @@ impl Island {
     /// An island of `island_type` under `id`, carrying no payload and claiming
     /// no projection loss, which is also what the wire reads off the absent
     /// keys.
-    pub fn new(id: String, island_type: String) -> Self {
+    pub fn new(id: String, island_type: IslandType) -> Self {
         Island {
             id,
             island_type,
             props: JsonValue::Null,
-            loss: Loss::LOSSLESS,
+            loss: Loss::Lossless,
         }
     }
 
@@ -448,63 +449,16 @@ impl Island {
     }
 }
 
-/// The markdown-projection loss class of an island: a **description** of how
-/// faithfully the projection carries it, for a consumer to surface. It is not a
+/// How faithfully the markdown projection carries an island: a **description**
+/// of what the projection does with it, for a consumer to surface. It is not a
 /// switch: [`crate::export::to_markdown`] dispatches on
 /// [`Island::island_type`], never on this.
 ///
-/// Open on [`Island::island_type`]'s terms: the wire string *is* the stored
-/// value, carried verbatim even when this build lacks the class, so merely
-/// opening a document does not move its content hash. [`Fidelity`] is the closed
-/// view over it.
-///
-/// Read fidelity through [`Loss::fidelity`], never by comparing against
-/// [`Loss::LOSSLESS`]: an uninterpretable class degrades to
-/// [`Fidelity::Unrepresentable`], so nothing is claimed to carry faithfully on
-/// the strength of a name this build cannot read.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Loss(Cow<'static, str>);
-
-impl Loss {
-    /// Markdown carries it faithfully (round-trips identically).
-    pub const LOSSLESS: Loss = Loss(Cow::Borrowed(Fidelity::Lossless.as_str()));
-    /// Markdown carries an approximation (round-trips visibly, not identically).
-    pub const DEGRADED: Loss = Loss(Cow::Borrowed(Fidelity::Degraded.as_str()));
-    /// No markdown encoding: what an island type with no projection carries.
-    pub const UNREPRESENTABLE: Loss = Loss(Cow::Borrowed(Fidelity::Unrepresentable.as_str()));
-
-    /// Wrap a wire class. Every string is a class, uninterpretable ones
-    /// included; [`Loss::fidelity`] is where that is resolved. An interpretable
-    /// class borrows its `'static` spelling, so decoding allocates only for the
-    /// uninterpretable; equality is by name either way, so
-    /// `Loss::new("lossless") == Loss::LOSSLESS`.
-    pub fn new(class: &str) -> Loss {
-        match Fidelity::parse(class) {
-            Some(f) => Loss(Cow::Borrowed(f.as_str())),
-            None => Loss(Cow::Owned(class.to_string())),
-        }
-    }
-
-    /// The wire discriminator, and the canonical-form bytes.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    /// The fidelity this class describes, with an uninterpretable class degraded
-    /// to the safe end.
-    pub fn fidelity(&self) -> Fidelity {
-        Fidelity::parse(self.as_str()).unwrap_or(Fidelity::Unrepresentable)
-    }
-}
-
-/// How faithfully the markdown projection carries an island: the closed view
-/// over [`Loss`], and what a consumer switches on.
-///
-/// Exhaustive, like [`KnownIslandType`](crate::island::KnownIslandType): a
-/// consumer laddering on fidelity has no safe fallthrough for a rung it does not
-/// know, so a new rung is a major bump rather than a silent gap.
+/// Closed: a `loss` outside this set is
+/// [`ParseError::UnknownName`](crate::serial::ParseError::UnknownName), so a
+/// consumer laddering on it has no rung it cannot read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Fidelity {
+pub enum Loss {
     /// Round-trips identically.
     Lossless,
     /// Round-trips visibly, not identically.
@@ -513,14 +467,9 @@ pub enum Fidelity {
     Unrepresentable,
 }
 
-impl Fidelity {
-    /// Every level, faithful first: the one enumeration point, so a reader that
-    /// needs the closed set whole asks rather than re-spelling it.
-    pub const ALL: &'static [Fidelity] = &[
-        Fidelity::Lossless,
-        Fidelity::Degraded,
-        Fidelity::Unrepresentable,
-    ];
+impl Loss {
+    /// Every level, faithful first: the one enumeration point.
+    pub const ALL: &'static [Loss] = &[Loss::Lossless, Loss::Degraded, Loss::Unrepresentable];
 
     /// The wire class naming this level: the one place a class is spelled.
     pub const fn as_str(self) -> &'static str {
@@ -531,10 +480,8 @@ impl Fidelity {
         }
     }
 
-    /// Parse a wire class into the closed view. `None` is the open-set escape
-    /// hatch (an uninterpretable class), which [`Loss::fidelity`] reads as
-    /// [`Unrepresentable`](Fidelity::Unrepresentable).
-    pub fn parse(class: &str) -> Option<Fidelity> {
+    /// Parse a wire class; `parse(l.as_str()) == Some(l)` for every variant.
+    pub fn parse(class: &str) -> Option<Loss> {
         Self::ALL.iter().copied().find(|f| f.as_str() == class)
     }
 }
@@ -773,7 +720,7 @@ pub enum Invariant {
     /// never re-reads the segment, so an unchecked mismatch is silent text loss.
     LineKindMismatch { line: usize, mismatch: LineKindMismatch },
     /// A block-only island's slot
-    /// ([`KnownIslandType::block_only`](crate::KnownIslandType::block_only))
+    /// ([`IslandType::block_only`](crate::IslandType::block_only))
     /// shares its line with other content, which has no markdown spelling.
     /// `normalize` breaks the line around the slot; the lanes that author one
     /// refuse the placement
@@ -850,7 +797,7 @@ pub(crate) fn inline_block_islands<'a>(
         .filter(|&(_, &c)| c == ISLAND_SLOT)
         .zip(islands)
         .filter(|&((at, _), island)| {
-            crate::island::island_is_block_only(island) && !is_whole_line(chars, at, at + 1)
+            island.island_type.block_only() && !is_whole_line(chars, at, at + 1)
         })
         .map(|((at, _), _)| at)
 }
@@ -875,7 +822,7 @@ fn fragment_line(line: &Line, span: std::ops::Range<Usv>, breaks: &[Usv], first:
 
 /// The [`LineKind`] a line whose sole content is one [`ISLAND_SLOT`] carries in
 /// canonical form: [`LineKind::Island`] where markdown writes that island as a
-/// block ([`KnownIslandType::block_only`](crate::KnownIslandType::block_only)),
+/// block ([`IslandType::block_only`](crate::IslandType::block_only)),
 /// [`LineKind::Para`] where it writes it inline. Both spell one markdown, so the
 /// model keeps the one re-importing it yields, and [`Content::normalize`] writes
 /// that one.
@@ -892,7 +839,7 @@ fn island_line_kind(kind: &LineKind, seg: &str, island: Option<&Island>) -> Opti
     if (chars.next(), chars.next()) != (Some(ISLAND_SLOT), None) {
         return None;
     }
-    let known = crate::island::KnownIslandType::parse(&island?.island_type)?;
+    let known = island?.island_type;
     Some(if known.block_only() {
         LineKind::Island
     } else {
@@ -1023,7 +970,7 @@ impl Content {
         // `\n` rewritten to a space, cell marks canonicalized) before the key
         // sort, so equal cells serialize to equal bytes and `validate` holds.
         for island in &mut self.islands {
-            crate::island::normalize_island_structure(island);
+            island.island_type.normalize_props(&mut island.props);
             canonicalize_keys(&mut island.props);
         }
         // A formatting mark's edges never sit on a line boundary: markdown can't
@@ -1061,7 +1008,7 @@ impl Content {
     fn split_block_islands(&mut self) {
         use crate::delta::{Delta, Op};
 
-        if !self.islands.iter().any(crate::island::island_is_block_only)
+        if !self.islands.iter().any(|i| i.island_type.block_only())
             || self.lines.len() != self.segment_count()
         {
             return;
@@ -1180,7 +1127,7 @@ impl Content {
         // The formatting-mark edge test and the block-island placement test are
         // its only readers.
         let reads_chars = self.marks.iter().any(|m| m.kind.is_formatting())
-            || self.islands.iter().any(crate::island::island_is_block_only);
+            || self.islands.iter().any(|i| i.island_type.block_only());
         let chars: Vec<char> = if reads_chars {
             self.text.chars().collect()
         } else {
@@ -1251,10 +1198,10 @@ impl Content {
             // Depth before any pass that walks `props`; a cell's own `attrs` is
             // a subtree, so this bounds the cell marks read below as well.
             check_json_depth(&island.props, "island props")?;
-            if let Some(e) = crate::island::island_shape_error(island) {
+            if let Some(e) = island.island_type.shape_error(&island.props) {
                 return Err(e);
             }
-            for (text, marks) in crate::island::island_cell_marks(island) {
+            for (text, marks) in island.island_type.cell_marks(&island.props) {
                 let clen = text.chars().count();
                 for m in &marks {
                     if m.start > m.end || m.end > clen {
@@ -1498,9 +1445,9 @@ mod tests {
         let mut code = tagged(&format!("a{ISLAND_SLOT}b"), LineKind::Code { lang: None });
         code.islands = vec![Island {
             id: "isl-0".into(),
-            island_type: "image".into(),
+            island_type: IslandType::Image,
             props: serde_json::json!({"alt": "x", "url": "y.png"}),
-            loss: Loss::LOSSLESS,
+            loss: Loss::Lossless,
         }];
         assert_eq!(
             code.validate(),
@@ -1537,7 +1484,7 @@ mod tests {
 
     /// A one-cell table: the island type markdown writes as a block.
     fn table_island() -> Island {
-        Island::new("isl-0".into(), "table".into()).with_props(serde_json::json!({
+        Island::new("isl-0".into(), IslandType::Table).with_props(serde_json::json!({
             "aligns": ["none"],
             "header": [{"marks": [], "text": "h"}],
             "rows": [[{"marks": [], "text": "c"}]],
@@ -1550,14 +1497,14 @@ mod tests {
     /// a kind its own markdown denies.
     #[test]
     fn an_island_alone_on_a_line_takes_the_kind_its_type_projects() {
-        let image = Island::new("isl-0".into(), "image".into())
+        let image = Island::new("isl-0".into(), IslandType::Image)
             .with_props(serde_json::json!({"alt": "a", "url": "u"}));
         for (island, canonical) in [
             (table_island(), LineKind::Island),
             (image, LineKind::Para),
         ] {
             for stored in [LineKind::Para, LineKind::Island] {
-                let what = format!("{} as {stored:?}", island.island_type);
+                let what = format!("{} as {stored:?}", island.island_type.as_str());
                 let rt = tagged(&ISLAND_SLOT.to_string(), stored)
                     .with_islands(vec![island.clone()])
                     .into_normalized();
@@ -1570,20 +1517,6 @@ mod tests {
                     "{what} is not a fixed point: {md:?}"
                 );
             }
-        }
-    }
-
-    /// An island type this build cannot read projects to a placeholder that
-    /// carries no island back, so nothing in the markdown names a kind for its
-    /// line. The stored spelling stands: reading a document is not licence to
-    /// move the bytes of a construct this build does not understand.
-    #[test]
-    fn an_unknown_island_keeps_the_line_kind_it_was_stored_with() {
-        for stored in [LineKind::Para, LineKind::Island] {
-            let mut rt = tagged(&ISLAND_SLOT.to_string(), stored.clone())
-                .with_islands(vec![Island::new("isl-0".into(), "widget".into())]);
-            rt.normalize();
-            assert_eq!(rt.lines[0].kind, stored);
         }
     }
 
@@ -1622,9 +1555,9 @@ mod tests {
         let mut rt = tagged("\u{fffc}", LineKind::Island);
         rt.islands = vec![Island {
             id: "i1".into(),
-            island_type: "widget".into(),
+            island_type: IslandType::Image,
             props: nested(crate::MAX_JSON_DEPTH + 1),
-            loss: Loss::LOSSLESS,
+            loss: Loss::Lossless,
         }];
         assert_eq!(rt.validate(), too_deep("island props"));
     }
@@ -1944,7 +1877,7 @@ mod tests {
     fn continues_after_a_single_line_block_is_cleared() {
         let cases = [
             (LineKind::Heading { level: 1 }, "a\nb", "# a\n\nb"),
-            (LineKind::Island, "\u{FFFC}\nb", "<!-- island:widget -->\n\nb"),
+            (LineKind::Island, "\u{FFFC}\nb", "| h |\n| --- |\n| c |\n\nb"),
             (LineKind::Rule, "\nb", "***\n\nb"),
         ];
         for (kind, text, markdown) in cases {
@@ -1956,7 +1889,12 @@ mod tests {
                 ],
             )
             .with_islands(match kind {
-                LineKind::Island => vec![Island::new("isl-0".into(), "widget".into())],
+                LineKind::Island => vec![Island::new("isl-0".into(), IslandType::Table)
+                    .with_props(serde_json::json!({
+                        "header": [{"text": "h", "marks": []}],
+                        "rows": [[{"text": "c", "marks": []}]],
+                        "aligns": ["none"],
+                    }))],
                 _ => vec![],
             });
             assert_eq!(
@@ -2003,13 +1941,13 @@ mod tests {
             }];
             rt.islands = vec![Island {
                 id: "i".into(),
-                island_type: "table".into(),
+                island_type: IslandType::Table,
                 props: serde_json::json!({
                     "aligns": ["none"],
                     "header": [{"text": "abcd", "marks": cell_marks}],
                     "rows": [],
                 }),
-                loss: Loss::LOSSLESS,
+                loss: Loss::Lossless,
             }];
             rt
         }
@@ -2066,14 +2004,14 @@ mod tests {
         }];
         rt.islands = vec![Island {
             id: "i".into(),
-            island_type: "table".into(),
+            island_type: IslandType::Table,
             props: serde_json::json!({
                 "aligns": ["none"],
                 // "ab" is 2 USV; a mark ending at 5 runs past the cell.
                 "header": [{"text": "ab", "marks": [{"start": 0, "end": 5, "type": "strong"}]}],
                 "rows": [],
             }),
-            loss: Loss::LOSSLESS,
+            loss: Loss::Lossless,
         }];
         assert_eq!(
             rt.validate(),
@@ -2095,9 +2033,9 @@ mod tests {
         }];
         rt.islands = vec![Island {
             id: "i".into(),
-            island_type: "table".into(),
+            island_type: IslandType::Table,
             props,
-            loss: Loss::LOSSLESS,
+            loss: Loss::Lossless,
         }];
         rt
     }
@@ -2217,9 +2155,9 @@ mod tests {
         ];
         let table = |id: &str| Island {
             id: id.into(),
-            island_type: "table".into(),
+            island_type: IslandType::Table,
             props: serde_json::json!({ "header": [cell("h")], "aligns": ["none"], "rows": [] }),
-            loss: Loss::LOSSLESS,
+            loss: Loss::Lossless,
         };
         rt.islands = vec![table("dup"), table("dup")];
         assert_eq!(

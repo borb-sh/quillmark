@@ -1,17 +1,16 @@
-//! Island types: the closed dispatch authority over the open
-//! [`Island::island_type`](crate::model::Island::island_type) wire string.
+//! Island types: the dispatch authority over
+//! [`Island::island_type`](crate::model::Island::island_type).
 
 use crate::model::{Invariant, Island, Loss, Mark};
 use serde_json::Value;
 
-/// The island types this build understands: the closed parse of the open wire
-/// string [`Island::island_type`](crate::model::Island::island_type), which an
-/// unknown type round-trips through opaquely.
+/// The island types. Closed: a wire `type` outside this set is
+/// [`ParseError::UnknownName`](crate::serial::ParseError::UnknownName).
 ///
 /// Every emitter dispatches over the whole set: an island type wired into some
 /// and not others projects the island away silently.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum KnownIslandType {
+pub enum IslandType {
     /// `{header, rows, aligns}` with inline `{text, marks}` cells. Mark-carrying,
     /// shape-validated (one column count, `\n`-free cells).
     Table,
@@ -19,9 +18,9 @@ pub enum KnownIslandType {
     Image,
 }
 
-impl KnownIslandType {
+impl IslandType {
     /// Every known type, for a reader that needs the closed set whole.
-    pub const ALL: &'static [KnownIslandType] = &[KnownIslandType::Table, KnownIslandType::Image];
+    pub const ALL: &'static [IslandType] = &[IslandType::Table, IslandType::Image];
 
     /// The wire discriminator; `parse(k.as_str()) == Some(k)` for every variant.
     pub fn as_str(self) -> &'static str {
@@ -31,8 +30,8 @@ impl KnownIslandType {
         }
     }
 
-    /// Parse a wire discriminator into the closed set. `None` is a
-    /// genuinely-unknown type, round-tripped opaque.
+    /// Parse a wire discriminator; `parse(k.as_str()) == Some(k)` for every
+    /// variant.
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "table" => Some(Self::Table),
@@ -46,15 +45,14 @@ impl KnownIslandType {
     /// above.
     pub fn default_loss(self) -> Loss {
         match self {
-            Self::Table => Loss::LOSSLESS,
-            Self::Image => Loss::LOSSLESS,
+            Self::Table => Loss::Lossless,
+            Self::Image => Loss::Lossless,
         }
     }
 
     /// Whether this type's markdown projection is a **block**: markup no
     /// paragraph line can hold, so its slot has to sit alone on its line. A
-    /// pipe table is one; an image is inline (`![alt](url)`), and an unknown
-    /// type's placeholder comment is inline too.
+    /// pipe table is one; an image is inline (`![alt](url)`).
     pub fn block_only(self) -> bool {
         match self {
             Self::Table => true,
@@ -92,38 +90,14 @@ impl KnownIslandType {
     }
 }
 
-// These wrappers answer the open set's unknown arm once each, so callers get a
-// total function and no site re-decides what an unknown type does.
-
-pub(crate) fn normalize_island_structure(island: &mut Island) {
-    if let Some(k) = KnownIslandType::parse(&island.island_type) {
-        k.normalize_props(&mut island.props);
-    }
-}
-
-pub(crate) fn island_cell_marks(island: &Island) -> Vec<(String, Vec<Mark>)> {
-    match KnownIslandType::parse(&island.island_type) {
-        Some(k) => k.cell_marks(&island.props),
-        None => Vec::new(),
-    }
-}
-
-pub(crate) fn island_shape_error(island: &Island) -> Option<Invariant> {
-    KnownIslandType::parse(&island.island_type).and_then(|k| k.shape_error(&island.props))
-}
-
-pub(crate) fn island_is_block_only(island: &Island) -> bool {
-    KnownIslandType::parse(&island.island_type).is_some_and(KnownIslandType::block_only)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn known_types_round_trip() {
-        for k in [KnownIslandType::Table, KnownIslandType::Image] {
-            assert_eq!(KnownIslandType::parse(k.as_str()), Some(k));
+        for k in [IslandType::Table, IslandType::Image] {
+            assert_eq!(IslandType::parse(k.as_str()), Some(k));
         }
     }
 
@@ -139,9 +113,9 @@ mod tests {
             serde_json::json!({"header": ["h"], "aligns": 7, "rows": [[], null]}),
         ] {
             let mut props = props;
-            KnownIslandType::Table.normalize_props(&mut props);
+            IslandType::Table.normalize_props(&mut props);
             assert_eq!(
-                KnownIslandType::Table.shape_error(&props),
+                IslandType::Table.shape_error(&props),
                 None,
                 "normalized props still refused: {props}"
             );

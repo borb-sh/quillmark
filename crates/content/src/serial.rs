@@ -320,8 +320,8 @@ fn line_kind_fields(kind: &LineKind) -> Map<String, Value> {
 /// Decode a [`LineKind`] from an object carrying the canonical `kind` fields.
 pub fn line_kind_from_value(v: &Value) -> Result<LineKind, ParseError> {
     let o = v.as_object().ok_or(ParseError::Shape("line"))?;
-    // A missing/non-string `kind` is the one shape error here: the open set
-    // absorbs unknown *names*, not malformed objects.
+    // A missing/non-string `kind` is a shape error; a string outside the
+    // vocabulary is `UnknownName`. A non-string is not a name.
     let tag = o
         .get("kind")
         .and_then(Value::as_str)
@@ -612,7 +612,7 @@ pub(crate) fn reject_unwritable_link_url(v: &Value) -> Result<(), ParseError> {
 /// [`reject_unwritable_link_url`] on an `image` island's `url` prop, which the
 /// emitter writes into the same slot.
 fn reject_unwritable_image_url(v: &Value) -> Result<(), ParseError> {
-    let image = crate::island::KnownIslandType::Image.as_str();
+    let image = crate::island::IslandType::Image.as_str();
     if v.get("type").and_then(Value::as_str) != Some(image) {
         return Ok(());
     }
@@ -675,12 +675,12 @@ fn authored_lane_scan(v: &Value) -> Result<(), ParseError> {
     }
     // Cell marks ride the prose mark shape, so the rules follow them in, plus
     // the readability check, since no strict decode reaches them. Dispatch goes
-    // through `KnownIslandType`, so a new mark-carrying type is a compile error
+    // through `IslandType`, so a new mark-carrying type is a compile error
     // here rather than a silent skip.
     for island in arr_or_empty(v, "islands") {
         let ty = island.get("type").and_then(Value::as_str).unwrap_or_default();
-        match crate::island::KnownIslandType::parse(ty) {
-            Some(crate::island::KnownIslandType::Table) => {
+        match crate::island::IslandType::parse(ty) {
+            Some(crate::island::IslandType::Table) => {
                 let Some(props) = island.get("props") else {
                     continue;
                 };
@@ -691,8 +691,8 @@ fn authored_lane_scan(v: &Value) -> Result<(), ParseError> {
                 }
             }
             // No cells; the one prop the projection writes is the url.
-            Some(crate::island::KnownIslandType::Image) => reject_unwritable_image_url(island)?,
-            // An unknown type's props are opaque.
+            Some(crate::island::IslandType::Image) => reject_unwritable_image_url(island)?,
+            // This scan reads raw JSON; an unknown type is the decode's to refuse.
             None => {}
         }
     }
@@ -789,7 +789,7 @@ pub(crate) fn table_cells(props: &Value) -> Vec<(String, Vec<Mark>)> {
 }
 
 // The `table` codec below is the primitive `crate::island` dispatches into for
-// `KnownIslandType::Table`; island-type dispatch itself lives there.
+// `IslandType::Table`; island-type dispatch itself lives there.
 
 /// Repair a table island's props in place to the canonical shape:
 ///
@@ -946,7 +946,7 @@ pub(crate) fn island_to_value(island: &Island) -> Value {
     m.insert("id".into(), Value::String(island.id.clone()));
     m.insert("loss".into(), island.loss.as_str().into());
     m.insert("props".into(), island.props.clone());
-    m.insert("type".into(), Value::String(island.island_type.clone()));
+    m.insert("type".into(), Value::String(island.island_type.as_str().into()));
     Value::Object(m)
 }
 
@@ -963,20 +963,16 @@ pub(crate) fn island_from_value(v: &Value) -> Result<Island, ParseError> {
                 .get("type")
                 .and_then(Value::as_str)
                 .ok_or(ParseError::Shape("island type"))?;
-            crate::island::KnownIslandType::parse(name)
-                .ok_or_else(|| ParseError::UnknownName {
-                    axis: "island type",
-                    name: name.to_string(),
-                })?
-                .as_str()
-                .to_string()
+            crate::island::IslandType::parse(name).ok_or_else(|| ParseError::UnknownName {
+                axis: "island type",
+                name: name.to_string(),
+            })?
         },
         props: bag_from_wire(o, "props", "island props")?,
         // A missing key is the faithful class: it predates the key.
         loss: match o.get("loss") {
-            None => Loss::LOSSLESS,
-            Some(Value::String(name)) => crate::model::Fidelity::parse(name)
-                .map(|f| Loss::new(f.as_str()))
+            None => Loss::Lossless,
+            Some(Value::String(name)) => Loss::parse(name)
                 .ok_or_else(|| ParseError::UnknownName {
                     axis: "island loss",
                     name: name.clone(),
@@ -1024,7 +1020,8 @@ mod tests {
     }
 
     use super::*;
-    use crate::model::{Fidelity, Line, LineKind};
+    use crate::island::IslandType;
+    use crate::model::{Line, LineKind, Loss};
 
     fn sample() -> Content {
         Content {
@@ -1192,9 +1189,9 @@ mod tests {
         }];
         one.islands = vec![Island {
             id: "i1".into(),
-            island_type: "table".into(),
+            island_type: IslandType::Table,
             props: serde_json::json!({"b": 1, "a": 2}),
-            loss: Loss::LOSSLESS,
+            loss: Loss::Lossless,
         }];
         let mut two = one.clone();
         two.islands[0].props = serde_json::json!({"a": 2, "b": 1}); // keys reversed
@@ -1276,14 +1273,18 @@ mod tests {
             }
         }
 
-        for island_type in ["table", "image", "widget"] {
+        for &island_type in IslandType::ALL {
             let island = Island {
                 id: "i1".into(),
-                island_type: island_type.into(),
+                island_type,
                 props: bag(),
-                loss: Loss::LOSSLESS,
+                loss: Loss::Lossless,
             };
-            assert!(sorted(&island_to_value(&island)), "island {island_type}");
+            assert!(
+                sorted(&island_to_value(&island)),
+                "island {}",
+                island_type.as_str()
+            );
         }
     }
 
@@ -1311,13 +1312,13 @@ mod tests {
         }];
         rt.islands = vec![Island {
             id: "i1".into(),
-            island_type: "table".into(),
+            island_type: IslandType::Table,
             props: serde_json::json!({
                 "header": [{"text": "h", "marks": [{"start": 0, "end": 1, "type": "emph"}]}],
                 "rows": [[{"text": "r", "marks": []}]],
                 "aligns": ["none"],
             }),
-            loss: Loss::LOSSLESS,
+            loss: Loss::Lossless,
         }];
         rt.normalize();
         assert_eq!(rt.validate(), Ok(()));
@@ -1471,9 +1472,8 @@ mod tests {
     /// So the closed view and the wire spellings cannot drift apart.
     #[test]
     fn every_fidelity_level_round_trips_through_its_class() {
-        assert_eq!(Loss::new("lossless"), Loss::LOSSLESS);
-        for &f in Fidelity::ALL {
-            assert_eq!(Loss::new(f.as_str()).fidelity(), f);
+        for &l in Loss::ALL {
+            assert_eq!(Loss::parse(l.as_str()), Some(l));
         }
     }
 

@@ -6,7 +6,7 @@
 //! guard is live is `Tail`, the record of what the emitter last wrote.
 
 use quillmark_core::error::MAX_NESTING_DEPTH;
-use quillmark_content::island::KnownIslandType;
+use quillmark_content::island::IslandType;
 use quillmark_content::model::{Container, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT};
 use quillmark_content::normalize::is_line_separator;
 use std::ops::Range;
@@ -275,7 +275,7 @@ impl Emission {
             declined_images: rt
                 .islands
                 .iter()
-                .filter(|i| KnownIslandType::parse(&i.island_type) == Some(KnownIslandType::Image))
+                .filter(|i| i.island_type == IslandType::Image)
                 .count(),
         }
     }
@@ -731,15 +731,12 @@ impl<'a> Emit<'a> {
         let Some(isl) = self.rt.islands.get(idx) else {
             return String::new();
         };
-        match KnownIslandType::parse(&isl.island_type) {
-            // Declined, not unknown: what a content image's url names is
-            // undecided, so this backend draws none and
-            // `Emission::declined_images` counts them for the warning saying so.
-            Some(KnownIslandType::Image) => String::new(),
-            Some(KnownIslandType::Table) => table_markup(&isl.props),
-            // Parallel to the HTML rule; a new known type is a compile error
-            // here, not silence.
-            None => String::new(),
+        match isl.island_type {
+            // Declined: what a content image's url names is undecided, so this
+            // backend draws none and `Emission::declined_images` counts them
+            // for the warning saying so.
+            IslandType::Image => String::new(),
+            IslandType::Table => table_markup(&isl.props),
         }
     }
 }
@@ -1578,13 +1575,13 @@ mod tests {
         }
 
         // An island this build renders as nothing closes the gap its slot held.
-        // The types here are the ones whose slot can sit inside a run at all: a
+        // `image` is the type whose slot can sit inside a run at all: a
         // block-only type's takes a line of its own, so no run closes over it.
-        for ty in ["widget", "image"] {
+        for ty in [IslandType::Image] {
             for text in ["a/{}/b", "a-{}-b", "a-{}?b", "a-{}5b", "a.{}..b", "a..{}.b"] {
                 let text = text.replace("{}", &ISLAND_SLOT.to_string());
                 let rt = Content::new(text.clone(), vec![Line::new(LineKind::Para)])
-                    .with_islands(vec![Island::new("isl-0".into(), ty.into())])
+                    .with_islands(vec![Island::new("isl-0".into(), ty)])
                     .into_normalized();
                 assert_eq!(rt.validate(), Ok(()), "content invariants for {text:?}");
                 let markup = emit_content(&rt).unwrap().markup;
