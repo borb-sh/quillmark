@@ -134,9 +134,9 @@ pub type PayloadV0_112_0 = PayloadV0_92_0;
 ///   rejected at load rather than silently round-tripped.
 ///
 /// Both directions check because [`Normalized`] is the canonical-form token and
-/// not a validity one: `normalize` repairs where `validate` rejects, and
-/// `Card::overwrite_body` takes a caller's content on that token alone. A store
-/// that checked only on load would accept bytes it cannot read back.
+/// not a validity one: `validate` refuses only what `normalize` cannot repair,
+/// and `Card::overwrite_body` takes a caller's content on that token alone. A
+/// store that checked only on load would accept bytes it cannot read back.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CanonicalContent(pub Normalized);
 

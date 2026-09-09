@@ -53,6 +53,30 @@
   it: a compile with nothing to paint now meets the out-of-range refusal,
   `"paint: page index 0 out of range (pageCount=0)"`, in place of a message
   naming a painter the backend has. Closes #1706.
+- refactor(content,wasm)!: **`Content::normalize` settles the lenient/strict
+  split alone.** Eleven `Invariant` arms named shapes the mint repairs — a
+  zero-width or newline-edged formatting mark, a `continues` flag on the first
+  line, across a container boundary or after a one-line block, a line kind its
+  text contradicts, the four table shapes, and a block island's slot sharing its
+  line — and every door mints before it validates, so each fired only on a
+  hand-built content. The op channel refused three of them a third time. All of
+  it goes: `validate` reports what normalization cannot repair (a forbidden
+  character with no substitute, two counts with no rule saying which is right, a
+  range or depth past a bound, a colliding id), and `setKind` / `setContinues`
+  land and the terminal normalize settles them — a contradicted kind becomes
+  `para`, an impossible `continues` clears, line 0 included. So `applyChange`
+  resolves where it threw, and `Ok` stops meaning the op landed as written: an
+  editor mirroring ops into its own model reads the content back. The one
+  content-changing case is a heading retagged `island` or `rule`, which is a
+  paragraph afterward. `BadHeadingLevel` and the block-island placement stay
+  refused, the first having no principled rewrite and the second being the
+  authored lane's policy rather than a second reading of a repair. The property
+  suite's oracle is the mint's fixed point beside the surviving `validate`.
+  `LineKindMismatch` leaves the crate with `ApplyError::LineKindMismatch`,
+  `ContinuesAcrossContainers`, `ContinuesSingleLineBlock` and
+  `FirstLineContinues`. Stored bytes are untouched, and the one reader change is
+  a loosening: a blob spelling `continues: true` on line 0 loads cleared where
+  it failed. Closes #1699.
 - feat(content,wasm)!: **the content vocabularies close.** A line `kind`,
   container, mark `type`, island `type` or `loss` outside the built-ins was an
   open set: it round-tripped opaque and projected as its nearest safe
@@ -275,8 +299,7 @@
 - feat(content)!: **a block-only island takes a line of its own in the model,
   not only on the way out.** `to_markdown` broke the line around such a slot
   at write time, so the model could hold a shape markdown cannot spell.
-  `Content::normalize` performs the break, `validate` states it as
-  `Invariant::BlockIslandNotAlone`, and the export writes the lines it is
+  `Content::normalize` performs the break and the export writes the lines it is
   given. A stored blob carrying the shape still loads, now already split with
   its marks rebased — the content `to_markdown` would have written. An
   accepted `LineOp::Join` that runs a slot back into its prose is taken apart

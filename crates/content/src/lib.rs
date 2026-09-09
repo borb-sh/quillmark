@@ -25,7 +25,7 @@ pub use export::{to_markdown, to_plaintext};
 pub use import::{from_markdown, from_plaintext};
 pub use island::IslandType;
 pub use model::{
-    Container, Invariant, Island, Line, LineKind, LineKindMismatch, Loss, Mark, MarkKind,
+    Container, Invariant, Island, Line, LineKind, Loss, Mark, MarkKind,
     Content, Usv,
 };
 pub use ops::{

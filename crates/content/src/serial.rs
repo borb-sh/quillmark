@@ -18,7 +18,7 @@
 //! The seam encoding and the storage encoding are the *same* canonical form.
 
 use crate::model::{
-    canonicalize_keys, Container, Invariant, Island, Line, LineKind, Loss, Mark,
+    canonicalize_keys, Container, Island, Line, LineKind, Loss, Mark,
     MarkKind, Content, Normalized, Usv,
 };
 use serde_json::{Map, Value};
@@ -631,7 +631,7 @@ fn reject_unwritable_url(url: Option<&str>, err: &'static str) -> Result<(), Par
 
 /// [`from_canonical_value`] for a content the **host authored just now**: the
 /// `overwrite` input, not a blob read back from storage. Same decode, plus the
-/// legacy-spelling rule on every axis [`Content::validate`] checks — line kinds,
+/// legacy-spelling rule on every axis the decode reads — line kinds,
 /// containers, prose marks, table-cell marks — the writability rule on the urls
 /// the projection spells, and the placement rule on a block-only island.
 pub fn from_authored_value(v: &Value) -> Result<Normalized, ParseError> {
@@ -802,8 +802,7 @@ pub(crate) fn table_cells(props: &Value) -> Vec<(String, Vec<Mark>)> {
 /// - **Canonical cell marks.** Each cell's marks are re-normalized (sort,
 ///   same-kind union, drop zero-width) so equal cells serialize to equal bytes.
 /// - **Arrays where arrays belong.** A present non-array `header`, `aligns`, or
-///   row carries no cells, so it becomes an empty array rather than garbage the
-///   validate-side twin then rejects.
+///   row carries no cells, so it becomes an empty array.
 pub(crate) fn normalize_table_props(props: &mut Value) {
     let cols = table_cols(props);
     let Some(obj) = props.as_object_mut() else {
@@ -892,51 +891,6 @@ fn canon_cell(cell: &mut Value) {
         // A non-object cell holds no keys to preserve.
         (_, canon) => *cell = canon,
     }
-}
-
-/// A table island's shape violation, if any: the widths the header, `aligns`,
-/// and each body row must share (the header width), plus the `\n`-free-cell rule.
-/// The validate-side twin of [`normalize_table_props`].
-pub(crate) fn table_shape_error(props: &Value) -> Option<Invariant> {
-    // A present-but-non-array header can't carry column cells: `normalize`
-    // rewrites it to an empty array, so an un-normalized one is a hand-built
-    // degenerate island. (An absent header is a zero-column table, which is
-    // well-formed: `empty_table_is_valid`.)
-    if props.get("header").is_some_and(|h| !h.is_array()) {
-        return Some(Invariant::TableHeaderNotArray);
-    }
-    let cols = props
-        .get("header")
-        .and_then(Value::as_array)
-        .map(|a| a.len())
-        .unwrap_or(0);
-    let aligns = props
-        .get("aligns")
-        .and_then(Value::as_array)
-        .map(|a| a.len())
-        .unwrap_or(0);
-    if aligns != cols {
-        return Some(Invariant::TableAlignsMismatch { aligns, cols });
-    }
-    if let Some(rows) = props.get("rows").and_then(Value::as_array) {
-        for (i, row) in rows.iter().enumerate() {
-            let width = row.as_array().map(|a| a.len()).unwrap_or(0);
-            if width != cols {
-                return Some(Invariant::TableRaggedRow {
-                    row: i,
-                    width,
-                    cols,
-                });
-            }
-        }
-    }
-    for (i, cell) in table_cell_values(props).enumerate() {
-        let text = cell.get("text").and_then(Value::as_str).unwrap_or_default();
-        if text.contains(is_cell_break) {
-            return Some(Invariant::TableCellNewline { cell: i });
-        }
-    }
-    None
 }
 
 pub(crate) fn island_to_value(island: &Island) -> Value {
@@ -1041,7 +995,7 @@ mod tests {
 
     use super::*;
     use crate::island::IslandType;
-    use crate::model::{Line, LineKind, Loss};
+    use crate::model::{Invariant, Line, LineKind, Loss};
 
     fn sample() -> Content {
         Content {
