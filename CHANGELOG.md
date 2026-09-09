@@ -71,6 +71,14 @@
   it. `Content::validate` also drops a reserved-tag check on table-cell marks that
   nothing reaches — `parse_cell` resolves every built-in name before its
   `Unknown` arm, so a cell mark is never a reserved-tag unknown.
+- docs(core): **`ERROR.md`'s args table covers the three `validation::seed_*`
+  codes it claimed.** The table is the `code` + `args` consumer contract, and
+  `diagnostic_args_match_canon` holds it to the minted set — but
+  `seed_unknown_kind`, `seed_overlay_shape` and `seed_unknown_field` were missing
+  from both, so the two agreed by omitting the same three and a consumer reading
+  the table saw a family it covered less of than it said. The rows are now minted
+  from the overlay walk itself, on a document that trips all three, so each row
+  and its construction site check each other.
 - docs: **two copies that were copies, not two ends of a subject.**
   `prose/README.md` divides canon and `docs/` by audience and says neither
   restates the other. § "Addressing cards for re-render" was in both, code block
