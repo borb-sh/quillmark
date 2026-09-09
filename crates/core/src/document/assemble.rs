@@ -130,11 +130,9 @@ pub(super) struct MetadataBlock {
 
 /// The document-absolute, 1-indexed position of a YAML parse failure.
 ///
-/// `parser` is the position the engine reports inside the string it parsed:
-/// the fence content less the comment lines prescan drops
-/// ([`PreScan::source_lines`] maps what survives back) and less the leading
-/// whitespace `trim` removes. With no reported position the block's first
-/// content line is the anchor.
+/// `parser` is the position the engine reports inside the string it parsed: the
+/// fence content, line-for-line, less the leading whitespace `trim` removes.
+/// With no reported position the block's first content line is the anchor.
 fn document_position(
     markdown: &str,
     content_start: usize,
@@ -148,14 +146,7 @@ fn document_position(
 
     let cleaned = &pre.cleaned_yaml;
     let trimmed_prefix = &cleaned[..cleaned.len() - cleaned.trim_start().len()];
-
-    let cleaned_index = trimmed_prefix.matches('\n').count() + rel_line.saturating_sub(1);
-    let source_index = pre
-        .source_lines
-        .get(cleaned_index)
-        .or_else(|| pre.source_lines.last())
-        .copied()
-        .unwrap_or(0);
+    let source_index = trimmed_prefix.matches('\n').count() + rel_line.saturating_sub(1);
 
     // Only the first parsed line lost leading whitespace to `trim`.
     let column = if rel_line <= 1 {

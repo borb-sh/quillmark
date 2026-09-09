@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- refactor(core)!: **prescan's cleaned YAML is line-for-line with its source.**
+  A comment line was dropped from the string handed to the parser, so the two
+  numberings diverged and a `PreScan::source_lines` table existed to map a
+  reported position back. The line now passes through — it is a comment to the
+  parser too — and the table, the `Cleaned` pair it rode in, and the
+  fall-back-to-the-last-line lookup go with it. Blanking the line instead, which
+  the same table would have bought, is what this does *not* do: a blank line is
+  content under keep chomping, so `bio: |+` followed by a comment would have
+  gained a newline. One break: a comment indented inside a multi-line plain
+  scalar now ends it, as it does in YAML, so `key: aaa` / `  # c` / `  bbb`
+  raises a located `parse::yaml_error` where it used to fold to `"aaa bbb"` —
+  a value no YAML parser reads out of that document.
 - refactor(core)!: **nested comments hang off the payload, not each item.**
   `PayloadItem::Field` / `Meta` lose `nested_comments`; one list on `Payload`
   carries them, at paths whose head segment names the owning entry. That is the
