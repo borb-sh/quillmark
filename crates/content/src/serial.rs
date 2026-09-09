@@ -34,6 +34,13 @@ pub enum ParseError {
     Json(String),
     /// The value parsed but violates a content invariant.
     Invalid(crate::model::Invariant),
+    /// A discriminator outside its vocabulary. `axis` names the wire field
+    /// (`line kind`, `container`, `mark type`, `island type`, `island loss`),
+    /// `name` the value it carried.
+    UnknownName {
+        axis: &'static str,
+        name: String,
+    },
 }
 
 impl std::fmt::Display for ParseError {
@@ -42,6 +49,9 @@ impl std::fmt::Display for ParseError {
             ParseError::Shape(s) => write!(f, "content json shape: {s}"),
             ParseError::Json(s) => write!(f, "content json parse: {s}"),
             ParseError::Invalid(inv) => write!(f, "content invariant: {inv:?}"),
+            ParseError::UnknownName { axis, name } => {
+                write!(f, "content vocabulary: unknown {axis} {name:?}")
+            }
         }
     }
 }
@@ -203,24 +213,6 @@ fn bag_from_wire(
     Ok(v.clone())
 }
 
-/// [`bag_from_wire`] for a carrier axis' `attrs`: an empty bag reads as the
-/// absent one. The encoder omits it either way, so collapsing here is what
-/// makes a value decoded from one spelling equal one decoded from the other.
-/// `normalize` cannot reach every such value — a [`crate::ops::MarkOp`] carries
-/// a kind with no content to be normalized with.
-///
-/// Island `props` keeps both spellings, and takes [`bag_from_wire`] directly:
-/// it is written on every island, so `{}` there is a value rather than an
-/// omission.
-fn attrs_from_wire(o: &Map<String, Value>, what: &'static str) -> Result<Value, ParseError> {
-    let attrs = bag_from_wire(o, "attrs", what)?;
-    Ok(if crate::model::is_empty_bag(&attrs) {
-        Value::Null
-    } else {
-        attrs
-    })
-}
-
 /// Read a wire position as a [`Usv`] index. **Checked**, not `as usize`: the
 /// deployment target is wasm32, where the truncating cast turns `2^32 + 5` into
 /// an in-range `5`, landing a mark at the wrong position instead of rejecting
@@ -354,11 +346,9 @@ pub fn line_kind_from_value(v: &Value) -> Result<LineKind, ParseError> {
         }),
         "island" => Ok(LineKind::Island),
         "rule" => Ok(LineKind::Rule),
-        // Any other name is a block role this build lacks, kept opaque and
-        // projected as `Para`, so the document still opens.
-        other => Ok(LineKind::Unknown {
-            tag: other.to_string(),
-            attrs: attrs_from_wire(o, "line attrs")?,
+        other => Err(ParseError::UnknownName {
+            axis: "line kind",
+            name: other.to_string(),
         }),
     }
 }
@@ -443,12 +433,9 @@ pub fn container_from_value(v: &Value) -> Result<Container, ParseError> {
             instance,
         }),
         "quote" => Ok(Container::Quote { instance }),
-        // An unrecognized container round-trips opaque and projects
-        // transparently.
-        other => Ok(Container::Unknown {
-            tag: other.to_string(),
-            attrs: attrs_from_wire(o, "container attrs")?,
-            instance,
+        other => Err(ParseError::UnknownName {
+            axis: "container",
+            name: other.to_string(),
         }),
     }
 }
@@ -518,12 +505,12 @@ pub fn mark_from_value(v: &Value) -> Result<Mark, ParseError> {
                 .unwrap_or_default()
                 .to_string(),
         },
-        // Any other type name is an unknown mark, round-tripped opaque with
-        // whatever `attrs` it carried.
-        other => MarkKind::Unknown {
-            tag: other.to_string(),
-            attrs: attrs_from_wire(o, "mark attrs")?,
-        },
+        other => {
+            return Err(ParseError::UnknownName {
+                axis: "mark type",
+                name: other.to_string(),
+            })
+        }
     };
     Ok(Mark { start, end, kind })
 }
@@ -589,7 +576,7 @@ pub(crate) fn mark_from_authored_value(v: &Value) -> Result<Mark, ParseError> {
 pub(crate) fn reject_unreadable_mark(v: &Value) -> Result<(), ParseError> {
     reject_mark_legacy(v)?;
     reject_unwritable_link_url(v)?;
-    mark_shape(v)?;
+    mark_from_value(v)?;
     Ok(())
 }
 
@@ -971,18 +958,31 @@ pub(crate) fn island_from_value(v: &Value) -> Result<Island, ParseError> {
             .and_then(Value::as_str)
             .ok_or(ParseError::Shape("island id"))?
             .to_string(),
-        island_type: o
-            .get("type")
-            .and_then(Value::as_str)
-            .ok_or(ParseError::Shape("island type"))?
-            .to_string(),
+        island_type: {
+            let name = o
+                .get("type")
+                .and_then(Value::as_str)
+                .ok_or(ParseError::Shape("island type"))?;
+            crate::island::KnownIslandType::parse(name)
+                .ok_or_else(|| ParseError::UnknownName {
+                    axis: "island type",
+                    name: name.to_string(),
+                })?
+                .as_str()
+                .to_string()
+        },
         props: bag_from_wire(o, "props", "island props")?,
-        // The class is carried whether or not this build interprets it; a
-        // missing key is the faithful class.
-        loss: o
-            .get("loss")
-            .and_then(Value::as_str)
-            .map_or(Loss::LOSSLESS, Loss::new),
+        // A missing key is the faithful class: it predates the key.
+        loss: match o.get("loss") {
+            None => Loss::LOSSLESS,
+            Some(Value::String(name)) => crate::model::Fidelity::parse(name)
+                .map(|f| Loss::new(f.as_str()))
+                .ok_or_else(|| ParseError::UnknownName {
+                    axis: "island loss",
+                    name: name.clone(),
+                })?,
+            Some(_) => return Err(ParseError::Shape("island loss")),
+        },
     })
 }
 
@@ -1082,28 +1082,11 @@ mod tests {
     #[test]
     fn deep_json_payload_is_rejected_at_decode_on_the_value_lane() {
         let deep = nested_arrays(1_000);
-        let cases: [(Value, &'static str); 4] = [
-            (
-                serde_json::json!({"text":"\u{fffc}","lines":[{"kind":"island","containers":[]}],
-                  "marks":[],"islands":[{"id":"i1","type":"widget","loss":"lossless","props":deep}]}),
-                "island props",
-            ),
-            (
-                serde_json::json!({"text":"x","lines":[{"kind":"para","containers":[]}],
-                  "marks":[{"start":0,"end":1,"type":"sparkle","attrs":deep}],"islands":[]}),
-                "mark attrs",
-            ),
-            (
-                serde_json::json!({"text":"x","lines":[{"kind":"callout","containers":[],"attrs":deep}],
-                  "marks":[],"islands":[]}),
-                "line attrs",
-            ),
-            (
-                serde_json::json!({"text":"x","lines":[{"kind":"para",
-                  "containers":[{"container":"indent","attrs":deep}]}],"marks":[],"islands":[]}),
-                "container attrs",
-            ),
-        ];
+        let cases: [(Value, &'static str); 1] = [(
+            serde_json::json!({"text":"\u{fffc}","lines":[{"kind":"island","containers":[]}],
+              "marks":[],"islands":[{"id":"i1","type":"image","loss":"lossless","props":deep}]}),
+            "island props",
+        )];
         for (v, what) in cases {
             assert_eq!(
                 from_canonical_value(&v),
@@ -1130,7 +1113,7 @@ mod tests {
     fn json_depth_cap_admits_every_storable_payload() {
         let content = |props: Value| {
             serde_json::json!({"text":"\u{fffc}","lines":[{"kind":"island","containers":[]}],
-              "marks":[],"islands":[{"id":"i1","type":"widget","loss":"lossless","props":props}]})
+              "marks":[],"islands":[{"id":"i1","type":"image","loss":"lossless","props":props}]})
         };
         assert!(from_canonical_value(&content(nested_arrays(crate::MAX_JSON_DEPTH))).is_ok());
         assert!(from_canonical_value(&content(nested_arrays(crate::MAX_JSON_DEPTH + 1))).is_err());
@@ -1172,27 +1155,16 @@ mod tests {
         };
         // `para` carries no payload: the bag is foreign, and drops unread.
         assert!(from_canonical_value(&line("para")).is_ok());
-        // `callout` is unknown, so the bag *is* its payload and is retained.
-        assert_eq!(
-            from_canonical_value(&line("callout")),
-            Err(ParseError::Invalid(Invariant::JsonTooDeep {
-                what: "line attrs",
-                max: crate::MAX_JSON_DEPTH,
-            }))
-        );
     }
 
     #[test]
     fn deep_json_payload_is_rejected_on_the_op_wire() {
         let deep = nested_arrays(1_000);
-        let op = serde_json::json!({"op":"add","start":0,"end":1,"type":"sparkle","attrs":deep});
+        // An island's `props` is the one payload the op wire retains.
+        let op = serde_json::json!({"op":"insert","at":0,
+          "id":"i1","type":"image","loss":"lossless","props":deep});
         assert!(matches!(
-            crate::ops::mark_op_from_value(&op),
-            Err(ParseError::Invalid(Invariant::JsonTooDeep { .. }))
-        ));
-        let op = serde_json::json!({"op":"setKind","line":0,"kind":"callout","attrs":deep});
-        assert!(matches!(
-            crate::ops::line_op_from_value(&op),
+            crate::ops::island_op_from_value(&op),
             Err(ParseError::Invalid(Invariant::JsonTooDeep { .. }))
         ));
     }
@@ -1418,37 +1390,95 @@ mod tests {
         ));
     }
 
+    /// Every axis is a closed set, and the two lanes agree: the name is
+    /// refused, not carried, and the error names the axis and the name.
     #[test]
-    fn reserved_unknown_tag_rejected() {
-        let mut rt = Content::empty();
-        rt.text = "abcd".into();
-        rt.marks = vec![Mark {
-            start: 0,
-            end: 4,
-            kind: MarkKind::Unknown {
-                tag: "strong".into(),
-                attrs: serde_json::json!({}),
-            },
-        }];
-        assert!(matches!(
-            rt.validate(),
-            Err(crate::model::Invariant::ReservedUnknownTag(_))
-        ));
+    fn an_unknown_name_is_refused_on_every_axis_and_both_lanes() {
+        let doc = |islands: &str, lines: &str, marks: &str, text: &str| {
+            format!(r#"{{"islands":[{islands}],"lines":[{lines}],"marks":[{marks}],"text":"{text}"}}"#)
+        };
+        let cases = [
+            (
+                "line kind",
+                "callout",
+                doc("", r#"{"containers":[],"kind":"callout"}"#, "", "hi"),
+            ),
+            (
+                "container",
+                "indent",
+                doc(
+                    "",
+                    r#"{"containers":[{"container":"indent","instance":0}],"kind":"para"}"#,
+                    "",
+                    "hi",
+                ),
+            ),
+            (
+                "mark type",
+                "highlight",
+                doc(
+                    "",
+                    r#"{"containers":[],"kind":"para"}"#,
+                    r#"{"end":2,"start":0,"type":"highlight"}"#,
+                    "hi",
+                ),
+            ),
+            (
+                "island type",
+                "widget",
+                doc(
+                    r#"{"id":"i1","loss":"lossless","props":{},"type":"widget"}"#,
+                    r#"{"containers":[],"kind":"island"}"#,
+                    "",
+                    "\u{fffc}",
+                ),
+            ),
+            (
+                "island loss",
+                "partial",
+                doc(
+                    r#"{"id":"i1","loss":"partial","props":{},"type":"table"}"#,
+                    r#"{"containers":[],"kind":"island"}"#,
+                    "",
+                    "\u{fffc}",
+                ),
+            ),
+        ];
+        for (axis, name, json) in cases {
+            let v: Value = serde_json::from_str(&json).unwrap();
+            for (lane, got) in [
+                ("storage", from_canonical_value(&v)),
+                ("authored", from_authored_value(&v)),
+            ] {
+                assert_eq!(
+                    got.unwrap_err(),
+                    ParseError::UnknownName {
+                        axis,
+                        name: name.to_string()
+                    },
+                    "{lane} lane accepted {axis} {name:?}"
+                );
+            }
+        }
     }
 
-    /// A class this build lacks is **carried**, not rewritten, so opening the
-    /// document does not move its content hash; reading it degrades to the safe
-    /// end.
+    /// A malformed discriminator is a shape error, not a vocabulary one: the
+    /// closed set answers for names, and a non-string is not a name.
     #[test]
-    fn unknown_loss_class_round_trips_and_reads_unrepresentable() {
-        let json = concat!(
-            r#"{"islands":[{"id":"i1","loss":"partial","props":{},"type":"widget"}],"#,
-            r#""lines":[{"containers":[],"kind":"island"}],"marks":[],"text":"￼"}"#
-        );
-        let rt = Content::from_canonical_json(json).unwrap();
-        assert_eq!(rt.islands[0].loss, Loss::new("partial"));
-        assert_eq!(rt.islands[0].loss.fidelity(), Fidelity::Unrepresentable);
-        assert_eq!(rt.to_canonical_json(), json);
+    fn a_malformed_discriminator_is_a_shape_error() {
+        for bad in [
+            r#"{"islands":[],"lines":[{"containers":[]}],"marks":[],"text":"x"}"#,
+            r#"{"islands":[],"lines":[{"containers":[{"container":7}],"kind":"para"}],"marks":[],"text":"x"}"#,
+            "{\"islands\":[{\"id\":\"i\",\"loss\":7,\"props\":{},\"type\":\"table\"}],\"lines\":[{\"containers\":[],\"kind\":\"island\"}],\"marks\":[],\"text\":\"\u{fffc}\"}",
+        ] {
+            assert!(
+                matches!(
+                    Content::from_canonical_json(bad),
+                    Err(ParseError::Shape(_))
+                ),
+                "not a shape error: {bad}"
+            );
+        }
     }
 
     /// So the closed view and the wire spellings cannot drift apart.
@@ -1458,80 +1488,6 @@ mod tests {
         for &f in Fidelity::ALL {
             assert_eq!(Loss::new(f.as_str()).fidelity(), f);
         }
-    }
-
-    /// So the document opens and the construct survives.
-    #[test]
-    fn unknown_line_kind_and_container_round_trip_opaque() {
-        let json = concat!(
-            r#"{"islands":[],"lines":[{"attrs":{"variant":"warn"},"containers":"#,
-            r#"[{"attrs":{"depth":2},"container":"indent"}],"kind":"callout"}],"#,
-            r#""marks":[],"text":"heads up"}"#
-        );
-        let rt = Content::from_canonical_json(json).unwrap();
-        assert_eq!(
-            rt.lines[0].kind,
-            LineKind::Unknown {
-                tag: "callout".into(),
-                attrs: serde_json::json!({"variant": "warn"}),
-            }
-        );
-        assert_eq!(
-            rt.lines[0].containers,
-            vec![Container::Unknown {
-                tag: "indent".into(),
-                attrs: serde_json::json!({"depth": 2}),
-                instance: 0,
-            }]
-        );
-        assert_eq!(rt.to_canonical_json(), json);
-        // An attrs-free unknown decodes too (`attrs` is null, not a shape error).
-        let bare = r#"{"islands":[],"lines":[{"containers":[],"kind":"footnote"}],"marks":[],"text":"x"}"#;
-        let rt = Content::from_canonical_json(bare).unwrap();
-        assert_eq!(
-            rt.lines[0].kind,
-            LineKind::Unknown {
-                tag: "footnote".into(),
-                attrs: Value::Null,
-            }
-        );
-        // A missing/non-string discriminator is still a shape error: the open
-        // set absorbs unknown *names*, not malformed objects.
-        for bad in [
-            r#"{"islands":[],"lines":[{"containers":[]}],"marks":[],"text":"x"}"#,
-            r#"{"islands":[],"lines":[{"containers":[{"container":7}],"kind":"para"}],"marks":[],"text":"x"}"#,
-        ] {
-            assert!(matches!(
-                Content::from_canonical_json(bad),
-                Err(ParseError::Shape(_))
-            ));
-        }
-    }
-
-    /// An unknown line kind / container may not reuse a built-in name: it would
-    /// serialize as the built-in and parse back as one, dropping its attrs.
-    #[test]
-    fn reserved_block_vocabulary_names_rejected() {
-        let mut rt = Content::empty();
-        rt.text = "abcd".into();
-        rt.lines[0].kind = LineKind::Unknown {
-            tag: "heading".into(),
-            attrs: serde_json::json!({}),
-        };
-        assert_eq!(
-            rt.validate(),
-            Err(Invariant::ReservedUnknownLineKind("heading".into()))
-        );
-        rt.lines[0].kind = LineKind::Para;
-        rt.lines[0].containers = vec![Container::Unknown {
-            tag: "quote".into(),
-            attrs: serde_json::json!({}),
-            instance: 0,
-        }];
-        assert_eq!(
-            rt.validate(),
-            Err(Invariant::ReservedUnknownContainer("quote".into()))
-        );
     }
 
     /// A host writing the `@0.93.0` spelling now holds a stale copy of the
@@ -1608,70 +1564,20 @@ mod tests {
         );
     }
 
-    /// An unknown's `attrs` is opaque host payload and may contain an object
-    /// spelled like a reserved mark; rejecting that would make the carrier
-    /// unable to carry.
+    /// An opaque carrier is not scanned: a foreign key inside a table island's
+    /// `props` may hold a link-shaped value with a url the projection could not
+    /// write, and the authored lane leaves it alone.
     #[test]
-    fn authored_lane_leaves_opaque_attrs_payload_alone() {
+    fn authored_lane_leaves_opaque_props_payload_alone() {
         let json = concat!(
-            r#"{"islands":[],"lines":[{"attrs":{"nested":{"attrs":{},"type":"link"}},"#,
-            r#""containers":[],"kind":"callout"}],"marks":[],"text":"x"}"#
+            r#"{"islands":[{"id":"i1","loss":"lossless","props":{"aligns":["none"],"#,
+            r#""header":[{"marks":[],"text":"h"}],"note":{"type":"link","url":"a\nb"},"#,
+            r#""rows":[[{"marks":[],"text":"c"}]]},"type":"table"}],"#,
+            r#""lines":[{"containers":[],"kind":"island"}],"marks":[],"text":"￼"}"#
         );
         let v: Value = serde_json::from_str(json).unwrap();
         let rt = from_authored_value(&v).unwrap();
         assert_eq!(rt.to_canonical_json(), json);
-    }
-
-    /// Opaque block attrs are hash input, so their key order must not leak into
-    /// the canonical bytes.
-    #[test]
-    fn unknown_block_attrs_key_order_does_not_leak() {
-        let mut one = Content::empty();
-        one.text = "hi".into();
-        one.lines[0].kind = LineKind::Unknown {
-            tag: "callout".into(),
-            attrs: serde_json::json!({"b": 1, "a": 2}),
-        };
-        one.lines[0].containers = vec![Container::Unknown {
-            tag: "indent".into(),
-            attrs: serde_json::json!({"y": 1, "x": 2}),
-            instance: 0,
-        }];
-        let mut two = one.clone();
-        two.lines[0].kind = LineKind::Unknown {
-            tag: "callout".into(),
-            attrs: serde_json::json!({"a": 2, "b": 1}),
-        };
-        two.lines[0].containers = vec![Container::Unknown {
-            tag: "indent".into(),
-            attrs: serde_json::json!({"x": 2, "y": 1}),
-            instance: 0,
-        }];
-        assert_eq!(
-            one.clone().into_normalized().to_canonical_json(),
-            two.clone().into_normalized().to_canonical_json()
-        );
-        one.normalize();
-        two.normalize();
-        assert_eq!(one, two, "normalize canonicalizes the live model too");
-    }
-
-    #[test]
-    fn unknown_mark_round_trips_opaque() {
-        let mut rt = Content::empty();
-        rt.text = "abcd".into();
-        rt.marks = vec![Mark {
-            start: 0,
-            end: 4,
-            kind: MarkKind::Unknown {
-                tag: "highlight".into(),
-                attrs: serde_json::json!({"color": "yellow"}),
-            },
-        }];
-        let rt = rt.into_normalized();
-        let json = rt.to_canonical_json();
-        let back = Content::from_canonical_json(&json).unwrap();
-        assert_eq!(back.marks[0].kind, rt.marks[0].kind);
     }
 
     /// A `lang` is written into a fence header unquoted, so every lane that
@@ -1895,15 +1801,6 @@ mod tests {
             line_kind_from_value(&both).unwrap(),
             LineKind::Heading { level: 2 }
         );
-        // An unknown's bag is opaque payload, never a source of named fields.
-        let unknown = serde_json::json!({"kind": "callout", "attrs": {"kind": "heading", "level": 2}});
-        assert_eq!(
-            line_kind_from_value(&unknown).unwrap(),
-            LineKind::Unknown {
-                tag: "callout".into(),
-                attrs: serde_json::json!({"kind": "heading", "level": 2}),
-            }
-        );
         // Re-encode is the current spelling, so opening a legacy row and writing
         // it back moves its canonical bytes: read-repair, once per row.
         let legacy = r#"{"islands":[],"lines":[{"containers":[],"kind":"heading","level":2}],"marks":[],"text":"hi"}"#;
@@ -1938,79 +1835,6 @@ mod tests {
                 ordinal: 1,
                 instance: 0,
             }
-        );
-    }
-
-    /// An empty bag has one spelling on the wire (absent) and one in memory
-    /// (`Null`), on all three carrier axes. Without the second, the *value*
-    /// fixed point wobbles: `{}` would encode to bytes that decode to `Null`,
-    /// so a content would not equal its own round trip.
-    #[test]
-    fn an_empty_bag_has_one_spelling_on_each_side() {
-        let build = |attrs: Value| {
-            let mut rt = Content::empty();
-            rt.text = "ab".into();
-            rt.lines = vec![Line {
-                kind: LineKind::Unknown {
-                    tag: "callout".into(),
-                    attrs: attrs.clone(),
-                },
-                containers: vec![Container::Unknown {
-                    tag: "indent".into(),
-                    attrs: attrs.clone(),
-                    instance: 0,
-                }],
-                continues: false,
-            }];
-            rt.marks = vec![Mark {
-                start: 0,
-                end: 2,
-                kind: MarkKind::Unknown {
-                    tag: "kbd".into(),
-                    attrs,
-                },
-            }];
-            rt.into_normalized()
-        };
-
-        let null = build(Value::Null);
-        let empty = build(serde_json::json!({}));
-        // One in-memory spelling: `normalize` collapses the two.
-        assert_eq!(null, empty);
-        // One wire spelling: absent, on every axis.
-        let json = null.to_canonical_json();
-        assert!(!json.contains("attrs"), "{json}");
-        assert_eq!(empty.to_canonical_json(), json);
-        // …so both fixed points hold, the value one included.
-        let back = Content::from_canonical_json(&json).unwrap();
-        assert_eq!(back, null);
-        assert_eq!(back.to_canonical_json(), json);
-    }
-
-    /// Promotion stops being an encoding change: the bytes written while a name
-    /// was outside the vocabulary are the bytes the build that knows it reads,
-    /// so no lane's answer flips on the release that promotes the name.
-    #[test]
-    fn promotion_does_not_move_the_encoding() {
-        let doc = |kind: &str| {
-            serde_json::json!({
-                "islands": [],
-                "lines": [{"attrs": {"level": 2}, "containers": [], "kind": kind}],
-                "marks": [],
-                "text": "hi",
-            })
-        };
-        // Outside `RESERVED_LINE_KINDS` today, and what `"callout"` becomes the
-        // release it is promoted: one spelling, accepted by both lanes either
-        // side of that release.
-        for kind in ["callout", "heading"] {
-            assert!(from_authored_value(&doc(kind)).is_ok(), "{kind}");
-            assert!(from_canonical_value(&doc(kind)).is_ok(), "{kind}");
-        }
-        // And the payload survives the promotion rather than dropping unread.
-        assert_eq!(
-            line_kind_from_value(&doc("heading")["lines"][0]).unwrap(),
-            LineKind::Heading { level: 2 }
         );
     }
 
@@ -2055,40 +1879,6 @@ mod tests {
             };
             assert_eq!(k.sort_key(), unknowing.sort_key(), "{k:?}");
         }
-    }
-
-    /// Formatting-class membership is stored meaning: two adjacent unknowns are
-    /// two marks, two adjacent formatting marks are one. Promoting a tag into
-    /// the class therefore rewrites documents nobody edited.
-    #[test]
-    fn formatting_class_membership_decides_adjacent_union() {
-        let mut rt = Content::empty();
-        rt.text = "abcd".into();
-        let unknown = |start, end| Mark {
-            start,
-            end,
-            kind: MarkKind::Unknown {
-                tag: "kbd".into(),
-                attrs: serde_json::json!({}),
-            },
-        };
-        rt.marks = vec![unknown(0, 2), unknown(2, 4)];
-        rt.normalize();
-        assert_eq!(rt.marks.len(), 2);
-        rt.marks = vec![
-            Mark {
-                start: 0,
-                end: 2,
-                kind: MarkKind::Strong,
-            },
-            Mark {
-                start: 2,
-                end: 4,
-                kind: MarkKind::Strong,
-            },
-        ];
-        rt.normalize();
-        assert_eq!(rt.marks.len(), 1);
     }
 
 }

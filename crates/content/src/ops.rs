@@ -1116,32 +1116,6 @@ mod tests {
                 },
             ),
             (
-                serde_json::json!({
-                    "op": "setKind", "line": 0, "kind": "callout", "attrs": {"variant": "warn"},
-                }),
-                LineOp::SetKind {
-                    line: 0,
-                    kind: LineKind::Unknown {
-                        tag: "callout".into(),
-                        attrs: serde_json::json!({"variant": "warn"}),
-                    },
-                },
-            ),
-            (
-                serde_json::json!({
-                    "op": "setContainers", "line": 2,
-                    "containers": [{"container": "indent", "attrs": {"depth": 2}}],
-                }),
-                LineOp::SetContainers {
-                    line: 2,
-                    containers: vec![Container::Unknown {
-                        tag: "indent".into(),
-                        attrs: serde_json::json!({"depth": 2}),
-                        instance: 0,
-                    }],
-                },
-            ),
-            (
                 serde_json::json!({"op": "setContinues", "line": 1, "continues": true}),
                 LineOp::SetContinues {
                     line: 1,
@@ -1179,14 +1153,64 @@ mod tests {
         });
         assert!(matches!(mark_op_from_value(&bad), Err(ParseError::Shape(_))));
 
-        // One spelling per name: a built-in's payload rides the bag exactly as
-        // an unknown's does, and a foreign bag on a built-in drops unread.
+        // One spelling per name: a built-in's payload rides the bag, and a
+        // foreign bag on a built-in drops unread.
         for ok in [
-            serde_json::json!({"op": "setKind", "line": 0, "kind": "callout", "attrs": {"tone": "warn"}}),
             serde_json::json!({"op": "setKind", "line": 0, "kind": "heading", "attrs": {"level": 2}}),
             serde_json::json!({"op": "setKind", "line": 0, "kind": "para", "attrs": {"tone": "warn"}}),
         ] {
             assert!(line_op_from_value(&ok).is_ok(), "rejected: {ok}");
+        }
+    }
+
+    /// The op wire funnels through the same decoders as storage, so every axis
+    /// refuses an unknown name there too.
+    #[test]
+    fn op_wire_refuses_an_unknown_name() {
+        let cases: [(Value, &str, &str); 5] = [
+            (
+                serde_json::json!({"op": "setKind", "line": 0, "kind": "callout"}),
+                "line kind",
+                "callout",
+            ),
+            (
+                serde_json::json!({"op": "setContainers", "line": 0,
+                  "containers": [{"container": "indent", "instance": 0}]}),
+                "container",
+                "indent",
+            ),
+            (
+                serde_json::json!({"op": "add", "start": 0, "end": 1, "type": "highlight"}),
+                "mark type",
+                "highlight",
+            ),
+            (
+                serde_json::json!({"op": "insert", "at": 0, "id": "i1",
+                  "type": "widget", "loss": "lossless", "props": {}}),
+                "island type",
+                "widget",
+            ),
+            (
+                serde_json::json!({"op": "insert", "at": 0, "id": "i1",
+                  "type": "table", "loss": "partial", "props": {}}),
+                "island loss",
+                "partial",
+            ),
+        ];
+        for (op, axis, name) in cases {
+            let decode = match axis {
+                "line kind" | "container" => line_op_from_value(&op),
+                "mark type" => mark_op_from_value(&op).map(|_| unreachable!()),
+                _ => island_op_from_value(&op).map(|_| unreachable!()),
+            };
+            assert_eq!(
+                decode.unwrap_err(),
+                ParseError::UnknownName {
+                    axis,
+                    name: name.to_string()
+                },
+                "op wire accepted {axis} {name:?}"
+            );
         }
     }
 
