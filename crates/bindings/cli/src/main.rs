@@ -28,7 +28,7 @@ enum Commands {
     /// Validate a quill's configuration (including defaults)
     Validate(commands::validate::ValidateArgs),
 
-    /// Display metadata and information about a quill
+    /// Display a quill's identity and schema counts
     Info(commands::info::InfoArgs),
 }
 

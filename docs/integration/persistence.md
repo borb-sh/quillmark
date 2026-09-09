@@ -6,11 +6,10 @@ A `Document`'s in-memory layout tracks the evolving Quillmark model and is not a
 |---|---|---|
 | Markdown (`to_markdown`) | yes | no: syntax evolves |
 | Storage JSON (`to_stored`) | yes, lossless | yes: frozen per schema version |
-| Values JSON (`reader.values()`) | the *document* does; the values canonicalize once | **no**: a consumer projection, lossy by design |
 
-`quill.reader(doc).values()` is the shape a consumer reads and edits — content
-as its codec's text, sparse, carrying neither anchors nor `$quill`. It is an
-API payload, never a stored row: persist with `to_stored`.
+What `quill.reader(doc)` hands a consumer to edit is the values form — content
+as its codec's text, sparse, carrying neither anchors nor `$quill`. It is a
+projection, never a stored row: persist with `to_stored`.
 
 ## Round-trip
 
@@ -26,7 +25,7 @@ API payload, never a stored row: persist with `to_stored`.
 
     ```javascript
     const blob = doc.toStored();
-    const doc2 = Document.fromStored(blob);   // or tryFromStored → null on bad input
+    const doc2 = Document.fromStored(blob);   // storageVersionOf(blob) first to test without throwing
     ```
 
 Every blob carries a `schema` tag (`quillmark/document@<version>`). Readers dispatch on it, accept every still-supported past version by migrating forward on read, and **reject an unknown version** rather than guessing. The current tag is `quillmark/document@0.112.0`.

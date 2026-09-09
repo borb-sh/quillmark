@@ -14,9 +14,9 @@ engine's job.
 ## The `Quill` type
 
 One type models a loaded quill: **`Quill`** (in `quillmark-core`), declarative
-data. It is the authored input (file bundle, parsed config, metadata) tagged
+data. It is the authored input (file bundle, parsed config) tagged
 with its *declared* backend id, and it carries the pure config-read
-operations (`validate`, `schema`, `metadata`, `blueprint`, `seed_*`,
+operations (`validate`, `schema`, `blueprint`, `seed_*`,
 `compile_data`, `dry_run`). It holds **no backend** and needs **no engine** to
 construct or use; rendering is the engine's job (see
 [ARCHITECTURE.md](ARCHITECTURE.md)). A `Quill` is `Send + Sync` and portable
@@ -40,13 +40,11 @@ pub enum FileTreeNode {
 }
 
 pub struct Quill {
-    pub(crate) metadata: HashMap<String, QuillValue>,
     pub(crate) config: QuillConfig,
     pub(crate) files: FileTreeNode,
+    pub(crate) warnings: Vec<Diagnostic>,
 }
 ```
-
-`metadata` is populated from `Quill.yaml` fields plus computed entries: `backend`, `description`, `version`, `author`, and any `<backend>_*` keys (e.g. `typst_*`) from the top-level section named after `quill.backend`.
 
 ## In-memory Tree Contract (`Quill::from_tree`)
 
@@ -84,17 +82,13 @@ is what the engine enforces.
 
 Field names must be `snake_case` (match `[a-z][a-z0-9_]*`). Capitalized or `$`-prefixed keys are rejected at config parse time with `quill::invalid_field_name`: document-level metadata sits on dedicated `$`-prefixed keys in the plate JSON (`$quill`, `$body`, `$cards`, `$kind`), and user fields stay lowercase so they cannot shadow it. Standalone `object` fields require a `properties` map. Every `array` field requires an `items:` element schema: use `items: { type: string }` (or `integer`, `richtext`, …) for a list of scalars, and `items: { type: object, properties: … }` for a list of objects.
 
-Metadata resolution:
+Identity resolution:
 - `name`, `description`, `backend`, `version`, `author` are direct struct fields on `QuillConfig`. `description` (required, non-empty in the `quill:` section) describes the quill itself; it is independent of `QuillConfig.main.description`, which is the optional schema description authored under `main:` like any other card kind.
-- `metadata` on `Quill` stores `backend`, `description`, `version`, `author`, and
-  `typst_*` keys from the `typst:` section (so a declared `typst.plate_file`
-  surfaces as `typst_plate_file`). This identity `metadata` is pure config: the
-  backend's `supportedFormats` is a resolved-backend capability read from the
-  engine, not part of it. The `quill:` section accepts only `name`, `backend`,
-  `description`, `version`, `author`, and `ui`; unknown keys produce a
-  `quill::unknown_key` error rather than landing in `metadata`. A backend's own
-  settings (e.g. the Typst plate) live under the backend-named section, never in
-  `quill:`.
+- The `quill:` section accepts only `name`, `backend`, `description`, `version`,
+  `author`, and `ui`; an unknown key is a `quill::unknown_key` error. A
+  backend's own settings (e.g. the Typst plate) live under the backend-named
+  section, never in `quill:`, and reach a backend as
+  `QuillConfig::backend_config`.
 - `quill.ui` (a `UiCardSchema`, same shape as `card_kinds.<name>.ui`) is a fallback for `main.ui`: the `main` card uses `main.ui` when present, otherwise `quill.ui`.
 
 ## Strict Parsing

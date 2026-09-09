@@ -87,10 +87,9 @@ pub fn convert_edit_errors(
     )
 }
 
-/// The [`convert_edit_errors`] twin for a batch spanning cards, where each
-/// refusal carries the whole `DocPath` it anchors at rather than a field name
-/// under one base.
-pub fn convert_edit_errors_at(errors: Vec<(quillmark_core::DocPath, EditError)>) -> PyErr {
+/// The [`convert_edit_errors`] arm for refusals that carry the whole `DocPath`
+/// they anchor at rather than a field name under one base.
+fn convert_edit_errors_at(errors: Vec<(quillmark_core::DocPath, EditError)>) -> PyErr {
     let diags: Vec<Diagnostic> = errors
         .into_iter()
         .map(|(path, err)| {

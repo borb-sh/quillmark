@@ -13,7 +13,6 @@
 //! w.set("qty", "3")?;                    // integer → strict coerce, stores 3
 //! w.card(2)?.set("desc", content_json)?;  // card kind → CardSchema → field type
 //! w.set_all([("a", "1"), ("b", "2")])?;  // batched, all-or-nothing, a merge
-//! w.set_values(&values)?;                // the whole document, replace per axis
 //! ```
 //!
 //! The writer holds `&mut Document` and `&QuillConfig`, so a bound `TypedWriter`
@@ -29,9 +28,9 @@ use indexmap::IndexMap;
 
 use crate::document::edit::resolve_field_write;
 use crate::document::{Card, Document, EditError};
-use crate::quill::{CardSchema, CardValues, DocumentValues, FieldSchema, QuillConfig};
+use crate::quill::{FieldSchema, QuillConfig};
 use crate::value::QuillValue;
-use crate::{Delta, DocPath};
+use crate::Delta;
 
 /// A [`Document`] bound to its [`QuillConfig`] for typed writes. Construct with
 /// [`Quill::writer`](crate::Quill::writer). Writes target the main card; use
@@ -136,71 +135,8 @@ impl<'a> TypedWriter<'a> {
         self.doc.remove_card(index)
     }
 
-    /// Write the document in the values form: the write twin of
-    /// [`TypedReader::values`](crate::TypedReader::values), and the typed lane
-    /// widened from one field ([`set`](Self::set)) to the document.
-    ///
-    /// **An absent axis is untouched; a present one is replaced.** Per axis:
-    ///
-    /// - `fields`: the whole truth for declared names. A named one is written
-    ///   (skipped when it equals its projection), an unnamed one removed. An
-    ///   undeclared name the card already holds at that value is accepted,
-    ///   since the read emits it; changed or new it is
-    ///   [`EditError::UnknownField`], and unnamed it is left alone.
-    /// - `body`: replaced from markdown, skipped when equal.
-    /// - `cards`: *is* the card list. Position `i` whose kind matches (or
-    ///   whose `kind` is absent) is patched in place by the same rules; a
-    ///   differing kind rebuilds the slot; past the end appends; document
-    ///   cards past the list are removed.
-    /// - `ext`: `None` removes `$ext`, an empty map records an explicit
-    ///   `$ext: {}`, a map replaces; each skipped when equal.
-    ///
-    /// All-or-nothing: every cell resolves before any is written.
-    ///
-    /// A changed content cell is a **cold import**, as on [`set`](Self::set):
-    /// anchors on it do not survive, and [`revise_field`](Self::revise_field)
-    /// per cell is what keeps them. Cards match by position and kind, so
-    /// deleting, inserting or reordering an entry rewrites every card after it;
-    /// the structural verbs ([`add_card`](Self::add_card),
-    /// [`remove_card`](Self::remove_card), `Document::move_card`) do not.
-    pub fn set_values(
-        &mut self,
-        values: &DocumentValues,
-    ) -> Result<(), Vec<(DocPath, EditError)>> {
-        let mut errors = Vec::new();
-        let main_plan = plan_card(
-            self.doc.main(),
-            Some(&self.config.main),
-            &DocPath::main(),
-            values.fields.as_ref(),
-            values.body.as_deref(),
-            values.ext.as_ref(),
-            &mut errors,
-        );
-        let mut slots: Vec<(usize, Slot)> = Vec::new();
-        for (index, incoming) in values.cards.iter().flatten().enumerate() {
-            if let Some(slot) = plan_slot(self.config, self.doc, index, incoming, &mut errors) {
-                slots.push((index, slot));
-            }
-        }
-        if !errors.is_empty() {
-            return Err(errors);
-        }
-
-        main_plan.apply(self.doc.main_mut());
-        for (index, slot) in slots {
-            apply_slot(self.doc, index, slot);
-        }
-        if let Some(cards) = &values.cards {
-            while self.doc.cards().len() > cards.len() {
-                self.doc.remove_card(self.doc.cards().len() - 1);
-            }
-        }
-        Ok(())
-    }
-
     /// A schema-bound writer for the composable card at `index`. The card's
-    /// `$kind` resolves its [`CardSchema`]; an unknown kind carries no schema, so
+    /// `$kind` resolves its [`CardSchema`](crate::CardSchema); an unknown kind carries no schema, so
     /// every typed write on it fails with [`EditError::UnknownField`] (write
     /// such a card opaquely through
     /// [`Card::store_field`](crate::Card::store_field)).
@@ -218,8 +154,8 @@ impl<'a> TypedWriter<'a> {
     }
 }
 
-/// A single composable card bound to its [`CardSchema`], from
-/// [`TypedWriter::card`]. Same `set` / `set_all` / `set_values` verbs as
+/// A single composable card bound to its [`CardSchema`](crate::CardSchema), from
+/// [`TypedWriter::card`]. Same `set` / `set_all` verbs as
 /// [`TypedWriter`], targeting the card at its bound index.
 pub struct CardWriter<'a> {
     config: &'a QuillConfig,
@@ -253,7 +189,7 @@ impl<'a> CardWriter<'a> {
     }
 
     /// Write a field on this card, strict-committed against the card's
-    /// [`CardSchema`]. An undeclared field (or any field when the card kind is
+    /// [`CardSchema`](crate::CardSchema). An undeclared field (or any field when the card kind is
     /// unknown) fails with [`EditError::UnknownField`] rather than storing
     /// opaquely.
     pub fn set(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
@@ -268,7 +204,7 @@ impl<'a> CardWriter<'a> {
     }
 
     /// The card twin of [`TypedWriter::revise_field`], resolved against the
-    /// card's [`CardSchema`].
+    /// card's [`CardSchema`](crate::CardSchema).
     pub fn revise_field(&mut self, name: &str, text: &str) -> Result<Delta, EditError> {
         let schema = self.fields_schema();
         revise_impl(self.card_mut(), schema, name, text)
@@ -285,22 +221,6 @@ impl<'a> CardWriter<'a> {
     {
         let schema = self.fields_schema();
         set_all_impl(self.card_mut(), schema, fields)
-    }
-
-    /// Write this card in the values form: [`TypedWriter::set_values`]
-    /// restricted to one slot, under the same per-axis rule. An absent `kind`
-    /// keeps the card's; a differing one rebuilds the slot. Refusals anchor at
-    /// `cards.<kind>[<index>]`.
-    pub fn set_values(&mut self, values: &CardValues) -> Result<(), Vec<(DocPath, EditError)>> {
-        let mut errors = Vec::new();
-        let slot = plan_slot(self.config, self.doc, self.index, values, &mut errors);
-        if !errors.is_empty() {
-            return Err(errors);
-        }
-        if let Some(slot) = slot {
-            apply_slot(self.doc, self.index, slot);
-        }
-        Ok(())
     }
 }
 
@@ -331,227 +251,6 @@ fn revise_impl(
         Some(schema) => card.revise_field_checked(name, text, schema),
         None => Err(EditError::unknown_field(name)),
     }
-}
-
-/// What one card position of a values write resolves to: a patch of the card
-/// there, or a card built whole for the slot.
-enum Slot {
-    Plan(CardPlan),
-    Build(Card),
-}
-
-/// One card's resolved writes, held until every cell in the batch has
-/// resolved. Applying cannot fail: each entry was produced by the same verb the
-/// single-cell writes use.
-#[derive(Default)]
-struct CardPlan {
-    fields: Vec<(String, QuillValue)>,
-    removals: Vec<String>,
-    body: Option<quillmark_content::Normalized>,
-    ext: Option<Option<serde_json::Map<String, serde_json::Value>>>,
-}
-
-impl CardPlan {
-    fn apply(self, card: &mut Card) {
-        for name in self.removals {
-            card.payload_mut().remove(&name);
-        }
-        for (name, stored) in self.fields {
-            card.payload_mut().insert_unchecked(name, stored);
-        }
-        if let Some(content) = self.body {
-            card.overwrite_body(content);
-        }
-        match self.ext {
-            None => {}
-            Some(None) => {
-                card.payload_mut().take_ext();
-            }
-            Some(Some(map)) => card.payload_mut().set_ext(map),
-        }
-    }
-}
-
-/// Resolve the values for card position `index`. The kind is the entry's, or
-/// the card's there when the entry carries none; a position holding no card
-/// and naming no kind is a kindless build, refused at `cards[<index>]`.
-fn plan_slot(
-    config: &QuillConfig,
-    doc: &Document,
-    index: usize,
-    incoming: &CardValues,
-    errors: &mut Vec<(DocPath, EditError)>,
-) -> Option<Slot> {
-    let current = doc.card(index);
-    let kind = match &incoming.kind {
-        None => current.and_then(|c| c.kind()),
-        Some(kind) => kind.as_deref(),
-    };
-    let base = DocPath::card(kind, index);
-    let schema = kind.and_then(|k| config.card_kind(k));
-    match current {
-        Some(card) if card.kind() == kind => Some(Slot::Plan(plan_card(
-            card,
-            schema,
-            &base,
-            incoming.fields.as_ref(),
-            incoming.body.as_deref(),
-            incoming.ext.as_ref(),
-            errors,
-        ))),
-        _ => build_card(kind, incoming, schema, &base, errors).map(Slot::Build),
-    }
-}
-
-fn apply_slot(doc: &mut Document, index: usize, slot: Slot) {
-    match slot {
-        Slot::Plan(plan) => plan.apply(
-            doc.card_mut(index)
-                .expect("planned against a card at this index"),
-        ),
-        Slot::Build(card) => match doc.cards_mut().get_mut(index) {
-            Some(existing) => *existing = card,
-            // Every index past the end arrives in order, so the append lands
-            // where the plan addressed it.
-            None => doc
-                .push_card(card)
-                .expect("kind validated by Card::new in the plan"),
-        },
-    }
-}
-
-/// Resolve one card's incoming axes against `schema`, appending every refusal
-/// to `errors` under its own [`DocPath`]. An absent axis plans nothing. A
-/// `None` schema is a kind carrying no declaration: every name on it is
-/// undeclared, as it is for [`CardWriter::set`].
-fn plan_card(
-    card: &Card,
-    schema: Option<&CardSchema>,
-    base: &DocPath,
-    fields: Option<&IndexMap<String, serde_json::Value>>,
-    body: Option<&str>,
-    ext: Option<&Option<serde_json::Map<String, serde_json::Value>>>,
-    errors: &mut Vec<(DocPath, EditError)>,
-) -> CardPlan {
-    let mut plan = CardPlan::default();
-    if let Some(fields) = fields {
-        let declared = schema.map(|s| &s.fields);
-        // The read emits an undeclared field verbatim, so one coming back at
-        // the value the card holds is an untouched cell, not the typo the typed
-        // lane refuses. The guard answers before the vocabulary does.
-        for (name, incoming) in fields {
-            if declared.is_some_and(|m| m.contains_key(name)) {
-                continue;
-            }
-            if card.payload().get(name).map(|v| v.as_json()) == Some(incoming) {
-                continue;
-            }
-            errors.push((base.field(name), EditError::unknown_field(name)));
-        }
-        if let Some(declared) = declared {
-            for (name, field_schema) in declared {
-                let current = card.payload().get(name);
-                let Some(incoming) = fields.get(name) else {
-                    if current.is_some() {
-                        plan.removals.push(name.clone());
-                    }
-                    continue;
-                };
-                if current.is_some_and(|cur| {
-                    *incoming == crate::quill::project_field(name, cur, field_schema)
-                }) {
-                    continue;
-                }
-                match resolve_field_write(
-                    name,
-                    QuillValue::from_json(incoming.clone()),
-                    field_schema,
-                ) {
-                    Err(e) => errors.push((
-                        e.doc_path(base).unwrap_or_else(|| base.field(name)),
-                        e,
-                    )),
-                    Ok(stored) if current.is_some_and(|cur| cur.as_json() == stored.as_json()) => {}
-                    Ok(stored) => plan.fields.push((name.clone(), stored)),
-                }
-            }
-        }
-    }
-    if let Some(body) = body {
-        if body != card.body_markdown() {
-            match crate::document::import_body(body) {
-                Ok(content) => plan.body = Some(content),
-                Err(e) => errors.push((base.body(), EditError::Import(e))),
-            }
-        }
-    }
-    match ext {
-        None => {}
-        Some(None) => {
-            if card.ext().is_some() {
-                plan.ext = Some(None);
-            }
-        }
-        Some(Some(map)) => {
-            if card.ext() != Some(map) {
-                match crate::value::depth_check_meta_map(map.clone(), |max| {
-                    EditError::ValueTooDeep { max }
-                }) {
-                    Ok(checked) => plan.ext = Some(Some(checked)),
-                    Err(e) => errors.push((base.clone(), e)),
-                }
-            }
-        }
-    }
-    plan
-}
-
-/// Build a whole card from incoming values, for a position whose kind does not
-/// match the document's. An absent axis is empty, there being nothing to leave
-/// untouched. Committed in full before it is placed, so a refusal leaves the
-/// document untouched.
-fn build_card(
-    kind: Option<&str>,
-    incoming: &CardValues,
-    schema: Option<&CardSchema>,
-    base: &DocPath,
-    errors: &mut Vec<(DocPath, EditError)>,
-) -> Option<Card> {
-    let mut card = match Card::new(kind.unwrap_or_default()) {
-        Ok(card) => card,
-        Err(e) => {
-            errors.push((base.clone(), e));
-            return None;
-        }
-    };
-    if let Some(fields) = &incoming.fields {
-        let entries: Vec<(String, QuillValue)> = fields
-            .iter()
-            .map(|(k, v)| (k.clone(), QuillValue::from_json(v.clone())))
-            .collect();
-        if let Err(bundle) = set_all_impl(&mut card, schema.map(|s| &s.fields), entries) {
-            errors.extend(bundle.into_iter().map(|(name, e)| {
-                (e.doc_path(base).unwrap_or_else(|| base.field(&name)), e)
-            }));
-            return None;
-        }
-    }
-    if let Some(body) = incoming.body.as_deref().filter(|b| !b.is_empty()) {
-        match crate::document::import_body(body) {
-            Ok(content) => card.overwrite_body(content),
-            Err(e) => {
-                errors.push((base.body(), EditError::Import(e)));
-                return None;
-            }
-        }
-    }
-    if let Some(Some(map)) = &incoming.ext {
-        if let Err(e) = card.store_ext(map.clone()) {
-            errors.push((base.clone(), e));
-            return None;
-        }
-    }
-    Some(card)
 }
 
 /// All-or-nothing batched write shared by [`TypedWriter::set_all`] and
@@ -592,9 +291,6 @@ where
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod values_tests;
 
 #[cfg(test)]
 mod tests {
