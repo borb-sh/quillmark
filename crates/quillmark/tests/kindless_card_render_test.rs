@@ -67,11 +67,6 @@ fn taro_rejects_a_kindless_card() {
 }
 
 #[test]
-fn classic_resume_rejects_a_kindless_card() {
-    kindless_card_stops_at_the_gate("classic_resume");
-}
-
-#[test]
 fn usaf_memo_rejects_a_kindless_card() {
     kindless_card_stops_at_the_gate("usaf_memo");
 }

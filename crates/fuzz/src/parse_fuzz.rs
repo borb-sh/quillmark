@@ -1,3 +1,6 @@
+//! `Document::parse` over a card-yaml payload of generated width: every
+//! `fieldN: valueN` line reaches the parsed payload.
+
 use proptest::prelude::*;
 use quillmark_core::Document;
 

@@ -13,9 +13,7 @@ let usaf_memo = quillmark_fixtures::quills_path("usaf_memo");
 
 ## Resources
 
-- **Quill templates** under `resources/quills/<name>/<version>/`, each with a `Quill.yaml` and either a Typst `plate.typ` or a PDF-form template. `quills_path` resolves the latest version.
-  - Typst backend: `usaf_memo`, `taro`, `classic_resume`, `cmu_letter`, `table_demo`
-  - `pdfform` backend: `sample_form`, `richtext_form`
+- **Quill templates** under `resources/quills/<name>/<version>/`, each with a `Quill.yaml` naming its backend and either a Typst `plate.typ` or a PDF-form template. `quills_path` resolves the latest version, and `fixture_quills_render_test.rs` walks the directory, so a quill added here is rendered without being named anywhere.
 
 - **Sample markdown** under `resources/`
   - `sample.md` - markdown constructs only, no card-yaml block

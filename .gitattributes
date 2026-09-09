@@ -15,4 +15,3 @@ CHANGELOG.md merge=union
 *.otf binary
 *.png binary
 *.pdf binary
-crates/fixtures/resources/quills/cmu_letter/0.1.0/packages/tonguetoquill-cmu-letter/fonts/OFL.txt -text

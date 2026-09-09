@@ -48,12 +48,7 @@ Use `default` for the value most authors will accept as-is (filled in when the f
 Four types hold text, and two questions pick one:
 
 1. **Does the author write prose here, or does the plate compute with the value?** A name, URL, path, or reference key is data. A bio, an abstract, or a cover letter is content.
-2. Then, for data: **is the set of allowed values closed?** For content: **should `*text*` render as emphasis, or stay literal?**
-
-| | data — the plate computes with it | content — the author writes prose |
-|---|---|---|
-| **open / literal** | `string` | `plaintext`: `*text*` stays literal |
-| **closed / formatted** | `enum`: a `values:` domain | `richtext`: `*text*` becomes emphasis |
+2. Then, for data: **is the set of allowed values closed?** (`enum` over `string`.) For content: **should `*text*` render as emphasis, or stay literal?** (`richtext` over `plaintext`.)
 
 The letter above needs no content field: its prose is the document body, which is already rich text. `plaintext` and `richtext` are for prose in a *named* field — an abstract, a summary. Such a field carries navigation, regions, and click-to-edit in editor consumers; `string` and `enum` carry none of that.
 
