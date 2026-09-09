@@ -209,32 +209,12 @@ card_kinds:
     expect(fieldOf(ed.document.main, 'stray')).toBeUndefined()
   })
 
-  it('setValues writes the document, an unedited read is a no-op, and undefined is absent', () => {
-    const quill = buildQuill()
-    const ed = quill.writer(blankDoc())
-    ed.setValues({ fields: { subject: 'Q3 **results**', qty: '5' }, ext: { app: { k: 1 } } })
-    expect(fieldOf(ed.document.main, 'qty')).toBe(5)
-
-    const before = ed.document.toStored()
-    ed.setValues(quill.reader(ed.document).values())
-    expect(ed.document.toStored()).toBe(before)
-
-    // `undefined` is absent (untouched) where the wasm boundary alone would
-    // fold it to `null` (a removal); an unnamed declared field is removed.
-    ed.setValues({ fields: { subject: 'Q4', qty: undefined }, ext: undefined, cards: undefined })
-    const v = quill.reader(ed.document).values()
-    expect(v.fields).toEqual({ subject: 'Q4' })
-    expect(v.ext).toEqual({ app: { k: 1 } })
-    ed.setValues({ ext: null })
-    expect(quill.reader(ed.document).values().ext).toBeNull()
-  })
-
-  it('reader.resolve is the render view beside reader.values', () => {
+  it('reader.resolve is the render view beside the authored read', () => {
     const quill = buildQuill()
     const doc = blankDoc()
-    quill.writer(doc).setValues({ fields: { subject: 'Hi' } })
+    quill.writer(doc).set('subject', 'Hi')
     const reader = quill.reader(doc)
-    expect(reader.values().fields).toEqual({ subject: 'Hi' })
+    expect(reader.get('subject')).toBe('Hi')
     const resolved = reader.resolve()
     expect(resolved.main.fields.find((f) => f.name === 'subject')).toMatchObject({
       source: 'authored',

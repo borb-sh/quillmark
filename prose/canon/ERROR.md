@@ -313,9 +313,7 @@ The boundary **mints** as well as parses: `doc.pathFor(addr)` / `doc.cardPath(i)
 `DocPath` is the anchor on **every** address that crosses to a consumer, not
 only `Diagnostic.path`. Mutator (`edit::*`) diagnostics carry it (a field error
 at `main.<field>` or `cards.<kind>[<i>].<field>`, a structural out-of-range op at
-`cards[<i>]`); `set_values` reports every refused cell under its own, at
-document and card scope alike, which is why that batch keys on `DocPath` where
-`set_all`'s keys on a field name: one batch spans cards;
+`cards[<i>]`), `set_all`'s batch keying on a field name under one card's base;
 and `LiveSession` geometry (`regions` / `fieldAt` / `positionAt` / `locate`)
 keys on it: the session translates the backend's plate-space form to `DocPath`
 at the boundary, segment by segment — the `$cards.<kind>.<ordinal>` head to the

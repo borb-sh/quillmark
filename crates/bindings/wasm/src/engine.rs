@@ -1645,80 +1645,6 @@ impl Document {
         }
     }
 
-    /// The values form at `addr`: the ABI under `reader.values()` (the main-card
-    /// address, the whole document as `DocumentValues`) and
-    /// `reader.card(i).values()` (`{ card }`, that card as `CardValues`). Every
-    /// axis filled; `null` for a card without `$ext` and for a kindless card's
-    /// `kind`; a present-null field as `null`. Total on the field axis: a
-    /// content leaf that decodes under neither encoding rides out as stored.
-    /// An out-of-range `addr.card` throws.
-    #[wasm_bindgen(js_name = _readerValues, skip_typescript, unchecked_return_type = "DocumentValues | CardValues")]
-    pub fn reader_values(
-        &self,
-        quill: &Quill,
-        #[wasm_bindgen(unchecked_param_type = "CardAddr")] addr: JsValue,
-    ) -> Result<JsValue, JsValue> {
-        let addr = Addr::from_js(&addr)?;
-        addr.require_card_only("readerValues")?;
-        let base = self.addr_base(&addr);
-        let reader = quill.inner.reader(&self.inner);
-        match addr.card {
-            None => serialize_nullable_or_throw(&reader.values(), "reader.values"),
-            Some(index) => serialize_nullable_or_throw(
-                &reader
-                    .card(index)
-                    .map_err(|e| edit_error_to_js(&e, &base))?
-                    .values(),
-                "reader.values",
-            ),
-        }
-    }
-
-    /// Write the values form at `addr`: the ABI under `writer.setValues` (the
-    /// main-card address, a `DocumentValuesInput`) and
-    /// `writer.card(i).setValues` (`{ card }`, a `CardValuesInput`).
-    ///
-    /// An absent axis is untouched; a present one is replaced. All-or-nothing:
-    /// nothing is applied on error and every refused cell arrives as one
-    /// `diagnostics` entry carrying its own `path` (`main.qty`,
-    /// `cards.line_item[0].desc`). A cell whose value equals its projection is
-    /// not written, so writing back an unedited `values` read is a no-op. A
-    /// malformed `values` (an unknown key, a wrong member type) throws before
-    /// any of it is read.
-    #[wasm_bindgen(js_name = _setValues, skip_typescript)]
-    pub fn set_values(
-        &mut self,
-        quill: &Quill,
-        #[wasm_bindgen(unchecked_param_type = "CardAddr")] addr: JsValue,
-        #[wasm_bindgen(unchecked_param_type = "DocumentValuesInput | CardValuesInput")]
-        values: JsValue,
-    ) -> Result<(), JsValue> {
-        let addr = Addr::from_js(&addr)?;
-        addr.require_card_only("setValues")?;
-        let base = self.addr_base(&addr);
-        let json = js_value_to_json(values, "setValues")?;
-        let shape_error = |e: serde_json::Error| {
-            WasmError::from(format!("setValues: invalid values shape: {e}")).to_js_value()
-        };
-        let mut writer = quill.inner.writer(&mut self.inner);
-        match addr.card {
-            None => {
-                let values: quillmark_core::DocumentValues =
-                    serde_json::from_value(json).map_err(shape_error)?;
-                writer.set_values(&values).map_err(edit_errors_at_to_js)
-            }
-            Some(index) => {
-                let values: quillmark_core::CardValues =
-                    serde_json::from_value(json).map_err(shape_error)?;
-                writer
-                    .card(index)
-                    .map_err(|e| edit_error_to_js(&e, &base))?
-                    .set_values(&values)
-                    .map_err(edit_errors_at_to_js)
-            }
-        }
-    }
-
     /// Build a composable card of `kind`, typed-commit `fields` onto it, set its
     /// body from optional markdown, and place it: the ABI under `writer.addCard`.
     /// `at` absent appends, a number inserts at that index (`0..=cards.length`).
@@ -2077,73 +2003,6 @@ export type DocPathSeg =
 "#;
 
 #[wasm_bindgen(typescript_custom_section)]
-const VALUES_TS: &'static str = r#"
-/**
- * One composable card in the values form (`reader.card(i).values()`). `kind`
- * is the stored `$kind`, `null` for a kindless card; a kind the schema does
- * not declare carries its fields verbatim, there being no declared type to
- * project them through. `ext` is `null` when the card carries no `$ext` and
- * `{}` for an explicit `$ext: {}`.
- */
-export interface CardValues {
-    kind: string | null;
-    fields: Record<string, unknown>;
-    body: string;
-    ext: Record<string, unknown> | null;
-}
-
-/**
- * A document in the values form (`reader.values()`): the stored value with
- * every content leaf decoded to its codec's text (`richtext` markdown,
- * `plaintext` literal) at every depth, everything else as stored, a
- * present-null as `null`. `fields` carries the declared fields the card holds
- * in declaration order, then undeclared ones verbatim in authored order.
- *
- * Sparse — an absent field is an absent key, never its `default:` (`resolve`
- * is the view that blank-fills). A projection, never a storage format:
- * markdown carries no anchors, island ids or content-only marks, and
- * `$quill`, `$seed`, `!must_fill` markers and YAML comments are not carried.
- * Persist with `toStored`.
- *
- * Every axis is present on a read, so every `DocumentValues` is a valid
- * `DocumentValuesInput`, and writing one back unedited changes no bytes.
- */
-export interface DocumentValues {
-    fields: Record<string, unknown>;
-    body: string;
-    cards: CardValues[];
-    ext: Record<string, unknown> | null;
-}
-
-/**
- * `writer.card(i).setValues` input, and one entry of
- * `DocumentValuesInput.cards`. An absent axis is untouched: an absent `kind`
- * keeps the card's, an absent `fields` / `body` / `ext` leaves that axis
- * alone (empty on a card being built). `ext: null` removes `$ext`. An
- * `undefined` member reads as absent, `null` as `null`.
- */
-export interface CardValuesInput {
-    kind?: string | null;
-    fields?: Record<string, unknown>;
-    body?: string;
-    ext?: Record<string, unknown> | null;
-}
-
-/**
- * `writer.setValues` input. An absent axis is untouched; a present one is
- * replaced: `fields` is the whole truth for declared names, `cards` is the
- * card list, `body` the body, `ext: null` removes `$ext` and `{}` records an
- * explicit empty one. An `undefined` member reads as absent, `null` as `null`.
- */
-export interface DocumentValuesInput {
-    fields?: Record<string, unknown>;
-    body?: string;
-    cards?: CardValuesInput[];
-    ext?: Record<string, unknown> | null;
-}
-"#;
-
-#[wasm_bindgen(typescript_custom_section)]
 const RESOLVED_TS: &'static str = r#"
 /**
  * The commitment-ladder rung that produced a `ResolvedField.value`.
@@ -2346,24 +2205,6 @@ fn edit_errors_to_js(
                 .with_code(err.code().to_string())
                 .with_args(err.args())
                 .with_path(base.field(&name).to_string())
-        })
-        .collect();
-    WasmError { diagnostics }.to_js_value()
-}
-
-/// The [`edit_errors_to_js`] twin for a batch spanning cards, where each
-/// refusal carries the whole [`DocPath`](quillmark_core::DocPath) it anchors at
-/// rather than a field name under one base.
-fn edit_errors_at_to_js(
-    errors: Vec<(quillmark_core::DocPath, quillmark_core::EditError)>,
-) -> JsValue {
-    let diagnostics: Vec<quillmark_core::Diagnostic> = errors
-        .into_iter()
-        .map(|(path, err)| {
-            quillmark_core::Diagnostic::new(quillmark_core::Severity::Error, err.to_string())
-                .with_code(err.code().to_string())
-                .with_args(err.args())
-                .with_path(path.to_string())
         })
         .collect();
     WasmError { diagnostics }.to_js_value()

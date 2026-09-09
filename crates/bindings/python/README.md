@@ -87,8 +87,7 @@ w.revise_body("A **taro** essay.")        # body write (edit semantics; a body h
 w.revise_field("bio", "make it **bold**") # typed *and* anchor-preserving content write (codec by declared type)
 w.add_card("quotes", {"author": "Basho"}, "…", at=None)  # make + typed commit + insert (at appends/inserts)
 w.remove_card(0)
-w.card(0).set("author", "Issa")           # a CardWriter: .index, .kind, .set, .set_all, .set_values, .revise_body, .revise_field
-w.set_values({"fields": {"title": "Hi"}})  # the values form: a present key replaces its axis, an absent one is untouched
+w.card(0).set("author", "Issa")           # a CardWriter: .index, .kind, .set, .set_all, .revise_body, .revise_field
 ```
 
 ### `Reader`: `quill.reader(doc)`
@@ -97,8 +96,7 @@ The read twin of `Writer`. `get` reads each field in the values form: every
 content leaf in its type tree as its codec's text (a richtext leaf to markdown, a
 plaintext leaf to its literal text), everything else as stored, never coerced.
 `get_content` is the same read at the other end of the codec, handing back the
-field's `Content` as a dict whichever lane stored it. `values` is the whole
-document in the same form, and `writer.set_values` writes it back.
+field's `Content` as a dict whichever lane stored it.
 
 ```python
 v = quill.reader(doc)
@@ -107,10 +105,8 @@ v.get("bio")                              # richtext → markdown str; scalar �
 v.get_content("bio")                      # the `Content` dict {text, lines, marks, islands}; absent → None
                                           # a type that is not a content leaf raises FieldNotContent
 v.body_markdown()                         # the main body markdown (quill-free body read)
-v.values()                                # {"fields", "body", "cards", "ext"}; never raises; set_values(v.values()) is a no-op
 v.card(0).kind                            # the composable card's $kind
 v.card(0).get("author")                   # a card field, interpreted by its $kind schema
-v.card(0).values()                        # {"kind", "fields", "body", "ext"} for one card
 v.card(0).body_markdown()
 ```
 
