@@ -175,7 +175,7 @@ The storage DTO carries no warnings, so the clone the backend renders knows noth
 
 **Exactly one copy of the package per process.** Two copies are two core builds (two linear memories, two `Quill`/`Document` classes), and no topology legitimately loads a multi-megabyte binary twice and needs handles to cross between the copies. Every seam taking a core handle checks it and throws a `QuillmarkError` naming the duplicate install, including the ones that could cross as data (`Engine`, `LiveSession.update`). Errors are the exception: `isQuillmarkError` stays structural, an error being data rather than a handle.
 
-Beyond the byte-output verbs (`engine.render`, `LiveSession.render`), the canvas-capable backend builds (Typst, and pdfform under its preview seam) expose a **live preview** path on `LiveSession` (`update`, `pageCount`, `pageSize`, `paint`, …). See [PREVIEW.md](PREVIEW.md).
+Beyond the byte-output verbs (`engine.render`, `LiveSession.render`), every backend build (Typst, pdfform) exposes a **live preview** path on `LiveSession` (`update`, `pageCount`, `pageSize`, `paint`, …), canvas paint being required of the session seam rather than declared. See [PREVIEW.md](PREVIEW.md).
 
 ## CLI: `bindings/quillmark-cli`
 

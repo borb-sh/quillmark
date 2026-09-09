@@ -38,6 +38,21 @@
   rather than away. The `body.example` blueprint guard tightens with the parser
   it delegates to, catching the language-tagged openers it used to pass.
   Refs #1698.
+- refactor(core,wasm)!: **canvas preview is part of the backend contract.**
+  `SessionHandle::page_size_pt` and `render_rgba` lose their absent-reading
+  defaults and become required, so a session paints by construction rather than
+  by opting in. Each return value carried two meanings and now carries one:
+  `None` and `Ok(None)` say the page is past `page_count()`, where they also
+  used to say the backend had no painter, and a caller reading one knows it
+  asked for a page the compile does not have. `update`, `regions` and
+  `field_at` keep their defaults — this closes the canvas door alone.
+  `LiveSession::supports_canvas()` goes with the derivation it performed: it
+  reduced to `page_count() > 0`, which is what a Rust caller writes instead.
+  Both shipped backends already implement the pair, so the trait change moves
+  no rendered pixel. The WASM `paint` / `pageSize` capability throw goes with
+  it: a compile with nothing to paint now meets the out-of-range refusal,
+  `"paint: page index 0 out of range (pageCount=0)"`, in place of a message
+  naming a painter the backend has. Closes #1706.
 - feat(content,wasm)!: **the content vocabularies close.** A line `kind`,
   container, mark `type`, island `type` or `loss` outside the built-ins was an
   open set: it round-tripped opaque and projected as its nearest safe
@@ -204,9 +219,8 @@
   backend emitted PNG or SVG — while canvas paint is a `SessionHandle` seam a
   backend overrides independently of the formats it emits, so the two could
   disagree; every backend the workspace ships paints, so it answered `true` in
-  every build. `LiveSession::supports_canvas()` stays: it is derived from the
-  seam it gates and cannot drift. A JS consumer opens the session and handles
-  the throw `paint` / `pageSize` already owe a compile with nothing to paint.
+  every build. A JS consumer opens the session and handles the throw `paint` /
+  `pageSize` already owe a compile with nothing to paint.
 - refactor(all)!: **the crate-compatibility ceremony is withdrawn:
   `#[non_exhaustive]`, the `Backend` seal, public `register_backend`, and the
   SemVer promise `COMPATIBILITY.md` carried.** The attribute leaves the 86
