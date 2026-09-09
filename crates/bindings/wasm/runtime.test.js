@@ -15,10 +15,6 @@ import {
   CardReader,
   MAIN_CARD_ADDR,
   isQuillmarkError,
-  isUnknownLine,
-  isUnknownContainer,
-  isUnknownMark,
-  isUnknownIsland,
   assignInstances,
   init,
 } from '@quillmark-wasm/runtime'
@@ -582,33 +578,6 @@ describe('@quillmark/wasm: MAIN_CARD_ADDR (the named main-card address)', () => 
   })
 })
 
-describe('@quillmark/wasm: open-set membership guards', () => {
-  // One known name per axis, not the whole table: membership is a `Set.has`,
-  // uniform across members, and the tables themselves are pinned against the
-  // Rust constants by `crates/bindings/wasm/tests/known_names_drift.rs`.
-  it('answers known-vs-unknown on all four axes', () => {
-    expect(isUnknownLine({ kind: 'heading', attrs: { level: 2 }, containers: [] })).toBe(false)
-    expect(isUnknownLine({ kind: 'callout', attrs: {}, containers: [] })).toBe(true)
-
-    expect(isUnknownContainer({ container: 'quote' })).toBe(false)
-    expect(isUnknownContainer({ container: 'indent', attrs: {} })).toBe(true)
-
-    expect(isUnknownMark({ start: 0, end: 1, type: 'strong' })).toBe(false)
-    expect(isUnknownMark({ start: 0, end: 1, type: 'highlight', attrs: {} })).toBe(true)
-
-    expect(isUnknownIsland({ id: 'i1', type: 'table', props: {}, loss: 'lossless' })).toBe(false)
-    expect(isUnknownIsland({ id: 'i1', type: 'widget', props: {}, loss: 'lossless' })).toBe(true)
-  })
-
-  it('reports a missing or non-string discriminant as not-unknown, never throwing', () => {
-    // A malformed value is not an unknown construct: it is malformed, and the
-    // decoder rejects it. The guard must not turn one into the other.
-    for (const bad of [{}, { kind: 7 }, null, undefined]) {
-      expect(isUnknownLine(bad)).toBe(false)
-    }
-  })
-})
-
 describe('@quillmark/wasm: container run boundaries', () => {
   const LIST = { container: 'list_item', attrs: { ordered: false, start: 1, ordinal: 0 } }
   const QUOTE = { container: 'quote' }
@@ -634,12 +603,6 @@ describe('@quillmark/wasm: container run boundaries', () => {
     expect(stamp(QUOTE, QUOTE)).toEqual([0, 1])
     // A shape the projection can tell apart needs no discriminator.
     expect(stamp(LIST, list({ ordered: true }))).toEqual([0, 0])
-
-    // An unknown container's boundary lives in storage, and its whole `attrs`
-    // is its shape.
-    const indent = (n) => ({ container: 'indent', attrs: { n } })
-    expect(stamp(indent(1), indent(1))).toEqual([0, 1])
-    expect(stamp(indent(1), indent(2))).toEqual([0, 0])
   })
 
   it('alternates only across runs that would weld', () => {

@@ -201,11 +201,10 @@ export interface Content {
     islands: ContentIsland[];
 }
 
-/** One `\n`-separated segment of `Content.text`, in order. `kind` is an open set:
- * an unknown role round-trips with opaque `attrs` and renders as a paragraph.
- * Every role spells its payload in `attrs`, known or not, so promoting one moves
- * no bytes. The open arm blocks discriminant narrowing, so read
- * `attrs.level`/`attrs.lang` behind a check of the arm you want. */
+/** One `\n`-separated segment of `Content.text`, in order. `kind` is a closed
+ * set: a role outside it is refused wherever content is decoded. Every role
+ * spells its payload in `attrs`, so `kind === "heading"` narrows `attrs` to
+ * `{ level: number }` with no guard. */
 export type ContentLine = {
     containers: ContentContainer[];
     /** A within-block hard line break rather than a new block. Omitted (false) in the common case. */
@@ -218,12 +217,10 @@ export type ContentLineKind =
     | { kind: "heading"; attrs: { level: number } }
     | { kind: "code"; attrs?: { lang?: string } }
     | { kind: "island" }
-    | { kind: "rule" }
-    | { kind: string; attrs?: unknown };
+    | { kind: "rule" };
 
-/** An ancestor block a line nests inside, outermost first. Open like
- * `ContentLine.kind`: an unrecognized container round-trips with opaque `attrs`
- * and renders transparently (its lines sit at the enclosing level).
+/** An ancestor block a line nests inside, outermost first. Closed like
+ * `ContentLine.kind`.
  *
  * Two adjacent lines sit in the same container iff their whole path matches, so
  * `instance` is what tells one container from an adjacent sibling of identical
@@ -253,13 +250,11 @@ export type ContentContainer =
           attrs: { ordered: boolean; start: number; ordinal: number };
           instance: number;
       }
-    | { container: "quote"; instance: number }
-    | { container: string; attrs?: unknown; instance: number };
+    | { container: "quote"; instance: number };
 
-/** A mark over char range `[start, end)` into `Content.text`. The open `type`
- * arm blocks discriminant narrowing, so read a payload-carrying arm behind its
- * guard: `isLinkMark` (`attrs.url`) / `isAnchorMark` (`attrs.id`), from
- * `@quillmark/wasm`. An `anchor`'s `id` is a caller-supplied opaque
+/** A mark over char range `[start, end)` into `Content.text`. `type` is a
+ * closed set, so `type === "link"` narrows `attrs` to `{ url: string }` with no
+ * guard. An `anchor`'s `id` is a caller-supplied opaque
  * handle, unique per `Content` and invariant while the mark lives (positions
  * rebase, the id never does); it has no markdown projection and survives only
  * through the edit lane. */
@@ -267,7 +262,6 @@ export type ContentMark = { start: number; end: number } & (
     | { type: "strong" | "emph" | "underline" | "strike" | "code" }
     | { type: "link"; attrs: { url: string } }
     | { type: "anchor"; attrs: { id: string } }
-    | { type: string; attrs?: unknown }
 );
 
 /** A cell in a `TableProps`. `marks` rides the prose `ContentMark` shape, but
@@ -295,22 +289,17 @@ export interface ImageProps {
     alt: string;
 }
 
-/** How faithfully the markdown projection can carry an island. Open: an unknown
- * class round-trips verbatim and reads as `unrepresentable`. */
-export type ContentLossClass = "lossless" | "degraded" | "unrepresentable" | (string & {});
+/** How faithfully the markdown projection can carry an island. */
+export type ContentLossClass = "lossless" | "degraded" | "unrepresentable";
 
-/** A structured object occupying one island slot in `Content.text`. `type` is an
- * open set: `props` is `TableProps` for `table` and `ImageProps` for `image`,
- * and any other type round-trips with opaque `props`. The open arm blocks
- * narrowing, so read `props` behind the `isTableIsland` / `isImageIsland`
- * guards (from `@quillmark/wasm`). */
+/** A structured object occupying one island slot in `Content.text`. `type` is a
+ * closed set, so `type === "table"` narrows `props` to `TableProps`. */
 export type ContentIsland = {
     id: string;
     loss: ContentLossClass;
 } & (
     | { type: "table"; props: TableProps }
     | { type: "image"; props: ImageProps }
-    | { type: string; props: unknown }
 );
 
 /**
@@ -372,7 +361,6 @@ export type MarkOp =
           | { type: "strong" | "emph" | "underline" | "strike" | "code" }
           | { type: "link"; url: string }
           | { type: "anchor"; id: string }
-          | { type: string; attrs: unknown }
       ))
     | { op: "removeAnchor"; id: string };
 

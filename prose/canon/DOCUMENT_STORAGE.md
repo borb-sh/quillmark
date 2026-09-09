@@ -195,49 +195,43 @@ change. Two ways to manage this:
   guarantee is required) or an accepted, logged hash movement on
   not-yet-migrated rows.
 
-## Open vocabularies
+## Content vocabularies
 
 The envelope's version-and-reject discipline covers the document's **shape**:
-the schema tag, the DTO tree, the keys a `body` object carries. It does *not*
-cover the content's **vocabularies**. Every discriminator inside a `body` is an
-open set: a mark `type`, an island `type`, a line `kind`, a container name, and
-an island's `loss` class this build does not recognize each round-trip
-byte-identically and project as their nearest safe neighbor.
+the schema tag, the DTO tree, the keys a `body` object carries. The content's
+five discriminators are covered by their own rule: each is a **closed set**.
 
-**Two mechanisms, split by payload.** A block axis carries one, so its built-ins
-decode eagerly into typed fields (`LineKind::Heading { level }`) and an
-unrecognized member needs a sibling `Unknown` arm to hold its payload. The two
-island axes carry none, so the wire string *is* the stored value and the closed
-set is a **view** over it (`KnownIslandType::parse`, `Loss::fidelity`). The
-split decides which axes need the reserved-name rule below: a carrier axis has
-two in-memory arms per wire object and must keep one from impersonating the
-other, a view axis has one. On the wire both spell a payload alike.
-
-| Axis | Carrier | Unknown value projects as |
+| Axis | Members | Rust type |
 |---|---|---|
-| Mark `type` | `Unknown { tag, attrs }` | no delimiters (the text renders bare) |
-| Line `kind` | `Unknown { tag, attrs }` | a paragraph |
-| Container | `Unknown { tag, attrs }` | transparent: its lines render at the enclosing level |
-| Island `type` | the `String` itself | a placeholder comment; the props survive in storage |
-| Island `loss` | the `String` itself | `Fidelity::Unrepresentable`, via `Loss::fidelity`: never a claim of fidelity on a class this build cannot read |
+| Line `kind` | `para`, `heading`, `code`, `island`, `rule` | `LineKind` |
+| Container | `list_item`, `quote` | `Container` |
+| Mark `type` | `strong`, `emph`, `underline`, `strike`, `code`, `link`, `anchor` | `MarkKind` |
+| Island `type` | `table`, `image` | `IslandType` |
+| Island `loss` | `lossless`, `degraded`, `unrepresentable` | `Loss` |
 
-The consequence, and the point: **adding a construct to any of these
-vocabularies is not a schema-version event.** An older reader degrades a future
-callout to a plain paragraph rather than refusing the document, and a reader
-that does understand it sees it whole, because the tag and attrs round-tripped
-untouched. Openness is the same on all five axes: the block axes are open on the
-mark axis' terms, not one step behind it, and both island axes carry their raw
-string rather than rewriting it: a reader that merely opens a document must not
-move its content hash (§ Byte-stability).
+A name outside one of them is `ParseError::UnknownName { axis, name }` at every
+decoder, both lanes, so **a row holding one does not open**. Refusing is the
+only reading that keeps the reader honest: projecting an unrecognized `kind` as
+`para` would re-encode the row as `{"kind":"para"}`, moving canonical bytes on a
+read with no edit (§ Byte-stability), and dropping the value loses content on a
+mere open. A malformed discriminator is a different failure and stays
+`ParseError::Shape`: the closed set answers for names, and a non-string is not a
+name.
+
+The consequence, and the point: **adding a member to any of these vocabularies
+is a storage-version event.** An older reader refuses a row carrying a newer
+build's construct, and the schema tag is what lets it say "build too old"
+rather than "corrupt" (§ Schema Versioning). The tree freeze such a bump needs
+is mechanical — the DTO shape is unchanged, so the new version's tree is the
+old one and the `TryFrom` hop is the identity (§ Adding a Schema Version).
 
 **Container identity is path plus contiguity, and `instance` is what completes
 it.** Two adjacent lines sit in the same container iff their whole container
 path is equal, so without a discriminator two adjacent runs of one shape read as
 one: `[Quote], [Quote]` would be a single two-paragraph quote, and two one-item
 lists a single item with an unnumbered continuation paragraph. `instance` is the
-field that breaks that tie, on every container arm including `Unknown`, which is
-why the round-trip above is a *total* promise rather than one holding up to an
-adjacency quotient. `Content::normalize` canonicalizes it to `0`, flipping to
+field that breaks that tie, on every container arm, which is why the round trip
+is a *total* promise rather than one holding up to an adjacency quotient. `Content::normalize` canonicalizes it to `0`, flipping to
 `1` only where the adjacent preceding sibling run would otherwise weld, so a
 document needing no discriminator carries none and its stored bytes are the
 bytes it had before the field existed (§ Byte-stability). That is why the key
@@ -249,9 +243,7 @@ boundary. A container field added later inherits that trade, since a reader is
 frozen at the vocabulary it shipped with. The Markdown
 projection spells the same boundary with the idiom CommonMark already reads: a
 change of bullet char (`-`/`+`) or of ordered delimiter (`.`/`)`) for lists, the
-blank line for quotes. An `Unknown` container has no Markdown syntax at all, so
-that one boundary lives in storage only — the same place its `tag` and `attrs`
-already live.
+blank line for quotes.
 
 The omission is storage's alone. A binding read is also a binding write input,
 so the seam encoder (`serial::to_seam_value`) spells the field on every
@@ -275,9 +267,8 @@ into one another's markup.
 Unknown *keys* survive in designated carriers only, and the boundary is worth
 stating because it is not the discriminator boundary:
 
-- **Opaque carriers keep what they hold.** Unknown `attrs` on all three block
-  axes, island `props`, a table island's top-level props, and a table **cell's**
-  own keys all round-trip untouched.
+- **Opaque carriers keep what they hold.** Island `props`, a table island's
+  top-level props, and a table **cell's** own keys all round-trip untouched.
 - **Envelopes drop what they do not name, by design.** An island, line, mark, or
   container object is decoded into a struct and re-minted from its fields, so an
   unrecognized sibling key beside `id`/`kind`/`start` does not survive. Growing
@@ -290,52 +281,37 @@ earns the place: cells are where the `table` type is likeliest to grow
 rewrites a cell's `text` and `marks` in place rather than minting a fresh
 `{text, marks}` object.
 
-Three rules bound the openness:
+Two rules bound the payload:
 
-- **Payload depth is capped at `MAX_JSON_DEPTH` (128).** An opaque bag is host
+- **Payload depth is capped at `MAX_JSON_DEPTH` (128).** Island `props` is host
   JSON of arbitrary shape, but not arbitrary depth: key canonicalization, the
   content-hash key, and `serde_json::Value`'s own `Drop` each recurse one frame
   per level, so an unbounded bag overflows the stack: on wasm32, a trap that
   takes the module down rather than an error the host can catch. The cap is the
   one `serde_json::from_str` already enforces, so it refuses nothing a stored
-  blob can carry. It is stated on its own because the `Value` lane: the
-  host-authored one, which `overwrite` reaches: is not parsed from a string, so
+  blob can carry. It is stated on its own because the `Value` lane — the
+  host-authored one, which `overwrite` reaches — is not parsed from a string, so
   nothing else bounds it. A bag is refused where the decoder reads it off the
   wire, before it is cloned into the model; `Content::validate` restates it as
   `Invariant::JsonTooDeep` for content that never went through a decoder. This
   is `Invariant::NestingTooDeep`'s container cap on the payload axis.
 
 - **Payload rides `attrs`, for every member.** A `heading`'s `level`, a `code`'s
-  `lang`, a `link`'s `url`, a `list_item`'s shape and an unknown's whole opaque
-  bag are all `attrs` entries: `{"kind":"heading","attrs":{"level":1}}`. The
-  envelope keys stay siblings — `kind`/`type`/`container`, `containers`,
-  `continues`, a mark's `start`/`end`, a container's `instance` — because they
-  belong to the object rather than to the member it names. An empty bag is
-  omitted, on the rule `continues: false` already follows: presence is a pure
-  function of the value, so `normalize` collapses `{}` and an absent bag to one
-  spelling.
+  `lang`, a `link`'s `url` and a `list_item`'s shape are all `attrs` entries:
+  `{"kind":"heading","attrs":{"level":1}}`. The envelope keys stay siblings —
+  `kind`/`type`/`container`, `containers`, `continues`, a mark's `start`/`end`,
+  a container's `instance` — because they belong to the object rather than to
+  the member it names. An empty bag is omitted, on the rule `continues: false`
+  already follows: presence is a pure function of the value, so `normalize`
+  collapses `{}` and an absent bag to one spelling.
 
-  One spelling per name is what makes promotion cost nothing (see Promoting a
-  vocabulary member). It is also what a *new* construct needs: its payload is
-  in the place a reader that predates it already looks.
+  A foreign bag key on a built-in is permitted and drops unread: the decode
+  reads the entries the member names and re-mints from its fields.
 
-- **No reserved name reuse.** An unknown may not take a built-in's name
-  (`heading`, `quote`, `link`, …): it would serialize as the built-in and parse
-  back as one, dropping any attrs the built-in's own payload does not name.
-  `Content::validate` rejects this (`Invariant::ReservedUnknownTag` /
-  `ReservedUnknownLineKind` / `ReservedUnknownContainer`) for an in-process Rust
-  construction, which is now the only place it can arise: with one spelling per
-  name there is no second wire form to collide with a built-in's, so no lane has
-  a collision to reject. The rule is the three carrier axes' alone, and the
-  `Unknown` arm is what makes it necessary: a view axis has one value per wire
-  string. It is construction hygiene, and what keeps
-  `from_canonical_json(to_canonical_json(rt)) == rt` unconditional for a
-  validate-clean value.
-
-  A foreign bag on a built-in is a different thing and is permitted: on a
-  member carrying no payload it drops unread, on one that does it is read past.
-  That is "the carrier preserves unknown tags, not unknown payloads on known
-  tags" at attrs-key granularity.
+  One spelling per name is also what makes the canonical mark order a function
+  of the bytes. `MarkKind::sort_key` is the `(type, attrs)` pair the wire
+  carries, read back off the value rather than spelled per arm, so adding a
+  member reorders nothing already stored (§ Byte-stability).
 
 The lanes still split, on what is now the only ambiguous shape — a built-in's
 payload spelled as a **named sibling**, which is how every release through
@@ -371,10 +347,18 @@ payload spelled as a **named sibling**, which is how every release through
   predate the release. Both re-canonicalize what they decode, so the value rests
   in the current spelling either way.
 
-The same split governs an unreadable **table-cell mark**. Storage skips it:
+The same split governs a **malformed table-cell mark**. Storage skips it:
 `serial::parse_cell` is lenient, and normalization makes the skip permanent. The
 authored lane refuses it, because a host's malformed mark vanishing with no
 signal is the silent corruption the split exists to catch.
+
+The split stops at *shape*. A cell mark whose `type` is outside the vocabulary
+is refused on **both** lanes, at the decoder
+(`IslandType::reject_unknown_cell_mark`), because the lenient read is exactly
+what would make it silent: `canon_cell` re-mints each cell from what
+`parse_cell` returned, so a skipped name leaves the stored bytes on a read with
+no edit — the byte movement § Content vocabularies refuses the row to prevent.
+The mark axis is closed everywhere a mark is spelled, cells included.
 
 It governs a **value the markdown projection cannot write** as well: a code
 fence's `lang` outside the identifier shape it is emitted in unquoted, and a
@@ -391,7 +375,7 @@ model has no second spelling, so refusing it there would make a stored link
 unremovable.
 
 It governs a **block-only island's placement** too. Markdown writes a `table` as
-a block (`KnownIslandType::block_only`, which an inline `image` is not), so a
+a block (`IslandType::block_only`, which an inline `image` is not), so a
 slot sharing its line with prose has no inline spelling: written there it lands
 as pipes inside the paragraph, which re-imports as prose with the island gone.
 The authored lanes refuse the placement — `ApplyError::BlockIslandNotAlone` from
@@ -405,72 +389,11 @@ what lets `Content::validate` state the rule
 markdown write then reads a shape that is already right rather than repairing
 one on the way past.
 
-The opaque attrs are hash input like everything else in the canonical form, so
-they are recursively key-sorted along with the rest (see Byte-stability). What
-*does* remain a schema event is a change to the content object's own structure:
-a new top-level key beside `text`/`lines`/`marks`/`islands`, or a changed
-meaning for an existing discriminator.
-
-### What openness buys a consumer
-
-"Project an unknown as its nearest safe neighbor" serves one consumer posture of
-two:
-
-- **Render-only.** Degrade and move on. An unknown line is a paragraph, an
-  unknown container is absent; nothing is written back, so nothing is lost.
-- **Read-modify-write.** An editor lowers a whole-field diff, restating every
-  line's `kind` and `containers` whenever any of them changed. A construct its
-  tree cannot hold is gone on the next keystroke: the document opens intact and
-  saves mangled. Such a consumer carries unknowns *inertly* instead: a carrier
-  node per axis that renders as the nearest safe neighbor and re-emits the tag
-  and `attrs` verbatim.
-
-Classifying known-vs-unknown is therefore the read-modify-write consumer's
-problem, and the boundary answers it: `isUnknownLine` / `isUnknownContainer` /
-`isUnknownMark` / `isUnknownIsland` on the WASM surface, `KnownIslandType::parse`
-and the `RESERVED_*` lists in Rust. A consumer that re-derives the built-in list
-has re-coupled to a closed set, and misreads the first release that adds a
-built-in.
-
-The bound: **the carrier preserves unknown tags, not unknown payloads on known
-tags.** A future `kind: "footnote"` carrying an `attrs.ref` loses `ref` at any
-consumer that predates it, predicates or no. What the first rule above (*payload
-rides `attrs`, for every member*) buys is the other half: a future *name* keeps
-its whole payload, because the place that payload sits does not depend on
-knowing the name.
-
-## Promoting a vocabulary member
-
-Adding an unknown is not a schema event, and neither is the reverse trip: a
-later release **promoting** a tag to a built-in, which is what the open set
-exists for. Promotion is **not an encoding change**: the bytes a build wrote
-while `callout` was unknown are exactly the bytes the build that knows it reads,
-because both spell the payload in `attrs`. Add the arm, add the name to the
-list, and the same decoder that carried the tag opaque now types it.
-
-Two things do still move, and only for a *mark*:
-
-**Promoting a mark into the formatting class changes stored meaning**, since
-adjacent runs that round-tripped as two marks begin to union
-(`MarkKind::is_formatting`). It is a canonical-byte event, and takes the
-read-repair-or-accept-the-movement treatment that § Byte-stability sets out for
-migrated rows.
-
-**`RESERVED_*` growth rejects a previously-valid in-process construction.** A
-Rust embedder still building `Unknown { tag: "callout" }` after the promotion
-gets `ReservedUnknownLineKind` from `validate`. Nothing on the wire changes: a
-host sending `{"kind":"callout","attrs":{…}}` is writing the promoted spelling
-already, either side of the release. So this is a Rust API note, not a wire
-break.
-
-The sort order is not among them. The canonical tie-break after `(start, end)`
-is `MarkKind::sort_key` — the `(type, attrs)` pair the wire carries, read back
-off the value — so a build that knows a member and a build that reads it as
-`Unknown` compute the same key from the same bytes, whichever members each
-knows. The block axes sort by nothing.
-
-The island axes have no gap here: `props` is the payload carrier for known and
-unknown types alike, and `loss` carries no payload.
+The opaque props are hash input like everything else in the canonical form, so
+they are recursively key-sorted along with the rest (see Byte-stability). Also a
+schema event: a change to the content object's own structure — a new top-level
+key beside `text`/`lines`/`marks`/`islands` — or a changed meaning for an
+existing discriminator.
 
 ## The two id handles
 
@@ -576,7 +499,7 @@ value, because patches do not change the format.
 
 The format is the *bytes*, not only the envelope: `0.112.0` left the DTO tree
 untouched and moved every built-in's payload into `attrs` inside the `body`
-(§ Open vocabularies), which is a format change because the writer emits
+(§ Content vocabularies), which is a format change because the writer emits
 different bytes for the same document.
 
 `0.92.0` is a unified payload-item list (typed `$` entries living alongside

@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use quillmark_content::{Content, KnownIslandType, LineKind};
+use quillmark_content::{Content, IslandType, LineKind};
 
 use crate::document::Document;
 use crate::path::DocPath;
@@ -128,9 +128,6 @@ fn census(body: &Content) -> BTreeMap<BlockConstruct, usize> {
         match container {
             Container::ListItem { .. } => Some(BlockConstruct::List),
             Container::Quote { .. } => Some(BlockConstruct::Quote),
-            // The open set: a container this build does not know names no
-            // construct to decline.
-            _ => None,
         }
     }
 
@@ -158,12 +155,9 @@ fn census(body: &Content) -> BTreeMap<BlockConstruct, usize> {
     count(&body.lines, 0..body.lines.len(), &mut counts);
 
     for island in &body.islands {
-        match KnownIslandType::parse(&island.island_type) {
-            Some(KnownIslandType::Table) => *counts.entry(BlockConstruct::Table).or_insert(0) += 1,
-            Some(KnownIslandType::Image) => *counts.entry(BlockConstruct::Image).or_insert(0) += 1,
-            // The open set: an island type this build does not know names no
-            // construct to decline.
-            None => {}
+        match island.island_type {
+            IslandType::Table => *counts.entry(BlockConstruct::Table).or_insert(0) += 1,
+            IslandType::Image => *counts.entry(BlockConstruct::Image).or_insert(0) += 1,
         }
     }
 

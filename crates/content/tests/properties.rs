@@ -4,6 +4,7 @@
 //! marks markdown cannot carry.
 
 use proptest::prelude::*;
+use quillmark_content::island::IslandType;
 use quillmark_content::delta::diff_import;
 use quillmark_content::export::to_markdown;
 use quillmark_content::import::from_markdown;
@@ -331,7 +332,7 @@ proptest! {
         let rt = Content::new(text, vec![Line::new(LineKind::Para)])
             .with_marks(vec![Mark::new(0, 3, MarkKind::Link { url: link_url })])
             // The id import mints for the first island, so re-import compares equal.
-            .with_islands(vec![Island::new("isl-0".into(), "image".into())
+            .with_islands(vec![Island::new("isl-0".into(), IslandType::Image)
                 .with_props(json!({ "alt": alt, "url": img_url }))])
             .into_normalized();
         prop_assert_eq!(rt.validate(), Ok(()), "hand-built content invalid");
@@ -389,33 +390,6 @@ proptest! {
         prop_assert!(anchor.is_some(), "anchor lost across surviving edit");
         let anchor = anchor.unwrap();
         prop_assert_eq!(&new_rt.text[anchor.start..anchor.end], a.as_str());
-    }
-
-    /// Property 3': an unknown mark has no markdown projection either, so the
-    /// fresh import cannot re-derive it and diff-import carries it forward
-    /// whole, tag and attrs intact.
-    #[test]
-    fn diff_import_preserves_surviving_unknown_mark(a in "[a-z]{3,8}", b in "[a-z]{3,8}") {
-        let base_md = format!("keep {a} here");
-        let mut base = from_markdown(&base_md).unwrap().into_content();
-        let start = 5;
-        let end = 5 + a.chars().count();
-        prop_assert_eq!(&base.text[start..end], a.as_str());
-        let kind = MarkKind::Unknown {
-            tag: "highlight".into(),
-            attrs: json!({ "color": "yellow" }),
-        };
-        base.marks.push(Mark::new(start, end, kind.clone()));
-        let base = base.into_normalized();
-
-        let new_md = format!("{b} keep {a} here");
-        let (new_rt, _delta) = diff_import(&base, &new_md).unwrap();
-        let mark = new_rt.marks.iter()
-            .find(|m| matches!(&m.kind, MarkKind::Unknown { tag, .. } if tag == "highlight"));
-        prop_assert!(mark.is_some(), "unknown mark lost across surviving edit");
-        let mark = mark.unwrap();
-        prop_assert_eq!(&new_rt.text[mark.start..mark.end], a.as_str());
-        prop_assert_eq!(&mark.kind, &kind);
     }
 
 }
@@ -534,7 +508,7 @@ proptest! {
         let at = pos_seed % (rt.len_usv() + 1);
         let op = IslandOp::Insert {
             at,
-            island: Island::new("isl-prop".into(), "image".into())
+            island: Island::new("isl-prop".into(), IslandType::Image)
                 .with_props(json!({ "url": "ex.com", "alt": "a" })),
         };
         if rt.apply_island_ops(&[op]).is_ok() {
@@ -639,7 +613,7 @@ fn import_row(contents: &[String]) -> Vec<Value> {
 /// first-island id import mints (`isl-0`), so a re-imported table compares equal.
 fn table_content(aligns: Vec<&str>, header: Vec<Value>, rows: Vec<Vec<Value>>) -> Content {
     Content::new("\u{FFFC}".into(), vec![Line::new(LineKind::Island)]).with_islands(vec![
-        Island::new("isl-0".into(), "table".into())
+        Island::new("isl-0".into(), IslandType::Table)
             .with_props(json!({ "aligns": aligns, "header": header, "rows": rows })),
     ])
 }

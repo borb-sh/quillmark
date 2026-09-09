@@ -16,10 +16,8 @@
 use quillmark_content::model::{Container, Content, Line, LineKind, Normalized};
 use quillmark_content::{from_markdown, to_markdown};
 
-/// Containers a hand-built path can hold. `Unknown` is excluded from the
-/// round-trip half only — it projects transparently, so Markdown cannot carry
-/// it — but is exercised for idempotence.
-fn alphabet(unknown: bool) -> Vec<Container> {
+/// Containers a hand-built path can hold.
+fn alphabet() -> Vec<Container> {
     let mut v = Vec::new();
     for ordered in [false, true] {
         for ordinal in [0u64, 1] {
@@ -35,19 +33,12 @@ fn alphabet(unknown: bool) -> Vec<Container> {
     }
     v.push(Container::Quote { instance: 0 });
     v.push(Container::Quote { instance: 1 });
-    if unknown {
-        v.push(Container::Unknown {
-            tag: "x".into(),
-            attrs: serde_json::Value::Null,
-            instance: 0,
-        });
-    }
     v
 }
 
 /// Every path of depth 1..=2 over the alphabet.
-fn paths(unknown: bool) -> Vec<Vec<Container>> {
-    let a = alphabet(unknown);
+fn paths() -> Vec<Vec<Container>> {
+    let a = alphabet();
     let mut out: Vec<Vec<Container>> = a.iter().map(|c| vec![c.clone()]).collect();
     for outer in &a {
         for inner in &a {
@@ -71,7 +62,7 @@ fn build(paths: &[&Vec<Container>]) -> Normalized {
 
 #[test]
 fn normalize_is_idempotent_over_every_two_line_path_pair() {
-    let ps = paths(true);
+    let ps = paths();
     let mut n = 0usize;
     for a in &ps {
         for b in &ps {
@@ -91,7 +82,7 @@ fn normalize_is_idempotent_over_every_two_line_path_pair() {
 /// neither needs a discriminator — and the markdown projection has to agree.
 #[test]
 fn every_normalized_pair_is_a_markdown_fixed_point() {
-    let ps = paths(false);
+    let ps = paths();
     let mut broken = Vec::new();
     let mut n = 0usize;
     for a in &ps {
@@ -116,7 +107,7 @@ fn every_normalized_pair_is_a_markdown_fixed_point() {
 /// and the discriminator at depth 1.
 #[test]
 fn triples_over_the_list_and_quote_alphabet_are_fixed_points() {
-    let ps: Vec<Vec<Container>> = paths(false)
+    let ps: Vec<Vec<Container>> = paths()
         .into_iter()
         .filter(|p| p.len() == 2)
         .collect();
@@ -171,8 +162,8 @@ fn a_start_only_difference_separates_the_runs_and_still_costs_a_discriminator() 
 /// is the axis the two differ on, so the space here carries both.
 #[test]
 fn same_run_implies_same_weld() {
-    let mut space = alphabet(true);
-    for c in alphabet(true) {
+    let mut space = alphabet();
+    for c in alphabet() {
         if let Container::ListItem {
             ordered,
             ordinal,

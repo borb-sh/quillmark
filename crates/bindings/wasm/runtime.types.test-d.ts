@@ -179,48 +179,51 @@ type MainCardAddrType = typeof import('../../../pkg/runtime/runtime.d.ts').MAIN_
 const mainCardAddrIsCardAddr: CardAddr = {} as MainCardAddrType;
 void mainCardAddrIsCardAddr;
 
-// The open-set guards below take these four.
+// The narrowing assertions below take these three.
 declare const guardIsland: ContentIsland;
 declare const guardMark: ContentMark;
 declare const guardLine: ContentLine;
-declare const guardContainer: ContentContainer;
 
-// ── Open-set membership guards ──────────────────────────────────────
-// `ContentIsland.type`, `ContentMark.type`, `ContentLine.kind` and
-// `ContentContainer.container` are open unions, each with a residual
-// `{ …: string; … }` arm. These predicates narrow TO that arm. Each `if` body
-// reads its opaque payload, reachable only after narrowing, so a guard that
-// stops narrowing fails `npm run typecheck`.
-import {
-	isUnknownLine,
-	isUnknownContainer,
-	isUnknownMark,
-	isUnknownIsland
-} from '../../../pkg/runtime/runtime.js';
+// ── The vocabularies are closed ─────────────────────────────────────
+// A name outside a union is a type error, which is the compile-time half of the
+// decoder's refusal. Each `@ts-expect-error` fails `npm run typecheck` if its
+// union ever regains a residual `string` arm.
 
-if (isUnknownLine(guardLine)) {
-	const attrs: unknown = guardLine.attrs;
-	void attrs;
+// @ts-expect-error 'callout' is not a line kind
+const closedLine: ContentLineKind = { kind: 'callout' };
+void closedLine;
+// @ts-expect-error 'indent' is not a container
+const closedContainer: ContentContainer = { container: 'indent', instance: 0 };
+void closedContainer;
+// @ts-expect-error 'highlight' is not a mark type
+const closedMark: ContentMark = { start: 0, end: 1, type: 'highlight' };
+void closedMark;
+// @ts-expect-error 'widget' is not an island type
+const closedIsland: ContentIsland = { id: 'i', loss: 'lossless', type: 'widget', props: {} };
+void closedIsland;
+// @ts-expect-error 'partial' is not a loss class
+const closedLoss: ContentIsland['loss'] = 'partial';
+void closedLoss;
+
+// A bare discriminant check narrows the payload, with no guard.
+if (guardLine.kind === 'heading') {
+	const level: number = guardLine.attrs.level;
+	void level;
 }
-if (isUnknownContainer(guardContainer)) {
-	const attrs: unknown = guardContainer.attrs;
-	void attrs;
+if (guardMark.type === 'link') {
+	const url: string = guardMark.attrs.url;
+	void url;
 }
-if (isUnknownMark(guardMark)) {
-	const attrs: unknown = guardMark.attrs;
-	void attrs;
-}
-if (isUnknownIsland(guardIsland)) {
-	const props: unknown = guardIsland.props;
+if (guardIsland.type === 'table') {
+	const props: TableProps = guardIsland.props;
 	void props;
 }
 
 // ── ContentLineKind is nameable ─────────────────────────────────────
 // `ContentLineKind` is exactly `setKind`'s payload, so building the op is a
 // whole-lift: drop a line's envelope, spread the rest. That spelling survives
-// every arm added upstream; including the open one, whose shape an arm-by-arm
-// switch would have to guess at. It only type-checks if the type is nameable
-// from the package entry point, which is the point of the re-export.
+// every arm added upstream. It only type-checks if the type is nameable from
+// the package entry point, which is the point of the re-export.
 function kindPart(line: ContentLine): ContentLineKind {
 	const { containers, continues, ...kind } = line;
 	void containers;

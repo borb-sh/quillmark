@@ -25,9 +25,9 @@ pub enum MarkOp {
     },
     /// Un-format `kind` over `[start, end)`: subtract the range from each
     /// overlapping same-kind *formatting* mark, keeping the non-overlapping
-    /// fragments. Non-formatting (identity/unknown) handles cannot be
-    /// range-fragmented, so an overlapping one is dropped whole; anchors
-    /// normally go through [`MarkOp::RemoveAnchor`].
+    /// fragments. An identity handle cannot be range-fragmented, so an
+    /// overlapping one is dropped whole; anchors normally go through
+    /// [`MarkOp::RemoveAnchor`].
     Remove {
         start: Usv,
         end: Usv,
@@ -104,7 +104,7 @@ pub enum IslandOp {
     /// the delta's `\n`.
     ///
     /// A type markdown writes as a block
-    /// ([`KnownIslandType::block_only`](crate::KnownIslandType::block_only)) has
+    /// ([`IslandType::block_only`](crate::IslandType::block_only)) has
     /// no inline placement: `at` must be an empty line, else
     /// [`ApplyError::BlockIslandNotAlone`].
     ///
@@ -368,7 +368,7 @@ pub enum ApplyError {
     /// and this bundle's earlier island ops left.
     IslandInsertOutOfRange { at: Usv, len: Usv },
     /// An island op would leave a **block-only** island's slot
-    /// ([`KnownIslandType::block_only`](crate::KnownIslandType::block_only), a
+    /// ([`IslandType::block_only`](crate::IslandType::block_only), a
     /// `table`) sharing its line with other content. Markdown writes such an
     /// island by breaking the line around it, so the op that lands one mid-line
     /// is refused rather than restructuring the author's blocks. `at` is the
@@ -533,7 +533,7 @@ impl Content {
                             next.push(m);
                             continue;
                         }
-                        // Identity/unknown handles have no range algebra to
+                        // An identity handle has no range algebra to
                         // subtract: drop the overlapping one whole.
                         if !kind.is_formatting() {
                             continue;
@@ -587,7 +587,7 @@ impl Content {
                         })?;
                     // The type comes from the op, so a `Set` can turn an inline
                     // island into a block-only one over a slot that stays put.
-                    if crate::island::island_is_block_only(island) {
+                    if island.island_type.block_only() {
                         let chars: Vec<char> = self.text.chars().collect();
                         let at = nth_slot(&chars, idx);
                         if !is_whole_line(&chars, at, at + 1) {
@@ -615,7 +615,7 @@ impl Content {
                     }
                     // The slot lands alone on its line only where the line is
                     // empty now, which is the `\n` the bundle's delta opened.
-                    if crate::island::island_is_block_only(island)
+                    if island.island_type.block_only()
                         && !is_whole_line(&chars, *at, *at)
                     {
                         return Err(ApplyError::BlockIslandNotAlone { at: *at });
@@ -1042,6 +1042,7 @@ impl crate::model::Normalized {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::island::IslandType;
     use crate::delta::diff;
     use crate::import::from_markdown;
 
@@ -1116,32 +1117,6 @@ mod tests {
                 },
             ),
             (
-                serde_json::json!({
-                    "op": "setKind", "line": 0, "kind": "callout", "attrs": {"variant": "warn"},
-                }),
-                LineOp::SetKind {
-                    line: 0,
-                    kind: LineKind::Unknown {
-                        tag: "callout".into(),
-                        attrs: serde_json::json!({"variant": "warn"}),
-                    },
-                },
-            ),
-            (
-                serde_json::json!({
-                    "op": "setContainers", "line": 2,
-                    "containers": [{"container": "indent", "attrs": {"depth": 2}}],
-                }),
-                LineOp::SetContainers {
-                    line: 2,
-                    containers: vec![Container::Unknown {
-                        tag: "indent".into(),
-                        attrs: serde_json::json!({"depth": 2}),
-                        instance: 0,
-                    }],
-                },
-            ),
-            (
                 serde_json::json!({"op": "setContinues", "line": 1, "continues": true}),
                 LineOp::SetContinues {
                     line: 1,
@@ -1179,14 +1154,64 @@ mod tests {
         });
         assert!(matches!(mark_op_from_value(&bad), Err(ParseError::Shape(_))));
 
-        // One spelling per name: a built-in's payload rides the bag exactly as
-        // an unknown's does, and a foreign bag on a built-in drops unread.
+        // One spelling per name: a built-in's payload rides the bag, and a
+        // foreign bag on a built-in drops unread.
         for ok in [
-            serde_json::json!({"op": "setKind", "line": 0, "kind": "callout", "attrs": {"tone": "warn"}}),
             serde_json::json!({"op": "setKind", "line": 0, "kind": "heading", "attrs": {"level": 2}}),
             serde_json::json!({"op": "setKind", "line": 0, "kind": "para", "attrs": {"tone": "warn"}}),
         ] {
             assert!(line_op_from_value(&ok).is_ok(), "rejected: {ok}");
+        }
+    }
+
+    /// The op wire funnels through the same decoders as storage, so every axis
+    /// refuses an unknown name there too.
+    #[test]
+    fn op_wire_refuses_an_unknown_name() {
+        let cases: [(Value, &str, &str); 5] = [
+            (
+                serde_json::json!({"op": "setKind", "line": 0, "kind": "callout"}),
+                "line kind",
+                "callout",
+            ),
+            (
+                serde_json::json!({"op": "setContainers", "line": 0,
+                  "containers": [{"container": "indent", "instance": 0}]}),
+                "container",
+                "indent",
+            ),
+            (
+                serde_json::json!({"op": "add", "start": 0, "end": 1, "type": "highlight"}),
+                "mark type",
+                "highlight",
+            ),
+            (
+                serde_json::json!({"op": "insert", "at": 0, "id": "i1",
+                  "type": "widget", "loss": "lossless", "props": {}}),
+                "island type",
+                "widget",
+            ),
+            (
+                serde_json::json!({"op": "insert", "at": 0, "id": "i1",
+                  "type": "table", "loss": "partial", "props": {}}),
+                "island loss",
+                "partial",
+            ),
+        ];
+        for (op, axis, name) in cases {
+            let decode = match axis {
+                "line kind" | "container" => line_op_from_value(&op),
+                "mark type" => mark_op_from_value(&op).map(|_| unreachable!()),
+                _ => island_op_from_value(&op).map(|_| unreachable!()),
+            };
+            assert_eq!(
+                decode.unwrap_err(),
+                ParseError::UnknownName {
+                    axis,
+                    name: name.to_string()
+                },
+                "op wire accepted {axis} {name:?}"
+            );
         }
     }
 
@@ -1558,29 +1583,24 @@ mod tests {
 
     #[test]
     fn apply_mark_ops_remove_non_formatting_drops_whole() {
-        // `Value::Null` on both sides: the one in-memory spelling of an empty
-        // bag, which `normalize` and the wire decode both settle on.
-        let unknown = || MarkKind::Unknown {
-            tag: "x".into(),
-            attrs: Value::Null,
-        };
+        let anchor = || MarkKind::Anchor { id: "a".into() };
         let mut rt = from_markdown("abcdef").unwrap().into_content();
         rt.marks.push(Mark {
             start: 0,
             end: 6,
-            kind: unknown(),
+            kind: anchor(),
         });
         let mut rt = rt.into_normalized();
         rt.apply_mark_ops(&[MarkOp::Remove {
             start: 2,
             end: 4,
-            kind: unknown(),
+            kind: anchor(),
         }])
         .unwrap();
         assert!(!rt
             .marks
             .iter()
-            .any(|m| matches!(m.kind, MarkKind::Unknown { .. })));
+            .any(|m| matches!(m.kind, MarkKind::Anchor { .. })));
     }
 
     #[test]
@@ -1822,9 +1842,9 @@ mod tests {
     fn island(id: &str) -> Island {
         Island {
             id: id.into(),
-            island_type: "image".into(),
+            island_type: IslandType::Image,
             props: serde_json::json!({}),
-            loss: crate::model::Loss::LOSSLESS,
+            loss: crate::model::Loss::Lossless,
         }
     }
 
@@ -1928,15 +1948,15 @@ mod tests {
     }
 
     fn image(id: &str) -> Island {
-        Island::new(id.into(), "image".into())
+        Island::new(id.into(), IslandType::Image)
             .with_props(serde_json::json!({ "url": "u", "alt": "a" }))
     }
 
     #[test]
     fn island_op_wire_decodes_each_variant() {
-        let island = Island::new("isl-0".into(), "table".into())
+        let island = Island::new("isl-0".into(), IslandType::Table)
             .with_props(table_props("H", "a"))
-            .with_loss(crate::model::Loss::DEGRADED);
+            .with_loss(crate::model::Loss::Degraded);
         let cases = vec![
             (
                 serde_json::json!({
@@ -1975,7 +1995,7 @@ mod tests {
         .unwrap();
 
         rt.apply_field_change(&island_bundle(vec![IslandOp::Set {
-            island: Island::new(id.clone(), "table".into()).with_props(table_props("H", "b")),
+            island: Island::new(id.clone(), IslandType::Table).with_props(table_props("H", "b")),
         }]))
         .unwrap();
 
@@ -1997,7 +2017,7 @@ mod tests {
         let before = rt.clone();
         assert_eq!(
             rt.apply_field_change(&island_bundle(vec![IslandOp::Set {
-                island: Island::new("isl-nope".into(), "table".into())
+                island: Island::new("isl-nope".into(), IslandType::Table)
                     .with_props(table_props("H", "b")),
             }])),
             Err(ApplyError::UnknownIslandId {
@@ -2019,7 +2039,7 @@ mod tests {
 
         rt.apply_field_change(&island_bundle(vec![IslandOp::Insert {
             at: 1,
-            island: Island::new("isl-new".into(), "image".into())
+            island: Island::new("isl-new".into(), IslandType::Image)
                 .with_props(serde_json::json!({ "url": "u", "alt": "a" })),
         }]))
         .unwrap();
@@ -2117,7 +2137,7 @@ mod tests {
             delta: diff("intro", "intro\n"),
             island_ops: vec![IslandOp::Insert {
                 at: 6,
-                island: Island::new("isl-a".into(), "table".into())
+                island: Island::new("isl-a".into(), IslandType::Table)
                     .with_props(table_props("H", "a")),
             }],
             line_ops: vec![LineOp::SetKind {
@@ -2158,7 +2178,7 @@ mod tests {
     #[test]
     fn a_block_only_island_lands_only_on_a_line_of_its_own() {
         let table = |id: &str| {
-            Island::new(id.into(), "table".into()).with_props(table_props("H", "a"))
+            Island::new(id.into(), IslandType::Table).with_props(table_props("H", "a"))
         };
         let mut rt = from_markdown("ab").unwrap();
         let before = rt.clone();
@@ -2268,7 +2288,7 @@ mod tests {
             delta: diff("intro", "intro\n"),
             island_ops: vec![IslandOp::Insert {
                 at: 6,
-                island: Island::new("isl-t".into(), "table".into())
+                island: Island::new("isl-t".into(), IslandType::Table)
                     .with_props(table_props("H", "a")),
             }],
             line_ops: vec![LineOp::SetKind {

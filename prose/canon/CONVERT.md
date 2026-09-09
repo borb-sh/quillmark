@@ -92,8 +92,8 @@ behind them — or, for the `;`, eat the character. Trivia between the two ends
 the expression on its own.
 
 And a third time, at a **seam**: a position where the emitter writes nothing
-between two runs, which an island this build renders as nothing (an unknown
-type, an empty table) leaves behind. The escapers are per run, so a
+between two runs, which an island this build renders as nothing (an image, an
+empty table) leaves behind. The escapers are per run, so a
 multi-character rule sees one side of such a join at a time and the pair
 straddling it escapes neither: `a/`, that island, `/b` would write `a//b`, a
 comment that eats the rest of the line.
@@ -109,18 +109,16 @@ is a lowering bug, never a document's.
 | `LineKind::Para` | inline content; a hard break (a `continues` line join) emits `#linebreak()`, a soft break is a space (both settled at import) |
 | `LineKind::Code{lang}` (code fence) | `#raw(block: true, lang: "…", "…")`; `lang:` emitted only when the language tag is non-empty |
 | `LineKind::Rule` (thematic break) | `#line(length: 100%)` |
-| `LineKind::Unknown` (open set) | inline content, as `Para`: the role is lost to the projection, not to storage |
 | `MarkKind::Strong` | `#strong[…]` |
 | `MarkKind::Emph` | `#emph[…]` |
 | `MarkKind::Underline` | `#underline[…]` |
 | `MarkKind::Strike` | `#strike[…]` |
 | `MarkKind::Code` | `#raw("…")` (inline) |
 | `MarkKind::Link{url}` | `#link("url")[…]` (`escape_string` on the url) |
-| `MarkKind::Anchor` / `Unknown` | nothing |
+| `MarkKind::Anchor` | nothing |
 | `Container::ListItem` (bullet) | `- ` |
 | `Container::ListItem` (ordered) | `+ ` auto-numbered; the run's first item emits `N. `, which restarts Typst's running counter so an adjacent list numbers from its own `start` |
 | `Container::Quote` | `#quote(block: true)[…]` |
-| `Container::Unknown` (open set) | nothing: transparent; its run lowers at the enclosing level, one block, no wrapper |
 | `image` island | nothing, plus one `backend::declined_construct` warning per field (see [Declined images](#declined-images)) |
 | `table` island | `#table(columns: N, align: (…), table.header(…), …)` |
 
@@ -138,12 +136,8 @@ block-level discipline.
 Typst ends a list at a block written to column 0, so one emitter rule indents
 leaves and containers alike: what the content nests, the markup nests.
 
-Anchor and unknown marks emit nothing; unknown island types emit nothing
-(parallel to the HTML rule at import). An unknown line kind lowers as a
-paragraph and an unknown container as nothing at all: every content vocabulary
-is open, so a build that predates a construct renders it plainly instead of
-failing
-([DOCUMENT_STORAGE § Open vocabularies](DOCUMENT_STORAGE.md#open-vocabularies)).
+Anchor marks emit nothing; an `image` island emits nothing (see
+[Declined images](#declined-images)).
 Content that import never admits into the content: raw HTML other than `<u>`,
 HTML comments, `<br>`, math, footnotes, task lists, definition lists
 (markdown-spec §6.3): is absent here.
@@ -181,11 +175,10 @@ reads and the shape the WASM boundary pins:
 - **`image`** → `{ url, alt }`; `alt` is the empty string when the source omits
   it. What `url` names is undecided (see [Declined images](#declined-images)).
 
-The `KnownIslandType` dispatch (`crates/content/src/island.rs`) owns these
-shapes engine-side; the WASM surface pins them as `TableProps` / `ImageProps` /
-`TableCell` and types `ContentIsland.props` per the open `type`
-(`crates/bindings/wasm/src/engine.rs`). An island of any other type keeps opaque
-`props` and lowers to nothing, as above.
+The `IslandType` dispatch (`crates/content/src/island.rs`) owns these shapes
+engine-side; the WASM surface pins them as `TableProps` / `ImageProps` /
+`TableCell` and types `ContentIsland.props` per the closed `type`
+(`crates/bindings/wasm/src/engine.rs`).
 
 ## Mark sweep
 

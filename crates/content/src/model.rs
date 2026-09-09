@@ -6,6 +6,7 @@
 //! encoded: the model stores only the resulting range, so the stored form is
 //! identical whatever the editor did.
 
+use crate::island::IslandType;
 use crate::normalize::{is_bidi_char, is_line_separator};
 use serde_json::Value as JsonValue;
 use std::borrow::Cow;
@@ -91,11 +92,9 @@ impl Line {
 /// lines with equal `kind`+`containers` are two blocks of that role (e.g. two
 /// paragraphs), never one.
 ///
-/// **Open**, on the same terms as [`MarkKind`]: an unrecognized role round-trips
-/// as [`LineKind::Unknown`] and *projects* as [`LineKind::Para`], so an older
-/// reader renders a future construct as a plain paragraph instead of refusing
-/// the document, while the opaque tag+attrs still reach a reader that
-/// understands them.
+/// **Closed**, on the same terms as [`MarkKind`]: a `kind` outside this set is
+/// [`ParseError::UnknownName`](crate::serial::ParseError::UnknownName) at every
+/// decoder, so adding a role is a storage-version event.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LineKind {
     Para,
@@ -110,52 +109,33 @@ pub enum LineKind {
     },
     /// A block-level island: the line's sole content is one [`ISLAND_SLOT`]
     /// backing an island whose markdown *is* a block
-    /// ([`KnownIslandType::block_only`](crate::KnownIslandType::block_only)).
+    /// ([`IslandType::block_only`](crate::IslandType::block_only)).
     /// An image is inline markup, so a line holding one alone is
     /// [`Para`](LineKind::Para) — the kind re-importing `![alt](url)` yields,
     /// and the kind [`Content::normalize`] writes there.
     Island,
     /// A thematic break (`---`/`***`/`___`). The line carries no text.
     Rule,
-    /// Open-set escape hatch: a block role this build does not know,
-    /// round-tripped opaque and projected as [`LineKind::Para`]. Carries
-    /// arbitrary text, so no [`LineKindMismatch`] constrains it.
-    Unknown {
-        tag: String,
-        attrs: JsonValue,
-    },
 }
 
 impl LineKind {
-    /// Whether the line projects as a paragraph: [`LineKind::Para`] itself, or
-    /// an unknown role, which every projection renders as one. Use this rather
-    /// than `matches!(kind, Para)`, which reads as complete while dropping the
-    /// open arm, leaving the two emitters to drift on a construct neither knows.
-    pub fn projects_as_para(&self) -> bool {
-        matches!(self, LineKind::Para | LineKind::Unknown { .. })
-    }
-
     /// Whether a block of this kind renders the lines that [`Line::continues`]
     /// joins to its first. A paragraph spans its hard-break run and a code
     /// block its fence's interior; a heading, an island and a rule are one
     /// line, and both emitters render that line alone, so a continuation there
     /// is text the projection never reaches.
     pub fn takes_continuations(&self) -> bool {
-        matches!(
-            self,
-            LineKind::Para | LineKind::Code { .. } | LineKind::Unknown { .. }
-        )
+        matches!(self, LineKind::Para | LineKind::Code { .. })
     }
 
     /// The wire `kind` name.
-    pub fn tag(&self) -> &str {
+    pub fn tag(&self) -> &'static str {
         match self {
             LineKind::Para => "para",
             LineKind::Heading { .. } => "heading",
             LineKind::Code { .. } => "code",
             LineKind::Island => "island",
             LineKind::Rule => "rule",
-            LineKind::Unknown { tag, .. } => tag,
         }
     }
 
@@ -168,7 +148,6 @@ impl LineKind {
                 Some(l) => bag([("lang", l.as_str().into())]),
                 None => JsonValue::Null,
             }),
-            LineKind::Unknown { attrs, .. } => Cow::Borrowed(attrs),
         }
     }
 }
@@ -197,18 +176,10 @@ pub(crate) fn is_empty_bag(v: &JsonValue) -> bool {
     }
 }
 
-/// Collapse an empty bag to the one spelling. See [`is_empty_bag`].
-fn collapse_empty_bag(v: &mut JsonValue) {
-    if is_empty_bag(v) {
-        *v = JsonValue::Null;
-    }
-}
-
 /// A container a line nests inside. The ancestor path is a `Vec<Container>`.
 ///
-/// **Open**, on [`LineKind`]'s terms: an unrecognized container round-trips as
-/// [`Container::Unknown`] and projects *transparently*, its lines render at the
-/// enclosing level, with no prefix, no wrapper, and no grouping of their own.
+/// **Closed**, on [`LineKind`]'s terms: a `container` outside this set is
+/// [`ParseError::UnknownName`](crate::serial::ParseError::UnknownName).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Container {
     /// A list item. `ordered` distinguishes `1.` from `-`; `start` is the list's
@@ -229,15 +200,6 @@ pub enum Container {
     /// A block quote. Adjacent lines sharing one `Quote` are one
     /// multi-paragraph quote; two adjacent quotes differ in `instance`.
     Quote { instance: u64 },
-    /// Open-set escape hatch: a container this build does not know, kept in the
-    /// path so it round-trips, transparent to both projections. Two adjacent
-    /// lines sit in the same one iff their whole `(tag, attrs, instance)` is
-    /// equal.
-    Unknown {
-        tag: String,
-        attrs: JsonValue,
-        instance: u64,
-    },
 }
 
 impl Container {
@@ -259,18 +221,15 @@ impl Container {
     /// `0, 1, 0, 1`. Non-adjacent runs never collide, so two values suffice.
     pub fn instance(&self) -> u64 {
         match self {
-            Container::ListItem { instance, .. }
-            | Container::Quote { instance }
-            | Container::Unknown { instance, .. } => *instance,
+            Container::ListItem { instance, .. } | Container::Quote { instance } => *instance,
         }
     }
 
     /// The wire `container` name.
-    pub fn tag(&self) -> &str {
+    pub fn tag(&self) -> &'static str {
         match self {
             Container::ListItem { .. } => "list_item",
             Container::Quote { .. } => "quote",
-            Container::Unknown { tag, .. } => tag,
         }
     }
 
@@ -289,7 +248,6 @@ impl Container {
                 ("start", (*start).into()),
             ])),
             Container::Quote { .. } => Cow::Owned(JsonValue::Null),
-            Container::Unknown { attrs, .. } => Cow::Borrowed(attrs),
         }
     }
 
@@ -303,9 +261,7 @@ impl Container {
 
     fn set_instance(&mut self, n: u64) {
         match self {
-            Container::ListItem { instance, .. }
-            | Container::Quote { instance }
-            | Container::Unknown { instance, .. } => *instance = n,
+            Container::ListItem { instance, .. } | Container::Quote { instance } => *instance = n,
         }
     }
 
@@ -330,14 +286,6 @@ impl Container {
                 },
             ) => a == c && b == d,
             (Container::Quote { .. }, Container::Quote { .. }) => true,
-            (
-                Container::Unknown {
-                    tag: a, attrs: b, ..
-                },
-                Container::Unknown {
-                    tag: c, attrs: d, ..
-                },
-            ) => a == c && b == d,
             _ => false,
         }
     }
@@ -432,8 +380,8 @@ impl Mark {
     }
 }
 
-/// The mark set, **open**: an unknown kind round-trips as [`MarkKind::Unknown`],
-/// absorbed as a new *type*, never a changed semantics of a known one. Two
+/// The mark set, **closed**: a `type` outside it is
+/// [`ParseError::UnknownName`](crate::serial::ParseError::UnknownName). Two
 /// algebra classes: formatting is a property of a range (two coincident are
 /// redundant); identity is a handle (two over the same range are two things).
 #[derive(Debug, Clone, PartialEq)]
@@ -456,11 +404,6 @@ pub enum MarkKind {
     Anchor {
         id: String,
     },
-    // Open-set escape hatch: an unknown mark type, round-tripped opaque.
-    Unknown {
-        tag: String,
-        attrs: JsonValue,
-    },
 }
 
 /// A structured object with no honest text encoding (a table, figure, or future
@@ -472,9 +415,8 @@ pub struct Island {
     /// ambient. Edits keep it stable rather than re-deriving it, so
     /// [`Content::validate`] enforces uniqueness, not positional equality.
     pub id: String,
-    /// Island type discriminator (`"table"`, `"image"`, …). Unknown types
-    /// round-trip opaque.
-    pub island_type: String,
+    /// Island type discriminator, closed: see [`IslandType`].
+    pub island_type: IslandType,
     /// Typed payload. Recursively key-sorted by normalization so it hashes
     /// deterministically despite `serde_json`'s `preserve_order`.
     pub props: JsonValue,
@@ -486,12 +428,12 @@ impl Island {
     /// An island of `island_type` under `id`, carrying no payload and claiming
     /// no projection loss, which is also what the wire reads off the absent
     /// keys.
-    pub fn new(id: String, island_type: String) -> Self {
+    pub fn new(id: String, island_type: IslandType) -> Self {
         Island {
             id,
             island_type,
             props: JsonValue::Null,
-            loss: Loss::LOSSLESS,
+            loss: Loss::Lossless,
         }
     }
 
@@ -506,63 +448,16 @@ impl Island {
     }
 }
 
-/// The markdown-projection loss class of an island: a **description** of how
-/// faithfully the projection carries it, for a consumer to surface. It is not a
+/// How faithfully the markdown projection carries an island: a **description**
+/// of what the projection does with it, for a consumer to surface. It is not a
 /// switch: [`crate::export::to_markdown`] dispatches on
 /// [`Island::island_type`], never on this.
 ///
-/// Open on [`Island::island_type`]'s terms: the wire string *is* the stored
-/// value, carried verbatim even when this build lacks the class, so merely
-/// opening a document does not move its content hash. [`Fidelity`] is the closed
-/// view over it.
-///
-/// Read fidelity through [`Loss::fidelity`], never by comparing against
-/// [`Loss::LOSSLESS`]: an uninterpretable class degrades to
-/// [`Fidelity::Unrepresentable`], so nothing is claimed to carry faithfully on
-/// the strength of a name this build cannot read.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Loss(Cow<'static, str>);
-
-impl Loss {
-    /// Markdown carries it faithfully (round-trips identically).
-    pub const LOSSLESS: Loss = Loss(Cow::Borrowed(Fidelity::Lossless.as_str()));
-    /// Markdown carries an approximation (round-trips visibly, not identically).
-    pub const DEGRADED: Loss = Loss(Cow::Borrowed(Fidelity::Degraded.as_str()));
-    /// No markdown encoding: what an island type with no projection carries.
-    pub const UNREPRESENTABLE: Loss = Loss(Cow::Borrowed(Fidelity::Unrepresentable.as_str()));
-
-    /// Wrap a wire class. Every string is a class, uninterpretable ones
-    /// included; [`Loss::fidelity`] is where that is resolved. An interpretable
-    /// class borrows its `'static` spelling, so decoding allocates only for the
-    /// uninterpretable; equality is by name either way, so
-    /// `Loss::new("lossless") == Loss::LOSSLESS`.
-    pub fn new(class: &str) -> Loss {
-        match Fidelity::parse(class) {
-            Some(f) => Loss(Cow::Borrowed(f.as_str())),
-            None => Loss(Cow::Owned(class.to_string())),
-        }
-    }
-
-    /// The wire discriminator, and the canonical-form bytes.
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-
-    /// The fidelity this class describes, with an uninterpretable class degraded
-    /// to the safe end.
-    pub fn fidelity(&self) -> Fidelity {
-        Fidelity::parse(self.as_str()).unwrap_or(Fidelity::Unrepresentable)
-    }
-}
-
-/// How faithfully the markdown projection carries an island: the closed view
-/// over [`Loss`], and what a consumer switches on.
-///
-/// Exhaustive, like [`KnownIslandType`](crate::island::KnownIslandType): a
-/// consumer laddering on fidelity has no safe fallthrough for a rung it does not
-/// know, so a new rung is a major bump rather than a silent gap.
+/// Closed: a `loss` outside this set is
+/// [`ParseError::UnknownName`](crate::serial::ParseError::UnknownName), so a
+/// consumer laddering on it has no rung it cannot read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Fidelity {
+pub enum Loss {
     /// Round-trips identically.
     Lossless,
     /// Round-trips visibly, not identically.
@@ -571,14 +466,9 @@ pub enum Fidelity {
     Unrepresentable,
 }
 
-impl Fidelity {
-    /// Every level, faithful first: the one enumeration point, so a reader that
-    /// needs the closed set whole asks rather than re-spelling it.
-    pub const ALL: &'static [Fidelity] = &[
-        Fidelity::Lossless,
-        Fidelity::Degraded,
-        Fidelity::Unrepresentable,
-    ];
+impl Loss {
+    /// Every level, faithful first: the one enumeration point.
+    pub const ALL: &'static [Loss] = &[Loss::Lossless, Loss::Degraded, Loss::Unrepresentable];
 
     /// The wire class naming this level: the one place a class is spelled.
     pub const fn as_str(self) -> &'static str {
@@ -589,22 +479,19 @@ impl Fidelity {
         }
     }
 
-    /// Parse a wire class into the closed view. `None` is the open-set escape
-    /// hatch (an uninterpretable class), which [`Loss::fidelity`] reads as
-    /// [`Unrepresentable`](Fidelity::Unrepresentable).
-    pub fn parse(class: &str) -> Option<Fidelity> {
+    /// Parse a wire class; `parse(l.as_str()) == Some(l)` for every variant.
+    pub fn parse(class: &str) -> Option<Loss> {
         Self::ALL.iter().copied().find(|f| f.as_str() == class)
     }
 }
 
 impl MarkKind {
     /// Formatting marks are a property of a range and union when coincident;
-    /// identity/unknown marks are handles and never merge.
+    /// an identity mark is a handle and never merges.
     ///
-    /// Class membership is stored meaning, not presentation: promoting an
-    /// open-set tag *into* this class starts unioning adjacent runs that
-    /// round-tripped as two marks, moving the canonical bytes of documents
-    /// nobody edited.
+    /// Class membership is stored meaning, not presentation: moving a member
+    /// *into* this class starts unioning adjacent runs that round-tripped as
+    /// two marks, moving the canonical bytes of documents nobody edited.
     pub fn is_formatting(&self) -> bool {
         matches!(
             self,
@@ -618,7 +505,7 @@ impl MarkKind {
     }
 
     /// The wire `type` name.
-    pub fn tag(&self) -> &str {
+    pub fn tag(&self) -> &'static str {
         match self {
             MarkKind::Strong => "strong",
             MarkKind::Emph => "emph",
@@ -627,7 +514,6 @@ impl MarkKind {
             MarkKind::Code => "code",
             MarkKind::Link { .. } => "link",
             MarkKind::Anchor { .. } => "anchor",
-            MarkKind::Unknown { tag, .. } => tag,
         }
     }
 
@@ -641,22 +527,18 @@ impl MarkKind {
             | MarkKind::Code => Cow::Owned(JsonValue::Null),
             MarkKind::Link { url } => Cow::Owned(bag([("url", url.as_str().into())])),
             MarkKind::Anchor { id } => Cow::Owned(bag([("id", id.as_str().into())])),
-            MarkKind::Unknown { attrs, .. } => Cow::Borrowed(attrs),
         }
     }
 
     /// The canonical sort tie-break after `(start, end)`, and the grouping key
     /// for same-kind union (two `link`s union only at one url).
     ///
-    /// It is the pair the **wire** carries, read back off the value: a build
-    /// that knows a member and a build that reads it as [`MarkKind::Unknown`]
-    /// compute the same key from the same bytes, so one document has one
-    /// canonical form whatever either build's vocabulary is.
+    /// It is the pair the **wire** carries, read back off the value, so
+    /// canonical order is a function of the stored bytes rather than of variant
+    /// declaration order: adding a member reorders nothing already stored.
     ///
     /// The attrs half comes from [`attrs`](Self::attrs) rather than a string per
-    /// arm, so it cannot disagree with what the encoder writes — which it would
-    /// do first on a member whose payload is optional, where the two builds see
-    /// an empty bag and an absent one.
+    /// arm, so it cannot disagree with what the encoder writes.
     pub fn sort_key(&self) -> (String, String) {
         let attrs = self.attrs();
         let attrs = if is_empty_bag(&attrs) {
@@ -670,7 +552,7 @@ impl MarkKind {
 
 /// A `serde_json::Value` rendered to a string with object keys recursively
 /// sorted: order-insensitive, so it is a stable comparison/grouping key.
-fn canonical_json_string(v: &JsonValue) -> String {
+pub(crate) fn canonical_json_string(v: &JsonValue) -> String {
     if is_value_key_sorted(v) {
         return serde_json::to_string(v).unwrap_or_default();
     }
@@ -806,14 +688,6 @@ pub enum Invariant {
     /// continuation's text reaches no projection. `normalize` clears the flag;
     /// this catches a hand-built content that skipped it.
     ContinuesSingleLineBlock { line: usize },
-    /// An [`MarkKind::Unknown`] reused a reserved built-in `type` name.
-    ReservedUnknownTag(String),
-    /// A [`LineKind::Unknown`] reused a reserved built-in `kind` name: its
-    /// serialization would parse back as the built-in, dropping its attrs.
-    ReservedUnknownLineKind(String),
-    /// A [`Container::Unknown`] reused a reserved built-in `container` name, the
-    /// same non-injectivity as [`Invariant::ReservedUnknownLineKind`].
-    ReservedUnknownContainer(String),
     /// A formatting mark edge sits on a `\n` (normalization should have trimmed
     /// it): a hand-built content that skipped `normalize`.
     MarkEdgeOnNewline { at: Usv },
@@ -844,7 +718,7 @@ pub enum Invariant {
     /// never re-reads the segment, so an unchecked mismatch is silent text loss.
     LineKindMismatch { line: usize, mismatch: LineKindMismatch },
     /// A block-only island's slot
-    /// ([`KnownIslandType::block_only`](crate::KnownIslandType::block_only))
+    /// ([`IslandType::block_only`](crate::IslandType::block_only))
     /// shares its line with other content, which has no markdown spelling.
     /// `normalize` breaks the line around the slot; the lanes that author one
     /// refuse the placement
@@ -860,8 +734,7 @@ pub enum Invariant {
         depth: usize,
         max: usize,
     },
-    /// An opaque JSON payload (an island's `props`, an unknown line/container/
-    /// mark's `attrs`) nests deeper than
+    /// An opaque JSON payload (an island's `props`) nests deeper than
     /// [`MAX_JSON_DEPTH`](crate::MAX_JSON_DEPTH). `what` names the bag; no true
     /// depth is reported, since the check bails at the first over-deep
     /// container.
@@ -921,7 +794,7 @@ pub(crate) fn inline_block_islands<'a>(
         .filter(|&(_, &c)| c == ISLAND_SLOT)
         .zip(islands)
         .filter(|&((at, _), island)| {
-            crate::island::island_is_block_only(island) && !is_whole_line(chars, at, at + 1)
+            island.island_type.block_only() && !is_whole_line(chars, at, at + 1)
         })
         .map(|((at, _), _)| at)
 }
@@ -946,16 +819,15 @@ fn fragment_line(line: &Line, span: std::ops::Range<Usv>, breaks: &[Usv], first:
 
 /// The [`LineKind`] a line whose sole content is one [`ISLAND_SLOT`] carries in
 /// canonical form: [`LineKind::Island`] where markdown writes that island as a
-/// block ([`KnownIslandType::block_only`](crate::KnownIslandType::block_only)),
+/// block ([`IslandType::block_only`](crate::IslandType::block_only)),
 /// [`LineKind::Para`] where it writes it inline. Both spell one markdown, so the
 /// model keeps the one re-importing it yields, and [`Content::normalize`] writes
 /// that one.
 ///
 /// `None` leaves the stored kind standing, on the three counts the projection
 /// settles nothing: a line holding more than the slot, a kind whose own contract
-/// carries a slot ([`LineKind::Heading`], the open [`LineKind::Unknown`]), and
-/// an island type this build cannot read — its placeholder projects no kind
-/// back, and its spelling is not this build's to move.
+/// carries a slot ([`LineKind::Heading`]), and an island whose type projects no
+/// kind back.
 fn island_line_kind(kind: &LineKind, seg: &str, island: Option<&Island>) -> Option<LineKind> {
     if !matches!(kind, LineKind::Para | LineKind::Island) {
         return None;
@@ -964,7 +836,7 @@ fn island_line_kind(kind: &LineKind, seg: &str, island: Option<&Island>) -> Opti
     if (chars.next(), chars.next()) != (Some(ISLAND_SLOT), None) {
         return None;
     }
-    let known = crate::island::KnownIslandType::parse(&island?.island_type)?;
+    let known = island?.island_type;
     Some(if known.block_only() {
         LineKind::Island
     } else {
@@ -1055,9 +927,8 @@ impl Content {
     /// Normalize in place: canonicalize container `ordinal`/`instance`, break a
     /// line around a block-only island's slot, drop zero-width formatting, union
     /// same-kind formatting that is adjacent or overlapping, recursively
-    /// key-sort island props and unknown-mark attrs, then sort marks
-    /// canonically. Idempotent: the fixed point the canonical serialization
-    /// commits to.
+    /// key-sort island props, then sort marks canonically. Idempotent: the
+    /// fixed point the canonical serialization commits to.
     pub fn normalize(&mut self) {
         canonicalize_containers(&mut self.lines);
         // A splice writes text, never kinds: typing into a table line leaves it
@@ -1075,16 +946,6 @@ impl Content {
                 line.kind = kind;
             }
             slot += seg.chars().filter(|&c| c == ISLAND_SLOT).count();
-            if let LineKind::Unknown { attrs, .. } = &mut line.kind {
-                canonicalize_keys(attrs);
-                collapse_empty_bag(attrs);
-            }
-            for c in &mut line.containers {
-                if let Container::Unknown { attrs, .. } = c {
-                    canonicalize_keys(attrs);
-                    collapse_empty_bag(attrs);
-                }
-            }
         }
         self.split_block_islands();
         // Two accepted ops leave a `continues` line under a block it cannot
@@ -1105,14 +966,8 @@ impl Content {
         // `\n` rewritten to a space, cell marks canonicalized) before the key
         // sort, so equal cells serialize to equal bytes and `validate` holds.
         for island in &mut self.islands {
-            crate::island::normalize_island_structure(island);
+            island.island_type.normalize_props(&mut island.props);
             canonicalize_keys(&mut island.props);
-        }
-        for mark in &mut self.marks {
-            if let MarkKind::Unknown { attrs, .. } = &mut mark.kind {
-                canonicalize_keys(attrs);
-                collapse_empty_bag(attrs);
-            }
         }
         // A formatting mark's edges never sit on a line boundary: markdown can't
         // bold a `\n`, so two producers that disagree only about whether the
@@ -1149,7 +1004,7 @@ impl Content {
     fn split_block_islands(&mut self) {
         use crate::delta::{Delta, Op};
 
-        if !self.islands.iter().any(crate::island::island_is_block_only)
+        if !self.islands.iter().any(|i| i.island_type.block_only())
             || self.lines.len() != self.segment_count()
         {
             return;
@@ -1207,38 +1062,6 @@ impl Content {
         self.lines = lines;
         self.rebase_marks(&Delta { ops });
     }
-
-    /// Mark `type` names the projection reserves; an [`MarkKind::Unknown`] may
-    /// not reuse one (its serialization would parse back as the built-in,
-    /// silently dropping its attrs: non-injective).
-    ///
-    /// [`Content::validate`] is the one enforcement point, and an in-process
-    /// Rust construction the one way in: every decoder resolves a built-in name
-    /// before the `Unknown` fallthrough, so no wire value produces a
-    /// reserved-tag `Unknown` for a lane to reject.
-    ///
-    /// This list and its two siblings are re-spelled by hand on the TypeScript
-    /// surface and pinned to these constants by
-    /// `crates/bindings/wasm/tests/known_names_drift.rs`.
-    pub const RESERVED_MARK_TYPES: &'static [&'static str] = &[
-        "strong",
-        "emph",
-        "underline",
-        "strike",
-        "code",
-        "link",
-        "anchor",
-    ];
-
-    /// Line `kind` names the projection reserves: the [`LineKind`] twin of
-    /// [`RESERVED_MARK_TYPES`](Self::RESERVED_MARK_TYPES), for the same
-    /// injectivity reason.
-    pub const RESERVED_LINE_KINDS: &'static [&'static str] =
-        &["para", "heading", "code", "island", "rule"];
-
-    /// Container names the projection reserves: the [`Container`] twin of
-    /// [`RESERVED_MARK_TYPES`](Self::RESERVED_MARK_TYPES).
-    pub const RESERVED_CONTAINERS: &'static [&'static str] = &["list_item", "quote"];
 
     /// Check every invariant. `Ok(())` on a well-formed content. Import
     /// guarantees this; a hand-built content should be run through it in tests.
@@ -1300,7 +1123,7 @@ impl Content {
         // The formatting-mark edge test and the block-island placement test are
         // its only readers.
         let reads_chars = self.marks.iter().any(|m| m.kind.is_formatting())
-            || self.islands.iter().any(crate::island::island_is_block_only);
+            || self.islands.iter().any(|i| i.island_type.block_only());
         let chars: Vec<char> = if reads_chars {
             self.text.chars().collect()
         } else {
@@ -1327,19 +1150,10 @@ impl Content {
                     return Err(Invariant::MarkEdgeOnNewline { at: m.end - 1 });
                 }
             }
-            match &m.kind {
-                MarkKind::Unknown { tag, attrs } => {
-                    if Self::RESERVED_MARK_TYPES.contains(&tag.as_str()) {
-                        return Err(Invariant::ReservedUnknownTag(tag.clone()));
-                    }
-                    check_json_depth(attrs, "mark attrs")?;
-                }
-                MarkKind::Anchor { id } => {
-                    if id.is_empty() || !seen_anchor_ids.insert(id.as_str()) {
-                        return Err(Invariant::AnchorIdCollision { id: id.clone() });
-                    }
-                }
-                _ => {}
+            if let MarkKind::Anchor { id } = &m.kind
+                && (id.is_empty() || !seen_anchor_ids.insert(id.as_str()))
+            {
+                return Err(Invariant::AnchorIdCollision { id: id.clone() });
             }
         }
         // `lines.len()` already equals the segment count, so the zip is total.
@@ -1348,21 +1162,7 @@ impl Content {
                 LineKind::Heading { level } if !(1..=6).contains(level) => {
                     return Err(Invariant::BadHeadingLevel(*level));
                 }
-                LineKind::Unknown { tag, attrs } => {
-                    if Self::RESERVED_LINE_KINDS.contains(&tag.as_str()) {
-                        return Err(Invariant::ReservedUnknownLineKind(tag.clone()));
-                    }
-                    check_json_depth(attrs, "line attrs")?;
-                }
                 _ => {}
-            }
-            for c in &line.containers {
-                if let Container::Unknown { tag, attrs, .. } = c {
-                    if Self::RESERVED_CONTAINERS.contains(&tag.as_str()) {
-                        return Err(Invariant::ReservedUnknownContainer(tag.clone()));
-                    }
-                    check_json_depth(attrs, "container attrs")?;
-                }
             }
             if let Some(mismatch) = line_kind_mismatch(&line.kind, seg) {
                 return Err(Invariant::LineKindMismatch { line: i, mismatch });
@@ -1380,9 +1180,7 @@ impl Content {
         }
         // Table-cell marks: the prose range and zero-width rules again, but each
         // mark is bounded by its own cell's text length (in USV). Cells hold no
-        // `\n`, so the edge-on-newline rule does not apply, and neither does the
-        // reserved-tag rule: `parse_cell` resolves every built-in name before its
-        // `Unknown` arm, so a cell mark is never a reserved-tag unknown.
+        // `\n`, so the edge-on-newline rule does not apply.
         let mut seen_ids = std::collections::HashSet::with_capacity(self.islands.len());
         for island in &self.islands {
             if !seen_ids.insert(island.id.as_str()) {
@@ -1393,10 +1191,10 @@ impl Content {
             // Depth before any pass that walks `props`; a cell's own `attrs` is
             // a subtree, so this bounds the cell marks read below as well.
             check_json_depth(&island.props, "island props")?;
-            if let Some(e) = crate::island::island_shape_error(island) {
+            if let Some(e) = island.island_type.shape_error(&island.props) {
                 return Err(e);
             }
-            for (text, marks) in crate::island::island_cell_marks(island) {
+            for (text, marks) in island.island_type.cell_marks(&island.props) {
                 let clen = text.chars().count();
                 for m in &marks {
                     if m.start > m.end || m.end > clen {
@@ -1502,8 +1300,8 @@ fn canonicalize_containers(lines: &mut [Line]) {
 
 /// Apply the three merge rules and the canonical sort to a flat mark list:
 /// same-kind formatting marks union when adjacent *or* overlapping, different
-/// kinds overlap freely (never split into runs), and identity/unknown marks
-/// never merge. Zero-width formatting is dropped; zero-width anchors survive.
+/// kinds overlap freely (never split into runs), and an identity mark never
+/// merges. Zero-width formatting is dropped; zero-width anchors survive.
 pub(crate) fn normalize_marks(marks: Vec<Mark>) -> Vec<Mark> {
     use std::collections::BTreeMap;
 
@@ -1640,9 +1438,9 @@ mod tests {
         let mut code = tagged(&format!("a{ISLAND_SLOT}b"), LineKind::Code { lang: None });
         code.islands = vec![Island {
             id: "isl-0".into(),
-            island_type: "image".into(),
+            island_type: IslandType::Image,
             props: serde_json::json!({"alt": "x", "url": "y.png"}),
-            loss: Loss::LOSSLESS,
+            loss: Loss::Lossless,
         }];
         assert_eq!(
             code.validate(),
@@ -1679,7 +1477,7 @@ mod tests {
 
     /// A one-cell table: the island type markdown writes as a block.
     fn table_island() -> Island {
-        Island::new("isl-0".into(), "table".into()).with_props(serde_json::json!({
+        Island::new("isl-0".into(), IslandType::Table).with_props(serde_json::json!({
             "aligns": ["none"],
             "header": [{"marks": [], "text": "h"}],
             "rows": [[{"marks": [], "text": "c"}]],
@@ -1692,14 +1490,14 @@ mod tests {
     /// a kind its own markdown denies.
     #[test]
     fn an_island_alone_on_a_line_takes_the_kind_its_type_projects() {
-        let image = Island::new("isl-0".into(), "image".into())
+        let image = Island::new("isl-0".into(), IslandType::Image)
             .with_props(serde_json::json!({"alt": "a", "url": "u"}));
         for (island, canonical) in [
             (table_island(), LineKind::Island),
             (image, LineKind::Para),
         ] {
             for stored in [LineKind::Para, LineKind::Island] {
-                let what = format!("{} as {stored:?}", island.island_type);
+                let what = format!("{} as {stored:?}", island.island_type.as_str());
                 let rt = tagged(&ISLAND_SLOT.to_string(), stored)
                     .with_islands(vec![island.clone()])
                     .into_normalized();
@@ -1712,20 +1510,6 @@ mod tests {
                     "{what} is not a fixed point: {md:?}"
                 );
             }
-        }
-    }
-
-    /// An island type this build cannot read projects to a placeholder that
-    /// carries no island back, so nothing in the markdown names a kind for its
-    /// line. The stored spelling stands: reading a document is not licence to
-    /// move the bytes of a construct this build does not understand.
-    #[test]
-    fn an_unknown_island_keeps_the_line_kind_it_was_stored_with() {
-        for stored in [LineKind::Para, LineKind::Island] {
-            let mut rt = tagged(&ISLAND_SLOT.to_string(), stored.clone())
-                .with_islands(vec![Island::new("isl-0".into(), "widget".into())]);
-            rt.normalize();
-            assert_eq!(rt.lines[0].kind, stored);
         }
     }
 
@@ -1761,43 +1545,12 @@ mod tests {
             })
         };
 
-        let mut rt = tagged("hi", LineKind::Para);
-        rt.lines[0].kind = LineKind::Unknown {
-            tag: "callout".into(),
-            attrs: nested(crate::MAX_JSON_DEPTH),
-        };
-        assert_eq!(rt.validate(), Ok(()));
-        rt.lines[0].kind = LineKind::Unknown {
-            tag: "callout".into(),
-            attrs: nested(crate::MAX_JSON_DEPTH + 1),
-        };
-        assert_eq!(rt.validate(), too_deep("line attrs"));
-
-        let mut rt = tagged("hi", LineKind::Para);
-        rt.lines[0].containers = vec![Container::Unknown {
-            tag: "indent".into(),
-            attrs: nested(crate::MAX_JSON_DEPTH + 1),
-            instance: 0,
-        }];
-        assert_eq!(rt.validate(), too_deep("container attrs"));
-
-        let mut rt = tagged("hi", LineKind::Para);
-        rt.marks = vec![Mark {
-            start: 0,
-            end: 2,
-            kind: MarkKind::Unknown {
-                tag: "sparkle".into(),
-                attrs: nested(crate::MAX_JSON_DEPTH + 1),
-            },
-        }];
-        assert_eq!(rt.validate(), too_deep("mark attrs"));
-
         let mut rt = tagged("\u{fffc}", LineKind::Island);
         rt.islands = vec![Island {
             id: "i1".into(),
-            island_type: "widget".into(),
+            island_type: IslandType::Image,
             props: nested(crate::MAX_JSON_DEPTH + 1),
-            loss: Loss::LOSSLESS,
+            loss: Loss::Lossless,
         }];
         assert_eq!(rt.validate(), too_deep("island props"));
     }
@@ -2117,7 +1870,7 @@ mod tests {
     fn continues_after_a_single_line_block_is_cleared() {
         let cases = [
             (LineKind::Heading { level: 1 }, "a\nb", "# a\n\nb"),
-            (LineKind::Island, "\u{FFFC}\nb", "<!-- island:widget -->\n\nb"),
+            (LineKind::Island, "\u{FFFC}\nb", "| h |\n| --- |\n| c |\n\nb"),
             (LineKind::Rule, "\nb", "***\n\nb"),
         ];
         for (kind, text, markdown) in cases {
@@ -2129,7 +1882,12 @@ mod tests {
                 ],
             )
             .with_islands(match kind {
-                LineKind::Island => vec![Island::new("isl-0".into(), "widget".into())],
+                LineKind::Island => vec![Island::new("isl-0".into(), IslandType::Table)
+                    .with_props(serde_json::json!({
+                        "header": [{"text": "h", "marks": []}],
+                        "rows": [[{"text": "c", "marks": []}]],
+                        "aligns": ["none"],
+                    }))],
                 _ => vec![],
             });
             assert_eq!(
@@ -2176,13 +1934,13 @@ mod tests {
             }];
             rt.islands = vec![Island {
                 id: "i".into(),
-                island_type: "table".into(),
+                island_type: IslandType::Table,
                 props: serde_json::json!({
                     "aligns": ["none"],
                     "header": [{"text": "abcd", "marks": cell_marks}],
                     "rows": [],
                 }),
-                loss: Loss::LOSSLESS,
+                loss: Loss::Lossless,
             }];
             rt
         }
@@ -2239,14 +1997,14 @@ mod tests {
         }];
         rt.islands = vec![Island {
             id: "i".into(),
-            island_type: "table".into(),
+            island_type: IslandType::Table,
             props: serde_json::json!({
                 "aligns": ["none"],
                 // "ab" is 2 USV; a mark ending at 5 runs past the cell.
                 "header": [{"text": "ab", "marks": [{"start": 0, "end": 5, "type": "strong"}]}],
                 "rows": [],
             }),
-            loss: Loss::LOSSLESS,
+            loss: Loss::Lossless,
         }];
         assert_eq!(
             rt.validate(),
@@ -2268,9 +2026,9 @@ mod tests {
         }];
         rt.islands = vec![Island {
             id: "i".into(),
-            island_type: "table".into(),
+            island_type: IslandType::Table,
             props,
-            loss: Loss::LOSSLESS,
+            loss: Loss::Lossless,
         }];
         rt
     }
@@ -2390,9 +2148,9 @@ mod tests {
         ];
         let table = |id: &str| Island {
             id: id.into(),
-            island_type: "table".into(),
+            island_type: IslandType::Table,
             props: serde_json::json!({ "header": [cell("h")], "aligns": ["none"], "rows": [] }),
-            loss: Loss::LOSSLESS,
+            loss: Loss::Lossless,
         };
         rt.islands = vec![table("dup"), table("dup")];
         assert_eq!(

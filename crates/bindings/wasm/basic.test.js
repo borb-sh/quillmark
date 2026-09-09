@@ -252,6 +252,30 @@ describe('Document JSON DTO: toStored / fromStored', () => {
     ).toThrow()
   })
 
+  // A row a host authored a vocabulary name of its own into is the one
+  // population the closure costs: it opened before, and does not now.
+  it('a row naming a construct outside the vocabulary does not open', () => {
+    const dto = Document.fromMarkdown(TEST_MARKDOWN).toStored()
+    const outside = dto.replace('"kind":"para"', '"kind":"callout"')
+    expect(outside).not.toBe(dto)
+
+    // The message names the axis and the name, which is the whole diagnosis.
+    expect(() => Document.fromStored(outside)).toThrow(/callout/)
+    // The tag still reads, so a host can tell a content refusal from a version
+    // mismatch rather than routing the row into the markdown parser.
+    expect(Document.storageVersionOf(outside)).toBe(Document.currentStorageVersion())
+  })
+
+  it('overwrite refuses a name outside the vocabulary', () => {
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const rt = importMarkdown('body')
+    rt.marks = [{ start: 0, end: 1, type: 'highlight' }]
+    expect(() => doc.overwrite({}, rt)).toThrow(/highlight/)
+    // Still serving: a refusal, not a trap.
+    doc.overwrite({}, importMarkdown('after'))
+    expect(doc.main.body.text).toBe('after')
+  })
+
   it('storageVersionOf reads the schema tag off any payload, or undefined', () => {
     const current = Document.fromMarkdown(TEST_MARKDOWN).toStored()
     expect(Document.storageVersionOf(current)).toBe(Document.currentStorageVersion())
@@ -611,7 +635,7 @@ describe('Document editor surface: setQuillRef / overwrite / revise', () => {
     let deep = []
     for (let i = 0; i < 5000; i++) deep = [deep]
     const rt = importMarkdown('body')
-    rt.islands = [{ id: 'i1', type: 'widget', loss: 'lossless', props: deep }]
+    rt.islands = [{ id: 'i1', type: 'image', loss: 'lossless', props: deep }]
     // Matched on the message: a slot/shape complaint would pass a bare toThrow
     // while the depth door stayed open.
     expect(() => doc.overwrite({}, rt)).toThrow(/nests deeper/)

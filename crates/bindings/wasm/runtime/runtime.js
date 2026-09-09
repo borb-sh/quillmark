@@ -215,67 +215,14 @@ function requireLocalQuill(quill, method) {
 	throw notLocal(quill, method, 'Quill');
 }
 
-// A predicate rather than an exported name list, because these tables are
-// upstream's business: `tests/known_names_drift.rs` pins them against the Rust
-// source, so adding a built-in means editing there, here, and the TS unions in
-// `src/engine.rs` in one commit.
-
-const KNOWN_LINE_KINDS = new Set(['para', 'heading', 'code', 'island', 'rule']);
-const KNOWN_CONTAINERS = new Set(['list_item', 'quote']);
-const KNOWN_MARK_TYPES = new Set(['strong', 'emph', 'underline', 'strike', 'code', 'link', 'anchor']);
-const KNOWN_ISLAND_TYPES = new Set(['table', 'image']);
-
-/**
- * @param {import('../core/wasm.js').ContentLine} line
- * @returns {line is import('../core/wasm.js').ContentLine & { kind: string; attrs: unknown }}
- */
-export function isUnknownLine(line) {
-	return typeof line?.kind === 'string' && !KNOWN_LINE_KINDS.has(line.kind);
-}
-
-/**
- * @param {import('../core/wasm.js').ContentContainer} container
- * @returns {container is import('../core/wasm.js').ContentContainer & { container: string; attrs: unknown }}
- */
-export function isUnknownContainer(container) {
-	return typeof container?.container === 'string' && !KNOWN_CONTAINERS.has(container.container);
-}
-
-/**
- * @param {import('../core/wasm.js').ContentMark} mark
- * @returns {mark is import('../core/wasm.js').ContentMark & { type: string; attrs: unknown }}
- */
-export function isUnknownMark(mark) {
-	return typeof mark?.type === 'string' && !KNOWN_MARK_TYPES.has(mark.type);
-}
-
-/**
- * @param {import('../core/wasm.js').ContentIsland} island
- * @returns {island is import('../core/wasm.js').ContentIsland & { type: string; props: unknown }}
- */
-export function isUnknownIsland(island) {
-	return typeof island?.type === 'string' && !KNOWN_ISLAND_TYPES.has(island.type);
-}
-
 // WELD_KEYS is the rule `Container::same_weld` owns upstream: which `attrs`
 // entries two adjacent runs must share for the markdown projection to read them
 // as one. `start` is not among them, since CommonMark reads only a list's first
-// number — a subset, which is why a built-in needs an entry rather than the
-// unknown branch's whole-bag compare. A table rather than a switch, so
-// `tests/known_names_drift.rs` can pin it against the Rust predicate.
+// number — a subset, which is why every container needs its own entry. A table
+// rather than a switch, so `tests/known_names_drift.rs` can pin it against the
+// Rust predicate.
 
 const WELD_KEYS = { list_item: ['ordered'], quote: [] };
-
-function sameJson(a, b) {
-	if (a === b) return true;
-	if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
-	if (Array.isArray(a) !== Array.isArray(b)) return false;
-	const ka = Object.keys(a);
-	return (
-		ka.length === Object.keys(b).length &&
-		ka.every((k) => Object.hasOwn(b, k) && sameJson(a[k], b[k]))
-	);
-}
 
 /**
  * @param {import('../core/wasm.js').ContentContainer} a
@@ -283,12 +230,11 @@ function sameJson(a, b) {
  * @returns {boolean}
  */
 function weldsWith(a, b) {
-	// A malformed value welds with nothing. The membership guards' posture:
-	// answer rather than throw.
+	// A malformed value welds with nothing: answer rather than throw.
 	if (typeof a?.container !== 'string' || a.container !== b?.container) return false;
-	// `hasOwn`, so a tag colliding with an `Object.prototype` member reaches the
-	// unknown branch rather than a function.
-	if (!Object.hasOwn(WELD_KEYS, a.container)) return sameJson(a.attrs, b.attrs);
+	// `hasOwn`, so a tag colliding with an `Object.prototype` member answers
+	// `false` rather than reaching a function.
+	if (!Object.hasOwn(WELD_KEYS, a.container)) return false;
 	return WELD_KEYS[a.container].every((k) => a.attrs?.[k] === b.attrs?.[k]);
 }
 

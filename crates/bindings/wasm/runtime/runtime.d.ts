@@ -175,49 +175,12 @@ export interface QuillmarkError extends Error {
  */
 export declare function isQuillmarkError(e: unknown): e is QuillmarkError;
 
-import type {
-	ContentIsland,
-	ContentMark,
-	ContentLine,
-	ContentContainer
-} from '../core/wasm.js';
+import type { ContentContainer } from '../core/wasm.js';
 
-// `ContentIsland.type`, `ContentMark.type`, `ContentLine.kind`, and
-// `ContentContainer.container` are open sets: each union has a residual
-// `{ …: string; … }` arm, so a bare discriminant check never narrows the
-// payload (TS keeps the residual arm live, since a `string` can equal the
-// literal). A consumer switching on a known arm asserts the payload itself.
-//
-// These four answer the other question, "is this a value
-// this build knows?", the one a read-modify-write consumer must ask: an
-// edit restates every line's kind and containers, so a construct the consumer
-// cannot hold is gone on write-back unless carried inertly, and enumerating the
-// built-in names by hand re-couples to a closed set.
-//
-// They classify unknown TAGS, not unknown payloads on known tags: a future
-// `kind: "footnote"` carrying an `attrs.ref` loses `ref` at any consumer that
-// predates it, with or without these. The spelling needs no classifying: a
-// payload rides `attrs` whether or not this build knows the name.
-
-/** True when this build does not know `line.kind`: the open arm, carrying opaque `attrs`. */
-export declare function isUnknownLine(
-	line: ContentLine
-): line is ContentLine & { kind: string; attrs: unknown };
-
-/** True when this build does not know `container.container`. See {@link isUnknownLine}. */
-export declare function isUnknownContainer(
-	container: ContentContainer
-): container is ContentContainer & { container: string; attrs: unknown };
-
-/** True when this build does not know `mark.type`. See {@link isUnknownLine}. */
-export declare function isUnknownMark(
-	mark: ContentMark
-): mark is ContentMark & { type: string; attrs: unknown };
-
-/** True when this build does not know `island.type` (its payload rides `props`, not `attrs`). */
-export declare function isUnknownIsland(
-	island: ContentIsland
-): island is ContentIsland & { type: string; props: unknown };
+// `ContentIsland.type`, `ContentMark.type`, `ContentLine.kind`,
+// `ContentContainer.container` and an island's `loss` are closed sets, so a
+// bare discriminant check narrows the payload on its own:
+// `line.kind === 'heading'` reaches `line.attrs.level`, with no guard to call.
 
 /**
  * Stamp `instance` across one parent's blocks at one depth, in document order,
