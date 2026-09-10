@@ -438,7 +438,7 @@ impl QuillConfig {
             }
             // An enum coerces as a string; domain membership is the validation
             // layer's, an out-of-domain string being a value error.
-            FieldType::String | FieldType::Enum => {
+            FieldType::String | FieldType::Enum { .. } => {
                 if json_value.is_string() {
                     return Ok(value.clone());
                 }
@@ -858,7 +858,7 @@ impl QuillConfig {
                     ),
                 );
             }
-            let Some(values) = &schema.enum_values else {
+            let FieldType::Enum { values } = &schema.r#type else {
                 return err(
                     "quill::variants_on_non_enum",
                     format!(
@@ -1039,43 +1039,41 @@ impl QuillConfig {
         owner_label: &str,
         errors: &mut Vec<Diagnostic>,
     ) {
-        if let Some(values) = &field.enum_values {
-            for v in values {
-                if v.is_empty() {
-                    errors.push(
-                        Diagnostic::new(
-                            Severity::Error,
-                            format!(
-                                "{} declares `\"\"` in `values:`. The blank is not a \
-                                 choice: it is supplied by the engine and always \
-                                 accepted.",
-                                owner_label
-                            ),
-                        )
-                        .with_code("quill::enum_blank_member".to_string())
-                        .with_hint(
-                            "Remove `\"\"` from `values:`; every enum accepts the blank \
-                             already. Keep `default: \"\"` to leave the field optional, \
-                             and declare a member such as `undecided` or `n_a` where \
-                             the empty state is itself a choice someone makes."
-                                .to_string(),
+        for v in field.domain() {
+            if v.is_empty() {
+                errors.push(
+                    Diagnostic::new(
+                        Severity::Error,
+                        format!(
+                            "{} declares `\"\"` in `values:`. The blank is not a \
+                             choice: it is supplied by the engine and always \
+                             accepted.",
+                            owner_label
                         ),
-                    );
-                }
-                if v.contains('>') || v.contains(';') || v.contains('|') {
-                    errors.push(
-                        Diagnostic::new(
-                            Severity::Error,
-                            format!(
-                                "{} enum value '{}' contains a reserved character \
-                                 ('>', ';', or '|') that conflicts with the \
-                                 blueprint inline annotation grammar.",
-                                owner_label, v
-                            ),
-                        )
-                        .with_code("quill::format_literal_reserved_char".to_string()),
-                    );
-                }
+                    )
+                    .with_code("quill::enum_blank_member".to_string())
+                    .with_hint(
+                        "Remove `\"\"` from `values:`; every enum accepts the blank \
+                         already. Keep `default: \"\"` to leave the field optional, \
+                         and declare a member such as `undecided` or `n_a` where \
+                         the empty state is itself a choice someone makes."
+                            .to_string(),
+                    ),
+                );
+            }
+            if v.contains('>') || v.contains(';') || v.contains('|') {
+                errors.push(
+                    Diagnostic::new(
+                        Severity::Error,
+                        format!(
+                            "{} enum value '{}' contains a reserved character \
+                             ('>', ';', or '|') that conflicts with the \
+                             blueprint inline annotation grammar.",
+                            owner_label, v
+                        ),
+                    )
+                    .with_code("quill::format_literal_reserved_char".to_string()),
+                );
             }
         }
     }
@@ -1289,9 +1287,8 @@ impl QuillConfig {
                     };
                     let hint = if schema.is_variant_bearing() && actual == "object" {
                         let member = schema
-                            .enum_values
-                            .as_ref()
-                            .and_then(|v| v.first())
+                            .domain()
+                            .first()
                             .map(String::as_str)
                             .unwrap_or("<member>");
                         format!(
@@ -2022,7 +2019,7 @@ pub(crate) fn field_contains_content(field: &FieldSchema) -> bool {
         // world is live is a value-time fact and this is a schema question, so
         // the union answers it: a cell that can hold content means the
         // container's companions, resting form and seed must all handle one.
-        FieldType::Enum => field.variants.as_ref().is_some_and(|v| {
+        FieldType::Enum { .. } => field.variants.as_ref().is_some_and(|v| {
             v.values()
                 .flat_map(|set| set.values())
                 .any(|f| field_contains_content(f))

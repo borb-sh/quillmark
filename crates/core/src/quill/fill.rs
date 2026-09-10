@@ -21,12 +21,6 @@ pub fn blank(field: &FieldSchema) -> QuillValue {
         obj.insert(VARIANT_DISCRIMINANT_KEY.to_string(), json!(""));
         return QuillValue::from_json(serde_json::Value::Object(obj));
     }
-    // Keyed on the carrier rather than the `Enum` token, as every consumer of a
-    // finite domain is, so a serde-built schema whose type and carrier disagree
-    // still blanks to the reserved `""`.
-    if field.enum_values.is_some() {
-        return QuillValue::from_json(json!(""));
-    }
     let json = match field.r#type {
         FieldType::Array => json!([]),
         FieldType::Object => match &field.properties {
@@ -47,7 +41,8 @@ pub fn blank(field: &FieldSchema) -> QuillValue {
         FieldType::RichText { .. } | FieldType::PlainText { .. } => {
             quillmark_content::serial::to_canonical_value(&quillmark_content::Normalized::empty())
         }
-        // String, Date and DateTime: a date's `""` lowers to Typst `none`.
+        // String, Date, DateTime and an `enum`, whose blank every domain
+        // admits: a date's `""` lowers to Typst `none`.
         _ => json!(""),
     };
     QuillValue::from_json(json)
@@ -102,14 +97,6 @@ properties:
                 "address": { "city": "", "tags": [] }
             })
         );
-    }
-
-    /// The loader rejects `values:` on a non-enum type; serde builds it anyway.
-    #[test]
-    fn enum_values_on_a_non_enum_type_blanks_to_the_empty_string() {
-        let mut schema = FieldSchema::new("clearance".to_string(), FieldType::Integer, None);
-        schema.enum_values = Some(vec!["1".to_string(), "2".to_string()]);
-        assert_eq!(blank(&schema).into_json(), json!(""));
     }
 
     #[test]

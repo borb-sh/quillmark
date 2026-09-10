@@ -279,7 +279,9 @@ fn project_value(
         // worlds: a cell of a dormant world projects at its own codec, as the
         // document carries it. The discriminant declares no cell and rides
         // verbatim.
-        (FieldType::Enum, serde_json::Value::Object(map)) if schema.is_variant_bearing() => {
+        (FieldType::Enum { .. }, serde_json::Value::Object(map))
+            if schema.is_variant_bearing() =>
+        {
             project_map(name, map, at, |key| schema.variant_field(key))
         }
         _ => Ok(value.clone()),
@@ -354,12 +356,14 @@ fn schema_at<'a>(
             // worlds: a dormant cell resolves here and reads absent at
             // `value_at`. The guard holds a variantless enum to a scalar, which
             // `variant_field` alone would answer as an unknown cell.
-            (FieldType::Enum, PathSegment::Key(key)) if cursor.is_variant_bearing() => cursor
-                .variant_field(key)
-                .ok_or_else(|| EditError::UnknownField {
-                    field: name.to_string(),
-                    at: at[..=depth].to_vec(),
-                })?,
+            (FieldType::Enum { .. }, PathSegment::Key(key)) if cursor.is_variant_bearing() => {
+                cursor
+                    .variant_field(key)
+                    .ok_or_else(|| EditError::UnknownField {
+                        field: name.to_string(),
+                        at: at[..=depth].to_vec(),
+                    })?
+            }
             _ => return Err(blocked),
         };
     }

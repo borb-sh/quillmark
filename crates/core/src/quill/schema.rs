@@ -43,7 +43,7 @@ fn discriminant_schema(field: &FieldSchema) -> serde_json::Value {
         "enum".to_string(),
         serde_json::Value::Array(
             std::iter::once(String::new())
-                .chain(field.enum_values.iter().flatten().cloned())
+                .chain(field.domain().iter().cloned())
                 .map(serde_json::Value::String)
                 .collect(),
         ),
@@ -98,10 +98,8 @@ pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
             schema.insert("properties".to_string(), properties.into());
             return serde_json::Value::Object(schema);
         }
-        if field.enum_values.is_some() {
-            return discriminant_schema(field);
-        }
         match field.r#type {
+            FieldType::Enum { .. } => return discriminant_schema(field),
             FieldType::String => {
                 schema.insert(
                     "type".to_string(),
@@ -147,14 +145,6 @@ pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
                         serde_json::Value::Bool(true),
                     );
                 }
-            }
-            // A loaded `enum` always carries `values:`, so the domain branch
-            // above claims it; this arm is the domain-less residue.
-            FieldType::Enum => {
-                schema.insert(
-                    "type".to_string(),
-                    serde_json::Value::String("string".to_string()),
-                );
             }
             FieldType::Number => {
                 schema.insert(
