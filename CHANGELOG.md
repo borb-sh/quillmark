@@ -865,6 +865,13 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
 
 ### Docs and tests
 
+- ci(release): **the release-candidate path leaves `release-prepare`.** The
+  `-rc.N` checkbox and its two branches of version arithmetic served one
+  release, `v0.89.1-rc.1` in June. A pre-release stays reachable through
+  `version_override`, which is used verbatim, so `release.yml`'s `--prerelease`
+  and npm `--tag next` arms are still live. Bumping off a pre-release refuses
+  and names the override, where the arithmetic would have read `1-rc` as `1`
+  and resolved to a version with the suffix silently dropped. Refs #1691.
 - docs(bindings,migrations): **the parity table records differences; the
   migration index records steps.** `BINDINGS.md`'s table drops the six rows
   whose class was `identical`, which now read as one line above it, and three
