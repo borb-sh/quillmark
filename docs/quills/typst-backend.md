@@ -98,6 +98,20 @@ typst:
 
 Browse the full catalog at [Typst Universe](https://typst.app/universe/).
 
+A package vendored into the quill under `packages/<dir>/` carries its own
+`typst.toml`, which names the spec the plate imports:
+
+```toml
+[package]
+name = "my-helper"
+version = "0.1.0"
+entrypoint = "lib.typ"
+```
+
+A `packages/<dir>/` without one is skipped at load with a
+`typst::package_manifest` warning, and the plate's `#import` for it then fails
+as an unresolved file.
+
 ## Fonts
 
 A Quill carries its own fonts. The backend loads every `.ttf` and `.otf` under `assets/fonts/` and inside vendored `packages/`, an asset font winning a family a package also ships. A Quill bundling none renders in the embedded Figtree faces. The host's installed fonts are not among them, so `#set text(font: "Arial")` names a family the compile cannot find.
