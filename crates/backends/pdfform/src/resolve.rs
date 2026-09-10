@@ -32,7 +32,9 @@ fn resolve_value(field_type: &FieldType, schema_field: Option<&str>, data: &Valu
     let raw = lookup(data, schema_field?)?;
     match field_type {
         FieldType::Text { .. } => coerce_text(raw),
-        FieldType::Checkbox => is_truthy(raw).then(|| CHECKBOX_ON_STATE.to_string()),
+        FieldType::Checkbox => {
+            matches!(raw, Value::Bool(true)).then(|| CHECKBOX_ON_STATE.to_string())
+        }
         FieldType::Choice { options } => coerce_choice(raw, options),
         FieldType::Signature => None,
     }
@@ -122,20 +124,6 @@ fn richtext_plaintext(v: &Value) -> Option<String> {
     let rt = quillmark_content::serial::from_canonical_value(v).ok()?;
     let text = quillmark_content::export::to_plaintext(&rt);
     (!text.is_empty()).then_some(text)
-}
-
-/// A boolean schema field arrives as a JSON bool; strings and numbers are
-/// handled defensively.
-fn is_truthy(v: &Value) -> bool {
-    match v {
-        Value::Bool(b) => *b,
-        Value::Number(n) => n.as_f64().map(|f| f != 0.0).unwrap_or(false),
-        Value::String(s) => matches!(
-            s.trim().to_ascii_lowercase().as_str(),
-            "true" | "yes" | "on" | "1" | "y" | "checked"
-        ),
-        _ => false,
-    }
 }
 
 /// A choice value binds only if it matches one of the declared options exactly.
@@ -246,7 +234,7 @@ mod tests {
     }
 
     #[test]
-    fn checkbox_truthiness() {
+    fn checkbox_reads_a_bool() {
         let on = |f| resolve_value(&FieldType::Checkbox, Some(f), &data());
         assert_eq!(on("agree"), Some(CHECKBOX_ON_STATE.to_string()));
         assert_eq!(on("decline"), None);
@@ -317,22 +305,6 @@ mod tests {
         assert_eq!(card_text("$cards.indorsement.0.missing"), None);
         // `$cards.0.from` reads `0` as a kind, matching no card.
         assert_eq!(card_text("$cards.0.from"), None);
-    }
-
-    #[test]
-    fn is_truthy_string_and_number_variants() {
-        for s in ["true", "Yes", " ON ", "1", "y", "Checked"] {
-            assert!(is_truthy(&json!(s)), "{s:?} should be truthy");
-        }
-        for s in ["false", "no", "0", "", "maybe", "off"] {
-            assert!(!is_truthy(&json!(s)), "{s:?} should be falsy");
-        }
-        assert!(is_truthy(&json!(42)));
-        assert!(is_truthy(&json!(-1)));
-        assert!(!is_truthy(&json!(0)));
-        assert!(!is_truthy(&json!(null)));
-        assert!(!is_truthy(&json!([true])));
-        assert!(!is_truthy(&json!({"a": 1})));
     }
 
     #[test]

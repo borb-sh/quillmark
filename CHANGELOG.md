@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- refactor(pdfform): **a checkbox reads a bool.** `is_truthy` accepted
+  `"yes"`, `"on"`, `"y"`, `"checked"`, `"1"` and any nonzero number beside
+  `true`. Nothing reaches it: a `checkbox` widget binds only to a `boolean`
+  schema field, and `resolve` runs against `compile_data`, where
+  `conform_value` has already turned a bool, a `"true"`/`"false"` spelling and
+  a number into a JSON bool — and refused everything else as
+  `CoercionError::uncoercible` before any widget resolves. So the vocabulary
+  was not a tolerance but a second, *wider* one behind a door the first never
+  opens: `"yes"` checks the box here and fails the compile upstream. The module
+  binds against `compile_data` precisely so coercion is inherited rather than
+  re-implemented, which is the line `is_truthy` crossed. `matches!(raw,
+  Value::Bool(true))` is the whole rule now. No reachable behavior changes.
+
 Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
 
 ### The content model
