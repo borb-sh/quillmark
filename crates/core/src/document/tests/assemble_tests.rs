@@ -55,15 +55,27 @@ fn test_body_prose_inside_the_block_is_told_to_close_the_block() {
     assert!(!hint.contains("block scalar"), "got: {hint}");
 }
 
+/// `---` front matter declaring `$quill` is one fence away from a root block,
+/// so the message names that edit.
 #[test]
-fn test_root_dash_frontmatter_without_quill_reports_missing_quill() {
+fn test_dash_frontmatter_with_quill_names_the_fence_edit() {
+    let err = decompose("---\n$quill: usaf_memo\n$kind: main\ntitle: Memo\n---\n\nBody\n")
+        .unwrap_err();
+    let msg = err.to_string();
+    assert!(msg.contains("Replace the opening `---`"), "got: {msg}");
+    assert!(msg.contains("~~~"), "got: {msg}");
+}
+
+/// Without `$quill` the document needs both edits, so the generic shape — which
+/// names the fence *and* the key — beats the fence-only hint.
+#[test]
+fn test_dash_frontmatter_without_quill_reports_the_generic_shape() {
     let err = decompose("---\nquill: usaf_memo\ntitle: Memo\n---\n\nBody\n").unwrap_err();
     let msg = err.to_string();
-    assert!(msg.contains("must declare `$quill: <name>`"), "got: {msg}");
-    assert!(!msg.contains("`---` YAML frontmatter"), "stale hint: {msg}");
+    assert!(msg.contains("$quill: <name>"), "got: {msg}");
     assert!(
         !msg.contains("Replace the opening `---`"),
-        "stale hint: {msg}"
+        "fence-only hint under-reports the missing key: {msg}"
     );
 }
 
@@ -138,64 +150,26 @@ fn test_root_opener_with_foreign_info_string_parses_as_the_bare_form() {
     assert_eq!(foreign_doc, bare_doc);
 }
 
+/// Every `---` below the root block is CommonMark's, whatever it encloses: a
+/// would-be card stays in the body, and paired breaks around a `Word:`
+/// paragraph are prose the parser neither claims nor refuses.
 #[test]
-fn test_dash_root_block_parses_equivalent_to_card_yaml() {
-    let dash_md = "---\n$quill: test_quill\n$kind: main\ntitle: Test\n---\n\nBody.";
-    let canonical_md = "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\nBody.";
-    let dash_doc = decompose(dash_md).expect("--- root block should parse");
-    let canonical_doc = decompose(canonical_md).expect("canonical root block parses");
-    assert_eq!(dash_doc, canonical_doc);
-    assert_eq!(dash_doc.quill_reference().name, "test_quill");
-    assert_eq!(
-        dash_doc
-            .main()
-            .payload()
-            .get("title")
-            .unwrap()
-            .as_str()
-            .unwrap(),
-        "Test"
-    );
-    assert_eq!(dash_doc.main().body_markdown(), "Body.");
-}
-
-#[test]
-fn test_dash_root_block_emits_canonical_card_yaml() {
-    let dash_md = "---\n$quill: test_quill\n$kind: main\ntitle: Test\n---\n\nBody.";
-    let doc = decompose(dash_md).unwrap();
-    let emitted = doc.to_markdown();
+fn test_dash_blocks_below_the_root_are_body_prose() {
+    let as_card = "~~~card-yaml\n$quill: test_quill\n$kind: main\n~~~\n\nBody.\n\n\
+                   ---\n$kind: note\nlabel: a\n---\n\nNote body.";
+    let doc = decompose(as_card).expect("a `---` below the root block is CommonMark's");
+    assert!(doc.cards().is_empty(), "no card opens on `---`");
     assert!(
-        emitted.starts_with("~~~\n"),
-        "expected canonical opener, got: {emitted:?}"
+        doc.main().body_markdown().contains("$kind: note"),
+        "the would-be card stays in the body: {:?}",
+        doc.main().body_markdown()
     );
-    assert!(
-        !emitted.contains("---\n"),
-        "stray dash fence in emit: {emitted:?}"
-    );
-}
 
-#[test]
-fn test_dash_root_with_composable_card_yaml_parses() {
-    let markdown = "---\n$quill: test_quill\n$kind: main\ntitle: Test\n---\n\nBody.\n\n\
-                    ~~~card-yaml\n$kind: note\nlabel: a\n~~~\n\nNote body.";
-    let doc = decompose(markdown).expect("mixed shape should parse");
-    assert_eq!(doc.quill_reference().name, "test_quill");
-    assert_eq!(doc.cards().len(), 1);
-    assert_eq!(doc.cards()[0].kind(), Some("note"));
-    assert_eq!(doc.cards()[0].body_markdown(), "Note body.");
-}
-
-#[test]
-fn test_dash_opener_in_composable_card_position_errors() {
-    let markdown = "~~~card-yaml\n$quill: test_quill\n$kind: main\n~~~\n\nBody.\n\n\
-                    ---\n$kind: note\nlabel: a\n---\n\nNote body.";
-    let err = decompose(markdown).unwrap_err();
-    let msg = err.to_string();
-    assert!(
-        msg.contains("composable cards") || msg.contains("Composable card"),
-        "expected composable-card rejection, got: {msg}"
-    );
-    assert!(msg.contains("~~~"), "got: {msg}");
+    let as_prose = "~~~card-yaml\n$quill: test_quill\n$kind: main\n~~~\n\nBody.\n\n\
+                    ---\n\nNote: the second break closes nothing.\n\n---\n\nMore body.";
+    let doc = decompose(as_prose).expect("thematic breaks are CommonMark's");
+    assert!(doc.cards().is_empty());
+    assert!(doc.main().body_markdown().contains("Note: the second break"));
 }
 
 #[test]

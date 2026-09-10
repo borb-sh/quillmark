@@ -92,14 +92,6 @@ fn scanner_agrees_with_commonmark_on_synthetic_inputs() {
             "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~\n$kind: a\n~~~\n\nfirst\n\n~~~\n$kind: b\n~~~\n\nsecond\n",
         ),
         (
-            "--- root alias",
-            "---\n$quill: q\n$kind: main\n---\n\nBody.\n",
-        ),
-        (
-            "--- root then bare card",
-            "---\n$quill: q\n$kind: main\n---\n\nBody.\n\n~~~\n$kind: note\nx: 1\n~~~\n",
-        ),
-        (
             "shielded fences inside a backtick block",
             "~~~\n$quill: q\n$kind: main\n~~~\n\n```text\n~~~\n$kind: nope\n~~~\n```\n\nBody.\n",
         ),

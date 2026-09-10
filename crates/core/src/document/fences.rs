@@ -116,50 +116,6 @@ pub(crate) fn is_card_yaml_opener_line(line: &str) -> bool {
     card_yaml_opener_run(line).is_some()
 }
 
-/// `true` for exactly three dashes at column zero followed only by whitespace.
-///
-/// `---` opens/closes the root block only, never a composable card. Column zero
-/// matches CommonMark's YAML-metadata-block semantics: an indented `---` is a
-/// thematic break.
-fn is_dash_fence_line(line: &str) -> bool {
-    let bytes = line.as_bytes();
-    if bytes.len() < 3 || bytes[0] != b'-' {
-        return false;
-    }
-    let run_len = bytes.iter().take_while(|&&b| b == b'-').count();
-    if run_len != 3 {
-        return false;
-    }
-    line[run_len..].chars().all(|c| c == ' ' || c == '\t')
-}
-
-/// Disambiguates a stray `---` thematic break from a would-be composable card.
-fn looks_like_yaml_key_line(line: &str) -> bool {
-    let trimmed = line.trim_start();
-    if trimmed.is_empty() || trimmed.starts_with('#') {
-        return false;
-    }
-    super::prescan::key_end(trimmed).is_some()
-}
-
-/// A paired `---` block with YAML-key content between the markers, seen after
-/// the root block: almost certainly a misplaced composable card.
-fn has_paired_dash_with_yaml_keys(lines: &Lines<'_>, opener_k: usize) -> bool {
-    let mut saw_yaml_key = false;
-    let mut j = opener_k + 1;
-    while j < lines.len() {
-        let text = lines.line_text(j);
-        if is_dash_fence_line(text) {
-            return saw_yaml_key;
-        }
-        if looks_like_yaml_key_line(text) {
-            saw_yaml_key = true;
-        }
-        j += 1;
-    }
-    false
-}
-
 /// The first line below `opener_k` whose text `closes` accepts as the closer.
 fn closer_below(
     lines: &Lines<'_>,
@@ -293,56 +249,6 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
             )?;
             blocks.push(block);
             k = cj + 1;
-            continue;
-        }
-
-        // `---` is accepted only as the root opener, and only with a `---`
-        // closer. After the root block a paired `---` with YAML keys between is
-        // rejected as a misplaced composable card; anything else falls through
-        // to CommonMark as a thematic break / setext underline.
-        if is_dash_fence_line(text) {
-            let blank_above = k == 0 || lines.is_blank(k - 1);
-
-            if blocks.is_empty() && blank_above {
-                // Document-start only: requiring every line above to be blank
-                // keeps this from racing setext headings and thematic breaks
-                // deeper in a prose preamble.
-                let above_all_blank = (0..k).all(|i| lines.is_blank(i));
-                if above_all_blank {
-                    let Some(cj) = closer_below(&lines, k, is_dash_fence_line) else {
-                        // Per CommonMark a lone leading `---` is a thematic
-                        // break, not frontmatter: no root block, so the document
-                        // surfaces MissingQuill downstream.
-                        k += 1;
-                        continue;
-                    };
-
-                    let block = super::assemble::build_block(
-                        markdown,
-                        lines.line_start(k),
-                        lines.line_end_inclusive(k),
-                        lines.line_start(cj),
-                        lines.line_end_inclusive(cj),
-                        blocks.len(),
-                    )?;
-                    blocks.push(block);
-                    k = cj + 1;
-                    continue;
-                }
-            }
-
-            if !blocks.is_empty() && blank_above && has_paired_dash_with_yaml_keys(&lines, k) {
-                return Err(ParseError::InvalidStructure(
-                    "Composable card block opened with `---` but composable cards \
-                     must use `~~~` fences. Replace the opening `---` and the \
-                     closing `---` with `~~~` (three tildes). The \
-                     `---` style is accepted only for the document's root block."
-                        .to_string(),
-                ));
-            }
-
-            // A lone `---` is CommonMark's, and never a code-fence opener.
-            k += 1;
             continue;
         }
 
