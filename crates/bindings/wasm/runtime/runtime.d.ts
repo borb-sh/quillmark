@@ -677,7 +677,8 @@ export declare class CardWriter {
  * `getContent` is the same read at the other end of the codec, returning the
  * `Content` rather than the projection. It binds the quill for the same reason
  * `get` does: the same stored bytes decode two ways, and only the declared type
- * says which.
+ * says which. `getContentAt` is that read one axis further in, for a `Content`
+ * nested inside a composite field.
  */
 export declare class DocumentReader {
 	constructor(quill: Quill, doc: Document);
@@ -702,6 +703,26 @@ export declare class DocumentReader {
 	 * `IndexOutOfRange`.
 	 */
 	getContent(addr: Addr | string): Content | undefined;
+	/**
+	 * Read the `Content` nested inside the composite field at `addr`, at `path`:
+	 * `[0]` an element of an `array<richtext>`, `["motto"]` an object's content
+	 * property, `[1, "notes"]` a leaf under both, `["controlled_by"]` a variant's
+	 * cell. The codec is the leaf's declared type's, resolved through the field
+	 * schema's `items` / `properties` / `variants`, so the element's storage
+	 * form is not the caller's business. The empty path is {@link getContent}.
+	 *
+	 * The `Content` is a write input, so this is the read a round-trip takes:
+	 * an anchor and an island `id` have no markdown projection, and survive an
+	 * edit only by riding this read back through `writer.set` of the field.
+	 *
+	 * `undefined` for an absent field and for a path that names nothing in the
+	 * stored value: a repeater's row index goes stale between derive and read,
+	 * so absence there is a read, not a fault. Throws `UnknownField` for an
+	 * undeclared name at any depth, `FieldNotContent` when `path` resolves to no
+	 * content leaf, `FieldDecode` anchored at the addressed path, and
+	 * `IndexOutOfRange` for a bad `addr.card`.
+	 */
+	getContentAt(addr: Addr | string, path: PathStep[]): Content | undefined;
 	/** The main body's markdown: the quill-free body read. Equals `get({})`. */
 	bodyMarkdown(): string;
 	/**
@@ -746,6 +767,8 @@ export declare class CardReader {
 	 * The card twin of {@link DocumentReader.getContent}.
 	 */
 	getContent(name: string): Content | undefined;
+	/** The card twin of {@link DocumentReader.getContentAt}. */
+	getContentAt(name: string, path: PathStep[]): Content | undefined;
 	/** This card's body markdown: the card twin of {@link DocumentReader.bodyMarkdown}. */
 	bodyMarkdown(): string;
 }

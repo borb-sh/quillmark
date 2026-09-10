@@ -524,6 +524,59 @@ card_kinds:
     const v = quill.reader(doc)
     const spelled = (rt) => rt.lines.flatMap((l) => l.containers).map((c) => c.instance)
     expect(spelled(v.getContent({}))).toEqual([0, 0])
+    expect(spelled(v.getContentAt('paragraphs', [0]))).toEqual([0])
+  })
+
+  // What the nested read is for: an anchor has no markdown projection and an
+  // island id is minted positionally by any importer, so the values form carries
+  // neither. The `Content` is a write input, so this read is the round-trip.
+  it('getContentAt round-trips an element anchor and island id that get drops', () => {
+    const quill = buildQuill()
+    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: view_test\n~~~\n\nBody.')
+    const w = quill.writer(doc)
+    const v = quill.reader(doc)
+    w.set('paragraphs', ['Plain', 'Alpha ![pic](u) bold'])
+
+    const rt = v.getContentAt('paragraphs', [1])
+    rt.marks.push({ type: 'anchor', attrs: { id: 'c1' }, start: 0, end: 5 })
+    rt.islands[0].id = 'isl-7' // off the positional mint, so a re-mint shows
+    w.set('paragraphs', [v.getContentAt('paragraphs', [0]), rt])
+
+    const back = v.getContentAt('paragraphs', [1])
+    expect(back.marks.find((m) => m.type === 'anchor')).toMatchObject({
+      attrs: { id: 'c1' },
+      start: 0,
+      end: 5
+    })
+    expect(back.islands[0].id).toBe('isl-7')
+
+    w.set('paragraphs', v.get('paragraphs')) // the same loop through the values form
+    const lost = v.getContentAt('paragraphs', [1])
+    expect(lost.marks.some((m) => m.type === 'anchor')).toBe(false)
+    expect(lost.islands[0].id).toBe('isl-0')
+  })
+
+  it('getContentAt: the path axis, absence versus refusal, and the argument contract', () => {
+    const quill = buildQuill()
+    const doc = Document.fromMarkdown(
+      "~~~card-yaml\n$quill: view_test\nrecipients: ['a *literal* line']\ntags: ['x']\n~~~\n\nBody."
+    )
+    doc.storeField('letterhead', { motto: 'Fly **fight**', code: '9' })
+    doc.storeField('rows', [{}, { notes: 'a *note*' }])
+    quill.writer(doc).addCard('note', { lines: ['a *b*'] })
+    const v = quill.reader(doc)
+    expect(v.getContentAt('recipients', [0]).text).toBe('a *literal* line') // the leaf's codec
+    expect(v.getContentAt('letterhead', ['motto']).text).toBe('Fly fight')
+    expect(v.getContentAt('rows', [1, 'notes']).text).toBe('a note')
+    expect(v.card(0).getContentAt('lines', [0]).text).toBe('a *b*')
+    expect(v.getContentAt('rows', [0, 'notes'])).toBeUndefined() // declared, unstored
+    expect(v.getContentAt('recipients', [7])).toBeUndefined() // a stale row index
+    expect(v.getContentAt('paragraphs', [0])).toBeUndefined() // field absent
+    expectEditCode(() => v.getContentAt('tags', [0]), 'edit::field_not_content')
+    expectEditCode(() => v.getContentAt('letterhead', ['nope']), 'edit::unknown_field')
+    expectEditCode(() => v.card(9).getContentAt('lines', [0]), 'edit::index_out_of_range')
+    expect(() => v.getContentAt('recipients', [null])).toThrow(/path\[0\]/)
+    expect(() => v.getContentAt('recipients', 0)).toThrow(/`path` must be an array/)
   })
 
   it('an undecodable element anchors its diagnostic at the element', () => {

@@ -8,6 +8,7 @@ A `Card` crosses as a plain dict and a payload value as whatever JSON maps to, s
 both are `Any`-shaped: their schemas are the quill's, not Python's.
 """
 
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, final
 
@@ -204,6 +205,9 @@ class Reader:
     def get(self, name: str, card: int | None = None) -> Any: ...
     def get_content(
         self, name: str, card: int | None = None
+    ) -> dict[str, Any] | None: ...
+    def get_content_at(
+        self, name: str, path: Sequence[str | int], card: int | None = None
     ) -> dict[str, Any] | None: ...
     def body_markdown(self, card: int | None = None) -> str: ...
 
