@@ -931,6 +931,18 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
   recipe. The text-type 2×2 table was in `creating-quills.md` and
   `quill-yaml-reference.md`, with the tutorial already linking at the
   reference; the tutorial keeps the two questions that pick a type.
+- docs(canon): **the crate compatibility position, and the third reading of an
+  unknown content name.** `ARCHITECTURE.md` § "Crate Structure" carries what the
+  withdrawn `COMPATIBILITY.md` left unstated: seven crates publish to crates.io
+  and promise no API stability before 1.0. Cargo reads a `0.x` minor bump as a
+  major and the workspace bumps nearly every release, so there is no compatible
+  release for `#[non_exhaustive]`, a sealed `Backend` or a `semver-checks` gate
+  to hold — all three are the 1.0 tag's decisions, and a removal, a rename or a
+  dependency's type in a public signature escapes all three regardless.
+  `ERROR.md`'s YAML boundary rests on that promise. `DOCUMENT_STORAGE.md`
+  § "Content vocabularies" weighed projecting an unknown name and dropping it,
+  and now weighs carrying it opaquely while refusing only to project it: that
+  holds the bytes and costs totality.
 - test(fixtures): **`classic_resume` and `cmu_letter` leave the fixture tree.**
   2.7 MB of the 4.3 MB was their fonts. No test named `cmu_letter`;
   `classic_resume` was named by one three-line gate that also runs on `taro`

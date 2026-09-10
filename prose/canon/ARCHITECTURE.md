@@ -20,6 +20,23 @@ do the heavy compilation.
 
 ## Crate Structure
 
+Seven crates publish to crates.io: `quillmark-core`, `quillmark`,
+`quillmark-content`, `quillmark-pdf`, `quillmark-typst`, `quillmark-pdfform`
+and `quillmark-cli`. The binding, fixture and fuzz crates are `publish = false`:
+they path-depend on the core beside them and ship as one build.
+
+The published crates carry **no API stability promise before 1.0**. The
+workspace bumps its minor on nearly every release, which Cargo reads as a major
+for a `0.x` crate, so an out-of-crate consumer pins an exact version.
+`#[non_exhaustive]`, a sealed `Backend` and a `cargo semver-checks
+check-release` gate each hold a *compatible-release* promise, and a `0.x`
+cadence makes no compatible release: all three are the 1.0 tag's decisions.
+
+Most of what breaks a consumer is outside all three regardless — a removal, a
+rename, an added method on an unsealed trait, a widened bound, and a public
+signature naming a dependency's own type, which chains this crate's major to
+that dependency's ([ERROR.md](ERROR.md) on the YAML boundary).
+
 ### `quillmark-core`
 
 Foundation types and traits: the render contract (`Backend` / `LiveSession`),
