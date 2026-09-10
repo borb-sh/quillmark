@@ -170,6 +170,13 @@ jobs:
 
           **Before merging:** review and edit the \`v${VERSION}\` section at the top of \`CHANGELOG.md\` on this branch, seeded from the curated \`## Unreleased\` section when one exists (raw commits ride in an HTML comment as a coverage check), else from the raw commit list. The final section becomes the GitHub Release notes.
 
+          Read that section **as a whole against HEAD**, not entry by entry: later commits in a cycle supersede earlier entries, and only the whole read catches one.
+
+          - An entry asserting a symbol's current state must be true at HEAD. \`grep\` each symbol it names.
+          - Naming a deleted symbol is correct when the entry is the one deleting it. The tense separates the two.
+          - The seed comment checks commits against entries, never entries against HEAD.
+          - Each \`!\` entry reconciles against \`docs/migrations/<prev>-to-<next>.md\`, which carries the same break for an upgrading consumer.
+
           Merging this PR will tag and publish the release.
 
           The checks here come from a dispatched \`CI\` run at the branch head: a PR opened by \`GITHUB_TOKEN\` gets no \`pull_request\` run." \
