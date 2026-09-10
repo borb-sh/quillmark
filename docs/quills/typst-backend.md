@@ -190,7 +190,7 @@ Inside `#box`, `#table`, `#figure`, `#footnote`, `#move`, `#pad`: `signature-fie
 
 ### Errors
 
-- Two calls with the same `name` raise a compilation error (`typst::duplicate_form_field`). `signature-field` is a thin wrapper over the same `form-field` primitive that backs text/checkbox/choice widgets, so its names share one uniqueness domain with theirs.
+- Two calls with the same `name` raise a compilation error (`typst::duplicate_form_field`). `signature-field` is a thin wrapper over the same `form-field` primitive that backs text widgets, so its names share one uniqueness domain with theirs.
 - A non-absolute `width` or `height` raises a Typst assert pointing at `form-field`.
 - Names violating `[A-Za-z0-9_.]+` raise a Typst assert.
 
@@ -203,7 +203,7 @@ The label `<__qm_field__>` and metadata `kind: "__qm_field__"` are reserved for 
 
 ## Form Fields
 
-`signature-field` is a thin wrapper over the general `form-field` primitive, which backs all four widget kinds: text inputs, checkboxes, choice dropdowns, and signature boxes. Import it from the same helper package:
+`signature-field` is a thin wrapper over the general `form-field` primitive, which backs both widget kinds: text inputs and signature boxes. Import it from the same helper package:
 
 ```typst
 #import "@local/quillmark-helper:0.1.0": form-field
@@ -216,41 +216,29 @@ Each call drops an AcroForm widget at its call site (a clickable field in PDF; r
 | Name | Type | Default | Notes |
 |---|---|---|---|
 | `name` | `str` | required (positional) | Widget `/T` name: unique within the document, matching `[A-Za-z0-9_.]+`. Shares one uniqueness domain with `signature-field`. |
-| `type` | `str` | `"text"` | One of `"text"`, `"checkbox"`, `"choice"`, `"signature"`. |
+| `type` | `str` | `"text"` | One of `"text"` or `"signature"`. |
 | `value` | per type | `none` | The delivered field value; interpretation depends on `type` (see below). |
-| `options` | `array` of `str` | `()` | Display strings for `type: "choice"`; ignored otherwise. |
-| `multiline` | `bool` | `false` | Toggles the multi-line flag for `type: "text"`; ignored otherwise. |
 | `width` | `length` | `200pt` | Absolute length (`pt`/`mm`/`cm`/`in`); relative lengths (`2em`, `50%`) are rejected. |
 | `height` | `length` | `20pt` | Same constraint as `width`. |
 | `field` | `str` or `none` | `none` | Schema-field address this widget's region is keyed on (see "Binding to a schema field"). |
-| `font` | `str` | `"helvetica"` | `"helvetica"`, `"times"`, or `"courier"`; `"text"`/`"choice"` only (see "Styling the value text"). |
-| `size` | `length` or `auto` | `auto` | Absolute length, or `auto` for the viewer's fit-to-box. `"text"`/`"choice"` only. |
-| `align` | `str` | `"left"` | `"left"`, `"center"`, or `"right"`. `"text"`/`"choice"` only. |
+| `font` | `str` | `"helvetica"` | `"helvetica"`, `"times"`, or `"courier"`; `"text"` only (see "Styling the value text"). |
+| `size` | `length` or `auto` | `auto` | Absolute length, or `auto` for the viewer's fit-to-box. `"text"` only. |
+| `align` | `str` | `"left"` | `"left"`, `"center"`, or `"right"`. `"text"` only. |
 
 Positioning works exactly as for `signature-field` (in-flow reserves space; wrap in `#place(...)` to overlay without displacement); see the "Positioning" notes above.
 
-### The four field types
+### The two field types
 
 `value:` is forwarded verbatim; the Rust adapter maps it to the AcroForm value per `type`:
 
-**Text**: `value` is a string (numbers stringify). A blank value emits no `/V`. Set `multiline: true` for a multi-line box.
+**Text**: `value` is a string (numbers stringify). A blank value emits no `/V`.
 
 ```typst
 #form-field("full_name", type: "text", value: data.name)
-#form-field("bio", type: "text", value: data.bio, multiline: true, height: 80pt)
 ```
 
-**Checkbox**: `value` is a bool; `true` renders checked.
-
-```typst
-#form-field("agree", type: "checkbox", value: data.agree)
-```
-
-**Choice**: `value` is a string, bound only if it matches an entry in `options`.
-
-```typst
-#form-field("size", type: "choice", options: ("S", "M", "L"), value: data.size)
-```
+A checkbox, a dropdown or a multi-line box is `quillmark-pdfform`'s to stamp; a
+Typst plate that wants one draws it.
 
 **Signature**: `value` is ignored; the widget is an unsigned SigField (Quillmark performs no cryptography: sign the output with pyHanko, Acrobat, endesive, etc.). `signature-field(name, ...)` is exactly `form-field(name, type: "signature", ...)`.
 
@@ -272,7 +260,7 @@ A one-step suffix is checked against what the field actually offers, so `"refs.2
 
 ### Styling the value text
 
-The widget itself draws nothing: a viewer synthesizes the value's appearance when someone fills the field. `font`, `size`, and `align` are what that synthesis reads. They apply to `"text"` and `"choice"` only, the other two kinds having no variable text, and passing a non-default on those raises an assert rather than silently doing nothing.
+The widget itself draws nothing: a viewer synthesizes the value's appearance when someone fills the field. `font`, `size`, and `align` are what that synthesis reads. They apply to `"text"` only, a signature carrying no variable text, and passing a non-default on a signature raises an assert rather than silently doing nothing.
 
 ```typst
 #form-field("memo_date", type: "text", field: "date",
@@ -291,7 +279,7 @@ These affect the PDF only. SVG and PNG reserve the same invisible layout space r
 
 - Duplicate `name` across any `form-field`/`signature-field` calls → `typst::duplicate_form_field`.
 - A non-absolute `width`/`height`/`size`, a `type` outside the four values, a `font`/`align` outside its set, a name violating `[A-Za-z0-9_.]+`, or a `field:` that is not a known schema address → a Typst assert pointing at `form-field`.
-- `font`/`size`/`align` set to a non-default on a `"checkbox"` or `"signature"` field → a Typst assert.
+- `font`/`size`/`align` set to a non-default on a `"signature"` field → a Typst assert.
 
 The label `<__qm_field__>` and metadata `kind: "__qm_field__"` are reserved for this hand-off: the same `query(metadata)` caveat noted for `signature-field` applies.
 

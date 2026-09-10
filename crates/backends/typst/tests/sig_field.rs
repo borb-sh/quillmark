@@ -227,78 +227,20 @@ Just a doc.
 }
 
 // The tests below assert the typst→spec mapping; the spine bytes (`Ff` flag
-// bits, the checkbox glyph) belong to `quillmark-pdf/tests/stamp.rs`.
+// bits) belong to `quillmark-pdf/tests/stamp.rs`.
 
 #[test]
-fn form_field_text_single_and_multiline() {
+fn form_field_text_carries_its_value() {
     let plate = r#"
 #import "@local/quillmark-helper:0.1.0": form-field
 #set page(width: 600pt, height: 400pt, margin: 50pt)
 #form-field("single", type: "text", value: "hello")
-#form-field("multi", type: "text", value: "a\nb", multiline: true)
 "#;
     let (_doc, widgets) = acroform_widgets(plate, &serde_json::json!({}));
 
     let single = widgets.get("single").expect("single field");
     assert_eq!(single.get(b"FT").unwrap().as_name().unwrap(), b"Tx");
     assert_eq!(single.get(b"V").unwrap().as_str().unwrap(), b"hello");
-
-    let multi = widgets.get("multi").expect("multi field");
-    assert_eq!(multi.get(b"FT").unwrap().as_name().unwrap(), b"Tx");
-}
-
-#[test]
-fn form_field_checkbox_checked_and_unchecked() {
-    let plate = r#"
-#import "@local/quillmark-helper:0.1.0": form-field
-#set page(width: 600pt, height: 400pt, margin: 50pt)
-#form-field("agree", type: "checkbox", value: true)
-#form-field("decline", type: "checkbox", value: false)
-"#;
-    let (_doc, widgets) = acroform_widgets(plate, &serde_json::json!({}));
-
-    let on = widgets.get("agree").expect("agree field");
-    assert_eq!(on.get(b"FT").unwrap().as_name().unwrap(), b"Btn");
-    assert_eq!(on.get(b"V").unwrap().as_name().unwrap(), b"Yes");
-    assert_eq!(on.get(b"AS").unwrap().as_name().unwrap(), b"Yes");
-
-    let off = widgets.get("decline").expect("decline field");
-    assert_eq!(off.get(b"FT").unwrap().as_name().unwrap(), b"Btn");
-    assert_eq!(off.get(b"V").unwrap().as_name().unwrap(), b"Off");
-    assert_eq!(off.get(b"AS").unwrap().as_name().unwrap(), b"Off");
-}
-
-#[test]
-fn form_field_choice_options_and_value_matching() {
-    let plate = r#"
-#import "@local/quillmark-helper:0.1.0": form-field
-#set page(width: 600pt, height: 400pt, margin: 50pt)
-#form-field("color", type: "choice", options: ("Red", "Green", "Blue"), value: "Green")
-#form-field("bad", type: "choice", options: ("Red", "Green", "Blue"), value: "Purple")
-"#;
-    let (_doc, widgets) = acroform_widgets(plate, &serde_json::json!({}));
-
-    let color = widgets.get("color").expect("color field");
-    assert_eq!(color.get(b"FT").unwrap().as_name().unwrap(), b"Ch");
-    let opts = color.get(b"Opt").unwrap().as_array().unwrap();
-    let opt_strs: Vec<String> = opts
-        .iter()
-        .map(|o| String::from_utf8_lossy(o.as_str().unwrap()).into_owned())
-        .collect();
-    assert_eq!(opt_strs, vec!["Red", "Green", "Blue"]);
-    assert_eq!(color.get(b"V").unwrap().as_str().unwrap(), b"Green");
-
-    let bad = widgets.get("bad").expect("bad field");
-    assert_eq!(bad.get(b"FT").unwrap().as_name().unwrap(), b"Ch");
-    match bad.get(b"V") {
-        Err(_) => {}
-        Ok(lopdf::Object::String(s, _)) => assert!(
-            s.is_empty(),
-            "non-matching choice value should be blank, got {:?}",
-            String::from_utf8_lossy(s)
-        ),
-        Ok(other) => panic!("unexpected /V on non-matching choice: {other:?}"),
-    }
 }
 
 #[test]
@@ -325,14 +267,10 @@ fn form_field_value_binding_from_data() {
 #import "@local/quillmark-helper:0.1.0": data, form-field
 #set page(width: 600pt, height: 400pt, margin: 50pt)
 #form-field("name", type: "text", value: data.full_name)
-#form-field("agree", type: "checkbox", value: data.agreed)
-#form-field("color", type: "choice", options: ("Red", "Green", "Blue"), value: data.color)
 #form-field("count", type: "text", value: str(data.count))
 "#;
     let json = serde_json::json!({
         "full_name": "Ada Lovelace",
-        "agreed": true,
-        "color": "Blue",
         "count": 7,
     });
     let (_doc, widgets) = acroform_widgets(plate, &json);
@@ -346,26 +284,6 @@ fn form_field_value_binding_from_data() {
             .as_str()
             .unwrap(),
         b"Ada Lovelace"
-    );
-    assert_eq!(
-        widgets
-            .get("agree")
-            .unwrap()
-            .get(b"V")
-            .unwrap()
-            .as_name()
-            .unwrap(),
-        b"Yes"
-    );
-    assert_eq!(
-        widgets
-            .get("color")
-            .unwrap()
-            .get(b"V")
-            .unwrap()
-            .as_str()
-            .unwrap(),
-        b"Blue"
     );
     assert_eq!(
         widgets
@@ -397,11 +315,8 @@ main:
       type: string
       description: text widget binding
     f_chk:
-      type: boolean
-      description: checkbox widget binding
-    f_cho:
       type: string
-      description: choice widget binding
+      description: second text widget binding
     f_sig:
       type: string
       description: signature widget binding
@@ -410,8 +325,7 @@ main:
 #import "@local/quillmark-helper:0.1.0": form-field
 #set page(width: 600pt, height: 400pt, margin: 50pt)
 #form-field("txt", type: "text", value: "hi", field: "f_txt")
-#form-field("chk", type: "checkbox", value: true, field: "f_chk")
-#form-field("cho", type: "choice", options: ("A", "B"), value: "B", field: "f_cho")
+#form-field("chk", type: "text", value: "y", field: "f_chk")
 #form-field("sig", type: "signature", field: "f_sig")
 #form-field("unbound", type: "text", value: "x")
 "#;
@@ -424,7 +338,7 @@ main:
     let fields: std::collections::HashMap<&str, &quillmark_core::RenderedRegion> =
         regions.iter().map(|r| (r.field.as_str(), r)).collect();
 
-    for field in ["f_txt", "f_chk", "f_cho", "f_sig"] {
+    for field in ["f_txt", "f_chk", "f_sig"] {
         let r = fields
             .get(field)
             .unwrap_or_else(|| panic!("region keyed on bound schema field {field:?}"));
@@ -440,7 +354,7 @@ main:
         "an unbound widget exposes no region: {:?}",
         fields.keys().collect::<Vec<_>>()
     );
-    for t_name in ["txt", "chk", "cho", "sig"] {
+    for t_name in ["txt", "chk", "sig"] {
         assert!(
             !fields.contains_key(t_name),
             "a bound widget must not also leak its `/T` name {t_name:?}: {:?}",

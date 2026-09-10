@@ -433,6 +433,18 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
 
 ### The engine seam and the backends
 
+- refactor(typst)!: **`form-field` keeps `text` and `signature`.** The helper's
+  `checkbox` and `choice` kinds go, and with them the `options` and `multiline`
+  parameters: `multiline` was a flag on `text`, so the Typst lane now stamps
+  single-line text and unsigned signature widgets only. usaf_memo, the one
+  first-party plate calling `form-field`, uses `text` and `signature`. A plate
+  that wants a checkbox draws one; a widget a *reader* fills belongs to
+  `quillmark-pdfform`, the forms backend, whose four kinds are untouched —
+  `FieldType::Checkbox` and `FieldType::Choice` stay on the `quillmark-pdf`
+  spine and a `form.json` naming them stamps as before. The `FieldKind` mirror
+  of `FieldType` retires with them: `read_field_kind` returns the spine type
+  and its value directly, so the adapter carries no second spelling of the
+  kinds. `font`/`size`/`align` now assert on `text` alone. Closes #1644.
 - refactor(core,wasm)!: **canvas preview is part of the backend contract, and
   the pre-session probe goes.** `SessionHandle::page_size_pt` and `render_rgba`
   lose their absent-reading defaults and become required, so a session paints

@@ -50,9 +50,8 @@
 /// Emit an unsigned form field: a clickable AcroForm widget on PDF output, the
 /// same invisible layout space on SVG/PNG. `value` is forwarded verbatim and
 /// the Rust adapter maps it per `type` — a string for `"text"` (blank ⇒ no
-/// `/V`), a bool for `"checkbox"`, an `options` entry for `"choice"`, nothing
-/// at all for `"signature"`. `field` keys the widget's region on a schema
-/// address and is region-only: the `/T` widget name stays `name`, and omitting
+/// `/V`), nothing at all for `"signature"`. `field` keys the widget's region on
+/// a schema address and is region-only: the `/T` widget name stays `name`, and omitting
 /// it leaves the widget with no region for a consumer to route to.
 /// `font`/`size`/`align` set the type the *viewer* draws the value in;
 /// `size: auto` refits as the user types, and `align` is the only way to pin a
@@ -68,8 +67,6 @@
   name,
   type: "text",
   value: none,
-  options: (),
-  multiline: false,
   width: 200pt,
   height: 20pt,
   field: none,
@@ -81,8 +78,8 @@
     message: "form-field: name must be a string, got " + repr(std.type(name)))
   assert(name.match(regex("^[A-Za-z0-9_.]+$")) != none,
     message: "form-field: name must match [A-Za-z0-9_.]+, got " + repr(name))
-  assert(type in ("text", "checkbox", "choice", "signature"),
-    message: "form-field: type must be one of text/checkbox/choice/signature, got " + repr(type))
+  assert(type in ("text", "signature"),
+    message: "form-field: type must be one of text/signature, got " + repr(type))
   assert(field == none or std.type(field) == str,
     message: "form-field: field must be a string or none, got " + repr(std.type(field)))
   assert(field == none or _qm-known-path(field),
@@ -91,8 +88,8 @@
     message: "form-field: font must be one of helvetica/times/courier, got " + repr(font))
   assert(align in ("left", "center", "right"),
     message: "form-field: align must be one of left/center/right, got " + repr(align))
-  assert(type in ("text", "choice") or (font == "helvetica" and size == auto and align == "left"),
-    message: "form-field: font/size/align apply to text and choice fields only, got type " + repr(type))
+  assert(type == "text" or (font == "helvetica" and size == auto and align == "left"),
+    message: "form-field: font/size/align apply to text fields only, got type " + repr(type))
   let abs-pt(field, l) = {
     let r = repr(l)
     assert(not (r.contains("em") or r.ends-with("%")),
@@ -113,8 +110,6 @@
     name: name,
     field-type: type,
     value: value,
-    options: options,
-    multiline: multiline,
     width: abs-pt("width", width),
     height: abs-pt("height", height),
     field: field,
