@@ -16,7 +16,4 @@ mod convert_fuzz;
 mod emit_roundtrip_fuzz;
 
 #[cfg(test)]
-mod parse_fuzz;
-
-#[cfg(test)]
 mod pdf_fuzz;

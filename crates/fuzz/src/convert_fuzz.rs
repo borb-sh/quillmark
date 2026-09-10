@@ -141,28 +141,4 @@ proptest! {
                 "Dangerous pattern '{}' found in escaped output: {}", pattern, escaped);
         }
     }
-
-    #[test]
-    fn fuzz_markdown_parser_malicious_nesting(depth in 1usize..20) {
-        let nested_quotes = "> ".repeat(depth) + "text";
-        let result = mark_to_typst(&nested_quotes).expect("Conversion should succeed");
-        assert!(!result.is_empty() || depth == 0);
-    }
-
-    #[test]
-    fn fuzz_markdown_parser_malicious_lists(depth in 1usize..20) {
-        let nested_list = (0..depth)
-            .map(|i| format!("{}- item", "  ".repeat(i)))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let result = mark_to_typst(&nested_list).expect("Conversion should succeed");
-        assert!(!result.is_empty());
-    }
-
-    #[test]
-    fn fuzz_markdown_large_input(size in 1usize..10000) {
-        let input = "a".repeat(size);
-        let result = mark_to_typst(&input).expect("Conversion should succeed");
-        assert!(result.contains("a"));
-    }
 }

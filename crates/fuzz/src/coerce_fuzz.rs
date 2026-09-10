@@ -231,7 +231,7 @@ proptest! {
 // Concrete anchors for cases the generator hits only rarely.
 
 #[test]
-fn regression_t2_array_of_object_path() {
+fn array_of_object_path() {
     // { f: array, items: { x: integer } }
     let mut inner = IndexMap::new();
     inner.insert(
@@ -254,7 +254,7 @@ fn regression_t2_array_of_object_path() {
 }
 
 #[test]
-fn regression_t3_string_array_singleton_collapses_once() {
+fn string_array_singleton_collapses_once() {
     let schema = FieldSchema::new(ROOT_FIELD.to_string(), FieldType::String, None);
     let config = config_with_one_field(schema);
     let fm = single_field_payload(serde_json::json!(["hello"]));
