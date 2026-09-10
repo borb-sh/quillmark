@@ -215,7 +215,10 @@ decoder, both lanes, so **a row holding one does not open**. Refusing is the
 only reading that keeps the reader honest: projecting an unrecognized `kind` as
 `para` would re-encode the row as `{"kind":"para"}`, moving canonical bytes on a
 read with no edit (§ Byte-stability), and dropping the value loses content on a
-mere open. A malformed discriminator is a different failure and stays
+mere open. Carrying the name opaquely and refusing only to *project* it holds
+the bytes, and costs totality instead: a projection over a container tree is
+total over a `Normalized` body, and a region no projection reads has no defined
+result. A malformed discriminator is a different failure and stays
 `ParseError::Shape`: the closed set answers for names, and a non-string is not a
 name.
 
