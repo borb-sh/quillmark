@@ -430,6 +430,26 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
   from no public surface. `Engine.render` snapshots `doc.warnings` beside the
   storage DTO and fronts the result with it, the pipeline order ERROR.md
   states. `LiveSession.render` carries the compile half alone.
+- fix(wasm)!: **a `MarkOp` spells its payload where the decoder reads it, off
+  one `ContentMarkKind`.** The `link` and `anchor` arms declared it as a named
+  sibling — `{ type: "link"; url }` — which is the spelling the authored lane
+  refuses as the retired `@0.93.0` encoding (`content json shape: legacy mark
+  payload`). The decoder reads a built-in's payload out of `attrs` and the
+  canonical encoder writes it there, so the type named the one shape
+  `applyChange` rejects and rejected the one it takes. It was survivable while
+  the union carried its open arm, `{ type: string; attrs: unknown }`, whose
+  shape happened to match the decoder: a correct op type-checked through the
+  wrong arm. Closing the vocabularies deleted that arm and left no spelling
+  that both compiles and runs. Nothing on the wire moves — the runtime accepted
+  `attrs` and only `attrs` throughout — so this reaches a consumer as a type
+  that stops refusing correct code. The drift was possible because the op
+  restated the payload: `ContentMarkKind` names the three arms once, exported
+  from the package root beside `ContentLineKind`; `ContentMark` is a range over
+  it and `MarkOp`'s `add` / `remove` are a `ContentMark` under an op, so an arm
+  added upstream reaches both by construction and `{ op: 'remove', ...mark }`
+  type-checks for a held mark. The type guard lifts a mark's payload by name as
+  it lifts a line's, beside an `@ts-expect-error` pair refusing the sibling, and
+  the Rust drift guard reads the mark vocabulary off `ContentMarkKind`.
 
 ### The engine seam and the backends
 

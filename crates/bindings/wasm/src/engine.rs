@@ -258,11 +258,14 @@ export type ContentContainer =
  * handle, unique per `Content` and invariant while the mark lives (positions
  * rebase, the id never does); it has no markdown projection and survives only
  * through the edit lane. */
-export type ContentMark = { start: number; end: number } & (
+export type ContentMark = { start: number; end: number } & ContentMarkKind;
+
+/** A mark's type with its payload, shared by `ContentMark` and a `MarkOp`'s
+ * `add` / `remove`. */
+export type ContentMarkKind =
     | { type: "strong" | "emph" | "underline" | "strike" | "code" }
     | { type: "link"; attrs: { url: string } }
-    | { type: "anchor"; attrs: { id: string } }
-);
+    | { type: "anchor"; attrs: { id: string } };
 
 /** A cell in a `TableProps`. `marks` rides the prose `ContentMark` shape, but
  * each mark's `start`/`end` are USV offsets into this cell's `text`, not into
@@ -352,16 +355,13 @@ export type Assoc = "before" | "after";
 
 /**
  * A mark edit in final-text coordinates (post-delta, post-line-op). `add` /
- * `remove` carry the `ContentMark` vocabulary; `removeAnchor` drops one identity
- * anchor by id. An `add` of an `anchor` requires a non-empty `id` not already
- * live in the field; a collision or the empty id throws.
+ * `remove` are a `ContentMark` under an op, so a held mark spreads in whole;
+ * `removeAnchor` drops one identity anchor by id. An `add` of an `anchor`
+ * requires a non-empty `id` not already live in the field; a collision or the
+ * empty id throws.
  */
 export type MarkOp =
-    | ({ op: "add" | "remove"; start: number; end: number } & (
-          | { type: "strong" | "emph" | "underline" | "strike" | "code" }
-          | { type: "link"; url: string }
-          | { type: "anchor"; id: string }
-      ))
+    | ({ op: "add" | "remove" } & ContentMark)
     | { op: "removeAnchor"; id: string };
 
 /**

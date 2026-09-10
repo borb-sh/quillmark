@@ -111,16 +111,18 @@ export type {
 
 // Content edit vocabulary: the op-grained content model `Document`'s methods
 // speak (`applyChange(addr, bundle)`, `overwrite(addr, rt)`, `revise(…) => Delta`).
-// `ContentLineKind` is the shared half of `ContentLine` and `setKind`: lifting a
-// line's kind whole — destructure off `containers`/`continues`, spread the rest
-// into the op — is the version-proof spelling of a `setKind`, and naming the
-// type is what makes that spelling type-check without a cast.
+// `ContentLineKind` is the shared half of `ContentLine` and `setKind`, and
+// `ContentMarkKind` of `ContentMark` and a mark op's `add` / `remove`: lifting a
+// read value's kind whole — destructure off the envelope, spread the rest into
+// the op — is the version-proof spelling of the op, and naming the type is what
+// makes that spelling type-check without a cast.
 export type {
 	Content,
 	ContentLine,
 	ContentLineKind,
 	ContentContainer,
 	ContentMark,
+	ContentMarkKind,
 	ContentIsland,
 	TableProps,
 	ImageProps,
