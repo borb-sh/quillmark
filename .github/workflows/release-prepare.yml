@@ -12,19 +12,14 @@ on:
   workflow_dispatch:
     inputs:
       bump:
-        description: Version bump type (ignored while iterating an existing RC, or when version_override is set)
+        description: Version bump type (ignored when version_override is set)
         required: true
         type: choice
         options:
           - patch
           - minor
-      release_candidate:
-        description: Cut a release candidate (-rc.N) instead of a final release
-        required: false
-        type: boolean
-        default: false
       version_override:
-        description: Explicit next version (e.g. 0.94.0), used verbatim and overriding bump, set to skip a minor
+        description: Explicit next version (e.g. 0.94.0 or 0.94.0-rc.1), used verbatim and overriding bump
         required: false
         type: string
         default: ""
@@ -56,36 +51,23 @@ jobs:
           CURRENT=$(cargo metadata --format-version=1 --no-deps \
             | jq -r '.packages[] | select(.name == "quillmark") | .version')
 
-          RC="${{ inputs.release_candidate }}"
           OVERRIDE="${{ inputs.version_override }}"
 
           if [[ -n "$OVERRIDE" ]]; then
-            # Explicit target (e.g. skip a minor): used verbatim; the checkbox
-            # still decides whether to cut it as a fresh -rc.1.
+            # Explicit target (skip a minor, or cut a pre-release), verbatim.
             NEXT="$OVERRIDE"
-            if [[ "$RC" == "true" && "$NEXT" != *-rc.* ]]; then
-              NEXT="${NEXT}-rc.1"
-            fi
-          elif [[ "$CURRENT" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc\.([0-9]+)$ ]]; then
-            # Already an RC: the target base version is fixed, so `bump` is
-            # ignored. The checkbox decides whether to iterate or promote.
-            RC_BASE="${BASH_REMATCH[1]}"
-            RC_NUM="${BASH_REMATCH[2]}"
-            if [[ "$RC" == "true" ]]; then
-              NEXT="${RC_BASE}-rc.$((RC_NUM + 1))"
-            else
-              NEXT="${RC_BASE}"
-            fi
+          elif [[ "$CURRENT" == *-* ]]; then
+            # Bumping off a pre-release would read its suffix as arithmetic and
+            # silently drop it. A pre-release is only reachable by override, so
+            # naming the successor is the caller's to do too.
+            echo "::error::current version $CURRENT is a pre-release; set version_override to name the next version"
+            exit 1
           else
-            # Not an RC: apply the chosen bump, optionally as a fresh -rc.1.
             IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
             case "${{ inputs.bump }}" in
               minor) NEXT="${MAJOR}.$((MINOR + 1)).0" ;;
               patch) NEXT="${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
             esac
-            if [[ "$RC" == "true" ]]; then
-              NEXT="${NEXT}-rc.1"
-            fi
           fi
 
           echo "next=$NEXT" >> "$GITHUB_OUTPUT"
