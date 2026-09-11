@@ -27,6 +27,15 @@
   `\n`, reading the same string the raster draws. An array's widget stays
   multiline unconditionally, value or none, since a signer types its elements
   one per line. Closes #1781.
+- fix(content): **`Delta::map_pos` saturates its base cursor.** `mapPos` is the
+  one `Delta` door no `try_apply` bounds, and it summed a wire delta's
+  `retain`/`delete` counts with a plain `+`: on wasm32, where `usize` is
+  32-bit, `{ops:[{retain:3000000000},{retain:3000000000}]}` wrapped to a wrong
+  caret position in the published build and aborted the instance in the
+  checked one. `map_pos`, `is_deleted` and `inserted_spans` now walk the ops
+  with `saturating_add`, as `expected_base_len` already did: a run past
+  `usize::MAX` describes a base longer than any content, and a position lands
+  inside it as it would in a bounded one. Closes #1782.
 - refactor(pdfform)!: **`quillmark-pdfform` is `quillmark-acroform`, backend id
   included.** `quillmark-pdf` and `quillmark-pdfform` differed by four
   characters and read as prefix-and-specialization, the reading #1749 records:
