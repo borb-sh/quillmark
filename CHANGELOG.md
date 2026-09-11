@@ -29,6 +29,15 @@
   binds against `compile_data` precisely so coercion is inherited rather than
   re-implemented, which is the line `is_truthy` crossed. `matches!(raw,
   Value::Bool(true))` is the whole rule now. No reachable behavior changes.
+- refactor(core): **a quill reference parses its selector token directly.**
+  `QuillReference::from_str` split `name@selector` and then re-prefixed the
+  half it had just split off — `VersionSelector::from_str(&format!("@{}",
+  part))` — so the selector parser carried a `written` flag to tell the typo
+  `memo@` from the absent selector in `memo`, a distinction only the caller
+  ever had in hand. `VersionSelector::from_token` parses the unprefixed token
+  and refuses the empty one, `from_str` is the written spelling over it, and
+  the allocation per parse goes. Parsed values, `Display` output and error
+  strings are unchanged, which is what the untouched selector tests assert.
 
 Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
 
