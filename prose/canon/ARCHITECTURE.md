@@ -85,8 +85,10 @@ seam: [PREVIEW.md](PREVIEW.md).
 
 ### `quillmark-pdf`
 
-The shared PDF stamp spine: Typst-free, `pdf-writer`-only leaf infrastructure
-consumed by `quillmark-pdfform`. A minimal byte-level reader plus a single
+The AcroForm stamping spine: Typst-free, `pdf-writer`-only leaf infrastructure.
+Both backends consume it — `quillmark-pdfform` for the whole deliverable,
+`quillmark-typst` for the fields a plate's `form-field` calls place — and they
+meet at `&[FieldSpec]`, never each other. A minimal byte-level reader plus a single
 incremental-update appender that splices a fresh `/AcroForm` (and `/Info`
 `/Producer` stamp) onto a base PDF. Deliberately small: it hard-errors on
 out-of-contract input rather than parsing the full format; `reader`'s module
