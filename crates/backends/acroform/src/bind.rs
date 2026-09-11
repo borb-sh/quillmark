@@ -258,9 +258,9 @@ pub fn project_kind(
         | SchemaType::PlainText { .. } => WidgetType::Text {
             multiline: is_multiline(field),
         },
-        // `resolve::coerce_text` joins an array's elements with newlines, so the
-        // widget is multiline whatever `ui` says: a single-line one collapses
-        // the value the flattened raster stacks.
+        // An array's elements are one per line, in the value `resolve` joins and
+        // in what a signer types into the blank widget, so it is multiline
+        // whatever `ui` says.
         SchemaType::Array => match field.items.as_deref() {
             Some(items) if is_scalar_or_prose(items) => WidgetType::Text { multiline: true },
             _ => return Err(unbindable()),

@@ -171,7 +171,7 @@ A bound field's kind is derived from the **capability of the resolved schema fie
 | array of the above (scalar or prose) | **text**: elements joined with newlines |
 | `object`, or array of objects | **load error** `acroform::unbindable_field` |
 
-`multiline` on a text widget comes from the schema field's `ui.multiline`.
+`multiline` on a text widget comes from the schema field's `ui.multiline`, and a value holding a newline (a richtext of two paragraphs, a block scalar) widens it to multiline whatever the schema said, so the file shows every line the preview does.
 
 ### Top-left coordinates
 

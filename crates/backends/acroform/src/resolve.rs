@@ -1,6 +1,7 @@
 //! The value step: turn a value-free [`BoundWidget`] plus the document's
-//! `compile_data` JSON into a stamp-spine [`FieldSpec`]. Kind, options,
-//! multiline, tooltip and geometry are already resolved by [`crate::bind`].
+//! `compile_data` JSON into a stamp-spine [`FieldSpec`]. Kind, options, tooltip
+//! and geometry are already resolved by [`crate::bind`]; so is multiline, which
+//! the value can only widen.
 //!
 //! Binding is against `compile_data` — the same validated, blank-filled object
 //! the Typst plate reads as `data.*` — so blank-fill, validation, defaults and
@@ -13,6 +14,11 @@ use serde_json::Value;
 use crate::bind::BoundWidget;
 
 /// Build a [`FieldSpec`] for `widget`, resolving its bound value from `data`.
+///
+/// A text value holding a newline makes its widget multiline whatever the
+/// schema said: a richtext of two paragraphs, an array, a block scalar. The
+/// flattened raster stacks the lines, and a single-line widget shows a viewer
+/// one, so the rule reads the string the raster draws.
 pub fn field_spec(widget: &BoundWidget, data: &Value) -> FieldSpec {
     let mut spec = FieldSpec::new(
         widget.name.clone(),
@@ -21,6 +27,11 @@ pub fn field_spec(widget: &BoundWidget, data: &Value) -> FieldSpec {
         widget.field_type.clone(),
     );
     spec.value = resolve_value(&widget.field_type, widget.schema_field.as_deref(), data);
+    if let (FieldType::Text { multiline }, Some(value)) = (&mut spec.field_type, &spec.value)
+        && value.contains('\n')
+    {
+        *multiline = true;
+    }
     spec.schema_field = widget.schema_field.clone();
     spec.tooltip = widget.tooltip.clone();
     spec
@@ -305,6 +316,36 @@ mod tests {
         assert_eq!(card_text("$cards.indorsement.0.missing"), None);
         // `$cards.0.from` reads `0` as a kind, matching no card.
         assert_eq!(card_text("$cards.0.from"), None);
+    }
+
+    fn text_widget(schema_field: &str) -> BoundWidget {
+        BoundWidget {
+            name: schema_field.to_uppercase(),
+            schema_field: Some(schema_field.to_string()),
+            page: 0,
+            rect: [72.0, 700.0, 300.0, 720.0],
+            field_type: FieldType::Text { multiline: false },
+            tooltip: None,
+        }
+    }
+
+    #[test]
+    fn a_value_carrying_a_newline_reaches_the_stamp_multiline() {
+        let two_paragraphs = quillmark_content::serial::to_canonical_value(
+            &quillmark_content::import::from_markdown("One.\n\nTwo.").unwrap(),
+        );
+        let data = json!({
+            "bio": two_paragraphs,
+            "address": "1 Main St\nSpringfield",
+            "full_name": "Ada Lovelace",
+        });
+        let multiline = |field: &str| match field_spec(&text_widget(field), &data).field_type {
+            FieldType::Text { multiline } => multiline,
+            other => panic!("{field}: {other:?}"),
+        };
+        assert!(multiline("bio"), "richtext of two paragraphs");
+        assert!(multiline("address"), "block scalar");
+        assert!(!multiline("full_name"), "one line keeps the schema's answer");
     }
 
     #[test]

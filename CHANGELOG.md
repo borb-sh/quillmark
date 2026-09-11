@@ -17,6 +17,16 @@
   `FieldSpec::value` the contract excludes — `value` is public — stamped
   `/V /Yes` on a widget the raster drew blank. `FieldSpec::is_checked` is the
   one reading, the strict one, and both paths call it. Closes #1780.
+- fix(acroform): **a value carrying a newline binds to a multiline widget.**
+  `bind` decided `MULTILINE` from the schema type, so a richtext of two
+  paragraphs, a `String` block scalar, or any value whose projection keeps a
+  `\n` reached the stamped widget single-line unless `ui.multiline` said
+  otherwise, while the flattened raster stacked the lines: the author saw the
+  value in the preview and one line of it in the file. `resolve::field_spec`
+  now promotes a `Text` widget to multiline when the value it resolved holds a
+  `\n`, reading the same string the raster draws. An array's widget stays
+  multiline unconditionally, value or none, since a signer types its elements
+  one per line. Closes #1781.
 - refactor(pdfform)!: **`quillmark-pdfform` is `quillmark-acroform`, backend id
   included.** `quillmark-pdf` and `quillmark-pdfform` differed by four
   characters and read as prefix-and-specialization, the reading #1749 records:
