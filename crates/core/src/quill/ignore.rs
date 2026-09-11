@@ -2,8 +2,7 @@
 use std::ffi::OsStr;
 use std::path::Path;
 
-/// Dropped with their subtrees, at the bundle root: VCS metadata, build
-/// artifacts, dependency caches.
+/// Dropped with their subtrees, at the bundle root.
 const IGNORED_ROOTS: [&str; 3] = [".git", "target", "node_modules"];
 
 /// Dropped wherever it sits.

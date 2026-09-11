@@ -63,8 +63,6 @@ fn load_from_path<P: AsRef<Path>>(path: P) -> Result<Quill, Box<dyn StdError + S
     })
 }
 
-/// A directory is anchored at the bundle root, so a vendored package keeps its
-/// own `target/`; a name is not, so VCS metadata goes wherever it sits.
 #[test]
 fn the_ignore_set_anchors_directories_and_not_names() {
     let ignore = QuillIgnore;

@@ -22,7 +22,7 @@ pub fn quill_from_path<P: AsRef<Path>>(path: P) -> Result<Quill, RenderError> {
 
 /// Walk a filesystem path into an in-memory [`FileTreeNode`], for a caller that
 /// wants to edit the tree before [`Quill::from_tree`] reads it. Skips what
-/// [`QuillIgnore`] excludes (`.git/`, `target/`, …).
+/// [`QuillIgnore`] excludes.
 pub fn tree_from_path<P: AsRef<Path>>(
     path: P,
 ) -> Result<FileTreeNode, Box<dyn StdError + Send + Sync>> {
