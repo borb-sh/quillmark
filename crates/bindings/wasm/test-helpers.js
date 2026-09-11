@@ -13,7 +13,7 @@ const PKG_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 
  * wasm-bindgen's own `initSync` off the bytes on disk.
  *
  * @param {{ initSync: (arg: { module: BufferSource }) => unknown }} mod the build's module namespace
- * @param {string} variant its directory under `pkg/`, e.g. `core`, `backends/typst`
+ * @param {string} variant its directory under `pkg/`: `core` or `render`
  */
 export function initBuildSync(mod, variant) {
   mod.initSync({ module: readFileSync(join(PKG_DIR, variant, 'wasm_bg.wasm')) })

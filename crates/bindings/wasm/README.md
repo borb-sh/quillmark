@@ -15,10 +15,10 @@ The package has one import surface: `@quillmark/wasm`, whose `init` resolves to
 `Quill` and `Document` are the internal Typst-less core build's own classes,
 handed out verbatim by `init`, so editor/validation code (`Quill.fromTree`,
 `Document.fromMarkdown`) loads only that small core binary: no backend is
-loaded until you render. The `Engine` hides everything else: each backend
-(`typst`, `pdfform`) is a separate, private WASM binary with its own linear
-memory, lazily loaded on the first render. The Engine clones a `Quill` /
-`Document` into the backend's memory as data and frees the clones: you never
+loaded until you render. The `Engine` hides everything else: the render build,
+carrying both backends (`typst`, `pdfform`), is a private WASM binary with its
+own linear memory, lazily loaded on the first render. The Engine clones a
+`Quill` / `Document` into that memory as data and frees the clones: you never
 hold a backend object or cross a memory boundary yourself.
 
 ## Build
@@ -27,9 +27,9 @@ hold a backend object or cross a memory boundary yourself.
 bash scripts/build-wasm.sh
 ```
 
-The script builds three variants: the core (no backend), the Typst backend
-(default features), and the Typst-free pdfform backend (`pdfform` feature):
-each with `--target web` and `--weak-refs` enabled (see
+The script builds two variants, the core (no backend) and the render build
+(default features, both backends), each with `--target web` and `--weak-refs`
+enabled (see
 [Initialization](#initialization) and [Lifecycle](#lifecycle)). It then asserts
 none of them carries a `.wasm` ESM import or a top-level await.
 

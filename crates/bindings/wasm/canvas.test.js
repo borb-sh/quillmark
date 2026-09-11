@@ -62,25 +62,13 @@ beforeAll(() => {
   globalThis.OffscreenCanvasRenderingContext2D = FakeOffscreenCanvasRenderingContext2D
 })
 
-const typstBuild = await import('@quillmark-wasm')
-const { Quillmark, Quill, Document } = typstBuild
-// The pdfform backend bundle: same engine + LiveSession + canvas
-// surface as the typst bundle, but a Typst-free PDF-form backend that paints by
-// rasterizing its pre-flattened page. SEPARATE WASM memory from the typst
-// bundle: its handles never mix with the typst ones.
-const pdfformBuild = await import('@quillmark-wasm/pdfform')
-const {
-  Quillmark: PdfformQuillmark,
-  Quill: PdfformQuill,
-  Document: PdfformDocument,
-} = pdfformBuild
+const renderBuild = await import('@quillmark-wasm')
+const { Quillmark, Quill, Document } = renderBuild
 const { makeQuill, makeSampleFormQuill, SAMPLE_FORM_MARKDOWN, initBuildSync } = await import(
   './test-helpers.js'
 )
 
-// Each build carries its own memory, so each instantiates separately.
-initBuildSync(typstBuild, 'backends/typst')
-initBuildSync(pdfformBuild, 'backends/pdfform')
+initBuildSync(renderBuild, 'render')
 
 const TEST_MARKDOWN = `~~~card-yaml
 $quill: test_quill
@@ -361,14 +349,14 @@ describe('LiveSession canvas preview', () => {
 
 describe('LiveSession canvas preview (pdfform backend)', () => {
   function openPdfformQuill() {
-    const engine = new PdfformQuillmark()
-    const quill = PdfformQuill.fromTree(makeSampleFormQuill())
+    const engine = new Quillmark()
+    const quill = Quill.fromTree(makeSampleFormQuill())
     return { engine, quill }
   }
 
   function openPdfformSession() {
     const { engine, quill } = openPdfformQuill()
-    return engine.open(quill, PdfformDocument.fromMarkdown(SAMPLE_FORM_MARKDOWN))
+    return engine.open(quill, Document.fromMarkdown(SAMPLE_FORM_MARKDOWN))
   }
 
   it('reports page geometry for a pdfform quill', () => {
@@ -376,7 +364,7 @@ describe('LiveSession canvas preview (pdfform backend)', () => {
 
     // The pdfform backend rasterizes pre-flattened pages, so `pageSize`
     // answers rather than throwing.
-    const session = engine.open(quill, PdfformDocument.fromMarkdown(SAMPLE_FORM_MARKDOWN))
+    const session = engine.open(quill, Document.fromMarkdown(SAMPLE_FORM_MARKDOWN))
     expect(session.pageCount).toBeGreaterThan(0)
     expect(session.backendId).toBe('pdfform')
 

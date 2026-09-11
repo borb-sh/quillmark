@@ -17,10 +17,10 @@ import {
   parseDocPath,
   formatDocPath,
 } from '@quillmark-wasm'
-import * as typstBuild from '@quillmark-wasm'
+import * as renderBuild from '@quillmark-wasm'
 import { makeQuill, makeCard, expectEditCode, initBuildSync } from './test-helpers.js'
 
-initBuildSync(typstBuild, 'backends/typst')
+initBuildSync(renderBuild, 'render')
 
 /** Read a field value from a card's payloadItems list by key. */
 const field = (card, key) =>

@@ -374,22 +374,20 @@ displayed size across DPI and pane-resize with no `renderScale` to thread.
 
 ## Feature / build mapping
 
-Canvas ships per-backend:
+Canvas ships with the render build:
 
-| Build                                     | Backend  | Canvas | Notes                                                    |
-| ----------------------------------------- | -------- | ------ | -------------------------------------------------------- |
-| `pkg/core/` (no features)                 | —        | no     | `Document` + `Quill` only; no engine, no Typst           |
-| `pkg/backends/typst/` (`typst`)           | typst    | yes    | native page raster                                       |
-| `pkg/backends/pdfform/` (`pdfform`)       | pdfform  | yes    | pre-flatten + hayro raster; `web-sys` canvas painter     |
+| Build                       | Backends       | Canvas | Notes                                                                  |
+| --------------------------- | -------------- | ------ | ---------------------------------------------------------------------- |
+| `pkg/core/` (no features)   | —              | no     | `Document` + `Quill` only; no engine, no Typst                         |
+| `pkg/render/` (`render`)    | typst, pdfform | yes    | Typst: native page raster; pdfform: pre-flatten + hayro raster         |
 
 Canvas paint is independent of the output formats a backend emits: pdfform
 emits PDF alone and paints, because it always links its hayro raster seam.
-The wasm `pdfform` feature pulls in `web-sys` unconditionally, so the pdfform
-build also ships the generic canvas *painter* (`page_size` / `paint`,
-dispatching through the core `SessionHandle` seam): there is no painterless
-pdfform variant. `build-wasm.sh` builds the three artifacts (core, typst,
-pdfform) sequentially; `runtime/runtime.js` maps each backend id to its build
-with a `{ formats }` manifest, drift-guarded by `runtime.test.js`.
+The wasm `render` feature pulls in `web-sys`, the generic canvas *painter*
+(`page_size` / `paint`, dispatching through the core `SessionHandle` seam).
+`build-wasm.sh` builds the two artifacts (core, render) sequentially;
+`runtime/runtime.js` maps each backend id to the render build with its own
+`{ formats }` manifest, drift-guarded per backend by `runtime.test.js`.
 
 ## Non-goals
 

@@ -215,8 +215,8 @@ export declare function assignInstances(
 
 // The backend-neutral render contract, defined here rather than re-exported from
 // one private backend because no single backend owns the canonical API's types.
-// Every backend build must satisfy these shapes; `runtime.types.test-d.ts` keeps
-// them from diverging from the generated `pkg/backends/typst/wasm.d.ts`.
+// The render build must satisfy these shapes; `runtime.types.test-d.ts` keeps
+// them from diverging from the generated `pkg/render/wasm.d.ts`.
 
 import type { Quill, Document, Card } from '../core/wasm.js';
 import type { Diagnostic } from '../core/wasm.js';
@@ -393,7 +393,7 @@ export interface EngineOptions {
 	 * `Quill.backendId`). Each value is a `BackendDescriptor`: `formats` is
 	 * required, so the format probe is ALWAYS free (no binary load, no quill
 	 * clone). Malformed entries throw at construction. The default registry maps
-	 * `"typst"` and `"pdfform"` to the bundled backend builds.
+	 * `"typst"` and `"pdfform"` to the bundled render build.
 	 */
 	backends?: Record<string, BackendDescriptor>;
 }

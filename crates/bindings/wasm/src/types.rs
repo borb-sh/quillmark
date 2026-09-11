@@ -9,7 +9,7 @@ use wasm_bindgen::prelude::*;
 
 /// Output formats supported by backends. Gated behind the engine surface so
 /// tsify omits it from the core bundle, which has no rendering surface.
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Tsify)]
 #[serde(rename_all = "lowercase")]
 pub enum OutputFormat {
@@ -18,7 +18,7 @@ pub enum OutputFormat {
     Png,
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 impl From<OutputFormat> for quillmark_core::OutputFormat {
     fn from(format: OutputFormat) -> Self {
         match format {
@@ -29,7 +29,7 @@ impl From<OutputFormat> for quillmark_core::OutputFormat {
     }
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 impl From<quillmark_core::OutputFormat> for OutputFormat {
     fn from(format: quillmark_core::OutputFormat) -> Self {
         match format {
@@ -123,7 +123,7 @@ impl From<quillmark_core::Diagnostic> for Diagnostic {
     }
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[serde(rename_all = "camelCase")]
 pub struct Artifact {
@@ -135,7 +135,7 @@ pub struct Artifact {
     pub mime_type: String,
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 impl Artifact {
     fn mime_type_for_format(format: OutputFormat) -> String {
         quillmark_core::OutputFormat::from(format)
@@ -144,7 +144,7 @@ impl Artifact {
     }
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 impl From<quillmark_core::Artifact> for Artifact {
     fn from(artifact: quillmark_core::Artifact) -> Self {
         let format = artifact.output_format.into();
@@ -156,7 +156,7 @@ impl From<quillmark_core::Artifact> for Artifact {
     }
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[tsify(hashmap_as_object)]
 #[serde(rename_all = "camelCase")]
@@ -169,13 +169,13 @@ pub struct RenderResult {
     pub regions: Vec<FieldRegion>,
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 const _: () = assert!(<RenderResult as tsify::Tsify>::SERIALIZATION_CONFIG.hashmap_as_object);
 
 /// What a committed `LiveSession.update` changed. `dirtyPages` lists pages whose
 /// content differs from the previous compile, including pages the edit added;
 /// removed pages are implied by `pageCount`.
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangeSet {
@@ -186,7 +186,7 @@ pub struct ChangeSet {
 /// A schema field address plus its geometry on the page. `field` is **not**
 /// unique, and the whole-field highlight is a union `LiveSession.fieldBoxes`
 /// owns: the consumer's copy of this contract is `runtime/runtime.d.ts`.
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[serde(rename_all = "camelCase")]
 pub struct FieldRegion {
@@ -204,7 +204,7 @@ pub struct FieldRegion {
     pub span: Option<[usize; 2]>,
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 impl From<quillmark_core::RenderedRegion> for FieldRegion {
     fn from(r: quillmark_core::RenderedRegion) -> Self {
         FieldRegion {
@@ -218,7 +218,7 @@ impl From<quillmark_core::RenderedRegion> for FieldRegion {
 
 /// How precisely a `ContentHit.pos` resolved. Never sub-cluster: `cluster` is
 /// the finest this API offers, `segment` the floor it degrades to.
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Tsify)]
 #[serde(rename_all = "camelCase")]
 pub enum HitGranularity {
@@ -230,7 +230,7 @@ pub enum HitGranularity {
     Segment,
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 impl From<quillmark_core::HitGranularity> for HitGranularity {
     fn from(g: quillmark_core::HitGranularity) -> Self {
         match g {
@@ -243,7 +243,7 @@ impl From<quillmark_core::HitGranularity> for HitGranularity {
 /// A resolved point → content position: the field a click landed in and the USV
 /// offset into its `Content`. The `LiveSession.positionAt` result, inverse of
 /// `locate`.
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[serde(rename_all = "camelCase")]
 pub struct ContentHit {
@@ -256,7 +256,7 @@ pub struct ContentHit {
     pub granularity: Option<HitGranularity>,
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 impl From<quillmark_core::ContentHit> for ContentHit {
     fn from(h: quillmark_core::ContentHit) -> Self {
         ContentHit {
@@ -267,7 +267,7 @@ impl From<quillmark_core::ContentHit> for ContentHit {
     }
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 #[derive(Debug, Clone, Serialize, Deserialize, Tsify)]
 #[serde(rename_all = "camelCase")]
 pub struct RenderOptions {
@@ -288,7 +288,7 @@ pub struct RenderOptions {
     pub regions: Option<bool>,
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 impl Default for RenderOptions {
     fn default() -> Self {
         RenderOptions {
@@ -300,7 +300,7 @@ impl Default for RenderOptions {
     }
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 impl From<RenderOptions> for quillmark_core::RenderOptions {
     fn from(opts: RenderOptions) -> Self {
         let mut core = Self::default();
@@ -315,7 +315,7 @@ impl From<RenderOptions> for quillmark_core::RenderOptions {
 #[cfg(test)]
 mod tests {
     #[test]
-    #[cfg(any(feature = "typst", feature = "pdfform"))]
+    #[cfg(feature = "render")]
     fn field_region_serializes_to_expected_shape() {
         use super::FieldRegion;
 

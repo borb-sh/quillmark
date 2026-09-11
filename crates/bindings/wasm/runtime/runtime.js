@@ -264,7 +264,7 @@ export function assignInstances(runs) {
  * generated entry's own `wasm !== undefined` guard only catches a call arriving
  * after one finished, not one already in flight.
  *
- * @param {string} id backend id, for the failure message
+ * @param {string} id the build's name, for the failure message
  * @param {() => Promise<any>} importThunk the dynamic `import()`
  * @param {() => URL} wasmUrl the build's binary, resolved at call time
  * @returns {() => Promise<any>} resolves to a ready-to-use module
@@ -283,35 +283,33 @@ function backendLoad(id, importThunk, wasmUrl) {
 			throw Object.assign(
 				quillmarkError(
 					'runtime::backend_load_failed',
-					`Engine: could not load the '${id}' backend: ${
+					`Engine: could not load the '${id}' build: ${
 						/** @type {any} */ (cause)?.message ?? cause
 					}`,
-					'The backend binary ships beside the package files; check the network tab for a 404 or an HTML response.'
+					'The build ships beside the package files; check the network tab for a 404 or an HTML response.'
 				),
 				{ cause }
 			);
 		}));
 }
 
-// Backend builds are NEVER statically imported here: that would pull a multi-MB
-// binary into the eager graph and defeat lazy loading. Each `formats` manifest
+// The render build is NEVER statically imported here: that would pull a
+// multi-MB binary into the eager graph and defeat lazy loading. Both built-in
+// backends ship in it, so they share one `load`; each `formats` manifest
 // mirrors that backend's Rust `SUPPORTED_FORMATS`, pinned by a
 // `runtime.test.js` drift guard that renders once and compares.
+const RENDER_BUILD = backendLoad(
+	'render',
+	() => import('../render/wasm.js'),
+	() => new URL('../render/wasm_bg.wasm', import.meta.url)
+);
 const DEFAULT_BACKENDS = {
 	typst: {
-		load: backendLoad(
-			'typst',
-			() => import('../backends/typst/wasm.js'),
-			() => new URL('../backends/typst/wasm_bg.wasm', import.meta.url)
-		),
+		load: RENDER_BUILD,
 		formats: ['pdf', 'svg', 'png'] // crates/backends/typst/src/lib.rs SUPPORTED_FORMATS
 	},
 	pdfform: {
-		load: backendLoad(
-			'pdfform',
-			() => import('../backends/pdfform/wasm.js'),
-			() => new URL('../backends/pdfform/wasm_bg.wasm', import.meta.url)
-		),
+		load: RENDER_BUILD,
 		formats: ['pdf'] // crates/backends/pdfform/src/lib.rs SUPPORTED_FORMATS
 	}
 };
@@ -339,17 +337,23 @@ function validateBackend(id, entry) {
 }
 
 export class Engine {
-	/** backendId → Promise<backend module>, memoized so each build loads once. */
+	/**
+	 * The three caches below key on a descriptor's `load` thunk, the build's
+	 * identity: two backend ids sharing one build (the built-ins) share one
+	 * module, one engine and one clone cache, and a consumer's override build
+	 * gets its own.
+	 */
+	/** load → Promise<build module>, memoized so each build loads once. */
 	#modules = new Map();
-	/** backendId → that backend's engine instance (the WASM backend registry). */
+	/** load → that build's engine instance (the WASM backend registry). */
 	#engines = new Map();
 	/** backendId → descriptor `{ load, formats }`. */
 	#loaders;
 	/**
-	 * backendId → WeakMap<canonical Quill, backend-memory clone>, caching the
+	 * load → WeakMap<canonical Quill, build-memory clone>, caching the
 	 * expensive materialization. WeakMap so dropping the canonical quill makes
 	 * its clone collectable, and wasm-bindgen weak-refs then free the handle.
-	 * @type {Map<string, WeakMap<object, any>>}
+	 * @type {Map<() => Promise<unknown>, WeakMap<object, any>>}
 	 */
 	#quillClones = new Map();
 
@@ -402,51 +406,52 @@ export class Engine {
 	}
 
 	/**
-	 * Resolve (and lazily load) the backend module + its engine for `backendId`.
+	 * Resolve (and lazily load) the build module + its engine for `backendId`.
 	 * @param {string} backendId
 	 * @returns {Promise<{ mod: any, engine: any }>}
 	 */
 	async #resolveBackend(backendId) {
-		const descriptor = this.#descriptorFor(backendId);
+		const { load } = this.#descriptorFor(backendId);
 
-		let modPromise = this.#modules.get(backendId);
+		let modPromise = this.#modules.get(load);
 		if (!modPromise) {
 			// Set the promise synchronously (before any await) so concurrent first
 			// renders share ONE import. Self-heal on failure so a transient load
 			// error doesn't poison every later attempt.
 			modPromise = Promise.resolve()
-				.then(descriptor.load)
+				.then(load)
 				.catch((err) => {
-					this.#modules.delete(backendId);
+					this.#modules.delete(load);
 					throw err;
 				});
-			this.#modules.set(backendId, modPromise);
+			this.#modules.set(load, modPromise);
 		}
 		const mod = await modPromise;
 
-		let engine = this.#engines.get(backendId);
+		let engine = this.#engines.get(load);
 		if (!engine) {
 			engine = new mod.Quillmark();
-			this.#engines.set(backendId, engine);
+			this.#engines.set(load, engine);
 		}
 		return { mod, engine };
 	}
 
 	/**
-	 * Get (or materialize-and-cache) the backend-memory `Quill` clone for `quill`
-	 * under `backendId`. On a miss the clone is built from `tree`, the caller's
-	 * pre-await snapshot, since the canonical handle may be freed by now.
-	 * @param {any} mod the backend build module
+	 * Get (or materialize-and-cache) the build-memory `Quill` clone for `quill`
+	 * under `backendId`'s build. On a miss the clone is built from `tree`, the
+	 * caller's pre-await snapshot, since the canonical handle may be freed by now.
+	 * @param {any} mod the build module
 	 * @param {string} backendId
 	 * @param {object} quill the canonical instance (cache key only)
 	 * @param {Map<string, Uint8Array> | null} tree pre-await snapshot; `null` on a cache hit
-	 * @returns {any} the backend-memory quill clone
+	 * @returns {any} the build-memory quill clone
 	 */
 	#cachedQuillClone(mod, backendId, quill, tree) {
-		let perQuill = this.#quillClones.get(backendId);
+		const { load } = this.#descriptorFor(backendId);
+		let perQuill = this.#quillClones.get(load);
 		if (!perQuill) {
 			perQuill = new WeakMap();
-			this.#quillClones.set(backendId, perQuill);
+			this.#quillClones.set(load, perQuill);
 		}
 		let backendQuill = perQuill.get(quill);
 		if (!backendQuill) {
@@ -486,7 +491,9 @@ export class Engine {
 		requireLocalDoc(doc, method);
 		const docJson = doc.toStored();
 		const docWarnings = doc.warnings;
-		const quillTree = this.#quillClones.get(backendId)?.has(quill) ? null : quill.toTree();
+		const quillTree = this.#quillClones.get(this.#descriptorFor(backendId).load)?.has(quill)
+			? null
+			: quill.toTree();
 		const { mod, engine } = await this.#resolveBackend(backendId);
 		// The doc clone and `fn` share one try so the clone is freed even if a
 		// later step throws; the cached quill clone is intentionally not freed.
@@ -552,7 +559,7 @@ export class Engine {
  */
 export class LiveSession {
 	/**
-	 * @param {object} inner backend-build LiveSession (typst or pdfform), whose members the delegations below name
+	 * @param {object} inner the render build's LiveSession, whose members the delegations below name
 	 * @param {{ Document: { fromStored(json: string): any } }} mod the session's backend build, used to materialize `update` documents in its linear memory
 	 */
 	constructor(inner, mod) {
