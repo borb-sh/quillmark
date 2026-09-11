@@ -13,7 +13,7 @@ let usaf_memo = quillmark_fixtures::quills_path("usaf_memo");
 
 ## Resources
 
-- **Quill templates** under `resources/quills/<name>/<version>/`, each with a `Quill.yaml` naming its backend and either a Typst `plate.typ` or a PDF-form template. `quills_path` resolves the latest version, and `fixture_quills_render_test.rs` walks the directory, so a quill added here is rendered without being named anywhere.
+- **Quill templates** under `resources/quills/<name>/<version>/`, each with a `Quill.yaml` naming its backend and either a Typst `plate.typ` or a PDF-form template. `quills_path` resolves the latest version, and `quill_names` walks the directory for the sweeps in `quiver_test.rs`, so a quill added here is rendered without being named anywhere.
 
 - **Sample markdown** under `resources/`
   - `sample.md` - markdown constructs only, no card-yaml block

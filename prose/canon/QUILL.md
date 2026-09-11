@@ -28,8 +28,7 @@ Bindings expose `Quill` directly.
 A **quiver** is a collection of quills. The bundled fixtures under
 `crates/fixtures/resources/quills/` are one quiver; the
 [quill authoring contract](BLUEPRINT.md#guarantees) is verified across the
-whole quiver by `every_quill_in_quiver_renders`
-(`crates/quillmark/tests/quiver_test.rs`).
+whole quiver by the sweeps in `crates/quillmark/tests/quiver_test.rs`.
 
 ## Internal File Structure
 

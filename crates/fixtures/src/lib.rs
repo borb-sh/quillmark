@@ -40,6 +40,24 @@ pub fn quills_path(name: &str) -> PathBuf {
     quill_dir
 }
 
+/// Names of every quill fixture in `resources/quills/`, sorted. A directory
+/// counts when [`quills_path`] resolves it to a bundle carrying `Quill.yaml`,
+/// so a versioned layout lists under its bare name and a stray directory is
+/// skipped.
+///
+/// Panics when nothing resolves: a sweep over an empty list proves nothing.
+pub fn quill_names() -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(resource_path("quills"))
+        .expect("fixtures carry a quills directory")
+        .filter_map(|e| e.ok())
+        .filter_map(|e| e.file_name().into_string().ok())
+        .filter(|name| quills_path(name).join("Quill.yaml").is_file())
+        .collect();
+    names.sort();
+    assert!(!names.is_empty(), "no quill fixtures found");
+    names
+}
+
 /// Path to this crate's `output/` directory, where examples write their artifacts.
 pub fn example_output_dir() -> PathBuf {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
