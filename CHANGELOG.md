@@ -2,6 +2,88 @@
 
 ## Unreleased
 
+- ci(release): **the version arithmetic and changelog baseline are tested
+  scripts.** `release-prepare.yml`'s `Compute next version` block runs only when
+  a maintainer dispatches it, and one release candidate exists in the
+  repository's history, so a defect in its `-rc.N` branches would surface at the
+  release that needed them. The block moves to `scripts/next-version.sh`, taking
+  the dispatch inputs verbatim so the workflow step holds no conditional of its
+  own, and the changelog baseline's pre-release skip moves to
+  `scripts/last-release-tag.sh`, reading a tag list on stdin so a test feeds it
+  fixtures rather than a repository. `scripts/release-prepare.test.sh` covers
+  twenty cases in ci.yml's lint job beside the `strip-seed-comment.sh` guard: an
+  override taken verbatim and one already carrying `-rc.N` left unsuffixed,
+  iteration counting `rc.9` to `rc.10` rather than concatenating, promotion
+  dropping the suffix at any N while ignoring `bump`, a minor bump zeroing the
+  patch, and a pre-release tag passed over for the final beneath it. Covering it
+  found the defect it was written for: a `bump` outside `patch` and `minor`, and
+  a `CURRENT` no branch can shape — a `0.93.1-beta.1` an earlier free-text
+  override left behind, whose arithmetic fails to stderr without failing the
+  shell — each left the version empty and exited 0, and the workflow
+  interpolated that empty string into `cargo release version`, the release
+  branch name, the tag and the changelog heading. A version the arithmetic
+  cannot compute is a refusal now. A 160-combination sweep of the original block
+  against the script shows no other difference. Closes #1767.
+- build(wasm): **the package build reads its version without jq.** `jq` was a
+  hard prerequisite of `build-wasm.sh` for one string: the version out of `cargo
+  metadata`. `cargo pkgid` carries the number the crate inherits from
+  `version.workspace`, and stripping past the last `#`, `@` or `:` reads every
+  pkgid spelling cargo has used, since a semver holds none of the three. The
+  guard is a semver match, so an unparseable pkgid fails the build rather than
+  stamping a partial string; `--release-stamp` still stamps verbatim, which is
+  what `release.yml` compares against the tag before publishing. The
+  `pkg/.gitignore` the script wrote goes — the root `.gitignore` already ignores
+  `pkg/`, and `package.template.json`'s `files` allowlist is what decides the
+  published set — and so does the brotli line in the size report, a second
+  compressor for a second number nothing acts on which printed only where it
+  happened to be installed. The core artifact's one remaining gzip pass feeds
+  both the report line and the size budget, which were compressing the same
+  8.7 MB twice. Closes #1766.
+- test(core): **`quillmark:blank_title` rides the transform schema, and only
+  it.** The keyword labels the blank that leads an enum's wire-valid domain and
+  had no test anywhere, so a rename or a drop shipped silently. The label and
+  the blank are asserted as one object, the label being meaningless without the
+  blank it names: a field carrying `ui.blank_title` emits both, a field without
+  it emits the domain and no key at all. Whole-object equality, so an
+  unconditional key emitting `""` reads as a failure rather than passing a
+  presence check. The declaration view keeps emitting `values:` verbatim —
+  injecting the blank there would emit `values: ["", …]`, which
+  `quill::enum_blank_member` rejects, so a quill round-tripping through that
+  view would stop loading. Closes #1765.
+- test(wasm): **the typed write and resolve suites run on the gated surface.**
+  `runtime/runtime.js` patches `writer` and `reader` onto the core build's
+  `Quill`, and `basic.test.js` drives the typst backend build — a different
+  class over different memory, where those verbs do not exist. That is why its
+  typed-commit and resolve suites reached for the `_`-prefixed `_commitField`
+  and `_resolve`: the front door was not there to reach. Both move to
+  `runtime.test.js`, where the gated surface is what a consumer holds, and no
+  underscored call remains in either file. Five assertions `runtime.test.js`
+  already made through `writer.set` and `writer.card(i).set` go. Ten had no
+  public twin and carry over: `edit::field_coercion_failed` and
+  `edit::field_not_inline`, which appeared nowhere else in the suite; the
+  `DocPath` a refused write anchors to; `setAll`'s all-or-nothing abort at both
+  the unknown-name and the coercion rung; `CardWriter.setAll`; and resolve's
+  declaration-order rows, its `default` and `blank` rungs, and `body` as a
+  sibling of `fields`. Six tests filed under the typed-commit title never
+  touched that ABI — they drive `applyChange` and `mapMarks` — and are retitled
+  where they sit. The foreign-module fixture copies the core build into an
+  `mkdtemp` directory and removes it in `afterAll`, where it wrote `pkg/dup-core`
+  and cleared it at the *next* run's start: a unique path per run cannot collide
+  with a concurrent one, and a leak lands in the OS temp directory rather than
+  in a build directory. Closes #1764.
+- test(quillmark): **the quiver sweeps share one walker and one loaded quiver.**
+  `quillmark_fixtures::quill_names` is the single list of fixture quills,
+  counting a directory when `quills_path` resolves it to a bundle carrying
+  `Quill.yaml` — the versioned layout every fixture uses, which neither of the
+  two bare `is_dir()` walkers knew about. The seed sweep joins the
+  empty-document and blueprint sweeps in `quiver_test.rs` over one `LazyLock`
+  quiver, so each quill loads once for all three rather than once per sweep and
+  the three run in parallel inside one binary: fifteen loads become five, two
+  engines become one, and the sweeps finish in 272 ms where the two binaries
+  took 678 ms. All three documents stay, none subsuming another — the blueprint
+  commits every `default:` and marks every defaultless cell `!must_fill`, the
+  seed commits every `example:` and omits every defaulted field, and only the
+  empty document carries no composable card. Closes #1763.
 - fix(typst)!: **a vendored package without `typst.toml` is skipped, with the
   warning its siblings already get.** A `packages/<dir>/` carrying no manifest
   had one synthesized — `@local/<dir>:0.1.0` — and loaded under it. That spelling
