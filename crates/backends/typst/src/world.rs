@@ -327,7 +327,8 @@ impl QuillWorld {
                         Severity::Warning,
                         format!(
                             "Skipping package '{package_name}': it has no typst.toml. Add one \
-                             declaring `[package]` with `name`, `version` and `entrypoint`."
+                             declaring `[package]` with a `name`; `namespace`, `version` and \
+                             `entrypoint` default to `local`, `0.1.0` and `lib.typ`."
                         ),
                     )
                     .with_code("typst::package_manifest".to_string()),
