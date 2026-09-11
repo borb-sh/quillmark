@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- fix(pdf): **a stamped checkbox's `/DA` names ZapfDingbats.** `stamp` wrote a
+  checkbox's `/MK /CA (4)` caption and no `/DA`, so the widget inherited the
+  form-level `/Helv 0 Tf 0 g` and nothing registered the face the glyph lives
+  in: a viewer synthesizing the appearance under `/NeedAppearances` drew the
+  digit `4`, while the canvas raster drew the check mark through a real
+  ZapfDingbats resource. The widget now carries `/DA (/ZaDb 0 Tf 0 g)`, and
+  `/DR /Font` registers `/ZaDb` whenever a checkbox is present; `spec.font`
+  stays inert on a checkbox. The face, its resource name and the glyph are
+  `quillmark_pdf::{CHECK_FONT, CHECK_FONT_RESOURCE, CHECK_GLYPH}`, which the
+  acroform flatten path now reads rather than restating. Closes #1779.
+- fix(pdf): **one predicate for the checkbox on-state.** `stamp` read any
+  `Some` value as checked and `flatten` only `Some("Yes")`, so a
+  `FieldSpec::value` the contract excludes — `value` is public — stamped
+  `/V /Yes` on a widget the raster drew blank. `FieldSpec::is_checked` is the
+  one reading, the strict one, and both paths call it. Closes #1780.
 - refactor(pdfform)!: **`quillmark-pdfform` is `quillmark-acroform`, backend id
   included.** `quillmark-pdf` and `quillmark-pdfform` differed by four
   characters and read as prefix-and-specialization, the reading #1749 records:

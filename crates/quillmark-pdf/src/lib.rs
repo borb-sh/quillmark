@@ -23,7 +23,10 @@ pub mod writer;
 
 pub use error::PdfError;
 pub use reader::ObjectIndex;
-pub use stamp::{regions_of, stamp, StampOptions, CHECKBOX_ON_STATE};
+pub use stamp::{
+    regions_of, stamp, StampOptions, CHECKBOX_ON_STATE, CHECK_FONT, CHECK_FONT_RESOURCE,
+    CHECK_GLYPH,
+};
 pub use update::PdfUpdate;
 
 const CODE_BAD_RECT: &str = "pdf::bad_rect";
@@ -61,7 +64,8 @@ pub struct FieldSpec {
     /// `[x0, y0, x1, y1]` in PDF points, bottom-left origin.
     pub rect: [f32; 4],
     pub field_type: FieldType,
-    /// `None` is blank; for a checkbox, `Some` (the on-state name) is checked.
+    /// `None` is blank; for a checkbox, [`CHECKBOX_ON_STATE`] is checked and
+    /// anything else is not ([`is_checked`](Self::is_checked)).
     pub value: Option<String>,
     /// Optional `/TU` tooltip / accessible name.
     pub tooltip: Option<String>,
@@ -90,6 +94,15 @@ impl FieldSpec {
             font_size: None,
             align: TextAlign::default(),
         }
+    }
+
+    /// Whether this is a checkbox carrying [`CHECKBOX_ON_STATE`]. The one
+    /// reading of the on-state, shared by the stamped widget and a drawn
+    /// raster: `value` is public, so a spelling the contract excludes reaches
+    /// both, and both read it as unchecked.
+    pub fn is_checked(&self) -> bool {
+        matches!(self.field_type, FieldType::Checkbox)
+            && self.value.as_deref() == Some(CHECKBOX_ON_STATE)
     }
 
     /// `Err` with code `pdf::bad_rect` unless every [`rect`](Self::rect)

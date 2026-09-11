@@ -30,6 +30,17 @@ const CODE_EXISTING_ACROFORM: &str = "pdf::existing_acroform";
 /// this as its `value` when checked, `None` when not.
 pub const CHECKBOX_ON_STATE: &str = "Yes";
 
+/// The standard-14 face a check mark is set in, never embedded.
+pub const CHECK_FONT: &[u8] = b"ZapfDingbats";
+
+/// The `/DR` `/Font` key [`CHECK_FONT`] is registered under: the name a
+/// checkbox `/DA` selects it by, and a drawn content stream too.
+pub const CHECK_FONT_RESOURCE: &str = "ZaDb";
+
+/// The [`CHECK_FONT`] glyph a checked box shows, 0x34, the filled check mark:
+/// the widget's `/MK /CA` caption, and what a drawn raster shows in its place.
+pub const CHECK_GLYPH: &[u8] = b"4";
+
 /// House-style default appearance: Helvetica, `0 Tf` (auto-size), black fill.
 /// `Helv` is registered in the form `/DR` `/Font`.
 ///
@@ -37,38 +48,44 @@ pub const CHECKBOX_ON_STATE: &str = "Yes";
 /// [`field_appearance`].
 const DEFAULT_APPEARANCE: &[u8] = b"/Helv 0 Tf 0 g";
 
-/// One widget's `/DA`: its face and size over the house black fill. `f32`'s
-/// `Display` drops the trailing `.0`, so a whole-point size writes `12`. An
-/// absent size — or one not positive and finite, `font_size` being public and
-/// `NaN`/`inf` being tokens no PDF number grammar admits — writes the `0 Tf`
-/// that defers to the viewer's auto-size.
+/// A `/DA` selecting `resource` at `size` over the house black fill. `f32`'s
+/// `Display` drops the trailing `.0`, so a whole-point size writes `12` and
+/// `0.0` writes the `0 Tf` that defers to the viewer's auto-size.
+fn appearance(resource: &str, size: f32) -> Vec<u8> {
+    format!("/{resource} {size} Tf 0 g").into_bytes()
+}
+
+/// A variable-text widget's `/DA`: its own face and size. An absent size — or
+/// one not positive and finite, `font_size` being public and `NaN`/`inf` being
+/// tokens no PDF number grammar admits — defers to the viewer's auto-size.
 fn field_appearance(spec: &FieldSpec) -> Vec<u8> {
     let size = spec
         .font_size
         .filter(|s| s.is_finite() && *s > 0.0)
         .unwrap_or(0.0);
-    let mut da = b"/".to_vec();
-    da.extend_from_slice(spec.font.resource_name().as_bytes());
-    da.extend_from_slice(format!(" {size} Tf 0 g").as_bytes());
-    da
+    appearance(spec.font.resource_name(), size)
 }
 
-/// Every face named by a `/DA` this stamp writes: the variable-text widgets'
-/// own, plus the Helvetica of the form-level [`DEFAULT_APPEARANCE`]. A checkbox
-/// or signature writes no `/DA`, so its `font` names nothing.
-fn fonts_used(fields: &[FieldSpec]) -> Vec<FormFont> {
-    let mut fonts: Vec<FormFont> = fields
+/// Every face a `/DA` this stamp writes names, as `(resource name, base font)`:
+/// the variable-text widgets' own, the check font of any checkbox, and the
+/// Helvetica of the form-level [`DEFAULT_APPEARANCE`]. A signature writes no
+/// `/DA` and a checkbox's is the engine's, so `font` names nothing on either.
+fn fonts_used(fields: &[FieldSpec]) -> Vec<(&'static str, &'static [u8])> {
+    let mut fonts: Vec<(&'static str, &'static [u8])> = fields
         .iter()
-        .filter(|f| {
-            matches!(
-                f.field_type,
-                FieldType::Text { .. } | FieldType::Choice { .. }
-            )
+        .filter_map(|f| match f.field_type {
+            FieldType::Text { .. } | FieldType::Choice { .. } => {
+                Some((f.font.resource_name(), f.font.base_font()))
+            }
+            FieldType::Checkbox => Some((CHECK_FONT_RESOURCE, CHECK_FONT)),
+            FieldType::Signature => None,
         })
-        .map(|f| f.font)
         .collect();
-    fonts.push(FormFont::Helvetica);
-    fonts.sort_by_key(|f| f.resource_name());
+    fonts.push((
+        FormFont::Helvetica.resource_name(),
+        FormFont::Helvetica.base_font(),
+    ));
+    fonts.sort_unstable_by_key(|&(resource, _)| resource);
     fonts.dedup();
     fonts
 }
@@ -145,9 +162,8 @@ pub fn stamp(
             });
         }
 
-        for (font, &fid) in fonts.iter().zip(&font_ids) {
-            up.objects
-                .push(type1_font_object(fid, font.base_font(), None)?);
+        for (&(_, base_font), &fid) in fonts.iter().zip(&font_ids) {
+            up.objects.push(type1_font_object(fid, base_font, None)?);
         }
 
         let has_signature = fields
@@ -170,8 +186,8 @@ pub fn stamp(
             {
                 let mut dr = form.insert(Name(b"DR")).dict();
                 let mut font_dict = dr.insert(Name(b"Font")).dict();
-                for (font, &fid) in fonts.iter().zip(&font_ids) {
-                    font_dict.pair(Name(font.resource_name().as_bytes()), to_ref(fid)?);
+                for (&(resource, _), &fid) in fonts.iter().zip(&font_ids) {
+                    font_dict.pair(Name(resource.as_bytes()), to_ref(fid)?);
                 }
             }
             form.finish();
@@ -261,7 +277,10 @@ fn write_widget_object(spec: &FieldSpec, wid: Ref, page_ref: Ref) -> Vec<u8> {
             }
             FieldType::Checkbox => {
                 field.field_type(PwFieldType::Button);
-                let on = spec.value.is_some();
+                // The viewer synthesizes the `/MK /CA` caption in the `/DA`
+                // face: under the form-level Helvetica the glyph is a digit.
+                field.vartext_default_appearance(Str(&appearance(CHECK_FONT_RESOURCE, 0.0)));
+                let on = spec.is_checked();
                 checkbox_on = Some(on);
                 field.pair(
                     Name(b"V"),
@@ -271,11 +290,9 @@ fn write_widget_object(spec: &FieldSpec, wid: Ref, page_ref: Ref) -> Vec<u8> {
                         Name(b"Off")
                     },
                 );
-                // /MK /CA (4): the ZapfDingbats check glyph the viewer
-                // synthesizes under NeedAppearances.
                 {
                     let mut mk = field.insert(Name(b"MK")).dict();
-                    mk.pair(Name(b"CA"), Str(b"4"));
+                    mk.pair(Name(b"CA"), Str(CHECK_GLYPH));
                 }
             }
             FieldType::Choice { options } => {
