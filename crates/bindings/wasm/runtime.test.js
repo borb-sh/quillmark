@@ -4,8 +4,9 @@
  * Typst backend's memory on demand without the caller ever seeing a backend
  * handle.
  */
-import { describe, it, expect, beforeAll } from 'vitest'
+import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import {
   Engine,
@@ -151,12 +152,9 @@ describe('@quillmark/wasm: surface', () => {
 
 // The typed-writer sugar binds a quill to a document once, so writes are bare
 // `set` / `setAll` / `reviseField` / `card(i).set`: the JS twin of Rust's
-// `quill.writer(doc)`. Every verb is a one-line delegation to the underscored
-// `_commit*` / `_reviseField` ABI on the raw `Document` class (hidden from the
-// `.d.ts`), whose error-code matrix is exercised at that altitude in
-// `basic.test.js`. What is the sugar's own, and what these pin: each verb
-// forwards to the right ABI call with the right address, and errors propagate
-// rather than being swallowed.
+// `quill.writer(doc)`. Each verb forwards to the right address, coerces the
+// value through its declared type, and carries a refused write's diagnostic
+// code and DocPath out to the caller unswallowed.
 describe('@quillmark/wasm: DocumentWriter / CardWriter (bind the quill once)', () => {
   const EDITOR_QUILL_YAML = `quill:
   name: editor_test
@@ -291,6 +289,65 @@ card_kinds:
     // reader.get carries schema authority: an unknown name throws (vs `undefined`
     // from the quill-free transport `Document.getStored` above).
     expectEditCode(() => quill.reader(ed.document).get('missing'), 'edit::unknown_field')
+  })
+
+  it('set refuses a strict type mismatch and an inline violation', () => {
+    const ed = buildQuill().writer(blankDoc())
+    expectEditCode(() => ed.set('qty', 'not-a-number'), 'edit::field_coercion_failed')
+    expectEditCode(() => ed.set('subject', 'line one\n\nline two'), 'edit::field_not_inline')
+  })
+
+  it('a refused write carries the DocPath it anchors to, and pathFor mints the same one', () => {
+    const doc = Document.fromMarkdown(
+      '~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nCard.',
+    )
+    const ed = buildQuill().writer(doc)
+    // The path a diagnostic thrown by `fn` carries.
+    const pathOf = (fn) => {
+      try {
+        fn()
+      } catch (err) {
+        return err.diagnostics[0].path
+      }
+      throw new Error('expected a throw, got none')
+    }
+    // A main field conform error anchors at the rooted main field DocPath…
+    expect(pathOf(() => ed.set('qty', 'not-a-number'))).toBe('main.qty')
+    // …a card field is kind-qualified with its absolute index…
+    expect(pathOf(() => ed.card(0).set('stray', 'x'))).toBe('cards.note[0].stray')
+    // …and a structural out-of-range op anchors at the array slot.
+    expect(pathOf(() => doc.moveCard(9, 0))).toBe('cards[9]')
+    // `pathFor` mints what the anchor carries, so a consumer's path and the
+    // engine's agree without a kind table of its own.
+    expect(doc.pathFor({ card: 0, field: 'stray' })).toBe(
+      pathOf(() => ed.card(0).set('stray', 'x')),
+    )
+  })
+
+  it('setAll is all-or-nothing at both the unknown-name and the coercion rung', () => {
+    const ed = buildQuill().writer(blankDoc())
+    // `qty` is a schema field; `titel` is a typo the schema does not own. The
+    // undeclared name is refused before any write lands.
+    expectEditCode(() => ed.setAll({ qty: '5', titel: 'oops' }), 'edit::unknown_field')
+    expect(fieldOf(ed.document.main, 'qty')).toBeUndefined()
+    // `subject` is richtext(inline), so a multi-block value fails mid-batch,
+    // after `qty` already coerced: the abort must still leave nothing behind.
+    expectEditCode(
+      () => ed.setAll({ qty: '5', subject: 'line one\n\nline two' }),
+      'edit::field_not_inline',
+    )
+    expect(fieldOf(ed.document.main, 'qty')).toBeUndefined()
+  })
+
+  it('card(i).setAll typed-commits a batch and refuses an unknown name or index', () => {
+    const doc = Document.fromMarkdown(
+      '~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nCard.',
+    )
+    const ed = buildQuill().writer(doc)
+    ed.card(0).setAll({ body: 'Card **body**.' })
+    expect(exportMarkdown(fieldOf(doc.cards[0], 'body'))).toBe('Card **body**.')
+    expectEditCode(() => ed.card(0).setAll({ stray: 'x' }), 'edit::unknown_field')
+    expectEditCode(() => ed.card(9).setAll({ body: 'x' }), 'edit::index_out_of_range')
   })
 })
 
@@ -600,6 +657,131 @@ card_kinds:
     ])
   })
 
+})
+
+// For every declared field: the value the render projection would use and the
+// source rung it came from ("authored" | "default" | "blank"). Rows are an
+// ordered array carrying their own `name`; the card body is a `body` sibling,
+// not a row in `fields`. Value and provenance only: diagnostics stay
+// validate(), guidance stays the schema. See prose/canon/SCHEMAS.md
+// § "Value sources and projections".
+describe('@quillmark/wasm: reader.resolve (the resolved-value view)', () => {
+  const QUILL_YAML = `quill:
+  name: field_states_test
+  version: "1.0"
+  backend: typst
+  description: Resolved-field view coverage
+
+main:
+  body:
+    example: "Example body prose."
+  fields:
+    title:
+      type: string
+    status:
+      type: string
+      default: draft
+    notes:
+      type: string
+    count:
+      type: integer
+    author:
+      type: string
+      example: A. Author
+
+card_kinds:
+  note:
+    fields:
+      label:
+        type: string
+`
+
+  const buildQuill = () =>
+    Quill.fromTree(makeQuill({ name: 'field_states_test', quillYaml: QUILL_YAML }))
+
+  const resolveOf = (md) => buildQuill().reader(Document.fromMarkdown(md)).resolve()
+
+  // Rows are an ordered array; look one up by its `name`.
+  const byName = (rows, name) => rows.find((r) => r.name === name)
+
+  const MAIN_ONLY = `~~~card-yaml
+$quill: field_states_test
+$kind: main
+title: Hello
+~~~
+`
+
+  it('tags main rows with their authored / default / blank source', () => {
+    const f = resolveOf(MAIN_ONLY).main.fields
+
+    // Declaration order is structural: the array order is the contract.
+    expect(f.map((r) => r.name)).toEqual(['title', 'status', 'notes', 'count', 'author'])
+
+    expect(byName(f, 'title').source).toBe('authored')
+    expect(byName(f, 'title').value).toBe('Hello')
+    expect(byName(f, 'status').source).toBe('default')
+    expect(byName(f, 'status').value).toBe('draft')
+    expect(byName(f, 'notes').source).toBe('blank')
+    expect(byName(f, 'notes').value).toBe('')
+  })
+
+  it('carries the body as a `body` sibling, never a row in fields', () => {
+    const withBody = resolveOf(`${MAIN_ONLY}\nHello body.\n`)
+    expect(withBody.main.body).toBeDefined()
+    expect(withBody.main.body.source).toBe('authored')
+    // Not smuggled into the fields array under any `body` / `$body` name.
+    expect(byName(withBody.main.fields, 'body')).toBeUndefined()
+    expect(byName(withBody.main.fields, '$body')).toBeUndefined()
+
+    expect(resolveOf(MAIN_ONLY).main.body.source).toBe('blank')
+  })
+
+  it('carries value and source only: no diagnostics, no example', () => {
+    // Each row is exactly { name, value, source }; schema guidance (example:)
+    // and diagnostics read from quill.schema / quill.validate, not duplicated.
+    const author = byName(resolveOf(MAIN_ONLY).main.fields, 'author')
+    expect(Object.keys(author).sort()).toEqual(['name', 'source', 'value'])
+    expect('example' in author).toBe(false)
+    expect('diagnostics' in author).toBe(false)
+  })
+
+  it('reports kind and index on a card entry', () => {
+    const states = resolveOf(`${MAIN_ONLY}
+~~~card-yaml
+$kind: note
+label: L
+~~~
+Note body.
+`)
+    expect(states.cards.length).toBe(1)
+    const card = states.cards[0]
+    expect(card.kind).toBe('note')
+    expect(card.index).toBe(0)
+    expect(byName(card.fields, 'label').source).toBe('authored')
+    expect(byName(card.fields, 'label').value).toBe('L')
+  })
+
+  it('keeps a render-uncoercible value raw (byte-for-byte with the plate)', () => {
+    // A value the render coercion cannot conform is kept raw and authored,
+    // exactly as compile_data leaves it: the error surfaces via validate(),
+    // not this view (which carries no diagnostics).
+    const md = `~~~card-yaml
+$quill: field_states_test
+$kind: main
+title: T
+count: "not-a-number"
+~~~
+`
+    const row = byName(resolveOf(md).main.fields, 'count')
+    expect(row.source).toBe('authored')
+    expect(row.value).toBe('not-a-number')
+    expect('diagnostics' in row).toBe(false)
+  })
+
+  it('result is JSON.stringify-able', () => {
+    const round = JSON.parse(JSON.stringify(resolveOf(MAIN_ONLY)))
+    expect(byName(round.main.fields, 'title').value).toBe('Hello')
+  })
 })
 
 // MAIN_CARD_ADDR names the empty main-card address `{}` the card-scoped verbs
@@ -1373,15 +1555,18 @@ describe('@quillmark/wasm: handles from another copy (duplicate install)', () =>
   // linear memory.
   describe('against a second copy of the core build on disk', () => {
     let copyB
+    let copyRoot
     beforeAll(async () => {
-      const src = path.join(PKG_DIR, 'core')
-      const dst = path.join(PKG_DIR, 'dup-core')
-      fs.rmSync(dst, { recursive: true, force: true })
-      fs.cpSync(src, dst, { recursive: true })
+      copyRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'quillmark-core-copy-'))
+      const dst = path.join(copyRoot, 'core')
+      fs.cpSync(path.join(PKG_DIR, 'core'), dst, { recursive: true })
       copyB = await import(/* @vite-ignore */ path.join(dst, 'wasm.js'))
       // A second copy is a second instantiation: its own memory, its own
       // classes, and its own init.
       copyB.initSync({ module: fs.readFileSync(path.join(dst, 'wasm_bg.wasm')) })
+    })
+    afterAll(() => {
+      if (copyRoot) fs.rmSync(copyRoot, { recursive: true, force: true })
     })
 
     it('is genuinely a different class over a different memory', () => {
