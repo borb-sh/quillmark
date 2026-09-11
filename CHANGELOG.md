@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+- fix(pdf): **a stamped checkbox's `/DA` names ZapfDingbats.** `stamp` wrote a
+  checkbox's `/MK /CA (4)` caption and no `/DA`, so the widget inherited the
+  form-level `/Helv 0 Tf 0 g` and nothing registered the face the glyph lives
+  in: a viewer synthesizing the appearance under `/NeedAppearances` drew the
+  digit `4`, while the canvas raster drew the check mark through a real
+  ZapfDingbats resource. The widget now carries `/DA (/ZaDb 0 Tf 0 g)`, and
+  `/DR /Font` registers `/ZaDb` whenever a checkbox is present; `spec.font`
+  stays inert on a checkbox. The face, its resource name and the glyph are
+  `quillmark_pdf::{CHECK_FONT, CHECK_FONT_RESOURCE, CHECK_GLYPH}`, which the
+  acroform flatten path now reads rather than restating. Closes #1779.
+- fix(pdf): **one predicate for the checkbox on-state.** `stamp` read any
+  `Some` value as checked and `flatten` only `Some("Yes")`, so a
+  `FieldSpec::value` the contract excludes — `value` is public — stamped
+  `/V /Yes` on a widget the raster drew blank. `FieldSpec::is_checked` is the
+  one reading, the strict one, and both paths call it. Closes #1780.
+- fix(acroform): **a value carrying a newline binds to a multiline widget.**
+  `bind` decided `MULTILINE` from the schema type, so a richtext of two
+  paragraphs, a `String` block scalar, or any value whose projection keeps a
+  `\n` reached the stamped widget single-line unless `ui.multiline` said
+  otherwise, while the flattened raster stacked the lines: the author saw the
+  value in the preview and one line of it in the file. `resolve::field_spec`
+  now promotes a `Text` widget to multiline when the value it resolved holds a
+  `\n`, reading the same string the raster draws. An array's widget stays
+  multiline unconditionally, value or none, since a signer types its elements
+  one per line. Closes #1781.
+- fix(content): **`Delta::map_pos` saturates its base cursor.** `mapPos` is the
+  one `Delta` door no `try_apply` bounds, and it summed a wire delta's
+  `retain`/`delete` counts with a plain `+`: on wasm32, where `usize` is
+  32-bit, `{ops:[{retain:3000000000},{retain:3000000000}]}` wrapped to a wrong
+  caret position in the published build and aborted the instance in the
+  checked one. `map_pos`, `is_deleted` and `inserted_spans` now walk the ops
+  with `saturating_add`, as `expected_base_len` already did: a run past
+  `usize::MAX` describes a base longer than any content, and a position lands
+  inside it as it would in a bounded one. Closes #1782.
 - refactor(pdfform)!: **`quillmark-pdfform` is `quillmark-acroform`, backend id
   included.** `quillmark-pdf` and `quillmark-pdfform` differed by four
   characters and read as prefix-and-specialization, the reading #1749 records:

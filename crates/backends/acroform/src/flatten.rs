@@ -21,7 +21,7 @@ use quillmark_pdf::{
         alloc_id, append_refs_to_array_key, content_stream_object, dict_object, pdf_escape,
         type1_font_object, winansi_encode, OnNonArray,
     },
-    FieldSpec, FieldType, PdfError, PdfUpdate, CHECKBOX_ON_STATE,
+    FieldSpec, FieldType, PdfError, PdfUpdate, CHECK_GLYPH,
 };
 
 use crate::typography;
@@ -107,7 +107,7 @@ pub fn flatten(base: Vec<u8>, fields: &[FieldSpec]) -> Result<Vec<u8>, PdfError>
 fn has_drawable_value(spec: &FieldSpec) -> bool {
     match &spec.field_type {
         FieldType::Signature => false,
-        FieldType::Checkbox => spec.value.as_deref() == Some(CHECKBOX_ON_STATE),
+        FieldType::Checkbox => spec.is_checked(),
         _ => spec.value.is_some(),
     }
 }
@@ -238,8 +238,6 @@ fn write_text_block(
     out.extend_from_slice(b"ET\nQ\n");
 }
 
-/// Draw ZapfDingbats glyph 0x34 (`'4'`), the filled check mark — the same glyph
-/// the AcroForm stamp path declares via `/MK /CA (4)`.
 fn write_check_char(out: &mut Vec<u8>, font: &str, x: f32, y: f32, size: f32) {
     out.extend_from_slice(b"q\n");
     out.extend_from_slice(STATE_RESET);
@@ -249,7 +247,9 @@ fn write_check_char(out: &mut Vec<u8>, font: &str, x: f32, y: f32, size: f32) {
     push_f32(out, x);
     out.push(b' ');
     push_f32(out, y);
-    out.extend_from_slice(b" Td\n(4) Tj\nET\nQ\n");
+    out.extend_from_slice(b" Td\n(");
+    out.extend_from_slice(CHECK_GLYPH);
+    out.extend_from_slice(b") Tj\nET\nQ\n");
 }
 
 fn rewrite_page_for_flatten(

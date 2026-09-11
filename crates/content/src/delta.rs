@@ -122,6 +122,12 @@ impl Delta {
 
     /// Map a base char position to its new position. `assoc` decides the side of
     /// a same-position insertion (`After` moves past it).
+    ///
+    /// The base cursor saturates, as [`expected_base_len`](Self::expected_base_len)
+    /// does: this is the one door a wire delta reaches without `try_apply`
+    /// having bounded it, and an op run summing past `usize` describes a base
+    /// longer than any content, so a position lands inside it as it would in a
+    /// bounded one.
     pub fn map_pos(&self, pos: usize, assoc: Assoc) -> usize {
         let mut old = 0usize;
         let mut new = 0usize;
@@ -131,34 +137,34 @@ impl Delta {
                     // Strictly inside the retain resolves here; the right
                     // boundary (pos == old + n) falls through, so a following
                     // Insert can apply its `assoc`.
-                    if pos < old + n {
-                        return new + (pos - old);
+                    if pos < old.saturating_add(*n) {
+                        return new.saturating_add(pos - old);
                     }
-                    old += n;
-                    new += n;
+                    old = old.saturating_add(*n);
+                    new = new.saturating_add(*n);
                 }
                 Op::Delete(n) => {
-                    if pos < old + n {
+                    if pos < old.saturating_add(*n) {
                         // Inside (or at the start of) the deletion: collapse to
                         // the deletion point.
                         return new;
                     }
-                    old += n;
+                    old = old.saturating_add(*n);
                 }
                 Op::Insert(s) => {
                     let len = s.chars().count();
                     if pos == old {
                         match assoc {
                             Assoc::Before => return new,
-                            Assoc::After => new += len, // fall through past insert
+                            Assoc::After => new = new.saturating_add(len), // fall through past insert
                         }
                     } else {
-                        new += len;
+                        new = new.saturating_add(len);
                     }
                 }
             }
         }
-        new + pos.saturating_sub(old)
+        new.saturating_add(pos.saturating_sub(old))
     }
 
     /// Whether base position `pos` sits strictly inside a deleted span. The
@@ -168,12 +174,12 @@ impl Delta {
         let mut old = 0usize;
         for op in &self.ops {
             match op {
-                Op::Retain(n) => old += n,
+                Op::Retain(n) => old = old.saturating_add(*n),
                 Op::Delete(n) => {
-                    if pos > old && pos < old + n {
+                    if pos > old && pos < old.saturating_add(*n) {
                         return true;
                     }
-                    old += n;
+                    old = old.saturating_add(*n);
                 }
                 Op::Insert(_) => {}
             }
@@ -189,13 +195,13 @@ impl Delta {
         let mut new = 0usize;
         for op in &self.ops {
             match op {
-                Op::Retain(n) => new += n,
+                Op::Retain(n) => new = new.saturating_add(*n),
                 Op::Insert(s) => {
                     let len = s.chars().count();
                     if len > 0 {
-                        spans.push((new, new + len));
+                        spans.push((new, new.saturating_add(len)));
                     }
-                    new += len;
+                    new = new.saturating_add(len);
                 }
                 Op::Delete(_) => {}
             }
@@ -504,6 +510,30 @@ mod tests {
                 actual: 5,
             })
         );
+    }
+
+    /// `mapPos` hands a wire delta here with no length check ahead of it, and
+    /// `usize` is 32-bit on wasm32, where a release build wraps and a checked
+    /// one aborts the instance. Spelled against `usize::MAX` so the same run
+    /// overflows on every width.
+    #[test]
+    fn map_pos_saturates_on_counts_past_usize() {
+        let over = Delta {
+            ops: vec![
+                Op::Retain(usize::MAX),
+                Op::Retain(2),
+                Op::Insert("x".into()),
+                Op::Delete(3),
+            ],
+        };
+        // A position the first retain covers maps through it.
+        assert_eq!(over.map_pos(5, Assoc::After), 5);
+        // One at the saturated cursor walks the rest of the run without
+        // overflowing, on either side of the insertion.
+        assert_eq!(over.map_pos(usize::MAX, Assoc::Before), usize::MAX);
+        assert_eq!(over.map_pos(usize::MAX, Assoc::After), usize::MAX);
+        assert!(!over.is_deleted(usize::MAX));
+        assert_eq!(over.inserted_spans(), vec![(usize::MAX, usize::MAX)]);
     }
 
     #[test]
