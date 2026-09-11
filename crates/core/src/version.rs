@@ -93,9 +93,7 @@ impl VersionSelector {
             VersionSelector::Latest => true,
         }
     }
-}
 
-impl VersionSelector {
     /// The selector as written after `@`, unprefixed: `2`, `2.1`, `2.1.0` or
     /// `latest`. Empty is the typo `name@`, not a spelling of latest.
     pub(crate) fn from_token(token: &str) -> Result<Self, String> {
