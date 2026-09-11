@@ -11,6 +11,8 @@ import pytest
 
 from quillmark import Document, Quill
 
+from conftest import field
+
 QUILL_YAML_CONTENT = """quill:
   name: py_validate_smoke
   version: "1.0"
@@ -157,15 +159,6 @@ main:
 """
 
 
-def _fields_of(card):
-    """The card's user fields as a name → value map."""
-    return {
-        item["key"]: item["value"]
-        for item in card["payload_items"]
-        if item["type"] == "field"
-    }
-
-
 def _bound_md(*lines):
     fields = "".join(f"{line}\n" for line in lines)
     return f"~~~card-yaml\n$quill: py_bound_smoke\n$kind: main\n{fields}~~~\n\nBody.\n"
@@ -179,9 +172,8 @@ def test_parse_lands_both_codecs_at_rest(tmp_path):
     doc = quill.parse(_bound_md("subject: Q3 **results**", "note: 'a *literal* line'"))
 
     assert doc.warnings == []
-    fields = _fields_of(doc.main)
-    assert isinstance(fields["subject"], dict), "richtext rests as the corpus"
-    assert fields["note"] == "a *literal* line", "plaintext rests as the literal"
+    assert isinstance(field(doc.main, "subject"), dict), "richtext rests as the corpus"
+    assert field(doc.main, "note") == "a *literal* line", "plaintext rests as the literal"
 
 
 def test_conform_converges_a_transported_document(tmp_path):
@@ -204,7 +196,7 @@ def test_conform_reports_a_non_conforming_value_and_leaves_it_authored(tmp_path)
     doc = quill.parse(_bound_md("subject: 42"))
 
     assert "conform::field_decode" in [d.code for d in doc.warnings]
-    assert _fields_of(doc.main)["subject"] == 42, "the value stays authored"
+    assert field(doc.main, "subject") == 42, "the value stays authored"
 
 
 def test_the_wrong_quill_raises_before_any_mutation(tmp_path):
