@@ -838,6 +838,14 @@ export class DocumentReader {
 		return this.#doc._readerGetContent(this.#quill, addr);
 	}
 	/**
+	 * @param {import('../core/wasm.js').Addr | string} addr
+	 * @param {import('../core/wasm.js').PathStep[]} path
+	 * @returns {import('../core/wasm.js').Content | undefined}
+	 */
+	getContentAt(addr, path) {
+		return this.#doc._readerGetContentAt(this.#quill, addr, path);
+	}
+	/**
 	 * @returns {string}
 	 */
 	bodyMarkdown() {
@@ -896,6 +904,14 @@ export class CardReader {
 	 */
 	getContent(name) {
 		return this.#doc._readerGetContent(this.#quill, { card: this.#index, field: name });
+	}
+	/**
+	 * @param {string} name
+	 * @param {import('../core/wasm.js').PathStep[]} path
+	 * @returns {import('../core/wasm.js').Content | undefined}
+	 */
+	getContentAt(name, path) {
+		return this.#doc._readerGetContentAt(this.#quill, { card: this.#index, field: name }, path);
 	}
 	/**
 	 * @returns {string}

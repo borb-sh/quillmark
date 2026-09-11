@@ -484,10 +484,8 @@ fn push_container_field(
 /// the value cell alone (a concrete value is shippable as-is, a `!must_fill`
 /// marker asks to be filled) so the annotation needs no cell-state tag.
 fn type_expression(field: &FieldSchema) -> String {
-    if let Some(values) = &field.enum_values {
-        return format!("enum<{}>", values.join(" | "));
-    }
-    match field.r#type {
+    match &field.r#type {
+        FieldType::Enum { values } => format!("enum<{}>", values.join(" | ")),
         FieldType::String => "string".into(),
         FieldType::Number => "number".into(),
         FieldType::Integer => "integer".into(),
@@ -502,9 +500,6 @@ fn type_expression(field: &FieldSchema) -> String {
         // markup, distinct from richtext's `<markdown>` surface.
         FieldType::PlainText { inline: false } => "plaintext<plain>".into(),
         FieldType::PlainText { inline: true } => "plaintext(inline)<plain>".into(),
-        // `enum` fields always carry `enum_values`, so the early return above
-        // handles them; this arm is the defensive fallback for a valueless enum.
-        FieldType::Enum => "enum".into(),
         FieldType::Date => "date<YYYY-MM-DD>".into(),
         FieldType::DateTime => "datetime<YYYY-MM-DDThh:mm[:ss]>".into(),
         // The element type comes from `items`; a scalar element gives

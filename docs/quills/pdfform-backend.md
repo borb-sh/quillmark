@@ -198,7 +198,7 @@ Each field's value comes from the **resolver**: for every bound field, the backe
 | Type | Binding |
 |---|---|
 | `text` | String value; numbers/bools stringify; an **array joins with newlines** (one element per line: the multiline fill). Empty → blank. |
-| `checkbox` | Truthy value → checked; otherwise unchecked. |
+| `checkbox` | `true` → checked; otherwise unchecked. Binds a `boolean` field, which reaches here already coerced. |
 | `choice` | The value must match one of `options` exactly, else the field is left blank. |
 | `signature` | Never bound: always an empty, signer-fillable widget. |
 

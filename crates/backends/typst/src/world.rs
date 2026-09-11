@@ -300,8 +300,8 @@ impl QuillWorld {
                             &package_dir,
                             sources,
                             binaries,
-                            Some(spec),
-                            Some(&package_info.entrypoint),
+                            spec,
+                            &package_info.entrypoint,
                             warnings,
                         )?;
                     }
@@ -322,22 +322,17 @@ impl QuillWorld {
                     }
                 }
             } else {
-                // A package directory with no typst.toml.
-                let spec = PackageSpec {
-                    namespace: "local".into(),
-                    name: package_name.into(),
-                    version: "0.1.0".parse().map_err(|_| "Invalid version format")?,
-                };
-
-                Self::load_package_files_from_quill(
-                    source,
-                    &package_dir,
-                    sources,
-                    binaries,
-                    Some(spec),
-                    None,
-                    warnings,
-                )?;
+                warnings.push(
+                    Diagnostic::new(
+                        Severity::Warning,
+                        format!(
+                            "Skipping package '{package_name}': it has no typst.toml. Add one \
+                             declaring `[package]` with a `name`; `namespace`, `version` and \
+                             `entrypoint` default to `local`, `0.1.0` and `lib.typ`."
+                        ),
+                    )
+                    .with_code("typst::package_manifest".to_string()),
+                );
             }
         }
 
@@ -349,8 +344,8 @@ impl QuillWorld {
         package_dir: &Path,
         sources: &mut HashMap<FileId, Source>,
         binaries: &mut HashMap<FileId, Bytes>,
-        package_spec: Option<PackageSpec>,
-        entrypoint: Option<&str>,
+        package_spec: PackageSpec,
+        entrypoint: &str,
         warnings: &mut Vec<Diagnostic>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let package_pattern = format!("{}/*", package_dir.to_string_lossy());
@@ -370,7 +365,7 @@ impl QuillWorld {
                         continue;
                     }
                 };
-                let id = file_id(package_spec.clone(), virtual_path);
+                let id = file_id(Some(package_spec.clone()), virtual_path);
 
                 if let Some(ext) = file_path.extension() {
                     if ext == "typ" {
@@ -386,29 +381,26 @@ impl QuillWorld {
             }
         }
 
-        if let (Some(spec), Some(entrypoint_name)) = (&package_spec, entrypoint) {
-            let entrypoint_path = match VirtualPath::new(entrypoint_name) {
-                Ok(vpath) => vpath,
-                Err(e) => {
-                    warnings.push(skipped_path(Path::new(entrypoint_name), e));
-                    return Ok(());
-                }
-            };
-            let entrypoint_file_id = file_id(Some(spec.clone()), entrypoint_path);
-
-            if !sources.contains_key(&entrypoint_file_id) {
-                warnings.push(
-                    Diagnostic::new(
-                        Severity::Warning,
-                        format!(
-                            "Package '{}' declares entrypoint '{entrypoint_name}', which it does \
-                             not ship",
-                            spec.name
-                        ),
-                    )
-                    .with_code("typst::package_entrypoint_missing".to_string()),
-                );
+        let entrypoint_path = match VirtualPath::new(entrypoint) {
+            Ok(vpath) => vpath,
+            Err(e) => {
+                warnings.push(skipped_path(Path::new(entrypoint), e));
+                return Ok(());
             }
+        };
+        let entrypoint_file_id = file_id(Some(package_spec.clone()), entrypoint_path);
+
+        if !sources.contains_key(&entrypoint_file_id) {
+            warnings.push(
+                Diagnostic::new(
+                    Severity::Warning,
+                    format!(
+                        "Package '{}' declares entrypoint '{entrypoint}', which it does not ship",
+                        package_spec.name
+                    ),
+                )
+                .with_code("typst::package_entrypoint_missing".to_string()),
+            );
         }
 
         Ok(())
@@ -617,6 +609,23 @@ name = "minimal-package"
         assert!(
             warning.message.contains("brokenpkg"),
             "warning must name the package: {}",
+            warning.message
+        );
+    }
+
+    #[test]
+    fn a_package_without_a_manifest_is_skipped_with_a_warning() {
+        let quill = quill_with(&[("packages/bare/lib.typ", "#let x = 1\n")]);
+        let world = QuillWorld::new(&quill, "// probe").expect("world builds anyway");
+
+        let warning = world
+            .load_warnings()
+            .iter()
+            .find(|d| d.code.as_deref() == Some("typst::package_manifest"))
+            .expect("a manifest-less package warns");
+        assert!(
+            warning.message.contains("bare") && warning.message.contains("typst.toml"),
+            "the warning names the package and the file it wants: {}",
             warning.message
         );
     }

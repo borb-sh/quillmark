@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+- fix(typst)!: **a vendored package without `typst.toml` is skipped, with the
+  warning its siblings already get.** A `packages/<dir>/` carrying no manifest
+  had one synthesized — `@local/<dir>:0.1.0` — and loaded under it. That spelling
+  was undocumented, unfixtured and untested, and it split one package tree into
+  two behaviors: the synthesized path passed no entrypoint, so it alone skipped
+  the `typst::package_entrypoint_missing` check that the same files with a
+  two-line manifest get. A manifest-less directory now warns under
+  `typst::package_manifest`, the code its malformed-manifest and bad-version
+  siblings already carry, and is skipped. The migration is the file the fallback
+  was standing in for: `parse_package_toml` defaults `namespace` to `local`,
+  `version` to `0.1.0` and `entrypoint` to `lib.typ`, so `[package]` plus
+  `name = "<dir>"` reproduces the old spec exactly. `package_spec` and
+  `entrypoint` stop being `Option` on `load_package_files_from_quill`, whose two
+  call sites always passed one, and the infallible `"0.1.0".parse()` dressed as
+  fallible goes with them. Refs #1698.
+- refactor(pdfform): **a checkbox reads a bool.** `is_truthy` accepted
+  `"yes"`, `"on"`, `"y"`, `"checked"`, `"1"` and any nonzero number beside
+  `true`. Nothing reaches it: a `checkbox` widget binds only to a `boolean`
+  schema field, and `resolve` runs against `compile_data`, where
+  `conform_value` has already turned a bool, a `"true"`/`"false"` spelling and
+  a number into a JSON bool — and refused everything else as
+  `CoercionError::uncoercible` before any widget resolves. So the vocabulary
+  was not a tolerance but a second, *wider* one behind a door the first never
+  opens: `"yes"` checks the box here and fails the compile upstream. The module
+  binds against `compile_data` precisely so coercion is inherited rather than
+  re-implemented, which is the line `is_truthy` crossed. `matches!(raw,
+  Value::Bool(true))` is the whole rule now. No reachable behavior changes.
+- refactor(core): **a quill reference parses its selector token directly.**
+  `QuillReference::from_str` split `name@selector` and then re-prefixed the
+  half it had just split off — `VersionSelector::from_str(&format!("@{}",
+  part))` — so the selector parser carried a `written` flag to tell the typo
+  `memo@` from the absent selector in `memo`, a distinction only the caller
+  ever had in hand. `VersionSelector::from_token` parses the unprefixed token
+  and refuses the empty one, `from_str` is the written spelling over it, and
+  the allocation per parse goes. Parsed values, `Display` output and error
+  strings are unchanged, which is what the untouched selector tests assert.
+
 Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
 
 ### The content model
@@ -134,6 +171,26 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
 
 ### Parsing and the card block
 
+- feat(core)!: **`---` front matter is CommonMark's, and the message names the
+  fence to write instead.** A `---` at document start paired with a later `---`
+  opened the root block. It is a thematic break and a setext underline again,
+  so a document fenced that way has no root block and fails `MissingQuill`. The
+  alias was accept-don't-emit-don't-advertise: no authoring page taught it,
+  `FORMAT_RULES` says the fence is exactly `~~~`, the blueprint emits `~~~`,
+  and `toMarkdown` rewrote a `---`-authored root to `~~~` on first re-emit.
+  What it cost was a rule that only half held — composable cards have no `---`
+  form — and the containment that took: a document-start rule, a matched-fences
+  rule, and a lookahead rejecting a `---` below the root block when a later
+  `---` paired with it over YAML-key-looking content. That lookahead read prose
+  it had no claim on. A thematic break, a paragraph opening `Note:`, and a
+  second break is ordinary markdown, and it was refused outright with a
+  composable-card error. The scanner now reads no `---` at all, so it claims
+  nothing a CommonMark renderer draws, and `missing_block_message` carries what
+  the tolerance was for: a document opening with `---` and declaring `$quill`
+  is told to replace the opening and closing `---` with `~~~`, which is the
+  edit. A `---` document *without* `$quill` keeps the generic message, which
+  names the fence and the key together rather than sending the author back for
+  a second turn. Refs #1698.
 - feat(core)!: **every column-zero `~~~` block is a card, whatever its info
   string.** The opener's info string is no longer read. `~~~card-yaml` and
   `~~~yaml` were accepted aliases and `~~~rust` opened an ordinary code block;
@@ -298,8 +355,9 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
   content objects. A present-null reads `null` rather than `""`. A leaf that
   does not decode raises `edit::field_decode` anchored at the element
   (`main.paragraphs[1]`). A read never coerces: `qty: "3"` reads `"3"` here and
-  `3` only in `resolve`. `reader.getContent` is unchanged; `getContentAt` is
-  retired below.
+  `3` only in `resolve`. `reader.getContent` and `reader.getContentAt` are
+  unchanged, and are where a leaf's anchors and island ids read back: the text
+  form carries neither.
 - feat(bindings)!: **the storage DTO verbs name their lane, not their
   encoding.** `Document.toJson` / `fromJson` / `loadJson` become `toStored` /
   `fromStored` / `loadStored`, and Python's `to_json` / `from_json` become
@@ -325,14 +383,13 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
   `HashMap` iteration order. In Rust, `Quill::metadata` and
   `quillmark_core::STANDARD_METADATA_KEYS` are deleted. The `--json` flag's one
   distinctive output was that mirror.
-- refactor(wasm,python)!: **six owner calls leave both bindings.** Each is a
+- refactor(wasm,python)!: **five owner calls leave both bindings.** Each is a
   call the host makes itself in a line or two from surface that stays:
   `Document.tryFromJson` / `try_from_json` — never renamed with its lane, and
   deleted rather than aliased, so `storageVersionOf(b) ? fromStored(b) : null`
   is the read — `Document.makeCard` / `make_card` (a `CardInput`
   object literal), `doc.setCardKind` / `set_card_kind` (`removeCard` +
-  `insertCard` at the same index), `reader.getContentAt` / `get_content_at`
-  (`reader.get(name)`, which projects every content leaf at its codec),
+  `insertCard` at the same index),
   `result.renderTimeMs` / `render_time_ms` (clock the call), and
   `Document.formatDiagnostic` (the CLI and Python's `str(diagnostic)` still
   render it). They go from **both** surfaces, so WASM remains the reference
@@ -430,6 +487,37 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
   from no public surface. `Engine.render` snapshots `doc.warnings` beside the
   storage DTO and fronts the result with it, the pipeline order ERROR.md
   states. `LiveSession.render` carries the compile half alone.
+- fix(wasm)!: **a `MarkOp` spells its payload where the decoder reads it, off
+  one `ContentMarkKind`.** The `link` and `anchor` arms declared it as a named
+  sibling — `{ type: "link"; url }` — which is the spelling the authored lane
+  refuses as the retired `@0.93.0` encoding (`content json shape: legacy mark
+  payload`). The decoder reads a built-in's payload out of `attrs` and the
+  canonical encoder writes it there, so the type named the one shape
+  `applyChange` rejects and rejected the one it takes. It was survivable while
+  the union carried its open arm, `{ type: string; attrs: unknown }`, whose
+  shape happened to match the decoder: a correct op type-checked through the
+  wrong arm. Closing the vocabularies deleted that arm and left no spelling
+  that both compiles and runs. Nothing on the wire moves — the runtime accepted
+  `attrs` and only `attrs` throughout — so this reaches a consumer as a type
+  that stops refusing correct code. The drift was possible because the op
+  restated the payload: `ContentMarkKind` names the three arms once, exported
+  from the package root beside `ContentLineKind`; `ContentMark` is a range over
+  it and `MarkOp`'s `add` / `remove` are a `ContentMark` under an op, so an arm
+  added upstream reaches both by construction and `{ op: 'remove', ...mark }`
+  type-checks for a held mark. The type guard lifts a mark's payload by name as
+  it lifts a line's, beside an `@ts-expect-error` pair refusing the sibling, and
+  the Rust drift guard reads the mark vocabulary off `ContentMarkKind`.
+- fix(wasm,python): **`reader.getContentAt` / `get_content_at` stays.** The
+  owner-call sweep took it as a call the host makes in a line or two, but
+  neither read that remains is one: `reader.get` answers in the values form,
+  which is text, and an anchor has no markdown projection while an island's
+  `id` is re-minted by every importer, so the round-trip a nested content
+  editor performs loses both; `getStored` echoes bytes under `unknown` and
+  hands the codec dispatch back to the caller, which is the judgement the read
+  exists to make. The verb returns in its 0.112 shape — `path` a `PathStep[]`
+  walked through the field schema's `items` / `properties` / `variants` to the
+  leaf, absent for a path naming nothing stored — with Python's twin taking the
+  `card=` selector that replaced the `CardReader` cursor.
 
 ### The engine seam and the backends
 
@@ -680,6 +768,20 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
 
 ### Schema, validation and the resolved view
 
+- refactor(core)!: **an enum's domain rides the type token.** `FieldType::Enum`
+  carries `values`, and `FieldSchema::enum_values` is gone. The domain and the
+  token had to agree, an agreement the loader enforced and the type could not,
+  so every consumer keyed on the carrier and left a `FieldType::Enum` arm behind
+  as unreachable residue — three of them, each answering "no domain" differently:
+  the transform schema projected `{type: string}`, an open domain contradicting
+  the token; validation skipped the membership check; pdfform refused to bind.
+  One rule replaces them, special-cased nowhere: a domain admits its members and
+  the blank, so an empty one admits only the blank. `FieldSchema::domain()`
+  answers it for the three branches that enter through `variants:` holding no
+  token. No quill loads differently and no stored or wire byte moves: `values:`
+  is still the one spelling, still required non-empty on `type: enum`, still a
+  load error elsewhere, and `Serialize` re-emits it from the payload in the slot
+  it already occupied.
 - feat(core,wasm,python)!: **a quill carries the load's advisory diagnostics,
   so they reach a binding host at last.** `Quill::warnings()` is new, mirrored
   as `quill.warnings` in WASM and Python, and it answers whatever

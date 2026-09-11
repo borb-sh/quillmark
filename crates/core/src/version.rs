@@ -93,38 +93,25 @@ impl VersionSelector {
             VersionSelector::Latest => true,
         }
     }
-}
 
-impl FromStr for VersionSelector {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        // An absent selector is `latest`; a written `@` with nothing after it is
-        // a typo, not a spelling of it.
-        let (written, version_str) = match s.strip_prefix('@') {
-            Some(rest) => (true, rest),
-            None => (false, s),
-        };
-
-        if version_str.is_empty() {
-            return if written {
-                Err(format!(
-                    "Invalid version selector '{}': `@` carries no selector; omit it for the latest version, or write one",
-                    s
-                ))
-            } else {
-                Ok(VersionSelector::Latest)
-            };
+    /// The selector as written after `@`, unprefixed: `2`, `2.1`, `2.1.0` or
+    /// `latest`. Empty is the typo `name@`, not a spelling of latest.
+    pub(crate) fn from_token(token: &str) -> Result<Self, String> {
+        if token.is_empty() {
+            return Err(
+                "Invalid version selector '@': `@` carries no selector; omit it for the latest version, or write one"
+                    .to_string(),
+            );
         }
-        if version_str == "latest" {
+        if token == "latest" {
             return Ok(VersionSelector::Latest);
         }
 
-        let parts: Vec<&str> = version_str.split('.').collect();
+        let parts: Vec<&str> = token.split('.').collect();
 
         match parts.len() {
             2 | 3 => {
-                let version = Version::from_str(version_str)?;
+                let version = Version::from_str(token)?;
                 Ok(if parts.len() == 3 {
                     VersionSelector::Exact(version)
                 } else {
@@ -132,18 +119,32 @@ impl FromStr for VersionSelector {
                 })
             }
             1 => {
-                let major = parse_segment(version_str, "major").map_err(|_| {
+                let major = parse_segment(token, "major").map_err(|_| {
                     format!(
                         "Invalid version selector '{}': expected number, MAJOR.MINOR, MAJOR.MINOR.PATCH, or 'latest'",
-                        version_str
+                        token
                     )
                 })?;
                 Ok(VersionSelector::Major(major))
             }
             _ => Err(format!(
                 "Invalid version selector '{}': expected number, MAJOR.MINOR, MAJOR.MINOR.PATCH, or 'latest'",
-                version_str
+                token
             )),
+        }
+    }
+}
+
+impl FromStr for VersionSelector {
+    type Err = String;
+
+    /// The written selector, `@` and all. An empty string is an absent
+    /// selector, which is latest.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.strip_prefix('@') {
+            Some(token) => Self::from_token(token),
+            None if s.is_empty() => Ok(VersionSelector::Latest),
+            None => Self::from_token(s),
         }
     }
 }
@@ -223,10 +224,9 @@ impl FromStr for QuillReference {
             ));
         }
 
-        let selector = if let Some(version_part) = version_part_opt {
-            VersionSelector::from_str(&format!("@{}", version_part))?
-        } else {
-            VersionSelector::Latest
+        let selector = match version_part_opt {
+            Some(token) => VersionSelector::from_token(token)?,
+            None => VersionSelector::Latest,
         };
 
         Ok(QuillReference { name, selector })

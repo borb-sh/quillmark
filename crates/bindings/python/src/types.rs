@@ -2,7 +2,7 @@ use pyo3::conversion::IntoPyObjectExt;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pycell::{PyRef, PyRefMut};
-use pyo3::types::{PyBytes, PyDict, PyList};
+use pyo3::types::{PyBytes, PyDict, PyList, PyString};
 use pyo3::Bound;
 
 use quillmark::{
@@ -936,6 +936,48 @@ impl PyReader {
         content_to_py(py, read)
     }
 
+    /// Read the Content nested inside a composite field at `path`: `[0]` an
+    /// element of an `array<richtext>`, `["motto"]` an `object`'s content
+    /// property, `[1, "notes"]` a leaf under both, `["controlled_by"]` a
+    /// variant's cell. The codec is the leaf's declared type's, resolved through
+    /// the field schema's `items` / `properties` / `variants`. An empty `path` is
+    /// `get_content`.
+    ///
+    /// The Content is a write input, so this is the read a round-trip takes: an
+    /// anchor and an island `id` have no markdown projection, and survive an edit
+    /// only by riding this read back through `writer.set` of the field.
+    ///
+    /// `None` when the field is absent and when `path` names nothing in the stored
+    /// value: an editor's row index goes stale between derive and read, so absence
+    /// there is a read, not a fault. Raises `edit::unknown_field` for an
+    /// undeclared name at any depth, `edit::field_not_content` when `path`
+    /// resolves to no content leaf, `edit::field_decode`, anchored at the
+    /// addressed path, for a value that decodes under neither encoding, and
+    /// `edit::index_out_of_range` for a `card` addressing none.
+    #[pyo3(signature = (name, path, card=None))]
+    fn get_content_at<'py>(
+        &self,
+        py: Python<'py>,
+        name: &str,
+        path: &Bound<'py, PyAny>,
+        card: Option<isize>,
+    ) -> PyResult<Option<Bound<'py, PyAny>>> {
+        let at = path_from_py(path, "get_content_at")?;
+        let quill = self.quill.borrow(py);
+        let doc = self.doc.borrow(py);
+        let target = Self::target(&doc, card)?;
+        let reader = quill.inner.reader(&doc.inner);
+        let read = match target.index {
+            None => reader.get_content_at(name, &at),
+            Some(i) => reader
+                .card(i)
+                .map_err(|e| convert_edit_error(e, &target.base))?
+                .get_content_at(name, &at),
+        }
+        .map_err(|e| convert_edit_error(e, &target.base))?;
+        content_to_py(py, read)
+    }
+
     /// A body's markdown: quill-free, since a body's type is a format fact
     /// rather than a schema fact. Raises only `edit::index_out_of_range`, for a
     /// `card` addressing none.
@@ -1171,6 +1213,42 @@ fn quillvalue_to_py<'py>(
     json_to_py(py, value.as_json())
 }
 
+
+/// Read an in-field path: a `str` is an object key, a non-negative `int` an
+/// array index. A malformed step raises rather than being dropped — a skipped
+/// step reads a different address and never says so.
+///
+/// A bare `str` or `bytes` is refused as the path itself for the same reason:
+/// both iterate, so `path="motto"` would read `motto.m.o.t.t.o` and say
+/// nothing. `["motto"]` is the one-key path.
+fn path_from_py(path: &Bound<'_, PyAny>, ctx: &str) -> PyResult<Vec<quillmark::PathSegment>> {
+    if path.is_instance_of::<PyString>() || path.is_instance_of::<PyBytes>() {
+        return Err(PyValueError::new_err(format!(
+            "{ctx}: `path` must be a sequence of str keys and non-negative int indices, \
+             not a bare str; wrap a single key as `[key]`"
+        )));
+    }
+    path.try_iter()
+        .map_err(|_| {
+            PyValueError::new_err(format!(
+                "{ctx}: `path` must be a sequence of str keys and non-negative int indices"
+            ))
+        })?
+        .enumerate()
+        .map(|(i, step)| {
+            let step = step?;
+            if let Ok(key) = step.extract::<String>() {
+                return Ok(quillmark::PathSegment::Key(key));
+            }
+            match step.extract::<usize>() {
+                Ok(index) => Ok(quillmark::PathSegment::Index(index)),
+                Err(_) => Err(PyValueError::new_err(format!(
+                    "{ctx}: `path[{i}]` must be a str key or a non-negative int index"
+                ))),
+            }
+        })
+        .collect()
+}
 
 fn content_to_py<'py>(
     py: Python<'py>,

@@ -293,12 +293,15 @@ pub enum FieldType {
         /// A single line, enforced where [`RichText`](Self::RichText)'s is.
         inline: bool,
     },
-    /// A closed finite domain, its members carried in
-    /// [`FieldSchema::enum_values`] and string-valued only.
-    Enum,
+    /// A closed string domain, `values` in declaration order. The blank (`""`)
+    /// is accepted beside them and is never one of them.
+    Enum { values: Vec<String> },
 }
 
 impl FieldType {
+    /// The `type:` token alone. An `enum`'s domain and a prose type's `inline`
+    /// ride sibling keys that [`FieldSchema::from_quill_value`] folds in, so
+    /// both payloads rest at their default here.
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.trim() {
@@ -312,7 +315,7 @@ impl FieldType {
             "datetime" => Some(FieldType::DateTime),
             "richtext" => Some(FieldType::RichText { inline: false }),
             "plaintext" => Some(FieldType::PlainText { inline: false }),
-            "enum" => Some(FieldType::Enum),
+            "enum" => Some(FieldType::Enum { values: Vec::new() }),
             _ => None,
         }
     }
@@ -329,7 +332,7 @@ impl FieldType {
             FieldType::DateTime => "datetime",
             FieldType::RichText { .. } => "richtext",
             FieldType::PlainText { .. } => "plaintext",
-            FieldType::Enum => "enum",
+            FieldType::Enum { .. } => "enum",
         }
     }
 }
@@ -361,12 +364,12 @@ pub const VARIANT_DISCRIMINANT_KEY: &str = "value";
 /// axis and the obligation one ([`must_fill`](Self::must_fill)); `SCHEMAS.md`
 /// §"Value and obligation: one declaration" is the rule.
 ///
-/// The prose types' single-line constraint has **one** carrier, the
-/// `inline` payload on [`FieldType::RichText`] / [`FieldType::PlainText`]. The
-/// wire's sibling `inline:` key folds into it at deserialize (through
+/// The prose types' single-line constraint and an `enum`'s domain each have
+/// **one** carrier, the [`FieldType`] payload. The wire's sibling `inline:` and
+/// `values:` keys fold into it at deserialize (through
 /// [`from_quill_value`](Self::from_quill_value)) and the hand-written
-/// `Serialize` re-emits it from there, so the flag cannot live in two places
-/// that disagree.
+/// `Serialize` re-emits them from there, so neither can live in two places that
+/// disagree.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldSchema {
     /// The map key carries this on the wire; not serialized, to avoid duplication.
@@ -380,13 +383,10 @@ pub struct FieldSchema {
     /// authors want; documents shape only and never renders as the value.
     pub example: Option<QuillValue>,
     pub ui: Option<UiFieldSchema>,
-    /// The members of an `enum` field; no other type accepts them.
-    /// Serializes as `values`.
-    pub enum_values: Option<Vec<String>>,
     /// Per-member field sets on an `enum` field, keyed by member (a subset of
-    /// [`enum_values`](Self::enum_values); the blank owns no set). Declaring it
-    /// is what turns the field into a container (`SCHEMAS.md` §"Enum
-    /// variants").
+    /// the domain the [`FieldType::Enum`] payload carries; the blank owns no
+    /// set). Declaring it is what turns the field into a container
+    /// (`SCHEMAS.md` §"Enum variants").
     pub variants: Option<IndexMap<String, VariantFields>>,
     /// A typed dictionary's properties, in declaration order.
     pub properties: Option<IndexMap<String, Box<FieldSchema>>>,
@@ -415,7 +415,7 @@ struct FieldSchemaDef {
     pub example: Option<QuillValue>,
     pub ui: Option<UiFieldSchema>,
     /// The domain of a `type: enum` field, and the only spelling of one.
-    /// Lands in [`FieldSchema::enum_values`].
+    /// Lands in the [`FieldType::Enum`] payload.
     pub values: Option<Vec<String>>,
     /// Per-member field sets, keyed by member. Lands in
     /// [`FieldSchema::variants`].
@@ -436,12 +436,20 @@ impl FieldSchema {
             default: None,
             example: None,
             ui: None,
-            enum_values: None,
             variants: None,
             properties: None,
             items: None,
             default_content: None,
             example_content: None,
+        }
+    }
+
+    /// An `enum`'s declared choices; empty for every other type. A domain
+    /// admits its members and the blank, so an empty one admits only the blank.
+    pub fn domain(&self) -> &[String] {
+        match &self.r#type {
+            FieldType::Enum { values } => values,
+            _ => &[],
         }
     }
 
@@ -503,10 +511,10 @@ impl FieldSchema {
     pub fn from_quill_value(key: String, value: &QuillValue) -> Result<Self, String> {
         let def: FieldSchemaDef = serde_json::from_value(value.clone().into_json())
             .map_err(|e| format!("Failed to parse field schema: {}", e))?;
-        // The sole inline sync point: past here the variant payload is the
-        // flag's one carrier.
+        // The sole sync point for `inline:` and `values:`: past here the type
+        // payload is each key's one carrier.
         let r#type = Self::resolve_prose_inline(def.r#type, def.inline)?;
-        let enum_values = Self::resolve_enum_values(&r#type, def.values)?;
+        let r#type = Self::resolve_enum_domain(r#type, def.values)?;
         let schema = Self {
             name: key.clone(),
             r#type,
@@ -514,7 +522,6 @@ impl FieldSchema {
             default: def.default,
             example: def.example,
             ui: def.ui,
-            enum_values,
             variants: match def.variants {
                 Some(variants) => {
                     let mut out = IndexMap::new();
@@ -588,26 +595,25 @@ impl FieldSchema {
         }
     }
 
-    /// Resolve the domain into [`FieldSchema::enum_values`]: `type: enum`
-    /// requires a non-empty `values:` list, and `values:` elsewhere is an error.
-    fn resolve_enum_values(
-        r#type: &FieldType,
+    /// Fold the sibling `values:` key into the [`FieldType::Enum`] payload:
+    /// `type: enum` requires a non-empty list, and `values:` elsewhere is an
+    /// error. Every other type rejects it, here and nowhere else.
+    fn resolve_enum_domain(
+        r#type: FieldType,
         values_key: Option<Vec<String>>,
-    ) -> Result<Option<Vec<String>>, String> {
-        match r#type {
-            FieldType::Enum => match values_key {
-                Some(v) if !v.is_empty() => Ok(Some(v)),
-                _ => Err("type: enum requires a non-empty values: list".to_string()),
-            },
-            other => {
-                if values_key.is_some() {
-                    return Err(format!(
-                        "values: is only valid on type: enum, not on type: {}",
-                        other.as_str()
-                    ));
-                }
-                Ok(None)
+    ) -> Result<FieldType, String> {
+        match (r#type, values_key) {
+            (FieldType::Enum { .. }, Some(values)) if !values.is_empty() => {
+                Ok(FieldType::Enum { values })
             }
+            (FieldType::Enum { .. }, _) => {
+                Err("type: enum requires a non-empty values: list".to_string())
+            }
+            (other, Some(_)) => Err(format!(
+                "values: is only valid on type: enum, not on type: {}",
+                other.as_str()
+            )),
+            (other, None) => Ok(other),
         }
     }
 }
@@ -620,18 +626,23 @@ impl Serialize for FieldSchema {
             FieldType::RichText { inline: true } | FieldType::PlainText { inline: true }
         )
         .then_some(true);
+        let values = match &self.r#type {
+            FieldType::Enum { values } => Some(values),
+            _ => None,
+        };
         let len = 1
             + inline.is_some() as usize
             + self.description.is_some() as usize
             + self.default.is_some() as usize
             + self.example.is_some() as usize
             + self.ui.is_some() as usize
-            + self.enum_values.is_some() as usize
+            + values.is_some() as usize
             + self.variants.is_some() as usize
             + self.properties.is_some() as usize
             + self.items.is_some() as usize;
-        // Field order matches the struct declaration (what a derived impl
-        // emits), so `inline` trails the block and golden snapshots hold.
+        // The emission order is what `usaf_memo/0.2.0/__golden__/schema.yaml`
+        // pins: `values` between `ui` and `variants`, `inline` trailing the
+        // block, both read off the type payload.
         let mut map = serializer.serialize_map(Some(len))?;
         map.serialize_entry("type", &self.r#type)?;
         if let Some(v) = &self.description {
@@ -646,7 +657,7 @@ impl Serialize for FieldSchema {
         if let Some(v) = &self.ui {
             map.serialize_entry("ui", v)?;
         }
-        if let Some(v) = &self.enum_values {
+        if let Some(v) = values {
             map.serialize_entry("values", v)?;
         }
         if let Some(v) = &self.variants {

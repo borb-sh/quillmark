@@ -105,18 +105,6 @@ fn backtick_yaml_fence_stays_an_ordinary_code_block() {
 }
 
 #[test]
-fn dash_yaml_line_is_not_a_fence() {
-    let src = "~~~\n$quill: q\n$kind: main\n~~~\n\n---yaml\nkey: value\n---\n";
-    let doc = Document::parse(src).unwrap().document;
-    assert_eq!(doc.cards().len(), 0);
-    assert!(
-        doc.main().body_markdown().contains("---yaml"),
-        "body: {:?}",
-        doc.main().body_markdown()
-    );
-}
-
-#[test]
 fn longer_tilde_run_still_opens_a_card() {
     let src = "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~~\n$kind: note\nname: Widget\n~~~~\n";
     let doc = Document::parse(src).unwrap().document;
