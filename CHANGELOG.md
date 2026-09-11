@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- fix(typst)!: **a vendored package without `typst.toml` is skipped, with the
+  warning its siblings already get.** A `packages/<dir>/` carrying no manifest
+  had one synthesized — `@local/<dir>:0.1.0` — and loaded under it. That spelling
+  was undocumented, unfixtured and untested, and it split one package tree into
+  two behaviors: the synthesized path passed no entrypoint, so it alone skipped
+  the `typst::package_entrypoint_missing` check that the same files with a
+  two-line manifest get. A manifest-less directory now warns under
+  `typst::package_manifest`, the code its malformed-manifest and bad-version
+  siblings already carry, and is skipped. The migration is the file the fallback
+  was standing in for: `parse_package_toml` defaults `namespace` to `local`,
+  `version` to `0.1.0` and `entrypoint` to `lib.typ`, so `[package]` plus
+  `name = "<dir>"` reproduces the old spec exactly. `package_spec` and
+  `entrypoint` stop being `Option` on `load_package_files_from_quill`, whose two
+  call sites always passed one, and the infallible `"0.1.0".parse()` dressed as
+  fallible goes with them. Refs #1698.
+
 Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
 
 ### The content model
