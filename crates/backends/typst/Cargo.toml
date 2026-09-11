@@ -44,6 +44,5 @@ lopdf = { workspace = true }
 quillmark-fixtures = { workspace = true }
 # Path-only: `quillmark` depends on this crate, so a versioned dev-dep here is
 # an unpublishable cycle; cargo strips path-only dev-deps at packaging. Tests
-# load fixture quills through its `tree_from_path`, the one walker that honours
-# `.quillignore`.
+# walk fixture quills through its `tree_from_path`.
 quillmark = { path = "../../quillmark" }

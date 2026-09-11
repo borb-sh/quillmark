@@ -10,21 +10,7 @@ use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 fn load_tree(path: &Path) -> Result<FileTreeNode, Box<dyn StdError + Send + Sync>> {
-    let default_ignore = QuillIgnore::new(vec![
-        ".git/".to_string(),
-        ".gitignore".to_string(),
-        ".quillignore".to_string(),
-        "target/".to_string(),
-        "node_modules/".to_string(),
-    ]);
-    let quillignore_path = path.join(".quillignore");
-    let ignore = if quillignore_path.exists() {
-        let content = fs::read_to_string(&quillignore_path)?;
-        QuillIgnore::from_content(&content)
-    } else {
-        default_ignore
-    };
-    load_dir(path, path, &ignore)
+    load_dir(path, path, &QuillIgnore)
 }
 
 fn load_dir(
@@ -77,112 +63,22 @@ fn load_from_path<P: AsRef<Path>>(path: P) -> Result<Quill, Box<dyn StdError + S
     })
 }
 
+/// A directory is anchored at the bundle root, so a vendored package keeps its
+/// own `target/`; a name is not, so VCS metadata goes wherever it sits.
 #[test]
-fn test_quillignore_parsing() {
-    let ignore_content = r#"
-# This is a comment
-*.tmp
-target/
-node_modules/
-.git/
-"#;
-    let ignore = QuillIgnore::from_content(ignore_content);
-    assert!(ignore.is_ignored("scratch.tmp"));
-    assert!(ignore.is_ignored("target/debug"));
-    assert!(!ignore.is_ignored("# This is a comment"));
-    // A blank line is not a rule that swallows everything.
-    assert!(!ignore.is_ignored("plate.typ"));
-}
-
-#[test]
-fn test_quillignore_multiple_wildcards() {
-    let ignore = QuillIgnore::new(vec![
-        "**/*.tmp".to_string(),
-        "*.sublime-*".to_string(),
-        "a*b*c".to_string(),
-    ]);
-
-    assert!(ignore.is_ignored("scratch.tmp"));
-    assert!(ignore.is_ignored("deep/nested/scratch.tmp"));
-    assert!(!ignore.is_ignored("scratch.txt"));
-
-    assert!(ignore.is_ignored("quill.sublime-project"));
-    assert!(ignore.is_ignored("editor/quill.sublime-workspace"));
-
-    assert!(ignore.is_ignored("axbxc"));
-    assert!(!ignore.is_ignored("axbx"));
-}
-
-#[test]
-fn test_quillignore_wildcard_does_not_cross_slash() {
-    let ignore = QuillIgnore::new(vec!["assets/*.png".to_string()]);
-
-    assert!(ignore.is_ignored("assets/logo.png"));
-    assert!(!ignore.is_ignored("assets/icons/logo.png"));
-    assert!(!ignore.is_ignored("vendor/assets/logo.png"));
-}
-
-/// `[` opens a glob character class and is an ordinary character in a filename,
-/// so a line spelling one out ignores the file it names as well as the class it
-/// describes. The variable font in the usaf_memo fixture is spelled this way.
-#[test]
-fn test_quillignore_bracketed_name_ignores_the_file_it_spells() {
-    let ignore = QuillIgnore::new(vec!["Cinzel[wght].ttf".to_string()]);
-
-    assert!(ignore.is_ignored("Cinzel[wght].ttf"));
-    assert!(ignore.is_ignored("fonts/Cinzel/Cinzel[wght].ttf"));
-    // The character-class reading survives alongside it.
-    assert!(ignore.is_ignored("Cinzelw.ttf"));
-    assert!(!ignore.is_ignored("Cinzel.ttf"));
-}
-
-#[test]
-fn test_quillignore_matching() {
-    let ignore = QuillIgnore::new(vec![
-        "*.tmp".to_string(),
-        "target/".to_string(),
-        "node_modules/".to_string(),
-        ".git/".to_string(),
-    ]);
-
-    assert!(ignore.is_ignored("test.tmp"));
-    assert!(ignore.is_ignored("path/to/file.tmp"));
-    assert!(!ignore.is_ignored("test.txt"));
+fn the_ignore_set_anchors_directories_and_not_names() {
+    let ignore = QuillIgnore;
 
     assert!(ignore.is_ignored("target"));
-    assert!(ignore.is_ignored("target/debug"));
     assert!(ignore.is_ignored("target/debug/deps"));
+    assert!(ignore.is_ignored(".git/HEAD"));
     assert!(!ignore.is_ignored("src/target.rs"));
-
-    assert!(ignore.is_ignored("node_modules"));
-    assert!(ignore.is_ignored("node_modules/package"));
+    assert!(!ignore.is_ignored("packages/vendor/node_modules"));
     assert!(!ignore.is_ignored("my_node_modules"));
-}
 
-#[test]
-fn test_quillignore_integration() {
-    let temp_dir = TempDir::new().unwrap();
-    let quill_dir = temp_dir.path();
-
-    fs::write(quill_dir.join(".quillignore"), "*.tmp\ntarget/\n").unwrap();
-
-    fs::write(
-            quill_dir.join("Quill.yaml"),
-            "quill:\n  name: \"test\"\n  version: \"1.0\"\n  backend: \"typst\"\n  description: \"Test quill\"",
-        )
-        .unwrap();
-    fs::write(quill_dir.join("plate.typ"), "test template").unwrap();
-    fs::write(quill_dir.join("should_ignore.tmp"), "ignored").unwrap();
-
-    let target_dir = quill_dir.join("target");
-    fs::create_dir_all(&target_dir).unwrap();
-    fs::write(target_dir.join("debug.txt"), "also ignored").unwrap();
-
-    let quill = load_from_path(quill_dir).unwrap();
-
-    assert!(quill.files().get_file("plate.typ").is_some());
-    assert!(quill.files().get_file("should_ignore.tmp").is_none());
-    assert!(quill.files().get_file("target/debug.txt").is_none());
+    assert!(ignore.is_ignored(".gitignore"));
+    assert!(ignore.is_ignored("packages/vendor/.gitignore"));
+    assert!(!ignore.is_ignored("plate.typ"));
 }
 
 #[test]

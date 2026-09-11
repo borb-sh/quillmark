@@ -108,4 +108,4 @@ For command options and output controls, see the [CLI Reference](../cli/referenc
 - [Typst Backend](typst-backend.md): data access patterns, `$cards` iteration, helper package
 - [Quill Versioning](versioning.md)
 
-**Tip:** To exclude files (fonts, build artifacts) from the bundle when loading from disk, add a `.quillignore` file at the bundle root using gitignore syntax.
+**Tip:** A disk load walks the whole bundle. It skips a root `.git/`, `target/` or `node_modules/` and any `.gitignore`; anything else in the directory ships with the quill, so keep scratch files out of it.
