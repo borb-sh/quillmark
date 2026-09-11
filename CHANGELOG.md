@@ -355,8 +355,9 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
   content objects. A present-null reads `null` rather than `""`. A leaf that
   does not decode raises `edit::field_decode` anchored at the element
   (`main.paragraphs[1]`). A read never coerces: `qty: "3"` reads `"3"` here and
-  `3` only in `resolve`. `reader.getContent` is unchanged; `getContentAt` is
-  retired below.
+  `3` only in `resolve`. `reader.getContent` and `reader.getContentAt` are
+  unchanged, and are where a leaf's anchors and island ids read back: the text
+  form carries neither.
 - feat(bindings)!: **the storage DTO verbs name their lane, not their
   encoding.** `Document.toJson` / `fromJson` / `loadJson` become `toStored` /
   `fromStored` / `loadStored`, and Python's `to_json` / `from_json` become
@@ -382,14 +383,13 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
   `HashMap` iteration order. In Rust, `Quill::metadata` and
   `quillmark_core::STANDARD_METADATA_KEYS` are deleted. The `--json` flag's one
   distinctive output was that mirror.
-- refactor(wasm,python)!: **six owner calls leave both bindings.** Each is a
+- refactor(wasm,python)!: **five owner calls leave both bindings.** Each is a
   call the host makes itself in a line or two from surface that stays:
   `Document.tryFromJson` / `try_from_json` — never renamed with its lane, and
   deleted rather than aliased, so `storageVersionOf(b) ? fromStored(b) : null`
   is the read — `Document.makeCard` / `make_card` (a `CardInput`
   object literal), `doc.setCardKind` / `set_card_kind` (`removeCard` +
-  `insertCard` at the same index), `reader.getContentAt` / `get_content_at`
-  (`reader.get(name)`, which projects every content leaf at its codec),
+  `insertCard` at the same index),
   `result.renderTimeMs` / `render_time_ms` (clock the call), and
   `Document.formatDiagnostic` (the CLI and Python's `str(diagnostic)` still
   render it). They go from **both** surfaces, so WASM remains the reference
@@ -487,6 +487,37 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
   from no public surface. `Engine.render` snapshots `doc.warnings` beside the
   storage DTO and fronts the result with it, the pipeline order ERROR.md
   states. `LiveSession.render` carries the compile half alone.
+- fix(wasm)!: **a `MarkOp` spells its payload where the decoder reads it, off
+  one `ContentMarkKind`.** The `link` and `anchor` arms declared it as a named
+  sibling — `{ type: "link"; url }` — which is the spelling the authored lane
+  refuses as the retired `@0.93.0` encoding (`content json shape: legacy mark
+  payload`). The decoder reads a built-in's payload out of `attrs` and the
+  canonical encoder writes it there, so the type named the one shape
+  `applyChange` rejects and rejected the one it takes. It was survivable while
+  the union carried its open arm, `{ type: string; attrs: unknown }`, whose
+  shape happened to match the decoder: a correct op type-checked through the
+  wrong arm. Closing the vocabularies deleted that arm and left no spelling
+  that both compiles and runs. Nothing on the wire moves — the runtime accepted
+  `attrs` and only `attrs` throughout — so this reaches a consumer as a type
+  that stops refusing correct code. The drift was possible because the op
+  restated the payload: `ContentMarkKind` names the three arms once, exported
+  from the package root beside `ContentLineKind`; `ContentMark` is a range over
+  it and `MarkOp`'s `add` / `remove` are a `ContentMark` under an op, so an arm
+  added upstream reaches both by construction and `{ op: 'remove', ...mark }`
+  type-checks for a held mark. The type guard lifts a mark's payload by name as
+  it lifts a line's, beside an `@ts-expect-error` pair refusing the sibling, and
+  the Rust drift guard reads the mark vocabulary off `ContentMarkKind`.
+- fix(wasm,python): **`reader.getContentAt` / `get_content_at` stays.** The
+  owner-call sweep took it as a call the host makes in a line or two, but
+  neither read that remains is one: `reader.get` answers in the values form,
+  which is text, and an anchor has no markdown projection while an island's
+  `id` is re-minted by every importer, so the round-trip a nested content
+  editor performs loses both; `getStored` echoes bytes under `unknown` and
+  hands the codec dispatch back to the caller, which is the judgement the read
+  exists to make. The verb returns in its 0.112 shape — `path` a `PathStep[]`
+  walked through the field schema's `items` / `properties` / `variants` to the
+  leaf, absent for a path naming nothing stored — with Python's twin taking the
+  `card=` selector that replaced the `CardReader` cursor.
 
 ### The engine seam and the backends
 

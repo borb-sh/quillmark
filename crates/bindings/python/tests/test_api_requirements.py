@@ -793,6 +793,117 @@ def test_view_get_content_absence_unknown_and_non_content():
         taro.reader(tdoc).get_content("author")
 
 
+ELEMENT_QUILL_YAML = """quill:
+  name: element_test
+  version: 0.1.0
+  backend: typst
+  description: Content nested inside a composite field
+
+typst:
+  plate_file: plate.typ
+
+main:
+  fields:
+    recipients:
+      type: array
+      items:
+        type: plaintext
+    paragraphs:
+      type: array
+      items:
+        type: richtext
+    tags:
+      type: array
+      items:
+        type: string
+    rows:
+      type: array
+      items:
+        type: object
+        properties:
+          notes:
+            type: richtext
+
+card_kinds:
+  note:
+    fields:
+      lines:
+        type: array
+        items:
+          type: plaintext
+"""
+
+
+@pytest.fixture
+def element_quill(tmp_path):
+    """A quill declaring every content-bearing composite shape."""
+    root = tmp_path / "element_test" / "0.1.0"
+    root.mkdir(parents=True)
+    (root / "Quill.yaml").write_text(ELEMENT_QUILL_YAML)
+    (root / "plate.typ").write_text('#import "@local/quillmark-helper:0.1.0": data\n')
+    return Quill.from_path(str(root))
+
+
+def test_get_content_at_round_trips_an_elements_anchor_and_island_id(element_quill):
+    """The nested Content read is the lossless one.
+
+    An anchor mark and an island id ride read -> edit -> `set` intact; the same
+    loop through `get`, which projects to text, keeps neither."""
+    doc = Document("element_test@0.1.0")
+    w = element_quill.writer(doc)
+    v = element_quill.reader(doc)
+    w.set("paragraphs", ["Plain", "Alpha ![pic](u) bold"])
+
+    rt = v.get_content_at("paragraphs", [1])
+    rt["marks"].append({"type": "anchor", "attrs": {"id": "c1"}, "start": 0, "end": 5})
+    rt["islands"][0]["id"] = "isl-7"  # off the positional mint, so a re-mint shows
+    w.set("paragraphs", [v.get_content_at("paragraphs", [0]), rt])
+
+    back = v.get_content_at("paragraphs", [1])
+    assert any(
+        m["type"] == "anchor" and m["attrs"]["id"] == "c1" and (m["start"], m["end"]) == (0, 5)
+        for m in back["marks"]
+    )
+    assert back["islands"][0]["id"] == "isl-7"
+
+    text = v.get("paragraphs")
+    assert all(isinstance(t, str) for t in text)
+    w.set("paragraphs", text)
+    lost = v.get_content_at("paragraphs", [1])
+    assert not any(m["type"] == "anchor" for m in lost["marks"])
+    assert lost["islands"][0]["id"] == "isl-0"
+
+
+def test_get_content_at_path_and_card_selector(element_quill):
+    """`path` walks to the leaf's own codec, a path naming nothing stored reads
+    None, a malformed step is the argument's error, and `card=` addresses a
+    composable card's schema."""
+    doc = Document.from_markdown(
+        "~~~card-yaml\n$quill: element_test@0.1.0\n$kind: main\n"
+        "recipients: ['a *literal* line']\nparagraphs: ['A **bold** intro.', 3]\n"
+        "tags: ['x']\nrows:\n  - {}\n  - notes: a *note*\n~~~\n"
+    )
+    element_quill.writer(doc).add_card("note", {"lines": ["a *b*"]})
+    v = element_quill.reader(doc)
+    assert v.get_content_at("recipients", [0])["text"] == "a *literal* line"
+    assert v.get_content_at("paragraphs", [0])["text"] == "A bold intro."
+    assert v.get_content_at("rows", [1, "notes"])["text"] == "a note"
+    assert v.get_content_at("lines", [0], card=0)["text"] == "a *b*"
+    assert v.get_content_at("rows", [0, "notes"]) is None
+    assert v.get_content_at("recipients", [7]) is None
+    with raises_edit_code("edit::field_not_content"):
+        v.get_content_at("tags", [0])
+    with raises_edit_code("edit::unknown_field"):
+        v.get_content_at("rows", [1, "nope"])
+    with raises_edit_code("edit::index_out_of_range"):
+        v.get_content_at("lines", [0], card=9)
+    with pytest.raises(QuillmarkError) as excinfo:
+        v.get_content_at("paragraphs", [1])
+    assert excinfo.value.diagnostics[0].path == "main.paragraphs[1]"
+    with pytest.raises(ValueError, match=r"path\[0\]"):
+        v.get_content_at("recipients", [None])
+
+
 def test_view_body_read_is_quill_free():
     """view.body_markdown reads the main body markdown: the quill-free body read."""
     quill = _taro_quill()

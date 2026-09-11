@@ -132,6 +132,7 @@ import type {
 	ContentLineKind,
 	ContentContainer,
 	ContentMark,
+	ContentMarkKind,
 	ContentIsland,
 	TableProps,
 	ImageProps,
@@ -155,6 +156,7 @@ export type ContentExportsPresent = [
 	ContentLineKind,
 	ContentContainer,
 	ContentMark,
+	ContentMarkKind,
 	ContentIsland,
 	TableProps,
 	ImageProps,
@@ -233,6 +235,34 @@ function kindPart(line: ContentLine): ContentLineKind {
 declare const liftLine: ContentLine;
 const liftedOp: LineOp = { op: 'setKind', line: 0, ...kindPart(liftLine) };
 void liftedOp;
+
+// ── ContentMarkKind is nameable ─────────────────────────────────────
+// The same lift on the mark axis: `ContentMarkKind` is exactly an `add` /
+// `remove`'s payload, so an arm added upstream reaches the op through the name.
+// That is what makes the lift the guard — a `MarkOp` re-spelling the payload by
+// hand stops accepting it here.
+function markPart(mark: ContentMark): ContentMarkKind {
+	const { start, end, ...kind } = mark;
+	void start;
+	void end;
+	return kind;
+}
+declare const liftMark: ContentMark;
+const liftedMark: MarkOp = { op: 'add', start: 0, end: 1, ...markPart(liftMark) };
+void liftedMark;
+// The op's envelope is the mark's own, so a held mark spreads in whole.
+const liftedWhole: MarkOp = { op: 'remove', ...liftMark };
+void liftedWhole;
+
+// The payload rides `attrs` on the op as on the mark. The named sibling is the
+// retired `@0.93.0` spelling, which the authored lane refuses as `legacy mark
+// payload`, so the type that admits it is the one that cannot be written.
+// @ts-expect-error a link's url rides `attrs`
+const siblingUrl: MarkOp = { op: 'add', start: 0, end: 1, type: 'link', url: 'https://x' };
+void siblingUrl;
+// @ts-expect-error an anchor's id rides `attrs`
+const siblingId: MarkOp = { op: 'add', start: 0, end: 0, type: 'anchor', id: 'a1' };
+void siblingId;
 
 // ── The gate is the only door ───────────────────────────────────────
 // The guarantee `init` exists to hold: a value needing the WASM instance is

@@ -120,7 +120,7 @@ fn ts_unions_name_every_built_in() {
     for (union, names) in [
         (ts_union("ContentLineKind"), line_kind_tags()),
         (ts_union("ContentContainer"), container_tags()),
-        (ts_union("ContentMark"), mark_type_tags()),
+        (ts_union("ContentMarkKind"), mark_type_tags()),
         (ts_union("ContentLossClass"), loss_names.clone()),
         (ts_union("ContentIsland"), island_types.clone()),
     ] {

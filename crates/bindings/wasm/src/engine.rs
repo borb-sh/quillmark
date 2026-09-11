@@ -258,11 +258,14 @@ export type ContentContainer =
  * handle, unique per `Content` and invariant while the mark lives (positions
  * rebase, the id never does); it has no markdown projection and survives only
  * through the edit lane. */
-export type ContentMark = { start: number; end: number } & (
+export type ContentMark = { start: number; end: number } & ContentMarkKind;
+
+/** A mark's type with its payload, shared by `ContentMark` and a `MarkOp`'s
+ * `add` / `remove`. */
+export type ContentMarkKind =
     | { type: "strong" | "emph" | "underline" | "strike" | "code" }
     | { type: "link"; attrs: { url: string } }
-    | { type: "anchor"; attrs: { id: string } }
-);
+    | { type: "anchor"; attrs: { id: string } };
 
 /** A cell in a `TableProps`. `marks` rides the prose `ContentMark` shape, but
  * each mark's `start`/`end` are USV offsets into this cell's `text`, not into
@@ -318,7 +321,8 @@ export type ContentIsland = {
  * `$kind`, and a wrong-kind path matches nothing silently.
  *
  * An `Addr` names a field, never a value inside one: every verb that takes one
- * would then carry an element axis it cannot answer.
+ * would then carry an element axis it cannot answer. The one read that reaches
+ * inside takes the path as its own argument, `reader.getContentAt(addr, path)`.
  */
 export interface Addr {
     card?: number;
@@ -352,16 +356,13 @@ export type Assoc = "before" | "after";
 
 /**
  * A mark edit in final-text coordinates (post-delta, post-line-op). `add` /
- * `remove` carry the `ContentMark` vocabulary; `removeAnchor` drops one identity
- * anchor by id. An `add` of an `anchor` requires a non-empty `id` not already
- * live in the field; a collision or the empty id throws.
+ * `remove` are a `ContentMark` under an op, so a held mark spreads in whole;
+ * `removeAnchor` drops one identity anchor by id. An `add` of an `anchor`
+ * requires a non-empty `id` not already live in the field; a collision or the
+ * empty id throws.
  */
 export type MarkOp =
-    | ({ op: "add" | "remove"; start: number; end: number } & (
-          | { type: "strong" | "emph" | "underline" | "strike" | "code" }
-          | { type: "link"; url: string }
-          | { type: "anchor"; id: string }
-      ))
+    | ({ op: "add" | "remove" } & ContentMark)
     | { op: "removeAnchor"; id: string };
 
 /**
@@ -1065,6 +1066,58 @@ impl Document {
                     ),
                 }
             }
+        }
+    }
+
+    /// Interpreted **`Content`** read of a value nested inside the composite
+    /// field at `addr`: the stable ABI under the runtime `reader.getContentAt`,
+    /// and [`reader.getContent`](Self::reader_get_content) with the path spelled
+    /// out. `path` is a `PathStep[]` from the field to the leaf — `[0]` an
+    /// element of an `array<richtext>`, `["motto"]` an `object`'s content
+    /// property, `[1, "notes"]` a leaf under both, `["controlled_by"]` a
+    /// variant's cell.
+    ///
+    /// The codec is the leaf's declared type's, so the caller stops deciding
+    /// what an element's stored bytes mean. Total over the storage form, as the
+    /// whole-field read is. Answering in the seam form, it is a legal write
+    /// input: the anchors and island ids the values form cannot carry ride back
+    /// through `writer.set` of the whole field.
+    ///
+    /// `undefined` when the field is absent **and when `path` names nothing in
+    /// the stored value**: a repeater's row index goes stale between derive and
+    /// read, and absence there is a read, not a fault. Throws
+    /// `edit::unknown_field` for an undeclared name at any depth,
+    /// `edit::field_not_content` when `path` resolves to no content leaf,
+    /// `edit::field_decode` for a value that decodes under neither encoding
+    /// (anchored at the addressed path), and `edit::index_out_of_range` for a
+    /// bad `addr.card`. A body address throws: a body has no nested content
+    /// address.
+    #[wasm_bindgen(js_name = _readerGetContentAt, skip_typescript, unchecked_return_type = "Content | undefined")]
+    pub fn reader_get_content_at(
+        &self,
+        quill: &Quill,
+        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "PathStep[]")] path: JsValue,
+    ) -> Result<JsValue, JsValue> {
+        let addr = Addr::from_js_or_string(&addr)?;
+        let field = addr.require_field("reader.getContentAt")?.to_string();
+        let at = path_from_js(&path, "reader.getContentAt")?;
+        let base = self.addr_base(&addr);
+        let reader = quill.inner.reader(&self.inner);
+        let read = match addr.card {
+            None => reader.get_content_at(&field, &at),
+            Some(index) => reader
+                .card(index)
+                .map_err(|e| edit_error_to_js(&e, &base))?
+                .get_content_at(&field, &at),
+        }
+        .map_err(|e| edit_error_to_js(&e, &base))?;
+        match read {
+            None => Ok(JsValue::UNDEFINED),
+            Some(content) => serialize_or_throw(
+                &quillmark_content::serial::to_seam_value(&content),
+                "reader.getContentAt",
+            ),
         }
     }
 
@@ -2046,6 +2099,37 @@ fn js_value_to_field_batch(
     }
 }
 
+
+/// Read a `PathStep[]` in-field path: a string is an object key, a non-negative
+/// integer an array index. A malformed step throws rather than being dropped —
+/// a silently skipped step reads a different address and never says so. Flat by
+/// construction, so no depth guard applies.
+fn path_from_js(value: &JsValue, ctx: &str) -> Result<Vec<quillmark_core::PathSegment>, JsValue> {
+    if !Array::is_array(value) {
+        return Err(WasmError::from(format!(
+            "{ctx}: `path` must be an array of string keys and non-negative integer indices"
+        ))
+        .to_js_value());
+    }
+    Array::from(value)
+        .iter()
+        .enumerate()
+        .map(|(i, step)| {
+            if let Some(key) = step.as_string() {
+                return Ok(quillmark_core::PathSegment::Key(key));
+            }
+            match step.as_f64() {
+                Some(n) if n >= 0.0 && n.fract() == 0.0 && n <= u32::MAX as f64 => {
+                    Ok(quillmark_core::PathSegment::Index(n as usize))
+                }
+                _ => Err(WasmError::from(format!(
+                    "{ctx}: `path[{i}]` must be a string key or a non-negative integer index"
+                ))
+                .to_js_value()),
+            }
+        })
+        .collect()
+}
 
 fn js_value_to_json(value: JsValue, ctx: &str) -> Result<serde_json::Value, JsValue> {
     reject_deep_js_value(&value, ctx)?;
