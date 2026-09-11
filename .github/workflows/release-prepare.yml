@@ -56,37 +56,10 @@ jobs:
           CURRENT=$(cargo metadata --format-version=1 --no-deps \
             | jq -r '.packages[] | select(.name == "quillmark") | .version')
 
-          RC="${{ inputs.release_candidate }}"
-          OVERRIDE="${{ inputs.version_override }}"
-
-          if [[ -n "$OVERRIDE" ]]; then
-            # Explicit target (e.g. skip a minor): used verbatim; the checkbox
-            # still decides whether to cut it as a fresh -rc.1.
-            NEXT="$OVERRIDE"
-            if [[ "$RC" == "true" && "$NEXT" != *-rc.* ]]; then
-              NEXT="${NEXT}-rc.1"
-            fi
-          elif [[ "$CURRENT" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-rc\.([0-9]+)$ ]]; then
-            # Already an RC: the target base version is fixed, so `bump` is
-            # ignored. The checkbox decides whether to iterate or promote.
-            RC_BASE="${BASH_REMATCH[1]}"
-            RC_NUM="${BASH_REMATCH[2]}"
-            if [[ "$RC" == "true" ]]; then
-              NEXT="${RC_BASE}-rc.$((RC_NUM + 1))"
-            else
-              NEXT="${RC_BASE}"
-            fi
-          else
-            # Not an RC: apply the chosen bump, optionally as a fresh -rc.1.
-            IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-            case "${{ inputs.bump }}" in
-              minor) NEXT="${MAJOR}.$((MINOR + 1)).0" ;;
-              patch) NEXT="${MAJOR}.${MINOR}.$((PATCH + 1))" ;;
-            esac
-            if [[ "$RC" == "true" ]]; then
-              NEXT="${NEXT}-rc.1"
-            fi
-          fi
+          NEXT=$(./scripts/next-version.sh "$CURRENT" \
+            "${{ inputs.bump }}" \
+            "${{ inputs.release_candidate }}" \
+            "${{ inputs.version_override }}")
 
           echo "next=$NEXT" >> "$GITHUB_OUTPUT"
           echo "Bumping $CURRENT → $NEXT"
@@ -103,11 +76,10 @@ jobs:
           VERSION="${{ steps.version.outputs.next }}"
           DATE=$(date +%Y-%m-%d)
 
-          # Changelog baseline: latest strict semver X.Y.Z tag (optional v
-          # prefix). Pre-release tags (e.g. v0.85.0-rc.1) are skipped so the
-          # commit range covers everything since the last final release.
-          LAST=$(git tag -l --sort=-v:refname \
-            | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+$' | head -n1 || true)
+          # Changelog baseline: the last FINAL release, so the commit range
+          # spans the release candidates cut since it. Empty before the first
+          # release, which the range below reads as "since the first commit".
+          LAST=$(git tag -l --sort=-v:refname | ./scripts/last-release-tag.sh)
 
           [ -f CHANGELOG.md ] || printf '# Changelog\n\n' > CHANGELOG.md
 

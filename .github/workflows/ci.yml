@@ -67,6 +67,16 @@ jobs:
           "$GITHUB_WORKSPACE/scripts/strip-seed-comment.sh" clean.md
           diff clean.expected.md clean.md
 
+      # Guards scripts/next-version.sh and scripts/last-release-tag.sh, the
+      # version arithmetic and changelog baseline release-prepare.yml runs when
+      # a maintainer dispatches it. The release-candidate branches are the
+      # reason: they run only when someone cuts an RC, so without a standing
+      # check the release that needs them is the one that finds a defect. A
+      # file rather than inline assertions like the guard above: the matrix
+      # covers every branch of both scripts, and the same command runs locally.
+      - name: Check release-prepare version arithmetic
+        run: ./scripts/release-prepare.test.sh
+
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
