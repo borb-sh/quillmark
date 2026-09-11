@@ -2,7 +2,7 @@ use pyo3::conversion::IntoPyObjectExt;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pycell::{PyRef, PyRefMut};
-use pyo3::types::{PyBytes, PyDict, PyList};
+use pyo3::types::{PyBytes, PyDict, PyList, PyString};
 use pyo3::Bound;
 
 use quillmark::{
@@ -1217,7 +1217,17 @@ fn quillvalue_to_py<'py>(
 /// Read an in-field path: a `str` is an object key, a non-negative `int` an
 /// array index. A malformed step raises rather than being dropped — a skipped
 /// step reads a different address and never says so.
+///
+/// A bare `str` or `bytes` is refused as the path itself for the same reason:
+/// both iterate, so `path="motto"` would read `motto.m.o.t.t.o` and say
+/// nothing. `["motto"]` is the one-key path.
 fn path_from_py(path: &Bound<'_, PyAny>, ctx: &str) -> PyResult<Vec<quillmark::PathSegment>> {
+    if path.is_instance_of::<PyString>() || path.is_instance_of::<PyBytes>() {
+        return Err(PyValueError::new_err(format!(
+            "{ctx}: `path` must be a sequence of str keys and non-negative int indices, \
+             not a bare str; wrap a single key as `[key]`"
+        )));
+    }
     path.try_iter()
         .map_err(|_| {
             PyValueError::new_err(format!(

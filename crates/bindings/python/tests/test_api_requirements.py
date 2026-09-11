@@ -876,8 +876,8 @@ def test_get_content_at_round_trips_an_elements_anchor_and_island_id(element_qui
 
 def test_get_content_at_path_and_card_selector(element_quill):
     """`path` walks to the leaf's own codec, a path naming nothing stored reads
-    None, a malformed step is the argument's error, and `card=` addresses a
-    composable card's schema."""
+    None, a malformed step and a bare `str` are the argument's error, and
+    `card=` addresses a composable card's schema."""
     doc = Document.from_markdown(
         "~~~card-yaml\n$quill: element_test@0.1.0\n$kind: main\n"
         "recipients: ['a *literal* line']\nparagraphs: ['A **bold** intro.', 3]\n"
@@ -902,6 +902,10 @@ def test_get_content_at_path_and_card_selector(element_quill):
     assert excinfo.value.diagnostics[0].path == "main.paragraphs[1]"
     with pytest.raises(ValueError, match=r"path\[0\]"):
         v.get_content_at("recipients", [None])
+    # A bare str is a sequence of one-character keys, so it would read
+    # `rows.n.o.t.e.s` and say nothing.
+    with pytest.raises(ValueError, match=r"bare str"):
+        v.get_content_at("rows", "notes")
 
 
 def test_view_body_read_is_quill_free():
