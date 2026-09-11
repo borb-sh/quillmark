@@ -58,6 +58,18 @@ fn missing_block_message(markdown: &str, unclosed_root: Option<&UnclosedRoot>) -
 
     let trimmed = markdown.trim_start();
 
+    if trimmed.starts_with("---")
+        && trimmed
+            .lines()
+            .any(|l| l.trim_start().starts_with("$quill:"))
+    {
+        return "Missing required root card-yaml block. Your document opens with \
+                `---` YAML front matter; card-yaml blocks are fenced with `~~~`. \
+                Replace the opening `---` and its closing `---` with a line \
+                containing exactly `~~~` (three tildes)."
+            .to_string();
+    }
+
     if trimmed.starts_with("$quill:") || trimmed.starts_with("quill:") {
         return "Missing required root card-yaml block. Your document starts with \
                 YAML metadata but is missing the `~~~` fence. Wrap the \

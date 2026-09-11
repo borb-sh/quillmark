@@ -15,10 +15,7 @@ Every valid CommonMark 0.31.2 document parses to the same block / inline
 structure under this spec, *except* for the deviations declared in §6.2
 (raw HTML), §3.2 (a column-zero `~~~` block with a blank line above it is a
 card-yaml block, not an ordinary fenced code block, whatever its info string;
-an indented `~~~` is not a card-yaml opener), and §3.2.1
-(root-block `---` alias: a `---` at document start followed by a matching
-`---` is interpreted as a YAML-frontmatter root block, not a thematic
-break / setext underline). Additionally, this spec defines:
+an indented `~~~` is not a card-yaml opener). Additionally, this spec defines:
 
 - **Structured data**: card-yaml blocks (§3).
 - **Extensions**: strikethrough, pipe tables, and `<u>` for underline
@@ -94,8 +91,7 @@ the next opening fence or EOF.
   fence is exactly three tildes (`~~~`), and `toMarkdown` (§9) always emits
   three. An opener of four or more tildes is accepted (non-canonical) and
   re-emits as `~~~`; its closing fence must be at least as long as the opener,
-  per CommonMark's fenced-code-block rule. (Exception: the root-block `---`
-  alias in §3.2.1.)
+  per CommonMark's fenced-code-block rule.
 - **Info string.** The info string is **not read**. A card-yaml opener is any
   `~~~` satisfying the rules below, whether it is bare, `~~~card-yaml`,
   `~~~yaml`, or `~~~rust`. The canonical form carries no info string, and
@@ -124,33 +120,17 @@ the next opening fence or EOF.
   document. A `~~~` line without a blank line above it is **not** a card-yaml
   opener: it is treated as an ordinary CommonMark fenced code block.
 
-### 3.2.1 Root-Block `---` Alias
+### 3.2.1 `---` Is CommonMark's
 
-The **root block only** may open with `---` and close with `---` instead of
-`~~~` / `~~~`. A `---`-fenced root parses identically to a `~~~`-fenced root
-with the same payload.
+A card-yaml block is fenced with `~~~`, at every position. A `---` line is
+CommonMark's throughout — a thematic break or a setext-heading underline —
+so a document opening with `---` front matter has no root block and fails
+with `MissingQuill` (§10), whose message names the fence to write instead.
 
-- **Accept, don't emit, don't advertise.** Parsers accept the `---` form so
-  that LLMs trained on broader-internet YAML-frontmatter conventions are
-  not penalised on a stylistic mismatch. `toMarkdown` (§9) always emits the
-  canonical bare `~~~` shape; a `---`-authored document round-trips to the
-  canonical form on first re-emit. Authoring surfaces (blueprints,
-  FORMAT_RULES, examples) document only the canonical form.
-- **Root only.** A `---` opener is recognised only when every line above
-  it is blank (i.e. document start, modulo leading blank lines) and no
-  prior block has been parsed. Any other `---` line is delegated to
-  CommonMark as a thematic break or setext-heading underline.
-- **Matched fences.** Within a single block, opener and closer must agree:
-  a `---` opener requires a `---` closer, and a `~~~` opener requires a
-  `~~~` closer. Mixed forms (`---` … `~~~`, `~~~` … `---`) leave the opener
-  unclosed, so it falls through to CommonMark
-  (code block to EOF, or a thematic break for a lone `---`) rather than being
-  recognised as a block.
-- **Composable position.** A `---` line after the root block: when it
-  pairs with a later `---` and has YAML-key content between: is a
-  misplaced composable card and is rejected with a diagnostic that names
-  the canonical `~~~` replacement (§10). Composable cards have no `---`
-  alias.
+`---` front matter is what broader-internet YAML conventions train an author
+(or an LLM) to reach for, so the miss is worth one specific diagnostic rather
+than a parse rule: a tolerance would be root-only, since composable cards can
+have no `---` form, and half a rule is harder to learn than none.
 
 ### 3.3 System Metadata (`$`)
 
@@ -301,14 +281,6 @@ A `~~~` line that fails D0 (an indented opener) or D1 is **not** a card-yaml
 opener; it is delegated to CommonMark, where an indented `~~~` is still a
 valid fenced code block.
 
-A `---` line opens the **root block** instead **iff** all of the following
-hold (see §3.2.1):
-
-**R1: Document start.** No prior block has been parsed and every line above
-the `---` line is blank.
-
-**R2: Closing `---`.** A matching `---` line appears later in the document.
-
 YAML content between recognised fence markers is opaque to detection: a
 `~~~` line inside an open block is part of that block's payload, not a new
 opener (though the canonical payload never produces such a line). In
@@ -316,15 +288,12 @@ particular, an *indented* `~~~` inside the payload; e.g. a tilde code fence
 embedded in a `|` block-scalar value: is payload by the column-zero closer
 rule (D2). A *column-zero* `~~~` can never be block-scalar content (YAML
 requires scalar content to be indented past its key), so the closer is
-unambiguous. The same opacity applies to `---` lines inside an open
-`---`-fenced root block.
+unambiguous.
 
 Failure of D0, D1, or D2 delegates the `~~~` line to CommonMark (an unclosed
 `~~~` opener becomes a code block to EOF, with a non-fatal unclosed-fence
 warning). A document with no closed root block fails with `MissingQuill`
-(§10). A `---` that fails R1 falls through to CommonMark unless it forms a
-paired block with YAML content, which is rejected as a misplaced composable
-card (§10).
+(§10).
 
 ### 4.1 Worked Example
 
@@ -480,8 +449,8 @@ order), and a `~~~` closer. The root block must declare `$quill`;
 canonical emission also writes `$kind: main` on the root, synthesising
 it when the input omitted the line (see §3.3). Composable cards must
 declare `$kind: <kind>`. A document round-trips to this canonical
-shape: fence markers and YAML quoting are normalised; an opener's info string
-and the `---`-fenced root alias (§3.2.1) both re-emit as bare `~~~`.
+shape: fence markers and YAML quoting are normalised, and an opener's info
+string re-emits as bare `~~~`.
 `!must_fill` tags and YAML comments
 (own-line and inline, including those adjacent to `$` lines) survive the
 round-trip.
@@ -526,15 +495,14 @@ or compare for equality.
 Parse errors include:
 
 - The document has no recognised root block (`MissingQuill`). This covers an
-  unclosed root fence: an unclosed `~~~` opener or a `---` opener with no
-  matching `---` closer is delegated to CommonMark (§4) rather than erroring
-  on its own, but with no closed root block the document still fails here.
-  When the document *does* open with a `~~~` declaring `$quill`, the message
-  names that opener's line and the missing closer (and the failed closer
-  line, for a `~~` run or an indented `~~~`) rather than the generic shape.
-- A `---` line in composable position (after the root block) that pairs
-  with a later `---` and holds YAML-key content between: composable
-  cards must use `~~~` fences (§3.2.1).
+  unclosed root fence: an unclosed `~~~` opener is delegated to CommonMark
+  (§4) rather than erroring on its own, but with no closed root block the
+  document still fails here. When the document *does* open with a `~~~`
+  declaring `$quill`, the message names that opener's line and the missing
+  closer (and the failed closer line, for a `~~` run or an indented `~~~`)
+  rather than the generic shape. When it opens with `---` front matter
+  declaring `$quill`, the message names the `~~~` fence to write instead
+  (§3.2.1).
 - The root block missing its `$quill` entry.
 - The root block declaring a non-`main` `$kind` (an omitted `$kind` on
   the root is accepted and synthesised; only an explicit non-`main`

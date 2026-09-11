@@ -134,6 +134,26 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
 
 ### Parsing and the card block
 
+- feat(core)!: **`---` front matter is CommonMark's, and the message names the
+  fence to write instead.** A `---` at document start paired with a later `---`
+  opened the root block. It is a thematic break and a setext underline again,
+  so a document fenced that way has no root block and fails `MissingQuill`. The
+  alias was accept-don't-emit-don't-advertise: no authoring page taught it,
+  `FORMAT_RULES` says the fence is exactly `~~~`, the blueprint emits `~~~`,
+  and `toMarkdown` rewrote a `---`-authored root to `~~~` on first re-emit.
+  What it cost was a rule that only half held — composable cards have no `---`
+  form — and the containment that took: a document-start rule, a matched-fences
+  rule, and a lookahead rejecting a `---` below the root block when a later
+  `---` paired with it over YAML-key-looking content. That lookahead read prose
+  it had no claim on. A thematic break, a paragraph opening `Note:`, and a
+  second break is ordinary markdown, and it was refused outright with a
+  composable-card error. The scanner now reads no `---` at all, so it claims
+  nothing a CommonMark renderer draws, and `missing_block_message` carries what
+  the tolerance was for: a document opening with `---` and declaring `$quill`
+  is told to replace the opening and closing `---` with `~~~`, which is the
+  edit. A `---` document *without* `$quill` keeps the generic message, which
+  names the fence and the key together rather than sending the author back for
+  a second turn. Refs #1698.
 - feat(core)!: **every column-zero `~~~` block is a card, whatever its info
   string.** The opener's info string is no longer read. `~~~card-yaml` and
   `~~~yaml` were accepted aliases and `~~~rust` opened an ordinary code block;
