@@ -974,11 +974,11 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
     }
   })
 
-  it('pdfform manifest cannot drift from the loaded backend (drift guard)', async () => {
+  it('acroform manifest cannot drift from the loaded backend (drift guard)', async () => {
     // `DEFAULT_BACKENDS`' static manifest against what the binary reports.
     const engine = new Engine()
     const quill = Quill.fromTree(makeSampleFormQuill())
-    expect(quill.backendId).toBe('pdfform')
+    expect(quill.backendId).toBe('acroform')
     const doc = Document.fromMarkdown(SAMPLE_FORM_MARKDOWN)
 
     // What the static manifest reports (no load).

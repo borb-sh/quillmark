@@ -48,9 +48,9 @@ impl BindError {
     /// The stable diagnostic code for this error.
     pub fn code(&self) -> &'static str {
         match self {
-            BindError::Dangling { .. } => "pdfform::dangling_binding",
-            BindError::Unbindable { .. } => "pdfform::unbindable_field",
-            BindError::PageOutOfRange { .. } => "pdfform::field_page_out_of_range",
+            BindError::Dangling { .. } => "acroform::dangling_binding",
+            BindError::Unbindable { .. } => "acroform::unbindable_field",
+            BindError::PageOutOfRange { .. } => "acroform::field_page_out_of_range",
         }
     }
 }
@@ -325,7 +325,7 @@ mod tests {
 quill:
   name: binder
   version: 0.1.0
-  backend: pdfform
+  backend: acroform
   description: bind-test schema
 main:
   body:
@@ -462,7 +462,7 @@ card_kinds:
         for (path, ty) in [("address", "object"), ("refs", "array<object>")] {
             match kind(path) {
                 Err(e @ BindError::Unbindable { .. }) => {
-                    assert_eq!(e.code(), "pdfform::unbindable_field");
+                    assert_eq!(e.code(), "acroform::unbindable_field");
                     assert!(e.to_string().contains(ty), "{path}: {e}");
                 }
                 other => panic!("{path}: expected Unbindable, got {other:?}"),
@@ -484,7 +484,7 @@ card_kinds:
             let c = config();
             match bind(&c, "W", path) {
                 Err(e @ BindError::Dangling { .. }) => {
-                    assert_eq!(e.code(), "pdfform::dangling_binding");
+                    assert_eq!(e.code(), "acroform::dangling_binding");
                     assert!(e.to_string().contains(seg), "{path}: {e}");
                 }
                 other => panic!("{path}: expected Dangling, got {other:?}"),
@@ -531,7 +531,7 @@ card_kinds:
 quill:
   name: t
   version: 0.1.0
-  backend: pdfform
+  backend: acroform
   description: t
 main:
   body:
@@ -631,7 +631,7 @@ main:
         };
         match place("W", 2, r, &[[0.0, 0.0, 612.0, 792.0]]) {
             Err(e @ BindError::PageOutOfRange { .. }) => {
-                assert_eq!(e.code(), "pdfform::field_page_out_of_range");
+                assert_eq!(e.code(), "acroform::field_page_out_of_range");
             }
             other => panic!("expected PageOutOfRange, got {other:?}"),
         }

@@ -168,7 +168,7 @@ The two constructors taking no handle reach no wasm: `new Engine()` validates a 
 
 Ships **multiple artifacts from one crate** behind a single public root export. The root `@quillmark/wasm` is a hand-written **canonical runtime layer** that hands out the internal Typst-less **core** build's `Document` + `Quill` (load / validate / schema / seed / blueprint) verbatim and adds an `Engine` render dispatcher.
 
-The **render** build, carrying both backends (Typst and pdfform), is a **private** build with its own linear memory, lazily loaded on the first render: there is no public `/core` or `/render` subpath. Core is small and eager; the render build is megabytes (Typst dominates) and loads only when something renders. `scripts/build-wasm.sh` enforces core's gzip ceiling, failing the build when Typst leaks back into the no-features build.
+The **render** build, carrying both backends (Typst and acroform), is a **private** build with its own linear memory, lazily loaded on the first render: there is no public `/core` or `/render` subpath. Core is small and eager; the render build is megabytes (Typst dominates) and loads only when something renders. `scripts/build-wasm.sh` enforces core's gzip ceiling, failing the build when Typst leaks back into the no-features build.
 
 Backend handles never escape the `Engine`: it clones the quill tree + `doc.toStored()` into the backend's memory as serialized data and frees the clones.
 
@@ -186,6 +186,6 @@ Standalone `quillmark` binary. See [CLI.md](CLI.md).
 
 - [PROGRAMMATIC.md](PROGRAMMATIC.md): building documents in memory through each surface's mutators
 - [CLI.md](CLI.md): command-line surface
-- [PREVIEW.md](PREVIEW.md): WASM multi-backend canvas preview (Typst, pdfform)
+- [PREVIEW.md](PREVIEW.md): WASM multi-backend canvas preview (Typst, acroform)
 - [ERROR.md](ERROR.md): the diagnostic model that crosses every boundary
 - Per-binding API detail: the respective `crates/bindings/*/` rustdoc and READMEs

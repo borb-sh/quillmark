@@ -217,7 +217,7 @@ The label `<__qm_field__>` and metadata `kind: "__qm_field__"` are reserved for 
 
 ## Form Fields
 
-`signature-field` is a thin wrapper over the general `form-field` primitive, which backs two widget kinds: text inputs and signature boxes. A plate wanting an interactive checkbox or dropdown is a `pdfform` quill. Import it from the same helper package:
+`signature-field` is a thin wrapper over the general `form-field` primitive, which backs two widget kinds: text inputs and signature boxes. A plate wanting an interactive checkbox or dropdown is a `acroform` quill. Import it from the same helper package:
 
 ```typst
 #import "@local/quillmark-helper:0.1.0": form-field

@@ -39,7 +39,7 @@ fn pdf_is_the_only_output_format() {
     assert_eq!(
         engine
             .supported_formats(&sample_form())
-            .expect("the pdfform backend resolves"),
+            .expect("the acroform backend resolves"),
         [OutputFormat::Pdf]
     );
 

@@ -140,7 +140,7 @@ function arrayElementSession() {
 /** Asserts a captured `putImageData` call's RGBA buffer carries both visible
  * ink (non-white, opaque pixels) and opaque background: catches a rasterizer
  * regression that wrote zeros, swapped channels, or skipped demultiply.
- * Shared by the typst and pdfform paint tests below; the two rasterizers
+ * Shared by the typst and acroform paint tests below; the two rasterizers
  * differ, but this ink/opacity scan is the same check on either buffer. */
 function expectInkAndOpaquePixels(call) {
   let inkPixels = 0
@@ -347,26 +347,26 @@ describe('LiveSession canvas preview', () => {
   })
 })
 
-describe('LiveSession canvas preview (pdfform backend)', () => {
-  function openPdfformQuill() {
+describe('LiveSession canvas preview (acroform backend)', () => {
+  function openAcroformQuill() {
     const engine = new Quillmark()
     const quill = Quill.fromTree(makeSampleFormQuill())
     return { engine, quill }
   }
 
-  function openPdfformSession() {
-    const { engine, quill } = openPdfformQuill()
+  function openAcroformSession() {
+    const { engine, quill } = openAcroformQuill()
     return engine.open(quill, Document.fromMarkdown(SAMPLE_FORM_MARKDOWN))
   }
 
-  it('reports page geometry for a pdfform quill', () => {
-    const { engine, quill } = openPdfformQuill()
+  it('reports page geometry for a acroform quill', () => {
+    const { engine, quill } = openAcroformQuill()
 
-    // The pdfform backend rasterizes pre-flattened pages, so `pageSize`
+    // The acroform backend rasterizes pre-flattened pages, so `pageSize`
     // answers rather than throwing.
     const session = engine.open(quill, Document.fromMarkdown(SAMPLE_FORM_MARKDOWN))
     expect(session.pageCount).toBeGreaterThan(0)
-    expect(session.backendId).toBe('pdfform')
+    expect(session.backendId).toBe('acroform')
 
     const size = session.pageSize(0)
     expect(size.widthPt).toBeGreaterThan(0)
@@ -374,7 +374,7 @@ describe('LiveSession canvas preview (pdfform backend)', () => {
   })
 
   it('paint sizes the canvas per the DPR math and bakes field-value ink into the raster', () => {
-    const session = openPdfformSession()
+    const session = openAcroformSession()
     const { widthPt, heightPt } = session.pageSize(0)
     const layoutScale = 1
     const densityScale = 1.5

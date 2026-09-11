@@ -1,12 +1,12 @@
 [package]
-name = "quillmark-pdfform"
+name = "quillmark-acroform"
 version.workspace = true
 edition.workspace = true
 include = ["src/**", "Cargo.toml", "README*", "LICENSE*"]
 readme.workspace = true
 description = "Typst-free PDF-form backend for Quillmark: fills existing PDF forms via the quillmark-pdf stamping spine"
 license.workspace = true
-documentation = "https://docs.rs/quillmark-pdfform"
+documentation = "https://docs.rs/quillmark-acroform"
 homepage.workspace = true
 repository = "https://github.com/borb-sh/quillmark"
 publish = true
@@ -21,7 +21,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 # PDF-flatten → hayro raster, backing the canvas paint seam (`render_rgba`).
 # Always linked: canvas paint is unconditional, so the raster tree is not
-# feature-gated. (The no-features WASM `core` build excludes the whole pdfform
+# feature-gated. (The no-features WASM `core` build excludes the whole acroform
 # crate, so hayro never reaches it.)
 hayro = "0.7.1"
 

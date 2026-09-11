@@ -45,7 +45,7 @@ default = ["render"]
 # backends. Strict API superset of core; ~8MB of Typst is ~96% of the
 # artifact. The canvas painter dispatches through the core `SessionHandle`
 # seam, so the binding depends on the backend crates only transitively.
-render = ["quillmark/typst", "quillmark/pdfform", "dep:web-sys"]
+render = ["quillmark/typst", "quillmark/acroform", "dep:web-sys"]
 # Core build = no features: Document + Quill (parse / load / validate / schema
 # / seed / blueprint). No engine, no Typst; `scripts/build-wasm.sh` enforces its
 # gzip ceiling.

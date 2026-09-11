@@ -14,20 +14,20 @@ publish = true
 [dependencies]
 quillmark-core = { workspace = true }
 quillmark-typst = { workspace = true, optional = true }
-quillmark-pdfform = { workspace = true, optional = true }
+quillmark-acroform = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
 quillmark-typst = { workspace = true }
-quillmark-pdfform = { workspace = true }
+quillmark-acroform = { workspace = true }
 quillmark-fixtures = { workspace = true }
 quillmark-content = { workspace = true }
 serde_json = { workspace = true }
 
 [features]
-default = ["typst", "pdfform"]
+default = ["typst", "acroform"]
 typst = ["dep:quillmark-typst"]
-# The pdfform backend renders forms → PDF, and paints canvas pages via its
-# always-linked hayro seam, so the pdfform session reports
-# `supports_canvas() == true` and a canvas binding can paint pdfform quills.
-pdfform = ["dep:quillmark-pdfform"]
+# The acroform backend renders forms → PDF, and paints canvas pages via its
+# always-linked hayro seam, so the acroform session reports
+# `supports_canvas() == true` and a canvas binding can paint acroform quills.
+acroform = ["dep:quillmark-acroform"]

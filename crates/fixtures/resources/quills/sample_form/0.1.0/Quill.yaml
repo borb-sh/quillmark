@@ -1,8 +1,8 @@
 quill:
   name: sample_form
   version: 0.1.0
-  backend: pdfform
-  description: "Demo PDF form filled by the Typst-free pdfform backend."
+  backend: acroform
+  description: "Demo PDF form filled by the Typst-free acroform backend."
 
 main:
   body:

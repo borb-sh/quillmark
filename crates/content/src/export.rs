@@ -65,7 +65,7 @@ pub fn to_markdown(rt: &Normalized) -> String {
 /// every mark and island, keeping only literal text.
 ///
 /// Tables and images having no plaintext form is a **decided limitation**: the
-/// pdfform backend fills a form field from this projection, so a field bound to
+/// acroform backend fills a form field from this projection, so a field bound to
 /// a table-bearing content renders the surrounding text and silently omits the
 /// table, rather than emitting a row/tab dump that would read as faithful.
 pub fn to_plaintext(rt: &Content) -> String {

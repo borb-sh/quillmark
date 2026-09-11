@@ -24,7 +24,7 @@ different one from the one written.
 
 **A `values:` reorder is render-safe.** A field's blank is `""`, not `values[0]`,
 so reordering changes no document's rendered output. It still changes picker
-order, the blueprint's `enum` annotation text, and pdfform dropdown order, so it
+order, the blueprint's `enum` annotation text, and acroform dropdown order, so it
 is a presentation change rather than a no-op. Removing or renaming a member is
 breaking: a stored document carrying it stops validating.
 

@@ -164,7 +164,7 @@ fn get<T: FromValue>(d: &Dict, key: &str) -> Result<T, RenderError> {
 }
 
 /// An empty string yields `None` so the widget carries no `/V` (mirrors
-/// pdfform's `coerce_text`).
+/// acroform's `coerce_text`).
 fn read_value_str(d: &Dict, key: &str) -> Result<Option<String>, RenderError> {
     let s = match d.get(key) {
         Ok(Value::Str(s)) => s.to_string(),

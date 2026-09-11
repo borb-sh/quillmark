@@ -393,7 +393,7 @@ export interface EngineOptions {
 	 * `Quill.backendId`). Each value is a `BackendDescriptor`: `formats` is
 	 * required, so the format probe is ALWAYS free (no binary load, no quill
 	 * clone). Malformed entries throw at construction. The default registry maps
-	 * `"typst"` and `"pdfform"` to the bundled render build.
+	 * `"typst"` and `"acroform"` to the bundled render build.
 	 */
 	backends?: Record<string, BackendDescriptor>;
 }
@@ -445,7 +445,7 @@ export declare class Engine {
  *
  * CANVAS PAINT IS COMPLETE: {@link LiveSession.paint} writes a whole page
  * raster, every piece of page content already visible in the painted pixels,
- * with no compositing required by the caller — pdfform pre-flattens bound field
+ * with no compositing required by the caller — acroform pre-flattens bound field
  * values into the page content to satisfy this. {@link LiveSession.regions}
  * carries schema-field geometry for overlays drawn on top; it is never needed to
  * complete the picture.

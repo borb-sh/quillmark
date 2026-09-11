@@ -2,6 +2,56 @@
 
 ## Unreleased
 
+- refactor(pdfform)!: **`quillmark-pdfform` is `quillmark-acroform`, backend id
+  included.** `quillmark-pdf` and `quillmark-pdfform` differed by four
+  characters and read as prefix-and-specialization, the reading #1749 records:
+  that the form crate was the spine's only consumer. The spine keeps its name,
+  a bare generic name reading as leaf infrastructure with many consumers, and
+  the backend takes a distinct one at every layer the old one was spelled:
+  crate, directory, `AcroformBackend` with `id()` of `"acroform"`, the
+  `quillmark` cargo feature, the `pdfform::*` diagnostic namespace (now
+  `acroform::*`, the suffixes unchanged), the WASM `DEFAULT_BACKENDS` key, the
+  docs page and the two fixture quills' `backend:`. No alias: an unmigrated
+  `backend: pdfform` fails at render with `engine::backend_not_found`, whose
+  hint lists the registered backends, and a half-migrated quill with a leftover
+  `pdfform:` section fails at load with `quill::unknown_section`. `pdf::*` is
+  untouched. Closes #1775.
+- build(wasm): **three artifacts to two: the `render` build carries both
+  backends.** The core split (no engine, ~0.5 MB) is real for a web editor and
+  stays guarded. A pdfform-only binary bought "a pdfform-only page skips 8 MB
+  of Typst", and no such page exists; the render artifact grows by the
+  `quillmark-pdfform` crate and a brotli decoder, `hayro` already shipping in
+  it under `typst-render`. The wasm `typst` and `pdfform` features collapse
+  into one `render` feature — a feature named for one backend that selects two
+  would be a fresh inaccuracy in place of the one #1749 records — and the
+  forty-three `#[cfg(any(feature = "typst", feature = "pdfform"))]` sites
+  become `#[cfg(feature = "render")]`. `build-wasm.sh` emits `pkg/core/` and
+  `pkg/render/`; `runtime.js` keeps one `DEFAULT_BACKENDS` entry per backend
+  id, each with its own `formats` manifest, sharing one memoized load, and the
+  `Engine` keys its module, engine and clone caches on the descriptor's `load`
+  thunk rather than the backend id, so two ids over one build hold one entry
+  each. Both drift guards stay, the pdfform one retargeted at the merged
+  build. Closes #1640.
+- refactor(typst)!: **`form-field` keeps `text` and `signature`.** `usaf_memo`
+  uses those two. Checkbox and choice were the only kinds needing a value
+  coercion, and both coercions were copies of the pdfform resolver's,
+  duplicated because the Typst backend must not depend on it: deleting the two
+  kinds deletes the duplicate, and `FieldKind`, the mirror of the spine's
+  `FieldType` it existed for, retires with them — the extractor reads
+  `(FieldType, Option<String>)` directly. A plate wanting an interactive
+  checkbox or dropdown is a form-backend quill: pdfform keeps both kinds on
+  the spine. `multiline` stays, one bool on `FieldType::Text` the spine keeps
+  either way. A plate passing `type: "checkbox"` or `type: "choice"` fails the
+  helper's type assert, and `options:` is no longer a parameter. Closes #1644.
+- docs(canon): **the stamp spine names both of its consumers.**
+  `ARCHITECTURE.md` described `quillmark-pdf` as leaf infrastructure consumed
+  by `quillmark-pdfform`. The Typst backend consumes it unconditionally — the
+  fields a plate's `form-field` calls place go through the same `stamp` — and
+  nothing under `crates/backends/typst/src/` is feature-gated, so a reader
+  following canon concluded a Typst quill's form fields come from the pdfform
+  backend, and settling #1640 took a read of three manifests. The sentence
+  now names the layer and both consumers, meeting at `&[FieldSpec]` and never
+  each other. Closes #1749.
 - ci(release): **the version arithmetic and changelog baseline are tested
   scripts.** `release-prepare.yml`'s `Compute next version` block runs only when
   a maintainer dispatches it, and one release candidate exists in the

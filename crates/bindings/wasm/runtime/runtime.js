@@ -308,9 +308,9 @@ const DEFAULT_BACKENDS = {
 		load: RENDER_BUILD,
 		formats: ['pdf', 'svg', 'png'] // crates/backends/typst/src/lib.rs SUPPORTED_FORMATS
 	},
-	pdfform: {
+	acroform: {
 		load: RENDER_BUILD,
-		formats: ['pdf'] // crates/backends/pdfform/src/lib.rs SUPPORTED_FORMATS
+		formats: ['pdf'] // crates/backends/acroform/src/lib.rs SUPPORTED_FORMATS
 	}
 };
 

@@ -16,7 +16,7 @@ The package has one import surface: `@quillmark/wasm`, whose `init` resolves to
 handed out verbatim by `init`, so editor/validation code (`Quill.fromTree`,
 `Document.fromMarkdown`) loads only that small core binary: no backend is
 loaded until you render. The `Engine` hides everything else: the render build,
-carrying both backends (`typst`, `pdfform`), is a private WASM binary with its
+carrying both backends (`typst`, `acroform`), is a private WASM binary with its
 own linear memory, lazily loaded on the first render. The Engine clones a
 `Quill` / `Document` into that memory as data and frees the clones: you never
 hold a backend object or cross a memory boundary yourself.
