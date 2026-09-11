@@ -44,9 +44,9 @@ cd "$(dirname "$0")/.."
 # target/wasm32-unknown-unknown/<profile> alone, so its pkg/ is built fresh.
 rm -rf pkg
 
-# Check for required tools. The CLI's version must match the wasm-bindgen
-# crate in Cargo.lock; wasm-bindgen itself only detects a mismatch when it
-# runs (after the multi-minute cargo build), so check it up front.
+# The wasm-bindgen CLI's version must match the wasm-bindgen crate in
+# Cargo.lock; wasm-bindgen itself only detects a mismatch when it runs (after
+# the multi-minute cargo build), so check it up front.
 LOCKED_WBG=$(grep -A1 '^name = "wasm-bindgen"$' Cargo.lock | sed -n 's/^version = "\(.*\)"/\1/p')
 if ! command -v wasm-bindgen &> /dev/null; then
     echo "wasm-bindgen not found. Install it with:" >&2
@@ -57,10 +57,6 @@ CLI_WBG=$(wasm-bindgen --version | awk '{print $2}')
 if [ "$CLI_WBG" != "$LOCKED_WBG" ]; then
     echo "ERROR: wasm-bindgen-cli $CLI_WBG does not match Cargo.lock's wasm-bindgen $LOCKED_WBG." >&2
     echo "  cargo install wasm-bindgen-cli --version $LOCKED_WBG" >&2
-    exit 1
-fi
-if ! command -v jq &> /dev/null; then
-    echo "jq not found (needed to read the package version from cargo metadata)." >&2
     exit 1
 fi
 
@@ -143,9 +139,14 @@ done
 # humans debugging read an honest number). `--release-stamp` stamps the
 # version verbatim; only release.yml passes it, from the bumped release tag,
 # and asserts the stamp equals the tag before `npm publish`.
-VERSION=$(cargo metadata --format-version=1 --no-deps | jq -r '.packages[] | select(.name == "quillmark-wasm") | .version')
-if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
-    echo "ERROR: could not determine quillmark-wasm version from cargo metadata." >&2
+#
+# The crate inherits `version.workspace`, so only cargo carries the number. A
+# pkgid ends in it behind `#`, `@` or `:`, which of the three varying by cargo
+# version; a semver holds none of them, so the last one is the cut.
+PKGID=$(cargo pkgid -p quillmark-wasm)
+VERSION=${PKGID##*[#@:]}
+if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+    echo "ERROR: could not read quillmark-wasm's version from pkgid '$PKGID'." >&2
     exit 1
 fi
 if [ "$RELEASE_STAMP" -ne 1 ]; then
@@ -176,31 +177,26 @@ else
     exit 1
 fi
 
-cat > pkg/.gitignore << EOF
-*
-!.gitignore
-EOF
-
 echo ""
 echo "WASM build complete!"
 echo "Output directory: pkg/  (core/ + backends/typst/ + backends/pdfform/ + runtime/)"
 echo "Package version: $VERSION"
 
-# Show sizes: transport size (gzip/brotli) is what matters for delivery.
+# Transport size (gzip) is what matters for delivery. The third argument names
+# a variable to hold the gzip byte count, so the core budget check below reuses
+# this pass rather than compressing a multi-MB artifact twice.
 report_size() {
-    local label="$1" file="$2"
+    local label="$1" file="$2" gz_var="${3:-}"
     [ -f "$file" ] || return 0
-    local raw gz br
+    local raw gz_bytes
     raw=$(du -h "$file" | cut -f1)
-    gz=$(gzip -9 -c "$file" 2>/dev/null | wc -c | awk '{printf "%.2fM", $1/1048576}')
-    if command -v brotli &> /dev/null; then
-        br=$(brotli -9 -c "$file" 2>/dev/null | wc -c | awk '{printf "%.2fM", $1/1048576}')
-        echo "WASM size ($label): raw=$raw gzip=$gz brotli=$br"
-    else
-        echo "WASM size ($label): raw=$raw gzip=$gz"
+    gz_bytes=$(gzip -9 -c "$file" | wc -c | tr -d '[:space:]')
+    echo "WASM size ($label): raw=$raw gzip=$(awk -v b="$gz_bytes" 'BEGIN {printf "%.2fM", b/1048576}')"
+    if [ -n "$gz_var" ]; then
+        printf -v "$gz_var" '%s' "$gz_bytes"
     fi
 }
-report_size "core"            pkg/core/wasm_bg.wasm
+report_size "core"            pkg/core/wasm_bg.wasm core_gz_bytes
 report_size "typst backend"   pkg/backends/typst/wasm_bg.wasm
 report_size "pdfform backend" pkg/backends/pdfform/wasm_bg.wasm
 
@@ -214,7 +210,6 @@ report_size "pdfform backend" pkg/backends/pdfform/wasm_bg.wasm
 # here.
 CORE_MAX_GZIP_BYTES=${CORE_MAX_GZIP_BYTES:-1500000}
 if [ -f pkg/core/wasm_bg.wasm ] && [ "$PROFILE" = "wasm-release" ]; then
-    core_gz_bytes=$(gzip -9 -c pkg/core/wasm_bg.wasm | wc -c | tr -d '[:space:]')
     if ! [ "$core_gz_bytes" -gt 0 ] 2>/dev/null; then
         echo "ERROR: could not measure core wasm gzip size (got '${core_gz_bytes}')." >&2
         exit 1
