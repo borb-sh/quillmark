@@ -4,6 +4,22 @@ import pytest
 
 from quillmark import OutputFormat, Document, Quill, QuillmarkError
 
+from conftest import taro_quill
+
+
+def test_blank_document_renders(engine):
+    """The programmatic flow end-to-end: blank canvas → typed writer → render."""
+    quill = taro_quill()
+
+    doc = Document("taro@0.1.0")
+    w = quill.writer(doc)
+    w.set_all({"title": "Test", "author": "Test Author", "ice_cream": "Chocolate"})
+    w.revise_body("Content.")
+
+    result = engine.render(quill, doc, OutputFormat.PDF)
+    assert len(result.artifacts) > 0
+    assert len(result.artifacts[0].bytes) > 0
+
 
 def test_artifact_reads_share_one_buffer(engine, taro_quill_dir, taro_md, tmp_path):
     """Re-reading `artifacts` hands back the same objects, and `bytes` is what `save` wrote."""
