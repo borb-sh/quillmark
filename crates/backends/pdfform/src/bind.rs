@@ -235,18 +235,13 @@ fn descend<'a>(cur: &'a FieldSchema, seg: &str) -> Option<&'a FieldSchema> {
     }
 }
 
-/// Project a resolved [`FieldSchema`] to its widget kind, keyed on capability
-/// rather than the `type` token: any field carrying `enum_values` is a dropdown.
+/// Project a resolved [`FieldSchema`] to its widget kind: an `enum` is a
+/// dropdown over its domain, and an `object` has no widget shape at all.
 pub fn project_kind(
     field: &FieldSchema,
     name: &str,
     path: &str,
 ) -> Result<WidgetType, BindError> {
-    if let Some(values) = &field.enum_values {
-        return Ok(WidgetType::Choice {
-            options: blank_first(values),
-        });
-    }
     let unbindable = || BindError::Unbindable {
         name: name.to_string(),
         path: path.to_string(),
@@ -270,9 +265,10 @@ pub fn project_kind(
             Some(items) if is_scalar_or_prose(items) => WidgetType::Text { multiline: true },
             _ => return Err(unbindable()),
         },
-        // An `Enum` reaching here carries no `enum_values`, so it has no options
-        // to offer; an `Object` has no widget shape at all.
-        SchemaType::Enum | SchemaType::Object => return Err(unbindable()),
+        SchemaType::Enum { values } => WidgetType::Choice {
+            options: blank_first(values),
+        },
+        SchemaType::Object => return Err(unbindable()),
     })
 }
 

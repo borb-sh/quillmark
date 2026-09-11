@@ -2430,8 +2430,10 @@ fn enum_rejects_a_blank_value_but_accepts_a_blank_default() {
     let field = config.main.fields.get("classification").unwrap();
     assert_eq!(field.default.as_ref().unwrap().as_json(), &serde_json::json!(""));
     assert_eq!(
-        field.enum_values.as_deref(),
-        Some(["UNCLASSIFIED".to_string(), "CUI".to_string()].as_slice()),
+        field.r#type,
+        FieldType::Enum {
+            values: vec!["UNCLASSIFIED".to_string(), "CUI".to_string()]
+        },
         "the declared choices carry no blank"
     );
 }
@@ -2906,11 +2908,17 @@ fn enum_type_projects_to_json_schema_string_enum() {
     )
     .expect("type: enum loads");
     let field = config.main.fields.get("color").unwrap();
-    assert_eq!(field.r#type, FieldType::Enum);
     // The model layer carries the declared choices only: the blank is not one.
     assert_eq!(
-        field.enum_values.as_deref(),
-        Some(["red".to_string(), "green".to_string(), "blue".to_string()].as_slice())
+        field.r#type,
+        FieldType::Enum {
+            values: vec!["red".to_string(), "green".to_string(), "blue".to_string()]
+        }
+    );
+    // The payload is what `values:` re-emits from.
+    assert_eq!(
+        serde_json::to_value(field).unwrap()["values"],
+        serde_json::json!(["red", "green", "blue"])
     );
     let schema = super::schema::build_transform_schema(&config);
     let color = &schema.as_json()["properties"]["color"];

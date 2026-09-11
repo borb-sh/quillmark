@@ -461,7 +461,7 @@ fn validate_value(
     let type_valid = match field.r#type {
         // An enum is type-valid exactly where a string is; the domain check is
         // below.
-        FieldType::String | FieldType::Enum => value.as_str().is_some(),
+        FieldType::String | FieldType::Enum { .. } => value.as_str().is_some(),
         // A conformed value is a canonical content object; an authored
         // `default`/`example` is the codec's string. The shape pass below
         // checks `inline` and `plain`.
@@ -613,12 +613,12 @@ fn validate_value(
         // the call sites so `validate_value` stays context-free: an enum at
         // element position inside an array accepts the blank on the same line
         // as one at the top level.
-        if let (Some(allowed), Some(actual)) = (&field.enum_values, value.as_str()) {
-            if !actual.is_empty() && !allowed.contains(&actual.to_string()) {
+        if let (FieldType::Enum { values }, Some(actual)) = (&field.r#type, value.as_str()) {
+            if !actual.is_empty() && !values.iter().any(|v| v == actual) {
                 errors.push(ValidationError::EnumViolation {
                     path: path.to_string(),
                     value: actual.to_string(),
-                    allowed: allowed.clone(),
+                    allowed: values.clone(),
                 });
             }
         }
@@ -648,14 +648,13 @@ fn validate_variant(
     let json = value.as_json();
 
     let check_member = |member: &str, at: &DocPath, errors: &mut Vec<ValidationError>| {
-        if let Some(allowed) = &field.enum_values {
-            if !member.is_empty() && !allowed.contains(&member.to_string()) {
-                errors.push(ValidationError::EnumViolation {
-                    path: at.to_string(),
-                    value: member.to_string(),
-                    allowed: allowed.clone(),
-                });
-            }
+        let allowed = field.domain();
+        if !member.is_empty() && !allowed.iter().any(|v| v == member) {
+            errors.push(ValidationError::EnumViolation {
+                path: at.to_string(),
+                value: member.to_string(),
+                allowed: allowed.to_vec(),
+            });
         }
     };
 
@@ -1100,5 +1099,30 @@ main:
         let content = quillmark_content::serial::to_canonical_value(&rt);
         let doc = doc_from_fm(&[("tag", content)]);
         assert!(validate_typed_document(&config, &doc).is_ok());
+    }
+
+    /// A domain admits its members and the blank, so an empty one admits the
+    /// blank alone. The loader refuses to build this field — `type: enum`
+    /// requires a non-empty `values:` — so the rule is reachable only from Rust.
+    #[test]
+    fn an_empty_domain_admits_only_the_blank() {
+        let field = FieldSchema::new(
+            "clearance".to_string(),
+            FieldType::Enum { values: Vec::new() },
+            None,
+        );
+        let at = DocPath::main().field("clearance");
+
+        assert!(validate_field(&field, &QuillValue::from(""), &at).is_empty());
+
+        let errors = validate_field(&field, &QuillValue::from("secret"), &at);
+        assert!(
+            matches!(
+                errors.as_slice(),
+                [ValidationError::EnumViolation { value, allowed, .. }]
+                    if value == "secret" && allowed.is_empty()
+            ),
+            "got: {errors:?}"
+        );
     }
 }

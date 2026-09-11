@@ -737,6 +737,20 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
 
 ### Schema, validation and the resolved view
 
+- refactor(core)!: **an enum's domain rides the type token.** `FieldType::Enum`
+  carries `values`, and `FieldSchema::enum_values` is gone. The domain and the
+  token had to agree, an agreement the loader enforced and the type could not,
+  so every consumer keyed on the carrier and left a `FieldType::Enum` arm behind
+  as unreachable residue — three of them, each answering "no domain" differently:
+  the transform schema projected `{type: string}`, an open domain contradicting
+  the token; validation skipped the membership check; pdfform refused to bind.
+  One rule replaces them, special-cased nowhere: a domain admits its members and
+  the blank, so an empty one admits only the blank. `FieldSchema::domain()`
+  answers it for the three branches that enter through `variants:` holding no
+  token. No quill loads differently and no stored or wire byte moves: `values:`
+  is still the one spelling, still required non-empty on `type: enum`, still a
+  load error elsewhere, and `Serialize` re-emits it from the payload in the slot
+  it already occupied.
 - feat(core,wasm,python)!: **a quill carries the load's advisory diagnostics,
   so they reach a binding host at last.** `Quill::warnings()` is new, mirrored
   as `quill.warnings` in WASM and Python, and it answers whatever
