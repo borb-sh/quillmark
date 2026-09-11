@@ -1,7 +1,7 @@
 //! `form.json` wire types and parsing (`form@0.2.0`).
 //!
 //! `form.json` is the durable, value-free placement + binding layer of a
-//! `pdfform` quill. It carries only what the quill schema cannot know: where a
+//! `acroform` quill. It carries only what the quill schema cannot know: where a
 //! widget sits (`page`/`rect`) and which logical field it binds. A bound field
 //! in `fields` names a `schema_field` and derives its kind, options, multiline
 //! and tooltip from the resolved schema, so the two cannot drift; a widget in
@@ -113,7 +113,7 @@ impl std::fmt::Display for FormParseError {
 impl FormParseError {
     /// The stable diagnostic code for this error.
     pub fn code(&self) -> &'static str {
-        "pdfform::invalid_form_json"
+        "acroform::invalid_form_json"
     }
 }
 
@@ -216,7 +216,7 @@ mod tests {
         }"#;
         match FormSpec::parse(json) {
             Err(e @ FormParseError::BadSchema(_)) => {
-                assert_eq!(e.code(), "pdfform::invalid_form_json");
+                assert_eq!(e.code(), "acroform::invalid_form_json");
             }
             other => panic!("expected BadSchema, got {other:?}"),
         }

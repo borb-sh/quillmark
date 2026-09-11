@@ -1,12 +1,12 @@
 use crate::error::WasmError;
 use crate::types::Diagnostic;
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 use crate::types::{ChangeSet, ContentHit, FieldRegion, RenderOptions, RenderResult};
 use js_sys::{Array, Uint8Array};
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 use tsify::Ts;
 use wasm_bindgen::prelude::*;
 
@@ -455,12 +455,12 @@ export interface ChangeBundle {
 /// Device pixels per side: the floor across browser canvas limits (~32k on
 /// Chrome/Firefox, 16k on Safari). A request past it clamps `densityScale`
 /// proportionally, reported on `PaintResult`.
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 const MAX_BACKING_DIMENSION: u32 = 16384;
 
 /// Render engine: a backend registry and render dispatcher. Render build only:
 /// the core build constructs and validates quills without it.
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 #[wasm_bindgen]
 pub struct Quillmark {
     inner: quillmark::Quillmark,
@@ -479,7 +479,7 @@ pub struct Quill {
 /// A zero-page document yields a valid session (`pageCount === 0`) whose
 /// `paint(ctx, 0)` and `pageSize(0)` throw as any out-of-range page does; branch
 /// on `pageCount === 0` rather than catching.
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 #[wasm_bindgen]
 pub struct LiveSession {
     inner: quillmark_core::LiveSession,
@@ -489,7 +489,7 @@ pub struct LiveSession {
     card_kinds: Vec<Option<String>>,
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 fn card_kinds_of(doc: &quillmark_core::Document) -> Vec<Option<String>> {
     doc.cards()
         .iter()
@@ -503,14 +503,14 @@ pub struct Document {
     parse_warnings: Vec<quillmark_core::Diagnostic>,
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 impl Default for Quillmark {
     fn default() -> Self {
         Self::new()
     }
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 #[wasm_bindgen]
 impl Quillmark {
     #[wasm_bindgen(constructor)]
@@ -2211,13 +2211,13 @@ fn serialize_inner<T: serde::Serialize + ?Sized>(
 
 /// [`serialize_or_throw`] for a value crossing as its own declared TypeScript
 /// type, under that type's `tsify` serialization config.
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 fn to_ts_or_throw<T: tsify::Tsify + Serialize>(value: &T) -> Result<Ts<T>, JsValue> {
     Ts::from_rust(value).map_err(|e| WasmError::from(e.to_string()).to_js_value())
 }
 
 /// The read direction of [`to_ts_or_throw`].
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 fn from_ts_or_throw<T: tsify::Tsify + serde::de::DeserializeOwned>(
     value: &Ts<T>,
 ) -> Result<T, JsValue>
@@ -2230,7 +2230,7 @@ where
 }
 
 /// The render verbs' shared argument read: an absent `options` is the default.
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 fn render_options_or_throw(
     opts: Option<Ts<RenderOptions>>,
 ) -> Result<quillmark_core::RenderOptions, JsValue> {
@@ -2369,7 +2369,7 @@ fn js_bytes_for_tree_entry(path: &str, value: JsValue) -> Result<Vec<u8>, JsValu
     Ok(bytes.to_vec())
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 #[wasm_bindgen(typescript_custom_section)]
 const CANVAS_PREVIEW_TS: &'static str = r#"
 /**
@@ -2428,7 +2428,7 @@ export interface PaintResult {
 
 /// A backend plate-space geometry address → its `DocPath` string, keeping the
 /// original when it does not fit the geometry grammar.
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 fn plate_to_docpath(addr: &str, kinds: &[Option<&str>]) -> String {
     quillmark_core::plate_addr_to_doc_path(addr, kinds)
         .map(|p| p.to_string())
@@ -2437,7 +2437,7 @@ fn plate_to_docpath(addr: &str, kinds: &[Option<&str>]) -> String {
 
 /// A `DocPath` address (from a consumer) → its plate-space form for the backend,
 /// keeping the original when it does not parse or place.
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 fn docpath_to_plate(addr: &str, kinds: &[Option<&str>]) -> String {
     addr.parse::<quillmark_core::DocPath>()
         .ok()
@@ -2445,7 +2445,7 @@ fn docpath_to_plate(addr: &str, kinds: &[Option<&str>]) -> String {
         .unwrap_or_else(|| addr.to_string())
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 impl LiveSession {
     /// Built once per query, never per region.
     fn kinds(&self) -> Vec<Option<&str>> {
@@ -2453,7 +2453,7 @@ impl LiveSession {
     }
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 #[wasm_bindgen]
 impl LiveSession {
     #[wasm_bindgen(getter, js_name = pageCount)]
@@ -2753,7 +2753,7 @@ impl LiveSession {
     }
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 impl LiveSession {
     fn page_oob_error(&self, op: &str, page: usize) -> JsValue {
         WasmError::from(format!(
@@ -2764,13 +2764,13 @@ impl LiveSession {
     }
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 enum CanvasCtx<'a> {
     OnScreen(&'a web_sys::CanvasRenderingContext2d),
     OffScreen(&'a web_sys::OffscreenCanvasRenderingContext2d),
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 impl<'a> CanvasCtx<'a> {
     fn from_js(ctx: &'a JsValue) -> Result<Self, JsValue> {
         if let Some(c) = ctx.dyn_ref::<web_sys::CanvasRenderingContext2d>() {
@@ -2812,7 +2812,7 @@ impl<'a> CanvasCtx<'a> {
     }
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 #[derive(Serialize)]
 struct PageSize {
     #[serde(rename = "widthPt")]
@@ -2821,7 +2821,7 @@ struct PageSize {
     height_pt: f32,
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 #[derive(Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct PaintOptions {
@@ -2831,7 +2831,7 @@ struct PaintOptions {
     density_scale: Option<f32>,
 }
 
-#[cfg(any(feature = "typst", feature = "pdfform"))]
+#[cfg(feature = "render")]
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct PaintResult {

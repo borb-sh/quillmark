@@ -109,11 +109,10 @@ assert_no_tla() {
     fi
 }
 
-build_variant backends/typst
-build_variant backends/pdfform --no-default-features --features pdfform
+build_variant render
 build_variant core --no-default-features
 
-for generated in pkg/core/wasm.js pkg/backends/typst/wasm.js pkg/backends/pdfform/wasm.js; do
+for generated in pkg/core/wasm.js pkg/render/wasm.js; do
     assert_no_tla "$generated"
 done
 
@@ -179,7 +178,7 @@ fi
 
 echo ""
 echo "WASM build complete!"
-echo "Output directory: pkg/  (core/ + backends/typst/ + backends/pdfform/ + runtime/)"
+echo "Output directory: pkg/  (core/ + render/ + runtime/)"
 echo "Package version: $VERSION"
 
 # Transport size (gzip) is what matters for delivery. The third argument names
@@ -196,9 +195,8 @@ report_size() {
         printf -v "$gz_var" '%s' "$gz_bytes"
     fi
 }
-report_size "core"            pkg/core/wasm_bg.wasm core_gz_bytes
-report_size "typst backend"   pkg/backends/typst/wasm_bg.wasm
-report_size "pdfform backend" pkg/backends/pdfform/wasm_bg.wasm
+report_size "core"   pkg/core/wasm_bg.wasm core_gz_bytes
+report_size "render" pkg/render/wasm_bg.wasm
 
 # Size budget on the core artifact: the split only pays off if core stays
 # Typst-free. Typst is megabytes, so a leak back into the no-features build

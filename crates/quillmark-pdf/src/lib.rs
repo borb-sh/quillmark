@@ -10,7 +10,7 @@ mod error;
 /// Byte-level reads over an existing PDF.
 ///
 /// **Workspace-internal; not covered by this crate's semver.** `pub` only so
-/// `quillmark-pdfform` can reach it.
+/// `quillmark-acroform` can reach it.
 #[doc(hidden)]
 pub mod reader;
 mod stamp;

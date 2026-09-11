@@ -62,25 +62,13 @@ beforeAll(() => {
   globalThis.OffscreenCanvasRenderingContext2D = FakeOffscreenCanvasRenderingContext2D
 })
 
-const typstBuild = await import('@quillmark-wasm')
-const { Quillmark, Quill, Document } = typstBuild
-// The pdfform backend bundle: same engine + LiveSession + canvas
-// surface as the typst bundle, but a Typst-free PDF-form backend that paints by
-// rasterizing its pre-flattened page. SEPARATE WASM memory from the typst
-// bundle: its handles never mix with the typst ones.
-const pdfformBuild = await import('@quillmark-wasm/pdfform')
-const {
-  Quillmark: PdfformQuillmark,
-  Quill: PdfformQuill,
-  Document: PdfformDocument,
-} = pdfformBuild
+const renderBuild = await import('@quillmark-wasm')
+const { Quillmark, Quill, Document } = renderBuild
 const { makeQuill, makeSampleFormQuill, SAMPLE_FORM_MARKDOWN, initBuildSync } = await import(
   './test-helpers.js'
 )
 
-// Each build carries its own memory, so each instantiates separately.
-initBuildSync(typstBuild, 'backends/typst')
-initBuildSync(pdfformBuild, 'backends/pdfform')
+initBuildSync(renderBuild, 'render')
 
 const TEST_MARKDOWN = `~~~card-yaml
 $quill: test_quill
@@ -152,7 +140,7 @@ function arrayElementSession() {
 /** Asserts a captured `putImageData` call's RGBA buffer carries both visible
  * ink (non-white, opaque pixels) and opaque background: catches a rasterizer
  * regression that wrote zeros, swapped channels, or skipped demultiply.
- * Shared by the typst and pdfform paint tests below; the two rasterizers
+ * Shared by the typst and acroform paint tests below; the two rasterizers
  * differ, but this ink/opacity scan is the same check on either buffer. */
 function expectInkAndOpaquePixels(call) {
   let inkPixels = 0
@@ -359,26 +347,26 @@ describe('LiveSession canvas preview', () => {
   })
 })
 
-describe('LiveSession canvas preview (pdfform backend)', () => {
-  function openPdfformQuill() {
-    const engine = new PdfformQuillmark()
-    const quill = PdfformQuill.fromTree(makeSampleFormQuill())
+describe('LiveSession canvas preview (acroform backend)', () => {
+  function openAcroformQuill() {
+    const engine = new Quillmark()
+    const quill = Quill.fromTree(makeSampleFormQuill())
     return { engine, quill }
   }
 
-  function openPdfformSession() {
-    const { engine, quill } = openPdfformQuill()
-    return engine.open(quill, PdfformDocument.fromMarkdown(SAMPLE_FORM_MARKDOWN))
+  function openAcroformSession() {
+    const { engine, quill } = openAcroformQuill()
+    return engine.open(quill, Document.fromMarkdown(SAMPLE_FORM_MARKDOWN))
   }
 
-  it('reports page geometry for a pdfform quill', () => {
-    const { engine, quill } = openPdfformQuill()
+  it('reports page geometry for a acroform quill', () => {
+    const { engine, quill } = openAcroformQuill()
 
-    // The pdfform backend rasterizes pre-flattened pages, so `pageSize`
+    // The acroform backend rasterizes pre-flattened pages, so `pageSize`
     // answers rather than throwing.
-    const session = engine.open(quill, PdfformDocument.fromMarkdown(SAMPLE_FORM_MARKDOWN))
+    const session = engine.open(quill, Document.fromMarkdown(SAMPLE_FORM_MARKDOWN))
     expect(session.pageCount).toBeGreaterThan(0)
-    expect(session.backendId).toBe('pdfform')
+    expect(session.backendId).toBe('acroform')
 
     const size = session.pageSize(0)
     expect(size.widthPt).toBeGreaterThan(0)
@@ -386,7 +374,7 @@ describe('LiveSession canvas preview (pdfform backend)', () => {
   })
 
   it('paint sizes the canvas per the DPR math and bakes field-value ink into the raster', () => {
-    const session = openPdfformSession()
+    const session = openAcroformSession()
     const { widthPt, heightPt } = session.pageSize(0)
     const layoutScale = 1
     const densityScale = 1.5

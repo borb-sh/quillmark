@@ -933,7 +933,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
         typst: {
           load: () => {
             loaded++
-            return import('../../../pkg/backends/typst/wasm.js')
+            return import('../../../pkg/render/wasm.js')
           },
           formats: ['pdf', 'svg', 'png']
         }
@@ -960,9 +960,9 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
     // What the static manifest reports (no load).
     const manifestFormats = await engine.supportedFormats(quill)
 
-    // Force the backend to actually load, then ask the real engine directly.
+    // Force the render build to load, then ask the real engine directly.
     await engine.render(quill, doc, { format: 'svg' })
-    const mod = await import('../../../pkg/backends/typst/wasm.js')
+    const mod = await import('../../../pkg/render/wasm.js')
     const backendEngine = new mod.Quillmark()
     const backendQuill = mod.Quill.fromTree(quill.toTree())
     try {
@@ -974,20 +974,20 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
     }
   })
 
-  it('pdfform manifest cannot drift from the loaded backend (drift guard)', async () => {
+  it('acroform manifest cannot drift from the loaded backend (drift guard)', async () => {
     // `DEFAULT_BACKENDS`' static manifest against what the binary reports.
     const engine = new Engine()
     const quill = Quill.fromTree(makeSampleFormQuill())
-    expect(quill.backendId).toBe('pdfform')
+    expect(quill.backendId).toBe('acroform')
     const doc = Document.fromMarkdown(SAMPLE_FORM_MARKDOWN)
 
     // What the static manifest reports (no load).
     const manifestFormats = await engine.supportedFormats(quill)
     expect(manifestFormats).toEqual(['pdf'])
 
-    // Force the pdfform backend to load, then ask the real engine directly.
+    // Force the render build to load, then ask the real engine directly.
     await engine.render(quill, doc, { format: 'pdf' })
-    const mod = await import('../../../pkg/backends/pdfform/wasm.js')
+    const mod = await import('../../../pkg/render/wasm.js')
     const backendEngine = new mod.Quillmark()
     const backendQuill = mod.Quill.fromTree(quill.toTree())
     try {
@@ -1000,7 +1000,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
 
   it('throws at construction for a malformed backend descriptor (names the id)', () => {
     // A backend entry must be a descriptor `{ load, formats }`; a bare thunk is rejected.
-    expect(() => new Engine({ backends: { typst: () => import('../../../pkg/backends/typst/wasm.js') } })).toThrow(
+    expect(() => new Engine({ backends: { typst: () => import('../../../pkg/render/wasm.js') } })).toThrow(
       /typst/
     )
     // Missing/invalid manifest fields also fail fast at construction.
@@ -1026,7 +1026,7 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
       backends: {
         typst: {
           load: async () => {
-            const real = await import('../../../pkg/backends/typst/wasm.js')
+            const real = await import('../../../pkg/render/wasm.js')
             const wrappedQuill = new Proxy(real.Quill, {
               get(target, prop, receiver) {
                 if (prop === 'fromTree') {
@@ -1265,7 +1265,7 @@ main:
         typst: {
           load: () => {
             loaded++
-            return import('../../../pkg/backends/typst/wasm.js')
+            return import('../../../pkg/render/wasm.js')
           },
           formats: ['pdf', 'svg', 'png']
         }
@@ -1285,7 +1285,7 @@ main:
         typst: {
           load: () => {
             loaded++
-            return import('../../../pkg/backends/typst/wasm.js')
+            return import('../../../pkg/render/wasm.js')
           },
           formats: ['pdf', 'svg', 'png']
         }
@@ -1366,7 +1366,7 @@ main:
       backends: {
         typst: {
           load: async () => {
-            const real = await import('../../../pkg/backends/typst/wasm.js')
+            const real = await import('../../../pkg/render/wasm.js')
             const refusingDocument = new Proxy(real.Document, {
               get(target, prop, receiver) {
                 if (prop === 'fromStored') {

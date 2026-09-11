@@ -23,13 +23,13 @@ page and its internals are rustdoc.
 
 - **[CONVERT.md](CONVERT.md)** - How the Typst backend lowers a `Content` value to Typst markup
 - **[PLATE_DATA.md](PLATE_DATA.md)** - Plate data injection: the Typst backend's data seam
-- The `pdfform` seam is [ARCHITECTURE.md](ARCHITECTURE.md) (`Backend::open`, the two-asset model) plus [PREVIEW.md](PREVIEW.md) (canvas paint, `regions()`)
+- The `acroform` seam is [ARCHITECTURE.md](ARCHITECTURE.md) (`Backend::open`, the two-asset model) plus [PREVIEW.md](PREVIEW.md) (canvas paint, `regions()`)
 - Outbound, authoring a Typst quill: [docs/quills/typst-backend.md](../../docs/quills/typst-backend.md)
-- Outbound, authoring a `pdfform` quill: [docs/quills/pdfform-backend.md](../../docs/quills/pdfform-backend.md) (`form.pdf` + `form.json`, Technique A stamping, on the `quillmark-pdf` stamp spine)
+- Outbound, authoring a `acroform` quill: [docs/quills/acroform-backend.md](../../docs/quills/acroform-backend.md) (`form.pdf` + `form.json`, Technique A stamping, on the `quillmark-pdf` stamp spine)
 - Outbound, Typst backend internals: `crates/backends/typst/` rustdoc
 
 ## Bindings
 
 - **[BINDINGS.md](BINDINGS.md)** - Language surfaces (Python, WASM, CLI) over the one core engine
 - **[CLI.md](CLI.md)** - Command-line interface
-- **[PREVIEW.md](PREVIEW.md)** - WASM live preview: LiveSession (update/ChangeSet) + multi-backend canvas paint (Typst, pdfform)
+- **[PREVIEW.md](PREVIEW.md)** - WASM live preview: LiveSession (update/ChangeSet) + multi-backend canvas paint (Typst, acroform)

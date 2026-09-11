@@ -1,4 +1,4 @@
-//! Headless proof that the pdfform canvas raster is complete and that region
+//! Headless proof that the acroform canvas raster is complete and that region
 //! geometry lands on it: the canvas contract (`prose/canon/PREVIEW.md`) requires
 //! a session returning `Some` from `render_rgba` to bake every piece of page
 //! content, field values included, into the pixels with no caller-side
@@ -32,7 +32,7 @@ fn open() -> quillmark_core::LiveSession {
 }
 
 #[test]
-fn pdfform_canvas_raster_is_complete() {
+fn acroform_canvas_raster_is_complete() {
     let session = open();
 
     let scale: f32 = 2.0;
@@ -40,7 +40,7 @@ fn pdfform_canvas_raster_is_complete() {
     let (px_w, px_h, rgba) = session
         .render_rgba(0, scale)
         .expect("page 0 rasterizes at 2x")
-        .expect("pdfform session must rasterize page 0");
+        .expect("acroform session must rasterize page 0");
 
     let expect_w = (width_pt * scale).round() as i64;
     let expect_h = (height_pt * scale).round() as i64;

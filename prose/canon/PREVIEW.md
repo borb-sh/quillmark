@@ -1,6 +1,6 @@
 # Live Preview (WASM)
 
-> **Implementation**: `crates/core/src/`, `crates/backends/typst/src/`, `crates/backends/pdfform/src/`, `crates/bindings/wasm/src/`
+> **Implementation**: `crates/core/src/`, `crates/backends/typst/src/`, `crates/backends/acroform/src/`, `crates/bindings/wasm/src/`
 
 ## TL;DR
 
@@ -12,7 +12,7 @@ serve the session's current compile; `update(doc)` recompiles in place and
 returns a `ChangeSet` naming the dirty pages. `paint` writes a rasterized page directly into a
 `CanvasRenderingContext2d`; each paint is a **complete** raster: every piece
 of page content already visible, so the consumer never composites. It is
-multi-backend: every backend rasterizes its pages (Typst, pdfform) through one
+multi-backend: every backend rasterizes its pages (Typst, acroform) through one
 generic painter.
 
 ## Why
@@ -68,7 +68,7 @@ Per-backend, update is an implementation choice, not a flag:
   content; introspection `Tag` items are excluded because a page-spanning
   element's tag carries a hash of content on other pages and would dirty
   page 0 on an end-of-document edit.
-- **pdfform** recompiles fully: its compile is a re-resolve + re-flatten,
+- **acroform** recompiles fully: its compile is a re-resolve + re-flatten,
   cheap by construction. Dirty pages are those carrying a field whose resolved
   spec changed.
 
@@ -108,7 +108,7 @@ compositing of its own. Backends satisfy it differently:
 
 - **Typst** rasterizes its laid-out page natively (`typst-render` →
   `tiny_skia::Pixmap` → unpremultiply → RGBA8).
-- **pdfform** pre-flattens the bound field values into the page content
+- **acroform** pre-flattens the bound field values into the page content
   streams at session-open (and again at each `update`), then rasterizes that
   flat PDF via hayro, so field values appear in the raster on their own, with
   no regions-compositing by the caller.
@@ -211,7 +211,7 @@ across pages so a claim can span a page break, which leaves a claim whose close
 marker never reaches a frame bounded by nothing: those are found before the
 scan, suppressed in both the region and point queries, and reported as a
 `typst::unclosed_field_region` warning naming the field.
-**Form-field widgets** carry the path explicitly — pdfform from the form
+**Form-field widgets** carry the path explicitly — acroform from the form
 mapping, a Typst `form-field` from its `field:` argument, both against the one
 address grammar ([PLATE_DATA.md](PLATE_DATA.md#schema-addresses)) — and surface
 a region only when they bind one: a widget with no schema field is a backend
@@ -345,7 +345,7 @@ paint is always a full repaint: consumers never call `clearRect`.
 One origin serves the whole canvas surface: `pageSize`, `regions`, the point
 queries, and the raster all measure from the **page's lower-left corner as
 drawn**, so `(0, 0)` is the raster's first pixel and `pageSize × renderScale` is
-its extent. A Typst page starts there already. A pdfform background's page need
+its extent. A Typst page starts there already. A acroform background's page need
 not. The file's own numbers are in PDF user space, and the page a viewer shows
 is the **canvas box**, `/CropBox` ∩ `/MediaBox`, which `pdfcrop` leaves
 translated away from `(0, 0)`. The backend reports that box's extent as the page
@@ -374,22 +374,20 @@ displayed size across DPI and pane-resize with no `renderScale` to thread.
 
 ## Feature / build mapping
 
-Canvas ships per-backend:
+Canvas ships with the render build:
 
-| Build                                     | Backend  | Canvas | Notes                                                    |
-| ----------------------------------------- | -------- | ------ | -------------------------------------------------------- |
-| `pkg/core/` (no features)                 | —        | no     | `Document` + `Quill` only; no engine, no Typst           |
-| `pkg/backends/typst/` (`typst`)           | typst    | yes    | native page raster                                       |
-| `pkg/backends/pdfform/` (`pdfform`)       | pdfform  | yes    | pre-flatten + hayro raster; `web-sys` canvas painter     |
+| Build                       | Backends       | Canvas | Notes                                                                  |
+| --------------------------- | -------------- | ------ | ---------------------------------------------------------------------- |
+| `pkg/core/` (no features)   | —              | no     | `Document` + `Quill` only; no engine, no Typst                         |
+| `pkg/render/` (`render`)    | typst, acroform | yes    | Typst: native page raster; acroform: pre-flatten + hayro raster         |
 
-Canvas paint is independent of the output formats a backend emits: pdfform
+Canvas paint is independent of the output formats a backend emits: acroform
 emits PDF alone and paints, because it always links its hayro raster seam.
-The wasm `pdfform` feature pulls in `web-sys` unconditionally, so the pdfform
-build also ships the generic canvas *painter* (`page_size` / `paint`,
-dispatching through the core `SessionHandle` seam): there is no painterless
-pdfform variant. `build-wasm.sh` builds the three artifacts (core, typst,
-pdfform) sequentially; `runtime/runtime.js` maps each backend id to its build
-with a `{ formats }` manifest, drift-guarded by `runtime.test.js`.
+The wasm `render` feature pulls in `web-sys`, the generic canvas *painter*
+(`page_size` / `paint`, dispatching through the core `SessionHandle` seam).
+`build-wasm.sh` builds the two artifacts (core, render) sequentially;
+`runtime/runtime.js` maps each backend id to the render build with its own
+`{ formats }` manifest, drift-guarded per backend by `runtime.test.js`.
 
 ## Non-goals
 
@@ -425,7 +423,7 @@ with a `{ formats }` manifest, drift-guarded by `runtime.test.js`.
   that page is the whole gate. A probe cannot replace it: keyed on the backend
   it answers for the backend rather than for the compile, and keyed on output
   formats it answers for the wrong thing entirely, paint being a session seam
-  pdfform serves while emitting PDF alone. Both shipped backends paint; a
+  acroform serves while emitting PDF alone. Both shipped backends paint; a
   painterless one would cost a declared flag, and there is nothing to declare
   it for.
 - **`update` reports dirty pages, not new handles.** Page identity is the index;
@@ -441,7 +439,7 @@ with a `{ formats }` manifest, drift-guarded by `runtime.test.js`.
   ink that is already tracked is therefore not expressible, and deliberately so:
   the wrapper exists for ink with *no* attribution.
 - **Complete raster, never compose-from-regions.** Both backends hand back a
-  finished page (Typst natively, pdfform by pre-flattening values into content
+  finished page (Typst natively, acroform by pre-flattening values into content
   streams before rasterizing). Regions are an overlay sidecar, not a
   compositing input: the painter stays a dumb blit.
 - **No session raster cache: re-rasterize per `paint`.** Caching the last

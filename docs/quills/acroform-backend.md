@@ -1,12 +1,12 @@
 # PDF Form Backend
 
-The `pdfform` backend fills existing PDF forms: something the Typst backend fundamentally cannot do (Typst cannot embed a PDF page, so a Typst path would rasterize the form and lose fidelity). Instead of generating a page from a plate, `pdfform` stamps a fresh AcroForm onto a pre-existing background and binds your document's values into the widgets.
+The `acroform` backend fills existing PDF forms: something the Typst backend fundamentally cannot do (Typst cannot embed a PDF page, so a Typst path would rasterize the form and lose fidelity). Instead of generating a page from a plate, `acroform` stamps a fresh AcroForm onto a pre-existing background and binds your document's values into the widgets.
 
-It is Typst-free: a `pdfform` quill never compiles Typst code and a form-only build never links the Typst compiler.
+It is Typst-free: a `acroform` quill never compiles Typst code and a form-only build never links the Typst compiler.
 
 ## The two-asset model
 
-A `pdfform` quill ships **two assets at its root** instead of a plate:
+A `acroform` quill ships **two assets at its root** instead of a plate:
 
 ```
 my-form/
@@ -25,14 +25,14 @@ At render time the backend writes the AcroForm **fresh** from `form.json` onto t
 
 ## `Quill.yaml`
 
-A `pdfform` quill declares `backend: pdfform` and has **no plate file**. The document body is typically disabled: a form is filled from fields, not prose. Fields under `main.fields` define the document schema exactly as for any other backend:
+A `acroform` quill declares `backend: acroform` and has **no plate file**. The document body is typically disabled: a form is filled from fields, not prose. Fields under `main.fields` define the document schema exactly as for any other backend:
 
 ```yaml
 quill:
   name: sample_form
   version: 0.1.0
-  backend: pdfform
-  description: "Demo PDF form filled by the Typst-free pdfform backend."
+  backend: acroform
+  description: "Demo PDF form filled by the Typst-free acroform backend."
 
 main:
   body:
@@ -140,7 +140,7 @@ Note what is **absent** from the bound fields: no `type`, `options`, or `multili
 | Key | Required | Notes |
 |---|---|---|
 | `name` | yes | The widget's `/T` entry: unique across **both** `fields` and `widgets`. |
-| `schema_field` | yes | The document field this widget binds to. Resolved against the quill schema at load; a dangling path is a load error (`pdfform::dangling_binding`), not a silent blank. |
+| `schema_field` | yes | The document field this widget binds to. Resolved against the quill schema at load; a dangling path is a load error (`acroform::dangling_binding`), not a silent blank. |
 | `page` | yes | 0-based page index into `form.pdf`. |
 | `rect` | yes | `{x, y, w, h}` in **PDF points** (1/72"), **top-left origin**, page-relative (see below). |
 | `tooltip` | no | Overrides the widget's `/TU`. When omitted, the field inherits the schema field's `description`. |
@@ -169,7 +169,7 @@ A bound field's kind is derived from the **capability of the resolved schema fie
 | `boolean` | **checkbox** |
 | `string`, `number`, `integer`, `date`, `datetime`, `richtext`, `plaintext` | **text** |
 | array of the above (scalar or prose) | **text**: elements joined with newlines |
-| `object`, or array of objects | **load error** `pdfform::unbindable_field` |
+| `object`, or array of objects | **load error** `acroform::unbindable_field` |
 
 `multiline` on a text widget comes from the schema field's `ui.multiline`.
 
@@ -181,7 +181,7 @@ A page whose canvas box is under a point per side carries no canvas to place any
 
 ### Schema versioning and unknown keys
 
-`schema` follows the convention `quillmark/form@<version>`, hand-set at the last format change (never auto-derived from a crate version). The current format is **`quillmark/form@0.2.0`**. Unknown *keys* are **ignored, not rejected**, so the format can grow additively, but any other *version* is rejected: a `form@0.1.0` file (which restated `type`/`options`/`multiline` on each field) fails to load with `pdfform::invalid_form_json`.
+`schema` follows the convention `quillmark/form@<version>`, hand-set at the last format change (never auto-derived from a crate version). The current format is **`quillmark/form@0.2.0`**. Unknown *keys* are **ignored, not rejected**, so the format can grow additively, but any other *version* is rejected: a `form@0.1.0` file (which restated `type`/`options`/`multiline` on each field) fails to load with `acroform::invalid_form_json`.
 
 ### Opinionated styling
 
@@ -192,7 +192,7 @@ The background owns all visual chrome; each widget is a transparent input over i
 Each field's value comes from the **resolver**: for every bound field, the backend dereferences its `schema_field` against your document data and coerces it to the field's derived widget kind.
 
 - **Bound against the same validated data the Typst plate sees.** Schema validation, defaults, blank-fill, and scalar coercion are all inherited: there is no second data pipeline.
-- **Addressing** is a shallow path rooted at a schema field name, optionally with an array index or nested key: `full_name`, `comments.0`, `address.street`. The path is validated against the schema at load: a `.N` segment requires an array, a `.key` segment requires an object, and any miss is a `pdfform::dangling_binding` load error naming the failing segment.
+- **Addressing** is a shallow path rooted at a schema field name, optionally with an array index or nested key: `full_name`, `comments.0`, `address.street`. The path is validated against the schema at load: a `.N` segment requires an array, a `.key` segment requires an object, and any miss is a `acroform::dangling_binding` load error naming the failing segment.
 - **Coercion is type-directed:**
 
 | Type | Binding |
@@ -215,7 +215,7 @@ Absolute-index addressing (`$cards.0.from`) is **not accepted** in `form@0.2.0`:
 This lets a **static, fixed-capacity** form lay out a bounded number of card slots across its existing pages: each slot a bound field with its own `page`, bound to a distinct instance.
 
 !!! warning "Static forms only"
-    `pdfform` stamps over a fixed, pre-existing page set. It never composes content, appends continuation pages, or merges PDFs. A document carrying more card instances than the form has slots is the author's concern, not the engine's.
+    `acroform` stamps over a fixed, pre-existing page set. It never composes content, appends continuation pages, or merges PDFs. A document carrying more card instances than the form has slots is the author's concern, not the engine's.
 
 ## Signature fields
 
@@ -263,7 +263,7 @@ pub struct RenderedRegion {
 }
 ```
 
-`regions()` reads off the compiled session without producing another byte artifact, so a GUI can fetch geometry once and overlay it on whatever surface it shows (a `paint`-ed canvas or a rendered page), independent of which format it goes on to render. A field with no `schema_field` never surfaces a region. The `pdfform_preview` example (`crates/quillmark/examples/`) opens a session for the `sample_form` fixture and prints its regions for cross-checking against a viewer.
+`regions()` reads off the compiled session without producing another byte artifact, so a GUI can fetch geometry once and overlay it on whatever surface it shows (a `paint`-ed canvas or a rendered page), independent of which format it goes on to render. A field with no `schema_field` never surfaces a region. The `acroform_preview` example (`crates/quillmark/examples/`) opens a session for the `sample_form` fixture and prints its regions for cross-checking against a viewer.
 
 ## Resources
 

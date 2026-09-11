@@ -2172,13 +2172,29 @@ dependencies = [
 name = "quillmark"
 version = "0.112.0"
 dependencies = [
+ "quillmark-acroform",
  "quillmark-content",
  "quillmark-core",
  "quillmark-fixtures",
- "quillmark-pdfform",
  "quillmark-typst",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "quillmark-acroform"
+version = "0.112.0"
+dependencies = [
+ "hayro",
+ "lopdf",
+ "pdf-writer",
+ "quillmark",
+ "quillmark-content",
+ "quillmark-core",
+ "quillmark-fixtures",
+ "quillmark-pdf",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2251,22 +2267,6 @@ dependencies = [
  "pdf-writer",
  "quillmark-core",
  "thiserror",
-]
-
-[[package]]
-name = "quillmark-pdfform"
-version = "0.112.0"
-dependencies = [
- "hayro",
- "lopdf",
- "pdf-writer",
- "quillmark",
- "quillmark-content",
- "quillmark-core",
- "quillmark-fixtures",
- "quillmark-pdf",
- "serde",
- "serde_json",
 ]
 
 [[package]]

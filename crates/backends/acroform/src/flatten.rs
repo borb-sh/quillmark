@@ -26,7 +26,7 @@ use quillmark_pdf::{
 
 use crate::typography;
 
-const CODE_PARSE: &str = "pdfform::flatten_parse";
+const CODE_PARSE: &str = "acroform::flatten_parse";
 
 const STATE_RESET: &[u8] = b"0 g 0 Tr 0 Tc 0 Tw 100 Tz 0 Ts\n";
 
