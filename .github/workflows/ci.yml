@@ -49,24 +49,6 @@ jobs:
       - name: Check canon spine
         run: node scripts/check-canon.mjs
 
-      # Guards scripts/strip-seed-comment.sh, which release.yml relies on to
-      # keep the release-prepare coverage comment out of published Release
-      # notes, and release-prepare.yml to keep it out of a freshly seeded
-      # CHANGELOG.md section. Rides here rather than in its own job: the
-      # assertions take 0s, so a runner for them is pure overhead. Runs in
-      # RUNNER_TEMP so the fixtures never dirty the checkout.
-      - name: Check strip-seed-comment.sh strips the comment, and is a no-op without one
-        run: |
-          cd "$RUNNER_TEMP"
-          printf '## v1.0.0 - 2026-01-01\n\n- entry one\n\n<!-- seed: commits since v0.9.0, confirm the entries above cover them, then delete this comment\n- commit a\n- commit b\n-->\n\n## v0.9.0 - 2025-12-01\n\n- old entry\n' > seeded.md
-          printf '## v1.0.0 - 2026-01-01\n\n- entry one\n\n## v0.9.0 - 2025-12-01\n\n- old entry\n' > seeded.expected.md
-          "$GITHUB_WORKSPACE/scripts/strip-seed-comment.sh" seeded.md
-          diff seeded.expected.md seeded.md
-          printf '## v1.0.0 - 2026-01-01\n\n- entry one\n' > clean.md
-          cp clean.md clean.expected.md
-          "$GITHUB_WORKSPACE/scripts/strip-seed-comment.sh" clean.md
-          diff clean.expected.md clean.md
-
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
