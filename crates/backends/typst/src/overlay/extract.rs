@@ -14,9 +14,9 @@ use typst_layout::PagedDocument;
 
 use quillmark_core::{Diagnostic, RenderError, Severity};
 
-use quillmark_pdf::{FormFont, TextAlign};
+use quillmark_pdf::{FieldType, FormFont, TextAlign};
 
-use super::{FieldKind, FieldPlacement};
+use super::FieldPlacement;
 
 const FIELD_LABEL: &str = "__qm_field__";
 const CODE_INTERNAL: &str = "typst::overlay_internal";
@@ -62,7 +62,7 @@ pub(crate) fn extract(doc: &PagedDocument) -> Result<Vec<FieldPlacement>, Render
         let field_type = get::<Str>(&dict, "field-type")?;
         let width = get::<f64>(&dict, "width")?;
         let height = get::<f64>(&dict, "height")?;
-        let kind = read_field_kind(&dict, field_type.as_str())?;
+        let (field_type, value) = read_field_kind(&dict, field_type.as_str())?;
         let font = read_font(&dict)?;
         let font_size = get::<Option<f64>>(&dict, "size")?.map(|s| s as f32);
         let align = read_align(&dict)?;
@@ -92,7 +92,8 @@ pub(crate) fn extract(doc: &PagedDocument) -> Result<Vec<FieldPlacement>, Render
                 (pos.point.x.to_pt() + width) as f32,
                 (pos.point.y.to_pt() + height) as f32,
             ],
-            kind,
+            field_type,
+            value,
             font,
             font_size,
             align,
@@ -105,24 +106,18 @@ pub(crate) fn extract(doc: &PagedDocument) -> Result<Vec<FieldPlacement>, Render
     Ok(placements)
 }
 
-fn read_field_kind(d: &Dict, field_type: &str) -> Result<FieldKind, RenderError> {
+fn read_field_kind(
+    d: &Dict,
+    field_type: &str,
+) -> Result<(FieldType, Option<String>), RenderError> {
     match field_type {
-        "text" => Ok(FieldKind::Text {
-            multiline: get::<Option<bool>>(d, "multiline")?.unwrap_or(false),
-            value: read_value_str(d, "value")?,
-        }),
-        "checkbox" => Ok(FieldKind::Checkbox {
-            checked: get::<Option<bool>>(d, "value")?.unwrap_or(false),
-        }),
-        "choice" => Ok(FieldKind::Choice {
-            options: get::<Option<Vec<Str>>>(d, "options")?
-                .unwrap_or_default()
-                .into_iter()
-                .map(|s| s.to_string())
-                .collect(),
-            value: read_value_str(d, "value")?,
-        }),
-        "signature" => Ok(FieldKind::Signature),
+        "text" => Ok((
+            FieldType::Text {
+                multiline: get::<Option<bool>>(d, "multiline")?.unwrap_or(false),
+            },
+            read_value_str(d, "value")?,
+        )),
+        "signature" => Ok((FieldType::Signature, None)),
         other => Err(RenderError::coded(
             CODE_INTERNAL,
             format!("unknown form-field type {other:?}"),

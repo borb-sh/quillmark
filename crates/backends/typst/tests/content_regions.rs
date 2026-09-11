@@ -825,9 +825,9 @@ main:
 #import "@local/quillmark-helper:0.1.0": form-field
 #set page(width: 300pt, height: 200pt, margin: 0pt)
 #place(top + left, dx: 60pt, dy: 60pt,
-  form-field("aaa", type: "checkbox", field: "aaa_early", width: 40pt, height: 40pt))
+  form-field("aaa", type: "text", field: "aaa_early", width: 40pt, height: 40pt))
 #place(top + left, dx: 60pt, dy: 60pt,
-  form-field("zzz", type: "checkbox", field: "zzz_late", width: 40pt, height: 40pt))
+  form-field("zzz", type: "text", field: "zzz_late", width: 40pt, height: 40pt))
 "#;
     let session = TypstBackend
         .open(&quill(YAML, PLATE), &serde_json::json!({}))
