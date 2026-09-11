@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 
 use quillmark_core::{FileTreeNode, Quill, QuillIgnore, RenderError};
 
-/// Load a quill from a filesystem directory. Honours a root `.quillignore`,
-/// else a default ignore set.
+/// Load a quill from a filesystem directory, skipping what [`QuillIgnore`]
+/// excludes.
 ///
 /// A pure config load: the declared backend is resolved later, at render time.
 /// For an in-memory tree, call [`Quill::from_tree`]. Advisory diagnostics ride
@@ -21,8 +21,8 @@ pub fn quill_from_path<P: AsRef<Path>>(path: P) -> Result<Quill, RenderError> {
 }
 
 /// Walk a filesystem path into an in-memory [`FileTreeNode`], for a caller that
-/// wants to edit the tree before [`Quill::from_tree`] reads it. Honours a root
-/// `.quillignore`, else a default ignore set (`.git/`, `target/`, …).
+/// wants to edit the tree before [`Quill::from_tree`] reads it. Skips what
+/// [`QuillIgnore`] excludes (`.git/`, `target/`, …).
 pub fn tree_from_path<P: AsRef<Path>>(
     path: P,
 ) -> Result<FileTreeNode, Box<dyn StdError + Send + Sync>> {
@@ -30,8 +30,6 @@ pub fn tree_from_path<P: AsRef<Path>>(
 }
 
 fn load_tree_from_path(path: &Path) -> Result<FileTreeNode, Box<dyn StdError + Send + Sync>> {
-    use std::fs;
-
     // The root is the one directory whose absence is the caller's mistake
     // rather than a walk detail: unchecked, a typo'd path walks to an empty
     // tree and fails as `Quill.yaml not found in file tree`.
@@ -39,16 +37,7 @@ fn load_tree_from_path(path: &Path) -> Result<FileTreeNode, Box<dyn StdError + S
         return Err(format!("Quill directory not found: {}", path.display()).into());
     }
 
-    let quillignore_path = path.join(".quillignore");
-    let ignore = if quillignore_path.exists() {
-        let content = fs::read_to_string(&quillignore_path)
-            .map_err(|e| format!("Failed to read .quillignore: {}", e))?;
-        QuillIgnore::from_content(&content)
-    } else {
-        QuillIgnore::default()
-    };
-
-    load_dir(path, path, &ignore)
+    load_dir(path, path, &QuillIgnore)
 }
 
 /// Bounds one oversize file from an untrusted bundle; neither file count nor
@@ -135,17 +124,19 @@ mod tests {
     }
 
     #[test]
-    fn load_dir_honours_multi_wildcard_ignore_patterns() {
+    fn load_dir_skips_what_the_ignore_set_excludes() {
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path();
 
-        std::fs::write(root.join(".quillignore"), "**/*.tmp\n").unwrap();
+        std::fs::write(root.join(".gitignore"), b"drop").unwrap();
+        std::fs::create_dir_all(root.join("target/debug")).unwrap();
+        std::fs::write(root.join("target/debug/build.log"), b"drop").unwrap();
         std::fs::create_dir(root.join("nested")).unwrap();
-        std::fs::write(root.join("nested/scratch.tmp"), b"drop").unwrap();
         std::fs::write(root.join("nested/plate.typ"), b"keep").unwrap();
 
         let tree = load_tree_from_path(root).unwrap();
-        assert!(tree.get_file("nested/scratch.tmp").is_none());
+        assert!(tree.get_file(".gitignore").is_none());
+        assert!(tree.get_file("target/debug/build.log").is_none());
         assert_eq!(tree.get_file("nested/plate.typ"), Some(&b"keep"[..]));
     }
 }
