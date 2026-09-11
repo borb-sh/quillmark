@@ -83,17 +83,21 @@ jobs:
 
           [ -f CHANGELOG.md ] || printf '# Changelog\n\n' > CHANGELOG.md
 
-          # A seed comment left in place last cycle is still on main: release.yml
-          # strips only the notes it derives, main's ruleset admitting no push
-          # outside a pull request. Stripping here keeps a new section from
-          # splicing on top of one.
-          ./scripts/strip-seed-comment.sh CHANGELOG.md
+          # The raw commit list: the seed body when no curated section exists,
+          # and the reviewing maintainer's coverage cross-check either way. The
+          # cross-check rides in the PR body, which nothing derives notes from,
+          # so what lands in CHANGELOG.md is what the Release publishes. Written
+          # to RUNNER_TEMP: the push step commits the checkout whole.
+          COMMITS="$RUNNER_TEMP/commits.md"
+          git log --no-merges --pretty='- %s' ${LAST:+"${LAST}..HEAD"} > "$COMMITS"
+          {
+            printf '<details><summary>Commits since %s</summary>\n\n' "${LAST:-the first commit}"
+            cat "$COMMITS"
+            printf '\n</details>\n'
+          } > "$RUNNER_TEMP/pr-commits.md"
 
           # A curated "## Unreleased" section is the seed body: its entries
-          # become the version section (and the GitHub Release notes), with the
-          # raw commit list riding below in an HTML comment as a coverage
-          # cross-check, invisible in rendered notes if left unedited. With no
-          # curated section, the commit list is the seed body itself.
+          # become the version section, and the GitHub Release notes.
           # Only the first "## Unreleased" is consumed; any later one is
           # stray data and passes through untouched rather than corrupting
           # the seed.
@@ -104,12 +108,12 @@ jobs:
             echo "## v${VERSION} - ${DATE}"
             echo
             if grep -q '[^[:space:]]' unreleased.md; then
-              sed -e '/./,$!d' unreleased.md
-              echo "<!-- seed: commits since ${LAST:-the first commit}, confirm the entries above cover them, then delete this comment"
-              git log --no-merges --pretty='- %s' ${LAST:+"${LAST}..HEAD"}
-              echo "-->"
+              # The sed drops the section's leading blank lines and the
+              # substitution its trailing ones, so one blank separates the new
+              # section from the one below it.
+              printf '%s\n' "$(sed -e '/./,$!d' unreleased.md)"
             else
-              git log --no-merges --pretty='- %s' ${LAST:+"${LAST}..HEAD"}
+              cat "$COMMITS"
             fi
             echo
           } > entry.md
@@ -140,18 +144,20 @@ jobs:
             --title "chore(release): v${VERSION}" \
             --body "Automated version bump to \`v${VERSION}\`.
 
-          **Before merging:** review and edit the \`v${VERSION}\` section at the top of \`CHANGELOG.md\` on this branch, seeded from the curated \`## Unreleased\` section when one exists (raw commits ride in an HTML comment as a coverage check), else from the raw commit list. The final section becomes the GitHub Release notes.
+          **Before merging:** review and edit the \`v${VERSION}\` section at the top of \`CHANGELOG.md\` on this branch, seeded from the curated \`## Unreleased\` section when one exists, else from the commit list below. The final section becomes the GitHub Release notes, verbatim.
 
           Read that section **as a whole against HEAD**, not entry by entry: later commits in a cycle supersede earlier entries, and only the whole read catches one.
 
           - An entry asserting a symbol's current state must be true at HEAD. \`grep\` each symbol it names.
           - Naming a deleted symbol is correct when the entry is the one deleting it. The tense separates the two.
-          - The seed comment checks commits against entries, never entries against HEAD.
+          - The commit list below checks commits against entries, never entries against HEAD.
           - Each \`!\` entry reconciles against \`docs/migrations/<prev>-to-<next>.md\`, which carries the same break for an upgrading consumer.
 
           Merging this PR will tag and publish the release.
 
-          The checks here come from a dispatched \`CI\` run at the branch head: a PR opened by \`GITHUB_TOKEN\` gets no \`pull_request\` run." \
+          The checks here come from a dispatched \`CI\` run at the branch head: a PR opened by \`GITHUB_TOKEN\` gets no \`pull_request\` run.
+
+          $(cat "$RUNNER_TEMP/pr-commits.md")" \
             --base main \
             --head "$BRANCH"
 

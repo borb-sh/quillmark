@@ -11,7 +11,7 @@
   own, and the changelog baseline's pre-release skip moves to
   `scripts/last-release-tag.sh`, reading a tag list on stdin so a test feeds it
   fixtures rather than a repository. `scripts/release-prepare.test.sh` covers
-  twenty cases in ci.yml's lint job beside the `strip-seed-comment.sh` guard: an
+  twenty cases in ci.yml's lint job beside the canon spine lint: an
   override taken verbatim and one already carrying `-rc.N` left unsuffixed,
   iteration counting `rc.9` to `rc.10` rather than concatenating, promotion
   dropping the suffix at any N while ignoring `bump`, a minor bump zeroing the
@@ -84,6 +84,22 @@
   commits every `default:` and marks every defaultless cell `!must_fill`, the
   seed commits every `example:` and omits every defaulted field, and only the
   empty document carries no composable card. Closes #1763.
+- refactor(core)!: **`.quillignore` is not read; the ignore set is the built-in
+  one.** A three-rule parser with a raw-string fallback — `dir/`, a literal
+  name, and a glob matched against both the whole path and the basename that
+  also matches the line it was written as — served a format one bundle in the
+  tree used. That bundle's file was a copy-pasted demo ("This demonstrates the
+  .quillignore functionality") restating the built-ins it would have inherited
+  by writing nothing. The bracket-as-literal reading in the glob
+  existed for `Cinzel[wght].ttf`, a name no `.quillignore` in this repo's
+  history spells. `QuillIgnore` is the fixed set alone now: `.git/`, `target/`
+  and `node_modules/` with their subtrees, anchored at the bundle root, and
+  `.gitignore` wherever it sits. `.quillignore` leaves that set with the format
+  — the loader has no reason to hide a file it no longer reads — so a bundle
+  carrying one walks it into the tree as an ordinary file, and a bundle that
+  relied on the file to exclude something ships that something. `QuillIgnore::new`
+  and `QuillIgnore::from_content` go; `default()` and `is_ignored` stay, on what
+  is now a unit struct. Refs #1641.
 - fix(typst)!: **a vendored package without `typst.toml` is skipped, with the
   warning its siblings already get.** A `packages/<dir>/` carrying no manifest
   had one synthesized — `@local/<dir>:0.1.0` — and loaded under it. That spelling

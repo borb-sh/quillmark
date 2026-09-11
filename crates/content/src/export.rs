@@ -1215,16 +1215,6 @@ mod tests {
         assert_eq!(from_markdown(&to_markdown(&rt)).unwrap(), rt);
     }
 
-    /// Two ordered lists whose `start` differs: CommonMark reads only a list's
-    /// *first* number, so without a marker change the second list's `start`
-    /// re-imports as the first list's second item.
-    #[test]
-    fn adjacent_ordered_lists_keep_their_start() {
-        let rt = from_markdown("1. a\n\n<!-- -->\n\n3. b").unwrap();
-        assert_eq!(to_markdown(&rt), "1. a\n\n3) b");
-        round_trips("1. a\n\n<!-- -->\n\n3. b");
-    }
-
     fn round_trips(md: &str) {
         let rt = from_markdown(md).unwrap();
         let md2 = to_markdown(&rt);

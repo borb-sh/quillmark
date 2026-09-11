@@ -107,9 +107,7 @@ Errors flow through `RenderError` (a non-empty `Vec<Diagnostic>`) and surface to
 
 ## File Ignore Rules
 
-When loading from disk, `quillmark::quill_from_path` respects a `.quillignore` file at the bundle root. If absent, default patterns apply: `.git/`, `.gitignore`, `.quillignore`, `target/`, `node_modules/`.
-
-A line is one of three rules. `dir/` drops that directory and its subtree, anchored at the bundle root. A line free of `*`, `?` and `[` is a literal name, matching the whole path or the basename at any depth. Anything else is a glob (`glob::Pattern`), matched against both the whole path and the basename, so a slash-free pattern applies at any depth and a slashed one anchors at the root; `*` stops at `/`. A glob also matches the line it was written as, since `[` is both a character-class opener and an ordinary character in a filename. A glob that fails to compile falls back to a literal name.
+`QuillIgnore` is the fixed set a filesystem walk skips; a bundle does not configure it. `.git/`, `target/` and `node_modules/` drop with their subtrees, anchored at the bundle root, so a vendored package keeps its own. `.gitignore` drops wherever it sits. Everything else the walk meets enters the tree.
 
 ## API
 
