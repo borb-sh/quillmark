@@ -6,9 +6,9 @@
   one.** A three-rule parser with a raw-string fallback — `dir/`, a literal
   name, and a glob matched against both the whole path and the basename that
   also matches the line it was written as — served a format one bundle in the
-  tree used, and that bundle's file was a copy-pasted demo ("This demonstrates
-  the .quillignore functionality") restating the built-ins it would have
-  inherited by writing nothing. The bracket-as-literal reading in the glob
+  tree used. That bundle's file was a copy-pasted demo ("This demonstrates the
+  .quillignore functionality") restating the built-ins it would have inherited
+  by writing nothing. The bracket-as-literal reading in the glob
   existed for `Cinzel[wght].ttf`, a name no `.quillignore` in this repo's
   history spells. `QuillIgnore` is the fixed set alone now: `.git/`, `target/`
   and `node_modules/` with their subtrees, anchored at the bundle root, and
