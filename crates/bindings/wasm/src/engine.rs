@@ -839,8 +839,8 @@ impl Document {
         quillmark_core::document::FORMAT_RULES.to_string()
     }
 
-    /// Authoring-ergonomics header introducing a blueprint to an LLM/MCP consumer
-    /// for the given `quillName`, re-exposed from core.
+    /// A blueprint's fill obligation for the given `quillName`, re-exposed from
+    /// core. Carries no tool name: pair it with your own next-step directive.
     #[wasm_bindgen(js_name = blueprintInstruction)]
     pub fn blueprint_instruction(quill_name: &str) -> String {
         quillmark_core::document::blueprint_instruction(quill_name)

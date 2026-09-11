@@ -359,8 +359,8 @@ impl PyDocument {
         quillmark_core::document::FORMAT_RULES
     }
 
-    /// Authoring-ergonomics header introducing a blueprint to an LLM/MCP
-    /// consumer for `quill_name`.
+    /// A blueprint's fill obligation for `quill_name`. Carries no tool name:
+    /// pair it with your own next-step directive.
     #[staticmethod]
     fn blueprint_instruction(quill_name: &str) -> String {
         quillmark_core::document::blueprint_instruction(quill_name)
