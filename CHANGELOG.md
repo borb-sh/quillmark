@@ -442,7 +442,7 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
   they had already opened while the scanner's unclosed-fence signal was
   dropped. The message names the opener's line, the field to close after, and —
   for a `~~` run or an indented `~~~` — the line that failed to close it.
-- fix(core): **a card-yaml parse failure carries a document `Location`.**
+- fix(core)!: **a card-yaml parse failure carries a document `Location`.**
   `YamlErrorWithLocation` keeps the engine's line and column, translated
   through the comment lines prescan drops and the leading whitespace `trim`
   removes onto the document's own coordinates, and `to_diagnostic()` sets them

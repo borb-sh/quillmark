@@ -903,4 +903,45 @@ main:
             "`ERROR.md` § \"Diagnostic args\" and the minted args disagree"
         );
     }
+
+    /// The keys a named consumer composes sentences from: `borb-sh/quillmark-js`,
+    /// whose `packages/svelte/tests/visual/diagnostic-args.test.ts` asserts each
+    /// one against the published wasm build.
+    ///
+    /// [`diagnostic_args_match_canon`] cannot stand in for this. The canon table
+    /// is edited by the commit that renames a key, so both sides move together
+    /// and the rename is green here and red there, a release later. This list
+    /// does not move with the code, which is the whole of its job: a failure says
+    /// the change is an observable-contract shift, owing a `!` and a section in
+    /// the cycle's upgrade guide.
+    #[test]
+    fn args_keys_a_named_consumer_reads() {
+        let minted = minted();
+        let carries = |code: &str, key: &str| {
+            let keys = minted
+                .get(code)
+                .unwrap_or_else(|| panic!("`{code}` mints no args; quillmark-js reads `{key}`"));
+            assert!(
+                keys.iter().any(|k| k == key),
+                "`{code}` no longer carries `{key}`, which quillmark-js composes its message \
+                 from. That is a `!` break: it owes a changelog entry and an upgrade-guide \
+                 section, not a silent edit to the canon table."
+            );
+        };
+
+        carries("validation::enum_violation", "value");
+        carries("validation::enum_violation", "allowed");
+        carries("validation::type_mismatch", "expected");
+        carries("validation::type_mismatch", "actual");
+        carries("validation::type_mismatch", "sourceToken");
+
+        // The one lane the consumer pins whole. Its formatter returns `undefined`
+        // and renders `message`, because `args` here locates and carries no prose;
+        // a key arriving is as much a change to that arm as a key leaving.
+        assert_eq!(
+            minted.get("parse::yaml_error_with_location"),
+            Some(&vec!["blockIndex".to_string()]),
+            "quillmark-js asserts this lane's whole key set"
+        );
+    }
 }
