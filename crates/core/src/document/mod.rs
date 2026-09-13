@@ -199,13 +199,15 @@ pub const FORMAT_RULES: &str = "Document format rules:
 \u{2022} Numbers and booleans MUST be unquoted (`year: 2025`, `pinned: true`); quoting turns them into strings and fails validation.
 \u{2022} Plain-scalar values cannot start with `*` or `&` (YAML alias/anchor markers) and cannot contain `: ` (colon-space). For markdown emphasis, embedded colons, or other special prefixes, quote the value: `field: '**bold**'` or `field: \"Name: subtitle\"`. Multi-line values use `|-`, not multi-line quoted scalars.";
 
-/// Header shown above [`FORMAT_RULES`], which covers the field-level semantics;
-/// `{quill}` is substituted with the quill name.
+/// States a blueprint's fill obligation for the quill it targets; `{quill}` is
+/// substituted with the quill name. [`FORMAT_RULES`] covers the field-level
+/// semantics. Names no tool and asserts no layout: the consumer that composes
+/// this owns where it sits and what it directs the model to call next.
 const BLUEPRINT_INSTRUCTION_TEMPLATE: &str =
-    "Fill in the `{quill}` blueprint below: replace each `!must_fill` placeholder with a real \
-value and edit the body prose. Submit the filled markdown as `content` to `create_document`.";
+    "Fill in the `{quill}` blueprint: replace each `!must_fill` placeholder with a real \
+value and edit the body prose.";
 
-/// Render the blueprint-instruction header with `quill_name` substituted in.
+/// Render the blueprint instruction with `quill_name` substituted in.
 pub fn blueprint_instruction(quill_name: &str) -> String {
     BLUEPRINT_INSTRUCTION_TEMPLATE.replace("{quill}", quill_name)
 }

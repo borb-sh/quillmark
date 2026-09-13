@@ -138,7 +138,7 @@ Document.current_storage_version()               # what this build writes
 
 Document.format_rules()                          # card-yaml authoring rules (static text)
 Document.quill_ref_hint()                        # $quill reference grammar (static text)
-Document.blueprint_instruction("taro")           # LLM/MCP blueprint header for a quill
+Document.blueprint_instruction("taro")           # a quill blueprint's fill obligation (no tool name)
 
 doc.clone()
 doc.equals(other)
