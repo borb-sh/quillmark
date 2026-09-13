@@ -1,8 +1,8 @@
-//! Visual preview harness for the `pdfform` backend: renders `sample_form` to
+//! Visual preview harness for the `acroform` backend: renders `sample_form` to
 //! the fixtures output directory and prints its field regions, so geometry can
 //! be cross-checked against a PDF viewer.
 //!
-//! `cargo run --example pdfform_preview -p quillmark`
+//! `cargo run --example acroform_preview -p quillmark`
 
 use quillmark::{Document, OutputFormat, Quillmark, RenderOptions};
 use quillmark_fixtures::{example_output_dir, quills_path, write_example_output};
@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let engine = Quillmark::new();
     let out_dir = example_output_dir();
 
-    println!("=== pdfform backend: sample_form → PDF ===");
+    println!("=== acroform backend: sample_form → PDF ===");
     let gf_quill =
         quillmark::quill_from_path(quills_path("sample_form")).expect("load sample_form quill");
     let gf_doc = Document::parse(SAMPLE_FORM_MD).expect("parse sample_form markdown").document;

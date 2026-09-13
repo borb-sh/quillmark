@@ -88,7 +88,7 @@
 
     For editor-style previews, paint pages directly into a `<canvas>` instead
     of round-tripping through PNG/SVG. `paint` is WASM-only, both the Typst
-    and `pdfform` backends support it, and it shares the cached compile with
+    and `acroform` backends support it, and it shares the cached compile with
     the byte-output `render` path.
 
     ```javascript

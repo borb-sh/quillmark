@@ -2,11 +2,31 @@ from contextlib import contextmanager
 from pathlib import Path
 import pytest
 
-from quillmark import Quillmark, QuillmarkError
+from quillmark import Quill, Quillmark, QuillmarkError
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[4]
 RESOURCES_PATH = WORKSPACE_ROOT / "crates" / "fixtures" / "resources"
 QUILLS_PATH = RESOURCES_PATH / "quills"
+
+
+def field(card, key):
+    """Return the value of a named field from a card's payload_items list."""
+    for item in card["payload_items"]:
+        if item["type"] == "field" and item["key"] == key:
+            return item["value"]
+    return None
+
+
+def has_field(card, key):
+    """True when a named field exists in a card's payload_items."""
+    return any(
+        i["type"] == "field" and i["key"] == key for i in card["payload_items"]
+    )
+
+
+def field_keys(card):
+    """Iterable of all field keys in a card, in source order."""
+    return [i["key"] for i in card["payload_items"] if i["type"] == "field"]
 
 
 @contextmanager
@@ -43,6 +63,16 @@ def _latest_version(quill_dir: Path) -> Path:
     if versions:
         return quill_dir / versions[-1]
     return quill_dir
+
+
+def taro_quill():
+    """The taro fixture quill (main string fields; a `quotes` card kind)."""
+    return Quill.from_path(str(_latest_version(QUILLS_PATH / "taro")))
+
+
+def richtext_form_quill():
+    """The richtext_form fixture quill (headline: richtext inline, bio: richtext)."""
+    return Quill.from_path(str(_latest_version(QUILLS_PATH / "richtext_form")))
 
 
 @pytest.fixture

@@ -1,7 +1,7 @@
 quill:
   name: richtext_form
   version: 0.1.0
-  backend: pdfform
+  backend: acroform
   description: "PDF form that binds richtext fields, exercising the content → plaintext lowering (Content.text minus island slots)."
 
 main:

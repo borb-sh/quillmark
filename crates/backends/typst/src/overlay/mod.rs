@@ -3,7 +3,7 @@
 //! here so the spine never imports `typst_layout`.
 
 use quillmark_core::RenderError;
-use quillmark_pdf::{FieldSpec, FieldType, FormFont, TextAlign, CHECKBOX_ON_STATE};
+use quillmark_pdf::{FieldSpec, FieldType, FormFont, TextAlign};
 use typst_layout::PagedDocument;
 
 mod extract;
@@ -12,23 +12,8 @@ mod span_scan;
 pub(crate) use extract::extract;
 pub(crate) use span_scan::{scalar_windows, unclosed_claims, FieldWindow, Scan};
 
-/// Mirrors the spine's [`FieldType`] but carries the *resolved* Typst value.
-#[derive(Debug)]
-pub(crate) enum FieldKind {
-    Text {
-        multiline: bool,
-        value: Option<String>,
-    },
-    Checkbox { checked: bool },
-    Choice {
-        options: Vec<String>,
-        value: Option<String>,
-    },
-    Signature,
-}
-
 /// One form field's geometry in Typst (top-left origin) points, plus its
-/// kind/value payload.
+/// type/value payload.
 #[derive(Debug)]
 pub(crate) struct FieldPlacement {
     pub name: String,
@@ -37,16 +22,15 @@ pub(crate) struct FieldPlacement {
     pub schema_field: Option<String>,
     pub page: usize,
     pub rect_typst_pt: [f32; 4],
-    pub kind: FieldKind,
+    pub field_type: FieldType,
+    pub value: Option<String>,
     pub font: FormFont,
     pub font_size: Option<f32>,
     pub align: TextAlign,
 }
 
 /// Flips each rect from Typst's top-left origin to the PDF bottom-left origin
-/// the spine consumes. The value coercion mirrors `quillmark-pdfform`'s
-/// resolver, duplicated because this crate must not depend on it: the two
-/// backends meet only at the `&[FieldSpec]` seam.
+/// the spine consumes. The two backends meet only at the `&[FieldSpec]` seam.
 pub(crate) fn build_field_specs(
     doc: &PagedDocument,
     placements: &[FieldPlacement],
@@ -72,41 +56,15 @@ pub(crate) fn build_field_specs(
                 )
             })?;
             let [x0, y0, x1, y1] = p.rect_typst_pt;
-            let (field_type, value) = match &p.kind {
-                FieldKind::Text { multiline, value } => (
-                    FieldType::Text {
-                        multiline: *multiline,
-                    },
-                    value.clone(),
-                ),
-                FieldKind::Checkbox { checked } => (
-                    FieldType::Checkbox,
-                    checked.then(|| CHECKBOX_ON_STATE.to_string()),
-                ),
-                FieldKind::Choice { options, value } => {
-                    // Mirrors pdfform's `coerce_choice`.
-                    let bound = value
-                        .as_ref()
-                        .filter(|v| options.iter().any(|o| o == *v))
-                        .cloned();
-                    (
-                        FieldType::Choice {
-                            options: options.clone(),
-                        },
-                        bound,
-                    )
-                }
-                FieldKind::Signature => (FieldType::Signature, None),
-            };
             // Typst top-left → PDF bottom-left.
             let mut spec = FieldSpec::new(
                 p.name.clone(),
                 p.page,
                 [x0, page_h - y1, x1, page_h - y0],
-                field_type,
+                p.field_type.clone(),
             );
             spec.schema_field = p.schema_field.clone();
-            spec.value = value;
+            spec.value = p.value.clone();
             spec.font = p.font;
             spec.font_size = p.font_size;
             spec.align = p.align;

@@ -56,7 +56,7 @@ const PLATE: &str = r#"
 #set page(width: 600pt, height: 400pt, margin: 50pt)
 #form-field("plain", type: "text")
 #form-field("dated", type: "text", font: "times", size: 12pt, align: "right")
-#form-field("centred", type: "choice", options: ("A",), font: "courier", align: "center")
+#form-field("centred", type: "text", font: "courier", align: "center")
 "#;
 
 #[test]
@@ -172,7 +172,7 @@ fn dials_are_rejected_on_fields_without_variable_text() {
     )
     .expect_err("a styled signature field is an error");
     assert!(
-        format!("{e:?}").contains("text and choice fields only"),
+        format!("{e:?}").contains("text fields only"),
         "expected the helper's assert, got {e:?}"
     );
 }

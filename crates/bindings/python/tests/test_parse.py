@@ -1,33 +1,12 @@
-"""Tests for Document: the quill-free transport surface (parse, storage,
-structure). Field I/O is the writer/view surface; see test_api_requirements.py."""
+"""Tests for Document: the quill-free transport surface (parse, storage, clone).
+The mutator surface is `test_document.py`; typed field I/O is
+`test_writer_reader.py`."""
 
 import pytest
 
 from quillmark import Document, QuillmarkError
 
-from conftest import raises_edit_code
-
-from pathlib import Path
-
-
-def field(card, key):
-    """Return the value of a named field from a card's payload_items list."""
-    for item in card["payload_items"]:
-        if item["type"] == "field" and item["key"] == key:
-            return item["value"]
-    return None
-
-
-def has_field(card, key):
-    """True when a named field exists in a card's payload_items."""
-    return any(
-        i["type"] == "field" and i["key"] == key for i in card["payload_items"]
-    )
-
-
-WORKSPACE_ROOT = Path(__file__).resolve().parents[4]
-RESOURCES_PATH = WORKSPACE_ROOT / "crates" / "fixtures" / "resources"
-QUILLS_PATH = RESOURCES_PATH / "quills"
+from conftest import field, has_field, raises_edit_code
 
 
 def test_payload_access(taro_md):

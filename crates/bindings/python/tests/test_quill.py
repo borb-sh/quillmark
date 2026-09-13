@@ -1,14 +1,51 @@
-"""Tests for quill loading."""
+"""Tests for the engine and quill surface: loading a quill, what it exposes
+engine-free, and what the engine answers about it."""
 import pytest
-from quillmark import Quillmark, Quill, Document, OutputFormat, QuillmarkError
+from quillmark import Quillmark, Quill, Document, OutputFormat, QuillmarkError, Severity
 
 
-def test_quill_from_path(taro_quill_dir):
-    """Quill.from_path loads engine-free, validated config data."""
+def test_quill_properties(engine, taro_quill_dir):
+    """Quill.from_path loads engine-free, validated config data; capability
+    lives on the engine, not the quill."""
     quill = Quill.from_path(str(taro_quill_dir))
-    assert quill is not None
-    assert quill.metadata["name"] == "taro"
+
+    metadata = quill.metadata
+    assert isinstance(metadata, dict)
+    assert metadata["name"] == "taro"
+    # The key order BINDINGS.md pins across both surfaces.
+    assert list(metadata) == ["name", "version", "backend", "author", "description"]
+    # metadata is a pure config snapshot: no capability key baked in.
+    assert "supportedFormats" not in metadata
     assert quill.backend_id == "typst"
+    assert isinstance(quill.blueprint, str) and quill.blueprint != ""
+
+    schema = quill.schema
+    assert isinstance(schema, dict)
+    assert "main" in schema
+    assert "fields" in schema["main"]
+
+    # Capability is resolved by the engine, against the quill.
+    supported_formats = engine.supported_formats(quill)
+    assert isinstance(supported_formats, list)
+    assert OutputFormat.PDF in supported_formats
+
+
+def test_registered_backends(engine):
+    """The engine's backend roster: which backends this build compiled in, as
+    opposed to which formats a given quill supports (`supported_formats`)."""
+    backends = engine.registered_backends()
+    assert isinstance(backends, list)
+    assert all(isinstance(b, str) for b in backends)
+    # The published wheel builds both backends in; order is not guaranteed.
+    assert "typst" in backends
+
+
+def test_enum_members_are_hashable():
+    """Both mirrors key a dict and enter a set, one slot per variant."""
+    mime = {OutputFormat.PDF: "application/pdf", OutputFormat.SVG: "image/svg+xml"}
+    assert mime[OutputFormat.PDF] == "application/pdf"
+    assert len(set(OutputFormat.all())) == len(OutputFormat.all())
+    assert len(set(Severity.all())) == len(Severity.all())
 
 
 def test_quill_from_path_bad_backend_loads_then_fails_at_render(tmp_path):

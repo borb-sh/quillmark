@@ -43,7 +43,7 @@ nav:
       - Quill.yaml Reference: quills/quill-yaml-reference.md
       - Blueprint & Seeding: quills/blueprint.md
       - Typst Backend: quills/typst-backend.md
-      - PDF Form Backend: quills/pdfform-backend.md
+      - PDF Form Backend: quills/acroform-backend.md
       - Versioning: quills/versioning.md
   - Integrating:
       - Overview: integration/index.md

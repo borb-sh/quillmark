@@ -13,7 +13,7 @@
   },
   "files": [
     "core",
-    "backends",
+    "render",
     "runtime",
     "CHANGELOG.md"
   ],

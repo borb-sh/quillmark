@@ -28,15 +28,15 @@ impl Quillmark {
             engine.register_backend(Box::new(quillmark_typst::TypstBackend));
         }
 
-        #[cfg(feature = "pdfform")]
+        #[cfg(feature = "acroform")]
         {
-            engine.register_backend(Box::new(quillmark_pdfform::PdfformBackend));
+            engine.register_backend(Box::new(quillmark_acroform::AcroformBackend));
         }
 
         engine
     }
 
-    #[cfg(any(feature = "typst", feature = "pdfform"))]
+    #[cfg(any(feature = "typst", feature = "acroform"))]
     fn register_backend(&mut self, backend: Box<dyn Backend>) {
         let id = backend.id().to_string();
         self.backends.insert(id, Arc::from(backend));

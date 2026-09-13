@@ -46,7 +46,7 @@ parse, storage, structure, `$ext` / `$seed`, and `remove_field`. Names follow
 
 ```python
 engine = Quillmark()
-engine.registered_backends()              # ['typst', 'pdfform'] (order not guaranteed)
+engine.registered_backends()              # ['typst', 'acroform'] (order not guaranteed)
 engine.render(quill, parsed, OutputFormat.PDF)   # ppi=, pages= optional
 engine.supported_formats(quill)           # [OutputFormat.PDF, ...] (raises if backend unregistered)
 ```

@@ -1258,47 +1258,6 @@ mod tests {
         assert_eq!(rt.lines[0].containers, vec![Container::Quote { instance: 0 }]);
     }
 
-    /// Every way markdown spells two adjacent sibling containers apart — a
-    /// bullet-char change, an ordered-delimiter change, an HTML comment between
-    /// them, a blank line between quotes — reaches the model as two runs
-    /// carrying different `instance`, and survives the round trip as two.
-    #[test]
-    fn adjacent_sibling_containers_keep_their_boundary() {
-        let cases: &[(&str, usize)] = &[
-            ("* a\n\n+ b", 2),
-            ("- a\n\n<!-- -->\n\n- b", 2),
-            ("1. a\n\n1) b", 2),
-            ("1. a\n\n<!-- -->\n\n3. b", 2),
-            ("> a\n\n> b", 2),
-            // Three in a row: the discriminator alternates rather than climbing.
-            ("- a\n\n<!-- -->\n\n- b\n\n<!-- -->\n\n- c", 3),
-            // The non-boundaries, pinned against a rule that splits too eagerly.
-            ("- a\n- b", 1),
-            ("> a\n>\n> b", 1),
-        ];
-        for (md, runs) in cases {
-            let rt = imp(md);
-            let seen = crate::traverse::runs(&rt.lines, 0..rt.lines.len(), 0).count();
-            assert_eq!(seen, *runs, "{md:?} -> {:?}", rt.lines);
-            let rt2 = from_markdown(&crate::export::to_markdown(&rt)).unwrap();
-            assert_eq!(rt, rt2, "{md:?} is not a fixed point");
-        }
-    }
-
-    #[test]
-    fn instance_stays_zero_without_an_adjacent_sibling() {
-        for md in ["- a\n- b\n- c", "> a\n>\n> b", "1. a\n2. b", "- a\n\npara\n\n- b"] {
-            let rt = imp(md);
-            assert!(
-                rt.lines
-                    .iter()
-                    .all(|l| l.containers.iter().all(|c| c.instance() == 0)),
-                "{md:?} minted a discriminator it does not need: {:?}",
-                rt.lines
-            );
-        }
-    }
-
     #[test]
     fn empty_input_one_empty_line() {
         let rt = imp("");

@@ -26,7 +26,7 @@ them.
   block (the opener's info string is ignored) carrying a `$quill` line,
   exactly as every other surface requires.
 - **Both backends by default.** The binary inherits `quillmark`'s default
-  features, `typst` and `pdfform`.
+  features, `typst` and `acroform`.
 - **Every artifact reaches disk.** `svg` and `png` render one artifact per page,
   and a multi-page render writes `out-1.svg`, `out-2.svg`, …. `--stdout` carries
   one artifact and refuses such a render.

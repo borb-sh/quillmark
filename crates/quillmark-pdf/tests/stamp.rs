@@ -765,8 +765,8 @@ fn a_base_that_already_carries_an_acroform_is_refused() {
     assert_eq!(err.code, "pdf::existing_acroform");
 }
 
-/// Only `Text` and `Choice` widgets write a `/DA`, so a checkbox's `font` names
-/// nothing and registering it would emit an unreferenced Type1 object.
+/// A checkbox's `/DA` is the engine's check font, so its `font` names nothing
+/// and registering it would emit an unreferenced Type1 object.
 #[test]
 fn a_checkbox_font_registers_no_font_object() {
     let mut agree = FieldSpec::new(
@@ -790,5 +790,57 @@ fn a_checkbox_font_registers_no_font_object() {
     assert!(
         text.contains("Times-Roman") && text.contains("/TiRo"),
         "a text widget's font is still registered"
+    );
+}
+
+/// The `/DR` `/Font` entry and the widget `/DA` a checkbox needs, and only a
+/// checkbox: a viewer synthesizing the `/MK /CA` caption under
+/// `/NeedAppearances` sets it in the `/DA` face, and in Helvetica the check
+/// glyph is the digit `4`.
+#[test]
+fn a_checkbox_appearance_names_the_registered_check_font() {
+    let agree = FieldSpec::new(
+        "Agree".into(),
+        0,
+        [180.0, 560.0, 194.0, 574.0],
+        FieldType::Checkbox,
+    );
+    let out = stamp(build_base_pdf(1), &[agree], &StampOptions::default()).expect("stamp ok");
+
+    let doc = lopdf::Document::load_mem(&out).expect("lopdf reparse");
+    let af_ref = doc.catalog().unwrap().get(b"AcroForm").unwrap().as_reference().unwrap();
+    let af = doc.get_object(af_ref).unwrap().as_dict().unwrap();
+    let fonts = af.get(b"DR").unwrap().as_dict().unwrap();
+    let fonts = fonts.get(b"Font").unwrap().as_dict().unwrap();
+    let zadb = fonts
+        .get(quillmark_pdf::CHECK_FONT_RESOURCE.as_bytes())
+        .expect("/DR registers the check font")
+        .as_reference()
+        .unwrap();
+    let zadb = doc.get_object(zadb).unwrap().as_dict().unwrap();
+    assert_eq!(
+        zadb.get(b"BaseFont").unwrap().as_name().unwrap(),
+        quillmark_pdf::CHECK_FONT
+    );
+
+    let widget_ref = af.get(b"Fields").unwrap().as_array().unwrap()[0]
+        .as_reference()
+        .unwrap();
+    let widget = doc.get_object(widget_ref).unwrap().as_dict().unwrap();
+    let da = String::from_utf8_lossy(widget.get(b"DA").unwrap().as_str().unwrap()).into_owned();
+    assert!(
+        da.starts_with(&format!("/{} ", quillmark_pdf::CHECK_FONT_RESOURCE)),
+        "checkbox /DA selects the check font, got {da:?}"
+    );
+
+    let out = stamp(
+        build_base_pdf(1),
+        &[text_field("X", "x", 0, [10.0, 10.0, 100.0, 30.0], "hi")],
+        &StampOptions::default(),
+    )
+    .expect("stamp ok");
+    assert!(
+        !String::from_utf8_lossy(&out).contains("ZapfDingbats"),
+        "a form with no checkbox registers no check font"
     );
 }

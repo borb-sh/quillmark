@@ -137,8 +137,8 @@ resolve to. A **container** is a typed dictionary or a variant container — bot
 project as `type: object` carrying `properties`, so a variant's cells and its
 `value` discriminant are addressable exactly as a dictionary's keys are
 ([SCHEMAS.md](SCHEMAS.md#enum-variants)). The grammar stops where the schema
-does, at whatever depth that is. This is the pdfform resolver's grammar
-(`backends/pdfform/src/bind.rs`), so one address binds on either backend. The
+does, at whatever depth that is. This is the acroform resolver's grammar
+(`backends/acroform/src/bind.rs`), so one address binds on either backend. The
 grammar is written twice, in two languages, and held to one table by
 `quillmark/tests/address_grammar.rs`.
 
@@ -152,7 +152,7 @@ accessor *because* they may be absent, and a declared field may not be.
 Cards carry their canonical prefix as `$path`, so a plate composes a card
 address without reimplementing the kind+ordinal grammar:
 `field-region(card.at("$path") + "$body")`. A body is content rather than a
-bindable field, so a `$body` address is the plate grammar's alone: pdfform's
+bindable field, so a `$body` address is the plate grammar's alone: acroform's
 resolver roots none.
 
 The same addresses key the preview's region sidecar

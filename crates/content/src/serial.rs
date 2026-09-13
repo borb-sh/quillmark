@@ -959,38 +959,22 @@ pub(crate) fn reject_unknown_cell_mark_name(props: &Value) -> Result<(), ParseEr
 #[cfg(test)]
 mod tests {
 
-    /// `instance` is written only where it is doing work, so it costs bytes
-    /// only in the documents carrying an adjacent same-shape sibling.
+    /// Storage writes `instance` only where it is doing work, so it costs bytes
+    /// only in the documents carrying an adjacent same-shape sibling. The seam
+    /// spells it either way: a binding reads the key unconditionally.
     #[test]
-    fn instance_is_absent_from_the_wire_until_it_is_needed() {
-        let plain = r#"{"islands":[],"lines":[{"containers":[{"attrs":{"ordered":false,"ordinal":0,"start":1},"container":"list_item"}],"kind":"para"},{"containers":[{"attrs":{"ordered":false,"ordinal":1,"start":1},"container":"list_item"}],"kind":"para"}],"marks":[],"text":"a\nb"}"#;
-        let rt = Content::from_canonical_json(plain).expect("decodes");
-        assert_eq!(rt.to_canonical_json(), plain, "byte layout moved");
-        assert!(rt.lines.iter().all(|l| l.containers[0].instance() == 0));
-
-        // Two adjacent one-item lists: the one shape that spends the key.
-        let two = r#"{"islands":[],"lines":[{"containers":[{"attrs":{"ordered":false,"ordinal":0,"start":1},"container":"list_item"}],"kind":"para"},{"containers":[{"attrs":{"ordered":false,"ordinal":0,"start":1},"container":"list_item","instance":1}],"kind":"para"}],"marks":[],"text":"a\nb"}"#;
-        let rt = Content::from_canonical_json(two).expect("decodes");
-        assert_eq!(rt.to_canonical_json(), two);
-        assert_eq!(rt.lines[1].containers[0].instance(), 1);
-
-        // Any distinct value a producer picks reads as the same two runs and
-        // rests on the canonical pair.
-        let raw = two.replace(r#""instance":1"#, r#""instance":37"#);
-        let rt2 = Content::from_canonical_json(&raw).expect("decodes");
-        assert_eq!(rt2, rt);
-        assert_eq!(rt2.to_canonical_json(), two);
-    }
-
-        #[test]
-    fn the_seam_spells_a_zero_instance_storage_omits() {
+    fn storage_writes_instance_only_where_it_works_and_the_seam_always_spells_it() {
         let storage = r#"{"islands":[],"lines":[{"containers":[{"container":"quote"}],"kind":"para"}],"marks":[],"text":"a"}"#;
         let seam = r#"{"islands":[],"lines":[{"containers":[{"container":"quote","instance":0}],"kind":"para"}],"marks":[],"text":"a"}"#;
-
         let rt = Content::from_canonical_json(storage).expect("decodes");
         assert_eq!(rt.to_canonical_json(), storage);
         assert_eq!(to_seam_value(&rt).to_string(), seam);
         assert_eq!(Content::from_canonical_json(seam).expect("decodes"), rt);
+
+        // Two adjacent one-item lists: the shape that spends the key on storage.
+        let two = r#"{"islands":[],"lines":[{"containers":[{"attrs":{"ordered":false,"ordinal":0,"start":1},"container":"list_item"}],"kind":"para"},{"containers":[{"attrs":{"ordered":false,"ordinal":0,"start":1},"container":"list_item","instance":1}],"kind":"para"}],"marks":[],"text":"a\nb"}"#;
+        let rt = Content::from_canonical_json(two).expect("decodes");
+        assert_eq!(rt.to_canonical_json(), two, "byte layout moved");
     }
 
     use super::*;

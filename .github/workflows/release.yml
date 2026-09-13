@@ -72,16 +72,9 @@ jobs:
           awk -v v="## v${VERSION}" \
             '$0 ~ "^"v {f=1; next} /^## / && f {exit} f {print}' \
             CHANGELOG.md > notes.md || true
-          # release-prepare.yml seeds each version section with a coverage
-          # cross-check comment for the merging maintainer to delete. A skipped
-          # deletion rides onto main, where only a pull request removes it, so
-          # the notes strip their own copy: the Release body is comment-free
-          # whatever main's CHANGELOG.md holds.
-          ./scripts/strip-seed-comment.sh notes.md
           # Fall back to a generic note if the section is missing or made of
-          # only whitespace (e.g. an RC with no curated changelog, or every
-          # curated line was the now-stripped seed comment), `-s` alone is
-          # true for a whitespace-only file and would publish blank notes.
+          # only whitespace (e.g. an RC with no curated changelog), `-s` alone
+          # is true for a whitespace-only file and would publish blank notes.
           grep -q '[^[:space:]]' notes.md || echo "Release v${VERSION}" > notes.md
 
       - name: Create GitHub Release

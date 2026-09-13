@@ -1,6 +1,6 @@
 # Live Preview (WASM)
 
-> **Implementation**: `crates/core/src/`, `crates/backends/typst/src/`, `crates/backends/pdfform/src/`, `crates/bindings/wasm/src/`
+> **Implementation**: `crates/core/src/`, `crates/backends/typst/src/`, `crates/backends/acroform/src/`, `crates/bindings/wasm/src/`
 
 ## TL;DR
 
@@ -12,7 +12,7 @@ serve the session's current compile; `update(doc)` recompiles in place and
 returns a `ChangeSet` naming the dirty pages. `paint` writes a rasterized page directly into a
 `CanvasRenderingContext2d`; each paint is a **complete** raster: every piece
 of page content already visible, so the consumer never composites. It is
-multi-backend: every backend rasterizes its pages (Typst, pdfform) through one
+multi-backend: every backend rasterizes its pages (Typst, acroform) through one
 generic painter.
 
 ## Why
@@ -68,7 +68,7 @@ Per-backend, update is an implementation choice, not a flag:
   content; introspection `Tag` items are excluded because a page-spanning
   element's tag carries a hash of content on other pages and would dirty
   page 0 on an end-of-document edit.
-- **pdfform** recompiles fully: its compile is a re-resolve + re-flatten,
+- **acroform** recompiles fully: its compile is a re-resolve + re-flatten,
   cheap by construction. Dirty pages are those carrying a field whose resolved
   spec changed.
 
@@ -108,7 +108,7 @@ compositing of its own. Backends satisfy it differently:
 
 - **Typst** rasterizes its laid-out page natively (`typst-render` →
   `tiny_skia::Pixmap` → unpremultiply → RGBA8).
-- **pdfform** pre-flattens the bound field values into the page content
+- **acroform** pre-flattens the bound field values into the page content
   streams at session-open (and again at each `update`), then rasterizes that
   flat PDF via hayro, so field values appear in the raster on their own, with
   no regions-compositing by the caller.
@@ -211,7 +211,7 @@ across pages so a claim can span a page break, which leaves a claim whose close
 marker never reaches a frame bounded by nothing: those are found before the
 scan, suppressed in both the region and point queries, and reported as a
 `typst::unclosed_field_region` warning naming the field.
-**Form-field widgets** carry the path explicitly — pdfform from the form
+**Form-field widgets** carry the path explicitly — acroform from the form
 mapping, a Typst `form-field` from its `field:` argument, both against the one
 address grammar ([PLATE_DATA.md](PLATE_DATA.md#schema-addresses)) — and surface
 a region only when they bind one: a widget with no schema field is a backend
@@ -320,32 +320,12 @@ The declarations are `crates/bindings/wasm/runtime/runtime.d.ts`, which carries
 the per-member contract and which `npm run typecheck` holds to the runtime
 beside it.
 
-### DPR / clamp math
-
-The painter owns `canvas.width` / `canvas.height` and sizes the backing store
-on every call; consumers own `canvas.style.*` and read `layoutWidth` /
-`layoutHeight` from the result. The effective rasterization scale is:
-
-```
-renderScale = layoutScale × densityScale
-```
-
-Fold `window.devicePixelRatio`, in-app zoom, and `visualViewport.scale` into
-`densityScale`. Past **`MAX_BACKING_DIMENSION` (16384 px per side)**: the
-floor that works across browsers: the painter clamps `densityScale`
-proportionally and reports the outcome on the result (`clamped`,
-`effectiveDensityScale`), so a consumer never reconstructs the clamp from the
-dimensions. A clamped page renders soft at the same `canvas.style` size.
-
-Each `paint` resets the backing store (writing `canvas.width` clears it), so
-paint is always a full repaint: consumers never call `clearRect`.
-
 ### Regions overlay transform
 
 One origin serves the whole canvas surface: `pageSize`, `regions`, the point
 queries, and the raster all measure from the **page's lower-left corner as
-drawn**, so `(0, 0)` is the raster's first pixel and `pageSize × renderScale` is
-its extent. A Typst page starts there already. A pdfform background's page need
+drawn**, so `(0, 0)` is the raster's first pixel and `pageSize × renderScale`
+(`layoutScale × densityScale`, the scale the page was painted at) is its extent. A Typst page starts there already. An acroform background's page need
 not. The file's own numbers are in PDF user space, and the page a viewer shows
 is the **canvas box**, `/CropBox` ∩ `/MediaBox`, which `pdfcrop` leaves
 translated away from `(0, 0)`. The backend reports that box's extent as the page
@@ -353,43 +333,27 @@ size and subtracts its corner from every region, matching what hayro rasterizes.
 The widget `/Rect`s in the PDF the same session renders stay in user space:
 canvas geometry is box-relative, the deliverable is not.
 
-A consumer drawing overlays from `regions` must flip the Y axis: region
-`rect = [x0, y0, x1, y1]` is in PDF points with a **bottom-left** origin, a
-canvas is **top-left** in device pixels. For a page `pageHeightPt` tall (from
-`pageSize`) painted at `renderScale`, the box's top-left canvas corner is the
-PDF rect's *upper* edge (`y1 = rect[3]`), not its lower edge (`y0 = rect[1]`):
-
-```
-x_canvas_left = rect[0] × renderScale
-y_canvas_top  = (pageHeightPt − rect[3]) × renderScale
-width_canvas  = (rect[2] − rect[0]) × renderScale
-height_canvas = (rect[3] − rect[1]) × renderScale
-```
-
-That form is the one for painting an overlay *into* a raster. An HTML/CSS
-overlay on a `width:100%` canvas is better off in percentages of the page:
-`left% = rect[0] / pageWidthPt × 100`, `top% = (pageHeightPt − rect[3]) /
-pageHeightPt × 100`, and the extents likewise, because they track the
-displayed size across DPI and pane-resize with no `renderScale` to thread.
+One axis flips against that origin and the other does not: a region `rect` is
+bottom-left PDF points, a canvas is top-left device pixels. The arithmetic — and
+the percentage form an HTML overlay wants instead — is on `FieldRegion.rect` in
+`runtime.d.ts`, beside the type it transforms.
 
 ## Feature / build mapping
 
-Canvas ships per-backend:
+Canvas ships with the render build:
 
-| Build                                     | Backend  | Canvas | Notes                                                    |
-| ----------------------------------------- | -------- | ------ | -------------------------------------------------------- |
-| `pkg/core/` (no features)                 | —        | no     | `Document` + `Quill` only; no engine, no Typst           |
-| `pkg/backends/typst/` (`typst`)           | typst    | yes    | native page raster                                       |
-| `pkg/backends/pdfform/` (`pdfform`)       | pdfform  | yes    | pre-flatten + hayro raster; `web-sys` canvas painter     |
+| Build                       | Backends       | Canvas | Notes                                                                  |
+| --------------------------- | -------------- | ------ | ---------------------------------------------------------------------- |
+| `pkg/core/` (no features)   | —              | no     | `Document` + `Quill` only; no engine, no Typst                         |
+| `pkg/render/` (`render`)    | typst, acroform | yes    | Typst: native page raster; acroform: pre-flatten + hayro raster         |
 
-Canvas paint is independent of the output formats a backend emits: pdfform
+Canvas paint is independent of the output formats a backend emits: acroform
 emits PDF alone and paints, because it always links its hayro raster seam.
-The wasm `pdfform` feature pulls in `web-sys` unconditionally, so the pdfform
-build also ships the generic canvas *painter* (`page_size` / `paint`,
-dispatching through the core `SessionHandle` seam): there is no painterless
-pdfform variant. `build-wasm.sh` builds the three artifacts (core, typst,
-pdfform) sequentially; `runtime/runtime.js` maps each backend id to its build
-with a `{ formats }` manifest, drift-guarded by `runtime.test.js`.
+The wasm `render` feature pulls in `web-sys`, the generic canvas *painter*
+(`page_size` / `paint`, dispatching through the core `SessionHandle` seam).
+`build-wasm.sh` builds the two artifacts (core, render) sequentially;
+`runtime/runtime.js` maps each backend id to the render build with its own
+`{ formats }` manifest, drift-guarded per backend by `runtime.test.js`.
 
 ## Non-goals
 
@@ -425,7 +389,7 @@ with a `{ formats }` manifest, drift-guarded by `runtime.test.js`.
   that page is the whole gate. A probe cannot replace it: keyed on the backend
   it answers for the backend rather than for the compile, and keyed on output
   formats it answers for the wrong thing entirely, paint being a session seam
-  pdfform serves while emitting PDF alone. Both shipped backends paint; a
+  acroform serves while emitting PDF alone. Both shipped backends paint; a
   painterless one would cost a declared flag, and there is nothing to declare
   it for.
 - **`update` reports dirty pages, not new handles.** Page identity is the index;
@@ -441,7 +405,7 @@ with a `{ formats }` manifest, drift-guarded by `runtime.test.js`.
   ink that is already tracked is therefore not expressible, and deliberately so:
   the wrapper exists for ink with *no* attribution.
 - **Complete raster, never compose-from-regions.** Both backends hand back a
-  finished page (Typst natively, pdfform by pre-flattening values into content
+  finished page (Typst natively, acroform by pre-flattening values into content
   streams before rasterizing). Regions are an overlay sidecar, not a
   compositing input: the painter stays a dumb blit.
 - **No session raster cache: re-rasterize per `paint`.** Caching the last
@@ -471,7 +435,11 @@ with a `{ formats }` manifest, drift-guarded by `runtime.test.js`.
   know the consumer's DPR (SSR, tests, off-screen).
 - **Painter owns `canvas.width`/`height`; consumer owns `canvas.style.*`.**
   Folding backing-store math into the painter eliminates a class of "blurry on
-  retina" bugs and lets the 16384-px clamp live in one place.
+  retina" bugs and lets the 16384-px clamp (`MAX_BACKING_DIMENSION`) live in one
+  place. That number is the floor that works across browsers, and it is the side
+  of `quillmark_core::MAX_RASTER_PIXELS`, so a scale the core admits is one the
+  painter can paint. The painter reports the clamp on the result rather than
+  leaving a consumer to reconstruct it from the dimensions.
 - **Unpremultiplied RGBA on the wire.** Rasterizers produce premultiplied
   alpha; `ImageData` expects non-premultiplied. The backend unpremultiplies
   before handing back the buffer. One allocation per repaint; fine for edit

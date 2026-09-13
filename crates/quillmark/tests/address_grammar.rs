@@ -1,13 +1,13 @@
-//! One schema address grammar, two implementations: pdfform's `bind` walks the
+//! One schema address grammar, two implementations: acroform's `bind` walks the
 //! `QuillConfig`, and the Typst helper's `_qm-known-path` walks the address tree
 //! `SchemaMeta` derives from the transform schema. `PLATE_DATA.md` promises a
 //! plate author that one address binds on either backend, and `GRAMMAR` is what
 //! holds the two to it.
 //!
 //! A `$body` address is outside that table: a body is content rather than a
-//! bindable field, so pdfform's resolver roots none.
+//! bindable field, so acroform's resolver roots none.
 
-#![cfg(all(feature = "typst", feature = "pdfform"))]
+#![cfg(all(feature = "typst", feature = "acroform"))]
 
 use quillmark::{Backend, FileTreeNode, Quill};
 use quillmark_typst::TypstBackend;
@@ -244,11 +244,11 @@ fn compile(plate: &str) -> Result<quillmark::LiveSession, String> {
 }
 
 #[test]
-fn pdfform_resolves_exactly_the_shared_grammar() {
+fn acroform_resolves_exactly_the_shared_grammar() {
     let quill = quill("");
     for (address, resolves) in GRAMMAR {
         assert_eq!(
-            quillmark_pdfform::resolves_schema_address(quill.config(), address),
+            quillmark_acroform::resolves_schema_address(quill.config(), address),
             *resolves,
             "{address:?}"
         );
@@ -279,7 +279,7 @@ fn a_body_address_is_typst_only() {
     let quill = quill("");
     for address in bodies {
         assert!(
-            !quillmark_pdfform::resolves_schema_address(quill.config(), address),
+            !quillmark_acroform::resolves_schema_address(quill.config(), address),
             "{address:?}"
         );
     }

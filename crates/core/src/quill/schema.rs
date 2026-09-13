@@ -330,6 +330,61 @@ main:
         );
     }
 
+    const BLANK_TITLE_YAML: &str = r#"
+quill:
+  name: x
+  version: 1.0.0
+  backend: typst
+  description: x
+main:
+  fields:
+    classification:
+      type: enum
+      values: [UNCLASSIFIED, CUI]
+      default: ""
+      ui:
+        blank_title: "(no marking)"
+    action:
+      type: enum
+      values: [approve, disapprove]
+"#;
+
+    #[test]
+    fn blank_title_labels_the_blank_only_where_the_author_names_one() {
+        let json = build_from_yaml(BLANK_TITLE_YAML).as_json().clone();
+
+        assert_eq!(
+            json["properties"]["classification"],
+            serde_json::json!({
+                "type": "string",
+                "enum": ["", "UNCLASSIFIED", "CUI"],
+                "quillmark:blank_title": "(no marking)",
+            })
+        );
+        assert_eq!(
+            json["properties"]["action"],
+            serde_json::json!({
+                "type": "string",
+                "enum": ["", "approve", "disapprove"],
+            })
+        );
+    }
+
+    /// The declaration view emits what the author wrote, so a quill round-tripping
+    /// through it still loads: injecting the blank there would emit `values: ["", …]`,
+    /// which `quill::enum_blank_member` rejects.
+    #[test]
+    fn blank_title_does_not_cross_into_the_declaration_view() {
+        let config = QuillConfig::from_yaml(BLANK_TITLE_YAML).expect("yaml parses");
+        let emitted = config.schema();
+
+        assert_eq!(
+            emitted["main"]["fields"]["classification"]["values"],
+            serde_json::json!(["UNCLASSIFIED", "CUI"])
+        );
+        assert!(!emitted.to_string().contains("quillmark:"), "{emitted}");
+    }
+
     #[test]
     fn typed_table_emits_items_with_object_and_properties() {
         let yaml = r#"

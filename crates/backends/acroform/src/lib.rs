@@ -1,4 +1,4 @@
-//! A Typst-free Quillmark backend that fills existing PDF forms. A `pdfform`
+//! A Typst-free Quillmark backend that fills existing PDF forms. A `acroform`
 //! quill ships two assets: `form.pdf`, the stripped background (the normalized
 //! form with its `/AcroForm`, widget annotations, and page `/Annots` removed),
 //! and `form.json`, the value-free field spec. The backend binds document
@@ -39,11 +39,11 @@ const SUPPORTED_FORMATS: &[OutputFormat] = &[OutputFormat::Pdf];
 
 /// The PDF-form backend.
 #[derive(Debug, Default)]
-pub struct PdfformBackend;
+pub struct AcroformBackend;
 
-impl Backend for PdfformBackend {
+impl Backend for AcroformBackend {
     fn id(&self) -> &'static str {
-        "pdfform"
+        "acroform"
     }
 
     fn supported_formats(&self) -> &'static [OutputFormat] {
@@ -60,15 +60,15 @@ impl Backend for PdfformBackend {
             .get_file(FORM_PDF)
             .ok_or_else(|| {
                 RenderError::coded(
-                    "pdfform::missing_form_pdf",
-                    format!("pdfform quill is missing its `{FORM_PDF}` background"),
+                    "acroform::missing_form_pdf",
+                    format!("acroform quill is missing its `{FORM_PDF}` background"),
                 )
             })?
             .to_vec();
         let form_json = files.get_file(FORM_JSON).ok_or_else(|| {
             RenderError::coded(
-                "pdfform::missing_form_json",
-                format!("pdfform quill is missing its `{FORM_JSON}` field spec"),
+                "acroform::missing_form_json",
+                format!("acroform quill is missing its `{FORM_JSON}` field spec"),
             )
         })?;
 
@@ -87,7 +87,7 @@ impl Backend for PdfformBackend {
         let flat = flatten_and_parse(&base_pdf, &field_specs)?;
 
         Ok(LiveSession::new(
-            Box::new(PdfformSession {
+            Box::new(AcroformSession {
                 base_pdf,
                 bound,
                 field_specs,
@@ -126,13 +126,13 @@ fn flatten_and_parse(base_pdf: &[u8], field_specs: &[FieldSpec]) -> Result<Hayro
     let flat = flatten_to_pdf(base_pdf.to_vec(), field_specs)?;
     HayroPdf::new(flat).map_err(|_| {
         RenderError::coded(
-            "pdfform::flat_parse_failed",
+            "acroform::flat_parse_failed",
             "failed to parse the flattened PDF for rasterisation",
         )
     })
 }
 
-struct PdfformSession {
+struct AcroformSession {
     base_pdf: Vec<u8>,
     bound: Vec<BoundWidget>,
     field_specs: Vec<FieldSpec>,
@@ -145,13 +145,13 @@ struct PdfformSession {
     flat: HayroPdf,
 }
 
-impl SessionHandle for PdfformSession {
+impl SessionHandle for AcroformSession {
     fn render(&self, opts: &RenderOptions) -> Result<RenderResult, RenderError> {
         let format = opts.output_format.unwrap_or(OutputFormat::Pdf);
         if !SUPPORTED_FORMATS.contains(&format) {
             return Err(quillmark_core::unsupported_format(
                 format,
-                "pdfform",
+                "acroform",
                 SUPPORTED_FORMATS,
             ));
         }
@@ -237,7 +237,7 @@ impl SessionHandle for PdfformSession {
     }
 }
 
-impl PdfformSession {
+impl AcroformSession {
     fn raster(
         &self,
         page: usize,

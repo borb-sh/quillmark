@@ -24,8 +24,8 @@ fn the_default_engine_registers_one_backend_per_enabled_feature() {
     let mut backends = engine.registered_backends();
     backends.sort_unstable();
     let mut expected = Vec::new();
-    if cfg!(feature = "pdfform") {
-        expected.push("pdfform");
+    if cfg!(feature = "acroform") {
+        expected.push("acroform");
     }
     if cfg!(feature = "typst") {
         expected.push("typst");

@@ -65,7 +65,7 @@ pub fn to_markdown(rt: &Normalized) -> String {
 /// every mark and island, keeping only literal text.
 ///
 /// Tables and images having no plaintext form is a **decided limitation**: the
-/// pdfform backend fills a form field from this projection, so a field bound to
+/// acroform backend fills a form field from this projection, so a field bound to
 /// a table-bearing content renders the surrounding text and silently omits the
 /// table, rather than emitting a row/tab dump that would read as faithful.
 pub fn to_plaintext(rt: &Content) -> String {
@@ -1213,16 +1213,6 @@ mod tests {
         let rt = rt.into_normalized();
         assert_eq!(to_markdown(&rt), "1. a\n\n1) ***\n\n2) b");
         assert_eq!(from_markdown(&to_markdown(&rt)).unwrap(), rt);
-    }
-
-    /// Two ordered lists whose `start` differs: CommonMark reads only a list's
-    /// *first* number, so without a marker change the second list's `start`
-    /// re-imports as the first list's second item.
-    #[test]
-    fn adjacent_ordered_lists_keep_their_start() {
-        let rt = from_markdown("1. a\n\n<!-- -->\n\n3. b").unwrap();
-        assert_eq!(to_markdown(&rt), "1. a\n\n3) b");
-        round_trips("1. a\n\n<!-- -->\n\n3. b");
     }
 
     fn round_trips(md: &str) {

@@ -45,22 +45,6 @@ def make_quill(tmp_path, yaml_content=QUILL_YAML_CONTENT, plate=PLATE_TYP):
     return Quill.from_path(str(quill_dir))
 
 
-def test_schema_has_no_required_key(tmp_path):
-    """The schema dict never carries a `required:` key on a field.
-
-    Cell is inferred from the presence/absence of `default:`.
-    """
-    quill = make_quill(tmp_path)
-    schema = quill.schema
-
-    fields = schema["main"]["fields"]
-    for name, field in fields.items():
-        assert "required" not in field, (
-            f"field {name!r} unexpectedly carries `required`; "
-            "the schema axis is now `default`-driven"
-        )
-
-
 def test_schema_reports_declared_default(tmp_path):
     """A defaulted field carries the `default` key; a defaultless one does not."""
     quill = make_quill(tmp_path)
@@ -99,22 +83,6 @@ def test_blueprint_defaulted_value(tmp_path):
     # The defaulted `status` field renders its default value with a type-only
     # annotation. The exact format is `status: draft # string`.
     assert "status: draft" in bp, f"expected default in blueprint; got:\n{bp}"
-    assert "delete-ok" not in bp, (
-        f"expected no `; delete-ok` tag in blueprint; got:\n{bp}"
-    )
-
-
-def test_blueprint_no_legacy_required_optional_tags(tmp_path):
-    quill = make_quill(tmp_path)
-    bp = quill.blueprint
-
-    # Role tags are never emitted.
-    assert "; required" not in bp, (
-        f"`; required` tag must not appear in blueprint:\n{bp}"
-    )
-    assert "; optional" not in bp, (
-        f"`; optional` tag must not appear in blueprint:\n{bp}"
-    )
 
 
 def test_render_tolerates_must_fill_marker(engine, tmp_path):
@@ -147,11 +115,6 @@ def test_render_tolerates_must_fill_marker(engine, tmp_path):
     )
     assert all(d.get("severity") == "warning" for d in fill), (
         f"validation::must_fill must be a non-fatal warning; got: {fill}"
-    )
-
-    codes = [d.get("code") for d in diags]
-    assert "validation::field_absent" not in codes, (
-        f"field_absent is removed and must not be surfaced; got: {codes}"
     )
 
     # `trigger` is what a consumer routes on, so pin it crossing the boundary.

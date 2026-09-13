@@ -1539,6 +1539,28 @@ mod tests {
             .any(|m| matches!(m.kind, MarkKind::Anchor { .. })));
     }
 
+    /// [`Normalized::seal`]: an op list that fails partway leaves its earlier
+    /// ops applied, so the token has to re-establish the invariant on the error
+    /// path too.
+    #[test]
+    fn a_failed_op_list_leaves_the_token_canonical() {
+        let mut rt = from_markdown("**a**b").unwrap();
+        let ops = [
+            MarkOp::Add {
+                start: 0,
+                end: 2,
+                kind: MarkKind::Strong,
+            },
+            MarkOp::Add {
+                start: 0,
+                end: 99,
+                kind: MarkKind::Strong,
+            },
+        ];
+        assert!(rt.apply_mark_ops(&ops).is_err());
+        assert_eq!((*rt).clone().into_normalized(), rt);
+    }
+
     #[test]
     fn line_op_split_and_join() {
         let mut rt = from_markdown("onetwo").unwrap();

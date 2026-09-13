@@ -4,7 +4,7 @@ members = [
     "crates/quillmark",
     "crates/quillmark-pdf",
     "crates/backends/typst",
-    "crates/backends/pdfform",
+    "crates/backends/acroform",
     "crates/content",
     "crates/fixtures",
     "crates/bindings/wasm",
@@ -18,7 +18,7 @@ default-members = [
     "crates/quillmark",
     "crates/quillmark-pdf",
     "crates/backends/typst",
-    "crates/backends/pdfform",
+    "crates/backends/acroform",
     "crates/bindings/cli",
 ]
 resolver = "2"
@@ -64,7 +64,7 @@ quillmark-core = { version = "0.112.0", path = "crates/core" }
 quillmark-content = { version = "0.112.0", path = "crates/content" }
 quillmark-pdf = { version = "0.112.0", path = "crates/quillmark-pdf" }
 quillmark-typst = { version = "0.112.0", path = "crates/backends/typst" }
-quillmark-pdfform = { version = "0.112.0", path = "crates/backends/pdfform" }
+quillmark-acroform = { version = "0.112.0", path = "crates/backends/acroform" }
 quillmark = { version = "0.112.0", path = "crates/quillmark" }
 
 # WASM host seam. Target-gated in the Typst backend, unconditional in the

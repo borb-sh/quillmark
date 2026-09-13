@@ -6,16 +6,15 @@
 /// Base-14 Helvetica `/BaseFont`, for text and choice values.
 pub(crate) const TEXT_FONT: &[u8] = b"Helvetica";
 
-/// Base-14 ZapfDingbats `/BaseFont`, for the checkbox check glyph.
-pub(crate) const CHECK_FONT: &[u8] = b"ZapfDingbats";
+/// The face the stamped checkbox `/DA` names, for the check glyph.
+pub(crate) const CHECK_FONT: &[u8] = quillmark_pdf::CHECK_FONT;
 
 /// Preferred `/Font` resource name for [`TEXT_FONT`], shared with the `/DA` the
 /// stamp path writes. A page already binding it gets a derived name instead.
 pub(crate) const TEXT_FONT_RESOURCE: &str = quillmark_pdf::FormFont::Helvetica.resource_name();
 
-/// Preferred `/Font` resource name for [`CHECK_FONT`], the AcroForm spelling for
-/// ZapfDingbats.
-pub(crate) const CHECK_FONT_RESOURCE: &str = "ZaDb";
+/// Preferred `/Font` resource name for [`CHECK_FONT`], shared the same way.
+pub(crate) const CHECK_FONT_RESOURCE: &str = quillmark_pdf::CHECK_FONT_RESOURCE;
 
 pub(crate) const MIN_SIZE: f32 = 4.0;
 pub(crate) const MAX_SIZE: f32 = 12.0;

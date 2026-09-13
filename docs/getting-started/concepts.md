@@ -49,7 +49,7 @@ A backend compiles a quill's backend-specific inputs plus injected JSON data int
 | Backend | Reads | Produces |
 |---|---|---|
 | Typst | a plate | PDF, SVG, and PNG; fields declared `type: richtext` are lowered to Typst markup during compilation |
-| pdfform | a stripped PDF background and field spec, instead of a plate | an existing PDF form with its fields filled directly |
+| acroform | a stripped PDF background and field spec, instead of a plate | an existing PDF form with its fields filled directly |
 
 ### Required `$quill` Metadata
 

@@ -2,6 +2,172 @@
 
 ## Unreleased
 
+- fix(pdf): **a stamped checkbox's `/DA` names ZapfDingbats.** `stamp` wrote a
+  checkbox's `/MK /CA (4)` caption and no `/DA`, so the widget inherited the
+  form-level `/Helv 0 Tf 0 g` and nothing registered the face the glyph lives
+  in: a viewer synthesizing the appearance under `/NeedAppearances` drew the
+  digit `4`, while the canvas raster drew the check mark through a real
+  ZapfDingbats resource. The widget now carries `/DA (/ZaDb 0 Tf 0 g)`, and
+  `/DR /Font` registers `/ZaDb` whenever a checkbox is present; `spec.font`
+  stays inert on a checkbox. The face, its resource name and the glyph are
+  `quillmark_pdf::{CHECK_FONT, CHECK_FONT_RESOURCE, CHECK_GLYPH}`, which the
+  acroform flatten path now reads rather than restating. Closes #1779.
+- fix(pdf): **one predicate for the checkbox on-state.** `stamp` read any
+  `Some` value as checked and `flatten` only `Some("Yes")`, so a
+  `FieldSpec::value` the contract excludes — `value` is public — stamped
+  `/V /Yes` on a widget the raster drew blank. `FieldSpec::is_checked` is the
+  one reading, the strict one, and both paths call it. Closes #1780.
+- fix(acroform): **a value carrying a newline binds to a multiline widget.**
+  `bind` decided `MULTILINE` from the schema type, so a richtext of two
+  paragraphs, a `String` block scalar, or any value whose projection keeps a
+  `\n` reached the stamped widget single-line unless `ui.multiline` said
+  otherwise, while the flattened raster stacked the lines: the author saw the
+  value in the preview and one line of it in the file. `resolve::field_spec`
+  now promotes a `Text` widget to multiline when the value it resolved holds a
+  `\n`, reading the same string the raster draws. An array's widget stays
+  multiline unconditionally, value or none, since a signer types its elements
+  one per line. Closes #1781.
+- fix(content): **`Delta::map_pos` saturates its base cursor.** `mapPos` is the
+  one `Delta` door no `try_apply` bounds, and it summed a wire delta's
+  `retain`/`delete` counts with a plain `+`: on wasm32, where `usize` is
+  32-bit, `{ops:[{retain:3000000000},{retain:3000000000}]}` wrapped to a wrong
+  caret position in the published build and aborted the instance in the
+  checked one. `map_pos`, `is_deleted` and `inserted_spans` now walk the ops
+  with `saturating_add`, as `expected_base_len` already did: a run past
+  `usize::MAX` describes a base longer than any content, and a position lands
+  inside it as it would in a bounded one. Closes #1782.
+- refactor(pdfform)!: **`quillmark-pdfform` is `quillmark-acroform`, backend id
+  included.** `quillmark-pdf` and `quillmark-pdfform` differed by four
+  characters and read as prefix-and-specialization, the reading #1749 records:
+  that the form crate was the spine's only consumer. The spine keeps its name,
+  a bare generic name reading as leaf infrastructure with many consumers, and
+  the backend takes a distinct one at every layer the old one was spelled:
+  crate, directory, `AcroformBackend` with `id()` of `"acroform"`, the
+  `quillmark` cargo feature, the `pdfform::*` diagnostic namespace (now
+  `acroform::*`, the suffixes unchanged), the WASM `DEFAULT_BACKENDS` key, the
+  docs page and the two fixture quills' `backend:`. No alias: an unmigrated
+  `backend: pdfform` fails at render with `engine::backend_not_found`, whose
+  hint lists the registered backends, and a half-migrated quill with a leftover
+  `pdfform:` section fails at load with `quill::unknown_section`. `pdf::*` is
+  untouched. Closes #1775.
+- build(wasm): **three artifacts to two: the `render` build carries both
+  backends.** The core split (no engine, ~0.5 MB) is real for a web editor and
+  stays guarded. A pdfform-only binary bought "a pdfform-only page skips 8 MB
+  of Typst", and no such page exists; the render artifact grows by the
+  `quillmark-pdfform` crate and a brotli decoder, `hayro` already shipping in
+  it under `typst-render`. The wasm `typst` and `pdfform` features collapse
+  into one `render` feature — a feature named for one backend that selects two
+  would be a fresh inaccuracy in place of the one #1749 records — and the
+  forty-three `#[cfg(any(feature = "typst", feature = "pdfform"))]` sites
+  become `#[cfg(feature = "render")]`. `build-wasm.sh` emits `pkg/core/` and
+  `pkg/render/`; `runtime.js` keeps one `DEFAULT_BACKENDS` entry per backend
+  id, each with its own `formats` manifest, sharing one memoized load, and the
+  `Engine` keys its module, engine and clone caches on the descriptor's `load`
+  thunk rather than the backend id, so two ids over one build hold one entry
+  each. Both drift guards stay, the pdfform one retargeted at the merged
+  build. Closes #1640.
+- refactor(typst)!: **`form-field` keeps `text` and `signature`.** `usaf_memo`
+  uses those two. Checkbox and choice were the only kinds needing a value
+  coercion, and both coercions were copies of the pdfform resolver's,
+  duplicated because the Typst backend must not depend on it: deleting the two
+  kinds deletes the duplicate, and `FieldKind`, the mirror of the spine's
+  `FieldType` it existed for, retires with them — the extractor reads
+  `(FieldType, Option<String>)` directly. A plate wanting an interactive
+  checkbox or dropdown is a form-backend quill: pdfform keeps both kinds on
+  the spine. `multiline` stays, one bool on `FieldType::Text` the spine keeps
+  either way. A plate passing `type: "checkbox"` or `type: "choice"` fails the
+  helper's type assert, and `options:` is no longer a parameter. Closes #1644.
+- docs(canon): **the stamp spine names both of its consumers.**
+  `ARCHITECTURE.md` described `quillmark-pdf` as leaf infrastructure consumed
+  by `quillmark-pdfform`. The Typst backend consumes it unconditionally — the
+  fields a plate's `form-field` calls place go through the same `stamp` — and
+  nothing under `crates/backends/typst/src/` is feature-gated, so a reader
+  following canon concluded a Typst quill's form fields come from the pdfform
+  backend, and settling #1640 took a read of three manifests. The sentence
+  now names the layer and both consumers, meeting at `&[FieldSpec]` and never
+  each other. Closes #1749.
+- ci(release): **the version arithmetic and changelog baseline are tested
+  scripts.** `release-prepare.yml`'s `Compute next version` block runs only when
+  a maintainer dispatches it, and one release candidate exists in the
+  repository's history, so a defect in its `-rc.N` branches would surface at the
+  release that needed them. The block moves to `scripts/next-version.sh`, taking
+  the dispatch inputs verbatim so the workflow step holds no conditional of its
+  own, and the changelog baseline's pre-release skip moves to
+  `scripts/last-release-tag.sh`, reading a tag list on stdin so a test feeds it
+  fixtures rather than a repository. `scripts/release-prepare.test.sh` covers
+  twenty cases in ci.yml's lint job beside the canon spine lint: an
+  override taken verbatim and one already carrying `-rc.N` left unsuffixed,
+  iteration counting `rc.9` to `rc.10` rather than concatenating, promotion
+  dropping the suffix at any N while ignoring `bump`, a minor bump zeroing the
+  patch, and a pre-release tag passed over for the final beneath it. Covering it
+  found the defect it was written for: a `bump` outside `patch` and `minor`, and
+  a `CURRENT` no branch can shape — a `0.93.1-beta.1` an earlier free-text
+  override left behind, whose arithmetic fails to stderr without failing the
+  shell — each left the version empty and exited 0, and the workflow
+  interpolated that empty string into `cargo release version`, the release
+  branch name, the tag and the changelog heading. A version the arithmetic
+  cannot compute is a refusal now. A 160-combination sweep of the original block
+  against the script shows no other difference. Closes #1767.
+- build(wasm): **the package build reads its version without jq.** `jq` was a
+  hard prerequisite of `build-wasm.sh` for one string: the version out of `cargo
+  metadata`. `cargo pkgid` carries the number the crate inherits from
+  `version.workspace`, and stripping past the last `#`, `@` or `:` reads every
+  pkgid spelling cargo has used, since a semver holds none of the three. The
+  guard is a semver match, so an unparseable pkgid fails the build rather than
+  stamping a partial string; `--release-stamp` still stamps verbatim, which is
+  what `release.yml` compares against the tag before publishing. The
+  `pkg/.gitignore` the script wrote goes — the root `.gitignore` already ignores
+  `pkg/`, and `package.template.json`'s `files` allowlist is what decides the
+  published set — and so does the brotli line in the size report, a second
+  compressor for a second number nothing acts on which printed only where it
+  happened to be installed. The core artifact's one remaining gzip pass feeds
+  both the report line and the size budget, which were compressing the same
+  8.7 MB twice. Closes #1766.
+- test(core): **`quillmark:blank_title` rides the transform schema, and only
+  it.** The keyword labels the blank that leads an enum's wire-valid domain and
+  had no test anywhere, so a rename or a drop shipped silently. The label and
+  the blank are asserted as one object, the label being meaningless without the
+  blank it names: a field carrying `ui.blank_title` emits both, a field without
+  it emits the domain and no key at all. Whole-object equality, so an
+  unconditional key emitting `""` reads as a failure rather than passing a
+  presence check. The declaration view keeps emitting `values:` verbatim —
+  injecting the blank there would emit `values: ["", …]`, which
+  `quill::enum_blank_member` rejects, so a quill round-tripping through that
+  view would stop loading. Closes #1765.
+- test(wasm): **the typed write and resolve suites run on the gated surface.**
+  `runtime/runtime.js` patches `writer` and `reader` onto the core build's
+  `Quill`, and `basic.test.js` drives the typst backend build — a different
+  class over different memory, where those verbs do not exist. That is why its
+  typed-commit and resolve suites reached for the `_`-prefixed `_commitField`
+  and `_resolve`: the front door was not there to reach. Both move to
+  `runtime.test.js`, where the gated surface is what a consumer holds, and no
+  underscored call remains in either file. Five assertions `runtime.test.js`
+  already made through `writer.set` and `writer.card(i).set` go. Ten had no
+  public twin and carry over: `edit::field_coercion_failed` and
+  `edit::field_not_inline`, which appeared nowhere else in the suite; the
+  `DocPath` a refused write anchors to; `setAll`'s all-or-nothing abort at both
+  the unknown-name and the coercion rung; `CardWriter.setAll`; and resolve's
+  declaration-order rows, its `default` and `blank` rungs, and `body` as a
+  sibling of `fields`. Six tests filed under the typed-commit title never
+  touched that ABI — they drive `applyChange` and `mapMarks` — and are retitled
+  where they sit. The foreign-module fixture copies the core build into an
+  `mkdtemp` directory and removes it in `afterAll`, where it wrote `pkg/dup-core`
+  and cleared it at the *next* run's start: a unique path per run cannot collide
+  with a concurrent one, and a leak lands in the OS temp directory rather than
+  in a build directory. Closes #1764.
+- test(quillmark): **the quiver sweeps share one walker and one loaded quiver.**
+  `quillmark_fixtures::quill_names` is the single list of fixture quills,
+  counting a directory when `quills_path` resolves it to a bundle carrying
+  `Quill.yaml` — the versioned layout every fixture uses, which neither of the
+  two bare `is_dir()` walkers knew about. The seed sweep joins the
+  empty-document and blueprint sweeps in `quiver_test.rs` over one `LazyLock`
+  quiver, so each quill loads once for all three rather than once per sweep and
+  the three run in parallel inside one binary: fifteen loads become five, two
+  engines become one, and the sweeps finish in 272 ms where the two binaries
+  took 678 ms. All three documents stay, none subsuming another — the blueprint
+  commits every `default:` and marks every defaultless cell `!must_fill`, the
+  seed commits every `example:` and omits every defaulted field, and only the
+  empty document carries no composable card. Closes #1763.
 - refactor(core)!: **`.quillignore` is not read; the ignore set is the built-in
   one.** A three-rule parser with a raw-string fallback — `dir/`, a literal
   name, and a glob matched against both the whole path and the basename that
@@ -276,7 +442,7 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
   they had already opened while the scanner's unclosed-fence signal was
   dropped. The message names the opener's line, the field to close after, and —
   for a `~~` run or an indented `~~~` — the line that failed to close it.
-- fix(core): **a card-yaml parse failure carries a document `Location`.**
+- fix(core)!: **a card-yaml parse failure carries a document `Location`.**
   `YamlErrorWithLocation` keeps the engine's line and column, translated
   through the comment lines prescan drops and the leading whitespace `trim`
   removes onto the document's own coordinates, and `to_diagnostic()` sets them
@@ -631,14 +797,17 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
   `quillmark_pdf::page_media_boxes` is `page_canvas_boxes`, and it refuses a
   canvas box under a point per side (`pdf::degenerate_page_box`) and a page box
   that is not a direct array of numbers.
-- fix(pdfform)!: **flatten's own parse failure is `pdfform::flatten_parse`.** A
+- fix(pdfform)!: **flatten's own parse failure is `acroform::flatten_parse`.** A
   page dict or `/Contents` the content-stream flattener cannot read raised
   `pdf::flatten_parse`, naming the stamp spine for a failure of the backend's
-  own code. `pdf::bad_rect` stays the spine's and is minted in one place,
+  own code. The backend's namespace renames later in this same cycle, so the
+  code ships as `acroform::flatten_parse`, not the `pdfform::` spelling the
+  commit landed. `pdf::bad_rect` stays the spine's and is minted in one place,
   `FieldSpec::assert_finite_rect`, which the stamp and flatten paths both call.
 - feat(typst,pdfform,cli)!: **`pdfform::form_schema_version` retires, and the
   CLI loses three flags.** A `form@0.1.0` file still fails to load, now as an
-  unrecognised tag under `pdfform::invalid_form_json`. `render --verbose` is
+  unrecognised tag under `acroform::invalid_form_json` (the namespace renames
+  later in this cycle). `render --verbose` is
   deleted, so `--quiet` states what it suppresses on its own; `schema -o` and
   `blueprint -o` are deleted, both commands writing to stdout where `>` does
   the rest. `render -o` is unchanged. `validate` reads `plate_file` from the

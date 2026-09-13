@@ -32,7 +32,7 @@ import type {
 	FieldRegion as TypstFieldRegion,
 	ChangeSet as TypstChangeSet,
 	ContentHit as TypstContentHit
-} from '../../../pkg/backends/typst/wasm';
+} from '../../../pkg/render/wasm';
 
 // One mutual-assignability pair per hoisted type: typst → canonical and
 // canonical → typst. `void` the bindings so "declared but never read" is not an
