@@ -2,7 +2,7 @@
 
 The `acroform` backend fills existing PDF forms: something the Typst backend fundamentally cannot do (Typst cannot embed a PDF page, so a Typst path would rasterize the form and lose fidelity). Instead of generating a page from a plate, `acroform` stamps a fresh AcroForm onto a pre-existing background and binds your document's values into the widgets.
 
-It is Typst-free: a `acroform` quill never compiles Typst code and a form-only build never links the Typst compiler.
+It is Typst-free: an `acroform` quill never compiles Typst code and a form-only build never links the Typst compiler.
 
 ## The two-asset model
 

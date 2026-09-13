@@ -362,6 +362,8 @@ Values keep their JSON shape (`allowed` arrives as a list, `len` as a number) be
 
 The table is the contract, so it is tested like one: `diagnostic_args_match_canon` in `crates/core/src/error.rs` fails if code and canon disagree, and its twin asserts the codes off the table carry nothing. Each `args()` binds every field rather than eliding with `..`, so a new field on a variant does not compile until it decides whether it is message-relevant.
 
+That pair holds code and table together and cannot hold either still: a rename edits both in one commit and passes. The keys a consumer outside this repository reads are pinned separately, by `args_keys_a_named_consumer_reads` beside them — a list that does not move when the table does, so renaming one of those keys fails here rather than downstream, a release later.
+
 Three outcomes, and the wire tells them apart only with this table in hand, since "no keys" reads identically for the second and third:
 
 - **structured**: keys present; the consumer writes the whole sentence.

@@ -342,7 +342,13 @@ export interface PageSize {
 
 /** Inputs to `paint`. */
 export interface PaintOptions {
+	/** How big the page is on screen, in CSS px per point. Default 1. */
 	layoutScale?: number;
+	/**
+	 * How sharp it is: `window.devicePixelRatio`, in-app zoom and
+	 * `visualViewport.scale` folded into one number. Default 1, because the
+	 * painter cannot see any of them (SSR, tests, off-screen).
+	 */
 	densityScale?: number;
 }
 

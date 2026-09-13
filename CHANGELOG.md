@@ -442,7 +442,7 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
   they had already opened while the scanner's unclosed-fence signal was
   dropped. The message names the opener's line, the field to close after, and —
   for a `~~` run or an indented `~~~` — the line that failed to close it.
-- fix(core): **a card-yaml parse failure carries a document `Location`.**
+- fix(core)!: **a card-yaml parse failure carries a document `Location`.**
   `YamlErrorWithLocation` keeps the engine's line and column, translated
   through the comment lines prescan drops and the leading whitespace `trim`
   removes onto the document's own coordinates, and `to_diagnostic()` sets them
@@ -797,14 +797,17 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
   `quillmark_pdf::page_media_boxes` is `page_canvas_boxes`, and it refuses a
   canvas box under a point per side (`pdf::degenerate_page_box`) and a page box
   that is not a direct array of numbers.
-- fix(pdfform)!: **flatten's own parse failure is `pdfform::flatten_parse`.** A
+- fix(pdfform)!: **flatten's own parse failure is `acroform::flatten_parse`.** A
   page dict or `/Contents` the content-stream flattener cannot read raised
   `pdf::flatten_parse`, naming the stamp spine for a failure of the backend's
-  own code. `pdf::bad_rect` stays the spine's and is minted in one place,
+  own code. The backend's namespace renames later in this same cycle, so the
+  code ships as `acroform::flatten_parse`, not the `pdfform::` spelling the
+  commit landed. `pdf::bad_rect` stays the spine's and is minted in one place,
   `FieldSpec::assert_finite_rect`, which the stamp and flatten paths both call.
 - feat(typst,pdfform,cli)!: **`pdfform::form_schema_version` retires, and the
   CLI loses three flags.** A `form@0.1.0` file still fails to load, now as an
-  unrecognised tag under `pdfform::invalid_form_json`. `render --verbose` is
+  unrecognised tag under `acroform::invalid_form_json` (the namespace renames
+  later in this cycle). `render --verbose` is
   deleted, so `--quiet` states what it suppresses on its own; `schema -o` and
   `blueprint -o` are deleted, both commands writing to stdout where `>` does
   the rest. `render -o` is unchanged. `validate` reads `plate_file` from the

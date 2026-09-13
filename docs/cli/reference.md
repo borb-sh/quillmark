@@ -138,9 +138,6 @@ quillmark info <QUILL_PATH>
 
 - `<QUILL_PATH>`: Path to quill directory
 
-**Fields shown:** name, description (when nonempty), version, author, backend,
-field count, and the card and defaults counts when nonzero.
-
 **Examples:**
 
 ```bash

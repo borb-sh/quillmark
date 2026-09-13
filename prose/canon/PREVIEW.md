@@ -320,32 +320,12 @@ The declarations are `crates/bindings/wasm/runtime/runtime.d.ts`, which carries
 the per-member contract and which `npm run typecheck` holds to the runtime
 beside it.
 
-### DPR / clamp math
-
-The painter owns `canvas.width` / `canvas.height` and sizes the backing store
-on every call; consumers own `canvas.style.*` and read `layoutWidth` /
-`layoutHeight` from the result. The effective rasterization scale is:
-
-```
-renderScale = layoutScale × densityScale
-```
-
-Fold `window.devicePixelRatio`, in-app zoom, and `visualViewport.scale` into
-`densityScale`. Past **`MAX_BACKING_DIMENSION` (16384 px per side)**: the
-floor that works across browsers: the painter clamps `densityScale`
-proportionally and reports the outcome on the result (`clamped`,
-`effectiveDensityScale`), so a consumer never reconstructs the clamp from the
-dimensions. A clamped page renders soft at the same `canvas.style` size.
-
-Each `paint` resets the backing store (writing `canvas.width` clears it), so
-paint is always a full repaint: consumers never call `clearRect`.
-
 ### Regions overlay transform
 
 One origin serves the whole canvas surface: `pageSize`, `regions`, the point
 queries, and the raster all measure from the **page's lower-left corner as
-drawn**, so `(0, 0)` is the raster's first pixel and `pageSize × renderScale` is
-its extent. A Typst page starts there already. A acroform background's page need
+drawn**, so `(0, 0)` is the raster's first pixel and `pageSize × renderScale`
+(`layoutScale × densityScale`, the scale the page was painted at) is its extent. A Typst page starts there already. An acroform background's page need
 not. The file's own numbers are in PDF user space, and the page a viewer shows
 is the **canvas box**, `/CropBox` ∩ `/MediaBox`, which `pdfcrop` leaves
 translated away from `(0, 0)`. The backend reports that box's extent as the page
@@ -353,24 +333,10 @@ size and subtracts its corner from every region, matching what hayro rasterizes.
 The widget `/Rect`s in the PDF the same session renders stay in user space:
 canvas geometry is box-relative, the deliverable is not.
 
-A consumer drawing overlays from `regions` must flip the Y axis: region
-`rect = [x0, y0, x1, y1]` is in PDF points with a **bottom-left** origin, a
-canvas is **top-left** in device pixels. For a page `pageHeightPt` tall (from
-`pageSize`) painted at `renderScale`, the box's top-left canvas corner is the
-PDF rect's *upper* edge (`y1 = rect[3]`), not its lower edge (`y0 = rect[1]`):
-
-```
-x_canvas_left = rect[0] × renderScale
-y_canvas_top  = (pageHeightPt − rect[3]) × renderScale
-width_canvas  = (rect[2] − rect[0]) × renderScale
-height_canvas = (rect[3] − rect[1]) × renderScale
-```
-
-That form is the one for painting an overlay *into* a raster. An HTML/CSS
-overlay on a `width:100%` canvas is better off in percentages of the page:
-`left% = rect[0] / pageWidthPt × 100`, `top% = (pageHeightPt − rect[3]) /
-pageHeightPt × 100`, and the extents likewise, because they track the
-displayed size across DPI and pane-resize with no `renderScale` to thread.
+One axis flips against that origin and the other does not: a region `rect` is
+bottom-left PDF points, a canvas is top-left device pixels. The arithmetic — and
+the percentage form an HTML overlay wants instead — is on `FieldRegion.rect` in
+`runtime.d.ts`, beside the type it transforms.
 
 ## Feature / build mapping
 
@@ -469,7 +435,11 @@ The wasm `render` feature pulls in `web-sys`, the generic canvas *painter*
   know the consumer's DPR (SSR, tests, off-screen).
 - **Painter owns `canvas.width`/`height`; consumer owns `canvas.style.*`.**
   Folding backing-store math into the painter eliminates a class of "blurry on
-  retina" bugs and lets the 16384-px clamp live in one place.
+  retina" bugs and lets the 16384-px clamp (`MAX_BACKING_DIMENSION`) live in one
+  place. That number is the floor that works across browsers, and it is the side
+  of `quillmark_core::MAX_RASTER_PIXELS`, so a scale the core admits is one the
+  painter can paint. The painter reports the clamp on the result rather than
+  leaving a consumer to reconstruct it from the dimensions.
 - **Unpremultiplied RGBA on the wire.** Rasterizers produce premultiplied
   alpha; `ImageData` expects non-premultiplied. The backend unpremultiplies
   before handing back the buffer. One allocation per repaint; fine for edit
