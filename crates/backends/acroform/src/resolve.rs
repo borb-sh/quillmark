@@ -217,7 +217,7 @@ mod tests {
             Some("A bold claim.\nSecond line.")
         );
         let blank =
-            quillmark_content::serial::to_canonical_value(&quillmark_content::Normalized::empty());
+            quillmark_content::serial::to_canonical_value(&quillmark_content::model::Normalized::empty());
         assert_eq!(coerce_text(&blank), None);
         assert_eq!(coerce_text(&json!({ "x": 1 })), None);
     }

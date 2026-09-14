@@ -607,7 +607,7 @@ pub fn from_authored_value(v: &Value) -> Result<Normalized, ParseError> {
 /// writes a table as a block, so `Content::normalize` breaks the line around
 /// one, splitting a paragraph the host did not ask to split. Read off the
 /// decoded content, ahead of the mint that performs the break. The op wire
-/// refuses the same placement ([`crate::ApplyError::BlockIslandNotAlone`]).
+/// refuses the same placement ([`crate::ops::ApplyError::BlockIslandNotAlone`]).
 fn reject_inline_block_island(rt: &Content) -> Result<(), ParseError> {
     let chars: Vec<char> = rt.text.chars().collect();
     match crate::model::inline_block_islands(&chars, &rt.islands).next() {

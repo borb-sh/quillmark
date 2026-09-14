@@ -459,7 +459,7 @@ impl QuillConfig {
                 // The literal codec and its two rests: `SCHEMAS.md`
                 // §"Content fields rest per codec".
                 let plain_check =
-                    |rt: &quillmark_content::Content| -> Result<(), CoercionError> {
+                    |rt: &quillmark_content::model::Content| -> Result<(), CoercionError> {
                         if !rt.is_plain() {
                             return Err(CoercionError::uncoercible(
                                 path,
@@ -479,7 +479,7 @@ impl QuillConfig {
                         }
                         Ok(())
                     };
-                let commit = |rt: &quillmark_content::Normalized| -> QuillValue {
+                let commit = |rt: &quillmark_content::model::Normalized| -> QuillValue {
                     match mode {
                         Leniency::Render => QuillValue::from_json(
                             quillmark_content::serial::to_canonical_value(rt),
@@ -514,7 +514,7 @@ impl QuillConfig {
                         )),
                     };
                 };
-                let rt = quillmark_content::from_plaintext(&text);
+                let rt = quillmark_content::import::from_plaintext(&text);
                 plain_check(&rt)?;
                 Ok(commit(&rt))
             }
@@ -535,7 +535,7 @@ impl QuillConfig {
                     )
                 };
                 let inline_check =
-                    |rt: &quillmark_content::Content| -> Result<(), CoercionError> {
+                    |rt: &quillmark_content::model::Content| -> Result<(), CoercionError> {
                         if inline && !rt.is_inline() {
                             return Err(inline_err());
                         }

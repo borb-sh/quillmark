@@ -105,7 +105,7 @@ pub enum IslandOp {
     /// why `LineOp::Split` cannot stand in for the delta's `\n`.
     ///
     /// A type markdown writes as a block
-    /// ([`IslandType::block_only`](crate::IslandType::block_only)) has
+    /// ([`IslandType::block_only`](crate::island::IslandType::block_only)) has
     /// no inline placement: `at` must be an empty line, else
     /// [`ApplyError::BlockIslandNotAlone`].
     ///
@@ -356,7 +356,7 @@ pub enum ApplyError {
     /// and this bundle's earlier island ops left.
     IslandInsertOutOfRange { at: Usv, len: Usv },
     /// An island op would leave a **block-only** island's slot
-    /// ([`IslandType::block_only`](crate::IslandType::block_only), a
+    /// ([`IslandType::block_only`](crate::island::IslandType::block_only), a
     /// `table`) sharing its line with other content. Markdown writes such an
     /// island by breaking the line around it, so the op that lands one mid-line
     /// is refused rather than restructuring the author's blocks. `at` is the

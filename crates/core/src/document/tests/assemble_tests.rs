@@ -1591,7 +1591,7 @@ fn test_to_plate_json_kindless_card_omits_kind() {
         .document;
     doc.cards_vec_mut().push(Card::from_parts(
         Payload::new(),
-        quillmark_content::Normalized::empty(),
+        quillmark_content::model::Normalized::empty(),
     ));
 
     let json = doc.to_plate_json_gated(true, None);

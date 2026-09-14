@@ -7,7 +7,7 @@
 use serde::{Deserialize, Serialize};
 
 use quillmark_content::import::{from_markdown as import_markdown, ImportError};
-use quillmark_content::Normalized;
+use quillmark_content::model::Normalized;
 
 use crate::error::ParseError;
 use crate::version::QuillReference;
@@ -87,7 +87,7 @@ impl Codec {
                 Codec::Richtext => {
                     import_body(s).map_err(|e| ContentDecodeError::BadMarkdown(e.to_string()))
                 }
-                Codec::Plaintext => Ok(quillmark_content::from_plaintext(s)),
+                Codec::Plaintext => Ok(quillmark_content::import::from_plaintext(s)),
             }),
             _ => None,
         }
@@ -228,7 +228,7 @@ pub struct Parsed {
 }
 
 /// A single card-yaml block (root or composable). `body` is the content
-/// ([`Content`](quillmark_content::Content)) form of the prose after the closing fence: the empty content
+/// ([`Content`](quillmark_content::model::Content)) form of the prose after the closing fence: the empty content
 /// when none follows; check `card.body().is_blank()`. Markdown is a projection:
 /// [`Card::body_markdown`] re-emits it.
 #[derive(Debug, Clone, PartialEq)]
@@ -268,7 +268,7 @@ impl Card {
         &mut self.payload
     }
 
-    /// The card body as a [`Content`](quillmark_content::Content): the canonical content model. For the
+    /// The card body as a [`Content`](quillmark_content::model::Content): the canonical content model. For the
     /// markdown projection use [`Card::body_markdown`].
     pub fn body(&self) -> &Normalized {
         &self.body

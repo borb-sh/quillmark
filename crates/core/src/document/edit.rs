@@ -8,9 +8,10 @@
 
 use std::collections::BTreeMap;
 
-use quillmark_content::delta::diff_import;
+use quillmark_content::delta::{diff_import, Delta};
 use quillmark_content::import::ImportError;
-use quillmark_content::{ApplyError, ChangeBundle, Delta, Normalized};
+use quillmark_content::model::Normalized;
+use quillmark_content::ops::{ApplyError, ChangeBundle};
 
 use crate::document::meta::{validate_composable_kind, CardKindError};
 use crate::error::diag_args;
@@ -688,7 +689,7 @@ impl Card {
         payload.set_kind(kind);
         Ok(Card::from_parts(
             payload,
-            quillmark_content::Normalized::empty(),
+            quillmark_content::model::Normalized::empty(),
         ))
     }
 
@@ -873,7 +874,7 @@ impl Card {
         self.remove_meta_namespace(MetaKey::Seed, card_kind)
     }
 
-    /// Overwrite the body with a pre-built [`Content`](quillmark_content::Content): value semantics, no
+    /// Overwrite the body with a pre-built [`Content`](quillmark_content::model::Content): value semantics, no
     /// markdown import, no diff, no schema check, infallible. A raw `Content`
     /// normalizes on the way in, so what lands is canonical. Anchor fate across
     /// the content lane: **overwrite destroys, [`revise_body`](Self::revise_body)
@@ -882,7 +883,7 @@ impl Card {
         self.body = content.into();
     }
 
-    /// Overwrite a content field's value with a pre-built [`Content`](quillmark_content::Content): the
+    /// Overwrite a content field's value with a pre-built [`Content`](quillmark_content::model::Content): the
     /// field-level twin of [`overwrite_body`](Self::overwrite_body). Stores the
     /// canonical content JSON (identity and content-only marks intact), no diff,
     /// no schema check. The previous value's anchors are gone. Returns

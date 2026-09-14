@@ -435,7 +435,7 @@ fn test_overwrite_field_sets_directly() {
     assert!(read.marks.iter().any(|m| matches!(m.kind, MarkKind::Underline)));
 
     assert_eq!(
-        card.overwrite_field("$bad", quillmark_content::Normalized::empty())
+        card.overwrite_field("$bad", quillmark_content::model::Normalized::empty())
             .unwrap_err()
             .code(),
         "edit::invalid_field_name"
@@ -891,7 +891,7 @@ fn test_apply_field_change_treats_an_absent_field_as_empty() {
     assert_eq!(card.field_text("intro", Codec::Richtext).unwrap().unwrap(), "");
 
     let stale = ChangeBundle {
-        delta: quillmark_content::Delta {
+        delta: quillmark_content::delta::Delta {
             ops: vec![quillmark_content::delta::Op::Retain(4)],
         },
         ..ChangeBundle::default()

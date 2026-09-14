@@ -1252,7 +1252,7 @@ fn path_from_py(path: &Bound<'_, PyAny>, ctx: &str) -> PyResult<Vec<quillmark::P
 
 fn content_to_py<'py>(
     py: Python<'py>,
-    content: Option<quillmark_content::Normalized>,
+    content: Option<quillmark_content::model::Normalized>,
 ) -> PyResult<Option<Bound<'py, PyAny>>> {
     match content {
         None => Ok(None),

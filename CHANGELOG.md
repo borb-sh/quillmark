@@ -33,6 +33,18 @@
   the three `1..20`-deep markdown loops, which approach no boundary —
   `MAX_NESTING_DEPTH` is 100, and content pins that.
 
+- refactor(content)!: **every `quillmark-content` item is named at the module
+  that defines it.** The crate declared its ten modules `pub` and re-exported 34
+  of their items at the root, so `quillmark_content::Delta` and
+  `quillmark_content::delta::Delta` both resolved and first-party callers used
+  both; neither spelling was the one a reader could rely on seeing. The root
+  re-exports go and the modules stay public, which leaves Rust's own rule as the
+  whole of it: an item is reachable where it is defined. `MAX_NESTING_DEPTH` and
+  `MAX_JSON_DEPTH` keep their root spelling, the crate root being where they are
+  defined. Every removed path is an unresolved import, so the compiler names each
+  site; the names `quillmark-core` re-exports keep their core spellings, so a
+  consumer on core or on the `quillmark` facade has nothing to do, and no binding
+  surface moves. Closes #1755.
 - fix(pdf): **a stamped checkbox's `/DA` names ZapfDingbats.** `stamp` wrote a
   checkbox's `/MK /CA (4)` caption and no `/DA`, so the widget inherited the
   form-level `/Helv 0 Tf 0 g` and nothing registered the face the glyph lives
