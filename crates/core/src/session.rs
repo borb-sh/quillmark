@@ -2,7 +2,8 @@ use crate::quill::QuillConfig;
 use crate::{
     ContentHit, Diagnostic, Document, RenderError, RenderOptions, RenderResult, RenderedRegion,
 };
-pub use quillmark_content::{ApplyError, Assoc, ChangeBundle, Delta, IslandOp, LineOp, MarkOp, Op};
+pub use quillmark_content::delta::{Assoc, Delta, Op};
+pub use quillmark_content::ops::{ApplyError, ChangeBundle, IslandOp, LineOp, MarkOp};
 use std::sync::OnceLock;
 
 /// What a committed [`LiveSession::update`] changed.
@@ -302,7 +303,9 @@ impl LiveSession {
 
     /// [`update`](Self::update) with the schema layer cut away: plate data
     /// straight to the backend, no `$quill` check and no compile.
-    #[cfg(feature = "internal-test-seam")]
+    ///
+    /// A test seam: the one lever that makes a backend's compile fail on
+    /// demand, with data the schema would refuse.
     #[doc(hidden)]
     pub fn update_data(&mut self, json_data: &serde_json::Value) -> Result<ChangeSet, RenderError> {
         self.regions.take();

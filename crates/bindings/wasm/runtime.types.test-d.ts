@@ -307,43 +307,29 @@ void fromMarkdown;
 declare const annotated: RuntimeQuill;
 void annotated;
 
-// The container write lane. `instance` decides whether two adjacent runs weld,
-// and nothing reports an omission at runtime. The seam spells it on every read,
-// so the one container type requires it: the op lane and the whole-`Content`
-// lane a document-shaped codec writes through both report an omission.
+// The container write lane. `instance` is optional, because a read omits a zero
+// and a read is a write input; the value it decodes to is the same either way,
+// so both spellings type-check on the op lane and on the whole-`Content` lane a
+// document-shaped codec writes through.
 import type { assignInstances } from '../../../pkg/runtime/runtime.d.ts';
 
-// @ts-expect-error the field is the whole point of the type.
-const unstamped: ContentContainer = { container: 'quote' };
-void unstamped;
-
-const looseOp: Extract<LineOp, { op: 'setContainers' }> = {
+const bareOp: Extract<LineOp, { op: 'setContainers' }> = {
 	op: 'setContainers',
 	line: 0,
-	// @ts-expect-error the op carries written containers, which spell `instance` out.
 	containers: [{ container: 'quote' }]
 };
-void looseOp;
+void bareOp;
 
-// `overwrite` and `CardInput.body` take a whole `Content`, the lane a codec
-// flattening a tree most likely writes through. Requiring the field on the read
-// shape is what reaches it.
-const looseBody: CardInput = {
+const bareBody: CardInput = {
 	kind: 'note',
 	body: {
 		text: 'a',
-		lines: [
-			{
-				kind: 'para',
-				// @ts-expect-error a hand-built container spells `instance` out.
-				containers: [{ container: 'quote' }]
-			}
-		],
+		lines: [{ kind: 'para', containers: [{ container: 'quote' }] }],
 		marks: [],
 		islands: []
 	}
 };
-void looseBody;
+void bareBody;
 
 const stampedBody: CardInput = {
 	kind: 'note',

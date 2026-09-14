@@ -15,7 +15,7 @@
 //! can keep the first and lose the second: a value that encodes to some *other*
 //! value's bytes moves nothing on disk and still fails its own round trip.
 //!
-//! The seam encoding and the storage encoding are the *same* canonical form.
+//! Storage, the render seam and the binding seam carry one canonical form.
 
 use crate::model::{
     canonicalize_keys, Container, Island, Line, LineKind, Loss, Mark,
@@ -25,7 +25,7 @@ use serde_json::{Map, Value};
 use std::borrow::Cow;
 
 /// Why canonical-JSON parsing failed. Structural only: a well-formed producer
-/// (this crate's serializer, the seam, storage) never trips these.
+/// (this crate's serializer, storage, a binding) never trips these.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ParseError {
     /// Top-level JSON was not an object, or a required key was missing/mistyped.
@@ -79,7 +79,7 @@ impl Content {
         from_canonical_value(&v)
     }
 
-    fn to_value(&self, zero: ZeroInstance) -> Value {
+    fn to_value(&self) -> Value {
         let mut root = Map::new();
         root.insert(
             "islands".into(),
@@ -87,7 +87,7 @@ impl Content {
         );
         root.insert(
             "lines".into(),
-            Value::Array(self.lines.iter().map(|l| line_to_value(l, zero)).collect()),
+            Value::Array(self.lines.iter().map(line_to_value).collect()),
         );
         root.insert(
             "marks".into(),
@@ -125,44 +125,13 @@ impl Content {
     }
 }
 
-/// Whether a zero `Container::instance` gets a key. The two forms decode
-/// identically.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum ZeroInstance {
-    /// Storage: the key appears only where it is doing work, so a row written
-    /// before the field existed re-encodes byte for byte.
-    Omit,
-    /// The seam: every container spells it, so a host reads back a container
-    /// path it can hand straight to a write.
-    Spell,
-}
-
-/// The **storage** canonical form as a structural [`Value`]: the recursively
-/// key-sorted tree [`Normalized::to_canonical_json`] renders to bytes. A storage
-/// layer embeds this as a nested object rather than an escaped string;
-/// serializing it with `serde_json` is byte-identical to that JSON, independent
-/// of the consumer's `preserve_order` feature.
-///
-/// [`to_seam_value`] is the same tree for a language binding, differing only in
-/// a zero `instance`.
+/// The canonical form as a structural [`Value`]: the recursively key-sorted
+/// tree [`Normalized::to_canonical_json`] renders to bytes. A storage layer
+/// embeds this as a nested object rather than an escaped string; serializing it
+/// with `serde_json` is byte-identical to that JSON, independent of the
+/// consumer's `preserve_order` feature.
 pub fn to_canonical_value(rt: &Normalized) -> Value {
-    to_value_with(rt, ZeroInstance::Omit)
-}
-
-/// The **seam** form as a structural [`Value`]: [`to_canonical_value`] with
-/// every `Container::instance` spelled, zero included.
-///
-/// A binding's read is also its write input — `overwrite(addr, reader.getContent(…))`,
-/// `insertCard(removeCard(0))`. The discriminator that keeps two adjacent
-/// same-shape runs apart is a field the host owes on the way back in, and a
-/// field the read may omit is one the read type cannot require.
-/// [`to_canonical_value`] keeps the omission, so stored bytes stay put.
-pub fn to_seam_value(rt: &Normalized) -> Value {
-    to_value_with(rt, ZeroInstance::Spell)
-}
-
-fn to_value_with(rt: &Normalized, zero: ZeroInstance) -> Value {
-    let mut v = rt.to_value(zero);
+    let mut v = rt.to_value();
     // Scans and returns: the encoders emit their fixed keys in ascending order,
     // and every opaque bag under them was canonicalized by the mint. A key
     // inserted out of order is still repaired here, so the freeze holds without
@@ -353,16 +322,11 @@ pub fn line_kind_from_value(v: &Value) -> Result<LineKind, ParseError> {
     }
 }
 
-fn line_to_value(line: &Line, zero: ZeroInstance) -> Value {
+fn line_to_value(line: &Line) -> Value {
     let mut m = line_kind_fields(&line.kind);
     m.insert(
         "containers".into(),
-        Value::Array(
-            line.containers
-                .iter()
-                .map(|c| container_to_value_with(c, zero))
-                .collect(),
-        ),
+        Value::Array(line.containers.iter().map(container_to_value).collect()),
     );
     // Omitted when false: presence is a pure function of the value, so the
     // encoding stays deterministic.
@@ -393,18 +357,16 @@ fn line_from_value(v: &Value) -> Result<Line, ParseError> {
     })
 }
 
-/// Encode a [`Container`] into its storage wire object.
+/// Encode a [`Container`] into its canonical wire object. A zero `instance` is
+/// omitted, so a row written before the field existed re-encodes byte for byte;
+/// [`container_from_value`] reads an absent key as zero.
 pub fn container_to_value(c: &Container) -> Value {
-    container_to_value_with(c, ZeroInstance::Omit)
-}
-
-fn container_to_value_with(c: &Container, zero: ZeroInstance) -> Value {
     let mut m = Map::new();
     insert_attrs(&mut m, c.attrs());
     m.insert("container".into(), Value::String(c.tag().to_string()));
     // Not payload: the discriminator that keeps two adjacent same-shape runs
     // apart is an envelope key, carried on every arm.
-    if c.instance() != 0 || zero == ZeroInstance::Spell {
+    if c.instance() != 0 {
         m.insert("instance".into(), Value::from(c.instance()));
     }
     Value::Object(m)
@@ -645,7 +607,7 @@ pub fn from_authored_value(v: &Value) -> Result<Normalized, ParseError> {
 /// writes a table as a block, so `Content::normalize` breaks the line around
 /// one, splitting a paragraph the host did not ask to split. Read off the
 /// decoded content, ahead of the mint that performs the break. The op wire
-/// refuses the same placement ([`crate::ApplyError::BlockIslandNotAlone`]).
+/// refuses the same placement ([`crate::ops::ApplyError::BlockIslandNotAlone`]).
 fn reject_inline_block_island(rt: &Content) -> Result<(), ParseError> {
     let chars: Vec<char> = rt.text.chars().collect();
     match crate::model::inline_block_islands(&chars, &rt.islands).next() {
@@ -959,19 +921,19 @@ pub(crate) fn reject_unknown_cell_mark_name(props: &Value) -> Result<(), ParseEr
 #[cfg(test)]
 mod tests {
 
-    /// Storage writes `instance` only where it is doing work, so it costs bytes
-    /// only in the documents carrying an adjacent same-shape sibling. The seam
-    /// spells it either way: a binding reads the key unconditionally.
+    /// `instance` is written only where it is doing work, so it costs bytes only
+    /// in the documents carrying an adjacent same-shape sibling. A spelled zero
+    /// still decodes, which is what lets a producer holding an older read write
+    /// it straight back.
     #[test]
-    fn storage_writes_instance_only_where_it_works_and_the_seam_always_spells_it() {
-        let storage = r#"{"islands":[],"lines":[{"containers":[{"container":"quote"}],"kind":"para"}],"marks":[],"text":"a"}"#;
-        let seam = r#"{"islands":[],"lines":[{"containers":[{"container":"quote","instance":0}],"kind":"para"}],"marks":[],"text":"a"}"#;
-        let rt = Content::from_canonical_json(storage).expect("decodes");
-        assert_eq!(rt.to_canonical_json(), storage);
-        assert_eq!(to_seam_value(&rt).to_string(), seam);
-        assert_eq!(Content::from_canonical_json(seam).expect("decodes"), rt);
+    fn instance_is_written_only_where_it_works_and_a_spelled_zero_still_decodes() {
+        let canonical = r#"{"islands":[],"lines":[{"containers":[{"container":"quote"}],"kind":"para"}],"marks":[],"text":"a"}"#;
+        let spelled = r#"{"islands":[],"lines":[{"containers":[{"container":"quote","instance":0}],"kind":"para"}],"marks":[],"text":"a"}"#;
+        let rt = Content::from_canonical_json(canonical).expect("decodes");
+        assert_eq!(rt.to_canonical_json(), canonical);
+        assert_eq!(Content::from_canonical_json(spelled).expect("decodes"), rt);
 
-        // Two adjacent one-item lists: the shape that spends the key on storage.
+        // Two adjacent one-item lists: the shape that spends the key.
         let two = r#"{"islands":[],"lines":[{"containers":[{"attrs":{"ordered":false,"ordinal":0,"start":1},"container":"list_item"}],"kind":"para"},{"containers":[{"attrs":{"ordered":false,"ordinal":0,"start":1},"container":"list_item","instance":1}],"kind":"para"}],"marks":[],"text":"a\nb"}"#;
         let rt = Content::from_canonical_json(two).expect("decodes");
         assert_eq!(rt.to_canonical_json(), two, "byte layout moved");
@@ -1221,13 +1183,7 @@ mod tests {
                     containers: containers.clone(),
                     continues,
                 };
-                for zero in [ZeroInstance::Omit, ZeroInstance::Spell] {
-                    assert!(
-                        sorted(&line_to_value(&line, zero)),
-                        "line {:?} ({zero:?})",
-                        line.kind
-                    );
-                }
+                assert!(sorted(&line_to_value(&line)), "line {:?}", line.kind);
             }
         }
 
@@ -1280,9 +1236,7 @@ mod tests {
         }];
         rt.normalize();
         assert_eq!(rt.validate(), Ok(()));
-        for zero in [ZeroInstance::Omit, ZeroInstance::Spell] {
-            assert!(is_value_key_sorted(&rt.to_value(zero)), "{zero:?}");
-        }
+        assert!(is_value_key_sorted(&rt.to_value()));
     }
 
     #[test]

@@ -20,7 +20,7 @@ Placement decides where a mutation verb lives, in one sentence:
 
 > **If a verb needs a schema, it lives on the writer. `Document` is quill-free data.**
 
-`quill.writer(doc)` (mirroring core's `quill.writer(&mut doc)`) is the one schema-bound door: bare `set` / `set_all` / `reviseBody` / `reviseField` / `addCard` / `card(i)`, names and markdown in, diagnostics out. It resolves each field's type from the bound quill, so a name the schema does not declare is a typo (`UnknownField`), not a fallback.
+`quill.writer(doc)` (mirroring core's `quill.writer(&mut doc)`) is the one schema-bound door: bare `set` / `set_all` / `reviseBody` / `reviseField` / `addCard` / `removeCard` / `card(i)`, names and markdown in, diagnostics out. It resolves each field's type from the bound quill, so a name the schema does not declare is a typo (`UnknownField`), not a fallback.
 
 `Document` holds everything quill-free: the opaque `store*` primitive (verbatim, coercion deferred to render) and the addressed content lane: `overwrite` / `revise` / `applyChange` plus the `importMarkdown` / `exportMarkdown` / `rebase` / `mapPos` / `mapMarks` codec: which navigate by `Addr` and return `Delta` receipts but never consult a schema. **Transport** reads (`getStored` / `isFill` / `getExt`) return the stored value verbatim, need no schema, and sit on `Document` too.
 
@@ -40,20 +40,9 @@ A field whose type tree bears no content leaf is outside the walk, so conform is
 
 Decoding needs the schema and not the payload: a `richtext` string is markdown and a `plaintext` string is literal text, so the same stored bytes decode two ways and only the declared type says which. That is why the `Content` read binds the quill instead of sitting beside `getStored`: a quill-free version would guess a codec, and would guess markdown.
 
-**A `Content`-typed read is also a write input, so the seam spells every `Container.instance`.** Storage omits a zero, since a row written before the field existed then re-encodes byte for byte ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Container identity").
+**A `Content`-typed read is also a write input, so it answers in the one canonical form.** That form omits a zero `Container.instance`, since a row written before the field existed then re-encodes byte for byte ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Container identity"). Every lane carries it: `reader.getContent{,At}`, `getStored` on a body, `importMarkdown`, `rebase`, and the `Card` wire behind `document.main` / `cards` / `card(i)` / `removeCard` / `seedMain` / `seedCard`. `getStored` on a field and `payloadItems` carry the same form, echoed unread, which is why both are typed `unknown`.
 
-A read inheriting that omission cannot be typed with the field required. That left `overwrite(addr, importMarkdown(md))` and `CardInput.body` unable to report a container path missing the discriminator its writer owes.
-
-Which form a lane carries follows its declared type, not its direction:
-
-| Form | Lanes |
-|---|---|
-| Seam: every `instance` spelled | `reader.getContent{,At}`, `getStored` on a body, `importMarkdown`, `rebase`, and the `Card` wire behind `document.main` / `cards` / `card(i)` / `removeCard` / `seedMain` / `seedCard` |
-| Storage: a zero omitted | `getStored` on a field, `payloadItems` — the stored bytes verbatim, which is why both are typed `unknown` |
-
-The two forms decode identically.
-
-Required is not correct. A checker reports a container that omits the field; it cannot report a `0` stamped on every run, which is the write that welds them. `assignInstances` is the rule, not the type.
+`instance` is therefore optional on the read type, and a write takes either spelling. Required would not have bought correctness anyway: a checker reports a container that omits the field; it cannot report a `0` stamped on every run, which is the write that welds them. `assignInstances` is the rule, not the type.
 
 A field's markdown lives here: `Document.bodyMarkdown` is **body-only** (it takes a `CardAddr`; a present `field` throws), and the quill-free **body** projection stays on `Document` (a body's type is a format fact, not a schema fact, so `reader.bodyMarkdown` mirrors it rather than gating it on the schema). One name for one projection, on every surface: core's `Card::body_markdown`, `doc.bodyMarkdown`, `reader.bodyMarkdown`. The placement rule generalizes: *a verb that needs a schema lives on the writer (writes) or the view (reads); `Document` is quill-free data.*
 
@@ -99,7 +88,7 @@ The body verbs follow from the same rule rather than from a separate one. `write
 
 **`equals` is the change gate.** A consumer driving a live preview gates `update` on structural equality against a retained clone: `if (doc.equals(last)) return; last = doc.clone()`. It covers the document the consumer did not mutate itself: one swapped in from storage, or written through a writer held elsewhere. `toStored` is byte-deterministic within a schema version, for a consumer that prefers a hashed gate.
 
-**No revision counter.** Neither `Document` nor the session carries one ([PREVIEW.md](PREVIEW.md)). Equality answers whether this is the content last compiled. A counter answers only whether something was written, so it re-applies on a load that is content-identical to the live compile. Core cannot back one regardless: `main_mut` / `cards_mut` hand out raw `&mut`, so no bump site sees every write.
+**No revision counter.** Neither `Document` nor the session carries one ([PREVIEW.md](PREVIEW.md)). Equality answers whether this is the content last compiled. A counter answers only whether something was written, so it re-applies on a load that is content-identical to the live compile. `main_mut` / `card_mut` hand out a `CardMut`, which is a place a bump could sit — the decision rests on what the counter would answer, not on where it could be stamped.
 
 **Writers and card cursors are ephemeral: bind, write, discard.** They hold an address (the quill + document, or an index), never a cache; every call reads through the document, so a `removeCard` / `addCard` between binding a cursor and writing through it silently retargets it. A caller whose cards move re-resolves the index at write time ([PROGRAMMATIC.md](PROGRAMMATIC.md)).
 

@@ -39,7 +39,7 @@ pub fn blank(field: &FieldSchema) -> QuillValue {
         // The empty content, not `""`: the seam carries canonical Content-JSON.
         // It is single-`Para`, so it satisfies `inline` and is `plain`.
         FieldType::RichText { .. } | FieldType::PlainText { .. } => {
-            quillmark_content::serial::to_canonical_value(&quillmark_content::Normalized::empty())
+            quillmark_content::serial::to_canonical_value(&quillmark_content::model::Normalized::empty())
         }
         // String, Date, DateTime and an `enum`, whose blank every domain
         // admits: a date's `""` lowers to Typst `none`.

@@ -32,7 +32,75 @@
   loop (`spec_conformance_probe` pins the cap, and now the width it admits) and
   the three `1..20`-deep markdown loops, which approach no boundary —
   `MAX_NESTING_DEPTH` is 100, and content pins that.
-
+- refactor(content)!: **every `quillmark-content` item is named at the module
+  that defines it.** The crate declared its ten modules `pub` and re-exported 34
+  of their items at the root, so `quillmark_content::Delta` and
+  `quillmark_content::delta::Delta` both resolved and first-party callers used
+  both; neither spelling was the one a reader could rely on seeing. The root
+  re-exports go and the modules stay public, which leaves Rust's own rule as the
+  whole of it: an item is reachable where it is defined. `MAX_NESTING_DEPTH` and
+  `MAX_JSON_DEPTH` keep their root spelling, the crate root being where they are
+  defined. Every removed path is an unresolved import, so the compiler names each
+  site; the names `quillmark-core` re-exports keep their core spellings, so a
+  consumer on core or on the `quillmark` facade has nothing to do, and no binding
+  surface moves. Closes #1755.
+- refactor(core): **`ParseError::code` is the one variant-to-code match.**
+  `code()` joins the three siblings that already carry the same
+  `fn code(&self) -> &'static str` — `EditError`, `ValidationError`,
+  `WireError` — and `to_diagnostic` reads it rather than spelling a second
+  nine-arm table beside `args()`. What is left there is a two-arm decoration
+  match over the only variants carrying a hint or a location. Refs #1748.
+- refactor(core)!: **the raw-plate test seam is `#[doc(hidden)]`, not a cargo
+  feature.** `internal-test-seam` gated one method,
+  `LiveSession::update_data`, and the crate's `[features]` table held nothing
+  else; both go, and the method compiles into every build. A cargo feature is
+  public surface itself — crates.io and docs.rs advertise it — so the gate moved
+  the opt-in from a source read to a `Cargo.toml` line rather than removing it,
+  and the callable-vs-not difference it bought is already given away next door:
+  `LiveSession::new` and `SessionHandle` are `#[doc(hidden)] pub` in every
+  build, and a session assembled through them reaches the same unchecked
+  `update`. The typst backend's dev-dependency on core carried the feature and
+  nothing else, so it goes too; `[dependencies]` already names core, which is
+  what its acceptance tests link. Refs #1748.
+- refactor(core,typst,wasm,python)!: **a diagnostic carries its cause in the
+  message.** `Diagnostic::source_chain` and the `with_source` builder that
+  filled it are gone, and with them JS `Diagnostic.sourceChain` and Python
+  `Diagnostic.source_chain`. One code ever filled the field:
+  `typst::world_creation`, whose boxed cause is a `String` whose `source()` is
+  `None`, so the chain was a one-element array holding the text its own message
+  already ends with — and `skip_serializing_if` omitted the field from every
+  other diagnostic. No formatter read it: `fmt_pretty` covers severity, message,
+  code, location and hint, so the CLI's output and Python's `str(diagnostic)`
+  are byte-identical. A Rust caller attaching a cause interpolates it into the
+  message, which is what `RenderError::coded` already does at the one call site.
+  Refs #1748.
+- fix(core)!: **a field write past the §8 field count is refused at the write.**
+  `Card::store_field` validated a field's name and its value's depth and left the
+  card's field count to the parser and the two storage doors, so a program could
+  build a card past `MAX_FIELD_COUNT` (1000) through `storeField` / `storeFill` /
+  `storeFields`, the typed `set` / `set_all` / `addCard`, or `revise` /
+  `overwrite` on an absent field — and learn of it only at `toMarkdown`,
+  `toStored`, or the card wire, each of which refused what the API had taken.
+  Every field write funnels through one `Payload::insert` that holds the count,
+  so an append past the cap is `edit::invalid_payload` carrying
+  `PayloadViolation::TooManyFields` — the code the wire already mints for this
+  violation — anchored at the card that is full. A replace is not a growth and
+  still lands. The batches charge the count over the whole batch and report one
+  diagnostic per name in the overflowing tail, applying none of themselves.
+  Closes #1750.
+- fix(core)!: **a placed card is reached as a `CardMut`, not a `&mut Card`.**
+  `main_mut` / `card_mut` / `cards_mut` handed out `&mut Card`, so a whole-card
+  assignment wrote past every gate that polices placement:
+  `*doc.card_mut(0).unwrap() = doc.main().clone()` put `$quill` and `$seed` on a
+  composable card that `push_card` refuses, and `*doc.main_mut() =
+  Card::new("note")?` took `$quill` off the root, which `quill_reference`
+  `expect`s present — a release panic on the next bound door. `main_mut` and
+  `card_mut` return `CardMut`, which forwards every `&mut self` verb `Card`
+  carries and `Deref`s for the reads with no `DerefMut`, so a chained call
+  compiles unchanged and the assignment does not compile at all. `cards_mut` is
+  withdrawn: `move_card` / `remove_card` / `insert_card` are the slice ops and
+  `cards` / `card` the reads. No binding surface exposed a `&mut Card`.
+  Closes #1750.
 - fix(pdf): **a stamped checkbox's `/DA` names ZapfDingbats.** `stamp` wrote a
   checkbox's `/MK /CA (4)` caption and no `/DA`, so the widget inherited the
   form-level `/Helv 0 Tf 0 g` and nothing registered the face the glyph lives
@@ -67,6 +135,24 @@
   with `saturating_add`, as `expected_base_len` already did: a run past
   `usize::MAX` describes a base longer than any content, and a position lands
   inside it as it would in a bounded one. Closes #1782.
+- refactor(content,wasm,python)!: **one canonical content form, a zero
+  `Container.instance` omitted.** Canonical JSON had two byte forms differing
+  only in whether a zero `instance` was written: storage omitted it, so a row
+  written before the field existed re-encodes byte for byte, and a second
+  encoder spelled it on every container so the published `ContentContainer`
+  type could require the field. Required bought no correctness — a checker
+  reports an omitted field, never the `0` stamped on two runs that welds them,
+  which is what `assignInstances` is for — and it cost a spelling a host had to
+  tell apart from the one storage holds. `serial::to_seam_value` goes;
+  `to_canonical_value` is the one encoder, and every `Content`-typed read
+  answers in it: `getContent{,At}`, `getStored` on a body, `importMarkdown`,
+  `rebase`, and the `Card` wire. TypeScript spells `instance?: number` on both
+  arms, and an absent key decodes to `0` as the spelled one did, so every write
+  takes either spelling and no stored byte moves. A host reading the key off a
+  read finds `undefined` where it found `0`: the break no type checker reports.
+  `emit`'s markdown projection of a content-valued field now matches one form
+  rather than two, so a value carrying a spelled zero stays a structural
+  mapping until it is conformed. Closes #1648.
 - refactor(pdfform)!: **`quillmark-pdfform` is `quillmark-acroform`, backend id
   included.** `quillmark-pdf` and `quillmark-pdfform` differed by four
   characters and read as prefix-and-specialization, the reading #1749 records:

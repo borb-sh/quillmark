@@ -4,8 +4,7 @@
 //! member is a compile error here, where the mirror gets read.
 
 use quillmark_content::island::IslandType;
-use quillmark_content::model::{LineKind, MarkKind};
-use quillmark_content::{Container, Loss};
+use quillmark_content::model::{Container, LineKind, Loss, MarkKind};
 use quillmark_core::quill::VARIANT_DISCRIMINANT_KEY;
 
 const RUNTIME_JS: &str = include_str!("../runtime/runtime.js");

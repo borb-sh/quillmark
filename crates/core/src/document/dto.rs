@@ -15,7 +15,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use quillmark_content::Normalized;
+use quillmark_content::model::Normalized;
 
 use super::meta::validate_composable_kind;
 use super::payload::{MetaKey, Payload, PayloadItem};

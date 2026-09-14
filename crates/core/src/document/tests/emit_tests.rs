@@ -214,7 +214,7 @@ fn empty_map_emits_inline_braces() {
     let mut p = Payload::from_index_map(payload);
     p.set_quill("test".parse().unwrap());
     p.set_kind("main");
-    let main = Card::from_parts(p, quillmark_content::Normalized::empty());
+    let main = Card::from_parts(p, quillmark_content::model::Normalized::empty());
     let doc = crate::document::Document::from_main_and_cards(main, vec![]);
 
     let md = doc.to_markdown();
@@ -255,7 +255,7 @@ fn nested_map_keys_with_structural_chars_emit_valid_yaml() {
     let mut p = Payload::from_index_map(payload);
     p.set_quill("test".parse().unwrap());
     p.set_kind("main");
-    let main = Card::from_parts(p, quillmark_content::Normalized::empty());
+    let main = Card::from_parts(p, quillmark_content::model::Normalized::empty());
     let doc = Document::from_main_and_cards(main, vec![]);
 
     let md = doc.to_markdown();
@@ -340,7 +340,7 @@ fn an_indented_plaintext_field_survives_emit_and_reparse() {
     use indexmap::IndexMap;
 
     let text = "    indented\nplain\ntrailing   ";
-    let content = quillmark_content::from_plaintext(text);
+    let content = quillmark_content::import::from_plaintext(text);
 
     let mut payload: IndexMap<String, QuillValue> = IndexMap::new();
     payload.insert(
@@ -350,7 +350,7 @@ fn an_indented_plaintext_field_survives_emit_and_reparse() {
     let mut p = Payload::from_index_map(payload);
     p.set_quill("test".parse().unwrap());
     p.set_kind("main");
-    let main = Card::from_parts(p, quillmark_content::Normalized::empty());
+    let main = Card::from_parts(p, quillmark_content::model::Normalized::empty());
 
     let md = Document::from_main_and_cards(main, vec![]).to_markdown();
     let back = Document::parse(&md).expect("re-parses").document;
@@ -361,7 +361,7 @@ fn an_indented_plaintext_field_survives_emit_and_reparse() {
         .and_then(|v| v.as_str())
         .expect("the field projected to a markdown string");
     assert_eq!(
-        quillmark_content::from_markdown(projected)
+        quillmark_content::import::from_markdown(projected)
             .expect("the projection re-imports")
             .text,
         text,
@@ -369,28 +369,38 @@ fn an_indented_plaintext_field_survives_emit_and_reparse() {
     );
 }
 
-/// `store_field` keeps what it is handed, so both canonical forms rest here and
-/// the projection guard is byte identity against either.
+/// The projection guard is byte identity against the canonical form, so a
+/// content object spelling a zero `instance` stays structural: it decodes to the
+/// same value and re-encodes to different bytes.
 #[test]
-fn a_seam_form_field_projects_to_markdown_like_a_stored_one() {
+fn only_the_canonical_spelling_of_a_content_field_projects_to_markdown() {
     use crate::document::{Card, Payload};
     use crate::value::QuillValue;
     use indexmap::IndexMap;
 
-    let content = quillmark_content::from_markdown("> quoted").unwrap();
-    let storage = quillmark_content::serial::to_canonical_value(&content);
-    let seam = quillmark_content::serial::to_seam_value(&content);
-    assert_ne!(storage, seam, "the forms must differ for this to test anything");
+    let content = quillmark_content::import::from_markdown("> quoted").unwrap();
+    let canonical = quillmark_content::serial::to_canonical_value(&content);
+    let mut spelled = canonical.clone();
+    spelled["lines"][0]["containers"][0]["instance"] = serde_json::json!(0);
 
     let mut payload: IndexMap<String, QuillValue> = IndexMap::new();
-    payload.insert("stored".to_string(), QuillValue::from_json(storage));
-    payload.insert("read_back".to_string(), QuillValue::from_json(seam));
+    payload.insert("stored".to_string(), QuillValue::from_json(canonical));
+    payload.insert("spelled".to_string(), QuillValue::from_json(spelled));
     let mut p = Payload::from_index_map(payload);
     p.set_quill("test".parse().unwrap());
     p.set_kind("main");
-    let main = Card::from_parts(p, quillmark_content::Normalized::empty());
+    let main = Card::from_parts(p, quillmark_content::model::Normalized::empty());
 
     let md = Document::from_main_and_cards(main, vec![]).to_markdown();
     assert!(md.contains(r#"stored: "> quoted""#), "got:\n{md}");
-    assert!(md.contains(r#"read_back: "> quoted""#), "got:\n{md}");
+
+    // Structural rather than markdown, and it survives the round trip either
+    // way: the spelled key is still there to be conformed away.
+    let back = Document::parse(&md).expect("re-parses").document;
+    let spelled = back.main().payload().get("spelled").expect("field survives");
+    assert_eq!(
+        spelled.as_json()["lines"][0]["containers"][0]["instance"],
+        serde_json::json!(0),
+        "got:\n{md}"
+    );
 }

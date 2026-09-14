@@ -23,7 +23,7 @@
 
 pub mod document;
 pub use document::{
-    Card, CardWire, Document, EditError, Parsed, Payload, PayloadItem, PayloadItemWire,
+    Card, CardMut, CardWire, Document, EditError, Parsed, Payload, PayloadItem, PayloadItemWire,
     SeedOverlay, WireError,
 };
 
@@ -59,7 +59,7 @@ pub use session::{
 };
 
 /// The canonical content model, the pre-built value the document mutators accept.
-pub use quillmark_content::Content;
+pub use quillmark_content::model::Content;
 
 pub mod quill;
 pub use quill::{

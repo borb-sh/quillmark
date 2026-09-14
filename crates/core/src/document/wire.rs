@@ -21,7 +21,7 @@ use crate::error::diag_args;
 use crate::value::{PathSegment, QuillValue};
 use crate::version::QuillReference;
 use crate::{Diagnostic, Severity};
-use quillmark_content::Normalized;
+use quillmark_content::model::Normalized;
 
 /// One entry in a [`CardWire`]'s `payload_items`: a user field or a comment.
 /// The `$` system entries are hoisted onto [`CardWire`] itself, never here.
@@ -86,11 +86,9 @@ pub struct CardWire {
     /// when absent. A markdown string is also accepted on input (imported), so an
     /// LLM/markdown writer can hand a string here.
     ///
-    /// The **seam** form (`serial::to_seam_value`): this wire is a binding read
-    /// that is also a binding write input, so every `Container::instance` is
-    /// spelled and the read type can require it. `payload_items` stays in the
-    /// storage form: verbatim is its contract, and is why the binding types it
-    /// `unknown`.
+    /// The canonical form (`serial::to_canonical_value`), a zero
+    /// `Container::instance` omitted. `payload_items` carries the stored bytes
+    /// verbatim, which is its contract and why the binding types it `unknown`.
     ///
     /// No `body_markdown` projection rides this wire: delimiter safety makes
     /// `to_markdown` re-parse every rendered line, so the `exportMarkdown(body)`
@@ -161,7 +159,7 @@ impl From<&Card> for CardWire {
             ext: None,
             seed: None,
             payload_items: Vec::new(),
-            body: quillmark_content::serial::to_seam_value(card.body()),
+            body: quillmark_content::serial::to_canonical_value(card.body()),
         };
         for item in card.payload().items() {
             match item {
@@ -295,7 +293,7 @@ mod tests {
             value: addr,
             fill: false,
         }]);
-        let card = Card::from_parts(payload, quillmark_content::Normalized::empty());
+        let card = Card::from_parts(payload, quillmark_content::model::Normalized::empty());
 
         let wire = CardWire::from(&card);
         let as_json = serde_json::to_value(&wire).unwrap();
@@ -330,7 +328,7 @@ mod tests {
         }]);
         let wire = CardWire::from(&Card::from_parts(
             payload,
-            quillmark_content::Normalized::empty(),
+            quillmark_content::model::Normalized::empty(),
         ));
 
         let as_json = serde_json::to_value(&wire).unwrap();
@@ -438,7 +436,7 @@ mod tests {
         let mut payload = Payload::from_index_map(Default::default());
         payload.set_quill("memo@1.2.3".parse().unwrap());
         payload.set_kind("main");
-        let card = Card::from_parts(payload, quillmark_content::Normalized::empty());
+        let card = Card::from_parts(payload, quillmark_content::model::Normalized::empty());
 
         let wire = CardWire::from(&card);
         assert_eq!(wire.quill.as_deref(), Some("memo@1.2.3"));
@@ -539,7 +537,7 @@ mod tests {
 
         assert_eq!(
             with_body(JsonValue::Null).unwrap().body(),
-            &quillmark_content::Normalized::empty()
+            &quillmark_content::model::Normalized::empty()
         );
         assert_eq!(
             Codec::Richtext.project(with_body(json!("hi *there*")).unwrap().body()),

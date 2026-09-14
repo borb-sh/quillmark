@@ -612,13 +612,13 @@ impl PyDocument {
 }
 
 impl PyDocument {
-    fn card_mut_or_raise(&mut self, index: isize) -> PyResult<&mut quillmark_core::Card> {
+    fn card_mut_or_raise(&mut self, index: isize) -> PyResult<quillmark_core::CardMut<'_>> {
         let len = self.inner.cards().len();
         let index = card_index(index, len)?;
         self.inner.card_mut(index).ok_or_else(|| index_error(index, len))
     }
 
-    fn addr_card_mut(&mut self, card: Option<isize>) -> PyResult<&mut quillmark_core::Card> {
+    fn addr_card_mut(&mut self, card: Option<isize>) -> PyResult<quillmark_core::CardMut<'_>> {
         match card {
             None => Ok(self.inner.main_mut()),
             Some(index) => self.card_mut_or_raise(index),
@@ -1167,11 +1167,6 @@ impl PyDiagnostic {
         self.inner.path.as_deref()
     }
 
-    #[getter]
-    fn source_chain(&self) -> Vec<String> {
-        self.inner.source_chain.clone()
-    }
-
     /// The facts `message` interpolates, keyed by name. With `code`, enough to
     /// word this diagnostic in another language.
     #[getter]
@@ -1252,13 +1247,13 @@ fn path_from_py(path: &Bound<'_, PyAny>, ctx: &str) -> PyResult<Vec<quillmark::P
 
 fn content_to_py<'py>(
     py: Python<'py>,
-    content: Option<quillmark_content::Normalized>,
+    content: Option<quillmark_content::model::Normalized>,
 ) -> PyResult<Option<Bound<'py, PyAny>>> {
     match content {
         None => Ok(None),
         Some(content) => Ok(Some(json_to_py(
             py,
-            &quillmark_content::serial::to_seam_value(&content),
+            &quillmark_content::serial::to_canonical_value(&content),
         )?)),
     }
 }

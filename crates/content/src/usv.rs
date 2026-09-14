@@ -1,4 +1,4 @@
-//! USV → UTF-8 byte conversion: [`Content`](crate::Content) positions count
+//! USV → UTF-8 byte conversion: [`Content`](crate::model::Content) positions count
 //! Unicode scalar values, Rust slicing needs byte offsets.
 
 /// USV index → UTF-8 byte offset into `text`. Saturates to `text.len()` for an

@@ -249,11 +249,12 @@ projection spells the same boundary with the idiom CommonMark already reads: a
 change of bullet char (`-`/`+`) or of ordered delimiter (`.`/`)`) for lists, the
 blank line for quotes.
 
-The omission is storage's alone. A binding read is also a binding write input,
-so the seam encoder (`serial::to_seam_value`) spells the field on every
-container, which is what lets a binding's read type require it
-([BINDINGS.md](BINDINGS.md)). The two forms decode to one value; only storage
-buys byte-stability with the omission.
+The omission is every encoder's, storage and the binding seam alike
+(`serial::to_canonical_value` is the only one). A spelled zero decodes to the
+same value, so a producer holding an older read writes it straight back; it is
+just not what an encoder emits, which is what keeps the byte-stability above
+unconditional. A binding's read type therefore spells `instance` optional
+([BINDINGS.md](BINDINGS.md)).
 
 **A new container owes its projections a separator.** `instance` makes the
 boundary storable; it does not make it *writable*. A container whose Markdown

@@ -144,7 +144,7 @@ fn test_document_remove_card() {
 fn test_document_card_mut() {
     let mut doc = make_doc_with_cards();
     {
-        let card = doc.card_mut(0).unwrap();
+        let mut card = doc.card_mut(0).unwrap();
         card.revise_body("Updated card body.").unwrap();
     }
     assert_eq!(doc.cards()[0].body_markdown(), "Updated card body.");
@@ -377,7 +377,7 @@ fn test_store_field_scalar_conversions() {
 #[test]
 fn test_card_remove_field_existing() {
     let mut doc = make_doc_with_cards();
-    let card = doc.card_mut(0).unwrap();
+    let mut card = doc.card_mut(0).unwrap();
     let removed = card.remove_field("foo").unwrap();
     assert_eq!(removed.unwrap().as_str(), Some("bar"));
     assert!(card.payload().get("foo").is_none());
@@ -435,7 +435,7 @@ fn test_overwrite_field_sets_directly() {
     assert!(read.marks.iter().any(|m| matches!(m.kind, MarkKind::Underline)));
 
     assert_eq!(
-        card.overwrite_field("$bad", quillmark_content::Normalized::empty())
+        card.overwrite_field("$bad", quillmark_content::model::Normalized::empty())
             .unwrap_err()
             .code(),
         "edit::invalid_field_name"
@@ -691,7 +691,7 @@ fn test_field_content_absent_and_non_content() {
 fn test_content_field_emits_as_markdown_projection() {
     let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
     commit_richtext(
-        doc.main_mut(),
+        doc.main_card_mut(),
         "intro",
         &serde_json::json!("**bold** intro"),
         false,
@@ -891,7 +891,7 @@ fn test_apply_field_change_treats_an_absent_field_as_empty() {
     assert_eq!(card.field_text("intro", Codec::Richtext).unwrap().unwrap(), "");
 
     let stale = ChangeBundle {
-        delta: quillmark_content::Delta {
+        delta: quillmark_content::delta::Delta {
             ops: vec![quillmark_content::delta::Op::Retain(4)],
         },
         ..ChangeBundle::default()
@@ -1332,4 +1332,154 @@ fn every_ingestion_boundary_renders_its_violation_text() {
         storage_err.to_string().contains(&expected),
         "storage: {storage_err}"
     );
+}
+
+/// The §8 field count is the payload's own invariant, so the write doors hold
+/// it where a caller holding one `(name, value)` pair cannot: a card filled to
+/// the cap refuses a new field at the call, and what it already carries still
+/// passes the exits that would have reported it.
+#[test]
+fn a_field_write_past_the_count_is_refused_at_the_write() {
+    use crate::document::edit::{validate_payload, PayloadViolation};
+    use quillmark_content::model::Normalized;
+
+    let max = crate::error::MAX_FIELD_COUNT;
+    let names: Vec<String> = (0..max).map(|i| format!("f{i}")).collect();
+    let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
+    doc.main_mut()
+        .store_fields(names.iter().map(|n| (n.as_str(), qv("v"))))
+        .expect("a batch that fills the card exactly to the cap lands");
+    assert_eq!(doc.main().payload().len(), max);
+
+    doc.main_mut()
+        .store_field("f0", qv("replaced"))
+        .expect("a replace is not a growth");
+
+    let mut refused = Vec::new();
+    refused.push(doc.main_mut().store_field("late", qv("v")).unwrap_err());
+    refused.push(doc.main_mut().store_fill("late", qv("v")).unwrap_err());
+    refused.push(doc.main_mut().revise_field("late", "text").unwrap_err());
+    refused.push(
+        doc.main_mut()
+            .overwrite_field("late", Normalized::empty())
+            .unwrap_err(),
+    );
+    refused.push(
+        commit_richtext(doc.main_card_mut(), "late", &serde_json::json!("v"), false).unwrap_err(),
+    );
+    for err in refused {
+        assert_eq!(err.code(), "edit::invalid_payload");
+        assert!(
+            matches!(
+                err,
+                EditError::InvalidPayload(PayloadViolation::TooManyFields { count, max: m })
+                    if count == max + 1 && m == max
+            ),
+            "{err:?}"
+        );
+    }
+
+    assert_eq!(doc.main().payload().len(), max);
+    validate_payload(doc.main().payload()).expect("the storage exits take what the writes built");
+    let _ = Document::parse(&doc.to_markdown()).expect("the markdown it emits reparses");
+}
+
+/// A batch charges the count over the batch rather than per call, so it names
+/// every field past the cap and applies none of itself.
+#[test]
+fn a_batch_past_the_count_names_its_overflowing_tail() {
+    let max = crate::error::MAX_FIELD_COUNT;
+    let names: Vec<String> = (0..max - 1).map(|i| format!("f{i}")).collect();
+    let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
+    doc.main_mut()
+        .store_fields(names.iter().map(|n| (n.as_str(), qv("v"))))
+        .expect("one slot short of the cap");
+
+    let errs = doc
+        .main_mut()
+        .store_fields([
+            ("f0", qv("replaced")),
+            ("a", qv("v")),
+            ("b", qv("v")),
+            ("c", qv("v")),
+        ])
+        .unwrap_err();
+    assert_eq!(
+        errs.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(),
+        ["b", "c"],
+        "a present name is a replace, and `a` takes the last slot"
+    );
+    assert!(errs.iter().all(|(_, e)| e.code() == "edit::invalid_payload"));
+
+    assert_eq!(doc.main().payload().len(), max - 1);
+    assert_eq!(doc.main().payload().get("f0").unwrap().as_str(), Some("v"));
+}
+
+/// [`CardMut`](crate::CardMut) is the whole mutable surface of a placed card,
+/// and no verb on it carries a card between the root and composable roles: the
+/// root keeps `$quill`, and no composable card gains `$quill` or `$seed`. A
+/// `&mut Card` would let one whole-card assignment do all three at once, past
+/// every gate that polices placement.
+#[test]
+fn no_verb_on_a_placed_card_moves_it_between_roles() {
+    use crate::document::CardMut;
+    use crate::quill::{FieldSchema, FieldType};
+    use quillmark_content::{model::Normalized, ops::ChangeBundle};
+
+    fn richtext() -> FieldSchema {
+        FieldSchema::new("f".to_string(), FieldType::RichText { inline: false }, None)
+    }
+    fn ignore<T, E>(_: Result<T, E>) {}
+
+    let verbs: [(&str, fn(&mut CardMut<'_>)); 16] = [
+        ("store_field", |c| ignore(c.store_field("f", qv("v")))),
+        ("store_fill", |c| ignore(c.store_fill("g", qv("v")))),
+        ("store_fields", |c| ignore(c.store_fields([("h", qv("v"))]))),
+        ("remove_field", |c| ignore(c.remove_field("f"))),
+        ("store_ext", |c| ignore(c.store_ext(serde_json::Map::new()))),
+        ("remove_ext", |c| {
+            c.remove_ext();
+        }),
+        ("store_seed_overlay", |c| {
+            ignore(c.store_seed_overlay("note", serde_json::json!({ "f": "v" })))
+        }),
+        ("remove_seed_overlay", |c| {
+            c.remove_seed_overlay("note");
+        }),
+        ("overwrite_body", |c| c.overwrite_body(Normalized::empty())),
+        ("overwrite_field", |c| {
+            ignore(c.overwrite_field("f", Normalized::empty()))
+        }),
+        ("revise_body", |c| ignore(c.revise_body("body"))),
+        ("revise_field", |c| ignore(c.revise_field("f", "text"))),
+        ("apply_body_change", |c| {
+            ignore(c.apply_body_change(&ChangeBundle::default()))
+        }),
+        ("apply_field_change", |c| {
+            ignore(c.apply_field_change("f", &ChangeBundle::default()))
+        }),
+        ("commit_field", |c| {
+            ignore(c.commit_field("f", qv("v"), &richtext()))
+        }),
+        ("revise_field_checked", |c| {
+            ignore(c.revise_field_checked("f", "text", &richtext()))
+        }),
+    ];
+
+    for (verb_name, verb) in verbs {
+        let mut doc = make_doc_with_cards();
+        verb(&mut doc.main_mut());
+        verb(&mut doc.card_mut(0).unwrap());
+        assert!(
+            doc.main().quill().is_some(),
+            "{verb_name} took `$quill` off the root"
+        );
+        assert!(
+            doc.cards()
+                .iter()
+                .all(|c| c.quill().is_none() && c.seed().is_none()),
+            "{verb_name} put a root-only entry on a composable card"
+        );
+        let _ = doc.quill_reference();
+    }
 }

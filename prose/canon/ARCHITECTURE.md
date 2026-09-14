@@ -49,10 +49,9 @@ primitive one layer below it) and on no backend; backends depend on it.
 
 The leaf rich-text primitive `quillmark-core` depends on: the `Content` content
 model (one USV text with line attributes, anchored marks, embedded islands), its
-canonical byte-deterministic serialization (the frozen wire form storage, the
-render seam, and the binding seam carry, the last spelling a zero
-`Container.instance` the other two omit), the markdown⇄content import/export
-codecs, and edit deltas.
+canonical byte-deterministic serialization (the one frozen wire form storage,
+the render seam, and the binding seam all carry), the markdown⇄content
+import/export codecs, and edit deltas.
 The workspace's only markdown parser (`pulldown-cmark`) lives here, in
 `quillmark-content::import`, run once at ingest. **Invariant:** the markdown
 engine appears exactly once in the workspace; no render path parses markdown:
@@ -129,9 +128,12 @@ registers one per enabled cargo feature and nothing else registers one:
 `register_backend` is private, and the `LiveSession` `Backend::open` returns is
 built only from a `#[doc(hidden)]` `SessionHandle`.
 
-One `pub` seam exists for the workspace rather than for a crates.io consumer:
-`Backend` + `SessionHandle`, for the workspace's own backends. An
-implementation outside it has no way to reach the registry.
+Two `pub` seams exist for the workspace rather than for a crates.io consumer:
+
+| Seam | Who it is for |
+|---|---|
+| `Backend` + `SessionHandle` | The workspace's own backends; an implementation outside it has no way to reach the registry. |
+| `LiveSession::update_data` | Backend acceptance tests, which recompile below the schema layer on data the schema would refuse. |
 
 A quill declares one backend and renders through that one. Rendering a schema
 two ways is therefore two quills, with nothing keeping their field definitions

@@ -4,7 +4,7 @@
 //! `!must_fill` marker, so seeding and the blueprint stamp the same cells and a
 //! fresh seed reads as incomplete exactly where a blank document does.
 
-use quillmark_content::Normalized;
+use quillmark_content::model::Normalized;
 
 use super::Quill;
 use crate::quill::{CardSchema, FieldType, VARIANT_DISCRIMINANT_KEY};

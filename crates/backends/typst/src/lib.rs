@@ -434,13 +434,9 @@ impl Backend for TypstBackend {
         // diagnostic code survives: boxing it into the world-creation error would
         // relabel a bad date `typst::world_creation`.
         let mut world = world::QuillWorld::new(source, &plate_content).map_err(|e| {
-            RenderError::from_diag(
-                Diagnostic::new(
-                    Severity::Error,
-                    format!("Failed to create Typst compilation environment: {}", e),
-                )
-                .with_code("typst::world_creation".to_string())
-                .with_source(e.as_ref()),
+            RenderError::coded(
+                "typst::world_creation",
+                format!("Failed to create Typst compilation environment: {e}"),
             )
         })?;
         // The plate is static for the session: window its scalar sites once.
@@ -762,7 +758,7 @@ mod tests {
             );
             Quill::from_tree(FileTreeNode::Directory { files }).expect("quill")
         };
-        let counts = |rt: &quillmark_content::Normalized| {
+        let counts = |rt: &quillmark_content::model::Normalized| {
             let json =
                 serde_json::json!({ "body": quillmark_content::serial::to_canonical_value(rt) });
             let q = quill();
