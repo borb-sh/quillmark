@@ -148,9 +148,6 @@ impl Location {
 }
 
 /// Structured diagnostic information.
-///
-/// Cause chains are walked eagerly at construction, so a `Diagnostic` stays
-/// `Clone` and serializable across every binding boundary.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Diagnostic {
@@ -179,9 +176,6 @@ pub struct Diagnostic {
     /// Engine prose never rides under a key.
     #[serde(skip_serializing_if = "BTreeMap::is_empty", default)]
     pub args: BTreeMap<String, serde_json::Value>,
-    /// Flattened cause chain, outermost first. Upstream English.
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub source_chain: Vec<String>,
 }
 
 impl Diagnostic {
@@ -194,7 +188,6 @@ impl Diagnostic {
             path: None,
             hint: None,
             args: BTreeMap::new(),
-            source_chain: Vec::new(),
         }
     }
 
@@ -228,16 +221,6 @@ impl Diagnostic {
     /// an error enum's `args()`. See [`Self::args`].
     pub fn with_arg(mut self, key: &str, value: serde_json::Value) -> Self {
         self.args.insert(key.to_string(), value);
-        self
-    }
-
-    /// Walk `source`'s cause chain eagerly into [`Self::source_chain`].
-    pub fn with_source(mut self, source: &(dyn std::error::Error + 'static)) -> Self {
-        let mut current: Option<&(dyn std::error::Error + 'static)> = Some(source);
-        while let Some(err) = current {
-            self.source_chain.push(err.to_string());
-            current = err.source();
-        }
         self
     }
 
@@ -577,16 +560,6 @@ mod tests {
         for err in super::parse_error_samples() {
             assert_eq!(err.to_diagnostic().message, err.to_string(), "{err:?}");
         }
-    }
-
-    #[test]
-    fn test_diagnostic_with_source_chain() {
-        let root_err = std::io::Error::new(std::io::ErrorKind::NotFound, "File not found");
-        let diag =
-            Diagnostic::new(Severity::Error, "Rendering failed".to_string()).with_source(&root_err);
-
-        assert_eq!(diag.source_chain.len(), 1);
-        assert!(diag.source_chain[0].contains("File not found"));
     }
 
     #[test]

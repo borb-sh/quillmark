@@ -20,7 +20,7 @@ severity.
 
 **`Location`**: file name, line (1-indexed), column (1-indexed)
 
-**`Diagnostic`**: severity, optional error `code`, `message`, optional `location` (text anchor: file/line/column), optional `path` (document-model anchor, dotted/bracketed path into the typed `Document`, set by schema validation/coercion), optional `hint`, `source_chain` (omitted from serialization when empty). `location` and `path` are independent and may co-exist.
+**`Diagnostic`**: severity, optional error `code`, `message`, optional `location` (text anchor: file/line/column), optional `path` (document-model anchor, dotted/bracketed path into the typed `Document`, set by schema validation/coercion), optional `hint`. `location` and `path` are independent and may co-exist.
 
 **`ParseError`**: parsing-stage error enum, `InputTooLarge`, `TooManyFields`, `TooManyCards`, `InvalidStructure`, `EmptyInput`, `MissingQuill`, `InvalidQuillReference`, `BodyImport`, `YamlErrorWithLocation`; converts to `Diagnostic` via `to_diagnostic()`. The `InvalidQuillReference` case (`parse::invalid_quill_reference`) attaches the canonical `$quill` grammar (`quill_ref_hint()`) as the diagnostic hint. That hint is the single source of truth for the reference grammar: bindings surface it verbatim (e.g. WASM `Document.quillRefHint`) rather than re-stating the rule.
 
@@ -438,8 +438,6 @@ Because those codes carry no args, every consumer template falls back on them by
   --> template.typ:10:5
   hint: Check variable spelling
 ```
-
-**Source chain**: `with_source` walks an attached cause eagerly into `source_chain`. No Rust formatter prints it: `fmt_pretty` covers severity, message, code, location, and hint only. It reaches consumers through serialization instead: WASM as the `source_chain` field, Python as `Diagnostic.source_chain`.
 
 **Consolidated printing**: the CLI pretty-prints every diagnostic a `RenderError` carries, one per line, to stderr.
 

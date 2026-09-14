@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- refactor(core,typst,wasm,python)!: **a diagnostic carries its cause in the
+  message.** `Diagnostic::source_chain` and the `with_source` builder that
+  filled it are gone, and with them JS `Diagnostic.sourceChain` and Python
+  `Diagnostic.source_chain`. One code ever filled the field:
+  `typst::world_creation`, whose boxed cause is a `String` whose `source()` is
+  `None`, so the chain was a one-element array holding the text its own message
+  already ends with — and `skip_serializing_if` omitted the field from every
+  other diagnostic. No formatter read it: `fmt_pretty` covers severity, message,
+  code, location and hint, so the CLI's output and Python's `str(diagnostic)`
+  are byte-identical. A Rust caller attaching a cause interpolates it into the
+  message, which is what `RenderError::coded` already does at the one call site.
+  Refs #1748.
 - fix(pdf): **a stamped checkbox's `/DA` names ZapfDingbats.** `stamp` wrote a
   checkbox's `/MK /CA (4)` caption and no `/DA`, so the widget inherited the
   form-level `/Helv 0 Tf 0 g` and nothing registered the face the glyph lives

@@ -98,8 +98,6 @@ pub struct Diagnostic {
     #[tsify(optional, type = "Record<string, unknown>")]
     #[serde(skip_serializing_if = "std::collections::BTreeMap::is_empty", default)]
     pub args: std::collections::BTreeMap<String, serde_json::Value>,
-    #[serde(skip_serializing_if = "Vec::is_empty", default)]
-    pub source_chain: Vec<String>,
 }
 
 // tsify's default serializer emits a `Map` for a map-typed field, against
@@ -118,7 +116,6 @@ impl From<quillmark_core::Diagnostic> for Diagnostic {
             path: diag.path,
             hint: diag.hint,
             args: diag.args,
-            source_chain: diag.source_chain,
         }
     }
 }
