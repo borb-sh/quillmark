@@ -32,7 +32,6 @@
   loop (`spec_conformance_probe` pins the cap, and now the width it admits) and
   the three `1..20`-deep markdown loops, which approach no boundary —
   `MAX_NESTING_DEPTH` is 100, and content pins that.
-
 - refactor(content)!: **every `quillmark-content` item is named at the module
   that defines it.** The crate declared its ten modules `pub` and re-exported 34
   of their items at the root, so `quillmark_content::Delta` and
