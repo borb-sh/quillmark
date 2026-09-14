@@ -178,7 +178,7 @@ pub(crate) mod yaml_hints;
 pub use dto::{
     peek_storage_version, StorageError, StoredDocument, STORAGE_V0_112_0, STORAGE_V0_93_0,
 };
-pub use edit::EditError;
+pub use edit::{CardMut, EditError};
 pub use meta::{is_valid_kind_name, validate_composable_kind, CardKindError};
 pub use payload::{MetaKey, Payload, PayloadItem};
 // Reachable through `Payload::nested_comments`, so nameable from here.
@@ -397,12 +397,13 @@ impl Document {
     /// `main` must carry `$quill`; composable cards must not carry `$quill` or
     /// `$seed`.
     ///
-    /// The invariants are `debug_assert`s, so a release build accepts a main
-    /// card without `$quill` and [`quill_reference`](Self::quill_reference)
-    /// panics on it: every caller pre-validates. [`Document::new`] is the
-    /// public blank canvas, and `TryFrom<StoredDocument>` the public door for
-    /// external data, checking all three and returning
-    /// `StorageError::Malformed`.
+    /// The invariants are `debug_assert`s because no caller can break them.
+    /// This is crate-internal; every public door that places a card gates it
+    /// ([`push_card`](Self::push_card) / [`insert_card`](Self::insert_card),
+    /// [`set_card_kind`](Self::set_card_kind), parse, and
+    /// `TryFrom<StoredDocument>` for external data, which checks all three and
+    /// returns `StorageError::Malformed`), and a placed card is reachable only
+    /// as a [`CardMut`], which carries no whole-card assignment.
     pub(crate) fn from_main_and_cards(main: Card, cards: Vec<Card>) -> Self {
         debug_assert!(main.quill().is_some(), "main card must carry `$quill`");
         debug_assert!(
@@ -431,8 +432,8 @@ impl Document {
         &self.main
     }
 
-    pub fn main_mut(&mut self) -> &mut Card {
-        &mut self.main
+    pub fn main_mut(&mut self) -> CardMut<'_> {
+        CardMut::new(&mut self.main)
     }
 
     /// The root block's `$quill` reference, which parse validates present.
@@ -447,16 +448,16 @@ impl Document {
         &self.cards
     }
 
-    pub fn cards_mut(&mut self) -> &mut [Card] {
-        &mut self.cards
-    }
-
     /// A single composable card by index: the immutable twin of
     /// [`card_mut`](Document::card_mut), so reading one card's payload does not
     /// require materializing every card via [`cards`](Document::cards). `None`
     /// when out of range.
     pub fn card(&self, index: usize) -> Option<&Card> {
         self.cards.get(index)
+    }
+
+    pub(crate) fn main_card_mut(&mut self) -> &mut Card {
+        &mut self.main
     }
 
     pub(crate) fn cards_vec_mut(&mut self) -> &mut Vec<Card> {

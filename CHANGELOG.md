@@ -16,6 +16,19 @@
   still lands. The batches charge the count over the whole batch and report one
   diagnostic per name in the overflowing tail, applying none of themselves.
   Closes #1750.
+- fix(core)!: **a placed card is reached as a `CardMut`, not a `&mut Card`.**
+  `main_mut` / `card_mut` / `cards_mut` handed out `&mut Card`, so a whole-card
+  assignment wrote past every gate that polices placement:
+  `*doc.card_mut(0).unwrap() = doc.main().clone()` put `$quill` and `$seed` on a
+  composable card that `push_card` refuses, and `*doc.main_mut() =
+  Card::new("note")?` took `$quill` off the root, which `quill_reference`
+  `expect`s present — a release panic on the next bound door. `main_mut` and
+  `card_mut` return `CardMut`, which forwards every `&mut self` verb `Card`
+  carries and `Deref`s for the reads with no `DerefMut`, so a chained call
+  compiles unchanged and the assignment does not compile at all. `cards_mut` is
+  withdrawn: `move_card` / `remove_card` / `insert_card` are the slice ops and
+  `cards` / `card` the reads. No binding surface exposed a `&mut Card`.
+  Closes #1750.
 - fix(pdf): **a stamped checkbox's `/DA` names ZapfDingbats.** `stamp` wrote a
   checkbox's `/MK /CA (4)` caption and no `/DA`, so the widget inherited the
   form-level `/Helv 0 Tf 0 g` and nothing registered the face the glyph lives

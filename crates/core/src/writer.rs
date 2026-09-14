@@ -53,7 +53,7 @@ impl<'a> TypedWriter<'a> {
     /// of `Card::commit_field`.
     pub fn set(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
         let schema = Some(&self.config.main.fields);
-        commit_impl(self.doc.main_mut(), schema, name, value)
+        commit_impl(self.doc.main_card_mut(), schema, name, value)
     }
 
     /// Write several main-card fields atomically, the typed twin of
@@ -71,14 +71,14 @@ impl<'a> TypedWriter<'a> {
         I: IntoIterator<Item = (K, V)>,
     {
         let schema = Some(&self.config.main.fields);
-        set_all_impl(self.doc.main_mut(), schema, fields)
+        set_all_impl(self.doc.main_card_mut(), schema, fields)
     }
 
     /// Revise the main card's body from markdown: edit semantics, surviving
     /// anchors rebase, text [`Delta`] returned. Untyped, because a body carries
     /// no field schema to type against.
     pub fn revise_body(&mut self, markdown: &str) -> Result<Delta, EditError> {
-        self.doc.main_mut().revise_body(markdown)
+        self.doc.main_card_mut().revise_body(markdown)
     }
 
     /// Revise a content field on the main card from authored text: typed *and*
@@ -93,7 +93,7 @@ impl<'a> TypedWriter<'a> {
     /// byte no-op.
     pub fn revise_field(&mut self, name: &str, text: &str) -> Result<Delta, EditError> {
         let schema = Some(&self.config.main.fields);
-        revise_impl(self.doc.main_mut(), schema, name, text)
+        revise_impl(self.doc.main_card_mut(), schema, name, text)
     }
 
     /// Build a composable card of `kind`, typed-commit `fields` onto it,
@@ -174,7 +174,8 @@ impl<'a> CardWriter<'a> {
 
     fn card_mut(&mut self) -> &mut Card {
         self.doc
-            .card_mut(self.index)
+            .cards_vec_mut()
+            .get_mut(self.index)
             .expect("bound in range, and cards cannot move while this cursor holds the document")
     }
 

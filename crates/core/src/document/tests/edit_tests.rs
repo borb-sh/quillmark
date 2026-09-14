@@ -144,7 +144,7 @@ fn test_document_remove_card() {
 fn test_document_card_mut() {
     let mut doc = make_doc_with_cards();
     {
-        let card = doc.card_mut(0).unwrap();
+        let mut card = doc.card_mut(0).unwrap();
         card.revise_body("Updated card body.").unwrap();
     }
     assert_eq!(doc.cards()[0].body_markdown(), "Updated card body.");
@@ -377,7 +377,7 @@ fn test_store_field_scalar_conversions() {
 #[test]
 fn test_card_remove_field_existing() {
     let mut doc = make_doc_with_cards();
-    let card = doc.card_mut(0).unwrap();
+    let mut card = doc.card_mut(0).unwrap();
     let removed = card.remove_field("foo").unwrap();
     assert_eq!(removed.unwrap().as_str(), Some("bar"));
     assert!(card.payload().get("foo").is_none());
@@ -691,7 +691,7 @@ fn test_field_content_absent_and_non_content() {
 fn test_content_field_emits_as_markdown_projection() {
     let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
     commit_richtext(
-        doc.main_mut(),
+        doc.main_card_mut(),
         "intro",
         &serde_json::json!("**bold** intro"),
         false,
@@ -1365,7 +1365,7 @@ fn a_field_write_past_the_count_is_refused_at_the_write() {
             .unwrap_err(),
     );
     refused.push(
-        commit_richtext(doc.main_mut(), "late", &serde_json::json!("v"), false).unwrap_err(),
+        commit_richtext(doc.main_card_mut(), "late", &serde_json::json!("v"), false).unwrap_err(),
     );
     for err in refused {
         assert_eq!(err.code(), "edit::invalid_payload");
@@ -1413,4 +1413,73 @@ fn a_batch_past_the_count_names_its_overflowing_tail() {
 
     assert_eq!(doc.main().payload().len(), max - 1);
     assert_eq!(doc.main().payload().get("f0").unwrap().as_str(), Some("v"));
+}
+
+/// [`CardMut`](crate::CardMut) is the whole mutable surface of a placed card,
+/// and no verb on it carries a card between the root and composable roles: the
+/// root keeps `$quill`, and no composable card gains `$quill` or `$seed`. A
+/// `&mut Card` would let one whole-card assignment do all three at once, past
+/// every gate that polices placement.
+#[test]
+fn no_verb_on_a_placed_card_moves_it_between_roles() {
+    use crate::document::CardMut;
+    use crate::quill::{FieldSchema, FieldType};
+    use quillmark_content::{ChangeBundle, Normalized};
+
+    fn richtext() -> FieldSchema {
+        FieldSchema::new("f".to_string(), FieldType::RichText { inline: false }, None)
+    }
+    fn ignore<T, E>(_: Result<T, E>) {}
+
+    let verbs: [(&str, fn(&mut CardMut<'_>)); 16] = [
+        ("store_field", |c| ignore(c.store_field("f", qv("v")))),
+        ("store_fill", |c| ignore(c.store_fill("g", qv("v")))),
+        ("store_fields", |c| ignore(c.store_fields([("h", qv("v"))]))),
+        ("remove_field", |c| ignore(c.remove_field("f"))),
+        ("store_ext", |c| ignore(c.store_ext(serde_json::Map::new()))),
+        ("remove_ext", |c| {
+            c.remove_ext();
+        }),
+        ("store_seed_overlay", |c| {
+            ignore(c.store_seed_overlay("note", serde_json::json!({ "f": "v" })))
+        }),
+        ("remove_seed_overlay", |c| {
+            c.remove_seed_overlay("note");
+        }),
+        ("overwrite_body", |c| c.overwrite_body(Normalized::empty())),
+        ("overwrite_field", |c| {
+            ignore(c.overwrite_field("f", Normalized::empty()))
+        }),
+        ("revise_body", |c| ignore(c.revise_body("body"))),
+        ("revise_field", |c| ignore(c.revise_field("f", "text"))),
+        ("apply_body_change", |c| {
+            ignore(c.apply_body_change(&ChangeBundle::default()))
+        }),
+        ("apply_field_change", |c| {
+            ignore(c.apply_field_change("f", &ChangeBundle::default()))
+        }),
+        ("commit_field", |c| {
+            ignore(c.commit_field("f", qv("v"), &richtext()))
+        }),
+        ("revise_field_checked", |c| {
+            ignore(c.revise_field_checked("f", "text", &richtext()))
+        }),
+    ];
+
+    for (verb_name, verb) in verbs {
+        let mut doc = make_doc_with_cards();
+        verb(&mut doc.main_mut());
+        verb(&mut doc.card_mut(0).unwrap());
+        assert!(
+            doc.main().quill().is_some(),
+            "{verb_name} took `$quill` off the root"
+        );
+        assert!(
+            doc.cards()
+                .iter()
+                .all(|c| c.quill().is_none() && c.seed().is_none()),
+            "{verb_name} put a root-only entry on a composable card"
+        );
+        let _ = doc.quill_reference();
+    }
 }

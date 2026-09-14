@@ -609,13 +609,156 @@ pub(crate) fn resolve_field_write(
     Ok(stored)
 }
 
-impl Document {
-    pub fn set_quill_ref(&mut self, reference: QuillReference) {
-        self.main_mut().payload_mut().set_quill(reference);
+/// The mutable door onto a card already placed in a [`Document`]: every
+/// `&mut self` verb [`Card`] carries, forwarded, and no way to replace the card
+/// itself. Reads arrive through [`Deref`](std::ops::Deref).
+///
+/// Placement is positional — the main card carries `$quill` and `$seed`, a
+/// composable card carries neither — and the gates that police it
+/// ([`Document::push_card`] / [`insert_card`](Document::insert_card),
+/// [`Card::store_seed_overlay`]) run when a card is placed or edited, not when
+/// one is assigned over another. Handing out a `&mut Card` would make
+/// `*doc.card_mut(0).unwrap() = doc.main().clone()` a legal write past all of
+/// them, and [`Document::quill_reference`] reads the root's `$quill` without
+/// re-checking. A card built before placement is an ordinary `Card`, so the
+/// verbs stay there and this only withholds the assignment.
+pub struct CardMut<'a>(&'a mut Card);
+
+impl<'a> CardMut<'a> {
+    pub(crate) fn new(card: &'a mut Card) -> Self {
+        Self(card)
     }
 
-    pub fn card_mut(&mut self, index: usize) -> Option<&mut Card> {
-        self.cards_mut().get_mut(index)
+    pub(crate) fn payload_mut(&mut self) -> &mut Payload {
+        self.0.payload_mut()
+    }
+
+    /// [`Card::store_field`].
+    pub fn store_field(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
+        self.0.store_field(name, value)
+    }
+
+    /// [`Card::store_fill`].
+    pub fn store_fill(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
+        self.0.store_fill(name, value)
+    }
+
+    /// [`Card::store_fields`].
+    pub fn store_fields<K, V, I>(&mut self, fields: I) -> Result<(), Vec<(String, EditError)>>
+    where
+        K: Into<String>,
+        V: Into<QuillValue>,
+        I: IntoIterator<Item = (K, V)>,
+    {
+        self.0.store_fields(fields)
+    }
+
+    /// [`Card::remove_field`].
+    pub fn remove_field(&mut self, name: &str) -> Result<Option<QuillValue>, EditError> {
+        self.0.remove_field(name)
+    }
+
+    /// [`Card::store_ext`].
+    pub fn store_ext(
+        &mut self,
+        value: serde_json::Map<String, serde_json::Value>,
+    ) -> Result<(), EditError> {
+        self.0.store_ext(value)
+    }
+
+    /// [`Card::remove_ext`].
+    pub fn remove_ext(&mut self) -> Option<serde_json::Map<String, serde_json::Value>> {
+        self.0.remove_ext()
+    }
+
+    /// [`Card::store_seed_overlay`].
+    pub fn store_seed_overlay(
+        &mut self,
+        card_kind: impl Into<String>,
+        value: serde_json::Value,
+    ) -> Result<(), EditError> {
+        self.0.store_seed_overlay(card_kind, value)
+    }
+
+    /// [`Card::remove_seed_overlay`].
+    pub fn remove_seed_overlay(&mut self, card_kind: &str) -> Option<serde_json::Value> {
+        self.0.remove_seed_overlay(card_kind)
+    }
+
+    /// [`Card::overwrite_body`].
+    pub fn overwrite_body(&mut self, content: impl Into<Normalized>) {
+        self.0.overwrite_body(content)
+    }
+
+    /// [`Card::overwrite_field`].
+    pub fn overwrite_field(
+        &mut self,
+        name: &str,
+        content: impl Into<Normalized>,
+    ) -> Result<(), EditError> {
+        self.0.overwrite_field(name, content)
+    }
+
+    /// [`Card::revise_body`].
+    pub fn revise_body(&mut self, body: impl Into<String>) -> Result<Delta, EditError> {
+        self.0.revise_body(body)
+    }
+
+    /// [`Card::revise_field`].
+    pub fn revise_field(&mut self, name: &str, body: impl Into<String>) -> Result<Delta, EditError> {
+        self.0.revise_field(name, body)
+    }
+
+    /// [`Card::apply_body_change`].
+    pub fn apply_body_change(&mut self, bundle: &ChangeBundle) -> Result<(), EditError> {
+        self.0.apply_body_change(bundle)
+    }
+
+    /// [`Card::apply_field_change`].
+    pub fn apply_field_change(
+        &mut self,
+        name: &str,
+        bundle: &ChangeBundle,
+    ) -> Result<(), EditError> {
+        self.0.apply_field_change(name, bundle)
+    }
+
+    #[doc(hidden)]
+    pub fn commit_field(
+        &mut self,
+        name: &str,
+        value: impl Into<QuillValue>,
+        schema: &FieldSchema,
+    ) -> Result<(), EditError> {
+        self.0.commit_field(name, value, schema)
+    }
+
+    #[doc(hidden)]
+    pub fn revise_field_checked(
+        &mut self,
+        name: &str,
+        body: impl Into<String>,
+        schema: &FieldSchema,
+    ) -> Result<Delta, EditError> {
+        self.0.revise_field_checked(name, body, schema)
+    }
+}
+
+impl std::ops::Deref for CardMut<'_> {
+    type Target = Card;
+
+    fn deref(&self) -> &Card {
+        self.0
+    }
+}
+
+impl Document {
+    pub fn set_quill_ref(&mut self, reference: QuillReference) {
+        self.main_card_mut().payload_mut().set_quill(reference);
+    }
+
+    pub fn card_mut(&mut self, index: usize) -> Option<CardMut<'_>> {
+        self.cards_vec_mut().get_mut(index).map(CardMut::new)
     }
 
     /// Append a composable card. Its `$kind` must be a valid, non-reserved
@@ -683,7 +826,7 @@ impl Document {
         let new_kind = new_kind.into();
         check_kind(&new_kind)?;
         let len = self.cards().len();
-        let card = self
+        let mut card = self
             .card_mut(index)
             .ok_or(EditError::IndexOutOfRange { index, len })?;
         card.payload_mut().set_kind(new_kind);

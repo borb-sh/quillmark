@@ -23,7 +23,7 @@
 
 pub mod document;
 pub use document::{
-    Card, CardWire, Document, EditError, Parsed, Payload, PayloadItem, PayloadItemWire,
+    Card, CardMut, CardWire, Document, EditError, Parsed, Payload, PayloadItem, PayloadItemWire,
     SeedOverlay, WireError,
 };
 

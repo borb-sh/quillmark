@@ -1407,7 +1407,7 @@ impl Document {
         let addr = Addr::from_js_or_string(&addr)?;
         let content = js_to_authored_content(rt, "overwrite")?;
         let base = self.addr_base(&addr);
-        let card = self.addr_card_mut(&addr)?;
+        let mut card = self.addr_card_mut(&addr)?;
         match &addr.field {
             None => {
                 card.overwrite_body(content);
@@ -1436,7 +1436,7 @@ impl Document {
     ) -> Result<JsValue, JsValue> {
         let addr = Addr::from_js_or_string(&addr)?;
         let base = self.addr_base(&addr);
-        let card = self.addr_card_mut(&addr)?;
+        let mut card = self.addr_card_mut(&addr)?;
         let delta = match &addr.field {
             None => card.revise_body(markdown),
             Some(field) => card.revise_field(field, markdown),
@@ -1501,7 +1501,7 @@ impl Document {
         let addr = Addr::from_js_or_string(&addr)?;
         let bundle = parse_change_bundle(&bundle, "applyChange")?;
         let base = self.addr_base(&addr);
-        let card = self.addr_card_mut(&addr)?;
+        let mut card = self.addr_card_mut(&addr)?;
         match &addr.field {
             None => card.apply_body_change(&bundle),
             Some(field) => card.apply_field_change(field, &bundle),
@@ -1654,7 +1654,7 @@ impl Document {
 }
 
 impl Document {
-    fn card_mut_or_throw(&mut self, index: usize) -> Result<&mut quillmark_core::Card, JsValue> {
+    fn card_mut_or_throw(&mut self, index: usize) -> Result<quillmark_core::CardMut<'_>, JsValue> {
         let len = self.inner.cards().len();
         self.inner.card_mut(index).ok_or_else(|| {
             edit_error_to_js(
@@ -1674,7 +1674,7 @@ impl Document {
         })
     }
 
-    fn addr_card_mut(&mut self, addr: &Addr) -> Result<&mut quillmark_core::Card, JsValue> {
+    fn addr_card_mut(&mut self, addr: &Addr) -> Result<quillmark_core::CardMut<'_>, JsValue> {
         match addr.card {
             None => Ok(self.inner.main_mut()),
             Some(index) => self.card_mut_or_throw(index),

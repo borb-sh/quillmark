@@ -84,8 +84,8 @@ impl Quill {
         self.check_quill_reference(doc)?;
         let config = self.config();
         let mut diags = Vec::new();
-        conform_card(&config.main, doc.main_mut(), &DocPath::main(), &mut diags);
-        for (index, card) in doc.cards_mut().iter_mut().enumerate() {
+        conform_card(&config.main, doc.main_card_mut(), &DocPath::main(), &mut diags);
+        for (index, card) in doc.cards_vec_mut().iter_mut().enumerate() {
             // A card whose `$kind` declares no schema has no declared field to
             // conform: it passes untouched, as the render gate passes it. The
             // kind is copied out so the card is free to be borrowed mutably.
