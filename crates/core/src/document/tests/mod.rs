@@ -10,6 +10,7 @@ mod fence_conformance_tests;
 mod lossiness_tests;
 mod multibyte_tests;
 mod number_edge_tests;
+mod properties;
 mod seed_tests;
 
 /// Parse `src`, failing the test on a parse error and dropping the warnings.

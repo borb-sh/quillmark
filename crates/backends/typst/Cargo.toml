@@ -39,6 +39,7 @@ wasm-bindgen = { workspace = true }
 # core gates behind this feature so it is absent from a consumer build.
 quillmark-core = { workspace = true, features = ["internal-test-seam"] }
 tempfile = { workspace = true }
+proptest = { workspace = true }
 # Acceptance tests parse the injected PDF to validate AcroForm structure.
 lopdf = { workspace = true }
 quillmark-fixtures = { workspace = true }

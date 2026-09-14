@@ -2228,6 +2228,7 @@ version = "0.112.0"
 dependencies = [
  "glob",
  "indexmap",
+ "proptest",
  "pulldown-cmark",
  "quillmark-content",
  "quillmark-fixtures",
@@ -2245,27 +2246,14 @@ name = "quillmark-fixtures"
 version = "0.112.0"
 
 [[package]]
-name = "quillmark-fuzz"
-version = "0.112.0"
-dependencies = [
- "indexmap",
- "proptest",
- "quillmark-content",
- "quillmark-core",
- "quillmark-fixtures",
- "quillmark-pdf",
- "quillmark-typst",
- "serde_json",
- "typst",
-]
-
-[[package]]
 name = "quillmark-pdf"
 version = "0.112.0"
 dependencies = [
  "lopdf",
  "pdf-writer",
+ "proptest",
  "quillmark-core",
+ "quillmark-fixtures",
  "thiserror",
 ]
 
@@ -2287,6 +2275,7 @@ dependencies = [
  "comemo",
  "js-sys",
  "lopdf",
+ "proptest",
  "quillmark",
  "quillmark-content",
  "quillmark-core",

@@ -1,7 +1,7 @@
 //! The resting-form invariant at the bound door (`Quill::conform` /
 //! `Quill::parse`). The quill is fixed and the values generated: the resting
 //! form is a property of the codec, so the value space is what needs coverage
-//! (`coerce_fuzz` takes the schema space).
+//! (the coercion properties take the schema space).
 //!
 //! For `richtext` the emitted markdown is a lossy projection (island ids,
 //! content-only marks, and a container around a non-paragraph line do not
@@ -9,14 +9,15 @@
 //! the identity. `plaintext`'s literal codec is lossless both ways.
 
 use proptest::prelude::*;
-use quillmark_core::{Document, Quill, QuillValue};
+
+use crate::{Document, Quill, QuillValue};
 
 const QUILL_YAML: &str = r#"
 quill:
-  name: conform_fuzz
+  name: conform_properties
   version: "1.0"
   backend: typst
-  description: Conform fuzz
+  description: Conform properties
 main:
   fields:
     rich:
@@ -58,16 +59,16 @@ fn quill() -> Quill {
     let mut files = std::collections::HashMap::new();
     files.insert(
         "Quill.yaml".to_string(),
-        quillmark_core::quill::FileTreeNode::File {
+        crate::quill::FileTreeNode::File {
             contents: QUILL_YAML.as_bytes().to_vec(),
         },
     );
-    Quill::from_tree(quillmark_core::quill::FileTreeNode::Directory { files })
-        .expect("the fuzz quill loads")
+    Quill::from_tree(crate::quill::FileTreeNode::Directory { files })
+        .expect("the property quill loads")
 }
 
 fn blank_doc() -> Document {
-    Document::parse("~~~card-yaml\n$quill: conform_fuzz@1.0.0\n~~~\n\nBody.\n")
+    Document::parse("~~~card-yaml\n$quill: conform_properties@1.0.0\n~~~\n\nBody.\n")
         .expect("blank document parses")
         .document
 }

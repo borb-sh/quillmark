@@ -1035,6 +1035,8 @@ fn table_markup(props: &serde_json::Value) -> String {
 
 #[cfg(test)]
 mod tests {
+    mod properties;
+
     use super::*;
     use quillmark_content::import::from_markdown;
     use typst::syntax::SyntaxKind;

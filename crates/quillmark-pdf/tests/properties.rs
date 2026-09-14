@@ -1,6 +1,6 @@
-//! The AcroForm stamp spine's byte-level reads: arbitrary and corrupted PDF
-//! bytes yield `Err`, never a panic. Nothing in the workspace catches unwind, so
-//! one panic kills the CLI and the Python extension and poisons the WASM module.
+//! The stamp spine's byte-level reads over arbitrary and corrupted PDF bytes:
+//! `Err`, never a panic. Nothing in the workspace catches unwind, so one panic
+//! kills the CLI and the Python extension and poisons the WASM module.
 //!
 //! `Ok` is not assertable — the reader's input contract refuses most well-formed
 //! PDFs too — so a refusal is an acceptable answer for every case here.
@@ -9,7 +9,7 @@ use std::sync::LazyLock;
 
 use proptest::prelude::*;
 use quillmark_pdf::{
-    page_canvas_boxes, reader::ObjectIndex, stamp, FieldSpec, FieldType, PdfUpdate, StampOptions,
+    page_canvas_boxes, stamp, FieldSpec, FieldType, ObjectIndex, PdfUpdate, StampOptions,
 };
 
 /// A real AcroForm the spine accepts, so a mutant of it exercises parse paths a
@@ -42,7 +42,7 @@ fn exercise(pdf: &[u8]) {
     let _ = page_canvas_boxes(pdf);
     let idx = ObjectIndex::new(pdf);
     let _ = PdfUpdate::begin(&idx, None);
-    let _ = PdfUpdate::begin(&idx, Some("quillmark-fuzz"));
+    let _ = PdfUpdate::begin(&idx, Some("quillmark-properties"));
     let _ = stamp(pdf.to_vec(), &[], &StampOptions::default());
     let _ = stamp(pdf.to_vec(), &every_field_kind(), &StampOptions::default());
 }
@@ -55,7 +55,7 @@ proptest! {
     /// Nothing checks for a `%PDF-` header (`PdfUpdate::begin` scans backwards
     /// for `startxref`), so both buffer shapes take the same path.
     #[test]
-    fn fuzz_arbitrary_bytes(bytes in proptest::collection::vec(any::<u8>(), 0..4096)) {
+    fn arbitrary_bytes_are_refused(bytes in proptest::collection::vec(any::<u8>(), 0..4096)) {
         exercise(&bytes);
     }
 
@@ -63,7 +63,7 @@ proptest! {
     /// range is the fixture's own length: a fixed bound would mostly sample
     /// past it and re-run the intact file.
     #[test]
-    fn fuzz_truncated_form(cut in any::<prop::sample::Index>()) {
+    fn a_truncated_form_is_refused(cut in any::<prop::sample::Index>()) {
         let pdf = base_pdf();
         let cut = cut.index(pdf.len() + 1);
         exercise(&pdf[..cut]);
@@ -72,7 +72,7 @@ proptest! {
     /// What truncation cannot hit: a corrupted xref offset, a `/Length` that
     /// overshoots, an unbalanced delimiter, a broken object header.
     #[test]
-    fn fuzz_single_byte_corruption(at in any::<prop::sample::Index>(), to in any::<u8>()) {
+    fn a_single_corrupted_byte_is_refused(at in any::<prop::sample::Index>(), to in any::<u8>()) {
         let mut pdf = base_pdf();
         let i = at.index(pdf.len());
         pdf[i] = to;
@@ -81,7 +81,7 @@ proptest! {
 
     /// A run wide enough to take out a whole keyword (`trailer`, `startxref`).
     #[test]
-    fn fuzz_spliced_run(
+    fn a_spliced_run_is_refused(
         at in any::<prop::sample::Index>(),
         run in proptest::collection::vec(any::<u8>(), 1..64),
     ) {
@@ -92,11 +92,11 @@ proptest! {
         exercise(&pdf);
     }
 
-    /// `quillmark-pdf`'s unit tests pin the individual refusals; this adds the
-    /// combinations, and a page index past the fixture's single page, which
-    /// `stamp` must refuse rather than index into its `Vec`.
+    /// The unit tests pin the individual refusals; this adds the combinations,
+    /// and a page index past the fixture's single page, which `stamp` must
+    /// refuse rather than index into its `Vec`.
     #[test]
-    fn fuzz_field_geometry(
+    fn out_of_contract_field_geometry_is_refused(
         page in 0usize..8,
         x0 in prop::num::f32::ANY,
         y0 in prop::num::f32::ANY,

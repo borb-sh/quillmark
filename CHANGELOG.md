@@ -2,6 +2,37 @@
 
 ## Unreleased
 
+- test(core,content,typst,pdf): **each property suite lives beside the seam it
+  states, and `quillmark-fuzz` is gone.** Seven targets over boundaries owned by
+  four crates sat in one `publish = false` member outside `default-members`, so
+  a bare `cargo test` ran none of them, and `quillmark_typst::emit` stayed a
+  `#[doc(hidden)] pub` module for a single out-of-crate import. Each is now a
+  `properties` module beside its owner's unit tests: coercion under
+  `quill/tests/`, the resting form under `quill/conform/tests/`, `Document`'s
+  JSON and markdown doors under `document/tests/`, the content decode lanes in
+  `content/tests/properties.rs`, the escapers inside `emit.rs`'s own test module
+  — where they share the `resolve` oracle they had been carrying a second copy
+  of — and the stamp spine's byte reads in `quillmark-pdf/tests/`. `emit` is
+  private, and the saved regression seeds move to the paths proptest derives
+  from the new sources. Closes #1684.
+- test(core,typst,content): **the property targets that could not fail are
+  stated so they can.** `fuzz_emit_roundtrip_arbitrary` drew `\PC{0,1000}` and
+  round-tripped what parsed, but `Document::parse` refuses any source without a
+  `$quill` root block: 0 of 2000 draws reached the assertion. The body is now
+  drawn under a spelled root block, where all 3000 do, and the property is that
+  the loop settles — richtext's markdown is a lossy projection, so a first pass
+  may move marks a second pass leaves alone; the shaped generators keep the
+  identity. `fuzz_escape_string_injection_safety` scanned escaped output for
+  three literal substrings its own generator draws once in ~10^15 cases, and
+  would have failed a correct escaper if it ever had: it and its raw-quote twin
+  are one property that parses the literal back with Typst and asserts the
+  authored characters. The `CardWire` sweep gains the spelled envelope that the
+  storage sweep already had, so every case reaches `Card::try_from` and the
+  generator-reach guard it needed is gone. Deleted outright: the wide-payload
+  loop (`spec_conformance_probe` pins the cap, and now the width it admits) and
+  the three `1..20`-deep markdown loops, which approach no boundary —
+  `MAX_NESTING_DEPTH` is 100, and content pins that.
+
 - fix(pdf): **a stamped checkbox's `/DA` names ZapfDingbats.** `stamp` wrote a
   checkbox's `/MK /CA (4)` caption and no `/DA`, so the widget inherited the
   form-level `/Helv 0 Tf 0 g` and nothing registered the face the glyph lives

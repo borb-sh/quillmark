@@ -1,19 +1,14 @@
 //! Typst backend for Quillmark: markdown + card-YAML data → PDF, SVG, PNG.
 //!
 //! Richtext fields cross the seam as canonical content JSON and are lowered to
-//! Typst markup by [`emit`] at codegen time; no code re-parses markdown at
+//! Typst markup by `emit` at codegen time; no code re-parses markdown at
 //! render time. Plates read fields through the `@local/quillmark-helper`
 //! virtual package. Form-field widgets become AcroForm widgets on PDF output
 //! only; SVG and PNG render an invisible placeholder.
 
 mod compile;
 /// Content → Typst-markup lowering plus its per-segment source map.
-///
-/// **Workspace-internal; not covered by this crate's semver.** `pub` only so
-/// `quillmark-fuzz` can drive the escapers and the lowering directly. The
-/// supported surface is [`TypstBackend`].
-#[doc(hidden)]
-pub mod emit;
+mod emit;
 mod error_mapping;
 
 mod helper;

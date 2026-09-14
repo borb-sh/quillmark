@@ -8,7 +8,6 @@ members = [
     "crates/content",
     "crates/fixtures",
     "crates/bindings/wasm",
-    "crates/fuzz",
     "crates/bindings/python",
     "crates/bindings/cli",
 ]

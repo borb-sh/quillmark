@@ -22,7 +22,7 @@ do the heavy compilation.
 
 Seven crates publish to crates.io: `quillmark-core`, `quillmark`,
 `quillmark-content`, `quillmark-pdf`, `quillmark-typst`, `quillmark-acroform`
-and `quillmark-cli`. The binding, fixture and fuzz crates are `publish = false`:
+and `quillmark-cli`. The binding and fixture crates are `publish = false`:
 they path-depend on the core beside them and ship as one build.
 
 The published crates carry **no API stability promise before 1.0**. The
@@ -104,12 +104,6 @@ binary). See [BINDINGS.md](BINDINGS.md).
 
 Test resources under `resources/`. Helper functions for test setup.
 
-### `quillmark-fuzz`
-
-Property-based fuzz tests (proptest) over the boundaries that take arbitrary
-input. Per-target coverage:
-[crates/fuzz/README.md](../../crates/fuzz/README.md).
-
 ## Core Interfaces
 
 - **`Quillmark`**, Engine: a backend registry + render dispatcher. Auto-registers one backend per enabled feature (`TypstBackend` under `typst`, `AcroformBackend` under `acroform`; both are default). Resolves a quill's declared backend at render time (erroring `engine::backend_not_found` on no match) and owns the backend-dependent surface: `render`, `open`, `supported_formats(&quill)`. It does not construct quills.
@@ -135,12 +129,9 @@ registers one per enabled cargo feature and nothing else registers one:
 `register_backend` is private, and the `LiveSession` `Backend::open` returns is
 built only from a `#[doc(hidden)]` `SessionHandle`.
 
-Two `pub` seams exist for the workspace rather than for a crates.io consumer:
-
-| Seam | Who it is for |
-|---|---|
-| `Backend` + `SessionHandle` | The workspace's own backends; an implementation outside it has no way to reach the registry. |
-| `quillmark_typst::emit` | `quillmark-fuzz`, which drives the escapers directly. |
+One `pub` seam exists for the workspace rather than for a crates.io consumer:
+`Backend` + `SessionHandle`, for the workspace's own backends. An
+implementation outside it has no way to reach the registry.
 
 A quill declares one backend and renders through that one. Rendering a schema
 two ways is therefore two quills, with nothing keeping their field definitions

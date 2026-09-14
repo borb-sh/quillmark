@@ -124,7 +124,7 @@ jobs:
       #
       # `cargo package` (verifying, unlike the `--no-verify` publish below)
       # builds every crate from its own archive, so a file the build needs but
-      # `include` omits fails here instead of on docs.rs. The four
+      # `include` omits fails here instead of on docs.rs. The three
       # `publish = false` crates are excluded because `--workspace` would
       # package them too, and the wasm binding deliberately carries a
       # version-less path dep on `quillmark` (so `default-features = false` is
@@ -134,7 +134,6 @@ jobs:
           cargo package --workspace --locked \
             --exclude quillmark-wasm \
             --exclude quillmark-python \
-            --exclude quillmark-fuzz \
             --exclude quillmark-fixtures
 
       # `include` lists `LICENSE*`, which resolves against the package
@@ -158,7 +157,7 @@ jobs:
       - name: Publish workspace crates
         # --workspace: bare `cargo publish` operates on default-members, which
         # exclude crates/content, the leaf every published crate depends on.
-        # publish = false members (fixtures, fuzz, bindings) are skipped; cargo
+        # publish = false members (fixtures, bindings) are skipped; cargo
         # orders the rest by dependency and skips versions already on the
         # registry, so a re-run resumes a partially-uploaded release.
         #
