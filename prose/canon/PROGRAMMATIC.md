@@ -111,7 +111,7 @@ purpose. Reach for the opaque `store_*` for those; reach for the writer by
 default. `Quill::writer(&mut doc)` is the documented front door in every
 surface: `quill.writer(doc)` in WASM and Python alike (the schema-bound
 `DocumentWriter` / `Writer` with `set` / `set_all` / `revise_body` / `revise_field` /
-`add_card` / `card(i)`); the quill owns the schema, so it is the factory. The
+`add_card` / `remove_card` / `card(i)`); the quill owns the schema, so it is the factory. The
 `_commitField` / `_commitFields` / `_reviseField` verbs (addressed by `Addr`) are
 the stable ABI underneath it, and `storeField` / `storeFields` remain the
 quill-free opaque store. See [BINDINGS.md](BINDINGS.md) for the write surface, the

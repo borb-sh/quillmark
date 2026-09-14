@@ -20,7 +20,7 @@ Placement decides where a mutation verb lives, in one sentence:
 
 > **If a verb needs a schema, it lives on the writer. `Document` is quill-free data.**
 
-`quill.writer(doc)` (mirroring core's `quill.writer(&mut doc)`) is the one schema-bound door: bare `set` / `set_all` / `reviseBody` / `reviseField` / `addCard` / `card(i)`, names and markdown in, diagnostics out. It resolves each field's type from the bound quill, so a name the schema does not declare is a typo (`UnknownField`), not a fallback.
+`quill.writer(doc)` (mirroring core's `quill.writer(&mut doc)`) is the one schema-bound door: bare `set` / `set_all` / `reviseBody` / `reviseField` / `addCard` / `removeCard` / `card(i)`, names and markdown in, diagnostics out. It resolves each field's type from the bound quill, so a name the schema does not declare is a typo (`UnknownField`), not a fallback.
 
 `Document` holds everything quill-free: the opaque `store*` primitive (verbatim, coercion deferred to render) and the addressed content lane: `overwrite` / `revise` / `applyChange` plus the `importMarkdown` / `exportMarkdown` / `rebase` / `mapPos` / `mapMarks` codec: which navigate by `Addr` and return `Delta` receipts but never consult a schema. **Transport** reads (`getStored` / `isFill` / `getExt`) return the stored value verbatim, need no schema, and sit on `Document` too.
 

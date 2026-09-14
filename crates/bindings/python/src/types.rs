@@ -1167,11 +1167,6 @@ impl PyDiagnostic {
         self.inner.path.as_deref()
     }
 
-    #[getter]
-    fn source_chain(&self) -> Vec<String> {
-        self.inner.source_chain.clone()
-    }
-
     /// The facts `message` interpolates, keyed by name. With `code`, enough to
     /// word this diagnostic in another language.
     #[getter]

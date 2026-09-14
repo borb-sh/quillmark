@@ -45,6 +45,36 @@
   site; the names `quillmark-core` re-exports keep their core spellings, so a
   consumer on core or on the `quillmark` facade has nothing to do, and no binding
   surface moves. Closes #1755.
+- refactor(core): **`ParseError::code` is the one variant-to-code match.**
+  `code()` joins the three siblings that already carry the same
+  `fn code(&self) -> &'static str` — `EditError`, `ValidationError`,
+  `WireError` — and `to_diagnostic` reads it rather than spelling a second
+  nine-arm table beside `args()`. What is left there is a two-arm decoration
+  match over the only variants carrying a hint or a location. Refs #1748.
+- refactor(core)!: **the raw-plate test seam is `#[doc(hidden)]`, not a cargo
+  feature.** `internal-test-seam` gated one method,
+  `LiveSession::update_data`, and the crate's `[features]` table held nothing
+  else; both go, and the method compiles into every build. A cargo feature is
+  public surface itself — crates.io and docs.rs advertise it — so the gate moved
+  the opt-in from a source read to a `Cargo.toml` line rather than removing it,
+  and the callable-vs-not difference it bought is already given away next door:
+  `LiveSession::new` and `SessionHandle` are `#[doc(hidden)] pub` in every
+  build, and a session assembled through them reaches the same unchecked
+  `update`. The typst backend's dev-dependency on core carried the feature and
+  nothing else, so it goes too; `[dependencies]` already names core, which is
+  what its acceptance tests link. Refs #1748.
+- refactor(core,typst,wasm,python)!: **a diagnostic carries its cause in the
+  message.** `Diagnostic::source_chain` and the `with_source` builder that
+  filled it are gone, and with them JS `Diagnostic.sourceChain` and Python
+  `Diagnostic.source_chain`. One code ever filled the field:
+  `typst::world_creation`, whose boxed cause is a `String` whose `source()` is
+  `None`, so the chain was a one-element array holding the text its own message
+  already ends with — and `skip_serializing_if` omitted the field from every
+  other diagnostic. No formatter read it: `fmt_pretty` covers severity, message,
+  code, location and hint, so the CLI's output and Python's `str(diagnostic)`
+  are byte-identical. A Rust caller attaching a cause interpolates it into the
+  message, which is what `RenderError::coded` already does at the one call site.
+  Refs #1748.
 - fix(pdf): **a stamped checkbox's `/DA` names ZapfDingbats.** `stamp` wrote a
   checkbox's `/MK /CA (4)` caption and no `/DA`, so the widget inherited the
   form-level `/Helv 0 Tf 0 g` and nothing registered the face the glyph lives

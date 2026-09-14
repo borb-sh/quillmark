@@ -303,7 +303,9 @@ impl LiveSession {
 
     /// [`update`](Self::update) with the schema layer cut away: plate data
     /// straight to the backend, no `$quill` check and no compile.
-    #[cfg(feature = "internal-test-seam")]
+    ///
+    /// A test seam: the one lever that makes a backend's compile fail on
+    /// demand, with data the schema would refuse.
     #[doc(hidden)]
     pub fn update_data(&mut self, json_data: &serde_json::Value) -> Result<ChangeSet, RenderError> {
         self.regions.take();

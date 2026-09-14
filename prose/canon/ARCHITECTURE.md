@@ -128,9 +128,12 @@ registers one per enabled cargo feature and nothing else registers one:
 `register_backend` is private, and the `LiveSession` `Backend::open` returns is
 built only from a `#[doc(hidden)]` `SessionHandle`.
 
-One `pub` seam exists for the workspace rather than for a crates.io consumer:
-`Backend` + `SessionHandle`, for the workspace's own backends. An
-implementation outside it has no way to reach the registry.
+Two `pub` seams exist for the workspace rather than for a crates.io consumer:
+
+| Seam | Who it is for |
+|---|---|
+| `Backend` + `SessionHandle` | The workspace's own backends; an implementation outside it has no way to reach the registry. |
+| `LiveSession::update_data` | Backend acceptance tests, which recompile below the schema layer on data the schema would refuse. |
 
 A quill declares one backend and renders through that one. Rendering a schema
 two ways is therefore two quills, with nothing keeping their field definitions
