@@ -16,7 +16,9 @@
 use indexmap::IndexMap;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
+use super::edit::PayloadViolation;
 use super::prescan::NestedComment;
+use crate::error::MAX_FIELD_COUNT;
 use crate::value::{PathSegment, QuillValue};
 use crate::version::QuillReference;
 
@@ -149,10 +151,13 @@ impl PayloadItem {
 ///
 /// Mutation is crate-internal. The invariants an edit must hold — at most one
 /// `$quill` / `$kind` / `$ext` / `$seed`, no duplicate field keys, every field
-/// name matching `[A-Za-z_][A-Za-z0-9_]*` — are not all expressible in the
-/// mutators' signatures, so out-of-crate authoring goes through the verbs that
-/// enforce them: `Card::store_field` / `store_ext` / `store_seed_overlay`,
-/// `Document::set_quill_ref`, and [`TypedWriter`](crate::TypedWriter).
+/// name matching `[A-Za-z_][A-Za-z0-9_]*`, at most [`MAX_FIELD_COUNT`] user
+/// fields — are not all expressible in the mutators' signatures, so out-of-crate
+/// authoring goes through the verbs that enforce them: `Card::store_field` /
+/// `store_ext` / `store_seed_overlay`, `Document::set_quill_ref`, and
+/// [`TypedWriter`](crate::TypedWriter). The count is the one a caller cannot
+/// check for itself, so the crate-internal insert holds it rather than
+/// delegating it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Payload {
     items: Vec<PayloadItem>,
@@ -435,24 +440,50 @@ impl Payload {
     /// and comments are untouched; replacing a field discards its
     /// `nested_comments` (the new value tree may not carry matching positions).
     ///
-    /// Carries no field-invariant check: the caller has already validated the
-    /// exact stored `(name, value)`, as `Card::store_field` does.
-    pub(crate) fn insert_unchecked(
+    /// The name and the value are the caller's to validate, as
+    /// `Card::store_field` does. The count is this payload's own: an append past
+    /// [`MAX_FIELD_COUNT`] is [`PayloadViolation::TooManyFields`], and a replace
+    /// never fails.
+    pub(crate) fn insert(
         &mut self,
         key: impl Into<String>,
         value: QuillValue,
-    ) -> Option<QuillValue> {
+    ) -> Result<Option<QuillValue>, PayloadViolation> {
         self.insert_item(key.into(), value, false)
     }
 
-    /// [`insert_unchecked`](Self::insert_unchecked) marking the field a
-    /// `!must_fill` placeholder.
-    pub(crate) fn insert_fill_unchecked(
+    /// [`insert`](Self::insert) marking the field a `!must_fill` placeholder.
+    pub(crate) fn insert_fill(
         &mut self,
         key: impl Into<String>,
         value: QuillValue,
-    ) -> Option<QuillValue> {
+    ) -> Result<Option<QuillValue>, PayloadViolation> {
         self.insert_item(key.into(), value, true)
+    }
+
+    /// The `names` an insert would land past [`MAX_FIELD_COUNT`], and the count
+    /// the whole run reaches; `None` when the run fits. A name is charged once,
+    /// and only when it is absent, so what comes back is the run's overflowing
+    /// tail in iterator order — which is what lets a batch refuse per name
+    /// before it applies any of itself.
+    pub(crate) fn overflow<'n>(
+        &self,
+        names: impl IntoIterator<Item = &'n str>,
+    ) -> Option<(usize, Vec<&'n str>)> {
+        let present: std::collections::HashSet<&str> = self.keys().map(String::as_str).collect();
+        let mut added: std::collections::HashSet<&'n str> = std::collections::HashSet::new();
+        let mut count = present.len();
+        let mut past = Vec::new();
+        for name in names {
+            if present.contains(name) || !added.insert(name) {
+                continue;
+            }
+            count += 1;
+            if count > MAX_FIELD_COUNT {
+                past.push(name);
+            }
+        }
+        (!past.is_empty()).then_some((count, past))
     }
 
     /// Insert or replace field `key` with `value`, setting its fill marker.
@@ -464,7 +495,7 @@ impl Payload {
         key: String,
         mut value: QuillValue,
         fill: bool,
-    ) -> Option<QuillValue> {
+    ) -> Result<Option<QuillValue>, PayloadViolation> {
         value.clear_root_fill();
         for item in self.items.iter_mut() {
             if let PayloadItem::Field {
@@ -477,12 +508,19 @@ impl Payload {
                     let old = std::mem::replace(v, value);
                     *item_fill = fill;
                     self.prune_nested(&key);
-                    return Some(old);
+                    return Ok(Some(old));
                 }
             }
         }
+        let count = self.len() + 1;
+        if count > MAX_FIELD_COUNT {
+            return Err(PayloadViolation::TooManyFields {
+                count,
+                max: MAX_FIELD_COUNT,
+            });
+        }
         self.items.push(PayloadItem::Field { key, value, fill });
-        None
+        Ok(None)
     }
 
     /// Remove a user field by key, returning its value. Comments and `$`
@@ -520,7 +558,7 @@ mod tests {
         let mut fm = Payload::new();
         fm.set_quill("foo@0.1".parse().unwrap());
         fm.set_kind("main");
-        fm.insert_unchecked("title", qv("Hello"));
+        fm.insert("title", qv("Hello")).unwrap();
         let last = fm.items().last().unwrap();
         assert!(matches!(last, PayloadItem::Field { key, .. } if key == "title"));
     }
@@ -528,9 +566,9 @@ mod tests {
     #[test]
     fn insert_existing_preserves_position() {
         let mut fm = Payload::new();
-        fm.insert_unchecked("a", qv("1"));
-        fm.insert_unchecked("b", qv("2"));
-        fm.insert_unchecked("a", qv("updated"));
+        fm.insert("a", qv("1")).unwrap();
+        fm.insert("b", qv("2")).unwrap();
+        fm.insert("a", qv("updated")).unwrap();
         let keys: Vec<&String> = fm.keys().collect();
         assert_eq!(keys, vec!["a", "b"]);
         assert_eq!(fm.get("a").unwrap().as_str(), Some("updated"));
@@ -539,16 +577,16 @@ mod tests {
     #[test]
     fn insert_clears_fill() {
         let mut fm = Payload::new();
-        fm.insert_fill_unchecked("k", qv("placeholder"));
+        fm.insert_fill("k", qv("placeholder")).unwrap();
         assert!(fm.is_fill("k"));
-        fm.insert_unchecked("k", qv("user value"));
+        fm.insert("k", qv("user value")).unwrap();
         assert!(!fm.is_fill("k"));
     }
 
     #[test]
-    fn unchecked_insert_stores_what_it_is_handed() {
+    fn insert_stores_the_name_it_is_handed() {
         let mut fm = Payload::new();
-        fm.insert_unchecked("bad name", qv("v"));
+        fm.insert("bad name", qv("v")).unwrap();
         assert_eq!(fm.items().len(), 1);
     }
 
@@ -557,7 +595,7 @@ mod tests {
         let mut fm = Payload::new();
         fm.set_quill("foo@0.1".parse().unwrap());
         fm.set_kind("main");
-        fm.insert_unchecked("title", qv("Hello"));
+        fm.insert("title", qv("Hello")).unwrap();
         let items = fm.items().to_vec();
         let mut items_with_comment = items;
         items_with_comment.insert(2, PayloadItem::comment("c"));
@@ -664,7 +702,7 @@ mod tests {
     #[test]
     fn replacing_an_entry_prunes_only_its_own_nested_comments() {
         let mut fm = payload_with_nested();
-        fm.insert_unchecked("a", qv("updated"));
+        fm.insert("a", qv("updated")).unwrap();
         assert_eq!(owners(&fm), vec!["b", "$ext"]);
 
         let mut fm = payload_with_nested();

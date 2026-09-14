@@ -617,7 +617,7 @@ card_kinds:
         let mut doc = blank_doc();
         let text = serde_json::json!("a *literal* line");
         {
-            let card = doc.main_mut();
+            let mut card = doc.main_mut();
             card.store_field("subject", QuillValue::from_json(text.clone())).unwrap();
             card.store_field("note", QuillValue::from_json(text)).unwrap();
         }
@@ -671,7 +671,7 @@ card_kinds:
         let config = config();
         let mut doc = blank_doc();
         {
-            let card = doc.main_mut();
+            let mut card = doc.main_mut();
             card.store_field(
                 "recipients",
                 QuillValue::from_json(serde_json::json!(["a *literal* line"])),
@@ -712,7 +712,7 @@ card_kinds:
         let config = config();
         let mut doc = blank_doc();
         {
-            let card = doc.main_mut();
+            let mut card = doc.main_mut();
             card.store_field(
                 "letterhead",
                 QuillValue::from_json(serde_json::json!({"motto": "Fly **fight**", "code": "9"})),

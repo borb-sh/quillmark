@@ -213,7 +213,7 @@ $kind: main
 ~~~
 ",
     );
-    let card = doc.main_mut();
+    let mut card = doc.main_mut();
     card.store_seed_overlay("indorsement", json!({ "from": "A" }))
         .unwrap();
     card.store_seed_overlay("attachment", json!({ "label": "B" }))
@@ -263,7 +263,7 @@ $kind: main
 ~~~
 ",
     );
-    let card = doc.main_mut();
+    let mut card = doc.main_mut();
 
     assert!(matches!(
         card.store_seed_overlay("main", json!({ "from": "A" })),
@@ -300,10 +300,6 @@ $kind: main
         doc.card_mut(0)
             .unwrap()
             .store_seed_overlay("indorsement", json!({ "from": "A" })),
-        Err(refused.clone())
-    );
-    assert_eq!(
-        doc.cards_mut()[0].store_seed_overlay("indorsement", json!({ "from": "A" })),
         Err(refused)
     );
     assert!(doc.card(0).unwrap().seed().is_none());

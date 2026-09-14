@@ -612,13 +612,13 @@ impl PyDocument {
 }
 
 impl PyDocument {
-    fn card_mut_or_raise(&mut self, index: isize) -> PyResult<&mut quillmark_core::Card> {
+    fn card_mut_or_raise(&mut self, index: isize) -> PyResult<quillmark_core::CardMut<'_>> {
         let len = self.inner.cards().len();
         let index = card_index(index, len)?;
         self.inner.card_mut(index).ok_or_else(|| index_error(index, len))
     }
 
-    fn addr_card_mut(&mut self, card: Option<isize>) -> PyResult<&mut quillmark_core::Card> {
+    fn addr_card_mut(&mut self, card: Option<isize>) -> PyResult<quillmark_core::CardMut<'_>> {
         match card {
             None => Ok(self.inner.main_mut()),
             Some(index) => self.card_mut_or_raise(index),

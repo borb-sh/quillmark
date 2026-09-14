@@ -75,6 +75,33 @@
   are byte-identical. A Rust caller attaching a cause interpolates it into the
   message, which is what `RenderError::coded` already does at the one call site.
   Refs #1748.
+- fix(core)!: **a field write past the §8 field count is refused at the write.**
+  `Card::store_field` validated a field's name and its value's depth and left the
+  card's field count to the parser and the two storage doors, so a program could
+  build a card past `MAX_FIELD_COUNT` (1000) through `storeField` / `storeFill` /
+  `storeFields`, the typed `set` / `set_all` / `addCard`, or `revise` /
+  `overwrite` on an absent field — and learn of it only at `toMarkdown`,
+  `toStored`, or the card wire, each of which refused what the API had taken.
+  Every field write funnels through one `Payload::insert` that holds the count,
+  so an append past the cap is `edit::invalid_payload` carrying
+  `PayloadViolation::TooManyFields` — the code the wire already mints for this
+  violation — anchored at the card that is full. A replace is not a growth and
+  still lands. The batches charge the count over the whole batch and report one
+  diagnostic per name in the overflowing tail, applying none of themselves.
+  Closes #1750.
+- fix(core)!: **a placed card is reached as a `CardMut`, not a `&mut Card`.**
+  `main_mut` / `card_mut` / `cards_mut` handed out `&mut Card`, so a whole-card
+  assignment wrote past every gate that polices placement:
+  `*doc.card_mut(0).unwrap() = doc.main().clone()` put `$quill` and `$seed` on a
+  composable card that `push_card` refuses, and `*doc.main_mut() =
+  Card::new("note")?` took `$quill` off the root, which `quill_reference`
+  `expect`s present — a release panic on the next bound door. `main_mut` and
+  `card_mut` return `CardMut`, which forwards every `&mut self` verb `Card`
+  carries and `Deref`s for the reads with no `DerefMut`, so a chained call
+  compiles unchanged and the assignment does not compile at all. `cards_mut` is
+  withdrawn: `move_card` / `remove_card` / `insert_card` are the slice ops and
+  `cards` / `card` the reads. No binding surface exposed a `&mut Card`.
+  Closes #1750.
 - fix(pdf): **a stamped checkbox's `/DA` names ZapfDingbats.** `stamp` wrote a
   checkbox's `/MK /CA (4)` caption and no `/DA`, so the widget inherited the
   form-level `/Helv 0 Tf 0 g` and nothing registered the face the glyph lives
