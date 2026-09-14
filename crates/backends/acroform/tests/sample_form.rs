@@ -1,6 +1,6 @@
 //! End-to-end acceptance for the `sample_form` fixture: render through the full
-//! engine, reparse with lopdf, assert the filled AcroForm. Technique A means
-//! values land in `/V`; appearance synthesis is the viewer's job.
+//! engine, reparse with lopdf, assert the filled AcroForm: a value lands in
+//! `/V`, which a synthesizing viewer renders from.
 
 use lopdf::Document as PdfDoc;
 use quillmark::{Document, FileTreeNode, OutputFormat, Quill, Quillmark, RenderOptions};

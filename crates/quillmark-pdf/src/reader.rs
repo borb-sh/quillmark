@@ -124,7 +124,7 @@ fn write_trailer_tail(out: &mut Vec<u8>, prior_trailer: &[u8], new_info_ref: Opt
 
 /// One object emitted into an incremental update, in full serialized form
 /// (`<id> 0 obj … endobj`).
-pub struct UpdatedObject {
+pub(crate) struct UpdatedObject {
     pub id: u32,
     pub bytes: Vec<u8>,
 }
@@ -209,7 +209,7 @@ pub(crate) fn append_incremental_update(
 /// stream bodies are skipped, so bytes inside them cannot shadow a real header.
 /// A base carrying prior incremental updates serializes an id more than once and
 /// the live copy is the last, which is the one a lookup answers with.
-pub struct ObjectIndex<'a> {
+pub(crate) struct ObjectIndex<'a> {
     pdf: &'a [u8],
     starts: HashMap<u32, usize>,
 }
@@ -346,7 +346,7 @@ fn is_obj_header_tail(rest: &[u8]) -> bool {
 /// consumes its value wholesale via `read_value_end` (stepping over nested
 /// `<<>>` / `[]` / `()` / `<>` as a unit). Only keys are matched, so a Name in
 /// value position (`/Subtype /Producer`) is never mistaken for one.
-pub fn find_dict_value<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
+pub(crate) fn find_dict_value<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
     let key_marker = format!("/{}", key);
     let km = key_marker.as_bytes();
     let mut i = 0;
@@ -380,7 +380,7 @@ pub fn find_dict_value<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> 
 /// pointer subtraction rather than a re-scan, so a `key` token inside another
 /// value cannot be matched by accident. `key` is the on-page byte form,
 /// including the leading slash (`b"/Producer"`).
-pub fn splice_dict_value(dict: &[u8], key: &[u8], value: &[u8], new_value: &[u8]) -> Vec<u8> {
+pub(crate) fn splice_dict_value(dict: &[u8], key: &[u8], value: &[u8], new_value: &[u8]) -> Vec<u8> {
     let value_start = value.as_ptr() as usize - dict.as_ptr() as usize;
     let value_end = value_start + value.len();
     let key_at = value_start - key.len();
@@ -572,7 +572,7 @@ fn is_pdf_delim(c: u8) -> bool {
     )
 }
 
-pub fn parse_indirect_ref(s: &[u8]) -> Option<(u32, u16)> {
+pub(crate) fn parse_indirect_ref(s: &[u8]) -> Option<(u32, u16)> {
     let s = skip_ws(s);
     let mut i = 0;
     while i < s.len() && s[i].is_ascii_digit() {
@@ -597,7 +597,7 @@ pub fn parse_indirect_ref(s: &[u8]) -> Option<(u32, u16)> {
 }
 
 /// Slice between the outermost `<< ... >>` of an indirect object's body.
-pub fn extract_outer_dict(obj_bytes: &[u8]) -> Option<&[u8]> {
+pub(crate) fn extract_outer_dict(obj_bytes: &[u8]) -> Option<&[u8]> {
     let open = obj_bytes.windows(2).position(|w| w == b"<<")?;
     let close = dict_end(obj_bytes, open).ok()?;
     Some(&obj_bytes[open + 2..close])
@@ -663,7 +663,7 @@ pub(crate) fn open_trailer<'a>(
 /// A page object and the `/Pages` nodes it descends from, nearest ancestor
 /// first: the chain an inheritable attribute resolves along.
 #[derive(Debug)]
-pub struct Page {
+pub(crate) struct Page {
     pub id: u32,
     ancestors: Vec<u32>,
 }
@@ -747,8 +747,8 @@ fn root_pages_id(idx: &ObjectIndex, catalog_id: u32) -> Result<u32, PdfError> {
 }
 
 /// Reject a page whose `/Rotate`, its own or inherited, is non-zero: the stamp
-/// and flatten paths write geometry in unrotated user space and do not
-/// compensate, so every widget would display away from its box. The first
+/// writes geometry in unrotated user space and does not compensate, so every
+/// widget would display away from its box. The first
 /// *present* value binds, and a non-integer one errors rather than falling to the
 /// default zero.
 pub(crate) fn assert_unrotated_pages<'p>(

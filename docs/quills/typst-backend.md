@@ -246,7 +246,7 @@ A one-step suffix is checked against what the field actually offers, so `"refs.2
 
 ### Styling the value text
 
-The widget itself draws nothing: a viewer synthesizes the value's appearance when someone fills the field. `font`, `size`, and `align` are what that synthesis reads. They apply to `"text"` only, a signature field having no variable text, and passing a non-default there raises an assert rather than silently doing nothing.
+A widget carrying a `value:` bakes it into an appearance stream, and a viewer re-synthesizes that appearance when someone fills the field. `font`, `size`, and `align` are what both read — except that the baked stream always draws from the box's left edge, so `align` moves the value only once a viewer re-synthesizes. All three apply to `"text"` only, a signature field having no variable text, and passing a non-default there raises an assert rather than silently doing nothing.
 
 ```typst
 #form-field("memo_date", type: "text", field: "date",

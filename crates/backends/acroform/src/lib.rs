@@ -7,13 +7,10 @@
 //! reconciles a foreign AcroForm.
 
 mod bind;
-mod flatten;
 mod form;
 mod resolve;
-mod typography;
 
 use bind::BoundWidget;
-use flatten::flatten as flatten_to_pdf;
 use form::FormSpec;
 use quillmark_core::quill::QuillConfig;
 use quillmark_core::session::SessionHandle;
@@ -83,8 +80,7 @@ impl Backend for AcroformBackend {
             .map_err(|e| RenderError::coded(e.code(), e.to_string()))?;
 
         let field_specs = resolve_field_specs(&bound, json_data);
-
-        let flat = flatten_and_parse(&base_pdf, &field_specs)?;
+        let stamped = stamp_and_parse(&base_pdf, &field_specs)?;
 
         Ok(LiveSession::new(
             Box::new(AcroformSession {
@@ -92,7 +88,7 @@ impl Backend for AcroformBackend {
                 bound,
                 field_specs,
                 canvas_boxes,
-                flat,
+                stamped,
             }),
             source.config().clone(),
         ))
@@ -116,18 +112,19 @@ fn resolve_field_specs(bound: &[BoundWidget], json_data: &serde_json::Value) -> 
         .collect()
 }
 
-/// Bake `field_specs` into the base as content-stream operators, then parse the
-/// result for hayro. Both halves happen here so the two places `field_specs`
-/// are set are the two places the derived PDF moves.
+/// Stamp `field_specs` onto the base, then parse the result for hayro. The one
+/// document is both the deliverable `render` hands back and what the canvas
+/// rasterizes, so the two places `field_specs` are set are the two places it
+/// moves.
 ///
-/// A parse failure is this crate flattening to something malformed, never a
-/// property of the document being rendered.
-fn flatten_and_parse(base_pdf: &[u8], field_specs: &[FieldSpec]) -> Result<HayroPdf, RenderError> {
-    let flat = flatten_to_pdf(base_pdf.to_vec(), field_specs)?;
-    HayroPdf::new(flat).map_err(|_| {
+/// A parse failure is this crate stamping something malformed, never a property
+/// of the document being rendered.
+fn stamp_and_parse(base_pdf: &[u8], field_specs: &[FieldSpec]) -> Result<HayroPdf, RenderError> {
+    let stamped = stamp(base_pdf.to_vec(), field_specs, &StampOptions::default())?;
+    HayroPdf::new(stamped).map_err(|_| {
         RenderError::coded(
-            "acroform::flat_parse_failed",
-            "failed to parse the flattened PDF for rasterisation",
+            "acroform::stamped_parse_failed",
+            "failed to parse the stamped PDF for rasterisation",
         )
     })
 }
@@ -140,9 +137,10 @@ struct AcroformSession {
     /// lower-left corner is the canvas origin. Cached so `page_size_pt` need not
     /// reparse.
     canvas_boxes: Vec<[f32; 4]>,
-    /// The base with `field_specs` baked in, parsed: the canvas path holds
-    /// pages rather than bytes to reparse per paint.
-    flat: HayroPdf,
+    /// The base with `field_specs` stamped onto it, parsed: the canvas path
+    /// holds pages rather than bytes to reparse per paint, and `render` hands
+    /// back the same bytes it was parsed from.
+    stamped: HayroPdf,
 }
 
 impl SessionHandle for AcroformSession {
@@ -160,12 +158,11 @@ impl SessionHandle for AcroformSession {
             return Err(quillmark_core::page_selection_not_supported(format));
         }
 
-        // PDF output is always an interactive AcroForm; value-flattening backs
-        // only the canvas raster, never a PDF deliverable.
-        let stamped = stamp(self.base_pdf.clone(), &self.field_specs, &StampOptions::default())?;
-
         Ok(RenderResult::new(
-            vec![Artifact::new(stamped, OutputFormat::Pdf)],
+            vec![Artifact::new(
+                self.stamped.data().as_ref().to_vec(),
+                OutputFormat::Pdf,
+            )],
             OutputFormat::Pdf,
         ))
     }
@@ -214,11 +211,11 @@ impl SessionHandle for AcroformSession {
         regions
     }
 
-    /// Specs and flat PDF swap together only after both succeed. The background
-    /// never changes, so field deltas are the only visible delta.
+    /// Specs and stamped PDF swap together only after both succeed. The
+    /// background never changes, so field deltas are the only visible delta.
     fn update(&mut self, json_data: &serde_json::Value) -> Result<ChangeSet, RenderError> {
         let field_specs = resolve_field_specs(&self.bound, json_data);
-        let flat = flatten_and_parse(&self.base_pdf, &field_specs)?;
+        let stamped = stamp_and_parse(&self.base_pdf, &field_specs)?;
 
         let mut dirty_pages: Vec<usize> = self
             .field_specs
@@ -231,7 +228,7 @@ impl SessionHandle for AcroformSession {
         dirty_pages.dedup();
 
         self.field_specs = field_specs;
-        self.flat = flat;
+        self.stamped = stamped;
 
         Ok(ChangeSet::new(self.canvas_boxes.len(), dirty_pages))
     }
@@ -244,7 +241,7 @@ impl AcroformSession {
         interp: &InterpreterSettings,
         settings: &RenderSettings,
     ) -> Result<Option<Pixmap>, RenderError> {
-        let Some(p) = self.flat.pages().get(page) else {
+        let Some(p) = self.stamped.pages().get(page) else {
             return Ok(None);
         };
         let (width_pt, height_pt) = p.render_dimensions();
@@ -265,8 +262,7 @@ fn scaled_render_settings(scale: f32) -> RenderSettings {
 }
 
 /// Satisfies standard Type1 font queries from hayro's embedded font data:
-/// required for the Helvetica and ZapfDingbats the flat PDF's content streams
-/// draw with.
+/// required for the base-14 faces the widgets' appearance streams draw with.
 fn standard_font_settings() -> InterpreterSettings {
     InterpreterSettings {
         font_resolver: Arc::new(|query| match query {

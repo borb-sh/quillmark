@@ -1,10 +1,10 @@
 //! Write a fresh `/AcroForm` (and an `/Info` `/Producer` stamp) onto a base PDF
 //! via one incremental-update append.
 //!
-//! Technique A: the real AcroForm fields carry `/NeedAppearances` and no baked
-//! `/AP`, so appearance synthesis is the viewer's job and a flat rasterizer
-//! renders every field blank — values reach non-interactive output only through
-//! the [`RenderedRegion`] sidecar.
+//! The fields are real and carry `/NeedAppearances`, so a viewer that
+//! synthesizes appearances owns how a value looks and refits it as the user
+//! types. Each widget also carries the baked `/AP` [`appearance`] draws, so a
+//! consumer that synthesizes nothing shows the value rather than an empty box.
 //!
 //! The background owns the visual chrome, so a widget is a transparent input over
 //! it: no borders, no fills, black text.
@@ -15,12 +15,11 @@ use pdf_writer::{Chunk, Finish, Name, Rect, Ref, Str, TextStr};
 
 use quillmark_core::RenderedRegion;
 
+use crate::appearance;
 use crate::error::PdfError;
 use crate::reader::{err, find_dict_value, parse_indirect_ref, ObjectIndex, UpdatedObject};
 use crate::update::PdfUpdate;
-use crate::writer::{
-    alloc_id, append_refs_to_array_key, dict_object, to_ref, type1_font_object, OnNonArray,
-};
+use crate::writer::{alloc_id, append_refs_to_array_key, dict_object, to_ref, type1_font_object};
 use crate::{FieldSpec, FieldType, FormFont, TextAlign};
 
 const CODE_PARSE: &str = "pdf::stamp_parse";
@@ -45,42 +44,47 @@ pub const CHECK_GLYPH: &[u8] = b"4";
 /// `Helv` is registered in the form `/DR` `/Font`.
 ///
 /// The form-level `/DA` fallback only; a widget carries its own, built by
-/// [`field_appearance`].
+/// [`field_da`].
 const DEFAULT_APPEARANCE: &[u8] = b"/Helv 0 Tf 0 g";
 
 /// A `/DA` selecting `resource` at `size` over the house black fill. `f32`'s
 /// `Display` drops the trailing `.0`, so a whole-point size writes `12` and
 /// `0.0` writes the `0 Tf` that defers to the viewer's auto-size.
-fn appearance(resource: &str, size: f32) -> Vec<u8> {
+fn da(resource: &str, size: f32) -> Vec<u8> {
     format!("/{resource} {size} Tf 0 g").into_bytes()
 }
 
 /// A variable-text widget's `/DA`: its own face and size. An absent size — or
 /// one not positive and finite, `font_size` being public and `NaN`/`inf` being
 /// tokens no PDF number grammar admits — defers to the viewer's auto-size.
-fn field_appearance(spec: &FieldSpec) -> Vec<u8> {
+fn field_da(spec: &FieldSpec) -> Vec<u8> {
     let size = spec
         .font_size
         .filter(|s| s.is_finite() && *s > 0.0)
         .unwrap_or(0.0);
-    appearance(spec.font.resource_name(), size)
+    da(spec.font.resource_name(), size)
 }
 
-/// Every face a `/DA` this stamp writes names, as `(resource name, base font)`:
-/// the variable-text widgets' own, the check font of any checkbox, and the
-/// Helvetica of the form-level [`DEFAULT_APPEARANCE`]. A signature writes no
-/// `/DA` and a checkbox's is the engine's, so `font` names nothing on either.
+/// The face a widget's value is set in, as `(resource name, base font)`, or
+/// `None` for a signature — the one type carrying no value. A checkbox's is the
+/// engine's check font, so `font` names nothing on either.
+fn value_font(spec: &FieldSpec) -> Option<(&'static str, &'static [u8])> {
+    match spec.field_type {
+        FieldType::Text { .. } | FieldType::Choice { .. } => {
+            Some((spec.font.resource_name(), spec.font.base_font()))
+        }
+        FieldType::Checkbox => Some((CHECK_FONT_RESOURCE, CHECK_FONT)),
+        FieldType::Signature => None,
+    }
+}
+
+/// Every face this stamp registers in `/DR` `/Font`: each widget's own, plus the
+/// Helvetica of the form-level [`DEFAULT_APPEARANCE`]. A `/DA` and the `/AP`
+/// stream drawing the same value name their face from here, so an appearance
+/// always finds it.
 fn fonts_used(fields: &[FieldSpec]) -> Vec<(&'static str, &'static [u8])> {
-    let mut fonts: Vec<(&'static str, &'static [u8])> = fields
-        .iter()
-        .filter_map(|f| match f.field_type {
-            FieldType::Text { .. } | FieldType::Choice { .. } => {
-                Some((f.font.resource_name(), f.font.base_font()))
-            }
-            FieldType::Checkbox => Some((CHECK_FONT_RESOURCE, CHECK_FONT)),
-            FieldType::Signature => None,
-        })
-        .collect();
+    let mut fonts: Vec<(&'static str, &'static [u8])> =
+        fields.iter().filter_map(value_font).collect();
     fonts.push((
         FormFont::Helvetica.resource_name(),
         FormFont::Helvetica.base_font(),
@@ -88,6 +92,25 @@ fn fonts_used(fields: &[FieldSpec]) -> Vec<(&'static str, &'static [u8])> {
     fonts.sort_unstable_by_key(|&(resource, _)| resource);
     fonts.dedup();
     fonts
+}
+
+/// The predefined encoding a registered face is written with: a text face takes
+/// WinAnsi, the byte encoding [`appearance`] transcodes to, and the symbol check
+/// font keeps its own built-in one.
+fn font_encoding(resource: &str) -> Option<&'static [u8]> {
+    (resource != CHECK_FONT_RESOURCE).then_some(b"WinAnsiEncoding")
+}
+
+/// The `/DR` `/Font` object `spec`'s value is set in, from the faces
+/// [`fonts_used`] collected over the same `spec`s.
+fn registered_font(
+    fonts: &[(&'static str, &'static [u8])],
+    font_ids: &[u32],
+    spec: &FieldSpec,
+) -> Option<u32> {
+    let (resource, _) = value_font(spec)?;
+    let at = fonts.iter().position(|&(name, _)| name == resource)?;
+    font_ids.get(at).copied()
 }
 
 /// Options for [`stamp`](crate::stamp).
@@ -124,7 +147,7 @@ pub fn stamp(
 
     let pdf = base;
     let idx = ObjectIndex::new(&pdf);
-    let mut up = PdfUpdate::begin(&idx, Some(opts.producer.as_str()))?;
+    let mut up = PdfUpdate::begin(&idx, &opts.producer)?;
 
     if !fields.is_empty() {
         // Before any allocation: a second `/AcroForm` on the catalog is a dict
@@ -156,14 +179,23 @@ pub fn stamp(
         for (spec, &wid) in fields.iter().zip(&widget_ids) {
             widgets_by_page[spec.page].push(wid);
             let page_ref = to_ref(pages[spec.page].id)?;
+            let ap_id = match appearance::of(spec).zip(registered_font(&fonts, &font_ids, spec)) {
+                Some((ap, font_id)) => {
+                    let id = alloc_id(&mut up.next_id)?;
+                    up.objects.push(ap.object(id, font_id)?);
+                    Some(id)
+                }
+                None => None,
+            };
             up.objects.push(UpdatedObject {
                 id: wid,
-                bytes: write_widget_object(spec, to_ref(wid)?, page_ref),
+                bytes: write_widget_object(spec, to_ref(wid)?, page_ref, ap_id)?,
             });
         }
 
-        for (&(_, base_font), &fid) in fonts.iter().zip(&font_ids) {
-            up.objects.push(type1_font_object(fid, base_font, None)?);
+        for (&(resource, base_font), &fid) in fonts.iter().zip(&font_ids) {
+            up.objects
+                .push(type1_font_object(fid, base_font, font_encoding(resource))?);
         }
 
         let has_signature = fields
@@ -249,8 +281,14 @@ fn write_quadding(field: &mut Field<'_>, align: TextAlign) {
     field.vartext_quadding(q);
 }
 
-/// Serialize one field as a merged field+widget indirect object.
-fn write_widget_object(spec: &FieldSpec, wid: Ref, page_ref: Ref) -> Vec<u8> {
+/// Serialize one field as a merged field+widget indirect object, `ap_id` naming
+/// the `/AP` `/N` Form XObject when the widget draws one.
+fn write_widget_object(
+    spec: &FieldSpec,
+    wid: Ref,
+    page_ref: Ref,
+    ap_id: Option<u32>,
+) -> Result<Vec<u8>, PdfError> {
     let mut chunk = Chunk::new();
     {
         let mut field = chunk.form_field(wid);
@@ -261,12 +299,12 @@ fn write_widget_object(spec: &FieldSpec, wid: Ref, page_ref: Ref) -> Vec<u8> {
 
         // Captured to also set the annotation `/AS` below.
         let mut checkbox_on: Option<bool> = None;
-        let da = field_appearance(spec);
+        let text_da = field_da(spec);
 
         match &spec.field_type {
             FieldType::Text { multiline } => {
                 field.field_type(PwFieldType::Text);
-                field.vartext_default_appearance(Str(&da));
+                field.vartext_default_appearance(Str(&text_da));
                 write_quadding(&mut field, spec.align);
                 if *multiline {
                     field.field_flags(FieldFlags::MULTILINE);
@@ -279,7 +317,7 @@ fn write_widget_object(spec: &FieldSpec, wid: Ref, page_ref: Ref) -> Vec<u8> {
                 field.field_type(PwFieldType::Button);
                 // The viewer synthesizes the `/MK /CA` caption in the `/DA`
                 // face: under the form-level Helvetica the glyph is a digit.
-                field.vartext_default_appearance(Str(&appearance(CHECK_FONT_RESOURCE, 0.0)));
+                field.vartext_default_appearance(Str(&da(CHECK_FONT_RESOURCE, 0.0)));
                 let on = spec.is_checked();
                 checkbox_on = Some(on);
                 field.pair(
@@ -298,7 +336,7 @@ fn write_widget_object(spec: &FieldSpec, wid: Ref, page_ref: Ref) -> Vec<u8> {
             FieldType::Choice { options } => {
                 field.field_type(PwFieldType::Choice);
                 field.field_flags(FieldFlags::COMBO);
-                field.vartext_default_appearance(Str(&da));
+                field.vartext_default_appearance(Str(&text_da));
                 write_quadding(&mut field, spec.align);
                 {
                     let mut opts = field.choice_options();
@@ -333,22 +371,22 @@ fn write_widget_object(spec: &FieldSpec, wid: Ref, page_ref: Ref) -> Vec<u8> {
                 Name(b"Off")
             });
         }
+        // One stream rather than a per-state subdictionary, checkboxes included:
+        // the state a stamp writes is the state it renders at, and a viewer that
+        // lets the user toggle one synthesizes its own under `/NeedAppearances`.
+        if let Some(id) = ap_id {
+            ann.appearance().normal().stream(to_ref(id)?);
+        }
         ann.finish();
     }
-    chunk.as_bytes().to_vec()
+    Ok(chunk.as_bytes().to_vec())
 }
 
 /// Three cases for the existing `/Annots`: absent (write a fresh array);
 /// inline array (splice widget refs before `]`); indirect reference (hard
 /// error, the input contract requires inline annots).
 fn rewrite_page_with_annots(pg_dict: &[u8], widget_refs: &[u32]) -> Result<Vec<u8>, PdfError> {
-    append_refs_to_array_key(
-        pg_dict,
-        "Annots",
-        widget_refs,
-        CODE_PARSE,
-        OnNonArray::Reject(non_array_annots),
-    )
+    append_refs_to_array_key(pg_dict, "Annots", widget_refs, CODE_PARSE, non_array_annots)
 }
 
 fn non_array_annots(existing: &[u8]) -> PdfError {

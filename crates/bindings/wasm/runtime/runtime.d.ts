@@ -452,8 +452,8 @@ export declare class Engine {
  *
  * CANVAS PAINT IS COMPLETE: {@link LiveSession.paint} writes a whole page
  * raster, every piece of page content already visible in the painted pixels,
- * with no compositing required by the caller — acroform pre-flattens bound field
- * values into the page content to satisfy this. {@link LiveSession.regions}
+ * with no compositing required by the caller — acroform bakes each bound field
+ * value into the widget's appearance stream to satisfy this. {@link LiveSession.regions}
  * carries schema-field geometry for overlays drawn on top; it is never needed to
  * complete the picture.
  *

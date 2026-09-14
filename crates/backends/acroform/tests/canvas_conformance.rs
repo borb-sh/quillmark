@@ -24,10 +24,14 @@ favorite_color: green\n\
 ~~~\n";
 
 fn open() -> quillmark_core::LiveSession {
+    open_markdown(FILLED)
+}
+
+fn open_markdown(markdown: &str) -> quillmark_core::LiveSession {
     let quill = quillmark::quill_from_path(quillmark_fixtures::quills_path("sample_form"))
         .expect("load sample_form quill");
     let engine = Quillmark::new();
-    let doc = Document::parse(FILLED).expect("parse markdown").document;
+    let doc = Document::parse(markdown).expect("parse markdown").document;
     engine.open(&quill, &doc).expect("open session")
 }
 
@@ -77,15 +81,56 @@ fn acroform_canvas_raster_is_complete() {
          x[{left},{right}) y[{top},{bottom}) in {px_w}x{px_h}"
     );
 
-    let (ink, opaque) = ink_bounds(&rgba, px_w, (left, top, right, bottom));
+    let ink = ink_bounds(&rgba, px_w, (left, top, right, bottom));
 
     assert!(
-        opaque > 0,
+        ink.opaque > 0,
         "field region box must contain opaque page-background pixels"
     );
     assert!(
-        ink.is_some(),
+        ink.bounds.is_some(),
         "field region box must contain non-white opaque pixels"
+    );
+}
+
+/// A checkbox is the one widget whose appearance the PDF spec would express as
+/// a per-state subdictionary, and hayro reads `/AP` `/N` only as a stream. The
+/// stamp writes the stream, so the mark has to reach the canvas.
+#[test]
+fn a_checked_box_puts_its_mark_on_the_canvas() {
+    let marked_in_agree_box = |agree: bool| {
+        let markdown = FILLED.replace("agree: true", &format!("agree: {agree}"));
+        let session = open_markdown(&markdown);
+        let scale: f32 = 4.0;
+        let (_, height_pt) = session.page_size_pt(0).expect("page 0 size");
+        let (px_w, px_h, rgba) = session
+            .render_rgba(0, scale)
+            .expect("page 0 rasterizes")
+            .expect("acroform session must rasterize page 0");
+        let region = session
+            .regions()
+            .into_iter()
+            .find(|r| r.page == 0 && r.field == "agree")
+            .expect("a region for the bound checkbox");
+        let (l, t, r, b) = region_box_px(region.rect, height_pt, scale);
+        ink_bounds(
+            &rgba,
+            px_w,
+            (
+                l.clamp(0, px_w as i64) as u32,
+                t.clamp(0, px_h as i64) as u32,
+                r.clamp(0, px_w as i64) as u32,
+                b.clamp(0, px_h as i64) as u32,
+            ),
+        )
+        .marked
+    };
+
+    let (checked, unchecked) = (marked_in_agree_box(true), marked_in_agree_box(false));
+    assert!(
+        checked > unchecked,
+        "a checked box must draw more than the background's own chrome: \
+         {checked} marked px checked vs {unchecked} unchecked"
     );
 }
 
@@ -146,7 +191,7 @@ fn a_crop_box_keeps_page_geometry_on_the_ink() {
 const NARROW_LETTER: [f32; 4] = [96.0, 133.0, 500.0, 700.0];
 
 /// One text widget on an otherwise blank page, so every non-white pixel in the
-/// raster is the field's flattened value: the reported page size must be the
+/// raster is the field's drawn value: the reported page size must be the
 /// raster's, and the field's region must be the box that value drew in.
 fn geometry_lands_on_the_ink(form_pdf: Vec<u8>) {
     const FORM_JSON: &str = r#"{
@@ -200,8 +245,9 @@ fn geometry_lands_on_the_ink(form_pdf: Vec<u8>) {
         .expect("a region for the bound text field");
     let box_px = region_box_px(region.rect, height_pt, scale);
 
-    let (ink, _) = ink_bounds(&rgba, px_w, (0, 0, px_w, px_h));
-    let ink = ink.expect("the field value draws ink");
+    let ink = ink_bounds(&rgba, px_w, (0, 0, px_w, px_h))
+        .bounds
+        .expect("the field value draws ink");
     assert!(
         ink.0 >= box_px.0 && ink.1 >= box_px.1 && ink.2 <= box_px.2 && ink.3 <= box_px.3,
         "ink at {ink:?} must lie inside the field's region box {box_px:?} in {px_w}x{px_h}"
@@ -220,16 +266,23 @@ fn region_box_px(rect: [f32; 4], height_pt: f32, scale: f32) -> (i64, i64, i64, 
     )
 }
 
-/// Inside the pixel box `(left, top, right, bottom)`: the bounds of every
-/// non-white opaque pixel — `None` when the box holds none — and how many
-/// opaque pixels the box holds at all.
-fn ink_bounds(
-    rgba: &[u8],
-    px_w: u32,
-    (left, top, right, bottom): (u32, u32, u32, u32),
-) -> (Option<(i64, i64, i64, i64)>, u64) {
-    let mut bounds: Option<(i64, i64, i64, i64)> = None;
-    let mut opaque = 0u64;
+/// What a pixel box holds.
+struct Ink {
+    /// The bounds of every non-white opaque pixel, `None` when it holds none.
+    bounds: Option<(i64, i64, i64, i64)>,
+    /// How many of those there are.
+    marked: u64,
+    /// How many opaque pixels the box holds at all.
+    opaque: u64,
+}
+
+/// Read `Ink` off the pixel box `(left, top, right, bottom)`.
+fn ink_bounds(rgba: &[u8], px_w: u32, (left, top, right, bottom): (u32, u32, u32, u32)) -> Ink {
+    let mut ink = Ink {
+        bounds: None,
+        marked: 0,
+        opaque: 0,
+    };
     for y in top as i64..bottom as i64 {
         for x in left as i64..right as i64 {
             let i = ((y as usize) * (px_w as usize) + (x as usize)) * 4;
@@ -237,16 +290,17 @@ fn ink_bounds(
             if a != 255 {
                 continue;
             }
-            opaque += 1;
+            ink.opaque += 1;
             if r < 250 || g < 250 || b < 250 {
-                bounds = Some(match bounds {
+                ink.marked += 1;
+                ink.bounds = Some(match ink.bounds {
                     None => (x, y, x + 1, y + 1),
                     Some((l, t, rt, bt)) => (l.min(x), t.min(y), rt.max(x + 1), bt.max(y + 1)),
                 });
             }
         }
     }
-    (bounds, opaque)
+    ink
 }
 
 /// A one-page background drawing nothing, with `media` as its `/MediaBox` and

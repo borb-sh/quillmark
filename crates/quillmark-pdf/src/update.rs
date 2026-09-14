@@ -1,7 +1,7 @@
-//! The incremental-update envelope shared by the stamp and flatten paths: open a
-//! base PDF (validate the reader's input contract, read the trailer, seed the
-//! object-id counter, optionally stamp `/Info` `/Producer`) and close it with one
-//! incremental-update append. Each path supplies only the objects in between.
+//! The incremental-update envelope: open a base PDF (validate the reader's input
+//! contract, read the trailer, seed the object-id counter, stamp `/Info`
+//! `/Producer`) and close it with one incremental-update append. The stamp
+//! supplies only the objects in between.
 
 use crate::error::PdfError;
 use crate::reader::{
@@ -33,7 +33,7 @@ impl PdfUpdate {
     /// Open the indexed base for an incremental update. The caller then pushes
     /// its objects onto [`objects`](Self::objects) and calls
     /// [`finish`](Self::finish) with the base's bytes.
-    pub fn begin(idx: &ObjectIndex, producer: Option<&str>) -> Result<Self, PdfError> {
+    pub fn begin(idx: &ObjectIndex, producer: &str) -> Result<Self, PdfError> {
         let (xref_offset, trailer, catalog_id) = open_trailer(idx.bytes(), CODE_PARSE)?;
         if find_dict_value(trailer, "Encrypt").is_some() {
             return Err(err(
@@ -54,11 +54,8 @@ impl PdfUpdate {
         // of handing out an id that collides or that no reference admits.
         let mut next_id = size;
         let mut objects: Vec<UpdatedObject> = Vec::new();
-        let mut new_info_ref = None;
-        if let Some(producer) = producer {
-            let info = read_info_source(trailer);
-            new_info_ref = apply_producer_stamp(idx, info, producer, &mut next_id, &mut objects)?;
-        }
+        let info = read_info_source(trailer);
+        let new_info_ref = apply_producer_stamp(idx, info, producer, &mut next_id, &mut objects)?;
 
         Ok(Self {
             xref_offset,
@@ -139,7 +136,7 @@ mod tests {
 
     fn stamped(base: &[u8]) -> Vec<u8> {
         let idx = ObjectIndex::new(base);
-        PdfUpdate::begin(&idx, Some("Quillmark test"))
+        PdfUpdate::begin(&idx, "Quillmark test")
             .expect("begin")
             .finish(base.to_vec())
             .expect("finish")

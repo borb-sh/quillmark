@@ -362,8 +362,8 @@ describe('LiveSession canvas preview (acroform backend)', () => {
   it('reports page geometry for a acroform quill', () => {
     const { engine, quill } = openAcroformQuill()
 
-    // The acroform backend rasterizes pre-flattened pages, so `pageSize`
-    // answers rather than throwing.
+    // The acroform backend rasterizes its stamped PDF, so `pageSize` answers
+    // rather than throwing.
     const session = engine.open(quill, Document.fromMarkdown(SAMPLE_FORM_MARKDOWN))
     expect(session.pageCount).toBeGreaterThan(0)
     expect(session.backendId).toBe('acroform')
@@ -401,8 +401,8 @@ describe('LiveSession canvas preview (acroform backend)', () => {
     expect(call.height).toBe(result.pixelHeight)
     expect(call.data.length).toBe(call.width * call.height * 4)
 
-    // COMPLETE-RASTER contract: the pre-flattened "Ada Lovelace" et al. are
-    // baked into the page, so the buffer must carry non-white opaque ink
+    // COMPLETE-RASTER contract: "Ada Lovelace" et al. are baked into the
+    // widgets' appearance streams, so the buffer must carry non-white opaque ink
     // (field values + form lines) AND opaque page background. A backend that
     // returned only a blank background (no values) would fail the ink check.
     expectInkAndOpaquePixels(call)

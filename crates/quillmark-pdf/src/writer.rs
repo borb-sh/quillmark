@@ -1,6 +1,5 @@
-//! Low-level PDF byte-serialization shared by the stamp and flatten paths, so
-//! the two emit identical bytes for an object, a text string, and the `/Info`
-//! `/Producer` stamp.
+//! Low-level PDF byte-serialization: indirect objects, id allocation, string
+//! escaping, and the WinAnsi transcoding a drawn appearance commits to.
 
 use pdf_writer::{Chunk, Name, Ref};
 
@@ -17,7 +16,7 @@ const MAX_ID: u32 = i32::MAX as u32;
 
 /// Serialize one indirect object from its inner dict bytes:
 /// `<id> 0 obj\n<< <inner> >>\nendobj\n`.
-pub fn dict_object(id: u32, inner: &[u8]) -> UpdatedObject {
+pub(crate) fn dict_object(id: u32, inner: &[u8]) -> UpdatedObject {
     let mut bytes = format!("{id} 0 obj\n<< ").into_bytes();
     bytes.extend_from_slice(inner);
     bytes.extend_from_slice(b" >>\nendobj\n");
@@ -26,7 +25,7 @@ pub fn dict_object(id: u32, inner: &[u8]) -> UpdatedObject {
 
 /// One base-14 Type1 font object, never embedded. `encoding` names a predefined
 /// encoding; a symbol font passes `None` to keep its built-in one.
-pub fn type1_font_object(
+pub(crate) fn type1_font_object(
     id: u32,
     base_font: &[u8],
     encoding: Option<&[u8]>,
@@ -42,17 +41,10 @@ pub fn type1_font_object(
     Ok(UpdatedObject::new(id, chunk.as_bytes().to_vec()))
 }
 
-/// One uncompressed content stream object carrying `content`.
-pub fn content_stream_object(id: u32, content: &[u8]) -> Result<UpdatedObject, PdfError> {
-    let mut chunk = Chunk::new();
-    chunk.stream(to_ref(id)?, content);
-    Ok(UpdatedObject::new(id, chunk.as_bytes().to_vec()))
-}
-
 /// Hand out the next object id from `next`, bounded at `i32::MAX` so a
 /// malformed large `/Size` errors instead of wrapping into a colliding id or
 /// handing out one no reference admits.
-pub fn alloc_id(next: &mut u32) -> Result<u32, PdfError> {
+pub(crate) fn alloc_id(next: &mut u32) -> Result<u32, PdfError> {
     let id = *next;
     if id > MAX_ID {
         return Err(err(
@@ -77,7 +69,7 @@ pub(crate) fn to_ref(id: u32) -> Result<Ref, PdfError> {
 }
 
 /// Escape bytes for a PDF literal string `( … )`: `(`, `)`, `\` → `\x`.
-pub fn pdf_escape(out: &mut Vec<u8>, bytes: &[u8]) {
+pub(crate) fn pdf_escape(out: &mut Vec<u8>, bytes: &[u8]) {
     for &b in bytes {
         if matches!(b, b'(' | b')' | b'\\') {
             out.push(b'\\');
@@ -107,24 +99,16 @@ pub(crate) fn pdf_text_string(s: &str) -> Vec<u8> {
     }
 }
 
-/// What an existing value that is not an inline array means for
-/// [`append_refs_to_array_key`].
-pub enum OnNonArray {
-    /// Take it as the array's first element (`/Contents 4 0 R` → `[4 0 R …]`).
-    Wrap,
-    /// Refuse it, with the error the fn builds from the raw value.
-    Reject(fn(&[u8]) -> PdfError),
-}
-
 /// Append `refs` as indirect references to `dict`'s inline array `key`, writing
 /// a fresh single-element array when the key is absent. `code` carries the
-/// caller's error code for an array that never closes.
-pub fn append_refs_to_array_key(
+/// caller's error code for an array that never closes, and `on_non_array` builds
+/// the refusal for an existing value that is not an inline array.
+pub(crate) fn append_refs_to_array_key(
     dict: &[u8],
     key: &str,
     refs: &[u32],
     code: &'static str,
-    on_non_array: OnNonArray,
+    on_non_array: fn(&[u8]) -> PdfError,
 ) -> Result<Vec<u8>, PdfError> {
     let refs_str = refs
         .iter()
@@ -139,18 +123,14 @@ pub fn append_refs_to_array_key(
     };
 
     let trimmed = existing.trim_ascii();
-    let inner = if trimmed.starts_with(b"[") {
-        let end = trimmed
-            .iter()
-            .rposition(|&b| b == b']')
-            .ok_or_else(|| err(code, format!("/{key} array missing ]")))?;
-        &trimmed[1..end]
-    } else {
-        match on_non_array {
-            OnNonArray::Wrap => trimmed,
-            OnNonArray::Reject(to_err) => return Err(to_err(existing)),
-        }
-    };
+    if !trimmed.starts_with(b"[") {
+        return Err(on_non_array(existing));
+    }
+    let end = trimmed
+        .iter()
+        .rposition(|&b| b == b']')
+        .ok_or_else(|| err(code, format!("/{key} array missing ]")))?;
+    let inner = &trimmed[1..end];
     let merged = format!("[{} {refs_str}]", String::from_utf8_lossy(inner).trim());
     Ok(splice_dict_value(
         dict,
@@ -206,9 +186,9 @@ pub(crate) fn apply_producer_stamp(
 
 /// Map one `char` to its WinAnsi (CP1252) byte, or `None` when WinAnsi cannot
 /// represent it. Pairs with a base-14 font declaring `/Encoding
-/// /WinAnsiEncoding`, which the flatten path needs because it draws text into a
-/// content stream instead of leaving a UTF-16 `/V` for the viewer.
-pub(crate) fn winansi_byte(c: char) -> Option<u8> {
+/// /WinAnsiEncoding`, which an appearance stream needs because it draws text
+/// itself instead of leaving a UTF-16 `/V` for the viewer.
+fn winansi_byte(c: char) -> Option<u8> {
     let cp = c as u32;
     match cp {
         // ASCII and the upper Latin-1 range are identity-mapped in WinAnsi.
@@ -250,7 +230,7 @@ pub(crate) fn winansi_byte(c: char) -> Option<u8> {
 
 /// Transcode `s` to WinAnsi (CP1252) bytes, substituting `?` for any code point
 /// WinAnsi cannot represent.
-pub fn winansi_encode(s: &str) -> Vec<u8> {
+pub(crate) fn winansi_encode(s: &str) -> Vec<u8> {
     s.chars().map(|c| winansi_byte(c).unwrap_or(b'?')).collect()
 }
 
