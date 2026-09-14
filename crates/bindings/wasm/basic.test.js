@@ -668,18 +668,26 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
     expect(exportMarkdown(rt)).toBe('A **bold** line.')
   })
 
-  it('spells every container instance on a read, so a read is a write input', () => {
-    // Storage omits a zero, the seam spells it. Requiring the field on the read
-    // type is what reaches `overwrite` and `CardInput.body`, and that is honest
-    // only while every `Content`-typed lane spells it.
-    const spelled = (rt) => rt.lines.flatMap((l) => l.containers).map((c) => c.instance)
+  it('answers the canonical form on every Content lane, a zero instance omitted', () => {
+    // A read is a write input, and the one form is what a host writes straight
+    // back. `instance` costs a key only where two adjacent runs would weld.
+    const written = (rt) => rt.lines.flatMap((l) => l.containers).map((c) => c.instance)
 
-    expect(spelled(importMarkdown('> a\n\n- b'))).toEqual([0, 0])
-    expect(spelled(rebase(importMarkdown('> a'), '> a\n\n- b').content)).toEqual([0, 0])
+    expect(written(importMarkdown('> a\n\n- b'))).toEqual([undefined, undefined])
+    expect(written(rebase(importMarkdown('> a'), '> a\n\n- b').content)).toEqual([
+      undefined,
+      undefined,
+    ])
+    expect(written(importMarkdown('- a\n\n* b'))).toEqual([undefined, 1])
 
     const doc = Document.fromMarkdown('~~~card-yaml\n$quill: commit_test\n~~~\n\n> a\n\n- b')
-    expect(spelled(doc.main.body)).toEqual([0, 0])
-    expect(spelled(doc.getStored({}))).toEqual([0, 0])
+    expect(written(doc.main.body)).toEqual([undefined, undefined])
+    expect(written(doc.getStored({}))).toEqual([undefined, undefined])
+
+    // The round trip the one form buys: what a read hands back writes back
+    // unchanged.
+    doc.overwrite({}, doc.getStored({}))
+    expect(doc.bodyMarkdown()).toBe('> a\n\n- b')
   })
 
   it('rebase computes a content + delta and mapPos maps a position through it', () => {

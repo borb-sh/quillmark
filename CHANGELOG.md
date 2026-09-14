@@ -67,6 +67,24 @@
   with `saturating_add`, as `expected_base_len` already did: a run past
   `usize::MAX` describes a base longer than any content, and a position lands
   inside it as it would in a bounded one. Closes #1782.
+- refactor(content,wasm,python)!: **one canonical content form, a zero
+  `Container.instance` omitted.** Canonical JSON had two byte forms differing
+  only in whether a zero `instance` was written: storage omitted it, so a row
+  written before the field existed re-encodes byte for byte, and a second
+  encoder spelled it on every container so the published `ContentContainer`
+  type could require the field. Required bought no correctness — a checker
+  reports an omitted field, never the `0` stamped on two runs that welds them,
+  which is what `assignInstances` is for — and it cost a spelling a host had to
+  tell apart from the one storage holds. `serial::to_seam_value` goes;
+  `to_canonical_value` is the one encoder, and every `Content`-typed read
+  answers in it: `getContent{,At}`, `getStored` on a body, `importMarkdown`,
+  `rebase`, and the `Card` wire. TypeScript spells `instance?: number` on both
+  arms, and an absent key decodes to `0` as the spelled one did, so every write
+  takes either spelling and no stored byte moves. A host reading the key off a
+  read finds `undefined` where it found `0`: the break no type checker reports.
+  `emit`'s markdown projection of a content-valued field now matches one form
+  rather than two, so a value carrying a spelled zero stays a structural
+  mapping until it is conformed. Closes #1648.
 - refactor(pdfform)!: **`quillmark-pdfform` is `quillmark-acroform`, backend id
   included.** `quillmark-pdf` and `quillmark-pdfform` differed by four
   characters and read as prefix-and-specialization, the reading #1749 records:

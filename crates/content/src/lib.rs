@@ -5,9 +5,8 @@
 //! of Unicode scalar values. Markdown is a *projection*
 //! ([`import::from_markdown`], [`export::to_markdown`]), so every edit is a
 //! splice and all structure moves with it. [`serial`] is the canonical,
-//! byte-deterministic JSON, in a storage form and a seam form differing only in
-//! whether a zero `Container::instance` is spelled; [`delta`] and [`ops`] are
-//! the per-field edit surface.
+//! byte-deterministic JSON that storage, the render seam and the binding seam
+//! all carry; [`delta`] and [`ops`] are the per-field edit surface.
 
 pub mod delta;
 pub mod export;
