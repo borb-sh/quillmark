@@ -336,6 +336,23 @@ fn block_label(block_index: usize) -> String {
 pub const DOCUMENT_FILE: &str = "input.md";
 
 impl ParseError {
+    /// The namespaced diagnostic `code` (e.g. `"parse::empty_input"`), one per
+    /// variant and the variant's only stable discriminator. Consumers route on
+    /// this, not on message text. Taxonomy: `prose/canon/ERROR.md`.
+    pub fn code(&self) -> &'static str {
+        match self {
+            ParseError::InputTooLarge { .. } => "parse::input_too_large",
+            ParseError::TooManyFields { .. } => "parse::too_many_fields",
+            ParseError::TooManyCards { .. } => "parse::too_many_cards",
+            ParseError::InvalidStructure(_) => "parse::invalid_structure",
+            ParseError::EmptyInput(_) => "parse::empty_input",
+            ParseError::MissingQuill(_) => "parse::missing_quill",
+            ParseError::InvalidQuillReference { .. } => "parse::invalid_quill_reference",
+            ParseError::BodyImport(_) => "parse::body_import",
+            ParseError::YamlErrorWithLocation { .. } => "parse::yaml_error_with_location",
+        }
+    }
+
     /// The facts this error's message interpolates. See [`Diagnostic::args`].
     ///
     /// The four `String` variants contribute no keys: `EmptyInput` is one
@@ -377,45 +394,32 @@ impl ParseError {
     }
 
     /// This error as a [`Diagnostic`]: the `Display` rendering as `message`,
-    /// under the variant's `parse::*` code, with the location, hint and
+    /// under the variant's [`code`](Self::code), with the location, hint and
     /// [`args`](Self::args) the variant carries. The `#[error]` attribute is
     /// the one place a variant's English is spelled.
     pub fn to_diagnostic(&self) -> Diagnostic {
-        let base = Diagnostic::new(Severity::Error, self.to_string());
-        let diag = match self {
-            ParseError::InputTooLarge { .. } => {
-                base.with_code("parse::input_too_large".to_string())
+        let diag = Diagnostic::new(Severity::Error, self.to_string())
+            .with_code(self.code().to_string())
+            .with_args(self.args());
+        match self {
+            ParseError::InvalidQuillReference { .. } => {
+                diag.with_hint(crate::version::quill_ref_hint().to_string())
             }
-            ParseError::TooManyFields { .. } => {
-                base.with_code("parse::too_many_fields".to_string())
-            }
-            ParseError::TooManyCards { .. } => base.with_code("parse::too_many_cards".to_string()),
-            ParseError::InvalidStructure(_) => {
-                base.with_code("parse::invalid_structure".to_string())
-            }
-            ParseError::EmptyInput(_) => base.with_code("parse::empty_input".to_string()),
-            ParseError::MissingQuill(_) => base.with_code("parse::missing_quill".to_string()),
-            ParseError::BodyImport(_) => base.with_code("parse::body_import".to_string()),
-            ParseError::InvalidQuillReference { .. } => base
-                .with_code("parse::invalid_quill_reference".to_string())
-                .with_hint(crate::version::quill_ref_hint().to_string()),
             ParseError::YamlErrorWithLocation {
                 line, column, hint, ..
             } => {
-                let d = base
-                    .with_code("parse::yaml_error_with_location".to_string())
-                    .with_location(Location::new(
-                        DOCUMENT_FILE.to_string(),
-                        *line as u32,
-                        *column as u32,
-                    ));
+                let d = diag.with_location(Location::new(
+                    DOCUMENT_FILE.to_string(),
+                    *line as u32,
+                    *column as u32,
+                ));
                 match hint {
                     Some(h) => d.with_hint(h.clone()),
                     None => d,
                 }
             }
-        };
-        diag.with_args(self.args())
+            _ => diag,
+        }
     }
 }
 

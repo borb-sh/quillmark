@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- refactor(core): **`ParseError::code` is the one variant-to-code match.**
+  `code()` joins the three siblings that already carry the same
+  `fn code(&self) -> &'static str` — `EditError`, `ValidationError`,
+  `WireError` — and `to_diagnostic` reads it rather than spelling a second
+  nine-arm table beside `args()`. What is left there is a two-arm decoration
+  match over the only variants carrying a hint or a location. Refs #1748.
 - refactor(core)!: **the raw-plate test seam is `#[doc(hidden)]`, not a cargo
   feature.** `internal-test-seam` gated one method,
   `LiveSession::update_data`, and the crate's `[features]` table held nothing
