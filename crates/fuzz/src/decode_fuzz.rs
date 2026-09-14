@@ -84,9 +84,9 @@ proptest! {
     /// The `applyChange` lane.
     #[test]
     fn op_wire_decode_never_panics(v in arb_json()) {
-        let _ = quillmark_content::change_bundle_from_value(&v);
-        let _ = quillmark_content::line_op_from_value(&v);
-        let _ = quillmark_content::mark_op_from_value(&v);
+        let _ = quillmark_content::ops::change_bundle_from_value(&v);
+        let _ = quillmark_content::ops::line_op_from_value(&v);
+        let _ = quillmark_content::ops::mark_op_from_value(&v);
     }
 }
 

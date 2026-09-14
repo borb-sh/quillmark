@@ -692,7 +692,7 @@ mod args_canon {
                 target: "integer".into(),
                 message: "x".into(),
             },
-            EditError::ContentApply(quillmark_content::ApplyError::LineOutOfRange {
+            EditError::ContentApply(quillmark_content::ops::ApplyError::LineOutOfRange {
                 line: 3,
                 lines: 1,
             }),

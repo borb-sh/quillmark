@@ -12,7 +12,7 @@ use crate::{Diagnostic, Severity};
 use super::fences::{find_metadata_blocks, UnclosedRoot};
 use super::meta::{extract_meta_items, meta_key};
 use super::payload::{MetaKey, Payload, PayloadItem};
-use quillmark_content::Normalized;
+use quillmark_content::model::Normalized;
 
 /// The parse-time half of the markdown→content boundary
 /// ([`super::import_body`]): an over-nesting failure becomes a [`ParseError`].

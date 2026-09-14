@@ -2707,7 +2707,7 @@ fn plaintext_field_caches_literal_content() {
     let rt = quillmark_content::serial::from_canonical_value(content.as_json()).unwrap();
     assert!(rt.is_plain(), "cached plaintext content is plain");
     assert_eq!(
-        quillmark_content::to_plaintext(&rt),
+        quillmark_content::export::to_plaintext(&rt),
         "a *literal* subject",
         "the asterisks are literal, not emphasis"
     );
@@ -2726,7 +2726,7 @@ fn plaintext_coercion_imports_verbatim_not_as_markdown() {
     assert!(value.as_json().is_object(), "coerced value is a content object");
     let rt = quillmark_content::serial::from_canonical_value(value.as_json()).unwrap();
     assert!(rt.marks.is_empty(), "no marks: delimiters stayed literal");
-    assert_eq!(quillmark_content::to_plaintext(&rt), "*not bold* text");
+    assert_eq!(quillmark_content::export::to_plaintext(&rt), "*not bold* text");
 }
 
 #[test]
@@ -2748,7 +2748,7 @@ fn inline_plaintext_rejects_multiline_document_value() {
 #[test]
 fn plaintext_wire_content_with_marks_is_rejected_not_stripped() {
     let config = quill_with_field("    subject:\n      type: plaintext\n").expect("loads");
-    let rt = quillmark_content::from_markdown("a **bold** word").unwrap().into_content();
+    let rt = quillmark_content::import::from_markdown("a **bold** word").unwrap().into_content();
     let rt = rt.into_normalized();
     let mut fields: indexmap::IndexMap<String, QuillValue> = indexmap::IndexMap::new();
     fields.insert(

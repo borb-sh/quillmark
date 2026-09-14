@@ -111,7 +111,7 @@ pub enum LineKind {
     },
     /// A block-level island: the line's sole content is one [`ISLAND_SLOT`]
     /// backing an island whose markdown *is* a block
-    /// ([`IslandType::block_only`](crate::IslandType::block_only)).
+    /// ([`IslandType::block_only`](crate::island::IslandType::block_only)).
     /// An image is inline markup, so a line holding one alone is
     /// [`Para`](LineKind::Para) — the kind re-importing `![alt](url)` yields,
     /// and the kind [`Content::normalize`] writes there.
@@ -321,7 +321,7 @@ impl Container {
 ///
 /// A projection taking a token may therefore assume only what the mint
 /// establishes, and must be **total over any token**:
-/// [`to_markdown`](crate::to_markdown) walks containers on an explicit stack
+/// [`to_markdown`](crate::export::to_markdown) walks containers on an explicit stack
 /// rather than a frame per level, and `emit_content` checks the depth and
 /// returns an error. An unguarded recursion aborts the process, which no
 /// `Result` can catch.
@@ -772,7 +772,7 @@ fn fragment_line(line: &Line, span: std::ops::Range<Usv>, breaks: &[Usv], first:
 
 /// The [`LineKind`] a line whose sole content is one [`ISLAND_SLOT`] carries in
 /// canonical form: [`LineKind::Island`] where markdown writes that island as a
-/// block ([`IslandType::block_only`](crate::IslandType::block_only)),
+/// block ([`IslandType::block_only`](crate::island::IslandType::block_only)),
 /// [`LineKind::Para`] where it writes it inline. Both spell one markdown, so the
 /// model keeps the one re-importing it yields, and [`Content::normalize`] writes
 /// that one.
@@ -952,7 +952,7 @@ impl Content {
     /// prose with the island gone.
     ///
     /// The lanes that *author* an island refuse the placement up front
-    /// ([`ApplyError::BlockIslandNotAlone`](crate::ApplyError::BlockIslandNotAlone)),
+    /// ([`ApplyError::BlockIslandNotAlone`](crate::ops::ApplyError::BlockIslandNotAlone)),
     /// so what reaches here is a stored blob carrying the shape and an accepted
     /// `Join` that ran a slot back into its prose.
     fn split_block_islands(&mut self) {

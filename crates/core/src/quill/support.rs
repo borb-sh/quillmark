@@ -8,7 +8,8 @@
 
 use std::collections::BTreeMap;
 
-use quillmark_content::{Content, IslandType, LineKind};
+use quillmark_content::island::IslandType;
+use quillmark_content::model::{Content, LineKind};
 
 use crate::document::Document;
 use crate::path::DocPath;
@@ -182,7 +183,7 @@ mod census_tests {
     use super::*;
 
     fn count(md: &str, construct: BlockConstruct) -> usize {
-        let body = quillmark_content::from_markdown(md).unwrap();
+        let body = quillmark_content::import::from_markdown(md).unwrap();
         census(&body).get(&construct).copied().unwrap_or(0)
     }
 

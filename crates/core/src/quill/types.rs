@@ -279,15 +279,15 @@ pub enum FieldType {
     Date,
     DateTime,
     /// Formatted prose over the canonical content model,
-    /// [`Content`](quillmark_content::Content); markdown is a projection of it.
+    /// [`Content`](quillmark_content::model::Content); markdown is a projection of it.
     RichText {
         /// Exactly one `Para` line, no container, no islands. Enforced at
         /// coercion, validation, and load-time literal import.
         inline: bool,
     },
-    /// The same [`Content`](quillmark_content::Content) through a *literal*
-    /// codec ([`from_plaintext`](quillmark_content::from_plaintext) /
-    /// [`to_plaintext`](quillmark_content::to_plaintext)): `*hi*` is four
+    /// The same [`Content`](quillmark_content::model::Content) through a *literal*
+    /// codec ([`from_plaintext`](quillmark_content::import::from_plaintext) /
+    /// [`to_plaintext`](quillmark_content::export::to_plaintext)): `*hi*` is four
     /// characters, verbatim both ways, never emphasis.
     PlainText {
         /// A single line, enforced where [`RichText`](Self::RichText)'s is.

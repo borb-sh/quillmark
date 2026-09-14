@@ -1,8 +1,8 @@
 //! `Content`: the canonical content model for Quillmark.
 //!
-//! One [`Content`] per content field: a single text sequence carrying line
-//! attributes, anchored marks, and embedded islands, over one coordinate space
-//! of Unicode scalar values. Markdown is a *projection*
+//! One [`model::Content`] per content field: a single text sequence carrying
+//! line attributes, anchored marks, and embedded islands, over one coordinate
+//! space of Unicode scalar values. Markdown is a *projection*
 //! ([`import::from_markdown`], [`export::to_markdown`]), so every edit is a
 //! splice and all structure moves with it. [`serial`] is the canonical,
 //! byte-deterministic JSON, in a storage form and a seam form differing only in
@@ -19,22 +19,6 @@ pub mod ops;
 pub mod serial;
 pub mod traverse;
 pub mod usv;
-
-pub use delta::{diff_import, Assoc, Delta, Op};
-pub use export::{to_markdown, to_plaintext};
-pub use import::{from_markdown, from_plaintext};
-pub use island::IslandType;
-pub use model::{
-    Container, Invariant, Island, Line, LineKind, Loss, Mark, MarkKind,
-    Content, Usv,
-};
-pub use ops::{
-    change_bundle_from_value, island_op_from_value, line_op_from_value, mark_op_from_value,
-    ApplyError, ChangeBundle, IslandOp, LineOp, MarkOp,
-};
-pub use serial::ParseError;
-pub use model::Normalized;
-pub use traverse::{items, runs, segment, Span};
 
 /// Maximum container nesting depth the markdown codecs accept before erroring.
 /// The import guard ([`import::from_markdown`]) and the typst backend's markup

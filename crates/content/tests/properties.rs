@@ -5,13 +5,11 @@
 
 use proptest::prelude::*;
 use quillmark_content::island::IslandType;
-use quillmark_content::delta::diff_import;
+use quillmark_content::delta::{diff_import, Delta, Op};
 use quillmark_content::export::to_markdown;
 use quillmark_content::import::from_markdown;
-use quillmark_content::model::{Line, Mark, MarkKind};
-use quillmark_content::{
-    Content, Delta, Island, IslandOp, LineKind, LineOp, MarkOp, Normalized, Op,
-};
+use quillmark_content::model::{Content, Island, Line, LineKind, Mark, MarkKind, Normalized};
+use quillmark_content::ops::{IslandOp, LineOp, MarkOp};
 use serde_json::{json, Value};
 
 /// The mint's fixed point: normalizing again changes nothing.

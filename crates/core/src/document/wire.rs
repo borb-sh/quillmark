@@ -21,7 +21,7 @@ use crate::error::diag_args;
 use crate::value::{PathSegment, QuillValue};
 use crate::version::QuillReference;
 use crate::{Diagnostic, Severity};
-use quillmark_content::Normalized;
+use quillmark_content::model::Normalized;
 
 /// One entry in a [`CardWire`]'s `payload_items`: a user field or a comment.
 /// The `$` system entries are hoisted onto [`CardWire`] itself, never here.
@@ -295,7 +295,7 @@ mod tests {
             value: addr,
             fill: false,
         }]);
-        let card = Card::from_parts(payload, quillmark_content::Normalized::empty());
+        let card = Card::from_parts(payload, quillmark_content::model::Normalized::empty());
 
         let wire = CardWire::from(&card);
         let as_json = serde_json::to_value(&wire).unwrap();
@@ -330,7 +330,7 @@ mod tests {
         }]);
         let wire = CardWire::from(&Card::from_parts(
             payload,
-            quillmark_content::Normalized::empty(),
+            quillmark_content::model::Normalized::empty(),
         ));
 
         let as_json = serde_json::to_value(&wire).unwrap();
@@ -438,7 +438,7 @@ mod tests {
         let mut payload = Payload::from_index_map(Default::default());
         payload.set_quill("memo@1.2.3".parse().unwrap());
         payload.set_kind("main");
-        let card = Card::from_parts(payload, quillmark_content::Normalized::empty());
+        let card = Card::from_parts(payload, quillmark_content::model::Normalized::empty());
 
         let wire = CardWire::from(&card);
         assert_eq!(wire.quill.as_deref(), Some("memo@1.2.3"));
@@ -539,7 +539,7 @@ mod tests {
 
         assert_eq!(
             with_body(JsonValue::Null).unwrap().body(),
-            &quillmark_content::Normalized::empty()
+            &quillmark_content::model::Normalized::empty()
         );
         assert_eq!(
             Codec::Richtext.project(with_body(json!("hi *there*")).unwrap().body()),

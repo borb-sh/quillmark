@@ -1,6 +1,6 @@
 //! Content → Typst-markup emitter that records a per-segment source map.
 //!
-//! Walks a [`Content`](quillmark_content::Content) to Typst markup, never
+//! Walks a [`Content`](quillmark_content::model::Content) to Typst markup, never
 //! re-parsing markdown. The escape rules, the three positions a text run takes a
 //! `\` guard at, and the source map's shape: `prose/canon/CONVERT.md`. Which
 //! guard is live is `Tail`, the record of what the emitter last wrote.
@@ -328,7 +328,7 @@ pub fn emit_content(rt: &Normalized) -> Result<Emission, EmitError> {
 /// without Typst's "parbreak may not occur inside of a paragraph" warning.
 /// Anything not [`is_inline`] falls back to [`emit_content`].
 ///
-/// [`is_inline`]: quillmark_content::Content::is_inline
+/// [`is_inline`]: quillmark_content::model::Content::is_inline
 pub(crate) fn emit_content_inline(rt: &Normalized) -> Result<Emission, EmitError> {
     if !rt.is_inline() {
         return emit_content(rt);

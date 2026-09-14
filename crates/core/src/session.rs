@@ -2,7 +2,8 @@ use crate::quill::QuillConfig;
 use crate::{
     ContentHit, Diagnostic, Document, RenderError, RenderOptions, RenderResult, RenderedRegion,
 };
-pub use quillmark_content::{ApplyError, Assoc, ChangeBundle, Delta, IslandOp, LineOp, MarkOp, Op};
+pub use quillmark_content::delta::{Assoc, Delta, Op};
+pub use quillmark_content::ops::{ApplyError, ChangeBundle, IslandOp, LineOp, MarkOp};
 use std::sync::OnceLock;
 
 /// What a committed [`LiveSession::update`] changed.

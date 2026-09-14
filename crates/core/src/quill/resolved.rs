@@ -448,7 +448,7 @@ main:
         let mut payload = Payload::from_index_map(map);
         payload.set_quill("fs_test@1.0".parse().unwrap());
         payload.set_kind("main");
-        let main = Card::from_parts(payload, quillmark_content::Normalized::empty());
+        let main = Card::from_parts(payload, quillmark_content::model::Normalized::empty());
         let doc = Document::from_main_and_cards(main, Vec::new());
         let states = quill.resolve(&doc);
 

@@ -1776,7 +1776,7 @@ impl Addr {
 /// string. The **storage** lane: content read back out of a document must keep
 /// opening whatever it was written as. Host-authored content goes through
 /// [`js_to_authored_content`].
-fn js_to_content(value: JsValue, ctx: &str) -> Result<quillmark_content::Normalized, JsValue> {
+fn js_to_content(value: JsValue, ctx: &str) -> Result<quillmark_content::model::Normalized, JsValue> {
     js_to_content_with(value, ctx, quillmark_content::serial::from_canonical_value)
 }
 
@@ -1786,7 +1786,7 @@ fn js_to_content(value: JsValue, ctx: &str) -> Result<quillmark_content::Normali
 fn js_to_authored_content(
     value: JsValue,
     ctx: &str,
-) -> Result<quillmark_content::Normalized, JsValue> {
+) -> Result<quillmark_content::model::Normalized, JsValue> {
     js_to_content_with(value, ctx, quillmark_content::serial::from_authored_value)
 }
 
@@ -1795,8 +1795,8 @@ fn js_to_content_with(
     ctx: &str,
     read: fn(
         &serde_json::Value,
-    ) -> Result<quillmark_content::Normalized, quillmark_content::serial::ParseError>,
-) -> Result<quillmark_content::Normalized, JsValue> {
+    ) -> Result<quillmark_content::model::Normalized, quillmark_content::serial::ParseError>,
+) -> Result<quillmark_content::model::Normalized, JsValue> {
     let json = js_value_to_json(value, ctx)?;
     if !json.is_object() {
         return Err(WasmError::from(format!(
@@ -1812,9 +1812,9 @@ fn js_to_content_with(
 fn parse_change_bundle(
     value: &JsValue,
     ctx: &str,
-) -> Result<quillmark_content::ChangeBundle, JsValue> {
+) -> Result<quillmark_content::ops::ChangeBundle, JsValue> {
     let json = js_value_to_json(value.clone(), ctx)?;
-    quillmark_content::change_bundle_from_value(&json)
+    quillmark_content::ops::change_bundle_from_value(&json)
         .map_err(|e| WasmError::from(format!("{ctx}: {e}")).to_js_value())
 }
 
@@ -1823,7 +1823,7 @@ fn parse_change_bundle(
 /// write; prefer `revise` for edit semantics. Throws on an over-nested input.
 #[wasm_bindgen(js_name = importMarkdown, unchecked_return_type = "Content")]
 pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
-    let content = quillmark_content::from_markdown(markdown)
+    let content = quillmark_content::import::from_markdown(markdown)
         .map_err(|e| WasmError::from(format!("importMarkdown: {e}")).to_js_value())?;
     serialize_or_throw(
         &quillmark_content::serial::to_seam_value(&content),
@@ -1838,7 +1838,7 @@ pub fn export_markdown(
     #[wasm_bindgen(unchecked_param_type = "Content")] rt: JsValue,
 ) -> Result<String, JsValue> {
     let content = js_to_content(rt, "exportMarkdown")?;
-    Ok(quillmark_content::to_markdown(&content))
+    Ok(quillmark_content::export::to_markdown(&content))
 }
 
 /// Rebase `markdown` onto a `base` content: the document-free twin of `revise`,
@@ -1851,7 +1851,7 @@ pub fn rebase(
     markdown: &str,
 ) -> Result<JsValue, JsValue> {
     let base = js_to_content(base, "rebase")?;
-    let (content, delta) = quillmark_content::diff_import(&base, markdown)
+    let (content, delta) = quillmark_content::delta::diff_import(&base, markdown)
         .map_err(|e| WasmError::from(format!("rebase: {e}")).to_js_value())?;
     let out = serde_json::json!({
         "content": quillmark_content::serial::to_seam_value(&content),
