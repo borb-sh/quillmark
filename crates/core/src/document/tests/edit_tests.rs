@@ -1341,7 +1341,7 @@ fn every_ingestion_boundary_renders_its_violation_text() {
 #[test]
 fn a_field_write_past_the_count_is_refused_at_the_write() {
     use crate::document::edit::{validate_payload, PayloadViolation};
-    use quillmark_content::Normalized;
+    use quillmark_content::model::Normalized;
 
     let max = crate::error::MAX_FIELD_COUNT;
     let names: Vec<String> = (0..max).map(|i| format!("f{i}")).collect();
@@ -1424,7 +1424,7 @@ fn a_batch_past_the_count_names_its_overflowing_tail() {
 fn no_verb_on_a_placed_card_moves_it_between_roles() {
     use crate::document::CardMut;
     use crate::quill::{FieldSchema, FieldType};
-    use quillmark_content::{ChangeBundle, Normalized};
+    use quillmark_content::{model::Normalized, ops::ChangeBundle};
 
     fn richtext() -> FieldSchema {
         FieldSchema::new("f".to_string(), FieldType::RichText { inline: false }, None)
