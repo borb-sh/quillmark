@@ -746,9 +746,9 @@ proptest! {
     /// The `applyChange` lane.
     #[test]
     fn op_wire_decode_never_panics(v in decode_json()) {
-        let _ = quillmark_content::change_bundle_from_value(&v);
-        let _ = quillmark_content::line_op_from_value(&v);
-        let _ = quillmark_content::mark_op_from_value(&v);
+        let _ = quillmark_content::ops::change_bundle_from_value(&v);
+        let _ = quillmark_content::ops::line_op_from_value(&v);
+        let _ = quillmark_content::ops::mark_op_from_value(&v);
     }
 
     /// A spelled envelope reaches past the `op` tag, where each lane's own
@@ -761,8 +761,8 @@ proptest! {
         let mut obj: serde_json::Map<String, Value> = rest.into_iter().collect();
         obj.insert("op".to_string(), Value::from(op));
         let v = Value::Object(obj);
-        let _ = quillmark_content::line_op_from_value(&v);
-        let _ = quillmark_content::mark_op_from_value(&v);
+        let _ = quillmark_content::ops::line_op_from_value(&v);
+        let _ = quillmark_content::ops::mark_op_from_value(&v);
     }
 }
 
