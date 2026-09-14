@@ -40,20 +40,9 @@ A field whose type tree bears no content leaf is outside the walk, so conform is
 
 Decoding needs the schema and not the payload: a `richtext` string is markdown and a `plaintext` string is literal text, so the same stored bytes decode two ways and only the declared type says which. That is why the `Content` read binds the quill instead of sitting beside `getStored`: a quill-free version would guess a codec, and would guess markdown.
 
-**A `Content`-typed read is also a write input, so the seam spells every `Container.instance`.** Storage omits a zero, since a row written before the field existed then re-encodes byte for byte ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Container identity").
+**A `Content`-typed read is also a write input, so it answers in the one canonical form.** That form omits a zero `Container.instance`, since a row written before the field existed then re-encodes byte for byte ([DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md) § "Container identity"). Every lane carries it: `reader.getContent{,At}`, `getStored` on a body, `importMarkdown`, `rebase`, and the `Card` wire behind `document.main` / `cards` / `card(i)` / `removeCard` / `seedMain` / `seedCard`. `getStored` on a field and `payloadItems` carry the same form, echoed unread, which is why both are typed `unknown`.
 
-A read inheriting that omission cannot be typed with the field required. That left `overwrite(addr, importMarkdown(md))` and `CardInput.body` unable to report a container path missing the discriminator its writer owes.
-
-Which form a lane carries follows its declared type, not its direction:
-
-| Form | Lanes |
-|---|---|
-| Seam: every `instance` spelled | `reader.getContent{,At}`, `getStored` on a body, `importMarkdown`, `rebase`, and the `Card` wire behind `document.main` / `cards` / `card(i)` / `removeCard` / `seedMain` / `seedCard` |
-| Storage: a zero omitted | `getStored` on a field, `payloadItems` — the stored bytes verbatim, which is why both are typed `unknown` |
-
-The two forms decode identically.
-
-Required is not correct. A checker reports a container that omits the field; it cannot report a `0` stamped on every run, which is the write that welds them. `assignInstances` is the rule, not the type.
+`instance` is therefore optional on the read type, and a write takes either spelling. Required would not have bought correctness anyway: a checker reports a container that omits the field; it cannot report a `0` stamped on every run, which is the write that welds them. `assignInstances` is the rule, not the type.
 
 A field's markdown lives here: `Document.bodyMarkdown` is **body-only** (it takes a `CardAddr`; a present `field` throws), and the quill-free **body** projection stays on `Document` (a body's type is a format fact, not a schema fact, so `reader.bodyMarkdown` mirrors it rather than gating it on the schema). One name for one projection, on every surface: core's `Card::body_markdown`, `doc.bodyMarkdown`, `reader.bodyMarkdown`. The placement rule generalizes: *a verb that needs a schema lives on the writer (writes) or the view (reads); `Document` is quill-free data.*
 

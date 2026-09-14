@@ -227,30 +227,25 @@ export type ContentLineKind =
  * shape — two consecutive quotes, two consecutive lists — which contiguity
  * alone reads as one.
  *
- * **A writer owes a distinct value per adjacent sibling run**, not merely a
- * value. Runs of one shape sharing one arrive as one: a second list's items come
- * back as continuation paragraphs of the first, markers gone. The field is
- * required, so a checker reports the omission; it cannot report a `0` stamped on
- * both, which is the same write. A codec flattening a tree takes them from
- * `assignInstances` in `@quillmark/wasm` rather than by hand. Any
- * distinct pair works; a write is canonicalized to `0`/`1`.
+ * **A writer owes a distinct value per adjacent sibling run.** Runs of one shape
+ * sharing one arrive as one: a second list's items come back as continuation
+ * paragraphs of the first, markers gone. Nothing reports that — an omitted field
+ * and a `0` stamped on both are the same write — so a codec flattening a tree
+ * takes them from `assignInstances` in `@quillmark/wasm` rather than by hand.
+ * Any distinct pair works; a write is canonicalized to `0`/`1`.
  *
- * Reading is not the mirror of writing. Every read spells the field, the `0` on
- * a container with nothing to be told apart from included. A read also carries a
- * discriminator on pairs no writer had to spell: `1.` beside a list starting at
- * `3` differs by `start`, so those runs arrive apart with nothing written, and
- * the canonical form spends one anyway because Markdown reads only a list's
- * first number.
- *
- * Content parsed from a stored document is the one shape that arrives without
- * it — storage omits a zero — and needs a cast. */
+ * Absent is `0`, and a read omits it there, so a container with nothing adjacent
+ * to be told apart from carries no key. A read does spell one on pairs no writer
+ * had to: `1.` beside a list starting at `3` differs by `start`, so those runs
+ * arrive apart with nothing written, and the canonical form spends a
+ * discriminator anyway because Markdown reads only a list's first number. */
 export type ContentContainer =
     | {
           container: "list_item";
           attrs: { ordered: boolean; start: number; ordinal: number };
-          instance: number;
+          instance?: number;
       }
-    | { container: "quote"; instance: number };
+    | { container: "quote"; instance?: number };
 
 /** A mark over char range `[start, end)` into `Content.text`. `type` is a
  * closed set, so `type === "link"` narrows `attrs` to `{ url: string }` with no
@@ -927,9 +922,8 @@ impl Document {
     /// conformed, and this read reports what is there. For the `Content` either
     /// way use `reader.getContent`.
     ///
-    /// The body arm is typed `Content` and answers in the seam form, spelling
-    /// every `ContentContainer.instance`. A field arm echoes the stored bytes,
-    /// which omit a zero: verbatim is the contract, and is why it is `unknown`.
+    /// The body arm is typed `Content`; a field arm echoes the stored bytes
+    /// unread, which is the contract and why it is `unknown`.
     #[wasm_bindgen(js_name = getStored, unchecked_return_type = "unknown")]
     pub fn get_stored(
         &self,
@@ -939,7 +933,7 @@ impl Document {
         let card = self.addr_card_ref(&addr)?;
         match &addr.field {
             None => serialize_or_throw(
-                &quillmark_content::serial::to_seam_value(card.body()),
+                &quillmark_content::serial::to_canonical_value(card.body()),
                 "getStored",
             ),
             Some(field) => match card.payload().get(field) {
@@ -1045,7 +1039,7 @@ impl Document {
         let base = self.addr_base(&addr);
         match &addr.field {
             None => serialize_or_throw(
-                &quillmark_content::serial::to_seam_value(self.addr_card_ref(&addr)?.body()),
+                &quillmark_content::serial::to_canonical_value(self.addr_card_ref(&addr)?.body()),
                 "reader.getContent",
             ),
             Some(field) => {
@@ -1061,7 +1055,7 @@ impl Document {
                 match read {
                     None => Ok(JsValue::UNDEFINED),
                     Some(content) => serialize_or_throw(
-                        &quillmark_content::serial::to_seam_value(&content),
+                        &quillmark_content::serial::to_canonical_value(&content),
                         "reader.getContent",
                     ),
                 }
@@ -1079,9 +1073,9 @@ impl Document {
     ///
     /// The codec is the leaf's declared type's, so the caller stops deciding
     /// what an element's stored bytes mean. Total over the storage form, as the
-    /// whole-field read is. Answering in the seam form, it is a legal write
-    /// input: the anchors and island ids the values form cannot carry ride back
-    /// through `writer.set` of the whole field.
+    /// whole-field read is. What it answers is a legal write input: the anchors
+    /// and island ids the values form cannot carry ride back through
+    /// `writer.set` of the whole field.
     ///
     /// `undefined` when the field is absent **and when `path` names nothing in
     /// the stored value**: a repeater's row index goes stale between derive and
@@ -1115,7 +1109,7 @@ impl Document {
         match read {
             None => Ok(JsValue::UNDEFINED),
             Some(content) => serialize_or_throw(
-                &quillmark_content::serial::to_seam_value(&content),
+                &quillmark_content::serial::to_canonical_value(&content),
                 "reader.getContentAt",
             ),
         }
@@ -1826,7 +1820,7 @@ pub fn import_markdown(markdown: &str) -> Result<JsValue, JsValue> {
     let content = quillmark_content::from_markdown(markdown)
         .map_err(|e| WasmError::from(format!("importMarkdown: {e}")).to_js_value())?;
     serialize_or_throw(
-        &quillmark_content::serial::to_seam_value(&content),
+        &quillmark_content::serial::to_canonical_value(&content),
         "importMarkdown",
     )
 }
@@ -1854,7 +1848,7 @@ pub fn rebase(
     let (content, delta) = quillmark_content::diff_import(&base, markdown)
         .map_err(|e| WasmError::from(format!("rebase: {e}")).to_js_value())?;
     let out = serde_json::json!({
-        "content": quillmark_content::serial::to_seam_value(&content),
+        "content": quillmark_content::serial::to_canonical_value(&content),
         "delta": serde_json::to_value(&delta).unwrap_or(serde_json::Value::Null),
     });
     serialize_or_throw(&out, "rebase")

@@ -1258,7 +1258,7 @@ fn content_to_py<'py>(
         None => Ok(None),
         Some(content) => Ok(Some(json_to_py(
             py,
-            &quillmark_content::serial::to_seam_value(&content),
+            &quillmark_content::serial::to_canonical_value(&content),
         )?)),
     }
 }

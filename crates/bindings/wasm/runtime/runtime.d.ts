@@ -195,8 +195,9 @@ import type { ContentContainer } from '../core/wasm.js';
  * `instance` held.
  *
  * The `instance` it stamps is canonical, so a document reads back the value it
- * was written. `ordinal` stays the caller's, and a write is renumbered to a
- * gapless index within its run.
+ * was written — a `0` as an absent key, which decodes to the same value.
+ * `ordinal` stays the caller's, and a write is renumbered to a gapless index
+ * within its run.
  *
  * Which fields decide a weld is coarser than equality for a list: CommonMark
  * reads only a list's first number, so `1. a` beside `3. b` welds despite the
