@@ -49,11 +49,23 @@ fn unclosed_code_block_emits_warning() {
 
 #[test]
 fn per_block_field_count_cap() {
-    let mut s = String::from("~~~card-yaml\n$quill: t\n$kind: main\n");
-    for i in 0..1001 {
-        s.push_str(&format!("f{}: v\n", i));
-    }
-    s.push_str("~~~\n\nBody.");
+    let block = |count: usize| {
+        let mut s = String::from("~~~card-yaml\n$quill: t\n$kind: main\n");
+        for i in 0..count {
+            s.push_str(&format!("f{}: v\n", i));
+        }
+        s.push_str("~~~\n\nBody.");
+        s
+    };
+
+    // The width the cap admits reaches the payload whole: every field, no
+    // silent drop on the way.
+    let at_cap = Document::parse(&block(1000))
+        .expect("a block at the cap parses")
+        .document;
+    assert_eq!(at_cap.main().payload().len(), 1000);
+
+    let s = block(1001);
     let diag = Document::parse(&s).unwrap_err().to_diagnostic();
     assert_eq!(diag.code.as_deref(), Some("parse::too_many_fields"));
     assert!(

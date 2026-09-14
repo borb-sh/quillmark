@@ -5,8 +5,9 @@
 
 use indexmap::IndexMap;
 use proptest::prelude::*;
-use quillmark_core::quill::{CardSchema, CoercionError, FieldSchema, FieldType, QuillConfig};
-use quillmark_core::{Card, EditError, QuillValue};
+
+use crate::quill::{CardSchema, CoercionError, FieldSchema, FieldType, QuillConfig};
+use crate::{Card, EditError, QuillValue};
 
 // Keep aligned with `validate_path_grammar` below, which checks against them.
 const ROOT_FIELD: &str = "f";
@@ -231,7 +232,7 @@ proptest! {
 // Concrete anchors for cases the generator hits only rarely.
 
 #[test]
-fn regression_t2_array_of_object_path() {
+fn an_uncoercible_array_item_is_addressed_by_its_index() {
     // { f: array, items: { x: integer } }
     let mut inner = IndexMap::new();
     inner.insert(
@@ -254,7 +255,7 @@ fn regression_t2_array_of_object_path() {
 }
 
 #[test]
-fn regression_t3_string_array_singleton_collapses_once() {
+fn a_singleton_array_collapses_to_its_string_and_rests_there() {
     let schema = FieldSchema::new(ROOT_FIELD.to_string(), FieldType::String, None);
     let config = config_with_one_field(schema);
     let fm = single_field_payload(serde_json::json!(["hello"]));

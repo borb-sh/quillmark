@@ -1,3 +1,4 @@
+mod properties;
 mod support_tests;
 mod variant_tests;
 

@@ -36,6 +36,7 @@ internal-test-seam = []
 [dev-dependencies]
 tempfile = { workspace = true }
 quillmark-fixtures = { workspace = true }
+proptest = { workspace = true }
 # Cross-checks the hand-rolled fence scanner against a real CommonMark parser.
 # A direct dev-dep so the test can name `pulldown_cmark` (the production markdown
 # engine lives in the `quillmark-content` dependency, not linked directly here).

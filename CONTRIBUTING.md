@@ -16,6 +16,12 @@ stale test is maintenance.
 - Diagnostic codes, wire-format keys, and public API names are contract;
   human-readable error prose, derive output, and constant literals are not.
 - One strong test beats three angles on the same behavior.
+- A boundary that takes bytes or JSON it did not write — a parser, a decoder,
+  an escaper — carries a `properties` module beside the unit tests of the seam
+  it states: refusal rather than a panic over generated input, and the
+  round-trip or fixed point its codec claims. A generator that cannot reach the
+  code it names states nothing, so shape the envelope and generate what sits
+  inside it.
 - Assert the property, not the artifact: byte counts, hashes, and full-string
   snapshots of rendered output rot.
 

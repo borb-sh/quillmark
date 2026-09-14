@@ -1,7 +1,8 @@
 //! The content property suite: round-trip modulo loss class
 //! (`import(export(rt)) == rt`, exact here since the generator emits only
-//! lossless islands), canonical serialization, and diff-import preserving the
-//! marks markdown cannot carry.
+//! lossless islands), canonical serialization, diff-import preserving the
+//! marks markdown cannot carry, and the JSON doors refusing rather than
+//! panicking on what a caller hands them.
 
 use proptest::prelude::*;
 use quillmark_content::island::IslandType;
@@ -690,6 +691,80 @@ proptest! {
         let md = to_markdown(&rt);
         let rt2 = from_markdown(&md).unwrap();
         prop_assert_eq!(&rt, &rt2, "table not a fixed point.\n  md: {:?}", md);
+    }
+}
+
+// The JSON doors: `install` takes a canonical content, `applyChange` takes an
+// op wire, and both are reached from a binding with whatever the caller built.
+// A panic there traps the WASM module and costs the document rather than the
+// operation, so refusal is the property; what a decoded value must preserve
+// belongs to the round-trip properties above.
+
+/// The keys the decoders dispatch on, so generated objects reach past the first
+/// branch; the noise arm keeps the rest of the space.
+const DECODE_DISCRIMINATORS: &[&str] = &[
+    "text", "lines", "marks", "islands", "kind", "attrs", "op", "line", "at", "delta", "ops",
+    "retain", "insert", "islandOps", "lineOps", "markOps", "start", "end",
+];
+
+fn decode_key() -> impl Strategy<Value = String> {
+    prop_oneof![
+        prop::sample::select(DECODE_DISCRIMINATORS).prop_map(str::to_string),
+        "\\PC{0,12}",
+    ]
+}
+
+/// Arbitrary JSON, container-biased: the decoders branch on object keys and
+/// array shapes, so a scalar-weighted generator would spend its budget failing
+/// at the first `as_object()`.
+fn decode_json() -> impl Strategy<Value = Value> {
+    let leaf = prop_oneof![
+        Just(Value::Null),
+        any::<bool>().prop_map(Value::from),
+        any::<i64>().prop_map(Value::from),
+        any::<f64>()
+            .prop_filter("finite", |f| f.is_finite())
+            .prop_map(Value::from),
+        decode_key().prop_map(Value::from),
+    ];
+    leaf.prop_recursive(6, 96, 6, |inner| {
+        prop_oneof![
+            prop::collection::vec(inner.clone(), 0..6).prop_map(Value::Array),
+            prop::collection::hash_map(decode_key(), inner, 0..6)
+                .prop_map(|m| Value::Object(m.into_iter().collect())),
+        ]
+    })
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(400))]
+
+    /// The `install` lane.
+    #[test]
+    fn canonical_decode_never_panics(v in decode_json()) {
+        let _ = quillmark_content::serial::from_canonical_value(&v);
+    }
+
+    /// The `applyChange` lane.
+    #[test]
+    fn op_wire_decode_never_panics(v in decode_json()) {
+        let _ = quillmark_content::change_bundle_from_value(&v);
+        let _ = quillmark_content::line_op_from_value(&v);
+        let _ = quillmark_content::mark_op_from_value(&v);
+    }
+
+    /// A spelled envelope reaches past the `op` tag, where each lane's own
+    /// argument decoding is.
+    #[test]
+    fn op_wire_decode_never_panics_past_the_tag(
+        op in prop::sample::select(&["add", "remove", "split", "merge", "set", "unset"][..]),
+        rest in prop::collection::hash_map(decode_key(), decode_json(), 0..6),
+    ) {
+        let mut obj: serde_json::Map<String, Value> = rest.into_iter().collect();
+        obj.insert("op".to_string(), Value::from(op));
+        let v = Value::Object(obj);
+        let _ = quillmark_content::line_op_from_value(&v);
+        let _ = quillmark_content::mark_op_from_value(&v);
     }
 }
 

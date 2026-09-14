@@ -1,4 +1,6 @@
 
+mod properties;
+
 use serde_json::json;
 
 use crate::document::StoredDocument;
