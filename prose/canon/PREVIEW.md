@@ -68,7 +68,7 @@ Per-backend, update is an implementation choice, not a flag:
   content; introspection `Tag` items are excluded because a page-spanning
   element's tag carries a hash of content on other pages and would dirty
   page 0 on an end-of-document edit.
-- **acroform** recompiles fully: its compile is a re-resolve + re-flatten,
+- **acroform** recompiles fully: its compile is a re-resolve + re-stamp,
   cheap by construction. Dirty pages are those carrying a field whose resolved
   spec changed.
 
@@ -108,10 +108,11 @@ compositing of its own. Backends satisfy it differently:
 
 - **Typst** rasterizes its laid-out page natively (`typst-render` →
   `tiny_skia::Pixmap` → unpremultiply → RGBA8).
-- **acroform** pre-flattens the bound field values into the page content
-  streams at session-open (and again at each `update`), then rasterizes that
-  flat PDF via hayro, so field values appear in the raster on their own, with
-  no regions-compositing by the caller.
+- **acroform** rasterizes its stamped PDF via hayro, which draws each
+  widget's baked `/AP` appearance stream, so field values appear in the raster
+  on their own with no regions-compositing by the caller. It is the same
+  document `render` hands back, stamped at session-open and again at each
+  `update`.
 
 `Ok(None)` is the out-of-range page; the `Err` is a
 `scale` no page can be rasterized at. Neither rasterizer bounds the buffer it
@@ -345,7 +346,7 @@ Canvas ships with the render build:
 | Build                       | Backends       | Canvas | Notes                                                                  |
 | --------------------------- | -------------- | ------ | ---------------------------------------------------------------------- |
 | `pkg/core/` (no features)   | —              | no     | `Document` + `Quill` only; no engine, no Typst                         |
-| `pkg/render/` (`render`)    | typst, acroform | yes    | Typst: native page raster; acroform: pre-flatten + hayro raster         |
+| `pkg/render/` (`render`)    | typst, acroform | yes    | Typst: native page raster; acroform: hayro raster of the stamped PDF    |
 
 Canvas paint is independent of the output formats a backend emits: acroform
 emits PDF alone and paints, because it always links its hayro raster seam.
@@ -405,8 +406,8 @@ The wasm `render` feature pulls in `web-sys`, the generic canvas *painter*
   ink that is already tracked is therefore not expressible, and deliberately so:
   the wrapper exists for ink with *no* attribution.
 - **Complete raster, never compose-from-regions.** Both backends hand back a
-  finished page (Typst natively, acroform by pre-flattening values into content
-  streams before rasterizing). Regions are an overlay sidecar, not a
+  finished page (Typst natively, acroform by baking each widget's value into the
+  `/AP` stream a rasterizer draws). Regions are an overlay sidecar, not a
   compositing input: the painter stays a dumb blit.
 - **No session raster cache: re-rasterize per `paint`.** Caching the last
   raster per `(page, renderScale)` and blitting on scroll-back would skip

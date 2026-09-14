@@ -25,7 +25,7 @@ page and its internals are rustdoc.
 - **[PLATE_DATA.md](PLATE_DATA.md)** - Plate data injection: the Typst backend's data seam
 - The `acroform` seam is [ARCHITECTURE.md](ARCHITECTURE.md) (`Backend::open`, the two-asset model) plus [PREVIEW.md](PREVIEW.md) (canvas paint, `regions()`)
 - Outbound, authoring a Typst quill: [docs/quills/typst-backend.md](../../docs/quills/typst-backend.md)
-- Outbound, authoring an `acroform` quill: [docs/quills/acroform-backend.md](../../docs/quills/acroform-backend.md) (`form.pdf` + `form.json`, Technique A stamping, on the `quillmark-pdf` stamp spine)
+- Outbound, authoring an `acroform` quill: [docs/quills/acroform-backend.md](../../docs/quills/acroform-backend.md) (`form.pdf` + `form.json`, on the `quillmark-pdf` stamp spine)
 - Outbound, Typst backend internals: `crates/backends/typst/` rustdoc
 
 ## Bindings

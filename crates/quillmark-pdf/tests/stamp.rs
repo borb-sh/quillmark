@@ -1,6 +1,9 @@
 //! Acceptance tests for the stamp spine: build a tiny traditional-xref base PDF
-//! with pdf-writer, stamp it, reparse with lopdf. Technique A bakes no `/AP`, so
-//! values land in `/V` and the viewer synthesizes appearances.
+//! with pdf-writer, stamp it, reparse with lopdf. A value lands in `/V` for a
+//! viewer that synthesizes appearances, and in the widget's own `/AP` for one
+//! that does not.
+
+use std::collections::HashMap;
 
 use pdf_writer::writers::Form;
 use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref, Settings, TextStr};
@@ -89,7 +92,7 @@ fn stamps_all_four_field_types_into_valid_acroform() {
     let fields = af.get(b"Fields").unwrap().as_array().unwrap();
     assert_eq!(fields.len(), 4);
 
-    let mut by_name = std::collections::HashMap::new();
+    let mut by_name = HashMap::new();
     for f in fields {
         let w = doc
             .get_object(f.as_reference().unwrap())
@@ -842,5 +845,211 @@ fn a_checkbox_appearance_names_the_registered_check_font() {
     assert!(
         !String::from_utf8_lossy(&out).contains("ZapfDingbats"),
         "a form with no checkbox registers no check font"
+    );
+}
+
+/// The stamped document, and its `/T` → widget map.
+fn stamped(fields: &[FieldSpec]) -> (lopdf::Document, HashMap<String, lopdf::Dictionary>) {
+    let out = stamp(build_base_pdf(1), fields, &StampOptions::default()).expect("stamp ok");
+    let doc = lopdf::Document::load_mem(&out).expect("lopdf reparse");
+    let af_ref = doc
+        .catalog()
+        .unwrap()
+        .get(b"AcroForm")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    let af = doc.get_object(af_ref).unwrap().as_dict().unwrap();
+    let mut by_name = HashMap::new();
+    for f in af.get(b"Fields").unwrap().as_array().unwrap() {
+        let w = doc
+            .get_object(f.as_reference().unwrap())
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        let name = String::from_utf8_lossy(w.get(b"T").unwrap().as_str().unwrap()).into_owned();
+        by_name.insert(name, w.clone());
+    }
+    (doc, by_name)
+}
+
+/// A widget's `/AP` `/N` stream object, or `None` when it bakes no appearance.
+fn normal_appearance<'a>(doc: &'a lopdf::Document, w: &lopdf::Dictionary) -> Option<&'a lopdf::Stream> {
+    let ap = w.get(b"AP").ok()?.as_dict().expect("/AP is a dict");
+    let n = ap.get(b"N").expect("/AP carries /N");
+    doc.get_object(n.as_reference().expect("/N is one indirect stream"))
+        .unwrap()
+        .as_stream()
+        .ok()
+}
+
+#[test]
+fn a_value_is_baked_into_the_widgets_own_appearance_stream() {
+    let (doc, w) = stamped(&all_four_fields());
+
+    let full = normal_appearance(&doc, &w["FullName"]).expect("a filled text field bakes an /AP");
+    assert_eq!(
+        full.dict.get(b"Subtype").unwrap().as_name().unwrap(),
+        b"Form",
+        "the appearance is a Form XObject"
+    );
+    // `/BBox` is the field box moved to the origin, so a consumer maps it onto
+    // `/Rect` without a translation and clips the value to the box.
+    let bbox: Vec<f32> = full
+        .dict
+        .get(b"BBox")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_float().unwrap())
+        .collect();
+    assert_eq!(bbox, [0.0, 0.0, 340.0, 20.0]);
+    let drawn = String::from_utf8_lossy(&full.content).into_owned();
+    assert!(drawn.contains("(Ada Lovelace) Tj"), "{drawn}");
+
+    // The face the stream selects resolves in the appearance's own
+    // `/Resources`, not the page's, and is the same object `/DR` registers.
+    let ap_font = full
+        .dict
+        .get(b"Resources")
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .get(b"Font")
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .get(b"Helv")
+        .expect("the appearance binds the face it selects")
+        .as_reference()
+        .unwrap();
+    let af_ref = doc
+        .catalog()
+        .unwrap()
+        .get(b"AcroForm")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    let dr_font = doc
+        .get_object(af_ref)
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .get(b"DR")
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .get(b"Font")
+        .unwrap()
+        .as_dict()
+        .unwrap()
+        .get(b"Helv")
+        .unwrap()
+        .as_reference()
+        .unwrap();
+    assert_eq!(ap_font, dr_font, "one font object, named from both places");
+
+    let color = normal_appearance(&doc, &w["FavoriteColor"]).expect("a chosen option bakes an /AP");
+    assert!(String::from_utf8_lossy(&color.content).contains("(green) Tj"));
+
+    // A checked box bakes one stream rather than a per-state subdictionary: the
+    // state a stamp writes is the state it renders at.
+    let agree = normal_appearance(&doc, &w["Agree"]).expect("a checked box bakes an /AP");
+    let drawn = String::from_utf8_lossy(&agree.content).into_owned();
+    assert!(drawn.contains("/ZaDb"), "{drawn}");
+    assert!(drawn.contains("(4) Tj"), "{drawn}");
+
+    assert!(
+        w["Comments"].get(b"AP").is_err(),
+        "a blank field bakes nothing to draw"
+    );
+}
+
+#[test]
+fn a_widget_with_nothing_to_show_bakes_no_appearance() {
+    let mut unchecked = FieldSpec::new(
+        "Agree".into(),
+        0,
+        [180.0, 560.0, 194.0, 574.0],
+        FieldType::Checkbox,
+    );
+    unchecked.value = Some("Off".into());
+    let sig = FieldSpec::new(
+        "Signature".into(),
+        0,
+        [180.0, 100.0, 520.0, 140.0],
+        FieldType::Signature,
+    );
+    let (_, w) = stamped(&[unchecked, sig]);
+
+    assert!(w["Agree"].get(b"AP").is_err(), "an unchecked box");
+    assert!(w["Signature"].get(b"AP").is_err(), "an unsigned signature");
+}
+
+#[test]
+fn a_face_an_appearance_draws_with_declares_the_encoding_it_writes() {
+    let (doc, w) = stamped(&all_four_fields());
+    let font = |widget: &lopdf::Dictionary, resource: &[u8]| {
+        let id = normal_appearance(&doc, widget)
+            .expect("an appearance")
+            .dict
+            .get(b"Resources")
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(b"Font")
+            .unwrap()
+            .as_dict()
+            .unwrap()
+            .get(resource)
+            .unwrap()
+            .as_reference()
+            .unwrap();
+        doc.get_object(id).unwrap().as_dict().unwrap().clone()
+    };
+
+    assert_eq!(
+        font(&w["FullName"], b"Helv")
+            .get(b"Encoding")
+            .expect("a text face declares one")
+            .as_name()
+            .unwrap(),
+        b"WinAnsiEncoding",
+        "the stream writes WinAnsi bytes, so the face must read them as such"
+    );
+    assert!(
+        font(&w["Agree"], b"ZaDb").get(b"Encoding").is_err(),
+        "the symbol face keeps its built-in encoding, where the check glyph lives"
+    );
+}
+
+#[test]
+fn a_non_winansi_value_draws_substituted_while_the_field_keeps_it_whole() {
+    let value = "\u{65e5}\u{672c} Caf\u{e9}";
+    let (doc, w) = stamped(&[text_field(
+        "FullName",
+        "full_name",
+        0,
+        [180.0, 700.0, 520.0, 720.0],
+        value,
+    )]);
+
+    let drawn = normal_appearance(&doc, &w["FullName"]).expect("an appearance");
+    let want: &[u8] = &[b'?', b'?', b' ', b'C', b'a', b'f', 0xE9];
+    assert!(
+        drawn.content.windows(want.len()).any(|c| c == want),
+        "{}",
+        String::from_utf8_lossy(&drawn.content)
+    );
+
+    let mut utf16be = vec![0xFE, 0xFF];
+    for unit in value.encode_utf16() {
+        utf16be.extend_from_slice(&unit.to_be_bytes());
+    }
+    assert_eq!(
+        w["FullName"].get(b"V").unwrap().as_str().unwrap(),
+        utf16be.as_slice(),
+        "/V is the source of truth and keeps every code point"
     );
 }

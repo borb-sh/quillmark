@@ -8,9 +8,7 @@
 use std::sync::LazyLock;
 
 use proptest::prelude::*;
-use quillmark_pdf::{
-    page_canvas_boxes, stamp, FieldSpec, FieldType, ObjectIndex, PdfUpdate, StampOptions,
-};
+use quillmark_pdf::{page_canvas_boxes, stamp, FieldSpec, FieldType, StampOptions};
 
 /// A real AcroForm the spine accepts, so a mutant of it exercises parse paths a
 /// random buffer never reaches.
@@ -23,26 +21,32 @@ fn base_pdf() -> Vec<u8> {
     BASE_PDF.clone()
 }
 
-/// One field of each `FieldType`, so `stamp` walks every widget writer.
+/// One field of each `FieldType`, each carrying a value so `stamp` walks every
+/// widget writer and the appearance stream beside it.
 fn every_field_kind() -> Vec<FieldSpec> {
+    let mut text = FieldSpec::new("t".into(), 0, [10.0, 10.0, 90.0, 30.0], FieldType::Text {
+        multiline: true,
+    });
+    text.value = Some("first\nsecond".into());
+    let mut check = FieldSpec::new("c".into(), 0, [10.0, 40.0, 30.0, 60.0], FieldType::Checkbox);
+    check.value = Some(quillmark_pdf::CHECKBOX_ON_STATE.into());
+    let mut choice = FieldSpec::new("h".into(), 0, [10.0, 100.0, 90.0, 120.0], FieldType::Choice {
+        options: vec!["a".into(), "b".into()],
+    });
+    choice.value = Some("a".into());
     vec![
-        FieldSpec::new("t".into(), 0, [10.0, 10.0, 90.0, 30.0], FieldType::Text {
-            multiline: false,
-        }),
-        FieldSpec::new("c".into(), 0, [10.0, 40.0, 30.0, 60.0], FieldType::Checkbox),
+        text,
+        check,
         FieldSpec::new("s".into(), 0, [10.0, 70.0, 90.0, 90.0], FieldType::Signature),
-        FieldSpec::new("h".into(), 0, [10.0, 100.0, 90.0, 120.0], FieldType::Choice {
-            options: vec!["a".into(), "b".into()],
-        }),
+        choice,
     ]
 }
 
 /// Drive every byte-taking entry point once; completing at all is the property.
+/// The field-less stamp is the trailer and `/Info` read on its own; the other
+/// adds the page-tree walk, the widget writers and the appearance streams.
 fn exercise(pdf: &[u8]) {
     let _ = page_canvas_boxes(pdf);
-    let idx = ObjectIndex::new(pdf);
-    let _ = PdfUpdate::begin(&idx, None);
-    let _ = PdfUpdate::begin(&idx, Some("quillmark-properties"));
     let _ = stamp(pdf.to_vec(), &[], &StampOptions::default());
     let _ = stamp(pdf.to_vec(), &every_field_kind(), &StampOptions::default());
 }

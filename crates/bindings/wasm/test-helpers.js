@@ -98,7 +98,7 @@ typst:
 // The hand-authored `sample_form` fixture: a `acroform`-backend quill shipping a
 // stripped background (`form.pdf`) and a value-free field spec (`form.json`).
 // Loaded as a tree so the canvas tests can drive the acroform backend
-// (which rasterizes the pre-flattened page) exactly like a typst quill.
+// (which rasterizes its stamped PDF) exactly like a typst quill.
 const SAMPLE_FORM_DIR = join(__dirname, '../../fixtures/resources/quills/sample_form/0.1.0')
 
 export function makeSampleFormQuill() {
@@ -110,7 +110,7 @@ export function makeSampleFormQuill() {
 }
 
 // A filled sample_form document: binds the FullName text field (among others), so
-// the pre-flattened raster carries visible field-value ink.
+// the raster carries visible field-value ink.
 export const SAMPLE_FORM_MARKDOWN = `~~~
 $quill: sample_form
 $kind: main

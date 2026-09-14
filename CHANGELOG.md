@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- refactor(pdf,acroform)!: **a stamped widget draws its own value, so the second
+  PDF goes.** A widget carried `/NeedAppearances` and no appearance stream, so
+  the value reached only a viewer that synthesizes one and a flat rasterizer
+  drew an empty box. The form backend worked around that for its canvas by
+  building a whole second document — `flatten.rs` and `typography.rs`, 850 lines
+  — that baked each value into the page content streams, which meant resolving
+  inherited `/Resources`, inlining an indirect `/Font` dict, picking a resource
+  name free in the page's own, and splicing a `/Contents` that might name an
+  array object. The stamp now writes one `/AP` `/N` Form XObject per drawn
+  value, over a `/BBox` the size of the field box and its own one-entry
+  `/Resources`: the page is not touched, so none of that surgery has anything to
+  resolve. One document is the deliverable and the raster both, the preview is
+  the file, and a Typst `form-field` carrying a `value:` bakes one too. `/V`
+  stays the source of truth — the stream draws WinAnsi, from the left edge, and
+  the `/BBox` clips it — and `/NeedAppearances` still hands a synthesizing
+  viewer the whole value. With no second path to share them, `quillmark-pdf`'s
+  two `#[doc(hidden)] pub` modules are private and `PdfUpdate::begin` stops
+  taking a producer it was always given. Closes #1645.
 - test(core,content,typst,pdf): **each property suite lives beside the seam it
   states, and `quillmark-fuzz` is gone.** Seven targets over boundaries owned by
   four crates sat in one `publish = false` member outside `default-members`, so

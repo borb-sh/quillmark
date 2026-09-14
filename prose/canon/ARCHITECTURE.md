@@ -71,12 +71,12 @@ Implements `Backend` for PDF, SVG, and PNG. Lowers each content field's `Content
 
 The second backend: fills an existing AcroForm PDF rather than typesetting from
 scratch. It resolves card values against the quill's `form.json` spec and stamps
-them onto the base `form.pdf` as real interactive fields (Technique A:
-`NeedAppearances`, no baked appearance streams).
+them onto the base `form.pdf` as real interactive fields, each carrying both
+`NeedAppearances` and a baked `/AP` appearance stream.
 
 The PDF deliverable is always an interactive AcroForm, the one output format
-this backend emits. It paints a WASM canvas raster by pre-flattening values into
-the page content streams and rasterizing that with hayro. Field geometry is a
+this backend emits. It paints a WASM canvas raster by rasterizing that same
+stamped PDF with hayro, which draws the baked appearances. Field geometry is a
 session-level query (`LiveSession::regions()`): per-field geometry keyed on the
 schema field path, no bound value. Quill-authoring surface:
 [docs/quills/acroform-backend.md](../../docs/quills/acroform-backend.md); preview

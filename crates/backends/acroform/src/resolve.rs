@@ -17,8 +17,8 @@ use crate::bind::BoundWidget;
 ///
 /// A text value holding a newline makes its widget multiline whatever the
 /// schema said: a richtext of two paragraphs, an array, a block scalar. The
-/// flattened raster stacks the lines, and a single-line widget shows a viewer
-/// one, so the rule reads the string the raster draws.
+/// appearance stream stacks the lines, and a single-line widget shows a viewer
+/// one, so the rule reads the string the widget draws.
 pub fn field_spec(widget: &BoundWidget, data: &Value) -> FieldSpec {
     let mut spec = FieldSpec::new(
         widget.name.clone(),

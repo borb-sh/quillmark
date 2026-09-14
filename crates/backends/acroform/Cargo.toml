@@ -19,7 +19,7 @@ quillmark-pdf = { workspace = true }
 quillmark-content = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-# PDF-flatten → hayro raster, backing the canvas paint seam (`render_rgba`).
+# The raster behind the canvas paint seam (`render_rgba`), over the stamped PDF.
 # Always linked: canvas paint is unconditional, so the raster tree is not
 # feature-gated. (The no-features WASM `core` build excludes the whole acroform
 # crate, so hayro never reaches it.)

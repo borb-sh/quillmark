@@ -2,32 +2,24 @@
 //!
 //! `(base_pdf_bytes, &[FieldSpec]) -> { stamped_pdf, regions }`, via a single
 //! incremental-update append. A backend meets the spine at [`FieldSpec`],
-//! whatever it derived the geometry from.
+//! whatever it derived the geometry from. The stamped PDF is both the
+//! interactive deliverable and what a rasterizer draws, so a preview needs no
+//! second document.
 //!
 //! `crate::reader`'s docs carry the input contract the base PDF must satisfy.
 
+mod appearance;
 mod error;
-/// Byte-level reads over an existing PDF.
-///
-/// **Workspace-internal; not covered by this crate's semver.** `pub` only so
-/// `quillmark-acroform` can reach it.
-#[doc(hidden)]
-pub mod reader;
+mod reader;
 mod stamp;
 mod update;
-/// Byte-level writes: object emission, id allocation, string escaping, WinAnsi.
-///
-/// **Workspace-internal; not covered by this crate's semver.**
-#[doc(hidden)]
-pub mod writer;
+mod writer;
 
 pub use error::PdfError;
-pub use reader::ObjectIndex;
 pub use stamp::{
     regions_of, stamp, StampOptions, CHECKBOX_ON_STATE, CHECK_FONT, CHECK_FONT_RESOURCE,
     CHECK_GLYPH,
 };
-pub use update::PdfUpdate;
 
 const CODE_BAD_RECT: &str = "pdf::bad_rect";
 

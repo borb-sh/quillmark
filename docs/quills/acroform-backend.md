@@ -18,7 +18,7 @@ my-form/
 - **`form.pdf`**, the *stripped background*: the normalized form with its `/AcroForm`, widget annotations, and page `/Annots` removed (pure pages, rules, boxes, and labels).
 - **`form.json`**, the value-free **placement + binding** layer: where each widget sits (`page`, `rect`) and which schema field it binds (`schema_field`). Everything intrinsic (widget kind, choice options, multiline, tooltip) is *derived* from the quill schema, not restated here.
 
-At render time the backend writes the AcroForm **fresh** from `form.json` onto the background, then binds each field's value from your document data. It never reads or reconciles a form already in `form.pdf`: a background that still carries one is refused (`pdf::existing_acroform`), since a second `/AcroForm` on the catalog is a dict the spec does not define and the old widgets would stay live in the page `/Annots`.
+At load the backend binds each field's value from your document data and writes the AcroForm **fresh** from `form.json` onto the background. It never reads or reconciles a form already in `form.pdf`: a background that still carries one is refused (`pdf::existing_acroform`), since a second `/AcroForm` on the catalog is a dict the spec does not define and the old widgets would stay live in the page `/Annots`.
 
 !!! note "Where the assets come from"
     Producing a clean `form.pdf` + `form.json` from a raw source PDF (decrypt, strip, extract, verify) is the job of a separate *qualification* layer and is out of scope for the engine; the engine checks the result of the stripping, not how it was reached. V1 quills hand-author both assets; the `sample_form` fixture in `crates/fixtures/resources/quills/sample_form/` is a worked example.
@@ -185,7 +185,7 @@ A page whose canvas box is under a point per side carries no canvas to place any
 
 ### Opinionated styling
 
-The background owns all visual chrome; each widget is a transparent input over it. The backend therefore picks one house style (a standard font, auto-sized text, a fixed checkbox on-state, `NeedAppearances`) and `form.json` carries **no** styling: no fonts, colors, borders, flag bitfields, or per-field appearance. Keep `form.json` to geometry and type.
+The background owns all visual chrome; each widget is a transparent input over it. The backend therefore picks one house style (a standard font, auto-sized black text, a fixed checkbox on-state) and `form.json` carries **no** styling: no fonts, colors, borders, flag bitfields, or per-field appearance. Keep `form.json` to geometry and type.
 
 ## Binding values
 
@@ -226,8 +226,8 @@ The widget is unsigned: Quillmark performs no cryptography. To produce a signed 
 ## Output formats
 
 The backend's formats are `[Pdf]`: the deliverable, always an interactive
-AcroForm (Technique A). SVG and PNG error with `backend::format_not_supported`,
-the code both built-in backends share.
+AcroForm. SVG and PNG error with `backend::format_not_supported`, the code both
+built-in backends share.
 
 PDF is emitted whole, so a `RenderOptions::pages` selection errors with
 `backend::page_selection_not_supported`.
@@ -236,18 +236,19 @@ PDF is emitted whole, so a `RenderOptions::pages` selection errors with
 raster path (`render_rgba`), not an `OutputFormat`, and this backend paints. See
 [PREVIEW.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PREVIEW.md).
 
-The PDF is the real deliverable. By design (Technique A: real fields plus `NeedAppearances`, no baked appearance streams), **values appear only in viewers that synthesize appearances**: Acrobat, Chrome/pdfium, Preview.app, pdf.js's forms layer. A flat, non-interactive rasterizer renders the fields blank.
+The PDF is the real deliverable, and the canvas rasterizes that same document: the stamped PDF is one file, which the session paints from and `render()` hands back.
 
-To get values into the canvas raster, the backend pre-flattens them: it bakes each value into the page content stream so the raster is complete rather than background-only. This flattening backs the canvas surface only: never the AcroForm PDF deliverable, which is always stamped.
+Each widget is a real field carrying `/NeedAppearances` **and** a baked `/AP` appearance stream drawing its current value. The two split the work: a viewer that synthesizes appearances (Acrobat, Chrome/pdfium, Preview.app, pdf.js's forms layer) rebuilds each value from `/V` and `/DA`, refitting it as the user types; a consumer that synthesizes nothing (a raster pipeline, Ghostscript, the canvas) draws the baked stream and shows the value rather than an empty box.
 
-### Flatten fidelity limits
+### Baked-appearance fidelity limits
 
-The stamped PDF is always faithful; the **flattened canvas preview is a lossy approximation** in two cases, because the flatten path bakes a fixed Helvetica appearance clipped to the field box rather than deferring to a viewer's form renderer. In both, the delivered PDF is correct: only the preview differs, and no diagnostic is raised.
+The `/V` a stamped field carries is always faithful, and a synthesizing viewer renders from it. The **baked stream is an approximation** in three ways, because it commits to one encoding and one measurement where a form renderer would defer. In all three the delivered `/V` is correct, only the drawn pixels differ, and no diagnostic is raised.
 
-- **Non-WinAnsi characters render as `?`.** The flatten path encodes text as WinAnsi (CP1252). Any code point outside that range (CJK, emoji, and many symbols) is substituted with `?` in the preview, while the stamped PDF keeps full Unicode (UTF-16BE `/V`). A field whose value is `日本語` shows correctly in Acrobat but as `???` on the canvas.
-- **Multi-line overflow is clipped.** A multi-line value taller than its field box has its overflow lines clipped in the preview (the content is masked to the box), whereas the stamped PDF keeps the full value and lets the viewer wrap or scroll it. A preview can therefore look truncated where the delivered PDF is complete.
+- **Non-WinAnsi characters draw as `?`.** The stream encodes text as WinAnsi (CP1252). Any code point outside that range (CJK, emoji, and many symbols) is substituted with `?`, while `/V` keeps full Unicode (UTF-16BE). A field whose value is `日本語` shows correctly in Acrobat but as `???` on the canvas.
+- **Justification is not applied.** The stream draws from the box's left edge; `/Q` (the `align` dial) moves the text only in a viewer that re-synthesizes.
+- **Overflow is clipped.** A value wider or taller than its field box is clipped to the box by the appearance's `/BBox`, whereas a synthesizing viewer wraps or scrolls it. A canvas can therefore look truncated where the same field in Acrobat is complete.
 
-Treat the stamped PDF, not the raster preview, as the source of truth for what a field actually contains.
+Treat `/V`, not the drawn pixels, as the source of truth for what a field actually contains.
 
 ### Regions sidecar
 
