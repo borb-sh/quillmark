@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- refactor(core)!: **the raw-plate test seam is `#[doc(hidden)]`, not a cargo
+  feature.** `internal-test-seam` gated one method,
+  `LiveSession::update_data`, and the crate's `[features]` table held nothing
+  else; both go, and the method compiles into every build. A cargo feature is
+  public surface itself — crates.io and docs.rs advertise it — so the gate moved
+  the opt-in from a source read to a `Cargo.toml` line rather than removing it,
+  and the callable-vs-not difference it bought is already given away next door:
+  `LiveSession::new` and `SessionHandle` are `#[doc(hidden)] pub` in every
+  build, and a session assembled through them reaches the same unchecked
+  `update`. The typst backend's dev-dependency on core carried the feature and
+  nothing else, so it goes too; `[dependencies]` already names core, which is
+  what its acceptance tests link. Refs #1748.
 - refactor(core,typst,wasm,python)!: **a diagnostic carries its cause in the
   message.** `Diagnostic::source_chain` and the `with_source` builder that
   filled it are gone, and with them JS `Diagnostic.sourceChain` and Python

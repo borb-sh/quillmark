@@ -26,13 +26,6 @@ unicode-normalization = { workspace = true }
 time = { workspace = true }
 indexmap = { workspace = true }
 
-[features]
-# The raw-plate `LiveSession::update_data` seam, off by default so it is absent
-# from a consumer build. Backend acceptance tests turn it on to drive a session
-# below the schema layer, including with data the schema would reject: the only
-# lever that makes a backend's compile fail on demand.
-internal-test-seam = []
-
 [dev-dependencies]
 tempfile = { workspace = true }
 quillmark-fixtures = { workspace = true }

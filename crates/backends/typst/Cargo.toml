@@ -35,9 +35,6 @@ js-sys = { workspace = true }
 wasm-bindgen = { workspace = true }
 
 [dev-dependencies]
-# Acceptance tests drive a session below the schema layer (`update_data`), which
-# core gates behind this feature so it is absent from a consumer build.
-quillmark-core = { workspace = true, features = ["internal-test-seam"] }
 tempfile = { workspace = true }
 # Acceptance tests parse the injected PDF to validate AcroForm structure.
 lopdf = { workspace = true }
