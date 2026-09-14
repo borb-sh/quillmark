@@ -1333,3 +1333,84 @@ fn every_ingestion_boundary_renders_its_violation_text() {
         "storage: {storage_err}"
     );
 }
+
+/// The §8 field count is the payload's own invariant, so the write doors hold
+/// it where a caller holding one `(name, value)` pair cannot: a card filled to
+/// the cap refuses a new field at the call, and what it already carries still
+/// passes the exits that would have reported it.
+#[test]
+fn a_field_write_past_the_count_is_refused_at_the_write() {
+    use crate::document::edit::{validate_payload, PayloadViolation};
+    use quillmark_content::Normalized;
+
+    let max = crate::error::MAX_FIELD_COUNT;
+    let names: Vec<String> = (0..max).map(|i| format!("f{i}")).collect();
+    let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
+    doc.main_mut()
+        .store_fields(names.iter().map(|n| (n.as_str(), qv("v"))))
+        .expect("a batch that fills the card exactly to the cap lands");
+    assert_eq!(doc.main().payload().len(), max);
+
+    doc.main_mut()
+        .store_field("f0", qv("replaced"))
+        .expect("a replace is not a growth");
+
+    let mut refused = Vec::new();
+    refused.push(doc.main_mut().store_field("late", qv("v")).unwrap_err());
+    refused.push(doc.main_mut().store_fill("late", qv("v")).unwrap_err());
+    refused.push(doc.main_mut().revise_field("late", "text").unwrap_err());
+    refused.push(
+        doc.main_mut()
+            .overwrite_field("late", Normalized::empty())
+            .unwrap_err(),
+    );
+    refused.push(
+        commit_richtext(doc.main_mut(), "late", &serde_json::json!("v"), false).unwrap_err(),
+    );
+    for err in refused {
+        assert_eq!(err.code(), "edit::invalid_payload");
+        assert!(
+            matches!(
+                err,
+                EditError::InvalidPayload(PayloadViolation::TooManyFields { count, max: m })
+                    if count == max + 1 && m == max
+            ),
+            "{err:?}"
+        );
+    }
+
+    assert_eq!(doc.main().payload().len(), max);
+    validate_payload(doc.main().payload()).expect("the storage exits take what the writes built");
+    let _ = Document::parse(&doc.to_markdown()).expect("the markdown it emits reparses");
+}
+
+/// A batch charges the count over the batch rather than per call, so it names
+/// every field past the cap and applies none of itself.
+#[test]
+fn a_batch_past_the_count_names_its_overflowing_tail() {
+    let max = crate::error::MAX_FIELD_COUNT;
+    let names: Vec<String> = (0..max - 1).map(|i| format!("f{i}")).collect();
+    let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
+    doc.main_mut()
+        .store_fields(names.iter().map(|n| (n.as_str(), qv("v"))))
+        .expect("one slot short of the cap");
+
+    let errs = doc
+        .main_mut()
+        .store_fields([
+            ("f0", qv("replaced")),
+            ("a", qv("v")),
+            ("b", qv("v")),
+            ("c", qv("v")),
+        ])
+        .unwrap_err();
+    assert_eq!(
+        errs.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(),
+        ["b", "c"],
+        "a present name is a replace, and `a` takes the last slot"
+    );
+    assert!(errs.iter().all(|(_, e)| e.code() == "edit::invalid_payload"));
+
+    assert_eq!(doc.main().payload().len(), max - 1);
+    assert_eq!(doc.main().payload().get("f0").unwrap().as_str(), Some("v"));
+}

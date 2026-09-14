@@ -151,7 +151,9 @@ fn conform_card(
     for (name, value) in updates {
         // Pre-validated by `resolve_field_write` (name and stored-value depth),
         // exactly as the typed commit's own insert.
-        card.payload_mut().insert_unchecked(name, value);
+        card.payload_mut()
+            .insert(name, value)
+            .expect("conform rewrites fields it read, and a replace never grows the card");
     }
 }
 

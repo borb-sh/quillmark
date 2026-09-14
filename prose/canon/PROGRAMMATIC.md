@@ -7,9 +7,10 @@
 A `Document` is built and mutated in memory (no Markdown text involved)
 through validated constructors and mutators: `Document::new` (blank canvas),
 `Card::new`, `store_field` / `store_fields`, `push_card`. Every mutator enforces
-the same field-name, depth, and kind invariants the Markdown parser does, so a
-constructed document cannot be invalid — with no bypass, since `Payload`'s own
-mutation half is crate-internal and `card.payload()` is a read view. This is the
+the same field-name, depth, kind, and field-count invariants the Markdown parser
+does, so a constructed document cannot be invalid — with no bypass, since
+`Payload`'s own mutation half is crate-internal and `card.payload()` is a read
+view. This is the
 authoring surface for
 programs (database row → rendered PDF); Markdown serves human authoring and
 the blueprint serves LLM/MCP consumers.
@@ -66,11 +67,16 @@ field at once ([SCHEMAS.md](SCHEMAS.md) § "The values form").
 ## Validation: batched, atomic, at the boundary
 
 Structural invariants (field-name grammar, value depth, card kind) are
-enforced per mutator call. `store_fields` validates its whole batch before
+enforced per mutator call. The §8 field count is the exception in shape, not in
+timing: only the card knows how full it is, so every field write funnels through
+one insert that refuses the field past the cap. `store_fields` validates its
+whole batch before
 applying any of it: on violation nothing is applied and the single error
 carries one diagnostic per offending field with `path` set to the field name:
 externally sourced names (database columns, form keys) surface every violation
-in one pass. Schema validation (types, enums, constraints) is a separate pass:
+in one pass. A batch charges the count over the whole batch, so what comes back
+is the overflowing tail — one diagnostic per name, like every other batch
+refusal. Schema validation (types, enums, constraints) is a separate pass:
 deferred to `Quill::validate` / render for the opaque store, or pulled forward
 to the write by typed commit (below).
 

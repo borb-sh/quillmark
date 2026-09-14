@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- fix(core)!: **a field write past the §8 field count is refused at the write.**
+  `Card::store_field` validated a field's name and its value's depth and left the
+  card's field count to the parser and the two storage doors, so a program could
+  build a card past `MAX_FIELD_COUNT` (1000) through `storeField` / `storeFill` /
+  `storeFields`, the typed `set` / `set_all` / `addCard`, or `revise` /
+  `overwrite` on an absent field — and learn of it only at `toMarkdown`,
+  `toStored`, or the card wire, each of which refused what the API had taken.
+  Every field write funnels through one `Payload::insert` that holds the count,
+  so an append past the cap is `edit::invalid_payload` carrying
+  `PayloadViolation::TooManyFields` — the code the wire already mints for this
+  violation — anchored at the card that is full. A replace is not a growth and
+  still lands. The batches charge the count over the whole batch and report one
+  diagnostic per name in the overflowing tail, applying none of themselves.
+  Closes #1750.
 - fix(pdf): **a stamped checkbox's `/DA` names ZapfDingbats.** `stamp` wrote a
   checkbox's `/MK /CA (4)` caption and no `/DA`, so the widget inherited the
   form-level `/Helv 0 Tf 0 g` and nothing registered the face the glyph lives

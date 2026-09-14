@@ -26,7 +26,7 @@
 
 use indexmap::IndexMap;
 
-use crate::document::edit::resolve_field_write;
+use crate::document::edit::{overflow_errors, resolve_field_write};
 use crate::document::{Card, Document, EditError};
 use crate::quill::{FieldSchema, QuillConfig};
 use crate::value::QuillValue;
@@ -61,7 +61,9 @@ impl<'a> TypedWriter<'a> {
     /// batch does not name are untouched. Every field resolves before any is
     /// applied; on a violation nothing is written and every offending field
     /// comes back as a `(name, error)` pair, so a caller submitting a whole form
-    /// sees every typo in one pass.
+    /// sees every typo in one pass. The §8 field count is charged over the whole
+    /// batch, so a batch that would take the card past it reports every name in
+    /// the overflowing tail.
     pub fn set_all<K, V, I>(&mut self, fields: I) -> Result<(), Vec<(String, EditError)>>
     where
         K: Into<String>,
@@ -285,9 +287,16 @@ where
     if !errors.is_empty() {
         return Err(errors);
     }
-    // Every entry validated by `resolve_field_write` above; apply unchecked.
+    if let Some(errors) = overflow_errors(
+        card.payload(),
+        resolved.iter().map(|(name, _)| name.as_str()),
+    ) {
+        return Err(errors);
+    }
     for (name, stored) in resolved {
-        card.payload_mut().insert_unchecked(name, stored);
+        card.payload_mut()
+            .insert(name, stored)
+            .expect("the batch's overflow was refused above");
     }
     Ok(())
 }
@@ -390,6 +399,34 @@ card_kinds:
             doc.main().payload().get("qty").unwrap().as_json(),
             &serde_json::json!(5)
         );
+    }
+
+    /// The typed batch charges the §8 field count on the same funnel the opaque
+    /// one does, so a quill declaring more fields than a card may carry refuses
+    /// the ones past the cap rather than building a document the parser rejects.
+    #[test]
+    fn set_all_refuses_the_fields_past_the_count() {
+        let max = crate::error::MAX_FIELD_COUNT;
+        let fields: String = (0..=max)
+            .map(|i| format!("    f{i}:\n      type: string\n"))
+            .collect();
+        let config = QuillConfig::from_yaml(&format!(
+            "quill:\n  name: memo\n  backend: typst\n  version: 1.0.0\n  \
+             description: Count test quill\nmain:\n  fields:\n{fields}"
+        ))
+        .expect("a quill may declare more fields than a card may carry");
+
+        let mut doc = blank_doc();
+        let mut ed = TypedWriter::new(&config, &mut doc);
+        let errs = ed
+            .set_all((0..=max).map(|i| (format!("f{i}"), "v")))
+            .unwrap_err();
+        assert_eq!(
+            errs.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>(),
+            [format!("f{max}")]
+        );
+        assert_eq!(errs[0].1.code(), "edit::invalid_payload");
+        assert!(doc.main().payload().is_empty(), "the batch applied none of itself");
     }
 
     #[test]

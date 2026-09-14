@@ -1,8 +1,11 @@
 //! Typed mutators for [`Document`] and [`Card`].
 //!
 //! Every successful mutator leaves user field names matching
-//! `[A-Za-z_][A-Za-z0-9_]*`, composable `$kind`s valid, and values inside the
-//! §8 depth bound, so the result is safely serializable to the backend plate.
+//! `[A-Za-z_][A-Za-z0-9_]*`, composable `$kind`s valid, values inside the §8
+//! depth bound, and each card within the §8 field count
+//! ([`MAX_FIELD_COUNT`](crate::error::MAX_FIELD_COUNT)), so the result is safely
+//! serializable to the backend plate and re-readable by the parser. A write
+//! that would create a field past the count is [`EditError::InvalidPayload`].
 //! `$ext`/`$seed` are opaque mappings that carry no field-name invariant, but
 //! do carry the depth bound.
 
@@ -175,9 +178,11 @@ pub enum EditError {
     #[error("content apply failed: {0:?}")]
     ContentApply(ApplyError),
 
-    /// The card's item list violates an invariant of the list as a whole. Only a
-    /// door taking a whole payload at once reaches it ([`Card::try_from`] a
-    /// [`CardWire`](crate::CardWire)); the per-field mutators cannot build one.
+    /// The card's item list violates an invariant of the list as a whole. A door
+    /// taking a whole payload at once ([`Card::try_from`] a
+    /// [`CardWire`](crate::CardWire)) reaches every variant; a field write
+    /// reaches [`PayloadViolation::TooManyFields`], the one invariant a caller
+    /// holding a `(name, value)` pair cannot check for itself.
     #[error("{0}")]
     InvalidPayload(PayloadViolation),
 }
@@ -563,6 +568,31 @@ fn conform_error_to_edit(name: &str, err: CoercionError) -> EditError {
     }
 }
 
+/// The `(name, error)` pairs for the batch names that would land past the §8
+/// field count, `None` when the batch fits. The count belongs to the payload, so
+/// a batch asks it once, before it applies any of itself: what comes back is the
+/// overflowing tail, one diagnostic per offending field as every other batch
+/// refusal reports.
+pub(crate) fn overflow_errors<'n>(
+    payload: &Payload,
+    names: impl IntoIterator<Item = &'n str>,
+) -> Option<Vec<(String, EditError)>> {
+    let (count, past) = payload.overflow(names)?;
+    Some(
+        past.into_iter()
+            .map(|name| {
+                (
+                    name.to_string(),
+                    EditError::InvalidPayload(PayloadViolation::TooManyFields {
+                        count,
+                        max: crate::error::MAX_FIELD_COUNT,
+                    }),
+                )
+            })
+            .collect(),
+    )
+}
+
 /// The canonical stored form of a typed field write, **without applying it**:
 /// the dry-run that lets a batch collect every violation before mutating.
 pub(crate) fn resolve_field_write(
@@ -698,12 +728,17 @@ impl Card {
     /// (`store_field("qty", 3)`) via the `From` impls on [`QuillValue`].
     ///
     /// Returns [`EditError::InvalidFieldName`] when `name` does not match
-    /// `[A-Za-z_][A-Za-z0-9_]*`.
+    /// `[A-Za-z_][A-Za-z0-9_]*`, and [`EditError::InvalidPayload`] when `name`
+    /// is absent and the card already carries
+    /// [`MAX_FIELD_COUNT`](crate::error::MAX_FIELD_COUNT) fields; overwriting a
+    /// field a full card already carries is not a growth and lands.
     pub fn store_field(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
         let value = value.into();
         check_field(name, value.as_json())?;
         validate_fill_targets(&value, false).map_err(|v| edit_error_from_violation(name, v))?;
-        self.payload_mut().insert_unchecked(name.to_string(), value);
+        self.payload_mut()
+            .insert(name.to_string(), value)
+            .map_err(EditError::InvalidPayload)?;
         Ok(())
     }
 
@@ -715,7 +750,8 @@ impl Card {
         check_field(name, value.as_json())?;
         validate_fill_targets(&value, true).map_err(|v| edit_error_from_violation(name, v))?;
         self.payload_mut()
-            .insert_fill_unchecked(name.to_string(), value);
+            .insert_fill(name.to_string(), value)
+            .map_err(EditError::InvalidPayload)?;
         Ok(())
     }
 
@@ -726,6 +762,10 @@ impl Card {
     /// [`Card::store_field`]; insertion order follows the iterator, and a
     /// repeated name behaves like repeated `store_field` calls (last value wins,
     /// first position kept).
+    ///
+    /// The §8 field count is charged over the whole batch rather than per call,
+    /// so a batch that would take the card past it reports every name in the
+    /// overflowing tail.
     pub fn store_fields<K, V, I>(&mut self, fields: I) -> Result<(), Vec<(String, EditError)>>
     where
         K: Into<String>,
@@ -751,9 +791,16 @@ impl Card {
         if !errors.is_empty() {
             return Err(errors);
         }
-        // Validated above; the unchecked insert avoids re-checking per field.
+        if let Some(errors) = overflow_errors(
+            self.payload(),
+            fields.iter().map(|(name, _)| name.as_str()),
+        ) {
+            return Err(errors);
+        }
         for (name, value) in fields {
-            self.payload_mut().insert_unchecked(name, value);
+            self.payload_mut()
+                .insert(name, value)
+                .expect("the batch's overflow was refused above");
         }
         Ok(())
     }
@@ -886,7 +933,9 @@ impl Card {
     /// field-level twin of [`overwrite_body`](Self::overwrite_body). Stores the
     /// canonical content JSON (identity and content-only marks intact), no diff,
     /// no schema check. The previous value's anchors are gone. Returns
-    /// [`EditError::InvalidFieldName`] for a malformed name.
+    /// [`EditError::InvalidFieldName`] for a malformed name, and
+    /// [`EditError::InvalidPayload`] when an absent `name` would take the card
+    /// past the §8 field count.
     ///
     /// Richtext codec: a `plaintext` field rests as its literal string, so an
     /// object landed here departs that field's resting form until the next bound
@@ -899,16 +948,18 @@ impl Card {
         if !is_valid_field_name(name) {
             return Err(EditError::InvalidFieldName(name.to_string()));
         }
-        self.store_field_content(name, &content.into());
-        Ok(())
+        self.store_field_content(name, &content.into())
     }
 
     /// Assumes `name` is already validated: every caller checks it or resolves an
-    /// existing field first.
-    fn store_field_content(&mut self, name: &str, content: &Normalized) {
+    /// existing field first. The §8 field count is the payload's, so an absent
+    /// `name` on a full card is [`EditError::InvalidPayload`].
+    fn store_field_content(&mut self, name: &str, content: &Normalized) -> Result<(), EditError> {
         let canonical = quillmark_content::serial::to_canonical_value(content);
         self.payload_mut()
-            .insert_unchecked(name.to_string(), QuillValue::from_json(canonical));
+            .insert(name.to_string(), QuillValue::from_json(canonical))
+            .map(|_| ())
+            .map_err(EditError::InvalidPayload)
     }
 
     /// Write-time commit: validate and normalize `value` per the field's schema
@@ -926,8 +977,9 @@ impl Card {
     /// Returns [`EditError::InvalidFieldName`] for a malformed name,
     /// [`EditError::FieldDecode`] / [`EditError::FieldNotInline`]
     /// for a content field, [`EditError::FieldCoercionFailed`] for any other type
-    /// mismatch, and [`EditError::ValueTooDeep`] when the stored value nests
-    /// past the §8 depth limit.
+    /// mismatch, [`EditError::ValueTooDeep`] when the stored value nests
+    /// past the §8 depth limit, and [`EditError::InvalidPayload`] when `name` is
+    /// absent and the card is at the §8 field count.
     ///
     /// **Hidden**: the typed primitive, whose door is
     /// [`Quill::writer`](crate::Quill::writer).
@@ -939,7 +991,9 @@ impl Card {
         schema: &FieldSchema,
     ) -> Result<(), EditError> {
         let stored = resolve_field_write(name, value.into(), schema)?;
-        self.payload_mut().insert_unchecked(name.to_string(), stored);
+        self.payload_mut()
+            .insert(name.to_string(), stored)
+            .map_err(EditError::InvalidPayload)?;
         Ok(())
     }
 
@@ -992,11 +1046,13 @@ impl Card {
     ///
     /// Returns [`EditError::InvalidFieldName`] for a malformed name,
     /// [`EditError::FieldDecode`] when the field is present but is not a
-    /// richtext content (a scalar a `store_field` wrote), and
-    /// [`EditError::Import`] on an over-nested markdown input.
+    /// richtext content (a scalar a `store_field` wrote),
+    /// [`EditError::Import`] on an over-nested markdown input, and
+    /// [`EditError::InvalidPayload`] when an absent `name` would take the card
+    /// past the §8 field count.
     pub fn revise_field(&mut self, name: &str, body: impl Into<String>) -> Result<Delta, EditError> {
         let (content, delta) = self.diff_field(name, body)?;
-        self.store_field_content(name, &content);
+        self.store_field_content(name, &content)?;
         Ok(delta)
     }
 
@@ -1025,7 +1081,9 @@ impl Card {
         // schema check fires on the value the anchors survived onto.
         let canonical = quillmark_content::serial::to_canonical_value(&content);
         let stored = resolve_field_write(name, QuillValue::from_json(canonical), schema)?;
-        self.payload_mut().insert_unchecked(name.to_string(), stored);
+        self.payload_mut()
+            .insert(name.to_string(), stored)
+            .map_err(EditError::InvalidPayload)?;
         Ok(delta)
     }
 
@@ -1059,7 +1117,9 @@ impl Card {
                 .as_str()
                 .expect("a plaintext field rests as a string"),
         );
-        self.payload_mut().insert_unchecked(name.to_string(), stored);
+        self.payload_mut()
+            .insert(name.to_string(), stored)
+            .map_err(EditError::InvalidPayload)?;
         Ok(delta)
     }
 
@@ -1085,8 +1145,10 @@ impl Card {
     /// was computed against, so only a zero-base bundle lands.
     ///
     /// Returns [`EditError::InvalidFieldName`] for a malformed name,
-    /// [`EditError::FieldDecode`] when the stored value is not a content, and
-    /// [`EditError::ContentApply`] when the bundle applies out of bounds.
+    /// [`EditError::FieldDecode`] when the stored value is not a content,
+    /// [`EditError::ContentApply`] when the bundle applies out of bounds, and
+    /// [`EditError::InvalidPayload`] when an absent `name` would take the card
+    /// past the §8 field count.
     ///
     /// **Richtext codec**: schema-blind like [`revise_field`](Self::revise_field),
     /// so a `plaintext` field's stored string decodes here as markdown and a
@@ -1110,8 +1172,7 @@ impl Card {
         content
             .apply_field_change(bundle)
             .map_err(EditError::ContentApply)?;
-        self.store_field_content(name, &content);
-        Ok(())
+        self.store_field_content(name, &content)
     }
 }
 
