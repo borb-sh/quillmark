@@ -70,6 +70,8 @@ Field order under `main.fields` **is** display order in UIs: the declaration ord
 
 Field keys must be `snake_case` (`^[a-z][a-z0-9_]*$`). Capitalized field keys are reserved.
 
+A card declares at most 1000 fields — the width one card-yaml block carries — and past it the quill fails to load (`quill::too_many_fields`). The count is per card, and only these top-level keys are charged: a nested `properties` map, an array's `items`, and a `variants:` cell set all ride inside the one field that declares them.
+
 ```yaml
 main:
   fields:

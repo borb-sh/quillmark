@@ -102,6 +102,7 @@ Identity resolution:
 - Malformed `quill.ui` / `main.ui` / `card_kinds.<name>.ui` blocks error with `quill::invalid_ui` rather than being silently discarded.
 - Malformed `main.body` / `card_kinds.<name>.body` blocks error with `quill::invalid_body`.
 - A `body.example` set together with `body.enabled: false` warns with `quill::body_example_unused` (the example has no effect).
+- A card declaring more than `MAX_FIELD_COUNT` (1000) fields errors with `quill::too_many_fields`: seeding and the blueprint build one card-yaml block per card schema, so the block's cap is the schema's to meet. Counted per card over declared fields alone — nested `properties`, array `items`, and `variants:` cells ride inside the field declaring them.
 
 Errors flow through `RenderError` (a non-empty `Vec<Diagnostic>`) and surface to bindings as a structured array (`err.diagnostics` in WASM, `.diagnostics` attribute in Python).
 

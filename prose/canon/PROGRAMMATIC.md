@@ -70,7 +70,12 @@ field at once ([SCHEMAS.md](SCHEMAS.md) § "The values form").
 Structural invariants (field-name grammar, value depth, card kind) are
 enforced per mutator call. The §8 field count is the exception in shape, not in
 timing: only the card knows how full it is, so every field write funnels through
-one insert that refuses the field past the cap. `store_fields` validates its
+one insert that refuses the field past the cap. Seeding and the blueprint build
+a card wholesale rather than a field at a time, so the cap binds their input
+instead: a `Quill.yaml` declaring a card past it fails load with
+`quill::too_many_fields`, which leaves `Quill::seed_document` and
+`QuillConfig::blueprint` total over every loaded quill.
+`store_fields` validates its
 whole batch before
 applying any of it: on violation nothing is applied and the single error
 carries one diagnostic per offending field with `path` set to the field name:
