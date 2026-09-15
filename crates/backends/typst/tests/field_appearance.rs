@@ -2,7 +2,7 @@
 //! the stamped PDF: each widget's `/DA` and `/Q`, and the `/DR` `/Font` the
 //! `/DA` names resolve against.
 
-use quillmark_core::{Backend, OutputFormat, RenderError, RenderOptions};
+use quillmark_core::{backend::Backend, error::RenderError, types::{OutputFormat, RenderOptions}};
 use quillmark_typst::TypstBackend;
 
 mod common;

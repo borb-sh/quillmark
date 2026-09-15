@@ -1,5 +1,5 @@
 use crate::types::Diagnostic as WasmDiagnostic;
-use quillmark_core::{Diagnostic, ParseError, RenderError, Severity};
+use quillmark_core::error::{Diagnostic, ParseError, RenderError, Severity};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 

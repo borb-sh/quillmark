@@ -7,7 +7,7 @@
 
 use crate::error::ParseError;
 use crate::value::{PathSegment, QuillValue};
-use crate::{Diagnostic, Severity};
+use crate::error::{Diagnostic, Severity};
 
 use super::fences::{find_metadata_blocks, UnclosedRoot};
 use super::meta::{extract_meta_items, meta_key};

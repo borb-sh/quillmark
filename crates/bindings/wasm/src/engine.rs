@@ -126,8 +126,8 @@ export interface QuillMetadata {
 }
 "#;
 
-/// Mirrors `quillmark_core::CardWire`. `CardInput` is referenced by name via
-/// `unchecked_param_type`.
+/// Mirrors `quillmark_core::document::CardWire`. `CardInput` is referenced by
+/// name via `unchecked_param_type`.
 #[wasm_bindgen(typescript_custom_section)]
 const CARD_TS: &'static str = r#"
 /**
@@ -477,7 +477,7 @@ pub struct Quill {
 #[cfg(feature = "render")]
 #[wasm_bindgen]
 pub struct LiveSession {
-    inner: quillmark_core::LiveSession,
+    inner: quillmark_core::session::LiveSession,
     backend_id: String,
     /// Resolves a geometry region's plate-space per-kind ordinal to its
     /// `DocPath` absolute index. Refreshed on every committed `update`.
@@ -485,7 +485,7 @@ pub struct LiveSession {
 }
 
 #[cfg(feature = "render")]
-fn card_kinds_of(doc: &quillmark_core::Document) -> Vec<Option<String>> {
+fn card_kinds_of(doc: &quillmark_core::document::Document) -> Vec<Option<String>> {
     doc.cards()
         .iter()
         .map(|c| c.kind().map(String::from))
@@ -494,8 +494,8 @@ fn card_kinds_of(doc: &quillmark_core::Document) -> Vec<Option<String>> {
 
 #[wasm_bindgen]
 pub struct Document {
-    inner: quillmark_core::Document,
-    parse_warnings: Vec<quillmark_core::Diagnostic>,
+    inner: quillmark_core::document::Document,
+    parse_warnings: Vec<quillmark_core::error::Diagnostic>,
 }
 
 #[cfg(feature = "render")]
@@ -552,7 +552,7 @@ impl Quillmark {
             artifacts: result.artifacts.into_iter().map(Into::into).collect(),
             warnings,
             output_format: result.output_format.into(),
-            regions: quillmark_core::regions_to_doc_path(result.regions, &kinds)
+            regions: quillmark_core::region::regions_to_doc_path(result.regions, &kinds)
                 .into_iter()
                 .map(Into::into)
                 .collect(),
@@ -755,7 +755,7 @@ impl Quill {
             None
         } else {
             let json = js_value_to_json(overlay, "seedCard")?;
-            quillmark_core::SeedOverlay::from_json(&json)
+            quillmark_core::document::SeedOverlay::from_json(&json)
         };
         match self.inner.seed_card(card_kind, overlay.as_ref()) {
             Some(core_card) => card_to_js(&core_card),
@@ -773,11 +773,11 @@ impl Document {
     /// invalid quill reference.
     #[wasm_bindgen(constructor)]
     pub fn new(quill_ref: &str) -> Result<Document, JsValue> {
-        let qr: quillmark_core::QuillReference = quill_ref
+        let qr: quillmark_core::version::QuillReference = quill_ref
             .parse()
             .map_err(|e: String| invalid_quill_reference("Document", quill_ref, &e))?;
         Ok(Document {
-            inner: quillmark_core::Document::new(qr),
+            inner: quillmark_core::document::Document::new(qr),
             parse_warnings: Vec::new(),
         })
     }
@@ -785,7 +785,7 @@ impl Document {
     /// Parse markdown into a typed Document. Throws on parse errors.
     #[wasm_bindgen(js_name = fromMarkdown)]
     pub fn from_markdown(markdown: &str) -> Result<Document, JsValue> {
-        let output = quillmark_core::Document::parse(markdown)
+        let output = quillmark_core::document::Document::parse(markdown)
             .map_err(WasmError::from)
             .map_err(|e| e.to_js_value())?;
 
@@ -801,7 +801,7 @@ impl Document {
     /// `schema`, missing fields, or unparseable quill reference).
     #[wasm_bindgen(js_name = fromStored)]
     pub fn from_stored(json: &str) -> Result<Document, JsValue> {
-        let inner: quillmark_core::Document = serde_json::from_str(json).map_err(|e| {
+        let inner: quillmark_core::document::Document = serde_json::from_str(json).map_err(|e| {
             WasmError::from(format!("fromStored: invalid storage DTO: {e}")).to_js_value()
         })?;
         Ok(Document {
@@ -846,7 +846,7 @@ impl Document {
     /// messages from this instead of re-stating the rule.
     #[wasm_bindgen(js_name = quillRefHint)]
     pub fn quill_ref_hint() -> String {
-        quillmark_core::quill_ref_hint().to_string()
+        quillmark_core::version::quill_ref_hint().to_string()
     }
 
     /// Emit canonical Quillmark Markdown. Round-trip safe: re-parsing the
@@ -881,7 +881,7 @@ impl Document {
     /// variable.
     #[wasm_bindgen(js_name = loadStored)]
     pub fn load_stored(&mut self, json: &str) -> Result<(), JsValue> {
-        let inner: quillmark_core::Document = serde_json::from_str(json).map_err(|e| {
+        let inner: quillmark_core::document::Document = serde_json::from_str(json).map_err(|e| {
             WasmError::from(format!("loadStored: invalid storage DTO: {e}")).to_js_value()
         })?;
         self.inner = inner;
@@ -902,7 +902,7 @@ impl Document {
 
     #[wasm_bindgen(getter, js_name = cards, unchecked_return_type = "Card[]")]
     pub fn cards(&self) -> Result<JsValue, JsValue> {
-        let cards: Vec<quillmark_core::CardWire> =
+        let cards: Vec<quillmark_core::document::CardWire> =
             self.inner.cards().iter().map(Into::into).collect();
         serialize_or_throw(&cards, "cards")
     }
@@ -1249,7 +1249,7 @@ impl Document {
         let addr = Addr::from_js_or_string(&addr)?;
         let field = addr.require_field("storeField")?.to_string();
         let json = js_value_to_json(value, "storeField")?;
-        let qv = quillmark_core::QuillValue::from_json(json);
+        let qv = quillmark_core::value::QuillValue::from_json(json);
         let base = self.addr_base(&addr);
         self.addr_card_mut(&addr)?
             .store_field(&field, qv)
@@ -1267,7 +1267,7 @@ impl Document {
         let addr = Addr::from_js_or_string(&addr)?;
         let field = addr.require_field("storeFill")?.to_string();
         let json = js_value_to_json(value, "storeFill")?;
-        let qv = quillmark_core::QuillValue::from_json(json);
+        let qv = quillmark_core::value::QuillValue::from_json(json);
         let base = self.addr_base(&addr);
         self.addr_card_mut(&addr)?
             .store_fill(&field, qv)
@@ -1364,7 +1364,7 @@ impl Document {
         self.inner
             .main_mut()
             .store_seed_overlay(card_kind, json)
-            .map_err(|e| edit_error_to_js(&e, &quillmark_core::DocPath::new()))
+            .map_err(|e| edit_error_to_js(&e, &quillmark_core::path::DocPath::new()))
     }
 
     /// Remove `cardKind` from the main card's `$seed` map, returning its overlay
@@ -1377,7 +1377,7 @@ impl Document {
     /// Replace the QUILL reference string. Throws if `ref_str` is invalid.
     #[wasm_bindgen(js_name = setQuillRef)]
     pub fn set_quill_ref(&mut self, ref_str: &str) -> Result<(), JsValue> {
-        let qr: quillmark_core::QuillReference = ref_str
+        let qr: quillmark_core::version::QuillReference = ref_str
             .parse()
             .map_err(|e: String| invalid_quill_reference("setQuillRef", ref_str, &e))?;
         self.inner.set_quill_ref(qr);
@@ -1530,7 +1530,7 @@ impl Document {
         let addr = Addr::from_js_or_string(&addr)?;
         let field = addr.require_field("commitField")?.to_string();
         let json = js_value_to_json(value, "commitField")?;
-        let qv = quillmark_core::QuillValue::from_json(json);
+        let qv = quillmark_core::value::QuillValue::from_json(json);
         let base = self.addr_base(&addr);
         let mut writer = quill.inner.writer(&mut self.inner);
         match addr.card {
@@ -1603,7 +1603,7 @@ impl Document {
             .inner
             .writer(&mut self.inner)
             .add_card(kind, batch, body.as_deref(), at)
-            .map_err(|errs| edit_errors_to_js(errs, &quillmark_core::DocPath::new()))
+            .map_err(|errs| edit_errors_to_js(errs, &quillmark_core::path::DocPath::new()))
     }
 
     /// Insert a card: `at` absent appends, a number inserts at that index (in
@@ -1619,8 +1619,8 @@ impl Document {
         let core_card = js_to_card(&card)?;
         // A kind error anchors at the target slot; an append has no slot yet, so
         // its kind error carries no anchor.
-        let base = at.map_or_else(quillmark_core::DocPath::new, |i| {
-            quillmark_core::DocPath::card(None, i)
+        let base = at.map_or_else(quillmark_core::path::DocPath::new, |i| {
+            quillmark_core::path::DocPath::card(None, i)
         });
         match at {
             Some(index) => self.inner.insert_card(index, core_card),
@@ -1642,40 +1642,46 @@ impl Document {
     pub fn move_card(&mut self, from: usize, to: usize) -> Result<(), JsValue> {
         self.inner
             .move_card(from, to)
-            .map_err(|e| edit_error_to_js(&e, &quillmark_core::DocPath::new()))
+            .map_err(|e| edit_error_to_js(&e, &quillmark_core::path::DocPath::new()))
     }
 
 }
 
 impl Document {
-    fn card_mut_or_throw(&mut self, index: usize) -> Result<quillmark_core::CardMut<'_>, JsValue> {
+    fn card_mut_or_throw(
+        &mut self,
+        index: usize,
+    ) -> Result<quillmark_core::document::CardMut<'_>, JsValue> {
         let len = self.inner.cards().len();
         self.inner.card_mut(index).ok_or_else(|| {
             edit_error_to_js(
-                &quillmark_core::EditError::IndexOutOfRange { index, len },
-                &quillmark_core::DocPath::new(),
+                &quillmark_core::document::EditError::IndexOutOfRange { index, len },
+                &quillmark_core::path::DocPath::new(),
             )
         })
     }
 
-    fn card_or_throw(&self, index: usize) -> Result<&quillmark_core::Card, JsValue> {
+    fn card_or_throw(&self, index: usize) -> Result<&quillmark_core::document::Card, JsValue> {
         let len = self.inner.cards().len();
         self.inner.cards().get(index).ok_or_else(|| {
             edit_error_to_js(
-                &quillmark_core::EditError::IndexOutOfRange { index, len },
-                &quillmark_core::DocPath::new(),
+                &quillmark_core::document::EditError::IndexOutOfRange { index, len },
+                &quillmark_core::path::DocPath::new(),
             )
         })
     }
 
-    fn addr_card_mut(&mut self, addr: &Addr) -> Result<quillmark_core::CardMut<'_>, JsValue> {
+    fn addr_card_mut(
+        &mut self,
+        addr: &Addr,
+    ) -> Result<quillmark_core::document::CardMut<'_>, JsValue> {
         match addr.card {
             None => Ok(self.inner.main_mut()),
             Some(index) => self.card_mut_or_throw(index),
         }
     }
 
-    fn addr_card_ref(&self, addr: &Addr) -> Result<&quillmark_core::Card, JsValue> {
+    fn addr_card_ref(&self, addr: &Addr) -> Result<&quillmark_core::document::Card, JsValue> {
         match addr.card {
             None => Ok(self.inner.main()),
             Some(index) => self.card_or_throw(index),
@@ -1684,10 +1690,10 @@ impl Document {
 
     /// The `DocPath` card root an [`Addr`] targets, computed before the mutable
     /// borrow so every addressed mutator can pass it to [`edit_error_to_js`].
-    fn addr_base(&self, addr: &Addr) -> quillmark_core::DocPath {
+    fn addr_base(&self, addr: &Addr) -> quillmark_core::path::DocPath {
         match addr.card {
-            None => quillmark_core::DocPath::main(),
-            Some(index) => quillmark_core::DocPath::card(
+            None => quillmark_core::path::DocPath::main(),
+            Some(index) => quillmark_core::path::DocPath::card(
                 self.inner.cards().get(index).and_then(|c| c.kind()),
                 index,
             ),
@@ -1931,7 +1937,7 @@ export interface Resolved {
 #[wasm_bindgen(js_name = parseDocPath, unchecked_return_type = "DocPathSeg[]")]
 pub fn parse_doc_path(path: &str) -> Result<JsValue, JsValue> {
     let doc_path = path
-        .parse::<quillmark_core::DocPath>()
+        .parse::<quillmark_core::path::DocPath>()
         .map_err(|e| WasmError::from(e.to_string()).to_js_value())?;
     // Via `serde_json::Value` so the tagged segments cross as plain objects,
     // sidestepping serde-wasm-bindgen's tagged-enum handling; nullable because
@@ -1949,7 +1955,7 @@ pub fn format_doc_path(
     #[wasm_bindgen(unchecked_param_type = "DocPathSeg[]")] segs: JsValue,
 ) -> Result<String, JsValue> {
     let json = js_value_to_json(segs, "formatDocPath")?;
-    let doc_path: quillmark_core::DocPath = serde_json::from_value(json)
+    let doc_path: quillmark_core::path::DocPath = serde_json::from_value(json)
         .map_err(|e| WasmError::from(format!("formatDocPath: {e}")).to_js_value())?;
     if doc_path.segs().is_empty() {
         return Err(WasmError::from("formatDocPath: empty path").to_js_value());
@@ -1980,7 +1986,7 @@ pub fn map_marks(
         .map_marks(&bundle)
         .map_err(|e| {
             // `applyChange`'s wording on the same op, from the same variant.
-            let e = quillmark_core::EditError::ContentApply(e);
+            let e = quillmark_core::document::EditError::ContentApply(e);
             WasmError::from(format!("mapMarks: {e}")).to_js_value()
         })?;
     let out = serde_json::Value::Array(
@@ -2006,11 +2012,11 @@ pub fn map_pos(
     pos: usize,
     #[wasm_bindgen(unchecked_param_type = "Assoc")] assoc: JsValue,
 ) -> Result<usize, JsValue> {
-    let delta: quillmark_core::Delta = serde_wasm_bindgen::from_value(delta)
+    let delta: quillmark_core::session::Delta = serde_wasm_bindgen::from_value(delta)
         .map_err(|e| WasmError::from(format!("mapPos: invalid delta: {e}")).to_js_value())?;
     let assoc = match assoc.as_string().as_deref() {
-        Some("before") => quillmark_core::Assoc::Before,
-        Some("after") => quillmark_core::Assoc::After,
+        Some("before") => quillmark_core::session::Assoc::Before,
+        Some("after") => quillmark_core::session::Assoc::After,
         _ => {
             return Err(
                 WasmError::from("mapPos: assoc must be \"before\" or \"after\"").to_js_value(),
@@ -2023,12 +2029,12 @@ pub fn map_pos(
 /// The `$quill` reference refusal: one code and one hint for every door that
 /// parses one, `ctx` naming the door.
 fn invalid_quill_reference(ctx: &str, value: &str, reason: &str) -> JsValue {
-    let diag = quillmark_core::Diagnostic::new(
-        quillmark_core::Severity::Error,
+    let diag = quillmark_core::error::Diagnostic::new(
+        quillmark_core::error::Severity::Error,
         format!("{}: invalid reference '{}': {}", ctx, value, reason),
     )
     .with_code("parse::invalid_quill_reference".to_string())
-    .with_hint(quillmark_core::quill_ref_hint().to_string());
+    .with_hint(quillmark_core::version::quill_ref_hint().to_string());
     WasmError {
         diagnostics: vec![diag],
     }
@@ -2037,11 +2043,16 @@ fn invalid_quill_reference(ctx: &str, value: &str, reason: &str) -> JsValue {
 
 /// Maps `EditError` to a JS `Error` carrying one diagnostic, its `DocPath`
 /// anchored relative to `base` (the card root the mutator ran against).
-fn edit_error_to_js(err: &quillmark_core::EditError, base: &quillmark_core::DocPath) -> JsValue {
-    let mut diagnostic =
-        quillmark_core::Diagnostic::new(quillmark_core::Severity::Error, err.to_string())
-            .with_code(err.code().to_string())
-            .with_args(err.args());
+fn edit_error_to_js(
+    err: &quillmark_core::document::EditError,
+    base: &quillmark_core::path::DocPath,
+) -> JsValue {
+    let mut diagnostic = quillmark_core::error::Diagnostic::new(
+        quillmark_core::error::Severity::Error,
+        err.to_string(),
+    )
+    .with_code(err.code().to_string())
+    .with_args(err.args());
     if let Some(path) = err.doc_path(base) {
         diagnostic = diagnostic.with_path(path.to_string());
     }
@@ -2054,7 +2065,7 @@ fn edit_error_to_js(err: &quillmark_core::EditError, base: &quillmark_core::DocP
 /// Maps a `WireError` to a JS `Error` carrying one diagnostic, under the code
 /// the addressed mutator onto the same violation mints. The card is not placed,
 /// so the diagnostic carries no `path`.
-fn wire_error_to_js(err: &quillmark_core::WireError) -> JsValue {
+fn wire_error_to_js(err: &quillmark_core::document::WireError) -> JsValue {
     WasmError {
         diagnostics: vec![err.to_diagnostic()],
     }
@@ -2063,16 +2074,19 @@ fn wire_error_to_js(err: &quillmark_core::WireError) -> JsValue {
 
 /// Batched twin of [`edit_error_to_js`]: one diagnostic per offending field.
 fn edit_errors_to_js(
-    errors: Vec<(String, quillmark_core::EditError)>,
-    base: &quillmark_core::DocPath,
+    errors: Vec<(String, quillmark_core::document::EditError)>,
+    base: &quillmark_core::path::DocPath,
 ) -> JsValue {
-    let diagnostics: Vec<quillmark_core::Diagnostic> = errors
+    let diagnostics: Vec<quillmark_core::error::Diagnostic> = errors
         .into_iter()
         .map(|(name, err)| {
-            quillmark_core::Diagnostic::new(quillmark_core::Severity::Error, err.to_string())
-                .with_code(err.code().to_string())
-                .with_args(err.args())
-                .with_path(base.field(&name).to_string())
+            quillmark_core::error::Diagnostic::new(
+                quillmark_core::error::Severity::Error,
+                err.to_string(),
+            )
+            .with_code(err.code().to_string())
+            .with_args(err.args())
+            .with_path(base.field(&name).to_string())
         })
         .collect();
     WasmError { diagnostics }.to_js_value()
@@ -2083,11 +2097,11 @@ fn edit_errors_to_js(
 fn js_value_to_field_batch(
     value: &JsValue,
     ctx: &str,
-) -> Result<Vec<(String, quillmark_core::QuillValue)>, JsValue> {
+) -> Result<Vec<(String, quillmark_core::value::QuillValue)>, JsValue> {
     match js_value_to_json(value.clone(), ctx)? {
         serde_json::Value::Object(map) => Ok(map
             .into_iter()
-            .map(|(name, v)| (name, quillmark_core::QuillValue::from_json(v)))
+            .map(|(name, v)| (name, quillmark_core::value::QuillValue::from_json(v)))
             .collect()),
         _ => Err(WasmError::from(format!("{}: fields must be a plain object", ctx)).to_js_value()),
     }
@@ -2098,7 +2112,10 @@ fn js_value_to_field_batch(
 /// integer an array index. A malformed step throws rather than being dropped —
 /// a silently skipped step reads a different address and never says so. Flat by
 /// construction, so no depth guard applies.
-fn path_from_js(value: &JsValue, ctx: &str) -> Result<Vec<quillmark_core::PathSegment>, JsValue> {
+fn path_from_js(
+    value: &JsValue,
+    ctx: &str,
+) -> Result<Vec<quillmark_core::value::PathSegment>, JsValue> {
     if !Array::is_array(value) {
         return Err(WasmError::from(format!(
             "{ctx}: `path` must be an array of string keys and non-negative integer indices"
@@ -2110,11 +2127,11 @@ fn path_from_js(value: &JsValue, ctx: &str) -> Result<Vec<quillmark_core::PathSe
         .enumerate()
         .map(|(i, step)| {
             if let Some(key) = step.as_string() {
-                return Ok(quillmark_core::PathSegment::Key(key));
+                return Ok(quillmark_core::value::PathSegment::Key(key));
             }
             match step.as_f64() {
                 Some(n) if n >= 0.0 && n.fract() == 0.0 && n <= u32::MAX as f64 => {
-                    Ok(quillmark_core::PathSegment::Index(n as usize))
+                    Ok(quillmark_core::value::PathSegment::Index(n as usize))
                 }
                 _ => Err(WasmError::from(format!(
                     "{ctx}: `path[{i}]` must be a string key or a non-negative integer index"
@@ -2227,7 +2244,7 @@ where
 #[cfg(feature = "render")]
 fn render_options_or_throw(
     opts: Option<Ts<RenderOptions>>,
-) -> Result<quillmark_core::RenderOptions, JsValue> {
+) -> Result<quillmark_core::types::RenderOptions, JsValue> {
     let opts = match opts {
         Some(ts) => from_ts_or_throw(&ts)?,
         None => RenderOptions::default(),
@@ -2248,11 +2265,11 @@ fn ext_map_to_js(
     json_value_to_js(map.map(serde_json::Value::Object))
 }
 
-fn card_to_js(card: &quillmark_core::Card) -> Result<JsValue, JsValue> {
-    serialize_or_throw(&quillmark_core::CardWire::from(card), "card")
+fn card_to_js(card: &quillmark_core::document::Card) -> Result<JsValue, JsValue> {
+    serialize_or_throw(&quillmark_core::document::CardWire::from(card), "card")
 }
 
-fn js_to_card(value: &JsValue) -> Result<quillmark_core::Card, JsValue> {
+fn js_to_card(value: &JsValue) -> Result<quillmark_core::document::Card, JsValue> {
     // `serde_wasm_bindgen` does not honor `#[serde(deny_unknown_fields)]` (it
     // looks up known fields rather than visiting every key), so enforce it here:
     // a flat `{ kind, fields }` object fails loudly instead of yielding a
@@ -2280,14 +2297,14 @@ fn js_to_card(value: &JsValue) -> Result<quillmark_core::Card, JsValue> {
         }
     }
     reject_deep_js_value(value, "insertCard")?;
-    let wire: quillmark_core::CardWire = serde_wasm_bindgen::from_value(value.clone())
+    let wire: quillmark_core::document::CardWire = serde_wasm_bindgen::from_value(value.clone())
         .map_err(|e| WasmError::from(format!("card must be a Card object: {e}")).to_js_value())?;
-    quillmark_core::Card::try_from(wire).map_err(|e| wire_error_to_js(&e))
+    quillmark_core::document::Card::try_from(wire).map_err(|e| wire_error_to_js(&e))
 }
 
-fn file_tree_from_js_tree(tree: &JsValue) -> Result<quillmark_core::FileTreeNode, JsValue> {
+fn file_tree_from_js_tree(tree: &JsValue) -> Result<quillmark_core::quill::FileTreeNode, JsValue> {
     let entries = js_tree_entries(tree)?;
-    let mut root = quillmark_core::FileTreeNode::Directory {
+    let mut root = quillmark_core::quill::FileTreeNode::Directory {
         files: HashMap::new(),
     };
 
@@ -2295,7 +2312,7 @@ fn file_tree_from_js_tree(tree: &JsValue) -> Result<quillmark_core::FileTreeNode
         let bytes = js_bytes_for_tree_entry(&path, value)?;
         root.insert(
             path.as_str(),
-            quillmark_core::FileTreeNode::File { contents: bytes },
+            quillmark_core::quill::FileTreeNode::File { contents: bytes },
         )
         .map_err(|e| {
             WasmError::from(format!("Invalid tree path '{}': {}", path, e)).to_js_value()
@@ -2424,7 +2441,7 @@ export interface PaintResult {
 /// original when it does not fit the geometry grammar.
 #[cfg(feature = "render")]
 fn plate_to_docpath(addr: &str, kinds: &[Option<&str>]) -> String {
-    quillmark_core::plate_addr_to_doc_path(addr, kinds)
+    quillmark_core::region::plate_addr_to_doc_path(addr, kinds)
         .map(|p| p.to_string())
         .unwrap_or_else(|| addr.to_string())
 }
@@ -2433,9 +2450,9 @@ fn plate_to_docpath(addr: &str, kinds: &[Option<&str>]) -> String {
 /// keeping the original when it does not parse or place.
 #[cfg(feature = "render")]
 fn docpath_to_plate(addr: &str, kinds: &[Option<&str>]) -> String {
-    addr.parse::<quillmark_core::DocPath>()
+    addr.parse::<quillmark_core::path::DocPath>()
         .ok()
-        .and_then(|p| quillmark_core::doc_path_to_plate_addr(&p, kinds))
+        .and_then(|p| quillmark_core::region::doc_path_to_plate_addr(&p, kinds))
         .unwrap_or_else(|| addr.to_string())
 }
 
@@ -2510,7 +2527,7 @@ impl LiveSession {
             artifacts: result.artifacts.into_iter().map(Into::into).collect(),
             warnings: result.warnings.into_iter().map(Into::into).collect(),
             output_format: result.output_format.into(),
-            regions: quillmark_core::regions_to_doc_path(result.regions, &self.kinds())
+            regions: quillmark_core::region::regions_to_doc_path(result.regions, &self.kinds())
                 .into_iter()
                 .map(Into::into)
                 .collect(),
@@ -2525,8 +2542,9 @@ impl LiveSession {
     /// `fieldAt`. Empty for backends that place no schema fields.
     #[wasm_bindgen(js_name = regions, unchecked_return_type = "FieldRegion[]")]
     pub fn regions(&self) -> Result<JsValue, JsValue> {
-        let regions: Vec<FieldRegion> = quillmark_core::regions_to_doc_path(self.inner.regions(), &self.kinds())
-            .into_iter()
+        let regions: Vec<FieldRegion> =
+            quillmark_core::region::regions_to_doc_path(self.inner.regions(), &self.kinds())
+                .into_iter()
             .map(Into::into)
             .collect();
         serialize_or_throw(&regions, "regions")
@@ -2541,8 +2559,9 @@ impl LiveSession {
     pub fn field_boxes(&self, field: &str) -> Result<JsValue, JsValue> {
         let kinds = self.kinds();
         let plate = docpath_to_plate(field, &kinds);
-        let boxes: Vec<FieldRegion> = quillmark_core::regions_to_doc_path(self.inner.field_boxes(&plate), &kinds)
-            .into_iter()
+        let boxes: Vec<FieldRegion> =
+            quillmark_core::region::regions_to_doc_path(self.inner.field_boxes(&plate), &kinds)
+                .into_iter()
             .map(Into::into)
             .collect();
         serialize_or_throw(&boxes, "fieldBoxes")

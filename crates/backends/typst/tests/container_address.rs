@@ -5,7 +5,7 @@
 //! The addresses the grammar admits are stated once, against both backends, in
 //! `quillmark/tests/address_grammar.rs`.
 
-use quillmark_core::Backend;
+use quillmark_core::backend::Backend;
 use quillmark_typst::TypstBackend;
 
 mod common;
@@ -79,7 +79,7 @@ fn data() -> serde_json::Value {
     })
 }
 
-fn open(plate: &str) -> quillmark_core::LiveSession {
+fn open(plate: &str) -> quillmark_core::session::LiveSession {
     TypstBackend
         .open(&common::quill_with_plate(YAML, plate), &data())
         .expect("open")

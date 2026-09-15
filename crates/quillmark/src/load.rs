@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::path::{Path, PathBuf};
 
-use quillmark_core::{FileTreeNode, Quill, QuillIgnore, RenderError};
+use quillmark_core::{error::RenderError, quill::{FileTreeNode, Quill, QuillIgnore}};
 
 /// Load a quill from a filesystem directory, skipping what [`QuillIgnore`]
 /// excludes.

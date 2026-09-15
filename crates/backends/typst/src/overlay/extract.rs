@@ -12,7 +12,7 @@ use typst::introspection::{Introspector, Location};
 use typst::utils::PicoStr;
 use typst_layout::PagedDocument;
 
-use quillmark_core::{Diagnostic, RenderError, Severity};
+use quillmark_core::error::{Diagnostic, RenderError, Severity};
 
 use quillmark_pdf::{FieldType, FormFont, TextAlign};
 

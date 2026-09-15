@@ -45,7 +45,7 @@ pub use types::{
 pub struct Quill {
     pub(crate) config: QuillConfig,
     pub(crate) files: FileTreeNode,
-    pub(crate) warnings: Vec<crate::Diagnostic>,
+    pub(crate) warnings: Vec<crate::error::Diagnostic>,
 }
 
 impl Quill {
@@ -66,22 +66,28 @@ impl Quill {
     /// quill short of refusing it. They ride the quill so every construction
     /// door keeps them, and a host reads them whenever it likes rather than at
     /// the one moment the loader returns.
-    pub fn warnings(&self) -> &[crate::Diagnostic] {
+    pub fn warnings(&self) -> &[crate::error::Diagnostic] {
         &self.warnings
     }
 
-    /// A schema-bound [`TypedWriter`](crate::TypedWriter) over `doc`: the front
-    /// door for typed field writes.
-    pub fn writer<'a>(&'a self, doc: &'a mut crate::document::Document) -> crate::TypedWriter<'a> {
-        crate::TypedWriter::new(&self.config, doc)
+    /// A schema-bound [`TypedWriter`](crate::writer::TypedWriter) over `doc`:
+    /// the front door for typed field writes.
+    pub fn writer<'a>(
+        &'a self,
+        doc: &'a mut crate::document::Document,
+    ) -> crate::writer::TypedWriter<'a> {
+        crate::writer::TypedWriter::new(&self.config, doc)
     }
 
-    /// A schema-bound [`TypedReader`](crate::TypedReader) over `doc`: the read
-    /// twin of [`writer`](Self::writer). Interprets each field by its declared
-    /// type, and reads an undeclared name as the typo it is rather than as
-    /// absent.
-    pub fn reader<'a>(&'a self, doc: &'a crate::document::Document) -> crate::TypedReader<'a> {
-        crate::TypedReader::new(&self.config, doc)
+    /// A schema-bound [`TypedReader`](crate::reader::TypedReader) over `doc`:
+    /// the read twin of [`writer`](Self::writer). Interprets each field by its
+    /// declared type, and reads an undeclared name as the typo it is rather
+    /// than as absent.
+    pub fn reader<'a>(
+        &'a self,
+        doc: &'a crate::document::Document,
+    ) -> crate::reader::TypedReader<'a> {
+        crate::reader::TypedReader::new(&self.config, doc)
     }
 
     pub fn files(&self) -> &FileTreeNode {

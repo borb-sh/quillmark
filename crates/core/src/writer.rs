@@ -1,11 +1,12 @@
 //! Schema-bound typed writer: the front door for typed field writes.
 //!
 //! `Card::commit_field` asks the caller to fetch a [`FieldSchema`] per write.
-//! [`Quill::writer`](crate::Quill::writer) binds the schema once instead, so
-//! callers issue one verb (`set`) and never pass a type token or an `inline`
-//! flag. An undeclared name is [`EditError::UnknownField`]: on the typed path
-//! it is a typo, not a fallback. Opaque storage stays available through the raw
-//! [`Card::store_field`](crate::Card::store_field) verb.
+//! [`Quill::writer`](crate::quill::Quill::writer) binds the schema once
+//! instead, so callers issue one verb (`set`) and never pass a type token or an
+//! `inline` flag. An undeclared name is [`EditError::UnknownField`]: on the
+//! typed path it is a typo, not a fallback. Opaque storage stays available
+//! through the raw [`Card::store_field`](crate::document::Card::store_field)
+//! verb.
 //!
 //! ```ignore
 //! let mut w = quill.writer(&mut doc);
@@ -19,10 +20,10 @@
 //! cannot cross a lifetime-free binding boundary; those surfaces construct one
 //! per call from the quill handle.
 //!
-//! [`Quill::conform`](crate::Quill::conform) is this same strict commit driven
-//! by the schema rather than by a caller, so what an ingestion lands and what a
-//! write lands are the same bytes. Where a write refuses, conform leaves the
-//! value authored under a `conform::*` warning.
+//! [`Quill::conform`](crate::quill::Quill::conform) is this same strict commit
+//! driven by the schema rather than by a caller, so what an ingestion lands and
+//! what a write lands are the same bytes. Where a write refuses, conform leaves
+//! the value authored under a `conform::*` warning.
 
 use indexmap::IndexMap;
 
@@ -30,18 +31,19 @@ use crate::document::edit::{overflow_errors, resolve_field_write};
 use crate::document::{Card, Document, EditError};
 use crate::quill::{FieldSchema, QuillConfig};
 use crate::value::QuillValue;
-use crate::Delta;
+use crate::session::Delta;
 
 /// A [`Document`] bound to its [`QuillConfig`] for typed writes. Construct with
-/// [`Quill::writer`](crate::Quill::writer). Writes target the main card; use
-/// [`card`](Self::card) for a composable card.
+/// [`Quill::writer`](crate::quill::Quill::writer). Writes target the main card;
+/// use [`card`](Self::card) for a composable card.
 pub struct TypedWriter<'a> {
     config: &'a QuillConfig,
     doc: &'a mut Document,
 }
 
 impl<'a> TypedWriter<'a> {
-    /// Bind `doc` to `config`. Prefer [`Quill::writer`](crate::Quill::writer).
+    /// Bind `doc` to `config`. Prefer
+    /// [`Quill::writer`](crate::quill::Quill::writer).
     pub fn new(config: &'a QuillConfig, doc: &'a mut Document) -> Self {
         Self { config, doc }
     }
@@ -49,21 +51,21 @@ impl<'a> TypedWriter<'a> {
     /// Write a field on the main card, strict-committing it against the field's
     /// schema type. An undeclared name fails with [`EditError::UnknownField`]
     /// rather than falling to the opaque
-    /// [`Card::store_field`](crate::Card::store_field). Other errors are those
-    /// of `Card::commit_field`.
+    /// [`Card::store_field`](crate::document::Card::store_field). Other errors
+    /// are those of `Card::commit_field`.
     pub fn set(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
         let schema = Some(&self.config.main.fields);
         commit_impl(self.doc.main_card_mut(), schema, name, value)
     }
 
     /// Write several main-card fields atomically, the typed twin of
-    /// [`Card::store_fields`](crate::Card::store_fields). A merge: fields the
-    /// batch does not name are untouched. Every field resolves before any is
-    /// applied; on a violation nothing is written and every offending field
-    /// comes back as a `(name, error)` pair, so a caller submitting a whole form
-    /// sees every typo in one pass. The §8 field count is charged over the whole
-    /// batch, so a batch that would take the card past it reports every name in
-    /// the overflowing tail.
+    /// [`Card::store_fields`](crate::document::Card::store_fields). A merge:
+    /// fields the batch does not name are untouched. Every field resolves
+    /// before any is applied; on a violation nothing is written and every
+    /// offending field comes back as a `(name, error)` pair, so a caller
+    /// submitting a whole form sees every typo in one pass. The §8 field count
+    /// is charged over the whole batch, so a batch that would take the card
+    /// past it reports every name in the overflowing tail.
     pub fn set_all<K, V, I>(&mut self, fields: I) -> Result<(), Vec<(String, EditError)>>
     where
         K: Into<String>,
@@ -138,10 +140,10 @@ impl<'a> TypedWriter<'a> {
     }
 
     /// A schema-bound writer for the composable card at `index`. The card's
-    /// `$kind` resolves its [`CardSchema`](crate::CardSchema); an unknown kind carries no schema, so
-    /// every typed write on it fails with [`EditError::UnknownField`] (write
-    /// such a card opaquely through
-    /// [`Card::store_field`](crate::Card::store_field)).
+    /// `$kind` resolves its [`CardSchema`](crate::quill::CardSchema); an
+    /// unknown kind carries no schema, so every typed write on it fails with
+    /// [`EditError::UnknownField`] (write such a card opaquely through
+    /// [`Card::store_field`](crate::document::Card::store_field)).
     /// [`EditError::IndexOutOfRange`] when `index` is out of range.
     pub fn card(&mut self, index: usize) -> Result<CardWriter<'_>, EditError> {
         let len = self.doc.cards().len();
@@ -156,9 +158,10 @@ impl<'a> TypedWriter<'a> {
     }
 }
 
-/// A single composable card bound to its [`CardSchema`](crate::CardSchema), from
-/// [`TypedWriter::card`]. Same `set` / `set_all` verbs as
-/// [`TypedWriter`], targeting the card at its bound index.
+/// A single composable card bound to its
+/// [`CardSchema`](crate::quill::CardSchema), from [`TypedWriter::card`]. Same
+/// `set` / `set_all` verbs as [`TypedWriter`], targeting the card at its bound
+/// index.
 pub struct CardWriter<'a> {
     config: &'a QuillConfig,
     doc: &'a mut Document,
@@ -192,9 +195,9 @@ impl<'a> CardWriter<'a> {
     }
 
     /// Write a field on this card, strict-committed against the card's
-    /// [`CardSchema`](crate::CardSchema). An undeclared field (or any field when the card kind is
-    /// unknown) fails with [`EditError::UnknownField`] rather than storing
-    /// opaquely.
+    /// [`CardSchema`](crate::quill::CardSchema). An undeclared field (or any
+    /// field when the card kind is unknown) fails with
+    /// [`EditError::UnknownField`] rather than storing opaquely.
     pub fn set(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
         let schema = self.fields_schema();
         commit_impl(self.card_mut(), schema, name, value)
@@ -207,7 +210,7 @@ impl<'a> CardWriter<'a> {
     }
 
     /// The card twin of [`TypedWriter::revise_field`], resolved against the
-    /// card's [`CardSchema`](crate::CardSchema).
+    /// card's [`CardSchema`](crate::quill::CardSchema).
     pub fn revise_field(&mut self, name: &str, text: &str) -> Result<Delta, EditError> {
         let schema = self.fields_schema();
         revise_impl(self.card_mut(), schema, name, text)

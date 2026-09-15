@@ -1047,7 +1047,7 @@ This body and the metadata above are an indorsement card.
             None,
         );
         doc.main_mut()
-            .commit_field("intro", crate::QuillValue::from_json(json), &schema)
+            .commit_field("intro", crate::value::QuillValue::from_json(json), &schema)
             .unwrap();
 
         let stored = serde_json::to_string(&doc).unwrap();
@@ -1530,7 +1530,7 @@ title: Hi
             .main()
             .seed()
             .and_then(|m| m.get("indorsement"))
-            .and_then(crate::SeedOverlay::from_json)
+            .and_then(crate::document::SeedOverlay::from_json)
             .expect("overlay present");
         assert_eq!(
             overlay.fields.get("from").and_then(|v| v.as_str()),

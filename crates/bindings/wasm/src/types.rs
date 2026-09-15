@@ -19,23 +19,23 @@ pub enum OutputFormat {
 }
 
 #[cfg(feature = "render")]
-impl From<OutputFormat> for quillmark_core::OutputFormat {
+impl From<OutputFormat> for quillmark_core::types::OutputFormat {
     fn from(format: OutputFormat) -> Self {
         match format {
-            OutputFormat::Pdf => quillmark_core::OutputFormat::Pdf,
-            OutputFormat::Svg => quillmark_core::OutputFormat::Svg,
-            OutputFormat::Png => quillmark_core::OutputFormat::Png,
+            OutputFormat::Pdf => quillmark_core::types::OutputFormat::Pdf,
+            OutputFormat::Svg => quillmark_core::types::OutputFormat::Svg,
+            OutputFormat::Png => quillmark_core::types::OutputFormat::Png,
         }
     }
 }
 
 #[cfg(feature = "render")]
-impl From<quillmark_core::OutputFormat> for OutputFormat {
-    fn from(format: quillmark_core::OutputFormat) -> Self {
+impl From<quillmark_core::types::OutputFormat> for OutputFormat {
+    fn from(format: quillmark_core::types::OutputFormat) -> Self {
         match format {
-            quillmark_core::OutputFormat::Pdf => OutputFormat::Pdf,
-            quillmark_core::OutputFormat::Svg => OutputFormat::Svg,
-            quillmark_core::OutputFormat::Png => OutputFormat::Png,
+            quillmark_core::types::OutputFormat::Pdf => OutputFormat::Pdf,
+            quillmark_core::types::OutputFormat::Svg => OutputFormat::Svg,
+            quillmark_core::types::OutputFormat::Png => OutputFormat::Png,
         }
     }
 }
@@ -47,11 +47,11 @@ pub enum Severity {
     Warning,
 }
 
-impl From<quillmark_core::Severity> for Severity {
-    fn from(severity: quillmark_core::Severity) -> Self {
+impl From<quillmark_core::error::Severity> for Severity {
+    fn from(severity: quillmark_core::error::Severity) -> Self {
         match severity {
-            quillmark_core::Severity::Warning => Severity::Warning,
-            quillmark_core::Severity::Error => Severity::Error,
+            quillmark_core::error::Severity::Warning => Severity::Warning,
+            quillmark_core::error::Severity::Error => Severity::Error,
         }
     }
 }
@@ -64,8 +64,8 @@ pub struct Location {
     pub column: usize,
 }
 
-impl From<quillmark_core::Location> for Location {
-    fn from(loc: quillmark_core::Location) -> Self {
+impl From<quillmark_core::error::Location> for Location {
+    fn from(loc: quillmark_core::error::Location) -> Self {
         Location {
             file: loc.file,
             line: loc.line as usize,
@@ -106,8 +106,8 @@ pub struct Diagnostic {
 // the ABI declares `hashmap_as_object`.
 const _: () = assert!(<Diagnostic as tsify::Tsify>::SERIALIZATION_CONFIG.hashmap_as_object);
 
-impl From<quillmark_core::Diagnostic> for Diagnostic {
-    fn from(diag: quillmark_core::Diagnostic) -> Self {
+impl From<quillmark_core::error::Diagnostic> for Diagnostic {
+    fn from(diag: quillmark_core::error::Diagnostic) -> Self {
         Diagnostic {
             severity: diag.severity.into(),
             code: diag.code,
@@ -135,15 +135,15 @@ pub struct Artifact {
 #[cfg(feature = "render")]
 impl Artifact {
     fn mime_type_for_format(format: OutputFormat) -> String {
-        quillmark_core::OutputFormat::from(format)
+        quillmark_core::types::OutputFormat::from(format)
             .mime_type()
             .to_string()
     }
 }
 
 #[cfg(feature = "render")]
-impl From<quillmark_core::Artifact> for Artifact {
-    fn from(artifact: quillmark_core::Artifact) -> Self {
+impl From<quillmark_core::types::Artifact> for Artifact {
+    fn from(artifact: quillmark_core::types::Artifact) -> Self {
         let format = artifact.output_format.into();
         Artifact {
             format,
@@ -202,8 +202,8 @@ pub struct FieldRegion {
 }
 
 #[cfg(feature = "render")]
-impl From<quillmark_core::RenderedRegion> for FieldRegion {
-    fn from(r: quillmark_core::RenderedRegion) -> Self {
+impl From<quillmark_core::region::RenderedRegion> for FieldRegion {
+    fn from(r: quillmark_core::region::RenderedRegion) -> Self {
         FieldRegion {
             field: r.field,
             page: r.page,
@@ -228,11 +228,11 @@ pub enum HitGranularity {
 }
 
 #[cfg(feature = "render")]
-impl From<quillmark_core::HitGranularity> for HitGranularity {
-    fn from(g: quillmark_core::HitGranularity) -> Self {
+impl From<quillmark_core::region::HitGranularity> for HitGranularity {
+    fn from(g: quillmark_core::region::HitGranularity) -> Self {
         match g {
-            quillmark_core::HitGranularity::Cluster => HitGranularity::Cluster,
-            quillmark_core::HitGranularity::Segment => HitGranularity::Segment,
+            quillmark_core::region::HitGranularity::Cluster => HitGranularity::Cluster,
+            quillmark_core::region::HitGranularity::Segment => HitGranularity::Segment,
         }
     }
 }
@@ -254,8 +254,8 @@ pub struct ContentHit {
 }
 
 #[cfg(feature = "render")]
-impl From<quillmark_core::ContentHit> for ContentHit {
-    fn from(h: quillmark_core::ContentHit) -> Self {
+impl From<quillmark_core::region::ContentHit> for ContentHit {
+    fn from(h: quillmark_core::region::ContentHit) -> Self {
         ContentHit {
             field: h.field,
             pos: h.pos,
@@ -298,7 +298,7 @@ impl Default for RenderOptions {
 }
 
 #[cfg(feature = "render")]
-impl From<RenderOptions> for quillmark_core::RenderOptions {
+impl From<RenderOptions> for quillmark_core::types::RenderOptions {
     fn from(opts: RenderOptions) -> Self {
         let mut core = Self::default();
         core.output_format = opts.format.map(|f| f.into());

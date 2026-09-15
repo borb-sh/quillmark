@@ -7,7 +7,7 @@ use indexmap::IndexMap;
 use proptest::prelude::*;
 
 use crate::quill::{CardSchema, CoercionError, FieldSchema, FieldType, QuillConfig};
-use crate::{Card, EditError, QuillValue};
+use crate::{document::{Card, EditError}, value::QuillValue};
 
 // Keep aligned with `validate_path_grammar` below, which checks against them.
 const ROOT_FIELD: &str = "f";

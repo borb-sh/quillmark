@@ -18,10 +18,12 @@ mod world;
 use std::collections::BTreeMap;
 
 use quillmark_core::{
-    quill::{build_transform_schema, BlockConstruct},
-    session::SessionHandle,
-    Backend, ChangeSet, ContentHit, Diagnostic, LiveSession, OutputFormat, Quill, RenderError,
-    RenderOptions, RenderResult, RenderedRegion, Severity,
+    backend::Backend,
+    error::{Diagnostic, RenderError, RenderResult, Severity},
+    quill::{build_transform_schema, BlockConstruct, Quill},
+    region::{ContentHit, RenderedRegion},
+    session::{ChangeSet, LiveSession, SessionHandle},
+    types::{OutputFormat, RenderOptions},
 };
 
 /// Typst backend implementation for Quillmark.
@@ -115,8 +117,8 @@ fn recompile(
 }
 
 /// The `$kind` of each card in `data`'s `$cards`, in document order:
-/// [`plate_addr_to_doc_path`](quillmark_core::plate_addr_to_doc_path) resolves a
-/// plate-space per-kind ordinal against it.
+/// [`plate_addr_to_doc_path`](quillmark_core::region::plate_addr_to_doc_path)
+/// resolves a plate-space per-kind ordinal against it.
 fn card_kinds(data: &serde_json::Value) -> Vec<Option<String>> {
     data.get("$cards")
         .and_then(|c| c.as_array())
@@ -146,8 +148,8 @@ fn declined_image_warnings(
     declined
         .iter()
         .filter_map(|(addr, count)| {
-            let path = quillmark_core::plate_addr_to_doc_path(addr, &kinds)?;
-            let diag = quillmark_core::declined_construct(
+            let path = quillmark_core::region::plate_addr_to_doc_path(addr, &kinds)?;
+            let diag = quillmark_core::backend::declined_construct(
                 TypstBackend.id(),
                 BlockConstruct::Image,
                 *count,
@@ -328,7 +330,7 @@ impl SessionHandle for TypstSession {
             return Ok(None);
         };
         let size = p.frame.size();
-        quillmark_core::check_raster(scale, size.x.to_pt() as f32, size.y.to_pt() as f32)?;
+        quillmark_core::backend::check_raster(scale, size.x.to_pt() as f32, size.y.to_pt() as f32)?;
         let pixmap = typst_render::render(p, &compile::render_options(scale));
         let width = pixmap.width();
         let height = pixmap.height();
@@ -343,7 +345,7 @@ impl SessionHandle for TypstSession {
         Ok(Some((width, height, rgba)))
     }
 
-    fn regions(&self) -> Vec<quillmark_core::RenderedRegion> {
+    fn regions(&self) -> Vec<quillmark_core::region::RenderedRegion> {
         let mut regions = self.live.widget_regions.clone();
         regions.extend(self.scan().regions());
         regions
@@ -663,7 +665,7 @@ impl SchemaMeta {
 mod tests {
     use super::*;
     use quillmark_core::quill::CONTENT_MEDIA_TYPE;
-    use quillmark_core::QuillValue;
+    use quillmark_core::value::QuillValue;
     use serde_json::json;
     use std::collections::HashMap;
 
@@ -678,7 +680,7 @@ mod tests {
     /// and so shifts every glyph's span without moving a pixel.
     #[test]
     fn page_hashes_ignore_span_shift_when_ink_is_identical() {
-        use quillmark_core::FileTreeNode;
+        use quillmark_core::quill::FileTreeNode;
 
         const PLATE: &str = r#"#import "@local/quillmark-helper:0.1.0": data
 #set page(width: 300pt, height: 200pt, margin: 20pt)
@@ -735,7 +737,7 @@ mod tests {
     /// so a future Typst that changes line-anchoring fails loud here.
     #[test]
     fn line_anchored_paragraph_text_stays_literal() {
-        use quillmark_core::FileTreeNode;
+        use quillmark_core::quill::FileTreeNode;
         use typst::foundations::{NativeElement, Selector};
         use typst::introspection::Introspector;
         use typst::model::{EnumElem, HeadingElem, ListElem, TermsElem};
@@ -818,7 +820,7 @@ mod tests {
 
     #[test]
     fn inline_field_in_par_emits_no_parbreak_warning() {
-        use quillmark_core::FileTreeNode;
+        use quillmark_core::quill::FileTreeNode;
 
         const PLATE: &str = r#"#import "@local/quillmark-helper:0.1.0": data
 #set page(width: 300pt, height: 200pt, margin: 20pt)

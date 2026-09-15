@@ -1,7 +1,7 @@
 //! The Typst backend resolves its own plate from `typst.plate_file`. Core reads
 //! no template at load time, so a missing plate fails at `open`, not at load.
 
-use quillmark_core::Backend;
+use quillmark_core::backend::Backend;
 use quillmark_typst::TypstBackend;
 
 mod common;

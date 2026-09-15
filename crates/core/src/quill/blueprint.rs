@@ -22,8 +22,8 @@ impl QuillConfig {
     /// over any valid `QuillConfig`.
     ///
     /// The "filled-out" twin of the blueprint is **seeding**
-    /// ([`Quill::seed_document`](crate::Quill::seed_document)), a committed
-    /// [`Document`] rather than an annotated string. See
+    /// ([`Quill::seed_document`](crate::quill::Quill::seed_document)), a
+    /// committed [`Document`] rather than an annotated string. See
     /// `prose/canon/BLUEPRINT.md`.
     ///
     /// The result is guaranteed schema-valid and parseable (every key
@@ -31,7 +31,7 @@ impl QuillConfig {
     /// that is the quill authoring contract on `plate.typ`; see
     /// `prose/canon/BLUEPRINT.md` §Guarantees.
     ///
-    /// [`Document`]: crate::Document
+    /// [`Document`]: crate::document::Document
     pub fn blueprint(&self) -> String {
         let main_desc = collapse_opt(self.main.description.as_deref())
             .or_else(|| collapse_opt(Some(self.description.as_str())));
@@ -530,7 +530,7 @@ fn eg_hint(example: &QuillValue) -> String {
 #[cfg(test)]
 mod tests {
     use crate::quill::QuillConfig;
-    use crate::Document;
+    use crate::document::Document;
 
     fn cfg(yaml: &str) -> QuillConfig {
         QuillConfig::from_yaml(yaml).expect("valid yaml")

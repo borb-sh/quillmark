@@ -1,5 +1,5 @@
 use pyo3::prelude::*;
-use quillmark_core::{OutputFormat, Severity};
+use quillmark_core::{error::Severity, types::OutputFormat};
 
 macro_rules! py_enum {
     (

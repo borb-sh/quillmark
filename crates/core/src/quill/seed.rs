@@ -9,7 +9,11 @@ use quillmark_content::model::Normalized;
 use super::Quill;
 use crate::quill::{CardSchema, FieldType, VARIANT_DISCRIMINANT_KEY};
 use crate::document::PayloadItem;
-use crate::{Card, Document, Payload, QuillReference, QuillValue, SeedOverlay};
+use crate::{
+    document::{Card, Document, Payload, SeedOverlay},
+    value::QuillValue,
+    version::QuillReference,
+};
 
 /// Build the seeded `(payload, body)` for one card schema, layering an optional
 /// [`SeedOverlay`] over the schema-example base. Per field the precedence is

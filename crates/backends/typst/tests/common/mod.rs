@@ -5,7 +5,7 @@
 // Each integration test binary compiles this module and uses part of it.
 #![allow(dead_code)]
 
-use quillmark_core::{FileTreeNode, Quill};
+use quillmark_core::quill::{FileTreeNode, Quill};
 use std::collections::HashMap;
 
 /// No fonts dir is needed (the backend's embedded Figtree faces render text)

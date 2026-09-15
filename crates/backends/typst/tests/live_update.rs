@@ -2,7 +2,7 @@
 //! reports the dirty page set. Commit is transactional: a failed recompile
 //! leaves every read serving the last-good compile.
 
-use quillmark_core::{Backend, OutputFormat, Quill, RenderOptions};
+use quillmark_core::{backend::Backend, quill::Quill, types::{OutputFormat, RenderOptions}};
 use quillmark_typst::TypstBackend;
 use serde_json::json;
 

@@ -1,6 +1,9 @@
 use crate::quill::QuillConfig;
 use crate::{
-    ContentHit, Diagnostic, Document, RenderError, RenderOptions, RenderResult, RenderedRegion,
+    document::Document,
+    error::{Diagnostic, RenderError, RenderResult},
+    region::{ContentHit, RenderedRegion},
+    types::RenderOptions,
 };
 pub use quillmark_content::delta::{Assoc, Delta, Op};
 pub use quillmark_content::ops::{ApplyError, ChangeBundle, IslandOp, LineOp, MarkOp};
@@ -66,7 +69,8 @@ pub trait SessionHandle: Send + Sync + 'static {
     /// compositing input.
     ///
     /// A scale the page cannot be rasterized at is the `Err`: run it through
-    /// [`check_raster`](crate::check_raster), which every raster path shares.
+    /// [`check_raster`](crate::backend::check_raster), which every raster path
+    /// shares.
     fn render_rgba(
         &self,
         page: usize,
@@ -157,7 +161,7 @@ pub trait SessionHandle: Send + Sync + 'static {
 /// [`update`](Self::update).
 pub struct LiveSession {
     inner: Box<dyn SessionHandle>,
-    /// Held as the config rather than the whole [`Quill`](crate::Quill)
+    /// Held as the config rather than the whole [`Quill`](crate::quill::Quill)
     /// because the compile is a pure config read; the font and package bytes
     /// stay with the backend that needed them.
     config: QuillConfig,
@@ -168,8 +172,8 @@ pub struct LiveSession {
 
 impl LiveSession {
     /// Born bound: a session cannot exist without the schema it renders. The
-    /// backend has the [`Quill`](crate::Quill) in hand inside
-    /// [`Backend::open`](crate::Backend::open), so binding costs it a
+    /// backend has the [`Quill`](crate::quill::Quill) in hand inside
+    /// [`Backend::open`](crate::backend::Backend::open), so binding costs it a
     /// `source.config().clone()` and buys [`update`](Self::update) a document
     /// verb whose plate is always compiled by *this* config: the pairing is
     /// structural, not an obligation on the caller.
@@ -198,8 +202,8 @@ impl LiveSession {
     ///
     /// `scale` is device pixels per point, and must be finite, positive, and
     /// small enough to keep the page under
-    /// [`MAX_RASTER_PIXELS`](crate::MAX_RASTER_PIXELS); anything else is a
-    /// `backend::invalid_raster_scale` refusal.
+    /// [`MAX_RASTER_PIXELS`](crate::backend::MAX_RASTER_PIXELS); anything else
+    /// is a `backend::invalid_raster_scale` refusal.
     pub fn render_rgba(
         &self,
         page: usize,
@@ -233,7 +237,7 @@ impl LiveSession {
     /// placed solely as a scalar reference or a bound widget yields nothing
     /// here, its box being a single [`regions`](Self::regions) rect.
     pub fn field_boxes(&self, field: &str) -> Vec<RenderedRegion> {
-        crate::field_boxes(self.cached_regions(), field)
+        crate::region::field_boxes(self.cached_regions(), field)
     }
 
     /// The schema field whose content is under a point on `page`, or within
@@ -317,7 +321,7 @@ impl LiveSession {
 mod tests {
     use super::*;
     use crate::version::QuillReference;
-    use crate::Severity;
+    use crate::error::Severity;
     use std::str::FromStr;
 
     const QUILL_YAML: &str = "\
@@ -354,7 +358,7 @@ main:
         let Some((w, h)) = letter_page(page, pages) else {
             return Ok(None);
         };
-        crate::check_raster(scale, w, h)?;
+        crate::backend::check_raster(scale, w, h)?;
         let (pw, ph) = ((w * scale) as u32, (h * scale) as u32);
         Ok(Some((pw, ph, vec![255; (pw as usize) * (ph as usize) * 4])))
     }
@@ -366,7 +370,7 @@ main:
     }
     impl SessionHandle for WarningHandle {
         fn render(&self, _: &RenderOptions) -> Result<RenderResult, RenderError> {
-            Ok(RenderResult::new(Vec::new(), crate::OutputFormat::Pdf))
+            Ok(RenderResult::new(Vec::new(), crate::types::OutputFormat::Pdf))
         }
         fn page_count(&self) -> usize {
             1
@@ -436,7 +440,7 @@ main:
             Some(ContentHit {
                 field: "subject".to_string(),
                 pos: 2,
-                granularity: Some(crate::HitGranularity::Cluster),
+                granularity: Some(crate::region::HitGranularity::Cluster),
             })
         }
         fn locate(&self, field: &str, pos: usize) -> Option<RenderedRegion> {

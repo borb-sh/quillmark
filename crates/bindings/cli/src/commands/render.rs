@@ -3,7 +3,7 @@ use crate::errors::{CliError, Result};
 use crate::output::{derive_output_path, page_output_path, write_file, write_stdout};
 use clap::Parser;
 use quillmark::Quillmark;
-use quillmark_core::{OutputFormat, RenderOptions};
+use quillmark_core::types::{OutputFormat, RenderOptions};
 use std::fs;
 use std::path::PathBuf;
 

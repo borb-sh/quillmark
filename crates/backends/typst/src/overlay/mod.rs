@@ -2,7 +2,7 @@
 //! shared `quillmark-pdf` stamping spine. Typst→PDF coordinate ownership lives
 //! here so the spine never imports `typst_layout`.
 
-use quillmark_core::RenderError;
+use quillmark_core::error::RenderError;
 use quillmark_pdf::{FieldSpec, FieldType, FormFont, TextAlign};
 use typst_layout::PagedDocument;
 

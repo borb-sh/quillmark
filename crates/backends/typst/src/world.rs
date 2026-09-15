@@ -11,7 +11,7 @@ use typst::utils::LazyHash;
 use typst::{Library, World};
 
 use crate::helper;
-use quillmark_core::{Diagnostic, Quill, Severity};
+use quillmark_core::{error::{Diagnostic, Severity}, quill::Quill};
 
 /// One `(plate address, count)` per content field holding image islands, which
 /// this backend draws nothing for.
@@ -552,8 +552,8 @@ name = "minimal-package"
     }
 
     /// `extra` files are inserted under their `/`-joined tree paths.
-    fn quill_with(extra: &[(&str, &str)]) -> quillmark_core::Quill {
-        use quillmark_core::{FileTreeNode, Quill};
+    fn quill_with(extra: &[(&str, &str)]) -> quillmark_core::quill::Quill {
+        use quillmark_core::quill::{FileTreeNode, Quill};
         let mut root = FileTreeNode::Directory {
             files: HashMap::new(),
         };
@@ -605,7 +605,7 @@ name = "minimal-package"
             "expected a package-manifest warning, got {codes:?}"
         );
         let warning = &world.load_warnings()[0];
-        assert_eq!(warning.severity, quillmark_core::Severity::Warning);
+        assert_eq!(warning.severity, quillmark_core::error::Severity::Warning);
         assert!(
             warning.message.contains("brokenpkg"),
             "warning must name the package: {}",

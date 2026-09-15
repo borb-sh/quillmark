@@ -1,4 +1,4 @@
-use quillmark_core::RenderError;
+use quillmark_core::error::RenderError;
 
 /// [`print_cli_error`] renders full diagnostics for the render and parse
 /// variants, a plain line for `Io` and `InvalidArgument`, and nothing for
@@ -7,7 +7,7 @@ use quillmark_core::RenderError;
 pub enum CliError {
     Io(std::io::Error),
     Render(RenderError),
-    Parse(quillmark_core::ParseError),
+    Parse(quillmark_core::error::ParseError),
     InvalidArgument(String),
     Reported,
 }
@@ -24,15 +24,15 @@ impl From<RenderError> for CliError {
     }
 }
 
-impl From<quillmark_core::ParseError> for CliError {
-    fn from(err: quillmark_core::ParseError) -> Self {
+impl From<quillmark_core::error::ParseError> for CliError {
+    fn from(err: quillmark_core::error::ParseError) -> Self {
         CliError::Parse(err)
     }
 }
 
-impl From<quillmark_core::BoundParseError> for CliError {
-    fn from(err: quillmark_core::BoundParseError) -> Self {
-        use quillmark_core::BoundParseError as E;
+impl From<quillmark_core::quill::BoundParseError> for CliError {
+    fn from(err: quillmark_core::quill::BoundParseError) -> Self {
+        use quillmark_core::quill::BoundParseError as E;
         match err {
             E::Parse(e) => CliError::Parse(e),
             E::Mismatch(e) => CliError::Render(e),
@@ -62,7 +62,7 @@ pub fn print_cli_error(err: &CliError) {
     }
 }
 
-pub fn print_warnings(warnings: &[quillmark_core::Diagnostic]) {
+pub fn print_warnings(warnings: &[quillmark_core::error::Diagnostic]) {
     if warnings.is_empty() {
         return;
     }

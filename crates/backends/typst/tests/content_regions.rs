@@ -2,7 +2,7 @@
 //! reference sites, the `form-field` `field:` binding — and the forward
 //! `field_at`/`position_at`/`locate` navigation over them.
 
-use quillmark_core::Backend;
+use quillmark_core::backend::Backend;
 use quillmark_typst::TypstBackend;
 
 mod common;
@@ -957,7 +957,7 @@ main:
     );
     assert_eq!(
         hit.granularity,
-        Some(quillmark_core::HitGranularity::Cluster),
+        Some(quillmark_core::region::HitGranularity::Cluster),
         "a prose hit is cluster-exact: {hit:?}"
     );
 
@@ -1099,10 +1099,10 @@ main:
     );
     assert_eq!(
         top.granularity,
-        Some(quillmark_core::HitGranularity::Segment),
+        Some(quillmark_core::region::HitGranularity::Segment),
         "a multi-line fence hit floors to the segment: {top:?}"
     );
-    assert_eq!(bottom.granularity, Some(quillmark_core::HitGranularity::Segment));
+    assert_eq!(bottom.granularity, Some(quillmark_core::region::HitGranularity::Segment));
     let prose_hit = session
         .position_at(prose.page, prose.rect[0] + 5.0, prose.rect[3] - 3.0, 0.0)
         .expect("a click in the prose paragraph resolves");

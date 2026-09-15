@@ -10,7 +10,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::OutputFormat;
+use crate::types::OutputFormat;
 
 /// Build a [`Diagnostic::args`] map. Values pass through `serde_json`, so a
 /// list arrives as a list and a count as a number.
@@ -508,17 +508,17 @@ impl From<ParseError> for RenderError {
 
 #[derive(Debug)]
 pub struct RenderResult {
-    pub artifacts: Vec<crate::Artifact>,
+    pub artifacts: Vec<crate::types::Artifact>,
     pub warnings: Vec<Diagnostic>,
     pub output_format: OutputFormat,
     /// Schema-field geometry, populated only when
-    /// [`RenderOptions::regions`](crate::RenderOptions) is set. Page indices
-    /// are document-space even under a `pages` subset render.
-    pub regions: Vec<crate::RenderedRegion>,
+    /// [`RenderOptions::regions`](crate::types::RenderOptions) is set. Page
+    /// indices are document-space even under a `pages` subset render.
+    pub regions: Vec<crate::region::RenderedRegion>,
 }
 
 impl RenderResult {
-    pub fn new(artifacts: Vec<crate::Artifact>, output_format: OutputFormat) -> Self {
+    pub fn new(artifacts: Vec<crate::types::Artifact>, output_format: OutputFormat) -> Self {
         Self {
             artifacts,
             warnings: Vec::new(),
@@ -700,7 +700,7 @@ mod args_canon {
                 message: "x".into(),
             },
         ] {
-            let diag = crate::quill::conform::conform_diagnostic(&e, &crate::DocPath::main());
+            let diag = crate::quill::conform::conform_diagnostic(&e, &crate::path::DocPath::main());
             add(
                 diag.code.as_deref().expect("conform diagnostics carry a code"),
                 diag.args,
@@ -760,18 +760,19 @@ card_kinds:
       label: { type: string }
 "#,
         );
-        let seed_diags: Vec<crate::Diagnostic> = ["  ghost: {}\n  sig: nope\n", "  sig:\n    nope: 1\n"]
-            .iter()
-            .flat_map(|overlay| {
-                let markdown = format!(
-                    "~~~\n$quill: seed_probe@0.1.0\n$kind: main\n$seed:\n{overlay}~~~\n"
-                );
-                let doc = crate::document::Document::parse(&markdown)
-                    .expect("seed probe parses")
-                    .document;
-                seed_quill.validate(&doc)
-            })
-            .collect();
+        let seed_diags: Vec<crate::error::Diagnostic> =
+            ["  ghost: {}\n  sig: nope\n", "  sig:\n    nope: 1\n"]
+                .iter()
+                .flat_map(|overlay| {
+                    let markdown = format!(
+                        "~~~\n$quill: seed_probe@0.1.0\n$kind: main\n$seed:\n{overlay}~~~\n"
+                    );
+                    let doc = crate::document::Document::parse(&markdown)
+                        .expect("seed probe parses")
+                        .document;
+                    seed_quill.validate(&doc)
+                })
+                .collect();
         for code in [
             "validation::seed_unknown_kind",
             "validation::seed_overlay_shape",

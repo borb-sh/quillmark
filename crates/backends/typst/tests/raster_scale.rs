@@ -1,7 +1,12 @@
 //! A raster the backend cannot allocate is refused before it is asked for:
 //! `typst_render` takes the pixel dimensions unchecked and unwraps the buffer.
 
-use quillmark_core::{Backend, LiveSession, OutputFormat, RenderError, RenderOptions};
+use quillmark_core::{
+    backend::Backend,
+    error::RenderError,
+    session::LiveSession,
+    types::{OutputFormat, RenderOptions},
+};
 use quillmark_typst::TypstBackend;
 
 mod common;

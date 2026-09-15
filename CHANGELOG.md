@@ -14,6 +14,21 @@
   total over every loaded quill. The count is per card and over declared fields
   alone: a nested `properties` map, an array's `items` and a `variants:` cell set
   ride inside the one field declaring them. Closes #1792.
+- refactor(core,quillmark)!: **every `quillmark-core` item is named at the module
+  that defines it.** The crate declared its thirteen modules `pub` and
+  re-exported 77 of their items at the root, so `quillmark_core::Document` and
+  `quillmark_core::document::Document` both resolved and first-party callers used
+  both; neither spelling was the one a reader could rely on seeing. The root
+  re-exports go and the modules stay public, which leaves Rust's own rule as the
+  whole of it: an item is reachable where it is defined. `Content` and
+  `Normalized` keep their root spelling, the root being the only path core offers
+  those two `quillmark-content` types. `quillmark::orchestration` goes the same
+  way, leaving `Quillmark` named once at the facade root. Every removed path is
+  an unresolved import, so the compiler names each of the 328 call sites; the
+  `quillmark` facade re-exports the same list from the module-qualified core
+  paths, so a consumer on the facade has nothing to do and no binding surface
+  moves. `quillmark-pdf` already carried the one-path shape and needed no change.
+  Closes #1791.
 - feat(core,quillmark): **`Normalized` and `ImportError` are nameable from core
   and the facade.** `quillmark_content::model::Normalized` is what `Card::body`
   returns, what `overwrite_body` / `overwrite_field` take on `Card` and
