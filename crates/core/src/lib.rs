@@ -23,8 +23,8 @@
 
 pub mod document;
 pub use document::{
-    Card, CardMut, CardWire, Document, EditError, Parsed, Payload, PayloadItem, PayloadItemWire,
-    SeedOverlay, WireError,
+    Card, CardMut, CardWire, Document, EditError, ImportError, Parsed, Payload, PayloadItem,
+    PayloadItemWire, SeedOverlay, WireError,
 };
 
 pub mod writer;
@@ -58,8 +58,9 @@ pub use session::{
     ApplyError, Assoc, ChangeBundle, ChangeSet, Delta, IslandOp, LineOp, LiveSession, MarkOp, Op,
 };
 
-/// The canonical content model, the pre-built value the document mutators accept.
-pub use quillmark_content::model::Content;
+/// The canonical content model, the pre-built value the document mutators
+/// accept, and the canonical-form token every content read answers in.
+pub use quillmark_content::model::{Content, Normalized};
 
 pub mod quill;
 pub use quill::{
