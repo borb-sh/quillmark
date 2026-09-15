@@ -258,7 +258,22 @@ fn close_container(key: &Container, inner: &str, out: &mut String) {
                 "+ ".to_string()
             };
             let indent = " ".repeat(marker.len());
-            prefix_lines(inner, &marker, &indent, out);
+            // A marker run that spells a thematic break outranks the items
+            // spelling it: three nested empty bullets emit `- - - `, which
+            // re-imports as a `Rule` with the nesting gone. Changing a marker
+            // char is not the way out — a different bullet char starts a new
+            // list, resetting `ordinal` on this item and every one after it, and
+            // the empty item can have non-empty siblings. Moving the content to
+            // the next line costs no marker and no list identity, and the check
+            // runs per level, so a run of any depth breaks into pieces of two.
+            let head = inner.split('\n').next().unwrap_or("");
+            if is_thematic_break(&format!("{marker}{head}")) {
+                out.push_str(marker.trim_end());
+                out.push('\n');
+                prefix_lines(inner, &indent, &indent, out);
+            } else {
+                prefix_lines(inner, &marker, &indent, out);
+            }
         }
         Container::Quote { .. } => {
             // `> ` on content lines, `>` on blank lines so paragraphs stay in
@@ -266,6 +281,27 @@ fn close_container(key: &Container, inner: &str, out: &mut String) {
             prefix_quote(inner, out);
         }
     }
+}
+
+/// CommonMark's thematic break: three or more of one of `-`, `_`, `*`, spaces
+/// and tabs between them and nowhere else, under at most three of indent.
+fn is_thematic_break(line: &str) -> bool {
+    let rest = line.trim_start_matches(' ');
+    if line.len() - rest.len() > 3 {
+        return false;
+    }
+    let Some(c) = rest.chars().next().filter(|c| matches!(c, '-' | '_' | '*')) else {
+        return false;
+    };
+    let mut n = 0;
+    for ch in rest.chars() {
+        if ch == c {
+            n += 1;
+        } else if ch != ' ' && ch != '\t' {
+            return false;
+        }
+    }
+    n >= 3
 }
 
 /// Prefix the first produced line with `first`, the rest with `cont`.
@@ -1428,6 +1464,19 @@ mod tests {
         round_trips("1. ---");
         round_trips("- one\n\n  ---");
         round_trips("- a\n- ***\n- c");
+    }
+
+    /// The other half of that collision: not a rule *inside* an item but the
+    /// markers themselves. Three nested empty bullets spell `- - - `, a break
+    /// that outranks the items spelling it, and the nesting is gone after one
+    /// pass. The content moves off the marker line rather than changing a
+    /// marker char — the last case is why, since the empty item shares its list
+    /// with `a` and a bullet char change would take `a` into a new list.
+    #[test]
+    fn a_marker_run_that_spells_a_rule_breaks_its_line() {
+        for md in ["+ + +", "+ + + + +", "> + + +", "+ + +\n    + a", "+ + + a"] {
+            round_trips(md);
+        }
     }
 
     #[test]

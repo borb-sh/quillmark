@@ -163,11 +163,13 @@ fn document() -> impl Strategy<Value = String> {
 /// CommonMark's flanking rules sort apart — `¡` and `—` punctuation, `±` a
 /// symbol, `౸` a *number* rather than punctuation, `a`, `0` and space neither —
 /// so which delimiters match turns on the class beside them. `*¡*x` is four
-/// literal chars where `*౸*x` is emphasis.
+/// literal chars where `*౸*x` is emphasis. `+` rides along because it is the
+/// bullet marker too, so a draw reaches the nested lists whose own markers can
+/// spell a thematic break.
 fn delimiter_run() -> impl Strategy<Value = String> {
     prop::collection::vec(
         prop::sample::select(vec![
-            "*", "**", "_", "__", "~~", "¡", "—", "±", "౸", "a", "0", " ",
+            "*", "**", "_", "__", "~~", "+", "¡", "—", "±", "౸", "a", "0", " ",
         ]),
         1..12,
     )

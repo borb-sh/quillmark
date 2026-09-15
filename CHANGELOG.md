@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- fix(content): **a marker run that spells a thematic break breaks its line.**
+  Three nested empty bullet items emitted `- - - `, which CommonMark reads as a
+  thematic break rather than as three items, so the nesting was gone after one
+  pass; `> + + +` and any deeper run went the same way. Changing a bullet char is
+  the obvious way out and is not available — a different char starts a new list,
+  resetting `ordinal` on that item and every one after it, and the empty item can
+  share its list with a non-empty sibling. The item's content moves to the next
+  line instead (`-\n  - - `), which no marker char and no list identity depends
+  on. The check runs per level, so a run of any depth breaks into pieces of at
+  most two, and a line that never spelled a break emits the same bytes as before.
+  `delimiter_run()` takes `+` back, the token it was denied to keep this defect
+  from making that property flap. Closes #1809.
 - fix(content): **the projection's safety net verifies the marks a rendering
   carries, not only its text.** `to_markdown` took the first spelling whose
   emission re-imported with the text intact, and an ambiguous `***` run costs the
