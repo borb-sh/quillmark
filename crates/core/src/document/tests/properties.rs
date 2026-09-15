@@ -116,9 +116,10 @@ proptest! {
 
     /// A body of arbitrary text under a well-formed root block: `Document::parse`
     /// refuses anything without a `$quill` root, so the block is spelled and the
-    /// body is what is drawn.
+    /// body is what is drawn. U+FFFC is excluded, the island slot being dropped
+    /// by both import codecs.
     #[test]
-    fn the_markdown_loop_settles_on_an_arbitrary_body(body in "\\PC{0,1000}") {
+    fn the_markdown_loop_settles_on_an_arbitrary_body(body in "[\\PC--\u{FFFC}]{0,1000}") {
         let Some(doc) = parse_or_skip(&format!("~~~card-yaml\n$quill: q\n~~~\n\n{body}")) else {
             return Ok(());
         };
