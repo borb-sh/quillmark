@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- fix(content): **the projection's safety net verifies the marks a rendering
+  carries, not only its text.** `to_markdown` took the first spelling whose
+  emission re-imported with the text intact, and an ambiguous `***` run costs the
+  text in one shape and only the marks in another: `**a±**_b_**c**` lowered to
+  `**a±***b***c**`, which CommonMark re-segments into one `Strong` over all three
+  spans. Every character came back, so the net passed it — and bold moved onto
+  the `±b` the source did not bold, two spans became one, and the second emission
+  differed from the first. That last part is
+  `the_markdown_loop_settles_on_an_arbitrary_body` going red on main. The probe
+  now compares the re-imported marks against the ones the sweep was asked to
+  carry, and the whole search is keyed on that one predicate — the four spellings
+  first, then the drop-by-halves — so a rendering is taken only where it
+  re-imports as the content it rendered. Text is still the floor the search
+  cannot go below, `**`/`*` is still swept first, and a line that already
+  round-tripped emits the same bytes. Over 20M generated delimiter runs the
+  emissions needing a second pass to settle fall from 17 to 0, and the marks
+  that come back over text they did not cover fall with them, 17 to 0. Closes
+  #1807.
 - fix(content): **a mark whose delimiters collide with its neighbour's is
   re-spelled, not dropped.** `to_markdown` spelled `Strong` `**` and `Emph` `*`
   and nothing else, so a `Strong` ending in a literal `*` against an `Emph`
