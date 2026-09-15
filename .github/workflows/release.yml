@@ -48,12 +48,16 @@ jobs:
       # the only verdict on the bytes tagged below. A job green on the head can
       # redden on the merge result.
       #
-      # Any CI run at this commit counts, a dispatched one included: ci.yml's
-      # concurrency group is per-ref and cancels in progress, so the next merge
-      # to main can cancel this commit's run, and dispatching ci.yml at main
-      # before re-running this job is the way through. Missing, unfinished at the
-      # deadline, or concluded anything but success each stop the release, since
-      # a gate that passes when it cannot find a conclusion is not a gate.
+      # Any CI run at this commit counts, however it started, because the gate is
+      # keyed on the SHA and nothing else. When the run that should answer is
+      # missing or unusable, re-run *that run* — `gh run rerun <id>`, or "Re-run
+      # all jobs" — which starts a new attempt on the same run and so keeps its
+      # `head_sha`; this gate reads the attempt's conclusion on its next poll.
+      # Dispatching ci.yml is not the way through: `workflow_dispatch` takes a
+      # ref, and a ref that still pointed at this commit would have had no reason
+      # to lose its run. Missing, unfinished at the deadline, or concluded
+      # anything but success each stop the release, since a gate that passes when
+      # it cannot find a conclusion is not a gate.
       - name: CI is green on the release commit
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

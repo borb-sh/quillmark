@@ -13,9 +13,15 @@ on:
 permissions:
   contents: read
 
+# Per ref, so a push supersedes its own branch's earlier run and no other.
+# `cancel-in-progress` everywhere but main: release.yml gates the tag on a
+# successful CI run at the merge commit, and a merge to main cancels the
+# *previous* merge's run, which leaves that commit with a `cancelled` conclusion
+# and no ref left pointing at it to re-dispatch from. Superseding a main run
+# saves one runner and can cost a release, so main runs are left to finish.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 env:
   CARGO_TERM_COLOR: always
