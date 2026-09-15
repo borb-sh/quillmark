@@ -20,6 +20,12 @@
   emissions needing a second pass to settle fall from 17 to 0, and the marks
   that come back over text they did not cover fall with them, 17 to 0. Closes
   #1807.
+- test(content): **the literal codec's stray-slot drop is stated.**
+  `from_plaintext` filters `ISLAND_SLOT` out of its input and nothing failed if
+  the filter went: `into_normalized` normalizes but does not validate, and the
+  mint does not repair a stray slot, so the codec would have handed out a
+  `Normalized` that `validate` refuses. The markdown door's half of the contract
+  landed with #1812; this is the other one. Closes #1810.
 - fix(content): **a mark whose delimiters collide with its neighbour's is
   re-spelled, not dropped.** `to_markdown` spelled `Strong` `**` and `Emph` `*`
   and nothing else, so a `Strong` ending in a literal `*` against an `Emph`
