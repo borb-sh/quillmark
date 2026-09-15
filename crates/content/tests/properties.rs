@@ -159,6 +159,21 @@ fn document() -> impl Strategy<Value = String> {
     prop::collection::vec(block(), 1..6).prop_map(|blocks| blocks.join("\n\n"))
 }
 
+/// Emphasis delimiters run together with one char from each Unicode class
+/// CommonMark's flanking rules sort apart — `¡` and `—` punctuation, `±` a
+/// symbol, `౸` a *number* rather than punctuation, `a`, `0` and space neither —
+/// so which delimiters match turns on the class beside them. `*¡*x` is four
+/// literal chars where `*౸*x` is emphasis.
+fn delimiter_run() -> impl Strategy<Value = String> {
+    prop::collection::vec(
+        prop::sample::select(vec![
+            "*", "**", "_", "__", "~~", "¡", "—", "±", "౸", "a", "0", " ",
+        ]),
+        1..12,
+    )
+    .prop_map(|toks| toks.concat())
+}
+
 fn ov_kind(i: u8) -> MarkKind {
     match i % 4 {
         0 => MarkKind::Strong,
@@ -332,6 +347,25 @@ proptest! {
             rt.text, md, rt2.text);
         prop_assert_eq!(&from_markdown(&to_markdown(&rt2)).unwrap().text, &rt.text,
             "text drifted on the second cycle: {:?}", md);
+    }
+
+    /// The marks here are the *parser's* own matches, so a run reaches the
+    /// nestings (`*¡*0*౸*0` is emphasis inside emphasis) and `***`
+    /// re-segmentations the editor ops above cannot mint. Same-kind marks
+    /// union, so a nested pair collapses to one span and the emission spells
+    /// fewer delimiters than the source did: markdown source moves under the
+    /// projection. The text under it does not, and one pass in the content is
+    /// its own fixed point.
+    #[test]
+    fn a_delimiter_run_keeps_its_text(src in delimiter_run()) {
+        let once = from_markdown(&src).unwrap();
+        let md = to_markdown(&once);
+        let twice = from_markdown(&md).unwrap();
+        prop_assert_eq!(&twice.text, &once.text,
+            "text drifted.\n in:  {:?}\n md:  {:?}\n out: {:?}", src, md, twice.text);
+
+        let settled = from_markdown(&to_markdown(&twice)).unwrap();
+        prop_assert_eq!(&twice, &settled, "content not a fixed point: {:?}", md);
     }
 
     /// Image alt and image/link URLs carry the markup- and
