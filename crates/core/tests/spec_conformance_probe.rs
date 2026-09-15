@@ -1,7 +1,7 @@
 //! Spec requirements from `prose/references/markdown-spec.md` that have no
 //! owner among the `document/tests/` unit modules.
 
-use quillmark_core::{Document, ParseError};
+use quillmark_core::{document::Document, error::ParseError};
 
 #[test]
 fn parse_strips_a_bidi_control_from_a_card_body() {

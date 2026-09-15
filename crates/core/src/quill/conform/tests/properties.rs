@@ -10,7 +10,7 @@
 
 use proptest::prelude::*;
 
-use crate::{Document, Quill, QuillValue};
+use crate::{document::Document, quill::Quill, value::QuillValue};
 
 const QUILL_YAML: &str = r#"
 quill:

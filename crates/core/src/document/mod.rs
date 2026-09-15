@@ -11,7 +11,7 @@ use quillmark_content::model::Normalized;
 
 use crate::error::ParseError;
 use crate::version::QuillReference;
-use crate::Diagnostic;
+use crate::error::Diagnostic;
 
 pub(crate) fn import_body(md: &str) -> Result<Normalized, ImportError> {
     if md.is_empty() {
@@ -219,8 +219,8 @@ mod tests;
 
 /// The record of one load: the [`Document`] and any non-fatal warnings.
 /// Returned by both [`Document::parse`] and the bound
-/// [`Quill::parse`](crate::Quill::parse), whose `warnings` also carry the
-/// `conform::*` ones. Warnings live here and only here: `Document` is the
+/// [`Quill::parse`](crate::quill::Quill::parse), whose `warnings` also carry
+/// the `conform::*` ones. Warnings live here and only here: `Document` is the
 /// value, `Parsed` the load event.
 #[derive(Debug)]
 #[must_use = "carries parse warnings; read `.document`/`.warnings` or bind it"]
@@ -299,7 +299,7 @@ impl Card {
     ///
     /// A `Document` carries no schema, so the caller names the codec the field is
     /// declared at; the schema-bound door is
-    /// [`TypedReader::get_content`](crate::TypedReader::get_content).
+    /// [`TypedReader::get_content`](crate::reader::TypedReader::get_content).
     pub(crate) fn field_content(
         &self,
         name: &str,
@@ -319,13 +319,13 @@ impl Card {
     }
 }
 
-/// A parsed, per-kind **seed overlay**: the sparse fields (and optional body)
-/// a newly-added card of a given kind starts with. Built from a `$seed[<kind>]`
+/// A parsed, per-kind **seed overlay**: the sparse fields (and optional body) a
+/// newly-added card of a given kind starts with. Built from a `$seed[<kind>]`
 /// entry of the main card's [`Card::seed`] map via [`SeedOverlay::from_json`],
 /// and layered over the quill's schema-example seed by
-/// [`crate::Quill::seed_card`] (overlay › example › absent). The reserved inner
-/// key `$body` carries the body override; every other user field becomes an
-/// entry, while any other `$`-prefixed key is reserved and dropped.
+/// [`crate::quill::Quill::seed_card`] (overlay › example › absent). The
+/// reserved inner key `$body` carries the body override; every other user field
+/// becomes an entry, while any other `$`-prefixed key is reserved and dropped.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SeedOverlay {
     /// Field-value overrides, keyed by field name.

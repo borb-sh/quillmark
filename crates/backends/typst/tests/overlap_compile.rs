@@ -5,7 +5,7 @@
 //! whole generated helper file's parse.
 
 use quillmark_content::model::{Content, Line, LineKind, MarkKind};
-use quillmark_core::Backend;
+use quillmark_core::backend::Backend;
 use quillmark_typst::TypstBackend;
 
 mod common;

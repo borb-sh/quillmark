@@ -1,7 +1,7 @@
 //! `RenderOptions::pages` is backend-neutral: this backend answers it under the
 //! same `backend::*` codes the PDF-form backend does.
 
-use quillmark_core::{Backend, LiveSession, OutputFormat, RenderOptions};
+use quillmark_core::{backend::Backend, session::LiveSession, types::{OutputFormat, RenderOptions}};
 use quillmark_typst::TypstBackend;
 use serde_json::json;
 

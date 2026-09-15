@@ -35,10 +35,10 @@ impl PyQuillmark {
     /// this engine. The default `output_format` falls back to the backend's
     /// first supported format. `ppi` (raster formats only, default 144) must be
     /// finite, above 0, and small enough to keep every rendered page under
-    /// [`MAX_RASTER_PIXELS`](quillmark_core::MAX_RASTER_PIXELS). Raises
-    /// `QuillmarkError` (`engine::backend_not_found`) when the backend is not
-    /// registered, or `backend::invalid_raster_scale` for a `ppi` outside that
-    /// range.
+    /// [`MAX_RASTER_PIXELS`](quillmark_core::backend::MAX_RASTER_PIXELS).
+    /// Raises `QuillmarkError` (`engine::backend_not_found`) when the backend
+    /// is not registered, or `backend::invalid_raster_scale` for a `ppi`
+    /// outside that range.
     ///
     /// `pages` selects 0-based page indices counting from the first page; a
     /// negative one selects no page and raises like an index past the last.
@@ -52,7 +52,7 @@ impl PyQuillmark {
         pages: Option<Vec<isize>>,
         regions: bool,
     ) -> PyResult<PyRenderResult> {
-        let mut opts = quillmark_core::RenderOptions::default();
+        let mut opts = quillmark_core::types::RenderOptions::default();
         opts.output_format = format.map(OutputFormat::from);
         opts.ppi = ppi;
         opts.pages = pages.map(page_indices).transpose()?;
@@ -62,7 +62,7 @@ impl PyQuillmark {
             .render(&quill.inner, &doc.inner, &opts)
             .map_err(convert_render_error)?;
         let kinds: Vec<Option<&str>> = doc.inner.cards().iter().map(|c| c.kind()).collect();
-        result.regions = quillmark_core::regions_to_doc_path(result.regions, &kinds);
+        result.regions = quillmark_core::region::regions_to_doc_path(result.regions, &kinds);
         result
             .warnings
             .splice(0..0, doc.parse_warnings.iter().cloned());
@@ -203,7 +203,7 @@ impl PyQuill {
     fn parse(&self, markdown: &str) -> PyResult<PyDocument> {
         let parsed = self.inner.parse(markdown).map_err(|e| {
             let diags = e.to_diagnostics();
-            let message = quillmark_core::RenderError::summary_message(&diags);
+            let message = quillmark_core::error::RenderError::summary_message(&diags);
             raise_with_diagnostics(diags, message)
         })?;
         Ok(PyDocument {
@@ -229,7 +229,7 @@ impl PyQuill {
     ) -> PyResult<Bound<'py, PyList>> {
         let diags = self.inner.conform(&mut doc.inner).map_err(|e| {
             let diags = e.into_diagnostics();
-            let message = quillmark_core::RenderError::summary_message(&diags);
+            let message = quillmark_core::error::RenderError::summary_message(&diags);
             raise_with_diagnostics(diags, message)
         })?;
         let json_value = serde_json::to_value(&diags)
@@ -271,7 +271,7 @@ impl PyQuill {
         overlay: Option<Bound<'_, PyAny>>,
     ) -> PyResult<Option<Bound<'py, PyDict>>> {
         let overlay = match overlay {
-            Some(value) => quillmark_core::SeedOverlay::from_json(&py_to_json(&value)?),
+            Some(value) => quillmark_core::document::SeedOverlay::from_json(&py_to_json(&value)?),
             None => None,
         };
         match self.inner.seed_card(card_kind, overlay.as_ref()) {
@@ -284,7 +284,7 @@ impl PyQuill {
 #[pyclass(name = "Document")]
 pub struct PyDocument {
     pub(crate) inner: Document,
-    pub(crate) parse_warnings: Vec<quillmark_core::Diagnostic>,
+    pub(crate) parse_warnings: Vec<quillmark_core::error::Diagnostic>,
 }
 
 #[pymethods]
@@ -296,7 +296,7 @@ impl PyDocument {
     /// `ValueError` on an invalid quill reference.
     #[new]
     fn new(quill_ref: &str) -> PyResult<Self> {
-        let qr: quillmark_core::QuillReference = quill_ref.parse().map_err(|e| {
+        let qr: quillmark_core::version::QuillReference = quill_ref.parse().map_err(|e| {
             PyValueError::new_err(format!("invalid QuillReference '{}': {}", quill_ref, e))
         })?;
         Ok(PyDocument {
@@ -326,8 +326,8 @@ impl PyDocument {
         let inner: Document = serde_json::from_str(json).map_err(|e| {
             let msg = format!("invalid storage DTO: {e}");
             raise_with_diagnostics(
-                vec![quillmark_core::Diagnostic::new(
-                    quillmark_core::Severity::Error,
+                vec![quillmark_core::error::Diagnostic::new(
+                    quillmark_core::error::Severity::Error,
                     msg.clone(),
                 )],
                 msg,
@@ -370,7 +370,7 @@ impl PyDocument {
     /// text the `parse::invalid_quill_reference` hint carries.
     #[staticmethod]
     fn quill_ref_hint() -> &'static str {
-        quillmark_core::quill_ref_hint()
+        quillmark_core::version::quill_ref_hint()
     }
 
     /// Emit canonical Quillmark Markdown. Round-trip safe.
@@ -441,7 +441,7 @@ impl PyDocument {
     /// `quill.reader(doc).body_markdown()`.
     #[getter]
     fn body<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let wire = quillmark_core::CardWire::from(self.inner.main());
+        let wire = quillmark_core::document::CardWire::from(self.inner.main());
         json_to_py(py, &wire.body)
     }
 
@@ -539,7 +539,7 @@ impl PyDocument {
         self.inner
             .main_mut()
             .store_seed_overlay(card_kind, json)
-            .map_err(|e| convert_edit_error(e, &quillmark_core::DocPath::new()))?;
+            .map_err(|e| convert_edit_error(e, &quillmark_core::path::DocPath::new()))?;
         Ok(())
     }
 
@@ -555,7 +555,7 @@ impl PyDocument {
     }
 
     fn set_quill_ref(&mut self, ref_str: &str) -> PyResult<()> {
-        let qr: quillmark_core::QuillReference = ref_str.parse().map_err(|e| {
+        let qr: quillmark_core::version::QuillReference = ref_str.parse().map_err(|e| {
             PyValueError::new_err(format!("invalid QuillReference '{}': {}", ref_str, e))
         })?;
         self.inner.set_quill_ref(qr);
@@ -574,8 +574,8 @@ impl PyDocument {
             .transpose()?;
         // A kind error anchors at the target slot; an append has no slot yet, so
         // its kind error carries no anchor.
-        let base = at.map_or_else(quillmark_core::DocPath::new, |i| {
-            quillmark_core::DocPath::card(None, i)
+        let base = at.map_or_else(quillmark_core::path::DocPath::new, |i| {
+            quillmark_core::path::DocPath::card(None, i)
         });
         match at {
             None => self.inner.push_card(core_card),
@@ -606,19 +606,25 @@ impl PyDocument {
         let to_idx = card_index(to_idx, len)?;
         self.inner
             .move_card(from_idx, to_idx)
-            .map_err(|e| convert_edit_error(e, &quillmark_core::DocPath::new()))
+            .map_err(|e| convert_edit_error(e, &quillmark_core::path::DocPath::new()))
     }
 
 }
 
 impl PyDocument {
-    fn card_mut_or_raise(&mut self, index: isize) -> PyResult<quillmark_core::CardMut<'_>> {
+    fn card_mut_or_raise(
+        &mut self,
+        index: isize,
+    ) -> PyResult<quillmark_core::document::CardMut<'_>> {
         let len = self.inner.cards().len();
         let index = card_index(index, len)?;
         self.inner.card_mut(index).ok_or_else(|| index_error(index, len))
     }
 
-    fn addr_card_mut(&mut self, card: Option<isize>) -> PyResult<quillmark_core::CardMut<'_>> {
+    fn addr_card_mut(
+        &mut self,
+        card: Option<isize>,
+    ) -> PyResult<quillmark_core::document::CardMut<'_>> {
         match card {
             None => Ok(self.inner.main_mut()),
             Some(index) => self.card_mut_or_raise(index),
@@ -627,11 +633,11 @@ impl PyDocument {
 
     /// The anchor root the `card` selector names, main for `None`. An index that
     /// addresses no card anchors nowhere, the call it precedes raising for it.
-    fn addr_base(&self, card: Option<isize>) -> quillmark_core::DocPath {
+    fn addr_base(&self, card: Option<isize>) -> quillmark_core::path::DocPath {
         match card {
-            None => quillmark_core::DocPath::main(),
+            None => quillmark_core::path::DocPath::main(),
             Some(index) => usize::try_from(index).map_or_else(
-                |_| quillmark_core::DocPath::new(),
+                |_| quillmark_core::path::DocPath::new(),
                 |index| card_base(&self.inner, index),
             ),
         }
@@ -639,14 +645,14 @@ impl PyDocument {
 }
 
 /// The card root at `index`, kind-qualified from the stored `$kind`.
-fn card_base(doc: &Document, index: usize) -> quillmark_core::DocPath {
-    quillmark_core::DocPath::card(doc.cards().get(index).and_then(|c| c.kind()), index)
+fn card_base(doc: &Document, index: usize) -> quillmark_core::path::DocPath {
+    quillmark_core::path::DocPath::card(doc.cards().get(index).and_then(|c| c.kind()), index)
 }
 
 fn index_error(index: usize, len: usize) -> PyErr {
     convert_edit_error(
-        quillmark_core::EditError::IndexOutOfRange { index, len },
-        &quillmark_core::DocPath::new(),
+        quillmark_core::document::EditError::IndexOutOfRange { index, len },
+        &quillmark_core::path::DocPath::new(),
     )
 }
 
@@ -654,15 +660,15 @@ fn index_error(index: usize, len: usize) -> PyErr {
 /// diagnostics anchor at: `None` is the main card.
 struct Target {
     index: Option<usize>,
-    base: quillmark_core::DocPath,
+    base: quillmark_core::path::DocPath,
 }
 
 impl Target {
-    fn resolve(doc: &quillmark_core::Document, card: Option<isize>) -> PyResult<Self> {
+    fn resolve(doc: &quillmark_core::document::Document, card: Option<isize>) -> PyResult<Self> {
         match card {
             None => Ok(Target {
                 index: None,
-                base: quillmark_core::DocPath::main(),
+                base: quillmark_core::path::DocPath::main(),
             }),
             Some(i) => {
                 let index = card_index(i, doc.cards().len())?;
@@ -832,7 +838,7 @@ impl PyWriter {
             .inner
             .writer(&mut doc.inner)
             .add_card(kind, batch, body.as_deref(), at)
-            .map_err(|errs| convert_edit_errors(errs, &quillmark_core::DocPath::new()))
+            .map_err(|errs| convert_edit_errors(errs, &quillmark_core::path::DocPath::new()))
     }
 
     /// Remove the composable card at `index`, returning it as a dict or `None`
@@ -1001,7 +1007,7 @@ pub struct PyRenderResult {
     artifacts: Vec<Py<PyArtifact>>,
     warnings: Vec<Py<PyDiagnostic>>,
     output_format: OutputFormat,
-    regions: Vec<quillmark_core::RenderedRegion>,
+    regions: Vec<quillmark_core::region::RenderedRegion>,
 }
 
 impl PyRenderResult {
@@ -1099,8 +1105,8 @@ impl PyArtifact {
         std::fs::write(&path, &self.inner).map_err(|e| {
             let msg = format!("Failed to save artifact to {}: {}", path, e);
             raise_with_diagnostics(
-                vec![quillmark_core::Diagnostic::new(
-                    quillmark_core::Severity::Error,
+                vec![quillmark_core::error::Diagnostic::new(
+                    quillmark_core::error::Severity::Error,
                     msg.clone(),
                 )],
                 msg,
@@ -1203,7 +1209,7 @@ impl PyLocation {
 
 fn quillvalue_to_py<'py>(
     py: Python<'py>,
-    value: &quillmark_core::QuillValue,
+    value: &quillmark_core::value::QuillValue,
 ) -> PyResult<Bound<'py, PyAny>> {
     json_to_py(py, value.as_json())
 }
@@ -1260,7 +1266,7 @@ fn content_to_py<'py>(
 
 fn read_value_to_py<'py>(
     py: Python<'py>,
-    read: Option<quillmark_core::QuillValue>,
+    read: Option<quillmark_core::value::QuillValue>,
 ) -> PyResult<Option<Bound<'py, PyAny>>> {
     match read {
         None => Ok(None),
@@ -1274,9 +1280,9 @@ fn read_value_to_py<'py>(
 /// the WASM `Card` shape verbatim.
 fn card_to_pydict<'py>(
     py: Python<'py>,
-    card: &quillmark_core::Card,
+    card: &quillmark_core::document::Card,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let wire = quillmark_core::CardWire::from(card);
+    let wire = quillmark_core::document::CardWire::from(card);
     let json = serde_json::to_value(&wire).map_err(|e| PyValueError::new_err(e.to_string()))?;
     let serde_json::Value::Object(mut map) = json else {
         return Err(PyValueError::new_err("card wire is not a JSON object"));
@@ -1337,9 +1343,9 @@ fn json_to_py<'py>(py: Python<'py>, value: &serde_json::Value) -> PyResult<Bound
     }
 }
 
-fn py_to_quillvalue(value: &Bound<'_, PyAny>) -> PyResult<quillmark_core::QuillValue> {
+fn py_to_quillvalue(value: &Bound<'_, PyAny>) -> PyResult<quillmark_core::value::QuillValue> {
     let json = py_to_json(value)?;
-    Ok(quillmark_core::QuillValue::from_json(json))
+    Ok(quillmark_core::value::QuillValue::from_json(json))
 }
 
 /// Value-conversion failures are collected rather than fail-fast, into one
@@ -1347,7 +1353,7 @@ fn py_to_quillvalue(value: &Bound<'_, PyAny>) -> PyResult<quillmark_core::QuillV
 /// contract. A non-string key raises `ValueError` directly.
 fn pydict_to_field_batch(
     fields: &Bound<'_, PyDict>,
-) -> PyResult<Vec<(String, quillmark_core::QuillValue)>> {
+) -> PyResult<Vec<(String, quillmark_core::value::QuillValue)>> {
     let mut batch = Vec::new();
     let mut diags = Vec::new();
     for (key, value) in fields.iter() {
@@ -1357,8 +1363,8 @@ fn pydict_to_field_batch(
         match py_to_quillvalue(&value) {
             Ok(qv) => batch.push((name, qv)),
             Err(e) => diags.push(
-                quillmark_core::Diagnostic::new(
-                    quillmark_core::Severity::Error,
+                quillmark_core::error::Diagnostic::new(
+                    quillmark_core::error::Severity::Error,
                     format!("invalid value: {e}"),
                 )
                 .with_path(name),
@@ -1366,7 +1372,7 @@ fn pydict_to_field_batch(
         }
     }
     if !diags.is_empty() {
-        let message = quillmark_core::RenderError::summary_message(&diags);
+        let message = quillmark_core::error::RenderError::summary_message(&diags);
         return Err(raise_with_diagnostics(diags, message));
     }
     Ok(batch)
@@ -1378,9 +1384,9 @@ fn py_to_json(value: &Bound<'_, PyAny>) -> PyResult<serde_json::Value> {
 
 /// Depth-bounded so an adversarially deep Python object cannot overflow the
 /// native stack, and is refused at the shape core's
-/// [`json_depth_exceeds`](quillmark_core::json_depth_exceeds) refuses. The cutoff
-/// counts container levels, `depth` being the 0-based depth of the current node,
-/// so a scalar leaf is never charged one.
+/// [`json_depth_exceeds`](quillmark_core::value::json_depth_exceeds) refuses.
+/// The cutoff counts container levels, `depth` being the 0-based depth of the
+/// current node, so a scalar leaf is never charged one.
 fn py_to_json_at(value: &Bound<'_, PyAny>, depth: usize) -> PyResult<serde_json::Value> {
     use pyo3::types::{PyBool, PyDate, PyFloat, PyInt, PyList, PyString, PyTime};
 
@@ -1495,13 +1501,13 @@ fn ext_map_to_py<'py>(
 
 /// Accepts the snake_case `payload_items` key; a flat `{ kind, fields }` dict
 /// fails loudly (`deny_unknown_fields`) rather than yielding an empty card.
-fn py_dict_to_card(value: &Bound<'_, PyAny>) -> PyResult<quillmark_core::Card> {
+fn py_dict_to_card(value: &Bound<'_, PyAny>) -> PyResult<quillmark_core::document::Card> {
     let json = py_to_json(value)?;
-    let wire: quillmark_core::CardWire = serde_json::from_value(json).map_err(|e| {
+    let wire: quillmark_core::document::CardWire = serde_json::from_value(json).map_err(|e| {
         PyValueError::new_err(format!(
             "card must be a Card dict {{ kind, payload_items?, body? }}: {e}"
         ))
     })?;
-    quillmark_core::Card::try_from(wire).map_err(convert_wire_error)
+    quillmark_core::document::Card::try_from(wire).map_err(convert_wire_error)
 }
 

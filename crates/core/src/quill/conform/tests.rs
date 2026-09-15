@@ -5,7 +5,7 @@ use serde_json::json;
 
 use crate::document::StoredDocument;
 use crate::quill::quill_from_yaml;
-use crate::{Document, Quill, QuillValue, SeedOverlay};
+use crate::{document::{Document, SeedOverlay}, quill::Quill, value::QuillValue};
 
 const QUILL: &str = r#"
 quill:
@@ -53,7 +53,7 @@ fn bytes(doc: &Document) -> String {
     serde_json::to_string(&StoredDocument::from(doc.clone())).expect("storage DTO serializes")
 }
 
-fn parse_bound(quill: &Quill, md: &str) -> (Document, Vec<crate::Diagnostic>) {
+fn parse_bound(quill: &Quill, md: &str) -> (Document, Vec<crate::error::Diagnostic>) {
     let parsed = quill.parse(md).expect("the bound door parses");
     (parsed.document, parsed.warnings)
 }
@@ -232,7 +232,7 @@ fn non_conforming_value_rests_authored_with_a_diagnostic() {
         !quill
             .validate(&doc)
             .iter()
-            .any(|d| d.severity == crate::Severity::Error),
+            .any(|d| d.severity == crate::error::Severity::Error),
         "and validates clean: the render floor accepts the scalar"
     );
 

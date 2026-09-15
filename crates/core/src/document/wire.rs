@@ -20,7 +20,7 @@ use super::{Card, EditError};
 use crate::error::diag_args;
 use crate::value::{PathSegment, QuillValue};
 use crate::version::QuillReference;
-use crate::{Diagnostic, Severity};
+use crate::error::{Diagnostic, Severity};
 use quillmark_content::model::Normalized;
 
 /// One entry in a [`CardWire`]'s `payload_items`: a user field or a comment.
@@ -396,7 +396,7 @@ mod tests {
             crate::quill::FieldType::RichText { inline: false },
             None,
         );
-        card.commit_field("intro", crate::QuillValue::from_json(json), &schema)
+        card.commit_field("intro", crate::value::QuillValue::from_json(json), &schema)
             .unwrap();
 
         let wire = CardWire::from(&card);

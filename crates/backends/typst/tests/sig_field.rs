@@ -1,7 +1,7 @@
 //! Compiles each plate through the public `Backend`/`LiveSession` path, parses
 //! the output with lopdf, and asserts the AcroForm structure.
 
-use quillmark_core::{Backend, OutputFormat, RenderError, RenderOptions};
+use quillmark_core::{backend::Backend, error::RenderError, types::{OutputFormat, RenderOptions}};
 use quillmark_typst::TypstBackend;
 
 mod common;
@@ -335,7 +335,7 @@ main:
         .expect("open");
     let regions = session.regions();
 
-    let fields: std::collections::HashMap<&str, &quillmark_core::RenderedRegion> =
+    let fields: std::collections::HashMap<&str, &quillmark_core::region::RenderedRegion> =
         regions.iter().map(|r| (r.field.as_str(), r)).collect();
 
     for field in ["f_txt", "f_sig"] {

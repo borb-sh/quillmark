@@ -5,7 +5,10 @@
 //! against the field's own `DocPath`.
 
 use quillmark_core::{
-    Backend, Diagnostic, FileTreeNode, OutputFormat, Quill, RenderOptions, Severity,
+    backend::Backend,
+    error::{Diagnostic, Severity},
+    quill::{FileTreeNode, Quill},
+    types::{OutputFormat, RenderOptions},
 };
 use quillmark_typst::TypstBackend;
 use std::collections::HashMap;

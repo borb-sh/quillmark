@@ -15,7 +15,10 @@ use crate::normalize::{normalize_document, normalize_field_name};
 use crate::quill::blank;
 use crate::path::DocPath;
 use crate::{
-    Card, Diagnostic, Document, Payload, QuillValue, RenderError, SeedOverlay, Severity, Version,
+    document::{Card, Document, Payload, SeedOverlay},
+    error::{Diagnostic, RenderError, Severity},
+    value::QuillValue,
+    version::Version,
 };
 
 impl Quill {
@@ -96,8 +99,8 @@ impl QuillConfig {
     /// [`compile_data`](Self::compile_data) behind the `$quill` pairing check.
     /// Every door that turns a document into plate data for *this* schema goes
     /// through here (`Quillmark::open` for a session's first compile,
-    /// [`LiveSession::update`](crate::LiveSession::update) for each edit), so
-    /// the pairing cannot be checked at one and skipped at the other.
+    /// [`LiveSession::update`](crate::session::LiveSession::update) for each
+    /// edit), so the pairing cannot be checked at one and skipped at the other.
     /// [`compile_data`](Self::compile_data) stays available unchecked where no
     /// render follows and the pairing is the caller's to assert (the CLI's
     /// `--output-data`).
@@ -143,9 +146,9 @@ impl QuillConfig {
 
     /// Enforce the document's `$quill` reference (`name@selector`) against this
     /// quill. Every schema-bound door runs it, the bound ingestion
-    /// ([`Quill::parse`](crate::Quill::parse) /
-    /// [`Quill::conform`](crate::Quill::conform)) included, so the message names
-    /// the pairing rather than a verb.
+    /// ([`Quill::parse`](crate::quill::Quill::parse) /
+    /// [`Quill::conform`](crate::quill::Quill::conform)) included, so the
+    /// message names the pairing rather than a verb.
     ///
     /// A selector belongs to a *named* quill, so `quill::name_mismatch`
     /// short-circuits and leaves the version unevaluated; otherwise the selector
@@ -347,11 +350,12 @@ fn coercion_error(e: CoercionError) -> RenderError {
     )
 }
 
-/// The total (keep-raw) resolver behind [`Quill::resolve`](crate::Quill::resolve):
-/// conform each authored value under Render leniency, NFC-normalize the key,
-/// then cut the shared [`ladder_sourced`]. `compile_data` reaches the same rows
-/// through its own fallible conform, and a document that passes that gate never
-/// takes the keep-raw branch, so the two cut one ladder over equal input.
+/// The total (keep-raw) resolver behind
+/// [`Quill::resolve`](crate::quill::Quill::resolve): conform each authored
+/// value under Render leniency, NFC-normalize the key, then cut the shared
+/// [`ladder_sourced`]. `compile_data` reaches the same rows through its own
+/// fallible conform, and a document that passes that gate never takes the
+/// keep-raw branch, so the two cut one ladder over equal input.
 pub(crate) fn resolve_card_sourced(
     schema: &CardSchema,
     card: &Card,
@@ -383,10 +387,10 @@ fn conform_card_render(schema: &CardSchema, card: &Card) -> IndexMap<String, Qui
 
 /// The shared sourced ladder both canon projections cut, the render-fidelity
 /// plate ([`compile_data`](QuillConfig::compile_data)) and the resolved-value
-/// view ([`Quill::resolve`](crate::Quill::resolve)), over an already-coerced,
-/// NFC-normalized field map. For every declared field it reports the value the
-/// render projection uses and the [`FieldSource`] rung that produced it;
-/// undeclared authored fields carry through verbatim as
+/// view ([`Quill::resolve`](crate::quill::Quill::resolve)), over an
+/// already-coerced, NFC-normalized field map. For every declared field it
+/// reports the value the render projection uses and the [`FieldSource`] rung
+/// that produced it; undeclared authored fields carry through verbatim as
 /// [`Authored`](FieldSource::Authored), the schema being a floor, not an
 /// allowlist.
 ///

@@ -18,8 +18,8 @@ impl PdfError {
     }
 }
 
-impl From<PdfError> for quillmark_core::RenderError {
+impl From<PdfError> for quillmark_core::error::RenderError {
     fn from(e: PdfError) -> Self {
-        quillmark_core::RenderError::coded(e.code, e.message)
+        quillmark_core::error::RenderError::coded(e.code, e.message)
     }
 }

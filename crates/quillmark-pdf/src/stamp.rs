@@ -13,7 +13,7 @@ use pdf_writer::types::{AnnotationFlags, FieldFlags, FieldType as PwFieldType, Q
 use pdf_writer::writers::{Field, Form};
 use pdf_writer::{Chunk, Finish, Name, Rect, Ref, Str, TextStr};
 
-use quillmark_core::RenderedRegion;
+use quillmark_core::region::RenderedRegion;
 
 use crate::appearance;
 use crate::error::PdfError;

@@ -8,7 +8,7 @@
 use pyo3::create_exception;
 use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
-use quillmark_core::{Diagnostic, EditError, RenderError, Severity};
+use quillmark_core::{document::EditError, error::{Diagnostic, RenderError, Severity}};
 use std::collections::BTreeMap;
 
 create_exception!(_quillmark, QuillmarkError, PyException);
@@ -50,10 +50,10 @@ pub fn page_indices(pages: Vec<isize>) -> PyResult<Vec<usize>> {
     Ok(pages.into_iter().map(|p| p as usize).collect())
 }
 
-/// One diagnostic, its `path` the [`DocPath`](quillmark_core::DocPath) the
-/// error anchors at relative to `base`: the card root the mutator ran against,
-/// empty for a card built before placement.
-pub fn convert_edit_error(err: EditError, base: &quillmark_core::DocPath) -> PyErr {
+/// One diagnostic, its `path` the [`DocPath`](quillmark_core::path::DocPath)
+/// the error anchors at relative to `base`: the card root the mutator ran
+/// against, empty for a card built before placement.
+pub fn convert_edit_error(err: EditError, base: &quillmark_core::path::DocPath) -> PyErr {
     let mut diagnostic =
         Diagnostic::new(Severity::Error, err.to_string())
             .with_code(err.code().to_string())
@@ -67,7 +67,7 @@ pub fn convert_edit_error(err: EditError, base: &quillmark_core::DocPath) -> PyE
 
 /// A card the wire refuses, under the code the addressed mutator onto the same
 /// violation mints. The card is not placed, so the diagnostic carries no `path`.
-pub fn convert_wire_error(err: quillmark_core::WireError) -> PyErr {
+pub fn convert_wire_error(err: quillmark_core::document::WireError) -> PyErr {
     let diagnostic = err.to_diagnostic();
     let message = diagnostic.message.clone();
     raise_with_diagnostics(vec![diagnostic], message)
@@ -77,7 +77,7 @@ pub fn convert_wire_error(err: quillmark_core::WireError) -> PyErr {
 /// each anchored at its name under `base`.
 pub fn convert_edit_errors(
     errors: Vec<(String, EditError)>,
-    base: &quillmark_core::DocPath,
+    base: &quillmark_core::path::DocPath,
 ) -> PyErr {
     convert_edit_errors_at(
         errors
@@ -89,7 +89,7 @@ pub fn convert_edit_errors(
 
 /// The [`convert_edit_errors`] arm for refusals that carry the whole `DocPath`
 /// they anchor at rather than a field name under one base.
-fn convert_edit_errors_at(errors: Vec<(quillmark_core::DocPath, EditError)>) -> PyErr {
+fn convert_edit_errors_at(errors: Vec<(quillmark_core::path::DocPath, EditError)>) -> PyErr {
     let diags: Vec<Diagnostic> = errors
         .into_iter()
         .map(|(path, err)| {

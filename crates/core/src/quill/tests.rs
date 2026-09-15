@@ -3,7 +3,7 @@ mod support_tests;
 mod variant_tests;
 
 use super::*;
-use crate::{Diagnostic, Document, QuillValue, Severity};
+use crate::{document::Document, error::{Diagnostic, Severity}, value::QuillValue};
 use std::collections::HashMap;
 use std::error::Error as StdError;
 use std::fs;

@@ -10,7 +10,11 @@ use crate::document::edit::resolve_field_write;
 use crate::document::{Card, Document, EditError, Parsed, PayloadItem};
 use crate::path::DocPath;
 use crate::quill::config::field_contains_content;
-use crate::{Diagnostic, ParseError, Quill, QuillValue, RenderError, Severity};
+use crate::{
+    error::{Diagnostic, ParseError, RenderError, Severity},
+    quill::Quill,
+    value::QuillValue,
+};
 
 use super::CardSchema;
 

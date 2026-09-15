@@ -11,7 +11,7 @@
 use proptest::prelude::*;
 use serde_json::{json, Value};
 
-use crate::{Card, CardWire, Document};
+use crate::document::{Card, CardWire, Document};
 
 /// The keys the decoders dispatch on, so generated objects reach past the first
 /// branch; the noise arm keeps the rest of the space.

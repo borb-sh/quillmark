@@ -49,7 +49,7 @@ pub struct FieldSpec {
     pub name: String,
     /// The quill schema field address this widget maps to. Opaque to the spine,
     /// which carries it only to key the region sidecar: `None` emits no
-    /// [`RenderedRegion`](quillmark_core::RenderedRegion).
+    /// [`RenderedRegion`](quillmark_core::region::RenderedRegion).
     pub schema_field: Option<String>,
     /// 0-based page index.
     pub page: usize,

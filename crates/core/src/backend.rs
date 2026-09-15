@@ -2,7 +2,7 @@
 
 use crate::error::RenderError;
 use crate::quill::Quill;
-use crate::{LiveSession, OutputFormat};
+use crate::{session::LiveSession, types::OutputFormat};
 
 /// Backend trait for rendering different output formats.
 ///
@@ -54,13 +54,13 @@ pub fn declined_construct(
     construct: crate::quill::BlockConstruct,
     count: usize,
     path: &crate::path::DocPath,
-) -> crate::Diagnostic {
+) -> crate::error::Diagnostic {
     let mut args = std::collections::BTreeMap::new();
     args.insert("backend".to_string(), backend.into());
     args.insert("construct".to_string(), construct.as_str().into());
     args.insert("count".to_string(), count.into());
-    crate::Diagnostic::new(
-        crate::Severity::Warning,
+    crate::error::Diagnostic::new(
+        crate::error::Severity::Warning,
         format!(
             "the {backend} backend does not typeset {}: {count} in this field \
              will not reach the page",
@@ -170,6 +170,7 @@ pub fn page_selection_not_supported(format: OutputFormat) -> RenderError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::RenderOptions;
 
     /// US Letter, the shape every raster check below is measured against.
     const LETTER_PT: (f32, f32) = (612.0, 792.0);
@@ -210,7 +211,7 @@ mod tests {
     #[test]
     fn the_default_ppi_leaves_a_letter_page_far_under_the_ceiling() {
         let (w, h) = LETTER_PT;
-        let scale = raster_scale(crate::RenderOptions::DEFAULT_PPI).expect("the default ppi");
+        let scale = raster_scale(RenderOptions::DEFAULT_PPI).expect("the default ppi");
         check_raster(scale, w, h).expect("the default render is not near the ceiling");
         assert!(f64::from(w * scale) * f64::from(h * scale) * 100.0 < MAX_RASTER_PIXELS as f64);
     }

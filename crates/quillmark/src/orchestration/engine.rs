@@ -1,6 +1,10 @@
 use quillmark_core::{
-    Backend, Diagnostic, Document, LiveSession, OutputFormat, Quill, RenderError, RenderOptions,
-    RenderResult, Severity,
+    backend::Backend,
+    document::Document,
+    error::{Diagnostic, RenderError, RenderResult, Severity},
+    quill::Quill,
+    session::LiveSession,
+    types::{OutputFormat, RenderOptions},
 };
 use std::collections::HashMap;
 use std::sync::Arc;

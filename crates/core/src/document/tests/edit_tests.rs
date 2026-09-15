@@ -193,7 +193,7 @@ fn test_set_card_kind_round_trips_via_markdown() {
     let mut doc = make_doc_with_cards();
     doc.set_card_kind(0, "annotation").unwrap();
     let md = doc.to_markdown();
-    let reparsed = crate::Document::parse(&md).unwrap().document;
+    let reparsed = crate::document::Document::parse(&md).unwrap().document;
     assert_eq!(reparsed.cards()[0].kind(), Some("annotation"));
 }
 
@@ -467,7 +467,7 @@ fn test_revise_field_diff_imports_and_returns_delta() {
         .iter()
         .any(|m| matches!(&m.kind, MarkKind::Anchor { id } if id == "c1")));
 
-    card.store_field("count", crate::QuillValue::from_json(serde_json::json!(3)))
+    card.store_field("count", crate::value::QuillValue::from_json(serde_json::json!(3)))
         .unwrap();
     assert_eq!(
         card.revise_field("count", "x").unwrap_err().code(),
@@ -754,7 +754,7 @@ fn test_noncanonical_order_content_field_stays_structural() {
 
 #[test]
 fn test_revise_body_returns_delta_and_updates_body() {
-    use crate::{Assoc, Delta};
+    use crate::session::{Assoc, Delta};
 
     let mut card = Card::new("note").unwrap();
     card.revise_body("hello world").unwrap();
@@ -792,7 +792,7 @@ fn test_revise_body_rebases_anchor() {
 
 #[test]
 fn test_apply_body_change_applies_bundle() {
-    use crate::{ChangeBundle, MarkOp};
+    use crate::session::{ChangeBundle, MarkOp};
     use quillmark_content::delta::diff;
     use quillmark_content::model::MarkKind;
 
@@ -820,7 +820,7 @@ fn test_apply_body_change_applies_bundle() {
 
 #[test]
 fn test_apply_body_change_reports_out_of_range() {
-    use crate::{ChangeBundle, MarkOp};
+    use crate::session::{ChangeBundle, MarkOp};
     use quillmark_content::delta::diff;
     use quillmark_content::model::MarkKind;
 
@@ -843,7 +843,7 @@ fn test_apply_body_change_reports_out_of_range() {
 
 #[test]
 fn test_apply_field_change_splices_and_persists() {
-    use crate::{ChangeBundle, MarkOp};
+    use crate::session::{ChangeBundle, MarkOp};
     use quillmark_content::delta::diff;
     use quillmark_content::model::MarkKind;
 
@@ -874,7 +874,7 @@ fn test_apply_field_change_rejects_non_content() {
     let mut card = Card::new("note").unwrap();
     card.store_field("count", 3).unwrap();
     assert_eq!(
-        card.apply_field_change("count", &crate::ChangeBundle::default())
+        card.apply_field_change("count", &crate::session::ChangeBundle::default())
             .unwrap_err()
             .code(),
         "edit::field_decode"
@@ -883,7 +883,7 @@ fn test_apply_field_change_rejects_non_content() {
 
 #[test]
 fn test_apply_field_change_treats_an_absent_field_as_empty() {
-    use crate::ChangeBundle;
+    use crate::session::ChangeBundle;
 
     let mut card = Card::new("note").unwrap();
     card.apply_field_change("intro", &ChangeBundle::default())
@@ -1415,11 +1415,11 @@ fn a_batch_past_the_count_names_its_overflowing_tail() {
     assert_eq!(doc.main().payload().get("f0").unwrap().as_str(), Some("v"));
 }
 
-/// [`CardMut`](crate::CardMut) is the whole mutable surface of a placed card,
-/// and no verb on it carries a card between the root and composable roles: the
-/// root keeps `$quill`, and no composable card gains `$quill` or `$seed`. A
-/// `&mut Card` would let one whole-card assignment do all three at once, past
-/// every gate that polices placement.
+/// [`CardMut`](crate::document::CardMut) is the whole mutable surface of a
+/// placed card, and no verb on it carries a card between the root and
+/// composable roles: the root keeps `$quill`, and no composable card gains
+/// `$quill` or `$seed`. A `&mut Card` would let one whole-card assignment do
+/// all three at once, past every gate that polices placement.
 #[test]
 fn no_verb_on_a_placed_card_moves_it_between_roles() {
     use crate::document::CardMut;

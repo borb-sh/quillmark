@@ -51,7 +51,7 @@ When you process this document with Quillmark:
 The parsing logic is implemented in `quillmark-core`:
 
 ```rust
-use quillmark_core::Document;
+use quillmark_core::document::Document;
 
 let doc = Document::parse(markdown_content)?.document;
 let title = doc.main().payload().get("title");

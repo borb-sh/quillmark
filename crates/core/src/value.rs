@@ -184,8 +184,8 @@ impl QuillValue {
     }
 
     /// Clear the root marker. A stored field's root marker rides the owning
-    /// [`PayloadItem`](crate::PayloadItem)'s flag, so the value beneath it
-    /// carries the nested markers alone.
+    /// [`PayloadItem`](crate::document::PayloadItem)'s flag, so the value
+    /// beneath it carries the nested markers alone.
     pub(crate) fn clear_root_fill(&mut self) {
         self.fills.retain(|p| !p.is_empty());
     }

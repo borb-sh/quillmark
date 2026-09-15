@@ -1,11 +1,11 @@
 //! Schema-bound typed reader: the read twin of
-//! [`TypedWriter`](crate::TypedWriter).
+//! [`TypedWriter`](crate::writer::TypedWriter).
 //!
-//! The verbatim [`payload().get`](crate::Card::payload) is *transport*: the
-//! stored value, schema-free and round-trippable. Projecting a field to markdown
-//! is *interpretation*, a question a schema-free `Document` cannot answer
-//! without guessing which fields are richtext, so the projection binds the
-//! schema.
+//! The verbatim [`payload().get`](crate::document::Card::payload) is
+//! *transport*: the stored value, schema-free and round-trippable. Projecting a
+//! field to markdown is *interpretation*, a question a schema-free `Document`
+//! cannot answer without guessing which fields are richtext, so the projection
+//! binds the schema.
 //!
 //! Every read here answers in the **values form**: the stored value with each
 //! content leaf decoded to its codec's text (`richtext` markdown, `plaintext`
@@ -15,7 +15,8 @@
 //! [`resolve`](TypedReader::resolve), the render view.
 //!
 //! **Absence returns; mismatch raises; an unknown name is a typo**, as
-//! [`TypedWriter::set`](crate::TypedWriter::set) does on the write side.
+//! [`TypedWriter::set`](crate::writer::TypedWriter::set) does on the write
+//! side.
 //!
 //! [`get_content`](TypedReader::get_content) is the same read at the other end
 //! of the codec, and is total over the storage form. It binds the quill too: a
@@ -23,9 +24,9 @@
 //! the same bytes decode two ways. The body read stays quill-free — a body's
 //! type is a format fact, not a schema fact.
 //!
-//! Like [`TypedWriter`](crate::TypedWriter), a bound reader holds `&Document`
-//! and `&QuillConfig`, so it cannot cross a lifetime-free binding boundary;
-//! those surfaces construct one per call from the quill handle.
+//! Like [`TypedWriter`](crate::writer::TypedWriter), a bound reader holds
+//! `&Document` and `&QuillConfig`, so it cannot cross a lifetime-free binding
+//! boundary; those surfaces construct one per call from the quill handle.
 
 use indexmap::IndexMap;
 use quillmark_content::model::Normalized;
@@ -36,16 +37,17 @@ use crate::quill::{resolve_document, CardSchema, FieldSchema, FieldType, QuillCo
 use crate::value::{PathSegment, QuillValue};
 
 /// A [`Document`] bound to its [`QuillConfig`] for typed reads. Construct with
-/// [`Quill::reader`](crate::Quill::reader). Reads target the main card; use
-/// [`card`](Self::card) for a composable card. The read twin of
-/// [`TypedWriter`](crate::TypedWriter).
+/// [`Quill::reader`](crate::quill::Quill::reader). Reads target the main card;
+/// use [`card`](Self::card) for a composable card. The read twin of
+/// [`TypedWriter`](crate::writer::TypedWriter).
 pub struct TypedReader<'a> {
     config: &'a QuillConfig,
     doc: &'a Document,
 }
 
 impl<'a> TypedReader<'a> {
-    /// Bind `doc` to `config`. Prefer [`Quill::reader`](crate::Quill::reader).
+    /// Bind `doc` to `config`. Prefer
+    /// [`Quill::reader`](crate::quill::Quill::reader).
     pub fn new(config: &'a QuillConfig, doc: &'a Document) -> Self {
         Self { config, doc }
     }
@@ -57,7 +59,7 @@ impl<'a> TypedReader<'a> {
     /// [`EditError::UnknownField`] for a name the schema does not declare (a typo,
     /// as on the write side); [`EditError::FieldDecode`], anchored at the leaf,
     /// when a content leaf holds a value that does not decode (a scalar an
-    /// opaque [`store_field`](crate::Card::store_field) wrote).
+    /// opaque [`store_field`](crate::document::Card::store_field) wrote).
     pub fn get(&self, name: &str) -> Result<Option<QuillValue>, EditError> {
         read_field(self.doc.main(), Some(&self.config.main.fields), name)
     }
@@ -115,7 +117,8 @@ impl<'a> TypedReader<'a> {
 
     /// The resolved view: for every declared field, the value the render
     /// projection would use and the rung it came from. The one read that
-    /// blank-fills and coerces; see [`Quill::resolve`](crate::Quill::resolve).
+    /// blank-fills and coerces; see
+    /// [`Quill::resolve`](crate::quill::Quill::resolve).
     pub fn resolve(&self) -> Resolved {
         resolve_document(self.config, self.doc)
     }
@@ -473,7 +476,7 @@ card_kinds:
     fn seeded_doc(config: &QuillConfig) -> Document {
         let mut doc = blank_doc();
         {
-            let mut w = crate::TypedWriter::new(config, &mut doc);
+            let mut w = crate::writer::TypedWriter::new(config, &mut doc);
             w.set("subject", "Hello **world**").unwrap();
             w.set("qty", "3").unwrap();
             w.add_card("note", [("body", "a *card*")], None, None).unwrap();
@@ -685,7 +688,7 @@ card_kinds:
         }
         let mut committed = blank_doc();
         {
-            let mut w = crate::TypedWriter::new(&config, &mut committed);
+            let mut w = crate::writer::TypedWriter::new(&config, &mut committed);
             w.set("recipients", serde_json::json!(["a *literal* line"])).unwrap();
             w.set("paragraphs", serde_json::json!(["Hello **world**"])).unwrap();
         }
@@ -926,7 +929,7 @@ card_kinds:
             "a property is not a claim about a top-level field of the same name"
         );
         assert_eq!(
-            err.doc_path(&crate::DocPath::main()).unwrap().to_string(),
+            err.doc_path(&crate::path::DocPath::main()).unwrap().to_string(),
             "main.letterhead.nope"
         );
 
@@ -934,7 +937,7 @@ card_kinds:
             .get_content_at("rows", &[PathSegment::Index(0), PathSegment::Key("nope".into())])
             .unwrap_err();
         assert_eq!(
-            deep.doc_path(&crate::DocPath::main()).unwrap().to_string(),
+            deep.doc_path(&crate::path::DocPath::main()).unwrap().to_string(),
             "main.rows[0].nope"
         );
     }
@@ -957,10 +960,10 @@ card_kinds:
             EditError::FieldDecode { field, codec, .. }
                 if field == "paragraphs" && codec == CODEC_RICHTEXT
         ));
-        let path = err.doc_path(&crate::DocPath::main()).unwrap();
+        let path = err.doc_path(&crate::path::DocPath::main()).unwrap();
         assert_eq!(path.to_string(), "main.paragraphs[1]");
         assert_eq!(
-            crate::DocPath::from_str("main.paragraphs[1]").unwrap(),
+            crate::path::DocPath::from_str("main.paragraphs[1]").unwrap(),
             path,
             "the anchor round-trips as segments, not as a bracketed name"
         );
@@ -998,7 +1001,7 @@ card_kinds:
         let config = config();
         let mut doc = blank_doc();
         {
-            let mut w = crate::TypedWriter::new(&config, &mut doc);
+            let mut w = crate::writer::TypedWriter::new(&config, &mut doc);
             w.set("paragraphs", serde_json::json!(["Para **one**"])).unwrap();
             w.set("recipients", serde_json::json!(["a *literal* line"])).unwrap();
             w.set("letterhead", serde_json::json!({"motto": "Fly **fight**", "code": "9"}))
@@ -1046,7 +1049,7 @@ card_kinds:
             .unwrap();
         let err = TypedReader::new(&config, &doc).get("paragraphs").unwrap_err();
         assert_eq!(
-            err.doc_path(&crate::DocPath::main()).unwrap().to_string(),
+            err.doc_path(&crate::path::DocPath::main()).unwrap().to_string(),
             "main.paragraphs[1]",
             "the strict read anchors at the element, as get_content_at does"
         );

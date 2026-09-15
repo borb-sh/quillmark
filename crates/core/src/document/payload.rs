@@ -25,10 +25,11 @@ use crate::version::QuillReference;
 /// Which out-of-band system-metadata map a [`PayloadItem::Meta`] carries.
 ///
 /// `$ext` and `$seed` are the same shape: an opaque `Map<String, Value>` that
-/// never reaches the plate JSON but round-trips through Markdown and the storage
-/// DTO. They differ in canonical sort rank, root-only-ness, and whether the
-/// seeding layer interprets them ([`crate::SeedOverlay::from_json`] reads
-/// `$seed`; `$ext` stays opaque).
+/// never reaches the plate JSON but round-trips through Markdown and the
+/// storage DTO. They differ in canonical sort rank, root-only-ness, and whether
+/// the seeding layer interprets them
+/// ([`crate::document::SeedOverlay::from_json`] reads `$seed`; `$ext` stays
+/// opaque).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum MetaKey {
     /// `$ext`: opaque out-of-band consumer state (editor renames, agent
@@ -152,12 +153,12 @@ impl PayloadItem {
 /// Mutation is crate-internal. The invariants an edit must hold — at most one
 /// `$quill` / `$kind` / `$ext` / `$seed`, no duplicate field keys, every field
 /// name matching `[A-Za-z_][A-Za-z0-9_]*`, at most [`MAX_FIELD_COUNT`] user
-/// fields — are not all expressible in the mutators' signatures, so out-of-crate
-/// authoring goes through the verbs that enforce them: `Card::store_field` /
-/// `store_ext` / `store_seed_overlay`, `Document::set_quill_ref`, and
-/// [`TypedWriter`](crate::TypedWriter). The count is the one a caller cannot
-/// check for itself, so the crate-internal insert holds it rather than
-/// delegating it.
+/// fields — are not all expressible in the mutators' signatures, so
+/// out-of-crate authoring goes through the verbs that enforce them:
+/// `Card::store_field` / `store_ext` / `store_seed_overlay`,
+/// `Document::set_quill_ref`, and [`TypedWriter`](crate::writer::TypedWriter).
+/// The count is the one a caller cannot check for itself, so the crate-internal
+/// insert holds it rather than delegating it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Payload {
     items: Vec<PayloadItem>,
@@ -303,8 +304,8 @@ impl Payload {
     }
 
     /// The raw `$seed` map, keyed by card-kind. Never reaches the plate JSON;
-    /// index it by kind and pass the entry to [`crate::SeedOverlay::from_json`]
-    /// for a parsed overlay.
+    /// index it by kind and pass the entry to
+    /// [`crate::document::SeedOverlay::from_json`] for a parsed overlay.
     pub fn seed(&self) -> Option<&JsonMap<String, JsonValue>> {
         self.meta(MetaKey::Seed)
     }

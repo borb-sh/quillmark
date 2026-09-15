@@ -2,7 +2,7 @@
 //! `/Producer` stamp.
 
 use lopdf::Object;
-use quillmark_core::{Backend, OutputFormat, RenderOptions};
+use quillmark_core::{backend::Backend, types::{OutputFormat, RenderOptions}};
 use quillmark_typst::TypstBackend;
 
 mod common;

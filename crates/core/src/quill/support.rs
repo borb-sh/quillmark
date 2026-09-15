@@ -14,7 +14,7 @@ use quillmark_content::model::{Content, LineKind};
 use crate::document::Document;
 use crate::path::DocPath;
 use crate::quill::types::BlockConstruct;
-use crate::{Diagnostic, Quill, Severity};
+use crate::{error::{Diagnostic, Severity}, quill::Quill};
 
 use super::CardSchema;
 

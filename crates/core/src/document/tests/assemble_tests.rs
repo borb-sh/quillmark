@@ -1584,7 +1584,7 @@ Card body here.
 
 #[test]
 fn test_to_plate_json_kindless_card_omits_kind() {
-    use crate::{Card, Payload};
+    use crate::document::{Card, Payload};
 
     let mut doc = Document::parse("~~~card-yaml\n$quill: my_quill\n$kind: main\n~~~\n\nBody.\n")
         .unwrap()

@@ -2,7 +2,7 @@
 use serde_json::json;
 
 use crate::quill::quill_from_yaml;
-use crate::{Document, SeedOverlay, Severity};
+use crate::{document::{Document, SeedOverlay}, error::Severity};
 
 fn overlay(value: serde_json::Value) -> SeedOverlay {
     SeedOverlay::from_json(&value).expect("overlay json must be an object")
@@ -69,7 +69,7 @@ fn seeded_document_round_trips_through_markdown() {
     let doc = quill.seed_document();
 
     let markdown = doc.to_markdown();
-    let reparsed = crate::Document::parse(&markdown)
+    let reparsed = crate::document::Document::parse(&markdown)
         .expect("seeded document must re-parse from its own markdown")
         .document;
 

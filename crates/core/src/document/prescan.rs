@@ -12,8 +12,8 @@
 //! dropped with a `parse::unsupported_yaml_tag` warning, value kept.
 
 use crate::value::PathSegment;
-use crate::Diagnostic;
-use crate::Severity;
+use crate::error::Diagnostic;
+use crate::error::Severity;
 
 /// One ordered hint extracted from the fence body. `Field` captures only the
 /// `fill` flag; the value comes from serde_saphyr. An inline `Comment`

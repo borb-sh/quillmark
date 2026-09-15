@@ -2,9 +2,10 @@
 //!
 //! `serde_saphyr` reports in YAML jargon and leaks its own Rust API names into
 //! advice, neither of which a caller can turn into a content edit. This module
-//! post-processes a parser error string plus the offending YAML into a sanitized
-//! message and an optional hint naming the concrete textual fix, both carried on
-//! the resulting [`crate::Diagnostic`] so every binding surfaces the same advice.
+//! post-processes a parser error string plus the offending YAML into a
+//! sanitized message and an optional hint naming the concrete textual fix, both
+//! carried on the resulting [`crate::error::Diagnostic`] so every binding
+//! surfaces the same advice.
 
 /// Output of [`enrich_yaml_error`]: a cleaned message plus an optional hint.
 #[derive(Debug, Clone)]

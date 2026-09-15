@@ -15,8 +15,12 @@ use form::FormSpec;
 use quillmark_core::quill::QuillConfig;
 use quillmark_core::session::SessionHandle;
 use quillmark_core::{
-    Artifact, Backend, ChangeSet, LiveSession, OutputFormat, Quill, RenderError, RenderOptions,
-    RenderResult, RenderedRegion,
+    backend::Backend,
+    error::{RenderError, RenderResult},
+    quill::Quill,
+    region::RenderedRegion,
+    session::{ChangeSet, LiveSession},
+    types::{Artifact, OutputFormat, RenderOptions},
 };
 use quillmark_pdf::regions_of;
 use quillmark_pdf::{stamp, FieldSpec, StampOptions};
@@ -147,7 +151,7 @@ impl SessionHandle for AcroformSession {
     fn render(&self, opts: &RenderOptions) -> Result<RenderResult, RenderError> {
         let format = opts.output_format.unwrap_or(OutputFormat::Pdf);
         if !SUPPORTED_FORMATS.contains(&format) {
-            return Err(quillmark_core::unsupported_format(
+            return Err(quillmark_core::backend::unsupported_format(
                 format,
                 "acroform",
                 SUPPORTED_FORMATS,
@@ -155,7 +159,7 @@ impl SessionHandle for AcroformSession {
         }
 
         if opts.pages.is_some() {
-            return Err(quillmark_core::page_selection_not_supported(format));
+            return Err(quillmark_core::backend::page_selection_not_supported(format));
         }
 
         Ok(RenderResult::new(
@@ -245,7 +249,7 @@ impl AcroformSession {
             return Ok(None);
         };
         let (width_pt, height_pt) = p.render_dimensions();
-        quillmark_core::check_raster(settings.x_scale, width_pt, height_pt)?;
+        quillmark_core::backend::check_raster(settings.x_scale, width_pt, height_pt)?;
         let cache = RenderCache::new();
         Ok(Some(hayro_render(p, &cache, interp, settings)))
     }

@@ -438,9 +438,9 @@ The wasm `render` feature pulls in `web-sys`, the generic canvas *painter*
   Folding backing-store math into the painter eliminates a class of "blurry on
   retina" bugs and lets the 16384-px clamp (`MAX_BACKING_DIMENSION`) live in one
   place. That number is the floor that works across browsers, and it is the side
-  of `quillmark_core::MAX_RASTER_PIXELS`, so a scale the core admits is one the
-  painter can paint. The painter reports the clamp on the result rather than
-  leaving a consumer to reconstruct it from the dimensions.
+  of `quillmark_core::backend::MAX_RASTER_PIXELS`, so a scale the core admits is
+  one the painter can paint. The painter reports the clamp on the result rather
+  than leaving a consumer to reconstruct it from the dimensions.
 - **Unpremultiplied RGBA on the wire.** Rasterizers produce premultiplied
   alpha; `ImageData` expects non-premultiplied. The backend unpremultiplies
   before handing back the buffer. One allocation per repaint; fine for edit

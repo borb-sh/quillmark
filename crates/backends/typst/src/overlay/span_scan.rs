@@ -27,7 +27,7 @@ use typst::utils::PicoStr;
 use typst::World;
 use typst_layout::PagedDocument;
 
-use quillmark_core::{ContentHit, HitGranularity, RenderedRegion};
+use quillmark_core::region::{ContentHit, HitGranularity, RenderedRegion};
 
 use crate::emit::SegmentMap;
 use crate::world::QuillWorld;
@@ -1311,7 +1311,7 @@ mod tests {
     use super::*;
     use crate::compile::compile_document;
     use crate::world::QuillWorld;
-    use quillmark_core::{FileTreeNode, Quill};
+    use quillmark_core::quill::{FileTreeNode, Quill};
     use std::collections::HashMap as Map;
     use typst::World;
 

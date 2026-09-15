@@ -66,11 +66,11 @@ pub enum EditError {
     #[error("invalid field name '{0}': must match [A-Za-z_][A-Za-z0-9_]*")]
     InvalidFieldName(String),
 
-    /// A typed write ([`TypedWriter::set`](crate::TypedWriter::set) /
-    /// [`CardWriter::set`](crate::CardWriter::set)) or a schema-bound read
-    /// addressed a well-formed name the bound schema does not declare (or a card
-    /// whose `$kind` carries no schema). A property an `object` field does not
-    /// declare is the same error one level down, `at` naming it. Use
+    /// A typed write ([`TypedWriter::set`](crate::writer::TypedWriter::set) /
+    /// [`CardWriter::set`](crate::writer::CardWriter::set)) or a schema-bound
+    /// read addressed a well-formed name the bound schema does not declare (or
+    /// a card whose `$kind` carries no schema). A property an `object` field
+    /// does not declare is the same error one level down, `at` naming it. Use
     /// [`Card::store_field`](Card::store_field) for opaque storage.
     #[error("field '{}' is not declared in the schema", render_at(.field, .at))]
     UnknownField {
@@ -132,13 +132,14 @@ pub enum EditError {
         message: String,
     },
 
-    /// A `Content` read ([`TypedReader::get_content`](crate::TypedReader::get_content))
-    /// addressed a field whose declared type is not a content *leaf*. The schema
-    /// answers before the payload is consulted, and the test is narrower than
-    /// the subtree walk: an `array<richtext>` carries content yet has no single
-    /// `Content`, so it lands here. Address one of its elements with
-    /// [`get_content_at`](crate::TypedReader::get_content_at), which raises this
-    /// in turn for a path that resolves to no content leaf.
+    /// A `Content` read
+    /// ([`TypedReader::get_content`](crate::reader::TypedReader::get_content))
+    /// addressed a field whose declared type is not a content *leaf*. The
+    /// schema answers before the payload is consulted, and the test is narrower
+    /// than the subtree walk: an `array<richtext>` carries content yet has no
+    /// single `Content`, so it lands here. Address one of its elements with
+    /// [`get_content_at`](crate::reader::TypedReader::get_content_at), which
+    /// raises this in turn for a path that resolves to no content leaf.
     #[error("field '{}' is declared '{declared}', which is not a content field", render_at(.field, .at))]
     FieldNotContent {
         field: String,
@@ -179,11 +180,11 @@ pub enum EditError {
     #[error("content apply failed: {0:?}")]
     ContentApply(ApplyError),
 
-    /// The card's item list violates an invariant of the list as a whole. A door
-    /// taking a whole payload at once ([`Card::try_from`] a
-    /// [`CardWire`](crate::CardWire)) reaches every variant; a field write
-    /// reaches [`PayloadViolation::TooManyFields`], the one invariant a caller
-    /// holding a `(name, value)` pair cannot check for itself.
+    /// The card's item list violates an invariant of the list as a whole. A
+    /// door taking a whole payload at once ([`Card::try_from`] a
+    /// [`CardWire`](crate::document::CardWire)) reaches every variant; a field
+    /// write reaches [`PayloadViolation::TooManyFields`], the one invariant a
+    /// caller holding a `(name, value)` pair cannot check for itself.
     #[error("{0}")]
     InvalidPayload(PayloadViolation),
 }
@@ -516,7 +517,7 @@ pub fn validate_payload(payload: &Payload) -> Result<(), PayloadViolation> {
 /// (`emit::project_content_field`). A nested node is emitted structurally, with
 /// no projection, so a marker there targets a scalar or a sequence.
 pub fn validate_fill_targets(
-    value: &crate::QuillValue,
+    value: &crate::value::QuillValue,
     fill: bool,
 ) -> Result<(), FieldViolation> {
     if fill
@@ -788,8 +789,8 @@ impl Document {
     /// card with no `$kind` is rejected as an invalid (empty) name.
     ///
     /// Positional, so it lives here rather than in `TryFrom<CardWire>`: a
-    /// [`CardWire`](crate::CardWire) is equally how the *main* card is read back
-    /// and rewritten, and carries no signal of which it is.
+    /// [`CardWire`](crate::document::CardWire) is equally how the *main* card
+    /// is read back and rewritten, and carries no signal of which it is.
     fn check_composable_placement(card: &Card) -> Result<(), EditError> {
         check_kind(card.kind().unwrap_or(""))?;
         if card.quill().is_some() {
@@ -868,8 +869,9 @@ impl Card {
 
     /// Store a payload field verbatim, clearing any `!must_fill` marker on that
     /// key. Coercion is deferred to render; contrast the typed
-    /// [`TypedWriter::set`](crate::TypedWriter::set). Scalars convert in place
-    /// (`store_field("qty", 3)`) via the `From` impls on [`QuillValue`].
+    /// [`TypedWriter::set`](crate::writer::TypedWriter::set). Scalars convert
+    /// in place (`store_field("qty", 3)`) via the `From` impls on
+    /// [`QuillValue`].
     ///
     /// Returns [`EditError::InvalidFieldName`] when `name` does not match
     /// `[A-Za-z_][A-Za-z0-9_]*`, and [`EditError::InvalidPayload`] when `name`
@@ -1020,7 +1022,8 @@ impl Card {
 
     /// The raw `$seed` map (keyed by card-kind), or `None`. For a parsed,
     /// per-kind overlay, index this map by kind and pass the entry to
-    /// [`crate::SeedOverlay::from_json`]. Only the main card carries `$seed`.
+    /// [`crate::document::SeedOverlay::from_json`]. Only the main card carries
+    /// `$seed`.
     pub fn seed(&self) -> Option<&serde_json::Map<String, serde_json::Value>> {
         self.payload().seed()
     }
@@ -1083,7 +1086,7 @@ impl Card {
     ///
     /// Richtext codec: a `plaintext` field rests as its literal string, so an
     /// object landed here departs that field's resting form until the next bound
-    /// load ([`Quill::conform`](crate::Quill::conform)) converges it.
+    /// load ([`Quill::conform`](crate::quill::Quill::conform)) converges it.
     pub fn overwrite_field(
         &mut self,
         name: &str,
@@ -1116,7 +1119,8 @@ impl Card {
     /// fails here. `null` passes through unchanged, under the null ≡ absent rule.
     ///
     /// The caller supplies `schema` because a [`Document`] holds only a `$quill`
-    /// *reference*; [`crate::TypedWriter`] resolves it per field and calls this.
+    /// *reference*; [`crate::writer::TypedWriter`] resolves it per field and
+    /// calls this.
     ///
     /// Returns [`EditError::InvalidFieldName`] for a malformed name,
     /// [`EditError::FieldDecode`] / [`EditError::FieldNotInline`]
@@ -1126,7 +1130,7 @@ impl Card {
     /// absent and the card is at the §8 field count.
     ///
     /// **Hidden**: the typed primitive, whose door is
-    /// [`Quill::writer`](crate::Quill::writer).
+    /// [`Quill::writer`](crate::quill::Quill::writer).
     #[doc(hidden)]
     pub fn commit_field(
         &mut self,
@@ -1185,8 +1189,8 @@ impl Card {
     /// **Richtext only**, and the exclusion bites: decoding a `plaintext` field's
     /// value as markdown eats its escapes (`a \*b\*` commits back as `a *b*`)
     /// and leaves a content object where that field rests as a string. The typed
-    /// [`TypedWriter::revise_field`](crate::TypedWriter::revise_field) resolves
-    /// the codec from the schema and is the plaintext-safe door.
+    /// [`TypedWriter::revise_field`](crate::writer::TypedWriter::revise_field)
+    /// resolves the codec from the schema and is the plaintext-safe door.
     ///
     /// Returns [`EditError::InvalidFieldName`] for a malformed name,
     /// [`EditError::FieldDecode`] when the field is present but is not a
@@ -1206,7 +1210,8 @@ impl Card {
     /// [`Delta`], and leaves the field unchanged on any error.
     ///
     /// **Hidden** on the same terms as [`commit_field`](Self::commit_field): its
-    /// door is [`TypedWriter::revise_field`](crate::TypedWriter::revise_field).
+    /// door is
+    /// [`TypedWriter::revise_field`](crate::writer::TypedWriter::revise_field).
     #[doc(hidden)]
     pub fn revise_field_checked(
         &mut self,
