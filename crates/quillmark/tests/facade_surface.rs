@@ -5,8 +5,8 @@
 use std::collections::HashMap;
 
 use quillmark::{
-    BoundParseError, CardReader, Document, EditError, FileTreeNode, Parsed, Quill, QuillReference,
-    QuillValue, TypedReader, TypedWriter,
+    BoundParseError, CardReader, Delta, Document, EditError, FileTreeNode, ImportError, Normalized,
+    Parsed, Quill, QuillReference, QuillValue, TypedReader, TypedWriter,
 };
 
 const QUILL: &str = r#"
@@ -103,6 +103,29 @@ fn typed_read_spells_through_the_facade() {
     assert_eq!(card.kind(), Some("note"));
     let body: Option<QuillValue> = card.get("body").expect("body is declared on `note`");
     assert_eq!(body.as_ref().and_then(|v| v.as_str()), Some("a *card*"));
+}
+
+#[test]
+fn content_lane_spells_through_the_facade() {
+    let quill = quill();
+    let md = "~~~\n$quill: facade_surface\n$kind: main\nsubject: Hello **world**\n~~~\n\n# Body\n";
+    let mut doc = quill.parse(md).expect("document matches the quill").document;
+
+    let body: &Normalized = doc.main().body();
+    assert_eq!(body.text, "Body", "the body rests as content, not as markdown");
+
+    let reader: TypedReader = quill.reader(&doc);
+    let read: Option<Normalized> = reader.get_content("subject").expect("subject is declared");
+    let subject: Normalized = read.expect("the parsed richtext field is present");
+    assert_eq!(subject.text, "Hello world", "the emphasis rides a mark, not the text");
+    assert_eq!(subject.marks.len(), 1);
+
+    let over_nested = "> ".repeat(200) + "deep";
+    let refusal: Result<Delta, EditError> = doc.main_mut().revise_body(over_nested);
+    let Err(EditError::Import(ImportError::NestingTooDeep { depth, max })) = refusal else {
+        panic!("markdown nested past the codec's limit is refused, not imported: {refusal:?}");
+    };
+    assert!(depth > max, "the refusal names the depth that passed the limit");
 }
 
 #[cfg(feature = "typst")]

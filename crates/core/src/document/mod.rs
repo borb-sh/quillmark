@@ -6,7 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use quillmark_content::import::{from_markdown as import_markdown, ImportError};
+use quillmark_content::import::from_markdown as import_markdown;
 use quillmark_content::model::Normalized;
 
 use crate::error::ParseError;
@@ -179,6 +179,8 @@ pub use dto::{
     peek_storage_version, StorageError, StoredDocument, STORAGE_V0_112_0, STORAGE_V0_93_0,
 };
 pub use edit::{CardMut, EditError};
+/// Carried by [`EditError::Import`], so nameable from here.
+pub use quillmark_content::import::ImportError;
 pub use meta::{is_valid_kind_name, validate_composable_kind, CardKindError};
 pub use payload::{MetaKey, Payload, PayloadItem};
 // Reachable through `Payload::nested_comments`, so nameable from here.

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- feat(core,quillmark): **`Normalized` and `ImportError` are nameable from core
+  and the facade.** `quillmark_content::model::Normalized` is what `Card::body`
+  returns, what `overwrite_body` / `overwrite_field` take on `Card` and
+  `CardMut`, what all four `get_content` / `get_content_at` answer in, and what
+  `dto::CanonicalContent` wraps; `quillmark_content::import::ImportError` is the
+  payload of `EditError::Import`. No crate on that path re-exported either, so a
+  consumer holding only `quillmark-core`, or only the facade, could bind what
+  those verbs return but not write the type, and could not destructure the
+  import refusal to read its depth. `Normalized` now sits beside the `Content`
+  re-export it completes and `ImportError` beside `EditError`, both reach the
+  facade, and `tests/facade_surface.rs` names them through the content lane.
+  What `quillmark-content` carries *inside* the types core forwards — `Mark`,
+  `Line`, `Island` and the enums they name — stays that crate's own surface.
+  Closes #1790.
 - refactor(pdf,acroform)!: **a stamped widget draws its own value, so the second
   PDF goes.** A widget carried `/NeedAppearances` and no appearance stream, so
   the value reached only a viewer that synthesizes one and a flat rasterizer

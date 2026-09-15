@@ -34,10 +34,10 @@
 pub use quillmark_core::{
     Artifact, Backend, BoundParseError, Card, CardReader, CardSchema, ChangeBundle, ChangeSet,
     Content, ContentHit, Delta, Diagnostic, Document, EditError, FieldSchema, FieldType,
-    FileTreeNode, HitGranularity, LiveSession, Location, OutputFormat, ParseError, Parsed,
-    PathSegment, Quill, QuillConfig, QuillIgnore, QuillReference, QuillValue, RenderError,
-    RenderOptions,
-    RenderResult, RenderedRegion, Severity, TypedReader, TypedWriter, ValidationError,
+    FileTreeNode, HitGranularity, ImportError, LiveSession, Location, Normalized, OutputFormat,
+    ParseError, Parsed, PathSegment, Quill, QuillConfig, QuillIgnore, QuillReference, QuillValue,
+    RenderError, RenderOptions, RenderResult, RenderedRegion, Severity, TypedReader, TypedWriter,
+    ValidationError,
 };
 
 mod load;
