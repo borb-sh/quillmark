@@ -519,7 +519,7 @@ empty document (`quiver_test.rs::every_quill_renders_an_empty_document`) and, fo
 the `blueprint()` guarantee above, parse, round-trip, and render each quill's
 generated blueprint (`quiver_test.rs::every_quill_blueprint_round_trips_and_renders`).
 
-## The blueprint and its filled-out twin
+## The blueprint, its filled-out twin, and the authored one
 
 The blueprint is the **one** annotated reference document. Its "show me a
 filled-out one" counterpart is **seeding**, which materializes a real
@@ -531,6 +531,7 @@ content, not prose.
 |---|---|---|---|---|
 | `blueprint` | *"give me the form to fill"* | value: `default:` › `example:` › bare; marker: the derived `must_fill` | annotated string | yes (`!must_fill`) |
 | seeding | *"give me a filled-out one"* | `example:` › absent | committed `Document` | no |
+| `quill.example` | *"show me a real one"* | none: the author wrote it | authored markdown | no |
 
 The **blueprint** column is this doc's contract (above). The **seeding**
 column: value precedence `example: → absent`, with `default:`/`blank` deferred
@@ -539,14 +540,26 @@ seeding"; a seeded document renders each field's `example:` where present, else
 the render floor's `default: → blank` (`blank`, [SCHEMAS.md](SCHEMAS.md)
 § "Blank-filled render").
 
+The first two rows are **generated from the schema**, so they cannot drift from
+it and carry the guarantees below by construction. The third is **authored**:
+it is the one projection that can drift, and it buys with that risk the
+whole-document facts a per-cell declaration cannot state — which fields answer
+each other, how many cards of a kind a real document runs to, a body at the
+plate's scale. It is owned by [QUILL.md](QUILL.md) § "The Example Document",
+which also states what holds it to the schema.
+
+The rows do not substitute for one another. An LLM authoring loop fills the
+blueprint; the example is what it reads first to learn what filling it well
+looks like.
+
 ## Bindings surface
 
 | Binding | Accessor |
 |---|---|
-| Rust | `QuillConfig::blueprint() -> String`; the filled-out twin is `Quill::seed_document() -> Document` |
-| Wasm | `Quill.blueprint` getter; `Quill.seedDocument()` |
-| Python | `Quill.blueprint` property; `Quill.seed_document()` |
-| CLI | `quillmark blueprint <QUILL_PATH>`; `render` with no input file renders the **seeded** document |
+| Rust | `QuillConfig::blueprint() -> String`; the filled-out twin is `Quill::seed_document() -> Document`; the authored one is `Quill::example() -> Option<&str>` |
+| Wasm | `Quill.blueprint` getter; `Quill.seedDocument()`; `Quill.example` getter |
+| Python | `Quill.blueprint` property; `Quill.seed_document()`; `Quill.example` property |
+| CLI | `quillmark blueprint <QUILL_PATH>`; `quillmark example <QUILL_PATH>`; `render` with no input file renders the **seeded** document |
 
 The Rust example `cargo run -p quillmark-core --example print_blueprint
 -- <quill_name> [<version>]` prints the blueprint for any bundled

@@ -12,11 +12,18 @@
 //! under a `!must_fill` marker. The seed carries one card per declared kind,
 //! commits every `example:` at its resting form, and omits every defaulted
 //! field.
+//!
+//! A fourth document is authored rather than generated: the example a quill
+//! declares under `quill.example`. The three above cannot drift from the
+//! schema, because the schema emits them; an example can, so it is swept the
+//! hardest — the sweep is the whole reason the file is safe to ship.
 
 #![cfg(feature = "typst")]
 
 use quillmark::{Document, OutputFormat, Quill, Quillmark, RenderOptions};
+use quillmark_core::version::{Version, VersionSelector};
 use quillmark_fixtures::{quill_names, quills_path};
+use std::str::FromStr;
 use std::sync::LazyLock;
 
 static ENGINE: LazyLock<Quillmark> = LazyLock::new(Quillmark::new);
@@ -111,4 +118,84 @@ fn every_quill_renders_its_seed_document() {
             "{name} rendered no {format:?} bytes"
         );
     }
+}
+
+/// A declared example is the quill's own worked instance, so it is held to
+/// everything a reader takes it for: it parses clean, it pins this quill at
+/// this version, it answers every obligation the schema states, and it renders
+/// through the quill's own template. An example failing any of these teaches a
+/// shape the quill no longer accepts, which is worse than shipping none.
+///
+/// The file is optional and a quill declaring none is skipped, so the sweep
+/// asserts it saw at least one: a quiver that stopped declaring examples would
+/// otherwise pass by vacuum.
+#[test]
+fn every_declared_example_binds_validates_and_renders() {
+    let mut swept = 0;
+    for (name, quill) in QUIVER.iter() {
+        let Some(example) = quill.example() else {
+            continue;
+        };
+        swept += 1;
+        let config = quill.config();
+
+        let parsed = Document::parse(example).unwrap_or_else(|e| {
+            panic!("quill '{name}' example failed to parse: {e:?}\n---\n{example}")
+        });
+        assert!(
+            parsed.warnings.is_empty(),
+            "quill '{name}' example parsed with warnings: {:?}",
+            parsed.warnings
+        );
+        let doc = parsed.document;
+
+        let reference = doc
+            .main()
+            .quill()
+            .unwrap_or_else(|| panic!("quill '{name}' example carries no `$quill` line"));
+        assert_eq!(
+            reference.name, config.name,
+            "quill '{name}' example binds to a different quill"
+        );
+        let version = Version::from_str(&config.version).expect("a loaded quill's version parses");
+        assert_eq!(
+            reference.selector,
+            VersionSelector::Exact(version),
+            "quill '{name}' example must pin `$quill: {}@{}` exactly: an example documents one \
+             version's shape, and a loose or stale selector is how it outlives it",
+            config.name,
+            config.version
+        );
+
+        let diags = quill.validate(&doc);
+        assert!(
+            diags.is_empty(),
+            "quill '{name}' example must validate clean; a `!must_fill` marker or unanswered \
+             obligation means it is a blueprint, not an example: {diags:?}"
+        );
+
+        let format = ENGINE
+            .supported_formats(quill)
+            .unwrap_or_else(|e| panic!("{name}'s backend should resolve: {e:?}"))
+            .first()
+            .copied()
+            .unwrap_or_else(|| panic!("{name}'s backend declares no output format"));
+        let rendered = ENGINE
+            .render(
+                quill,
+                &doc,
+                &RenderOptions::default().with_output_format(format),
+            )
+            .unwrap_or_else(|e| {
+                panic!("quill '{name}' example failed to render: {e:?}\n---\n{example}")
+            });
+        assert!(
+            rendered.artifacts.first().is_some_and(|a| !a.bytes.is_empty()),
+            "quill '{name}' example rendered no {format:?} bytes"
+        );
+    }
+    assert!(
+        swept > 0,
+        "no fixture quill declares `quill.example`; this sweep proves nothing"
+    );
 }

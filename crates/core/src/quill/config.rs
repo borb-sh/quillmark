@@ -68,6 +68,11 @@ pub struct QuillConfig {
     /// selector a document's `$quill` carries.
     pub version: String,
     pub author: String,
+    /// `quill.example`: the bundle-relative path of the authored example
+    /// document. [`Quill::example`](crate::quill::Quill::example) reads it back
+    /// as markdown; the load refuses a path naming no UTF-8 file.
+    #[serde(default)]
+    pub example: Option<String>,
     /// The top-level YAML section whose key matches `backend`.
     #[serde(default)]
     pub backend_config: HashMap<String, QuillValue>,
@@ -90,6 +95,7 @@ impl QuillConfig {
             backend,
             version,
             author: String::new(),
+            example: None,
             backend_config: HashMap::new(),
         }
     }
@@ -1587,8 +1593,9 @@ impl QuillConfig {
             }
         };
 
-        const KNOWN_QUILL_KEYS: &[&str] =
-            &["name", "backend", "description", "version", "author", "ui"];
+        const KNOWN_QUILL_KEYS: &[&str] = &[
+            "name", "backend", "description", "version", "author", "example", "ui",
+        ];
         if let Some(quill_obj) = quill_section.as_object() {
             for key in quill_obj.keys() {
                 if !KNOWN_QUILL_KEYS.contains(&key.as_str()) {
@@ -1736,6 +1743,27 @@ impl QuillConfig {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .unwrap_or_else(|| "Unknown".to_string());
+
+        let example = match quill_section.get("example") {
+            None => None,
+            Some(v) => match v.as_str().map(str::trim).filter(|s| !s.is_empty()) {
+                Some(path) => Some(path.to_string()),
+                None => {
+                    errors.push(
+                        Diagnostic::new(
+                            Severity::Error,
+                            "'quill.example' must be a non-empty path string".to_string(),
+                        )
+                        .with_code("quill::invalid_example".to_string())
+                        .with_hint(
+                            "Write 'example: example.md', naming a markdown file in the bundle."
+                                .to_string(),
+                        ),
+                    );
+                    None
+                }
+            },
+        };
 
         let ui_hint = format!(
             "Valid keys under 'ui' are: {}.",
@@ -2014,6 +2042,7 @@ impl QuillConfig {
                 backend,
                 version,
                 author,
+                example,
                 backend_config,
             },
             warnings,

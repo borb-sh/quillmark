@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- feat(core,bindings)!: **a quill can ship an example document.** `quill.example:
+  <path>` in `Quill.yaml` names a markdown file in the bundle: one worked
+  instance of that quill, written by hand, read back verbatim through
+  `Quill::example() -> Option<&str>` (`quill.example` in WASM and Python,
+  `quillmark example <QUILL_PATH>` on the CLI). A quill's three existing
+  documents — the empty one, the blueprint, the seed — are all generated from
+  `Quill.yaml`, which is what makes them free of drift and what bounds them: the
+  schema speaks one cell at a time, so none of them can show fields answering
+  each other, more than one card of a kind, or a body at the plate's scale. A
+  document is the only place a whole-document fact lives, and an author is the
+  only one who can write it. The key is optional; the load resolves the declared
+  path and stops there (`quill::example_missing` /
+  `quill::example_invalid_utf8` / `quill::invalid_example`), leaving the content
+  uninterpreted so the bytes reach a reader as their author spelled them rather
+  than re-emitted in `to_markdown`'s canonical form. What holds an example to the
+  quill is a sweep, not the loader: `quiver_test.rs` parses each declared
+  example, requires it to pin `$quill: <name>@<version>` exactly, to validate
+  with no diagnostic at all, and to render — the bar a bundled example is held
+  to, and the one a third-party quill applies with the same three public calls.
+  `usaf_memo` and `taro` ship one. `quillmark info` reports the declared path.
+  **Breaking, Rust only:** `QuillConfig` gains a public `example:
+  Option<String>` field, so a struct literal over it needs `example: None`
+  (`QuillConfig::new` is unchanged, and `#[serde(default)]` keeps stored
+  configs loading). See `docs/migrations/0.112-to-0.113.md`.
+
 - fix(core)!: **a quill declaring more fields than a card carries is refused at
   load.** `MAX_FIELD_COUNT` (1000) bounds one card-yaml block and every
   incremental field write charges it, but `Quill::seed_document` and

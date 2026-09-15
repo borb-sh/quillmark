@@ -100,6 +100,37 @@ quillmark blueprint ./my-quill
 quillmark blueprint ./my-quill > blueprint.md
 ```
 
+### example
+
+Print the example document a quill ships under `quill.example`: one worked
+instance of that quill, written by its author. Where `blueprint` prints the form
+to fill, `example` prints a finished document — the shape a good one takes, with
+its fields answering each other and its cards and body at real scale.
+
+```bash
+quillmark example <QUILL_PATH>
+```
+
+**Arguments:**
+
+- `<QUILL_PATH>`: Path to quill directory
+
+The bytes are the bundle's own, so the output re-renders through the quill as-is.
+A quill declaring no example exits `1` with a message pointing at `blueprint`.
+
+**Examples:**
+
+```bash
+# Print the example document
+quillmark example ./my-quill
+
+# Start a new document from it
+quillmark example ./my-quill > draft.md
+
+# Render it
+quillmark example ./my-quill > draft.md && quillmark render ./my-quill draft.md
+```
+
 ### validate
 
 Validate quill configuration and structure.

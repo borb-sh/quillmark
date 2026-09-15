@@ -1,4 +1,5 @@
 pub mod blueprint;
+pub mod example;
 pub mod info;
 pub mod render;
 pub mod schema;

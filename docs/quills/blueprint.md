@@ -1,6 +1,6 @@
-# Blueprint & Seeding
+# Blueprint, Seeding & Examples
 
-A quill's schema yields two ready-made documents: a **blueprint** (an annotated form to fill) and a **seed** (a filled-out starter). Both come from `Quill.yaml` alone: no one hand-writes them.
+A quill's schema yields two ready-made documents: a **blueprint** (an annotated form to fill) and a **seed** (a filled-out starter). Both come from `Quill.yaml` alone: no one hand-writes them. A quill may also ship a third, the **example**, which is the one someone did hand-write.
 
 ## Blueprint: the authoring surface
 
@@ -35,14 +35,31 @@ Seeding materializes a real `Document` (committed, structured content) rather th
 | `blueprint` | "give me the form to fill" | annotated Markdown string |
 | seeding | "give me a filled-out one" | committed `Document` |
 
+## The example: the authored one
+
+A quill may declare `quill.example: <path>`, naming a markdown document in its own bundle. Unlike the two above it is written by hand, and read back exactly as written.
+
+Hand-written is the point. The schema speaks one cell at a time, so a blueprint and a seed can only ever say what each field holds in isolation. A document is the only place a whole-document fact can live:
+
+- fields that **answer each other** — a subject line that matches its body, a signature block that matches its sender;
+- **more than one card of a kind**, which is where a template's ordinals, running order, and separators become visible at all;
+- a **body at real scale**, long enough to exercise numbering, nesting, and page breaks;
+- the **house idiom** a field's `description` can prescribe but not demonstrate.
+
+An example carries no `!must_fill` markers and answers every obligation: it is a finished document, not a form. Pair it with the blueprint rather than choosing between them — an LLM that reads the example and fills the blueprint does better than one given either alone.
+
+Ship one only if you will keep it true. It must parse, pin `$quill: <name>@<version>` exactly, validate clean, and render; a stale example teaches a shape the quill no longer accepts. See [Creating Quills](creating-quills.md#6-ship-an-example).
+
 ## Accessors
 
-| | Blueprint | Seed |
-|---|---|---|
-| Python | `quill.blueprint` | `quill.seed_document()` |
-| JavaScript | `quill.blueprint` | `quill.seedDocument()` |
-| Rust | `QuillConfig::blueprint()` | `Quill::seed_document()` |
-| CLI | `quillmark blueprint <quill>` | `quillmark render <quill>` (no input file) |
+| | Blueprint | Seed | Example |
+|---|---|---|---|
+| Python | `quill.blueprint` | `quill.seed_document()` | `quill.example` |
+| JavaScript | `quill.blueprint` | `quill.seedDocument()` | `quill.example` |
+| Rust | `QuillConfig::blueprint()` | `Quill::seed_document()` | `Quill::example()` |
+| CLI | `quillmark blueprint <quill>` | `quillmark render <quill>` (no input file) | `quillmark example <quill>` |
+
+The example accessors answer `None` / `undefined` for a quill that declares none.
 
 ## The empty-document contract
 

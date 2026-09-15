@@ -173,6 +173,18 @@ impl PyQuill {
         self.inner.config().blueprint()
     }
 
+    /// The example document this quill ships under `quill.example`, as its
+    /// author wrote it; `None` when the quill declares none.
+    ///
+    /// Authored rather than generated, so it carries what no per-field
+    /// declaration can: which fields answer each other, how many cards of a
+    /// kind a real document runs to, and a body at the plate's scale. Pair it
+    /// with `blueprint` — the form to fill — rather than in place of it.
+    #[getter]
+    fn example(&self) -> Option<String> {
+        self.inner.example().map(str::to_string)
+    }
+
     /// Validate `doc` against this quill's schema, returning a list of diagnostic
     /// dicts (empty when the document is valid). Forwards the canonical
     /// `validation::*` diagnostics the engine emits, including the non-fatal

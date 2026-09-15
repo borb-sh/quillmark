@@ -42,11 +42,40 @@ Every Quill.yaml must have a `quill` section with format metadata.
 | `description`    | string | yes      | Human-readable description of the quill itself (non-empty). Independent of `main.description`, which is the optional schema description authored under `main:`. |
 | `version`        | string | yes      | Semantic version (`MAJOR.MINOR` or `MAJOR.MINOR.PATCH`) |
 | `author`         | string | no       | Creator of the Quill (defaults to `"Unknown"`) |
+| `example`        | string | no       | Bundle-relative path to an example document (see [`example`](#example)) |
 | `ui`             | object | no       | Document-level UI metadata |
 
 A backend's own settings live under its backend-named section, not in `quill:`.
 The Typst template, for example, is declared as `typst.plate_file` (see the
 [`typst` Section](#typst-section) below).
+
+### `example`
+
+`quill.example` names a markdown document in the bundle: one worked instance of
+this quill, written by hand.
+
+```yaml
+quill:
+  name: usaf_memo
+  version: "0.2.0"
+  backend: typst
+  description: U.S. Air Force and Space Force Official Memorandum
+  example: example.md
+```
+
+It is read back verbatim — `quillmark example <quill_dir>` on the CLI,
+`quill.example` in Python and JS — and is the one thing in a bundle that shows
+what a *finished* document of this quill looks like. The blueprint shows the
+form to fill and per-field `example:` values show each cell's shape; neither can
+show fields answering each other, three cards of one kind in a row, or a body
+long enough to exercise the template's numbering and page breaks.
+
+Hold it to the same bar as the quill: it must parse, pin `$quill:
+<name>@<version>` exactly, validate clean (no `!must_fill` left, every
+must-fill field answered), and render. A stale example teaches a shape the quill
+no longer accepts, which is worse than shipping none — so either test it in CI
+or leave the key out. The path is resolved when the quill loads: one naming no
+file in the bundle is a load error, not a silently absent example.
 
 ```yaml
 quill:

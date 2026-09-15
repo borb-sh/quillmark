@@ -3,6 +3,7 @@ quill:
   version: 0.1.0
   backend: typst
   description: A simple document template for testing
+  example: example.md
 
 typst:
   plate_file: plate.typ

@@ -80,6 +80,51 @@ describe('@quillmark/wasm/core surface', () => {
     expect(Array.isArray(diags)).toBe(true)
   })
 
+  it('example is undefined until the quill declares one, then the authored bytes', () => {
+    expect(Quill.fromTree(makeCoreQuill()).example).toBeUndefined()
+
+    const yaml = `quill:
+  name: example_core
+  version: "1.0.0"
+  backend: typst
+  description: Example document smoke test
+  example: example.md
+main:
+  fields:
+    title:
+      type: string
+`
+    const md = `~~~\n$quill: example_core@1.0.0\n$kind: main\ntitle: Worked instance\n~~~\n\nBody prose.\n`
+    const quill = Quill.fromTree(
+      new Map([
+        ['Quill.yaml', enc.encode(yaml)],
+        ['example.md', enc.encode(md)],
+      ])
+    )
+
+    // Verbatim: the author's own bytes, not a re-emission of a parsed document.
+    expect(quill.example).toBe(md)
+    // The bound door: an example binds to its own quill and validates clean.
+    expect(quill.validate(quill.parse(quill.example))).toEqual([])
+  })
+
+  it('a declared example naming no file refuses the load', () => {
+    const yaml = `quill:
+  name: missing_example
+  version: "1.0.0"
+  backend: typst
+  description: Missing example
+  example: nope.md
+main:
+  fields:
+    title:
+      type: string
+`
+    expect(() => Quill.fromTree(new Map([['Quill.yaml', enc.encode(yaml)]]))).toThrow(
+      /quill.example names no file/
+    )
+  })
+
   it('seedCard layers a $seed overlay over the schema example', () => {
     const yaml = `quill:
   name: seed_core

@@ -218,6 +218,12 @@ To render a form editor, read field definitions from `quill.schema` (walk
 values from the `Document` payload: there is no separate form-view projection.
 `quill.validate(doc)` scores it without invoking the backend.
 
+`quill.example` is the quill's own worked document where it ships one
+(`undefined` otherwise): authored markdown, read back as written. It is the one
+projection showing a *finished* document — fields answering each other, several
+cards of a kind, a body at the template's scale — where `quill.blueprint` shows
+the form to fill. Feed an LLM both.
+
 `quill.seedDocument()` returns a starter document with each field's `example:`
 committed; `quill.seedMain()` and `quill.seedCard(kind)` seed one card. All
 return the read `Card` shape of `doc.main` / `doc.cards`, which `doc.insertCard`

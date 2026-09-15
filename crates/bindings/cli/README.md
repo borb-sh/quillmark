@@ -53,6 +53,12 @@ Prints the quill's field schema as YAML.
 Prints an annotated Markdown blueprint: a starting document with every declared
 field, `!must_fill` where a value is expected.
 
+### `quillmark example <QUILL_PATH>`
+
+Prints the example document the quill ships under `quill.example`, verbatim: a
+finished document rather than a form to fill. Exits 1 where the quill declares
+none.
+
 ### `quillmark validate <QUILL_PATH> [-v]`
 
 Checks the quill's configuration: `Quill.yaml` parse errors, `example:`/`default:`
@@ -63,7 +69,8 @@ invalid.
 ### `quillmark info <QUILL_PATH>`
 
 Prints the quill's identity — name, version, author, backend — and its field,
-card and defaults counts.
+card and defaults counts, plus the declared example path where the quill ships
+one.
 
 ## Exit codes
 

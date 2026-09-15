@@ -626,6 +626,18 @@ impl Quill {
         self.inner.config().blueprint()
     }
 
+    /// The example document this quill ships under `quill.example`, as its
+    /// author wrote it; `undefined` when the quill declares none.
+    ///
+    /// Authored rather than generated, so it carries what no per-field
+    /// declaration can: which fields answer each other, how many cards of a
+    /// kind a real document runs to, and a body at the plate's scale. Pair it
+    /// with `blueprint` — the form to fill — rather than in place of it.
+    #[wasm_bindgen(getter, js_name = example)]
+    pub fn example(&self) -> Option<String> {
+        self.inner.example().map(str::to_string)
+    }
+
     /// Document schema for the quill: the user-fillable fields plus their `ui`
     /// hints. Key order in `fields`/`properties` is declaration order, the
     /// ordering contract.

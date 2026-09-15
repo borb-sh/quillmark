@@ -155,7 +155,7 @@ Everything needing no instance stays a static export, unawaited: `MAIN_CARD_ADDR
 
 The two constructors taking no handle reach no wasm: `new Engine()` validates a descriptor map, and a `LiveSession` forwards to the backend session `engine.open` is the sole source of. None of the six carries a static method, the one member shape an argument cannot gate. `gate.test.js` is the executable guard, driving the whole static surface before `init`.
 
-Ships **multiple artifacts from one crate** behind a single public root export. The root `@quillmark/wasm` is a hand-written **canonical runtime layer** that hands out the internal Typst-less **core** build's `Document` + `Quill` (load / validate / schema / seed / blueprint) verbatim and adds an `Engine` render dispatcher.
+Ships **multiple artifacts from one crate** behind a single public root export. The root `@quillmark/wasm` is a hand-written **canonical runtime layer** that hands out the internal Typst-less **core** build's `Document` + `Quill` (load / validate / schema / seed / blueprint / example) verbatim and adds an `Engine` render dispatcher.
 
 The **render** build, carrying both backends (Typst and acroform), is a **private** build with its own linear memory, lazily loaded on the first render: there is no public `/core` or `/render` subpath. Core is small and eager; the render build is megabytes (Typst dominates) and loads only when something renders. `scripts/build-wasm.sh` enforces core's gzip ceiling, failing the build when Typst leaks back into the no-features build.
 

@@ -34,5 +34,9 @@ pub fn execute(args: InfoArgs) -> Result<()> {
         println!("  {:<12} {}", "Defaults:", defaults_count);
     }
 
+    if let Some(path) = &config.example {
+        println!("  {:<12} {}", "Example:", path);
+    }
+
     Ok(())
 }

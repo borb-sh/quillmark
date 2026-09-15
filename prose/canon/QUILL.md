@@ -84,17 +84,80 @@ Field names must be `snake_case` (match `[a-z][a-z0-9_]*`). Capitalized or `$`-p
 Identity resolution:
 - `name`, `description`, `backend`, `version`, `author` are direct struct fields on `QuillConfig`. `description` (required, non-empty in the `quill:` section) describes the quill itself; it is independent of `QuillConfig.main.description`, which is the optional schema description authored under `main:` like any other card kind.
 - The `quill:` section accepts only `name`, `backend`, `description`, `version`,
-  `author`, and `ui`; an unknown key is a `quill::unknown_key` error. A
+  `author`, `example`, and `ui`; an unknown key is a `quill::unknown_key` error. A
   backend's own settings (e.g. the Typst plate) live under the backend-named
   section, never in `quill:`, and reach a backend as
   `QuillConfig::backend_config`.
 - `quill.ui` (a `UiCardSchema`, same shape as `card_kinds.<name>.ui`) is a fallback for `main.ui`: the `main` card uses `main.ui` when present, otherwise `quill.ui`.
+- `quill.example` names the bundle's [example document](#the-example-document).
+
+## The Example Document
+
+`quill.example` is an optional bundle-relative path to a markdown document the
+quill's author wrote: one worked instance of this quill, shipped with it.
+`Quill::example() -> Option<&str>` reads it back.
+
+It is the **one bundle file core itself resolves**. The restraint that keeps a
+backend's plate unread at load (core stays backend-agnostic) does not reach
+here: an example is a document, a shape core owns end to end.
+
+Resolution only. The load establishes that the declared path names a UTF-8 file
+and stops there:
+
+| Spelling | Outcome |
+|---|---|
+| no `example:` key | `Quill::example()` is `None` |
+| a path naming a UTF-8 file | `Quill::example()` is that file's text, byte for byte |
+| a path naming nothing, a directory, or reaching outside the bundle (`..`, absolute) | `quill::example_missing` |
+| a path naming a non-UTF-8 file | `quill::example_invalid_utf8` |
+| an empty or non-string value | `quill::invalid_example` |
+
+The **content** is never interpreted at load: core does not parse it, bind it,
+or validate it against the schema. Those are three public calls on the document
+pipeline (`Document::parse`, the `$quill` reference it carries, and
+`Quill::validate`), and a quiver holds its own examples to them
+(`quiver_test.rs::every_declared_example_binds_validates_and_renders`) rather
+than the loader holding every consumer to them.
+
+The bytes are handed back **unaltered** rather than re-emitted through
+`Document::to_markdown`. An example is read for how its author wrote it — a
+`|-` block scalar, a chosen field order, prose line breaks — and re-emission
+would answer with the canonical spelling instead (see
+[BLUEPRINT.md](BLUEPRINT.md) § "One emitter, by construction" for what those
+choices are). The generated projections gain their guarantees from that
+emitter; the example trades them for authorship.
+
+### What it carries that the schema cannot
+
+The generated projections are per-cell, built field by field from
+`Quill.yaml`. An example is a document, which is the only place a
+whole-document fact can live:
+
+- **Cross-field coherence.** An `example:` on one field knows nothing about the
+  next one's; a document's fields answer each other.
+- **Card multiplicity.** Seeding emits one card per declared kind and the
+  blueprint one sample block under `# composable (0..N)`, so a plate's
+  behavior *across* instances — an ordinal, a running order, a separator —
+  is invisible until a document runs to several.
+- **Body at the plate's scale.** `body.example` is a snippet; a plate's
+  numbering, nesting and page breaks show up over a real body.
+- **House idiom.** What a field's `description` prescribes, the example
+  demonstrates.
+
+An example answers every must-fill cell, so it carries no `!must_fill` marker
+and validates clean: that is what makes it an example rather than a second
+blueprint, and it is a contract on its author rather than something the loader
+establishes (the sweep above is where it is held). The three projections and
+their intents are tabulated in
+[BLUEPRINT.md](BLUEPRINT.md) § "The blueprint, its filled-out twin, and the
+authored one".
 
 ## Strict Parsing
 
 `Quill.yaml` is parsed strictly: every problem the parser can detect is collected and reported in one pass as a `Vec<Diagnostic>`, rather than failing on the first error or silently dropping unsupported shapes. Specifically:
 
 - Unknown keys in the `quill:` section error with `quill::unknown_key` (typos like `platefile` are not silently captured).
+- A `quill.example` that is not a non-empty string errors with `quill::invalid_example`; one naming no UTF-8 file in the bundle errors with `quill::example_missing` / `quill::example_invalid_utf8` (see [The Example Document](#the-example-document)).
 - Unknown top-level sections error with `quill::unknown_section` (typos like `card_kind:` are not silently ignored). Root-level `fields:` gets a targeted hint pointing to `main.fields:`.
 - `main:` and each `card_kinds.<name>:` entry parse under one card-schema shape, which accepts `description`, `fields`, `ui`, and `body` only: a section that is not a mapping, an unknown key (`feilds:`), or a `fields:` that is not a mapping errors with `quill::invalid_card_schema` rather than loading as a card with no fields. A `card_kinds:` that is not a mapping errors with `quill::invalid_card_kinds`.
 - Field schemas that fail to parse (e.g. a bare `title:`, missing `type:`) error with `quill::field_parse_error` and an actionable hint where applicable, rather than being dropped from the schema.
@@ -126,6 +189,10 @@ through the `Quillmark` engine (`engine.render` / `engine.open`).
 Advisory diagnostics ride the loaded quill rather than the constructor's return
 value, so both doors keep them and a host reads them when it likes:
 `Quill::warnings()`, `quill.warnings` in WASM and Python.
+
+`Quill::example()` reads the declared example document back as `Option<&str>`;
+bindings expose it as `quill.example` (WASM and Python) and
+`quillmark example <QUILL_PATH>` (CLI).
 
 `FileTreeNode` exposes the file and directory reads over the bundle. Paths use
 forward slashes, the root is `""`, absolute paths and `..` traversal are

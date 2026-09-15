@@ -25,6 +25,9 @@ enum Commands {
     /// Output the annotated Markdown blueprint for a quill
     Blueprint(commands::blueprint::BlueprintArgs),
 
+    /// Output the example document a quill ships, verbatim
+    Example(commands::example::ExampleArgs),
+
     /// Validate a quill's configuration (including defaults)
     Validate(commands::validate::ValidateArgs),
 
@@ -39,6 +42,7 @@ fn main() {
         Commands::Render(args) => commands::render::execute(args),
         Commands::Schema(args) => commands::schema::execute(args),
         Commands::Blueprint(args) => commands::blueprint::execute(args),
+        Commands::Example(args) => commands::example::execute(args),
         Commands::Validate(args) => commands::validate::execute(args),
         Commands::Info(args) => commands::info::execute(args),
     };

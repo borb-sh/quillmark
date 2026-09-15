@@ -37,6 +37,33 @@ impl Quill {
 
         let (config, warnings) = QuillConfig::from_yaml_with_warnings(&quill_yaml_content)?;
 
+        // The one bundle file core itself resolves at load: a declared example
+        // names a markdown document, not a backend asset, so core can hold it
+        // to its word. Reading it here is what makes `Quill::example` total.
+        if let Some(path) = &config.example {
+            match root.get_file(path) {
+                None => {
+                    return Err(vec![diag(
+                        format!("quill.example names no file in the bundle: '{}'", path),
+                        "quill::example_missing",
+                    )
+                    .with_hint(
+                        "Use a bundle-relative path (no leading '/' and no '..'), \
+                         e.g. 'example.md'."
+                            .to_string(),
+                    )])
+                }
+                Some(bytes) => {
+                    if let Err(e) = std::str::from_utf8(bytes) {
+                        return Err(vec![diag(
+                            format!("quill.example file '{}' is not valid UTF-8: {}", path, e),
+                            "quill::example_invalid_utf8",
+                        )]);
+                    }
+                }
+            }
+        }
+
         Ok(Quill {
             config,
             files: root,

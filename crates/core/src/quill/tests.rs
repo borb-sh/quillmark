@@ -1756,6 +1756,161 @@ quill:
     assert!(err[0].hint.as_deref().unwrap_or("").contains("author"));
 }
 
+/// `quill.example` is a declaration core resolves at load: the one bundle file
+/// it reads beyond `Quill.yaml`, because the file is a document rather than a
+/// backend asset.
+mod example_document {
+    use super::*;
+
+    const EXAMPLE_YAML: &str = r#"
+quill:
+  name: with_example
+  version: "1.0.0"
+  backend: typst
+  description: Declares an example document
+  example: example.md
+main:
+  fields:
+    title:
+      type: string
+"#;
+
+    const EXAMPLE_MD: &str = "~~~\n$quill: with_example@1.0.0\n$kind: main\ntitle: A worked one\n~~~\n\nBody prose.\n";
+
+    fn tree(yaml: &str, example: Option<(&str, Vec<u8>)>) -> FileTreeNode {
+        let mut files = HashMap::new();
+        files.insert(
+            "Quill.yaml".to_string(),
+            FileTreeNode::File {
+                contents: yaml.as_bytes().to_vec(),
+            },
+        );
+        if let Some((path, contents)) = example {
+            files.insert(path.to_string(), FileTreeNode::File { contents });
+        }
+        FileTreeNode::Directory { files }
+    }
+
+    fn load_err(yaml: &str, example: Option<(&str, Vec<u8>)>) -> Vec<Diagnostic> {
+        Quill::from_tree(tree(yaml, example)).expect_err("load should be refused")
+    }
+
+    /// The accessor hands back the bundle's bytes unchanged: an example is read
+    /// for the author's own formatting, so nothing re-emits it.
+    #[test]
+    fn reads_back_verbatim() {
+        let quill = Quill::from_tree(tree(
+            EXAMPLE_YAML,
+            Some(("example.md", EXAMPLE_MD.as_bytes().to_vec())),
+        ))
+        .expect("loads");
+
+        assert_eq!(quill.config().example.as_deref(), Some("example.md"));
+        assert_eq!(quill.example(), Some(EXAMPLE_MD));
+        assert!(quill.warnings().is_empty());
+    }
+
+    #[test]
+    fn undeclared_reads_none() {
+        let yaml = EXAMPLE_YAML.replace("  example: example.md\n", "");
+        let quill = Quill::from_tree(tree(&yaml, None)).expect("loads");
+
+        assert_eq!(quill.config().example, None);
+        assert_eq!(quill.example(), None);
+    }
+
+    /// A path naming nothing is the same class of mistake as a misspelled key,
+    /// so it is refused at load rather than read back as "declares none".
+    #[test]
+    fn naming_no_file_is_refused() {
+        let errors = load_err(EXAMPLE_YAML, None);
+
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].severity, Severity::Error);
+        assert_eq!(errors[0].code.as_deref(), Some("quill::example_missing"));
+        assert!(errors[0].message.contains("example.md"));
+    }
+
+    /// `get_file` resolves no `..` and no absolute root, so a path reaching
+    /// outside the bundle lands on the same refusal as a missing one.
+    #[test]
+    fn escaping_the_bundle_is_refused() {
+        for path in ["../outside.md", "/etc/passwd"] {
+            let yaml = EXAMPLE_YAML.replace("example: example.md", &format!("example: {path}"));
+            let errors = load_err(&yaml, Some(("example.md", EXAMPLE_MD.as_bytes().to_vec())));
+
+            assert_eq!(
+                errors[0].code.as_deref(),
+                Some("quill::example_missing"),
+                "path '{path}' should not resolve"
+            );
+        }
+    }
+
+    /// A directory is not a document: `get_file` refuses it, so it reports as
+    /// naming no file.
+    #[test]
+    fn a_directory_is_refused() {
+        let mut files = HashMap::new();
+        files.insert(
+            "Quill.yaml".to_string(),
+            FileTreeNode::File {
+                contents: EXAMPLE_YAML.as_bytes().to_vec(),
+            },
+        );
+        files.insert(
+            "example.md".to_string(),
+            FileTreeNode::Directory {
+                files: HashMap::new(),
+            },
+        );
+        let errors =
+            Quill::from_tree(FileTreeNode::Directory { files }).expect_err("load should be refused");
+
+        assert_eq!(errors[0].code.as_deref(), Some("quill::example_missing"));
+    }
+
+    /// The bytes are handed to consumers as `&str`, so the load is where that
+    /// is established.
+    #[test]
+    fn non_utf8_is_refused() {
+        let errors = load_err(EXAMPLE_YAML, Some(("example.md", vec![0xff, 0xfe, 0x00])));
+
+        assert_eq!(
+            errors[0].code.as_deref(),
+            Some("quill::example_invalid_utf8")
+        );
+    }
+
+    #[test]
+    fn a_non_string_path_is_refused() {
+        for spelling in ["example: []", "example: \"\"", "example: 3"] {
+            let yaml = EXAMPLE_YAML.replace("example: example.md", spelling);
+            let errors = load_err(&yaml, Some(("example.md", EXAMPLE_MD.as_bytes().to_vec())));
+
+            assert_eq!(
+                errors[0].code.as_deref(),
+                Some("quill::invalid_example"),
+                "spelling '{spelling}' should be refused"
+            );
+        }
+    }
+
+    /// The key is known, so it does not fall through to the typo refusal that
+    /// guards the section.
+    #[test]
+    fn is_not_an_unknown_key() {
+        let errors = load_err(EXAMPLE_YAML, None);
+
+        assert!(
+            errors
+                .iter()
+                .all(|d| d.code.as_deref() != Some("quill::unknown_key")),
+            "{errors:?}"
+        );
+    }
+}
+
 #[test]
 fn test_root_level_fields_gets_targeted_hint() {
     let yaml_content = r#"

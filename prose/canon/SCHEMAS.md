@@ -725,7 +725,8 @@ path's "`default:` wins" rule applies to authored and blank documents, where no
   read as `authored`, both being document content.
 
 Seeding is the **filled-out twin of the blueprint**
-([BLUEPRINT.md](BLUEPRINT.md) § "The blueprint and its filled-out twin"): the
+([BLUEPRINT.md](BLUEPRINT.md) § "The blueprint, its filled-out twin, and the
+authored one"): the
 blueprint shows the form to fill (`!must_fill` markers, `# e.g.` hints), while the seed
 hands back a committed `Document` already carrying the `example:` values, the
 rest deferred to the render floor for fidelity. It is the only "filled-out"

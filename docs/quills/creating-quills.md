@@ -102,7 +102,41 @@ quillmark render ./my-quill document.md
 
 For command options and output controls, see the [CLI Reference](../cli/reference.md).
 
-## 6. Next steps
+## 6. Ship an example
+
+The document you just rendered is worth keeping. Move it into the bundle and
+declare it:
+
+```
+my-quill/
+├── Quill.yaml
+├── example.md
+└── plate.typ
+```
+
+```yaml
+quill:
+  name: my_quill
+  backend: typst
+  version: "1.0.0"
+  description: A simple letter format
+  example: example.md
+```
+
+`quillmark example ./my-quill` now prints it back, and so do `quill.example` in
+Python and JS. It is the only place in a bundle that shows a *finished*
+document: the blueprint shows the form to fill, and each field's `example:`
+shows one cell's shape, but neither shows fields that answer each other, three
+cards of one kind in a row, or a body long enough to exercise your template's
+numbering and page breaks. An author reading one writes a better document; an
+LLM reading one alongside the blueprint fills it better.
+
+Keep it honest or leave it out. An example must parse, pin `$quill:
+my_quill@1.0.0` exactly, validate clean, and render — a stale one teaches a
+shape your quill no longer accepts. The bundled quills are held to exactly that
+in CI (`crates/quillmark/tests/quiver_test.rs`).
+
+## 7. Next steps
 
 - [Quill.yaml Reference](quill-yaml-reference.md): full field types, UI hints, `card_kinds`, `typst` section
 - [Typst Backend](typst-backend.md): data access patterns, `$cards` iteration, helper package

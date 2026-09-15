@@ -71,6 +71,9 @@ correctly never trips these checks.
 2. Increase versions on every format change, even if small.
 3. Treat field renames and removals as breaking (`MAJOR`); prefer additive
    changes (new optional fields and cards).
+4. Where the quill ships an [example document](quill-yaml-reference.md#example),
+   bump the `$quill: <name>@<version>` line inside it along with the version:
+   an example documents the version it pins.
 
 ## Related Pages
 

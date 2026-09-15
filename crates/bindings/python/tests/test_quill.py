@@ -30,6 +30,63 @@ def test_quill_properties(engine, taro_quill_dir):
     assert OutputFormat.PDF in supported_formats
 
 
+def test_quill_example_is_the_authored_document(engine, taro_quill_dir):
+    """`example` hands back the bundle's own bytes, not a re-emission: the
+    author's formatting is the point. It binds to the quill and validates
+    clean, which is what separates it from the blueprint."""
+    quill = Quill.from_path(str(taro_quill_dir))
+
+    example = quill.example
+    assert isinstance(example, str)
+    assert example == (taro_quill_dir / "example.md").read_text()
+
+    doc = Document.from_markdown(example)
+    assert doc.quill_ref == "taro@0.1.0"
+    assert quill.validate(doc) == []
+
+    # An example carries what the schema cannot: more than one card of a kind.
+    assert sum(1 for c in doc.cards if c["kind"] == "quotes") > 1
+
+
+def test_quill_example_is_none_when_undeclared(tmp_path):
+    """The file is optional; a quill declaring none answers `None` rather than
+    an empty string."""
+    (tmp_path / "Quill.yaml").write_text(
+        """quill:
+  name: no_example
+  version: "1.0.0"
+  backend: typst
+  description: Declares no example
+main:
+  fields:
+    title:
+      type: string
+"""
+    )
+    assert Quill.from_path(str(tmp_path)).example is None
+
+
+def test_declared_example_naming_no_file_refuses_the_load(tmp_path):
+    """A path naming nothing is a config typo, so it is a load error with its
+    own code rather than a silently absent example."""
+    (tmp_path / "Quill.yaml").write_text(
+        """quill:
+  name: missing_example
+  version: "1.0.0"
+  backend: typst
+  description: Points at nothing
+  example: nope.md
+main:
+  fields:
+    title:
+      type: string
+"""
+    )
+    with pytest.raises(QuillmarkError) as exc_info:
+        Quill.from_path(str(tmp_path))
+    assert exc_info.value.diagnostics[0].code == "quill::example_missing"
+
+
 def test_registered_backends(engine):
     """The engine's backend roster: which backends this build compiled in, as
     opposed to which formats a given quill supports (`supported_formats`)."""

@@ -94,6 +94,20 @@ impl Quill {
         &self.files
     }
 
+    /// The example document authored under `quill.example`: this quill's own
+    /// worked instance, as markdown. `None` when the quill declares none.
+    ///
+    /// Authored rather than generated, so it holds what no per-field
+    /// declaration can: which fields answer each other, how many cards of a
+    /// kind a real document runs to, and a body at the plate's scale. The bytes
+    /// are the bundle's and stay unparsed, so a prompt gets the author's own
+    /// formatting and a consumer wanting a
+    /// [`Document`](crate::document::Document) parses it.
+    pub fn example(&self) -> Option<&str> {
+        let path = self.config.example.as_ref()?;
+        std::str::from_utf8(self.files.get_file(path)?).ok()
+    }
+
     /// Flatten this quill's file bundle into `(path, contents)` pairs, the
     /// inverse of [`Quill::from_tree`]'s input: how a quill crosses a process
     /// or WASM boundary as plain data. Every file is preserved, empty
