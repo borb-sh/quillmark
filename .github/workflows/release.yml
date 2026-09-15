@@ -37,9 +37,65 @@ jobs:
       # ruleset that restricts creations has to admit github-actions[bot], or the
       # tag push below is rejected.
       contents: write
+      # The CI conclusion the gate below reads.
+      actions: read
     outputs:
       version: ${{ steps.version.outputs.next }}
     steps:
+      # The gate the whole workflow hangs off. Branch protection answers a
+      # different question: its checks are the pull request head's, while ci.yml
+      # runs again on the push to main that the merge is, and that second run is
+      # the only verdict on the bytes tagged below. A job green on the head can
+      # redden on the merge result.
+      #
+      # Any CI run at this commit counts, a dispatched one included: ci.yml's
+      # concurrency group is per-ref and cancels in progress, so the next merge
+      # to main can cancel this commit's run, and dispatching ci.yml at main
+      # before re-running this job is the way through. Missing, unfinished at the
+      # deadline, or concluded anything but success each stop the release, since
+      # a gate that passes when it cannot find a conclusion is not a gate.
+      - name: CI is green on the release commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          set -euo pipefail
+
+          # An empty head_sha is an unfiltered query, which any green run in the
+          # repository answers.
+          if [ -z "$SHA" ]; then
+            echo "::error::the merged pull request names no commit; no tag, no publish."
+            exit 1
+          fi
+
+          RUNS="repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${SHA}&per_page=100"
+          DEADLINE=$(( SECONDS + 45 * 60 ))
+
+          while true; do
+            runs=$(gh api "$RUNS" \
+              --jq '.workflow_runs[] | "\(.status) \(.conclusion) \(.html_url)"') || runs=""
+
+            if grep -q '^completed success ' <<< "$runs"; then
+              echo "CI is green on ${SHA}:"
+              grep '^completed success ' <<< "$runs"
+              exit 0
+            fi
+
+            if [ -n "$runs" ] && ! grep -qv '^completed ' <<< "$runs"; then
+              echo "::error::CI on ${SHA} concluded without a success; no tag, no publish."
+              echo "$runs"
+              exit 1
+            fi
+
+            if [ "$SECONDS" -ge "$DEADLINE" ]; then
+              echo "::error::no successful CI run on ${SHA} within the wait; no tag, no publish."
+              echo "${runs:-no CI run exists for this commit}"
+              exit 1
+            fi
+
+            sleep 20
+          done
+
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
