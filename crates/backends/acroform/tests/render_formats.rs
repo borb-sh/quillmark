@@ -3,7 +3,7 @@
 //! `canvas_conformance.rs`.
 
 use quillmark::{Document, OutputFormat, Quill, Quillmark, RenderOptions};
-use quillmark_core::RenderError;
+use quillmark_core::error::RenderError;
 
 const FILLED: &str = "~~~\n\
 $quill: sample_form\n\

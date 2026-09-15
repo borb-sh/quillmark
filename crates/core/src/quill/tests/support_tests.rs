@@ -1,6 +1,6 @@
 
 use crate::quill::{quill_from_yaml, BlockConstruct, QuillConfig, UNSUPPORTED_CONSTRUCT};
-use crate::{Document, Quill, Severity};
+use crate::{document::Document, error::Severity, quill::Quill};
 
 const YAML: &str = r#"
 quill:

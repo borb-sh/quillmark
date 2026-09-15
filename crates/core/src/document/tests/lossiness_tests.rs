@@ -649,7 +649,7 @@ fn inline_on_empty_mapping_rides_on_the_braces() {
 
 #[test]
 fn nested_empty_mapping_survives_round_trip() {
-    use crate::QuillValue;
+    use crate::value::QuillValue;
 
     let src = "~~~card-yaml\n$quill: q\n$kind: main\n~~~\n";
     let mut doc = Document::parse(src).unwrap().document;

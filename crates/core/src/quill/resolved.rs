@@ -9,7 +9,7 @@ use serde::Serialize;
 
 use super::compose::resolve_card_sourced;
 use super::{CardSchema, Quill, QuillConfig};
-use crate::{Card, Document, QuillValue};
+use crate::{document::{Card, Document}, value::QuillValue};
 
 /// The rung of the commitment ladder that produced a [`ResolvedField::value`].
 /// Serializes lowercase (`"authored" | "default" | "blank"`).
@@ -111,7 +111,7 @@ impl Quill {
 }
 
 /// The producer behind [`Quill::resolve`] and
-/// [`TypedReader::resolve`](crate::TypedReader::resolve).
+/// [`TypedReader::resolve`](crate::reader::TypedReader::resolve).
 pub(crate) fn resolve_document(config: &QuillConfig, doc: &Document) -> Resolved {
     let (fields, body) = resolve_card_fields(&config.main, doc.main());
     let main = ResolvedMain { fields, body };
@@ -132,7 +132,7 @@ pub(crate) fn resolve_document(config: &QuillConfig, doc: &Document) -> Resolved
 /// re-cuts the **presentation order**: declared fields first in declaration
 /// order, then undeclared authored fields in authored order.
 ///
-/// [`compile_data`]: crate::Quill::compile_data
+/// [`compile_data`]: crate::quill::Quill::compile_data
 fn resolve_card_fields(schema: &CardSchema, card: &Card) -> (Vec<ResolvedField>, Option<ResolvedField>) {
     let sourced: IndexMap<String, (QuillValue, FieldSource)> = resolve_card_sourced(schema, card);
     let mut fields = Vec::new();
@@ -229,7 +229,7 @@ fn body_state(card: &Card) -> ResolvedField {
 mod tests {
     use super::*;
     use crate::quill::quill_from_yaml;
-    use crate::{Card, Document, Payload};
+    use crate::document::{Card, Document, Payload};
 
     fn parse(md: &str) -> Document {
         Document::parse(md).expect("document should parse").document

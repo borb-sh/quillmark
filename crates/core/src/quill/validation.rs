@@ -54,7 +54,7 @@ pub enum ValidationError {
     /// An `inline: true` field whose content is not a single line: a block, a
     /// list or quote container, or an island. Both prose codecs declare
     /// `inline`, so this is one condition under one code, the validation twin of
-    /// [`EditError::FieldNotInline`](crate::EditError::FieldNotInline).
+    /// [`EditError::FieldNotInline`](crate::document::EditError::FieldNotInline).
     NotInline {
         path: String,
     },

@@ -3,7 +3,7 @@
 //! between two lines is inside a paragraph and on no glyph. These hold what the
 //! slack may and may not change.
 
-use quillmark_core::{Backend, LiveSession};
+use quillmark_core::{backend::Backend, session::LiveSession};
 use quillmark_typst::TypstBackend;
 
 mod common;

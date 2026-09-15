@@ -62,7 +62,7 @@ pub struct QuillConfig {
     /// `card_kinds:` section). Does not include `main`.
     pub card_kinds: Vec<CardSchema>,
     /// Names the backend that renders this quill: a registered
-    /// [`Backend::id`](crate::Backend::id).
+    /// [`Backend::id`](crate::backend::Backend::id).
     pub backend: String,
     /// The quill's own semantic version, checked at render against the
     /// selector a document's `$quill` carries.
@@ -162,8 +162,9 @@ pub(crate) enum Leniency {
     /// The render floor's forgiving cascade: a shape a type cannot adopt falls
     /// through unchanged for the validation layer to report.
     Render,
-    /// The strict typed write ([`Card::commit_field`](crate::document::Card::commit_field)),
-    /// and the resting form [`Quill::conform`](crate::Quill::conform) lands a
+    /// The strict typed write
+    /// ([`Card::commit_field`](crate::document::Card::commit_field)), and the
+    /// resting form [`Quill::conform`](crate::quill::Quill::conform) lands a
     /// content field at.
     ///
     /// "Strict" is asymmetric by target, not absolute. `string` and `array` are

@@ -148,8 +148,9 @@ families:
   from the other side. A backend that declines a construct *outright* is the
   observer core is not, so it says so itself: one diagnostic per (content
   field, construct) carrying `backend`, `construct` and `count` in `args` and
-  the field's `DocPath` in `path`, minted by `quillmark_core::declined_construct`
-  so the two lanes cannot drift into two key sets. Per field, not per body, and
+  the field's `DocPath` in `path`, minted by
+  `quillmark_core::backend::declined_construct` so the two lanes cannot drift
+  into two key sets. Per field, not per body, and
   at the compile that dropped the construct, so it rides the session's compile
   warnings. The Typst backend declines `image` in content
   ([CONVERT.md](CONVERT.md#declined-images)); nothing else declines anything.

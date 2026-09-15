@@ -2,7 +2,7 @@
 
 use crate::quill::quill_from_yaml;
 use crate::quill::resolved::FieldSource;
-use crate::{Document, Quill};
+use crate::{document::Document, quill::Quill};
 
 fn obligations(quill: &Quill, md: &str) -> Vec<(String, String)> {
     let doc = Document::parse(md).expect("parse").document;
@@ -273,7 +273,8 @@ card_kinds:
     let bare = quill.seed_card("note", None).expect("declared kind");
     assert!(bare.payload().is_fill("label"), "an example stays a placeholder");
 
-    let overlay = crate::SeedOverlay::from_json(&serde_json::json!({ "label": "Enclosure" }))
+    let overlay =
+        crate::document::SeedOverlay::from_json(&serde_json::json!({ "label": "Enclosure" }))
         .expect("valid overlay");
     let chosen = quill.seed_card("note", Some(&overlay)).expect("declared kind");
     assert!(

@@ -1,7 +1,8 @@
-//! Translates Typst diagnostics into Quillmark [`Diagnostic`](quillmark_core::Diagnostic) values.
+//! Translates Typst diagnostics into Quillmark
+//! [`Diagnostic`](quillmark_core::error::Diagnostic) values.
 
 use crate::world::QuillWorld;
-use quillmark_core::{Diagnostic, Location, Severity};
+use quillmark_core::error::{Diagnostic, Location, Severity};
 use typst::diag::SourceDiagnostic;
 
 pub(crate) fn map_typst_errors(errors: &[SourceDiagnostic], world: &QuillWorld) -> Vec<Diagnostic> {
@@ -95,7 +96,11 @@ fn line_and_column(text: &str, offset: usize) -> (usize, usize) {
 mod tests {
     use super::*;
     use crate::TypstBackend;
-    use quillmark_core::{Backend, FileTreeNode, OutputFormat, Quill, RenderOptions};
+    use quillmark_core::{
+        backend::Backend,
+        quill::{FileTreeNode, Quill},
+        types::{OutputFormat, RenderOptions},
+    };
     use typst::diag::SourceDiagnostic;
     use typst::syntax::Span;
 

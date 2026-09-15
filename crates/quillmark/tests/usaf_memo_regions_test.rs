@@ -46,7 +46,7 @@ fn usaf_memo_regions_cover_body_signature_and_cards() {
     );
     let card_kinds: Vec<Option<&str>> = parsed.cards().iter().map(|c| c.kind()).collect();
     let translated: HashSet<String> =
-        quillmark_core::regions_to_doc_path(regions.clone(), &card_kinds)
+        quillmark_core::region::regions_to_doc_path(regions.clone(), &card_kinds)
             .into_iter()
             .map(|r| r.field)
             .collect();

@@ -1,7 +1,7 @@
 //! `field-region` through the public `Backend`/`LiveSession` path: what a
 //! preview consumer actually reads back.
 
-use quillmark_core::Backend;
+use quillmark_core::backend::Backend;
 use quillmark_typst::TypstBackend;
 
 mod common;
@@ -24,7 +24,9 @@ main:
       description: an unrelated scalar
 "#;
 
-fn compile(plate: &str) -> Result<quillmark_core::LiveSession, quillmark_core::RenderError> {
+fn compile(
+    plate: &str,
+) -> Result<quillmark_core::session::LiveSession, quillmark_core::error::RenderError> {
     let source = common::quill_with_plate(YAML, plate);
     TypstBackend.open(
         &source,
@@ -32,7 +34,7 @@ fn compile(plate: &str) -> Result<quillmark_core::LiveSession, quillmark_core::R
     )
 }
 
-fn open(plate: &str) -> quillmark_core::LiveSession {
+fn open(plate: &str) -> quillmark_core::session::LiveSession {
     compile(plate).expect("open")
 }
 

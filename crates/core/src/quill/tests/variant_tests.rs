@@ -253,7 +253,7 @@ classification:
         quill_from_yaml(YAML)
             .validate(&document)
             .iter()
-            .all(|d| d.severity != crate::Severity::Error),
+            .all(|d| d.severity != crate::error::Severity::Error),
         "a variant content cell validates: {:?}",
         quill_from_yaml(YAML).validate(&document)
     );
@@ -571,7 +571,7 @@ fn a_stranded_value_is_kept_and_warned_never_gated() {
         .iter()
         .find(|d| d.code.as_deref() == Some("validation::out_of_variant"))
         .expect("out_of_variant warning");
-    assert_eq!(stranded.severity, crate::Severity::Warning);
+    assert_eq!(stranded.severity, crate::error::Severity::Warning);
     assert_eq!(
         stranded.path.as_deref(),
         Some("main.classification.controlled_by")

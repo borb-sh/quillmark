@@ -11,8 +11,9 @@ use typst_svg::SvgOptions;
 use crate::error_mapping::map_typst_errors;
 use crate::world::QuillWorld;
 use quillmark_core::{
-    page_selection_not_supported, selected_pages, Artifact, Diagnostic, OutputFormat, RenderError,
-    RenderResult,
+    backend::{check_raster, page_selection_not_supported, selected_pages},
+    error::{Diagnostic, RenderError, RenderResult},
+    types::{Artifact, OutputFormat},
 };
 use quillmark_pdf::{stamp, FieldSpec, StampOptions};
 
@@ -71,13 +72,13 @@ pub(crate) fn render_document_pages(
             Ok(RenderResult::new(artifacts, OutputFormat::Svg))
         }
         OutputFormat::Png => {
-            let scale = quillmark_core::raster_scale(ppi)?;
+            let scale = quillmark_core::backend::raster_scale(ppi)?;
             let opts = render_options(scale);
             let mut artifacts = Vec::with_capacity(selected_indices.len());
             for idx in selected_indices {
                 let page = &document.pages()[idx];
                 let size = page.frame.size();
-                quillmark_core::check_raster(scale, size.x.to_pt() as f32, size.y.to_pt() as f32)?;
+                check_raster(scale, size.x.to_pt() as f32, size.y.to_pt() as f32)?;
                 let pixmap = typst_render::render(page, &opts);
                 let png_data = pixmap.encode_png().map_err(|e| {
                     RenderError::coded("typst::png_encoding", format!("PNG encoding failed: {e}"))

@@ -134,7 +134,7 @@ impl Artifact {
 /// Built from [`Default`] and narrowed by the `with_*` setters:
 ///
 /// ```
-/// use quillmark_core::{OutputFormat, RenderOptions};
+/// use quillmark_core::types::{OutputFormat, RenderOptions};
 ///
 /// let opts = RenderOptions::default()
 ///     .with_output_format(OutputFormat::Png)
@@ -149,9 +149,10 @@ pub struct RenderOptions {
     /// [`ppi_or_default`](RenderOptions::ppi_or_default).
     ///
     /// Must be finite and positive, and small enough to keep every rendered
-    /// page under [`MAX_RASTER_PIXELS`](crate::MAX_RASTER_PIXELS); a raster
-    /// backend refuses anything else with a `backend::invalid_raster_scale`
-    /// [`RenderError`](crate::RenderError).
+    /// page under [`MAX_RASTER_PIXELS`](crate::backend::MAX_RASTER_PIXELS); a
+    /// raster backend refuses anything else with a
+    /// `backend::invalid_raster_scale`
+    /// [`RenderError`](crate::error::RenderError).
     pub ppi: Option<f32>,
     /// Optional 0-based page indices to render (e.g., `vec![0, 2]` for
     /// the first and third pages). `None` renders all pages. Any index
@@ -161,7 +162,7 @@ pub struct RenderOptions {
     /// backend emits whole — PDF on both built-in backends — fails with
     /// `backend::page_selection_not_supported` when this is `Some`.
     pub pages: Option<Vec<usize>>,
-    /// Populate [`RenderResult::regions`](crate::RenderResult) with the
+    /// Populate [`RenderResult::regions`](crate::error::RenderResult) with the
     /// schema-field geometry sidecar, for consumers without a live session.
     /// Default `false`, so exports pay no introspection cost.
     ///

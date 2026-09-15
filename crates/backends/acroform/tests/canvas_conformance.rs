@@ -23,11 +23,11 @@ agree: true\n\
 favorite_color: green\n\
 ~~~\n";
 
-fn open() -> quillmark_core::LiveSession {
+fn open() -> quillmark_core::session::LiveSession {
     open_markdown(FILLED)
 }
 
-fn open_markdown(markdown: &str) -> quillmark_core::LiveSession {
+fn open_markdown(markdown: &str) -> quillmark_core::session::LiveSession {
     let quill = quillmark::quill_from_path(quillmark_fixtures::quills_path("sample_form"))
         .expect("load sample_form quill");
     let engine = Quillmark::new();

@@ -4,7 +4,7 @@
 //! the widget's box, measured rather than restated from the same metadata the
 //! region comes from.
 
-use quillmark_core::{Backend, LiveSession, RenderedRegion};
+use quillmark_core::{backend::Backend, region::RenderedRegion, session::LiveSession};
 use quillmark_typst::TypstBackend;
 
 mod common;

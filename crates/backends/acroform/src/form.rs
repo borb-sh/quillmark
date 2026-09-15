@@ -23,7 +23,7 @@ const SUPPORTED_MAJOR_MINOR: &str = "0.2";
 /// ([`SchemaTag`]) before this is deserialized, and ignored here.
 #[derive(Debug, Clone, Deserialize)]
 pub struct FormSpec {
-    /// Widgets bound to a [`FieldSchema`](quillmark_core::FieldSchema).
+    /// Widgets bound to a [`FieldSchema`](quillmark_core::quill::FieldSchema).
     #[serde(default)]
     pub fields: Vec<BoundField>,
     #[serde(default)]
@@ -31,9 +31,9 @@ pub struct FormSpec {
 }
 
 /// Kind, options and multiline are derived from the referenced
-/// [`FieldSchema`](quillmark_core::FieldSchema) at load; `tooltip` overrides
-/// that field's `description`. `rect` is top-left and page-relative, flipped to
-/// the spine's bottom-left origin by the loader.
+/// [`FieldSchema`](quillmark_core::quill::FieldSchema) at load; `tooltip`
+/// overrides that field's `description`. `rect` is top-left and page-relative,
+/// flipped to the spine's bottom-left origin by the loader.
 #[derive(Debug, Clone, Deserialize)]
 pub struct BoundField {
     pub name: String,

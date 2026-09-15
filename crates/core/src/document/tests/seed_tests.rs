@@ -192,7 +192,7 @@ $seed:
     let seed = doc.main().seed();
     let overlay = seed
         .and_then(|m| m.get("indorsement"))
-        .and_then(crate::SeedOverlay::from_json)
+        .and_then(crate::document::SeedOverlay::from_json)
         .expect("overlay present");
     assert_eq!(
         overlay.fields.get("from").and_then(|v| v.as_str()),
@@ -315,7 +315,7 @@ $kind: main
 fn seed_overlay_drops_reserved_keys_other_than_body() {
     // An overlay only ever carries user fields plus the reserved `$body`;
     // any other `$`-key must be dropped, never smuggled in as a user field.
-    let overlay = crate::SeedOverlay::from_json(&json!({
+    let overlay = crate::document::SeedOverlay::from_json(&json!({
         "from": "49 FW/CC",
         "$body": "Body override.",
         "$kind": "smuggled",

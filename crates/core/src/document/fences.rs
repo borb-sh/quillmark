@@ -5,7 +5,7 @@
 //! block are literal content, so a backtick fence writes one in prose.
 
 use crate::error::ParseError;
-use crate::{Diagnostic, Severity};
+use crate::error::{Diagnostic, Severity};
 
 use super::assemble::MetadataBlock;
 

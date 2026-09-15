@@ -32,16 +32,25 @@
 // `quillmark-core` dependency: a verb's return type belongs here whenever the
 // verb does. `tests/facade_surface.rs` is the gate.
 pub use quillmark_core::{
-    Artifact, Backend, BoundParseError, Card, CardReader, CardSchema, ChangeBundle, ChangeSet,
-    Content, ContentHit, Delta, Diagnostic, Document, EditError, FieldSchema, FieldType,
-    FileTreeNode, HitGranularity, ImportError, LiveSession, Location, Normalized, OutputFormat,
-    ParseError, Parsed, PathSegment, Quill, QuillConfig, QuillIgnore, QuillReference, QuillValue,
-    RenderError, RenderOptions, RenderResult, RenderedRegion, Severity, TypedReader, TypedWriter,
-    ValidationError,
+    backend::Backend,
+    document::{Card, Document, EditError, ImportError, Parsed},
+    error::{Diagnostic, Location, ParseError, RenderError, RenderResult, Severity},
+    quill::{
+        BoundParseError, CardSchema, FieldSchema, FieldType, FileTreeNode, Quill, QuillConfig,
+        QuillIgnore, ValidationError,
+    },
+    reader::{CardReader, TypedReader},
+    region::{ContentHit, HitGranularity, RenderedRegion},
+    session::{ChangeBundle, ChangeSet, Delta, LiveSession},
+    types::{Artifact, OutputFormat, RenderOptions},
+    value::{PathSegment, QuillValue},
+    version::QuillReference,
+    writer::TypedWriter,
+    Content, Normalized,
 };
 
 mod load;
-pub mod orchestration;
+mod orchestration;
 
 pub use load::{quill_from_path, tree_from_path};
 pub use orchestration::Quillmark;
