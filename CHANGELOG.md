@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- fix(core)!: **a quill declaring more fields than a card carries is refused at
+  load.** `MAX_FIELD_COUNT` (1000) bounds one card-yaml block and every
+  incremental field write charges it, but `Quill::seed_document` and
+  `QuillConfig::blueprint` build a card from its schema wholesale: a `Quill.yaml`
+  declaring 1001 fields under `main:` or under one `card_kinds.<name>:` loaded
+  clean, and the failure landed at an exit: emitted markdown the parser refuses,
+  and a card storage refuses. The load counts each card's declared fields and
+  reports `quill::too_many_fields` naming the card, so the defect reaches the quill
+  author in the artifact that holds it and both schema-driven constructions are
+  total over every loaded quill. The count is per card and over declared fields
+  alone: a nested `properties` map, an array's `items` and a `variants:` cell set
+  ride inside the one field declaring them. Closes #1792.
 - refactor(pdf,acroform)!: **a stamped widget draws its own value, so the second
   PDF goes.** A widget carried `/NeedAppearances` and no appearance stream, so
   the value reached only a viewer that synthesizes one and a flat rasterizer

@@ -801,6 +801,40 @@ card_kinds:
     assert!(card.fields.is_empty());
 }
 
+/// A card schema is bounded by what one card-yaml block carries, so the seed it
+/// drives reaches the payload whole and re-parses.
+#[test]
+fn a_card_declaring_more_fields_than_a_block_carries_is_refused_at_load() {
+    let max = crate::error::MAX_FIELD_COUNT;
+    let yaml = |count: usize| {
+        let fields: String = (0..count)
+            .map(|i| format!("      f{i}: {{ type: string, example: v }}\n"))
+            .collect();
+        format!(
+            "quill: {{ name: wide, version: \"1.0\", backend: typst, description: x }}\n\
+             card_kinds:\n  line_item:\n    fields:\n{fields}"
+        )
+    };
+
+    let errors = QuillConfig::from_yaml_with_warnings(&yaml(max + 1)).unwrap_err();
+    let diag = errors
+        .iter()
+        .find(|d| d.code.as_deref() == Some("quill::too_many_fields"))
+        .unwrap_or_else(|| panic!("no field-count diagnostic in {errors:?}"));
+    assert!(
+        diag.message.contains("card_kinds.line_item"),
+        "the diagnostic names the card the author wrote: {}",
+        diag.message
+    );
+
+    let seeded = quill_from_yaml(&yaml(max)).seed_document();
+    assert_eq!(seeded.cards()[0].payload().len(), max);
+    let reparsed = Document::parse(&seeded.to_markdown())
+        .expect("a seed at the cap re-parses")
+        .document;
+    assert_eq!(reparsed.cards()[0].payload().len(), max);
+}
+
 #[test]
 fn test_quill_config_allows_card_collision() {
     let yaml_content = r#"

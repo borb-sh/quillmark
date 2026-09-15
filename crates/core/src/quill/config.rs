@@ -1203,6 +1203,35 @@ impl QuillConfig {
         }
     }
 
+    /// Refuse a card declaring more fields than one card-yaml block carries
+    /// ([`MAX_FIELD_COUNT`](crate::error::MAX_FIELD_COUNT)). Seeding and the
+    /// blueprint build one block per card schema, so the cap is the schema's to
+    /// meet: past it a quill emits markdown the parser refuses.
+    ///
+    /// The count is per card and over `fields` alone, which is what a block
+    /// charges: nested `properties`, array `items`, and `variants:` cells all
+    /// ride inside the one field that declares them.
+    fn validate_card_field_count(label: &str, card: &CardSchema, errors: &mut Vec<Diagnostic>) {
+        let max = crate::error::MAX_FIELD_COUNT;
+        if card.fields.len() > max {
+            errors.push(
+                Diagnostic::new(
+                    Severity::Error,
+                    format!(
+                        "'{label}' declares {} fields; a card-yaml block carries at most {max}",
+                        card.fields.len()
+                    ),
+                )
+                .with_code("quill::too_many_fields".to_string())
+                .with_hint(
+                    "Split the fields across card kinds, or group related ones under an object \
+                     field: nested properties are one field."
+                        .to_string(),
+                ),
+            );
+        }
+    }
+
     /// Refuse a `default:` / `example:` declared on a **typed dictionary**, a
     /// namespace rather than a cell (`SCHEMAS.md` §"Cells and namespaces"). The
     /// variant container refuses the same shape under
@@ -1922,6 +1951,10 @@ impl QuillConfig {
             if let Some(d) = warn_example_unused(label, card) {
                 warnings.push(d);
             }
+        }
+
+        for (label, card) in &labeled {
+            Self::validate_card_field_count(label, card, &mut errors);
         }
 
         for (label, card) in &labeled {

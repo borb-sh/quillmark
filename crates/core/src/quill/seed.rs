@@ -69,6 +69,10 @@ fn seed_parts(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> (Payload, N
         Normalized::empty()
     };
 
+    debug_assert!(
+        items.len() <= crate::error::MAX_FIELD_COUNT,
+        "a loaded quill's card schema declares at most MAX_FIELD_COUNT fields"
+    );
     (Payload::from_items(items), body)
 }
 

@@ -307,6 +307,7 @@ mod tests {
     use super::*;
     use crate::document::Codec;
     use crate::document::{Card, Document};
+    use crate::quill::{CardSchema, FieldType};
     use crate::version::QuillReference;
     use std::str::FromStr;
 
@@ -403,19 +404,24 @@ card_kinds:
     }
 
     /// The typed batch charges the §8 field count on the same funnel the opaque
-    /// one does, so a quill declaring more fields than a card may carry refuses
-    /// the ones past the cap rather than building a document the parser rejects.
+    /// one does, refusing the names past the cap rather than building a document
+    /// the parser rejects. The schema is assembled in memory: `Quill.yaml` load
+    /// refuses one this wide (`quill::too_many_fields`).
     #[test]
     fn set_all_refuses_the_fields_past_the_count() {
         let max = crate::error::MAX_FIELD_COUNT;
-        let fields: String = (0..=max)
-            .map(|i| format!("    f{i}:\n      type: string\n"))
+        let fields: IndexMap<String, FieldSchema> = (0..=max)
+            .map(|i| {
+                let name = format!("f{i}");
+                (name.clone(), FieldSchema::new(name, FieldType::String, None))
+            })
             .collect();
-        let config = QuillConfig::from_yaml(&format!(
-            "quill:\n  name: memo\n  backend: typst\n  version: 1.0.0\n  \
-             description: Count test quill\nmain:\n  fields:\n{fields}"
-        ))
-        .expect("a quill may declare more fields than a card may carry");
+        let config = QuillConfig::new(
+            "memo".to_string(),
+            "typst".to_string(),
+            "1.0.0".to_string(),
+            CardSchema::new("main".to_string(), fields),
+        );
 
         let mut doc = blank_doc();
         let mut ed = TypedWriter::new(&config, &mut doc);
