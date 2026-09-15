@@ -8,5 +8,13 @@ cc 85e5e30e185a77a461fdb3de6a033c8c0b0e1ae73b2583f53bcfae56945d06b2 # shrinks to
 cc 67e04947f208ff589f79f9637b4f2cd37591d0d428c24bac549f9f1117e47f7a # shrinks to quill = "a", card_kind = "a", card_key = "a", card_value = "A "
 cc ae88f103316c034c0ac82b5f2ab2af7ca2471a9607f25182ac9b4913909ea151 # shrinks to quill = "a", key = "a", value = "අ\u{2000}"
 cc 7a17715d7b0712aa6ace567b6bcb1b14b6633cf4e5e4faaef295eb037a3ee902 # shrinks to quill = "a", key = "a", value = "_0"
-cc 468e3cda98ccd8144126082b7c5fab98a8aefcc79f80872f13b2f11c57facee3 # shrinks to body = "*¡*￼0*౸*0"
-cc e8d73ba66ac5274fefc10dd40042ec527be4a858e981f247964ecf9389d1ef4a # shrinks to body = "𞸡AA®AAஅA]*`0`*Ὀ*`𑯰`ꭰ`𑪰` \\ A*A]*:*￼𛅰¡*:\u{897}*"
+# A line stores a 32-byte ChaCha seed, not a value: proptest replays it by
+# re-seeding and drawing again from TODAY's strategy, so a `# shrinks to` note
+# holds only under the generator it was recorded on. These two were recorded
+# against `\PC{0,1000}`, which drew U+FFFC; the class excludes it now and each
+# seed draws the same body with that one char replaced by U+FFFD. What they pin
+# is the neighbour, not the counterexample they were taken from — two long
+# adversarial bodies, replayed before every run at no cost. Spelling the old
+# bodies here would state what this file no longer does.
+cc 468e3cda98ccd8144126082b7c5fab98a8aefcc79f80872f13b2f11c57facee3
+cc e8d73ba66ac5274fefc10dd40042ec527be4a858e981f247964ecf9389d1ef4a

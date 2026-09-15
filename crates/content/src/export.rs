@@ -649,12 +649,24 @@ fn render_marked_core(
     // advances, so one cursor over this order opens every mark exactly once.
     // Built once here, not per sweep: the net below sweeps the same `fmt` up to
     // `PROBE_BUDGET` times.
+    //
+    // Two marks over the *same* span have no outer by length, and which one takes
+    // the inside decides whether either survives: `*` pairs only against
+    // non-punctuation, so `~~*a*~~` holds where `*~~a~~*` leaves both delimiters
+    // as literal text. The asterisk family goes innermost, against the content it
+    // needs; `~~` and `<u>` pair regardless of what abuts them.
+    let ast_last = |k: &MarkKind| u8::from(matches!(k, MarkKind::Strong | MarkKind::Emph));
     let mut by_start: Vec<usize> = (0..fmt.len()).collect();
-    by_start.sort_by(|&a, &b| fmt[a].0.cmp(&fmt[b].0).then(fmt[b].1.cmp(&fmt[a].1)));
+    by_start.sort_by(|&a, &b| {
+        fmt[a].0
+            .cmp(&fmt[b].0)
+            .then(fmt[b].1.cmp(&fmt[a].1))
+            .then(ast_last(fmt[a].2).cmp(&ast_last(fmt[b].2)))
+    });
 
     // One mark sweep over the marks `keep` selects (indices into `fmt`) → inline
     // markdown.
-    let sweep = |keep: &[bool]| -> String {
+    let sweep = |keep: &[bool], d: Delims| -> String {
         let mut out = String::new();
         // Marks currently open, outermost first. Storing the `fmt` index (not
         // `(end, kind)`) keeps each open mark's identity, so a reopened mark
@@ -667,13 +679,13 @@ fn render_marked_core(
                 let mut reopen: Vec<usize> = Vec::new();
                 while stack.len() > idx {
                     let fi = stack.pop().unwrap();
-                    out.push_str(delim_close(fmt[fi].2));
+                    out.push_str(delim_close(fmt[fi].2, d));
                     if fmt[fi].1 != pos {
                         reopen.push(fi);
                     }
                 }
                 for fi in reopen.into_iter().rev() {
-                    out.push_str(delim_open(fmt[fi].2));
+                    out.push_str(delim_open(fmt[fi].2, d));
                     stack.push(fi);
                 }
             }
@@ -691,7 +703,7 @@ fn render_marked_core(
                 if !keep[fi] {
                     continue;
                 }
-                out.push_str(delim_open(fmt[fi].2));
+                out.push_str(delim_open(fmt[fi].2, d));
                 stack.push(fi);
             }
             // A link is emitted atomically as [text](url). Nested marks in link
@@ -768,7 +780,7 @@ fn render_marked_core(
         // Clipping keeps every wrap `end` reachable, so this normally drains
         // nothing.
         while let Some(fi) = stack.pop() {
-            out.push_str(delim_close(fmt[fi].2));
+            out.push_str(delim_close(fmt[fi].2, d));
         }
         out
     };
@@ -781,7 +793,8 @@ fn render_marked_core(
     let is_flanking = |k: &MarkKind| {
         matches!(k, MarkKind::Strong | MarkKind::Emph | MarkKind::Strike)
     };
-    let out = sweep(&vec![true; fmt.len()]);
+    let all = vec![true; fmt.len()];
+    let out = sweep(&all, DELIM_SPELLINGS[0]);
     if !fmt.iter().any(|m| is_flanking(m.2)) {
         return out;
     }
@@ -809,18 +822,36 @@ fn render_marked_core(
     if text_safe(&out) {
         return out;
     }
+    // Re-spell before dropping anything. The common leak is not an unrepresentable
+    // span but two same-character delimiters abutting: a `Strong` closing `**`
+    // against the `*` of an `Emph` that starts where it ends makes a `***` run,
+    // and CommonMark re-segments that run rather than pairing it as written.
+    // Markdown spells both kinds a second way, and `__a\*\*__*b*` carries what
+    // `**a\*\***​*b*` loses — same content, delimiters that cannot merge. Each
+    // spelling is verified like any other candidate, so the `_` forms are used
+    // only where they are *shown* to hold the text, never on the intraword shapes
+    // they read as literal. Three probes at most, and only on a line already
+    // known to leak.
+    for &d in &DELIM_SPELLINGS[1..] {
+        let alt = sweep(&all, d);
+        if text_safe(&alt) {
+            return alt;
+        }
+    }
     // The flanking marks in document order. That order is the re-add priority
     // below (when two marks can't both survive, the earlier one wins) and is the
     // one user-visible choice in this search, so it is fixed here rather than
     // falling out of the traversal.
     let cands: Vec<usize> = (0..fmt.len()).filter(|&i| is_flanking(fmt[i].2)).collect();
     // Render with only the flanking marks in `keep`; every other mark rides.
+    // The default spelling: a line reaching here has had all four rejected with
+    // every mark on, so the choice is which marks survive, not how they are spelled.
     let render = |keep: &[usize]| -> String {
         let mut mask: Vec<bool> = fmt.iter().map(|m| !is_flanking(m.2)).collect();
         for &i in keep {
             mask[i] = true;
         }
-        sweep(&mask)
+        sweep(&mask, DELIM_SPELLINGS[0])
     };
     // Drop the whole flanking set, then re-add by halves: a chunk that stays
     // text-safe is accepted whole, one that doesn't splits and its halves are
@@ -983,12 +1014,31 @@ fn render_cell_md(v: &serde_json::Value) -> String {
     )
 }
 
-fn delim_open(kind: &MarkKind) -> &'static str {
+/// Which of markdown's two spellings each asterisk-family kind is emitted with.
+/// The pair is chosen per line, not per mark: a run is only ambiguous where two
+/// delimiters *of the same character* abut, so swapping one kind's spelling is
+/// what breaks the run up.
+#[derive(Clone, Copy)]
+struct Delims {
+    strong: &'static str,
+    emph: &'static str,
+}
+
+/// The spellings the net tries, in order. `**`/`*` leads because `_` cannot do
+/// intraword emphasis (CommonMark flanking), so `_a_你` re-imports as literal
+/// text where `*a*你` emphasizes correctly; the rest are reached only once the
+/// leader has been *shown* to lose text, and each is verified before it is used.
+const DELIM_SPELLINGS: [Delims; 4] = [
+    Delims { strong: "**", emph: "*" },
+    Delims { strong: "__", emph: "*" },
+    Delims { strong: "**", emph: "_" },
+    Delims { strong: "__", emph: "_" },
+];
+
+fn delim_open(kind: &MarkKind, d: Delims) -> &'static str {
     match kind {
-        MarkKind::Strong => "**",
-        // `*`, not `_`: `_` cannot do intraword emphasis (CommonMark flanking),
-        // so `_a_你` re-imports as literal text; `*a*你` emphasizes correctly.
-        MarkKind::Emph => "*",
+        MarkKind::Strong => d.strong,
+        MarkKind::Emph => d.emph,
         MarkKind::Underline => "<u>",
         MarkKind::Strike => "~~",
         // Code/Link/Anchor are handled elsewhere.
@@ -996,10 +1046,10 @@ fn delim_open(kind: &MarkKind) -> &'static str {
     }
 }
 
-fn delim_close(kind: &MarkKind) -> &'static str {
+fn delim_close(kind: &MarkKind, d: Delims) -> &'static str {
     match kind {
-        MarkKind::Strong => "**",
-        MarkKind::Emph => "*",
+        MarkKind::Strong => d.strong,
+        MarkKind::Emph => d.emph,
         MarkKind::Underline => "</u>",
         MarkKind::Strike => "~~",
         _ => "",
@@ -1925,6 +1975,27 @@ mod tests {
             let md = to_markdown(&rt);
             assert_eq!(md, want, "{label}");
             assert_eq!(from_markdown(&md).unwrap().text, text, "{label}: text drift");
+        }
+    }
+
+    /// A mark whose delimiters merge with their neighbour's is re-spelled, not
+    /// dropped: only a mark markdown cannot carry *at all* reaches the drop
+    /// search. Each case is a shape whose `**`/`*` emission makes an ambiguous
+    /// run — a `Strong` ending in a literal `*` against a following `Emph`, and
+    /// two marks over one span where `*` must sit inside `~~` to pair.
+    #[test]
+    fn a_mark_is_respelled_before_it_is_dropped() {
+        for (label, src) in [
+            ("strong ending in `*`, then emph", "__a**__*b*"),
+            ("the same over non-ASCII", "__౸**__*0_*———"),
+            ("emph and strike over one span", "౸~~*¡± ±*~~"),
+        ] {
+            let once = from_markdown(src).unwrap();
+            assert!(once.marks.len() >= 2, "{label}: nothing to lose");
+            let md = to_markdown(&once);
+            let twice = from_markdown(&md).unwrap();
+            assert_eq!(&twice.text, &once.text, "{label}: text drift. md: {md:?}");
+            assert_eq!(&twice.marks, &once.marks, "{label}: mark lost. md: {md:?}");
         }
     }
 

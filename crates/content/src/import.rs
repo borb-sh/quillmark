@@ -1081,6 +1081,27 @@ mod tests {
             .all(|l| l.kind == LineKind::Code { lang: None }));
     }
 
+    /// The prose sibling of the code-block case above, on the other door.
+    /// Dropping the slot moves what abuts a delimiter, so the emphasis the
+    /// *second* pass reads is not the emphasis the first one wrote: `*a\u{FFFC}*`
+    /// is a literal pair around the slot (`*` before U+FFFC is not left-flanking),
+    /// and once the slot is gone `*a*` is emphasis. The drop is the contract —
+    /// `ISLAND_SLOT` with no backing island is an invariant violation, so it
+    /// cannot be admitted — and one markdown pass is where it must happen.
+    #[test]
+    fn prose_drops_a_stray_slot_before_flanking_is_read() {
+        let rt = imp("x\u{FFFC}y");
+        assert_eq!(rt.text, "xy");
+        assert!(rt.islands.is_empty());
+
+        // The flanking move itself: literal in, emphasized out, settled after.
+        let once = imp("*a\u{FFFC}*");
+        assert_eq!(once.text, "a");
+        assert_eq!(once.marks, vec![Mark::new(0, 1, MarkKind::Emph)]);
+        let twice = imp(&crate::export::to_markdown(&once));
+        assert_eq!(twice, once);
+    }
+
     #[test]
     fn bullet_list_containers() {
         let rt = imp("- a\n- b");

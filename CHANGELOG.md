@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- fix(content): **a mark whose delimiters collide with its neighbour's is
+  re-spelled, not dropped.** `to_markdown` spelled `Strong` `**` and `Emph` `*`
+  and nothing else, so a `Strong` ending in a literal `*` against an `Emph`
+  starting where it ends emitted a `***` run CommonMark re-segments rather than
+  pairs; the verify-and-drop net read the text drift that caused and dropped the
+  `Strong` to recover the text. `__a**__*b*` imported as `a**b` under
+  `Strong(0..3) Emph(3..4)` and exported as `a\*\**b*`, losing bold the round
+  trip was meant to carry, and `~~*a*~~` lost its `Emph` whenever the sweep put
+  `*` outside `~~`, where it has no non-punctuation to pair against. Markdown
+  spells both kinds a second way: the net now tries `__`/`_` before it drops
+  anything, and the asterisk family sorts innermost among marks over one span.
+  Every candidate is verified exactly as before, and `**`/`*` still leads, so a
+  line that already round-tripped emits the same bytes. Over 200k generated
+  delimiter runs the marks lost across export∘import fall from 104 to 14, the
+  remainder being the crossing tails `clip_asterisk_overlap` truncates by
+  design. Text was never at risk and does not move. Found reviewing #1801.
 - fix(core)!: **a quill declaring more fields than a card carries is refused at
   load.** `MAX_FIELD_COUNT` (1000) bounds one card-yaml block and every
   incremental field write charges it, but `Quill::seed_document` and
