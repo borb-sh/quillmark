@@ -19,7 +19,11 @@ pub type Usv = usize;
 
 /// U+FFFC OBJECT REPLACEMENT CHARACTER: the single-USV slot an island occupies
 /// in the content. One slot per island; every slot has a backing island. A stray
-/// slot (or a slot with no island) is an invariant violation.
+/// slot (or a slot with no island) is an invariant violation, which
+/// [`Content::validate`] reports and the mint cannot repair — so a codec taking
+/// text it did not write drops one on the way in, beside the `\r`, bidi controls
+/// and line separators the same input loses. Establishing the invariant is the
+/// codec's job, not a hole in it.
 pub const ISLAND_SLOT: char = '\u{FFFC}';
 
 /// One content field as a content: the text plus the structure that rides on it.

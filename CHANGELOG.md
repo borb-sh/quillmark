@@ -14,6 +14,11 @@
   most two, and a line that never spelled a break emits the same bytes as before.
   `delimiter_run()` takes `+` back, the token it was denied to keep this defect
   from making that property flap. Closes #1809.
+- docs(content): **`ISLAND_SLOT` says who removes a stray one.** The constant
+  called a slot with no island an invariant violation and stopped there, which
+  read as the codecs contradicting the model when they drop one on import. They
+  are establishing the invariant, and they take `\r`, the bidi controls and the
+  line separators out of the same input without a word either. Closes #1808.
 - fix(content): **the projection's safety net verifies the marks a rendering
   carries, not only its text.** `to_markdown` took the first spelling whose
   emission re-imported with the text intact, and an ambiguous `***` run costs the
