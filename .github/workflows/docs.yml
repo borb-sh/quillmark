@@ -1,8 +1,9 @@
 name: Docs
 
 on:
-  # Publish docs when a GitHub Release is published (see release.yml, which
-  # tags vX.Y.Z and cuts the release after a release/v* PR merges).
+  # Publish docs when a GitHub Release is published by hand. A release that
+  # release.yml cuts arrives as the dispatch below instead: it is created with
+  # GITHUB_TOKEN, whose events start no workflow run.
   release:
     types: [published]
   # Validate docs on PRs that touch them, without deploying.
@@ -11,7 +12,8 @@ on:
       - 'docs/**'
       - 'mkdocs.yml'
       - '.github/workflows/docs.yml'
-  # Allow manual (re)deploys from the Actions tab.
+  # The release deploy, dispatched by release.yml at the tag, and a manual
+  # (re)deploy from the Actions tab.
   workflow_dispatch:
 
 # Allow the GITHUB_TOKEN to deploy to GitHub Pages.
@@ -52,8 +54,9 @@ jobs:
           path: site
 
   deploy:
-    # Deploy only for published, non-prerelease releases (RCs are skipped) and
-    # manual dispatches. PRs just run the build job above as a check.
+    # Deploy for every dispatch, which is how a release arrives, and for a
+    # non-prerelease release published by hand (RCs are skipped). PRs just run
+    # the build job above as a check.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'release' && github.event.release.prerelease == false)

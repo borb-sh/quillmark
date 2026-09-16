@@ -37,8 +37,8 @@ jobs:
       # ruleset that restricts creations has to admit github-actions[bot], or the
       # tag push below is rejected.
       contents: write
-      # The CI conclusion the gate below reads.
-      actions: read
+      # The CI conclusion the gate below reads, and the Docs dispatch at the end.
+      actions: write
     outputs:
       version: ${{ steps.version.outputs.next }}
     steps:
@@ -153,6 +153,25 @@ jobs:
               --notes-file notes.md \
               --latest
           fi
+
+      # docs.yml deploys GitHub Pages on `release: published`, and a release cut
+      # by GITHUB_TOKEN above raises no event that starts a workflow run.
+      # `workflow_dispatch` is the one event exempt from that rule, so the deploy
+      # is dispatched here, at the tag, the way release-prepare.yml dispatches
+      # ci.yml for the same reason. A prerelease is skipped, as the event path is.
+      #
+      # Every publish job needs this one, and the tag and the Release already
+      # exist by here, so a failed dispatch warns rather than taking crates.io,
+      # npm and PyPI down with it. Docs.yml takes the same dispatch from the
+      # Actions tab, which is the recovery.
+      - name: Deploy the docs for this release
+        if: ${{ !contains(steps.version.outputs.next, '-') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ steps.version.outputs.next }}
+        run: |
+          gh workflow run docs.yml --ref "$TAG" \
+            || echo "::warning::could not dispatch Docs for ${TAG}; the site stays at the previous release until Docs is dispatched from the Actions tab."
 
   # ──────────────────────────────────────────────
   # Publish: Rust crates → crates.io
