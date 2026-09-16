@@ -16,6 +16,7 @@ import {
   mapMarks,
   parseDocPath,
   formatDocPath,
+  formatDiagnostic,
 } from '@quillmark-wasm'
 import * as renderBuild from '@quillmark-wasm'
 import { makeQuill, makeCard, expectEditCode, initBuildSync } from './test-helpers.js'
@@ -751,6 +752,56 @@ describe('Document-model path: parseDocPath / formatDocPath', () => {
   it('formatDocPath throws on an empty segment array', () => {
     // Symmetric with parseDocPath(''), which throws "empty path".
     expect(() => formatDocPath([])).toThrow()
+  })
+})
+
+describe('formatDiagnostic', () => {
+  it('renders severity, message, code, location, path and hint in that order', () => {
+    expect(
+      formatDiagnostic({
+        severity: 'error',
+        code: 'validation::coercion_failed',
+        message: 'bad date',
+        location: { file: 'main.typ', line: 3, column: 7 },
+        path: 'cards.memo[0].date',
+        hint: 'use ISO 8601',
+      }),
+    ).toBe(
+      '[ERROR] bad date (validation::coercion_failed)\n' +
+        '  --> main.typ:3:7\n' +
+        '  at cards.memo[0].date\n' +
+        '  hint: use ISO 8601',
+    )
+  })
+
+  it('tags a warning WARN', () => {
+    expect(formatDiagnostic({ severity: 'warning', message: 'meh' })).toBe('[WARN] meh')
+  })
+
+  it('omits every part the diagnostic does not carry', () => {
+    expect(formatDiagnostic({ severity: 'error', message: 'bare' })).toBe('[ERROR] bare')
+    expect(formatDiagnostic({ severity: 'error', message: 'bare', code: 'c' })).toBe(
+      '[ERROR] bare (c)',
+    )
+    expect(
+      formatDiagnostic({
+        severity: 'error',
+        message: 'bare',
+        location: { file: 'f', line: 1, column: 2 },
+      }),
+    ).toBe('[ERROR] bare\n  --> f:1:2')
+    expect(formatDiagnostic({ severity: 'error', message: 'bare', path: 'main.body' })).toBe(
+      '[ERROR] bare\n  at main.body',
+    )
+    expect(formatDiagnostic({ severity: 'error', message: 'bare', hint: 'try' })).toBe(
+      '[ERROR] bare\n  hint: try',
+    )
+  })
+
+  it('throws on a value that is not a diagnostic', () => {
+    expect(() => formatDiagnostic({ message: 'no severity' })).toThrow()
+    expect(() => formatDiagnostic({ severity: 'fatal', message: 'bad ladder' })).toThrow()
+    expect(() => formatDiagnostic(null)).toThrow()
   })
 })
 
@@ -1517,6 +1568,13 @@ card_kinds:
     )
 
     expect(quill.warnings.map((d) => d.code)).toEqual(['quill::body_example_unused'])
+    // The warning renders through the engine's own printer, so a consumer
+    // surfacing it keeps no copy of the layout. Structure, not wording: the
+    // layout itself is pinned in the `formatDiagnostic` suite.
+    const rendered = formatDiagnostic(quill.warnings[0])
+    expect(rendered.startsWith('[WARN] ')).toBe(true)
+    expect(rendered).toContain(' (quill::body_example_unused)')
+    expect(rendered).toContain(`\n  hint: ${quill.warnings[0].hint}`)
   })
 
   it('metadata and schema are JSON.stringify-able (plain objects)', () => {

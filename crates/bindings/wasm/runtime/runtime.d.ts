@@ -22,7 +22,8 @@ import type {
 	mapPos,
 	mapMarks,
 	parseDocPath,
-	formatDocPath
+	formatDocPath,
+	formatDiagnostic
 } from '../core/wasm.js';
 
 /**
@@ -42,6 +43,7 @@ export interface CoreSurface {
 	mapMarks: typeof mapMarks;
 	parseDocPath: typeof parseDocPath;
 	formatDocPath: typeof formatDocPath;
+	formatDiagnostic: typeof formatDiagnostic;
 }
 
 /**
