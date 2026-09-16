@@ -443,7 +443,7 @@ Because those codes carry no args, every consumer template falls back on them by
   hint: Check variable spelling
 ```
 
-One printer, reached from every surface: the CLI, Python's `str(diagnostic)`, and WASM's `formatDiagnostic(d)`. A consumer wording its own diagnostics renders through it rather than holding a copy of the layout.
+One printer, reached from every surface: the CLI, Python's `str(diagnostic)`, and WASM's `formatDiagnostic(d)`. A consumer surfacing the engine's English calls it rather than holding a copy of the layout. A consumer wording its own selects by `code` + `args` (§ "Diagnostic args") and owns the layout with the sentence.
 
 **Consolidated printing**: the CLI pretty-prints every diagnostic a `RenderError` carries, one per line, to stderr.
 
