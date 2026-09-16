@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
+
+### The content model
+
 - fix(content): **a marker run that spells a thematic break breaks its line.**
   Three nested empty bullet items emitted `- - - `, which CommonMark reads as a
   thematic break rather than as three items, so the nesting was gone after one
@@ -14,11 +18,6 @@
   most two, and a line that never spelled a break emits the same bytes as before.
   `delimiter_run()` takes `+` back, the token it was denied to keep this defect
   from making that property flap. Closes #1809.
-- docs(content): **`ISLAND_SLOT` says who removes a stray one.** The constant
-  called a slot with no island an invariant violation and stopped there, which
-  read as the codecs contradicting the model when they drop one on import. They
-  are establishing the invariant, and they take `\r`, the bidi controls and the
-  line separators out of the same input without a word either. Closes #1808.
 - fix(content): **the projection's safety net verifies the marks a rendering
   carries, not only its text.** `to_markdown` took the first spelling whose
   emission re-imported with the text intact, and an ambiguous `***` run costs the
@@ -37,12 +36,6 @@
   emissions needing a second pass to settle fall from 17 to 0, and the marks
   that come back over text they did not cover fall with them, 17 to 0. Closes
   #1807.
-- test(content): **the literal codec's stray-slot drop is stated.**
-  `from_plaintext` filters `ISLAND_SLOT` out of its input and nothing failed if
-  the filter went: `into_normalized` normalizes but does not validate, and the
-  mint does not repair a stray slot, so the codec would have handed out a
-  `Normalized` that `validate` refuses. The markdown door's half of the contract
-  landed with #1812; this is the other one. Closes #1810.
 - fix(content): **a mark whose delimiters collide with its neighbour's is
   re-spelled, not dropped.** `to_markdown` spelled `Strong` `**` and `Emph` `*`
   and nothing else, so a `Strong` ending in a literal `*` against an `Emph`
@@ -59,189 +52,6 @@
   delimiter runs the marks lost across export∘import fall from 104 to 14, the
   remainder being the crossing tails `clip_asterisk_overlap` truncates by
   design. Text was never at risk and does not move. Found reviewing #1801.
-- fix(core)!: **a quill declaring more fields than a card carries is refused at
-  load.** `MAX_FIELD_COUNT` (1000) bounds one card-yaml block and every
-  incremental field write charges it, but `Quill::seed_document` and
-  `QuillConfig::blueprint` build a card from its schema wholesale: a `Quill.yaml`
-  declaring 1001 fields under `main:` or under one `card_kinds.<name>:` loaded
-  clean, and the failure landed at an exit: emitted markdown the parser refuses,
-  and a card storage refuses. The load counts each card's declared fields and
-  reports `quill::too_many_fields` naming the card, so the defect reaches the quill
-  author in the artifact that holds it and both schema-driven constructions are
-  total over every loaded quill. The count is per card and over declared fields
-  alone: a nested `properties` map, an array's `items` and a `variants:` cell set
-  ride inside the one field declaring them. Closes #1792.
-- refactor(core,quillmark)!: **every `quillmark-core` item is named at the module
-  that defines it.** The crate declared its thirteen modules `pub` and
-  re-exported 77 of their items at the root, so `quillmark_core::Document` and
-  `quillmark_core::document::Document` both resolved and first-party callers used
-  both; neither spelling was the one a reader could rely on seeing. The root
-  re-exports go and the modules stay public, which leaves Rust's own rule as the
-  whole of it: an item is reachable where it is defined. `Content` and
-  `Normalized` keep their root spelling, the root being the only path core offers
-  those two `quillmark-content` types. `quillmark::orchestration` goes the same
-  way, leaving `Quillmark` named once at the facade root. Every removed path is
-  an unresolved import, so the compiler names each of the 328 call sites; the
-  `quillmark` facade re-exports the same list from the module-qualified core
-  paths, so a consumer on the facade has nothing to do and no binding surface
-  moves. `quillmark-pdf` already carried the one-path shape and needed no change.
-  Closes #1791.
-- feat(core,quillmark): **`Normalized` and `ImportError` are nameable from core
-  and the facade.** `quillmark_content::model::Normalized` is what `Card::body`
-  returns, what `overwrite_body` / `overwrite_field` take on `Card` and
-  `CardMut`, what all four `get_content` / `get_content_at` answer in, and what
-  `dto::CanonicalContent` wraps; `quillmark_content::import::ImportError` is the
-  payload of `EditError::Import`. No crate on that path re-exported either, so a
-  consumer holding only `quillmark-core`, or only the facade, could bind what
-  those verbs return but not write the type, and could not destructure the
-  import refusal to read its depth. `Normalized` now sits beside the `Content`
-  re-export it completes and `ImportError` beside `EditError`, both reach the
-  facade, and `tests/facade_surface.rs` names them through the content lane.
-  What `quillmark-content` carries *inside* the types core forwards — `Mark`,
-  `Line`, `Island` and the enums they name — stays that crate's own surface.
-  Closes #1790.
-- refactor(pdf,acroform)!: **a stamped widget draws its own value, so the second
-  PDF goes.** A widget carried `/NeedAppearances` and no appearance stream, so
-  the value reached only a viewer that synthesizes one and a flat rasterizer
-  drew an empty box. The form backend worked around that for its canvas by
-  building a whole second document — `flatten.rs` and `typography.rs`, 850 lines
-  — that baked each value into the page content streams, which meant resolving
-  inherited `/Resources`, inlining an indirect `/Font` dict, picking a resource
-  name free in the page's own, and splicing a `/Contents` that might name an
-  array object. The stamp now writes one `/AP` `/N` Form XObject per drawn
-  value, over a `/BBox` the size of the field box and its own one-entry
-  `/Resources`: the page is not touched, so none of that surgery has anything to
-  resolve. One document is the deliverable and the raster both, the preview is
-  the file, and a Typst `form-field` carrying a `value:` bakes one too. `/V`
-  stays the source of truth — the stream draws WinAnsi, from the left edge, and
-  the `/BBox` clips it — and `/NeedAppearances` still hands a synthesizing
-  viewer the whole value. With no second path to share them, `quillmark-pdf`'s
-  two `#[doc(hidden)] pub` modules are private and `PdfUpdate::begin` stops
-  taking a producer it was always given. Closes #1645.
-- test(core,content,typst,pdf): **each property suite lives beside the seam it
-  states, and `quillmark-fuzz` is gone.** Seven targets over boundaries owned by
-  four crates sat in one `publish = false` member outside `default-members`, so
-  a bare `cargo test` ran none of them, and `quillmark_typst::emit` stayed a
-  `#[doc(hidden)] pub` module for a single out-of-crate import. Each is now a
-  `properties` module beside its owner's unit tests: coercion under
-  `quill/tests/`, the resting form under `quill/conform/tests/`, `Document`'s
-  JSON and markdown doors under `document/tests/`, the content decode lanes in
-  `content/tests/properties.rs`, the escapers inside `emit.rs`'s own test module
-  — where they share the `resolve` oracle they had been carrying a second copy
-  of — and the stamp spine's byte reads in `quillmark-pdf/tests/`. `emit` is
-  private, and the saved regression seeds move to the paths proptest derives
-  from the new sources. Closes #1684.
-- test(core,typst,content): **the property targets that could not fail are
-  stated so they can.** `fuzz_emit_roundtrip_arbitrary` drew `\PC{0,1000}` and
-  round-tripped what parsed, but `Document::parse` refuses any source without a
-  `$quill` root block: 0 of 2000 draws reached the assertion. The body is now
-  drawn under a spelled root block, where all 3000 do, and the property is that
-  the loop settles — richtext's markdown is a lossy projection, so a first pass
-  may move marks a second pass leaves alone; the shaped generators keep the
-  identity. `fuzz_escape_string_injection_safety` scanned escaped output for
-  three literal substrings its own generator draws once in ~10^15 cases, and
-  would have failed a correct escaper if it ever had: it and its raw-quote twin
-  are one property that parses the literal back with Typst and asserts the
-  authored characters. The `CardWire` sweep gains the spelled envelope that the
-  storage sweep already had, so every case reaches `Card::try_from` and the
-  generator-reach guard it needed is gone. Deleted outright: the wide-payload
-  loop (`spec_conformance_probe` pins the cap, and now the width it admits) and
-  the three `1..20`-deep markdown loops, which approach no boundary —
-  `MAX_NESTING_DEPTH` is 100, and content pins that.
-- refactor(content)!: **every `quillmark-content` item is named at the module
-  that defines it.** The crate declared its ten modules `pub` and re-exported 34
-  of their items at the root, so `quillmark_content::Delta` and
-  `quillmark_content::delta::Delta` both resolved and first-party callers used
-  both; neither spelling was the one a reader could rely on seeing. The root
-  re-exports go and the modules stay public, which leaves Rust's own rule as the
-  whole of it: an item is reachable where it is defined. `MAX_NESTING_DEPTH` and
-  `MAX_JSON_DEPTH` keep their root spelling, the crate root being where they are
-  defined. Every removed path is an unresolved import, so the compiler names each
-  site; the names `quillmark-core` re-exports keep their core spellings, so a
-  consumer on core or on the `quillmark` facade has nothing to do, and no binding
-  surface moves. Closes #1755.
-- refactor(core): **`ParseError::code` is the one variant-to-code match.**
-  `code()` joins the three siblings that already carry the same
-  `fn code(&self) -> &'static str` — `EditError`, `ValidationError`,
-  `WireError` — and `to_diagnostic` reads it rather than spelling a second
-  nine-arm table beside `args()`. What is left there is a two-arm decoration
-  match over the only variants carrying a hint or a location. Refs #1748.
-- refactor(core)!: **the raw-plate test seam is `#[doc(hidden)]`, not a cargo
-  feature.** `internal-test-seam` gated one method,
-  `LiveSession::update_data`, and the crate's `[features]` table held nothing
-  else; both go, and the method compiles into every build. A cargo feature is
-  public surface itself — crates.io and docs.rs advertise it — so the gate moved
-  the opt-in from a source read to a `Cargo.toml` line rather than removing it,
-  and the callable-vs-not difference it bought is already given away next door:
-  `LiveSession::new` and `SessionHandle` are `#[doc(hidden)] pub` in every
-  build, and a session assembled through them reaches the same unchecked
-  `update`. The typst backend's dev-dependency on core carried the feature and
-  nothing else, so it goes too; `[dependencies]` already names core, which is
-  what its acceptance tests link. Refs #1748.
-- refactor(core,typst,wasm,python)!: **a diagnostic carries its cause in the
-  message.** `Diagnostic::source_chain` and the `with_source` builder that
-  filled it are gone, and with them JS `Diagnostic.sourceChain` and Python
-  `Diagnostic.source_chain`. One code ever filled the field:
-  `typst::world_creation`, whose boxed cause is a `String` whose `source()` is
-  `None`, so the chain was a one-element array holding the text its own message
-  already ends with — and `skip_serializing_if` omitted the field from every
-  other diagnostic. No formatter read it: `fmt_pretty` covers severity, message,
-  code, location and hint, so the CLI's output and Python's `str(diagnostic)`
-  are byte-identical. A Rust caller attaching a cause interpolates it into the
-  message, which is what `RenderError::coded` already does at the one call site.
-  Refs #1748.
-- fix(core)!: **a field write past the §8 field count is refused at the write.**
-  `Card::store_field` validated a field's name and its value's depth and left the
-  card's field count to the parser and the two storage doors, so a program could
-  build a card past `MAX_FIELD_COUNT` (1000) through `storeField` / `storeFill` /
-  `storeFields`, the typed `set` / `set_all` / `addCard`, or `revise` /
-  `overwrite` on an absent field — and learn of it only at `toMarkdown`,
-  `toStored`, or the card wire, each of which refused what the API had taken.
-  Every field write funnels through one `Payload::insert` that holds the count,
-  so an append past the cap is `edit::invalid_payload` carrying
-  `PayloadViolation::TooManyFields` — the code the wire already mints for this
-  violation — anchored at the card that is full. A replace is not a growth and
-  still lands. The batches charge the count over the whole batch and report one
-  diagnostic per name in the overflowing tail, applying none of themselves.
-  Closes #1750.
-- fix(core)!: **a placed card is reached as a `CardMut`, not a `&mut Card`.**
-  `main_mut` / `card_mut` / `cards_mut` handed out `&mut Card`, so a whole-card
-  assignment wrote past every gate that polices placement:
-  `*doc.card_mut(0).unwrap() = doc.main().clone()` put `$quill` and `$seed` on a
-  composable card that `push_card` refuses, and `*doc.main_mut() =
-  Card::new("note")?` took `$quill` off the root, which `quill_reference`
-  `expect`s present — a release panic on the next bound door. `main_mut` and
-  `card_mut` return `CardMut`, which forwards every `&mut self` verb `Card`
-  carries and `Deref`s for the reads with no `DerefMut`, so a chained call
-  compiles unchanged and the assignment does not compile at all. `cards_mut` is
-  withdrawn: `move_card` / `remove_card` / `insert_card` are the slice ops and
-  `cards` / `card` the reads. No binding surface exposed a `&mut Card`.
-  Closes #1750.
-- fix(pdf): **a stamped checkbox's `/DA` names ZapfDingbats.** `stamp` wrote a
-  checkbox's `/MK /CA (4)` caption and no `/DA`, so the widget inherited the
-  form-level `/Helv 0 Tf 0 g` and nothing registered the face the glyph lives
-  in: a viewer synthesizing the appearance under `/NeedAppearances` drew the
-  digit `4`, while the canvas raster drew the check mark through a real
-  ZapfDingbats resource. The widget now carries `/DA (/ZaDb 0 Tf 0 g)`, and
-  `/DR /Font` registers `/ZaDb` whenever a checkbox is present; `spec.font`
-  stays inert on a checkbox. The face, its resource name and the glyph are
-  `quillmark_pdf::{CHECK_FONT, CHECK_FONT_RESOURCE, CHECK_GLYPH}`, which the
-  acroform flatten path now reads rather than restating. Closes #1779.
-- fix(pdf): **one predicate for the checkbox on-state.** `stamp` read any
-  `Some` value as checked and `flatten` only `Some("Yes")`, so a
-  `FieldSpec::value` the contract excludes — `value` is public — stamped
-  `/V /Yes` on a widget the raster drew blank. `FieldSpec::is_checked` is the
-  one reading, the strict one, and both paths call it. Closes #1780.
-- fix(acroform): **a value carrying a newline binds to a multiline widget.**
-  `bind` decided `MULTILINE` from the schema type, so a richtext of two
-  paragraphs, a `String` block scalar, or any value whose projection keeps a
-  `\n` reached the stamped widget single-line unless `ui.multiline` said
-  otherwise, while the flattened raster stacked the lines: the author saw the
-  value in the preview and one line of it in the file. `resolve::field_spec`
-  now promotes a `Text` widget to multiline when the value it resolved holds a
-  `\n`, reading the same string the raster draws. An array's widget stays
-  multiline unconditionally, value or none, since a signer types its elements
-  one per line. Closes #1781.
 - fix(content): **`Delta::map_pos` saturates its base cursor.** `mapPos` is the
   one `Delta` door no `try_apply` bounds, and it summed a wire delta's
   `retain`/`delete` counts with a plain `+`: on wasm32, where `usize` is
@@ -269,195 +79,6 @@
   `emit`'s markdown projection of a content-valued field now matches one form
   rather than two, so a value carrying a spelled zero stays a structural
   mapping until it is conformed. Closes #1648.
-- refactor(pdfform)!: **`quillmark-pdfform` is `quillmark-acroform`, backend id
-  included.** `quillmark-pdf` and `quillmark-pdfform` differed by four
-  characters and read as prefix-and-specialization, the reading #1749 records:
-  that the form crate was the spine's only consumer. The spine keeps its name,
-  a bare generic name reading as leaf infrastructure with many consumers, and
-  the backend takes a distinct one at every layer the old one was spelled:
-  crate, directory, `AcroformBackend` with `id()` of `"acroform"`, the
-  `quillmark` cargo feature, the `pdfform::*` diagnostic namespace (now
-  `acroform::*`, the suffixes unchanged), the WASM `DEFAULT_BACKENDS` key, the
-  docs page and the two fixture quills' `backend:`. No alias: an unmigrated
-  `backend: pdfform` fails at render with `engine::backend_not_found`, whose
-  hint lists the registered backends, and a half-migrated quill with a leftover
-  `pdfform:` section fails at load with `quill::unknown_section`. `pdf::*` is
-  untouched. Closes #1775.
-- build(wasm): **three artifacts to two: the `render` build carries both
-  backends.** The core split (no engine, ~0.5 MB) is real for a web editor and
-  stays guarded. A pdfform-only binary bought "a pdfform-only page skips 8 MB
-  of Typst", and no such page exists; the render artifact grows by the
-  `quillmark-pdfform` crate and a brotli decoder, `hayro` already shipping in
-  it under `typst-render`. The wasm `typst` and `pdfform` features collapse
-  into one `render` feature — a feature named for one backend that selects two
-  would be a fresh inaccuracy in place of the one #1749 records — and the
-  forty-three `#[cfg(any(feature = "typst", feature = "pdfform"))]` sites
-  become `#[cfg(feature = "render")]`. `build-wasm.sh` emits `pkg/core/` and
-  `pkg/render/`; `runtime.js` keeps one `DEFAULT_BACKENDS` entry per backend
-  id, each with its own `formats` manifest, sharing one memoized load, and the
-  `Engine` keys its module, engine and clone caches on the descriptor's `load`
-  thunk rather than the backend id, so two ids over one build hold one entry
-  each. Both drift guards stay, the pdfform one retargeted at the merged
-  build. Closes #1640.
-- refactor(typst)!: **`form-field` keeps `text` and `signature`.** `usaf_memo`
-  uses those two. Checkbox and choice were the only kinds needing a value
-  coercion, and both coercions were copies of the pdfform resolver's,
-  duplicated because the Typst backend must not depend on it: deleting the two
-  kinds deletes the duplicate, and `FieldKind`, the mirror of the spine's
-  `FieldType` it existed for, retires with them — the extractor reads
-  `(FieldType, Option<String>)` directly. A plate wanting an interactive
-  checkbox or dropdown is a form-backend quill: pdfform keeps both kinds on
-  the spine. `multiline` stays, one bool on `FieldType::Text` the spine keeps
-  either way. A plate passing `type: "checkbox"` or `type: "choice"` fails the
-  helper's type assert, and `options:` is no longer a parameter. Closes #1644.
-- docs(canon): **the stamp spine names both of its consumers.**
-  `ARCHITECTURE.md` described `quillmark-pdf` as leaf infrastructure consumed
-  by `quillmark-pdfform`. The Typst backend consumes it unconditionally — the
-  fields a plate's `form-field` calls place go through the same `stamp` — and
-  nothing under `crates/backends/typst/src/` is feature-gated, so a reader
-  following canon concluded a Typst quill's form fields come from the pdfform
-  backend, and settling #1640 took a read of three manifests. The sentence
-  now names the layer and both consumers, meeting at `&[FieldSpec]` and never
-  each other. Closes #1749.
-- ci(release): **the version arithmetic and changelog baseline are tested
-  scripts.** `release-prepare.yml`'s `Compute next version` block runs only when
-  a maintainer dispatches it, and one release candidate exists in the
-  repository's history, so a defect in its `-rc.N` branches would surface at the
-  release that needed them. The block moves to `scripts/next-version.sh`, taking
-  the dispatch inputs verbatim so the workflow step holds no conditional of its
-  own, and the changelog baseline's pre-release skip moves to
-  `scripts/last-release-tag.sh`, reading a tag list on stdin so a test feeds it
-  fixtures rather than a repository. `scripts/release-prepare.test.sh` covers
-  twenty cases in ci.yml's lint job beside the canon spine lint: an
-  override taken verbatim and one already carrying `-rc.N` left unsuffixed,
-  iteration counting `rc.9` to `rc.10` rather than concatenating, promotion
-  dropping the suffix at any N while ignoring `bump`, a minor bump zeroing the
-  patch, and a pre-release tag passed over for the final beneath it. Covering it
-  found the defect it was written for: a `bump` outside `patch` and `minor`, and
-  a `CURRENT` no branch can shape — a `0.93.1-beta.1` an earlier free-text
-  override left behind, whose arithmetic fails to stderr without failing the
-  shell — each left the version empty and exited 0, and the workflow
-  interpolated that empty string into `cargo release version`, the release
-  branch name, the tag and the changelog heading. A version the arithmetic
-  cannot compute is a refusal now. A 160-combination sweep of the original block
-  against the script shows no other difference. Closes #1767.
-- build(wasm): **the package build reads its version without jq.** `jq` was a
-  hard prerequisite of `build-wasm.sh` for one string: the version out of `cargo
-  metadata`. `cargo pkgid` carries the number the crate inherits from
-  `version.workspace`, and stripping past the last `#`, `@` or `:` reads every
-  pkgid spelling cargo has used, since a semver holds none of the three. The
-  guard is a semver match, so an unparseable pkgid fails the build rather than
-  stamping a partial string; `--release-stamp` still stamps verbatim, which is
-  what `release.yml` compares against the tag before publishing. The
-  `pkg/.gitignore` the script wrote goes — the root `.gitignore` already ignores
-  `pkg/`, and `package.template.json`'s `files` allowlist is what decides the
-  published set — and so does the brotli line in the size report, a second
-  compressor for a second number nothing acts on which printed only where it
-  happened to be installed. The core artifact's one remaining gzip pass feeds
-  both the report line and the size budget, which were compressing the same
-  8.7 MB twice. Closes #1766.
-- test(core): **`quillmark:blank_title` rides the transform schema, and only
-  it.** The keyword labels the blank that leads an enum's wire-valid domain and
-  had no test anywhere, so a rename or a drop shipped silently. The label and
-  the blank are asserted as one object, the label being meaningless without the
-  blank it names: a field carrying `ui.blank_title` emits both, a field without
-  it emits the domain and no key at all. Whole-object equality, so an
-  unconditional key emitting `""` reads as a failure rather than passing a
-  presence check. The declaration view keeps emitting `values:` verbatim —
-  injecting the blank there would emit `values: ["", …]`, which
-  `quill::enum_blank_member` rejects, so a quill round-tripping through that
-  view would stop loading. Closes #1765.
-- test(wasm): **the typed write and resolve suites run on the gated surface.**
-  `runtime/runtime.js` patches `writer` and `reader` onto the core build's
-  `Quill`, and `basic.test.js` drives the typst backend build — a different
-  class over different memory, where those verbs do not exist. That is why its
-  typed-commit and resolve suites reached for the `_`-prefixed `_commitField`
-  and `_resolve`: the front door was not there to reach. Both move to
-  `runtime.test.js`, where the gated surface is what a consumer holds, and no
-  underscored call remains in either file. Five assertions `runtime.test.js`
-  already made through `writer.set` and `writer.card(i).set` go. Ten had no
-  public twin and carry over: `edit::field_coercion_failed` and
-  `edit::field_not_inline`, which appeared nowhere else in the suite; the
-  `DocPath` a refused write anchors to; `setAll`'s all-or-nothing abort at both
-  the unknown-name and the coercion rung; `CardWriter.setAll`; and resolve's
-  declaration-order rows, its `default` and `blank` rungs, and `body` as a
-  sibling of `fields`. Six tests filed under the typed-commit title never
-  touched that ABI — they drive `applyChange` and `mapMarks` — and are retitled
-  where they sit. The foreign-module fixture copies the core build into an
-  `mkdtemp` directory and removes it in `afterAll`, where it wrote `pkg/dup-core`
-  and cleared it at the *next* run's start: a unique path per run cannot collide
-  with a concurrent one, and a leak lands in the OS temp directory rather than
-  in a build directory. Closes #1764.
-- test(quillmark): **the quiver sweeps share one walker and one loaded quiver.**
-  `quillmark_fixtures::quill_names` is the single list of fixture quills,
-  counting a directory when `quills_path` resolves it to a bundle carrying
-  `Quill.yaml` — the versioned layout every fixture uses, which neither of the
-  two bare `is_dir()` walkers knew about. The seed sweep joins the
-  empty-document and blueprint sweeps in `quiver_test.rs` over one `LazyLock`
-  quiver, so each quill loads once for all three rather than once per sweep and
-  the three run in parallel inside one binary: fifteen loads become five, two
-  engines become one, and the sweeps finish in 272 ms where the two binaries
-  took 678 ms. All three documents stay, none subsuming another — the blueprint
-  commits every `default:` and marks every defaultless cell `!must_fill`, the
-  seed commits every `example:` and omits every defaulted field, and only the
-  empty document carries no composable card. Closes #1763.
-- refactor(core)!: **`.quillignore` is not read; the ignore set is the built-in
-  one.** A three-rule parser with a raw-string fallback — `dir/`, a literal
-  name, and a glob matched against both the whole path and the basename that
-  also matches the line it was written as — served a format one bundle in the
-  tree used. That bundle's file was a copy-pasted demo ("This demonstrates the
-  .quillignore functionality") restating the built-ins it would have inherited
-  by writing nothing. The bracket-as-literal reading in the glob
-  existed for `Cinzel[wght].ttf`, a name no `.quillignore` in this repo's
-  history spells. `QuillIgnore` is the fixed set alone now: `.git/`, `target/`
-  and `node_modules/` with their subtrees, anchored at the bundle root, and
-  `.gitignore` wherever it sits. `.quillignore` leaves that set with the format
-  — the loader has no reason to hide a file it no longer reads — so a bundle
-  carrying one walks it into the tree as an ordinary file, and a bundle that
-  relied on the file to exclude something ships that something. `QuillIgnore::new`
-  and `QuillIgnore::from_content` go; `default()` and `is_ignored` stay, on what
-  is now a unit struct. Refs #1641.
-- fix(typst)!: **a vendored package without `typst.toml` is skipped, with the
-  warning its siblings already get.** A `packages/<dir>/` carrying no manifest
-  had one synthesized — `@local/<dir>:0.1.0` — and loaded under it. That spelling
-  was undocumented, unfixtured and untested, and it split one package tree into
-  two behaviors: the synthesized path passed no entrypoint, so it alone skipped
-  the `typst::package_entrypoint_missing` check that the same files with a
-  two-line manifest get. A manifest-less directory now warns under
-  `typst::package_manifest`, the code its malformed-manifest and bad-version
-  siblings already carry, and is skipped. The migration is the file the fallback
-  was standing in for: `parse_package_toml` defaults `namespace` to `local`,
-  `version` to `0.1.0` and `entrypoint` to `lib.typ`, so `[package]` plus
-  `name = "<dir>"` reproduces the old spec exactly. `package_spec` and
-  `entrypoint` stop being `Option` on `load_package_files_from_quill`, whose two
-  call sites always passed one, and the infallible `"0.1.0".parse()` dressed as
-  fallible goes with them. Refs #1698.
-- refactor(pdfform): **a checkbox reads a bool.** `is_truthy` accepted
-  `"yes"`, `"on"`, `"y"`, `"checked"`, `"1"` and any nonzero number beside
-  `true`. Nothing reaches it: a `checkbox` widget binds only to a `boolean`
-  schema field, and `resolve` runs against `compile_data`, where
-  `conform_value` has already turned a bool, a `"true"`/`"false"` spelling and
-  a number into a JSON bool — and refused everything else as
-  `CoercionError::uncoercible` before any widget resolves. So the vocabulary
-  was not a tolerance but a second, *wider* one behind a door the first never
-  opens: `"yes"` checks the box here and fails the compile upstream. The module
-  binds against `compile_data` precisely so coercion is inherited rather than
-  re-implemented, which is the line `is_truthy` crossed. `matches!(raw,
-  Value::Bool(true))` is the whole rule now. No reachable behavior changes.
-- refactor(core): **a quill reference parses its selector token directly.**
-  `QuillReference::from_str` split `name@selector` and then re-prefixed the
-  half it had just split off — `VersionSelector::from_str(&format!("@{}",
-  part))` — so the selector parser carried a `written` flag to tell the typo
-  `memo@` from the absent selector in `memo`, a distinction only the caller
-  ever had in hand. `VersionSelector::from_token` parses the unprefixed token
-  and refuses the empty one, `from_str` is the written spelling over it, and
-  the allocation per parse goes. Parsed values, `Display` output and error
-  strings are unchanged, which is what the untouched selector tests assert.
-
-Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
-
-### The content model
-
 - feat(content,wasm)!: **the content vocabularies close.** A line `kind`,
   container, mark `type`, island `type` or `loss` outside the built-ins was an
   open set: it round-tripped opaque and projected as its nearest safe
@@ -762,6 +383,34 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
 
 ### The binding surface
 
+- refactor(core,typst,wasm,python)!: **a diagnostic carries its cause in the
+  message.** `Diagnostic::source_chain` and the `with_source` builder that
+  filled it are gone, and with them JS `Diagnostic.sourceChain` and Python
+  `Diagnostic.source_chain`. One code ever filled the field:
+  `typst::world_creation`, whose boxed cause is a `String` whose `source()` is
+  `None`, so the chain was a one-element array holding the text its own message
+  already ends with — and `skip_serializing_if` omitted the field from every
+  other diagnostic. No formatter read it: `fmt_pretty` covers severity, message,
+  code, location and hint, so the CLI's output and Python's `str(diagnostic)`
+  are byte-identical. A Rust caller attaching a cause interpolates it into the
+  message, which is what `RenderError::coded` already does at the one call site.
+  Refs #1748.
+- build(wasm): **three artifacts to two: the `render` build carries both
+  backends.** The core split (no engine, ~0.5 MB) is real for a web editor and
+  stays guarded. A pdfform-only binary bought "a pdfform-only page skips 8 MB
+  of Typst", and no such page exists; the render artifact grows by the
+  `quillmark-pdfform` crate and a brotli decoder, `hayro` already shipping in
+  it under `typst-render`. The wasm `typst` and `pdfform` features collapse
+  into one `render` feature — a feature named for one backend that selects two
+  would be a fresh inaccuracy in place of the one #1749 records — and the
+  forty-three `#[cfg(any(feature = "typst", feature = "pdfform"))]` sites
+  become `#[cfg(feature = "render")]`. `build-wasm.sh` emits `pkg/core/` and
+  `pkg/render/`; `runtime.js` keeps one `DEFAULT_BACKENDS` entry per backend
+  id, each with its own `formats` manifest, sharing one memoized load, and the
+  `Engine` keys its module, engine and clone caches on the descriptor's `load`
+  thunk rather than the backend id, so two ids over one build hold one entry
+  each. Both drift guards stay, the pdfform one retargeted at the merged
+  build. Closes #1640.
 - feat(core)!: **`reader.get` answers in the values form, and `ReadValue` is
   gone.** `get` returns the plain value: every content leaf in the field's type
   tree as its codec's text (`richtext` markdown, `plaintext` literal),
@@ -936,6 +585,62 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
 
 ### The engine seam and the backends
 
+- refactor(pdfform)!: **`quillmark-pdfform` is `quillmark-acroform`, backend id
+  included.** `quillmark-pdf` and `quillmark-pdfform` differed by four
+  characters and read as prefix-and-specialization, the reading #1749 records:
+  that the form crate was the spine's only consumer. The spine keeps its name,
+  a bare generic name reading as leaf infrastructure with many consumers, and
+  the backend takes a distinct one at every layer the old one was spelled:
+  crate, directory, `AcroformBackend` with `id()` of `"acroform"`, the
+  `quillmark` cargo feature, the `pdfform::*` diagnostic namespace (now
+  `acroform::*`, the suffixes unchanged), the WASM `DEFAULT_BACKENDS` key, the
+  docs page and the two fixture quills' `backend:`. No alias: an unmigrated
+  `backend: pdfform` fails at render with `engine::backend_not_found`, whose
+  hint lists the registered backends, and a half-migrated quill with a leftover
+  `pdfform:` section fails at load with `quill::unknown_section`. `pdf::*` is
+  untouched. Closes #1775.
+- refactor(typst)!: **`form-field` keeps `text` and `signature`.** `usaf_memo`
+  uses those two. Checkbox and choice were the only kinds needing a value
+  coercion, and both coercions were copies of the pdfform resolver's,
+  duplicated because the Typst backend must not depend on it: deleting the two
+  kinds deletes the duplicate, and `FieldKind`, the mirror of the spine's
+  `FieldType` it existed for, retires with them — the extractor reads
+  `(FieldType, Option<String>)` directly. A plate wanting an interactive
+  checkbox or dropdown is a form-backend quill: pdfform keeps both kinds on
+  the spine. `multiline` stays, one bool on `FieldType::Text` the spine keeps
+  either way. A plate passing `type: "checkbox"` or `type: "choice"` fails the
+  helper's type assert, and `options:` is no longer a parameter. Closes #1644.
+- refactor(core)!: **`.quillignore` is not read; the ignore set is the built-in
+  one.** A three-rule parser with a raw-string fallback — `dir/`, a literal
+  name, and a glob matched against both the whole path and the basename that
+  also matches the line it was written as — served a format one bundle in the
+  tree used. That bundle's file was a copy-pasted demo ("This demonstrates the
+  .quillignore functionality") restating the built-ins it would have inherited
+  by writing nothing. The bracket-as-literal reading in the glob
+  existed for `Cinzel[wght].ttf`, a name no `.quillignore` in this repo's
+  history spells. `QuillIgnore` is the fixed set alone now: `.git/`, `target/`
+  and `node_modules/` with their subtrees, anchored at the bundle root, and
+  `.gitignore` wherever it sits. `.quillignore` leaves that set with the format
+  — the loader has no reason to hide a file it no longer reads — so a bundle
+  carrying one walks it into the tree as an ordinary file, and a bundle that
+  relied on the file to exclude something ships that something. `QuillIgnore::new`
+  and `QuillIgnore::from_content` go; `default()` and `is_ignored` stay, on what
+  is now a unit struct. Refs #1641.
+- fix(typst)!: **a vendored package without `typst.toml` is skipped, with the
+  warning its siblings already get.** A `packages/<dir>/` carrying no manifest
+  had one synthesized — `@local/<dir>:0.1.0` — and loaded under it. That spelling
+  was undocumented, unfixtured and untested, and it split one package tree into
+  two behaviors: the synthesized path passed no entrypoint, so it alone skipped
+  the `typst::package_entrypoint_missing` check that the same files with a
+  two-line manifest get. A manifest-less directory now warns under
+  `typst::package_manifest`, the code its malformed-manifest and bad-version
+  siblings already carry, and is skipped. The migration is the file the fallback
+  was standing in for: `parse_package_toml` defaults `namespace` to `local`,
+  `version` to `0.1.0` and `entrypoint` to `lib.typ`, so `[package]` plus
+  `name = "<dir>"` reproduces the old spec exactly. `package_spec` and
+  `entrypoint` stop being `Option` on `load_package_files_from_quill`, whose two
+  call sites always passed one, and the infallible `"0.1.0".parse()` dressed as
+  fallible goes with them. Refs #1698.
 - refactor(core,wasm)!: **canvas preview is part of the backend contract, and
   the pre-session probe goes.** `SessionHandle::page_size_pt` and `render_rgba`
   lose their absent-reading defaults and become required, so a session paints
@@ -1113,6 +818,61 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
 
 ### The PDF spine
 
+- refactor(pdf,acroform)!: **a stamped widget draws its own value, so the second
+  PDF goes.** A widget carried `/NeedAppearances` and no appearance stream, so
+  the value reached only a viewer that synthesizes one and a flat rasterizer
+  drew an empty box. The form backend worked around that for its canvas by
+  building a whole second document — `flatten.rs` and `typography.rs`, 850 lines
+  — that baked each value into the page content streams, which meant resolving
+  inherited `/Resources`, inlining an indirect `/Font` dict, picking a resource
+  name free in the page's own, and splicing a `/Contents` that might name an
+  array object. The stamp now writes one `/AP` `/N` Form XObject per drawn
+  value, over a `/BBox` the size of the field box and its own one-entry
+  `/Resources`: the page is not touched, so none of that surgery has anything to
+  resolve. One document is the deliverable and the raster both, the preview is
+  the file, and a Typst `form-field` carrying a `value:` bakes one too. `/V`
+  stays the source of truth — the stream draws WinAnsi, from the left edge, and
+  the `/BBox` clips it — and `/NeedAppearances` still hands a synthesizing
+  viewer the whole value. With no second path to share them, `quillmark-pdf`'s
+  two `#[doc(hidden)] pub` modules are private and `PdfUpdate::begin` stops
+  taking a producer it was always given. Closes #1645.
+- fix(pdf): **a stamped checkbox's `/DA` names ZapfDingbats.** `stamp` wrote a
+  checkbox's `/MK /CA (4)` caption and no `/DA`, so the widget inherited the
+  form-level `/Helv 0 Tf 0 g` and nothing registered the face the glyph lives
+  in: a viewer synthesizing the appearance under `/NeedAppearances` drew the
+  digit `4`, while the canvas raster drew the check mark through a real
+  ZapfDingbats resource. The widget now carries `/DA (/ZaDb 0 Tf 0 g)`, and
+  `/DR /Font` registers `/ZaDb` whenever a checkbox is present; `spec.font`
+  stays inert on a checkbox. The face, its resource name and the glyph are
+  `quillmark_pdf::{CHECK_FONT, CHECK_FONT_RESOURCE, CHECK_GLYPH}`, which the
+  acroform flatten path now reads rather than restating. Closes #1779.
+- fix(pdf): **one predicate for the checkbox on-state.** `stamp` read any
+  `Some` value as checked and `flatten` only `Some("Yes")`, so a
+  `FieldSpec::value` the contract excludes — `value` is public — stamped
+  `/V /Yes` on a widget the raster drew blank. `FieldSpec::is_checked` is the
+  one reading, the strict one, and both paths call it. Closes #1780.
+- fix(acroform): **a value carrying a newline binds to a multiline widget.**
+  `bind` decided `MULTILINE` from the schema type, so a richtext of two
+  paragraphs, a `String` block scalar, or any value whose projection keeps a
+  `\n` reached the stamped widget single-line unless `ui.multiline` said
+  otherwise, while the flattened raster stacked the lines: the author saw the
+  value in the preview and one line of it in the file. `resolve::field_spec`
+  now promotes a `Text` widget to multiline when the value it resolved holds a
+  `\n`, reading the same string the raster draws. An array's widget stays
+  multiline unconditionally, value or none, since a signer types its elements
+  one per line. Closes #1781.
+- refactor(pdfform): **a checkbox reads a bool.** `is_truthy` accepted
+  `"yes"`, `"on"`, `"y"`, `"checked"`, `"1"` and any nonzero number beside
+  `true`. Nothing reaches it: a `checkbox` widget binds only to a `boolean`
+  schema field, and `resolve` runs against `compile_data`, where
+  `conform_value` has already turned a bool, a `"true"`/`"false"` spelling and
+  a number into a JSON bool — and refused everything else as
+  `CoercionError::uncoercible` before any widget resolves. So the vocabulary
+  was not a tolerance but a second, *wider* one behind a door the first never
+  opens: `"yes"` checks the box here and fails the compile upstream. The module
+  binds against `compile_data` precisely so coercion is inherited rather than
+  re-implemented, which is the line `is_truthy` crossed. `matches!(raw,
+  Value::Bool(true))` is the whole rule now. No reachable behavior changes.
 - fix(pdf): **a stamped trailer carries one `/Info`, whatever shape the base's
   `/Info` had.** The producer stamp allocated a fresh information dictionary
   whenever the trailer's `/Info` did not parse as an indirect reference, while
@@ -1186,6 +946,32 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
 
 ### Schema, validation and the resolved view
 
+- fix(core)!: **a quill declaring more fields than a card carries is refused at
+  load.** `MAX_FIELD_COUNT` (1000) bounds one card-yaml block and every
+  incremental field write charges it, but `Quill::seed_document` and
+  `QuillConfig::blueprint` build a card from its schema wholesale: a `Quill.yaml`
+  declaring 1001 fields under `main:` or under one `card_kinds.<name>:` loaded
+  clean, and the failure landed at an exit: emitted markdown the parser refuses,
+  and a card storage refuses. The load counts each card's declared fields and
+  reports `quill::too_many_fields` naming the card, so the defect reaches the quill
+  author in the artifact that holds it and both schema-driven constructions are
+  total over every loaded quill. The count is per card and over declared fields
+  alone: a nested `properties` map, an array's `items` and a `variants:` cell set
+  ride inside the one field declaring them. Closes #1792.
+- fix(core)!: **a field write past the §8 field count is refused at the write.**
+  `Card::store_field` validated a field's name and its value's depth and left the
+  card's field count to the parser and the two storage doors, so a program could
+  build a card past `MAX_FIELD_COUNT` (1000) through `storeField` / `storeFill` /
+  `storeFields`, the typed `set` / `set_all` / `addCard`, or `revise` /
+  `overwrite` on an absent field — and learn of it only at `toMarkdown`,
+  `toStored`, or the card wire, each of which refused what the API had taken.
+  Every field write funnels through one `Payload::insert` that holds the count,
+  so an append past the cap is `edit::invalid_payload` carrying
+  `PayloadViolation::TooManyFields` — the code the wire already mints for this
+  violation — anchored at the card that is full. A replace is not a growth and
+  still lands. The batches charge the count over the whole batch and report one
+  diagnostic per name in the overflowing tail, applying none of themselves.
+  Closes #1750.
 - refactor(core)!: **an enum's domain rides the type token.** `FieldType::Enum`
   carries `values`, and `FieldSchema::enum_values` is gone. The domain and the
   token had to agree, an agreement the loader enforced and the type could not,
@@ -1317,8 +1103,89 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
   command running and refusing. `--help` and `--version` exit `0`. A smoke test
   pins the `2`.
 
-### Rust surface pruning
+### The Rust surface
 
+- refactor(core,quillmark)!: **every `quillmark-core` item is named at the module
+  that defines it.** The crate declared its thirteen modules `pub` and
+  re-exported 77 of their items at the root, so `quillmark_core::Document` and
+  `quillmark_core::document::Document` both resolved and first-party callers used
+  both; neither spelling was the one a reader could rely on seeing. The root
+  re-exports go and the modules stay public, which leaves Rust's own rule as the
+  whole of it: an item is reachable where it is defined. `Content` and
+  `Normalized` keep their root spelling, the root being the only path core offers
+  those two `quillmark-content` types. `quillmark::orchestration` goes the same
+  way, leaving `Quillmark` named once at the facade root. Every removed path is
+  an unresolved import, so the compiler names each of the 328 call sites; the
+  `quillmark` facade re-exports the same list from the module-qualified core
+  paths, so a consumer on the facade has nothing to do and no binding surface
+  moves. `quillmark-pdf` already carried the one-path shape and needed no change.
+  Closes #1791.
+- feat(core,quillmark): **`Normalized` and `ImportError` are nameable from core
+  and the facade.** `quillmark_content::model::Normalized` is what `Card::body`
+  returns, what `overwrite_body` / `overwrite_field` take on `Card` and
+  `CardMut`, what all four `get_content` / `get_content_at` answer in, and what
+  `dto::CanonicalContent` wraps; `quillmark_content::import::ImportError` is the
+  payload of `EditError::Import`. No crate on that path re-exported either, so a
+  consumer holding only `quillmark-core`, or only the facade, could bind what
+  those verbs return but not write the type, and could not destructure the
+  import refusal to read its depth. `Normalized` now sits beside the `Content`
+  re-export it completes and `ImportError` beside `EditError`, both reach the
+  facade, and `tests/facade_surface.rs` names them through the content lane.
+  What `quillmark-content` carries *inside* the types core forwards — `Mark`,
+  `Line`, `Island` and the enums they name — stays that crate's own surface.
+  Closes #1790.
+- refactor(content)!: **every `quillmark-content` item is named at the module
+  that defines it.** The crate declared its ten modules `pub` and re-exported 34
+  of their items at the root, so `quillmark_content::Delta` and
+  `quillmark_content::delta::Delta` both resolved and first-party callers used
+  both; neither spelling was the one a reader could rely on seeing. The root
+  re-exports go and the modules stay public, which leaves Rust's own rule as the
+  whole of it: an item is reachable where it is defined. `MAX_NESTING_DEPTH` and
+  `MAX_JSON_DEPTH` keep their root spelling, the crate root being where they are
+  defined. Every removed path is an unresolved import, so the compiler names each
+  site; the names `quillmark-core` re-exports keep their core spellings, so a
+  consumer on core or on the `quillmark` facade has nothing to do, and no binding
+  surface moves. Closes #1755.
+- refactor(core): **`ParseError::code` is the one variant-to-code match.**
+  `code()` joins the three siblings that already carry the same
+  `fn code(&self) -> &'static str` — `EditError`, `ValidationError`,
+  `WireError` — and `to_diagnostic` reads it rather than spelling a second
+  nine-arm table beside `args()`. What is left there is a two-arm decoration
+  match over the only variants carrying a hint or a location. Refs #1748.
+- refactor(core)!: **the raw-plate test seam is `#[doc(hidden)]`, not a cargo
+  feature.** `internal-test-seam` gated one method,
+  `LiveSession::update_data`, and the crate's `[features]` table held nothing
+  else; both go, and the method compiles into every build. A cargo feature is
+  public surface itself — crates.io and docs.rs advertise it — so the gate moved
+  the opt-in from a source read to a `Cargo.toml` line rather than removing it,
+  and the callable-vs-not difference it bought is already given away next door:
+  `LiveSession::new` and `SessionHandle` are `#[doc(hidden)] pub` in every
+  build, and a session assembled through them reaches the same unchecked
+  `update`. The typst backend's dev-dependency on core carried the feature and
+  nothing else, so it goes too; `[dependencies]` already names core, which is
+  what its acceptance tests link. Refs #1748.
+- fix(core)!: **a placed card is reached as a `CardMut`, not a `&mut Card`.**
+  `main_mut` / `card_mut` / `cards_mut` handed out `&mut Card`, so a whole-card
+  assignment wrote past every gate that polices placement:
+  `*doc.card_mut(0).unwrap() = doc.main().clone()` put `$quill` and `$seed` on a
+  composable card that `push_card` refuses, and `*doc.main_mut() =
+  Card::new("note")?` took `$quill` off the root, which `quill_reference`
+  `expect`s present — a release panic on the next bound door. `main_mut` and
+  `card_mut` return `CardMut`, which forwards every `&mut self` verb `Card`
+  carries and `Deref`s for the reads with no `DerefMut`, so a chained call
+  compiles unchanged and the assignment does not compile at all. `cards_mut` is
+  withdrawn: `move_card` / `remove_card` / `insert_card` are the slice ops and
+  `cards` / `card` the reads. No binding surface exposed a `&mut Card`.
+  Closes #1750.
+- refactor(core): **a quill reference parses its selector token directly.**
+  `QuillReference::from_str` split `name@selector` and then re-prefixed the
+  half it had just split off — `VersionSelector::from_str(&format!("@{}",
+  part))` — so the selector parser carried a `written` flag to tell the typo
+  `memo@` from the absent selector in `memo`, a distinction only the caller
+  ever had in hand. `VersionSelector::from_token` parses the unprefixed token
+  and refuses the empty one, `from_str` is the written spelling over it, and
+  the allocation per parse goes. Parsed values, `Display` output and error
+  strings are unchanged, which is what the untouched selector tests assert.
 - feat(core)!: **five `quillmark-core` document verbs with no caller are
   gone.** `Document::to_plate_json` was the schema-free spelling of the
   crate-internal `to_plate_json_gated` every render already takes, so the plate
@@ -1385,6 +1252,138 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
 
 ### Docs and tests
 
+- docs(content): **`ISLAND_SLOT` says who removes a stray one.** The constant
+  called a slot with no island an invariant violation and stopped there, which
+  read as the codecs contradicting the model when they drop one on import. They
+  are establishing the invariant, and they take `\r`, the bidi controls and the
+  line separators out of the same input without a word either. Closes #1808.
+- test(content): **the literal codec's stray-slot drop is stated.**
+  `from_plaintext` filters `ISLAND_SLOT` out of its input and nothing failed if
+  the filter went: `into_normalized` normalizes but does not validate, and the
+  mint does not repair a stray slot, so the codec would have handed out a
+  `Normalized` that `validate` refuses. The markdown door's half of the contract
+  landed with #1812; this is the other one. Closes #1810.
+- test(core,content,typst,pdf): **each property suite lives beside the seam it
+  states, and `quillmark-fuzz` is gone.** Seven targets over boundaries owned by
+  four crates sat in one `publish = false` member outside `default-members`, so
+  a bare `cargo test` ran none of them, and `quillmark_typst::emit` stayed a
+  `#[doc(hidden)] pub` module for a single out-of-crate import. Each is now a
+  `properties` module beside its owner's unit tests: coercion under
+  `quill/tests/`, the resting form under `quill/conform/tests/`, `Document`'s
+  JSON and markdown doors under `document/tests/`, the content decode lanes in
+  `content/tests/properties.rs`, the escapers inside `emit.rs`'s own test module
+  — where they share the `resolve` oracle they had been carrying a second copy
+  of — and the stamp spine's byte reads in `quillmark-pdf/tests/`. `emit` is
+  private, and the saved regression seeds move to the paths proptest derives
+  from the new sources. Closes #1684.
+- test(core,typst,content): **the property targets that could not fail are
+  stated so they can.** `fuzz_emit_roundtrip_arbitrary` drew `\PC{0,1000}` and
+  round-tripped what parsed, but `Document::parse` refuses any source without a
+  `$quill` root block: 0 of 2000 draws reached the assertion. The body is now
+  drawn under a spelled root block, where all 3000 do, and the property is that
+  the loop settles — richtext's markdown is a lossy projection, so a first pass
+  may move marks a second pass leaves alone; the shaped generators keep the
+  identity. `fuzz_escape_string_injection_safety` scanned escaped output for
+  three literal substrings its own generator draws once in ~10^15 cases, and
+  would have failed a correct escaper if it ever had: it and its raw-quote twin
+  are one property that parses the literal back with Typst and asserts the
+  authored characters. The `CardWire` sweep gains the spelled envelope that the
+  storage sweep already had, so every case reaches `Card::try_from` and the
+  generator-reach guard it needed is gone. Deleted outright: the wide-payload
+  loop (`spec_conformance_probe` pins the cap, and now the width it admits) and
+  the three `1..20`-deep markdown loops, which approach no boundary —
+  `MAX_NESTING_DEPTH` is 100, and content pins that.
+- docs(canon): **the stamp spine names both of its consumers.**
+  `ARCHITECTURE.md` described `quillmark-pdf` as leaf infrastructure consumed
+  by `quillmark-pdfform`. The Typst backend consumes it unconditionally — the
+  fields a plate's `form-field` calls place go through the same `stamp` — and
+  nothing under `crates/backends/typst/src/` is feature-gated, so a reader
+  following canon concluded a Typst quill's form fields come from the pdfform
+  backend, and settling #1640 took a read of three manifests. The sentence
+  now names the layer and both consumers, meeting at `&[FieldSpec]` and never
+  each other. Closes #1749.
+- ci(release): **the version arithmetic and changelog baseline are tested
+  scripts.** `release-prepare.yml`'s `Compute next version` block runs only when
+  a maintainer dispatches it, and one release candidate exists in the
+  repository's history, so a defect in its `-rc.N` branches would surface at the
+  release that needed them. The block moves to `scripts/next-version.sh`, taking
+  the dispatch inputs verbatim so the workflow step holds no conditional of its
+  own, and the changelog baseline's pre-release skip moves to
+  `scripts/last-release-tag.sh`, reading a tag list on stdin so a test feeds it
+  fixtures rather than a repository. `scripts/release-prepare.test.sh` covers
+  twenty cases in ci.yml's lint job beside the canon spine lint: an
+  override taken verbatim and one already carrying `-rc.N` left unsuffixed,
+  iteration counting `rc.9` to `rc.10` rather than concatenating, promotion
+  dropping the suffix at any N while ignoring `bump`, a minor bump zeroing the
+  patch, and a pre-release tag passed over for the final beneath it. Covering it
+  found the defect it was written for: a `bump` outside `patch` and `minor`, and
+  a `CURRENT` no branch can shape — a `0.93.1-beta.1` an earlier free-text
+  override left behind, whose arithmetic fails to stderr without failing the
+  shell — each left the version empty and exited 0, and the workflow
+  interpolated that empty string into `cargo release version`, the release
+  branch name, the tag and the changelog heading. A version the arithmetic
+  cannot compute is a refusal now. A 160-combination sweep of the original block
+  against the script shows no other difference. Closes #1767.
+- build(wasm): **the package build reads its version without jq.** `jq` was a
+  hard prerequisite of `build-wasm.sh` for one string: the version out of `cargo
+  metadata`. `cargo pkgid` carries the number the crate inherits from
+  `version.workspace`, and stripping past the last `#`, `@` or `:` reads every
+  pkgid spelling cargo has used, since a semver holds none of the three. The
+  guard is a semver match, so an unparseable pkgid fails the build rather than
+  stamping a partial string; `--release-stamp` still stamps verbatim, which is
+  what `release.yml` compares against the tag before publishing. The
+  `pkg/.gitignore` the script wrote goes — the root `.gitignore` already ignores
+  `pkg/`, and `package.template.json`'s `files` allowlist is what decides the
+  published set — and so does the brotli line in the size report, a second
+  compressor for a second number nothing acts on which printed only where it
+  happened to be installed. The core artifact's one remaining gzip pass feeds
+  both the report line and the size budget, which were compressing the same
+  8.7 MB twice. Closes #1766.
+- test(core): **`quillmark:blank_title` rides the transform schema, and only
+  it.** The keyword labels the blank that leads an enum's wire-valid domain and
+  had no test anywhere, so a rename or a drop shipped silently. The label and
+  the blank are asserted as one object, the label being meaningless without the
+  blank it names: a field carrying `ui.blank_title` emits both, a field without
+  it emits the domain and no key at all. Whole-object equality, so an
+  unconditional key emitting `""` reads as a failure rather than passing a
+  presence check. The declaration view keeps emitting `values:` verbatim —
+  injecting the blank there would emit `values: ["", …]`, which
+  `quill::enum_blank_member` rejects, so a quill round-tripping through that
+  view would stop loading. Closes #1765.
+- test(wasm): **the typed write and resolve suites run on the gated surface.**
+  `runtime/runtime.js` patches `writer` and `reader` onto the core build's
+  `Quill`, and `basic.test.js` drives the typst backend build — a different
+  class over different memory, where those verbs do not exist. That is why its
+  typed-commit and resolve suites reached for the `_`-prefixed `_commitField`
+  and `_resolve`: the front door was not there to reach. Both move to
+  `runtime.test.js`, where the gated surface is what a consumer holds, and no
+  underscored call remains in either file. Five assertions `runtime.test.js`
+  already made through `writer.set` and `writer.card(i).set` go. Ten had no
+  public twin and carry over: `edit::field_coercion_failed` and
+  `edit::field_not_inline`, which appeared nowhere else in the suite; the
+  `DocPath` a refused write anchors to; `setAll`'s all-or-nothing abort at both
+  the unknown-name and the coercion rung; `CardWriter.setAll`; and resolve's
+  declaration-order rows, its `default` and `blank` rungs, and `body` as a
+  sibling of `fields`. Six tests filed under the typed-commit title never
+  touched that ABI — they drive `applyChange` and `mapMarks` — and are retitled
+  where they sit. The foreign-module fixture copies the core build into an
+  `mkdtemp` directory and removes it in `afterAll`, where it wrote `pkg/dup-core`
+  and cleared it at the *next* run's start: a unique path per run cannot collide
+  with a concurrent one, and a leak lands in the OS temp directory rather than
+  in a build directory. Closes #1764.
+- test(quillmark): **the quiver sweeps share one walker and one loaded quiver.**
+  `quillmark_fixtures::quill_names` is the single list of fixture quills,
+  counting a directory when `quills_path` resolves it to a bundle carrying
+  `Quill.yaml` — the versioned layout every fixture uses, which neither of the
+  two bare `is_dir()` walkers knew about. The seed sweep joins the
+  empty-document and blueprint sweeps in `quiver_test.rs` over one `LazyLock`
+  quiver, so each quill loads once for all three rather than once per sweep and
+  the three run in parallel inside one binary: fifteen loads become five, two
+  engines become one, and the sweeps finish in 272 ms where the two binaries
+  took 678 ms. All three documents stay, none subsuming another — the blueprint
+  commits every `default:` and marks every defaultless cell `!must_fill`, the
+  seed commits every `example:` and omits every defaulted field, and only the
+  empty document carries no composable card. Closes #1763.
 - docs(bindings,migrations): **the parity table records differences; the
   migration index records steps.** `BINDINGS.md`'s table drops the six rows
   whose class was `identical`, which now read as one line above it, and three
