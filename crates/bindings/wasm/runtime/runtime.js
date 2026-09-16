@@ -20,7 +20,7 @@ import initCore, { Quill, Document } from '../core/wasm.js';
 // Resolution-time, so `node:fs` never enters a browser graph.
 import { toModuleSource } from '#quillmark-env';
 import { importMarkdown, exportMarkdown, rebase, mapPos, mapMarks } from '../core/wasm.js';
-import { parseDocPath, formatDocPath } from '../core/wasm.js';
+import { parseDocPath, formatDocPath, formatDiagnostic } from '../core/wasm.js';
 
 // A `--target web` build exports its classes synchronously but carries no wasm
 // instance until something instantiates it. This module owns that for core,
@@ -50,7 +50,8 @@ const CORE_SURFACE = Object.freeze({
 	mapPos,
 	mapMarks,
 	parseDocPath,
-	formatDocPath
+	formatDocPath,
+	formatDiagnostic
 });
 
 /** The in-flight or settled core instantiation, resolving to `CORE_SURFACE`.

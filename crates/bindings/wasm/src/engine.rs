@@ -1963,6 +1963,25 @@ pub fn format_doc_path(
     Ok(doc_path.to_string())
 }
 
+/// Render a diagnostic as the CLI and Python's `str(diagnostic)` render it:
+/// the severity tag and the message, the code parenthesised after them, then
+/// location, path and hint each on an indented line of its own. The engine
+/// owns the one printer, so a consumer surfacing diagnostics reads it here
+/// rather than keeping a copy of the layout that drifts from the CLI's.
+///
+/// Takes the `Diagnostic` shape every read hands back. Throws on a value that
+/// is not one — a missing `severity` or `message`, or a `severity` outside the
+/// two-value ladder.
+#[wasm_bindgen(js_name = formatDiagnostic)]
+pub fn format_diagnostic(
+    #[wasm_bindgen(unchecked_param_type = "Diagnostic")] diagnostic: JsValue,
+) -> Result<String, JsValue> {
+    let json = js_value_to_json(diagnostic, "formatDiagnostic")?;
+    let diag: quillmark_core::error::Diagnostic = serde_json::from_value(json)
+        .map_err(|e| WasmError::from(format!("formatDiagnostic: {e}")).to_js_value())?;
+    Ok(diag.fmt_pretty())
+}
+
 /// Where `bundle`'s text-moving channels (`delta`, then `islandOps`, then
 /// `lineOps`) leave `content`'s marks: the final-text coordinates the bundle's
 /// `markOps` are written in, under the rebase rule stated on `ChangeBundle`.
