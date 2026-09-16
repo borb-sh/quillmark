@@ -923,6 +923,20 @@ mod tests {
         }
     }
 
+    /// The literal codec's half of the slot contract; the markdown half is
+    /// `prose_drops_a_stray_slot_before_flanking_is_read` below. A stray
+    /// `ISLAND_SLOT` is an invariant violation the mint does not repair —
+    /// `validate` reports it — so a codec that admitted one would hand out a
+    /// `Normalized` that is not, and `imp_plain` would say so. The drop is also
+    /// why this codec's fixed point names the character it excludes.
+    #[test]
+    fn plaintext_drops_a_stray_slot() {
+        let rt = imp_plain("a\u{FFFC}b");
+        assert_eq!(rt.text, "ab");
+        assert!(rt.islands.is_empty());
+        assert_eq!(crate::export::to_plaintext(&rt), "ab");
+    }
+
     #[test]
     fn plaintext_derives_continues_from_line_structure() {
         let rt = imp_plain("a\nb");

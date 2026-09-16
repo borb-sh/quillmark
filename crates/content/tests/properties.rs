@@ -163,11 +163,13 @@ fn document() -> impl Strategy<Value = String> {
 /// CommonMark's flanking rules sort apart — `¡` and `—` punctuation, `±` a
 /// symbol, `౸` a *number* rather than punctuation, `a`, `0` and space neither —
 /// so which delimiters match turns on the class beside them. `*¡*x` is four
-/// literal chars where `*౸*x` is emphasis.
+/// literal chars where `*౸*x` is emphasis. `+` rides along because it is the
+/// bullet marker too, so a draw reaches the nested lists whose own markers can
+/// spell a thematic break.
 fn delimiter_run() -> impl Strategy<Value = String> {
     prop::collection::vec(
         prop::sample::select(vec![
-            "*", "**", "_", "__", "~~", "¡", "—", "±", "౸", "a", "0", " ",
+            "*", "**", "_", "__", "~~", "+", "¡", "—", "±", "౸", "a", "0", " ",
         ]),
         1..12,
     )
@@ -354,8 +356,9 @@ proptest! {
     /// re-segmentations the editor ops above cannot mint. Same-kind marks
     /// union, so a nested pair collapses to one span and the emission spells
     /// fewer delimiters than the source did: markdown source moves under the
-    /// projection. The text under it does not, and one pass in the content is
-    /// its own fixed point.
+    /// projection. The text under it does not, and the emission is its own
+    /// fixed point — the net returns a rendering whose marks re-import where it
+    /// put them, so what the second pass reads is what the first pass wrote.
     #[test]
     fn a_delimiter_run_keeps_its_text(src in delimiter_run()) {
         let once = from_markdown(&src).unwrap();
@@ -364,8 +367,8 @@ proptest! {
         prop_assert_eq!(&twice.text, &once.text,
             "text drifted.\n in:  {:?}\n md:  {:?}\n out: {:?}", src, md, twice.text);
 
-        let settled = from_markdown(&to_markdown(&twice)).unwrap();
-        prop_assert_eq!(&twice, &settled, "content not a fixed point: {:?}", md);
+        prop_assert_eq!(&to_markdown(&twice), &md,
+            "the emission is not a fixed point.\n in:  {:?}\n md:  {:?}", src, md);
     }
 
     /// Image alt and image/link URLs carry the markup- and

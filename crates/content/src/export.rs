@@ -32,7 +32,7 @@
 
 use crate::island::IslandType;
 use crate::model::{
-    Container, Island, LineKind, Mark, MarkKind, Content, Normalized, ISLAND_SLOT,
+    Container, Island, LineKind, Mark, MarkKind, Content, Normalized, Usv, ISLAND_SLOT,
 };
 
 /// Render a content to markdown. An island projects by **type**: a type this
@@ -258,7 +258,22 @@ fn close_container(key: &Container, inner: &str, out: &mut String) {
                 "+ ".to_string()
             };
             let indent = " ".repeat(marker.len());
-            prefix_lines(inner, &marker, &indent, out);
+            // A marker run that spells a thematic break outranks the items
+            // spelling it: three nested empty bullets emit `- - - `, which
+            // re-imports as a `Rule` with the nesting gone. Changing a marker
+            // char is not the way out — a different bullet char starts a new
+            // list, resetting `ordinal` on this item and every one after it, and
+            // the empty item can have non-empty siblings. Moving the content to
+            // the next line costs no marker and no list identity, and the check
+            // runs per level, so a run of any depth breaks into pieces of two.
+            let head = inner.split('\n').next().unwrap_or("");
+            if is_thematic_break(&format!("{marker}{head}")) {
+                out.push_str(marker.trim_end());
+                out.push('\n');
+                prefix_lines(inner, &indent, &indent, out);
+            } else {
+                prefix_lines(inner, &marker, &indent, out);
+            }
         }
         Container::Quote { .. } => {
             // `> ` on content lines, `>` on blank lines so paragraphs stay in
@@ -266,6 +281,27 @@ fn close_container(key: &Container, inner: &str, out: &mut String) {
             prefix_quote(inner, out);
         }
     }
+}
+
+/// CommonMark's thematic break: three or more of one of `-`, `_`, `*`, spaces
+/// and tabs between them and nowhere else, under at most three of indent.
+fn is_thematic_break(line: &str) -> bool {
+    let rest = line.trim_start_matches(' ');
+    if line.len() - rest.len() > 3 {
+        return false;
+    }
+    let Some(c) = rest.chars().next().filter(|c| matches!(c, '-' | '_' | '*')) else {
+        return false;
+    };
+    let mut n = 0;
+    for ch in rest.chars() {
+        if ch == c {
+            n += 1;
+        } else if ch != ' ' && ch != '\t' {
+            return false;
+        }
+    }
+    n >= 3
 }
 
 /// Prefix the first produced line with `first`, the rest with `cont`.
@@ -794,9 +830,8 @@ fn render_marked_core(
         matches!(k, MarkKind::Strong | MarkKind::Emph | MarkKind::Strike)
     };
     let all = vec![true; fmt.len()];
-    let out = sweep(&all, DELIM_SPELLINGS[0]);
     if !fmt.iter().any(|m| is_flanking(m.2)) {
-        return out;
+        return sweep(&all, DELIM_SPELLINGS[0]);
     }
     // The probe wraps the fragment in `,…,`: parsed standalone, a leading `0. ` /
     // `# ` / `> ` would read as a list/heading/quote marker and drop a good mark.
@@ -806,36 +841,60 @@ fn render_marked_core(
     //
     // A slot whose island has no markdown projection re-imports as nothing, so
     // the expected text drops it; every other slot stays, so the probe still
-    // catches a leak that eats an island's markup.
-    let expected: String = chars
-        .iter()
-        .enumerate()
-        .filter(|&(i, &c)| c != ISLAND_SLOT || island_markup_at(i).is_some())
-        .map(|(_, c)| c)
-        .collect();
-    let want = format!(",{expected},");
-    let text_safe = |md: &str| {
-        crate::import::from_markdown(&format!(",{md},"))
-            .map(|rt| rt.text == want)
-            .unwrap_or(false)
-    };
-    if text_safe(&out) {
-        return out;
+    // catches a leak that eats an island's markup. A dropped slot shortens every
+    // position after it, so the same pass records where each char lands:
+    // `kept[i]` is char `i`'s position in the probe, `kept[n]` the end.
+    let mut expected = String::with_capacity(n);
+    let mut kept: Vec<Usv> = Vec::with_capacity(n + 1);
+    let mut at = 1;
+    for (i, &c) in chars.iter().enumerate() {
+        kept.push(at);
+        if c != ISLAND_SLOT || island_markup_at(i).is_some() {
+            expected.push(c);
+            at += 1;
+        }
     }
-    // Re-spell before dropping anything. The common leak is not an unrepresentable
-    // span but two same-character delimiters abutting: a `Strong` closing `**`
+    kept.push(at);
+    let want = format!(",{expected},");
+    // The flanking marks a `keep` set asks for, in the probe's coordinates and the
+    // form re-import hands back: a mark the sweep splits around an overlap
+    // re-imports as one span, so both sides are normalized before they are compared.
+    let want_marks = |keep: &[bool]| {
+        crate::model::normalize_marks(
+            fmt.iter()
+                .enumerate()
+                .filter(|&(i, m)| keep[i] && is_flanking(m.2))
+                .map(|(_, &(s, e, k))| Mark::new(kept[s], kept[e], k.clone()))
+                .collect(),
+        )
+    };
+    // `None` where the rendering leaks a delimiter into the text, else whether the
+    // marks it was asked to carry came back as themselves. A mark that re-imports
+    // over different text is not the mark the content held: `**a**_b_**c**` lowers
+    // to a `***` run CommonMark re-segments into one `Strong` over all three spans,
+    // spending no character and moving where bold starts and ends.
+    let probe = |md: &str, want_marks: &[Mark]| -> Option<bool> {
+        let rt = crate::import::from_markdown(&format!(",{md},")).ok()?;
+        if rt.text != want {
+            return None;
+        }
+        let got: Vec<&Mark> = rt.marks.iter().filter(|m| is_flanking(&m.kind)).collect();
+        Some(got.into_iter().eq(want_marks.iter()))
+    };
+    // Re-spell before dropping anything. The leak is rarely an unrepresentable
+    // span; it is two same-character delimiters abutting: a `Strong` closing `**`
     // against the `*` of an `Emph` that starts where it ends makes a `***` run,
     // and CommonMark re-segments that run rather than pairing it as written.
     // Markdown spells both kinds a second way, and `__a\*\*__*b*` carries what
-    // `**a\*\***​*b*` loses — same content, delimiters that cannot merge. Each
-    // spelling is verified like any other candidate, so the `_` forms are used
-    // only where they are *shown* to hold the text, never on the intraword shapes
-    // they read as literal. Three probes at most, and only on a line already
-    // known to leak.
-    for &d in &DELIM_SPELLINGS[1..] {
-        let alt = sweep(&all, d);
-        if text_safe(&alt) {
-            return alt;
+    // `**a\*\***​*b*` loses — same content, delimiters that cannot merge. `**`/`*`
+    // is swept first and returned whole on a line it already round-trips, so the
+    // `_` forms are reached only where the leader is *shown* to lose something,
+    // and each is verified before it is used. Four probes at most.
+    let intent = want_marks(&all);
+    for &d in &DELIM_SPELLINGS {
+        let cand = sweep(&all, d);
+        if probe(&cand, &intent) == Some(true) {
+            return cand;
         }
     }
     // The flanking marks in document order. That order is the re-add priority
@@ -846,24 +905,26 @@ fn render_marked_core(
     // Render with only the flanking marks in `keep`; every other mark rides.
     // The default spelling: a line reaching here has had all four rejected with
     // every mark on, so the choice is which marks survive, not how they are spelled.
-    let render = |keep: &[usize]| -> String {
+    let mask_of = |keep: &[usize]| -> Vec<bool> {
         let mut mask: Vec<bool> = fmt.iter().map(|m| !is_flanking(m.2)).collect();
         for &i in keep {
             mask[i] = true;
         }
-        sweep(&mask, DELIM_SPELLINGS[0])
+        mask
     };
-    // Drop the whole flanking set, then re-add by halves: a chunk that stays
-    // text-safe is accepted whole, one that doesn't splits and its halves are
-    // retried, a lone mark that still leaks is dropped. `m` marks cost ~2·log(m)
-    // probes when one is at fault and 2 when none can survive. Greedy, so the
-    // result is a maximal text-safe set, not necessarily the largest one.
+    let render = |keep: &[usize]| -> String { sweep(&mask_of(keep), DELIM_SPELLINGS[0]) };
+    let survives = |md: &str, keep: &[usize]| probe(md, &want_marks(&mask_of(keep))) == Some(true);
+    // Drop the whole flanking set, then re-add by halves: a chunk that survives is
+    // accepted whole, one that doesn't splits and its halves are retried, a lone
+    // mark that still doesn't is dropped. `m` marks cost ~2·log(m) probes when one
+    // is at fault and 2 when none can survive. Greedy, so the result is a maximal
+    // surviving set, not necessarily the largest one.
     //
     // Dropping every flanking mark is the floor the search can't go below, so if
-    // even that leaks, no re-add can fix it. A lone candidate has nowhere to
+    // even that fails, no re-add can fix it. A lone candidate has nowhere to
     // split, so the floor is already its answer.
     let mut out = render(&[]);
-    if cands.len() == 1 || !text_safe(&out) {
+    if cands.len() == 1 || !survives(&out, &[]) {
         return out;
     }
     let mut kept: Vec<usize> = Vec::new();
@@ -894,7 +955,7 @@ fn render_marked_core(
         // chunk and `trial` stays in document order.
         let trial: Vec<usize> = kept.iter().chain(&cands[lo..hi]).copied().collect();
         let md = render(&trial);
-        if text_safe(&md) {
+        if survives(&md, &trial) {
             kept = trial;
             out = md;
         } else {
@@ -1403,6 +1464,19 @@ mod tests {
         round_trips("1. ---");
         round_trips("- one\n\n  ---");
         round_trips("- a\n- ***\n- c");
+    }
+
+    /// The other half of that collision: not a rule *inside* an item but the
+    /// markers themselves. Three nested empty bullets spell `- - - `, a break
+    /// that outranks the items spelling it, and the nesting is gone after one
+    /// pass. The content moves off the marker line rather than changing a
+    /// marker char — the last case is why, since the empty item shares its list
+    /// with `a` and a bullet char change would take `a` into a new list.
+    #[test]
+    fn a_marker_run_that_spells_a_rule_breaks_its_line() {
+        for md in ["+ + +", "+ + + + +", "> + + +", "+ + +\n    + a", "+ + + a"] {
+            round_trips(md);
+        }
     }
 
     #[test]
@@ -1980,15 +2054,20 @@ mod tests {
 
     /// A mark whose delimiters merge with their neighbour's is re-spelled, not
     /// dropped: only a mark markdown cannot carry *at all* reaches the drop
-    /// search. Each case is a shape whose `**`/`*` emission makes an ambiguous
-    /// run — a `Strong` ending in a literal `*` against a following `Emph`, and
-    /// two marks over one span where `*` must sit inside `~~` to pair.
+    /// search. The ambiguous run costs the text in the first three shapes — a
+    /// `Strong` ending in a literal `*` against a following `Emph`, two marks
+    /// over one span where `*` must sit inside `~~` to pair — and only the marks
+    /// in the last two, where every character comes back and the `***` between
+    /// bold and the emphasis beside it re-segments into one `Strong` over all
+    /// three spans.
     #[test]
     fn a_mark_is_respelled_before_it_is_dropped() {
         for (label, src) in [
             ("strong ending in `*`, then emph", "__a**__*b*"),
             ("the same over non-ASCII", "__౸**__*0_*———"),
             ("emph and strike over one span", "౸~~*¡± ±*~~"),
+            ("bold, emph, bold", "**a±**_b_**c**"),
+            ("the same over a literal `*`", "__*__*౸*__a**0__"),
         ] {
             let once = from_markdown(src).unwrap();
             assert!(once.marks.len() >= 2, "{label}: nothing to lose");

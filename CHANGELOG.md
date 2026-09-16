@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+- fix(content): **a marker run that spells a thematic break breaks its line.**
+  Three nested empty bullet items emitted `- - - `, which CommonMark reads as a
+  thematic break rather than as three items, so the nesting was gone after one
+  pass; `> + + +` and any deeper run went the same way. Changing a bullet char is
+  the obvious way out and is not available — a different char starts a new list,
+  resetting `ordinal` on that item and every one after it, and the empty item can
+  share its list with a non-empty sibling. The item's content moves to the next
+  line instead (`-\n  - - `), which no marker char and no list identity depends
+  on. The check runs per level, so a run of any depth breaks into pieces of at
+  most two, and a line that never spelled a break emits the same bytes as before.
+  `delimiter_run()` takes `+` back, the token it was denied to keep this defect
+  from making that property flap. Closes #1809.
+- docs(content): **`ISLAND_SLOT` says who removes a stray one.** The constant
+  called a slot with no island an invariant violation and stopped there, which
+  read as the codecs contradicting the model when they drop one on import. They
+  are establishing the invariant, and they take `\r`, the bidi controls and the
+  line separators out of the same input without a word either. Closes #1808.
+- fix(content): **the projection's safety net verifies the marks a rendering
+  carries, not only its text.** `to_markdown` took the first spelling whose
+  emission re-imported with the text intact, and an ambiguous `***` run costs the
+  text in one shape and only the marks in another: `**a±**_b_**c**` lowered to
+  `**a±***b***c**`, which CommonMark re-segments into one `Strong` over all three
+  spans. Every character came back, so the net passed it — and bold moved onto
+  the `±b` the source did not bold, two spans became one, and the second emission
+  differed from the first. That last part is
+  `the_markdown_loop_settles_on_an_arbitrary_body` going red on main. The probe
+  now compares the re-imported marks against the ones the sweep was asked to
+  carry, and the whole search is keyed on that one predicate — the four spellings
+  first, then the drop-by-halves — so a rendering is taken only where it
+  re-imports as the content it rendered. Text is still the floor the search
+  cannot go below, `**`/`*` is still swept first, and a line that already
+  round-tripped emits the same bytes. Over 20M generated delimiter runs the
+  emissions needing a second pass to settle fall from 17 to 0, and the marks
+  that come back over text they did not cover fall with them, 17 to 0. Closes
+  #1807.
+- test(content): **the literal codec's stray-slot drop is stated.**
+  `from_plaintext` filters `ISLAND_SLOT` out of its input and nothing failed if
+  the filter went: `into_normalized` normalizes but does not validate, and the
+  mint does not repair a stray slot, so the codec would have handed out a
+  `Normalized` that `validate` refuses. The markdown door's half of the contract
+  landed with #1812; this is the other one. Closes #1810.
 - fix(content): **a mark whose delimiters collide with its neighbour's is
   re-spelled, not dropped.** `to_markdown` spelled `Strong` `**` and `Emph` `*`
   and nothing else, so a `Strong` ending in a literal `*` against an `Emph`
