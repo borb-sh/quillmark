@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.113.0 - 2026-09-16
 
 Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
 
@@ -1485,6 +1485,7 @@ Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
   and asserted `payload().len() <= size`, a bound `Payload::len` cannot exceed,
   so a parse that refused the input or dropped every field passed. It expects
   the parse and pins `len() == size`.
+
 
 ## v0.112.0 - 2026-09-01
 
