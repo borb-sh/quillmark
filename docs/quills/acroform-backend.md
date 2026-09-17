@@ -32,7 +32,7 @@ quill:
   name: sample_form
   version: 0.1.0
   backend: acroform
-  description: "Demo PDF form filled by the Typst-free acroform backend."
+  description: "Demo PDF form filled by the Typst-free acroform backend, over every field type it binds."
 
 main:
   body:
@@ -66,6 +66,12 @@ main:
         - blue
       default: red
       description: Favorite color. Binds the FavoriteColor dropdown.
+
+    headline:
+      type: richtext
+      inline: true
+      default: ""
+      description: "Inline richtext bound to the Headline text field; lowered to plaintext."
 ```
 
 See the [Quill.yaml Reference](quill-yaml-reference.md) for the full field-type vocabulary.
@@ -101,6 +107,12 @@ See the [Quill.yaml Reference](quill-yaml-reference.md) for the full field-type 
       "schema_field": "favorite_color",
       "page": 0,
       "rect": { "x": 180, "y": 280, "w": 340, "h": 20 }
+    },
+    {
+      "name": "Headline",
+      "schema_field": "headline",
+      "page": 0,
+      "rect": { "x": 180, "y": 520, "w": 340, "h": 20 }
     }
   ],
   "widgets": [
