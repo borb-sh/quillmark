@@ -302,7 +302,8 @@ fn form_field_value_binding_from_data() {
 }
 
 /// A widget binding no schema field has only a `/T` name, not a schema address,
-/// so it surfaces no region.
+/// so it surfaces no region. A field bound to a widget *and* read as content
+/// surfaces both, widget first — `SessionHandle::regions`' order contract.
 #[test]
 fn form_field_regions_key_on_bound_schema_field() {
     const YAML: &str = r#"
@@ -317,31 +318,32 @@ main:
   fields:
     f_txt:
       type: string
-      description: text widget binding
+      description: bound to a widget and to a scalar reference site
     f_sig:
       type: string
       description: signature widget binding
 "#;
     let plate = r#"
-#import "@local/quillmark-helper:0.1.0": form-field
+#import "@local/quillmark-helper:0.1.0": data, form-field
 #set page(width: 600pt, height: 400pt, margin: 50pt)
-#form-field("txt", type: "text", value: "hi", field: "f_txt")
+#data.f_txt
+#form-field("txt", type: "text", value: data.f_txt, field: "f_txt", width: 137pt)
 #form-field("sig", type: "signature", field: "f_sig")
 #form-field("unbound", type: "text", value: "x")
 "#;
     let source = common::quill_with_plate(YAML, plate);
     let session = TypstBackend
-        .open(&source, &serde_json::json!({}))
+        .open(&source, &serde_json::json!({ "f_txt": "FIRST M. LAST", "f_sig": "" }))
         .expect("open");
     let regions = session.regions();
-
-    let fields: std::collections::HashMap<&str, &quillmark_core::region::RenderedRegion> =
-        regions.iter().map(|r| (r.field.as_str(), r)).collect();
+    let of = |field: &str| -> Vec<&quillmark_core::region::RenderedRegion> {
+        regions.iter().filter(|r| r.field == field).collect()
+    };
 
     for field in ["f_txt", "f_sig"] {
-        let r = fields
-            .get(field)
-            .unwrap_or_else(|| panic!("region keyed on bound schema field {field:?}"));
+        let [r, ..] = of(field)[..] else {
+            panic!("region keyed on bound schema field {field:?}: {regions:?}");
+        };
         assert_eq!(r.page, 0);
         assert!(
             r.rect[2] > r.rect[0] && r.rect[3] > r.rect[1],
@@ -349,16 +351,21 @@ main:
             r.rect
         );
     }
+
+    // The widget is a fixed-size box at the test-owned 137pt width; the content
+    // region is the ink of the placed string, telling which entry is which
+    // without a `source` field the type does not carry.
+    let txt = of("f_txt");
+    assert_eq!(txt.len(), 2, "widget and content both surface: {regions:?}");
     assert!(
-        !fields.contains_key("unbound"),
-        "an unbound widget exposes no region: {:?}",
-        fields.keys().collect::<Vec<_>>()
+        (txt[0].rect[2] - txt[0].rect[0] - 137.0).abs() < 0.01,
+        "the widget region sorts first: {regions:?}"
     );
-    for t_name in ["txt", "sig"] {
+
+    for name in ["unbound", "txt", "sig"] {
         assert!(
-            !fields.contains_key(t_name),
-            "a bound widget must not also leak its `/T` name {t_name:?}: {:?}",
-            fields.keys().collect::<Vec<_>>()
+            of(name).is_empty(),
+            "a widget's `/T` name {name:?} is not a region key: {regions:?}"
         );
     }
 }

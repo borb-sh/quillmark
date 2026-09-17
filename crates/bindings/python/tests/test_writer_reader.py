@@ -9,7 +9,7 @@ from conftest import (
     field,
     has_field,
     raises_edit_code,
-    richtext_form_quill,
+    richtext_quill,
     taro_quill,
 )
 
@@ -116,8 +116,8 @@ def test_card_selector_targets_the_composable_card_on_both_lanes():
 
 def test_writer_set_coerces_richtext_to_content():
     """A richtext field commits the canonical content, not the authored markdown."""
-    quill = richtext_form_quill()
-    doc = Document("richtext_form@0.1.0")
+    quill = richtext_quill()
+    doc = Document("sample_form@0.1.0")
     quill.writer(doc).set("bio", "A **bold** intro.")
     value = field(doc.main, "bio")
     assert isinstance(value, dict)  # stored as the content dict, not a string
@@ -126,16 +126,16 @@ def test_writer_set_coerces_richtext_to_content():
 
 def test_writer_set_rejects_inline_violation():
     """A richtext(inline) field rejects multi-block content at the write."""
-    quill = richtext_form_quill()
-    doc = Document("richtext_form@0.1.0")
+    quill = richtext_quill()
+    doc = Document("sample_form@0.1.0")
     with raises_edit_code("edit::field_not_inline"):
         quill.writer(doc).set("headline", "line one\n\nline two")
 
 
 def test_writer_set_all_is_all_or_nothing():
     """A mid-batch inline violation aborts set_all: nothing lingers."""
-    quill = richtext_form_quill()
-    doc = Document("richtext_form@0.1.0")
+    quill = richtext_quill()
+    doc = Document("sample_form@0.1.0")
     with raises_edit_code("edit::field_not_inline"):
         quill.writer(doc).set_all({"bio": "ok", "headline": "line one\n\nline two"})
     assert not has_field(doc.main, "bio")
@@ -144,8 +144,8 @@ def test_writer_set_all_is_all_or_nothing():
 def test_writer_revise_field_typed_and_anchor_preserving():
     """writer.revise_field is the typed, anchor-preserving richtext field write:
     diff-imports the markdown and schema-conforms the result."""
-    quill = richtext_form_quill()
-    doc = Document("richtext_form@0.1.0")
+    quill = richtext_quill()
+    doc = Document("sample_form@0.1.0")
     quill.writer(doc).revise_field("bio", "make it **bold**")
     assert quill.reader(doc).get("bio") == "make it **bold**"
 
@@ -153,8 +153,8 @@ def test_writer_revise_field_typed_and_anchor_preserving():
 def test_writer_revise_field_rejects_inline_and_unknown():
     """revise_field conforms to the field schema (inline rejects multi-block) and
     rejects an undeclared name: same guards as `set`."""
-    quill = richtext_form_quill()
-    doc = Document("richtext_form@0.1.0")
+    quill = richtext_quill()
+    doc = Document("sample_form@0.1.0")
     with raises_edit_code("edit::field_not_inline"):
         quill.writer(doc).revise_field("headline", "line one\n\nline two")
     with raises_edit_code("edit::unknown_field"):
@@ -186,8 +186,8 @@ def test_typed_set_clears_must_fill_marker():
 
 def test_view_interprets_by_declared_type():
     """view.get reads a richtext field as markdown and a scalar as its canonical value."""
-    quill = richtext_form_quill()
-    doc = Document("richtext_form@0.1.0")
+    quill = richtext_quill()
+    doc = Document("sample_form@0.1.0")
     w = quill.writer(doc)
     w.set("bio", "A **bold** intro.")
     v = quill.reader(doc)
@@ -202,8 +202,8 @@ def test_view_interprets_by_declared_type():
 
 def test_view_absence_returns_none_unknown_name_raises():
     """Absent → None; a name the schema does not declare raises (the schema authority)."""
-    quill = richtext_form_quill()
-    v = quill.reader(Document("richtext_form@0.1.0"))
+    quill = richtext_quill()
+    v = quill.reader(Document("sample_form@0.1.0"))
     assert v.get("bio") is None  # absent, not a typo
     with raises_edit_code("edit::unknown_field"):
         v.get("nope")  # typo, not absent
@@ -213,9 +213,9 @@ def test_view_richtext_holding_scalar_raises_mismatch():
     """A present value that does not decode as richtext raises FieldDecode.
 
     Seated quill-free via `from_markdown`: a bare number under a richtext field."""
-    quill = richtext_form_quill()
+    quill = richtext_quill()
     doc = Document.from_markdown(
-        "~~~card-yaml\n$quill: richtext_form@0.1.0\n$kind: main\nbio: 3\n~~~\n"
+        "~~~card-yaml\n$quill: sample_form@0.1.0\n$kind: main\nbio: 3\n~~~\n"
     )
     with raises_edit_code("edit::field_decode"):
         quill.reader(doc).get("bio")
@@ -227,13 +227,13 @@ def test_view_get_content_spans_both_storage_forms():
     The writer commits a canonical content dict; a markdown parse leaves the
     authored string. Both read back as the same corpus, so the storage form
     stops being the caller's business."""
-    quill = richtext_form_quill()
-    committed = Document("richtext_form@0.1.0")
+    quill = richtext_quill()
+    committed = Document("sample_form@0.1.0")
     quill.writer(committed).set("bio", "A **bold** intro.")
     assert isinstance(field(committed.main, "bio"), dict)  # committed lane
 
     parsed = Document.from_markdown(
-        "~~~card-yaml\n$quill: richtext_form@0.1.0\n$kind: main\nbio: A **bold** intro.\n~~~\n"
+        "~~~card-yaml\n$quill: sample_form@0.1.0\n$kind: main\nbio: A **bold** intro.\n~~~\n"
     )
     assert isinstance(field(parsed.main, "bio"), str)  # parsed lane
 
@@ -246,10 +246,10 @@ def test_view_get_content_spans_both_storage_forms():
 
 def test_view_get_content_absence_unknown_and_non_content():
     """Absent → None; an undeclared name and a non-content type each raise."""
-    quill = richtext_form_quill()
-    assert quill.reader(Document("richtext_form@0.1.0")).get_content("bio") is None
+    quill = richtext_quill()
+    assert quill.reader(Document("sample_form@0.1.0")).get_content("bio") is None
     with raises_edit_code("edit::unknown_field"):
-        quill.reader(Document("richtext_form@0.1.0")).get_content("nope")
+        quill.reader(Document("sample_form@0.1.0")).get_content("nope")
 
     taro = taro_quill()
     tdoc = Document("taro@0.1.0")

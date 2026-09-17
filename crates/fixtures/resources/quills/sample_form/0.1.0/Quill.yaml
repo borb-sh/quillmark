@@ -2,7 +2,7 @@ quill:
   name: sample_form
   version: 0.1.0
   backend: acroform
-  description: "Demo PDF form filled by the Typst-free acroform backend."
+  description: "Demo PDF form filled by the Typst-free acroform backend, over every field type it binds."
 
 main:
   body:
@@ -39,3 +39,18 @@ main:
         - blue
       default: red
       description: Favorite color. Binds the FavoriteColor dropdown.
+
+    headline:
+      type: richtext
+      inline: true
+      default: ""
+      example: "The **headline**"
+      description: "Inline richtext bound to the single-line Headline text field; lowered to plaintext."
+
+    bio:
+      type: richtext
+      default: ""
+      example: "A **bold** claim and _emphasis_, plus a second line."
+      ui:
+        multiline: true
+      description: "Block richtext bound to the multiline Bio field; lowered to plaintext (markup dropped, islands stripped)."

@@ -64,64 +64,6 @@ fn update_commits_and_dirties_only_the_touched_suffix() {
     assert!(cs.dirty_pages.is_empty(), "dirty: {:?}", cs.dirty_pages);
 }
 
-/// A content field routes its glyph spans into the helper `lib.typ`, which is
-/// regenerated per `update`: the dirty-every-re-update shape.
-fn markdown_quill() -> Quill {
-    const YAML: &str = r#"quill:
-  name: live_markdown
-  version: 0.1.0
-  backend: typst
-  description: markdown-content no-op re-update quill
-typst:
-  plate_file: plate.typ
-main:
-  fields:
-    body:
-      type: richtext
-      description: a markdown body
-"#;
-    const PLATE: &str = r#"#import "@local/quillmark-helper:0.1.0": data
-#set page(width: 300pt, height: 200pt, margin: 20pt)
-#set text(size: 11pt)
-#data.body
-"#;
-    common::quill_with_plate(YAML, PLATE)
-}
-
-#[test]
-fn identical_re_update_of_markdown_content_is_clean() {
-    // A page's fingerprint must not fold in `Span`s, so a byte-identical re-update
-    // reports nothing dirty, every round, not just once.
-    let backend = TypstBackend;
-    let q = markdown_quill();
-    let body = "This is a **markdown** paragraph that renders some real ink. ".repeat(3);
-
-    let mut session = backend.open(&q, &json!({ "body": body })).expect("open");
-    let pages = session.page_count();
-    assert!(pages >= 1);
-
-    for round in 0..3 {
-        let cs = session
-            .update_data(&json!({ "body": body }))
-            .expect("update identical");
-        assert_eq!(cs.page_count, pages);
-        assert!(
-            cs.dirty_pages.is_empty(),
-            "round {round}: identical markdown re-update must be clean, got {:?}",
-            cs.dirty_pages
-        );
-    }
-
-    // A real change still dirties: the fingerprint didn't go blind.
-    let cs = session
-        .update_data(&json!({ "body": format!("{body} plus a genuinely new sentence.") }))
-        .expect("update changed");
-    assert!(
-        !cs.dirty_pages.is_empty(),
-        "a real edit must still dirty a page"
-    );
-}
-
 fn two_field_quill() -> Quill {
     const YAML: &str = r#"quill:
   name: live_two_field

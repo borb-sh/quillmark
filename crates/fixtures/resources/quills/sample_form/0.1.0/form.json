@@ -24,6 +24,18 @@
       "schema_field": "favorite_color",
       "page": 0,
       "rect": { "x": 180, "y": 280, "w": 340, "h": 20 }
+    },
+    {
+      "name": "Headline",
+      "schema_field": "headline",
+      "page": 0,
+      "rect": { "x": 180, "y": 520, "w": 340, "h": 20 }
+    },
+    {
+      "name": "Bio",
+      "schema_field": "bio",
+      "page": 0,
+      "rect": { "x": 180, "y": 560, "w": 340, "h": 80 }
     }
   ],
   "widgets": [
