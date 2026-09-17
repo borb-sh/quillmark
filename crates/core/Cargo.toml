@@ -27,7 +27,6 @@ time = { workspace = true }
 indexmap = { workspace = true }
 
 [dev-dependencies]
-tempfile = { workspace = true }
 quillmark-fixtures = { workspace = true }
 proptest = { workspace = true }
 # Cross-checks the hand-rolled fence scanner against a real CommonMark parser.

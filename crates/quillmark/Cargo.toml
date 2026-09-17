@@ -23,6 +23,8 @@ quillmark-acroform = { workspace = true }
 quillmark-fixtures = { workspace = true }
 quillmark-content = { workspace = true }
 serde_json = { workspace = true }
+# Reads a projected schema back for the golden-file parity check.
+serde-saphyr = { workspace = true }
 
 [features]
 default = ["typst", "acroform"]
