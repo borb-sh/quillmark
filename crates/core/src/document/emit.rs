@@ -761,12 +761,33 @@ mod tests {
         );
     }
 
+    /// Every string a YAML 1.1 parser would read as something else: a word
+    /// boolean, a null, a numeric or date form, a syntax indicator, or a string
+    /// whose own edges are whitespace.
     #[test]
     fn saphyr_scalar_round_trips_ambiguous_strings() {
         for ambiguous in &[
-            "on", "off", "yes", "no", "true", "false", "null", "~", "01234", "1e10",
+            "on", "off", "yes", "no", "true", "false", "null", "~", "01234", "1e10", "0x1F",
+            "2024-01-15", "", " ", "key: value", "- item", "#comment", "&anchor", "*alias", "!tag",
+            "line1\nline2", "he said \"hi\"", "a\\b",
         ] {
             assert_scalar_round_trips(serde_json::json!(*ambiguous));
+        }
+    }
+
+    /// A number keeps its own representation across the same crossing: the
+    /// emitter must not widen an integer or round a float.
+    #[test]
+    fn saphyr_scalar_round_trips_numbers() {
+        for number in [
+            serde_json::json!(42),
+            serde_json::json!(0),
+            serde_json::json!(-7),
+            serde_json::json!(9999999999999i64),
+            serde_json::json!(19.99),
+            serde_json::json!(1e10),
+        ] {
+            assert_scalar_round_trips(number);
         }
     }
 

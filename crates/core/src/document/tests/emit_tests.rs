@@ -1,128 +1,67 @@
+//! Emission: the fixed points the codecs claim, over the fixture corpus and
+//! over the shapes no fixture carries.
 
 use crate::document::Document;
+use crate::document::tests::{assert_round_trip, collect_md_files, fixtures_root, parse};
 
-fn assert_round_trip(label: &str, src: &str) {
-    let a = Document::parse(src)
-        .unwrap_or_else(|e| panic!("{}: parse failed on original: {}", label, e))
-        .document;
-    let emitted = a.to_markdown();
-    let b = Document::parse(&emitted)
-        .unwrap_or_else(|e| {
-            panic!(
-                "{}: parse failed on emitted document.\nError: {}\nEmitted:\n{}",
-                label, e, emitted
-            )
-        })
-        .document;
-    assert_eq!(
-        a, b,
-        "{}: round-trip produced different Documents.\nEmitted:\n{}",
-        label, emitted
-    );
-}
-
+/// Every fixture document, through the three fixed points at once. One walk,
+/// because a document that breaks one usually breaks all three, and three walks
+/// reported it three times with three copies of the bookkeeping.
 #[test]
-fn fixtures_round_trip() {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+fn every_fixture_document_holds_the_codecs_fixed_points() {
+    let mut paths = Vec::new();
+    collect_md_files(&fixtures_root(), &mut paths);
+    assert!(!paths.is_empty(), "no fixture documents found");
 
-    let resources_dir = std::path::Path::new(manifest_dir)
-        .join("..") // crates/core → crates
-        .join("fixtures")
-        .join("resources");
-
-    let mut fixture_paths: Vec<std::path::PathBuf> = Vec::new();
-
-    for entry in std::fs::read_dir(&resources_dir).unwrap().flatten() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("md") {
-            fixture_paths.push(path);
-        }
-    }
-
-    assert!(
-        !fixture_paths.is_empty(),
-        "no fixture files found: check paths"
-    );
-
-    let mut passed = 0usize;
-    let mut skipped = 0usize;
-    let mut failed = 0usize;
+    let mut checked = 0usize;
     let mut failures: Vec<String> = Vec::new();
+    for path in &paths {
+        let label = path.display().to_string();
+        let Ok(src) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        // A bundled README carries no root card-yaml block, so it is not a
+        // document and has nothing to hold.
+        let Ok(a) = Document::parse(&src).map(|p| p.document) else {
+            continue;
+        };
 
-    for path in &fixture_paths {
-        let label = path.to_string_lossy();
-        let src = match std::fs::read_to_string(path) {
-            Ok(s) => s,
+        let emitted = a.to_markdown();
+        let b = match Document::parse(&emitted) {
+            Ok(p) => p.document,
             Err(e) => {
-                eprintln!("SKIP {}: cannot read: {}", label, e);
-                skipped += 1;
+                failures.push(format!("{label}: the emission does not parse: {e}\n{emitted}"));
                 continue;
             }
         };
-
-        match Document::parse(&src).map(|p| p.document) {
-            Err(_) => {
-                skipped += 1;
-                continue;
-            }
-            Ok(a) => {
-                let emitted = a.to_markdown();
-                match Document::parse(&emitted).map(|p| p.document) {
-                    Err(e) => {
-                        failed += 1;
-                        failures.push(format!(
-                            "FAIL {}: re-parse failed: {}\nEmitted:\n{}",
-                            label, e, emitted
-                        ));
-                    }
-                    Ok(b) => {
-                        if a == b {
-                            passed += 1;
-                        } else {
-                            failed += 1;
-                            failures.push(format!(
-                                "FAIL {}: documents differ after round-trip.\nEmitted:\n{}",
-                                label, emitted
-                            ));
-                        }
-                    }
-                }
-            }
+        if a != b {
+            failures.push(format!("{label}: emit∘parse is not the identity\n{emitted}"));
         }
+        if b.to_markdown() != emitted {
+            failures.push(format!("{label}: a second emission differs\n{emitted}"));
+        }
+
+        let json = serde_json::to_string(&a).expect("a document serializes");
+        let restored: Document = serde_json::from_str(&json).expect("and deserializes");
+        if restored.to_markdown() != emitted {
+            failures.push(format!(
+                "{label}: the storage DTO round trip emits different markdown\n{emitted}"
+            ));
+        }
+        checked += 1;
     }
 
-    if !failures.is_empty() {
-        panic!(
-            "Fixture round-trip failures ({} failed, {} passed, {} skipped):\n{}",
-            failed,
-            passed,
-            skipped,
-            failures.join("\n\n")
-        );
-    }
-
-    assert!(
-        passed > 0,
-        "No fixtures passed round-trip: did all files get skipped?"
-    );
-
-    eprintln!(
-        "fixtures_round_trip: {} passed, {} skipped",
-        passed, skipped
-    );
+    assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+    assert!(checked > 0, "every fixture was skipped");
 }
 
+/// The value shapes, which `emit`'s own scalar round-trips do not reach: a
+/// container, a card, and the empty spellings of each. Scalar fidelity is
+/// `emit`'s unit tests plus
+/// `lossiness_tests::quoting_normalises_to_canonical_form_with_type_fidelity`.
 #[test]
-fn round_trip_value_types() {
-    let cases: &[(&str, &str)] = &[
-        (
-            "booleans",
-            "~~~card-yaml\n$quill: q\n$kind: main\nflag_true: true\nflag_false: false\n~~~\n",
-        ),
-        (
-            "null",
-            "~~~card-yaml\n$quill: q\n$kind: main\nnull_field: null\n~~~\n",
-        ),
+fn round_trip_value_shapes() {
+    for (label, src) in [
         (
             "nested map",
             "~~~card-yaml\n$quill: q\n$kind: main\nsender:\n  name: Alice\n  city: Springfield\n~~~\n",
@@ -137,49 +76,15 @@ fn round_trip_value_types() {
         ),
         (
             "cards",
-            "\
-~~~card-yaml
-$quill: q
-$kind: main
-title: Test
-~~~
-
-Body text.
-
-~~~card-yaml
-$kind: section
-heading: Chapter 1
-~~~
-
-Card body here.
-",
+            "~~~card-yaml\n$quill: q\n$kind: main\ntitle: Test\n~~~\n\nBody text.\n\n\
+~~~card-yaml\n$kind: section\nheading: Chapter 1\n~~~\n\nCard body here.\n",
         ),
         (
             "card with empty body",
-            "\
-~~~card-yaml
-$quill: q
-$kind: main
-title: Test
-~~~
-
-~~~card-yaml
-$kind: empty_body_card
-title: No body
-~~~
-",
+            "~~~card-yaml\n$quill: q\n$kind: main\ntitle: Test\n~~~\n\n\
+~~~card-yaml\n$kind: empty_body_card\ntitle: No body\n~~~\n",
         ),
-        (
-            "string with backslash",
-            "~~~card-yaml\n$quill: q\n$kind: main\npath: \"C:\\\\Users\\\\test\"\n~~~\n",
-        ),
-        (
-            "multiline string",
-            "~~~card-yaml\n$quill: q\n$kind: main\nbio: \"Line one\\nLine two\"\n~~~\n",
-        ),
-    ];
-
-    for (label, src) in cases {
+    ] {
         assert_round_trip(label, src);
     }
 }
@@ -403,4 +308,108 @@ fn only_the_canonical_spelling_of_a_content_field_projects_to_markdown() {
         serde_json::json!(0),
         "got:\n{md}"
     );
+}
+
+#[test]
+fn synthesised_kind_leaves_the_quill_trailer_on_quill() {
+    let src = "~~~card-yaml\n$quill: q@1.0 # note on quill\ntitle: x\n~~~\n";
+    let doc = parse(src);
+
+    let emitted = doc.to_markdown();
+    assert!(
+        emitted.contains("$quill: q@1.0 # note on quill\n$kind: main\n"),
+        "trailer belongs to $quill, not to the synthesised $kind\nGot:\n{}",
+        emitted
+    );
+    assert_eq!(
+        parse(&emitted),
+        doc,
+        "emit must re-parse to the same document"
+    );
+}
+
+#[test]
+fn store_ext_leaves_the_kind_trailer_on_kind() {
+    let src = "~~~card-yaml\n$quill: q@1.0\n$kind: main # note on kind\ntitle: x\n~~~\n";
+    let mut doc = parse(src);
+
+    let mut ext = serde_json::Map::new();
+    ext.insert("editor".into(), serde_json::json!({ "pinned": true }));
+    doc.main_mut().store_ext(ext).expect("shallow map stores");
+
+    let emitted = doc.to_markdown();
+    assert!(
+        emitted.contains("$kind: main # note on kind\n$ext:\n"),
+        "trailer belongs to $kind, not to the new $ext\nGot:\n{}",
+        emitted
+    );
+    assert_eq!(
+        parse(&emitted),
+        doc,
+        "emit must re-parse to the same document"
+    );
+}
+
+/// Emit, the wire and the storage DTO all read a root `!must_fill` off the
+/// payload item's flag, so a value tree whose own root bit disagrees with that
+/// flag compares as a different `Document` than it emits. A caller's root bit
+/// is normalized on the way in, and both round-trips return an equal document
+/// whether the field is marked or not.
+#[test]
+fn a_root_fill_bit_on_a_stored_value_round_trips() {
+    use crate::value::QuillValue;
+
+    let mut marked = QuillValue::from_json(serde_json::json!("draft"));
+    assert!(marked.set_fill_at(&[]));
+
+    let mut doc = Document::new("q@1.0.0".parse().expect("reference"));
+    doc.main_mut()
+        .store_fields([("x".to_string(), marked.clone())])
+        .expect("store_fields accepts the value");
+    doc.main_mut()
+        .store_field("y", marked.clone())
+        .expect("store_field accepts the value");
+    doc.main_mut()
+        .store_fill("z", marked)
+        .expect("store_fill accepts the value");
+
+    let md = doc.to_markdown();
+    assert!(md.contains("\nx: draft\n"), "{md}");
+    assert!(md.contains("\ny: draft\n"), "{md}");
+    assert!(md.contains("\nz: !must_fill draft\n"), "{md}");
+
+    let reparsed = Document::parse(&md)
+        .expect("the emitted document re-parses")
+        .document;
+    assert_eq!(reparsed, doc, "markdown round-trip:\n{md}");
+
+    let json = serde_json::to_string(&doc).expect("to_json");
+    let restored: Document = serde_json::from_str(&json).expect("from_json");
+    assert_eq!(restored, doc, "storage DTO round-trip");
+}
+
+/// A comment between a bare `-` and the item's first key belongs to the item, so
+/// it re-emits inside the item and the first emit is already the fixed point.
+#[test]
+fn a_comment_before_a_sequence_item_first_key_stays_inside_the_item() {
+    let src = "\
+~~~
+$quill: test@1.0
+$kind: main
+items:
+  -
+    # c
+    name: a
+~~~
+
+Body.
+";
+    let doc = Document::parse(src).expect("parses").document;
+    let md = doc.to_markdown();
+    assert_eq!(md, src, "the first emit is not the fixed point");
+
+    let reparsed = Document::parse(&md)
+        .expect("the emitted document re-parses")
+        .document;
+    assert_eq!(doc, reparsed, "emit is not a fixed point: {md}");
 }

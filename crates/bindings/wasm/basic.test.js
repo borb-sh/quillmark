@@ -202,10 +202,9 @@ describe('Document.toMarkdown: fromMarkdown → mutate → emit → re-parse', (
 
   it('a JS string stays a JS string across emit → re-parse, even when YAML-ambiguous', () => {
     // `on` is a YAML 1.1 boolean; the emitter quotes it so it survives. The
-    // nine-keyword table (booleans, null, octal-like, date-like) is the
-    // emitter's contract, pinned in
-    // `core/src/document/tests/ambiguous_strings_tests.rs`. What the boundary
-    // owes is that the JS type does not change under it.
+    // keyword table (booleans, null, octal-like, date-like, syntax indicators)
+    // is the emitter's contract, pinned in `core/src/document/emit.rs`. What
+    // the boundary owes is that the JS type does not change under it.
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     doc.storeField('flag_on', 'on')
 

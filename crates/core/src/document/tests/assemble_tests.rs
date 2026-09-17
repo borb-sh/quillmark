@@ -1,5 +1,10 @@
-use crate::document::assemble::decompose;
 use crate::document::Document;
+
+/// `Document::parse` with the warnings dropped — what these tests read is the
+/// document or the refusal.
+fn decompose(markdown: &str) -> Result<Document, crate::error::ParseError> {
+    Document::parse(markdown).map(|p| p.document)
+}
 
 #[test]
 fn test_empty_input_dedicated_error() {
@@ -334,377 +339,40 @@ Body of item 1.";
     assert_eq!(card.body_markdown(), "Body of item 1.");
 }
 
+/// The card sequence: every block below the root becomes a card in source
+/// order, keeping its kind and its body, whatever kinds interleave. What a
+/// card's payload can hold is the named tests around this one.
 #[test]
-fn cards_parse_with_correct_kind_payload_and_order() {
-    enum Expect {
-        Str(&'static str),
-        I64(i64),
-        F64(f64),
-    }
-
-    fn check_field(payload: &crate::document::Payload, key: &str, expect: &Expect, ctx: &str) {
-        let v = payload
-            .get(key)
-            .unwrap_or_else(|| panic!("{ctx}: missing field {key:?}"));
-        match expect {
-            Expect::Str(s) => assert_eq!(v.as_str().unwrap(), *s, "{ctx}: field {key:?}"),
-            Expect::I64(i) => assert_eq!(v.as_i64().unwrap(), *i, "{ctx}: field {key:?}"),
-            Expect::F64(f) => assert_eq!(v.as_f64().unwrap(), *f, "{ctx}: field {key:?}"),
-        }
-    }
-
-    struct ExpectedCard {
-        kind: Option<&'static str>,
-        fields: Vec<(&'static str, Expect)>,
-        body: Option<&'static str>,
-    }
-
-    struct Case {
-        name: &'static str,
-        markdown: &'static str,
-        quill: Option<&'static str>,
-        main_fields: Vec<(&'static str, Expect)>,
-        main_payload_len: Option<usize>,
-        main_body_eq: Option<&'static str>,
-        main_body_contains: Vec<&'static str>,
-        cards: Vec<ExpectedCard>,
-    }
-
-    let cases = vec![
-        Case {
-            name: "multiple_card_blocks",
-            markdown: "~~~card-yaml
-$quill: test_quill
-$kind: main
-~~~
-
+fn cards_parse_in_source_order_keeping_kind_and_body() {
+    let markdown = "\
 ~~~card-yaml
-$kind: items
-name: Item 1
-tags: [a, b]
-~~~
-
-First item body.
-
-~~~card-yaml
-$kind: items
-name: Item 2
-tags: [c, d]
-~~~
-
-Second item body.",
-            quill: None,
-            main_fields: vec![],
-            main_payload_len: None,
-            main_body_eq: None,
-            main_body_contains: vec![],
-            cards: vec![
-                ExpectedCard {
-                    kind: Some("items"),
-                    fields: vec![("name", Expect::Str("Item 1"))],
-                    body: None,
-                },
-                ExpectedCard {
-                    kind: Some("items"),
-                    fields: vec![("name", Expect::Str("Item 2"))],
-                    body: None,
-                },
-            ],
-        },
-        Case {
-            name: "mixed_global_and_cards",
-            markdown: "~~~card-yaml
 $quill: test_quill
 $kind: main
 title: Global
-author: John Doe
 ~~~
 
 Global body.
-
-~~~card-yaml
-$kind: sections
-title: Section 1
-~~~
-
-Section 1 content.
-
-~~~card-yaml
-$kind: sections
-title: Section 2
-~~~
-
-Section 2 content.",
-            quill: None,
-            main_fields: vec![("title", Expect::Str("Global"))],
-            main_payload_len: None,
-            main_body_eq: Some("Global body."),
-            main_body_contains: vec![],
-            cards: vec![
-                ExpectedCard {
-                    kind: Some("sections"),
-                    fields: vec![],
-                    body: None,
-                },
-                ExpectedCard {
-                    kind: None,
-                    fields: vec![],
-                    body: None,
-                },
-            ],
-        },
-        Case {
-            name: "adjacent_blocks_different_kinds",
-            markdown: "~~~card-yaml
-$quill: test_quill
-$kind: main
-~~~
-
-~~~card-yaml
-$kind: items
-name: Item 1
-~~~
-
-Item 1 body
-
-~~~card-yaml
-$kind: sections
-title: Section 1
-~~~
-
-Section 1 body",
-            quill: None,
-            main_fields: vec![],
-            main_payload_len: None,
-            main_body_eq: None,
-            main_body_contains: vec![],
-            cards: vec![
-                ExpectedCard {
-                    kind: Some("items"),
-                    fields: vec![("name", Expect::Str("Item 1"))],
-                    body: None,
-                },
-                ExpectedCard {
-                    kind: Some("sections"),
-                    fields: vec![("title", Expect::Str("Section 1"))],
-                    body: None,
-                },
-            ],
-        },
-        Case {
-            name: "order_preservation",
-            markdown: "~~~card-yaml
-$quill: test_quill
-$kind: main
-~~~
-
-~~~card-yaml
-$kind: items
-id: 1
-~~~
-
-First
-
-~~~card-yaml
-$kind: items
-id: 2
-~~~
-
-Second
-
-~~~card-yaml
-$kind: items
-id: 3
-~~~
-
-Third",
-            quill: None,
-            main_fields: vec![],
-            main_payload_len: None,
-            main_body_eq: None,
-            main_body_contains: vec![],
-            cards: vec![
-                ExpectedCard {
-                    kind: Some("items"),
-                    fields: vec![("id", Expect::I64(1))],
-                    body: None,
-                },
-                ExpectedCard {
-                    kind: Some("items"),
-                    fields: vec![("id", Expect::I64(2))],
-                    body: None,
-                },
-                ExpectedCard {
-                    kind: Some("items"),
-                    fields: vec![("id", Expect::I64(3))],
-                    body: None,
-                },
-            ],
-        },
-        Case {
-            name: "product_catalog_integration",
-            markdown: "~~~card-yaml
-$quill: test_quill
-$kind: main
-title: Product Catalog
-author: John Doe
-date: 2024-01-01
-~~~
-
-This is the main catalog description.
-
-~~~card-yaml
-$kind: products
-name: Widget A
-price: 19.99
-sku: WID-001
-~~~
-
-The **Widget A** is our most popular product.
-
-~~~card-yaml
-$kind: products
-name: Gadget B
-price: 29.99
-sku: GAD-002
-~~~
-
-The **Gadget B** is perfect for professionals.
-
-~~~card-yaml
-$kind: reviews
-product: Widget A
-rating: 5
-~~~
-
-\"Excellent product! Highly recommended.\"
-
-~~~card-yaml
-$kind: reviews
-product: Gadget B
-rating: 4
-~~~
-
-\"Very good, but a bit pricey.\"",
-            quill: None,
-            main_fields: vec![
-                ("title", Expect::Str("Product Catalog")),
-                ("author", Expect::Str("John Doe")),
-                ("date", Expect::Str("2024-01-01")),
-            ],
-            main_payload_len: Some(3),
-            main_body_eq: None,
-            main_body_contains: vec!["main catalog description"],
-            cards: vec![
-                ExpectedCard {
-                    kind: Some("products"),
-                    fields: vec![
-                        ("name", Expect::Str("Widget A")),
-                        ("price", Expect::F64(19.99)),
-                    ],
-                    body: None,
-                },
-                ExpectedCard {
-                    kind: Some("products"),
-                    fields: vec![("name", Expect::Str("Gadget B"))],
-                    body: None,
-                },
-                ExpectedCard {
-                    kind: Some("reviews"),
-                    fields: vec![
-                        ("product", Expect::Str("Widget A")),
-                        ("rating", Expect::I64(5)),
-                    ],
-                    body: None,
-                },
-                ExpectedCard {
-                    kind: None,
-                    fields: vec![],
-                    body: None,
-                },
-            ],
-        },
-        Case {
-            name: "quill_with_card_blocks",
-            markdown: "~~~card-yaml
-$quill: document
-$kind: main
-title: Test Document
-~~~
-
-Main body.
-
-~~~card-yaml
-$kind: sections
-name: Section 1
-~~~
-
-Section 1 body.",
-            quill: Some("document"),
-            main_fields: vec![("title", Expect::Str("Test Document"))],
-            main_payload_len: None,
-            main_body_eq: Some("Main body."),
-            main_body_contains: vec![],
-            cards: vec![ExpectedCard {
-                kind: Some("sections"),
-                fields: vec![],
-                body: None,
-            }],
-        },
-        Case {
-            name: "card_consecutive_blocks",
-            markdown: "~~~card-yaml
-$quill: test_quill
-$kind: main
-~~~
-
-~~~card-yaml
-$kind: a
-id: 1
-~~~
-
-~~~card-yaml
-$kind: a
-id: 2
-~~~",
-            quill: None,
-            main_fields: vec![],
-            main_payload_len: None,
-            main_body_eq: None,
-            main_body_contains: vec![],
-            cards: vec![
-                ExpectedCard {
-                    kind: Some("a"),
-                    fields: vec![],
-                    body: None,
-                },
-                ExpectedCard {
-                    kind: Some("a"),
-                    fields: vec![],
-                    body: None,
-                },
-            ],
-        },
-        Case {
-            name: "spec_example",
-            markdown: "~~~card-yaml
-$quill: blog_post
-$kind: main
-title: My Document
-~~~
-
-Main document body.
-
-***
-
-More content after horizontal rule.
 
 ~~~card-yaml
 $kind: section
 heading: Introduction
 ~~~
 
-Introduction content.
+Intro content.
+
+~~~card-yaml
+$kind: item
+name: Item 1
+~~~
+
+First item body.
+
+~~~card-yaml
+$kind: item
+name: Item 2
+~~~
+
+Second item body.
 
 ~~~card-yaml
 $kind: section
@@ -712,88 +380,33 @@ heading: Conclusion
 ~~~
 
 Conclusion content.
-",
-            quill: Some("blog_post"),
-            main_fields: vec![("title", Expect::Str("My Document"))],
-            main_payload_len: None,
-            main_body_eq: None,
-            main_body_contains: vec![
-                "Main document body.",
-                "More content after horizontal rule.",
-            ],
-            cards: vec![
-                ExpectedCard {
-                    kind: Some("section"),
-                    fields: vec![("heading", Expect::Str("Introduction"))],
-                    body: Some("Introduction content."),
-                },
-                ExpectedCard {
-                    kind: Some("section"),
-                    fields: vec![("heading", Expect::Str("Conclusion"))],
-                    body: Some("Conclusion content."),
-                },
-            ],
-        },
+";
+    let doc = decompose(markdown).expect("parses");
+    assert_eq!(doc.quill_reference().name, "test_quill");
+    assert_eq!(doc.main().body_markdown(), "Global body.");
+
+    let want = [
+        ("section", "Introduction", "Intro content."),
+        ("item", "Item 1", "First item body."),
+        ("item", "Item 2", "Second item body."),
+        ("section", "Conclusion", "Conclusion content."),
     ];
-
-    for case in &cases {
-        let doc = decompose(case.markdown)
-            .unwrap_or_else(|e| panic!("{}: parse failed: {e}", case.name));
-
-        if let Some(quill) = case.quill {
-            assert_eq!(
-                doc.quill_reference().name,
-                quill,
-                "{}: quill name",
-                case.name
-            );
-        }
-        for (key, expect) in &case.main_fields {
-            check_field(
-                doc.main().payload(),
-                key,
-                expect,
-                &format!("{}: main", case.name),
-            );
-        }
-        if let Some(len) = case.main_payload_len {
-            assert_eq!(
-                doc.main().payload().len(),
-                len,
-                "{}: main payload len",
-                case.name
-            );
-        }
-        if let Some(body) = case.main_body_eq {
-            assert_eq!(doc.main().body_markdown(), body, "{}: main body", case.name);
-        }
-        for needle in &case.main_body_contains {
-            assert!(
-                doc.main().body_markdown().contains(needle),
-                "{}: main body missing {needle:?}",
-                case.name
-            );
-        }
-
+    assert_eq!(
+        doc.cards().len(),
+        want.len(),
+        "one card per block below the root"
+    );
+    for (card, (kind, label, body)) in doc.cards().iter().zip(want) {
+        let got_label = card
+            .payload()
+            .get("heading")
+            .or_else(|| card.payload().get("name"))
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| panic!("{kind} card carries its label field"));
         assert_eq!(
-            doc.cards().len(),
-            case.cards.len(),
-            "{}: cards len",
-            case.name
+            (card.kind(), got_label, card.body_markdown().as_str()),
+            (Some(kind), label, body)
         );
-        for (i, expected) in case.cards.iter().enumerate() {
-            let card = &doc.cards()[i];
-            let ctx = format!("{}: card[{i}]", case.name);
-            if let Some(kind) = expected.kind {
-                assert_eq!(card.kind(), Some(kind), "{ctx} kind");
-            }
-            for (key, expect) in &expected.fields {
-                check_field(card.payload(), key, expect, &ctx);
-            }
-            if let Some(body) = expected.body {
-                assert_eq!(card.body_markdown(), body, "{ctx} body");
-            }
-        }
     }
 }
 
@@ -1206,75 +819,63 @@ fn test_yaml_size_limit() {
     assert!(result.unwrap_err().to_string().contains("Input too large"));
 }
 
+/// A YAML scalar is opaque to the markdown layer, so a value that reads as
+/// markup anywhere else survives a payload whole, at every nesting. What the
+/// *body* does with `<<word>>` is CommonMark's, and `quillmark_content` owns
+/// it.
 #[test]
-fn test_chevrons_preserved_in_all_contexts() {
+fn chevrons_survive_every_payload_position() {
     let markdown = "~~~card-yaml
 $quill: test_quill
 $kind: main
 title: Test <<with chevrons>>
 items:
   - \"<<first>>\"
-  - \"<<second>>\"
 metadata:
   description: \"<<nested value>>\"
 ~~~
 
-<<body>> text.
-
-```
-<<in code block>>
-```
-
-`<<inline code>>` and <<plain>>
+Body.
 
 ~~~card-yaml
 $kind: items
 description: \"<<card yaml>>\"
 ~~~
 
-Use <<card body>> here.";
+Card body.";
 
     let doc = decompose(markdown).unwrap();
-
+    let main = doc.main().payload();
     assert_eq!(
-        doc.main().payload().get("title").unwrap().as_str().unwrap(),
+        main.get("title").unwrap().as_str().unwrap(),
         "Test <<with chevrons>>"
     );
-    let items = doc
-        .main()
-        .payload()
-        .get("items")
-        .unwrap()
-        .as_array()
-        .unwrap();
-    assert_eq!(items[0].as_str().unwrap(), "<<first>>");
-    assert_eq!(items[1].as_str().unwrap(), "<<second>>");
-    let metadata = doc
-        .main()
-        .payload()
-        .get("metadata")
-        .unwrap()
-        .as_object()
-        .unwrap();
     assert_eq!(
-        metadata.get("description").unwrap().as_str().unwrap(),
+        main.get("items").unwrap().as_array().unwrap()[0]
+            .as_str()
+            .unwrap(),
+        "<<first>>"
+    );
+    assert_eq!(
+        main.get("metadata")
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .get("description")
+            .unwrap()
+            .as_str()
+            .unwrap(),
         "<<nested value>>"
     );
-
-    // Code contexts protect chevrons verbatim; plain-text `<<word>>` reads as an
-    // inline HTML tag per CommonMark and projects away.
-    let body = doc.main().body_markdown();
     assert_eq!(
-        body,
-        "\\<> text.\n\n```\n<<in code block>>\n```\n\n`<<inline code>>` and \\<>"
-    );
-
-    let card = &doc.cards()[0];
-    assert_eq!(
-        card.payload().get("description").unwrap().as_str().unwrap(),
+        doc.cards()[0]
+            .payload()
+            .get("description")
+            .unwrap()
+            .as_str()
+            .unwrap(),
         "<<card yaml>>"
     );
-    assert_eq!(card.body_markdown(), "Use \\<> here.");
 }
 
 #[test]
@@ -1351,105 +952,50 @@ fn test_unicode_in_yaml_keys() {
     );
 }
 
+/// The YAML scalar forms a card-yaml block admits, and the value each parses
+/// to. What survives *emission* is `emit`'s own scalar round-trips.
 #[test]
 fn single_field_yaml_scalar_types() {
-    enum Check {
-        StrEq(&'static str),
-        StrContains(&'static [&'static str]),
-        I64Eq(i64),
-        F64Eq(f64),
-        BoolEq(bool),
-    }
+    use serde_json::json;
 
-    let cases: &[(&str, &str, &[(&str, Check)])] = &[
+    for (label, field, key, want) in [
         (
             "literal block scalar (`|`)",
-            "~~~card-yaml
-$quill: test_quill
-$kind: main
-description: |
-  This is a
-  multiline string
-  with preserved newlines.
-~~~
-
-Body.",
-            &[(
-                "description",
-                Check::StrContains(&["multiline string", "\n"]),
-            )],
+            "description: |\n  one\n  two\n",
+            "description",
+            json!("one\ntwo\n"),
         ),
         (
             "folded block scalar (`>`)",
-            "~~~card-yaml
-$quill: test_quill
-$kind: main
-description: >
-  This is a folded
-  string that becomes
-  a single line.
-~~~
-
-Body.",
-            &[("description", Check::StrContains(&["folded"]))],
+            "description: >\n  one\n  two\n",
+            "description",
+            json!("one two\n"),
         ),
+        ("empty string", "empty: \"\"\n", "empty", json!("")),
         (
-            "empty string",
-            "~~~card-yaml\n$quill: test_quill\n$kind: main\nempty: \"\"\n~~~\n\nBody.",
-            &[("empty", Check::StrEq(""))],
+            "structural characters, quoted",
+            "special: \"colon: here, and [brackets]\"\n",
+            "special",
+            json!("colon: here, and [brackets]"),
         ),
+        ("integer", "count: 42\n", "count", json!(42)),
+        ("float", "price: 19.99\n", "price", json!(19.99)),
+        ("boolean", "active: true\n", "active", json!(true)),
         (
-            "special characters in a quoted string",
-            "~~~card-yaml\n$quill: test_quill\n$kind: main\nspecial: \"colon: here, and [brackets]\"\n~~~\n\nBody.",
-            &[(
-                "special",
-                Check::StrEq("colon: here, and [brackets]"),
-            )],
+            "a sequence of mixed scalars",
+            "items:\n  - first\n  - 100\n  - true\n",
+            "items",
+            json!(["first", 100, true]),
         ),
-        (
-            "int/float/bool scalars",
-            "~~~card-yaml
-$quill: test_quill
-$kind: main
-count: 42
-price: 19.99
-active: true
-items:
-  - first
-  - 100
-  - true
-~~~
-
-Body.",
-            &[
-                ("count", Check::I64Eq(42)),
-                ("price", Check::F64Eq(19.99)),
-                ("active", Check::BoolEq(true)),
-            ],
-        ),
-    ];
-
-    for (label, markdown, fields) in cases {
-        let doc = decompose(markdown).unwrap_or_else(|e| panic!("{label}: parse failed: {e}"));
-        for (key, check) in *fields {
-            let v = doc
-                .main()
-                .payload()
-                .get(key)
-                .unwrap_or_else(|| panic!("{label}: missing field {key:?}"));
-            match check {
-                Check::StrEq(s) => assert_eq!(v.as_str().unwrap(), *s, "{label}: {key}"),
-                Check::StrContains(needles) => {
-                    let s = v.as_str().unwrap();
-                    for n in *needles {
-                        assert!(s.contains(n), "{label}: {key} missing {n:?} in {s:?}");
-                    }
-                }
-                Check::I64Eq(i) => assert_eq!(v.as_i64().unwrap(), *i, "{label}: {key}"),
-                Check::F64Eq(f) => assert_eq!(v.as_f64().unwrap(), *f, "{label}: {key}"),
-                Check::BoolEq(b) => assert_eq!(v.as_bool().unwrap(), *b, "{label}: {key}"),
-            }
-        }
+    ] {
+        let markdown = format!("~~~card-yaml\n$quill: test_quill\n$kind: main\n{field}~~~\n\nBody.");
+        let doc = decompose(&markdown).unwrap_or_else(|e| panic!("{label}: parse failed: {e}"));
+        let got = doc
+            .main()
+            .payload()
+            .get(key)
+            .unwrap_or_else(|| panic!("{label}: missing field {key:?}"));
+        assert_eq!(got.as_json(), &want, "{label}");
     }
 }
 
