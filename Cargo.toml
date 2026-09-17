@@ -76,7 +76,7 @@ proptest = "~1.11"
 quillmark-fixtures = { path = "crates/fixtures" }
 # PDF *reader*, test-only: reparses stamped output to assert on it. The
 # production writer is `pdf-writer`; the two are not interchangeable.
-lopdf = "0.44"
+lopdf = "0.45"
 
 [profile.dev]
 split-debuginfo = "unpacked" # Faster on macOS/Linux
