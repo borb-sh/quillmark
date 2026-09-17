@@ -1,5 +1,7 @@
 //! `RenderOptions::pages` is backend-neutral: this backend answers it under the
-//! same `backend::*` codes the PDF-form backend does.
+//! same `backend::*` codes the PDF-form backend does. Which indices
+//! `selected_pages` refuses is pinned at `quillmark_core::backend`; what a
+//! selection reaching this backend *does* is here.
 
 use quillmark_core::{backend::Backend, session::LiveSession, types::{OutputFormat, RenderOptions}};
 use quillmark_typst::TypstBackend;
@@ -48,14 +50,6 @@ fn page_selection_narrows_svg_to_the_named_page() {
 
     opts.pages = None;
     assert_eq!(session.render(&opts).expect("render whole").artifacts.len(), 2);
-}
-
-#[test]
-fn a_page_past_the_document_is_refused() {
-    assert_eq!(
-        refusal_code(OutputFormat::Svg, vec![2]),
-        "backend::page_index_out_of_bounds"
-    );
 }
 
 #[test]

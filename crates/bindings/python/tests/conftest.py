@@ -70,9 +70,10 @@ def taro_quill():
     return Quill.from_path(str(_latest_version(QUILLS_PATH / "taro")))
 
 
-def richtext_form_quill():
-    """The richtext_form fixture quill (headline: richtext inline, bio: richtext)."""
-    return Quill.from_path(str(_latest_version(QUILLS_PATH / "richtext_form")))
+def richtext_quill():
+    """The sample_form fixture quill, reached for its richtext fields (headline:
+    richtext inline, bio: richtext)."""
+    return Quill.from_path(str(_latest_version(QUILLS_PATH / "sample_form")))
 
 
 @pytest.fixture

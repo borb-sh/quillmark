@@ -9,8 +9,8 @@
 //! top-left device pixels, so locating a field box needs the canonical
 //! `y_canvas = (pageHeightPt - y_pdf) × scale` flip.
 
-use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref};
 use quillmark::{Document, FileTreeNode, Quill, Quillmark};
+use quillmark_pdf::testkit::BasePdf;
 
 const FILLED: &str = "~~~\n\
 $quill: sample_form\n\
@@ -134,31 +134,11 @@ fn a_checked_box_puts_its_mark_on_the_canvas() {
     );
 }
 
+/// The wiring, not the rule: what `check_raster` refuses is pinned once at
+/// `quillmark_core::backend`, and what this backend owes is a raster for every
+/// page it counts and that refusal for a scale it cannot draw.
 #[test]
-fn a_canvas_scale_that_cannot_be_rasterized_is_refused_rather_than_painted() {
-    let session = open();
-    for scale in [f32::INFINITY, f32::NAN, 0.0, -2.0, 1e6] {
-        let err = session
-            .render_rgba(0, scale)
-            .err()
-            .unwrap_or_else(|| panic!("{scale}x is not rasterizable"));
-        assert_eq!(
-            err.diagnostics()[0].code.as_deref(),
-            Some("backend::invalid_raster_scale")
-        );
-    }
-
-    assert!(
-        session
-            .render_rgba(99, 2.0)
-            .expect("a page out of range is not a refused scale")
-            .is_none(),
-        "an out-of-range page still answers None"
-    );
-}
-
-#[test]
-fn every_counted_page_sizes_and_rasterizes() {
+fn every_counted_page_paints_and_an_undrawable_scale_is_refused() {
     let session = open();
     assert!(session.page_count() > 0, "sample_form has pages");
     for page in 0..session.page_count() {
@@ -174,16 +154,33 @@ fn every_counted_page_sizes_and_rasterizes() {
             "page {page} is counted, so it paints"
         );
     }
+
+    assert_eq!(
+        session
+            .render_rgba(0, f32::INFINITY)
+            .expect_err("an infinite scale is not rasterizable")
+            .diagnostics()[0]
+            .code
+            .as_deref(),
+        Some("backend::invalid_raster_scale")
+    );
+    assert!(
+        session
+            .render_rgba(99, 2.0)
+            .expect("a page out of range is not a refused scale")
+            .is_none(),
+        "an out-of-range page still answers None"
+    );
 }
 
 #[test]
 fn a_translated_media_box_keeps_page_geometry_on_the_ink() {
-    geometry_lands_on_the_ink(blank_page(NARROW_LETTER, None));
+    geometry_lands_on_the_ink(BasePdf::letter(1).media_box(NARROW_LETTER).build());
 }
 
 #[test]
 fn a_crop_box_keeps_page_geometry_on_the_ink() {
-    geometry_lands_on_the_ink(blank_page([0.0, 0.0, 612.0, 792.0], Some(NARROW_LETTER)));
+    geometry_lands_on_the_ink(BasePdf::letter(1).crop_box(NARROW_LETTER).build());
 }
 
 /// A `pdfcrop`-style page box, its lower-left corner away from user-space
@@ -301,36 +298,4 @@ fn ink_bounds(rgba: &[u8], px_w: u32, (left, top, right, bottom): (u32, u32, u32
         }
     }
     ink
-}
-
-/// A one-page background drawing nothing, with `media` as its `/MediaBox` and
-/// `crop` as its `/CropBox` when given.
-fn blank_page(media: [f32; 4], crop: Option<[f32; 4]>) -> Vec<u8> {
-    let mut pdf = Pdf::new();
-    let catalog_id = Ref::new(1);
-    let page_tree_id = Ref::new(2);
-    let page_id = Ref::new(3);
-    let content_id = Ref::new(4);
-    let media = Rect::new(media[0], media[1], media[2], media[3]);
-
-    pdf.catalog(catalog_id).pages(page_tree_id);
-    pdf.pages(page_tree_id)
-        .kids([page_id])
-        .count(1)
-        .media_box(media)
-        .finish();
-    {
-        let mut page = pdf.page(page_id);
-        page.parent(page_tree_id)
-            .media_box(media)
-            .contents(content_id);
-        if let Some(c) = crop {
-            page.pair(
-                Name(b"CropBox"),
-                Rect::new(c[0], c[1], c[2], c[3]),
-            );
-        }
-    }
-    pdf.stream(content_id, &Content::new().finish());
-    pdf.finish()
 }

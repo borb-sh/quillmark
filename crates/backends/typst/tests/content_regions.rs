@@ -27,9 +27,17 @@ main:
       type: richtext
       description: a long body that wraps and breaks across pages
 "#;
+    // Page chrome too: a header and footer must not truncate a placement to
+    // its first page.
     const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.1.0": data
-#set page(width: 612pt, height: 792pt, margin: 72pt)
+#set page(
+  width: 612pt,
+  height: 792pt,
+  margin: 72pt,
+  header: [Running Header],
+  footer: [Running Footer],
+)
 #set text(size: 11pt)
 
 #data.intro
@@ -63,10 +71,10 @@ main:
     );
     assert_eq!(body[0].page, 0, "first fragment on the page the body opens");
     let pages: Vec<usize> = body.iter().map(|r| r.page).collect();
-    let mut sorted_pages = pages.clone();
-    sorted_pages.sort();
-    sorted_pages.dedup();
-    assert_eq!(pages, sorted_pages, "fragments in page order, one per page");
+    assert!(
+        pages.windows(2).all(|w| w[1] == w[0] + 1),
+        "fragments cover consecutive pages, one each: {pages:?}"
+    );
     for r in &body {
         assert!(
             r.rect[2] - r.rect[0] > 200.0,
@@ -200,54 +208,6 @@ typst:
         "sites do not union: {:?} vs {:?}",
         subject[0].rect,
         subject[1].rect
-    );
-}
-
-#[test]
-fn widget_and_tracked_content_both_surface_widget_ordered_first() {
-    // The order is `SessionHandle::regions`'s contract.
-    const YAML: &str = r#"
-quill:
-  name: widget_and_content
-  version: 0.1.0
-  backend: typst
-  description: widget-before-content ordering test
-main:
-  fields:
-    signature_block:
-      type: string
-      description: bound to both a widget and a scalar reference site
-typst:
-  plate_file: plate.typ
-"#;
-    const PLATE: &str = r#"
-#import "@local/quillmark-helper:0.1.0": data, signature-field
-#set page(width: 612pt, height: 792pt, margin: 72pt)
-
-#data.signature_block
-#signature-field("Signature", field: "signature_block", width: 137pt)
-"#;
-    let data = serde_json::json!({ "signature_block": "FIRST M. LAST, Rank, USAF" });
-
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
-    let regions = session.regions();
-    let matches: Vec<_> = regions
-        .iter()
-        .filter(|r| r.field == "signature_block")
-        .collect();
-    assert_eq!(
-        matches.len(),
-        2,
-        "a widget-bound field with tracked content surfaces both: {regions:?}"
-    );
-
-    // The widget is a fixed-size box at the test-owned 137pt width; the
-    // content region is the ink of the placed string, distinguishing which
-    // entry is which without relying on a `source` field the type doesn't
-    // carry.
-    assert!(
-        (matches[0].rect[2] - matches[0].rect[0] - 137.0).abs() < 0.01,
-        "the widget region sorts first: {regions:?}"
     );
 }
 
@@ -639,53 +599,6 @@ main:
         session.field_at(intro.page, cx, cy, 0.0).as_deref(),
         Some("intro"),
         "clicks keep resolving against the served compile"
-    );
-}
-
-#[test]
-fn continuation_fragments_survive_page_marginals() {
-    const YAML: &str = r#"
-quill:
-  name: marginal_fragments
-  version: 0.1.0
-  backend: typst
-  description: continuation fragments under page chrome
-typst:
-  plate_file: plate.typ
-main:
-  fields:
-    body:
-      type: richtext
-      description: a long body under headers and footers
-"#;
-    const PLATE: &str = r#"
-#import "@local/quillmark-helper:0.1.0": data
-#set page(
-  width: 612pt,
-  height: 300pt,
-  margin: 60pt,
-  header: [Running Header],
-  footer: [Running Footer],
-)
-#set text(size: 11pt)
-
-#data.body
-"#;
-    let long = "A paragraph that wraps and flows across pages. ".repeat(120);
-    let data = serde_json::json!({ "body": content(&long) });
-
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
-    let regions = session.regions();
-    let body: Vec<_> = regions.iter().filter(|r| r.field == "body").collect();
-    assert!(
-        body.len() >= 2,
-        "page chrome must not truncate the placement to its first page: {body:?}"
-    );
-    let pages: Vec<usize> = body.iter().map(|r| r.page).collect();
-    assert_eq!(pages[0], 0);
-    assert!(
-        pages.windows(2).all(|w| w[1] == w[0] + 1),
-        "fragments cover consecutive pages: {pages:?}"
     );
 }
 

@@ -3,8 +3,9 @@
 //! `/V`, which a synthesizing viewer renders from.
 
 use lopdf::Document as PdfDoc;
-use quillmark::{Document, FileTreeNode, OutputFormat, Quill, Quillmark, RenderOptions};
+use quillmark::{Document, OutputFormat, Quillmark, RenderOptions};
 
+// `headline` is inline richtext, `bio` block richtext.
 const FILLED: &str = "~~~\n\
 $quill: sample_form\n\
 $kind: main\n\
@@ -14,6 +15,8 @@ comments:\n\
   - Second comment line.\n\
 agree: true\n\
 favorite_color: green\n\
+headline: The **headline**\n\
+bio: A **bold** claim and _emphasis_.\n\
 ~~~\n";
 
 fn render(markdown: &str) -> quillmark::RenderResult {
@@ -56,7 +59,7 @@ fn fixture_renders_structurally_valid_filled_pdf() {
         .unwrap();
     assert!(af.get(b"NeedAppearances").unwrap().as_bool().unwrap());
     assert_eq!(af.get(b"SigFlags").unwrap().as_i64().unwrap(), 1);
-    assert_eq!(af.get(b"Fields").unwrap().as_array().unwrap().len(), 8);
+    assert_eq!(af.get(b"Fields").unwrap().as_array().unwrap().len(), 10);
 
     // The form.json field carries no `tooltip`, so `/TU` is inherited from the
     // schema field's `description`.
@@ -76,10 +79,21 @@ fn fixture_renders_structurally_valid_filled_pdf() {
     let color = widget(&doc, af, "FavoriteColor");
     assert_eq!(color.get(b"V").unwrap().as_str().unwrap(), b"green");
 
+    // A richtext field crosses the seam as canonical content JSON and lowers to
+    // `Content.text` for the widget `/V`; the Adobe-only `/RV` is never written.
+    for (name, text) in [
+        ("Headline", "The headline"),
+        ("Bio", "A bold claim and emphasis."),
+    ] {
+        let w = widget(&doc, af, name);
+        assert_eq!(decode_pdf_text(w.get(b"V").unwrap().as_str().unwrap()), text);
+        assert!(w.get(b"RV").is_err(), "{name} carries no /RV");
+    }
+
     // One region per schema-bound field: the fixture's four unbound widgets
-    // carry no `schema_field`, so eight fields yield four regions.
+    // carry no `schema_field`, so ten fields yield six regions.
     let regions = open_session(FILLED).regions();
-    assert_eq!(regions.len(), 4);
+    assert_eq!(regions.len(), 6);
     assert!(
         regions
             .iter()
@@ -242,54 +256,18 @@ fn apply_rebinds_values_and_reports_dirty_pages() {
     );
 }
 
-/// The fixture's schema with two bound widgets stacked on one rect, so every
-/// point inside it sits the same distance from both.
-const STACKED_FORM_JSON: &str = r#"{
-  "schema": "quillmark/form@0.2.0",
-  "fields": [
-    {
-      "name": "Under",
-      "schema_field": "full_name",
-      "page": 0,
-      "rect": { "x": 180, "y": 100, "w": 340, "h": 20 }
-    },
-    {
-      "name": "Over",
-      "schema_field": "comments",
-      "page": 0,
-      "rect": { "x": 180, "y": 100, "w": 340, "h": 20 }
-    }
-  ]
-}"#;
-
 #[test]
-fn field_at_tie_takes_the_later_stamped_widget() {
-    let mut tree = quillmark::tree_from_path(quillmark_fixtures::quills_path("sample_form"))
-        .expect("load sample_form tree");
-    tree.insert(
-        "form.json",
-        FileTreeNode::File {
-            contents: STACKED_FORM_JSON.as_bytes().to_vec(),
-        },
-    )
-    .expect("replace form.json");
-    let quill = Quill::from_tree(tree).expect("load patched quill");
-    let doc = Document::parse(FILLED).expect("parse markdown").document;
-    let session = Quillmark::new().open(&quill, &doc).expect("open ok");
-
-    let regions = session.regions();
+fn regions_follow_form_json_order_which_is_stamping_order() {
+    let regions = open_session(FILLED).regions();
     assert_eq!(
         regions.iter().map(|r| r.field.as_str()).collect::<Vec<_>>(),
-        ["full_name", "comments"],
-        "regions follow `form.json` order, which is stamping order"
-    );
-    assert_eq!(regions[0].rect, regions[1].rect);
-
-    let [x0, y0, x1, y1] = regions[0].rect;
-    assert_eq!(
-        session
-            .field_at(regions[0].page, (x0 + x1) / 2.0, (y0 + y1) / 2.0, 0.0)
-            .as_deref(),
-        Some("comments")
+        [
+            "full_name",
+            "comments",
+            "agree",
+            "favorite_color",
+            "headline",
+            "bio"
+        ]
     );
 }

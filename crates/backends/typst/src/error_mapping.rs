@@ -152,19 +152,14 @@ mod tests {
         ("unknown font family: nosuchfontfamily", "typst::compile"),
     ];
 
+    /// The table, and the property the code exists for: a routing key a
+    /// consumer can match and a string table can hold, carrying none of the
+    /// message it came from — the two `file not found` rows differ only in an
+    /// author-supplied path and share their code.
     #[test]
-    fn every_message_takes_a_code_from_the_closed_set() {
+    fn every_message_takes_a_slug_from_the_closed_set_carrying_none_of_itself() {
         for (message, code) in REAL_MESSAGES {
             assert_eq!(&classify(message), code, "classifying {message:?}");
-        }
-    }
-
-    /// The property the code exists for: a routing key a consumer can match and
-    /// a string table can hold, carrying none of the message it came from.
-    #[test]
-    fn a_code_is_a_slug_never_the_message() {
-        for (message, _) in REAL_MESSAGES {
-            let code = classify(message);
             let slug = code.strip_prefix("typst::").expect("namespaced");
             assert!(
                 !slug.is_empty() && slug.chars().all(|c| c.is_ascii_lowercase() || c == '_'),
@@ -175,16 +170,6 @@ mod tests {
                 "`{code}` carries the message it was minted from"
             );
         }
-    }
-
-    /// An author-supplied path separates two messages of one shape; the code
-    /// they share is what a consumer routes on.
-    #[test]
-    fn a_path_in_the_message_does_not_reach_the_code() {
-        let a = classify("file not found (searched at assets/marc.png)");
-        let b = classify("file not found (searched at /etc/passwd)");
-        assert_eq!(a, b);
-        assert!(!a.contains("marc") && !a.contains("passwd"));
     }
 
     #[test]

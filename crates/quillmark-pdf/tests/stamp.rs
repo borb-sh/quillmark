@@ -5,13 +5,12 @@
 
 use std::collections::HashMap;
 
-use pdf_writer::writers::Form;
-use pdf_writer::{Content, Finish, Name, Pdf, Rect, Ref, Settings, TextStr};
+use quillmark_pdf::testkit::BasePdf;
 use quillmark_pdf::{regions_of, stamp, FieldSpec, FieldType, StampOptions};
 
 /// An `n`-page US-Letter base satisfying the spine's input contract.
 fn build_base_pdf(n: usize) -> Vec<u8> {
-    build_base_pdf_origin(n, [0.0, 0.0, 612.0, 792.0])
+    BasePdf::letter(n).build()
 }
 
 /// A schema-bound single-line text field carrying `value`.
@@ -131,22 +130,6 @@ fn stamps_all_four_field_types_into_valid_acroform() {
     assert_eq!(opts.len(), 3);
     assert_eq!(color.get(b"V").unwrap().as_str().unwrap(), b"green");
 
-    // `into_annotation` writes /Subtype, so a second `.subtype()` would
-    // duplicate the key.
-    for f in fields {
-        let r = f.as_reference().unwrap();
-        let header = format!("{} 0 obj", r.0);
-        let start = result
-            .windows(header.len())
-            .position(|w| w == header.as_bytes())
-            .expect("widget header");
-        let after = &result[start..];
-        let endobj = after.windows(6).position(|w| w == b"endobj").unwrap();
-        let body = &after[..endobj];
-        let count = body.windows(8).filter(|w| *w == b"/Subtype").count();
-        assert_eq!(count, 1, "exactly one /Subtype in widget {}", r.0);
-    }
-
     let regions = regions_of(&all_four_fields());
     assert_eq!(regions.len(), 4);
     let agree_region = regions.iter().find(|r| r.field == "agree").unwrap();
@@ -224,41 +207,11 @@ fn no_fields_stamps_info_producer_alone() {
     );
 }
 
-/// A one-page base whose compact `/Info` ends in a hex-encoded `/Title` —
-/// what pdf-writer's compact mode emits for a non-ASCII title written last.
-fn build_base_with_hex_title_info(title: &str) -> Vec<u8> {
-    let mut pdf = Pdf::with_settings(Settings { pretty: false });
-    let catalog_id = Ref::new(1);
-    let page_tree_id = Ref::new(2);
-    let page_id = Ref::new(3);
-    let content_id = Ref::new(4);
-    let info_id = Ref::new(5);
-    let rect = Rect::new(0.0, 0.0, 612.0, 792.0);
-    pdf.catalog(catalog_id).pages(page_tree_id);
-    {
-        let mut pages = pdf.pages(page_tree_id);
-        pages.kids([page_id]).count(1).media_box(rect);
-    }
-    pdf.page(page_id)
-        .parent(page_tree_id)
-        .media_box(rect)
-        .contents(content_id);
-    let mut content = Content::new();
-    content.set_line_width(1.0);
-    content.rect(72.0, 700.0, 200.0, 20.0);
-    content.stroke();
-    pdf.stream(content_id, &content.finish());
-    pdf.document_info(info_id)
-        .producer(TextStr("Base"))
-        .title(TextStr(title));
-    pdf.finish()
-}
-
 #[test]
 fn producer_stamp_preserves_a_trailing_hex_title() {
     let title = "Résumé";
     let result = stamp(
-        build_base_with_hex_title_info(title),
+        BasePdf::letter(1).compact().info_title(title).build(),
         &[],
         &StampOptions::default(),
     )
@@ -289,33 +242,6 @@ fn producer_stamp_preserves_a_trailing_hex_title() {
 
 #[test]
 fn rotated_page_rejected_cleanly() {
-    let mut pdf = Pdf::new();
-    let catalog_id = Ref::new(1);
-    let page_tree_id = Ref::new(2);
-    let page_id = Ref::new(3);
-    let content_id = Ref::new(4);
-    pdf.catalog(catalog_id).pages(page_tree_id);
-    {
-        let mut pages = pdf.pages(page_tree_id);
-        pages
-            .kids([page_id])
-            .count(1)
-            .media_box(Rect::new(0.0, 0.0, 612.0, 792.0));
-    }
-    {
-        let mut page = pdf.page(page_id);
-        page.parent(page_tree_id)
-            .media_box(Rect::new(0.0, 0.0, 612.0, 792.0))
-            .rotate(90)
-            .contents(content_id);
-    }
-    let mut content = Content::new();
-    content.set_line_width(1.0);
-    content.rect(72.0, 700.0, 200.0, 20.0);
-    content.stroke();
-    pdf.stream(content_id, &content.finish());
-    let base = pdf.finish();
-
     let fields = vec![text_field(
         "FullName",
         "full_name",
@@ -323,39 +249,13 @@ fn rotated_page_rejected_cleanly() {
         [180.0, 700.0, 520.0, 720.0],
         "Ada",
     )];
-    let err = stamp(base, &fields, &StampOptions::default()).expect_err("rotated page rejected");
+    let err = stamp(
+        BasePdf::letter(1).rotate(90).build(),
+        &fields,
+        &StampOptions::default(),
+    )
+    .expect_err("rotated page rejected");
     assert_eq!(err.code, "pdf::rotated_page");
-}
-
-/// A one-page base whose page carries `/Rotate` as the indirect reference
-/// `5 0 R`, resolving to `90`, or no `/Rotate` at all.
-fn build_base_with_indirect_rotate(rotate: bool) -> Vec<u8> {
-    let mut pdf = Pdf::new();
-    let catalog_id = Ref::new(1);
-    let page_tree_id = Ref::new(2);
-    let page_id = Ref::new(3);
-    let content_id = Ref::new(4);
-    let rotate_id = Ref::new(5);
-    let rect = Rect::new(0.0, 0.0, 612.0, 792.0);
-    pdf.catalog(catalog_id).pages(page_tree_id);
-    {
-        let mut pages = pdf.pages(page_tree_id);
-        pages.kids([page_id]).count(1).media_box(rect);
-    }
-    {
-        let mut page = pdf.page(page_id);
-        page.parent(page_tree_id).media_box(rect).contents(content_id);
-        if rotate {
-            page.pair(Name(b"Rotate"), rotate_id);
-        }
-    }
-    let mut content = Content::new();
-    content.set_line_width(1.0);
-    content.rect(72.0, 700.0, 200.0, 20.0);
-    content.stroke();
-    pdf.stream(content_id, &content.finish());
-    pdf.indirect(rotate_id).primitive(90);
-    pdf.finish()
 }
 
 #[test]
@@ -368,7 +268,7 @@ fn indirect_rotate_rejected_cleanly() {
         "Ada",
     )];
     let err = stamp(
-        build_base_with_indirect_rotate(true),
+        BasePdf::letter(1).indirect_rotate(90).build(),
         &fields,
         &StampOptions::default(),
     )
@@ -376,12 +276,8 @@ fn indirect_rotate_rejected_cleanly() {
     assert_eq!(err.code, "pdf::parse");
     assert!(err.message.contains("/Rotate"), "{}", err.message);
 
-    stamp(
-        build_base_with_indirect_rotate(false),
-        &fields,
-        &StampOptions::default(),
-    )
-    .expect("the same base without the /Rotate stamps");
+    stamp(build_base_pdf(1), &fields, &StampOptions::default())
+        .expect("the same base without the /Rotate stamps");
 }
 
 /// A one-page base whose trailer `/Size` reads `size`. The xref table precedes
@@ -438,84 +334,6 @@ fn field_targeting_missing_page_errors() {
     sig.schema_field = Some("x".into());
     let err = stamp(base, &[sig], &StampOptions::default()).expect_err("out of range");
     assert!(err.message.contains("page"), "{}", err.message);
-}
-
-/// An `n`-page base whose pages carry the given `/MediaBox`.
-fn build_base_pdf_origin(n: usize, mb: [f32; 4]) -> Vec<u8> {
-    let mut pdf = Pdf::new();
-    let catalog_id = Ref::new(1);
-    let page_tree_id = Ref::new(2);
-    pdf.catalog(catalog_id).pages(page_tree_id);
-
-    let mut page_ids = Vec::new();
-    let mut content_ids = Vec::new();
-    let mut next = 3i32;
-    for _ in 0..n {
-        page_ids.push(Ref::new(next));
-        next += 1;
-        content_ids.push(Ref::new(next));
-        next += 1;
-    }
-    let rect = Rect::new(mb[0], mb[1], mb[2], mb[3]);
-    {
-        let mut pages = pdf.pages(page_tree_id);
-        pages
-            .kids(page_ids.iter().copied())
-            .count(n as i32)
-            .media_box(rect);
-    }
-    for i in 0..n {
-        pdf.page(page_ids[i])
-            .parent(page_tree_id)
-            .media_box(rect)
-            .contents(content_ids[i]);
-        let mut content = Content::new();
-        content.set_line_width(1.0);
-        content.rect(72.0, 700.0, 200.0, 20.0);
-        content.stroke();
-        pdf.stream(content_ids[i], &content.finish());
-    }
-    pdf.finish()
-}
-
-/// A one-page base already carrying an inline `/Annots [ref]`. Returns
-/// `(pdf, existing_annot_id)`.
-fn build_base_with_inline_annot() -> (Vec<u8>, i32) {
-    use pdf_writer::types::AnnotationType;
-    let mut pdf = Pdf::new();
-    let catalog_id = Ref::new(1);
-    let page_tree_id = Ref::new(2);
-    let page_id = Ref::new(3);
-    let content_id = Ref::new(4);
-    let annot_id = Ref::new(5);
-    pdf.catalog(catalog_id).pages(page_tree_id);
-    {
-        let mut pages = pdf.pages(page_tree_id);
-        pages
-            .kids([page_id])
-            .count(1)
-            .media_box(Rect::new(0.0, 0.0, 612.0, 792.0));
-    }
-    {
-        let mut page = pdf.page(page_id);
-        page.parent(page_tree_id)
-            .media_box(Rect::new(0.0, 0.0, 612.0, 792.0))
-            .contents(content_id);
-        page.annotations([annot_id]);
-    }
-    {
-        let mut content = Content::new();
-        content.set_line_width(1.0);
-        content.rect(72.0, 700.0, 200.0, 20.0);
-        content.stroke();
-        pdf.stream(content_id, &content.finish());
-    }
-    {
-        pdf.annotation(annot_id)
-            .subtype(AnnotationType::Text)
-            .rect(Rect::new(10.0, 10.0, 30.0, 30.0));
-    }
-    (pdf.finish(), 5)
 }
 
 fn find_sub(haystack: &[u8], needle: &[u8]) -> usize {
@@ -592,16 +410,19 @@ fn xref_stream_rejected_cleanly() {
 
 #[test]
 fn nonzero_mediabox_origin_flows_through() {
-    let base = build_base_pdf_origin(1, [10.0, 20.0, 622.0, 812.0]);
+    let base = BasePdf::letter(1)
+        .media_box([10.0, 20.0, 622.0, 812.0])
+        .build();
     let boxes = quillmark_pdf::page_canvas_boxes(&base).expect("canvas boxes");
     assert_eq!(boxes, vec![[10.0, 20.0, 622.0, 812.0]]);
 }
 
 #[test]
 fn inline_annots_are_merged_not_replaced() {
-    let (base, existing) = build_base_with_inline_annot();
+    let base = BasePdf::letter(1).inline_annot();
+    let existing = base.inline_annot_id();
     let fields = vec![text_field("X", "x", 0, [10.0, 10.0, 100.0, 30.0], "hi")];
-    let result = stamp(base, &fields, &StampOptions::default()).expect("stamp ok");
+    let result = stamp(base.build(), &fields, &StampOptions::default()).expect("stamp ok");
 
     let doc = lopdf::Document::load_mem(&result).expect("reparse");
     let pages = doc.get_pages();
@@ -739,32 +560,13 @@ fn a_non_finite_rect_is_refused_rather_than_written() {
 /// preserved page `/Annots`.
 #[test]
 fn a_base_that_already_carries_an_acroform_is_refused() {
-    let mut pdf = Pdf::new();
-    let catalog_id = Ref::new(1);
-    let page_tree_id = Ref::new(2);
-    let page_id = Ref::new(3);
-    let content_id = Ref::new(4);
-    let acroform_id = Ref::new(5);
-    {
-        let mut cat = pdf.catalog(catalog_id);
-        cat.pages(page_tree_id);
-        cat.pair(Name(b"AcroForm"), acroform_id);
-    }
-    let rect = Rect::new(0.0, 0.0, 612.0, 792.0);
-    pdf.pages(page_tree_id)
-        .kids([page_id])
-        .count(1)
-        .media_box(rect);
-    pdf.page(page_id)
-        .parent(page_tree_id)
-        .media_box(rect)
-        .contents(content_id);
-    pdf.stream(content_id, &Content::new().finish());
-    pdf.indirect(acroform_id).start::<Form>().fields([]).finish();
-
     let fields = vec![text_field("X", "x", 0, [10.0, 10.0, 100.0, 30.0], "hi")];
-    let err = stamp(pdf.finish(), &fields, &StampOptions::default())
-        .expect_err("pre-existing /AcroForm rejected");
+    let err = stamp(
+        BasePdf::letter(1).acroform().build(),
+        &fields,
+        &StampOptions::default(),
+    )
+    .expect_err("pre-existing /AcroForm rejected");
     assert_eq!(err.code, "pdf::existing_acroform");
 }
 

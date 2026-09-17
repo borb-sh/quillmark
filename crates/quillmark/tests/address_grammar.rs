@@ -28,6 +28,8 @@ main:
   fields:
     subject:
       type: string
+    deadline:
+      type: date
     tags:
       type: array
       items:
@@ -115,6 +117,7 @@ card_kinds:
 /// one ref, because the grammar asks about the schema alone.
 const GRAMMAR: &[(&str, bool)] = &[
     ("subject", true),
+    ("deadline", true),
     ("tags", true),
     ("tags.0", true),
     ("refs", true),
@@ -151,6 +154,7 @@ const GRAMMAR: &[(&str, bool)] = &[
     ("$cards.endorsement.0.level.endorser", true),
     ("nonesuch", false),
     ("subject.0", false),
+    ("deadline.0", false),
     ("subject.poc", false),
     ("tags.0.org", false),
     ("refs.org", false),
@@ -203,6 +207,7 @@ fn quill(plate: &str) -> Quill {
 fn data() -> serde_json::Value {
     serde_json::json!({
         "subject": "Widgets",
+        "deadline": "2026-03-04",
         "tags": ["urgent"],
         "refs": [{ "org": "AFRL/RQ", "num": "2026-01", "lead": { "email": "lead@example.mil" } }],
         "address": {
@@ -235,6 +240,39 @@ fn claims(addresses: impl IntoIterator<Item = &'static str>) -> String {
             plate.push_str(&format!("#field-region(\"{address}\")[x]\n"));
             plate
         })
+}
+
+/// Every helper that takes an address, with a call the grammar admits and the
+/// same call one step past a leaf. `field-region` runs the shared pin;
+/// `form-field` and `display` carry their own copies of it, and a copy that
+/// drifted would render the document with the field silently unbound rather
+/// than fail.
+const BINDERS: [(&str, &str, &str, &str); 3] = [
+    (
+        "field-region",
+        "#field-region(\"{}\")[x]",
+        "address.city",
+        "address.city.0",
+    ),
+    (
+        "form-field",
+        "#form-field(\"F\", type: \"text\", value: \"x\", field: \"{}\")",
+        "address.city",
+        "address.city.0",
+    ),
+    (
+        "display",
+        "#display(\"{}\", \"[year]\")",
+        "deadline",
+        "deadline.0",
+    ),
+];
+
+fn bound(helper: &str, call: &str, address: &str) -> String {
+    format!(
+        "#import \"@local/quillmark-helper:0.1.0\": {helper}\n{}\n",
+        call.replace("{}", address)
+    )
 }
 
 fn compile(plate: &str) -> Result<quillmark::LiveSession, String> {
@@ -270,6 +308,19 @@ fn typst_refuses_every_address_the_grammar_refuses() {
             panic!("{address:?} must not compile");
         };
         assert!(err.contains("not a schema field address"), "{address:?}: {err}");
+    }
+}
+
+#[test]
+fn every_address_taking_helper_binds_the_same_grammar() {
+    for (helper, call, resolves, refused) in BINDERS {
+        if let Err(err) = compile(&bound(helper, call, resolves)) {
+            panic!("{helper} must bind {resolves:?}: {err}");
+        }
+        let Err(err) = compile(&bound(helper, call, refused)) else {
+            panic!("{helper} must refuse {refused:?}");
+        };
+        assert!(err.contains("not a schema field address"), "{helper}: {err}");
     }
 }
 

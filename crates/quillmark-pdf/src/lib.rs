@@ -15,6 +15,9 @@ mod stamp;
 mod update;
 mod writer;
 
+#[doc(hidden)]
+pub mod testkit;
+
 pub use error::PdfError;
 pub use stamp::{
     regions_of, stamp, StampOptions, CHECKBOX_ON_STATE, CHECK_FONT, CHECK_FONT_RESOURCE,
