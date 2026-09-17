@@ -1,7 +1,11 @@
 //! Regression coverage for the "string index N is not a character boundary"
 //! panic class on the YAML scanner paths that run *after* the prescan.
 
-use crate::document::assemble::decompose;
+use crate::document::Document;
+
+fn decompose(markdown: &str) -> Result<Document, crate::error::ParseError> {
+    Document::parse(markdown).map(|p| p.document)
+}
 
 #[test]
 fn multibyte_in_quoted_scalar_parses() {

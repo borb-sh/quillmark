@@ -1055,14 +1055,14 @@ fn store_seed_overlay_charges_the_map_its_own_level() {
 #[test]
 fn storage_dto_rejects_value_past_depth_limit() {
     let stored = serde_json::json!({
-        "schema": "quillmark/document@0.92.0",
+        "schema": "quillmark/document@0.112.0",
         "main": {
             "payload": {"items": [
                 {"type": "quill", "value": "q@1.0"},
                 {"type": "kind", "value": "main"},
                 {"type": "field", "key": "x", "value": deep_value(150)}
             ]},
-            "body": ""
+            "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}
         },
         "cards": []
     });
@@ -1076,14 +1076,14 @@ fn storage_dto_rejects_value_past_depth_limit() {
         unreachable!()
     };
     let stored = serde_json::json!({
-        "schema": "quillmark/document@0.92.0",
+        "schema": "quillmark/document@0.112.0",
         "main": {
             "payload": {"items": [
                 {"type": "quill", "value": "q@1.0"},
                 {"type": "kind", "value": "main"},
                 {"type": "ext", "value": deep_map}
             ]},
-            "body": ""
+            "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}
         },
         "cards": []
     });
@@ -1234,8 +1234,8 @@ fn test_wire_refuses_payload_level_violations() {
 fn storage_dto_polices_root_kind_and_repeated_entries() {
     let load = |items: serde_json::Value| {
         serde_json::from_value::<crate::document::Document>(serde_json::json!({
-            "schema": "quillmark/document@0.92.0",
-            "main": {"payload": {"items": items}, "body": ""},
+            "schema": "quillmark/document@0.112.0",
+            "main": {"payload": {"items": items}, "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}},
             "cards": []
         }))
     };
@@ -1270,14 +1270,14 @@ fn storage_dto_polices_root_kind_and_repeated_entries() {
 #[test]
 fn storage_dto_refuses_a_multi_line_comment() {
     let err = serde_json::from_value::<crate::document::Document>(serde_json::json!({
-        "schema": "quillmark/document@0.92.0",
+        "schema": "quillmark/document@0.112.0",
         "main": {
             "payload": {"items": [
                 {"type": "quill", "value": "q@1.0"},
                 {"type": "kind", "value": "main"},
                 {"type": "comment", "text": "hi\ninjected: pwned", "inline": false}
             ]},
-            "body": ""
+            "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}
         },
         "cards": []
     }))
@@ -1316,14 +1316,14 @@ fn every_ingestion_boundary_renders_its_violation_text() {
     );
 
     let storage_err = serde_json::from_value::<Document>(serde_json::json!({
-        "schema": "quillmark/document@0.92.0",
+        "schema": "quillmark/document@0.112.0",
         "main": {
             "payload": {"items": [
                 {"type": "quill", "value": "q@1.0"},
                 {"type": "kind", "value": "main"},
                 {"type": "field", "key": "bad name", "value": "v"}
             ]},
-            "body": ""
+            "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}
         },
         "cards": []
     }))

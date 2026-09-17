@@ -158,30 +158,11 @@ fn scanner_agrees_with_commonmark_on_synthetic_inputs() {
     }
 }
 
-fn collect_md(root: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(root) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_md(&path, out);
-        } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
-            out.push(path);
-        }
-    }
-}
-
 #[test]
 fn scanner_agrees_with_commonmark_on_fixtures() {
-    let fixtures_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .and_then(|p| p.parent())
-        .expect("workspace root")
-        .join("crates/fixtures/resources");
-
+    let fixtures_root = crate::document::tests::fixtures_root();
     let mut files = Vec::new();
-    collect_md(&fixtures_root, &mut files);
+    crate::document::tests::collect_md_files(&fixtures_root, &mut files);
 
     let mut checked = 0;
     let mut failures = Vec::new();

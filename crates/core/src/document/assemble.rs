@@ -251,13 +251,6 @@ pub(super) fn build_block(
     })
 }
 
-/// Test-only convenience over [`decompose_with_warnings`]; the shipping entry
-/// [`super::Document::parse`] keeps the warnings.
-#[cfg(test)]
-pub(super) fn decompose(markdown: &str) -> Result<Document, crate::error::ParseError> {
-    decompose_with_warnings(markdown).map(|(doc, _)| doc)
-}
-
 /// Decompose markdown into a typed [`Document`], returning any non-fatal warnings
 /// collected during fence scanning.
 pub(super) fn decompose_with_warnings(

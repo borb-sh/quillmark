@@ -1414,14 +1414,14 @@ title: Hi
         let blob = |value: &str, fill: &str| {
             format!(
                 r#"{{
-                "schema": "quillmark/document@0.92.0",
+                "schema": "quillmark/document@0.112.0",
                 "main": {{
                     "payload": {{"items": [
                         {{"type": "quill", "value": "q@1.0"}},
                         {{"type": "kind", "value": "main"}},
                         {{"type": "field", "key": "x", "value": {value}, "fill": {fill}}}
                     ]}},
-                    "body": ""
+                    "body": {{"islands": [], "lines": [{{"containers": [], "kind": "para"}}], "marks": [], "text": ""}}
                 }},
                 "cards": []
             }}"#
@@ -1443,8 +1443,8 @@ title: Hi
     #[test]
     fn rejects_main_card_without_quill() {
         let json = r#"{
-            "schema": "quillmark/document@0.92.0",
-            "main": {"payload": {"items": [{"type": "kind", "value": "main"}]}, "body": ""},
+            "schema": "quillmark/document@0.112.0",
+            "main": {"payload": {"items": [{"type": "kind", "value": "main"}]}, "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}},
             "cards": []
         }"#;
         let err = serde_json::from_str::<Document>(json).unwrap_err();
@@ -1454,16 +1454,16 @@ title: Hi
     #[test]
     fn rejects_composable_card_tagged_main() {
         let json = r#"{
-            "schema": "quillmark/document@0.92.0",
+            "schema": "quillmark/document@0.112.0",
             "main": {
                 "payload": {"items": [
                     {"type": "quill", "value": "q@1.0"},
                     {"type": "kind", "value": "main"}
                 ]},
-                "body": ""
+                "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}
             },
             "cards": [
-                {"payload": {"items": [{"type": "kind", "value": "main"}]}, "body": ""}
+                {"payload": {"items": [{"type": "kind", "value": "main"}]}, "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}}
             ]
         }"#;
         let err = serde_json::from_str::<Document>(json).unwrap_err();
@@ -1473,13 +1473,13 @@ title: Hi
     #[test]
     fn rejects_invalid_quill_reference() {
         let json = r#"{
-            "schema": "quillmark/document@0.92.0",
+            "schema": "quillmark/document@0.112.0",
             "main": {
                 "payload": {"items": [
                     {"type": "quill", "value": "not a valid ref!!"},
                     {"type": "kind", "value": "main"}
                 ]},
-                "body": ""
+                "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}
             },
             "cards": []
         }"#;
@@ -1490,19 +1490,19 @@ title: Hi
     #[test]
     fn rejects_composable_card_with_seed() {
         let json = r#"{
-            "schema": "quillmark/document@0.92.0",
+            "schema": "quillmark/document@0.112.0",
             "main": {
                 "payload": {"items": [
                     {"type": "quill", "value": "q@1.0"},
                     {"type": "kind", "value": "main"}
                 ]},
-                "body": ""
+                "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}
             },
             "cards": [
                 {"payload": {"items": [
                     {"type": "kind", "value": "indorsement"},
                     {"type": "seed", "value": {"note": {"from": "X"}}}
-                ]}, "body": ""}
+                ]}, "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}}
             ]
         }"#;
         let err = serde_json::from_str::<Document>(json).unwrap_err();
