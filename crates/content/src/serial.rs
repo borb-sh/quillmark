@@ -18,7 +18,7 @@
 //! Storage, the render seam and the binding seam carry one canonical form.
 
 use crate::model::{
-    canonicalize_keys, Container, Island, Line, LineKind, Loss, Mark,
+    canonicalize_keys, Container, Island, Line, LineKind, Mark,
     MarkKind, Content, Normalized, Usv,
 };
 use serde_json::{Map, Value};
@@ -35,7 +35,7 @@ pub enum ParseError {
     /// The value parsed but violates a content invariant.
     Invalid(crate::model::Invariant),
     /// A discriminator outside its vocabulary. `axis` names the wire field
-    /// (`line kind`, `container`, `mark type`, `island type`, `island loss`),
+    /// (`line kind`, `container`, `mark type`, `island type`),
     /// `name` the value it carried.
     UnknownName {
         axis: &'static str,
@@ -858,7 +858,6 @@ fn canon_cell(cell: &mut Value) {
 pub(crate) fn island_to_value(island: &Island) -> Value {
     let mut m = Map::new();
     m.insert("id".into(), Value::String(island.id.clone()));
-    m.insert("loss".into(), island.loss.as_str().into());
     m.insert("props".into(), island.props.clone());
     m.insert("type".into(), Value::String(island.island_type.as_str().into()));
     Value::Object(m)
@@ -885,16 +884,6 @@ pub(crate) fn island_from_value(v: &Value) -> Result<Island, ParseError> {
             .to_string(),
         island_type,
         props,
-        // A missing key is the faithful class: it predates the key.
-        loss: match o.get("loss") {
-            None => Loss::Lossless,
-            Some(Value::String(name)) => Loss::parse(name)
-                .ok_or_else(|| ParseError::UnknownName {
-                    axis: "island loss",
-                    name: name.clone(),
-                })?,
-            Some(_) => return Err(ParseError::Shape("island loss")),
-        },
     })
 }
 
@@ -941,7 +930,7 @@ mod tests {
 
     use super::*;
     use crate::island::IslandType;
-    use crate::model::{Invariant, Line, LineKind, Loss};
+    use crate::model::{Invariant, Line, LineKind};
 
     fn sample() -> Content {
         Content {
@@ -1001,7 +990,7 @@ mod tests {
         let deep = nested_arrays(1_000);
         let cases: [(Value, &'static str); 1] = [(
             serde_json::json!({"text":"\u{fffc}","lines":[{"kind":"island","containers":[]}],
-              "marks":[],"islands":[{"id":"i1","type":"image","loss":"lossless","props":deep}]}),
+              "marks":[],"islands":[{"id":"i1","type":"image","props":deep}]}),
             "island props",
         )];
         for (v, what) in cases {
@@ -1030,7 +1019,7 @@ mod tests {
     fn json_depth_cap_admits_every_storable_payload() {
         let content = |props: Value| {
             serde_json::json!({"text":"\u{fffc}","lines":[{"kind":"island","containers":[]}],
-              "marks":[],"islands":[{"id":"i1","type":"image","loss":"lossless","props":props}]})
+              "marks":[],"islands":[{"id":"i1","type":"image","props":props}]})
         };
         assert!(from_canonical_value(&content(nested_arrays(crate::MAX_JSON_DEPTH))).is_ok());
         assert!(from_canonical_value(&content(nested_arrays(crate::MAX_JSON_DEPTH + 1))).is_err());
@@ -1079,7 +1068,7 @@ mod tests {
         let deep = nested_arrays(1_000);
         // An island's `props` is the one payload the op wire retains.
         let op = serde_json::json!({"op":"insert","at":0,
-          "id":"i1","type":"image","loss":"lossless","props":deep});
+          "id":"i1","type":"image","props":deep});
         assert!(matches!(
             crate::ops::island_op_from_value(&op),
             Err(ParseError::Invalid(Invariant::JsonTooDeep { .. }))
@@ -1111,7 +1100,6 @@ mod tests {
             id: "i1".into(),
             island_type: IslandType::Table,
             props: serde_json::json!({"b": 1, "a": 2}),
-            loss: Loss::Lossless,
         }];
         let mut two = one.clone();
         two.islands[0].props = serde_json::json!({"a": 2, "b": 1}); // keys reversed
@@ -1192,7 +1180,6 @@ mod tests {
                 id: "i1".into(),
                 island_type,
                 props: bag(),
-                loss: Loss::Lossless,
             };
             assert!(
                 sorted(&island_to_value(&island)),
@@ -1232,7 +1219,6 @@ mod tests {
                 "rows": [[{"text": "r", "marks": []}]],
                 "aligns": ["none"],
             }),
-            loss: Loss::Lossless,
         }];
         rt.normalize();
         assert_eq!(rt.validate(), Ok(()));
@@ -1290,6 +1276,28 @@ mod tests {
         ));
     }
 
+    /// A row spelling a `loss` on an island opens, whatever the class, and the
+    /// key is absent from what comes back: the read ignores a key the island
+    /// vocabulary does not name rather than refusing the row or carrying it.
+    #[test]
+    fn a_stored_island_loss_class_opens_and_does_not_survive_the_read() {
+        for class in ["lossless", "degraded", "unrepresentable", "partial"] {
+            let row = format!(
+                concat!(
+                    r#"{{"islands":[{{"id":"i1","loss":"{class}","props":{{"alt":"a","url":"u"}},"#,
+                    "\"type\":\"image\"}}],\"lines\":[{{\"containers\":[],\"kind\":\"para\"}}],",
+                    "\"marks\":[],\"text\":\"\u{fffc}\"}}"
+                ),
+                class = class
+            );
+            let rt = Content::from_canonical_json(&row).expect("opens");
+            assert!(
+                !rt.to_canonical_json().contains("loss"),
+                "`loss` survived the read of a `{class}` row"
+            );
+        }
+    }
+
     /// Every axis is a closed set, and the two lanes agree: the name is
     /// refused, not carried, and the error names the axis and the name.
     #[test]
@@ -1327,17 +1335,7 @@ mod tests {
                 "island type",
                 "widget",
                 doc(
-                    r#"{"id":"i1","loss":"lossless","props":{},"type":"widget"}"#,
-                    r#"{"containers":[],"kind":"island"}"#,
-                    "",
-                    "\u{fffc}",
-                ),
-            ),
-            (
-                "island loss",
-                "partial",
-                doc(
-                    r#"{"id":"i1","loss":"partial","props":{},"type":"table"}"#,
+                    r#"{"id":"i1","props":{},"type":"widget"}"#,
                     r#"{"containers":[],"kind":"island"}"#,
                     "",
                     "\u{fffc}",
@@ -1371,7 +1369,7 @@ mod tests {
         let cell_marks = |marks: &str| {
             format!(
                 concat!(
-                    r#"{{"islands":[{{"id":"i1","loss":"lossless","props":{{"aligns":["none"],"#,
+                    r#"{{"islands":[{{"id":"i1","props":{{"aligns":["none"],"#,
                     r#""header":[{{"marks":[{marks}],"text":"h"}}],"#,
                     r#""rows":[[{{"marks":[],"text":"c"}}]]}},"type":"table"}}],"#,
                     "\"lines\":[{{\"containers\":[],\"kind\":\"island\"}}],\"marks\":[],\"text\":\"\u{fffc}\"}}"
@@ -1409,7 +1407,7 @@ mod tests {
         for bad in [
             r#"{"islands":[],"lines":[{"containers":[]}],"marks":[],"text":"x"}"#,
             r#"{"islands":[],"lines":[{"containers":[{"container":7}],"kind":"para"}],"marks":[],"text":"x"}"#,
-            "{\"islands\":[{\"id\":\"i\",\"loss\":7,\"props\":{},\"type\":\"table\"}],\"lines\":[{\"containers\":[],\"kind\":\"island\"}],\"marks\":[],\"text\":\"\u{fffc}\"}",
+            "{\"islands\":[{\"id\":\"i\",\"props\":{},\"type\":7}],\"lines\":[{\"containers\":[],\"kind\":\"island\"}],\"marks\":[],\"text\":\"\u{fffc}\"}",
         ] {
             assert!(
                 matches!(
@@ -1418,14 +1416,6 @@ mod tests {
                 ),
                 "not a shape error: {bad}"
             );
-        }
-    }
-
-    /// So the closed view and the wire spellings cannot drift apart.
-    #[test]
-    fn every_fidelity_level_round_trips_through_its_class() {
-        for &l in Loss::ALL {
-            assert_eq!(Loss::parse(l.as_str()), Some(l));
         }
     }
 
@@ -1444,14 +1434,14 @@ mod tests {
             r#"{"islands":[],"lines":[{"containers":[],"kind":"para"}],"marks":[{"end":1,"start":0,"type":"link","url":"u"}],"text":"x"}"#,
             // table cell mark
             concat!(
-                r#"{"islands":[{"id":"i1","loss":"lossless","props":{"aligns":["none"],"#,
+                r#"{"islands":[{"id":"i1","props":{"aligns":["none"],"#,
                 r#""header":[{"marks":[{"end":1,"start":0,"type":"link","url":"u"}],"text":"h"}],"#,
                 r#""rows":[[{"marks":[],"text":"r"}]]},"type":"table"}],"#,
                 r#""lines":[{"containers":[],"kind":"island"}],"marks":[],"text":"￼"}"#
             ),
             // table cell mark with no `type` at all
             concat!(
-                r#"{"islands":[{"id":"i1","loss":"lossless","props":{"aligns":["none"],"#,
+                r#"{"islands":[{"id":"i1","props":{"aligns":["none"],"#,
                 r#""header":[{"marks":[{"end":1,"start":0}],"text":"h"}],"#,
                 r#""rows":[[{"marks":[],"text":"r"}]]},"type":"table"}],"#,
                 r#""lines":[{"containers":[],"kind":"island"}],"marks":[],"text":"￼"}"#
@@ -1509,7 +1499,7 @@ mod tests {
     #[test]
     fn authored_lane_leaves_opaque_props_payload_alone() {
         let json = concat!(
-            r#"{"islands":[{"id":"i1","loss":"lossless","props":{"aligns":["none"],"#,
+            r#"{"islands":[{"id":"i1","props":{"aligns":["none"],"#,
             r#""header":[{"marks":[],"text":"h"}],"note":{"type":"link","url":"a\nb"},"#,
             r#""rows":[[{"marks":[],"text":"c"}]]},"type":"table"}],"#,
             r#""lines":[{"containers":[],"kind":"island"}],"marks":[],"text":"￼"}"#
@@ -1612,7 +1602,7 @@ mod tests {
                 r#""marks":[{"attrs":{"url":"a\nb"},"end":1,"start":0,"type":"link"}],"text":"x"}"#
             ),
             concat!(
-                r#"{"islands":[{"id":"i1","loss":"lossless","props":{"alt":"a","url":"u\nv"},"#,
+                r#"{"islands":[{"id":"i1","props":{"alt":"a","url":"u\nv"},"#,
                 r#""type":"image"}],"lines":[{"containers":[],"kind":"para"}],"marks":[],"text":"￼"}"#
             ),
         ] {
@@ -1639,7 +1629,7 @@ mod tests {
         let content = |island_type: &str, props: &str| {
             format!(
                 concat!(
-                    r#"{{"islands":[{{"id":"isl-0","loss":"lossless","props":{},"#,
+                    r#"{{"islands":[{{"id":"isl-0","props":{},"#,
                     r#""type":"{}"}}],"lines":[{{"containers":[],"kind":"para"}}],"#,
                     r#""marks":[],"text":"a￼b"}}"#
                 ),
@@ -1670,7 +1660,7 @@ mod tests {
     fn a_stored_inline_block_island_survives_the_markdown_round_trip() {
         let slot = crate::model::ISLAND_SLOT;
         let json = concat!(
-            r#"{"islands":[{"id":"isl-0","loss":"lossless","props":{"aligns":["none"],"#,
+            r#"{"islands":[{"id":"isl-0","props":{"aligns":["none"],"#,
             r#""header":[{"marks":[],"text":"h"}],"rows":[[{"marks":[],"text":"c"}]]},"#,
             r#""type":"table"}],"lines":[{"containers":[],"kind":"para"}],"#,
             r#""marks":[{"end":6,"start":2,"type":"strong"}],"text":"a￼bold"}"#

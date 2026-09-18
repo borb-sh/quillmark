@@ -635,7 +635,7 @@ describe('Document editor surface: setQuillRef / overwrite / revise', () => {
     let deep = []
     for (let i = 0; i < 5000; i++) deep = [deep]
     const rt = importMarkdown('body')
-    rt.islands = [{ id: 'i1', type: 'image', loss: 'lossless', props: deep }]
+    rt.islands = [{ id: 'i1', type: 'image', props: deep }]
     // Matched on the message: a slot/shape complaint would pass a bare toThrow
     // while the depth door stayed open.
     expect(() => doc.overwrite({}, rt)).toThrow(/nests deeper/)
@@ -927,7 +927,7 @@ describe('Document applyChange: the anchor-preserving change bundle', () => {
     const bundle = {
       delta: { ops: [{ retain: 6 }, { insert: 'X' }, { retain: 5 }] },
       islandOps: [
-        { op: 'insert', at: 6, id: 'i1', type: 'image', loss: 'lossless', props: { url: 'u', alt: 'a' } },
+        { op: 'insert', at: 6, id: 'i1', type: 'image', props: { url: 'u', alt: 'a' } },
       ],
       lineOps: [{ op: 'split', at: 6 }],
     }
@@ -979,7 +979,6 @@ describe('Document applyChange: the anchor-preserving change bundle', () => {
             op: 'set',
             id: island.id,
             type: 'table',
-            loss: 'lossless',
             props: {
               header: [{ text: 'H', marks: [] }],
               rows: [[{ text: 'b', marks: [] }]],
@@ -1014,7 +1013,6 @@ describe('Document applyChange: the anchor-preserving change bundle', () => {
             at: 6,
             id: 'isl-new',
             type: 'image',
-            loss: 'lossless',
             props: { url: 'ex.com/a.png', alt: 'a' },
           },
         ],

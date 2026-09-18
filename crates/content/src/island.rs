@@ -1,7 +1,7 @@
 //! Island types: the dispatch authority over
 //! [`Island::island_type`](crate::model::Island::island_type).
 
-use crate::model::{Loss, Mark};
+use crate::model::Mark;
 use serde_json::Value;
 
 /// The island types. Closed: a wire `type` outside this set is
@@ -37,16 +37,6 @@ impl IslandType {
             "table" => Some(Self::Table),
             "image" => Some(Self::Image),
             _ => None,
-        }
-    }
-
-    /// The best markdown-projection loss class this type achieves: the ceiling
-    /// the importer stamps at mint. A per-island [`Loss`] may sit below it, never
-    /// above.
-    pub fn default_loss(self) -> Loss {
-        match self {
-            Self::Table => Loss::Lossless,
-            Self::Image => Loss::Lossless,
         }
     }
 
