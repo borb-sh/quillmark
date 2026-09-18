@@ -3,8 +3,8 @@
 //! Marks become syntax; identity ([`MarkKind::Anchor`]) marks are **omitted**,
 //! surviving across edits via diff-rebase rather than the projection. The
 //! contract is the **content fixed point**: for a content `rt` from
-//! [`crate::import::from_markdown`], `from_markdown(to_markdown(rt)) == rt`
-//! modulo island loss class. Markdown source is not canonical; the content is.
+//! [`crate::import::from_markdown`], `from_markdown(to_markdown(rt)) == rt`.
+//! Markdown source is not canonical; the content is.
 //!
 //! ## Export is defined by import
 //!
@@ -37,11 +37,6 @@ use crate::model::{
 
 /// Render a content to markdown. An island projects by **type**: a type this
 /// build knows emits its markdown, any other a placeholder comment.
-///
-/// [`Loss`](crate::model::Loss) does not gate the emit and is not read here: it
-/// *describes* fidelity for a consumer to surface, while the type decides
-/// whether a projection exists at all. So a known type stamped with a loss class
-/// this build lacks still emits its table.
 pub fn to_markdown(rt: &Normalized) -> String {
     let segments = line_segments(rt);
     let ctx = Ctx {
@@ -1192,7 +1187,7 @@ fn longest_backtick_run(s: &str) -> usize {
 mod tests {
     use super::*;
     use crate::import::from_markdown;
-    use crate::model::{Line, Loss, Mark};
+    use crate::model::{Line, Mark};
 
     /// export∘import is the identity on the content.
     /// A content built by hand, as a client writing `Content` directly builds
@@ -1378,7 +1373,6 @@ mod tests {
                 id: String::new(),
                 island_type: IslandType::Image,
                 props: serde_json::Value::Null,
-                loss: Loss::Unrepresentable,
             }],
         }
         .into_normalized();

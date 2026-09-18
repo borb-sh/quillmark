@@ -308,14 +308,10 @@ export interface ImageProps {
     alt: string;
 }
 
-/** How faithfully the markdown projection can carry an island. */
-export type ContentLossClass = "lossless" | "degraded" | "unrepresentable";
-
 /** A structured object occupying one island slot in `Content.text`. `type` is a
  * closed set, so `type === "table"` narrows `props` to `TableProps`. */
 export type ContentIsland = {
     id: string;
-    loss: ContentLossClass;
 } & (
     | { type: "table"; props: TableProps }
     | { type: "image"; props: ImageProps }
@@ -417,9 +413,6 @@ export type LineOp =
  * island whole, and a block island's line demotes to `para`. Re-landing it is an
  * `insert` of the full island under its original id; a pasted copy of a live
  * island mints a fresh one.
- *
- * A `set` stores the `loss` it is given; nothing re-derives the class from the
- * new `props`.
  *
  * An island is *inline* (a slot inside a paragraph) or a **block** (that slot
  * alone on a line under `kind: "island"`), and for a slot alone on a line the
