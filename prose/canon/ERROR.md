@@ -102,9 +102,18 @@ for it, anchored at the card that is full.
 
 ## Warning flow
 
-Warnings travel the same `Diagnostic` currency as errors, on six producer
+Warnings travel the same `Diagnostic` currency as errors, on seven producer
 families:
 
+- **`quill::*` load warnings**: the second half of
+  `QuillConfig::from_yaml_with_warnings`, carried on the loaded quill and read
+  off `Quill::warnings()`, so every binding host reaches them. A warning here
+  never fails the load. Two codes: `quill::body_example_unused` (a `body.example`
+  under `body.enabled: false`, which nothing will show), and
+  `quill::bodiless_card_kind` (a card kind declaring `body.enabled: false`,
+  which is the loader's one view of a row in card costume:
+  [CARDS.md](CARDS.md#card-row-matrix)). Both advise where a load error would
+  overreach — the loader sees a correlate, not the fact.
 - **Parse warnings**: the `warnings` on the `Parsed` that `Document::parse`
   returns (e.g. a `~~~` opener missing its blank line). The CLI render and the
   WASM one-shot render splice the whole `Parsed.warnings` carrier — this family
@@ -127,7 +136,8 @@ families:
   more lenient than the write, and what it adopts is valid.
 - **Validation warnings**: `Quill::validate(doc)` returns every
   `validation::*` diagnostic, mixing severities; `validation::must_fill`,
-  `validation::out_of_variant` and the `$seed` checks are the non-fatal ones.
+  `validation::out_of_variant`, `validation::cardinality` and the `$seed`
+  checks are the non-fatal ones.
   This is the editor-facing surface; the render pipeline blank-fills instead of
   warning on incomplete documents. A **fatal** row here means the document does
   not render: values are judged in the form the render floor builds from them
@@ -384,6 +394,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `validation::coercion_failed` | `value`, `target` | structured, coarser |
 | `validation::must_fill` | `trigger` | structured |
 | `validation::out_of_variant` | `variant`, `selected` | structured |
+| `validation::cardinality` | `max`, `actual` | structured |
 | `validation::seed_unknown_kind` | — | code-determined |
 | `validation::seed_overlay_shape` | — | code-determined |
 | `validation::seed_unknown_field` | — | code-determined |

@@ -738,6 +738,10 @@ mod args_canon {
             "validation::out_of_variant",
             crate::quill::compose::out_of_variant_warning(&path, "CUI", "UNCLASSIFIED").args,
         );
+        add(
+            "validation::cardinality",
+            crate::quill::compose::cardinality_warning(&path, 37, 38).args,
+        );
         // The `$seed` checks are minted at the overlay walk, so the sample is a
         // document that trips them: two overlays, three codes.
         let seed_quill = crate::quill::quill_from_yaml(

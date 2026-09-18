@@ -682,7 +682,63 @@ impl QuillConfig {
                     }
                 }
             }
+            FieldType::Matrix { .. } => {
+                let Some(obj) = json_value.as_object() else {
+                    return match mode {
+                        Leniency::Render => Ok(value.clone()),
+                        Leniency::Write => Err(CoercionError::uncoercible(
+                            path,
+                            json_value,
+                            "matrix",
+                            "value is not a mapping of member ids",
+                        )),
+                    };
+                };
+                let members = match &field_schema.members {
+                    Some(members) => members,
+                    None => return Ok(value.clone()),
+                };
+                Ok(QuillValue::from_json(serde_json::Value::Object(
+                    Self::coerce_matrix_members(obj, members, path, mode)?,
+                )))
+            }
         }
+    }
+
+    /// Coerce a matrix's stored mapping to its total member form. A key's
+    /// presence is the spelling of a tick, the variant precedent
+    /// (`SCHEMAS.md` §"Enum variants"): a bare scalar becomes
+    /// `{held: <scalar>}`, and a mapping that names no
+    /// [`MATRIX_HELD_KEY`](super::MATRIX_HELD_KEY) is held. A key naming no
+    /// member passes through for the domain check
+    /// (`validation::enum_violation`) to refuse.
+    fn coerce_matrix_members(
+        obj: &serde_json::Map<String, serde_json::Value>,
+        members: &IndexMap<String, Box<super::FieldSchema>>,
+        parent_path: &str,
+        mode: Leniency,
+    ) -> Result<serde_json::Map<String, serde_json::Value>, CoercionError> {
+        let mut out = serde_json::Map::new();
+        for (id, value) in obj {
+            let Some(member) = members.get(id) else {
+                out.insert(id.clone(), value.clone());
+                continue;
+            };
+            // Null ≡ absent at every type, so it reaches the ladder as the
+            // unheld member rather than as a held one with no columns.
+            let Some(spelled) = matrix_member_spelling(value) else {
+                out.insert(id.clone(), value.clone());
+                continue;
+            };
+            let coerced = Self::conform_value(
+                &QuillValue::from_json(serde_json::Value::Object(spelled)),
+                member,
+                &format!("{parent_path}.{id}"),
+                mode,
+            )?;
+            out.insert(id.clone(), coerced.into_json());
+        }
+        Ok(out)
     }
 
     /// Walk `obj`'s keys, coercing any that match `props` against the matching
@@ -846,6 +902,27 @@ impl QuillConfig {
             );
         }
 
+        // A table draws one row per element and one column per property, so the
+        // shape it asks for is the only shape it reads.
+        if schema.ui.as_ref().and_then(|u| u.layout).is_some() {
+            let row_is_object = matches!(schema.r#type, FieldType::Array)
+                && schema
+                    .items
+                    .as_deref()
+                    .is_some_and(|i| matches!(i.r#type, FieldType::Object));
+            if !row_is_object {
+                return err(
+                    "quill::invalid_ui",
+                    format!(
+                        "Field '{owner}' sets ui.layout: table but is not a typed table. \
+                         A table draws one row per element and one column per property, \
+                         so declare type: array with items: {{ type: object, \
+                         properties: … }}, or drop the key."
+                    ),
+                );
+            }
+        }
+
         if let Some(variants) = &schema.variants {
             // One level only, for the reason `SCHEMAS.md` §"Enum variants" gives.
             if !at_card_level {
@@ -1001,6 +1078,62 @@ impl QuillConfig {
                 };
                 Self::validate_field_schema_shape(items, &format!("{owner}[]"), false)
             }
+            FieldType::Matrix { .. } => {
+                let mut seen: HashSet<&str> = HashSet::new();
+                for (id, _, _) in schema.r#type.matrix_members() {
+                    if !Self::is_snake_case_identifier(id) {
+                        return err(
+                            "quill::invalid_matrix_member",
+                            format!(
+                                "Matrix member id '{id}' on '{owner}' must be snake_case \
+                                 (lowercase letters, digits, and underscores only); the \
+                                 display title is the mapping's value. An id is what the \
+                                 wire, the address and the document speak."
+                            ),
+                        );
+                    }
+                    if !seen.insert(id) {
+                        return err(
+                            "quill::duplicate_matrix_member",
+                            format!(
+                                "Field '{owner}' declares matrix member '{id}' more than \
+                                 once. A member id is one key of the stored mapping, so it \
+                                 names one member."
+                            ),
+                        );
+                    }
+                }
+                if let Some(props) = &schema.properties {
+                    // `held` is the synthesized tick; `title` and `group` are
+                    // written onto every member from the roster. A column under
+                    // any of the three would load, validate and address, then be
+                    // overwritten where it matters.
+                    if let Some(reserved) = [
+                        super::MATRIX_HELD_KEY,
+                        super::MATRIX_TITLE_KEY,
+                        super::MATRIX_GROUP_KEY,
+                    ]
+                    .into_iter()
+                    .find(|k| props.contains_key(*k))
+                    {
+                        return err(
+                            "quill::matrix_reserved_column",
+                            format!(
+                                "Field '{owner}' declares a column named '{reserved}', which a \
+                                 matrix writes onto every member itself: '{held}' is the tick, \
+                                 '{title}' and '{group}' the roster's labels. Rename the column.",
+                                held = super::MATRIX_HELD_KEY,
+                                title = super::MATRIX_TITLE_KEY,
+                                group = super::MATRIX_GROUP_KEY,
+                            ),
+                        );
+                    }
+                    return props.iter().find_map(|(name, prop)| {
+                        Self::validate_field_schema_shape(prop, &format!("{owner}.{name}"), false)
+                    });
+                }
+                None
+            }
             // Scalars are leaves; nothing further to validate.
             _ => None,
         }
@@ -1100,6 +1233,8 @@ impl QuillConfig {
         if let Some(v) = &schema.default {
             Self::validate_schema_slot("default", v, schema, owner_label, errors);
         }
+        Self::reject_over_max_literal("example", schema, owner_label, errors);
+        Self::reject_over_max_literal("default", schema, owner_label, errors);
         if let Some(props) = &schema.properties {
             for (name, prop) in props {
                 let nested = format!("{}.{}", owner_label, name);
@@ -1233,38 +1368,92 @@ impl QuillConfig {
         }
     }
 
-    /// Refuse a `default:` / `example:` declared on a **typed dictionary**, a
-    /// namespace rather than a cell (`SCHEMAS.md` §"Cells and namespaces"). The
-    /// variant container refuses the same shape under
-    /// `quill::{default,example}_type_mismatch`; an `array` keeps its literal,
-    /// `items:` fixing the element type but never the arity.
+    /// Refuse a `default:` / `example:` declared on a **namespace** rather than
+    /// a cell (`SCHEMAS.md` §"Cells and namespaces"): a typed dictionary, or a
+    /// matrix, whose keys the roster fixes. The variant container refuses the
+    /// same shape under `quill::{default,example}_type_mismatch`; an `array`
+    /// keeps its literal, `items:` fixing the element type but never the arity.
     fn reject_namespace_literal(
         slot: &str,
         schema: &FieldSchema,
         owner_label: &str,
         errors: &mut Vec<Diagnostic>,
     ) {
-        let Some(props) = schema
-            .properties
-            .as_ref()
-            .filter(|_| matches!(schema.r#type, FieldType::Object))
-        else {
+        let Some(props) = schema.namespace_props() else {
             return;
         };
-        let names: Vec<&str> = props.keys().map(String::as_str).collect();
-        errors.push(
-            Diagnostic::new(
-                Severity::Error,
+        let (message, hint) = if matches!(schema.r#type, FieldType::Matrix { .. }) {
+            let columns: Vec<&str> = schema.matrix_columns().keys().map(String::as_str).collect();
+            (
+                format!(
+                    "{owner_label} declares type 'matrix' but carries a {slot}. A matrix is a \
+                     namespace, not a cell: the roster fixes its keys, and every member is \
+                     unheld until a document ticks it."
+                ),
+                if columns.is_empty() {
+                    format!("Remove the {slot}.")
+                } else {
+                    format!(
+                        "Move each value onto the column that holds it ({}), and remove the \
+                         matrix's {slot}.",
+                        columns.join(", ")
+                    )
+                },
+            )
+        } else {
+            let names: Vec<&str> = props.keys().map(String::as_str).collect();
+            (
                 format!(
                     "{owner_label} declares type 'object' but carries a {slot}. A typed \
                      dictionary is a namespace, not a cell: each property holds its own {slot}."
                 ),
+                format!(
+                    "Move each value onto the property that holds it ({}), and remove the \
+                     container's {slot}.",
+                    names.join(", ")
+                ),
             )
-            .with_code(format!("quill::{slot}_on_namespace"))
+        };
+        errors.push(
+            Diagnostic::new(Severity::Error, message)
+                .with_code(format!("quill::{slot}_on_namespace"))
+                .with_hint(hint),
+        );
+    }
+
+    /// Refuse a `default:` / `example:` array literal longer than the field's
+    /// own `max:`. A quill seeding a document past the cap it declares would
+    /// warn (`validation::cardinality`) on a document nobody authored.
+    fn reject_over_max_literal(
+        slot: &str,
+        schema: &FieldSchema,
+        owner_label: &str,
+        errors: &mut Vec<Diagnostic>,
+    ) {
+        let Some(max) = schema.max else { return };
+        let literal = match slot {
+            "default" => schema.default.as_ref(),
+            _ => schema.example.as_ref(),
+        };
+        let Some(actual) = literal
+            .and_then(|v| v.as_json().as_array())
+            .map(Vec::len)
+            .filter(|len| *len > max as usize)
+        else {
+            return;
+        };
+        errors.push(
+            Diagnostic::new(
+                Severity::Error,
+                format!(
+                    "{owner_label} carries a {slot} of {actual} elements but declares \
+                     `max: {max}`."
+                ),
+            )
+            .with_code(format!("quill::{slot}_over_max"))
             .with_hint(format!(
-                "Move each value onto the property that holds it ({}), and remove the \
-                 container's {slot}.",
-                names.join(", ")
+                "Shorten the {slot} to {max} elements, or raise `max:` to the count the \
+                 page holds."
             )),
         );
     }
@@ -1954,6 +2143,37 @@ impl QuillConfig {
             }
         }
 
+        // A card is a part someone writes; a bodiless kind is the loader's one
+        // view of a row in card costume (`prose/canon/CARDS.md` § "Card, row,
+        // matrix"). A warning and not a refusal: the loader sees the proxy, not
+        // the fact — whether a kind interleaves among other kinds is a property
+        // of documents and the plate, and a bodiless positional kind is a card
+        // by the doctrine's first clause. `main` keeps the key unwarned: a form
+        // has no root prose.
+        for card in &card_kinds {
+            if card.body_enabled() {
+                continue;
+            }
+            warnings.push(
+                Diagnostic::new(
+                    Severity::Warning,
+                    format!(
+                        "Card kind `{name}` declares `body.enabled: false`. A card is a part \
+                         someone writes; a record someone fills in is a row.",
+                        name = card.name
+                    ),
+                )
+                .with_code("quill::bodiless_card_kind".to_string())
+                .with_hint(format!(
+                    "Declare `{name}` as an `array<object>` field on the card that owns it \
+                     — `type: array, items: {{ type: object, properties: … }}` — unless the \
+                     kind stands in document order among kinds of its own, which no schema \
+                     can say.",
+                    name = card.name
+                )),
+            );
+        }
+
         for (label, card) in &labeled {
             Self::validate_card_field_count(label, card, &mut errors);
         }
@@ -2037,6 +2257,35 @@ fn example_contains_fence_line(text: &str) -> bool {
     })
 }
 
+/// The member object a stored matrix spelling means, before coercion: a bare
+/// scalar is the tick itself, and a mapping naming no
+/// [`MATRIX_HELD_KEY`](super::MATRIX_HELD_KEY) is held. `None` for a null, which
+/// is absent at every type and so reaches the ladder unheld.
+///
+/// Coercion and validation both read it, so the two cannot disagree on what a
+/// document spelled.
+pub(crate) fn matrix_member_spelling(
+    stored: &serde_json::Value,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    use super::MATRIX_HELD_KEY;
+
+    if stored.is_null() {
+        return None;
+    }
+    let mut spelled = match stored.as_object() {
+        Some(map) => map.clone(),
+        None => {
+            let mut map = serde_json::Map::new();
+            map.insert(MATRIX_HELD_KEY.to_string(), stored.clone());
+            map
+        }
+    };
+    spelled
+        .entry(MATRIX_HELD_KEY.to_string())
+        .or_insert(serde_json::Value::Bool(true));
+    Some(spelled)
+}
+
 /// Whether a field's type tree contains any content leaf: the gate for caching
 /// a content companion. Both `richtext` and its literal-codec sibling `plaintext`
 /// are content leaves; a scalar (`string`, `integer`, `enum`, …) never carries
@@ -2045,7 +2294,9 @@ pub(crate) fn field_contains_content(field: &FieldSchema) -> bool {
     match &field.r#type {
         FieldType::RichText { .. } | FieldType::PlainText { .. } => true,
         FieldType::Array => field.items.as_deref().is_some_and(field_contains_content),
-        FieldType::Object => field
+        // A matrix's columns are its content-bearing cells; `members` is their
+        // per-member copy, so the columns answer for both.
+        FieldType::Object | FieldType::Matrix { .. } => field
             .properties
             .as_ref()
             .is_some_and(|p| p.values().any(|f| field_contains_content(f))),
@@ -2110,6 +2361,11 @@ fn populate_field_content(
     }
     if let Some(items) = field.items.as_mut() {
         populate_field_content(items, card, &format!("{path}[]"), errors);
+    }
+    // The members carry copies of the columns, taken before the imports above,
+    // so a matrix re-expands rather than importing each literal once per member.
+    if matches!(field.r#type, FieldType::Matrix { .. }) {
+        let _ = field.rebuild_matrix_members();
     }
 }
 

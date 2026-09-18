@@ -23,7 +23,9 @@ pub fn blank(field: &FieldSchema) -> QuillValue {
     }
     let json = match field.r#type {
         FieldType::Array => json!([]),
-        FieldType::Object => match &field.properties {
+        // A matrix blanks to every member unheld, columns at their blanks: the
+        // namespace rule, over the members it desugars to.
+        FieldType::Object | FieldType::Matrix { .. } => match field.namespace_props() {
             Some(properties) => serde_json::Value::Object(
                 properties
                     .iter()

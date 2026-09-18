@@ -68,12 +68,14 @@ follow:
 
 | Slot | Form | Carries |
 |---|---|---|
-| **Leading `# …` lines** above a field | `# <prose>` or `# e.g. <value>` | description (single-line prose) and an illustrative example |
+| **Leading `# …` lines** above a field | `# <prose>`, `# up to <N>` or `# e.g. <value>` | description (single-line prose), an `array`'s element cap, and an illustrative example |
 | **Inline `# …`** at end of the value line | `# <type>[<format>]` | structural metadata: the field's type and an optional format refinement |
 
-The two slots have disjoint purposes: leading is prose, inline is
-structural. No colon-separated `key: value` annotation syntax appears in
-either slot, so neither pattern collides with YAML key/value parsing.
+The two slots divide by *grammar*, not by subject: the inline slot is the fixed
+`<type>[<format>]` expression and takes nothing else, so a constraint that is not
+part of a type expression rides the leading slot as prose (`# up to <N>`, the one
+such line). No colon-separated `key: value` annotation syntax appears in either
+slot, so neither pattern collides with YAML key/value parsing.
 
 ### Leading lines: order
 
@@ -82,7 +84,17 @@ Per field, in order:
 1. `# <description>`: `description:` from `Quill.yaml`,
    whitespace-collapsed. **Single line only**; multi-line descriptions are
    rejected at `Quill.yaml` parse time.
-2. `# e.g. <value>`: emitted whenever `example:` is configured **and a
+2. `# up to <N>`: emitted where a field or an `object` property declares an
+   `array`'s `max:` — the two positions the leading slot exists at. The cap is page
+   geometry — the count past which the surplus leaves the page — and the author
+   most likely to exceed it is the MCP flow that reads the spec once and then
+   writes. `schema()` is consulted before that author writes and the
+   `validation::cardinality` warning arrives after the overflowing document
+   exists, so a limit the blueprint does not show is a limit learned from
+   `description:` prose. It rides the own-line slot in the form
+   `# composable (0..N)` already takes for a card kind's cardinality, which
+   leaves the `<type>[<format>]` grammar untouched.
+3. `# e.g. <value>`: emitted whenever `example:` is configured **and a
    `default:` already holds the cell**. Independent of type. There the example
    never becomes the rendered value, so it surfaces as a hint; where no
    `default:` holds the cell the example inlines *as* the value (see
@@ -100,7 +112,7 @@ Form: **`# <type>[<format>]`**
 
 - **Type slot** (mandatory, first): one of
   `string`, `integer`, `number`, `boolean`, `array`, `object`,
-  `richtext`, `plaintext`, `date`, `datetime`, `enum`.
+  `richtext`, `plaintext`, `date`, `datetime`, `enum`, `matrix`.
   Every field is labeled: there is no "self-evident" exemption.
   (`object` requires a `properties` map; freeform untyped objects are not
   supported. `object` also appears in the format slot of typed-table fields
@@ -115,6 +127,11 @@ Form: **`# <type>[<format>]`**
     the literal codec (delimiters stay literal), distinct from `<markdown>`
   - `array<string>`, `array<integer>`, `array<object>`, `array<richtext<markdown>>`, …
   - `enum<a | b | c>`
+  - `matrix<flight_cc | dodin_ops | cyber_200 | …>`: the roster's member ids in
+    declaration order, structurally the `enum` form so no third annotation is
+    minted. The cell carries the sparse spelling only — `{}` on a fresh
+    blueprint, since a matrix seeds empty — so a model sees the whole vocabulary
+    in the annotation, cannot invent a member, and has nothing to delete
   - omitted for `string`, `integer`, `number`, `boolean`, `object`
     (nothing meaningful to refine).
 
@@ -163,6 +180,8 @@ Examples:
 | `recipient: !must_fill # array<string>` | must-fill array of strings |
 | `date: !must_fill # date<YYYY-MM-DD>` | must-fill date |
 | `severity: !must_fill # enum<low \| medium \| high>` | must-fill enum |
+| `endorsements: !must_fill # array<string>` under a leading `# up to 3` | a capped array: the cap is the leading line, the type the inline |
+| `qualifications: {} # matrix<flight_cc \| dodin_ops>` | a matrix: the whole vocabulary in the annotation, nothing ticked |
 | `$quill: cmu_letter@0.1.0 # keep verbatim` | quill binding metadata, emitted verbatim; the inline reminder guards against dropping the line |
 | `$kind: skill` followed by `# composable (0..N)` and `# sample card; delete if not needed` | repeat the entire `~~~` … `~~~` block per instance, or delete it if none are needed |
 
@@ -405,9 +424,11 @@ declares. A freeform `type: object` without a `properties` map is rejected at
 Field declaration order controls field ordering within the document:
 carried structurally by the schema's ordered field maps, not a `ui`
 key. The `ui:` keys (`ui.group`, `ui.compact`, `ui.multiline`,
-`ui.title`) are presentation-only and do not affect blueprint output. In
-particular, `ui.group` emits no banner lines; fields within the same
-`ui.group` cluster together while preserving declaration order.
+`ui.title`, `ui.blank_title`, `ui.layout`) are presentation-only and do not affect blueprint
+output. In particular, `ui.group` emits no banner lines; fields within the same
+`ui.group` cluster together while preserving declaration order, and
+`ui.layout: table` names a control an editor draws, which a text blueprint has
+no second shape for.
 
 ## Body markers
 

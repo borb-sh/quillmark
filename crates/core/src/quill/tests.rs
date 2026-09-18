@@ -1,3 +1,4 @@
+mod matrix_tests;
 mod properties;
 mod support_tests;
 mod variant_tests;
@@ -127,7 +128,7 @@ card_kinds:
             .iter()
             .filter_map(|d| d.code.as_deref())
             .collect::<Vec<_>>(),
-        ["quill::body_example_unused"]
+        ["quill::body_example_unused", "quill::bodiless_card_kind"]
     );
 }
 
@@ -2186,4 +2187,227 @@ fn values_on_a_non_enum_type_is_a_load_error() {
             .any(|d| d.code.as_deref() == Some("quill::field_parse_error")),
         "values: on a string field should fail to load, got: {err:?}"
     );
+}
+
+/// A card is a part someone writes. The loader sees the proxy (no body), never
+/// the fact (whether the kind interleaves), so it advises; and `main` keeps the
+/// key unwarned, a form having no root prose.
+#[test]
+fn a_bodiless_card_kind_warns_and_a_bodiless_main_does_not() {
+    let (_, warnings) = QuillConfig::from_yaml_with_warnings(&with_header(
+        r#"main:
+  body:
+    enabled: false
+  fields:
+    title: { type: string }
+card_kinds:
+  itinerary:
+    body:
+      enabled: false
+    fields:
+      leg: { type: string }
+  note:
+    fields:
+      text: { type: string }
+"#,
+    ))
+    .expect("a bodiless card kind still loads");
+
+    let bodiless: Vec<&Diagnostic> = warnings
+        .iter()
+        .filter(|d| d.code.as_deref() == Some("quill::bodiless_card_kind"))
+        .collect();
+    assert_eq!(bodiless.len(), 1, "one kind, one warning: {warnings:?}");
+    assert_eq!(bodiless[0].severity, Severity::Warning);
+    assert!(bodiless[0].message.contains("itinerary"));
+    assert!(
+        bodiless[0].hint.as_deref().is_some_and(|h| h.contains("array")),
+        "the hint points at the row shape: {:?}",
+        bodiless[0].hint
+    );
+}
+
+/// A table draws one row per element and one column per property, so it loads
+/// on the shape it reads and nowhere else. `schema()` echoes it verbatim: the
+/// key is the editor's to honor or decline, and nothing else consumes it.
+#[test]
+fn ui_layout_table_loads_on_a_typed_table_and_is_refused_elsewhere() {
+    let config = quill_with_field(
+        "    tours:\n      type: array\n      ui:\n        layout: table\n      \
+         items:\n        type: object\n        properties:\n          unit: { type: string }\n",
+    )
+    .expect("a typed table may ask for the table control");
+    assert_eq!(
+        config.main.fields["tours"].ui.as_ref().unwrap().layout,
+        Some(FieldLayout::Table)
+    );
+    assert_eq!(
+        config.schema()["main"]["fields"]["tours"]["ui"]["layout"],
+        serde_json::json!("table")
+    );
+
+    for (label, field) in [
+        (
+            "a scalar array",
+            "    tags:\n      type: array\n      ui:\n        layout: table\n      \
+             items: { type: string }\n",
+        ),
+        (
+            "a typed dictionary",
+            "    addr:\n      type: object\n      ui:\n        layout: table\n      \
+             properties:\n        street: { type: string }\n",
+        ),
+        (
+            "a scalar",
+            "    title:\n      type: string\n      ui:\n        layout: table\n",
+        ),
+    ] {
+        let err = quill_with_field(field).expect_err(label);
+        assert!(
+            err.iter()
+                .any(|d| d.code.as_deref() == Some("quill::invalid_ui")),
+            "{label}: expected quill::invalid_ui, got {err:?}"
+        );
+    }
+}
+
+/// `max:` caps an array's element count, which is arity: a fact no other type
+/// has, and no `items:` declaration can carry.
+#[test]
+fn max_loads_on_an_array_and_is_refused_elsewhere() {
+    let config =
+        quill_with_field("    rows:\n      type: array\n      max: 37\n      items: { type: string }\n")
+            .expect("an array may declare its cap");
+    assert_eq!(config.main.fields["rows"].max, Some(37));
+    assert_eq!(
+        config.schema()["main"]["fields"]["rows"]["max"],
+        serde_json::json!(37)
+    );
+
+    for field in [
+        "    n:\n      type: integer\n      max: 3\n",
+        "    s:\n      type: string\n      max: 3\n",
+    ] {
+        let err = quill_with_field(field).expect_err("max off an array");
+        assert!(
+            err.iter()
+                .any(|d| d.code.as_deref() == Some("quill::field_parse_error")),
+            "{err:?}"
+        );
+    }
+
+    let negative = quill_with_field(
+        "    rows:\n      type: array\n      max: -1\n      items: { type: string }\n",
+    )
+    .expect_err("a cap is a count");
+    assert!(
+        negative
+            .iter()
+            .any(|d| d.code.as_deref() == Some("quill::field_parse_error")),
+        "{negative:?}"
+    );
+}
+
+/// A quill seeding past the cap it declares would warn on a document nobody
+/// authored, so the literal is held to the same count the document is.
+#[test]
+fn a_literal_longer_than_max_is_a_load_error() {
+    for slot in ["default", "example"] {
+        let err = quill_with_field(&format!(
+            "    rows:\n      type: array\n      max: 2\n      {slot}: [a, b, c]\n      \
+             items: {{ type: string }}\n"
+        ))
+        .expect_err("a literal over the cap");
+        assert!(
+            err.iter()
+                .any(|d| d.code.as_deref() == Some(&format!("quill::{slot}_over_max")[..])),
+            "expected quill::{slot}_over_max, got {err:?}"
+        );
+    }
+
+    quill_with_field(
+        "    rows:\n      type: array\n      max: 2\n      default: [a, b]\n      \
+         items: { type: string }\n",
+    )
+    .expect("a literal at the cap fits it");
+}
+
+/// The obligation family, never a gate: an over-filled document renders, with
+/// the plate's own rule for the surplus. The cap is per declaration, so a
+/// nested array is capped by its own.
+#[test]
+fn an_over_filled_array_warns_at_its_own_path() {
+    let quill = quill_from_yaml(&with_header(
+        r#"main:
+  fields:
+    rows:
+      type: array
+      max: 2
+      items:
+        type: object
+        properties:
+          tags:
+            type: array
+            max: 1
+            items: { type: string }
+"#,
+    ));
+    let doc = Document::parse(
+        "~~~\n$quill: q@1.0\n$kind: main\nrows:\n  - tags: [a, b]\n  - tags: [a]\n  - tags: [a]\n~~~\n",
+    )
+    .expect("parses")
+    .document;
+
+    let found: Vec<(String, String)> = quill
+        .validate(&doc)
+        .into_iter()
+        .filter(|d| d.code.as_deref() == Some("validation::cardinality"))
+        .map(|d| {
+            assert_eq!(d.severity, Severity::Warning, "a cap never gates render");
+            (d.path.unwrap_or_default(), format!("{:?}", d.args))
+        })
+        .collect();
+
+    assert_eq!(
+        found.iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(),
+        ["main.rows", "main.rows[0].tags"],
+        "the outer cap and the inner one each report at their own path"
+    );
+    assert!(found[0].1.contains("\"max\"") && found[0].1.contains("\"actual\""));
+    assert!(
+        quill.compile_data(&doc).is_ok(),
+        "an over-filled document still renders"
+    );
+}
+
+/// The blueprint is a document the quill must accept: a cap it declares cannot
+/// be a cap its own placeholder row breaks.
+#[test]
+fn a_capped_table_blueprints_within_its_own_cap() {
+    for max in [0, 1, 3] {
+        let quill = quill_from_yaml(&with_header(&format!(
+            r#"main:
+  fields:
+    rows:
+      type: array
+      max: {max}
+      items:
+        type: object
+        properties:
+          unit: {{ type: string, default: "" }}
+"#
+        )));
+        let doc = Document::parse(&quill.config().blueprint())
+            .expect("the blueprint parses")
+            .document;
+        let over: Vec<Diagnostic> = quill
+            .validate(&doc)
+            .into_iter()
+            .filter(|d| d.code.as_deref() == Some("validation::cardinality"))
+            .collect();
+        assert!(
+            over.is_empty(),
+            "max: {max} blueprints over its own cap: {over:?}"
+        );
+    }
 }

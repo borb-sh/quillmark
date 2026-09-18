@@ -452,7 +452,10 @@ fn validate_value(
     // which the recursion below reaches at its own path; a leaf's refusal is
     // this path's.
     let floor_refused = matches!(conformed, Some(Err(_)))
-        && !matches!(field.r#type, FieldType::Array | FieldType::Object);
+        && !matches!(
+            field.r#type,
+            FieldType::Array | FieldType::Object | FieldType::Matrix { .. }
+        );
     let conformed = conformed.and_then(Result::ok);
     let value = conformed.as_ref().unwrap_or(value);
 
@@ -508,6 +511,42 @@ fn validate_value(
                             ctx,
                         ));
                     }
+                }
+                true
+            }
+            None => false,
+        },
+        // A matrix's keys are its domain, so a key naming no member is the
+        // closed-domain violation an out-of-domain enum member is. The members
+        // themselves recurse as the objects they desugar to.
+        FieldType::Matrix { .. } => match value.as_object() {
+            Some(object) => {
+                let members = field.members.as_ref();
+                for (id, member_value) in object {
+                    let Some(member_schema) = members.and_then(|m| m.get(id)) else {
+                        errors.push(ValidationError::EnumViolation {
+                            path: path.field(id).to_string(),
+                            value: id.clone(),
+                            allowed: members
+                                .map(|m| m.keys().cloned().collect())
+                                .unwrap_or_default(),
+                        });
+                        continue;
+                    };
+                    // Through the spelling coercion reads, so the bare scalar a
+                    // sibling's refusal left un-normalized is judged as the
+                    // member object it means rather than as a mis-shaped one.
+                    let Some(spelled) =
+                        super::config::matrix_member_spelling(member_value)
+                    else {
+                        continue;
+                    };
+                    errors.extend(validate_value(
+                        member_schema,
+                        &QuillValue::from_json(serde_json::Value::Object(spelled)),
+                        &path.field(id),
+                        ctx,
+                    ));
                 }
                 true
             }
@@ -799,10 +838,15 @@ main:
 "#
         );
         let (config, warnings) = QuillConfig::from_yaml_with_warnings(&yaml).unwrap();
+        // A bodiless card kind is the shape several of these cases are about,
+        // and its advice is the doctrine's, not a defect in the fixture.
+        let unexpected: Vec<&crate::error::Diagnostic> = warnings
+            .iter()
+            .filter(|d| d.code.as_deref() != Some("quill::bodiless_card_kind"))
+            .collect();
         assert!(
-            warnings.is_empty(),
-            "config_with produced warnings (test schema is unsupported): {:?}",
-            warnings
+            unexpected.is_empty(),
+            "config_with produced warnings (test schema is unsupported): {unexpected:?}"
         );
         config
     }

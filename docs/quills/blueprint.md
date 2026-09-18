@@ -22,7 +22,7 @@ department: "" # string
 Write main body here.
 ```
 
-Two annotation slots, disjoint by purpose: **leading `# …` lines** carry prose (a description, an `# e.g.` example); the **inline `# …`** at the end of a value line carries structure, the field's `# <type>[<format>]`.
+Two annotation slots, disjoint by purpose: **leading `# …` lines** carry prose (a description, an `# e.g.` example) plus an `array`'s `# up to <N>` cap; the **inline `# …`** at the end of a value line carries structure, the field's `# <type>[<format>]`. A closed vocabulary shows its whole roster there — `# matrix<flight_cc | dodin_ops>` — so a reader can tick a member without looking the schema up, and cannot invent one.
 
 The reader's one rule: a **`!must_fill`** marker present → replace it before shipping; a concrete value present → shippable as-is. The cell's *value* is `default:` › `example:` › bare; the *marker* is `default:`'s absence, so a cell can carry a suggested `example` **and** a marker asking a human to confirm it. A surviving marker never blocks render: it raises only the non-fatal `validation::must_fill` warning; a strict consumer (an LLM authoring loop) treats any outstanding marker as "not done."
 

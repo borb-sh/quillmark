@@ -7,6 +7,43 @@
 
 Cards are structured-data blocks inline within document content. All cards are stored in a single `$cards` array on the plate JSON, discriminated by each card's `$kind` value.
 
+## Card, row, matrix
+
+**Main by default.** A document is a form on `main`, nested where its data
+nests. The engine nests to any depth: a `richtext` at depth lowers as content,
+and `refs.2.org` is a writable address. The card stream is the mechanism for
+*parts*, not the only mechanism for nesting.
+
+Three shapes, and what each one is for:
+
+| Shape | Is | Spelled |
+|---|---|---|
+| **card** | a part someone writes | a `card_kinds` entry; a `~~~` block in the stream |
+| **row** | a record someone fills in | an `array<object>` on `main` or on the card that owns it |
+| **matrix** | a vocabulary someone ticks | a `matrix` field ([SCHEMAS.md](SCHEMAS.md#matrix)) |
+
+A **card** is ordered among kinds of other sorts, carries a fence-native
+`$body`, is retypable, and seeds per kind. A **row** is typed cells belonging to
+one parent; a `richtext` cell is a row's writing surface, and its prose is a
+quoted YAML scalar rather than a fence. A **matrix** is fixed rows the schema
+declares, sparse data, and a total page.
+
+**The test is a disjunction.** A unit that stands in document order among units
+of other kinds, **or** whose substance is flowing prose, is a card; otherwise it
+is a row. Both clauses hold. A page break, a rule, an inserted signature block
+carry no prose and exist for their position: they are cards by the first clause,
+and a row cannot sit between two cards of other kinds. A child whose body is a
+memo's worth of prose is a card by the second, because one quoted line is the
+wrong spelling for it.
+
+**`quill::bodiless_card_kind`** is the loader's one view of this, at
+`Severity::Warning`: a card kind declaring `body.enabled: false` draws it, with
+a hint pointing at `array<object>` on the parent. A warning rather than a
+refusal, because the loader sees the proxy and not the fact — whether a kind
+interleaves is a property of documents and the plate, and nothing in
+`Quill.yaml` says. A rule that observes a correlate advises. `main` keeps
+`body.enabled: false` unwarned: a form has no root prose.
+
 ## Data Model
 
 ```rust

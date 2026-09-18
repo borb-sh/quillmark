@@ -25,13 +25,16 @@ pub(crate) use resolved::resolve_document;
 pub use fill::blank;
 pub use formats::{parse_date, parse_datetime};
 pub use ignore::QuillIgnore;
-pub use schema::{build_transform_schema, CONTENT_MEDIA_TYPE, QUILLMARK_INLINE_KEY};
+pub use schema::{
+    build_transform_schema, CONTENT_MEDIA_TYPE, QUILLMARK_INLINE_KEY, QUILLMARK_ORDER_KEY,
+};
 pub use support::UNSUPPORTED_CONSTRUCT;
 pub use tree::FileTreeNode;
 pub use validation::ValidationError;
 pub use types::{
-    BlockConstruct, BodyCardSchema, CardSchema, FieldSchema, FieldType, GroupRegistry, GroupSchema,
-    UiCardSchema, UiFieldSchema, VariantFields, VARIANT_DISCRIMINANT_KEY,
+    BlockConstruct, BodyCardSchema, CardSchema, FieldLayout, FieldSchema, FieldType, GroupRegistry,
+    GroupSchema, MatrixGroup, UiCardSchema, UiFieldSchema, VariantFields, MATRIX_GROUP_KEY,
+    MATRIX_HELD_KEY, MATRIX_RESERVED_COLUMNS, MATRIX_TITLE_KEY, VARIANT_DISCRIMINANT_KEY,
 };
 
 /// Portable, validated quill data: the file bundle and parsed config of an

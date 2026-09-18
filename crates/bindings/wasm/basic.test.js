@@ -1566,7 +1566,10 @@ card_kinds:
       makeQuill({ name: 'warn_quill', plate: TEST_PLATE, quillYaml: WARNING_QUILL_YAML }),
     )
 
-    expect(quill.warnings.map((d) => d.code)).toEqual(['quill::body_example_unused'])
+    expect(quill.warnings.map((d) => d.code)).toEqual([
+      'quill::body_example_unused',
+      'quill::bodiless_card_kind',
+    ])
     // The warning renders through the engine's own printer, so a consumer
     // surfacing it keeps no copy of the layout. Structure, not wording: the
     // layout itself is pinned in the `formatDiagnostic` suite.

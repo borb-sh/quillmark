@@ -14,6 +14,14 @@ Schema authoring lives in `Quill.yaml` under:
 - `card_kinds.<card_name>.fields`
 - optional `ui` and `body` blocks on `main` and each card kind
 
+**What earns a key here.** A key earns its place when some surface is otherwise
+*wrong*, not merely underserved, and wrong needs a witness: a document that
+overflows, misrenders, validates falsely, or is edited by the wrong control. A
+preference is not a witness. A key then states its behavior on all four
+surfaces — plate, editor, blueprint, `validate` — and "inert here, deliberately"
+is a valid answer that is written down. A key costs its teaching surface from
+the day it exists, which is why the bar is the defect and not the convenience.
+
 Supported field types:
 
 | Quill.yaml Type | Meaning |
@@ -23,7 +31,8 @@ Supported field types:
 | `number` | Numeric value (integers and decimals) |
 | `integer` | Integer-only numeric value |
 | `boolean` | `true` / `false` |
-| `array` | Ordered list; requires an `items:` element schema (e.g. `items: { type: string }` for `string[]`, `items: { type: object, properties: … }` for a typed table) |
+| `array` | Ordered list; requires an `items:` element schema (e.g. `items: { type: string }` for `string[]`, `items: { type: object, properties: … }` for a typed table). Optional `max:`, the element count past which the surplus leaves the page ([Cardinality](#cardinality)) |
+| `matrix` | A closed vocabulary someone ticks; requires a `members:` roster. A namespace whose keys the roster fixes, each member an object of a synthesized `held` plus the field's `properties:` (the columns). See [Matrix](#matrix) |
 | `object` | Structured map; requires `properties:` |
 | `date` | A strict calendar date `YYYY-MM-DD`. Rejects any time component (a time-bearing string is a `datetime`, not a truncated date). The common case in a document engine, so it is the unmarked date type. Stored verbatim; lowers to a native Typst `datetime(year:, month:, day:)`, with `display(<addr>, ..)` for a click-to-edit rendering (see `PLATE_DATA.md`) |
 | `datetime` | A strict offset-less wall-clock datetime `YYYY-MM-DDThh:mm[:ss]`, seconds optional (zero-filled). Rejects timezone offsets (`Z`, `±HH:MM`), the space separator, fractional seconds, and a bare date (which is a `date`). An offset is **rejected, never dropped**: the engine does no zone math, keeping wall-clock semantics end to end. Stored verbatim; lowers the same way over the six-component `datetime(year:, .., second:)` |
@@ -143,6 +152,112 @@ model, so `plaintext` and `richtext` share the entire nav/region/preview
 stack and the same backend lowering (both carry `contentMediaType:
 application/quillmark-content+json`); `plaintext` additionally carries
 `quillmark:plain: true`, an editor-only annotation backends ignore.
+
+### Matrix
+
+A `matrix` is a closed vocabulary the page prints in full, where the author
+ticks what they hold and may annotate a tick:
+
+```yaml
+qualifications:
+  type: matrix
+  members:                        # ordered; groups optional; id: Title
+    - group: Leadership & Command
+      values: { sq_cc_candidate: Sq/CC Candidate, flight_cc: Flight CC }
+    - group: Operations
+      values: { dodin_ops: DODIN Ops, dco: DCO (Defensive) }
+  properties:                     # the columns; empty is a checklist
+    detail: { type: plaintext, inline: true, default: "" }
+```
+
+**A namespace.** The roster fixes the keys, so the matrix carries no literal of
+its own: `default:` / `example:` on it is
+`quill::{default,example}_on_namespace`, the [Cells and
+namespaces](#cells-and-namespaces) rule with no exception. Every member is an
+`object` of a synthesized `held: {type: boolean, default: false}` beside the
+declared columns, so a matrix is skippable by construction and an absent one
+blank-fills to every member unheld, columns at their blanks.
+
+**Members.** Ids are snake_case identifiers
+(`quill::invalid_matrix_member`), unique across the roster
+(`quill::duplicate_matrix_member`); titles are display. Ids are what the wire,
+the address and the document speak. The three keys the matrix writes onto every
+member itself — `held`, `title`, `group` — are reserved as column names
+(`quill::matrix_reserved_column`): a column under one of them would load,
+validate and address, then lose to the projection.
+
+**Document.** A mapping keyed by member id, sparse. Key presence implies
+`held: true` unless the mapping spells otherwise, and coercion normalizes to the
+member object — the [variant precedent](#enum-variants), where the bare
+`classification: CUI` is the spelling of a world carrying no variant answers.
+
+| Stored | Means |
+|---|---|
+| key absent | not held |
+| `cyber_200: true` | held, columns at whatever the ordinary ladder gives them |
+| `flight_cc: { detail: X }` | held, with columns |
+| `flight_cc: { held: false, detail: X }` | not held; the detail is retained in the document |
+
+A mapping has one slot per key, so a duplicate is unspellable. An id outside the
+roster is refused as an out-of-domain enum member is
+(`validation::enum_violation`).
+
+**Plate.** Total, like every container: every member present in declaration
+order, each `{held, title, group, …columns}`. A held member's columns cut the
+ordinary ladder — the authored value, else the column's `default:`, else its
+blank. `title` and `group` are the
+projection's, written from the roster rather than held as cells, so they carry
+no address and a document authoring one is overwritten. **The wire carries the
+live world only**: an unheld member's columns render at their blanks whatever
+the document retains, the closed shape variants already hold, so a plate reads
+`held` and its columns without a guard and never prints a stranded answer. At
+the plate and under [`resolve()`](#the-resolved-value-view-resolve),
+`held: false` and an absent key are one value, the boolean blank; a retained
+answer is a fact about the stored form alone, which is what makes tick, type,
+untick, retick lossless.
+
+**Address.** `qualifications.flight_cc.held` and
+`qualifications.flight_cc.detail` are ordinary cells: a region on the Typst
+backend, a widget on acroform. Writing `held` touches no sibling, an editor
+unticking by writing `held: false` rather than dropping the key.
+
+**Obligation.** Per column inside a held member: a column with no `default:`
+reads "required when held", the variant rule one level down. The matrix itself
+obliges nothing, and an unticked member asks for nothing.
+
+**Seeding.** A matrix seeds empty. It holds no literal, and a column's
+`example:` documents one cell's shape rather than which members a fresh document
+ticks. The blueprint shows the vocabulary through its roster
+([BLUEPRINT.md](BLUEPRINT.md#inline-annotation)); a filled specimen is the
+quill's maximal fixture.
+
+**Implementation.** Sugar over a typed dictionary: the loader expands members
+into an `object` whose properties are the member ids, reached through
+`FieldSchema::namespace_props`, so coercion, validation, blank-fill and
+addressing are inherited. Four things are the type's own — `title` and `group`
+written onto the wire, the presence-implies-held spelling, the closed wire for
+unheld members, and obligation gated on the tick — and two walks are overridden
+rather than inherited: seeding, which stops at the matrix, and the blueprint,
+which emits the sparse cell instead of expanding every member.
+
+### Cardinality
+
+`max:` on an `array` is the element count past which the surplus leaves the page
+the field is laid out on: page geometry, not style. A non-negative integer, and
+a `default:` / `example:` longer than it is `quill::{default,example}_over_max` —
+a quill seeding past its own cap would warn on a document nobody authored.
+
+`Quill::validate` warns `validation::cardinality` at the field's own path, args
+`{max, actual}`, at every depth: an array nested in a typed dictionary, a matrix
+member, a live variant world, or another array's elements is capped by its own
+declaration. The obligation family, never a gate — fatal ≡ won't-render is an
+invariant of the diagnostic model ([ERROR.md](ERROR.md#warning-flow)), and a
+document over the limit renders with the plate's own rule for the surplus.
+
+There is no `min:`. Obligation is `default:`'s absence ([Value and obligation:
+one declaration](#value-and-obligation-one-declaration)), so `min: 1` is
+`required:` by another name: it contradicts a sibling `default: []`, and it
+double-warns with `must_fill` on an absent array.
 
 ### Content fields rest per codec
 
@@ -412,6 +527,7 @@ declared and how absence travels:
 | `enum` discriminant | cell | the member is a leaf choice |
 | `object` with `properties` | namespace | the schema fixes the keys, so nothing in the value is absent from its cells |
 | a variant's field set | namespace | same, once the discriminant selects the world |
+| `matrix` | namespace | same: the roster fixes the keys, and every member's `held` fixes its own |
 
 Two rules follow, and between them the plate is total at every depth:
 
@@ -753,7 +869,7 @@ document carries no `$seed`).
 `QuillConfig::schema()` returns the structural schema as `serde_json::Value`. It includes:
 
 - Field types, constraints, and `enum`/`default`/`example` annotations
-- `ui` hints on fields (`group`, `compact`, `multiline`, `title`) and on cards (`title`, plus the `groups` registry that `group` references). Field display order is not a hint: it is the key order of the emitted `fields`/`properties` maps (declaration order)
+- `ui` hints on fields (`group`, `compact`, `multiline`, `title`, `blank_title`, `layout`) and on cards (`title`, plus the `groups` registry that `group` references). Field display order is not a hint: it is the key order of the emitted `fields`/`properties` maps (declaration order)
 - `body` blocks on cards (`enabled`, `example`)
 
 The schema describes only the user-fillable fields. The quill reference
@@ -769,11 +885,22 @@ Top-level schema keys: `main`, optional `card_kinds` (map keyed by card name).
 `main` and each entry in `card_kinds` share the same `CardSchema` shape:
 `fields` (map keyed by field name), optional `description`, optional `ui`,
 optional `body`. Each `FieldSchema` includes `type`, optional
-`description`/`default`/`example`/`enum`/`values`/`variants`/`inline`/`properties`/`items`/`ui`.
+`description`/`default`/`example`/`enum`/`values`/`members`/`variants`/`inline`/`properties`/`items`/`max`/`ui`.
 The type-gated keys:
 
 - `inline`: valid only on the prose types (`richtext`, `plaintext`).
 - `values`: declares an `enum` field's domain, required there.
+- `members`: declares a `matrix` field's roster, required there. The desugared
+  per-member objects are derived and never emitted: `members` and `properties`
+  (the columns) are the authored carriers, so the view round-trips.
+- `max`: an `array`'s element cap ([Cardinality](#cardinality)), valid only there.
+- `ui.layout`: the control a field asks an editor to draw where the shape admits
+  more than one and the default reads wrong. `table` is valid only on an `array`
+  whose `items` is an `object`; `quill::invalid_ui` names the field anywhere
+  else. A **request, not a contract**: the plate, `validate` and the blueprint
+  are inert on it by design, and a consumer that cannot draw the control — a row
+  holding a block `richtext` or a container, a width that will not hold the
+  columns — falls back to its own choice for the type.
 - `variants`: per-member field sets on an `enum` field, valid only there and only
   at card level (see [Enum variants](#enum-variants)). `schema()` emits it as
   authored, keyed by member; the transform schema instead projects the container,

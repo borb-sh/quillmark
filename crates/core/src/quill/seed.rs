@@ -7,7 +7,7 @@
 use quillmark_content::model::Normalized;
 
 use super::Quill;
-use crate::quill::{CardSchema, FieldType, VARIANT_DISCRIMINANT_KEY};
+use crate::quill::{CardSchema, VARIANT_DISCRIMINANT_KEY};
 use crate::document::PayloadItem;
 use crate::{
     document::{Card, Document, Payload, SeedOverlay},
@@ -104,7 +104,14 @@ fn seed_field(field: &crate::quill::FieldSchema, overlaid: Option<&QuillValue>) 
             fills: Vec::new(),
         });
     }
-    if let (FieldType::Object, Some(props)) = (&field.r#type, &field.properties) {
+    // A matrix seeds empty. It holds no literal of its own, and a column's
+    // `example:` documents one cell's shape rather than which members a fresh
+    // document ticks — committing it would seed every member held. The
+    // blueprint shows the vocabulary through the roster instead.
+    if matches!(field.r#type, crate::quill::FieldType::Matrix { .. }) {
+        return None;
+    }
+    if let Some(props) = field.namespace_props() {
         let mut map = serde_json::Map::new();
         let mut fills = Vec::new();
         for (name, prop) in props {
