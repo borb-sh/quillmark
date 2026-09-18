@@ -548,6 +548,8 @@ Meaningful on `string` and `richtext` fields; ignored on other types.
 
 Card-kind names (the keys under `card_kinds`) must match `[a-z_][a-z0-9_]*` (leading underscore is allowed).
 
+**When not to declare one.** A card is a *part someone writes*: it stands in document order among instances of other kinds, it carries a body, and it is retypable. A *record someone fills in* — fixed cells belonging to one parent, in a list the plate walks in order — is a row, and a row is an [`array<object>`](#primitive-arrays-typed-tables-and-typed-dictionaries) on `main` or on the card that owns it. The tell that a kind is a row in card costume: `body.enabled: false`, no other kind ever interleaves with it, and the plate reassembles the instances by position. Declaring it as a field keeps the rows with their parent, gives the editor a table to draw ([`ui.layout: table`](#layout)), and lets [`min`/`max`](#min-max-and-step) say how many there may be. The full doctrine is [CARDS.md § "Card, row, matrix"](https://github.com/borb-sh/quillmark/blob/main/prose/canon/CARDS.md).
+
 ```yaml
 card_kinds:
   indorsement:                    # Card-kind name

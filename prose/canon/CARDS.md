@@ -7,6 +7,30 @@
 
 Cards are structured-data blocks inline within document content. All cards are stored in a single `$cards` array on the plate JSON, discriminated by each card's `$kind` value.
 
+## Card, row, matrix
+
+**Main by default.** A document is a form on `main`, nested where its data
+nests. The card stream is the mechanism for *parts*, not the only mechanism for
+nesting: `main.fields` carries containers to any depth ([SCHEMAS.md](SCHEMAS.md)
+§ "Cells and namespaces"), so a repeated thing earns a card kind only when it is
+a part.
+
+| Shape | What it is | How it is declared |
+|---|---|---|
+| **card** | a part someone writes: ordered among units of other kinds, carrying a fence-native `$body`, retypable, seedable per kind | a `card_kinds` entry |
+| **row** | a record someone fills in: typed cells belonging to one parent | an `array<object>` on `main`, or on the card that owns it |
+| **matrix** | a vocabulary someone ticks: the schema fixes the entries, the document answers the ones it has, the plate reads all of them | an `object` whose properties are the vocabulary |
+
+The test in one line: a unit that stands in document order among units of other
+kinds, or whose substance is flowing prose, is a card; otherwise it is a row. A
+row may carry a `richtext` cell, which is its writing surface; a card's `$body`
+is not the test for one.
+
+So a card kind whose instances have no body, never interleave with another kind,
+and are reassembled by position on the plate is a row in card costume: the
+stream carries what the parent's own `array<object>` would carry, and the plate
+pays for it by rebuilding the rows from a flat list.
+
 ## Data Model
 
 ```rust

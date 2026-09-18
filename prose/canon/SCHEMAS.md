@@ -30,6 +30,26 @@ Supported field types:
 | `plaintext` | Navigable **unformatted** prose over the same canonical content (`Content`) as `richtext` (same media type, nav, and regions) but a **literal** codec (`from_plaintext`/`to_plaintext`): delimiters stay literal, no markup, verbatim round-trip. Declare `inline: true` for the single-line variant. Constrained mark-/island-free (`Content::is_plain`); a formatted wire content is rejected (`validation::not_plain`), not stripped. **Rests as the literal string** — in the *document*. A plate receives the content object, exactly as for `richtext` (no backend reads the `plaintext` annotation): there is deliberately no plate-side content→`str` projection, since no plate has needed one |
 | `richtext` | Rich **formatted** prose over a canonical content (`Content`); markdown is a projection of it. Declare `inline: true` for the single-line variant (exactly one `Para` line, no container, no islands). The pre-richtext `markdown` spelling and the retired `type: richtext(inline)` token are schema load errors (`quill::field_parse_error`). **Rests as the canonical content object** |
 
+Which shape a repeated thing takes — a card kind, a row, a matrix — is
+[CARDS.md](CARDS.md) § "Card, row, matrix".
+
+### Admitting a key
+
+A key joins the DSL when it names what it does on **four surfaces**:
+
+- **the plate**: what arrives, and that it arrives total;
+- **the editor**: the one control affordance it asks for;
+- **the blueprint**: how it reads in one pass, since the MCP flow reads the spec
+  once and then writes;
+- **`validate`**: its diagnostic, and whether it gates.
+
+`variants:` is the worked example. The plate receives the live world
+blank-filled and nothing else; the editor shows and retires cells as the
+discriminant changes; the blueprint prints `# when CUI: controlled_by, poc`
+above the container; `validation::out_of_variant` names a stranded cell and does
+not gate render. A fact that cannot answer all four is prose in a
+`description:`, and stays there.
+
 ### Enum variants
 
 An `enum` may declare `variants:`, a per-member field set that exists only in the
