@@ -464,9 +464,19 @@ pub struct FieldSchema {
     /// (`SCHEMAS.md` §"Enum variants").
     pub variants: Option<IndexMap<String, VariantFields>>,
     /// A typed dictionary's properties, in declaration order.
+    ///
+    /// `Some` on every `object` a loaded quill carries: `config::parse_fields`
+    /// rejects the absence (`quill::object_missing_properties`) and the empty
+    /// map (`quill::object_empty_properties`). That gate is the YAML path's
+    /// alone. A schema reaching this type through [`Deserialize`] or by field
+    /// assignment keeps `None`, which is the state the `None` arms across
+    /// `crates/core/src/quill/` absorb.
     pub properties: Option<IndexMap<String, Box<FieldSchema>>>,
     /// Element schema, required on every `array` field. A typed table's element
     /// is an `object` carrying its own `properties`.
+    ///
+    /// `Some` under the same gate as [`properties`](Self::properties), which
+    /// rejects the absence as `quill::array_missing_items`.
     pub items: Option<Box<FieldSchema>>,
     /// The element count past which an `array` overflows the page it is laid
     /// out on: page geometry, so `Quill::validate` warns
