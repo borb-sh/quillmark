@@ -857,13 +857,15 @@ impl QuillConfig {
         {
             return err(
                 "quill::invalid_ui",
-                format!(
-                    "Field '{owner}' sets ui.layout: table but is not an array of objects. \
-                     A table draws one column per row property, so declare \
-                     type: array with items: {{ type: object, properties: … }}, \
-                     or drop the key."
-                ),
-            );
+                format!("Field '{owner}' sets ui.layout: table but is not an array of objects."),
+            )
+            .map(|d| {
+                d.with_hint(
+                    "A table draws one column per row property: declare type: array with \
+                     items: { type: object, properties: … }, or drop the key."
+                        .to_string(),
+                )
+            });
         }
         if !at_card_level && schema.ui.as_ref().and_then(|u| u.group.as_ref()).is_some() {
             return err(

@@ -127,7 +127,12 @@ families:
   more lenient than the write, and what it adopts is valid.
 - **Validation warnings**: `Quill::validate(doc)` returns every
   `validation::*` diagnostic, mixing severities; `validation::must_fill`,
-  `validation::out_of_variant` and the `$seed` checks are the non-fatal ones.
+  `validation::out_of_variant`, the [constraint
+  family](SCHEMAS.md#constraints) (`validation::cardinality`,
+  `validation::out_of_range`, and `validation::format_violation` over a
+  **string**'s declared shape — the same code is fatal over a **date**'s
+  grammar, which has no wire form to lower) and the `$seed` checks are the
+  non-fatal ones.
   This is the editor-facing surface; the render pipeline blank-fills instead of
   warning on incomplete documents. A **fatal** row here means the document does
   not render: values are judged in the form the render floor builds from them

@@ -34,6 +34,12 @@ pub(crate) fn validate_constraints(config: &QuillConfig, doc: &Document) -> Vec<
         let Some(schema) = schema else { continue };
         let payload = card.payload();
         for (name, field) in &schema.fields {
+            // Conforming is the expensive half, so a field declaring nothing
+            // never pays for it: `validate` runs on every editor keystroke, and
+            // a quill with no constraint anywhere does no extra work at all.
+            if !constrained(field) {
+                continue;
+            }
             let path = base.field(name);
             let value = payload.get(name).map(|v| {
                 QuillConfig::conform_value(v, field, &path.to_string(), Leniency::Render)
@@ -63,6 +69,28 @@ pub(crate) fn validate_constraints(config: &QuillConfig, doc: &Document) -> Vec<
         ));
     }
     out
+}
+
+/// Whether `field`'s type tree declares a constraint anywhere: the gate on the
+/// walk below, over the schema alone.
+fn constrained(field: &FieldSchema) -> bool {
+    field.min.is_some()
+        || field.max.is_some()
+        || field.step.is_some()
+        || field.format.is_some()
+        || field.pattern.is_some()
+        || field.items.as_deref().is_some_and(constrained)
+        || field
+            .properties
+            .iter()
+            .flat_map(|p| p.values())
+            .any(|p| constrained(p))
+        || field
+            .variants
+            .iter()
+            .flat_map(|v| v.values())
+            .flat_map(|set| set.values())
+            .any(|c| constrained(c))
 }
 
 /// Walk one declared cell and everything below it. The descent is the schema's,
