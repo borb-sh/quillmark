@@ -228,10 +228,10 @@ impl Serialize for GroupRegistry {
 }
 
 /// Schema definition for a card kind (composable content blocks)
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct CardSchema {
     /// The map key carries this on the wire; skipped during serialization to avoid duplication.
-    #[serde(skip_serializing, default)]
+    #[serde(skip_serializing)]
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -357,8 +357,8 @@ impl MatrixGroup {
 
 impl FieldType {
     /// The `type:` token alone. An `enum`'s domain and a prose type's `inline`
-    /// ride sibling keys that [`FieldSchema::from_quill_value`] folds in, so
-    /// both payloads rest at their default here.
+    /// ride sibling keys that the loader's parse folds in, so both payloads
+    /// rest at their default here.
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.trim() {
@@ -441,10 +441,12 @@ pub const VARIANT_DISCRIMINANT_KEY: &str = "value";
 ///
 /// The prose types' single-line constraint and an `enum`'s domain each have
 /// **one** carrier, the [`FieldType`] payload. The wire's sibling `inline:` and
-/// `values:` keys fold into it at deserialize (through
-/// [`from_quill_value`](Self::from_quill_value)) and the hand-written
-/// `Serialize` re-emits them from there, so neither can live in two places that
-/// disagree.
+/// `values:` keys fold into it at parse and the hand-written `Serialize`
+/// re-emits them from there, so neither can live in two places that disagree.
+///
+/// Loading is the only way to one of these: the parse and the shape walk that
+/// follows it are halves of one gate, so the type serializes and does not
+/// deserialize.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldSchema {
     /// The map key carries this on the wire; not serialized, to avoid duplication.
@@ -465,12 +467,12 @@ pub struct FieldSchema {
     pub variants: Option<IndexMap<String, VariantFields>>,
     /// A typed dictionary's properties, in declaration order.
     ///
-    /// `Some` on every `object` a loaded quill carries: `config::parse_fields`
+    /// `Some` on every `object` this crate hands out: `config::parse_fields`
     /// rejects the absence (`quill::object_missing_properties`) and the empty
-    /// map (`quill::object_empty_properties`). That gate is the YAML path's
-    /// alone. A schema reaching this type through [`Deserialize`] or by field
-    /// assignment keeps `None`, which is the state the `None` arms across
-    /// `crates/core/src/quill/` absorb.
+    /// map (`quill::object_empty_properties`), and loading is the only way in.
+    /// A schema built by field assignment over [`new`](Self::new) keeps `None`,
+    /// which is the state the `None` arms across `crates/core/src/quill/`
+    /// absorb.
     pub properties: Option<IndexMap<String, Box<FieldSchema>>>,
     /// Element schema, required on every `array` field. A typed table's element
     /// is an `object` carrying its own `properties`.
@@ -610,7 +612,11 @@ impl FieldSchema {
         self.default.is_none()
     }
 
-    pub fn from_quill_value(key: String, value: &QuillValue) -> Result<Self, String> {
+    /// Parse one field's wire form. Crate-internal because it is half the gate:
+    /// `config::parse_fields` runs `validate_field_schema_shape` over what this
+    /// returns, and only the pair produces a schema of the shape the rest of
+    /// this module reads.
+    pub(crate) fn from_quill_value(key: String, value: &QuillValue) -> Result<Self, String> {
         let def: FieldSchemaDef = serde_json::from_value(value.clone().into_json())
             .map_err(|e| format!("Failed to parse field schema: {}", e))?;
         // The sole sync point for `inline:` and `values:`: past here the type
@@ -893,16 +899,5 @@ impl Serialize for FieldSchema {
             map.serialize_entry("inline", &v)?;
         }
         map.end()
-    }
-}
-
-impl<'de> Deserialize<'de> for FieldSchema {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        // Through `from_quill_value`, so the `inline:` fold has one path.
-        // `name` is filled from the map key by the container; a bare schema
-        // deserializes nameless.
-        let value = serde_json::Value::deserialize(deserializer)?;
-        FieldSchema::from_quill_value(String::new(), &QuillValue::from_json(value))
-            .map_err(serde::de::Error::custom)
     }
 }

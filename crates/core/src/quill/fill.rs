@@ -11,8 +11,8 @@ use crate::value::QuillValue;
 /// table is `SCHEMAS.md` § "Blank-filled render".
 ///
 /// The `enum` blank is `""` unconditionally: the loader rejects a declared `""`
-/// (`quill::enum_blank_member`), but a [`QuillConfig`](super::QuillConfig) built
-/// through serde bypasses loader validation, so this does not lean on that.
+/// (`quill::enum_blank_member`), but a [`FieldSchema`] built by field assignment
+/// carries whatever domain it was given, so this does not lean on that.
 pub fn blank(field: &FieldSchema) -> QuillValue {
     // The blank activates no variant, so the container carries the blank
     // discriminant and nothing else.
