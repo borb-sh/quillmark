@@ -2435,6 +2435,8 @@ fn a_cap_rides_its_own_leading_line_under_the_description() {
           type: array
           max: 1
           description: Tags for the box.
+          default: [t]
+          example: [u]
           items: { type: string }
 "#,
     )
@@ -2446,7 +2448,7 @@ fn a_cap_rides_its_own_leading_line_under_the_description() {
         "{bp}"
     );
     assert!(
-        bp.contains("  # Tags for the box.\n  # up to 1\n  tags:"),
+        bp.contains("  # Tags for the box.\n  # up to 1\n  # e.g. [u]\n  tags:"),
         "{bp}"
     );
 
