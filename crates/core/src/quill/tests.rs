@@ -2379,3 +2379,35 @@ fn an_over_filled_array_warns_at_its_own_path() {
         "an over-filled document still renders"
     );
 }
+
+/// The blueprint is a document the quill must accept: a cap it declares cannot
+/// be a cap its own placeholder row breaks.
+#[test]
+fn a_capped_table_blueprints_within_its_own_cap() {
+    for max in [0, 1, 3] {
+        let quill = quill_from_yaml(&with_header(&format!(
+            r#"main:
+  fields:
+    rows:
+      type: array
+      max: {max}
+      items:
+        type: object
+        properties:
+          unit: {{ type: string, default: "" }}
+"#
+        )));
+        let doc = Document::parse(&quill.config().blueprint())
+            .expect("the blueprint parses")
+            .document;
+        let over: Vec<Diagnostic> = quill
+            .validate(&doc)
+            .into_iter()
+            .filter(|d| d.code.as_deref() == Some("validation::cardinality"))
+            .collect();
+        assert!(
+            over.is_empty(),
+            "max: {max} blueprints over its own cap: {over:?}"
+        );
+    }
+}

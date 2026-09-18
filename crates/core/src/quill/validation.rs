@@ -452,7 +452,10 @@ fn validate_value(
     // which the recursion below reaches at its own path; a leaf's refusal is
     // this path's.
     let floor_refused = matches!(conformed, Some(Err(_)))
-        && !matches!(field.r#type, FieldType::Array | FieldType::Object);
+        && !matches!(
+            field.r#type,
+            FieldType::Array | FieldType::Object | FieldType::Matrix { .. }
+        );
     let conformed = conformed.and_then(Result::ok);
     let value = conformed.as_ref().unwrap_or(value);
 
@@ -520,21 +523,30 @@ fn validate_value(
             Some(object) => {
                 let members = field.members.as_ref();
                 for (id, member_value) in object {
-                    match members.and_then(|m| m.get(id)) {
-                        Some(member_schema) => errors.extend(validate_value(
-                            member_schema,
-                            &QuillValue::from_json(member_value.clone()),
-                            &path.field(id),
-                            ctx,
-                        )),
-                        None => errors.push(ValidationError::EnumViolation {
+                    let Some(member_schema) = members.and_then(|m| m.get(id)) else {
+                        errors.push(ValidationError::EnumViolation {
                             path: path.field(id).to_string(),
                             value: id.clone(),
                             allowed: members
                                 .map(|m| m.keys().cloned().collect())
                                 .unwrap_or_default(),
-                        }),
-                    }
+                        });
+                        continue;
+                    };
+                    // Through the spelling coercion reads, so the bare scalar a
+                    // sibling's refusal left un-normalized is judged as the
+                    // member object it means rather than as a mis-shaped one.
+                    let Some(spelled) =
+                        super::config::matrix_member_spelling(member_value)
+                    else {
+                        continue;
+                    };
+                    errors.extend(validate_value(
+                        member_schema,
+                        &QuillValue::from_json(serde_json::Value::Object(spelled)),
+                        &path.field(id),
+                        ctx,
+                    ));
                 }
                 true
             }

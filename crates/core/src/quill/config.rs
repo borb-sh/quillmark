@@ -718,8 +718,6 @@ impl QuillConfig {
         parent_path: &str,
         mode: Leniency,
     ) -> Result<serde_json::Map<String, serde_json::Value>, CoercionError> {
-        use super::MATRIX_HELD_KEY;
-
         let mut out = serde_json::Map::new();
         for (id, value) in obj {
             let Some(member) = members.get(id) else {
@@ -728,21 +726,10 @@ impl QuillConfig {
             };
             // Null ≡ absent at every type, so it reaches the ladder as the
             // unheld member rather than as a held one with no columns.
-            if value.is_null() {
+            let Some(spelled) = matrix_member_spelling(value) else {
                 out.insert(id.clone(), value.clone());
                 continue;
-            }
-            let mut spelled = match value.as_object() {
-                Some(map) => map.clone(),
-                None => {
-                    let mut map = serde_json::Map::new();
-                    map.insert(MATRIX_HELD_KEY.to_string(), value.clone());
-                    map
-                }
             };
-            spelled
-                .entry(MATRIX_HELD_KEY.to_string())
-                .or_insert(serde_json::Value::Bool(true));
             let coerced = Self::conform_value(
                 &QuillValue::from_json(serde_json::Value::Object(spelled)),
                 member,
@@ -1117,14 +1104,27 @@ impl QuillConfig {
                     }
                 }
                 if let Some(props) = &schema.properties {
-                    if props.contains_key(super::MATRIX_HELD_KEY) {
+                    // `held` is the synthesized tick; `title` and `group` are
+                    // written onto every member from the roster. A column under
+                    // any of the three would load, validate and address, then be
+                    // overwritten where it matters.
+                    if let Some(reserved) = [
+                        super::MATRIX_HELD_KEY,
+                        super::MATRIX_TITLE_KEY,
+                        super::MATRIX_GROUP_KEY,
+                    ]
+                    .into_iter()
+                    .find(|k| props.contains_key(*k))
+                    {
                         return err(
                             "quill::matrix_reserved_column",
                             format!(
-                                "Field '{owner}' declares a column named \
-                                 '{held}', which is the tick a matrix synthesizes on every \
-                                 member. Rename the column.",
-                                held = super::MATRIX_HELD_KEY
+                                "Field '{owner}' declares a column named '{reserved}', which a \
+                                 matrix writes onto every member itself: '{held}' is the tick, \
+                                 '{title}' and '{group}' the roster's labels. Rename the column.",
+                                held = super::MATRIX_HELD_KEY,
+                                title = super::MATRIX_TITLE_KEY,
+                                group = super::MATRIX_GROUP_KEY,
                             ),
                         );
                     }
@@ -2255,6 +2255,35 @@ fn example_contains_fence_line(text: &str) -> bool {
         let line = line.strip_suffix('\r').unwrap_or(line);
         crate::document::fences::is_card_yaml_opener_line(line)
     })
+}
+
+/// The member object a stored matrix spelling means, before coercion: a bare
+/// scalar is the tick itself, and a mapping naming no
+/// [`MATRIX_HELD_KEY`](super::MATRIX_HELD_KEY) is held. `None` for a null, which
+/// is absent at every type and so reaches the ladder unheld.
+///
+/// Coercion and validation both read it, so the two cannot disagree on what a
+/// document spelled.
+pub(crate) fn matrix_member_spelling(
+    stored: &serde_json::Value,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    use super::MATRIX_HELD_KEY;
+
+    if stored.is_null() {
+        return None;
+    }
+    let mut spelled = match stored.as_object() {
+        Some(map) => map.clone(),
+        None => {
+            let mut map = serde_json::Map::new();
+            map.insert(MATRIX_HELD_KEY.to_string(), stored.clone());
+            map
+        }
+    };
+    spelled
+        .entry(MATRIX_HELD_KEY.to_string())
+        .or_insert(serde_json::Value::Bool(true));
+    Some(spelled)
 }
 
 /// Whether a field's type tree contains any content leaf: the gate for caching

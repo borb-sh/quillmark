@@ -338,3 +338,84 @@ fn the_blueprint_shows_the_vocabulary_in_the_annotation_and_ticks_nothing() {
         "{bp}"
     );
 }
+
+/// `held` is the tick the type synthesizes; `title` and `group` are written
+/// onto every member from the roster. A column under any of the three would
+/// load, validate and address, then be overwritten where it matters.
+#[test]
+fn a_column_may_not_spell_a_key_the_matrix_writes_itself() {
+    for reserved in ["held", "title", "group"] {
+        let err = load_error(&format!(
+            "    m:\n      type: matrix\n      members:\n        - values: {{ a: A }}\n      \
+             properties:\n        {reserved}: {{ type: string }}\n"
+        ));
+        assert!(
+            err.contains("quill::matrix_reserved_column"),
+            "`{reserved}` must be refused as a column, got {err}"
+        );
+    }
+}
+
+/// Obligation reads the tick the *plate* reads, so the two cannot call the same
+/// member held and unheld. `"false"` is the case that tells them apart: the
+/// render floor coerces it to the boolean, a raw truthiness test does not.
+#[test]
+fn the_tick_is_judged_by_the_render_floor_not_by_raw_truthiness() {
+    let yaml = quill_yaml().replace(
+        "detail: { type: plaintext, inline: true, default: \"\" }",
+        "detail: { type: plaintext, inline: true }",
+    );
+    let quill = quill_from_yaml(&yaml);
+    let held_at = |fields: &str| -> (bool, Vec<String>) {
+        let markdown = format!("~~~\n$quill: matrix_probe@0.1.0\n$kind: main\n{fields}~~~\n");
+        let document = Document::parse(&markdown).expect("parses").document;
+        let wire = quill.compile_data(&document).expect("compiles")["qualifications"]
+            ["flight_cc"]["held"]
+            .as_bool()
+            .expect("the tick is a boolean on the wire");
+        let obliged = quill
+            .validate(&document)
+            .into_iter()
+            .filter(|d| d.code.as_deref() == Some("validation::must_fill"))
+            .map(|d| d.path.unwrap_or_default())
+            .collect();
+        (wire, obliged)
+    };
+
+    for (spelling, held) in [
+        ("qualifications:\n  flight_cc: \"false\"\n", false),
+        ("qualifications:\n  flight_cc: \"true\"\n", true),
+        ("qualifications:\n  flight_cc: 0\n", false),
+        ("qualifications:\n  flight_cc: 1\n", true),
+    ] {
+        let (wire, obliged) = held_at(spelling);
+        assert_eq!(wire, held, "wire disagrees on {spelling:?}");
+        assert_eq!(
+            !obliged.is_empty(),
+            held,
+            "obligation disagrees with the wire on {spelling:?}: {obliged:?}"
+        );
+    }
+}
+
+/// A member the floor refuses is the member's own failure. The container is not
+/// mis-shaped, and a sibling spelled as the bare tick is not: both would
+/// otherwise report `validation::type_mismatch` at a path the author cannot act
+/// on.
+#[test]
+fn one_members_refusal_does_not_convict_the_matrix_or_its_siblings() {
+    let found = codes(&doc(
+        "qualifications:\n  flight_cc: true\n  dodin_ops: [1, 2]\n",
+    ));
+    let mismatches: Vec<&String> = found
+        .iter()
+        .filter(|(code, _)| code == "validation::type_mismatch")
+        .map(|(_, path)| path)
+        .collect();
+
+    assert_eq!(
+        mismatches,
+        [&"main.qualifications.dodin_ops.held".to_string()],
+        "only the refused member reports: {found:?}"
+    );
+}

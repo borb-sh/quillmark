@@ -82,7 +82,8 @@ Per field, in order:
 1. `# <description>`: `description:` from `Quill.yaml`,
    whitespace-collapsed. **Single line only**; multi-line descriptions are
    rejected at `Quill.yaml` parse time.
-2. `# up to <N>`: emitted whenever an `array` declares `max:`. The cap is page
+2. `# up to <N>`: emitted where a field or an `object` property declares an
+   `array`'s `max:` — the two positions the leading slot exists at. The cap is page
    geometry — the count past which the surplus leaves the page — and the author
    most likely to exceed it is the MCP flow that reads the spec once and then
    writes. `schema()` is consulted before that author writes and the

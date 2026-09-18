@@ -426,9 +426,12 @@ fn container_cell(
     match field.default.as_ref().map(|d| d.as_json()) {
         // `[]` included: an array default stays inline rather than expanding.
         Some(default) => (default.clone(), Vec::new(), Vec::new()),
-        // A row type declaring no properties is schema-invalid in practice:
-        // emit a type-valid empty array rather than a null synthetic row.
-        None if row_props.is_empty() => (JsonValue::Array(Vec::new()), Vec::new(), Vec::new()),
+        // A row type declaring no properties is schema-invalid in practice, and
+        // a `max: 0` table holds no row at all: emit a type-valid empty array
+        // rather than a null synthetic row, or one the quill's own cap refuses.
+        None if row_props.is_empty() || field.max == Some(0) => {
+            (JsonValue::Array(Vec::new()), Vec::new(), Vec::new())
+        }
         None => {
             let mut row_path = path.to_vec();
             row_path.push(PathSegment::Index(0));

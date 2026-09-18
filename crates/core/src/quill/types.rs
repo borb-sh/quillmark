@@ -343,6 +343,11 @@ pub const MATRIX_TITLE_KEY: &str = "title";
 /// See [`MATRIX_TITLE_KEY`].
 pub const MATRIX_GROUP_KEY: &str = "group";
 
+/// The member keys a matrix writes itself, and which a column may therefore not
+/// declare (`quill::matrix_reserved_column`).
+pub const MATRIX_RESERVED_COLUMNS: &[&str] =
+    &[MATRIX_HELD_KEY, MATRIX_TITLE_KEY, MATRIX_GROUP_KEY];
+
 impl MatrixGroup {
     /// Every member of this block, id first.
     pub fn members(&self) -> impl Iterator<Item = (&str, &str)> {
@@ -686,9 +691,13 @@ impl FieldSchema {
                 FieldSchema::new(MATRIX_HELD_KEY.to_string(), FieldType::Boolean, None);
             held.default = Some(QuillValue::from_json(serde_json::Value::Bool(false)));
             cells.insert(MATRIX_HELD_KEY.to_string(), Box::new(held));
-            // A column spelling the reserved name is `quill::matrix_reserved_column`
-            // at load; the synthesized tick stands whatever else the shape pass finds.
-            for (name, column) in columns.iter().filter(|(n, _)| *n != MATRIX_HELD_KEY) {
+            // A column spelling a reserved name is `quill::matrix_reserved_column`
+            // at load; what the matrix writes itself stands whatever else the
+            // shape pass finds.
+            for (name, column) in columns
+                .iter()
+                .filter(|(n, _)| !MATRIX_RESERVED_COLUMNS.contains(&n.as_str()))
+            {
                 cells.insert(name.clone(), column.clone());
             }
             let mut member = FieldSchema::new(id.clone(), FieldType::Object, None);

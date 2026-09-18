@@ -539,17 +539,33 @@ fn compose(
     }
 }
 
-/// Whether a stored matrix member reads as ticked. Key presence is the tick
-/// unless the mapping spells otherwise, so this reads both the coerced
-/// container and the bare scalar a payload built outside coercion carries.
-fn is_held(stored: &serde_json::Value) -> bool {
-    match stored {
-        serde_json::Value::Null => false,
-        serde_json::Value::Object(map) => map
-            .get(MATRIX_HELD_KEY)
-            .map_or(true, |h| h.as_bool().unwrap_or(false)),
-        other => other.as_bool().unwrap_or(true),
-    }
+/// Whether a stored matrix member reads as ticked, judged as the ladder judges
+/// it: the spelling coercion reads (`matrix_member_spelling`), with the tick
+/// itself put through the render floor's own boolean coercion. Reading the raw
+/// scalar instead would call `held: "false"` ticked where the plate calls it
+/// unticked, and obligation would ask for columns nothing renders.
+fn is_held(member: &FieldSchema, stored: &serde_json::Value) -> bool {
+    let Some(spelled) = super::config::matrix_member_spelling(stored) else {
+        return false;
+    };
+    let (Some(raw), Some(schema)) = (
+        spelled.get(MATRIX_HELD_KEY),
+        member
+            .properties
+            .as_ref()
+            .and_then(|p| p.get(MATRIX_HELD_KEY)),
+    ) else {
+        return false;
+    };
+    QuillConfig::conform_value(
+        &QuillValue::from_json(raw.clone()),
+        schema,
+        MATRIX_HELD_KEY,
+        Leniency::Render,
+    )
+    .ok()
+    .and_then(|v| v.as_json().as_bool())
+    .unwrap_or(false)
 }
 
 /// Write a matrix's roster onto the composed members, and close the wire over
@@ -878,12 +894,17 @@ fn collect_unauthored_field(
             let Some(cell) = obj.and_then(|o| o.get(id)) else {
                 continue;
             };
-            if !is_held(cell) {
+            if !is_held(member, cell) {
                 continue;
             }
+            // The spelling, so a bare `flight_cc: true` reaches the columns as
+            // the member object it means.
+            let Some(spelled) = super::config::matrix_member_spelling(cell) else {
+                continue;
+            };
             collect_unauthored_field(
                 member,
-                Some(&QuillValue::from_json(cell.clone())),
+                Some(&QuillValue::from_json(serde_json::Value::Object(spelled))),
                 &path.field(id),
                 out,
             );
@@ -1048,12 +1069,23 @@ fn collect_cardinality_diags(
         let Some(object) = json.as_object() else { return };
         // An unticked matrix member reaches the page at its blanks, so nothing
         // it stores can overflow one.
-        let ticked = !matches!(field.r#type, FieldType::Matrix { .. });
+        let matrix = matches!(field.r#type, FieldType::Matrix { .. });
         for (name, prop) in props {
-            let Some(cell) = object.get(name).filter(|c| ticked || is_held(c)) else {
-                continue;
+            let Some(cell) = object.get(name) else { continue };
+            let cell = match matrix {
+                false => QuillValue::from_json(cell.clone()),
+                true => {
+                    if !is_held(prop, cell) {
+                        continue;
+                    }
+                    match super::config::matrix_member_spelling(cell) {
+                        Some(spelled) => {
+                            QuillValue::from_json(serde_json::Value::Object(spelled))
+                        }
+                        None => continue,
+                    }
+                }
             };
-            let cell = QuillValue::from_json(cell.clone());
             collect_cardinality_diags(prop, Some(&cell), &path.field(name), out);
         }
         return;
