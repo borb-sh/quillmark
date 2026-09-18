@@ -297,6 +297,7 @@ with `format!`, so the engine never ships two shapes for one anchor.
 | Nested in an array of objects | `main.recipients[0].name` |
 | Main body | `main.body` |
 | Typed card (whole) | `cards.indorsement[0]` |
+| Every card of one kind | `cards.indorsement` |
 | Field on a typed card | `cards.indorsement[0].signature_block` |
 | Body on a typed card | `cards.indorsement[0].body` |
 | Card with unknown kind | `cards[0]` |
@@ -304,7 +305,10 @@ with `format!`, so the engine never ships two shapes for one anchor.
 Every path is **rooted**: a main field at `main.<field>`, a card field
 kind-qualified at `cards.<kind>[<index>].<field>` (kind and document-array index
 fused so a consumer gets both without a second lookup). The unknown-kind
-whole-card `cards[<index>]` is the only bare-index form. Rooting keeps the
+whole-card `cards[<index>]` is the only bare-index form. The indexless
+`cards.<kind>` is the kind's instances *as a set* — what
+`validation::cardinality` counts — and is terminal, so a longer `cards.` chain
+is an ordinary field named `cards`. Rooting keeps the
 grammar total against a field named for a root (`main.cards`, `main.main`); only
 a field literally named `body` still collides with the body terminal. Field
 names and card kinds exclude `.`, `[`, `]`, so the rendered form round-trips;
@@ -384,6 +388,8 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `validation::coercion_failed` | `value`, `target` | structured, coarser |
 | `validation::must_fill` | `trigger` | structured |
 | `validation::out_of_variant` | `variant`, `selected` | structured |
+| `validation::cardinality` | `min`?, `max`?, `actual` | structured |
+| `validation::out_of_range` | `min`?, `max`?, `step`?, `value` | structured |
 | `validation::seed_unknown_kind` | — | code-determined |
 | `validation::seed_overlay_shape` | — | code-determined |
 | `validation::seed_unknown_field` | — | code-determined |

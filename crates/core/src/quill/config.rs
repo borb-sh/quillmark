@@ -102,6 +102,8 @@ impl QuillConfig {
 #[serde(deny_unknown_fields)]
 struct CardSchemaDef {
     pub description: Option<String>,
+    pub min: Option<u64>,
+    pub max: Option<u64>,
     pub fields: Option<serde_json::Map<String, serde_json::Value>>,
     pub ui: Option<serde_json::Value>,
     pub body: Option<serde_json::Value>,
@@ -641,9 +643,18 @@ impl QuillConfig {
                 // Both types store verbatim; only the grammar differs, and
                 // neither truncates (`formats`).
                 let (valid, reason) = match field_schema.r#type {
-                    FieldType::Date => {
-                        (super::formats::is_valid_date(&text), "invalid date format")
-                    }
+                    // `precision:` narrows the grammar, and the one predicate
+                    // narrows with it: a coercion that accepted a wider value
+                    // would store a date carrying components the field does not
+                    // declare, which is exactly what nothing downstream may
+                    // have to guess at.
+                    FieldType::Date => (
+                        super::formats::is_valid_date_at(
+                            &text,
+                            field_schema.precision.unwrap_or_default(),
+                        ),
+                        "invalid date format",
+                    ),
                     _ => (
                         super::formats::is_valid_datetime(&text),
                         "invalid datetime format",
@@ -835,6 +846,25 @@ impl QuillConfig {
         // pass never descends into object properties or array items, so a nested
         // `group` is an inert knob. Reject it rather than let it silently do
         // nothing, the same dead-knob class this walk exists to catch.
+        // A grid has a column per row property, so the shape that admits one is
+        // the typed table. Anywhere else the key is inert; refuse it rather
+        // than let the editor read a request it cannot act on.
+        if schema.ui.as_ref().and_then(|u| u.layout).is_some()
+            && !matches!(
+                schema.items.as_deref().map(|it| &it.r#type),
+                Some(FieldType::Object) if schema.r#type == FieldType::Array
+            )
+        {
+            return err(
+                "quill::invalid_ui",
+                format!(
+                    "Field '{owner}' sets ui.layout: table but is not an array of objects. \
+                     A table draws one column per row property, so declare \
+                     type: array with items: {{ type: object, properties: … }}, \
+                     or drop the key."
+                ),
+            );
+        }
         if !at_card_level && schema.ui.as_ref().and_then(|u| u.group.as_ref()).is_some() {
             return err(
                 "quill::nested_group_not_supported",
@@ -1088,6 +1118,7 @@ impl QuillConfig {
     ) {
         Self::validate_description_singleline(schema.description.as_deref(), owner_label, errors);
         Self::validate_enum_literals(schema, owner_label, errors);
+        Self::validate_field_constraints(schema, owner_label, errors);
         if schema.example.is_some() {
             Self::reject_namespace_literal("example", schema, owner_label, errors);
         }
@@ -1117,6 +1148,182 @@ impl QuillConfig {
         if let Some(items) = &schema.items {
             let nested = format!("{}[]", owner_label);
             Self::validate_field_blueprint_constraints(items, &nested, errors);
+        }
+    }
+
+    /// Validate the constraint keys a field declares — `min`, `max`, `step`,
+    /// `format`, `pattern`, `precision`, `ui.unit` — against the type that
+    /// carries them, and the field's own literals against the bounds.
+    ///
+    /// Each key is type-gated: on a type that cannot act on it the key is a
+    /// dead knob, refused here rather than loaded and ignored.
+    fn validate_field_constraints(
+        schema: &FieldSchema,
+        owner_label: &str,
+        errors: &mut Vec<Diagnostic>,
+    ) {
+        let numeric = matches!(schema.r#type, FieldType::Number | FieldType::Integer);
+        let integral = schema.r#type == FieldType::Integer;
+        let is_array = schema.r#type == FieldType::Array;
+        let err = |code: &str, message: String| {
+            Diagnostic::new(Severity::Error, message).with_code(code.to_string())
+        };
+
+        for (key, bound) in [("min", &schema.min), ("max", &schema.max)] {
+            let Some(bound) = bound else { continue };
+            if is_array {
+                if bound.as_u64().is_none() {
+                    errors.push(err(
+                        "quill::invalid_cardinality",
+                        format!(
+                            "{owner_label} declares {key}: {bound} on an array. An element \
+                             count is a non-negative integer."
+                        ),
+                    ));
+                }
+            } else if numeric {
+                if integral && bound.as_i64().is_none() {
+                    errors.push(err(
+                        "quill::invalid_range",
+                        format!(
+                            "{owner_label} declares type 'integer' but {key} is {bound}. \
+                             An integer's bound is an integer; declare type: number to \
+                             carry a fractional one."
+                        ),
+                    ));
+                }
+            } else {
+                errors.push(err(
+                    "quill::constraint_on_type",
+                    format!(
+                        "{owner_label} declares {key} on type '{}'. A {key} counts an \
+                         array's elements or bounds a number; neither applies here.",
+                        schema.r#type.as_str()
+                    ),
+                ));
+            }
+        }
+        if let (Some(min), Some(max)) = (&schema.min, &schema.max) {
+            if as_f64(max) < as_f64(min) {
+                errors.push(err(
+                    if is_array {
+                        "quill::invalid_cardinality"
+                    } else {
+                        "quill::invalid_range"
+                    },
+                    format!("{owner_label} declares max: {max} below min: {min}."),
+                ));
+            }
+        }
+
+        if let Some(step) = &schema.step {
+            if !numeric {
+                errors.push(err(
+                    "quill::constraint_on_type",
+                    format!(
+                        "{owner_label} declares step on type '{}'. A step quantizes a \
+                         number or an integer.",
+                        schema.r#type.as_str()
+                    ),
+                ));
+            } else if as_f64(step) <= 0.0 {
+                errors.push(err(
+                    "quill::invalid_range",
+                    format!("{owner_label} declares step: {step}. A step is positive."),
+                ));
+            } else if integral && step.as_i64().is_none() {
+                errors.push(err(
+                    "quill::invalid_range",
+                    format!(
+                        "{owner_label} declares type 'integer' but step is {step}. An \
+                         integer's step is an integer."
+                    ),
+                ));
+            }
+        }
+
+        if schema.format.is_some() && schema.pattern.is_some() {
+            errors.push(
+                err(
+                    "quill::format_and_pattern",
+                    format!(
+                        "{owner_label} declares both format and pattern. A string is read \
+                         at a named shape or at a regex, not both."
+                    ),
+                )
+                .with_hint(
+                    "Keep the format where its name says what the value is; keep the \
+                     pattern where no name does."
+                        .to_string(),
+                ),
+            );
+        }
+        if schema.r#type != FieldType::String {
+            for key in [
+                schema.format.map(|_| "format"),
+                schema.pattern.as_ref().map(|_| "pattern"),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                errors.push(err(
+                    "quill::constraint_on_type",
+                    format!(
+                        "{owner_label} declares {key} on type '{}'. Both read a string's \
+                         shape; a date declares precision, and an enum its values.",
+                        schema.r#type.as_str()
+                    ),
+                ));
+            }
+        }
+        if let Some(pattern) = &schema.pattern {
+            if let Err(e) = regex::Regex::new(pattern) {
+                errors.push(err(
+                    "quill::invalid_pattern",
+                    format!("{owner_label} declares an unparseable pattern: {e}"),
+                ));
+            }
+        }
+
+        if schema.precision.is_some() && schema.r#type != FieldType::Date {
+            errors.push(err(
+                "quill::constraint_on_type",
+                format!(
+                    "{owner_label} declares precision on type '{}'. Precision narrows a \
+                     date's grammar; a datetime carries a wall clock and has none.",
+                    schema.r#type.as_str()
+                ),
+            ));
+        }
+
+        if schema.ui.as_ref().and_then(|u| u.unit.as_ref()).is_some() && !numeric {
+            errors.push(err(
+                "quill::invalid_ui",
+                format!(
+                    "{owner_label} sets ui.unit on type '{}'. A unit reads a number; \
+                     fold it into the label (ui.title) anywhere else.",
+                    schema.r#type.as_str()
+                ),
+            ));
+        }
+
+        if numeric {
+            for (slot, literal) in [("default", &schema.default), ("example", &schema.example)] {
+                let Some(value) = literal.as_ref().and_then(|v| v.as_json().as_f64()) else {
+                    continue;
+                };
+                if let Some(reason) = range_violation(schema, value) {
+                    errors.push(
+                        err(
+                            &format!("quill::{slot}_out_of_range"),
+                            format!("{owner_label} declares {slot}: {value}, which {reason}."),
+                        )
+                        .with_hint(format!(
+                            "Move the {slot} inside the declared range, or widen the range."
+                        )),
+                    );
+                }
+            }
         }
     }
 
@@ -1831,9 +2038,25 @@ impl QuillConfig {
         let main_description = main_def.description;
         Self::validate_description_singleline(main_description.as_deref(), "main", &mut errors);
 
+        // Every document carries exactly one main card, so a count on it names
+        // a quantity nothing can vary.
+        if main_def.min.is_some() || main_def.max.is_some() {
+            errors.push(
+                Diagnostic::new(
+                    Severity::Error,
+                    "'main' declares min/max. A document carries exactly one main card; \
+                     cardinality belongs to a composable card kind, or to an array field."
+                        .to_string(),
+                )
+                .with_code("quill::invalid_cardinality".to_string()),
+            );
+        }
+
         let mut main = CardSchema {
             name: "main".to_string(),
             description: main_description,
+            min: None,
+            max: None,
             fields,
             ui: main_ui.or(ui_section),
             body: main_body,
@@ -1905,9 +2128,16 @@ impl QuillConfig {
                             &format!("card_kind '{}'", card_name),
                             &mut errors,
                         );
+                        if let (Some(min), Some(max)) = (card_def.min, card_def.max) {
+                            if max < min {
+                                errors.push(cardinality_inversion(&label, min, max));
+                            }
+                        }
                         card_kinds.push(CardSchema {
                             name: card_name.clone(),
                             description: card_def.description,
+                            min: card_def.min,
+                            max: card_def.max,
                             fields: card_fields,
                             ui: card_ui,
                             body: card_body,
@@ -2019,6 +2249,48 @@ impl QuillConfig {
             warnings,
         ))
     }
+}
+
+/// A `serde_json::Number` as the `f64` every bound comparison is made in.
+/// Total: a JSON number is finite and one of `i64` / `u64` / `f64`.
+pub(crate) fn as_f64(n: &serde_json::Number) -> f64 {
+    n.as_f64().unwrap_or(f64::NAN)
+}
+
+/// Why `value` does not satisfy the field's declared `min` / `max` / `step`, as
+/// a clause completing "…, which {reason}"; `None` when it satisfies them.
+/// A `step` counts from `min` where one is declared and from zero otherwise, so
+/// `min: 0.5, step: 0.5` admits the halves the author means rather than the
+/// integers zero would land on.
+pub(crate) fn range_violation(field: &FieldSchema, value: f64) -> Option<String> {
+    if let Some(min) = &field.min {
+        if value < as_f64(min) {
+            return Some(format!("is below min: {min}"));
+        }
+    }
+    if let Some(max) = &field.max {
+        if value > as_f64(max) {
+            return Some(format!("is above max: {max}"));
+        }
+    }
+    let step = field.step.as_ref()?;
+    let base = field.min.as_ref().map(as_f64).unwrap_or(0.0);
+    let quanta = (value - base) / as_f64(step);
+    // A binary-inexact step (0.1) lands a hair off a whole quantum, and the
+    // drift grows with the count, so the tolerance is relative.
+    if (quanta - quanta.round()).abs() > 1e-9 * quanta.abs().max(1.0) {
+        return Some(format!("is not a whole number of step: {step} from {base}"));
+    }
+    None
+}
+
+/// A card kind whose `max` sits below its `min`.
+fn cardinality_inversion(label: &str, min: u64, max: u64) -> Diagnostic {
+    Diagnostic::new(
+        Severity::Error,
+        format!("'{label}' declares max: {max} below min: {min}."),
+    )
+    .with_code("quill::invalid_cardinality".to_string())
 }
 
 /// Returns true if any line in `text` would be parsed as a card-yaml block

@@ -6,7 +6,7 @@
 
 Plates get document data through a backend-injected virtual Typst package, not a template engine. Data flows in two stages: `Quill::compile_data()` produces validated, blank-filled JSON in which content fields are canonical `Content` objects; `Backend::open()` generates the helper's `lib.typ`, walking each value beside its transform-schema node to lower it, no per-field markdown re-parse.
 
-One rule governs the lowering, at every depth: **a declared type means the same thing wherever it is declared, and every type lowers to its native Typst value unless it has a canonical rendering.** Only the content types have one — the authored text — so only they lower to content; a date lowers to a native `datetime`, because every rendering of `2026-01-02` is a typographic decision the plate owns. Backend-generated *ink* is reached by address instead (`display(addr, ..)`), which is also what makes it laundering-proof.
+One rule governs the lowering, at every depth: **a declared type means the same thing wherever it is declared, and every type lowers to its native Typst value unless it has a canonical rendering.** Only the content types have one — the authored text — so only they lower to content; a date lowers to a native `datetime`, because every rendering of `2026-01-02` is a typographic decision the plate owns. Backend-generated *ink* is reached by address instead (`display(addr, ..)`), which is also what makes it laundering-proof. Where a type has no native Typst value — a date a document knows to the month — the lowering carries what the document wrote rather than filling in what it did not.
 
 ## Overview
 
@@ -70,6 +70,7 @@ Helper contents (generated in `backends/typst/helper.rs` from `lib.typ.template`
   |---|---|---|
   | `contentMediaType: application/quillmark-content+json` | a `#let _qm_cN = [ .. ]` markup block the data cell references (blank ⇒ `""`) | — |
   | `format: date` / `date-time` | `datetime(year:, month:, day:)` / the six-component form, authored wall-clock, seconds zero-filled (blank ⇒ `none`) | — |
+  | `format: date` with `quillmark:precision: year` / `month` | the dict of the components it carries, `(year: 2024)` / `(year: 2024, month: 8)` (blank ⇒ `none`) | — |
   | `type: array` | a Typst array | each element against `items`, at `{path}.{i}` |
   | `type: object` with `properties` | a Typst dict | each value against `properties[key]`, at `{path}.{key}` |
   | anything else, and any key the schema does not declare | its value literal | — |
@@ -95,6 +96,19 @@ Helper contents (generated in `backends/typst/helper.rs` from `lib.typ.template`
   A non-blank date the shared parsers reject is a `backend::invalid_date` render
   error raised from the walk, at the site that parses it, which is what makes the
   check total over depth.
+- **A partial date lowers what it has, and nothing else.** Typst's `datetime`
+  needs a whole calendar date, so a `precision: year` or `month` field
+  ([SCHEMAS.md](SCHEMAS.md#constraints)) has no native value to lower to. The
+  data cell is therefore the dict of the components the document knows, not a
+  `datetime` floored in the ones it does not: a plate that prints the day cannot
+  print a day nobody wrote. What it gives up is native date arithmetic on that
+  field, which is the right trade — a partial date has no day to do arithmetic
+  on. The precision is a *schema* fact, so a plate knows which shape a field
+  carries without testing for it. The floored `datetime` does get built, inside
+  the field's `display` closure alone, where the plate has asked for ink and
+  Typst's own patterns are the formatting vocabulary; the fallback pattern there
+  prints the declared components only (`[year]`, `[year]-[month]`), and a
+  pattern the plate names is the plate's to be right about.
 - **`display(field, ..args)`** → content, the one address-keyed projection.
   `_qm-display` binds one `#let _qm_dN = (..args) => text(datetime(..).display(..args))`
   closure per present date, keyed by schema address (`issued`, `stamps.2`,
@@ -104,7 +118,9 @@ Helper contents (generated in `backends/typst/helper.rs` from `lib.typ.template`
   missing; `none` comes back for a known address carrying no date — a blank one,
   or a field that is not a date — so a `== none` fallback still fires. Formatting
   through the date's own `display` inherits its type, so a `date`-only field throws
-  Typst's native error on an `[hour]` pattern.
+  Typst's native error on an `[hour]` pattern. A partial date's closure supplies
+  the pattern its precision prints when the plate names none, so
+  `display("class_of")` is the year alone.
 
   The reason it is addressed rather than carried on the value is
   **regions**. Its ink is born at the generated node, not at the plate's

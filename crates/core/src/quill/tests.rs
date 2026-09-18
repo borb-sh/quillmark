@@ -780,6 +780,136 @@ main:
         .any(|d| d.code.as_deref() == Some("quill::nested_group_not_supported")));
 }
 
+/// Each constraint key is type-gated: on a type that cannot act on it the key
+/// is a dead knob, so load refuses it rather than carrying it to a surface that
+/// will not read it.
+#[test]
+fn a_constraint_key_off_its_type_is_rejected() {
+    for (field, code) in [
+        ("n: { type: string, min: 1 }", "quill::constraint_on_type"),
+        ("n: { type: date, max: 3 }", "quill::constraint_on_type"),
+        ("n: { type: string, step: 2 }", "quill::constraint_on_type"),
+        ("n: { type: integer, format: url }", "quill::constraint_on_type"),
+        ("n: { type: integer, pattern: \"^a$\" }", "quill::constraint_on_type"),
+        ("n: { type: datetime, precision: month }", "quill::constraint_on_type"),
+        ("n: { type: string, ui: { unit: in } }", "quill::invalid_ui"),
+        (
+            "n: { type: array, min: 1.5, items: { type: string } }",
+            "quill::invalid_cardinality",
+        ),
+        (
+            "n: { type: array, min: 3, max: 1, items: { type: string } }",
+            "quill::invalid_cardinality",
+        ),
+        ("n: { type: integer, min: 0.5 }", "quill::invalid_range"),
+        ("n: { type: number, min: 4, max: 1 }", "quill::invalid_range"),
+        ("n: { type: number, step: 0 }", "quill::invalid_range"),
+        ("n: { type: integer, step: 0.5 }", "quill::invalid_range"),
+        (
+            "n: { type: string, format: url, pattern: \"^a$\" }",
+            "quill::format_and_pattern",
+        ),
+        ("n: { type: string, pattern: \"^[a$\" }", "quill::invalid_pattern"),
+        (
+            "n: { type: number, min: 1, max: 4, default: 9 }",
+            "quill::default_out_of_range",
+        ),
+        (
+            "n: { type: number, min: 0.5, step: 0.5, example: 1.75 }",
+            "quill::example_out_of_range",
+        ),
+    ] {
+        let yaml = format!(
+            r#"
+quill: {{ name: x, version: "1.0", backend: typst, description: x }}
+main:
+  fields:
+    {field}
+"#
+        );
+        let err = QuillConfig::from_yaml_with_warnings(&yaml).unwrap_err();
+        assert!(
+            err.iter().any(|d| d.code.as_deref() == Some(code)),
+            "expected {code} for `{field}`, got {:?}",
+            err.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+}
+
+/// A document carries exactly one main card, so a count on it names a quantity
+/// nothing can vary.
+#[test]
+fn cardinality_on_main_is_rejected() {
+    let yaml = r#"
+quill: { name: x, version: "1.0", backend: typst, description: x }
+main:
+  max: 1
+  fields:
+    n: { type: string }
+"#;
+    let err = QuillConfig::from_yaml_with_warnings(yaml).unwrap_err();
+    assert!(
+        err.iter()
+            .any(|d| d.code.as_deref() == Some("quill::invalid_cardinality")),
+        "{err:?}"
+    );
+}
+
+#[test]
+fn ui_layout_table_loads_on_a_typed_table_and_reaches_the_schema() {
+    let yaml = r#"
+quill: { name: x, version: "1.0", backend: typst, description: x }
+main:
+  fields:
+    tours:
+      type: array
+      ui: { layout: table }
+      items:
+        type: object
+        ui: { title: "{title} ({duration})" }
+        properties:
+          title: { type: string }
+          duration: { type: number }
+"#;
+    let config = QuillConfig::from_yaml(yaml).unwrap();
+    assert_eq!(
+        config.main.fields["tours"].ui.as_ref().and_then(|u| u.layout),
+        Some(crate::quill::UiLayout::Table)
+    );
+    let emitted = config.schema();
+    assert_eq!(emitted["main"]["fields"]["tours"]["ui"]["layout"], "table");
+    assert_eq!(
+        emitted["main"]["fields"]["tours"]["items"]["ui"]["title"],
+        "{title} ({duration})"
+    );
+}
+
+/// A grid has a column per row property, so every other shape leaves the key
+/// inert; a dead knob is refused rather than loaded.
+#[test]
+fn ui_layout_table_off_a_typed_table_is_rejected() {
+    for field in [
+        "subject: { type: string, ui: { layout: table } }",
+        "tags: { type: array, ui: { layout: table }, items: { type: string } }",
+        "addr: { type: object, ui: { layout: table }, properties: { city: { type: string } } }",
+    ] {
+        let yaml = format!(
+            r#"
+quill: {{ name: x, version: "1.0", backend: typst, description: x }}
+main:
+  fields:
+    {field}
+"#
+        );
+        let err = QuillConfig::from_yaml_with_warnings(&yaml).unwrap_err();
+        assert!(
+            err.iter().any(|d| d.code.as_deref() == Some("quill::invalid_ui")),
+            "expected quill::invalid_ui for `{field}`, got {:?}",
+            err.iter().map(|d| &d.code).collect::<Vec<_>>()
+        );
+    }
+}
+
 #[test]
 fn ui_group_on_card_level_field_is_still_accepted() {
     let yaml = r#"

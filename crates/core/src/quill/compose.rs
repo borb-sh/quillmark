@@ -215,6 +215,7 @@ impl Quill {
                 .filter(|d| !claimed.contains(&d.path)),
         );
         diags.extend(validate_variants(self.config(), doc));
+        diags.extend(super::constraints::validate_constraints(self.config(), doc));
         diags.extend(self.validate_seed(doc));
         diags
     }
@@ -683,7 +684,7 @@ fn validate_fills(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
 /// A card whose declared `$kind` has no schema drops the kind segment and stays
 /// `cards[<i>]`, matching `validate_typed_document`; a schema-declared kind
 /// qualifies as `cards.<kind>[<i>]`.
-fn schema_cards<'a>(
+pub(crate) fn schema_cards<'a>(
     config: &'a QuillConfig,
     doc: &'a Document,
 ) -> impl Iterator<Item = (Option<&'a CardSchema>, &'a Card, DocPath)> {

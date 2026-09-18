@@ -292,7 +292,7 @@ fn plate_tail(tail: &[DocSeg]) -> Option<String> {
                 }
                 out.push_str(name);
             }
-            DocSeg::Main | DocSeg::Card { .. } => return None,
+            DocSeg::Main | DocSeg::Card { .. } | DocSeg::CardKind { .. } => return None,
         }
     }
     Some(out)

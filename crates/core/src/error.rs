@@ -738,6 +738,37 @@ mod args_canon {
             "validation::out_of_variant",
             crate::quill::compose::out_of_variant_warning(&path, "CUI", "UNCLASSIFIED").args,
         );
+        add(
+            "validation::cardinality",
+            crate::quill::constraints::cardinality(
+                &path,
+                Some(1),
+                Some(37),
+                38,
+                crate::quill::constraints::Counted::Element,
+            )
+            .expect("38 is past a ceiling of 37")
+            .args,
+        );
+        {
+            let mut field = crate::quill::FieldSchema::new(
+                "duration".to_string(),
+                crate::quill::FieldType::Number,
+                None,
+            );
+            field.min = Some(serde_json::Number::from_f64(0.5).expect("finite"));
+            field.max = Some(4.into());
+            field.step = Some(serde_json::Number::from_f64(0.5).expect("finite"));
+            add(
+                "validation::out_of_range",
+                crate::quill::constraints::out_of_range_warning(
+                    &path,
+                    &field,
+                    &serde_json::json!(4.25),
+                )
+                .args,
+            );
+        }
         // The `$seed` checks are minted at the overlay walk, so the sample is a
         // document that trips them: two overlays, three codes.
         let seed_quill = crate::quill::quill_from_yaml(

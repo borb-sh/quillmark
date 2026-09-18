@@ -6,19 +6,44 @@ use serde::{Deserialize, Serialize};
 
 use crate::value::QuillValue;
 
+/// How a consumer is asked to draw a field whose default control the shape
+/// outgrows. A **request**, not a contract: a consumer that cannot honour it
+/// (a row holding a block `richtext` or a container, a width that will not hold
+/// the columns) falls back to its default control.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UiLayout {
+    /// An `array<object>` as a grid: one column per row property, every row
+    /// open at once, instead of a stack of records that open one at a time.
+    Table,
+}
+
 /// A field's `ui:` block.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UiFieldSchema {
     /// Display label for the field: decoupled from the snake_case wire key.
+    /// On an `array`'s `items`, the **row summary**: a `{property}` template a
+    /// consumer interpolates with that row's live values, the card form
+    /// ([`UiCardSchema::title`]) one level down.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    /// Valid on an `array` whose `items` is an `object`
+    /// (`quill::invalid_ui` anywhere else). Layout only: the value, the wire,
+    /// the blueprint and validation are untouched.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layout: Option<UiLayout>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compact: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub multiline: Option<bool>,
+    /// The unit a `number`/`integer` is read in (`in`, `pt`, `days`): appended
+    /// to the control and to the blueprint's annotation. A display hint, never
+    /// a conversion — the value crosses as declared.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
     /// Label for an `enum`'s blank option. Absent, a consumer renders a
     /// conventional label of its own: naming the void is not every enum
     /// author's job. Its own key rather than an entry in a member-label map,
@@ -220,6 +245,17 @@ pub struct CardSchema {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Fewest instances of this kind a finished document carries. Unset is
+    /// zero. An obligation, never a gate: [`Quill::validate`] warns
+    /// (`validation::cardinality`) and the document still renders.
+    ///
+    /// [`Quill::validate`]: crate::quill::Quill::validate
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min: Option<u64>,
+    /// Most instances of this kind a document carries. Unset is unbounded. The
+    /// plate keeps its own rule for the surplus; nothing truncates.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max: Option<u64>,
     /// Declaration order is display order: the map preserves Quill.yaml key
     /// order end to end (parse, iteration, `schema()` emission), so ordering
     /// needs no side-channel knob and no `ui` one exists.
@@ -238,6 +274,8 @@ impl CardSchema {
         Self {
             name,
             description: None,
+            min: None,
+            max: None,
             fields,
             ui: None,
             body: None,
@@ -351,6 +389,82 @@ impl<'de> Deserialize<'de> for FieldType {
     }
 }
 
+/// The shape a `string` is read at, where a name says it better than a regex.
+/// Mutually exclusive with [`FieldSchema::pattern`]
+/// (`quill::format_and_pattern`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StringFormat {
+    Url,
+    Email,
+    Phone,
+}
+
+impl StringFormat {
+    /// The name this format declares under, and the value that rides
+    /// `validation::format_violation`'s `format` arg.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Url => "url",
+            Self::Email => "email",
+            Self::Phone => "phone",
+        }
+    }
+
+    /// The JSON-Schema `format` keyword this name projects to, where one
+    /// exists. A phone number has no registered keyword, so it crosses as the
+    /// engine's own annotation alone.
+    pub fn json_schema_format(self) -> Option<&'static str> {
+        match self {
+            Self::Url => Some("uri"),
+            Self::Email => Some("email"),
+            Self::Phone => None,
+        }
+    }
+}
+
+impl std::fmt::Display for StringFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// How much of a calendar date a `date` field carries. The grammar narrows with
+/// it: `2024`, `2024-08`, `2024-08-15`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DatePrecision {
+    Year,
+    Month,
+    #[default]
+    Day,
+}
+
+impl DatePrecision {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Year => "year",
+            Self::Month => "month",
+            Self::Day => "day",
+        }
+    }
+
+    /// The grammar a value at this precision must spell.
+    pub fn grammar(self) -> &'static str {
+        match self {
+            Self::Year => "YYYY",
+            Self::Month => "YYYY-MM",
+            Self::Day => "YYYY-MM-DD",
+        }
+    }
+}
+
+impl std::fmt::Display for DatePrecision {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// The field set one enum member brings into play, in declaration order.
 pub type VariantFields = IndexMap<String, Box<FieldSchema>>;
 
@@ -383,6 +497,25 @@ pub struct FieldSchema {
     /// authors want; documents shape only and never renders as the value.
     pub example: Option<QuillValue>,
     pub ui: Option<UiFieldSchema>,
+    /// Floor: the fewest elements on an `array`, the smallest value on a
+    /// `number`/`integer`. An obligation, never a gate
+    /// (`validation::cardinality` / `validation::out_of_range`, both warnings).
+    pub min: Option<serde_json::Number>,
+    /// Ceiling: the most elements on an `array`, the largest value on a
+    /// `number`/`integer`.
+    pub max: Option<serde_json::Number>,
+    /// The quantum a `number`/`integer` is read in, counted from
+    /// [`min`](Self::min) where one is declared and from zero otherwise.
+    /// Positive, and integral on an `integer`.
+    pub step: Option<serde_json::Number>,
+    /// The shape a `string` is read at.
+    pub format: Option<StringFormat>,
+    /// The regex a `string` must match, for shapes [`format`](Self::format)
+    /// does not name. One or the other, never both.
+    pub pattern: Option<String>,
+    /// How much of a calendar date a `date` carries. `None` is
+    /// [`DatePrecision::Day`], and only a `date` may declare one.
+    pub precision: Option<DatePrecision>,
     /// Per-member field sets on an `enum` field, keyed by member (a subset of
     /// the domain the [`FieldType::Enum`] payload carries; the blank owns no
     /// set). Declaring it is what turns the field into a container
@@ -414,6 +547,12 @@ struct FieldSchemaDef {
     pub default: Option<QuillValue>,
     pub example: Option<QuillValue>,
     pub ui: Option<UiFieldSchema>,
+    pub min: Option<serde_json::Number>,
+    pub max: Option<serde_json::Number>,
+    pub step: Option<serde_json::Number>,
+    pub format: Option<StringFormat>,
+    pub pattern: Option<String>,
+    pub precision: Option<DatePrecision>,
     /// The domain of a `type: enum` field, and the only spelling of one.
     /// Lands in the [`FieldType::Enum`] payload.
     pub values: Option<Vec<String>>,
@@ -436,6 +575,12 @@ impl FieldSchema {
             default: None,
             example: None,
             ui: None,
+            min: None,
+            max: None,
+            step: None,
+            format: None,
+            pattern: None,
+            precision: None,
             variants: None,
             properties: None,
             items: None,
@@ -522,6 +667,12 @@ impl FieldSchema {
             default: def.default,
             example: def.example,
             ui: def.ui,
+            min: def.min,
+            max: def.max,
+            step: def.step,
+            format: def.format,
+            pattern: def.pattern,
+            precision: def.precision,
             variants: match def.variants {
                 Some(variants) => {
                     let mut out = IndexMap::new();
@@ -637,6 +788,12 @@ impl Serialize for FieldSchema {
             + self.example.is_some() as usize
             + self.ui.is_some() as usize
             + values.is_some() as usize
+            + self.min.is_some() as usize
+            + self.max.is_some() as usize
+            + self.step.is_some() as usize
+            + self.format.is_some() as usize
+            + self.pattern.is_some() as usize
+            + self.precision.is_some() as usize
             + self.variants.is_some() as usize
             + self.properties.is_some() as usize
             + self.items.is_some() as usize;
@@ -659,6 +816,24 @@ impl Serialize for FieldSchema {
         }
         if let Some(v) = values {
             map.serialize_entry("values", v)?;
+        }
+        if let Some(v) = &self.min {
+            map.serialize_entry("min", v)?;
+        }
+        if let Some(v) = &self.max {
+            map.serialize_entry("max", v)?;
+        }
+        if let Some(v) = &self.step {
+            map.serialize_entry("step", v)?;
+        }
+        if let Some(v) = &self.format {
+            map.serialize_entry("format", v)?;
+        }
+        if let Some(v) = &self.pattern {
+            map.serialize_entry("pattern", v)?;
+        }
+        if let Some(v) = &self.precision {
+            map.serialize_entry("precision", v)?;
         }
         if let Some(v) = &self.variants {
             map.serialize_entry("variants", v)?;

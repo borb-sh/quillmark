@@ -25,7 +25,7 @@ Supported field types:
 | `boolean` | `true` / `false` |
 | `array` | Ordered list; requires an `items:` element schema (e.g. `items: { type: string }` for `string[]`, `items: { type: object, properties: … }` for a typed table) |
 | `object` | Structured map; requires `properties:` |
-| `date` | A strict calendar date `YYYY-MM-DD`. Rejects any time component (a time-bearing string is a `datetime`, not a truncated date). The common case in a document engine, so it is the unmarked date type. Stored verbatim; lowers to a native Typst `datetime(year:, month:, day:)`, with `display(<addr>, ..)` for a click-to-edit rendering (see `PLATE_DATA.md`) |
+| `date` | A strict calendar date `YYYY-MM-DD`. Rejects any time component (a time-bearing string is a `datetime`, not a truncated date). The common case in a document engine, so it is the unmarked date type. Stored verbatim; lowers to a native Typst `datetime(year:, month:, day:)`, with `display(<addr>, ..)` for a click-to-edit rendering (see `PLATE_DATA.md`). `precision: year \| month` narrows the grammar to `YYYY` / `YYYY-MM` for a date a document knows less precisely than a day ([Constraints](#constraints)) |
 | `datetime` | A strict offset-less wall-clock datetime `YYYY-MM-DDThh:mm[:ss]`, seconds optional (zero-filled). Rejects timezone offsets (`Z`, `±HH:MM`), the space separator, fractional seconds, and a bare date (which is a `date`). An offset is **rejected, never dropped**: the engine does no zone math, keeping wall-clock semantics end to end. Stored verbatim; lowers the same way over the six-component `datetime(year:, .., second:)` |
 | `plaintext` | Navigable **unformatted** prose over the same canonical content (`Content`) as `richtext` (same media type, nav, and regions) but a **literal** codec (`from_plaintext`/`to_plaintext`): delimiters stay literal, no markup, verbatim round-trip. Declare `inline: true` for the single-line variant. Constrained mark-/island-free (`Content::is_plain`); a formatted wire content is rejected (`validation::not_plain`), not stripped. **Rests as the literal string** — in the *document*. A plate receives the content object, exactly as for `richtext` (no backend reads the `plaintext` annotation): there is deliberately no plate-side content→`str` projection, since no plate has needed one |
 | `richtext` | Rich **formatted** prose over a canonical content (`Content`); markdown is a projection of it. Declare `inline: true` for the single-line variant (exactly one `Para` line, no container, no islands). The pre-richtext `markdown` spelling and the retired `type: richtext(inline)` token are schema load errors (`quill::field_parse_error`). **Rests as the canonical content object** |
@@ -49,6 +49,56 @@ discriminant changes; the blueprint prints `# when CUI: controlled_by, poc`
 above the container; `validation::out_of_variant` names a stranded cell and does
 not gate render. A fact that cannot answer all four is prose in a
 `description:`, and stays there.
+
+### Constraints
+
+The constraint keys are the **obligation** family, not the type predicate: each
+one describes a value the type already admits, so a document that breaks one
+still coerces, still validates, and still renders. They warn, for the reason
+[Value and obligation](#value-and-obligation-one-declaration) gives about
+`must_fill`: severity already *is* the render-gate signal.
+
+| Key | Where | Says | Unmet |
+|---|---|---|---|
+| `min:` / `max:` | `array`, and a `card_kinds` entry | how many elements, or how many instances of the kind | `validation::cardinality` (warning) |
+| `min:` / `max:` / `step:` | `number`, `integer` | the range, and the quantum inside it | `validation::out_of_range` (warning) |
+| `format: url \| email \| phone` | `string` | the shape, where a name says it | `validation::format_violation` (warning) |
+| `pattern: <regex>` | `string` | the shape, where no name does | `validation::format_violation` (warning) |
+| `precision: year \| month \| day` | `date` | how much of a date the field carries | `validation::format_violation` (**error**) |
+| `ui.unit: <string>` | `number`, `integer` | the unit the number is read in | — |
+
+Each is **type-gated**, refused at load on a type that cannot act on it
+(`quill::constraint_on_type`): a key nothing reads is a dead knob, and the
+walk that catches `ui.group` at depth catches these. So are a bound that is not
+a count (`quill::invalid_cardinality`), a fractional bound or step on an
+`integer`, an inverted range, a non-positive step (`quill::invalid_range`), a
+`format:` and a `pattern:` together (`quill::format_and_pattern`), an
+unparseable regex (`quill::invalid_pattern`), and a numeric `default:` /
+`example:` outside its own field's range
+(`quill::{default,example}_out_of_range`). `main` declares no count: a document
+carries exactly one main card.
+
+Three things follow from "obligation, never a gate":
+
+- **The plate keeps its own rule for the surplus.** Nothing truncates a list to
+  `max` or drops a card past its ceiling; a plate that renders the first card
+  goes on rendering the first card, and the warning is what a strict consumer
+  reads as "not done".
+- **A count is what the render floor builds.** An absent defaultless array
+  blank-fills to `[]`, which warns below `min` exactly as an unauthored
+  must-fill cell does; an array `default:` supplies the count it declares.
+- **A value nobody authored is held to nothing.** The floor's `0` for an absent
+  `number` is not an answer, so only a present value is range-checked — and the
+  blank (`""`) clears every string shape, as it clears every enum domain.
+
+`precision:` is the one that gates, because it is not an obligation: it *is* the
+type's grammar, narrowed. A `date` the grammar rejects has no wire form to lower
+(`SCHEMAS.md` § "Type coercion" is the same rule the full `YYYY-MM-DD` grammar
+obeys), while a mis-typed URL renders as the text it is. The grammar is
+**exact** rather than a prefix: a `precision: month` field rejects `2024-08-15`
+as it rejects `2024`, so a stored value carries the precision it was declared at
+and nothing downstream guesses which components are real. What a partial date
+lowers to is [PLATE_DATA.md](PLATE_DATA.md).
 
 ### Enum variants
 
@@ -773,7 +823,7 @@ document carries no `$seed`).
 `QuillConfig::schema()` returns the structural schema as `serde_json::Value`. It includes:
 
 - Field types, constraints, and `enum`/`default`/`example` annotations
-- `ui` hints on fields (`group`, `compact`, `multiline`, `title`) and on cards (`title`, plus the `groups` registry that `group` references). Field display order is not a hint: it is the key order of the emitted `fields`/`properties` maps (declaration order)
+- `ui` hints on fields (`group`, `layout`, `compact`, `multiline`, `title`) and on cards (`title`, plus the `groups` registry that `group` references). Field display order is not a hint: it is the key order of the emitted `fields`/`properties` maps (declaration order)
 - `body` blocks on cards (`enabled`, `example`)
 
 The schema describes only the user-fillable fields. The quill reference
@@ -788,9 +838,10 @@ For LLM/MCP authoring, see [BLUEPRINT.md](BLUEPRINT.md): `blueprint()` emits a d
 Top-level schema keys: `main`, optional `card_kinds` (map keyed by card name).
 `main` and each entry in `card_kinds` share the same `CardSchema` shape:
 `fields` (map keyed by field name), optional `description`, optional `ui`,
-optional `body`. Each `FieldSchema` includes `type`, optional
-`description`/`default`/`example`/`enum`/`values`/`variants`/`inline`/`properties`/`items`/`ui`.
-The type-gated keys:
+optional `body`, and — on a `card_kinds` entry alone — optional `min`/`max`.
+Each `FieldSchema` includes `type`, optional
+`description`/`default`/`example`/`enum`/`values`/`variants`/`inline`/`properties`/`items`/`ui`,
+and the [constraint keys](#constraints). The type-gated keys:
 
 - `inline`: valid only on the prose types (`richtext`, `plaintext`).
 - `values`: declares an `enum` field's domain, required there.
@@ -802,6 +853,10 @@ The type-gated keys:
   fields and rejected elsewhere.
 - `properties`: used by `object` fields, and by an array's `object`-typed
   `items`.
+- `min` / `max`: an element count on an `array`, a value bound on a `number` or
+  an `integer`; `step` and `ui.unit` join them on the numeric types, `format` and
+  `pattern` are a `string`'s, and `precision` a `date`'s
+  ([Constraints](#constraints)).
 
 ### `default` and `example`
 

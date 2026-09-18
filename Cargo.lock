@@ -2212,6 +2212,7 @@ dependencies = [
  "pulldown-cmark",
  "quillmark-content",
  "quillmark-fixtures",
+ "regex",
  "serde",
  "serde-saphyr",
  "serde_json",

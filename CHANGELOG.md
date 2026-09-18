@@ -1,5 +1,87 @@
 # Changelog
 
+## Unreleased
+
+### Constraints out of prose
+
+- feat(core): **`min` and `max` count an array's elements and a card kind's
+  instances.** The quiver's most repeated schema fact lived only in
+  `description:` prose — "a maximum of 37 rows", "exactly one is expected" —
+  and nothing checked any of it: a second MOA `purpose_and_scope` card was
+  dropped by the plate without a word, and the editor offered "+ Add" forever.
+  Both keys are non-negative integers, `max` at or above `min`, refused at load
+  on a type that counts nothing (`quill::constraint_on_type`,
+  `quill::invalid_cardinality`) and on `main`, which is always one card. A
+  document outside the declared count draws `validation::cardinality` at
+  **warning** severity, at the field path or at the new indexless
+  `cards.<kind>` anchor: an obligation, never a gate, so the document still
+  renders and a plate keeps its own rule for the surplus. The count is the one
+  the render floor builds, so an absent defaultless array is `[]` and warns
+  below its floor exactly as an unauthored must-fill cell does. The blueprint
+  annotates the container (`# array<object>, 1..37`) and a card kind's role
+  comment carries the same two-sided form (`# composable (0..1)`). Closes
+  #1826.
+- feat(core): **`min`, `max` and `step` bound a number, and `ui.unit` says what
+  it is read in.** `cyber_ribbon_chart.tour.duration` was an `enum` of quoted
+  numbers (`"0.5"`, `"1"`, …) with the plate casting each back through
+  `float(..)`, because the DSL could not say "a number from 0.5 to 4 in steps
+  of 0.5"; `timeline_years` was unbounded where its description said twelve to
+  eighteen. All three are judged as written — a fractional bound or step on an
+  `integer`, an inverted range and a non-positive step are load errors
+  (`quill::invalid_range`), and a `default:`/`example:` outside its own field's
+  range is `quill::{default,example}_out_of_range`. A value outside them draws
+  `validation::out_of_range` at **warning** severity, checked on the coerced
+  value as an enum's domain is; an absent field blank-fills to `0` and is held
+  to nothing, since the floor's value is nobody's answer. `ui.unit` is a display
+  hint the blueprint appends to its annotation (`# number, 0.25..1 in`) and
+  converts nothing. Closes #1827.
+- feat(core,typst): **`precision` lets a `date` carry a year or a month, and
+  the lowering fabricates nothing.** Every date a document knew less precisely
+  than a day was free text — `"August 2024 – Present"`, a stratification year
+  `"2026"` — which validates nothing, sorts nothing, and reaches no `display()`
+  region. `precision: year | month | day` narrows the grammar to `YYYY` /
+  `YYYY-MM` / `YYYY-MM-DD`, exactly rather than as a prefix, so a stored value
+  carries the precision it was declared at and nothing downstream guesses which
+  components are real; the one grammar predicate narrows with it, so coercion,
+  validation and the load-time literal check agree. Typst's `datetime` cannot
+  hold a date without a day, so a partial one lowers to the dict of what it
+  carries (`(year: 2024, month: 8)`) rather than to a `datetime` floored in
+  what it does not. The floored `datetime` is built inside the field's
+  `display` closure alone, where the plate asked for ink, and the fallback
+  pattern there prints the declared components only. Closes #1828.
+- feat(core): **`format` and `pattern` give a `string` a shape.**
+  `classic_resume` carried a `link_contacts` boolean so the plate could sniff
+  each contact for an email, a web address or a phone number, and `usaf_memo`
+  office symbols were "in UPPERCASE" in prose. `format: url | email | phone`
+  names the common shapes and `pattern: <regex>` takes the ones no name fits —
+  one or the other (`quill::format_and_pattern`), an unparseable regex being a
+  load error (`quill::invalid_pattern`). A value that does not match draws
+  `validation::format_violation` at **warning** severity and renders as the
+  text it is; the blank always clears, as it does for an enum domain. The
+  blueprint annotates `# string<url>`, and the transform schema projects the
+  JSON-Schema keyword where one matches (`url` → `uri`) beside
+  `quillmark:format`. Closes #1829.
+- feat(core): **`ui.layout: table` asks for a grid, and `items.ui.title` is the
+  row summary.** A typed table whose row is four short cells drew as a stack of
+  records that open one at a time, and the shape that earns a grid had no way to
+  ask for one: `UiFieldSchema` is `deny_unknown_fields`, so the editor could not
+  read a key the loader refused. `layout` is valid on an `array` whose `items`
+  is an `object` and `quill::invalid_ui` anywhere else, echoed verbatim by
+  `schema()`. Layout only: the value, the wire, the blueprint and validation are
+  untouched, and a consumer that cannot honour it falls back to the record list,
+  so the key is a request rather than a contract. `items.ui.title` is documented
+  as the collapsed row's summary line, the card form one level down. Closes
+  #1825.
+- docs(canon): **the card/row/matrix doctrine, and the four-surface admission
+  test for a schema key.** `CARDS.md` said what a card is and `SCHEMAS.md` what
+  the field types are; neither said when a repeated thing is a card and when it
+  is a row, so three of the quiver's seven quills declare card kinds for units
+  with no body, no neighbouring kind, and a plate that rebuilds them from a flat
+  list. `CARDS.md` now carries the doctrine — main by default, and the one-line
+  test between a part someone writes and a record someone fills in — and
+  `SCHEMAS.md` the test a new key answers on four surfaces: the plate, the
+  editor, the blueprint, and `validate`. Closes #1824.
+
 ## v0.113.0 - 2026-09-16
 
 Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).

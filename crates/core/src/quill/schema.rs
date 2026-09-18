@@ -22,6 +22,20 @@ pub const QUILLMARK_INLINE_KEY: &str = "quillmark:inline";
 /// formatting-free surface and to author/project through the literal codec.
 pub const QUILLMARK_PLAIN_KEY: &str = "quillmark:plain";
 
+/// Transform-schema keyword carrying a `string`'s declared shape (`format:`)
+/// under its Quill.yaml name. The JSON-Schema `format` keyword rides beside it
+/// where a registered name matches, so a generated validator reads the standard
+/// one and an editor picks its input type off this.
+pub const QUILLMARK_FORMAT_KEY: &str = "quillmark:format";
+
+/// Transform-schema keyword naming a `date`'s [`DatePrecision`] where it is
+/// narrower than a day. The Typst backend reads it to decide whether a value
+/// lowers to a native `datetime(..)` or to the partial dict
+/// (`prose/canon/PLATE_DATA.md`).
+///
+/// [`DatePrecision`]: crate::quill::DatePrecision
+pub const QUILLMARK_PRECISION_KEY: &str = "quillmark:precision";
+
 /// Transform-schema keyword carrying an `enum` blank's label (`ui.blank_title`).
 /// Emitted only when the author names one; absent, a consumer supplies its own
 /// conventional label.
@@ -105,6 +119,28 @@ pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
                     "type".to_string(),
                     serde_json::Value::String("string".to_string()),
                 );
+                // A name with a registered JSON-Schema keyword crosses as that
+                // keyword, so a generated validator reads it without knowing
+                // this engine; a `phone` has none and rides the engine's own
+                // annotation alone. `pattern` is the same keyword either way.
+                if let Some(format) = field.format {
+                    schema.insert(
+                        QUILLMARK_FORMAT_KEY.to_string(),
+                        serde_json::Value::String(format.as_str().to_string()),
+                    );
+                    if let Some(json_schema) = format.json_schema_format() {
+                        schema.insert(
+                            "format".to_string(),
+                            serde_json::Value::String(json_schema.to_string()),
+                        );
+                    }
+                }
+                if let Some(pattern) = &field.pattern {
+                    schema.insert(
+                        "pattern".to_string(),
+                        serde_json::Value::String(pattern.clone()),
+                    );
+                }
             }
             FieldType::RichText { inline } => {
                 // The content crosses the seam as a JSON object (canonical
@@ -203,6 +239,16 @@ pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
                     "format".to_string(),
                     serde_json::Value::String("date".to_string()),
                 );
+                // The component the backend must not fabricate. Absent is
+                // `day`, the full date `format: date` already names.
+                if let Some(precision) =
+                    field.precision.filter(|p| *p != crate::quill::DatePrecision::Day)
+                {
+                    schema.insert(
+                        QUILLMARK_PRECISION_KEY.to_string(),
+                        serde_json::Value::String(precision.as_str().to_string()),
+                    );
+                }
             }
             FieldType::DateTime => {
                 schema.insert(

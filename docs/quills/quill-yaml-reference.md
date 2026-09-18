@@ -93,6 +93,11 @@ main:
 | `items`       | object            | for `array` | Element schema for an `array` field (a nested field schema). Required on every array. |
 | `properties`  | object            | for `object` | Nested field schemas for an `object` typed dictionary (or an array's `object`-typed `items`). Required on every `object` field. |
 | `inline`      | boolean           | no       | For `richtext` and `plaintext` only: constrain the content to a single paragraph/line (a one-line editor surface). |
+| `min` / `max` | number            | no       | On an `array`, the element count; on a `number` or `integer`, the value bounds. See [`min`, `max`, and `step`](#min-max-and-step). |
+| `step`        | number            | no       | For `number` and `integer` only: the quantum the value is read in. |
+| `format`      | string            | no       | For `string` only: `url`, `email` or `phone` — the shape a name says. See [`format` and `pattern`](#format-and-pattern). |
+| `pattern`     | string            | no       | For `string` only: the regex the value must match, where no `format` name fits. One or the other, never both. |
+| `precision`   | string            | no       | For `date` only: `year`, `month` or `day` (the default). See [Date precision](#date-precision). |
 
 ### Obligation
 
@@ -147,7 +152,7 @@ discharges it.
 | `integer`  | Integer-only numeric scalar, sized as an `i64`; a literal past that range takes `number` |
 | `boolean`  | `true` or `false` |
 | `array`    | Ordered list; requires an `items:` element schema |
-| `date`     | A strict calendar date `YYYY-MM-DD`; rejects any time component |
+| `date`     | A strict calendar date `YYYY-MM-DD`; rejects any time component. `precision: year \| month` narrows it to `YYYY` / `YYYY-MM` (see [Date precision](#date-precision)) |
 | `datetime` | A strict offset-less wall-clock datetime `YYYY-MM-DDThh:mm[:ss]`; rejects offsets, the space separator, fractional seconds, and bare dates |
 | `richtext` | Rich, **formatted** prose over a canonical content; backends lower it to the target format. Markdown is its import/export projection. Add `inline: true` for the single-paragraph variant |
 | `object`   | Structured map; requires a `properties:` map |
@@ -186,6 +191,103 @@ if (value && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
 ```
 
 `writer.set` refuses the same values the render does (`edit::field_coercion_failed`), so the repair writes the corrected string rather than the original.
+
+### Date precision
+
+Plenty of dates a document carries are not known to the day: a résumé entry starts in a month, a chart column is a year. `precision:` narrows the `date` grammar to what the field actually carries, so those values stay dates — sortable, validated, addressable by `display()` — instead of becoming free text:
+
+```yaml
+since:
+  type: date
+  precision: month      # 2024-08
+  description: When the assignment began.
+class_of:
+  type: date
+  precision: year       # 2026
+signed_on:
+  type: date            # precision: day, the default: 2024-08-15
+```
+
+The grammar is **exact**, not a prefix: a `precision: month` field rejects `2024-08-15` exactly as it rejects `2024`. That is what keeps the stored value at the precision it was declared at, so no reader has to guess which components are real. A value outside the grammar fails the same way any date does — coercion refuses it upstream of the plate, and `validate` names the field with `validation::format_violation`.
+
+On the Typst plate, a full date is the native `datetime(..)` it has always been. A partial one is the dict of what it carries — `data.since.year`, `data.since.month` — because Typst's `datetime` has no way to hold a date without a day, and filling one in would make the plate print a day nobody wrote. `display("since")` still places formatted, click-to-edit ink, defaulting to the pattern that prints the declared components alone:
+
+```typst
+#data.class_of.year               // 2026
+#display("since")                 // 2024-08
+#display("since", "[month repr:long] [year]")   // August 2024
+```
+
+A range (`August 2024 – Present`) is two facts and stays two fields, or free text: `precision:` narrows one date, it does not make one field hold two.
+
+### `min`, `max`, and `step`
+
+`min:` and `max:` say how many, or how much. On an `array` they count elements; on a `number` or `integer` they bound the value, and `step:` gives the quantum inside those bounds:
+
+```yaml
+experience:
+  type: array
+  max: 37                 # the form has 37 rows
+  items:
+    type: object
+    properties:
+      duty: { type: string }
+
+duration:
+  type: number
+  min: 0.5
+  max: 4
+  step: 0.5               # halves, not an enum of quoted numbers
+  default: 2
+  ui:
+    unit: hrs             # a display hint, appended to the control
+
+timeline_years:
+  type: integer
+  min: 6
+  max: 18
+  default: 12
+```
+
+A card kind takes the same two keys, counting **instances per document**:
+
+```yaml
+card_kinds:
+  purpose_and_scope:
+    max: 1                # exactly one is expected
+    fields:
+      heading: { type: string }
+```
+
+**They are obligations, not gates.** A document past a ceiling or below a floor still coerces, still validates, and still renders; `quill.validate(doc)` reports `validation::cardinality` (on the field, or on `cards.<kind>`) or `validation::out_of_range` at warning severity, and a strict consumer treats an outstanding warning as "not done". Nothing truncates a list or drops a surplus card — a plate that renders the first card goes on rendering the first card.
+
+Two consequences worth knowing:
+
+- An absent array with no `default:` blank-fills to `[]`, which is below any `min:` above zero, so it warns exactly as an unauthored must-fill cell does. An array `default:` supplies the count it declares.
+- A number nobody authored is held to nothing: the render floor's `0` is not an answer, so only a value the document carries is range-checked.
+
+Each key is refused on a type that cannot act on it (`quill::constraint_on_type`), as is a fractional bound or step on an `integer`, an inverted range, a non-positive step, and a numeric `default:`/`example:` outside its own field's range.
+
+`ui.unit` is a display hint for the editor's control and the blueprint's annotation (`# number, 0.5..4 hrs, step 0.5`). It converts nothing: the value crosses to the plate exactly as declared.
+
+### `format` and `pattern`
+
+A `string` carries no shape, so a plate that wants to linkify a contact or an editor that wants the right keyboard has to guess. `format:` names the common shapes, and `pattern:` takes a regex for the ones no name fits:
+
+```yaml
+url:      { type: string, format: url }
+email:    { type: string, format: email }
+phone:    { type: string, format: phone }
+symbol:   { type: string, pattern: "^[A-Z0-9]+/[A-Z]+$" }
+```
+
+One or the other, never both (`quill::format_and_pattern`); an unparseable regex is a load error (`quill::invalid_pattern`). Both apply to an `array<string>` through its `items`.
+
+A value that does not match draws `validation::format_violation` at **warning** severity and renders as the text it is — a mis-typed URL is a string, not a broken document. The blank (`""`) always clears, as it does for an enum's domain: a shape describes what a value looks like, not that there is one.
+
+The transform schema projects the JSON-Schema keyword where one matches (`url` → `format: uri`, `email` → `format: email`, `pattern` verbatim), so a generated validator reads the standard spelling; `quillmark:format` carries the Quill.yaml name beside it for editors.
+
+Uppercasing, trimming and the like are **not** formats. Those are transforms, and a plate applying `upper()` is their right owner.
 
 ### Enum Constraints
 
@@ -430,6 +532,40 @@ main:
         title: To       # "Memo For" would confuse users unfamiliar with memo conventions
 ```
 
+On an array's `items`, `title` is the **row summary**: the one line a collapsed row shows, in the card form (`{property}` tokens interpolated with that row's live values) one level down:
+
+```yaml
+tours:
+  type: array
+  items:
+    type: object
+    ui:
+      title: "{title} — {school}"   # "Advanced Cyber — Keesler"
+    properties:
+      title:  { type: string }
+      school: { type: string }
+```
+
+The interpolation rules are the card form's, below: a title with no `{}` is a literal label, and a token naming an absent or empty property resolves to an empty string.
+
+### `layout`
+
+`layout: table` asks a form builder to draw an `array<object>` as a **grid** — one column per row property, every row open at once — instead of a stack of records that open one at a time. It is valid only on an array whose `items` is an `object`; anywhere else it is a load error (`quill::invalid_ui`), since a grid has nothing to make columns out of.
+
+```yaml
+tours:
+  type: array
+  ui:
+    layout: table
+  items:
+    type: object
+    properties:
+      title:    { type: string }
+      duration: { type: number, min: 0.5, max: 4, step: 0.5 }
+```
+
+It is a **request, not a contract**: the value, the wire, the blueprint and validation are all untouched, and a consumer that cannot honour it — a row holding a block `richtext` or a container of its own, a viewport too narrow for the columns — falls back to the record list. Declare it where the row is a handful of short cells; leave it off where a row is a small form.
+
 ### `group` and the group registry
 
 Groups organize fields into visual sections. A group has two parts: a **registry** declared once on the card (`ui.groups`), and a per-field **reference** (`ui.group`) into that registry.
@@ -499,6 +635,23 @@ main:
 ```
 
 It labels the blank, never a member: `values:` carries no entry for it. Consumers must keep the blank **selectable and re-selectable** — returning to it is how an author clears a cell back to unset, so a disabled placeholder that vanishes once a choice is made is the wrong idiom.
+
+### `unit`
+
+The unit a `number` or `integer` is read in, appended to the editor's control and to the blueprint's annotation (`# number, 0.25..1 in`):
+
+```yaml
+main:
+  fields:
+    margin:
+      type: number
+      min: 0.25
+      max: 1
+      ui:
+        unit: in
+```
+
+A display hint only: nothing converts, and the value crosses to the plate exactly as declared. It is valid on the numeric types alone (`quill::invalid_ui`); fold a unit into `ui.title` anywhere else.
 
 ### `compact`
 
@@ -576,6 +729,7 @@ Invalid card-kind names include:
 | Property      | Type   | Required | Description |
 |---------------|--------|----------|-------------|
 | `description` | string | no       | Help text describing the card's purpose |
+| `min` / `max` | integer | no      | How many instances of this kind a finished document carries. A warning, never a gate: see [`min`, `max`, and `step`](#min-max-and-step) |
 | `fields`      | object | no       | Field schemas (same structure as top-level fields) |
 | `ui`          | object | no       | Container-level UI hints (see [Card-level `ui`](#card-level-ui)) |
 | `body`        | object | no       | Body-region config (see [Card-level `body`](#card-level-body)) |

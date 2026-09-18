@@ -12,6 +12,7 @@
 //! path   := root segment*
 //! root   := "main"                          // the main card
 //!         | "cards" "." kind "[" index "]"   // typed card
+//!         | "cards" "." kind                 // every card of one kind
 //!         | "cards" "[" index "]"            // unknown-kind card (the only bare-index root)
 //! segment:= "." field | "[" index "]" | ".body"
 //! kind   := [a-z_][a-z0-9_]*
@@ -60,6 +61,9 @@ pub enum DocSeg {
     /// A composable card by document-array index. `kind: None` is the
     /// unknown-kind whole-card form (`cards[<i>]`), the only bare-index root.
     Card { kind: Option<String>, index: usize },
+    /// Every card of one kind, indexless: a fact about the kind's instances as
+    /// a set rather than about any one of them. Always terminal.
+    CardKind { kind: String },
     /// An object field or map key.
     Field { name: String },
     /// An array index.
@@ -106,6 +110,15 @@ impl DocPath {
             segs: vec![DocSeg::Card {
                 kind: kind.map(str::to_owned),
                 index,
+            }],
+        }
+    }
+
+    /// The card-kind root, `cards.<kind>`: every card of that kind at once.
+    pub fn card_kind(kind: &str) -> Self {
+        Self {
+            segs: vec![DocSeg::CardKind {
+                kind: kind.to_owned(),
             }],
         }
     }
@@ -157,6 +170,7 @@ impl fmt::Display for DocPath {
                 DocSeg::Main => f.write_str("main")?,
                 DocSeg::Card { kind: Some(k), index } => write!(f, "cards.{k}[{index}]")?,
                 DocSeg::Card { kind: None, index } => write!(f, "cards[{index}]")?,
+                DocSeg::CardKind { kind } => write!(f, "cards.{kind}")?,
                 DocSeg::Field { name } => {
                     if i != 0 {
                         f.write_str(".")?;
@@ -349,6 +363,11 @@ fn parse_card_root(segs: &[DocSeg]) -> Option<(DocSeg, &[DocSeg])> {
                 rest,
             ))
         }
+        // cards.<kind>, the indexless kind root; terminal, so a longer chain
+        // stays the ordinary field named `cards`.
+        [DocSeg::Field { .. }, DocSeg::Field { name: kind }] => {
+            Some((DocSeg::CardKind { kind: kind.clone() }, &[][..]))
+        }
         _ => None,
     }
 }
@@ -440,8 +459,16 @@ mod tests {
     fn main_field_named_for_a_root_is_not_a_root() {
         round_trip(DocPath::main().field("cards"), "main.cards");
         round_trip(DocPath::main().field("main"), "main.main");
-        // No index, so a config-space chain rather than a card.
-        round_trip(DocPath::new().field("cards").field("foo"), "cards.foo");
+    }
+
+    /// Indexless and terminal: a longer `cards.` chain is not one.
+    #[test]
+    fn card_kind_root() {
+        round_trip(DocPath::card_kind("indorsement"), "cards.indorsement");
+        round_trip(
+            DocPath::new().field("cards").field("foo").field("bar"),
+            "cards.foo.bar",
+        );
     }
 
     #[test]

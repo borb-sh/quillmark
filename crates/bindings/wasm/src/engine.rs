@@ -1865,12 +1865,14 @@ const DOCPATH_TS: &'static str = r#"
 /**
  * One segment of a parsed `Diagnostic.path` (see `parseDocPath`). The head
  * carries the document-model root: `main` (only before `body`), a `card`
- * (`kind: null` is the unknown-kind `cards[i]` form), or a `field`; the tail is
- * `field` / `index` / a terminal `body`.
+ * (`kind: null` is the unknown-kind `cards[i]` form), a `cardkind` (every card
+ * of one kind at once, and terminal — what `validation::cardinality` counts),
+ * or a `field`; the tail is `field` / `index` / a terminal `body`.
  */
 export type DocPathSeg =
     | { seg: "main" }
     | { seg: "card"; kind: string | null; index: number }
+    | { seg: "cardkind"; kind: string }
     | { seg: "field"; name: string }
     | { seg: "index"; index: number }
     | { seg: "body" };

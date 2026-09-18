@@ -18,7 +18,9 @@ use crate::emit::{
 };
 use crate::SchemaMeta;
 use quillmark_content::serial::from_canonical_value;
-use quillmark_core::quill::{CONTENT_MEDIA_TYPE, QUILLMARK_INLINE_KEY};
+use quillmark_core::quill::{
+    DatePrecision, CONTENT_MEDIA_TYPE, QUILLMARK_INLINE_KEY, QUILLMARK_PRECISION_KEY,
+};
 
 pub const HELPER_VERSION: &str = "0.1.0";
 pub const HELPER_NAMESPACE: &str = "local";
@@ -167,7 +169,12 @@ impl<'m> Codegen<'m> {
     /// whose `text(..)` body is where the glyphs are born, so they carry this
     /// generated span wherever the plate finally calls it, which is what
     /// `display(addr, ..)` survives laundering on.
-    fn display_block(&mut self, path: &str, constructor: &str) {
+    ///
+    /// `floor_pattern` is the pattern a **partial** date falls back to when the
+    /// plate names none: its `datetime` is floored in the components the
+    /// precision does not carry, so the default prints only the ones it does.
+    /// A plate passing its own pattern owns what that pattern asks for.
+    fn display_block(&mut self, path: &str, constructor: &str, floor_pattern: Option<&str>) {
         let id = format!("_qm_d{}", self.display.len());
         self.blocks.push_str("#let ");
         self.blocks.push_str(&id);
@@ -177,7 +184,13 @@ impl<'m> Codegen<'m> {
         let text_start = self.blocks.len();
         self.blocks.push_str("text(");
         self.blocks.push_str(constructor);
-        self.blocks.push_str(".display(..args))");
+        match floor_pattern {
+            Some(pattern) => self.blocks.push_str(&format!(
+                ".display(if args.pos().len() == 0 {{ \"{}\" }} else {{ args.pos().at(0) }}))",
+                escape_string(pattern)
+            )),
+            None => self.blocks.push_str(".display(..args))"),
+        }
         let text_end = self.blocks.len();
         self.blocks.push('\n');
         self.windows
@@ -189,9 +202,12 @@ impl<'m> Codegen<'m> {
     /// value that will not parse raises `backend::invalid_date` from here, the
     /// one site that parses, which is what makes the check total over depth.
     fn date_field(&mut self, path: &str, s: &str, kind: DateKind) -> String {
+        if let DateKind::Date(precision @ (DatePrecision::Year | DatePrecision::Month)) = kind {
+            return self.partial_date_field(path, s, precision);
+        }
         match datetime_constructor(s, kind) {
             Some(constructor) => {
-                self.display_block(path, &constructor);
+                self.display_block(path, &constructor, None);
                 constructor
             }
             None if s.is_empty() => "none".to_string(),
@@ -203,6 +219,40 @@ impl<'m> Codegen<'m> {
                 "none".to_string()
             }
         }
+    }
+
+    /// A date narrower than a day lowers to the dict of the components it
+    /// carries — `(year: 2024, month: 8)` — rather than to a `datetime(..)`
+    /// floored in the ones it does not: `prose/canon/PLATE_DATA.md`. Its
+    /// `display` closure does build the floored `datetime`, so Typst's own
+    /// patterns are available, and falls back to the pattern that prints the
+    /// declared components alone.
+    fn partial_date_field(&mut self, path: &str, s: &str, precision: DatePrecision) -> String {
+        let Some((year, month, _)) = quillmark_core::quill::parse_date_at(s, precision) else {
+            if !s.is_empty() {
+                self.emit_error.get_or_insert(EmitError::InvalidDate {
+                    field: path.to_string(),
+                    value: s.to_string(),
+                });
+            }
+            return "none".to_string();
+        };
+        let (fields, pattern) = match month {
+            Some(month) => (
+                vec![format!("\"year\": {year}"), format!("\"month\": {month}")],
+                "[year]-[month]",
+            ),
+            None => (vec![format!("\"year\": {year}")], "[year]"),
+        };
+        self.display_block(
+            path,
+            &format!(
+                "datetime(year: {year}, month: {}, day: 1)",
+                month.unwrap_or(1)
+            ),
+            Some(pattern),
+        );
+        wrap_dict(fields)
     }
 
     /// A blank content lowers to `""`, not a block; a value that is not a valid
@@ -360,7 +410,14 @@ fn lowering(node: Option<&serde_json::Value>) -> Lower<'_> {
         };
     }
     match str_key("format") {
-        Some("date") => return Lower::Date(DateKind::Date),
+        Some("date") => {
+            let precision = match str_key(QUILLMARK_PRECISION_KEY) {
+                Some("year") => DatePrecision::Year,
+                Some("month") => DatePrecision::Month,
+                _ => DatePrecision::Day,
+            };
+            return Lower::Date(DateKind::Date(precision));
+        }
         Some("date-time") => return Lower::Date(DateKind::DateTime),
         _ => {}
     }
@@ -376,10 +433,13 @@ fn lowering(node: Option<&serde_json::Value>) -> Lower<'_> {
     }
 }
 
-/// The two date field types, distinguished by their Typst `datetime(..)` arity.
+/// The two date field types, distinguished by their Typst `datetime(..)`
+/// arity. A `Date` carries the precision it was declared at: at `Day` it lowers
+/// to the three-component constructor, and narrower than that to the dict of
+/// the components it has.
 #[derive(Clone, Copy)]
 enum DateKind {
-    Date,
+    Date(DatePrecision),
     DateTime,
 }
 
@@ -402,7 +462,7 @@ fn display_literal(entries: &[(String, String)]) -> String {
 /// value that reached here parses and `None` is the defensive arm.
 fn datetime_constructor(s: &str, kind: DateKind) -> Option<String> {
     match kind {
-        DateKind::Date => quillmark_core::quill::parse_date(s)
+        DateKind::Date(_) => quillmark_core::quill::parse_date(s)
             .map(|(year, month, day)| format!("datetime(year: {year}, month: {month}, day: {day})")),
         DateKind::DateTime => {
             quillmark_core::quill::parse_datetime(s).map(|(year, month, day, hour, minute, second)| {
@@ -672,6 +732,45 @@ mod tests {
         assert!(paths.contains(&"issued"), "{paths:?}");
         assert!(paths.contains(&"at"), "{paths:?}");
         assert!(!paths.contains(&"signed"), "{paths:?}");
+    }
+
+    /// Nothing fabricated on the data cell: a month-precision date carries the
+    /// two components it has, and only the `display` closure — where the plate
+    /// has asked for ink — builds the floored `datetime` Typst patterns need.
+    #[test]
+    fn a_partial_date_lowers_to_its_components_not_to_a_floored_datetime() {
+        let meta = meta_from(serde_json::json!({
+            "properties": {
+                "since": { "type": "string", "format": "date", "quillmark:precision": "month" },
+                "class_of": { "type": "string", "format": "date", "quillmark:precision": "year" },
+                "unset": { "type": "string", "format": "date", "quillmark:precision": "year" }
+            }
+        }));
+        let data = serde_json::json!({
+            "since": "2024-08",
+            "class_of": "2026",
+            "unset": ""
+        });
+        let (lib, windows) = generate_lib_typ(&data, &meta).unwrap();
+
+        assert!(lib.contains(r#""since": ("year": 2024, "month": 8,)"#), "{lib}");
+        assert!(lib.contains(r#""class_of": ("year": 2026,)"#), "{lib}");
+        assert!(lib.contains("\"unset\": none"), "{lib}");
+        assert!(
+            !lib.contains("\"since\": datetime("),
+            "the data cell fabricates no day: {lib}"
+        );
+        // Keys emit sorted, so `_qm_d0` is `class_of` and `_qm_d1` `since`.
+        assert!(
+            lib.contains(
+                "#let _qm_d1 = (..args) => text(datetime(year: 2024, month: 8, day: 1)\
+                 .display(if args.pos().len() == 0 { \"[year]-[month]\" } else { args.pos().at(0) }))"
+            ),
+            "{lib}"
+        );
+        let paths: Vec<&str> = windows.iter().map(|w| w.path.as_str()).collect();
+        assert!(paths.contains(&"since") && paths.contains(&"class_of"), "{paths:?}");
+        assert!(!paths.contains(&"unset"), "a blank date places no ink: {paths:?}");
     }
 
     /// Every nested position the one-level nesting contract admits, for both

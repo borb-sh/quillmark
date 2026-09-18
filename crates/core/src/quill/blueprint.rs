@@ -7,7 +7,9 @@
 
 use indexmap::IndexMap;
 
-use super::{CardSchema, FieldSchema, FieldType, QuillConfig, VARIANT_DISCRIMINANT_KEY};
+use super::{
+    CardSchema, DatePrecision, FieldSchema, FieldType, QuillConfig, VARIANT_DISCRIMINANT_KEY,
+};
 use crate::document::emit::{saphyr_emit_flow, saphyr_emit_scalar};
 use crate::document::prescan::NestedComment;
 use crate::document::{Card, Document, Payload, PayloadItem};
@@ -129,15 +131,19 @@ fn build_main_card(card: &CardSchema, quill_ref: &str, description: Option<Strin
     )
 }
 
-/// Build a composable card: `$kind: <kind>`, the `composable (0..N)` role
-/// comment, a comment naming it a deletable sample, the optional description,
-/// then the fields.
+/// Build a composable card: `$kind: <kind>`, the `composable (<min>..<max>)`
+/// role comment (`N` for an undeclared ceiling), a comment naming it a
+/// deletable sample, the optional description, then the fields.
 fn build_card(card: &CardSchema) -> Card {
     let mut items = CardItems::default();
     items.push(PayloadItem::Kind {
         value: card.name.clone(),
     });
-    items.push(PayloadItem::comment("composable (0..N)"));
+    items.push(PayloadItem::comment(format!(
+        "composable ({}..{})",
+        card.min.unwrap_or(0),
+        card.max.map_or_else(|| "N".to_string(), |n| n.to_string()),
+    )));
     items.push(PayloadItem::comment("sample card; delete if not needed"));
     if let Some(desc) = collapse_opt(card.description.as_deref()) {
         items.push(PayloadItem::comment(desc));
@@ -479,14 +485,64 @@ fn push_container_field(
     items.push(PayloadItem::comment_inline(type_expression(field)));
 }
 
-/// Build the inline annotation body (without the leading `# `): purely the
-/// structural type expression `<type>[<format>]`. Shippability is carried by
-/// the value cell alone (a concrete value is shippable as-is, a `!must_fill`
-/// marker asks to be filled) so the annotation needs no cell-state tag.
+/// Build the inline annotation body (without the leading `# `): the structural
+/// type expression `<type>[<format>]`, then the constraints the field declares,
+/// each a `, `-separated clause. Shippability is carried by the value cell
+/// alone (a concrete value is shippable as-is, a `!must_fill` marker asks to be
+/// filled) so the annotation needs no cell-state tag.
 fn type_expression(field: &FieldSchema) -> String {
+    let mut out = bare_type_expression(field);
+    for clause in constraint_clauses(field) {
+        out.push_str(", ");
+        out.push_str(&clause);
+    }
+    out
+}
+
+/// The clauses a field's `min` / `max` / `step` / `pattern` / `ui.unit` add
+/// after the type expression. A bound an author left open reads open
+/// (`6..`, `..18`); on an `array` both sides are always spelled, the count
+/// having a floor of `0` and an unbounded ceiling of `N`.
+fn constraint_clauses(field: &FieldSchema) -> Vec<String> {
+    let mut out = Vec::new();
+    let bound = |n: &Option<serde_json::Number>| n.as_ref().map(|n| n.to_string());
+    if field.min.is_some() || field.max.is_some() {
+        let (low, high) = match field.r#type {
+            FieldType::Array => (
+                bound(&field.min).unwrap_or_else(|| "0".into()),
+                bound(&field.max).unwrap_or_else(|| "N".into()),
+            ),
+            _ => (
+                bound(&field.min).unwrap_or_default(),
+                bound(&field.max).unwrap_or_default(),
+            ),
+        };
+        out.push(match field.ui.as_ref().and_then(|u| u.unit.as_deref()) {
+            Some(unit) => format!("{low}..{high} {unit}"),
+            None => format!("{low}..{high}"),
+        });
+    } else if let Some(unit) = field.ui.as_ref().and_then(|u| u.unit.as_deref()) {
+        out.push(unit.to_string());
+    }
+    if let Some(step) = &field.step {
+        out.push(format!("step {step}"));
+    }
+    if let Some(pattern) = &field.pattern {
+        out.push(format!("matches {pattern}"));
+    }
+    out
+}
+
+fn bare_type_expression(field: &FieldSchema) -> String {
     match &field.r#type {
         FieldType::Enum { values } => format!("enum<{}>", values.join(" | ")),
-        FieldType::String => "string".into(),
+        // A named shape refines what the string holds, so it takes the format
+        // slot; a `pattern` is a clause instead, its metacharacters having no
+        // business inside the `<…>` the grammar closes on.
+        FieldType::String => match field.format {
+            Some(format) => format!("string<{format}>"),
+            None => "string".into(),
+        },
         FieldType::Number => "number".into(),
         FieldType::Integer => "integer".into(),
         FieldType::Boolean => "boolean".into(),
@@ -500,7 +556,14 @@ fn type_expression(field: &FieldSchema) -> String {
         // markup, distinct from richtext's `<markdown>` surface.
         FieldType::PlainText { inline: false } => "plaintext<plain>".into(),
         FieldType::PlainText { inline: true } => "plaintext(inline)<plain>".into(),
-        FieldType::Date => "date<YYYY-MM-DD>".into(),
+        // The `(precision)` marker names the narrowing, the format slot the
+        // grammar it narrows to, as `richtext(inline)<markdown>` does.
+        FieldType::Date => match field.precision.unwrap_or_default() {
+            p @ (DatePrecision::Year | DatePrecision::Month) => {
+                format!("date({p})<{}>", p.grammar())
+            }
+            DatePrecision::Day => "date<YYYY-MM-DD>".into(),
+        },
         FieldType::DateTime => "datetime<YYYY-MM-DDThh:mm[:ss]>".into(),
         // The element type comes from `items`; a scalar element gives
         // `array<string>`/`array<integer>`/`array<markdown>`, an object
@@ -620,6 +683,74 @@ main:
             !t.contains("city: !must_fill"),
             "a covered leaf asks for nothing: {t}"
         );
+    }
+
+    /// The annotation is what an MCP flow reads in one pass, so a constraint
+    /// the schema declares is legible there rather than only in `validate`'s
+    /// diagnostic.
+    #[test]
+    fn the_inline_annotation_carries_the_constraints_a_field_declares() {
+        let t = cfg(r#"
+quill: { name: x, version: 1.0.0, backend: typst, description: x }
+main:
+  fields:
+    duration: { type: number, min: 0.5, max: 4, step: 0.5, default: 2 }
+    margin: { type: number, min: 0.25, max: 1, default: 1, ui: { unit: in } }
+    timeline_years: { type: integer, min: 6, max: 18, default: 12 }
+    site: { type: string, format: url, default: "" }
+    symbol: { type: string, pattern: "^[A-Z]+$", default: "" }
+    since: { type: date, precision: month, default: "2024-08" }
+    class_of: { type: date, precision: year, default: "2026" }
+    signed_on: { type: date, default: "2026-01-01" }
+    rows:
+      type: array
+      min: 1
+      max: 37
+      default: []
+      items: { type: object, properties: { who: { type: string } } }
+"#)
+        .blueprint();
+
+        for annotation in [
+            "duration: 2 # number, 0.5..4, step 0.5",
+            "margin: 1 # number, 0.25..1 in",
+            "timeline_years: 12 # integer, 6..18",
+            "site: \"\" # string<url>",
+            "symbol: \"\" # string, matches ^[A-Z]+$",
+            "since: 2024-08 # date(month)<YYYY-MM>",
+            "class_of: \"2026\" # date(year)<YYYY>",
+            "signed_on: 2026-01-01 # date<YYYY-MM-DD>",
+            "rows: [] # array<object>, 1..37",
+        ] {
+            assert!(t.contains(annotation), "missing `{annotation}`:\n{t}");
+        }
+
+        // Every annotation rides a comment, so the blueprint still parses back.
+        let doc = Document::parse(&t).expect("blueprint parses").document;
+        assert_eq!(doc, Document::parse(&doc.to_markdown()).expect("re-emit").document);
+    }
+
+    /// The card kind's role comment *is* the cardinality line: an undeclared
+    /// ceiling stays `N`, so a quill declaring nothing reads exactly as before.
+    #[test]
+    fn a_card_kinds_role_comment_carries_its_declared_count() {
+        let t = cfg(r#"
+quill: { name: x, version: 1.0.0, backend: typst, description: x }
+main:
+  fields:
+    title: { type: string }
+card_kinds:
+  purpose:
+    max: 1
+    fields:
+      label: { type: string }
+  note:
+    fields:
+      label: { type: string }
+"#)
+        .blueprint();
+        assert!(t.contains("# composable (0..1)"), "{t}");
+        assert!(t.contains("# composable (0..N)"), "{t}");
     }
 
     #[test]

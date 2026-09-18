@@ -69,7 +69,7 @@ follow:
 | Slot | Form | Carries |
 |---|---|---|
 | **Leading `# …` lines** above a field | `# <prose>` or `# e.g. <value>` | description (single-line prose) and an illustrative example |
-| **Inline `# …`** at end of the value line | `# <type>[<format>]` | structural metadata: the field's type and an optional format refinement |
+| **Inline `# …`** at end of the value line | `# <type>[<format>][, <constraint>]…` | structural metadata: the field's type, an optional format refinement, and the constraints it declares |
 
 The two slots have disjoint purposes: leading is prose, inline is
 structural. No colon-separated `key: value` annotation syntax appears in
@@ -96,7 +96,7 @@ That's it. There is no leading `# required`, `# enum:`, `# default:`, or
 
 ### Inline annotation
 
-Form: **`# <type>[<format>]`**
+Form: **`# <type>[<format>][, <constraint>]…`**
 
 - **Type slot** (mandatory, first): one of
   `string`, `integer`, `number`, `boolean`, `array`, `object`,
@@ -108,7 +108,12 @@ Form: **`# <type>[<format>]`**
 - **Format slot** (optional, in `<…>` angle brackets): refines the type
   when the refinement carries information beyond the type name itself.
   - `date<YYYY-MM-DD>`: a bare calendar date; `datetime<YYYY-MM-DDThh:mm[:ss]>`:
-    an offset-less wall-clock datetime (no offset/space/fractional forms)
+    an offset-less wall-clock datetime (no offset/space/fractional forms).
+    A `precision:` narrower than a day marks itself and narrows the grammar
+    beside it: `date(month)<YYYY-MM>`, `date(year)<YYYY>`
+  - `string<url>`, `string<email>`, `string<phone>`: a `format:`, the shape a
+    name says. A `pattern:` is a constraint clause instead, its metacharacters
+    having no business inside the `<…>` the grammar closes on
   - `richtext<markdown>`, `richtext(inline)<markdown>`: the `<markdown>` slot
     names the surface encoding an author writes over the content model
   - `plaintext<plain>`, `plaintext(inline)<plain>`: the `<plain>` slot names
@@ -117,9 +122,22 @@ Form: **`# <type>[<format>]`**
   - `enum<a | b | c>`
   - omitted for `string`, `integer`, `number`, `boolean`, `object`
     (nothing meaningful to refine).
+- **Constraint clauses** (optional, `, `-separated, after the format slot): the
+  [constraints](SCHEMAS.md#constraints) the field declares, in one pass rather
+  than in the `description:` prose they used to hide in.
+  - a range, `<min>..<max>`: `# integer, 6..18`. An open side reads open
+    (`0.5..`, `..4`); on an `array` both sides are always spelled, a count
+    having a floor of `0` and an unbounded ceiling of `N`
+    (`# array<object>, 1..37`)
+  - a `ui.unit:` trails the range it qualifies: `# number, 0.25..1 in`
+  - `step <n>`: `# number, 0.5..4, step 0.5`
+  - `matches <regex>`: `# string, matches ^[A-Z]+$`
 
-The inline annotation is **purely structural**: it carries the type (and
-optional format), nothing else. What a reader must *do* is carried by the cell:
+A composable card's role comment carries the kind's own count in the same
+two-sided form: `# composable (0..1)`, `# composable (1..N)`.
+
+The inline annotation is **purely structural**: it carries the type, its
+optional format, and the constraints on it, nothing else. What a reader must *do* is carried by the cell:
 a `!must_fill` marker asks for a value, and its absence says the cell is
 shippable as-is (delete or blank the line to fall back to the default). The two
 can co-occur — a marked cell may still carry a concrete value to review.
@@ -139,14 +157,15 @@ on `$quill`: it is the one line whose omission is a hard error. `$kind: main`
 carries no reminder: an omitted root `$kind` is synthesised at parse time,
 so dropping it is not an error, and a `# …` line in that slot would only
 read as a leading annotation for the field below it. A composable card's kind is carried in its
-`$kind: <card_kind>` metadata line. Its `composable (0..N)` role is
-emitted as an own-line `# composable (0..N)` comment directly under the
-`$kind` line, ahead of the card description: that comment carries the
-card's cardinality, which is structural information rather than a
-redundant instruction. A second own-line comment, `# sample card; delete if
-not needed`, follows directly under it: the card's fields and body are one
-worked example of that kind, and "0..N" alone does not say a reader is free
-to drop it.
+`$kind: <card_kind>` metadata line. Its composable role is emitted as an
+own-line `# composable (<min>..<max>)` comment directly under the `$kind` line,
+ahead of the card description: that comment carries the card's cardinality,
+which is structural information rather than a redundant instruction. The kind's
+own `min:`/`max:` fill the two sides, an undeclared ceiling reading `N`, so a
+kind declaring neither is `# composable (0..N)`. A second own-line comment,
+`# sample card; delete if not needed`, follows directly under it: the card's
+fields and body are one worked example of that kind, and a range alone does not
+say a reader is free to drop it.
 
 Examples:
 

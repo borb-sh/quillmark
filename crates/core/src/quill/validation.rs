@@ -3,8 +3,10 @@ use std::collections::BTreeMap;
 use crate::document::{Document, Payload};
 use crate::error::{Diagnostic, Severity, diag_args};
 use crate::path::DocPath;
-use crate::quill::formats::{is_valid_date, is_valid_datetime};
-use crate::quill::{CardSchema, FieldSchema, FieldType, QuillConfig, VARIANT_DISCRIMINANT_KEY};
+use crate::quill::formats::{is_valid_date, is_valid_date_at, is_valid_datetime};
+use crate::quill::{
+    CardSchema, DatePrecision, FieldSchema, FieldType, QuillConfig, VARIANT_DISCRIMINANT_KEY,
+};
 use crate::value::QuillValue;
 
 /// Validation error with a structured field path. A variant carries enough for
@@ -479,15 +481,24 @@ fn validate_value(
                     Some("") => true,
                     Some(text) => {
                         let (ok, format) = match field.r#type {
-                            FieldType::Date => (is_valid_date(text), "date"),
-                            _ => (is_valid_datetime(text), "datetime"),
+                            // The grammar narrows with `precision:`, and the
+                            // format the diagnostic names narrows with it, so
+                            // the message points at the grammar the author
+                            // declared rather than the type's widest one.
+                            FieldType::Date => match field.precision.unwrap_or_default() {
+                                p @ (DatePrecision::Year | DatePrecision::Month) => {
+                                    (is_valid_date_at(text, p), format!("date({p})"))
+                                }
+                                DatePrecision::Day => (is_valid_date(text), "date".to_string()),
+                            },
+                            _ => (is_valid_datetime(text), "datetime".to_string()),
                         };
                         if ok {
                             true
                         } else {
                             errors.push(ValidationError::FormatViolation {
                                 path: path.to_string(),
-                                format: format.to_string(),
+                                format,
                             });
                             false
                         }
