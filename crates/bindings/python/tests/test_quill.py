@@ -88,6 +88,9 @@ def test_warnings_carry_the_loads_advisories(taro_quill_dir, tmp_path):
     )
 
     quill = Quill.from_path(str(quill_dir))
-    assert [d.code for d in quill.warnings] == ["quill::body_example_unused"]
+    assert [d.code for d in quill.warnings] == [
+        "quill::body_example_unused",
+        "quill::bodiless_card_kind",
+    ]
 
 

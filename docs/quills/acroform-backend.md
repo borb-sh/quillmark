@@ -181,7 +181,9 @@ A bound field's kind is derived from the **capability of the resolved schema fie
 | `boolean` | **checkbox** |
 | `string`, `number`, `integer`, `date`, `datetime`, `richtext`, `plaintext` | **text** |
 | array of the above (scalar or prose) | **text**: elements joined with newlines |
-| `object`, or array of objects | **load error** `acroform::unbindable_field` |
+| `object`, `matrix`, or array of objects | **load error** `acroform::unbindable_field` |
+
+A container has no widget shape of its own; the cells inside it do, and each binds at its own address. A matrix member's tick is a checkbox at `qualifications.flight_cc.held`, its columns text widgets beside it.
 
 `multiline` on a text widget comes from the schema field's `ui.multiline`, and a value holding a newline (a richtext of two paragraphs, a block scalar) widens it to multiline whatever the schema said, so the file shows every line the preview does.
 

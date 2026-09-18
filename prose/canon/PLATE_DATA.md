@@ -39,6 +39,32 @@ One rule governs the lowering, at every depth: **a declared type means the same 
   bare `card.$body`
 - User payload fields sit flat at the root next to the `$` keys; field names match `[a-z_][a-z0-9_]*` and therefore never collide with `$` metadata
 
+#### A `matrix` field
+
+A matrix reaches the plate **total**: an ordered mapping carrying every declared
+member, keyed by member id in roster order, whatever the document ticked.
+
+```json
+"qualifications": {
+  "flight_cc":  { "held": true,  "title": "Flight CC",  "group": "Leadership", "detail": {…} },
+  "dodin_ops":  { "held": false, "title": "DODIN Ops",  "group": "Operations", "detail": {…} }
+}
+```
+
+- `held` is the tick, a boolean the schema synthesizes on every member.
+- `title` and `group` come from the roster, not from the document, so a plate
+  prints the vocabulary without holding a second copy of it. An ungrouped member
+  carries `""`, the string blank, so the key always resolves.
+- The remaining keys are the field's declared columns, each at its declared
+  type.
+- **The wire carries the live world only**: an unheld member's columns are their
+  blanks whatever the document retains, so `member.detail` reads without a guard
+  and never prints a stranded answer.
+
+Member cells are ordinary addresses: `qualifications.flight_cc.held` regions and
+binds like any leaf. `title` and `group` are written by the projection rather
+than held as cells, so neither carries one.
+
 ## Typst Helper Package
 
 The Typst backend injects a virtual package `@local/quillmark-helper:<version>` that exposes the JSON to plates and provides helpers.

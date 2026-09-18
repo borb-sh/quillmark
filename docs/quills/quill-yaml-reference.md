@@ -146,11 +146,12 @@ discharges it.
 | `number`   | Numeric scalar (integers and decimals) |
 | `integer`  | Integer-only numeric scalar, sized as an `i64`; a literal past that range takes `number` |
 | `boolean`  | `true` or `false` |
-| `array`    | Ordered list; requires an `items:` element schema |
+| `array`    | Ordered list; requires an `items:` element schema. Optional `max:`, the element count the page holds (see [`max`](#max-what-the-page-holds)) |
 | `date`     | A strict calendar date `YYYY-MM-DD`; rejects any time component |
 | `datetime` | A strict offset-less wall-clock datetime `YYYY-MM-DDThh:mm[:ss]`; rejects offsets, the space separator, fractional seconds, and bare dates |
 | `richtext` | Rich, **formatted** prose over a canonical content; backends lower it to the target format. Markdown is its import/export projection. Add `inline: true` for the single-paragraph variant |
 | `object`   | Structured map; requires a `properties:` map |
+| `matrix`   | A closed vocabulary the author ticks; requires a `members:` roster. Each member is an object of a synthesized `held` plus the field's `properties:` (see [Matrix](#matrix-a-vocabulary-the-author-ticks)) |
 
 #### Choosing among `string`, `enum`, `plaintext`, and `richtext`
 
@@ -409,6 +410,97 @@ against `items` exactly as an authored element is.
 
 Two keys are card-level regardless of depth: `ui.group` (grouping never descends) and `variants:` (see [Variants](#variants-fields-that-exist-only-for-one-choice)).
 
+### `max`: what the page holds
+
+A form laid out on a page holds a fixed number of rows. Say so with `max:`, and
+the limit stops being prose only a human reads:
+
+```yaml
+experience:
+  type: array
+  max: 37                 # the form's 37 ruled lines
+  items:
+    type: object
+    properties:
+      duty: { type: string, default: "" }
+```
+
+`max:` is a non-negative integer, valid only on an `array`, and a `default:` or
+`example:` longer than it fails to load. A document holding more elements draws
+a **warning**, `validation::cardinality`, at the field's path with `max` and
+`actual` in its args — never an error: the document still renders, and the plate
+decides what happens to the surplus. Each declaration carries its own cap, so a
+capped array nested inside a row is checked against its own.
+
+The blueprint shows the cap as an own-line `# up to 37` under the field's
+description, which is where an MCP author reads it before writing.
+
+There is no `min:`. Obligation is `default:`'s absence
+([Obligation](#obligation)), so `min: 1` would be `required:` under another
+name, contradict a sibling `default: []`, and double-report with `must_fill` on
+an absent array.
+
+### Matrix: a vocabulary the author ticks
+
+Some fields are neither a list the author grows nor a choice they make once:
+they are a fixed vocabulary printed in full, where the author ticks what they
+hold and may annotate a tick. `type: matrix` is that shape.
+
+```yaml
+qualifications:
+  type: matrix
+  description: Tick each qualification held.
+  members:                      # ordered; `group:` optional; `id: Title`
+    - group: Leadership & Command
+      values:
+        sq_cc_candidate: Sq/CC Candidate
+        flight_cc: Flight CC
+    - group: Operations
+      values:
+        dodin_ops: DODIN Ops
+  properties:                   # the columns; omit them for a plain checklist
+    detail:
+      type: plaintext
+      inline: true
+      default: ""
+```
+
+Every member becomes an object of a synthesized `held` (a boolean, `false` by
+default) plus the declared columns. Member **ids** are snake_case and must be
+unique: they are what the wire, the address and the document speak, while the
+**title** is display only. `held` is reserved and cannot be a column name.
+
+A document ticks sparsely, and key presence is the tick:
+
+```yaml
+qualifications:
+  flight_cc: true                  # held; columns at their blanks
+  dodin_ops: { detail: "2024" }    # held, with columns
+  cyber_200: { held: false, detail: kept }   # not held; the detail is kept in the file
+```
+
+A member the roster does not declare is refused, as an out-of-domain `enum`
+value is. A mapping has one slot per key, so a member cannot be ticked twice.
+
+**What the plate receives** is total: every member, in declaration order,
+carrying `held`, its `title`, its `group` and its columns, so a template prints
+the whole vocabulary without holding a second copy of it. An unheld member's
+columns arrive at their blanks whatever the file retains, which is what makes
+tick, type, untick, re-tick lossless: the answer stays in the document and
+simply stops rendering.
+
+Each cell is an ordinary address — `qualifications.flight_cc.held`,
+`qualifications.flight_cc.detail` — so it regions on Typst and binds a widget on
+acroform. An editor unticks by writing `held: false`, never by dropping the key.
+
+A matrix is a **namespace**, so it takes no `default:` or `example:` of its own
+(a column holds one), and it obliges nothing: a column with no `default:` is
+required only inside a member the document has ticked. It **seeds empty** — a
+fresh document ticks nothing, and the blueprint shows the vocabulary in the
+field's annotation, `# matrix<sq_cc_candidate | flight_cc | dodin_ops>`.
+
+Full model: [SCHEMAS.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/SCHEMAS.md#matrix); the wire shape is [PLATE_DATA.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PLATE_DATA.md#a-matrix-field).
+
 ---
 
 ## UI Properties
@@ -540,6 +632,46 @@ main:
 
 Meaningful on `string` and `richtext` fields; ignored on other types.
 
+### `layout`
+
+Names the control a field asks an editor to draw, where the shape admits more
+than one and the default reads wrong. `table` is the only value, and it is valid
+only on a **typed table** — an `array` whose `items` is an `object`:
+
+```yaml
+main:
+  fields:
+    tours:
+      type: array
+      ui:
+        layout: table       # a grid: one row per element, one column per property
+      items:
+        type: object
+        ui:
+          title: "{unit}"   # the collapsed row's summary line
+        properties:
+          unit:     { type: string, default: "" }
+          duration: { type: integer, default: 0 }
+```
+
+Without it, an editor draws a typed table as a stack of collapsed rows that open
+one at a time — right for a row of long prose, wrong for four short cells.
+
+It is a **request, not a contract**. An editor may decline it — a row holding a
+block `richtext` or a container, a width that will not hold the columns — and
+fall back to the record list. Nothing else reads the key: the plate, `validate`
+and the blueprint are all deliberately inert on it, and `schema()` echoes it
+verbatim for the editor to find. On any other field it is a load error,
+`quill::invalid_ui`.
+
+### `title` on `items`
+
+A row's `items.ui.title` is the summary line a collapsed row shows, the same
+`{property}` template a card kind's [`ui.title`](#title_1) takes, interpolated
+with that row's live values. It is the row-level counterpart of a card's title,
+so a list of rows reads as a list of things rather than a list of "Item 1, Item
+2".
+
 ---
 
 ## `card_kinds` Section
@@ -568,6 +700,27 @@ Invalid card-kind names include:
 - `BadCard` (uppercase letters)
 - `my-card` (hyphen)
 - `2nd_card` (starts with a digit)
+
+### When not to declare one
+
+A card is a **part someone writes**; a repeated record someone fills in is a
+**row**, and a row is an `array<object>` field on the card that owns it — not a
+card kind. The test is a disjunction: a unit that stands in document order among
+units of *other kinds*, **or** whose substance is flowing prose, is a card;
+otherwise it is a row.
+
+A kind declaring `body.enabled: false` draws a warning,
+`quill::bodiless_card_kind`, pointing at the row shape. It is advice and not a
+refusal: no body is only a proxy for "not prose", and a bodiless kind that truly
+interleaves — a page break, a rule, an inserted signature block, all of which
+exist for their position — is a card by the first clause, which no schema can
+state. `main` is never warned: a form has no root prose.
+
+Rows are cheaper where they fit. They nest lexically, so a row belongs to its
+parent by position in the file rather than by counting cards in the stream, and
+a plate reads `card.rows` instead of reassembling a run. What rows give up is
+the fence-native body: a row's prose is a `richtext` cell, a YAML block scalar,
+which is fine for a few lines and wrong for a memo's worth.
 
 ### Card Properties
 
@@ -641,13 +794,15 @@ When `false`, the card kind has no body/content area. Consumers must not accept 
 
 ```yaml
 card_kinds:
-  metadata_block:
+  page_break:
     body:
       enabled: false    # Card has fields only, no body/content area
     fields:
-      category:
+      style:
         type: string
 ```
+
+Loading this draws `quill::bodiless_card_kind`, which asks whether the kind is a card at all: a repeated record with no prose is a row (see [When not to declare one](#when-not-to-declare-one)). The example above stands because a page break exists for its position in the stream, which no row can occupy. `main` is never warned.
 
 #### `body.example`
 

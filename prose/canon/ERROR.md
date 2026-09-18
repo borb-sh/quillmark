@@ -102,9 +102,18 @@ for it, anchored at the card that is full.
 
 ## Warning flow
 
-Warnings travel the same `Diagnostic` currency as errors, on six producer
+Warnings travel the same `Diagnostic` currency as errors, on seven producer
 families:
 
+- **`quill::*` load warnings**: the second half of
+  `QuillConfig::from_yaml_with_warnings`, carried on the loaded quill and read
+  off `Quill::warnings()`, so every binding host reaches them. A warning here
+  never fails the load. Two codes: `quill::body_example_unused` (a `body.example`
+  under `body.enabled: false`, which nothing will show), and
+  `quill::bodiless_card_kind` (a card kind declaring `body.enabled: false`,
+  which is the loader's one view of a row in card costume:
+  [CARDS.md](CARDS.md#card-row-matrix)). Both advise where a load error would
+  overreach — the loader sees a correlate, not the fact.
 - **Parse warnings**: the `warnings` on the `Parsed` that `Document::parse`
   returns (e.g. a `~~~` opener missing its blank line). The CLI render and the
   WASM one-shot render splice the whole `Parsed.warnings` carrier — this family

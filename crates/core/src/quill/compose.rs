@@ -1046,9 +1046,15 @@ fn collect_cardinality_diags(
 
     if let Some(props) = field.namespace_props() {
         let Some(object) = json.as_object() else { return };
+        // An unticked matrix member reaches the page at its blanks, so nothing
+        // it stores can overflow one.
+        let ticked = !matches!(field.r#type, FieldType::Matrix { .. });
         for (name, prop) in props {
-            let cell = object.get(name).map(|j| QuillValue::from_json(j.clone()));
-            collect_cardinality_diags(prop, cell.as_ref(), &path.field(name), out);
+            let Some(cell) = object.get(name).filter(|c| ticked || is_held(c)) else {
+                continue;
+            };
+            let cell = QuillValue::from_json(cell.clone());
+            collect_cardinality_diags(prop, Some(&cell), &path.field(name), out);
         }
         return;
     }
