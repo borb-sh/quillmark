@@ -418,68 +418,21 @@ pub struct Island {
     /// Typed payload. Recursively key-sorted by normalization so it hashes
     /// deterministically despite `serde_json`'s `preserve_order`.
     pub props: JsonValue,
-    /// How faithfully the markdown projection can carry this island.
-    pub loss: Loss,
 }
 
 impl Island {
-    /// An island of `island_type` under `id`, carrying no payload and claiming
-    /// no projection loss, which is also what the wire reads off the absent
-    /// keys.
+    /// An island of `island_type` under `id`, carrying no payload.
     pub fn new(id: String, island_type: IslandType) -> Self {
         Island {
             id,
             island_type,
             props: JsonValue::Null,
-            loss: Loss::Lossless,
         }
     }
 
     pub fn with_props(mut self, props: JsonValue) -> Self {
         self.props = props;
         self
-    }
-
-    pub fn with_loss(mut self, loss: Loss) -> Self {
-        self.loss = loss;
-        self
-    }
-}
-
-/// How faithfully the markdown projection carries an island: a **description**
-/// of what the projection does with it, for a consumer to surface. It is not a
-/// switch: [`crate::export::to_markdown`] dispatches on
-/// [`Island::island_type`], never on this.
-///
-/// Closed: a `loss` outside this set is
-/// [`ParseError::UnknownName`](crate::serial::ParseError::UnknownName), so a
-/// consumer laddering on it has no rung it cannot read.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Loss {
-    /// Round-trips identically.
-    Lossless,
-    /// Round-trips visibly, not identically.
-    Degraded,
-    /// No markdown encoding, and where an uninterpretable class lands.
-    Unrepresentable,
-}
-
-impl Loss {
-    /// Every level, faithful first: the one enumeration point.
-    pub const ALL: &'static [Loss] = &[Loss::Lossless, Loss::Degraded, Loss::Unrepresentable];
-
-    /// The wire class naming this level: the one place a class is spelled.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Lossless => "lossless",
-            Self::Degraded => "degraded",
-            Self::Unrepresentable => "unrepresentable",
-        }
-    }
-
-    /// Parse a wire class; `parse(l.as_str()) == Some(l)` for every variant.
-    pub fn parse(class: &str) -> Option<Loss> {
-        Self::ALL.iter().copied().find(|f| f.as_str() == class)
     }
 }
 
@@ -1335,7 +1288,6 @@ mod tests {
             id: "isl-0".into(),
             island_type: IslandType::Image,
             props: serde_json::json!({"alt": "x", "url": "y.png"}),
-            loss: Loss::Lossless,
         }];
         for (kind, settles_to) in [
             (LineKind::Code { lang: None }, LineKind::Para),
@@ -1433,7 +1385,6 @@ mod tests {
             id: "i1".into(),
             island_type: IslandType::Image,
             props: nested(crate::MAX_JSON_DEPTH + 1),
-            loss: Loss::Lossless,
         }];
         assert_eq!(rt.validate(), too_deep("island props"));
     }
@@ -1671,7 +1622,6 @@ mod tests {
                     "header": [{"text": "abcd", "marks": cell_marks}],
                     "rows": [],
                 }),
-                loss: Loss::Lossless,
             }];
             rt
         }
@@ -1735,7 +1685,6 @@ mod tests {
                 "header": [{"text": "ab", "marks": [{"start": 0, "end": 5, "type": "strong"}]}],
                 "rows": [],
             }),
-            loss: Loss::Lossless,
         }];
         assert_eq!(
             rt.validate(),
@@ -1759,7 +1708,6 @@ mod tests {
             id: "i".into(),
             island_type: IslandType::Table,
             props,
-            loss: Loss::Lossless,
         }];
         rt
     }
@@ -1843,7 +1791,6 @@ mod tests {
             id: id.into(),
             island_type: IslandType::Table,
             props: serde_json::json!({ "header": [cell("h")], "aligns": ["none"], "rows": [] }),
-            loss: Loss::Lossless,
         };
         rt.islands = vec![table("dup"), table("dup")];
         assert_eq!(

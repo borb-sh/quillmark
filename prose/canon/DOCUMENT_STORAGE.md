@@ -200,7 +200,7 @@ change. Two ways to manage this:
 
 The envelope's version-and-reject discipline covers the document's **shape**:
 the schema tag, the DTO tree, the keys a `body` object carries. The content's
-five discriminators are covered by their own rule: each is a **closed set**.
+four discriminators are covered by their own rule: each is a **closed set**.
 
 | Axis | Members | Rust type |
 |---|---|---|
@@ -208,7 +208,6 @@ five discriminators are covered by their own rule: each is a **closed set**.
 | Container | `list_item`, `quote` | `Container` |
 | Mark `type` | `strong`, `emph`, `underline`, `strike`, `code`, `link`, `anchor` | `MarkKind` |
 | Island `type` | `table`, `image` | `IslandType` |
-| Island `loss` | `lossless`, `degraded`, `unrepresentable` | `Loss` |
 
 A name outside one of them is `ParseError::UnknownName { axis, name }` at every
 decoder, both lanes, so **a row holding one does not open**. Refusing is the
@@ -228,6 +227,16 @@ build's construct, and the schema tag is what lets it say "build too old"
 rather than "corrupt" (§ Schema Versioning). The tree freeze such a bump needs
 is mechanical — the DTO shape is unchanged, so the new version's tree is the
 old one and the `TryFrom` hop is the identity (§ Adding a Schema Version).
+
+**A `Content` stores its value, not how the value came about.** What a markdown
+import drops on the way in — a table cell's inline image, whose alt text lands
+as the cell's text and whose url lands nowhere — is a fact about that import,
+not about the island it mints: two tables whose `props` are equal are equal,
+however each was written, and the projection has no syntax to carry the
+difference back. So the canonical form is `{id, type, props}` and holds no
+fidelity class beside them: such a record is not re-derivable from the row that
+would carry it, and does not survive a `to_markdown` → `from_markdown` hop.
+Surfacing a drop belongs to whoever runs the import, where it happens.
 
 **Container identity is path plus contiguity, and `instance` is what completes
 it.** Two adjacent lines sit in the same container iff their whole container
@@ -421,7 +430,7 @@ Each section below states one handle's policy whole.
 
 ## Island-id determinism
 
-An island's `id` is part of the canonical form (`{id, type, props, loss}`),
+An island's `id` is part of the canonical form (`{id, type, props}`),
 so it is hash input like every other field, and byte-stability's promise:
 equal content → equal bytes, *whatever the producer*: requires that equal
 islands carry equal ids. The rule: **an id is a deterministic function of

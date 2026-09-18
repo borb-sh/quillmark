@@ -182,9 +182,9 @@ export declare function isQuillmarkError(e: unknown): e is QuillmarkError;
 
 import type { ContentContainer } from '../core/wasm.js';
 
-// `ContentIsland.type`, `ContentMark.type`, `ContentLine.kind`,
-// `ContentContainer.container` and an island's `loss` are closed sets, so a
-// bare discriminant check narrows the payload on its own:
+// `ContentIsland.type`, `ContentMark.type`, `ContentLine.kind` and
+// `ContentContainer.container` are closed sets, so a bare discriminant check
+// narrows the payload on its own:
 // `line.kind === 'heading'` reaches `line.attrs.level`, with no guard to call.
 
 /**

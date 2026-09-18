@@ -4,7 +4,7 @@
 //! member is a compile error here, where the mirror gets read.
 
 use quillmark_content::island::IslandType;
-use quillmark_content::model::{Container, LineKind, Loss, MarkKind};
+use quillmark_content::model::{Container, LineKind, MarkKind};
 use quillmark_core::quill::VARIANT_DISCRIMINANT_KEY;
 
 const RUNTIME_JS: &str = include_str!("../runtime/runtime.js");
@@ -112,16 +112,14 @@ fn ts_unions_name_every_built_in() {
         &body[..body.find("\n\n").expect("unterminated type alias")]
     }
 
-    // The two island axes carry no payload, so each is its own tag list.
-    let loss_names: Vec<_> = Loss::ALL.iter().map(|f| f.as_str()).collect();
+    // An island type carries no payload, so it is its own tag list.
     let island_types: Vec<_> = IslandType::ALL.iter().map(|k| k.as_str()).collect();
 
     for (union, names) in [
         (ts_union("ContentLineKind"), line_kind_tags()),
         (ts_union("ContentContainer"), container_tags()),
         (ts_union("ContentMarkKind"), mark_type_tags()),
-        (ts_union("ContentLossClass"), loss_names.clone()),
-        (ts_union("ContentIsland"), island_types.clone()),
+        (ts_union("ContentIsland"), island_types),
     ] {
         for name in names {
             assert!(
