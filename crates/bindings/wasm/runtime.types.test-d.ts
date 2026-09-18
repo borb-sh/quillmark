@@ -201,11 +201,8 @@ void closedContainer;
 const closedMark: ContentMark = { start: 0, end: 1, type: 'highlight' };
 void closedMark;
 // @ts-expect-error 'widget' is not an island type
-const closedIsland: ContentIsland = { id: 'i', loss: 'lossless', type: 'widget', props: {} };
+const closedIsland: ContentIsland = { id: 'i', type: 'widget', props: {} };
 void closedIsland;
-// @ts-expect-error 'partial' is not a loss class
-const closedLoss: ContentIsland['loss'] = 'partial';
-void closedLoss;
 
 // A bare discriminant check narrows the payload, with no guard.
 if (guardLine.kind === 'heading') {

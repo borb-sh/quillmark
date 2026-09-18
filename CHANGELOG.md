@@ -13,8 +13,8 @@ Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).
   `normalize` wrote that answer back over whatever was stored. Every read site
   now asks the island — export already dispatched on the type, the Typst emitter
   already lowered `Island` as `Para`, and the one fact the kind alone still
-  answered, "this block renders one line", moves to
-  `model::is_block_island_line`, which `normalize` reads beside
+  answered, "this block renders one line", moves to the new public
+  `Content::block_island_at`, which `normalize` reads beside
   `takes_continuations` when it clears a stranded `continues`. Landing a block
   island is two channels rather than three: the delta opens the line, the island
   op fills it, and the `setKind` goes. The TS `ContentLineKind` loses its

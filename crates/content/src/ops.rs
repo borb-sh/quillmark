@@ -78,10 +78,9 @@ pub enum IslandOp {
     /// the stored value, so an island cannot be renamed through this op; an id no
     /// island carries is [`ApplyError::UnknownIslandId`], never a silent no-op.
     ///
-    /// `props`, `island_type` and `loss` all come from the op, nothing deriving
-    /// `loss` from the props — so retyping an inline island into a block-only one
-    /// over a slot that shares its line is [`ApplyError::BlockIslandNotAlone`],
-    /// as landing one there is.
+    /// Both `props` and `island_type` come from the op, so retyping an inline
+    /// island into a block-only one over a slot that shares its line is
+    /// [`ApplyError::BlockIslandNotAlone`], as landing one there is.
     Set { island: Island },
     /// Insert an island: the [`ISLAND_SLOT`] at `at` and its backing entry in
     /// one op, so a slot never exists without the [`Island`] behind it.
@@ -250,7 +249,7 @@ pub fn line_op_from_value(v: &Value) -> Result<LineOp, ParseError> {
 }
 
 /// Decode an [`IslandOp`] from its wire object. Both arms carry the island
-/// vocabulary (`{id, type, props, loss}`) flattened alongside `op`, read on the
+/// vocabulary (`{id, type, props}`) flattened alongside `op`, read on the
 /// authored lane, which refuses an image `url` the markdown projection cannot
 /// write.
 pub fn island_op_from_value(v: &Value) -> Result<IslandOp, ParseError> {
@@ -1102,7 +1101,7 @@ mod tests {
     /// refuses an unknown name there too.
     #[test]
     fn op_wire_refuses_an_unknown_name() {
-        let cases: [(Value, &str, &str); 5] = [
+        let cases: [(Value, &str, &str); 4] = [
             (
                 serde_json::json!({"op": "setKind", "line": 0, "kind": "callout"}),
                 "line kind",
@@ -1121,15 +1120,9 @@ mod tests {
             ),
             (
                 serde_json::json!({"op": "insert", "at": 0, "id": "i1",
-                  "type": "widget", "loss": "lossless", "props": {}}),
+                  "type": "widget", "props": {}}),
                 "island type",
                 "widget",
-            ),
-            (
-                serde_json::json!({"op": "insert", "at": 0, "id": "i1",
-                  "type": "table", "loss": "partial", "props": {}}),
-                "island loss",
-                "partial",
             ),
         ];
         for (op, axis, name) in cases {
@@ -1783,7 +1776,6 @@ mod tests {
             id: id.into(),
             island_type: IslandType::Image,
             props: serde_json::json!({}),
-            loss: crate::model::Loss::Lossless,
         }
     }
 
@@ -1893,14 +1885,13 @@ mod tests {
 
     #[test]
     fn island_op_wire_decodes_each_variant() {
-        let island = Island::new("isl-0".into(), IslandType::Table)
-            .with_props(table_props("H", "a"))
-            .with_loss(crate::model::Loss::Degraded);
+        let island =
+            Island::new("isl-0".into(), IslandType::Table).with_props(table_props("H", "a"));
         let cases = vec![
             (
                 serde_json::json!({
                     "op": "set", "id": "isl-0", "type": "table",
-                    "props": table_props("H", "a"), "loss": "degraded",
+                    "props": table_props("H", "a"),
                 }),
                 IslandOp::Set {
                     island: island.clone(),
@@ -1909,7 +1900,7 @@ mod tests {
             (
                 serde_json::json!({
                     "op": "insert", "at": 7, "id": "isl-0", "type": "table",
-                    "props": table_props("H", "a"), "loss": "degraded",
+                    "props": table_props("H", "a"),
                 }),
                 IslandOp::Insert { at: 7, island },
             ),

@@ -1747,7 +1747,7 @@ title: Hi
         let key = body.to_canonical_json();
         assert_eq!(
             key,
-            "{\"islands\":[{\"id\":\"isl-0\",\"loss\":\"lossless\",\"props\":{\
+            "{\"islands\":[{\"id\":\"isl-0\",\"props\":{\
              \"aligns\":[\"none\",\"none\"],\
              \"header\":[{\"marks\":[],\"text\":\"A\"},{\"marks\":[],\"text\":\"B\"}],\
              \"rows\":[[{\"marks\":[],\"text\":\"1\"},{\"marks\":[],\"text\":\"2\"}]]},\

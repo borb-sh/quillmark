@@ -606,7 +606,7 @@ proptest! {
         md in document(),
         pos_seed in 0usize..4096,
         line_seed in 0usize..64,
-        which in 0u8..7,
+        which in 0u8..6,
     ) {
         let mut rt = from_markdown(&md).unwrap();
         let len = rt.len_usv();
