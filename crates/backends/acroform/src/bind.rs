@@ -229,7 +229,12 @@ fn descend<'a>(cur: &'a FieldSchema, seg: &str) -> Option<&'a FieldSchema> {
             _ => None,
         },
         Err(_) => match cur.r#type {
-            SchemaType::Object => cur.properties.as_ref()?.get(seg).map(Box::as_ref),
+            // A matrix's members are the namespace an address descends, so
+            // `qualifications.flight_cc.held` reaches the tick as any typed
+            // dictionary's leaf is reached.
+            SchemaType::Object | SchemaType::Matrix { .. } => {
+                cur.namespace_props()?.get(seg).map(Box::as_ref)
+            }
             _ => cur.variant_field(seg),
         },
     }
@@ -268,7 +273,9 @@ pub fn project_kind(
         SchemaType::Enum { values } => WidgetType::Choice {
             options: blank_first(values),
         },
-        SchemaType::Object => return Err(unbindable()),
+        // Neither a typed dictionary nor a matrix has a widget shape: the cells
+        // inside them do, and each binds at its own address.
+        SchemaType::Object | SchemaType::Matrix { .. } => return Err(unbindable()),
     })
 }
 
@@ -290,7 +297,10 @@ fn is_multiline(field: &FieldSchema) -> bool {
 }
 
 fn is_scalar_or_prose(field: &FieldSchema) -> bool {
-    !matches!(field.r#type, SchemaType::Array | SchemaType::Object)
+    !matches!(
+        field.r#type,
+        SchemaType::Array | SchemaType::Object | SchemaType::Matrix { .. }
+    )
 }
 
 fn type_desc(field: &FieldSchema) -> String {

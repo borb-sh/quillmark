@@ -1,0 +1,62 @@
+quill:
+  name: roster_form
+  version: 0.1.0
+  backend: typst
+  description: Exercises a matrix vocabulary, a capped array, and a table-layout typed table
+
+typst:
+  plate_file: plate.typ
+
+main:
+  body:
+    enabled: false
+  fields:
+    title:
+      type: string
+      default: Annual Roster
+
+    qualifications:
+      type: matrix
+      description: Tick each qualification held; annotate a tick with the date earned.
+      members:
+        - group: Leadership & Command
+          values:
+            sq_cc_candidate: Sq/CC Candidate
+            flight_cc: Flight CC
+        - group: Operations
+          values:
+            dodin_ops: DODIN Ops
+            dco: DCO (Defensive)
+        - values:
+            cyber_200: Cyber 200
+      properties:
+        detail:
+          type: plaintext
+          inline: true
+          default: ""
+          description: What the tick is qualified by.
+
+    endorsements:
+      type: array
+      max: 3
+      description: Endorsing officials, in routing order.
+      items:
+        type: string
+
+    tours:
+      type: array
+      max: 2
+      description: Assignments, newest first.
+      ui:
+        layout: table
+      items:
+        type: object
+        ui:
+          title: "{unit}"
+        properties:
+          unit:
+            type: string
+            default: ""
+          duration:
+            type: integer
+            default: 0

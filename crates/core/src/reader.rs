@@ -272,8 +272,8 @@ fn project_value(
             }
             Ok(serde_json::Value::Array(out))
         }
-        (FieldType::Object, serde_json::Value::Object(map)) => {
-            let props = schema.properties.as_ref();
+        (FieldType::Object | FieldType::Matrix { .. }, serde_json::Value::Object(map)) => {
+            let props = schema.namespace_props();
             project_map(name, map, at, |key| {
                 props.and_then(|p| p.get(key)).map(|s| &**s)
             })
@@ -346,7 +346,9 @@ fn schema_at<'a>(
         };
         cursor = match (&cursor.r#type, seg) {
             (FieldType::Array, PathSegment::Index(_)) => cursor.items.as_deref().ok_or(blocked)?,
-            (FieldType::Object, PathSegment::Key(key)) => match cursor.properties.as_ref() {
+            (FieldType::Object | FieldType::Matrix { .. }, PathSegment::Key(key)) => match cursor
+                .namespace_props()
+            {
                 None => return Err(blocked),
                 Some(props) => props.get(key).ok_or_else(|| EditError::UnknownField {
                     field: name.to_string(),

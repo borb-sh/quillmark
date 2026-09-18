@@ -190,6 +190,23 @@ pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
                     schema.insert("properties".to_string(), serde_json::Value::Object(props));
                 }
             }
+            // The desugared members, so `qualifications.flight_cc.held` resolves
+            // as any typed dictionary's leaf does. `title` and `group` are
+            // written by the projection rather than held as cells, so they carry
+            // no address and stay out.
+            FieldType::Matrix { .. } => {
+                schema.insert(
+                    "type".to_string(),
+                    serde_json::Value::String("object".to_string()),
+                );
+                if let Some(members) = &field.members {
+                    let mut props = serde_json::Map::new();
+                    for (id, member) in members {
+                        props.insert(id.clone(), field_to_schema(member));
+                    }
+                    schema.insert("properties".to_string(), serde_json::Value::Object(props));
+                }
+            }
             // Distinct markers for the two date types drive the Typst backend's
             // per-type lowering (3-component vs 6-component `datetime(..)`). This
             // is the internal transform schema; the marker precedent is

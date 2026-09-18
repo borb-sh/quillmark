@@ -202,6 +202,19 @@ fn append_field(items: &mut CardItems, field: &FieldSchema) {
         return;
     }
 
+    if matches!(field.r#type, FieldType::Matrix { .. }) {
+        push_leading(items, field, true);
+        push_container_field(
+            items,
+            &field.name,
+            matrix_cell(),
+            Vec::new(),
+            Vec::new(),
+            field,
+        );
+        return;
+    }
+
     if typed_dict_props(field).is_some() || typed_table_props(field).is_some() {
         // The container key itself is untagged: `!must_fill` is rejected on a
         // mapping (`prose/references/markdown-spec.md` §3.4), so the obligation
@@ -213,6 +226,14 @@ fn append_field(items: &mut CardItems, field: &FieldSchema) {
     }
 
     append_scalar(items, field);
+}
+
+/// A matrix's blueprint cell: the empty mapping, which is the sparse spelling
+/// of a vocabulary nobody has ticked. The roster rides the inline annotation, so
+/// expanding every member here would show a model twenty-seven subforms to
+/// delete and a seed it must not ship.
+fn matrix_cell() -> JsonValue {
+    JsonValue::Object(JsonMap::new())
 }
 
 fn typed_dict_props(field: &FieldSchema) -> Option<&IndexMap<String, Box<FieldSchema>>> {
@@ -249,11 +270,22 @@ fn push_leading(items: &mut CardItems, field: &FieldSchema, eg_when: bool) {
     if let Some(desc) = collapse_opt(field.description.as_deref()) {
         items.push(PayloadItem::comment(desc));
     }
+    if let Some(cap) = cap_hint(field) {
+        items.push(PayloadItem::comment(cap));
+    }
     if eg_when {
         if let Some(eg) = field.example.as_ref() {
             items.push(PayloadItem::comment(format!("e.g. {}", eg_hint(eg))));
         }
     }
+}
+
+/// The `# up to <N>` leading line for a capped array, in the own-line form
+/// `# composable (0..N)` already takes for a card kind's cardinality. A limit
+/// the blueprint does not show is a limit the MCP flow learns from prose, which
+/// is what `max:` exists to stop.
+fn cap_hint(field: &FieldSchema) -> Option<String> {
+    field.max.map(|max| format!("up to {max}"))
 }
 
 /// The cell's `(value, fill)` for a scalar/array/richtext leaf. The value is
@@ -319,6 +351,14 @@ fn build_property_mapping(
                 inline: false,
             });
         }
+        if let Some(cap) = cap_hint(prop) {
+            nested.push(NestedComment {
+                container_path: prefix.to_vec(),
+                position: slot,
+                text: cap,
+                inline: false,
+            });
+        }
         if eg_hinted(prop) {
             if let Some(eg) = prop.example.as_ref() {
                 nested.push(NestedComment {
@@ -352,6 +392,9 @@ fn property_cell(
     prop: &FieldSchema,
     path: &[PathSegment],
 ) -> (JsonValue, Vec<NestedComment>, Vec<Vec<PathSegment>>) {
+    if matches!(prop.r#type, FieldType::Matrix { .. }) {
+        return (matrix_cell(), Vec::new(), Vec::new());
+    }
     if typed_dict_props(prop).is_some() || typed_table_props(prop).is_some() {
         return container_cell(prop, path);
     }
@@ -486,6 +529,17 @@ fn push_container_field(
 fn type_expression(field: &FieldSchema) -> String {
     match &field.r#type {
         FieldType::Enum { values } => format!("enum<{}>", values.join(" | ")),
+        // The roster rides the format slot as an enum's domain does: the whole
+        // vocabulary in one line, so a model cannot invent a member.
+        FieldType::Matrix { .. } => {
+            let ids: Vec<&str> = field
+                .r#type
+                .matrix_members()
+                .into_iter()
+                .map(|(id, _, _)| id)
+                .collect();
+            format!("matrix<{}>", ids.join(" | "))
+        }
         FieldType::String => "string".into(),
         FieldType::Number => "number".into(),
         FieldType::Integer => "integer".into(),

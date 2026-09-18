@@ -22,6 +22,11 @@ export interface QuillFieldUi {
     /** Label for an `enum`'s blank option. Absent, the consumer supplies a
      *  conventional label of its own. */
     blank_title?: string;
+    /** The control the field asks for, where the shape admits more than one.
+     *  A request, not a contract: a consumer that cannot draw it falls back to
+     *  its own choice for the type. `"table"` is valid only on an `array`
+     *  whose `items` is an `object`. */
+    layout?: "table";
 }
 
 /** One entry in a card's `ui.groups` registry: a display-label override for the
@@ -73,7 +78,7 @@ export interface QuillCardBody {
  * gates render: an absent field blank-fills.
  */
 export interface QuillFieldSchema {
-    type: "string" | "number" | "integer" | "boolean" | "array" | "object" | "date" | "datetime" | "richtext" | "plaintext" | "enum";
+    type: "string" | "number" | "integer" | "boolean" | "array" | "object" | "date" | "datetime" | "richtext" | "plaintext" | "enum" | "matrix";
     description?: string;
     default?: unknown;
     example?: unknown;
@@ -85,12 +90,28 @@ export interface QuillFieldSchema {
      *  member. Declaring it makes the field rest as a container,
      *  `{value: <member>, …that member's fields}`, rather than a bare string. */
     variants?: Record<string, Record<string, QuillFieldSchema>>;
+    /** The roster of a `type: "matrix"` field, required there and valid
+     *  nowhere else: the closed vocabulary a document ticks, in display order.
+     *  Each member is an object of `held` plus the field's `properties`
+     *  (the columns), addressed as `<field>.<member id>.held`. */
+    members?: QuillMatrixGroup[];
     ui?: QuillFieldUi;
     properties?: Record<string, QuillFieldSchema>;
     items?: QuillFieldSchema;
+    /** The element count past which an `array` overflows the page it is laid
+     *  out on. Valid only on an `array`. Never gates render: a document over
+     *  the cap warns `validation::cardinality` and renders. */
+    max?: number;
     /** `true` on a `richtext` or `plaintext` field declared `inline`: the
      *  single-paragraph, container-free, island-free constraint. */
     inline?: boolean;
+}
+
+/** One block of a `type: "matrix"` roster: an optional display heading and the
+ * members under it, member id to display title. Key order is display order. */
+export interface QuillMatrixGroup {
+    group?: string;
+    values: Record<string, string>;
 }
 
 /** Schema entry for the main card or a named card kind. */

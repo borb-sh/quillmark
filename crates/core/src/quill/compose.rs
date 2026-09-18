@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use super::resolved::FieldSource;
 use super::{
     seed, CardSchema, CoercionError, FieldSchema, FieldType, Leniency, Quill, QuillConfig,
-    VARIANT_DISCRIMINANT_KEY,
+    MATRIX_GROUP_KEY, MATRIX_HELD_KEY, MATRIX_TITLE_KEY, VARIANT_DISCRIMINANT_KEY,
 };
 use crate::normalize::{normalize_document, normalize_field_name};
 use crate::quill::blank;
@@ -215,6 +215,7 @@ impl Quill {
                 .filter(|d| !claimed.contains(&d.path)),
         );
         diags.extend(validate_variants(self.config(), doc));
+        diags.extend(validate_cardinality(self.config(), doc));
         diags.extend(self.validate_seed(doc));
         diags
     }
@@ -498,8 +499,10 @@ fn compose(
     field: &FieldSchema,
     seed_rung: FieldSource,
 ) -> (QuillValue, FieldSource) {
-    match (&field.r#type, &field.properties, &field.items) {
-        (FieldType::Object, Some(props), _) if composes_as(seed, serde_json::Value::is_object) => {
+    match (&field.r#type, field.namespace_props(), &field.items) {
+        (FieldType::Object | FieldType::Matrix { .. }, Some(props), _)
+            if composes_as(seed, serde_json::Value::is_object) =>
+        {
             let obj = seed.and_then(|v| v.as_json().as_object());
             let mut out = serde_json::Map::new();
             let rung = compose_members(obj, props, seed_rung, &mut out);
@@ -513,6 +516,7 @@ fn compose(
                     }
                 }
             }
+            close_matrix_wire(field, &mut out);
             (QuillValue::from_json(serde_json::Value::Object(out)), rung)
         }
         (FieldType::Array, _, Some(items)) if composes_as(seed, serde_json::Value::is_array) => {
@@ -532,6 +536,64 @@ fn compose(
             Some(v) => (v.clone(), FieldSource::Blank),
             None => (blank(field), FieldSource::Blank),
         },
+    }
+}
+
+/// Whether a stored matrix member reads as ticked. Key presence is the tick
+/// unless the mapping spells otherwise, so this reads both the coerced
+/// container and the bare scalar a payload built outside coercion carries.
+fn is_held(stored: &serde_json::Value) -> bool {
+    match stored {
+        serde_json::Value::Null => false,
+        serde_json::Value::Object(map) => map
+            .get(MATRIX_HELD_KEY)
+            .map_or(true, |h| h.as_bool().unwrap_or(false)),
+        other => other.as_bool().unwrap_or(true),
+    }
+}
+
+/// Write a matrix's roster onto the composed members, and close the wire over
+/// the unheld ones.
+///
+/// `title` and `group` are the projection's, not the document's: a matrix
+/// carries them on every member whatever the document holds, so a plate reads a
+/// label it never has to look up. An unheld member's columns render at their
+/// blanks for the reason a variant's unselected world does not render at all —
+/// the wire carries the live world only, so a plate reads `held` and its columns
+/// without a guard and never prints a stranded answer. What the document retains
+/// under an unticked member is a fact about the stored form alone.
+///
+/// A no-op for every other type.
+fn close_matrix_wire(field: &FieldSchema, out: &mut serde_json::Map<String, serde_json::Value>) {
+    let roster = field.r#type.matrix_members();
+    if roster.is_empty() {
+        return;
+    }
+    let columns = field.matrix_columns();
+    for (id, title, group) in roster {
+        let Some(serde_json::Value::Object(member)) = out.get_mut(id) else {
+            continue;
+        };
+        let held = member
+            .get(MATRIX_HELD_KEY)
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        if !held {
+            for (name, column) in columns {
+                member.insert(name.clone(), blank(column).into_json());
+            }
+        }
+        member.insert(
+            MATRIX_TITLE_KEY.to_string(),
+            serde_json::Value::String(title.to_string()),
+        );
+        member.insert(
+            MATRIX_GROUP_KEY.to_string(),
+            match group {
+                Some(group) => serde_json::Value::String(group.to_string()),
+                None => serde_json::Value::String(String::new()),
+            },
+        );
     }
 }
 
@@ -806,7 +868,30 @@ fn collect_unauthored_field(
         return;
     }
 
-    if let (FieldType::Object, Some(props)) = (&field.r#type, &field.properties) {
+    // A matrix's obligation is per column *inside a held member*, the variant
+    // rule one level down: an unticked member asks for nothing, and the matrix
+    // itself obliges nothing. An absent matrix is therefore silent, where an
+    // absent typed dictionary warns at each of its must-fill leaves.
+    if let (FieldType::Matrix { .. }, Some(members)) = (&field.r#type, field.namespace_props()) {
+        let obj = value.and_then(|v| v.as_json().as_object());
+        for (id, member) in members {
+            let Some(cell) = obj.and_then(|o| o.get(id)) else {
+                continue;
+            };
+            if !is_held(cell) {
+                continue;
+            }
+            collect_unauthored_field(
+                member,
+                Some(&QuillValue::from_json(cell.clone())),
+                &path.field(id),
+                out,
+            );
+        }
+        return;
+    }
+
+    if let Some(props) = field.namespace_props() {
         let obj = value.and_then(|v| v.as_json().as_object());
         for (name, prop) in props {
             let pv = obj
@@ -909,6 +994,95 @@ pub(crate) fn out_of_variant_warning(path: &DocPath, owner: &str, member: &str) 
     .with_hint(format!(
         "Select `{owner}` to bring the field back into play, or remove the field to drop the \
          value."
+    ))
+}
+
+/// Report every `array` the document fills past its declared `max:`, across the
+/// main card and every composable card.
+///
+/// `max:` is page geometry: the element count past which the surplus leaves the
+/// page the field is laid out on. The obligation family, never a gate — a
+/// document over the limit renders, with the plate's own rule for the surplus.
+fn validate_cardinality(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
+    let mut diags = Vec::new();
+    for (schema, card, path) in schema_cards(config, doc) {
+        let Some(schema) = schema else { continue };
+        let payload = card.payload();
+        for (name, field) in &schema.fields {
+            collect_cardinality_diags(field, payload.get(name), &path.field(name), &mut diags);
+        }
+    }
+    diags
+}
+
+/// Warn at each over-filled array `field` holds, at whatever depth: an array
+/// nested in a typed dictionary, a matrix member, a live variant world, or
+/// another array's elements is capped by its own declaration.
+///
+/// The walk mirrors [`collect_unauthored_field`]'s so the two speak about the
+/// same paths; unlike that one it descends only what the document authored,
+/// since an absent array has no count to exceed.
+fn collect_cardinality_diags(
+    field: &FieldSchema,
+    value: Option<&QuillValue>,
+    path: &DocPath,
+    out: &mut Vec<Diagnostic>,
+) {
+    let Some(json) = value.map(|v| v.as_json()).filter(|j| !j.is_null()) else {
+        return;
+    };
+
+    if field.is_variant_bearing() {
+        let Some(object) = json.as_object() else { return };
+        let member = field.selected_member(Some(json));
+        if let Some(fields) = field.variant_fields(&member) {
+            for (name, schema) in fields {
+                let cell = object.get(name).map(|j| QuillValue::from_json(j.clone()));
+                collect_cardinality_diags(schema, cell.as_ref(), &path.field(name), out);
+            }
+        }
+        return;
+    }
+
+    if let Some(props) = field.namespace_props() {
+        let Some(object) = json.as_object() else { return };
+        for (name, prop) in props {
+            let cell = object.get(name).map(|j| QuillValue::from_json(j.clone()));
+            collect_cardinality_diags(prop, cell.as_ref(), &path.field(name), out);
+        }
+        return;
+    }
+
+    let Some(elements) = json.as_array() else { return };
+    if let Some(max) = field.max {
+        if elements.len() > max as usize {
+            out.push(cardinality_warning(path, max, elements.len()));
+        }
+    }
+    if let Some(items) = &field.items {
+        for (index, element) in elements.iter().enumerate() {
+            let element = QuillValue::from_json(element.clone());
+            collect_cardinality_diags(items, Some(&element), &path.index(index), out);
+        }
+    }
+}
+
+pub(crate) fn cardinality_warning(path: &DocPath, max: u32, actual: usize) -> Diagnostic {
+    let path = path.to_string();
+    Diagnostic::new(
+        Severity::Warning,
+        format!(
+            "Field `{path}` holds {actual} elements but the quill lays out at most {max}: \
+             the surplus will not fit the page."
+        ),
+    )
+    .with_code("validation::cardinality".to_string())
+    .with_path(path)
+    .with_arg("max", max.into())
+    .with_arg("actual", actual.into())
+    .with_hint(format!(
+        "Remove {} element(s), or move the surplus onto another document.",
+        actual.saturating_sub(max as usize)
     ))
 }
 

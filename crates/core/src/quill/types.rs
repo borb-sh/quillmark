@@ -6,6 +6,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::value::QuillValue;
 
+/// The control a field asks an editor to draw, where the shape admits more than
+/// one and the default reads wrong. A **request**, not a contract: a consumer
+/// that cannot honor it falls back to its own choice for the type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FieldLayout {
+    /// A typed table drawn as a grid, one row per element and one column per
+    /// property. Valid only on an `array` whose `items` is an `object`
+    /// (`quill::invalid_ui`).
+    Table,
+}
+
 /// A field's `ui:` block.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -19,6 +31,9 @@ pub struct UiFieldSchema {
     pub compact: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub multiline: Option<bool>,
+    /// The control the field asks for; see [`FieldLayout`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layout: Option<FieldLayout>,
     /// Label for an `enum`'s blank option. Absent, a consumer renders a
     /// conventional label of its own: naming the void is not every enum
     /// author's job. Its own key rather than an entry in a member-label map,
@@ -296,6 +311,43 @@ pub enum FieldType {
     /// A closed string domain, `values` in declaration order. The blank (`""`)
     /// is accepted beside them and is never one of them.
     Enum { values: Vec<String> },
+    /// A closed vocabulary someone ticks: `groups` in declaration order, whose
+    /// members each hold a synthesized [`MATRIX_HELD_KEY`] beside the field's
+    /// declared columns. A namespace, not a cell
+    /// (`prose/canon/SCHEMAS.md` §"Cells and namespaces").
+    Matrix { groups: Vec<MatrixGroup> },
+}
+
+/// One block of a [`FieldType::Matrix`] roster: an optional display heading and
+/// the members under it, member id to display title, in declaration order.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MatrixGroup {
+    /// The heading these members sit under; absent for an ungrouped block.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    /// Member id to display title. Ids are snake_case identifiers: they are
+    /// what the wire, the address and the document speak.
+    pub values: IndexMap<String, String>,
+}
+
+/// The tick a [`FieldType::Matrix`] synthesizes on every member, beside the
+/// declared columns. Reserved: a column may not declare it
+/// (`quill::matrix_reserved_column`).
+pub const MATRIX_HELD_KEY: &str = "held";
+
+/// The per-member wire keys a matrix projection writes from its roster. Neither
+/// is a cell: they carry no address, take no literal, and a document authoring
+/// one is overwritten at the projection.
+pub const MATRIX_TITLE_KEY: &str = "title";
+/// See [`MATRIX_TITLE_KEY`].
+pub const MATRIX_GROUP_KEY: &str = "group";
+
+impl MatrixGroup {
+    /// Every member of this block, id first.
+    pub fn members(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.values.iter().map(|(id, title)| (id.as_str(), title.as_str()))
+    }
 }
 
 impl FieldType {
@@ -316,6 +368,7 @@ impl FieldType {
             "richtext" => Some(FieldType::RichText { inline: false }),
             "plaintext" => Some(FieldType::PlainText { inline: false }),
             "enum" => Some(FieldType::Enum { values: Vec::new() }),
+            "matrix" => Some(FieldType::Matrix { groups: Vec::new() }),
             _ => None,
         }
     }
@@ -333,6 +386,23 @@ impl FieldType {
             FieldType::RichText { .. } => "richtext",
             FieldType::PlainText { .. } => "plaintext",
             FieldType::Enum { .. } => "enum",
+            FieldType::Matrix { .. } => "matrix",
+        }
+    }
+
+    /// Every member of a matrix roster, flattened across its groups in
+    /// declaration order: id, title, and the group heading it sits under.
+    /// Empty for every other type.
+    pub fn matrix_members(&self) -> Vec<(&str, &str, Option<&str>)> {
+        match self {
+            FieldType::Matrix { groups } => groups
+                .iter()
+                .flat_map(|g| {
+                    g.members()
+                        .map(move |(id, title)| (id, title, g.group.as_deref()))
+                })
+                .collect(),
+            _ => Vec::new(),
         }
     }
 }
@@ -393,6 +463,16 @@ pub struct FieldSchema {
     /// Element schema, required on every `array` field. A typed table's element
     /// is an `object` carrying its own `properties`.
     pub items: Option<Box<FieldSchema>>,
+    /// The element count past which an `array` overflows the page it is laid
+    /// out on: page geometry, so `Quill::validate` warns
+    /// (`validation::cardinality`) rather than gating the render. Valid only on
+    /// an `array`.
+    pub max: Option<u32>,
+    /// A `matrix`'s members as the object schemas they desugar to, member id to
+    /// `{held, …columns}`, in roster order. Derived at parse from the
+    /// [`FieldType::Matrix`] roster and `properties:` (the columns), which stay
+    /// the authored carriers, so it is not serialized.
+    pub members: Option<IndexMap<String, Box<FieldSchema>>>,
     /// Canonical-content form of [`default`](Self::default) for a
     /// content-bearing field, imported once at quill load and never serialized.
     /// The render floor commits it uncoerced, so a content default crosses the
@@ -425,6 +505,11 @@ struct FieldSchemaDef {
     // Element schema for arrays.
     pub items: Option<serde_json::Value>,
     pub inline: Option<bool>,
+    /// An `array`'s element cap. Lands in [`FieldSchema::max`].
+    pub max: Option<u32>,
+    /// The roster of a `type: matrix` field, and the only spelling of one.
+    /// Lands in the [`FieldType::Matrix`] payload.
+    pub members: Option<Vec<MatrixGroup>>,
 }
 
 impl FieldSchema {
@@ -439,6 +524,8 @@ impl FieldSchema {
             variants: None,
             properties: None,
             items: None,
+            max: None,
+            members: None,
             default_content: None,
             example_content: None,
         }
@@ -515,6 +602,8 @@ impl FieldSchema {
         // payload is each key's one carrier.
         let r#type = Self::resolve_prose_inline(def.r#type, def.inline)?;
         let r#type = Self::resolve_enum_domain(r#type, def.values)?;
+        let r#type = Self::resolve_matrix_roster(r#type, def.members)?;
+        let max = Self::resolve_array_max(&r#type, def.max)?;
         let schema = Self {
             name: key.clone(),
             r#type,
@@ -565,12 +654,74 @@ impl FieldSchema {
             } else {
                 None
             },
+            max,
+            members: None,
             // Filled by the loader's post-pass, which alone imports and
             // validates the literals; a bare `from_quill_value` leaves them empty.
             default_content: None,
             example_content: None,
         };
+        let mut schema = schema;
+        schema.rebuild_matrix_members()?;
         Ok(schema)
+    }
+
+    /// Expand a `matrix`'s roster into the per-member object schemas every
+    /// container walk reads: one `object` per member id, carrying
+    /// [`MATRIX_HELD_KEY`] beside the declared columns.
+    ///
+    /// The members are copies of the columns, so the loader re-expands once its
+    /// content companions are imported.
+    pub(crate) fn rebuild_matrix_members(&mut self) -> Result<(), String> {
+        let roster = self.r#type.matrix_members();
+        if roster.is_empty() {
+            return Ok(());
+        }
+        let ids: Vec<String> = roster.iter().map(|(id, _, _)| (*id).to_string()).collect();
+        let columns = self.properties.clone().unwrap_or_default();
+        let mut members = IndexMap::new();
+        for id in ids {
+            let mut cells: IndexMap<String, Box<FieldSchema>> = IndexMap::new();
+            let mut held =
+                FieldSchema::new(MATRIX_HELD_KEY.to_string(), FieldType::Boolean, None);
+            held.default = Some(QuillValue::from_json(serde_json::Value::Bool(false)));
+            cells.insert(MATRIX_HELD_KEY.to_string(), Box::new(held));
+            // A column spelling the reserved name is `quill::matrix_reserved_column`
+            // at load; the synthesized tick stands whatever else the shape pass finds.
+            for (name, column) in columns.iter().filter(|(n, _)| *n != MATRIX_HELD_KEY) {
+                cells.insert(name.clone(), column.clone());
+            }
+            let mut member = FieldSchema::new(id.clone(), FieldType::Object, None);
+            member.properties = Some(cells);
+            members.insert(id, Box::new(member));
+        }
+        self.members = Some(members);
+        Ok(())
+    }
+
+    /// The namespace a container field composes its value from: a typed
+    /// dictionary's `properties`, or a matrix's per-member objects. `None` for
+    /// every cell.
+    pub fn namespace_props(&self) -> Option<&IndexMap<String, Box<FieldSchema>>> {
+        match self.r#type {
+            FieldType::Object => self.properties.as_ref(),
+            FieldType::Matrix { .. } => self.members.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// A matrix's declared columns: the cells beside [`MATRIX_HELD_KEY`] on
+    /// every member. Empty for a checklist, and for every other type.
+    pub fn matrix_columns(&self) -> &IndexMap<String, Box<FieldSchema>> {
+        static EMPTY: std::sync::OnceLock<IndexMap<String, Box<FieldSchema>>> =
+            std::sync::OnceLock::new();
+        match self.r#type {
+            FieldType::Matrix { .. } => self
+                .properties
+                .as_ref()
+                .unwrap_or_else(|| EMPTY.get_or_init(IndexMap::new)),
+            _ => EMPTY.get_or_init(IndexMap::new),
+        }
     }
 
     /// Fold the sibling `inline:` key into a prose type's payload. Every other
@@ -616,6 +767,44 @@ impl FieldSchema {
             (other, None) => Ok(other),
         }
     }
+
+    /// Fold the sibling `members:` key into the [`FieldType::Matrix`] payload:
+    /// `type: matrix` requires a roster naming at least one member, and
+    /// `members:` elsewhere is an error.
+    fn resolve_matrix_roster(
+        r#type: FieldType,
+        members: Option<Vec<MatrixGroup>>,
+    ) -> Result<FieldType, String> {
+        match (r#type, members) {
+            (FieldType::Matrix { .. }, Some(groups))
+                if groups.iter().any(|g| !g.values.is_empty()) =>
+            {
+                Ok(FieldType::Matrix { groups })
+            }
+            (FieldType::Matrix { .. }, _) => Err(
+                "type: matrix requires a members: roster naming at least one member".to_string(),
+            ),
+            (other, Some(_)) => Err(format!(
+                "members: is only valid on type: matrix, not on type: {}",
+                other.as_str()
+            )),
+            (other, None) => Ok(other),
+        }
+    }
+
+    /// Fold the sibling `max:` key: an element cap is arity, which only an
+    /// `array` has.
+    fn resolve_array_max(r#type: &FieldType, max: Option<u32>) -> Result<Option<u32>, String> {
+        match (r#type, max) {
+            (FieldType::Array, max) => Ok(max),
+            (_, None) => Ok(None),
+            (other, Some(_)) => Err(format!(
+                "max: caps an array's element count and is only valid on type: array, \
+                 not on type: {}",
+                other.as_str()
+            )),
+        }
+    }
 }
 
 impl Serialize for FieldSchema {
@@ -630,6 +819,10 @@ impl Serialize for FieldSchema {
             FieldType::Enum { values } => Some(values),
             _ => None,
         };
+        let groups = match &self.r#type {
+            FieldType::Matrix { groups } => Some(groups),
+            _ => None,
+        };
         let len = 1
             + inline.is_some() as usize
             + self.description.is_some() as usize
@@ -637,9 +830,11 @@ impl Serialize for FieldSchema {
             + self.example.is_some() as usize
             + self.ui.is_some() as usize
             + values.is_some() as usize
+            + groups.is_some() as usize
             + self.variants.is_some() as usize
             + self.properties.is_some() as usize
-            + self.items.is_some() as usize;
+            + self.items.is_some() as usize
+            + self.max.is_some() as usize;
         // The emission order is what `usaf_memo/0.2.0/__golden__/schema.yaml`
         // pins: `values` between `ui` and `variants`, `inline` trailing the
         // block, both read off the type payload.
@@ -660,6 +855,9 @@ impl Serialize for FieldSchema {
         if let Some(v) = values {
             map.serialize_entry("values", v)?;
         }
+        if let Some(v) = groups {
+            map.serialize_entry("members", v)?;
+        }
         if let Some(v) = &self.variants {
             map.serialize_entry("variants", v)?;
         }
@@ -668,6 +866,9 @@ impl Serialize for FieldSchema {
         }
         if let Some(v) = &self.items {
             map.serialize_entry("items", v)?;
+        }
+        if let Some(v) = &self.max {
+            map.serialize_entry("max", v)?;
         }
         if let Some(v) = inline {
             map.serialize_entry("inline", &v)?;

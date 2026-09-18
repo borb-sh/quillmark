@@ -513,6 +513,33 @@ fn validate_value(
             }
             None => false,
         },
+        // A matrix's keys are its domain, so a key naming no member is the
+        // closed-domain violation an out-of-domain enum member is. The members
+        // themselves recurse as the objects they desugar to.
+        FieldType::Matrix { .. } => match value.as_object() {
+            Some(object) => {
+                let members = field.members.as_ref();
+                for (id, member_value) in object {
+                    match members.and_then(|m| m.get(id)) {
+                        Some(member_schema) => errors.extend(validate_value(
+                            member_schema,
+                            &QuillValue::from_json(member_value.clone()),
+                            &path.field(id),
+                            ctx,
+                        )),
+                        None => errors.push(ValidationError::EnumViolation {
+                            path: path.field(id).to_string(),
+                            value: id.clone(),
+                            allowed: members
+                                .map(|m| m.keys().cloned().collect())
+                                .unwrap_or_default(),
+                        }),
+                    }
+                }
+                true
+            }
+            None => false,
+        },
         FieldType::Object => match value.as_object() {
             Some(object) => {
                 if let Some(properties) = &field.properties {
@@ -799,10 +826,15 @@ main:
 "#
         );
         let (config, warnings) = QuillConfig::from_yaml_with_warnings(&yaml).unwrap();
+        // A bodiless card kind is the shape several of these cases are about,
+        // and its advice is the doctrine's, not a defect in the fixture.
+        let unexpected: Vec<&crate::error::Diagnostic> = warnings
+            .iter()
+            .filter(|d| d.code.as_deref() != Some("quill::bodiless_card_kind"))
+            .collect();
         assert!(
-            warnings.is_empty(),
-            "config_with produced warnings (test schema is unsupported): {:?}",
-            warnings
+            unexpected.is_empty(),
+            "config_with produced warnings (test schema is unsupported): {unexpected:?}"
         );
         config
     }
