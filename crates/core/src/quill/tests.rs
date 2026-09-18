@@ -2411,3 +2411,49 @@ fn a_capped_table_blueprints_within_its_own_cap() {
         );
     }
 }
+
+/// The blueprint is the surface the MCP author reads, so a cap it does not show
+/// is a cap learned from prose. The line holds the own-line position
+/// `# composable (0..N)` takes — under the description, above the `# e.g.` hint
+/// — at both depths a cap loads at.
+#[test]
+fn a_cap_rides_its_own_leading_line_under_the_description() {
+    let bp = config_with_sections(
+        r#"main:
+  fields:
+    rows:
+      type: array
+      max: 2
+      description: The units that fit the page.
+      default: [a]
+      example: [a, b]
+      items: { type: string }
+    box:
+      type: object
+      properties:
+        tags:
+          type: array
+          max: 1
+          description: Tags for the box.
+          items: { type: string }
+"#,
+    )
+    .expect("a cap loads at either depth")
+    .blueprint();
+
+    assert!(
+        bp.contains("# The units that fit the page.\n# up to 2\n# e.g. [a, b]\nrows:"),
+        "{bp}"
+    );
+    assert!(
+        bp.contains("  # Tags for the box.\n  # up to 1\n  tags:"),
+        "{bp}"
+    );
+
+    let uncapped = config_with_sections(
+        "main:\n  fields:\n    rows:\n      type: array\n      items: { type: string }\n",
+    )
+    .expect("an uncapped array loads")
+    .blueprint();
+    assert!(!uncapped.contains("up to"), "{uncapped}");
+}
