@@ -826,18 +826,32 @@ describe('@quillmark/wasm: container run boundaries', () => {
     islands: [],
   })
 
-  // A stamped `1` is the helper saying these two would weld.
-  const stamp = (a, b) => assignInstances([a, b]).map((c) => c.instance)
+  /**
+   * One pair, both halves of the weld rule: `assignInstances` stamps
+   * `expected`, and a round trip re-mints exactly that. Import runs
+   * `Content::normalize`, which mints the minimum against
+   * `Container::same_weld`, so a JS stamp too coarse comes back welded and one
+   * too eager comes back dropped — the Rust predicate read by running it rather
+   * than re-spelled. A read omits a zero, hence the `undefined`.
+   */
+  const remints = (a, b, expected) => {
+    const [x, y] = assignInstances([a, b])
+    expect([x, y].map((c) => c.instance)).toEqual(expected)
+    const back = importMarkdown(exportMarkdown(content(x, y)))
+    expect(back.lines.map((l) => l.containers[0].instance)).toEqual(
+      expected.map((n) => n || undefined)
+    )
+  }
 
   it('stamps on what the markdown projection can carry, not on equality', () => {
-    // `start` differs and they still weld: CommonMark reads only a list's first
-    // number, so the projection cannot carry the second one.
+    // `start` and `ordinal` differ and the runs still weld: CommonMark reads
+    // only a list's first number, and an ordinal is positional.
     const list = (over) => ({ ...LIST, attrs: { ...LIST.attrs, ...over } })
-    expect(stamp(LIST, list({ start: 3 }))).toEqual([0, 1])
-    expect(stamp(LIST, list({ ordinal: 4 }))).toEqual([0, 1])
-    expect(stamp(QUOTE, QUOTE)).toEqual([0, 1])
+    remints(LIST, list({ start: 3 }), [0, 1])
+    remints(LIST, list({ ordinal: 4 }), [0, 1])
+    remints(QUOTE, QUOTE, [0, 1])
     // A shape the projection can tell apart needs no discriminator.
-    expect(stamp(LIST, list({ ordered: true }))).toEqual([0, 0])
+    remints(LIST, list({ ordered: true }), [0, 0])
   })
 
   it('alternates only across runs that would weld', () => {

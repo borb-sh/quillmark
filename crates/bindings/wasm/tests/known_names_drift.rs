@@ -128,73 +128,28 @@ fn ts_unions_name_every_built_in() {
     }
 }
 
-/// `weldsWith` in `runtime.js` re-spells the rule `Container::same_weld` owns:
-/// which fields two adjacent runs must share for the Markdown projection to
-/// read them as one. The Rust half here is read off the predicate rather than
-/// restated, so a change to the rule fails here instead of welding two runs at
-/// every JS consumer.
+/// `weldsWith` in `runtime.js` reads `WELD_KEYS` by tag and welds nothing under
+/// a tag the table omits, so a container added without an entry under-stamps at
+/// every JS consumer — a boundary that silently disappears, not an error. Only
+/// the coverage is checked here; *which* keys an entry names is
+/// `runtime.test.js` § "container run boundaries", which stamps a pair and
+/// re-imports it, where `Content::normalize` re-mints against
+/// `Container::same_weld` itself.
 #[test]
-fn js_weld_keys_match_the_rust_weld_rule() {
-    fn body() -> &'static str {
-        const DECL: &str = "const WELD_KEYS = {";
-        let start = RUNTIME_JS
-            .find(DECL)
-            .expect("runtime.js has no `const WELD_KEYS = {…`")
-            + DECL.len();
-        let rest = &RUNTIME_JS[start..];
-        &rest[..rest.find('}').expect("unterminated WELD_KEYS literal")]
-    }
+fn js_weld_keys_cover_every_container() {
+    const DECL: &str = "const WELD_KEYS = {";
+    let start = RUNTIME_JS
+        .find(DECL)
+        .expect("runtime.js has no `const WELD_KEYS = {…`")
+        + DECL.len();
+    let rest = &RUNTIME_JS[start..];
+    let body = &rest[..rest.find('}').expect("unterminated WELD_KEYS literal")];
 
-    fn keys(tag: &str) -> Vec<String> {
-        let decl = format!("{tag}: [");
-        let start = body()
-            .find(&decl)
-            .unwrap_or_else(|| panic!("WELD_KEYS has no `{tag}`"))
-            + decl.len();
-        let rest = &body()[start..];
-        rest[..rest.find(']').expect("unterminated key list")]
-            .split(',')
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .map(|s| s.trim_matches('\'').to_string())
-            .collect()
-    }
-
-    let tags: Vec<String> = body()
+    let tags: Vec<String> = body
         .split(']')
         .filter_map(|chunk| chunk.split_once(':'))
         .map(|(tag, _)| tag.trim().trim_start_matches(',').trim().to_string())
         .filter(|t| !t.is_empty())
         .collect();
-    // Every container carries an entry: `list_item` welds on a *subset* of its
-    // payload (see the `start` case below), so a missing one cannot be stood in
-    // for by comparing the bag whole.
     assert_eq!(tags, container_tags());
-
-    let li = |ordered, start, ordinal, instance| Container::ListItem {
-        ordered,
-        start,
-        ordinal,
-        instance,
-    };
-    let base = li(false, 1, 0, 0);
-    let reacts: Vec<&str> = [
-        ("ordered", li(true, 1, 0, 0)),
-        ("start", li(false, 3, 0, 0)),
-        ("ordinal", li(false, 1, 1, 0)),
-        ("instance", li(false, 1, 0, 1)),
-    ]
-    .into_iter()
-    .filter(|(_, other)| !base.same_weld(other))
-    .map(|(name, _)| name)
-    .collect();
-    assert_eq!(keys("list_item"), reacts);
-    // `start` and `ordinal` ride `attrs` like everything else, and welding
-    // ignores them, so comparing the bag whole spends a discriminator the
-    // projection does not need.
-    assert!(base.same_weld(&li(false, 3, 1, 0)));
-    assert_ne!(base.attrs(), li(false, 3, 1, 0).attrs());
-
-    assert!(keys("quote").is_empty());
-    assert!(Container::Quote { instance: 0 }.same_weld(&Container::Quote { instance: 1 }));
 }
