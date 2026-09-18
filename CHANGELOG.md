@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).
+
+### The content model
+
+- refactor(content,core,wasm,python)!: **a block island's line is a `para`, and
+  `LineKind::Island` is gone.** The kind was a second copy of a fact the island
+  beside it already carried: markdown writes a `table` as a block and an `image`
+  inline, so `IslandType::block_only` settled which line a lone slot sat on and
+  `normalize` wrote that answer back over whatever was stored. Every read site
+  now asks the island — export already dispatched on the type, the Typst emitter
+  already lowered `Island` as `Para`, and the one fact the kind alone still
+  answered, "this block renders one line", moves to
+  `model::is_block_island_line`, which `normalize` reads beside
+  `takes_continuations` when it clears a stranded `continues`. Landing a block
+  island is two channels rather than three: the delta opens the line, the island
+  op fills it, and the `setKind` goes. The TS `ContentLineKind` loses its
+  `{ kind: "island" }` arm, so a host branching on it typechecks red; a `setKind`
+  still naming `island` lands as the `para` it would have settled to.
+- refactor(core)!: **the storage tag is `quillmark/document@0.115.0`.** The line
+  above moves canonical bytes for every document holding a table, so content
+  hashes recompute once on those rows. `DocumentV0_112_0` freezes with a raw
+  `body` and the new `DocumentV0_115_0` carries the `CanonicalContent`; the hop
+  between them is that body's decode, and `V0_93_0 → V0_112_0` becomes a retag
+  now that both trees spell `body` raw. Stored rows need no migration: the
+  content decoder reads `island` as `para` wherever it meets it, permanently,
+  since the same spelling rests untagged inside every `richtext` field and
+  `$seed` overlay, where no hop reaches it. Closes #1647.
+
 ## v0.114.0 - 2026-09-18
 
 ### Schema, validation and the resolved view

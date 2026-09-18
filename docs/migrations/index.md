@@ -10,13 +10,15 @@ order; each states its own breaks in full. The rows below name the step's
 headline break, enough to pick the guide.
 
 No step requires migrating a stored document: the storage DTO's bytes and tag
-hold across every step here except 0.111 → 0.112, where canonical bytes move
-(content hashes recompute) and the tag becomes `quillmark/document@0.112.0`.
+hold across every step here except 0.111 → 0.112 and 0.114 → 0.115, where
+canonical bytes move (content hashes recompute) and the tag becomes
+`quillmark/document@0.112.0` and `@0.115.0` in turn.
 
 ## Guides
 
 | Step | What changes |
 |---|---|
+| [0.114 → 0.115](0.114-to-0.115.md) | The `island` line kind retires: a block island's line is a `para`, and whether its slot's markup is a block is read off the island's `type`, where the mint and both emitters already read it. A host branching on `line.kind === 'island'` reads the island instead, and the `setKind` in every block-island bundle goes — a bundle is two channels now, not three. Canonical bytes move for every document holding a table, so content hashes recompute and the tag becomes `quillmark/document@0.115.0`. Stored rows keep loading: the decoder reads `island` as the `para` it always projected, permanently. |
 | [0.112 → 0.113](0.112-to-0.113.md) | The `pdfform` backend becomes `acroform` at every layer — crate, `backend:` id, feature, `pdfform::*` codes — with no alias, so every form quill's `Quill.yaml` stops rendering until edited. The content vocabularies close: a line `kind`, container, mark `type`, island `type` or `loss` outside the built-ins stops opening a stored row. Every column-zero `~~~` block is a card whatever its info string, so a `~~~rust` fence in a body opens one where it opened a code block — a backtick fence is the escape hatch. A content line op the text or block contradicts lands and the terminal normalize settles it, so `Ok` stops meaning the op landed as written. A `Content` read omits a zero `Container.instance` where it spelled one on every container, so the key a host read off a read is absent and `instance` is optional in TypeScript. Every `quillmark-content` and `quillmark-core` item is named at the module that defines it, so a Rust consumer's `quillmark_content::Delta` and `quillmark_core::Document` imports gain a module segment — the `quillmark` facade absorbs it and moves nothing. Also `reader.get` in the values form, `reader.resolve()`, the `toStored` / `fromStored` / `loadStored` renames, a wide pruning sweep, and a group of tightened refusals no type checker reports: new `parse::*` and `backend::*` codes, a field write past the §8 field count refused at the write, a `Quill.yaml` declaring more fields than one card carries refused at load, a stricter `main:` and `Quill::validate`, and the `acroform` canvas-box origin. |
 | [0.111 → 0.112](0.111-to-0.112.md) | One spelling per name: every vocabulary member carries its payload in `attrs`, built-ins included, so a host reading `line.level` or `mark.url` reads them under `attrs` and the authored lane refuses the old spelling. |
 | [0.110 → 0.111](0.110-to-0.111.md) | A fix release: four surfaces refuse input they were producing something wrong from. The one break that can stop a render is a pdfform background carrying its own `/AcroForm` (`pdf::existing_acroform`). |

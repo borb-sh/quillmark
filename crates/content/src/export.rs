@@ -357,17 +357,14 @@ fn emit_code(ctx: &Ctx, range: std::ops::Range<usize>, lang: Option<&str>, out: 
 
 /// Emit one leaf block: the lines `range.start` (a block start) plus any
 /// continuation lines. A paragraph block joins its lines with a markdown hard
-/// break (`\` + newline); a code block renders one fence; a heading/island is a
-/// single line.
+/// break (`\` + newline); a code block renders one fence; a heading is a single
+/// line. A block island's line is a `Para` holding its slot, and the slot's
+/// markup is the block: [`render_inline`] writes it, and `normalize` leaves the
+/// line no continuation to join to it.
 fn emit_leaf_block(ctx: &Ctx, range: std::ops::Range<usize>, out: &mut String) {
     let first = &ctx.rt.lines[range.start];
     match &first.kind {
         LineKind::Code { lang } => emit_code(ctx, range, lang.as_deref(), out),
-        LineKind::Island => {
-            if let Some(isl) = slot_island(ctx, range.start) {
-                emit_island(isl, out);
-            }
-        }
         LineKind::Heading { level } => {
             for _ in 0..*level {
                 out.push('#');
@@ -401,11 +398,6 @@ fn emit_leaf_block(ctx: &Ctx, range: std::ops::Range<usize>, out: &mut String) {
 fn seg_str<'a>(ctx: &'a Ctx, i: usize) -> &'a str {
     let seg = &ctx.segments[i];
     &ctx.rt.text[seg.byte_start..seg.byte_end]
-}
-
-/// The island backing the single slot on a block-island line `i`.
-fn slot_island<'a>(ctx: &'a Ctx, i: usize) -> Option<&'a Island> {
-    ctx.rt.islands.get(ctx.segments[i].slots_before)
 }
 
 fn emit_island(isl: &Island, out: &mut String) {
@@ -1604,7 +1596,7 @@ mod tests {
         let cell = |t: &str| serde_json::json!({"marks": [], "text": t});
         let rt = Content {
             text: ISLAND_SLOT.to_string(),
-            lines: vec![Line::new(LineKind::Island)],
+            lines: vec![Line::new(LineKind::Para)],
             marks: vec![],
             islands: vec![
                 Island::new("isl-0".into(), IslandType::Table).with_props(serde_json::json!({
@@ -1678,7 +1670,7 @@ mod tests {
         .into_normalized();
         assert_eq!(rt.validate(), Ok(()), "hand-built content invalid");
         assert_eq!(rt.text, format!("a\n{ISLAND_SLOT}\nbold"), "the mint left it inline");
-        assert_eq!(rt.lines[1].kind, LineKind::Island);
+        assert_eq!(rt.lines[1].kind, LineKind::Para);
         assert_eq!(rt.marks, vec![Mark::new(4, 8, MarkKind::Strong)]);
 
         let md = to_markdown(&rt);

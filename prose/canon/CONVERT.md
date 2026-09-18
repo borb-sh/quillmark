@@ -29,13 +29,15 @@ container nesting), `marks` (anchored `[start, end)` ranges), and `islands`
 tree over `lines`; the inline pass sweeps `marks` and islands within each line.
 
 A **segment** is a maximal run of lines joined by `Line::continues`: one
-paragraph, one heading, one whole code fence, one island line. It is what
+paragraph, one heading, one whole code fence, one block island's line. It is what
 "paragraph-level" means against the content, and the unit a region keys on.
 
-Only a `para`, `code` or unknown block takes continuations
+Only a `para` or `code` block takes continuations
 (`LineKind::takes_continuations`), and a continuation stays inside one container
-path. A heading, an island and a rule are one line, and both emitters render
-that line alone, so a `continues` line after one would be text neither
+path. A heading and a rule are one line, and so is a `para` whose sole content
+is a block island's slot — the kind cannot tell that one from prose, so
+`Content::block_island_at` reads it off the island's type. Both emitters
+render such a line alone, so a `continues` line after one would be text neither
 projection reaches: `Content::normalize` clears the flag there, as it does on
 the first line and across a container boundary. `LineOp::SetContinues` writes
 what it is given and the mint settles it.
@@ -106,7 +108,7 @@ is a lowering bug, never a document's.
 | Content construct | Typst |
 |---|---|
 | `LineKind::Heading{level}` | `=` … `======` (`level` × `=`) |
-| `LineKind::Para` | inline content; a hard break (a `continues` line join) emits `#linebreak()`, a soft break is a space (both settled at import) |
+| `LineKind::Para` | inline content; a hard break (a `continues` line join) emits `#linebreak()`, a soft break is a space (both settled at import). A slot alone on the line is the island's block, lowered by the island dispatch below |
 | `LineKind::Code{lang}` (code fence) | `#raw(block: true, lang: "…", "…")`; `lang:` emitted only when the language tag is non-empty |
 | `LineKind::Rule` (thematic break) | `#line(length: 100%)` |
 | `MarkKind::Strong` | `#strong[…]` |

@@ -500,7 +500,7 @@ fn a_0_92_0_row_migrates_then_converges() {
     assert!(doc.cards()[0].payload().get("body").unwrap().as_json().is_object());
 
     let restored = bytes(&doc);
-    assert!(restored.contains("quillmark/document@0.112.0"));
+    assert!(restored.contains("quillmark/document@0.115.0"));
     let (authored, _) = parse_bound(
         &quill,
         "\

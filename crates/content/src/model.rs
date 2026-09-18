@@ -113,13 +113,6 @@ pub enum LineKind {
     Code {
         lang: Option<String>,
     },
-    /// A block-level island: the line's sole content is one [`ISLAND_SLOT`]
-    /// backing an island whose markdown *is* a block
-    /// ([`IslandType::block_only`](crate::island::IslandType::block_only)).
-    /// An image is inline markup, so a line holding one alone is
-    /// [`Para`](LineKind::Para) — the kind re-importing `![alt](url)` yields,
-    /// and the kind [`Content::normalize`] writes there.
-    Island,
     /// A thematic break (`---`/`***`/`___`). The line carries no text.
     Rule,
 }
@@ -127,9 +120,13 @@ pub enum LineKind {
 impl LineKind {
     /// Whether a block of this kind renders the lines that [`Line::continues`]
     /// joins to its first. A paragraph spans its hard-break run and a code
-    /// block its fence's interior; a heading, an island and a rule are one
-    /// line, and both emitters render that line alone, so a continuation there
-    /// is text the projection never reaches.
+    /// block its fence's interior; a heading and a rule are one line, and both
+    /// emitters render that line alone, so a continuation there is text the
+    /// projection never reaches.
+    ///
+    /// Necessary, not sufficient: a `Para` whose sole content is a block
+    /// island's slot also renders one line, which
+    /// [`Content::block_island_at`] answers off the island the kind cannot see.
     pub fn takes_continuations(&self) -> bool {
         matches!(self, LineKind::Para | LineKind::Code { .. })
     }
@@ -140,7 +137,6 @@ impl LineKind {
             LineKind::Para => "para",
             LineKind::Heading { .. } => "heading",
             LineKind::Code { .. } => "code",
-            LineKind::Island => "island",
             LineKind::Rule => "rule",
         }
     }
@@ -148,7 +144,7 @@ impl LineKind {
     /// The payload bag, one spelling for every member of the vocabulary.
     pub fn attrs(&self) -> Cow<'_, JsonValue> {
         match self {
-            LineKind::Para | LineKind::Island | LineKind::Rule => Cow::Owned(JsonValue::Null),
+            LineKind::Para | LineKind::Rule => Cow::Owned(JsonValue::Null),
             LineKind::Heading { level } => Cow::Owned(bag([("level", (*level).into())])),
             LineKind::Code { lang } => Cow::Owned(match lang {
                 Some(l) => bag([("lang", l.as_str().into())]),
@@ -712,19 +708,14 @@ pub enum Invariant {
 /// Whether a line's text contradicts its `kind`, which [`Content::normalize`]
 /// answers by demoting the line to [`LineKind::Para`].
 ///
-/// `Para` and `Heading` carry arbitrary text including slots (an inline image is
-/// a slot in a `Para`), so only the three kinds whose contract *names* their
-/// content constrain it: an [`Island`](LineKind::Island) line is exactly one
-/// [`ISLAND_SLOT`], a [`Rule`](LineKind::Rule) carries no text, and a
+/// `Para` and `Heading` carry arbitrary text including slots (an island's slot
+/// sits in a `Para`), so only the two kinds whose contract *names* their
+/// content constrain it: a [`Rule`](LineKind::Rule) carries no text, and a
 /// [`Code`](LineKind::Code) line carries no slot — a fence emits its text
 /// verbatim, so a slot would land raw in the output and re-import as nothing,
 /// taking the island with it.
 pub(crate) fn line_kind_contradicts_text(kind: &LineKind, seg: &str) -> bool {
     match kind {
-        LineKind::Island => {
-            let mut chars = seg.chars();
-            !matches!((chars.next(), chars.next()), (Some(ISLAND_SLOT), None))
-        }
         LineKind::Rule => !seg.is_empty(),
         LineKind::Code { .. } => seg.contains(ISLAND_SLOT),
         _ => false,
@@ -757,12 +748,13 @@ pub(crate) fn inline_block_islands<'a>(
 }
 
 /// One piece of a line [`Content::split_block_islands`] broke, covering `span`:
-/// the slot's own piece is the island's line, the prose pieces keep the line's
-/// role, and only the first can still continue the block above.
+/// the slot's own piece is a `Para`, the kind re-importing the island's block
+/// markup yields even where the broken line was a heading; the prose pieces keep
+/// the line's role, and only the first can still continue the block above.
 fn fragment_line(line: &Line, span: std::ops::Range<Usv>, breaks: &[Usv], first: bool) -> Line {
     if span.len() == 1 && breaks.binary_search(&span.start).is_ok() {
         return Line {
-            kind: LineKind::Island,
+            kind: LineKind::Para,
             containers: line.containers.clone(),
             continues: false,
         };
@@ -774,31 +766,17 @@ fn fragment_line(line: &Line, span: std::ops::Range<Usv>, breaks: &[Usv], first:
     }
 }
 
-/// The [`LineKind`] a line whose sole content is one [`ISLAND_SLOT`] carries in
-/// canonical form: [`LineKind::Island`] where markdown writes that island as a
-/// block ([`IslandType::block_only`](crate::island::IslandType::block_only)),
-/// [`LineKind::Para`] where it writes it inline. Both spell one markdown, so the
-/// model keeps the one re-importing it yields, and [`Content::normalize`] writes
-/// that one.
+/// Whether the line whose text is `seg` is a block island's: its sole content is
+/// one [`ISLAND_SLOT`], and `island` — the one backing that slot — is markup
+/// markdown writes as a block
+/// ([`IslandType::block_only`](crate::island::IslandType::block_only)).
 ///
-/// `None` leaves the stored kind standing, on the three counts the projection
-/// settles nothing: a line holding more than the slot, a kind whose own contract
-/// carries a slot ([`LineKind::Heading`]), and an island whose type projects no
-/// kind back.
-fn island_line_kind(kind: &LineKind, seg: &str, island: Option<&Island>) -> Option<LineKind> {
-    if !matches!(kind, LineKind::Para | LineKind::Island) {
-        return None;
-    }
+/// Such a line is a [`LineKind::Para`] that nonetheless renders one block, so
+/// this answers beside [`LineKind::takes_continuations`] rather than through it.
+fn is_block_island_line(seg: &str, island: Option<&Island>) -> bool {
     let mut chars = seg.chars();
-    if (chars.next(), chars.next()) != (Some(ISLAND_SLOT), None) {
-        return None;
-    }
-    let known = island?.island_type;
-    Some(if known.block_only() {
-        LineKind::Island
-    } else {
-        LineKind::Para
-    })
+    (chars.next(), chars.next()) == (Some(ISLAND_SLOT), None)
+        && island.is_some_and(|i| i.island_type.block_only())
 }
 
 impl Content {
@@ -882,6 +860,44 @@ impl Content {
         self.text.chars().filter(|c| *c == '\n').count() + 1
     }
 
+    /// The block island `line` holds, if its sole content is that island's slot
+    /// and the island's markup is a block
+    /// ([`IslandType::block_only`](crate::island::IslandType::block_only)).
+    ///
+    /// This is what a reader asks where it once matched a line kind: such a line
+    /// is a [`LineKind::Para`] like any other, and the island is the only thing
+    /// that says its markup is a block.
+    pub fn block_island_at(&self, line: usize) -> Option<&Island> {
+        let mut slot = 0usize;
+        for (i, seg) in self.text.split('\n').enumerate() {
+            if i == line {
+                let island = self.islands.get(slot);
+                return island.filter(|_| is_block_island_line(seg, island));
+            }
+            slot += seg.chars().filter(|&c| c == ISLAND_SLOT).count();
+        }
+        None
+    }
+
+    /// Per line, whether it holds a block island's slot — the one-line block a
+    /// [`LineKind`] cannot name. Empty where no island is block-only, which is
+    /// every document holding no table.
+    fn block_island_lines(&self) -> Vec<bool> {
+        if !self.islands.iter().any(|i| i.island_type.block_only()) {
+            return Vec::new();
+        }
+        let mut slot = 0usize;
+        self.text
+            .split('\n')
+            .take(self.lines.len())
+            .map(|seg| {
+                let is = is_block_island_line(seg, self.islands.get(slot));
+                slot += seg.chars().filter(|&c| c == ISLAND_SLOT).count();
+                is
+            })
+            .collect()
+    }
+
     /// Normalize in place: canonicalize container `ordinal`/`instance`, break a
     /// line around a block-only island's slot, drop zero-width formatting, union
     /// same-kind formatting that is adjacent or overlapping, recursively
@@ -889,33 +905,29 @@ impl Content {
     /// fixed point the canonical serialization commits to.
     pub fn normalize(&mut self) {
         canonicalize_containers(&mut self.lines);
-        // A splice writes text, never kinds: typing into a table line leaves it
-        // `Island` over prose, joining a fence to an image line leaves it `Code`
-        // over a slot, and export reads the kind and not the text, so the
-        // un-repaired line projects its content away. Demote to `Para`, which is
-        // what re-importing the line's own markdown yields.
-        let mut slot = 0usize;
+        // A splice writes text, never kinds: joining a fence to an image line
+        // leaves it `Code` over a slot, and export reads the kind and not the
+        // text, so the un-repaired line projects its content away. Demote to
+        // `Para`, which is what re-importing the line's own markdown yields.
         for (line, seg) in self.lines.iter_mut().zip(self.text.split('\n')) {
             if line_kind_contradicts_text(&line.kind, seg) {
                 line.kind = LineKind::Para;
             }
-            if let Some(kind) = island_line_kind(&line.kind, seg, self.islands.get(slot)) {
-                line.kind = kind;
-            }
-            slot += seg.chars().filter(|&c| c == ISLAND_SLOT).count();
         }
         self.split_block_islands();
         // A `continues` flag under a block that cannot take one clears: nothing
         // precedes the first line, and below it a differing container path or a
-        // one-line kind above, where export would drop the continuation's text.
+        // one-line block above, where export would drop the continuation's text.
         // `Join` across two paths, `SetKind` retagging the line above and
-        // `SetContinues` itself all reach the shape. Read after the demotion
-        // above, which settles what a spliced-over kind is.
+        // `SetContinues` itself all reach the shape. Read after the demotion and
+        // the break above, which settle what the line above is.
+        let block_island = self.block_island_lines();
         for i in 0..self.lines.len() {
             if self.lines[i].continues
                 && (i == 0
                     || self.lines[i].containers != self.lines[i - 1].containers
-                    || !self.lines[i - 1].kind.takes_continuations())
+                    || !self.lines[i - 1].kind.takes_continuations()
+                    || block_island.get(i - 1).copied().unwrap_or(false))
             {
                 self.lines[i].continues = false;
             }
@@ -1311,22 +1323,16 @@ mod tests {
         }
     }
 
-    /// Export trusts the kind and never re-reads the segment, so `Island` over
-    /// prose would project to the island alone and `Rule` over prose to `---`,
-    /// the text silently gone. The mint demotes to `Para`, which is what
-    /// re-importing the line's own markdown yields.
+    /// Export trusts the kind and never re-reads the segment, so `Rule` over
+    /// prose would project to `---` with the text silently gone. The mint
+    /// demotes to `Para`, which is what re-importing the line's own markdown
+    /// yields.
     #[test]
     fn normalize_demotes_a_stranded_line_kind() {
-        for (text, kind) in [
-            ("typed into a table line", LineKind::Island),
-            ("", LineKind::Island),
-            ("text on a rule line", LineKind::Rule),
-        ] {
-            let mut rt = tagged(text, kind.clone());
-            rt.normalize();
-            assert_eq!(rt.lines[0].kind, LineKind::Para, "{text:?} as {kind:?}");
-            assert_eq!(rt.validate(), Ok(()));
-        }
+        let mut rt = tagged("text on a rule line", LineKind::Rule);
+        rt.normalize();
+        assert_eq!(rt.lines[0].kind, LineKind::Para);
+        assert_eq!(rt.validate(), Ok(()));
 
         // `Para`/`Heading` carry slots, so only a fence, whose text is emitted
         // verbatim, strands one.
@@ -1349,12 +1355,6 @@ mod tests {
             assert_eq!(rt.validate(), Ok(()));
         }
 
-        // A well-formed island line — a block island's slot alone — is left alone.
-        let mut rt = tagged(&ISLAND_SLOT.to_string(), LineKind::Island);
-        rt.islands = vec![table_island()];
-        rt.normalize();
-        assert_eq!(rt.lines[0].kind, LineKind::Island);
-        assert_eq!(rt.validate(), Ok(()));
         assert_eq!(tagged("", LineKind::Rule).validate(), Ok(()));
     }
 
@@ -1367,32 +1367,51 @@ mod tests {
         }))
     }
 
-    /// Markdown spells a slot-alone `Para` line and a slot-alone `Island` line
-    /// alike, so which one a document holds is the island type's to settle. Both
-    /// spellings converge on the one the round trip yields, so no document holds
-    /// a kind its own markdown denies.
+    /// The read the retired `LineKind::Island` stood for: a lone slot's line
+    /// answers with its island where that island's markup is a block, and with
+    /// nothing where it is inline or where the line holds more than the slot.
     #[test]
-    fn an_island_alone_on_a_line_takes_the_kind_its_type_projects() {
+    fn block_island_at_answers_where_the_kind_did() {
+        let image = |id: &str| {
+            Island::new(id.into(), IslandType::Image)
+                .with_props(serde_json::json!({"alt": "a", "url": "u"}))
+        };
+        let rt = Content::new(
+            format!("intro\n{ISLAND_SLOT}\nx{ISLAND_SLOT}\n{ISLAND_SLOT}"),
+            vec![Line::new(LineKind::Para); 4],
+        )
+        .with_islands(vec![table_island(), image("isl-1"), image("isl-2")])
+        .into_normalized();
+        assert_eq!(rt.validate(), Ok(()));
+
+        assert_eq!(rt.block_island_at(1).map(|i| i.id.as_str()), Some("isl-0"));
+        assert_eq!(rt.block_island_at(0), None, "prose");
+        assert_eq!(rt.block_island_at(2), None, "the slot shares its line");
+        assert_eq!(rt.block_island_at(3), None, "an image is inline markup");
+        assert_eq!(rt.block_island_at(9), None, "past the last line");
+    }
+
+    /// Markdown spells a slot-alone line one way whichever island backs it, so
+    /// the line is a `Para` either way and the type alone decides whether that
+    /// slot's markup is a block. Both are fixed points of the round trip, so no
+    /// document holds a line its own markdown denies.
+    #[test]
+    fn an_island_alone_on_a_line_rests_on_a_para() {
         let image = Island::new("isl-0".into(), IslandType::Image)
             .with_props(serde_json::json!({"alt": "a", "url": "u"}));
-        for (island, canonical) in [
-            (table_island(), LineKind::Island),
-            (image, LineKind::Para),
-        ] {
-            for stored in [LineKind::Para, LineKind::Island] {
-                let what = format!("{} as {stored:?}", island.island_type.as_str());
-                let rt = tagged(&ISLAND_SLOT.to_string(), stored)
-                    .with_islands(vec![island.clone()])
-                    .into_normalized();
-                assert_eq!(rt.validate(), Ok(()), "{what}");
-                assert_eq!(rt.lines[0].kind, canonical, "{what}");
-                let md = crate::export::to_markdown(&rt);
-                assert_eq!(
-                    crate::import::from_markdown(&md).expect("re-imports"),
-                    rt,
-                    "{what} is not a fixed point: {md:?}"
-                );
-            }
+        for island in [table_island(), image] {
+            let what = island.island_type.as_str().to_string();
+            let rt = tagged(&ISLAND_SLOT.to_string(), LineKind::Para)
+                .with_islands(vec![island])
+                .into_normalized();
+            assert_eq!(rt.validate(), Ok(()), "{what}");
+            assert_eq!(rt.lines[0].kind, LineKind::Para, "{what}");
+            let md = crate::export::to_markdown(&rt);
+            assert_eq!(
+                crate::import::from_markdown(&md).expect("re-imports"),
+                rt,
+                "{what} is not a fixed point: {md:?}"
+            );
         }
     }
 
@@ -1428,7 +1447,7 @@ mod tests {
             })
         };
 
-        let mut rt = tagged("\u{fffc}", LineKind::Island);
+        let mut rt = tagged("\u{fffc}", LineKind::Para);
         rt.islands = vec![Island {
             id: "i1".into(),
             island_type: IslandType::Image,
@@ -1517,7 +1536,7 @@ mod tests {
         let mut rt = Content::empty();
         rt.text = "\u{FFFC}".into();
         rt.lines = vec![Line {
-            kind: LineKind::Island,
+            kind: LineKind::Para,
             containers: vec![],
             continues: false,
         }];
@@ -1598,18 +1617,25 @@ mod tests {
         assert_eq!(rt.validate(), Ok(()));
     }
 
-    /// A heading, an island and a rule render as their own line alone, so a
-    /// `continues` line after one is text no projection reaches. `SetKind`
-    /// mints the shape by retagging the line a continuation already follows;
-    /// `normalize` clears the flag.
+    /// A heading, a rule and a block island's line each render as their own line
+    /// alone, so a `continues` line after one is text no projection reaches.
+    /// `SetKind` mints the shape by retagging the line a continuation already
+    /// follows, `SetContinues` by raising the flag; `normalize` clears it. The
+    /// island case is a `Para` like any other, so the flag answers to the island
+    /// type rather than the kind.
     #[test]
     fn continues_after_a_single_line_block_is_cleared() {
         let cases = [
-            (LineKind::Heading { level: 1 }, "a\nb", "# a\n\nb"),
-            (LineKind::Island, "\u{FFFC}\nb", "| h |\n| --- |\n| c |\n\nb"),
-            (LineKind::Rule, "\nb", "***\n\nb"),
+            (LineKind::Heading { level: 1 }, "a\nb", vec![], "# a\n\nb"),
+            (
+                LineKind::Para,
+                "\u{FFFC}\nb",
+                vec![table_island()],
+                "| h |\n| --- |\n| c |\n\nb",
+            ),
+            (LineKind::Rule, "\nb", vec![], "***\n\nb"),
         ];
-        for (kind, text, markdown) in cases {
+        for (kind, text, islands, markdown) in cases {
             let mut rt = Content::new(
                 text.to_string(),
                 vec![
@@ -1617,17 +1643,9 @@ mod tests {
                     Line::new(LineKind::Para).with_continues(true),
                 ],
             )
-            .with_islands(match kind {
-                LineKind::Island => vec![Island::new("isl-0".into(), IslandType::Table)
-                    .with_props(serde_json::json!({
-                        "header": [{"text": "h", "marks": []}],
-                        "rows": [[{"text": "c", "marks": []}]],
-                        "aligns": ["none"],
-                    }))],
-                _ => vec![],
-            });
+            .with_islands(islands);
             rt.normalize();
-            assert!(!rt.lines[1].continues, "normalize clears it");
+            assert!(!rt.lines[1].continues, "normalize clears it after {kind:?}");
             assert_eq!(rt.validate(), Ok(()));
             assert_eq!(
                 crate::export::to_markdown(&rt.into_normalized()),
@@ -1635,6 +1653,19 @@ mod tests {
                 "the continuation projects as the paragraph it is"
             );
         }
+
+        // An image is inline markup, so its line is prose and keeps the break.
+        let mut rt = Content::new(
+            "\u{FFFC}\nb".to_string(),
+            vec![
+                Line::new(LineKind::Para),
+                Line::new(LineKind::Para).with_continues(true),
+            ],
+        )
+        .with_islands(vec![Island::new("isl-0".into(), IslandType::Image)
+            .with_props(serde_json::json!({"alt": "a", "url": "u"}))]);
+        rt.normalize();
+        assert!(rt.lines[1].continues, "an inline island's line is prose");
     }
 
     #[test]
@@ -1659,7 +1690,7 @@ mod tests {
             let mut rt = Content::empty();
             rt.text = ISLAND_SLOT.to_string();
             rt.lines = vec![Line {
-                kind: LineKind::Island,
+                kind: LineKind::Para,
                 containers: vec![],
                 continues: false,
             }];
@@ -1722,7 +1753,7 @@ mod tests {
         let mut rt = Content::empty();
         rt.text = ISLAND_SLOT.to_string();
         rt.lines = vec![Line {
-            kind: LineKind::Island,
+            kind: LineKind::Para,
             containers: vec![],
             continues: false,
         }];
@@ -1751,7 +1782,7 @@ mod tests {
         let mut rt = Content::empty();
         rt.text = ISLAND_SLOT.to_string();
         rt.lines = vec![Line {
-            kind: LineKind::Island,
+            kind: LineKind::Para,
             containers: vec![],
             continues: false,
         }];
@@ -1829,12 +1860,12 @@ mod tests {
         rt.text = format!("{ISLAND_SLOT}\n{ISLAND_SLOT}");
         rt.lines = vec![
             Line {
-                kind: LineKind::Island,
+                kind: LineKind::Para,
                 containers: vec![],
                 continues: false,
             },
             Line {
-                kind: LineKind::Island,
+                kind: LineKind::Para,
                 containers: vec![],
                 continues: false,
             },

@@ -617,9 +617,8 @@ proptest! {
             0 => LineOp::Split { at: pos_seed % (len + 1) },
             1 => LineOp::Join { line },
             2 => kind(LineKind::Heading { level: 2 }),
-            3 => kind(LineKind::Island),
-            4 => kind(LineKind::Rule),
-            5 => kind(LineKind::Code { lang: None }),
+            3 => kind(LineKind::Rule),
+            4 => kind(LineKind::Code { lang: None }),
             _ => LineOp::SetContinues { line, continues: true },
         };
         if rt.apply_line_ops(&[op]).is_ok() {
@@ -682,7 +681,7 @@ fn import_row(contents: &[String]) -> Vec<Value> {
 /// A single-table content with the given (possibly ill-shaped) props. `id` is the
 /// first-island id import mints (`isl-0`), so a re-imported table compares equal.
 fn table_content(aligns: Vec<&str>, header: Vec<Value>, rows: Vec<Vec<Value>>) -> Content {
-    Content::new("\u{FFFC}".into(), vec![Line::new(LineKind::Island)]).with_islands(vec![
+    Content::new("\u{FFFC}".into(), vec![Line::new(LineKind::Para)]).with_islands(vec![
         Island::new("isl-0".into(), IslandType::Table)
             .with_props(json!({ "aligns": aligns, "header": header, "rows": rows })),
     ])

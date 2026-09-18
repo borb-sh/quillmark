@@ -297,7 +297,6 @@ pub fn line_kind_from_value(v: &Value) -> Result<LineKind, ParseError> {
         .ok_or(ParseError::Shape("line kind"))?;
     let legacy = legacy_line_kind_keys(tag);
     match tag {
-        "para" => Ok(LineKind::Para),
         "heading" => {
             let level = payload(o, legacy, "level")
                 .and_then(Value::as_u64)
@@ -313,7 +312,13 @@ pub fn line_kind_from_value(v: &Value) -> Result<LineKind, ParseError> {
                 .map(crate::import::sanitize_lang)
                 .filter(|l| !l.is_empty()),
         }),
-        "island" => Ok(LineKind::Island),
+        // No encoder writes `island`; the decoder keeps reading it because the
+        // content encoding is not migratable — a `richtext` field and a `$seed`
+        // overlay rest inside opaque payload values carrying no schema tag, so
+        // no hop reaches them (DOCUMENT_STORAGE.md § "Adding a Schema Version").
+        // A block island's line is a `Para` whose sole content is its slot, so
+        // the name and the kind it decodes to spell one line.
+        "island" | "para" => Ok(LineKind::Para),
         "rule" => Ok(LineKind::Rule),
         other => Err(ParseError::UnknownName {
             axis: "line kind",
@@ -1000,7 +1005,7 @@ mod tests {
     fn deep_json_payload_is_rejected_at_decode_on_the_value_lane() {
         let deep = nested_arrays(1_000);
         let cases: [(Value, &'static str); 1] = [(
-            serde_json::json!({"text":"\u{fffc}","lines":[{"kind":"island","containers":[]}],
+            serde_json::json!({"text":"\u{fffc}","lines":[{"kind":"para","containers":[]}],
               "marks":[],"islands":[{"id":"i1","type":"image","loss":"lossless","props":deep}]}),
             "island props",
         )];
@@ -1029,7 +1034,7 @@ mod tests {
     #[test]
     fn json_depth_cap_admits_every_storable_payload() {
         let content = |props: Value| {
-            serde_json::json!({"text":"\u{fffc}","lines":[{"kind":"island","containers":[]}],
+            serde_json::json!({"text":"\u{fffc}","lines":[{"kind":"para","containers":[]}],
               "marks":[],"islands":[{"id":"i1","type":"image","loss":"lossless","props":props}]})
         };
         assert!(from_canonical_value(&content(nested_arrays(crate::MAX_JSON_DEPTH))).is_ok());
@@ -1103,7 +1108,7 @@ mod tests {
         let mut one = Content::empty();
         one.text = "\u{FFFC}".into();
         one.lines = vec![Line {
-            kind: LineKind::Island,
+            kind: LineKind::Para,
             containers: vec![],
             continues: false,
         }];
@@ -1173,7 +1178,6 @@ mod tests {
                 lang: Some("rust".into()),
             },
             LineKind::Code { lang: None },
-            LineKind::Island,
             LineKind::Rule,
         ];
         for kind in line_kinds {
@@ -1214,7 +1218,7 @@ mod tests {
                 continues: false,
             },
             Line {
-                kind: LineKind::Island,
+                kind: LineKind::Para,
                 containers: vec![],
                 continues: false,
             },
@@ -1328,7 +1332,7 @@ mod tests {
                 "widget",
                 doc(
                     r#"{"id":"i1","loss":"lossless","props":{},"type":"widget"}"#,
-                    r#"{"containers":[],"kind":"island"}"#,
+                    r#"{"containers":[],"kind":"para"}"#,
                     "",
                     "\u{fffc}",
                 ),
@@ -1338,7 +1342,7 @@ mod tests {
                 "partial",
                 doc(
                     r#"{"id":"i1","loss":"partial","props":{},"type":"table"}"#,
-                    r#"{"containers":[],"kind":"island"}"#,
+                    r#"{"containers":[],"kind":"para"}"#,
                     "",
                     "\u{fffc}",
                 ),
@@ -1447,14 +1451,14 @@ mod tests {
                 r#"{"islands":[{"id":"i1","loss":"lossless","props":{"aligns":["none"],"#,
                 r#""header":[{"marks":[{"end":1,"start":0,"type":"link","url":"u"}],"text":"h"}],"#,
                 r#""rows":[[{"marks":[],"text":"r"}]]},"type":"table"}],"#,
-                r#""lines":[{"containers":[],"kind":"island"}],"marks":[],"text":"￼"}"#
+                r#""lines":[{"containers":[],"kind":"para"}],"marks":[],"text":"￼"}"#
             ),
             // table cell mark with no `type` at all
             concat!(
                 r#"{"islands":[{"id":"i1","loss":"lossless","props":{"aligns":["none"],"#,
                 r#""header":[{"marks":[{"end":1,"start":0}],"text":"h"}],"#,
                 r#""rows":[[{"marks":[],"text":"r"}]]},"type":"table"}],"#,
-                r#""lines":[{"containers":[],"kind":"island"}],"marks":[],"text":"￼"}"#
+                r#""lines":[{"containers":[],"kind":"para"}],"marks":[],"text":"￼"}"#
             ),
         ];
         for json in bad {
@@ -1512,7 +1516,7 @@ mod tests {
             r#"{"islands":[{"id":"i1","loss":"lossless","props":{"aligns":["none"],"#,
             r#""header":[{"marks":[],"text":"h"}],"note":{"type":"link","url":"a\nb"},"#,
             r#""rows":[[{"marks":[],"text":"c"}]]},"type":"table"}],"#,
-            r#""lines":[{"containers":[],"kind":"island"}],"marks":[],"text":"￼"}"#
+            r#""lines":[{"containers":[],"kind":"para"}],"marks":[],"text":"￼"}"#
         );
         let v: Value = serde_json::from_str(json).unwrap();
         let rt = from_authored_value(&v).unwrap();
@@ -1652,7 +1656,7 @@ mod tests {
         );
         let rt = Content::from_canonical_json(&table).expect("storage lane accepts");
         assert_eq!(rt.text, format!("a\n{slot}\nb"), "not split at the load");
-        assert_eq!(rt.lines[1].kind, LineKind::Island);
+        assert_eq!(rt.lines[1].kind, LineKind::Para);
         let v: Value = serde_json::from_str(&table).unwrap();
         assert!(matches!(from_authored_value(&v), Err(ParseError::Shape(_))));
 
@@ -1661,6 +1665,39 @@ mod tests {
         assert_eq!(rt.text, format!("a{slot}b"), "inline island moved");
         let v: Value = serde_json::from_str(&image).unwrap();
         assert!(from_authored_value(&v).is_ok(), "inline island refused");
+    }
+
+    /// `island` named the line a block island sat on; the line is a `Para` and
+    /// no encoder writes the name. It reads forever: the content encoding
+    /// carries no schema tag of its own, so a `richtext` field or a `$seed`
+    /// overlay in the old spelling is reachable by no migration hop. The row
+    /// re-encodes as `para`, which is the byte movement the storage bump names.
+    #[test]
+    fn the_retired_island_line_kind_reads_as_the_para_it_projected() {
+        assert_eq!(
+            line_kind_from_value(&serde_json::json!({"kind": "island"})).unwrap(),
+            LineKind::Para
+        );
+
+        let stored = concat!(
+            r#"{"islands":[{"id":"isl-0","loss":"lossless","props":{"aligns":["none"],"#,
+            r#""header":[{"marks":[],"text":"h"}],"rows":[[{"marks":[],"text":"c"}]]},"#,
+            r#""type":"table"}],"lines":[{"containers":[],"kind":"island"}],"#,
+            r#""marks":[],"text":"￼"}"#
+        );
+        let rt = Content::from_canonical_json(stored).expect("the old spelling loads");
+        assert_eq!(rt.lines[0].kind, LineKind::Para);
+        assert_eq!(rt.validate(), Ok(()));
+        assert_eq!(
+            rt.to_canonical_json(),
+            stored.replace(r#""kind":"island""#, r#""kind":"para""#),
+            "the reader moves the row's bytes and nothing else"
+        );
+        assert_eq!(
+            crate::export::to_markdown(&rt),
+            "| h |\n| --- |\n| c |",
+            "the table still projects as a block"
+        );
     }
 
     /// The blob loads, comes back split, and is then a fixed point of the
@@ -1679,7 +1716,7 @@ mod tests {
         assert_eq!(rt.validate(), Ok(()), "loaded content invalid");
         assert_eq!(rt.text, format!("a\n{slot}\nbold"));
         assert_eq!(rt.lines.len(), 3);
-        assert_eq!(rt.lines[1].kind, LineKind::Island);
+        assert_eq!(rt.lines[1].kind, LineKind::Para);
         assert_eq!(rt.marks, vec![Mark::new(4, 8, MarkKind::Strong)]);
 
         let md = crate::export::to_markdown(&rt);

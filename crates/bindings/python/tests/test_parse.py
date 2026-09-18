@@ -67,7 +67,7 @@ def test_json_dto_round_trip(taro_md):
 
     dto = doc.to_stored()
     assert isinstance(dto, str)
-    assert "quillmark/document@0.112.0" in dto
+    assert "quillmark/document@0.115.0" in dto
 
     restored = Document.from_stored(dto)
     assert restored.quill_ref == doc.quill_ref
