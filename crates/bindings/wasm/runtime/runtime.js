@@ -219,9 +219,15 @@ function requireLocalQuill(quill, method) {
 // WELD_KEYS is the rule `Container::same_weld` owns upstream: which `attrs`
 // entries two adjacent runs must share for the markdown projection to read them
 // as one. `start` is not among them, since CommonMark reads only a list's first
-// number — a subset, which is why every container needs its own entry. A table
-// rather than a switch, so `tests/known_names_drift.rs` can pin it against the
-// Rust predicate.
+// number — a subset, which is why every container needs its own entry.
+//
+// Re-spelled here rather than called, because `assignInstances` answers before
+// wasm initializes (`prose/canon/BINDINGS.md` § "WebAssembly"). What holds the
+// two spellings equal is running the rule, not comparing their sources:
+// `runtime.test.js` § "container run boundaries" stamps a pair and re-imports
+// it, where `Content::normalize` re-mints against the Rust predicate. A tag the
+// table omits welds with nothing, so `tests/known_names_drift.rs` pins that
+// every container has an entry.
 
 const WELD_KEYS = { list_item: ['ordered'], quote: [] };
 
