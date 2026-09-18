@@ -1,5 +1,23 @@
 # Changelog
 
+## v0.114.0 - 2026-09-18
+
+- docs: the matrix section says what the code does
+- fix(typst): a matrix's roster order reaches the plate
+- fix(core): the tick a matrix validates is the tick its plate renders
+- docs: the card/row/matrix doctrine, the admission predicate, and the three keys
+- feat(core): the matrix type, `max:` on arrays, and `ui.layout: table`
+- build(deps): Bump lopdf from 0.44.0 to 0.45.0
+- build(deps): Bump taiki-e/install-action in the actions group
+- docs(acroform): the worked example gains the richtext field the fixture does
+- test(core): one fixture walk, one scalar-fidelity home, one card-order test
+- test(core): one loader, one coercion table, one quill header
+- test(pdf,typst): one base-PDF builder, one home per invariant
+- docs(core): the one printer renders the engine's English, not a consumer's own
+- feat(wasm): formatDiagnostic renders a diagnostic as the CLI does
+- ci: the release dispatches the docs deploy it no longer triggers
+
+
 ## v0.113.0 - 2026-09-16
 
 Upgrade path: [0.112 → 0.113](docs/migrations/0.112-to-0.113.md).
