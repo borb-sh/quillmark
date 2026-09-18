@@ -2,21 +2,128 @@
 
 ## v0.114.0 - 2026-09-18
 
-- docs: the matrix section says what the code does
-- fix(typst): a matrix's roster order reaches the plate
-- fix(core): the tick a matrix validates is the tick its plate renders
-- docs: the card/row/matrix doctrine, the admission predicate, and the three keys
-- feat(core): the matrix type, `max:` on arrays, and `ui.layout: table`
-- build(deps): Bump lopdf from 0.44.0 to 0.45.0
-- build(deps): Bump taiki-e/install-action in the actions group
-- docs(acroform): the worked example gains the richtext field the fixture does
-- test(core): one fixture walk, one scalar-fidelity home, one card-order test
-- test(core): one loader, one coercion table, one quill header
-- test(pdf,typst): one base-PDF builder, one home per invariant
-- docs(core): the one printer renders the engine's English, not a consumer's own
-- feat(wasm): formatDiagnostic renders a diagnostic as the CLI does
-- ci: the release dispatches the docs deploy it no longer triggers
+### Schema, validation and the resolved view
 
+- feat(core): **`type: matrix`: a closed vocabulary someone ticks.** A card kind
+  gave add and remove, the wrong verbs for a roster the page prints in full, and
+  an `array<{member: enum, detail}>` hid every unpicked option, let the same
+  member in twice, and left the plate owning a second copy of the vocabulary to
+  print the unheld boxes. A `matrix` declares `members:` — ordered blocks of
+  `id: Title`, groups optional — and `properties:` as the columns, and the
+  loader expands them into an `object` whose properties are the member ids, each
+  carrying a synthesized `held: {type: boolean, default: false}` beside the
+  columns. Coercion, validation, blank-fill and addressing are the typed
+  dictionary's, reached through the new `FieldSchema::namespace_props`, so
+  `qualifications.flight_cc.held` regions on Typst and binds a checkbox on
+  acroform without a new address grammar. Four behaviors are the type's own.
+  **Key presence is the tick**: `cyber_200: true` normalizes to the member
+  object as the bare `classification: CUI` normalizes to `{value: CUI}`, and a
+  mapping naming no `held` is held, so a document stays sparse. **The roster
+  reaches the wire**: every member present in declaration order carrying its own
+  `title` and `group`, so a plate prints the vocabulary without holding a second
+  copy of it. **The wire carries the live world only**: an unheld member's
+  columns render at their blanks whatever the document retains, the closed shape
+  variants already hold, so tick, type, untick, retick keeps the answer in the
+  file and stops rendering it. **Obligation is gated on the tick**: a column with
+  no `default:` reads "required when held", the variant rule one level down,
+  while the matrix itself obliges nothing, takes no `default:` or `example:`
+  (`quill::{default,example}_on_namespace`, the existing namespace rule) and
+  seeds empty. `held`, `title` and `group` are reserved as column names
+  (`quill::matrix_reserved_column`); a member id is a snake_case identifier
+  (`quill::invalid_matrix_member`), unique across the roster
+  (`quill::duplicate_matrix_member`), and one outside it is refused as an
+  out-of-domain enum member is. The blueprint spells the roster in the existing
+  format slot, `# matrix<flight_cc | dodin_ops | …>`, over a `{}` cell, so no
+  third annotation form is minted and a model sees the whole vocabulary without
+  twenty-seven lines to delete. Closes #1831.
+- feat(core): **the transform schema carries a declared key order, and the Typst
+  codegen honours it.** `Codegen::emit_value` sorts dict keys so a reorder-only
+  `update` rebuilds byte-identical `lib.typ` and comemo reuses the whole compile.
+  A matrix is the one node that cannot pay it: printing the vocabulary as the
+  schema groups it is the type's purpose, and sorted keys hand the plate
+  `cyber_200` before `sq_cc_candidate`. A container node whose *schema* fixes an
+  order now says so with `quillmark:order`, and the emitter reads it. The order
+  is a property of the schema rather than of the data, so equal data still
+  produces byte-equal source and nothing about the reuse changes; a node
+  carrying no such key sorts as before.
+- feat(core): **`max:` on an array, and `validation::cardinality`.** A form with
+  thirty-seven ruled lines silently swallowed a thirty-eighth row, and the limit
+  lived in `description:` prose that no consumer reads. `max:` is a non-negative
+  integer on an `array`, refused elsewhere, and a `default:`/`example:` longer
+  than it fails the load (`quill::{default,example}_over_max`) rather than
+  seeding a document that warns on arrival. `Quill::validate` reports
+  `validation::cardinality` at the field's own path with `{max, actual}`, at
+  every depth — an array in a typed dictionary, a matrix member, a live variant
+  world or another array's elements is capped by its own declaration — and never
+  gates render: fatal ≡ won't-render is an invariant of the diagnostic model, and
+  the plate keeps its own rule for the surplus. The count is the render floor's,
+  so a bare scalar coerced to a one-element array is counted as one. `min:` is
+  not taken: obligation is `default:`'s absence, so `min: 1` is `required:` under
+  another name. Closes #1826.
+- feat(core): **the blueprint carries a cap as `# up to <N>`.** The author most
+  likely to exceed a limit is the MCP flow that reads the spec once and then
+  writes, and it reads the blueprint: `schema()` is consulted before that author
+  writes, and the `validate` warning arrives after the overflowing document
+  exists. The line rides the own-line leading slot directly under the field's
+  description, the form `# composable (0..N)` already takes for a card kind's
+  cardinality, so the `<type>[<format>]` inline grammar is untouched. It reaches
+  a field and an `object` property, the two positions that slot exists at.
+- feat(core): **`ui.layout: table` asks an editor for the grid a typed table
+  wants.** A row of four short cells drew as a stack of collapsed rows that open
+  one at a time — the right control for a row of long prose, the wrong one here —
+  and `UiFieldSchema` is `deny_unknown_fields`, so the shape had no way to ask.
+  `layout: table` is valid on an `array` whose `items` is an `object` and refused
+  with `quill::invalid_ui` anywhere else, and `schema()` echoes it verbatim. A
+  request, not a contract: the plate, `validate` and the blueprint are all
+  deliberately inert on it, and a consumer that cannot draw the control falls
+  back to its own choice for the type. `items.ui.title` is documented beside it
+  as the collapsed row's summary template, which needed no loader change.
+  Closes #1825.
+- feat(core): **a card kind declaring `body.enabled: false` warns.** A card is a
+  part someone writes; a repeated record someone fills in is a row, an
+  `array<object>` on the card that owns it. Four card kinds across three airmark
+  quills were rows in card costume, each bodiless with a plate reassembling them
+  from the stream by position. `quill::bodiless_card_kind` says so at
+  `Severity::Warning`, hinting at the row shape. A warning and not a load error,
+  because the loader sees the proxy and not the fact: whether a kind interleaves
+  among kinds of other sorts is a property of documents and the plate, nothing in
+  `Quill.yaml` states it, and a bodiless positional kind — a page break, a rule,
+  an inserted signature block — is a card. `main` keeps the key unwarned: a form
+  has no root prose. Closes #1824.
+
+### The binding surface
+
+- feat(wasm): **`formatDiagnostic` renders a diagnostic as the CLI does.**
+  `Document.formatDiagnostic` left the binding in 0.113 among the five owner
+  calls a host can make itself, and it was the one of the five that left a
+  surface behind: Python keeps the rendering on `PyDiagnostic.__str__`, which is
+  `fmt_pretty`, and the CLI prints through the same call, so WASM alone lost the
+  engine's English. A consumer wording its own still selects by `code` + `args`.
+
+### Docs and tests
+
+- docs(core): **`ERROR.md` § "Error Presentation" names the two lanes apart.** A
+  consumer surfacing the engine's wording calls the one printer; a consumer
+  wording its own selects by `code` + `args` and owns the layout with the
+  sentence.
+- docs(acroform): **the worked example gains the richtext field the fixture
+  does.** `sample_form` is what the backend guide points at for a hand-authored
+  `form.pdf` + `form.json`, so its excerpts state what that fixture declares.
+- test(core): **one fixture walk, one scalar-fidelity home, one card-order
+  test.** Closes #1676.
+- test(core): **one loader, one coercion table, one quill header.** Closes #1677.
+- test(pdf,typst): **one base-PDF builder, one home per invariant.** Closes
+  #1681, closes #1680.
+- ci: **the release dispatches the docs deploy it no longer triggers.**
+  `docs.yml` deploys Pages on `release: published`, and moving `gh release
+  create` onto `GITHUB_TOKEN` stopped that event starting a run, so the site sat
+  eleven releases behind at v0.102.0. `workflow_dispatch` is the one event exempt
+  from that rule, which `release-prepare.yml` already leans on for `ci.yml`, so
+  the release dispatches `docs.yml` at the tag it just pushed — the site is built
+  from the released bytes, and a prerelease is skipped as the event path skipped
+  it.
+- build(deps): **lopdf 0.44.0 → 0.45.0**, and **taiki-e/install-action 2.87.8 →
+  2.87.12** in the actions group.
 
 ## v0.113.0 - 2026-09-16
 
