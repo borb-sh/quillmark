@@ -50,7 +50,7 @@ fn lenient_string(value: &serde_json::Value) -> Option<String> {
 }
 
 /// Top-level configuration for a Quillmark project
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct QuillConfig {
     pub name: String,
     /// `quill.description`: the quill itself, not `main.description`, which

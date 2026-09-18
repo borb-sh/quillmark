@@ -1688,8 +1688,9 @@ fn enum_rejects_a_blank_value_but_accepts_a_blank_default() {
     );
 }
 
-/// `blank` may not lean on the loader's rejection of a declared `""`: a config
-/// built through serde skips loader validation entirely.
+/// `blank` may not lean on the loader's rejection of a declared `""`: the parse
+/// half of the gate folds the `values:` list whole, and only the loader reads
+/// the members.
 #[test]
 fn enum_blank_ignores_a_declared_blank_member() {
     let field = FieldSchema::from_quill_value(
