@@ -468,7 +468,8 @@ qualifications:
 Every member becomes an object of a synthesized `held` (a boolean, `false` by
 default) plus the declared columns. Member **ids** are snake_case and must be
 unique: they are what the wire, the address and the document speak, while the
-**title** is display only. `held` is reserved and cannot be a column name.
+**title** is display only. The three keys the matrix writes itself — `held`,
+`title`, `group` — cannot be column names.
 
 A document ticks sparsely, and key presence is the tick:
 

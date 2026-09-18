@@ -42,7 +42,12 @@ One rule governs the lowering, at every depth: **a declared type means the same 
 #### A `matrix` field
 
 A matrix reaches the plate **total**: an ordered mapping carrying every declared
-member, keyed by member id in roster order, whatever the document ticked.
+member, keyed by member id in roster order, whatever the document ticked. Order
+is the one place a matrix departs from the canonical emission below: dict keys
+otherwise sort, so the transform schema carries the roster as `quillmark:order`
+on the matrix node and the codegen emits those keys in it. The order is a
+property of the schema, never of the data, so equal data still produces
+byte-equal source.
 
 ```json
 "qualifications": {
@@ -97,7 +102,7 @@ Helper contents (generated in `backends/typst/helper.rs` from `lib.typ.template`
   | `contentMediaType: application/quillmark-content+json` | a `#let _qm_cN = [ .. ]` markup block the data cell references (blank ⇒ `""`) | — |
   | `format: date` / `date-time` | `datetime(year:, month:, day:)` / the six-component form, authored wall-clock, seconds zero-filled (blank ⇒ `none`) | — |
   | `type: array` | a Typst array | each element against `items`, at `{path}.{i}` |
-  | `type: object` with `properties` | a Typst dict | each value against `properties[key]`, at `{path}.{key}` |
+  | `type: object` with `properties` | a Typst dict, keys sorted unless the node carries `quillmark:order` | each value against `properties[key]`, at `{path}.{key}` |
   | anything else, and any key the schema does not declare | its value literal | — |
 
   The dispatch is a node test, never a table of names, which is what makes it

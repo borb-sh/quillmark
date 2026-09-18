@@ -8,7 +8,10 @@
 //!
 //! Output is **canonical**: dict keys emit in sorted order at every level (via
 //! [`sorted`]), so equal data produces byte-equal source regardless of the
-//! caller's field order. `$cards` array order is semantic and preserved.
+//! caller's field order. `$cards` array order is semantic and preserved. A node
+//! whose *schema* fixes a key order says so with `quillmark:order` and gets it
+//! ([`ordered`]); that order is a property of the schema, so byte-equality holds
+//! there too.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -18,7 +21,7 @@ use crate::emit::{
 };
 use crate::SchemaMeta;
 use quillmark_content::serial::from_canonical_value;
-use quillmark_core::quill::{CONTENT_MEDIA_TYPE, QUILLMARK_INLINE_KEY};
+use quillmark_core::quill::{CONTENT_MEDIA_TYPE, QUILLMARK_INLINE_KEY, QUILLMARK_ORDER_KEY};
 
 pub const HELPER_VERSION: &str = "0.1.0";
 pub const HELPER_NAMESPACE: &str = "local";
@@ -317,8 +320,8 @@ impl<'m> Codegen<'m> {
                     .map(|(i, elem)| self.emit_value(&format!("{path}.{i}"), items, elem))
                     .collect(),
             ),
-            (Lower::Object(props), serde_json::Value::Object(obj)) => wrap_dict(
-                sorted(obj)
+            (Lower::Object(props, order), serde_json::Value::Object(obj)) => wrap_dict(
+                ordered(obj, &order)
                     .into_iter()
                     .map(|(key, elem)| {
                         let expr =
@@ -343,7 +346,9 @@ enum Lower<'a> {
     Date(DateKind),
     /// The element node, absent where an array declares no `items`.
     Array(Option<&'a serde_json::Value>),
-    Object(&'a serde_json::Map<String, serde_json::Value>),
+    /// The declared members, and the key order the schema fixes for them
+    /// (`quillmark:order`), empty where it fixes none.
+    Object(&'a serde_json::Map<String, serde_json::Value>, Vec<&'a str>),
     /// Every other declared type, plus every data key the schema does not
     /// declare and every container declaring no members to recurse on.
     Native,
@@ -369,7 +374,7 @@ fn lowering(node: Option<&serde_json::Value>) -> Lower<'_> {
         // A richtext node is `type: object` too, and the media type claimed it
         // above.
         Some("object") => match node.get("properties").and_then(|v| v.as_object()) {
-            Some(props) => Lower::Object(props),
+            Some(props) => Lower::Object(props, declared_order(node)),
             None => Lower::Native,
         },
         _ => Lower::Native,
@@ -459,6 +464,36 @@ pub(crate) fn lit(v: &serde_json::Value) -> String {
 fn sorted(obj: &serde_json::Map<String, serde_json::Value>) -> Vec<(&String, &serde_json::Value)> {
     let mut entries: Vec<_> = obj.iter().collect();
     entries.sort_by(|a, b| a.0.cmp(b.0));
+    entries
+}
+
+/// The schema's declared key order for a container node, `[]` where it declares
+/// none. A `matrix` declares one: its roster is the order a plate prints the
+/// vocabulary in.
+fn declared_order(node: &serde_json::Value) -> Vec<&str> {
+    node.get(QUILLMARK_ORDER_KEY)
+        .and_then(|v| v.as_array())
+        .map(|ids| ids.iter().filter_map(|v| v.as_str()).collect())
+        .unwrap_or_default()
+}
+
+/// `obj`'s entries in the schema's declared order where it declares one, keys it
+/// does not name trailing in sorted order; [`sorted`] otherwise.
+///
+/// The order comes from the schema, never from the data, so the generated source
+/// stays a pure function of the data's values and comemo's reuse is untouched.
+fn ordered<'a>(
+    obj: &'a serde_json::Map<String, serde_json::Value>,
+    order: &[&str],
+) -> Vec<(&'a String, &'a serde_json::Value)> {
+    if order.is_empty() {
+        return sorted(obj);
+    }
+    let mut entries: Vec<(&String, &serde_json::Value)> = order
+        .iter()
+        .filter_map(|id| obj.get_key_value(*id))
+        .collect();
+    entries.extend(sorted(obj).into_iter().filter(|(k, _)| !order.contains(&k.as_str())));
     entries
 }
 

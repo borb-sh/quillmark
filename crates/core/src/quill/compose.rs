@@ -1091,7 +1091,15 @@ fn collect_cardinality_diags(
         return;
     }
 
-    let Some(elements) = json.as_array() else { return };
+    if !matches!(field.r#type, FieldType::Array) {
+        return;
+    }
+    // The count is the floor's, not the document's: a bare scalar on an array
+    // wraps to one element there, so `max: 0` sees the row it will lay out.
+    let elements = match json.as_array() {
+        Some(elements) => elements.clone(),
+        None => vec![json.clone()],
+    };
     if let Some(max) = field.max {
         if elements.len() > max as usize {
             out.push(cardinality_warning(path, max, elements.len()));

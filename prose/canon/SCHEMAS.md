@@ -181,8 +181,10 @@ blank-fills to every member unheld, columns at their blanks.
 **Members.** Ids are snake_case identifiers
 (`quill::invalid_matrix_member`), unique across the roster
 (`quill::duplicate_matrix_member`); titles are display. Ids are what the wire,
-the address and the document speak. `held` is reserved
-(`quill::matrix_reserved_column`).
+the address and the document speak. The three keys the matrix writes onto every
+member itself — `held`, `title`, `group` — are reserved as column names
+(`quill::matrix_reserved_column`): a column under one of them would load,
+validate and address, then lose to the projection.
 
 **Document.** A mapping keyed by member id, sparse. Key presence implies
 `held: true` unless the mapping spells otherwise, and coercion normalizes to the
