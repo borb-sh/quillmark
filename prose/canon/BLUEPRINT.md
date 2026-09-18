@@ -71,9 +71,11 @@ follow:
 | **Leading `# …` lines** above a field | `# <prose>`, `# up to <N>` or `# e.g. <value>` | description (single-line prose), an `array`'s element cap, and an illustrative example |
 | **Inline `# …`** at end of the value line | `# <type>[<format>]` | structural metadata: the field's type and an optional format refinement |
 
-The two slots have disjoint purposes: leading is prose, inline is
-structural. No colon-separated `key: value` annotation syntax appears in
-either slot, so neither pattern collides with YAML key/value parsing.
+The two slots divide by *grammar*, not by subject: the inline slot is the fixed
+`<type>[<format>]` expression and takes nothing else, so a constraint that is not
+part of a type expression rides the leading slot as prose (`# up to <N>`, the one
+such line). No colon-separated `key: value` annotation syntax appears in either
+slot, so neither pattern collides with YAML key/value parsing.
 
 ### Leading lines: order
 
@@ -102,9 +104,7 @@ Per field, in order:
    line (see "Richtext fields").
 
 That's it. There is no leading `# required`, `# enum:`, `# default:`, or
-`# type:`: those collapse into the inline. The one leading line carrying
-structure rather than prose is `# up to <N>`, and it is there because the
-inline slot is closed to constraints.
+`# type:`: those collapse into the inline.
 
 ### Inline annotation
 

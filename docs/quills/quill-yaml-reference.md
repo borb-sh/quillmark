@@ -475,7 +475,7 @@ A document ticks sparsely, and key presence is the tick:
 
 ```yaml
 qualifications:
-  flight_cc: true                  # held; columns at their blanks
+  flight_cc: true                  # held; columns take their defaults
   dodin_ops: { detail: "2024" }    # held, with columns
   cyber_200: { held: false, detail: kept }   # not held; the detail is kept in the file
 ```
@@ -483,22 +483,24 @@ qualifications:
 A member the roster does not declare is refused, as an out-of-domain `enum`
 value is. A mapping has one slot per key, so a member cannot be ticked twice.
 
-**What the plate receives** is total: every member, in declaration order,
-carrying `held`, its `title`, its `group` and its columns, so a template prints
-the whole vocabulary without holding a second copy of it. An unheld member's
-columns arrive at their blanks whatever the file retains, which is what makes
-tick, type, untick, re-tick lossless: the answer stays in the document and
-simply stops rendering.
+Your plate writes one loop and no vocabulary of its own, because every member
+arrives on every render:
 
-Each cell is an ordinary address — `qualifications.flight_cc.held`,
-`qualifications.flight_cc.detail` — so it regions on Typst and binds a widget on
-acroform. An editor unticks by writing `held: false`, never by dropping the key.
+```typst
+#for (id, m) in data.qualifications {
+  [#(if m.held { "[x]" } else { "[ ]" }) #m.title — #m.group #m.detail]
+}
+```
 
-A matrix is a **namespace**, so it takes no `default:` or `example:` of its own
-(a column holds one), and it obliges nothing: a column with no `default:` is
-required only inside a member the document has ticked. It **seeds empty** — a
-fresh document ticks nothing, and the blueprint shows the vocabulary in the
-field's annotation, `# matrix<sq_cc_candidate | flight_cc | dodin_ops>`.
+Three things to author against. Declare a `default:` on each column and the
+matrix is skippable; leave one off and it is required *inside a ticked member*,
+which is how "required when held" is spelled. The matrix itself takes no
+`default:` or `example:` and seeds empty, so a fresh document ticks nothing and
+the blueprint shows the vocabulary in the field's annotation,
+`# matrix<sq_cc_candidate | flight_cc | dodin_ops>`. And each cell is an
+ordinary address — `qualifications.flight_cc.held` regions on Typst and binds a
+checkbox on acroform — so an editor unticks by writing `held: false` rather than
+by dropping the key, and the detail survives.
 
 Full model: [SCHEMAS.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/SCHEMAS.md#matrix); the wire shape is [PLATE_DATA.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PLATE_DATA.md#a-matrix-field).
 
@@ -720,8 +722,8 @@ state. `main` is never warned: a form has no root prose.
 Rows are cheaper where they fit. They nest lexically, so a row belongs to its
 parent by position in the file rather than by counting cards in the stream, and
 a plate reads `card.rows` instead of reassembling a run. What rows give up is
-the fence-native body: a row's prose is a `richtext` cell, a YAML block scalar,
-which is fine for a few lines and wrong for a memo's worth.
+the fence-native body: a row's prose is a `richtext` cell, one quoted YAML
+scalar, which is fine for a few lines and wrong for a memo's worth.
 
 ### Card Properties
 

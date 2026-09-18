@@ -194,7 +194,7 @@ member object — the [variant precedent](#enum-variants), where the bare
 | Stored | Means |
 |---|---|
 | key absent | not held |
-| `cyber_200: true` | held, columns at their blanks |
+| `cyber_200: true` | held, columns at whatever the ordinary ladder gives them |
 | `flight_cc: { detail: X }` | held, with columns |
 | `flight_cc: { held: false, detail: X }` | not held; the detail is retained in the document |
 
@@ -203,7 +203,9 @@ roster is refused as an out-of-domain enum member is
 (`validation::enum_violation`).
 
 **Plate.** Total, like every container: every member present in declaration
-order, each `{held, title, group, …columns}`. `title` and `group` are the
+order, each `{held, title, group, …columns}`. A held member's columns cut the
+ordinary ladder — the authored value, else the column's `default:`, else its
+blank. `title` and `group` are the
 projection's, written from the roster rather than held as cells, so they carry
 no address and a document authoring one is overwritten. **The wire carries the
 live world only**: an unheld member's columns render at their blanks whatever
@@ -231,10 +233,12 @@ quill's maximal fixture.
 
 **Implementation.** Sugar over a typed dictionary: the loader expands members
 into an `object` whose properties are the member ids, reached through
-`FieldSchema::namespace_props`, so coercion, validation, blank-fill, seeding,
-addressing and the blueprint walk are inherited. What the type adds is `title`
-and `group` on the wire, the presence-implies-held spelling, and the closed wire
-for unheld members.
+`FieldSchema::namespace_props`, so coercion, validation, blank-fill and
+addressing are inherited. Four things are the type's own — `title` and `group`
+written onto the wire, the presence-implies-held spelling, the closed wire for
+unheld members, and obligation gated on the tick — and two walks are overridden
+rather than inherited: seeding, which stops at the matrix, and the blueprint,
+which emits the sparse cell instead of expanding every member.
 
 ### Cardinality
 

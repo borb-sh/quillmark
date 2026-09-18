@@ -25,7 +25,7 @@ Three shapes, and what each one is for:
 A **card** is ordered among kinds of other sorts, carries a fence-native
 `$body`, is retypable, and seeds per kind. A **row** is typed cells belonging to
 one parent; a `richtext` cell is a row's writing surface, and its prose is a
-YAML block scalar rather than a fence. A **matrix** is fixed rows the schema
+quoted YAML scalar rather than a fence. A **matrix** is fixed rows the schema
 declares, sparse data, and a total page.
 
 **The test is a disjunction.** A unit that stands in document order among units
@@ -33,7 +33,7 @@ of other kinds, **or** whose substance is flowing prose, is a card; otherwise it
 is a row. Both clauses hold. A page break, a rule, an inserted signature block
 carry no prose and exist for their position: they are cards by the first clause,
 and a row cannot sit between two cards of other kinds. A child whose body is a
-memo's worth of prose is a card by the second, because a block scalar is the
+memo's worth of prose is a card by the second, because one quoted line is the
 wrong spelling for it.
 
 **`quill::bodiless_card_kind`** is the loader's one view of this, at
