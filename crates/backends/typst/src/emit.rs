@@ -610,8 +610,7 @@ impl<'a> Emit<'a> {
                 (g0, Vec::new())
             }
             LineKind::Code { .. } => unreachable!("code handled by early return"),
-            // An island's slot lowers as a paragraph.
-            LineKind::Para | LineKind::Island => {
+            LineKind::Para => {
                 let g0 = self.out.len();
                 (g0, self.emit_inline(lo, hi))
             }

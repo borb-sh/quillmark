@@ -15,7 +15,6 @@ fn line_kind_tags() -> Vec<&'static str> {
         LineKind::Para,
         LineKind::Heading { level: 1 },
         LineKind::Code { lang: None },
-        LineKind::Island,
         LineKind::Rule,
     ];
     for k in &all {
@@ -23,7 +22,6 @@ fn line_kind_tags() -> Vec<&'static str> {
             LineKind::Para
             | LineKind::Heading { .. }
             | LineKind::Code { .. }
-            | LineKind::Island
             | LineKind::Rule => {}
         }
     }

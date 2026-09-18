@@ -237,7 +237,6 @@ export type ContentLineKind =
     | { kind: "para" }
     | { kind: "heading"; attrs: { level: number } }
     | { kind: "code"; attrs?: { lang?: string } }
-    | { kind: "island" }
     | { kind: "rule" };
 
 /** An ancestor block a line nests inside, outermost first. Closed like
@@ -383,10 +382,11 @@ export type MarkOp =
  * metadata. `setContinues` sets or clears a line's within-block hard-break flag
  * (`ContentLine.continues`); `continues: true` lands as `false` on line 0, which
  * nothing precedes, on a line whose containers differ from the line above, and
- * on one following a heading, island or rule, each a block of one line.
- * `setKind` lands a kind the line's text contradicts — `island` or `rule` over
+ * on one following a heading, a rule or a block island's line, each a block of
+ * one line. `setKind` lands a kind the line's text contradicts — `rule` over
  * prose, `code` over a slot — as `para`, which is what re-importing the line's
- * own markdown yields. Read the content back to see where an op settled.
+ * own markdown yields, and reads the retired `island` as the `para` it always
+ * projected. Read the content back to see where an op settled.
  */
 export type LineOp =
     | { op: "split"; at: number }
@@ -415,14 +415,12 @@ export type LineOp =
  * island mints a fresh one.
  *
  * An island is *inline* (a slot inside a paragraph) or a **block** (that slot
- * alone on a line under `kind: "island"`), and for a slot alone on a line the
- * type settles which: markdown writes a `table` as a block and an image inline,
- * so the line's `kind` is read off the type and a `setKind` spelling it
- * otherwise does not survive. Landing a block island is one bundle of all three
- * channels, in the order they apply: `delta` inserts the `\n` that opens the
- * line, `islandOps` inserts the slot, `lineOps` tags the line
- * `{ op: "setKind", kind: "island" }`. `{ op: "split" }` cannot open that line,
- * since line ops run after island ops.
+ * alone on its own line), and the type settles which: markdown writes a `table`
+ * as a block and an image inline. Both lines read `kind: "para"` — the block is
+ * the slot's markup, not a role the line carries — so landing a block island is
+ * two channels rather than three: `delta` inserts the `\n` that opens the line,
+ * `islandOps` inserts the slot. `{ op: "split" }` cannot open that line, since
+ * line ops run after island ops.
  *
  * A `table` has no inline placement: markdown writes it as a block, so an
  * `insert` whose `at` is not an empty line throws, as does a `set` retyping an
@@ -838,7 +836,7 @@ impl Document {
     /// tag advances only when the wire format changes, not on every release.
     #[wasm_bindgen(js_name = currentStorageVersion)]
     pub fn current_storage_version() -> String {
-        quillmark_core::document::STORAGE_V0_112_0.to_string()
+        quillmark_core::document::STORAGE_V0_115_0.to_string()
     }
 
     /// Authoring-format rules for the card-yaml markdown surface, re-exposed from

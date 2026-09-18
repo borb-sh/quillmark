@@ -1000,9 +1000,9 @@ describe('Document applyChange: the anchor-preserving change bundle', () => {
   it('applyChange creates a block island in one bundle', () => {
     const doc = blankDoc()
     doc.revise({}, 'intro')
-    // The three channels in the order they apply: the delta opens the line, the
-    // island op fills it, setKind tags it. `split` could not open that line:
-    // line ops run after island ops.
+    // The two channels in the order they apply: the delta opens the line, the
+    // island op fills it. `split` could not open that line: line ops run after
+    // island ops.
     doc.applyChange(
       {},
       {
@@ -1016,7 +1016,6 @@ describe('Document applyChange: the anchor-preserving change bundle', () => {
             props: { url: 'ex.com/a.png', alt: 'a' },
           },
         ],
-        lineOps: [{ op: 'setKind', line: 1, kind: 'island' }],
       },
     )
     expect(doc.main.body.islands.map((i) => i.id)).toEqual(['isl-new'])

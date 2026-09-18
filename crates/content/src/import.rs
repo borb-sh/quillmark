@@ -538,7 +538,7 @@ impl Builder {
             }
             Tag::Table(aligns) => {
                 self.pending = None;
-                self.open_line(LineKind::Island, false);
+                self.open_line(LineKind::Para, false);
                 self.inline.push_raw(ISLAND_SLOT);
                 self.table = Some(TableAcc {
                     aligns: aligns.iter().map(align_str).collect(),
@@ -1190,7 +1190,8 @@ mod tests {
     fn table_is_block_island() {
         let rt = imp("| a | b |\n|---|---|\n| 1 | 2 |");
         assert_eq!(rt.text, "\u{FFFC}");
-        assert_eq!(rt.lines[0].kind, LineKind::Island);
+        // The block is the slot's markup; the line holding it is prose.
+        assert_eq!(rt.lines[0].kind, LineKind::Para);
         assert_eq!(rt.islands.len(), 1);
         assert_eq!(rt.islands[0].island_type, IslandType::Table);
     }

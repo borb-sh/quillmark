@@ -96,12 +96,11 @@ pub enum IslandOp {
     /// delete earlier in the same bundle frees its id for reuse here.
     ///
     /// **Block islands.** The slot alone is an *inline* island. A block island
-    /// is that slot alone on its own line under [`LineKind::Island`], which takes
-    /// three channels in one bundle: the text delta inserts the `\n`, this op
-    /// inserts the slot, [`LineOp::SetKind`] tags the line. That order is why
-    /// island ops run *before* line ops — the mint settles the kind against the
-    /// text the bundle left, and the slot has to be on the line by then — and
-    /// why `LineOp::Split` cannot stand in for the delta's `\n`.
+    /// is that slot alone on its own line, which takes two channels in one
+    /// bundle: the text delta inserts the `\n`, this op inserts the slot. The
+    /// line stays a [`LineKind::Para`] — the block is the slot's markup — and
+    /// `LineOp::Split` cannot stand in for the delta's `\n`, since line ops run
+    /// after island ops.
     ///
     /// A type markdown writes as a block
     /// ([`IslandType::block_only`](crate::island::IslandType::block_only)) has
@@ -670,10 +669,9 @@ impl Content {
     /// `apply_text_delta` validates before mutating.
     ///
     /// **Stage order is a coordinate contract**: each stage reads the text the
-    /// earlier ones left. An island insert splices a slot, so a
-    /// `LineOp::SetKind { kind: Island }` in the same bundle settles against a
-    /// line that already carries it, and `Split`/`Join` and every mark range are
-    /// then measured in a frame that includes the new slots.
+    /// earlier ones left. An island insert splices a slot, so `Split`/`Join` and
+    /// every mark range are then measured in a frame that includes the new
+    /// slots.
     ///
     /// One terminal normalize suffices because split/join rebase marks through
     /// their `\n` splice, so the formatting-edge `\n`-trim commutes with the
@@ -1582,17 +1580,21 @@ mod tests {
     /// settles it to what the text spells, leaving the text itself alone.
     #[test]
     fn line_op_set_kind_over_contradicting_text_settles_to_what_the_text_spells() {
-        for kind in [LineKind::Island, LineKind::Rule] {
-            let mut rt = from_markdown("hello world").unwrap();
-            assert_eq!(rt.apply_line_ops(&[LineOp::SetKind { line: 0, kind }]), Ok(()));
-            assert_eq!(rt.text, "hello world");
-            assert_eq!(rt.lines[0].kind, LineKind::Para);
-            assert_eq!(rt.validate(), Ok(()));
-        }
+        let mut rt = from_markdown("hello world").unwrap();
+        assert_eq!(
+            rt.apply_line_ops(&[LineOp::SetKind {
+                line: 0,
+                kind: LineKind::Rule,
+            }]),
+            Ok(())
+        );
+        assert_eq!(rt.text, "hello world");
+        assert_eq!(rt.lines[0].kind, LineKind::Para);
+        assert_eq!(rt.validate(), Ok(()));
 
         // Tagging a table island's line `Code` would fence the slot, which
-        // re-imports as nothing. The demotion runs first and `island_line_kind`
-        // reads the slot back: the line settles where it started.
+        // re-imports as nothing. The demotion settles it back to the `Para` the
+        // line started as, and the table still projects.
         let mut tbl = from_markdown("| a | b |\n|---|---|\n| 1 | 2 |").unwrap();
         assert_eq!(
             tbl.apply_line_ops(&[LineOp::SetKind {
@@ -1601,20 +1603,8 @@ mod tests {
             }]),
             Ok(())
         );
-        assert_eq!(tbl.lines[0].kind, LineKind::Island);
-
-        // The one case that costs text: a heading retagged `Island` is a
-        // paragraph afterward, its `#` gone from the projection.
-        let mut heading = from_markdown("# a").unwrap();
-        assert_eq!(
-            heading.apply_line_ops(&[LineOp::SetKind {
-                line: 0,
-                kind: LineKind::Island,
-            }]),
-            Ok(())
-        );
-        assert_eq!(heading.lines[0].kind, LineKind::Para);
-        assert_eq!(crate::export::to_markdown(&heading), "a");
+        assert_eq!(tbl.lines[0].kind, LineKind::Para);
+        assert!(crate::export::to_markdown(&tbl).starts_with("| a | b |"));
     }
 
     /// A within-block break lives inside one container, and a heading, an
@@ -2068,10 +2058,11 @@ mod tests {
         assert_eq!(rt.validate(), Ok(()));
     }
 
-    /// A block island's line demotes to `Para` when its slot goes: the kind
-    /// stops matching the text and `normalize` repairs rather than fails.
+    /// A block island lands in two channels — the delta opening its line, the
+    /// op filling it — and leaves in one: the delta that removes its slot drops
+    /// the island whole, leaving the `Para` the line was throughout.
     #[test]
-    fn block_island_restore_retags_its_line() {
+    fn block_island_restore_reproduces_the_content() {
         let mut rt = from_markdown("intro").unwrap();
         rt.apply_field_change(&ChangeBundle {
             delta: diff("intro", "intro\n"),
@@ -2080,16 +2071,12 @@ mod tests {
                 island: Island::new("isl-a".into(), IslandType::Table)
                     .with_props(table_props("H", "a")),
             }],
-            line_ops: vec![LineOp::SetKind {
-                line: 1,
-                kind: LineKind::Island,
-            }],
             ..Default::default()
         })
         .unwrap();
         let before = rt.clone();
         let held = rt.islands[0].clone();
-        assert_eq!(before.lines[1].kind, LineKind::Island);
+        assert_eq!(before.lines[1].kind, LineKind::Para);
 
         rt.apply_field_change(&ChangeBundle {
             delta: diff(&before.text, "intro\n"),
@@ -2097,19 +2084,15 @@ mod tests {
         })
         .unwrap();
         assert!(rt.islands.is_empty());
-        assert_eq!(rt.lines[1].kind, LineKind::Para, "demoted, not failed");
+        assert_eq!(rt.lines[1].kind, LineKind::Para);
 
         // The line stayed open, so the restore needs no delta.
         rt.apply_field_change(&ChangeBundle {
             island_ops: vec![IslandOp::Insert { at: 6, island: held }],
-            line_ops: vec![LineOp::SetKind {
-                line: 1,
-                kind: LineKind::Island,
-            }],
             ..Default::default()
         })
         .unwrap();
-        assert_eq!(rt, before, "same content, original id and kind included");
+        assert_eq!(rt, before, "same content, original id included");
     }
 
     /// An op landing a table's slot inside a paragraph would write pipes that
@@ -2131,17 +2114,13 @@ mod tests {
         );
         assert_eq!(rt, before, "the refusal commits nothing");
 
-        // The three-channel bundle a block island takes: the delta opens the
-        // line, this op fills it, `SetKind` tags it.
+        // The two-channel bundle a block island takes: the delta opens the
+        // line, this op fills it.
         rt.apply_field_change(&ChangeBundle {
             delta: diff("ab", "ab\n"),
             island_ops: vec![IslandOp::Insert {
                 at: 3,
                 island: table("isl-t"),
-            }],
-            line_ops: vec![LineOp::SetKind {
-                line: 1,
-                kind: LineKind::Island,
             }],
             ..Default::default()
         })
@@ -2213,7 +2192,7 @@ mod tests {
     }
 
     /// What the stage order buys: the delta opens the line, the island op fills
-    /// it, `SetKind` tags it, and the field's anchors stay.
+    /// it, and the field's anchors stay.
     #[test]
     fn block_island_lands_in_one_bundle() {
         let mut rt = from_markdown("intro").unwrap();
@@ -2231,16 +2210,12 @@ mod tests {
                 island: Island::new("isl-t".into(), IslandType::Table)
                     .with_props(table_props("H", "a")),
             }],
-            line_ops: vec![LineOp::SetKind {
-                line: 1,
-                kind: LineKind::Island,
-            }],
             ..Default::default()
         })
         .unwrap();
 
         assert_eq!(rt.text, format!("intro\n{ISLAND_SLOT}"));
-        assert_eq!(rt.lines[1].kind, LineKind::Island);
+        assert_eq!(rt.lines[1].kind, LineKind::Para);
         assert_eq!(rt.validate(), Ok(()));
         assert!(rt
             .marks
