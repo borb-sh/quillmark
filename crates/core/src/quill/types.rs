@@ -444,9 +444,10 @@ pub const VARIANT_DISCRIMINANT_KEY: &str = "value";
 /// `values:` keys fold into it at parse and the hand-written `Serialize`
 /// re-emits them from there, so neither can live in two places that disagree.
 ///
-/// Loading is the only way to one of these: the parse and the shape walk that
-/// follows it are halves of one gate, so the type serializes and does not
-/// deserialize.
+/// The type serializes and does not deserialize: the parse and the shape walk
+/// that follows it are halves of one gate, and loading runs both. What
+/// [`new`](Self::new) and a field assignment build answers to neither, which is
+/// the state the `None` arms below name.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldSchema {
     /// The map key carries this on the wire; not serialized, to avoid duplication.
