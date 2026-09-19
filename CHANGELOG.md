@@ -4,6 +4,31 @@
 
 Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).
 
+### Schema, validation and the resolved view
+
+- refactor(core,typst,acroform,wasm,python)!: **a variant cell rests at card
+  level, beside its enum.** A variant-bearing `enum` rested as
+  `{value: <member>, …the member's fields}`, one indentation level below every
+  other field on the card, and the one property the nesting alone bought was a
+  closed wire, where every other field is blank-filled. The discriminant now
+  rests as the bare string every enum is, and each world's cells are card-level
+  fields whose *existence* the declaration scopes to a member: a document writes
+  `classification: CUI` with `controlled_by: SAF/AA` beside it, a plate reads
+  `data.classification` and `data.controlled_by`, and every address loses the
+  enum prefix (`main.controlled_by`; `classification.poc` is no address, since
+  an enum offers no step). `variants:` in `Quill.yaml` does not change. Every
+  declared cell is on the plate on every document, a live world's carrying the
+  document's answers and a dormant world's resting at its blank, so the fill is
+  total at card level with no exception and a stranded answer never reaches a
+  plate under a tag that disowns it. A name is one cell of the card:
+  `CardSchema::cell` resolves a document key to a field or a variant cell, and
+  load rejects a cell named like a card field or declared by two enums
+  (`quill::variant_field_collision` names both owners); `value` is an ordinary
+  name, and `quill::variant_reserved_field_name` retires. The container spelling
+  is `validation::type_mismatch` on the enum and refuses to render.
+  `VARIANT_DISCRIMINANT_KEY` is deleted from Rust and the WASM runtime, and
+  `resolve()` reports a row per cell with its own rung. Closes #1842.
+
 ### The content model
 
 - refactor(content,core,wasm,python)!: **a block island's line is a `para`, and

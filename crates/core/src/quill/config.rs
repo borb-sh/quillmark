@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{Diagnostic, Severity, diag_args};
 use crate::value::QuillValue;
 
-use super::types::{BODY_CARD_SCHEMA_KEYS, UI_CARD_SCHEMA_KEYS, VARIANT_DISCRIMINANT_KEY};
+use super::types::{BODY_CARD_SCHEMA_KEYS, UI_CARD_SCHEMA_KEYS};
 use super::{BodyCardSchema, CardSchema, FieldSchema, FieldType, GroupRegistry, UiCardSchema};
 
 /// Canonical string text for a bare scalar unambiguously representable as a
@@ -244,7 +244,10 @@ impl QuillConfig {
     ) -> Result<IndexMap<String, QuillValue>, CoercionError> {
         let mut coerced: IndexMap<String, QuillValue> = IndexMap::new();
         for (field_name, field_value) in fields {
-            if let Some(field_schema) = schema.fields.get(field_name) {
+            // A variant cell coerces by its own declaration wherever it sits,
+            // live world or not (`SCHEMAS.md` §"Enum variants": carried, not
+            // dropped).
+            if let Some(field_schema) = schema.cell(field_name) {
                 let path: std::borrow::Cow<'_, str> = match card_kind {
                     Some(kind) => format!("card_kinds.{kind}.{field_name}").into(),
                     None => field_name.as_str().into(),
@@ -293,10 +296,6 @@ impl QuillConfig {
         // marker riding on it: the fill flag is not part of the JSON.
         if json_value.is_null() {
             return Ok(value.clone());
-        }
-
-        if field_schema.is_variant_bearing() {
-            return Self::conform_variant(json_value, field_schema, path, mode);
         }
 
         match field_schema.r#type {
@@ -772,95 +771,6 @@ impl QuillConfig {
         Ok(out)
     }
 
-    /// Coerce a variant-bearing enum to its container form, `{value: <member>,
-    /// …}`, from either authored shape: the bare scalar (`classification: CUI`)
-    /// or the map. A key no variant declares carries through verbatim, and a key
-    /// a *non-active* variant declares is coerced by that variant's schema and
-    /// kept (`SCHEMAS.md` §"Enum variants").
-    ///
-    /// The cell lookup takes the first variant declaring a name without
-    /// consulting the discriminant. That is total because
-    /// `quill::variant_field_collision` rejects a name two worlds declare
-    /// *differently*, so every repetition is the same declaration.
-    fn conform_variant(
-        json_value: &serde_json::Value,
-        field_schema: &super::FieldSchema,
-        path: &str,
-        mode: Leniency,
-    ) -> Result<QuillValue, CoercionError> {
-        let discriminant = |v: &serde_json::Value| -> Option<String> {
-            v.as_str()
-                .map(str::to_string)
-                .or_else(|| scalar_as_string(v))
-        };
-
-        let Some(object) = json_value.as_object() else {
-            return match discriminant(json_value) {
-                Some(member) => {
-                    let mut out = serde_json::Map::new();
-                    out.insert(
-                        VARIANT_DISCRIMINANT_KEY.to_string(),
-                        serde_json::Value::String(member),
-                    );
-                    Ok(QuillValue::from_json(serde_json::Value::Object(out)))
-                }
-                None => match mode {
-                    Leniency::Render => Ok(QuillValue::from_json(json_value.clone())),
-                    Leniency::Write => Err(CoercionError::uncoercible(
-                        path,
-                        json_value,
-                        "enum",
-                        "value is neither a member nor a variant container",
-                    )),
-                },
-            };
-        };
-
-        let mut out = serde_json::Map::new();
-        for (key, value) in object {
-            if key == VARIANT_DISCRIMINANT_KEY {
-                // Null ≡ absent: leave the key out so the ladder fills it.
-                if value.is_null() {
-                    continue;
-                }
-                match discriminant(value) {
-                    Some(member) => {
-                        out.insert(key.clone(), serde_json::Value::String(member));
-                    }
-                    None => match mode {
-                        Leniency::Render => {
-                            out.insert(key.clone(), value.clone());
-                        }
-                        Leniency::Write => {
-                            return Err(CoercionError::uncoercible(
-                                &format!("{path}.{key}"),
-                                value,
-                                "enum",
-                                "value is not a string",
-                            ));
-                        }
-                    },
-                }
-                continue;
-            }
-            match field_schema.variant_field(key) {
-                Some(schema) => {
-                    let coerced = Self::conform_value(
-                        &QuillValue::from_json(value.clone()),
-                        schema,
-                        &format!("{path}.{key}"),
-                        mode,
-                    )?;
-                    out.insert(key.clone(), coerced.into_json());
-                }
-                None => {
-                    out.insert(key.clone(), value.clone());
-                }
-            }
-        }
-        Ok(QuillValue::from_json(serde_json::Value::Object(out)))
-    }
-
     /// Recursively validate a field's structural shape. Every type nests at
     /// every depth; `at_card_level` gates the two keys that do not,
     /// `variants:` and `ui.group`.
@@ -978,16 +888,6 @@ impl QuillConfig {
                     );
                 }
                 for (name, field) in fields {
-                    if name == VARIANT_DISCRIMINANT_KEY {
-                        return err(
-                            "quill::variant_reserved_field_name",
-                            format!(
-                                "Field '{member_owner}' declares a field named \
-                                 '{VARIANT_DISCRIMINANT_KEY}', which carries the \
-                                 discriminant itself. Rename the field."
-                            ),
-                        );
-                    }
                     if !Self::is_snake_case_identifier(name) {
                         return err(
                             "quill::invalid_field_name",
@@ -1018,7 +918,7 @@ impl QuillConfig {
                             format!(
                                 "Field '{owner}' declares '{name}' differently under \
                                  '{first}' and '{member}'. A name is one cell of the \
-                                 container whichever world brings it into play, so every \
+                                 card whichever world brings it into play, so every \
                                  variant declaring it must declare it identically; give \
                                  the two readings separate names, or share one declaration \
                                  with a YAML anchor."
@@ -1370,8 +1270,9 @@ impl QuillConfig {
 
     /// Refuse a `default:` / `example:` declared on a **namespace** rather than
     /// a cell (`SCHEMAS.md` §"Cells and namespaces"): a typed dictionary, or a
-    /// matrix, whose keys the roster fixes. The variant container refuses the
-    /// same shape under `quill::{default,example}_type_mismatch`; an `array`
+    /// matrix, whose keys the roster fixes. A variant-bearing enum refuses a
+    /// container-shaped literal under `quill::{default,example}_type_mismatch`;
+    /// an `array`
     /// keeps its literal, `items:` fixing the element type but never the arity.
     fn reject_namespace_literal(
         slot: &str,
@@ -1511,8 +1412,8 @@ impl QuillConfig {
                             .map(String::as_str)
                             .unwrap_or("<member>");
                         format!(
-                            "Write the {slot} as the discriminant alone ({slot}: {member}); \
-                             a variant's own field carries its {slot} on that field."
+                            "Write the {slot} as a member alone ({slot}: {member}); \
+                             a variant cell carries its {slot} on its own declaration."
                         )
                     } else if actual == "number" || actual == "integer" {
                         let schema_type = if actual == "integer" {
@@ -1712,7 +1613,49 @@ impl QuillConfig {
             }
         }
 
+        Self::validate_variant_cell_names(&fields, context, errors);
         fields
+    }
+
+    /// A variant cell rests at card level, so its name is one cell of the
+    /// card: a name a field declares, or two enums' worlds declare, would
+    /// resolve to two declarations at once (`quill::variant_field_collision`).
+    /// Repetition across one enum's worlds is the shared field set and is
+    /// judged by `validate_field_schema_shape`.
+    fn validate_variant_cell_names(
+        fields: &IndexMap<String, FieldSchema>,
+        context: &str,
+        errors: &mut Vec<Diagnostic>,
+    ) {
+        let mut owners: IndexMap<&str, &str> = IndexMap::new();
+        for (owner, field) in fields {
+            let Some(variants) = &field.variants else {
+                continue;
+            };
+            for name in variants.values().flat_map(|set| set.keys()) {
+                let message = if fields.contains_key(name.as_str()) {
+                    format!(
+                        "Field '{owner}' declares a variant cell '{name}', which is also a \
+                         {context}. A variant cell rests beside the card's fields, so the \
+                         name would answer for two declarations; rename one."
+                    )
+                } else if let Some(first) = owners.get(name.as_str()).filter(|f| **f != owner) {
+                    format!(
+                        "Fields '{first}' and '{owner}' both declare a variant cell '{name}'. \
+                         A variant cell rests beside the card's fields, and no discriminant \
+                         could say which enum brings it into play; rename one."
+                    )
+                } else {
+                    owners.entry(name.as_str()).or_insert(owner.as_str());
+                    continue;
+                };
+                errors.push(
+                    Diagnostic::new(Severity::Error, message)
+                        .with_code("quill::variant_field_collision".to_string()),
+                );
+                return;
+            }
+        }
     }
 
     fn field_parse_hint(field_value: &serde_json::Value) -> Option<String> {
@@ -2300,15 +2243,7 @@ pub(crate) fn field_contains_content(field: &FieldSchema) -> bool {
             .properties
             .as_ref()
             .is_some_and(|p| p.values().any(|f| field_contains_content(f))),
-        // A variant container bears content when any world's cell does. Which
-        // world is live is a value-time fact and this is a schema question, so
-        // the union answers it: a cell that can hold content means the
-        // container's companions, resting form and seed must all handle one.
-        FieldType::Enum { .. } => field.variants.as_ref().is_some_and(|v| {
-            v.values()
-                .flat_map(|set| set.values())
-                .any(|f| field_contains_content(f))
-        }),
+        // A variant cell is its own card-level cell, so its owner bears none.
         _ => false,
     }
 }
@@ -2330,6 +2265,16 @@ fn populate_field_content(
     path: &str,
     errors: &mut Vec<Diagnostic>,
 ) {
+    // A variant cell is a card-level cell of its own, so its companions are its
+    // own too; the owning enum bears no content.
+    if let Some(variants) = field.variants.as_mut() {
+        for (member, set) in variants.iter_mut() {
+            for (name, cell) in set.iter_mut() {
+                let nested = format!("{path}.variants.{member}.{name}");
+                populate_field_content(cell, card, &nested, errors);
+            }
+        }
+    }
     if !field_contains_content(field) {
         return;
     }
@@ -2349,14 +2294,6 @@ fn populate_field_content(
     if let Some(props) = field.properties.as_mut() {
         for (name, prop) in props.iter_mut() {
             populate_field_content(prop, card, &format!("{path}.{name}"), errors);
-        }
-    }
-    if let Some(variants) = field.variants.as_mut() {
-        for (member, set) in variants.iter_mut() {
-            for (name, cell) in set.iter_mut() {
-                let nested = format!("{path}.variants.{member}.{name}");
-                populate_field_content(cell, card, &nested, errors);
-            }
         }
     }
     if let Some(items) = field.items.as_mut() {

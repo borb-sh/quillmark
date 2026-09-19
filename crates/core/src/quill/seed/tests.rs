@@ -313,10 +313,10 @@ fn well_formed_seed_overlay_yields_no_seed_diagnostics() {
     );
 }
 
-/// The container is the spelling `seed_variant` reads its discriminant off, so
+/// An overlay names a variant cell at card level, beside its discriminant, so
 /// the overlay the seeder accepts is the overlay the validator passes.
 #[test]
-fn a_variant_container_overlay_validates_clean_and_seeds() {
+fn a_variant_cell_overlay_validates_clean_and_seeds() {
     const VARIANT_QUILL: &str = r#"
 quill:
   name: seed_test
@@ -339,19 +339,17 @@ card_kinds:
             note: { type: richtext }
 "#;
     let quill = quill_from_yaml(VARIANT_QUILL);
-    let doc = doc_with_seed(
-        "$seed:\n  entry:\n    classification:\n      value: CUI\n      note: hello\n",
-    );
+    let doc = doc_with_seed("$seed:\n  entry:\n    classification: CUI\n    note: hello\n");
 
     let diags = quill.validate(&doc);
     assert!(
         !diags
             .iter()
             .any(|d| d.path.as_deref().is_some_and(|p| p.starts_with("$seed"))),
-        "a container overlay is a document value, not a schema literal: {diags:?}",
+        "a variant cell is a card field the overlay may name: {diags:?}",
     );
 
-    let overlay = overlay(json!({ "classification": { "value": "CUI", "note": "hello" } }));
+    let overlay = overlay(json!({ "classification": "CUI", "note": "hello" }));
     let card = quill
         .seed_card("entry", Some(&overlay))
         .expect("kind exists");
@@ -359,13 +357,14 @@ card_kinds:
         card.payload()
             .get("classification")
             .expect("seeded classification")
-            .as_json()["value"],
-        json!("CUI"),
+            .as_json(),
+        &json!("CUI"),
     );
+    assert!(card.payload().get("note").is_some(), "the cell commits beside it");
 }
 
-/// `value` stays absent — a `default:` is never persisted — and the container
-/// that leaves it out is a valid card.
+/// The discriminant stays absent — a `default:` is never persisted — and the
+/// cell the overlay wrote commits under the world that default selects.
 #[test]
 fn a_variant_overlay_without_a_discriminant_commits_its_cells_under_the_default_world() {
     let quill = quill_from_yaml(
@@ -387,24 +386,20 @@ card_kinds:
       other: { type: string }
 "#,
     );
-    let overlay = overlay(json!({ "classification": { "note": "hello" }, "other": "kept" }));
+    let overlay = overlay(json!({ "note": "hello", "other": "kept" }));
     let card = quill
         .seed_card("entry", Some(&overlay))
         .expect("kind exists");
 
-    let classification = card
-        .payload()
-        .get("classification")
-        .expect("an overlay cell commits without a discriminant to name its world")
-        .as_json()
-        .clone();
     assert!(
-        classification.get("note").is_some(),
-        "the cell the overlay supplied must reach the card: {classification}"
+        card.payload().get("note").is_some(),
+        "the cell the overlay supplied must reach the card: {:?}",
+        card.payload()
     );
     assert!(
-        classification.get("value").is_none(),
-        "a `default:` discriminant stays deferred to the render floor: {classification}"
+        card.payload().get("classification").is_none(),
+        "a `default:` discriminant stays deferred to the render floor: {:?}",
+        card.payload()
     );
     assert_eq!(
         card.payload().get("other").and_then(|v| v.as_str()),

@@ -301,7 +301,7 @@ fn validate_checks_the_enum_domain_of_a_scalar_the_floor_stringifies() {
 }
 
 #[test]
-fn validate_reports_a_bare_variant_scalar_at_the_path_its_author_wrote() {
+fn validate_reports_a_variant_bearing_enum_at_its_own_path() {
     let quill = quill_from_yaml(
         r#"
 quill:
@@ -321,8 +321,6 @@ main:
             type: string
 "#,
     );
-    // The floor normalizes the bare scalar into `{value: …}`; the diagnostic
-    // names the field the author wrote, not the key the floor minted.
     let md = "~~~card-yaml\n$quill: variants\n$kind: main\nclassification: bogus\n~~~\n";
     let doc = Document::parse(md).unwrap().document;
 

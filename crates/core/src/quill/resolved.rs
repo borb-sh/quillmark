@@ -137,24 +137,29 @@ fn resolve_card_fields(schema: &CardSchema, card: &Card) -> (Vec<ResolvedField>,
     let sourced: IndexMap<String, (QuillValue, FieldSource)> = resolve_card_sourced(schema, card);
     let mut fields = Vec::new();
 
-    // Declared rows in schema declaration order. Every declared field is present
-    // in the map (the resolver's ladder inserts each one) so the lookup holds.
-    for (name, _field_schema) in &schema.fields {
-        let (value, source) = sourced
-            .get(name)
-            .cloned()
-            .expect("resolve_card_sourced emits every declared field");
-        fields.push(ResolvedField {
-            name: name.clone(),
-            value,
-            source,
-        });
+    // Declared rows in schema declaration order, a variant cell after its
+    // enum. Every declared name is present in the map (the resolver's ladder
+    // inserts each one) so the lookup holds.
+    for (name, field_schema) in &schema.fields {
+        let names = std::iter::once(name.as_str())
+            .chain(field_schema.variant_cells().map(|(cell_name, _)| cell_name));
+        for name in names {
+            let (value, source) = sourced
+                .get(name)
+                .cloned()
+                .expect("resolve_card_sourced emits every declared cell");
+            fields.push(ResolvedField {
+                name: name.to_string(),
+                value,
+                source,
+            });
+        }
     }
 
     // Undeclared authored fields, under their NFC keys: the schema is a floor,
     // not an allowlist.
     for (name, (value, source)) in &sourced {
-        if !schema.fields.contains_key(name) {
+        if schema.cell(name).is_none() {
             fields.push(ResolvedField {
                 name: name.clone(),
                 value: value.clone(),

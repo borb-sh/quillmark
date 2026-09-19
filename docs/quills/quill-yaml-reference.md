@@ -271,29 +271,24 @@ them under `variants:`, keyed by the member that brings them into play:
           category:      { type: string, default: "" }
 ```
 
-The field then holds a **container** instead of a bare string, and a document
-writes the choice under `value` with that world's answers beside it:
+The field stays the bare string every enum is, and a document writes the
+world's answers beside it, at the same level as every other field on the card:
 
 ```yaml
-classification:
-  value: CUI
-  controlled_by: SAF/AA
-  poc: Capt J. Smith, DSN 555-1234
+classification: CUI
+controlled_by: SAF/AA
+poc: Capt J. Smith, DSN 555-1234
 ```
 
-A world with nothing to fill in still writes plainly — `classification:
-UNCLASSIFIED` is accepted and means the same as `{value: UNCLASSIFIED}`.
-
-The container is a *document* shape. The schema's own `default:` and `example:`
-name the discriminant alone (`default: ""`, `example: CUI`); a container-shaped
-one is a load error, because each cell in a world carries its literal on its own
-declaration.
+The schema's own `default:` and `example:` name a member alone (`default: ""`,
+`example: CUI`); a container-shaped one is a load error, because each cell in a
+world carries its literal on its own declaration.
 
 Three things follow, and they are the reason to reach for this over a
 `cui_`-prefixed row of flat fields:
 
-- **The names shorten.** The prefix was hand-written namespacing; nesting
-  supplies it structurally, so `cui_poc` becomes `poc`.
+- **The names shorten.** The prefix was hand-written namespacing; the
+  declaration supplies it, so `cui_poc` becomes `poc`.
 - **`must_fill` becomes conditional.** `controlled_by` declares no `default:`,
   so it is obliged — but only where `classification` reads `CUI`. On every other
   memo the same schema asks for nothing. That is the one cross-field rule the
@@ -301,19 +296,19 @@ Three things follow, and they are the reason to reach for this over a
 - **Editors know.** The schema says which cells are out of play, so a form
   retires them instead of showing a CUI block on an unclassified memo.
 
-**Writing a plate against variants.** The live world's fields arrive only inside
-the branch that selects it, which is the branch you already owe every enum:
+**Writing a plate against variants.** Every cell is on the wire on every
+document, blank-filled like any field, and only the live world's carry answers.
+Read them inside the branch you already owe every enum:
 
 ```typst
-..if data.classification.value == "CUI" {
-  (controlled_by: data.classification.controlled_by, poc: data.classification.poc)
+..if data.classification == "CUI" {
+  (controlled_by: data.controlled_by, poc: data.poc)
 },
 ```
 
-Inside that branch every declared field of the world is present and blank-filled,
-so no guarded access is needed. Outside it there is nothing to read: an
-unanswered `classification` renders `{value: ""}`, and the blank brings no field
-set at all.
+Inside that branch the world's fields carry the document's answers; outside it
+each rests at its blank, so no guarded access is needed anywhere. An unanswered
+`classification` renders `""`, and the blank brings no answers at all.
 
 **Flipping the choice keeps the answers.** Selecting `UNCLASSIFIED` after filling
 in a CUI block leaves those values in the document and warns
@@ -322,15 +317,20 @@ are still there. Remove the field to drop the value for good.
 
 A variant cell is an ordinary field: any type a card field may carry, prose,
 dates and containers included, reaching the plate exactly as a card-level one
-does. What it cannot carry is `variants:` of its own. `variants:` itself
-is valid only on a card-level `type: enum` field,
-keys only on declared members (never `""`, which owns no field set), and cannot
-declare a field named `value`. Variant fields inherit the discriminant's
-`ui.group`; declaring one inside a variant is an error. A field set shared by
-several members is repeated or shared with a YAML anchor — a variant keys on one
-member — but every variant declaring a given name must declare it *identically*,
-since the name is one cell of the container whichever world brings it into play
-(`quill::variant_field_collision`).
+does, and addressed by its own name (`poc`, never `classification.poc`). What it
+cannot carry is `variants:` of its own. `variants:` itself is valid only on a
+card-level `type: enum` field and keys only on declared members (never `""`,
+which owns no field set). Variant fields inherit the discriminant's `ui.group`;
+declaring one inside a variant is an error.
+
+**A name is one cell of the card.** A variant cell may not share its name with
+a card field, nor with a cell another enum declares, whether or not the two
+declarations agree: the name would answer for two declarations at once, and no
+discriminant could say which enum brings it into play. Within one enum, a field
+set shared by several members is repeated or shared with a YAML anchor — a
+variant keys on one member — but every member declaring a given name must
+declare it *identically*. All three are `quill::variant_field_collision`; a
+name that must mean two things is two names.
 
 ### Primitive Arrays, Typed Tables, and Typed Dictionaries
 

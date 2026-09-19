@@ -87,8 +87,8 @@ export interface QuillFieldSchema {
     values?: string[];
     /** Per-member field sets on a card-level `type: "enum"` field, keyed by
      *  member: the fields that exist only where the discriminant holds that
-     *  member. Declaring it makes the field rest as a container,
-     *  `{value: <member>, …that member's fields}`, rather than a bare string. */
+     *  member. Each rests as a card-level field beside the enum, under its own
+     *  name; the enum stays a bare string. */
     variants?: Record<string, Record<string, QuillFieldSchema>>;
     /** The roster of a `type: "matrix"` field, required there and valid
      *  nowhere else: the closed vocabulary a document ticks, in display order.
@@ -1080,8 +1080,7 @@ impl Document {
     /// and [`reader.getContent`](Self::reader_get_content) with the path spelled
     /// out. `path` is a `PathStep[]` from the field to the leaf — `[0]` an
     /// element of an `array<richtext>`, `["motto"]` an `object`'s content
-    /// property, `[1, "notes"]` a leaf under both, `["controlled_by"]` a
-    /// variant's cell.
+    /// property, `[1, "notes"]` a leaf under both.
     ///
     /// The codec is the leaf's declared type's, so the caller stops deciding
     /// what an element's stored bytes mean. Total over the storage form, as the

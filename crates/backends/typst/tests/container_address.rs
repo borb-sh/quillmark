@@ -1,6 +1,6 @@
-//! The container property step (`classification.poc`, `address.city`) through
-//! the public `Backend`/`LiveSession` path, and the address a region carries for
-//! a plate that reads one property.
+//! The container property step (`address.city`, `refs.0.org`) through the
+//! public `Backend`/`LiveSession` path, and the address a region carries for a
+//! plate that reads one property.
 //!
 //! The addresses the grammar admits are stated once, against both backends and
 //! all three helpers, in `quillmark/tests/address_grammar.rs`; which read a
@@ -53,13 +53,9 @@ main:
       type: enum
       values: [UNCLASSIFIED, CUI]
       default: ""
-      description: a variant container
+      description: an enum whose variant cells rest beside it
       variants:
         CUI:
-          poc:
-            type: string
-          controlled_by:
-            type: string
           note:
             type: richtext
           reply_by:
@@ -70,13 +66,9 @@ fn data() -> serde_json::Value {
     serde_json::json!({
         "subject": "Widgets",
         "address": { "city": "Dayton", "street": "1864 Fourth St" },
-        "classification": {
-            "value": "CUI",
-            "poc": "Capt J. Smith",
-            "controlled_by": "SAF/AA",
-            "note": common::content("Handle per **DoDM 5200.48**"),
-            "reply_by": "2026-03-04",
-        },
+        "classification": "CUI",
+        "note": common::content("Handle per **DoDM 5200.48**"),
+        "reply_by": "2026-03-04",
         "tags": ["urgent"],
         "refs": [{ "org": "AFRL/RQ", "num": "2026-01" }],
     })
@@ -95,33 +87,33 @@ fn a_property_read_regions_on_the_property() {
     let plate = r#"
 #import "@local/quillmark-helper:0.1.0": data
 #set page(width: 400pt, height: 200pt, margin: 40pt)
-#data.classification.poc
 #data.address.city
+#data.refs.at(0).org
 "#;
     let session = open(plate);
     let regions = session.regions();
-    for field in ["classification.poc", "address.city"] {
+    for field in ["address.city", "refs.0.org"] {
         assert!(
             regions.iter().any(|r| r.field == field),
             "{field:?} regions on its own address: {regions:?}"
         );
     }
     assert!(
-        !regions.iter().any(|r| r.field == "classification"),
+        !regions.iter().any(|r| r.field == "address"),
         "the container does not also claim the property's ink: {regions:?}"
     );
 
-    let poc = regions
+    let city = regions
         .iter()
-        .find(|r| r.field == "classification.poc")
+        .find(|r| r.field == "address.city")
         .expect("the property region surfaces");
     let (cx, cy) = (
-        (poc.rect[0] + poc.rect[2]) / 2.0,
-        (poc.rect[1] + poc.rect[3]) / 2.0,
+        (city.rect[0] + city.rect[2]) / 2.0,
+        (city.rect[1] + city.rect[3]) / 2.0,
     );
     assert_eq!(
-        session.field_at(poc.page, cx, cy, 0.0).as_deref(),
-        Some("classification.poc"),
+        session.field_at(city.page, cx, cy, 0.0).as_deref(),
+        Some("address.city"),
         "a click on the cell routes to the cell, not the container"
     );
 }
@@ -133,30 +125,30 @@ fn a_property_read_through_a_let_alias_keeps_the_property_address() {
     let plate = r#"
 #import "@local/quillmark-helper:0.1.0": data
 #set page(width: 400pt, height: 200pt, margin: 40pt)
-#let c = data.classification
-#let a = data.at("address", default: (:))
-#c.poc #c.at("controlled_by") #a.city
+#let a = data.address
+#let r = data.at("refs", default: ())
+#a.city #a.at("street") #r.at(0).org
 "#;
     let session = open(plate);
     let regions = session.regions();
-    for field in ["classification.poc", "classification.controlled_by", "address.city"] {
+    for field in ["address.city", "address.street", "refs.0.org"] {
         assert!(
             regions.iter().any(|r| r.field == field),
             "{field:?} regions through the alias: {regions:?}"
         );
     }
 
-    let poc = regions
+    let city = regions
         .iter()
-        .find(|r| r.field == "classification.poc")
+        .find(|r| r.field == "address.city")
         .expect("the property region surfaces");
     let (cx, cy) = (
-        (poc.rect[0] + poc.rect[2]) / 2.0,
-        (poc.rect[1] + poc.rect[3]) / 2.0,
+        (city.rect[0] + city.rect[2]) / 2.0,
+        (city.rect[1] + city.rect[3]) / 2.0,
     );
     assert_eq!(
-        session.field_at(poc.page, cx, cy, 0.0).as_deref(),
-        Some("classification.poc"),
+        session.field_at(city.page, cx, cy, 0.0).as_deref(),
+        Some("address.city"),
         "a click on a bound read routes to the cell it read"
     );
 }
@@ -167,11 +159,11 @@ fn the_container_read_whole_still_regions_on_the_container() {
     let plate = r#"
 #import "@local/quillmark-helper:0.1.0": data
 #set page(width: 400pt, height: 200pt, margin: 40pt)
-#data.classification.value
+#data.classification
 #repr(data.address)
 "#;
     let regions = open(plate).regions();
-    for field in ["classification.value", "address"] {
+    for field in ["classification", "address"] {
         assert!(
             regions.iter().any(|r| r.field == field),
             "{field:?} regions: {regions:?}"
@@ -185,11 +177,11 @@ fn a_widget_and_a_claim_bind_a_container_property() {
     let plate = r#"
 #import "@local/quillmark-helper:0.1.0": data, field-region, form-field
 #set page(width: 400pt, height: 200pt, margin: 40pt)
-#form-field("Poc", type: "text", value: data.classification.poc, field: "classification.poc")
+#form-field("Street", type: "text", value: data.address.street, field: "address.street")
 #field-region("address.city")[#box(stroke: 1pt, inset: 4pt)[#upper(data.address.city)]]
 "#;
     let regions = open(plate).regions();
-    for field in ["classification.poc", "address.city"] {
+    for field in ["address.street", "address.city"] {
         assert!(
             regions.iter().any(|r| r.field == field),
             "{field:?} surfaces: {regions:?}"
@@ -302,9 +294,9 @@ fn a_direct_row_cell_read_anchors_on_the_row_property() {
     );
 }
 
-/// A variant cell of a rich type lowers exactly as a card-level one does: the
-/// container projects as `type: object` carrying `properties`, so the walk
-/// recurses into it without knowing what a variant is.
+/// A variant cell of a rich type lowers exactly as a card-level one does: it
+/// projects as a card property, so the walk reaches it without knowing what a
+/// variant is.
 #[test]
 fn a_variant_cell_lowers_its_declared_type() {
     let session = open(
@@ -312,19 +304,19 @@ fn a_variant_cell_lowers_its_declared_type() {
 #import "@local/quillmark-helper:0.1.0": data, display
 #set page(width: 612pt, height: 792pt, margin: 72pt)
 // A markup block, not the canonical-content wire JSON a raw dict carries.
-#data.classification.note
+#data.note
 // Native `datetime`: the component read would not compile against a string.
-#assert(data.classification.reply_by.year() == 2026)
-#display("classification.reply_by", "[year]")
+#assert(data.reply_by.year() == 2026)
+#display("reply_by", "[year]")
 "#,
     );
     let fields: Vec<String> = session.regions().into_iter().map(|r| r.field).collect();
     assert!(
-        fields.iter().any(|f| f == "classification.note"),
+        fields.iter().any(|f| f == "note"),
         "the cell's content regions on its own address: {fields:?}"
     );
     assert!(
-        fields.iter().any(|f| f == "classification.reply_by"),
+        fields.iter().any(|f| f == "reply_by"),
         "the cell's date projection regions too: {fields:?}"
     );
 }
@@ -336,10 +328,10 @@ fn a_blank_date_still_projects_none() {
     let plate = r#"
 #import "@local/quillmark-helper:0.1.0": display
 #set page(width: 400pt, height: 200pt, margin: 40pt)
-#assert(display("classification.reply_by", "[year]") == none)
+#assert(display("reply_by", "[year]") == none)
 "#;
     let mut blank = data();
-    blank["classification"]["reply_by"] = serde_json::Value::String(String::new());
+    blank["reply_by"] = serde_json::Value::String(String::new());
     TypstBackend
         .open(&common::quill_with_plate(YAML, plate), &blank)
         .expect("a blank date compiles");

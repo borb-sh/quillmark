@@ -242,30 +242,34 @@ speak about the same cells (`SCHEMAS.md` § "Native validation").
 | `richtext` | On the field (bare; no block scalar) | `bio: !must_fill # richtext<markdown>` |
 | `object` (typed dict) | Per-property recursion | leaves carry `!must_fill` |
 | `array<object>` (typed table) | Per-property recursion in one synthetic row | leaves carry `!must_fill` |
-| `enum` with `variants:` | On the `value` cell, plus per-field recursion in the live world | `value: !must_fill` |
+| `enum` with `variants:` | On the field, plus each live-world cell as the card-level field it is | `classification: !must_fill` |
 
 ### Enum variants
 
-A variant-bearing `enum` emits its container: the discriminant under `value`,
-then the fields of the world that discriminant names (`default:` › `example:` ›
-blank). A blueprint **is** a document, so it can show only one world; the others
-are named instead, one `# when <MEMBER>: <fields>` leading line each. Every member
-owning a field set gets a line, the shown one included if it owns one — a member
-that brings no cells has nothing to announce, which is why the example below,
-sitting in the blank world, carries only `CUI`'s. The lines are the map, the cells
-are the position.
+A variant-bearing `enum` emits the scalar cell every enum emits, then the fields
+of the world that discriminant names (`default:` › `example:` › blank), each as
+the card-level field it rests as. A blueprint **is** a document, so it can show
+only one world; the others are named instead, one `# when <MEMBER>: <fields>`
+leading line above the discriminant for every member owning a field set, the
+shown one included if it owns one — a member that brings no cells has nothing to
+announce, which is why the example below, sitting in the blank world, carries
+only `CUI`'s. The lines are the map, the cells are the position.
 
 ```
 # Select the classification marking shown in the header and footer banner.
 # when CUI: controlled_by, poc, category, limited_dissemination
-classification: # enum<UNCLASSIFIED | CUI | CONFIDENTIAL | SECRET | TOP SECRET>
-  value: ""
+classification: "" # enum<UNCLASSIFIED | CUI | CONFIDENTIAL | SECRET | TOP SECRET>
 ```
 
-The container line carries the `enum<…>` annotation and `value` carries none:
-`value` *is* that enum, so a second annotation would restate it. The marker sits
-on `value` rather than the container, since `!must_fill` is rejected on a
-mapping.
+With `default: CUI` the same field shows its world live, at the same level as
+every other field on the card:
+
+```
+# when CUI: controlled_by, poc, category, limited_dissemination
+classification: CUI # enum<UNCLASSIFIED | CUI | CONFIDENTIAL | SECRET | TOP SECRET>
+# Office or organization that designated this information as CUI.
+controlled_by: !must_fill SAF/AA # string
+```
 
 This is the one place the `unauthored` cell set is **value-dependent**: which
 cells the schema-side predicate addresses follows from the discriminant a
@@ -522,12 +526,12 @@ degrades gracefully on every type-valid input shape. The contract requires:
   render every declared key is always present, so its `default:` is dead code
   and the blank flows through. Where a package asserts membership, that is a
   failed compile rather than a quiet mis-render.
-- **A template reads a variant field only inside the branch that selects its
-  world.** A variant-bearing enum arrives as `{value: …}` carrying exactly the
-  live world's fields, so `data.c.value == "CUI"` is what makes `data.c.poc`
-  total; reading it outside that branch is a missing-key error on every other
-  document. The exhaustive branch above is therefore not just an obligation here
-  but the access path (`SCHEMAS.md` § "Enum variants").
+- **A template reads a variant cell inside the branch that selects its
+  world.** Every declared cell is on the wire on every document, so `data.poc`
+  is total and never a missing key; what the branch decides is whether the read
+  is an answer or the blank a dormant world rests at. The exhaustive branch
+  above is therefore where the cells mean something (`SCHEMAS.md` § "Enum
+  variants").
 - No template asserts that a must-fill field is *non-empty*. The schema
   guarantees *presence*, not non-emptiness; the `!must_fill` marker
   is an authoring signal, not a render-time precondition.

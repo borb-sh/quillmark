@@ -106,7 +106,7 @@ impl Quill {
 }
 
 /// Conform one card's declared content fields in place. Field-name resolution
-/// is the render gate's raw lookup (`schema.fields.get(name)`, no NFC respelling)
+/// is the render gate's raw lookup (`schema.cell(name)`, no NFC respelling)
 /// so the two walks cannot diverge on which fields count as declared.
 fn conform_card(
     schema: &CardSchema,
@@ -128,7 +128,7 @@ fn conform_card(
         else {
             continue;
         };
-        let Some(field) = schema.fields.get(name) else {
+        let Some(field) = schema.cell(name) else {
             continue;
         };
         // Only a field whose type tree bears a content leaf has a resting form

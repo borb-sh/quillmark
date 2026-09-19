@@ -28,7 +28,6 @@
 //! `&Document` and `&QuillConfig`, so it cannot cross a lifetime-free binding
 //! boundary; those surfaces construct one per call from the quill handle.
 
-use indexmap::IndexMap;
 use quillmark_content::model::Normalized;
 
 use crate::document::edit::field_decode;
@@ -61,7 +60,7 @@ impl<'a> TypedReader<'a> {
     /// when a content leaf holds a value that does not decode (a scalar an
     /// opaque [`store_field`](crate::document::Card::store_field) wrote).
     pub fn get(&self, name: &str) -> Result<Option<QuillValue>, EditError> {
-        read_field(self.doc.main(), Some(&self.config.main.fields), name)
+        read_field(self.doc.main(), Some(&self.config.main), name)
     }
 
     /// Read a main-card content field as its [`Content`](quillmark_content::model::Content), decoded through the
@@ -81,9 +80,10 @@ impl<'a> TypedReader<'a> {
     }
 
     /// Read the [`Content`](quillmark_content::model::Content) *nested inside* a composite field at `at`: an
-    /// `array<richtext>` element, an `object`'s content property, a leaf under
-    /// both (`cells[1].notes`), or a variant's cell.
-    /// [`get_content`](Self::get_content) is the empty path.
+    /// `array<richtext>` element, an `object`'s content property, or a leaf
+    /// under both (`cells[1].notes`). [`get_content`](Self::get_content) is
+    /// the empty path; a variant cell is a card-level field and reads by its
+    /// own name.
     ///
     /// The codec is the leaf's, resolved by the same schema walk `conform` and
     /// rest enforcement take, so a leaf reads back at the codec it was conformed
@@ -106,7 +106,7 @@ impl<'a> TypedReader<'a> {
         name: &str,
         at: &[PathSegment],
     ) -> Result<Option<Normalized>, EditError> {
-        read_content(self.doc.main(), Some(&self.config.main.fields), name, at)
+        read_content(self.doc.main(), Some(&self.config.main), name, at)
     }
 
     /// The main body's markdown projection. Consults no schema and never
@@ -158,7 +158,7 @@ impl CardReader<'_> {
     /// [`CardSchema`]; a name the schema does not declare (or any name when the
     /// card kind is unknown) reads with [`EditError::UnknownField`].
     pub fn get(&self, name: &str) -> Result<Option<QuillValue>, EditError> {
-        read_field(self.card, self.schema.map(|s| &s.fields), name)
+        read_field(self.card, self.schema, name)
     }
 
     /// Read a content field on this card as its [`Content`](quillmark_content::model::Content): the card twin
@@ -174,7 +174,7 @@ impl CardReader<'_> {
         name: &str,
         at: &[PathSegment],
     ) -> Result<Option<Normalized>, EditError> {
-        read_content(self.card, self.schema.map(|s| &s.fields), name, at)
+        read_content(self.card, self.schema, name, at)
     }
 
     /// This card's body markdown: the card twin of [`TypedReader::body_markdown`].
@@ -187,11 +187,11 @@ impl CardReader<'_> {
 /// A `None` schema is an unknown card kind: every name on it is undeclared.
 fn read_field(
     card: &Card,
-    fields_schema: Option<&IndexMap<String, FieldSchema>>,
+    fields_schema: Option<&CardSchema>,
     name: &str,
 ) -> Result<Option<QuillValue>, EditError> {
     let schema = fields_schema
-        .and_then(|m| m.get(name))
+        .and_then(|m| m.cell(name))
         .ok_or_else(|| EditError::unknown_field(name))?;
     let Some(value) = card.payload().get(name) else {
         return Ok(None);
@@ -208,12 +208,12 @@ fn read_field(
 /// `array<richtext>` has no single [`Content`](quillmark_content::model::Content) while each of its elements does.
 fn read_content(
     card: &Card,
-    fields_schema: Option<&IndexMap<String, FieldSchema>>,
+    fields_schema: Option<&CardSchema>,
     name: &str,
     at: &[PathSegment],
 ) -> Result<Option<Normalized>, EditError> {
     let field = fields_schema
-        .and_then(|m| m.get(name))
+        .and_then(|m| m.cell(name))
         .ok_or_else(|| EditError::unknown_field(name))?;
     let leaf = schema_at(field, name, at)?;
     // The codec rides out of the dispatch: it is the declared type's, not the
@@ -234,7 +234,7 @@ fn read_content(
 
 /// Project `value` through `schema`'s type tree into the values form: every
 /// content leaf to its codec's text, every other node verbatim, descending
-/// `items` / `properties` / `variants`. `at` is the path from the field to
+/// `items` / `properties`. `at` is the path from the field to
 /// `value`, extended on descent and read only to anchor an
 /// [`EditError::FieldDecode`] at the leaf that raised it.
 ///
@@ -277,15 +277,6 @@ fn project_value(
             project_map(name, map, at, |key| {
                 props.and_then(|p| p.get(key)).map(|s| &**s)
             })
-        }
-        // Which world is live is a value-time fact, so the walk unions the
-        // worlds: a cell of a dormant world projects at its own codec, as the
-        // document carries it. The discriminant declares no cell and rides
-        // verbatim.
-        (FieldType::Enum { .. }, serde_json::Value::Object(map))
-            if schema.is_variant_bearing() =>
-        {
-            project_map(name, map, at, |key| schema.variant_field(key))
         }
         _ => Ok(value.clone()),
     }
@@ -357,18 +348,6 @@ fn schema_at<'a>(
                     at: at[..=depth].to_vec(),
                 })?,
             },
-            // Which world is live is a value-time fact, so the walk unions the
-            // worlds: a dormant cell resolves here and reads absent at
-            // `value_at`. The guard holds a variantless enum to a scalar, which
-            // `variant_field` alone would answer as an unknown cell.
-            (FieldType::Enum { .. }, PathSegment::Key(key)) if cursor.is_variant_bearing() => {
-                cursor
-                    .variant_field(key)
-                    .ok_or_else(|| EditError::UnknownField {
-                        field: name.to_string(),
-                        at: at[..=depth].to_vec(),
-                    })?
-            }
             _ => return Err(blocked),
         };
     }
@@ -756,106 +735,70 @@ card_kinds:
 
     fn cui_doc() -> Document {
         let mut doc = blank_doc();
-        doc.main_mut()
-            .store_field(
-                "classification",
-                QuillValue::from_json(serde_json::json!({
-                    "value": "CUI",
-                    "controlled_by": "a *literal* line",
-                    "banner": "Hello **world**",
-                    "count": 3,
-                    "nest": {"deep": "a *note*"},
-                })),
-            )
-            .unwrap();
+        for (name, value) in [
+            ("classification", serde_json::json!("CUI")),
+            ("controlled_by", serde_json::json!("a *literal* line")),
+            ("banner", serde_json::json!("Hello **world**")),
+            ("count", serde_json::json!(3)),
+            ("nest", serde_json::json!({"deep": "a *note*"})),
+        ] {
+            doc.main_mut()
+                .store_field(name, QuillValue::from_json(value))
+                .unwrap();
+        }
         doc
     }
 
+    /// A variant cell is a field of the card, so it reads by its own name at
+    /// its own codec, live world or not.
     #[test]
     fn variant_cell_reads_at_its_declared_codec() {
         let config = config();
         let doc = cui_doc();
         let view = TypedReader::new(&config, &doc);
         assert_eq!(
-            view.get_content_at("classification", &key("controlled_by")).unwrap().unwrap().text,
+            view.get_content("controlled_by").unwrap().unwrap().text,
             "a *literal* line",
             "a plaintext cell decodes literally, as a card-level one does"
         );
         assert_eq!(
-            view.get_content_at("classification", &key("banner")).unwrap().unwrap().text,
+            view.get_content("banner").unwrap().unwrap().text,
             "Hello world"
         );
         assert_eq!(
-            view.get_content_at(
-                "classification",
-                &[PathSegment::Key("nest".into()), PathSegment::Key("deep".into())]
-            )
-            .unwrap()
-            .unwrap()
-            .text,
+            view.get_content_at("nest", &key("deep")).unwrap().unwrap().text,
             "a note",
-            "the walk continues past the cell into its own subtree"
+            "the walk continues into the cell's own subtree"
         );
-    }
-
-    #[test]
-    fn a_dormant_worlds_cell_reads_absent() {
-        let config = config();
-        let mut doc = blank_doc();
-        doc.main_mut()
-            .store_field(
-                "classification",
-                QuillValue::from_json(serde_json::json!("UNCLASSIFIED")),
-            )
-            .unwrap();
         assert_eq!(
-            TypedReader::new(&config, &doc)
-                .get_content_at("classification", &key("controlled_by"))
-                .unwrap(),
-            None
+            view.get("count").unwrap().unwrap().as_json(),
+            &serde_json::json!(3)
         );
     }
 
     #[test]
-    fn a_variant_step_the_schema_cannot_take_is_blocked() {
+    fn an_enum_offers_no_step() {
         let config = config();
         let doc = cui_doc();
         let view = TypedReader::new(&config, &doc);
-        assert!(matches!(
-            view.get_content_at("classification", &key("count")),
-            Err(EditError::FieldNotContent { declared, .. }) if declared == "integer"
-        ));
-        assert!(
-            matches!(
-                view.get_content_at("plain_enum", &key("a")),
-                Err(EditError::FieldNotContent { declared, .. }) if declared == "enum"
-            ),
-            "a variantless enum is a scalar, not a container"
-        );
-        assert!(matches!(
-            view.get_content_at("classification", &idx(0)),
-            Err(EditError::FieldNotContent { declared, .. }) if declared == "enum"
-        ));
-        assert!(matches!(
-            view.get_content_at("classification", &[]),
-            Err(EditError::FieldNotContent { declared, .. }) if declared == "enum"
-        ));
-    }
-
-    #[test]
-    fn a_cell_no_world_declares_is_unknown_field() {
-        let config = config();
-        let doc = cui_doc();
-        let view = TypedReader::new(&config, &doc);
-        for name in ["nope", "value"] {
+        for (name, at) in [
+            ("classification", key("controlled_by")),
+            ("classification", idx(0)),
+            ("classification", Vec::new()),
+            ("plain_enum", key("a")),
+        ] {
             assert!(
                 matches!(
-                    view.get_content_at("classification", &key(name)),
-                    Err(EditError::UnknownField { at, .. }) if at == key(name)
+                    view.get_content_at(name, &at),
+                    Err(EditError::FieldNotContent { declared, .. }) if declared == "enum"
                 ),
-                "`{name}` anchors through the failed step"
+                "{name}: an enum is a scalar, not a container"
             );
         }
+        assert!(matches!(
+            view.get_content("count"),
+            Err(EditError::FieldNotContent { declared, .. }) if declared == "integer"
+        ));
     }
 
     #[test]

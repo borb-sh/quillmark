@@ -277,12 +277,12 @@ fn conform_is_a_no_op_on_seeds() {
     assert_eq!(bytes(&doc2), before2, "seed_card is already at rest");
 }
 
-/// A variant container's cells commit through the same strict write every other
-/// seeded field takes, so a content cell rests as a content object rather than
-/// as the overlay's raw markdown. Otherwise conform moves bytes and hash on a
-/// document nobody edited.
+/// A variant cell commits through the same strict write every other seeded
+/// field takes, so a content cell rests as a content object rather than as the
+/// overlay's raw markdown. Otherwise conform moves bytes and hash on a document
+/// nobody edited.
 #[test]
-fn conform_is_a_no_op_on_a_seeded_variant_container() {
+fn conform_is_a_no_op_on_a_seeded_variant_cell() {
     const YAML: &str = r#"
 quill:
   name: variant_seed
@@ -306,20 +306,19 @@ card_kinds:
 "#;
     let quill = quill_from_yaml(YAML);
     let overlay = SeedOverlay::from_json(&json!({
-        "classification": { "value": "CUI", "note": "**bold note**" }
+        "classification": "CUI", "note": "**bold note**"
     }))
     .unwrap();
     let card = quill.seed_card("entry", Some(&overlay)).expect("kind exists");
     let value = card
         .payload()
-        .get("classification")
-        .expect("seeded classification")
+        .get("note")
+        .expect("seeded note")
         .as_json()
         .clone();
     assert!(
-        value["note"].is_object(),
-        "a seeded content cell rests as a content object, got {}",
-        value["note"]
+        value.is_object(),
+        "a seeded content cell rests as a content object, got {value}"
     );
 
     let mut doc = quill.seed_document();
@@ -327,7 +326,7 @@ card_kinds:
     let before = bytes(&doc);
     let diags = quill.conform(&mut doc).expect("conform");
     assert!(diags.is_empty(), "{diags:?}");
-    assert_eq!(bytes(&doc), before, "the seeded container is already at rest");
+    assert_eq!(bytes(&doc), before, "the seeded cell is already at rest");
 }
 
 #[test]

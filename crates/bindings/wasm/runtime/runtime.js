@@ -130,11 +130,6 @@ async function instantiateCore(source) {
 export const MAIN_CARD_ADDR = Object.freeze({});
 
 /**
- * @type {'value'}
- */
-export const VARIANT_DISCRIMINANT_KEY = 'value';
-
-/**
  * @param {unknown} e
  * @returns {e is Error & { diagnostics: import('../core/wasm.js').Diagnostic[] }}
  */

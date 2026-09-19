@@ -25,11 +25,9 @@
 //! what a write lands are the same bytes. Where a write refuses, conform leaves
 //! the value authored under a `conform::*` warning.
 
-use indexmap::IndexMap;
-
 use crate::document::edit::{overflow_errors, resolve_field_write};
 use crate::document::{Card, Document, EditError};
-use crate::quill::{FieldSchema, QuillConfig};
+use crate::quill::{CardSchema, QuillConfig};
 use crate::value::QuillValue;
 use crate::session::Delta;
 
@@ -54,7 +52,7 @@ impl<'a> TypedWriter<'a> {
     /// [`Card::store_field`](crate::document::Card::store_field). Other errors
     /// are those of `Card::commit_field`.
     pub fn set(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
-        let schema = Some(&self.config.main.fields);
+        let schema = Some(&self.config.main);
         commit_impl(self.doc.main_card_mut(), schema, name, value)
     }
 
@@ -72,7 +70,7 @@ impl<'a> TypedWriter<'a> {
         V: Into<QuillValue>,
         I: IntoIterator<Item = (K, V)>,
     {
-        let schema = Some(&self.config.main.fields);
+        let schema = Some(&self.config.main);
         set_all_impl(self.doc.main_card_mut(), schema, fields)
     }
 
@@ -94,7 +92,7 @@ impl<'a> TypedWriter<'a> {
     /// markdown, so a byte-identical revise of a value carrying escapes is a
     /// byte no-op.
     pub fn revise_field(&mut self, name: &str, text: &str) -> Result<Delta, EditError> {
-        let schema = Some(&self.config.main.fields);
+        let schema = Some(&self.config.main);
         revise_impl(self.doc.main_card_mut(), schema, name, text)
     }
 
@@ -119,7 +117,7 @@ impl<'a> TypedWriter<'a> {
         I: IntoIterator<Item = (K, V)>,
     {
         let mut card = Card::new(kind).map_err(|e| vec![("$kind".to_string(), e)])?;
-        let schema = self.config.card_kind(kind).map(|s| &s.fields);
+        let schema = self.config.card_kind(kind);
         set_all_impl(&mut card, schema, fields)?;
         if let Some(md) = body {
             card.revise_body(md)
@@ -182,11 +180,8 @@ impl<'a> CardWriter<'a> {
             .expect("bound in range, and cards cannot move while this cursor holds the document")
     }
 
-    fn fields_schema(&self) -> Option<&'a IndexMap<String, FieldSchema>> {
-        self.card()
-            .kind()
-            .and_then(|k| self.config.card_kind(k))
-            .map(|s| &s.fields)
+    fn fields_schema(&self) -> Option<&'a CardSchema> {
+        self.card().kind().and_then(|k| self.config.card_kind(k))
     }
 
     /// The card's `$kind`, if any.
@@ -235,11 +230,11 @@ impl<'a> CardWriter<'a> {
 /// it is undeclared.
 fn commit_impl(
     card: &mut Card,
-    fields_schema: Option<&IndexMap<String, FieldSchema>>,
+    fields_schema: Option<&CardSchema>,
     name: &str,
     value: impl Into<QuillValue>,
 ) -> Result<(), EditError> {
-    match fields_schema.and_then(|m| m.get(name)) {
+    match fields_schema.and_then(|m| m.cell(name)) {
         Some(schema) => card.commit_field(name, value, schema),
         None => Err(EditError::unknown_field(name)),
     }
@@ -249,11 +244,11 @@ fn commit_impl(
 /// [`TypedWriter::revise_field`] and [`CardWriter::revise_field`].
 fn revise_impl(
     card: &mut Card,
-    fields_schema: Option<&IndexMap<String, FieldSchema>>,
+    fields_schema: Option<&CardSchema>,
     name: &str,
     text: &str,
 ) -> Result<Delta, EditError> {
-    match fields_schema.and_then(|m| m.get(name)) {
+    match fields_schema.and_then(|m| m.cell(name)) {
         Some(schema) => card.revise_field_checked(name, text, schema),
         None => Err(EditError::unknown_field(name)),
     }
@@ -264,7 +259,7 @@ fn revise_impl(
 /// A `None` schema is an unknown card kind: every name on it is undeclared.
 fn set_all_impl<K, V, I>(
     card: &mut Card,
-    fields_schema: Option<&IndexMap<String, FieldSchema>>,
+    fields_schema: Option<&CardSchema>,
     fields: I,
 ) -> Result<(), Vec<(String, EditError)>>
 where
@@ -280,7 +275,7 @@ where
     let mut resolved: Vec<(String, QuillValue)> = Vec::with_capacity(fields.len());
     let mut errors: Vec<(String, EditError)> = Vec::new();
     for (name, value) in fields {
-        match fields_schema.and_then(|m| m.get(&name)) {
+        match fields_schema.and_then(|m| m.cell(&name)) {
             Some(schema) => match resolve_field_write(&name, value, schema) {
                 Ok(stored) => resolved.push((name, stored)),
                 Err(e) => errors.push((name, e)),
@@ -310,8 +305,9 @@ mod tests {
     use super::*;
     use crate::document::Codec;
     use crate::document::{Card, Document};
-    use crate::quill::{CardSchema, FieldType};
+    use crate::quill::{CardSchema, FieldSchema, FieldType};
     use crate::version::QuillReference;
+    use indexmap::IndexMap;
     use std::str::FromStr;
 
     const QUILL_YAML: &str = "\

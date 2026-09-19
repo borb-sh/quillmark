@@ -156,7 +156,7 @@ validates that name at compile time rather than leaving it silently unbound:
 | `subject` | any declared field |
 | `refs.2` | an array field — the element step |
 | `refs.2.org` | a typed table's row property, after the element step |
-| `classification.poc` | a container field — the property step |
+| `address.city` | a container field — the property step |
 | `contact.address.city` | either step again, wherever the schema nests |
 | `$cards.<kind>.<n>.<field>` | a card field, `<n>` the per-kind ordinal |
 | `$cards.<kind>.<n>.<field>.<suffix>` | any of those suffixes, on a card field |
@@ -164,9 +164,9 @@ validates that name at compile time rather than leaving it silently unbound:
 Every step is gated on what the node it steps out of actually offers, not on the
 name alone, so `subject.0` and `subject.poc` are both rejected on a scalar
 `subject`: a scalar has neither an element nor a property for the address to
-resolve to. A **container** is a typed dictionary or a variant container — both
-project as `type: object` carrying `properties`, so a variant's cells and its
-`value` discriminant are addressable exactly as a dictionary's keys are
+resolve to. A **container** is a typed dictionary or a matrix, which project as
+`type: object` carrying `properties`. A variant cell is a card-level field and
+addresses by its own name; its enum is a scalar and offers no step
 ([SCHEMAS.md](SCHEMAS.md#enum-variants)). The grammar stops where the schema
 does, at whatever depth that is. This is the acroform resolver's grammar
 (`backends/acroform/src/bind.rs`), so one address binds on either backend. The

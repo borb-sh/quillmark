@@ -511,7 +511,7 @@ fn read_plate(source: &Quill) -> Result<String, RenderError> {
 /// schema pruned to its address grammar.
 ///
 /// A node offers a property step (`props`), an index step (`item`), or neither.
-/// One `object` shape spans a typed dictionary and a variant container alike
+/// One `object` shape spans a typed dictionary and a matrix alike
 /// (`prose/canon/PLATE_DATA.md`), while a richtext field, an `object` declaring
 /// no `properties`, offers no step at all. An array always offers its index
 /// step, whatever its element.

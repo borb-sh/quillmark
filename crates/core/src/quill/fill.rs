@@ -3,7 +3,7 @@
 
 use serde_json::json;
 
-use super::{FieldSchema, FieldType, VARIANT_DISCRIMINANT_KEY};
+use super::{FieldSchema, FieldType};
 use crate::value::QuillValue;
 
 /// The **blank** for `field`: the leanest value satisfying its declared type,
@@ -14,13 +14,6 @@ use crate::value::QuillValue;
 /// (`quill::enum_blank_member`), but a [`QuillConfig`](super::QuillConfig) built
 /// through serde bypasses loader validation, so this does not lean on that.
 pub fn blank(field: &FieldSchema) -> QuillValue {
-    // The blank activates no variant, so the container carries the blank
-    // discriminant and nothing else.
-    if field.is_variant_bearing() {
-        let mut obj = serde_json::Map::new();
-        obj.insert(VARIANT_DISCRIMINANT_KEY.to_string(), json!(""));
-        return QuillValue::from_json(serde_json::Value::Object(obj));
-    }
     let json = match field.r#type {
         FieldType::Array => json!([]),
         // A matrix blanks to every member unheld, columns at their blanks: the

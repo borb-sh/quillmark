@@ -274,6 +274,28 @@ impl CardSchema {
     pub fn body_enabled(&self) -> bool {
         self.body.as_ref().and_then(|b| b.enabled).unwrap_or(true)
     }
+
+    /// The declaration a document key on this card resolves to: a declared
+    /// field, else the cell some enum's `variants:` brings into play under that
+    /// name, live world or not. `None` for an undeclared key.
+    ///
+    /// Total because a name is one cell of the card: load rejects a variant
+    /// cell that shadows a field or that two enums declare
+    /// (`quill::variant_field_collision`).
+    pub fn cell(&self, name: &str) -> Option<&FieldSchema> {
+        self.fields
+            .get(name)
+            .or_else(|| self.variant_owner(name).and_then(|owner| owner.variant_field(name)))
+    }
+
+    /// The variant-bearing enum on this card whose `variants:` declare `name`,
+    /// whichever world does.
+    pub fn variant_owner(&self, name: &str) -> Option<&FieldSchema> {
+        self.fields
+            .values()
+            .find(|field| field.variant_field(name).is_some())
+    }
+
 }
 
 /// A field's declared `type:`. Each type's meaning and grammar is the
@@ -429,12 +451,6 @@ impl<'de> Deserialize<'de> for FieldType {
 /// The field set one enum member brings into play, in declaration order.
 pub type VariantFields = IndexMap<String, Box<FieldSchema>>;
 
-/// The key carrying the discriminant inside a variant-bearing enum's value.
-///
-/// Reserved: a variant may not declare a field under this name
-/// (`quill::variant_reserved_field_name`).
-pub const VARIANT_DISCRIMINANT_KEY: &str = "value";
-
 /// Schema definition for a template field. `default:` answers both the value
 /// axis and the obligation one ([`must_fill`](Self::must_fill)); `SCHEMAS.md`
 /// §"Value and obligation: one declaration" is the rule.
@@ -573,33 +589,46 @@ impl FieldSchema {
             .map(Box::as_ref)
     }
 
-    /// Whether this field rests as a variant container (`{value: …, …}`) rather
-    /// than a bare scalar. `variants:` is the one key that changes a resting
-    /// shape.
+    /// Whether this enum's `variants:` bring card-level cells into play.
     pub fn is_variant_bearing(&self) -> bool {
         self.variants.is_some()
     }
 
-    /// The discriminant a document authored for a variant-bearing field, read
-    /// off either shape: the container's [`VARIANT_DISCRIMINANT_KEY`] or a bare
-    /// scalar that bypassed coercion. `None` where the cell is absent or null,
-    /// which is what makes it the *authored* rung of the ladder.
-    pub fn authored_member(value: Option<&serde_json::Value>) -> Option<&serde_json::Value> {
-        match value {
-            Some(serde_json::Value::Object(o)) => o.get(VARIANT_DISCRIMINANT_KEY),
-            other => other,
-        }
-        .filter(|v| !v.is_null())
+    /// The union of every world's cells, in declaration order, a name once at
+    /// its first declaration (every repetition is that declaration,
+    /// `quill::variant_field_collision`). Empty for a variantless field.
+    pub fn variant_cells(&self) -> impl Iterator<Item = (&str, &FieldSchema)> {
+        let mut seen: Vec<&str> = Vec::new();
+        self.variants
+            .iter()
+            .flat_map(|worlds| worlds.values())
+            .flat_map(|set| set.iter())
+            .filter(move |(name, _)| {
+                if seen.contains(&name.as_str()) {
+                    false
+                } else {
+                    seen.push(name.as_str());
+                    true
+                }
+            })
+            .map(|(name, cell)| (name.as_str(), cell.as_ref()))
     }
 
-    /// The member the ladder selects: the authored discriminant, else
-    /// `default:`, else the blank.
+    /// The member the ladder selects for this enum: the authored discriminant
+    /// where it is a string, else `default:`, else the blank.
     pub fn selected_member(&self, value: Option<&serde_json::Value>) -> String {
-        Self::authored_member(value)
+        value
             .and_then(|v| v.as_str())
             .or_else(|| self.default.as_ref()?.as_str())
             .unwrap_or_default()
             .to_string()
+    }
+
+    /// The cells the world `value` selects brings into play, or `None` where
+    /// the field declares no variants or the selected member (the blank
+    /// included) owns no set.
+    pub fn live_cells(&self, value: Option<&serde_json::Value>) -> Option<&VariantFields> {
+        self.variant_fields(&self.selected_member(value))
     }
 
     /// Whether a human must author this cell: the one answer the blueprint's

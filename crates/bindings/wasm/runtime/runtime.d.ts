@@ -84,16 +84,6 @@ import type { CardAddr } from '../core/wasm.js';
  */
 export declare const MAIN_CARD_ADDR: CardAddr;
 
-/**
- * The key carrying the discriminant inside a variant-bearing enum's value. A
- * field declaring `variants:` rests as `{value: <member>, …that member's
- * fields}`, so reading or writing one means naming this key; it crosses the
- * boundary inside untyped container data, with no type to read it off.
- * Reserved: no variant may declare a field under it, and
- * {@link QuillFieldSchema.variants}, keyed by member, never contains it.
- */
-export declare const VARIANT_DISCRIMINANT_KEY: 'value';
-
 // Core-build types consumers read off `Quill`/`Document`.
 export type {
 	Card,
@@ -716,10 +706,11 @@ export declare class DocumentReader {
 	/**
 	 * Read the `Content` nested inside the composite field at `addr`, at `path`:
 	 * `[0]` an element of an `array<richtext>`, `["motto"]` an object's content
-	 * property, `[1, "notes"]` a leaf under both, `["controlled_by"]` a variant's
-	 * cell. The codec is the leaf's declared type's, resolved through the field
-	 * schema's `items` / `properties` / `variants`, so the element's storage
-	 * form is not the caller's business. The empty path is {@link getContent}.
+	 * property, `[1, "notes"]` a leaf under both. The codec is the leaf's
+	 * declared type's, resolved through the field schema's `items` /
+	 * `properties`, so the element's storage form is not the caller's business.
+	 * The empty path is {@link getContent}; a variant cell is a field of its
+	 * own and reads by name.
 	 *
 	 * The `Content` is a write input, so this is the read a round-trip takes:
 	 * an anchor and an island `id` have no markdown projection, and survive an

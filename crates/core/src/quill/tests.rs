@@ -1868,7 +1868,7 @@ fn a_nested_content_defaults_literal_reaches_the_plate_at_every_position() {
         "dict: {}\n",
         "rows:\n  - {}\n",
         "literal: [null]\n",
-        "c:\n  value: CUI\n",
+        "c: CUI\n",
         "~~~\n",
     ))
     .expect("parses")
@@ -1879,7 +1879,7 @@ fn a_nested_content_defaults_literal_reaches_the_plate_at_every_position() {
         ("top", &plate["top"], "A top note"),
         ("dict.note", &plate["dict"]["note"], "A dict note"),
         ("rows.0.note", &plate["rows"][0]["note"], "A row note"),
-        ("c.note", &plate["c"]["note"], "A variant note"),
+        ("note", &plate["note"], "A variant note"),
     ] {
         assert_eq!(
             cell["text"].as_str(),

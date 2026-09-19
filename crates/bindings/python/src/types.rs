@@ -944,10 +944,9 @@ impl PyReader {
 
     /// Read the Content nested inside a composite field at `path`: `[0]` an
     /// element of an `array<richtext>`, `["motto"]` an `object`'s content
-    /// property, `[1, "notes"]` a leaf under both, `["controlled_by"]` a
-    /// variant's cell. The codec is the leaf's declared type's, resolved through
-    /// the field schema's `items` / `properties` / `variants`. An empty `path` is
-    /// `get_content`.
+    /// property, `[1, "notes"]` a leaf under both. The codec is the leaf's
+    /// declared type's, resolved through the field schema's `items` /
+    /// `properties`. An empty `path` is `get_content`.
     ///
     /// The Content is a write input, so this is the read a round-trip takes: an
     /// anchor and an island `id` have no markdown projection, and survive an edit

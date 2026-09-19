@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use super::resolved::FieldSource;
 use super::{
     seed, CardSchema, CoercionError, FieldSchema, FieldType, Leniency, Quill, QuillConfig,
-    MATRIX_GROUP_KEY, MATRIX_HELD_KEY, MATRIX_TITLE_KEY, VARIANT_DISCRIMINANT_KEY,
+    MATRIX_GROUP_KEY, MATRIX_HELD_KEY, MATRIX_TITLE_KEY,
 };
 use crate::normalize::{normalize_document, normalize_field_name};
 use crate::quill::blank;
@@ -266,7 +266,7 @@ impl Quill {
                     continue;
                 }
                 let field_path = DocPath::new().field("$seed").field(kind).field(field);
-                let Some(field_schema) = card_schema.fields.get(field) else {
+                let Some(field_schema) = card_schema.cell(field) else {
                     diags.push(
                         Diagnostic::new(
                             Severity::Warning,
@@ -374,7 +374,7 @@ fn conform_card_render(schema: &CardSchema, card: &Card) -> IndexMap<String, Qui
     let mut coerced: IndexMap<String, QuillValue> = IndexMap::new();
     for (raw_name, value) in card.payload().to_index_map() {
         let name = normalize_field_name(&raw_name);
-        let entry = match schema.fields.get(&raw_name) {
+        let entry = match schema.cell(&raw_name) {
             Some(field_schema) => {
                 QuillConfig::conform_value(&value, field_schema, &name, Leniency::Render)
                     .unwrap_or(value)
@@ -396,8 +396,14 @@ fn conform_card_render(schema: &CardSchema, card: &Card) -> IndexMap<String, Qui
 /// allowlist.
 ///
 /// Field order is authored-first with declared-but-absent fields appended: the
-/// render plate's order. Each projection re-cuts the presentation order it wants
-/// from this one map.
+/// render plate's order, a variant cell following its discriminant. Each
+/// projection re-cuts the presentation order it wants from this one map.
+///
+/// A variant cell is declared by the world its enum selects: a live cell cuts
+/// the ladder any card field cuts, and a dormant one rests at its blank, so an
+/// answer stranded under another world reaches no plate and every declared name
+/// is present whichever world is live (`prose/canon/SCHEMAS.md` §"Enum
+/// variants").
 pub(crate) fn ladder_sourced(
     schema: &CardSchema,
     coerced: &IndexMap<String, QuillValue>,
@@ -409,10 +415,17 @@ pub(crate) fn ladder_sourced(
         .map(|(name, value)| (name.clone(), (value.clone(), FieldSource::Authored)))
         .collect();
     for (name, field_schema) in &schema.fields {
-        out.insert(
-            name.clone(),
-            resolve_value_sourced(coerced.get(name), field_schema),
-        );
+        let resolved = resolve_value_sourced(coerced.get(name), field_schema);
+        let live = field_schema.live_cells(Some(resolved.0.as_json()));
+        out.insert(name.clone(), resolved);
+        for (cell_name, cell) in field_schema.variant_cells() {
+            let resolved = if live.is_some_and(|world| world.contains_key(cell_name)) {
+                resolve_value_sourced(coerced.get(cell_name), cell)
+            } else {
+                (blank(cell), FieldSource::Blank)
+            };
+            out.insert(cell_name.to_string(), resolved);
+        }
     }
     out
 }
@@ -452,9 +465,6 @@ pub(crate) fn resolve_value_sourced(
     value: Option<&QuillValue>,
     field: &FieldSchema,
 ) -> (QuillValue, FieldSource) {
-    if field.is_variant_bearing() {
-        return resolve_variant_sourced(value, field);
-    }
     let (seed, source) = match value.filter(|v| !v.as_json().is_null()) {
         Some(v) => (Some(v.clone()), FieldSource::Authored),
         None => match seed_default(field) {
@@ -627,9 +637,7 @@ fn composes_as(seed: Option<&QuillValue>, shape: fn(&serde_json::Value) -> bool)
 }
 
 /// Resolve every declared member of a namespace over its slice of `seed` into
-/// `out`, reporting the strongest rung any of them contributed. The two
-/// namespaces a schema can spell — a typed dictionary's `properties` and the
-/// live world of a variant container — compose identically.
+/// `out`, reporting the strongest rung any of them contributed.
 ///
 /// `seed_rung` **ceilings** its members': [`resolve_value_sourced`] cannot tell
 /// a seeded value from a written one, so without the ceiling a cell fed from a
@@ -654,77 +662,6 @@ fn compose_members(
         out.insert(name.clone(), value.into_json());
     }
     rung
-}
-
-/// Resolve a variant-bearing enum into the container the plate receives:
-/// `{value: <member>}` plus, when that member owns a field set, exactly that
-/// set — each cell blank-filled by the ordinary ladder. Only the live world's
-/// fields cross, which is the closed shape `prose/canon/SCHEMAS.md` §"Enum
-/// variants" describes.
-///
-/// The discriminant cuts the same ladder as any enum, but the container's own
-/// rung is the *cell's*: one the document wrote reads authored whichever rung
-/// filled the tag, joined with what its live world's cells contributed
-/// ([`compose_members`]).
-fn resolve_variant_sourced(
-    value: Option<&QuillValue>,
-    field: &FieldSchema,
-) -> (QuillValue, FieldSource) {
-    let present = value.filter(|v| !v.as_json().is_null());
-    // A present seed that is neither the container nor a bare member name is
-    // kept raw, as any mis-shaped container is ([`composes_as`]): the rung is
-    // the document's, and a blank world under it would read as an answer the
-    // document gave.
-    if let Some(raw) =
-        present.filter(|v| !v.as_json().is_object() && v.as_json().as_str().is_none())
-    {
-        return (raw.clone(), FieldSource::Authored);
-    }
-    let authored = present.map(|v| v.as_json());
-    // Coercion normalizes to the container, so the authored discriminant is the
-    // `value` key. A bare scalar that bypassed coercion (a serde-built payload)
-    // still reads, keeping this total.
-    let authored_member = FieldSchema::authored_member(authored).and_then(|v| v.as_str());
-
-    let (member, source) = match authored_member {
-        Some(member) => (member.to_string(), FieldSource::Authored),
-        None => match field.default.as_ref().and_then(|d| d.as_str()) {
-            Some(default) => (default.to_string(), FieldSource::Default),
-            None => (String::new(), FieldSource::Blank),
-        },
-    };
-    let source = if present.is_some() {
-        FieldSource::Authored
-    } else {
-        source
-    };
-
-    let mut out = serde_json::Map::new();
-    out.insert(
-        VARIANT_DISCRIMINANT_KEY.to_string(),
-        serde_json::Value::String(member.clone()),
-    );
-    // The cells are seeded from the authored container, never from the
-    // discriminant's `default:` — a member the schema chose brings no values
-    // with it — so their ceiling is whether the document wrote the container,
-    // not which rung supplied the tag.
-    let seed_rung = match present {
-        Some(_) => FieldSource::Authored,
-        None => FieldSource::Blank,
-    };
-    let cells = match field.variant_fields(&member) {
-        Some(fields) => compose_members(
-            authored.and_then(|j| j.as_object()),
-            fields,
-            seed_rung,
-            &mut out,
-        ),
-        None => FieldSource::Blank,
-    };
-    (
-        QuillValue::from_json(serde_json::Value::Object(out)),
-        source.join(cells),
-    )
 }
 
 /// Build a [`Payload`] from a coerced/defaulted field map, re-attaching `$quill`
@@ -834,7 +771,27 @@ fn collect_unauthored_diags(
     let payload = card.payload();
     for (name, field) in &schema.fields {
         collect_unauthored_field(field, payload.get(name), &base.field(name), out);
+        // Obligation becomes conditional here: a cell is asked for only in the
+        // world its enum selects, so a `poc` with no `default:` is obliged on a
+        // CUI memo and silent on every other one, which is the thing
+        // `must_fill` alone cannot say.
+        for (cell_name, cell) in live_cells(field, payload, name) {
+            collect_unauthored_field(cell, payload.get(cell_name), &base.field(cell_name), out);
+        }
     }
+}
+
+/// The cells `field`'s selected world brings into play on `payload`, each with
+/// its card-level name; empty for a variantless field.
+fn live_cells<'a>(
+    field: &'a FieldSchema,
+    payload: &Payload,
+    name: &str,
+) -> impl Iterator<Item = (&'a str, &'a FieldSchema)> {
+    field
+        .live_cells(payload.get(name).map(|v| v.as_json()))
+        .into_iter()
+        .flat_map(|world| world.iter().map(|(n, c)| (n.as_str(), c.as_ref())))
 }
 
 /// Warn at each **cell** the schema obliges and the document leaves unauthored.
@@ -855,35 +812,6 @@ fn collect_unauthored_field(
     path: &DocPath,
     out: &mut Vec<Diagnostic>,
 ) {
-    // A variant container is not itself a cell, for the reason a typed dictionary
-    // is not: `!must_fill` is rejected on a mapping. Its cells are the
-    // discriminant and — *only in the world the discriminant selects* — that
-    // world's fields. This is where obligation becomes conditional: a `poc` with
-    // no `default:` is obliged on a CUI memo and silent on every other one, which
-    // is the thing `must_fill` alone cannot say.
-    if field.is_variant_bearing() {
-        let json = value.map(|v| v.as_json());
-        let object = json.and_then(|j| j.as_object());
-        // Pre-coercion the cell may still be the bare scalar; read either.
-        let authored = FieldSchema::authored_member(json);
-
-        let discriminant = path.field(VARIANT_DISCRIMINANT_KEY);
-        if authored.is_none() && field.must_fill() {
-            out.push(unauthored_warning(&discriminant));
-        }
-        let member = field.selected_member(json);
-
-        if let Some(fields) = field.variant_fields(&member) {
-            for (name, schema) in fields {
-                let cell = object
-                    .and_then(|o| o.get(name))
-                    .map(|j| QuillValue::from_json(j.clone()));
-                collect_unauthored_field(schema, cell.as_ref(), &path.field(name), out);
-            }
-        }
-        return;
-    }
-
     // A matrix's obligation is per column *inside a held member*, the variant
     // rule one level down: an unticked member asks for nothing, and the matrix
     // itself obliges nothing. An absent matrix is therefore silent, where an
@@ -959,37 +887,25 @@ fn collect_variant_diags(
 ) {
     let payload = card.payload();
     for (name, field) in &schema.fields {
-        if !field.is_variant_bearing() {
-            continue;
-        }
-        let Some(json) = payload.get(name).map(|v| v.as_json()) else {
+        let Some(variants) = &field.variants else {
             continue;
         };
-        let Some(object) = json.as_object() else {
-            continue;
-        };
-        let member = field.selected_member(Some(json));
+        let member = field.selected_member(payload.get(name).map(|v| v.as_json()));
         let live = field.variant_fields(&member);
-        for key in object.keys() {
-            if key == VARIANT_DISCRIMINANT_KEY || live.is_some_and(|f| f.contains_key(key)) {
+        for (cell_name, _) in field.variant_cells() {
+            if live.is_some_and(|world| world.contains_key(cell_name)) {
                 continue;
             }
-            // A key no variant declares is an undeclared field, which every
-            // other surface carries without comment; only a key some *other*
-            // world owns is the stranded case worth naming.
-            let Some(owner) = field.variants.as_ref().and_then(|variants| {
-                variants
-                    .iter()
-                    .find(|(_, set)| set.contains_key(key))
-                    .map(|(member, _)| member.clone())
-            }) else {
+            // Null ≡ absent: a present-null cell strands nothing.
+            if payload.get(cell_name).is_none_or(|v| v.as_json().is_null()) {
                 continue;
-            };
-            out.push(out_of_variant_warning(
-                &base.field(name).field(key),
-                &owner,
-                &member,
-            ));
+            }
+            let owner = variants
+                .iter()
+                .find(|(_, set)| set.contains_key(cell_name))
+                .map(|(world, _)| world.as_str())
+                .unwrap_or_default();
+            out.push(out_of_variant_warning(&base.field(cell_name), owner, &member));
         }
     }
 }
@@ -1031,14 +947,22 @@ fn validate_cardinality(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic>
         let payload = card.payload();
         for (name, field) in &schema.fields {
             collect_cardinality_diags(field, payload.get(name), &path.field(name), &mut diags);
+            for (cell_name, cell) in live_cells(field, payload, name) {
+                collect_cardinality_diags(
+                    cell,
+                    payload.get(cell_name),
+                    &path.field(cell_name),
+                    &mut diags,
+                );
+            }
         }
     }
     diags
 }
 
 /// Warn at each over-filled array `field` holds, at whatever depth: an array
-/// nested in a typed dictionary, a matrix member, a live variant world, or
-/// another array's elements is capped by its own declaration.
+/// nested in a typed dictionary, a matrix member, or another array's elements
+/// is capped by its own declaration.
 ///
 /// The walk mirrors [`collect_unauthored_field`]'s so the two speak about the
 /// same paths; unlike that one it descends only what the document authored,
@@ -1052,18 +976,6 @@ fn collect_cardinality_diags(
     let Some(json) = value.map(|v| v.as_json()).filter(|j| !j.is_null()) else {
         return;
     };
-
-    if field.is_variant_bearing() {
-        let Some(object) = json.as_object() else { return };
-        let member = field.selected_member(Some(json));
-        if let Some(fields) = field.variant_fields(&member) {
-            for (name, schema) in fields {
-                let cell = object.get(name).map(|j| QuillValue::from_json(j.clone()));
-                collect_cardinality_diags(schema, cell.as_ref(), &path.field(name), out);
-            }
-        }
-        return;
-    }
 
     if let Some(props) = field.namespace_props() {
         let Some(object) = json.as_object() else { return };

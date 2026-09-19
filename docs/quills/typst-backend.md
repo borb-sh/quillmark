@@ -240,9 +240,9 @@ By default a widget's only identity is its `/T` name. Pass `field:` to additiona
 #form-field("Signature", type: "signature", field: "signature_block")
 ```
 
-`field:` is **region-only**: the `/T` widget name stays `name`; only the sidecar entry keys on `field:`. The address must be a real schema field: a bare field name, an array element like `"refs.2"`, a container property like `"classification.poc"`, or a card path built from the card's `$path` prefix (a bad address raises a Typst assert). Omit `field:` and the widget exposes no region: a click has no schema field to route to.
+`field:` is **region-only**: the `/T` widget name stays `name`; only the sidecar entry keys on `field:`. The address must be a real schema field: a bare field name, an array element like `"refs.2"`, a container property like `"address.city"`, or a card path built from the card's `$path` prefix (a bad address raises a Typst assert). Omit `field:` and the widget exposes no region: a click has no schema field to route to.
 
-A one-step suffix is checked against what the field actually offers, so `"refs.2"` needs an `array` and `"classification.poc"` a container — an `object` field, or an `enum` declaring `variants:`, whose cells and `value` discriminant address alike. `"subject.0"` and `"subject.poc"` are both rejected on a scalar `subject`.
+A one-step suffix is checked against what the field actually offers, so `"refs.2"` needs an `array` and `"address.city"` an `object` field. `"subject.0"` and `"subject.poc"` are both rejected on a scalar `subject`, and an `enum` is a scalar whatever `variants:` it declares: a variant cell is a card-level field and binds by its own name.
 
 ### Styling the value text
 
@@ -279,8 +279,8 @@ The label `<__qm_field__>` and metadata `kind: "__qm_field__"` are reserved for 
 A **scalar** is tracked at the expression that draws it, so where you write the read decides whether it surfaces in `session.regions()`. Naming the value first is fine: a `let` bound once to one whole `data` chain is followed, and stepping into a container through that name keeps the cell's address.
 
 ```typst
-#let c = data.classification
-#c.poc                       // regions as `classification.poc`, same as #data.classification.poc
+#let a = data.address
+#a.city                      // regions as `address.city`, same as #data.address.city
 ```
 
 A read into a typed table works the same way, one step further: the index and

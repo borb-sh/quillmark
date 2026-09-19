@@ -2,7 +2,7 @@
 //! [`QuillValue`]. Backend-agnostic: backends consume it to drive per-field
 //! transforms such as markdown to backend markup.
 
-use super::{FieldSchema, FieldType, QuillConfig, VARIANT_DISCRIMINANT_KEY};
+use super::{CardSchema, FieldSchema, FieldType, QuillConfig};
 use crate::value::QuillValue;
 
 /// The `contentMediaType` marking a richtext field in the transform schema. The
@@ -34,9 +34,7 @@ pub const QUILLMARK_BLANK_TITLE_KEY: &str = "quillmark:blank_title";
 /// nothing and is what makes a matrix's declaration order reach the page.
 pub const QUILLMARK_ORDER_KEY: &str = "quillmark:order";
 
-/// The `{type: string, enum: ["", …]}` an enum projects to: a plain enum's own
-/// cell, and the discriminant cell of a variant-bearing one. That container is a
-/// mapping and therefore not a cell, so this is where its choice lands.
+/// The `{type: string, enum: ["", …]}` an enum projects to.
 fn discriminant_schema(field: &FieldSchema) -> serde_json::Value {
     let mut schema = serde_json::Map::new();
     schema.insert(
@@ -78,33 +76,6 @@ fn discriminant_schema(field: &FieldSchema) -> serde_json::Value {
 pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
     fn field_to_schema(field: &FieldSchema) -> serde_json::Value {
         let mut schema = serde_json::Map::new();
-        // A variant-bearing enum crosses as the container it rests as, every
-        // world's fields flattened beside the discriminant: at schema time there
-        // is no live world, so the union is the only projection available
-        // (`SCHEMAS.md` § "Schema emission").
-        if let Some(variants) = &field.variants {
-            let mut properties = serde_json::Map::new();
-            properties.insert(
-                VARIANT_DISCRIMINANT_KEY.to_string(),
-                discriminant_schema(field),
-            );
-            for fields in variants.values() {
-                for (name, variant_field) in fields {
-                    // Every repetition is the same declaration
-                    // (`quill::variant_field_collision`).
-                    if properties.contains_key(name) {
-                        continue;
-                    }
-                    properties.insert(name.clone(), field_to_schema(variant_field));
-                }
-            }
-            schema.insert(
-                "type".to_string(),
-                serde_json::Value::String("object".to_string()),
-            );
-            schema.insert("properties".to_string(), properties.into());
-            return serde_json::Value::Object(schema);
-        }
         match field.r#type {
             FieldType::Enum { .. } => return discriminant_schema(field),
             FieldType::String => {
@@ -251,10 +222,21 @@ pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
         serde_json::Value::Object(schema)
     }
 
-    let mut properties = serde_json::Map::new();
-    for (name, field) in &config.main.fields {
-        properties.insert(name.clone(), field_to_schema(field));
+    // A variant cell crosses as a card property beside its enum, every world's
+    // union: at schema time there is no live world, so the union is the only
+    // projection available (`SCHEMAS.md` § "Schema emission").
+    fn card_properties(card: &CardSchema) -> serde_json::Map<String, serde_json::Value> {
+        let mut properties = serde_json::Map::new();
+        for (name, field) in &card.fields {
+            properties.insert(name.clone(), field_to_schema(field));
+            for (cell_name, cell) in field.variant_cells() {
+                properties.insert(cell_name.to_string(), field_to_schema(cell));
+            }
+        }
+        properties
     }
+
+    let mut properties = card_properties(&config.main);
     if config.main.body_enabled() {
         properties.insert(
             "$body".to_string(),
@@ -264,10 +246,7 @@ pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
 
     let mut defs = serde_json::Map::new();
     for card in &config.card_kinds {
-        let mut card_properties = serde_json::Map::new();
-        for (name, field) in &card.fields {
-            card_properties.insert(name.clone(), field_to_schema(field));
-        }
+        let mut card_properties = card_properties(card);
         if card.body_enabled() {
             card_properties.insert(
                 "$body".to_string(),

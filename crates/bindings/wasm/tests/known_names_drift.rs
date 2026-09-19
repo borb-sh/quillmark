@@ -5,7 +5,6 @@
 
 use quillmark_content::island::IslandType;
 use quillmark_content::model::{Container, LineKind, MarkKind};
-use quillmark_core::quill::VARIANT_DISCRIMINANT_KEY;
 
 const RUNTIME_JS: &str = include_str!("../runtime/runtime.js");
 
@@ -70,24 +69,6 @@ fn mark_type_tags() -> Vec<&'static str> {
         }
     }
     all.iter().map(MarkKind::tag).collect()
-}
-
-/// The `.d.ts` is pinned as a string *literal* type: widened to `string` it
-/// would stop narrowing an index into the container.
-#[test]
-fn js_variant_discriminant_matches_the_rust_key() {
-    const RUNTIME_DTS: &str = include_str!("../runtime/runtime.d.ts");
-    let key = VARIANT_DISCRIMINANT_KEY;
-
-    for (file, decl) in [
-        (RUNTIME_JS, format!("export const VARIANT_DISCRIMINANT_KEY = '{key}'")),
-        (
-            RUNTIME_DTS,
-            format!("export declare const VARIANT_DISCRIMINANT_KEY: '{key}'"),
-        ),
-    ] {
-        assert!(file.contains(&decl), "the JS layer has no `{decl}`");
-    }
 }
 
 /// The same names are spelled a third time as TypeScript unions in

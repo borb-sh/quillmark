@@ -864,8 +864,8 @@ mod tests {
         );
     }
 
-    /// A variant container's cells reach the table a typed dictionary's do,
-    /// and a richtext field stays out of it, offering no property step.
+    /// Every declared container reaches the table, and a richtext field stays
+    /// out of it, offering no property step.
     #[test]
     fn object_fields_table_carries_every_declared_container() {
         let meta = meta_from(serde_json::json!({
@@ -875,8 +875,8 @@ mod tests {
                 "address": { "type": "object", "properties": {
                     "city": { "type": "string" },
                 }},
-                "classification": { "type": "object", "properties": {
-                    "value": { "type": "string", "enum": ["", "CUI"] },
+                "contact": { "type": "object", "properties": {
+                    "kind": { "type": "string", "enum": ["", "primary"] },
                     "poc": { "type": "string" },
                 }},
             },
@@ -885,8 +885,8 @@ mod tests {
             }}}
         }));
         assert!(meta.root.resolve("address.city").is_some());
-        assert!(meta.root.resolve("classification.value").is_some());
-        assert!(meta.root.resolve("classification.poc").is_some());
+        assert!(meta.root.resolve("contact.kind").is_some());
+        assert!(meta.root.resolve("contact.poc").is_some());
         // A scalar and a richtext field each offer no step.
         assert!(meta.root.resolve("subject.anything").is_none());
         assert!(meta.root.resolve("body.text").is_none());

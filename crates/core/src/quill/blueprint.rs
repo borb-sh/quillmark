@@ -7,7 +7,7 @@
 
 use indexmap::IndexMap;
 
-use super::{CardSchema, FieldSchema, FieldType, QuillConfig, VARIANT_DISCRIMINANT_KEY};
+use super::{CardSchema, FieldSchema, FieldType, QuillConfig};
 use crate::document::emit::{saphyr_emit_flow, saphyr_emit_scalar};
 use crate::document::prescan::NestedComment;
 use crate::document::{Card, Document, Payload, PayloadItem};
@@ -331,9 +331,6 @@ fn append_scalar(items: &mut CardItems, field: &FieldSchema) {
 /// path of the mapping relative to the field value (`[]` for a typed dict,
 /// `[Index(0)]` for a typed table's synthetic row).
 ///
-/// A property's slot is where it lands in `map`, so a caller seating its own
-/// cell first (a variant's discriminant) shifts the rest by handing over a
-/// mapping that already holds it.
 fn build_property_mapping(
     map: &mut JsonMap<String, JsonValue>,
     props: &IndexMap<String, Box<FieldSchema>>,
@@ -446,12 +443,12 @@ fn container_cell(
     }
 }
 
-/// Append a variant-bearing enum: the container, its discriminant cell, the
-/// fields of the world that discriminant selects, and a
-/// `# when <MEMBER>: <fields>` line for every other world that owns a field set
-/// (`prose/canon/BLUEPRINT.md` § "Enum variants").
+/// Append a variant-bearing enum: a `# when <MEMBER>: <fields>` line for every
+/// world that owns a field set, the discriminant as the scalar cell it is, then
+/// the fields of the world that discriminant names, each appended as the
+/// card-level field it rests as (`prose/canon/BLUEPRINT.md` § "Enum variants").
 fn append_variant(items: &mut CardItems, field: &FieldSchema) {
-    push_leading(items, field, field.default.is_some());
+    push_leading(items, field, eg_hinted(field));
     if let Some(variants) = &field.variants {
         for (member, fields) in variants {
             let names: Vec<&str> = fields.keys().map(String::as_str).collect();
@@ -461,44 +458,20 @@ fn append_variant(items: &mut CardItems, field: &FieldSchema) {
             )));
         }
     }
+    let (json, fill) = scalar_cell(field);
+    items.push(PayloadItem::Field {
+        key: field.name.clone(),
+        value: QuillValue::from_json(json),
+        fill,
+    });
+    items.push(PayloadItem::comment_inline(type_expression(field)));
 
     let member = scalar_value(field);
-    let mut map = JsonMap::new();
-    let mut fills = Vec::new();
-    map.insert(
-        VARIANT_DISCRIMINANT_KEY.to_string(),
-        match &member {
-            // A null discriminant would read as "no cell"; the blank is the
-            // enum's own spelling of an unanswered choice, and it round-trips.
-            JsonValue::Null => JsonValue::String(String::new()),
-            other => other.clone(),
-        },
-    );
-    if field.must_fill() {
-        fills.push(vec![PathSegment::Key(VARIANT_DISCRIMINANT_KEY.to_string())]);
-    }
-
-    // A cell is a field of the container, so it expands as one: the mapping
-    // already holding the discriminant is what seats the live world one slot
-    // past it.
-    let live = member.as_str().and_then(|m| field.variant_fields(m));
-    let nested = match live {
-        Some(fields) => {
-            let (nested, sub_fills) = build_property_mapping(&mut map, fields, &[]);
-            fills.extend(sub_fills);
-            nested
+    if let Some(live) = member.as_str().and_then(|m| field.variant_fields(m)) {
+        for cell in live.values() {
+            append_field(items, cell);
         }
-        None => Vec::new(),
-    };
-
-    push_container_field(
-        items,
-        &field.name,
-        JsonValue::Object(map),
-        nested,
-        fills,
-        field,
-    );
+    }
 }
 
 /// Push a typed-container field (value + nested comments + nested fills) and

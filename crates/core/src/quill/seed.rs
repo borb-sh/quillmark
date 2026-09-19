@@ -7,7 +7,7 @@
 use quillmark_content::model::Normalized;
 
 use super::Quill;
-use crate::quill::{CardSchema, VARIANT_DISCRIMINANT_KEY};
+use crate::quill::CardSchema;
 use crate::document::PayloadItem;
 use crate::{
     document::{Card, Document, Payload, SeedOverlay},
@@ -31,27 +31,31 @@ fn seed_parts(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> (Payload, N
     let mut items: Vec<PayloadItem> = Vec::new();
     for (name, field) in &schema.fields {
         let overlaid = overlay.and_then(|o| o.fields.get(name));
-        if field.is_variant_bearing() {
-            if let Some(item) = seed_variant(name, field, overlaid) {
+        if let Some(item) = seed_item(name, field, overlaid) {
+            items.push(item);
+        }
+        // **The discriminant resolves first.** Which world is live decides
+        // which cells seed an `example:`, so the world walked is
+        // `overlay › example: › default: › blank`, the render floor's own
+        // selection. A cell of another world commits only what the overlay
+        // wrote for it: `$seed` is a template author deciding, and the card
+        // reports the stranded cell as `validation::out_of_variant`.
+        let member = overlaid
+            .and_then(|v| v.as_str())
+            .or_else(|| field.example.as_ref().and_then(|e| e.as_str()))
+            .or_else(|| field.default.as_ref().and_then(|d| d.as_str()))
+            .unwrap_or_default();
+        let live = field.variant_fields(member);
+        for (cell_name, cell) in field.variant_cells() {
+            let overlaid = overlay.and_then(|o| o.fields.get(cell_name));
+            let seeded = match live.is_some_and(|world| world.contains_key(cell_name)) {
+                true => seed_item(cell_name, cell, overlaid),
+                false => overlaid.and_then(|_| seed_item(cell_name, cell, overlaid)),
+            };
+            if let Some(item) = seeded {
                 items.push(item);
             }
-            continue;
         }
-        let Some(Seeded { value, fills }) = seed_field(field, overlaid) else {
-            continue;
-        };
-        let mut value = seeded_rest(name, &value, field);
-        for path in fills.iter().filter(|p| !p.is_empty()) {
-            value.set_fill_at(path);
-        }
-        items.push(PayloadItem::Field {
-            key: name.clone(),
-            value,
-            // The root marker, where the field itself is the marked cell. A
-            // mapping never carries one: its obligation sits on the leaves
-            // inside it, which `fills` addresses by path.
-            fill: fills.iter().any(Vec::is_empty),
-        });
     }
 
     // Body region as a content: an overlay body (authored markdown) is imported;
@@ -78,6 +82,27 @@ fn seed_parts(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> (Payload, N
         "a loaded quill's card schema declares at most MAX_FIELD_COUNT fields"
     );
     (Payload::from_items(items), body)
+}
+
+/// One field's payload item, or `None` where it has nothing to commit.
+fn seed_item(
+    name: &str,
+    field: &crate::quill::FieldSchema,
+    overlaid: Option<&QuillValue>,
+) -> Option<PayloadItem> {
+    let Seeded { value, fills } = seed_field(field, overlaid)?;
+    let mut value = seeded_rest(name, &value, field);
+    for path in fills.iter().filter(|p| !p.is_empty()) {
+        value.set_fill_at(path);
+    }
+    Some(PayloadItem::Field {
+        key: name.to_string(),
+        value,
+        // The root marker, where the field itself is the marked cell. A
+        // mapping never carries one: its obligation sits on the leaves
+        // inside it, which `fills` addresses by path.
+        fill: fills.iter().any(Vec::is_empty),
+    })
 }
 
 /// What one field contributes to a seed: the value to commit, and the paths
@@ -146,89 +171,6 @@ fn seed_field(field: &crate::quill::FieldSchema, overlaid: Option<&QuillValue>) 
         Vec::new()
     };
     Some(Seeded { value, fills })
-}
-
-/// Seed one variant-bearing enum, or `None` where neither the overlay nor any
-/// `example:` in the selected world has anything to commit.
-///
-/// **The discriminant resolves first.** Which world is live decides which fields
-/// are even candidates, so an overlay naming the discriminant must be read
-/// before the field set is walked — otherwise the seed commits one world's tag
-/// beside another world's answers.
-///
-/// The world walked is `overlay › example: › default: › blank`, the render
-/// floor's own selection, so a cell lands under the member the seeded card
-/// renders. Only a member the overlay or an `example:` named is *written*: a
-/// `default:` is read-only here as everywhere. Per cell the precedence is the
-/// ordinary `overlay › example: › absent`.
-fn seed_variant(
-    name: &str,
-    field: &crate::quill::FieldSchema,
-    overlaid: Option<&QuillValue>,
-) -> Option<PayloadItem> {
-    let overlay_json = overlaid.map(|v| v.as_json());
-    let overlay_object = overlay_json.and_then(|j| j.as_object());
-    let overlay_member =
-        crate::quill::FieldSchema::authored_member(overlay_json).and_then(|v| v.as_str());
-
-    let committed_member =
-        overlay_member.or_else(|| field.example.as_ref().and_then(|e| e.as_str()));
-    let member = committed_member
-        .or_else(|| field.default.as_ref().and_then(|d| d.as_str()))
-        .unwrap_or_default();
-
-    let mut map = serde_json::Map::new();
-    let mut fills: Vec<Vec<crate::value::PathSegment>> = Vec::new();
-    if let Some(committed) = committed_member {
-        map.insert(
-            VARIANT_DISCRIMINANT_KEY.to_string(),
-            serde_json::Value::String(committed.to_string()),
-        );
-        if overlay_member.is_none() && field.must_fill() {
-            fills.push(vec![crate::value::PathSegment::Key(
-                VARIANT_DISCRIMINANT_KEY.to_string(),
-            )]);
-        }
-    }
-
-    if let Some(fields) = field.variant_fields(member) {
-        for (key, schema) in fields {
-            // A cell carries any type a card field may, so it seeds through the
-            // same descent.
-            let overlaid_cell = overlay_object
-                .and_then(|o| o.get(key))
-                .map(|j| QuillValue::from_json(j.clone()));
-            let Some(seeded) = seed_field(schema, overlaid_cell.as_ref()) else {
-                continue;
-            };
-            for path in seeded.fills {
-                let mut rebased = vec![crate::value::PathSegment::Key(key.clone())];
-                rebased.extend(path);
-                fills.push(rebased);
-            }
-            map.insert(key.clone(), seeded.value.into_json());
-        }
-    }
-
-    if map.is_empty() {
-        return None;
-    }
-
-    let mut value = seeded_rest(
-        name,
-        &QuillValue::from_json(serde_json::Value::Object(map)),
-        field,
-    );
-    for path in &fills {
-        value.set_fill_at(path);
-    }
-    Some(PayloadItem::Field {
-        key: name.to_string(),
-        value,
-        // A mapping never carries the root marker: the obligation sits on the
-        // discriminant cell inside it.
-        fill: false,
-    })
 }
 
 /// The form a seeded value commits at: the strict write's, for a field whose

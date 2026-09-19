@@ -55,20 +55,23 @@ classification:
       category:      { type: string, default: "" }
 ```
 
-`variants:` is the one key that changes a field's **resting shape**: the field
-rests as `{value: <member>, …the member's fields}` at every projection, where a
-variantless enum rests as a bare string. A document authors it as the container,
-and the bare scalar (`classification: CUI`) is accepted as the spelling of a
-world carrying no variant answers — coercion normalizes both, so one shape
-reaches every surface downstream. `value` is reserved
-(`quill::variant_reserved_field_name`): it names the discriminant.
+`variants:` changes no resting shape. The discriminant rests as the bare string
+every enum rests as, and a variant **cell** rests as a card-level field beside
+it, whose *existence* the schema scopes to a member:
 
-This is the DSL's only cross-field shape, and it buys three things the flat map
-could not say:
+```yaml
+classification: CUI
+controlled_by: SAF/AA
+poc: Capt J. Smith, DSN 555-1234
+```
+
+The scoping lives in the declaration, keyed by member, and none of it depends on
+where the document puts the cells. Three things follow that the flat map could
+not say:
 
 - **Existence.** A `cui_`-style name prefix is hand-written namespacing that only
-  prose can scope. Nesting supplies the namespace structurally, and the names
-  shorten to what they mean.
+  prose can scope. `variants:` supplies it structurally, and the names shorten
+  to what they mean.
 - **Obligation, conditionally.** `must_fill` inside a variant keeps its ordinary
   `default:`-presence derivation, so it reads *"required in this world"*: `poc`
   is obliged on a CUI memo and silent on every other one. This is the one
@@ -77,22 +80,38 @@ could not say:
   ([`Quill::schema`](#schema-emission)), so an editor shows and retires
   cells as the discriminant changes instead of hard-coding the rule.
 
-**The wire carries exactly the live world, and totality is per-world.** The
-render floor emits `value` plus the selected member's fields — blank-filled as
-usual — and nothing else: the container is a *closed* shape, so a payload never
-reaches a plate under a tag that disowns it. A plate is already obliged to branch
-over `values ∪ blank` ([Blank-filled render](#blank-filled-render)); inside that
-branch every declared field of that world is present, so the access needs no
-guard, and outside it there is nothing to guard. The blank owns no field set, so
-an unanswered discriminant renders `{value: ""}` and the empty-document contract
-is untouched.
+**A name is one cell of the card.** `CardSchema::cell(name)` resolves a
+document key to a declared field, else to the cell some enum's world declares
+under that name, and every surface that maps a name to a declaration reads it:
+coercion, the typed reader and writer, conform, the acroform binder, `$seed`.
+The lookup is total because load rejects the two shapes that would make it
+ambiguous: a variant cell named like a card field, and a cell two enums both
+declare, whether or not the declarations agree (`quill::variant_field_collision`
+names both owners). Within one enum, every world declaring a name must declare
+it identically, which is how a shared field set is spelled (repetition or a
+YAML anchor); disagreement is the same code. A name that must mean two
+different things on one card is two names.
+
+**Every declared name is on the wire, and the live world alone carries answers.**
+The render floor emits the discriminant and every variant cell of every world,
+blank-filled as usual: a live cell cuts the ladder any card field cuts, and a
+dormant world's cell rests at its blank, neither its stranded value nor its
+`default:`. So the fill stays total at every depth
+([Blank-filled render](#blank-filled-render)) and a plate reads `data.poc`
+without a guard on every document; inside the branch over `values ∪ blank` it
+already owes the enum, the read is an answer, outside it the blank. A payload
+never reaches a plate under a tag that disowns it. The blank owns no field set,
+so an unanswered discriminant renders `""` and its cells render blank.
 
 **A stranded value is carried, not dropped.** An authored cell whose variant is
 out of play stays in the document and draws the non-fatal
-`validation::out_of_variant`; the render floor omits it. Dropping it at coercion
-would spend the author's answers on the ordinary editor gesture — choose CUI,
-fill the block, flip to UNCLASSIFIED to compare, flip back — and gating render
-would hand them an undraftable document. Only the wire is strict.
+`validation::out_of_variant`, naming the world that owns it and the member
+selected; the render floor blanks it. Dropping it at coercion would spend the
+author's answers on the ordinary editor gesture — choose CUI, fill the block,
+flip to UNCLASSIFIED to compare, flip back — and gating render would hand them
+an undraftable document. Only the wire is strict. A dormant cell is coerced by
+its own declaration and kept; only the live world's cells are type-checked,
+since nothing downstream reads the rest.
 
 The ceiling is deliberate and enforced at load rather than discovered at render:
 
@@ -102,48 +121,25 @@ The ceiling is deliberate and enforced at load rather than discovered at render:
 | a key outside `values:` (the blank owns no variant) | `quill::variant_unknown_value` |
 | `variants:` below card level, or inside another variant | `quill::variant_placement` |
 | an empty `variants:` map, or an empty variant | `quill::variant_empty` |
-| a variant field named `value` | `quill::variant_reserved_field_name` |
-| a name two variants declare *differently* | `quill::variant_field_collision` |
+| a name two worlds declare *differently*, a cell named like a card field, or a cell two enums declare | `quill::variant_field_collision` |
 
-A variant cell carries any type a card field may — prose, dates and containers included. Every surface reaches it through the same dispatcher a card field uses — coercion through `conform_value`, validation through `validate_value`, the render floor through `resolve_value`, lowering through the schema-node walk ([PLATE_DATA.md](PLATE_DATA.md)), the content read through `get_content_at` — so it behaves as a card-level field of that type does. What a cell does not carry is `ui.group` (it inherits the discriminant's) or `variants:` of its own.
+A variant cell carries any type a card field may — prose, dates and containers included. Every surface reaches it through the same dispatcher a card field uses — coercion through `conform_value`, validation through `validate_value`, the render floor through `resolve_value`, lowering through the schema-node walk ([PLATE_DATA.md](PLATE_DATA.md)), the content read through `get_content_at` — because it *is* a card-level field of that type. What a cell does not carry is `ui.group` (it inherits the discriminant's) or `variants:` of its own.
 
 **Why `variants:` alone stays card-level.** Every other container's shape is a
-function of the schema; a variant's is a function of the schema *and* the
-discriminant. The transform schema projects the union of the worlds — at schema
-time there is no live world — and the wire carries whichever one the document
-selects. Four things hold because that gap is exactly one level deep:
+function of the schema; which cells a variant brings into play is a function of
+the schema *and* the discriminant. The transform schema projects the union of
+the worlds beside the enum — at schema time there is no live world — and the
+wire carries answers for whichever one the document selects. Keeping the cells
+at card level is what lets `cell(name)` resolve by a flat scan, a form bind a
+cell once while it is only conditionally live, a plate branch once, and
+`validation::out_of_variant` name one discriminant rather than a chain.
 
-- `variant_field` resolves a name by a flat scan across the worlds, which is
-  what lets `quill::variant_field_collision` guarantee one name is one cell.
-- A form binds once at open, so a cell is *unconditionally addressable* while
-  only *conditionally live*.
-- A plate branches once over `values ∪ blank` and needs no guard inside that
-  branch.
-- `validation::out_of_variant` names one discriminant rather than a chain.
-
-Nesting spends all four, so the restriction is a rule about `variants:` rather
-than about depth.
-
-Two limits follow from the container shape and are accepted, not worked around:
-[`resolve()`](#the-resolved-value-view-resolve) reports **one** rung for the whole
-container — the strongest that contributed — as it does for a typed dictionary;
-and a field set **shared** across
-several members is spelled by repeating it or sharing a YAML anchor, since a
-variant keys on one member.
-
-A cell is addressable one step down, exactly as a typed dictionary's property is
-([PLATE_DATA.md](PLATE_DATA.md#schema-addresses)): `classification.poc` binds a
-`form-field` widget or a `field-region` claim on either backend, and
-`classification.value` the discriminant. Addressing is against the *schema*, so a
-cell is bindable in every world — a form is built once and the document selects
-its world later. The whole container is not bindable: its value is the container
-object, which no widget coerces.
-
-A repeated name is one **cell** of the container, not one per world: the coercion
-lookup and the transform schema both key on the name alone, never the
-discriminant. So every variant declaring a name must declare it identically —
-`quill::variant_field_collision` rejects disagreement at load, rather than letting
-a live value coerce under another world's type.
+A cell is addressable by its own name on either backend, exactly as any card
+field is ([PLATE_DATA.md](PLATE_DATA.md#schema-addresses)): `poc` binds a
+`form-field` widget or a `field-region` claim, and `classification` the
+discriminant. Addressing is against the *schema*, so a cell is bindable in every
+world — a form is built once and the document selects its world later. The enum
+offers no property step: `classification.poc` is no address.
 
 The text-ish types form a **data vs content** × **open/plain vs closed/formatted**
 2×2: `enum` (closed data), `string` (open data), `plaintext` (plain content),
@@ -188,8 +184,7 @@ validate and address, then lose to the projection.
 
 **Document.** A mapping keyed by member id, sparse. Key presence implies
 `held: true` unless the mapping spells otherwise, and coercion normalizes to the
-member object — the [variant precedent](#enum-variants), where the bare
-`classification: CUI` is the spelling of a world carrying no variant answers.
+member object.
 
 | Stored | Means |
 |---|---|
@@ -526,7 +521,7 @@ declared and how absence travels:
 | `array` | cell | `items` fixes the element type, never the **arity**: `default: []` and `default: [{…}]` say what no element declaration can |
 | `enum` discriminant | cell | the member is a leaf choice |
 | `object` with `properties` | namespace | the schema fixes the keys, so nothing in the value is absent from its cells |
-| a variant's field set | namespace | same, once the discriminant selects the world |
+| a variant cell | cell | a card-level field whose existence the discriminant scopes ([Enum variants](#enum-variants)) |
 | `matrix` | namespace | same: the roster fixes the keys, and every member's `held` fixes its own |
 
 Two rules follow, and between them the plate is total at every depth:
@@ -534,8 +529,9 @@ Two rules follow, and between them the plate is total at every depth:
 - **A literal is declared where its cell is.** A `default:` / `example:` on a
   typed dictionary is a load error (`quill::{default,example}_on_namespace`)
   naming the properties that hold it, as a container-shaped literal on a
-  variant-bearing enum already is
-  (`quill::{default,example}_type_mismatch`). The container spelling is a
+  variant-bearing enum is (`quill::{default,example}_type_mismatch`: an
+  enum's literal names a member alone, each cell carrying its own). The
+  container spelling is a
   *second* declaration of a fact the cells already carry, and the two axes read
   different ones: `default: {name: A}` renders `A` while `must_fill` derives per
   property and still warns that nobody authored `name`. Schema literals are
@@ -622,9 +618,8 @@ document *carries*; `reader.resolve()` answers what the render projection
 codec's text — `richtext` markdown, `plaintext` literal — at **every depth the
 field's type tree reaches**: an `array<richtext>` is an array of markdown
 strings, a mixed `object` projects its content property and passes its scalars
-verbatim, a variant carries its discriminant verbatim and each cell through its
-own codec. A present-null rides as `null` at every type, apart from
-authored-empty.
+verbatim, a variant cell reads by its own name through its own codec. A
+present-null rides as `null` at every type, apart from authored-empty.
 
 The form is **sparse**: an absent field reads absent, never materialized from
 its `default:` ([Non-persist invariant](#blank-filled-render)). A leaf that
@@ -708,7 +703,6 @@ domain.** It is both the render floor and the value a reader recognizes as
 | `object` | every property at its own blank, recursively |
 | `integer`, `number` | `0` |
 | `boolean` | `false` |
-| `enum` with `variants:` | `{value: ""}` — the container holding the blank |
 
 Nothing forces an enum's blank to sit inside `values:`, and putting it there
 destroys it: the floor would return a real choice nobody made, and a cosmetic
@@ -743,9 +737,9 @@ seeded documents alike (see [BLUEPRINT.md](BLUEPRINT.md)).
 present input, so an `else` fallback re-opens exactly the fabrication the blank
 closes: the cell renders a variant nobody chose, and the plate cannot tell the
 two apart. This is a retrofit obligation on existing plates, not only guidance
-for new ones. Where the enum declares `variants:` the obligation also earns
-something: the branch is what makes the world's fields readable without a guard
-(see [Enum variants](#enum-variants)).
+for new ones. Where the enum declares `variants:` the branch is also where a
+world's cells carry answers rather than blanks (see [Enum
+variants](#enum-variants)).
 
 ## Document seeding
 
@@ -764,13 +758,14 @@ anything. The commit is **sparse** at every depth — only the cells with an
 `example:` is reachable at all. It otherwise would not be: the render floor never
 emits an `example`, and the blueprint is a different document.
 
-A variant container is a namespace whose cells depend on a member, so the seed
-picks one before descending: `overlay › example: › default: › blank`, the same
-selection the render floor makes, so a cell lands in the world the seeded card
+Which variant cells seed an `example:` depends on a member, so the seed picks
+one before walking them: `overlay › example: › default: › blank`, the same
+selection the render floor makes, so a cell commits in the world the seeded card
 renders. Only a member the overlay or an `example:` named is *written*, the
-`default:` staying deferred as everywhere else. A container therefore commits
-cells while leaving `value` absent, which is the spelling coercion, validation
-and [`resolve()`](#the-resolved-value-view-resolve) already read off the ladder.
+`default:` staying deferred as everywhere else, so a seed may commit a cell
+beside an absent discriminant. A cell of another world commits only what the
+overlay wrote for it: `$seed` is a template author deciding, and the card
+reports the stranded cell as `validation::out_of_variant`.
 
 **Seed-commits-rest.** A seeded content field commits its codec's resting form
 (a richtext field and the body the canonical content, a plaintext field its
@@ -903,8 +898,8 @@ The type-gated keys:
   columns — falls back to its own choice for the type.
 - `variants`: per-member field sets on an `enum` field, valid only there and only
   at card level (see [Enum variants](#enum-variants)). `schema()` emits it as
-  authored, keyed by member; the transform schema instead projects the container,
-  flattening every world's fields under `properties` with no member scoping.
+  authored, keyed by member; the transform schema instead projects every world's
+  cells as card properties beside the enum, with no member scoping.
 - `items`: the element schema, itself a `FieldSchema`; required on `array`
   fields and rejected elsewhere.
 - `properties`: used by `object` fields, and by an array's `object`-typed

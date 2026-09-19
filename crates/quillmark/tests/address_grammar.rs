@@ -15,7 +15,8 @@ use std::collections::HashMap;
 
 /// Every position the schema admits, containers nested inside containers and a
 /// variant cell holding a typed table among them, declared on `main` and again
-/// on a card kind so each address has its card twin.
+/// on a card kind so each address has its card twin. A variant cell rests at
+/// card level, so its address is its own name.
 const YAML: &str = r#"
 quill:
   name: address_grammar
@@ -134,11 +135,10 @@ const GRAMMAR: &[(&str, bool)] = &[
     ("grid.0", true),
     ("grid.0.0", true),
     ("classification", true),
-    ("classification.value", true),
-    ("classification.poc", true),
-    ("classification.history", true),
-    ("classification.history.0", true),
-    ("classification.history.0.when", true),
+    ("poc", true),
+    ("history", true),
+    ("history.0", true),
+    ("history.0.when", true),
     ("$cards.endorsement.0.from", true),
     ("$cards.endorsement.9.from", true),
     ("$cards.endorsement.0.tags", true),
@@ -150,8 +150,7 @@ const GRAMMAR: &[(&str, bool)] = &[
     ("$cards.endorsement.0.origin.office", true),
     ("$cards.endorsement.0.origin.geo.lat", true),
     ("$cards.endorsement.0.level", true),
-    ("$cards.endorsement.0.level.value", true),
-    ("$cards.endorsement.0.level.endorser", true),
+    ("$cards.endorsement.0.endorser", true),
     ("nonesuch", false),
     ("subject.0", false),
     ("deadline.0", false),
@@ -170,10 +169,10 @@ const GRAMMAR: &[(&str, bool)] = &[
     ("grid.0.0.0", false),
     ("grid.0.x", false),
     ("classification.0", false),
-    ("classification.undeclared", false),
-    ("classification.value.oops", false),
-    ("classification.history.0.nosuch", false),
-    ("classification.history.x", false),
+    ("classification.poc", false),
+    ("poc.0", false),
+    ("history.0.nosuch", false),
+    ("history.x", false),
     ("$cards", false),
     ("$cards.endorsement", false),
     ("$cards.endorsement.0", false),
@@ -185,6 +184,7 @@ const GRAMMAR: &[(&str, bool)] = &[
     ("$cards.endorsement.0.tags.0.org", false),
     ("$cards.endorsement.0.origin.office.0", false),
     ("$cards.endorsement.0.origin.geo.lon", false),
+    ("$cards.endorsement.0.level.endorser", false),
 ];
 
 const PREAMBLE: &str = r#"#import "@local/quillmark-helper:0.1.0": field-region
@@ -217,18 +217,17 @@ fn data() -> serde_json::Value {
             "lines": ["Bldg 15", "Rm 200"],
         },
         "grid": [[1, 2], [3, 4]],
-        "classification": {
-            "value": "CUI",
-            "poc": "Capt J. Smith",
-            "history": [{ "when": "2026-01-02" }],
-        },
+        "classification": "CUI",
+        "poc": "Capt J. Smith",
+        "history": [{ "when": "2026-01-02" }],
         "$cards": [{
             "$kind": "endorsement",
             "from": "SAF/AA",
             "tags": ["routine"],
             "refs": [{ "org": "AFRL/RQ", "num": "2026-02" }],
             "origin": { "office": "SAF/AA", "city": "Dayton", "geo": { "lat": 38.88 } },
-            "level": { "value": "SECOND", "endorser": "Col K. Lee" },
+            "level": "SECOND",
+            "endorser": "Col K. Lee",
         }],
     })
 }

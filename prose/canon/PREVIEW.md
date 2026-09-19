@@ -176,7 +176,7 @@ glyph, not a marker a rebuild could drop. **Direct scalar references**: each
 tracked site; a scalar shown in header and footer surfaces both sites, and a
 reference wrapped in an expression (`#upper(data.subject)`) attributes the
 whole expression's ink to the field when it is the only reference inside it.
-A read that steps into a declared container (`data.classification.poc`,
+A read that steps into a declared container (`data.contact.address.city`,
 `data.address.at("city")`, `data.refs.at(0).org`) tracks on the **cell**, so the
 region names what the plate read rather than the container holding it; a key the
 container does not declare is no address, and the read falls back to the

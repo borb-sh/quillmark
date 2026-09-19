@@ -44,20 +44,19 @@
 
   references: data.references,
   footer_tag_line: data.tag_line,
-  classification_level: data.classification.value,
+  classification_level: data.classification,
   dissemination: data.dissemination,
 
   // CUI designation indicator block fields (DoDM 5200.48). `classification`
-  // declares a `CUI` variant, so these four exist only where the discriminant
-  // reads CUI and the branch is what makes reading them total: inside it every
-  // declared field of that world is present, outside it none is. The package's
-  // own `cui_*: none` defaults cover the worlds that omit them.
-  ..if data.classification.value == "CUI" {
+  // declares a `CUI` variant, so these four carry answers only where the
+  // discriminant reads CUI; in every other world they arrive blank, and the
+  // branch keeps the package's own `cui_*: none` defaults for those worlds.
+  ..if data.classification == "CUI" {
     (
-      cui_controlled_by: data.classification.controlled_by,
-      cui_category: data.classification.category,
-      cui_limited_dissemination: data.classification.limited_dissemination,
-      cui_poc: data.classification.poc,
+      cui_controlled_by: data.controlled_by,
+      cui_category: data.category,
+      cui_limited_dissemination: data.limited_dissemination,
+      cui_poc: data.poc,
     )
   },
 

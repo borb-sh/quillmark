@@ -12,7 +12,7 @@
 
 /// Whether `path` parses against the schema address tree: a top-level field
 /// (`subject`), an array element (`refs.2`), a container property
-/// (`classification.poc`, `contact.address.city`), or a card address
+/// (`address.city`, `contact.address.city`), or a card address
 /// (`$cards.<kind>.<n>.<field>` with any of those suffixes). Each step is gated
 /// on what the node it steps out of actually offers, so `subject.0` and
 /// `subject.poc` are both rejected on a scalar `subject`. A present-but-empty
@@ -84,7 +84,7 @@
   assert(field == none or std.type(field) == str,
     message: "form-field: field must be a string or none, got " + repr(std.type(field)))
   assert(field == none or _qm-known-path(field),
-    message: "form-field: " + repr(field) + " is not a schema field address; expected a field name, an array element like \"refs.2\", a container property like \"classification.poc\", or a card path composed from the card's $path prefix")
+    message: "form-field: " + repr(field) + " is not a schema field address; expected a field name, an array element like \"refs.2\", a container property like \"address.city\", or a card path composed from the card's $path prefix")
   assert(font in ("helvetica", "times", "courier"),
     message: "form-field: font must be one of helvetica/times/courier, got " + repr(font))
   assert(align in ("left", "center", "right"),
@@ -149,7 +149,7 @@
   assert(std.type(field) == str,
     message: "field-region: field must be a string, got " + repr(std.type(field)))
   assert(_qm-known-path(field),
-    message: "field-region: " + repr(field) + " is not a schema field address; expected a field name, an array element like \"refs.2\", a container property like \"classification.poc\", or a card path composed from the card's $path prefix")
+    message: "field-region: " + repr(field) + " is not a schema field address; expected a field name, an array element like \"refs.2\", a container property like \"address.city\", or a card path composed from the card's $path prefix")
   [#metadata((kind: "__qm_region__", field: field, close: false))<__qm_region__>]
   body
   [#metadata((kind: "__qm_region__", field: field, close: true))<__qm_region__>]
@@ -192,7 +192,7 @@
   assert(std.type(field) == str,
     message: "display: field must be a string, got " + repr(std.type(field)))
   assert(_qm-known-path(field),
-    message: "display: " + repr(field) + " is not a schema field address; expected a field name, an array element like \"refs.2\", a container property like \"classification.poc\", or a card path composed from the card's $path prefix")
+    message: "display: " + repr(field) + " is not a schema field address; expected a field name, an array element like \"refs.2\", a container property like \"address.city\", or a card path composed from the card's $path prefix")
   let render = _qm-display.at(field, default: none)
   if render != none { render(..args) }
 }
