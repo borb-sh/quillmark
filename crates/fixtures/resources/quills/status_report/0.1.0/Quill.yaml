@@ -1,0 +1,56 @@
+quill:
+  name: status_report
+  version: 0.1.0
+  backend: typst
+  description: A project status report — a date, a state enum, and one card per milestone
+
+typst:
+  plate_file: plate.typ
+
+main:
+  description: One period's report on one project.
+  body:
+    example: |
+      Cutover ran on schedule. Two follow-ups remain, both tracked below.
+  fields:
+    project:
+      type: string
+      description: Project this report covers.
+      example: Harbor Migration
+    issued:
+      type: date
+      default: ""
+      description: YYYY-MM-DD. Leave blank to omit the issue line.
+      example: 2026-01-15
+    state:
+      type: enum
+      values:
+        - on track
+        - at risk
+        - blocked
+      default: ""
+      description: Where the project stands. Leave blank for no banner.
+      example: at risk
+    lead:
+      type: string
+      default: ""
+      description: Who to ask about this report.
+      example: Jane Doe
+
+card_kinds:
+  milestone:
+    description: One milestone and what is left on it.
+    ui:
+      title: Milestones
+    body:
+      example: Sign-off pending from the data owners.
+    fields:
+      title:
+        type: string
+        description: What the milestone delivers.
+        example: Cutover rehearsal
+      due:
+        type: date
+        default: ""
+        description: YYYY-MM-DD. Leave blank while the date is unset.
+        example: 2026-02-02
