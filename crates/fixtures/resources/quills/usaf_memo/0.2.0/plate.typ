@@ -78,7 +78,7 @@
 // auto-numbering), but the rebuilt glyphs keep their spans, which is what
 // the backend reads regions from.
 #mainmatter[
-  #data.at("$body")
+  #data.body
 ]
 
 // Backmatter
@@ -93,26 +93,23 @@
 )
 
 // Indorsements - iterate through CARDS array and filter by CARD tag
-#for (i, card) in data.at("$cards").enumerate() {
-  // `$kind` is document-defined: a card block with no `$kind:` line carries
-  // none, so read it with a default rather than a bare `.at`.
-  if card.at("$kind", default: none) == "indorsement" {
+#for (i, card) in data.cards.enumerate() {
+  if card.kind == "indorsement" {
     // The quillmark helper leaves an unset/whitespace-only markdown body as
     // the empty string `""`; only non-empty bodies are eval'd into content.
     // Pass truly empty content (`[]`) in the empty case so indorsement can
     // collapse the body's surrounding spacing.
-    let body = card.at("$body", default: "")
-    let body_content = if type(body) == str { [] } else { body }
+    let body_content = if type(card.body) == str { [] } else { card.body }
     // Per AFH 33-337 Ch. 14, an indorsement is dated when the endorser signs
     // it (distinct from the originating memo's date). The signing date is
     // generally unknown at compile time and filled in by hand, so a blank date
     // renders a fill-in line rather than stamping the compile date.
-    // The card's own address, composed from its `$path` prefix: `display`
+    // The card's own address, composed from its `path` prefix: `display`
     // takes an address, so a per-card call yields a per-card region even
     // though every iteration shares one `card` loop variable. `none` for a
     // blank date, which is the fill-in case below.
     let resolved_date = display(
-      card.at("$path") + "date",
+      card.path + "date",
       date-pattern(memo-style: memo_style),
     )
     // A filled date regions through that call. A blank one draws nothing, so
@@ -142,12 +139,12 @@
       type: "text",
       width: 10 * date_size,
       height: date_size,
-      field: card.at("$path") + "date",
+      field: card.path + "date",
       font: "times",
       size: date_size,
       align: "right",
     )
-    // The card's `$path` prefix composes its canonical schema addresses
+    // The card's `path` prefix composes its canonical schema addresses
     // (`$cards.indorsement.<n>.…`, per-kind ordinal): the absolute loop
     // index `i` is NOT that ordinal once kinds interleave, so it stays a
     // widget-name suffix only. The card body's region rides its own glyph
@@ -162,7 +159,7 @@
       signature_block: card.signature_block,
       signing_field: signature-field(
         "Ind_" + str(i) + "_Signature",
-        field: card.at("$path") + "signature_block",
+        field: card.path + "signature_block",
       ),
       // Same shape: `indorsement` asserts `format`'s membership, and an
       // indorsement has no "no layout" state. `action` needs no such guard —

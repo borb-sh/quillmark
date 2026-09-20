@@ -57,6 +57,37 @@ fn quill_with_field(field_yaml: &str) -> Result<QuillConfig, Vec<Diagnostic>> {
     config_with_sections(&format!("main:\n  fields:\n{field_yaml}"))
 }
 
+/// The keys a plate reads the document under are refused as field names on
+/// the main and on a card kind, and nowhere deeper: a nested property is
+/// reached through its container, which the plate keys cannot shadow.
+#[test]
+fn a_field_named_for_a_plate_key_is_refused_at_the_top_level_only() {
+    let code = |r: Result<QuillConfig, Vec<Diagnostic>>| {
+        r.err()
+            .map(|d| d.iter().filter_map(|d| d.code.clone()).collect::<Vec<_>>())
+    };
+    for name in PLATE_RESERVED_FIELD_NAMES {
+        let main = quill_with_field(&format!("    {name}: {{ type: string }}\n"));
+        assert_eq!(
+            code(main).as_deref(),
+            Some(&["quill::reserved_field_name".to_string()][..]),
+            "main field `{name}`"
+        );
+        let card = config_with_sections(&format!(
+            "card_kinds:\n  note:\n    fields:\n      {name}: {{ type: string }}\n"
+        ));
+        assert_eq!(
+            code(card).as_deref(),
+            Some(&["quill::reserved_field_name".to_string()][..]),
+            "card field `{name}`"
+        );
+    }
+    let nested = quill_with_field(
+        "    file:\n      type: object\n      properties:\n        path: { type: string }\n        body: { type: string }\n",
+    );
+    assert!(nested.is_ok(), "{:?}", nested.err());
+}
+
 #[test]
 fn the_ignore_set_anchors_directories_and_not_names() {
     let ignore = QuillIgnore;
@@ -1639,7 +1670,7 @@ fn type_mismatch_preview_shows_array_contents() {
 
 #[test]
 fn markdown_type_is_unknown_at_load() {
-    let err = quill_with_field("    body:\n      type: markdown\n").unwrap_err();
+    let err = quill_with_field("    prose:\n      type: markdown\n").unwrap_err();
     assert!(
         err.iter()
             .any(|d| d.code.as_deref() == Some("quill::field_parse_error")
@@ -1808,10 +1839,10 @@ fn inline_richtext_single_line_example_loads_and_caches_content() {
 #[test]
 fn block_richtext_default_caches_content() {
     let config = quill_with_field(
-        "    body:\n      type: richtext\n      default: \"## Heading\\n\\nBody.\"\n",
+        "    prose:\n      type: richtext\n      default: \"## Heading\\n\\nBody.\"\n",
     )
     .expect("block richtext default loads");
-    let field = config.main.fields.get("body").unwrap();
+    let field = config.main.fields.get("prose").unwrap();
     let content = field
         .default_content
         .as_ref()

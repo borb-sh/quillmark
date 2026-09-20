@@ -348,6 +348,12 @@ pub const MATRIX_GROUP_KEY: &str = "group";
 pub const MATRIX_RESERVED_COLUMNS: &[&str] =
     &[MATRIX_HELD_KEY, MATRIX_TITLE_KEY, MATRIX_GROUP_KEY];
 
+/// The keys a Typst plate reads the document under beside its fields —
+/// `data.body`, `data.cards`, `data.quill`, `card.kind`, `card.path` — which
+/// a main or card field may therefore not declare
+/// (`quill::reserved_field_name`).
+pub const PLATE_RESERVED_FIELD_NAMES: &[&str] = &["body", "cards", "kind", "path", "quill"];
+
 impl MatrixGroup {
     /// Every member of this block, id first.
     pub fn members(&self) -> impl Iterator<Item = (&str, &str)> {

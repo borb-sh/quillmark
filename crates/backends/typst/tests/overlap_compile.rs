@@ -31,7 +31,7 @@ typst:
   plate_file: plate.typ
 main:
   fields:
-    body:
+    prose:
       type: richtext
       description: a paragraph with overlapping wrap and code marks
 "#;
@@ -41,12 +41,12 @@ const PLATE: &str = r#"
 #set page(width: 300pt, height: 200pt, margin: 20pt)
 #set text(size: 11pt)
 
-#data.body
+#data.prose
 "#;
 
 #[test]
 fn overlapping_wrap_and_code_compiles() {
-    let data = serde_json::json!({ "body": overlap_content() });
+    let data = serde_json::json!({ "prose": overlap_content() });
     let session = TypstBackend
         .open(&quill(YAML, PLATE), &data)
         .expect("overlapping wrap+code content must compile");

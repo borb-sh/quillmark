@@ -44,7 +44,7 @@ const { Quill, Document, importMarkdown, exportMarkdown, parseDocPath } = await 
 
 const TEST_PLATE = `#import "@local/quillmark-helper:0.1.0": data
 #let title = data.title
-#let body = data.at("$body")
+#let body = data.body
 
 = #title
 
@@ -81,7 +81,7 @@ main:
 
 const DECLINE_PLATE = `#import "@local/quillmark-helper:0.1.0": data
 
-#data.at("$body")`
+#data.body`
 
 const PKG_DIR = path.resolve(import.meta.dirname, '..', '..', '..', 'pkg')
 
@@ -173,7 +173,7 @@ main:
 card_kinds:
   note:
     fields:
-      body:
+      remark:
         type: richtext
 `
   const buildQuill = () =>
@@ -234,17 +234,17 @@ card_kinds:
 
   it('addCard fuses make + typed commit + push', () => {
     const ed = buildQuill().writer(blankDoc())
-    // `body` here is the card's richtext FIELD; the third arg is the card body.
-    ed.addCard('note', { body: 'Field **body**.' }, 'Card body text.')
+    // `remark` is the card's richtext FIELD; the third arg is the card body.
+    ed.addCard('note', { remark: 'Field **body**.' }, 'Card body text.')
     expect(ed.document.cards).toHaveLength(1)
     expect(ed.document.cards[0].kind).toBe('note')
-    expect(exportMarkdown(fieldOf(ed.document.cards[0], 'body'))).toBe('Field **body**.')
+    expect(exportMarkdown(fieldOf(ed.document.cards[0], 'remark'))).toBe('Field **body**.')
     expect(exportMarkdown(ed.document.cards[0].body)).toBe('Card body text.')
   })
 
   it('removeCard drops the card and returns it', () => {
     const ed = buildQuill().writer(blankDoc())
-    ed.addCard('note', { body: 'x' })
+    ed.addCard('note', { remark: 'x' })
     const removed = ed.removeCard(0)
     expect(removed.kind).toBe('note')
     expect(ed.document.cards).toHaveLength(0)
@@ -255,13 +255,13 @@ card_kinds:
       '~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nCard.',
     )
     const ed = buildQuill().writer(doc)
-    ed.card(0).set('body', 'Card **body**.')
-    expect(exportMarkdown(fieldOf(doc.cards[0], 'body'))).toBe('Card **body**.')
+    ed.card(0).set('remark', 'Card **body**.')
+    expect(exportMarkdown(fieldOf(doc.cards[0], 'remark'))).toBe('Card **body**.')
     expect(Array.isArray(ed.card(0).reviseBody('Card body md.').ops)).toBe(true)
     expect(exportMarkdown(doc.cards[0].body)).toBe('Card body md.')
     // card(i).reviseField is the typed, anchor-preserving field write.
-    const delta = ed.card(0).reviseField('body', 'Revised **field**.')
-    expect(exportMarkdown(fieldOf(doc.cards[0], 'body'))).toBe('Revised **field**.')
+    const delta = ed.card(0).reviseField('remark', 'Revised **field**.')
+    expect(exportMarkdown(fieldOf(doc.cards[0], 'remark'))).toBe('Revised **field**.')
     expect(Array.isArray(delta.ops)).toBe(true)
   })
 
@@ -269,7 +269,7 @@ card_kinds:
     const ed = buildQuill().writer(blankDoc())
     const cardEd = ed.card(9) // lazy: constructing the CardWriter never throws
     expect(cardEd).toBeInstanceOf(CardWriter)
-    expectEditCode(() => cardEd.set('body', 'x'), 'edit::index_out_of_range')
+    expectEditCode(() => cardEd.set('remark', 'x'), 'edit::index_out_of_range')
   })
 
   it('getStored reads raw values quill-free; bodyMarkdown is body-only (field half retired)', () => {
@@ -344,10 +344,10 @@ card_kinds:
       '~~~card-yaml\n$quill: editor_test\n~~~\n\nMain.\n\n~~~card-yaml\n$kind: note\n~~~\n\nCard.',
     )
     const ed = buildQuill().writer(doc)
-    ed.card(0).setAll({ body: 'Card **body**.' })
-    expect(exportMarkdown(fieldOf(doc.cards[0], 'body'))).toBe('Card **body**.')
+    ed.card(0).setAll({ remark: 'Card **body**.' })
+    expect(exportMarkdown(fieldOf(doc.cards[0], 'remark'))).toBe('Card **body**.')
     expectEditCode(() => ed.card(0).setAll({ stray: 'x' }), 'edit::unknown_field')
-    expectEditCode(() => ed.card(9).setAll({ body: 'x' }), 'edit::index_out_of_range')
+    expectEditCode(() => ed.card(9).setAll({ remark: 'x' }), 'edit::index_out_of_range')
   })
 })
 
@@ -401,7 +401,7 @@ main:
 card_kinds:
   note:
     fields:
-      body:
+      remark:
         type: richtext
       lines:
         type: array
@@ -415,7 +415,7 @@ card_kinds:
     const w = quill.writer(doc)
     w.set('subject', 'Q3 **results**')
     w.set('qty', '3')
-    w.addCard('note', { body: 'A *card* field.' }, 'Card body.')
+    w.addCard('note', { remark: 'A *card* field.' }, 'Card body.')
     return doc
   }
 
@@ -461,7 +461,7 @@ card_kinds:
     const quill = buildQuill()
     const v = quill.reader(seededDoc(quill))
     expect(v.card(0).kind).toBe('note')
-    expect(v.card(0).get('body')).toBe('A *card* field.')
+    expect(v.card(0).get('remark')).toBe('A *card* field.')
     expect(v.card(0).bodyMarkdown()).toBe('Card body.')
     expectEditCode(() => v.card(0).get('nope'), 'edit::unknown_field')
   })
@@ -470,7 +470,7 @@ card_kinds:
     const quill = buildQuill()
     const cardReader = quill.reader(seededDoc(quill)).card(9)
     expect(cardReader).toBeInstanceOf(CardReader)
-    expectEditCode(() => cardReader.get('body'), 'edit::index_out_of_range')
+    expectEditCode(() => cardReader.get('remark'), 'edit::index_out_of_range')
   })
 
   // getContent is the same read at the other end of the codec: the `Content`, not
@@ -561,8 +561,8 @@ card_kinds:
     expectEditCode(() => v.getContent('nope'), 'edit::unknown_field')
     expectEditCode(() => v.getContent('qty'), 'edit::field_not_content')
     expect(v.getContent({}).text).toBe('Main body.') // absent field = body Content
-    expect(v.card(0).getContent('body').text).toBe('A card field.')
-    expectEditCode(() => v.card(9).getContent('body'), 'edit::index_out_of_range')
+    expect(v.card(0).getContent('remark').text).toBe('A card field.')
+    expectEditCode(() => v.card(9).getContent('remark'), 'edit::index_out_of_range')
 
     const empty = quill.reader(
       Document.fromMarkdown('~~~card-yaml\n$quill: view_test\n~~~\n\nBody.')

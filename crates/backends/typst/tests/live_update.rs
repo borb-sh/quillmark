@@ -74,7 +74,7 @@ typst:
   plate_file: plate.typ
 main:
   fields:
-    body:
+    prose:
       type: richtext
       description: a markdown body
     note:
@@ -84,7 +84,7 @@ main:
     const PLATE: &str = r#"#import "@local/quillmark-helper:0.1.0": data
 #set page(width: 300pt, height: 200pt, margin: 20pt)
 #set text(size: 11pt)
-#data.body
+#data.prose
 
 #data.note
 "#;
@@ -101,11 +101,11 @@ fn update_with_reordered_fields_same_content_is_clean() {
     let q = two_field_quill();
 
     let opened: serde_json::Value = serde_json::from_str(
-        r#"{"body":"**Body** paragraph with real ink.","note":"A note with ink too."}"#,
+        r#"{"prose":"**Body** paragraph with real ink.","note":"A note with ink too."}"#,
     )
     .unwrap();
     let reordered: serde_json::Value = serde_json::from_str(
-        r#"{"note":"A note with ink too.","body":"**Body** paragraph with real ink."}"#,
+        r#"{"note":"A note with ink too.","prose":"**Body** paragraph with real ink."}"#,
     )
     .unwrap();
 
@@ -118,7 +118,7 @@ fn update_with_reordered_fields_same_content_is_clean() {
     );
 
     let mut edited = reordered.clone();
-    edited["body"] = json!("**Body** paragraph with real ink, now extended further.");
+    edited["prose"] = json!("**Body** paragraph with real ink, now extended further.");
     let cs = session.update_data(&edited).expect("update edited");
     assert!(!cs.dirty_pages.is_empty(), "a real edit must still dirty");
 }

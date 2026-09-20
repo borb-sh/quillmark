@@ -510,8 +510,8 @@ It is the worst-case-but-renderable document, so a plate that renders it
 degrades gracefully on every type-valid input shape. The contract requires:
 
 - Templates treat blanks (`""`, `0`, `false`, `[]`, empty richtext body) as
-  valid *present* input: read via `data.field`,
-  `card.at("field", default: …)`, or guarded with `if "field" in data`.
+  valid *present* input: read via `data.field` and `card.field`; an
+  `if "field" in data` guard is for an undeclared key only.
 - **A template branching on an `enum` covers `values ∪ blank` exhaustively.**
   The blank is valid present input for every enum, not only defaultless ones,
   so an `else` fallback silently renders a variant nobody chose — the exact

@@ -459,7 +459,7 @@ main:
 card_kinds:
   note:
     fields:
-      body:
+      remark:
         type: richtext
       lines:
         type: array
@@ -481,7 +481,7 @@ card_kinds:
             let mut w = crate::writer::TypedWriter::new(config, &mut doc);
             w.set("subject", "Hello **world**").unwrap();
             w.set("qty", "3").unwrap();
-            w.add_card("note", [("body", "a *card*")], None, None).unwrap();
+            w.add_card("note", [("remark", "a *card*")], None, None).unwrap();
         }
         doc
     }
@@ -994,7 +994,7 @@ card_kinds:
         let view = TypedReader::new(&config, &doc);
         let card = view.card(0).unwrap();
         assert_eq!(card.kind(), Some("note"));
-        assert_eq!(card.get("body").unwrap(), json(serde_json::json!("a *card*")));
+        assert_eq!(card.get("remark").unwrap(), json(serde_json::json!("a *card*")));
         assert!(matches!(card.get("nope"), Err(EditError::UnknownField { .. })));
     }
 

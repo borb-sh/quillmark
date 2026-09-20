@@ -42,8 +42,8 @@ A key's *declaration* decides whether it can be absent, and that decides the acc
 | Key | Accessor | Why |
 |---|---|---|
 | A field declared in `Quill.yaml` | `data.subtitle` | Always present: compilation blank-fills every declared field with its authored value, else the schema `default:`, else the field's blank (`""`, `()`, `0`, the empty content). |
-| A `$`-sigiled key (`$kind`, `$body`, `$cards`, `$path`) | `data.at("$body", default: "")` | Typst identifiers exclude `$`, *and* `$`-metadata is present only where it is defined: `$kind` only on a card that authors one, `$body` only where the kind enables a body. |
-| An undeclared key, or any field of a card whose `$kind` is unknown | `data.at("logo", default: none)` | No schema fills it, so absence is real. |
+| The body, the cards, a card's kind and address prefix | `data.body`, `data.cards`, `card.kind`, `card.body`, `card.path` | Plain keys. `body` is a key exactly where the schema enables one (`main.body.enabled`, the kind's `body.enabled`), which the plate's author decided; `cards` is always a key, `()` with none; every card the plate sees carries a declared `kind`. |
+| An undeclared key | `data.at("logo", default: none)` | No schema fills it, so absence is real. |
 
 So a `default:` on a declared field is dead code, and an `#if "field" in data` guard on one is always true. When a declared field is optional, guard its *value*, not its presence:
 
@@ -63,21 +63,21 @@ An `enum` needs this most: its blank is `""`, which is never one of its `values:
 
 ### Body, arrays, and cards
 
-The document body is exposed under the `$body` key, accessed via `data.at("$body")` because Typst identifiers exclude `$`. Arrays come through as Typst arrays. Cards live under the `$cards` key, each carrying its own `$kind` discriminator, fields, and `$body`:
+The document body is `data.body`: content, a key exactly where `main.body.enabled` holds. Arrays come through as Typst arrays. Cards are `data.cards`, each carrying its `kind`, its fields, its `body` where the kind enables one, and `path`, the card's address prefix (`$cards.<kind>.<n>.`) that `display`, `form-field` and `field-region` compose a card address from:
 
 ```typst
-#data.at("$body", default: "")
+#data.body
 
 #for author in data.authors [- #author]
 
-#for card in data.at("$cards", default: ()) {
-  if card.at("$kind", default: none) == "product" {
-    [Product: #card.name — #card.at("$body", default: "")]
+#for card in data.cards {
+  if card.kind == "product" {
+    [Product: #card.name — #card.body]
   }
 }
 ```
 
-A card block with no `$kind:` line is a *kindless* card: it reaches the plate carrying its authored fields verbatim and no `$kind`, so a bare `card.at("$kind")` panics on it. Read the discriminator with a default and let unrecognized kinds fall through.
+A card block with no `$kind:` line, or one naming a kind the quill does not declare, never reaches the plate: the render gate refuses it (`validation::unknown_card`), so `card.kind` is always a declared kind. The five keys are reserved field names — a `Quill.yaml` declaring a field called `body`, `cards`, `kind`, `path` or `quill` fails to load (`quill::reserved_field_name`).
 
 ## Typst Packages
 
@@ -299,7 +299,7 @@ Rebind that name anywhere in the plate — a second `let`, a closure parameter, 
 |---|---|
 | a value handed to a function (`#let f(c) = [#c.poc]`) | the parameter is a fresh name bound per call |
 | a destructured binding (`#let (poc, ..) = data.classification`) | the pattern names no chain |
-| a per-card loop variable (`#for card in data.at("$cards")`) | one shared expression site carries no per-instance identity |
+| a per-card loop variable (`#for card in data.cards`) | one shared expression site carries no per-instance identity |
 
 Each of those still renders correctly and loses only the click target, which is why nothing announces it. Wrap the read in a `field-region` claim to get the region back.
 
@@ -328,7 +328,7 @@ A claim is a **fallback**, not an override. Ink already tracked to a field keeps
 ```typst
 #field-region("recipient")[
   #line(length: 2in)          // no field of its own → claimed for `recipient`
-  #data.body                  // a richtext field → stays `body`
+  #data.body                  // the body's own ink → stays `$body`
   Prepared by #data.author    // a scalar reference → stays `author`
 ]
 ```
@@ -338,8 +338,8 @@ Nesting therefore reads as ordinary scoping, and wrapping never moves a region o
 Each **call** claims independently, so `field` need not be a literal and a wrapper used once per card yields one region per card:
 
 ```typst
-#for card in data.at("$cards", default: ()) {
-  field-region(card.at("$path") + "$body", render-card(card))
+#for card in data.cards {
+  field-region(card.path + "$body", render-card(card))
 }
 ```
 

@@ -15,14 +15,12 @@
 *Favorite Ice Cream: #data.ice_cream*__
 
 
-#data.at("$body")
+#data.body
 
 // Present each sub-document programatically
-#for card in data.at("$cards") {
-  // `$kind` is document-defined: a card block with no `$kind:` line carries
-  // none, so read it with a default rather than a bare `.at`.
-  if card.at("$kind", default: none) == "quotes" [
-    *#card.author*: _#card.at("$body") _
+#for card in data.cards {
+  if card.kind == "quotes" [
+    *#card.author*: _#card.body _
   ]
 }
 

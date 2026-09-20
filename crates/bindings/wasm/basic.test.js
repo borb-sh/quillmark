@@ -44,7 +44,7 @@ This is a test document.`
 
 const TEST_PLATE = `#import "@local/quillmark-helper:0.1.0": data
 #let title = data.title
-#let body = data.at("$body")
+#let body = data.body
 
 = #title
 
@@ -393,7 +393,7 @@ main:
 `
     const DECLINE_PLATE = `#import "@local/quillmark-helper:0.1.0": data
 
-#data.at("$body")`
+#data.body`
 
     const engine = new Quillmark()
     const quill = Quill.fromTree(
@@ -1644,7 +1644,7 @@ main:
 card_kinds:
   note:
     fields:
-      body:
+      remark:
         type: string
 `
 
@@ -1739,7 +1739,7 @@ main:
   const SCHEMA_PLATE = `#import "@local/quillmark-helper:0.1.0": data
 #let title = data.title
 #let subtitle = data.at("subtitle", default: "")
-#let body = data.at("$body")
+#let body = data.body
 
 = #title
 

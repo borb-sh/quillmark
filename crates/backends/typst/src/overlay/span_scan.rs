@@ -1404,14 +1404,14 @@ typst:
   plate_file: plate.typ
 main:
   fields:
-    body:
+    prose:
       type: richtext
       description: one paragraph with one decorated run
 "#;
         const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.1.0": data
 #set page(width: 400pt, height: 400pt, margin: 40pt)
-#data.body
+#data.prose
 "#;
         const TEXT: &str = "Start uline and then a long trailing plain run of text.";
         let region_width = |kind: MarkKind| -> f32 {
@@ -1423,7 +1423,7 @@ main:
             let schema = quillmark_core::quill::build_transform_schema(q.config());
             let meta = crate::SchemaMeta::from_schema_json(schema.as_json());
             let data =
-                serde_json::json!({ "body": quillmark_content::serial::to_canonical_value(&rt) });
+                serde_json::json!({ "prose": quillmark_content::serial::to_canonical_value(&rt) });
             let mut world = QuillWorld::new(&q, &plate).expect("world");
             let (windows, _) = world
                 .inject_helper_package(&data, &meta)
@@ -1442,7 +1442,7 @@ main:
             .regions();
             regions
                 .iter()
-                .filter(|r| r.field == "body")
+                .filter(|r| r.field == "prose")
                 .map(|r| r.rect[2] - r.rect[0])
                 .fold(0.0f32, f32::max)
         };
@@ -1830,14 +1830,14 @@ typst:
   plate_file: plate.typ
 main:
   fields:
-    body:
+    prose:
       type: richtext
       description: a two-item list
 "#;
         const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.1.0": data
 #set page(width: 400pt, height: 400pt, margin: 40pt)
-#data.body
+#data.prose
 "#;
         let q = quill(YAML, PLATE);
         let plate = crate::read_plate(&q).expect("plate");
@@ -1846,7 +1846,7 @@ main:
         let rt =
             quillmark_content::import::from_markdown("- Item ONE\n- Item TWO").expect("import");
         let data =
-            serde_json::json!({ "body": quillmark_content::serial::to_canonical_value(&rt) });
+            serde_json::json!({ "prose": quillmark_content::serial::to_canonical_value(&rt) });
         let mut world = QuillWorld::new(&q, &plate).expect("world");
         let (windows, _) = world
             .inject_helper_package(&data, &meta)
@@ -1858,7 +1858,7 @@ main:
 
         let win_idx = windows
             .iter()
-            .position(|w| w.path == "body")
+            .position(|w| w.path == "prose")
             .expect("body window");
         assert_eq!(
             windows[win_idx].segments.len(),
@@ -1903,7 +1903,7 @@ typst:
   plate_file: plate.typ
 main:
   fields:
-    body:
+    prose:
       type: richtext
       description: the body
     classification:
@@ -1979,7 +1979,7 @@ main:
     fn body(markdown: &str) -> serde_json::Value {
         let rt = quillmark_content::import::from_markdown(markdown).expect("import");
         serde_json::json!({
-            "body": quillmark_content::serial::to_canonical_value(&rt),
+            "prose": quillmark_content::serial::to_canonical_value(&rt),
             "classification": "UNCLASSIFIED",
         })
     }
@@ -2015,12 +2015,12 @@ main:
 #set page(width: 400pt, height: 400pt, margin: 40pt)
 #field-region("classification")[
   #line(length: 100pt)
-  #data.body
+  #data.prose
 ]
 "#;
         let regions = probe_regions(PLATE, body("Body PROBETOKEN text."));
         assert!(
-            regions.iter().any(|r| r.field == "body" && r.span.is_some()),
+            regions.iter().any(|r| r.field == "prose" && r.span.is_some()),
             "the nested content field keeps its own span-bearing region: {regions:?}"
         );
         assert!(
@@ -2034,7 +2034,7 @@ main:
         const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.1.0": data, field-region
 #set page(width: 400pt, height: 400pt, margin: 40pt)
-#field-region("body")[Level: #data.classification]
+#field-region("prose")[Level: #data.classification]
 "#;
         let regions = probe_regions(PLATE, body("Unused."));
         assert!(
@@ -2068,7 +2068,7 @@ Interleaved plate chrome.
 #import "@local/quillmark-helper:0.1.0": data, field-region
 #set page(width: 400pt, height: 400pt, margin: 40pt)
 #let chrome() = box(width: 40pt)[--]
-#field-region("classification")[LEFTMOST #chrome() #data.body RIGHTMOST]
+#field-region("classification")[LEFTMOST #chrome() #data.prose RIGHTMOST]
 "#;
         let regions = probe_regions(PLATE, body("mid"));
         let claim = regions
@@ -2077,7 +2077,7 @@ Interleaved plate chrome.
             .expect("the claim surfaces");
         let body_box = regions
             .iter()
-            .find(|r| r.field == "body")
+            .find(|r| r.field == "prose")
             .expect("the nested field surfaces");
         // Bottom-left origin: the trailing text sits below the nested field.
         assert!(
@@ -2096,7 +2096,7 @@ Interleaved plate chrome.
 #set page(width: 300pt, height: 200pt, margin: 20pt, header: [PAGE CHROME])
 #let r = field-region("classification")[#box(stroke: 1pt)[X]]
 #r.children.at(0)
-#data.body
+#data.prose
 "#;
 
     #[test]
@@ -2116,7 +2116,7 @@ Interleaved plate chrome.
         let long = body(&"A long paragraph of body text. ".repeat(60));
         let regions = probe_regions(STRANDED_OPEN, long.clone());
         assert!(
-            regions.iter().any(|r| r.field == "body"),
+            regions.iter().any(|r| r.field == "prose"),
             "the fields that do resolve are untouched: {regions:?}"
         );
         assert!(
@@ -2188,13 +2188,13 @@ Interleaved plate chrome.
         const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.1.0": data, field-region
 #set page(width: 300pt, height: 200pt, margin: 20pt)
-#let inner = field-region("body")[#box(stroke: 1pt)[I]]
+#let inner = field-region("prose")[#box(stroke: 1pt)[I]]
 #field-region("classification")[#inner.children.at(0) #box(stroke: 1pt)[C]]
-#data.body
+#data.prose
 "#;
         let regions = probe_regions(PLATE, body("Text."));
         assert!(
-            regions.iter().any(|r| r.field == "body"),
+            regions.iter().any(|r| r.field == "prose"),
             "the inner claim is bounded by the outer close: {regions:?}"
         );
     }

@@ -38,7 +38,7 @@ main:
 card_kinds:
   entry:
     fields:
-      body:
+      remark:
         type: richtext
       caption:
         type: plaintext
@@ -76,7 +76,7 @@ Main body.
 
 ~~~card-yaml
 $kind: entry
-body: card **body**
+remark: card **body**
 caption: raw *text*
 ~~~
 
@@ -101,7 +101,7 @@ fn parse_then_conform_equals_typed_write() {
         )
         .unwrap();
         let mut card = w.card(0).unwrap();
-        card.set("body", "card **body**").unwrap();
+        card.set("remark", "card **body**").unwrap();
         card.set("caption", "raw *text*").unwrap();
     }
 
@@ -130,7 +130,7 @@ fn rest_is_per_codec_at_every_depth() {
     assert!(meta.get("blurb").unwrap().is_object());
 
     let card = &doc.cards()[0];
-    assert!(card.payload().get("body").unwrap().as_json().is_object());
+    assert!(card.payload().get("remark").unwrap().as_json().is_object());
     assert_eq!(
         card.payload().get("caption").unwrap().as_json(),
         &json!("raw *text*")
@@ -472,7 +472,7 @@ fn a_0_92_0_row_migrates_then_converges() {
         "cards": [{
             "payload": { "items": [
                 { "type": "kind", "value": "entry" },
-                { "type": "field", "key": "body", "value": "card **body**" },
+                { "type": "field", "key": "remark", "value": "card **body**" },
             ]},
             "body": "Entry body."
         }]
@@ -497,7 +497,7 @@ fn a_0_92_0_row_migrates_then_converges() {
         &json!("a *literal* line"),
         "and the object-rest plaintext converges to its literal string"
     );
-    assert!(doc.cards()[0].payload().get("body").unwrap().as_json().is_object());
+    assert!(doc.cards()[0].payload().get("remark").unwrap().as_json().is_object());
 
     let restored = bytes(&doc);
     assert!(restored.contains("quillmark/document@0.115.0"));
@@ -516,7 +516,7 @@ Main **body**.
 
 ~~~card-yaml
 $kind: entry
-body: card **body**
+remark: card **body**
 ~~~
 
 Entry body.

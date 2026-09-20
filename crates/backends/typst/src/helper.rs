@@ -236,19 +236,19 @@ impl<'m> Codegen<'m> {
         for (key, value) in sorted(obj) {
             if key == "$cards" {
                 if let Some(cards) = value.as_array() {
-                    items.push(format!("\"$cards\": {}", self.emit_cards(cards)));
+                    items.push(format!("\"cards\": {}", self.emit_cards(cards)));
                     continue;
                 }
             }
             let node = self.meta.field_node(key);
             let expr = self.emit_value(key, node, value);
-            items.push(format!("\"{}\": {}", escape_string(key), expr));
+            items.push(format!("\"{}\": {}", escape_string(typst_key(key)), expr));
         }
         wrap_dict(items)
     }
 
     /// A card with no string `$kind` passes through as a value literal, assigned
-    /// no ordinal or `$path`.
+    /// no ordinal or `path`.
     fn emit_cards(&mut self, cards: &[serde_json::Value]) -> String {
         let mut ordinals: HashMap<String, usize> = HashMap::new();
         let mut out = Vec::with_capacity(cards.len());
@@ -283,14 +283,14 @@ impl<'m> Codegen<'m> {
         let mut items = Vec::with_capacity(obj.len() + 1);
         // The canonical address prefix, so plates compose schema-field addresses
         // without reimplementing the kind+ordinal grammar.
-        items.push(format!("\"$path\": \"{}\"", escape_string(prefix)));
+        items.push(format!("\"path\": \"{}\"", escape_string(prefix)));
         for (key, value) in sorted(obj) {
-            if key == "$path" {
+            if typst_key(key) == "path" {
                 continue;
             }
             let node = props.and_then(|p| p.get(key));
             let expr = self.emit_value(&format!("{prefix}{key}"), node, value);
-            items.push(format!("\"{}\": {}", escape_string(key), expr));
+            items.push(format!("\"{}\": {}", escape_string(typst_key(key)), expr));
         }
         wrap_dict(items)
     }
@@ -461,6 +461,13 @@ pub(crate) fn lit(v: &serde_json::Value) -> String {
 /// iteration order is the caller's. Sorting makes the generated source a pure
 /// function of the data's *values*, so a reorder-only `update` produces
 /// byte-identical `lib.typ` and comemo reuses the whole compile.
+/// A wire key's Typst spelling: the `$` sigil goes, since an identifier cannot
+/// spell it, and the schema reserves the bare names it uncovers
+/// (`quill::reserved_field_name`). Addresses keep the sigil.
+fn typst_key(key: &str) -> &str {
+    key.strip_prefix('$').unwrap_or(key)
+}
+
 fn sorted(obj: &serde_json::Map<String, serde_json::Value>) -> Vec<(&String, &serde_json::Value)> {
     let mut entries: Vec<_> = obj.iter().collect();
     entries.sort_by(|a, b| a.0.cmp(b.0));
@@ -806,8 +813,9 @@ mod tests {
         assert!(paths.contains(&"$cards.note.0.$body"), "{paths:?}");
         assert!(paths.contains(&"$cards.note.1.$body"), "{paths:?}");
         assert!(paths.contains(&"$cards.note.0.on"), "{paths:?}");
-        assert!(lib.contains("\"$path\": \"$cards.note.0.\""));
-        assert!(lib.contains("\"$path\": \"$cards.note.1.\""));
+        assert!(lib.contains("\"path\": \"$cards.note.0.\""), "{lib}");
+        assert!(lib.contains("\"path\": \"$cards.note.1.\""), "{lib}");
+        assert!(lib.contains("\"kind\": \"note\""), "{lib}");
         assert!(
             lib.contains("\"on\": datetime(year: 2026, month: 1, day: 2)"),
             "{lib}"
@@ -871,7 +879,7 @@ mod tests {
         let meta = meta_from(serde_json::json!({
             "properties": {
                 "subject": { "type": "string" },
-                "body": richtext_field(),
+                "prose": richtext_field(),
                 "address": { "type": "object", "properties": {
                     "city": { "type": "string" },
                 }},
@@ -889,7 +897,7 @@ mod tests {
         assert!(meta.root.resolve("classification.poc").is_some());
         // A scalar and a richtext field each offer no step.
         assert!(meta.root.resolve("subject.anything").is_none());
-        assert!(meta.root.resolve("body.text").is_none());
+        assert!(meta.root.resolve("prose.text").is_none());
         assert!(meta.cards["note"].resolve("origin.office").is_some());
 
         let (lib, _) = generate_lib_typ(&serde_json::json!({}), &meta).unwrap();
@@ -941,7 +949,7 @@ mod tests {
     fn reordered_input_emits_byte_identical_source() {
         let meta = meta_from(serde_json::json!({
             "properties": {
-                "body": richtext_field(),
+                "prose": richtext_field(),
                 "note": richtext_field(),
                 "issued": { "type": "string", "format": "date" },
                 "extra": { "type": "object" }
@@ -956,7 +964,7 @@ mod tests {
             }
         }));
         let a = serde_json::json!({
-            "body": content("The body."),
+            "prose": content("The body."),
             "note": content("The note."),
             "issued": "2026-01-02",
             "extra": { "x": 1, "y": 2 },
@@ -967,7 +975,7 @@ mod tests {
             "extra": { "y": 2, "x": 1 },
             "issued": "2026-01-02",
             "note": content("The note."),
-            "body": content("The body.")
+            "prose": content("The body.")
         });
 
         let (lib_a, win_a) = generate_lib_typ(&a, &meta).unwrap();

@@ -42,8 +42,8 @@ const PLATE: &str = r#"
 #image("assets/logo.svg", width: 16pt)
 
 #data.at("intro", default: [])
-#data.at("$body", default: [])
-#for card in data.at("$cards", default: ()) [#card.at("$body", default: [])]
+#data.at("body", default: [])
+#for card in data.at("cards", default: ()) [#card.at("body", default: [])]
 "#;
 
 const LOGO: &[u8] = br#"<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16"

@@ -29,15 +29,13 @@ One rule governs the lowering, at every depth: **a declared type means the same 
 - **`$`-metadata is present exactly where the schema defines it** ("absent on
   undefined"). Which definition gates the key splits the rule:
   - `$kind` is *document-defined*: present iff the card authors one, absent for
-    a kindless card.
+    a kindless card. The render gate refuses a kindless card and one naming an
+    undeclared kind (`validation::unknown_card`), so every card a plate sees
+    carries a declared kind.
   - `$body` is *schema-defined*: present iff a declared kind enables a body,
-    absent for a body-disabled or unknown kind. A present `$body` is always a
-    content object, never a raw object needing a type check.
-
-  Absence is the signal. Read `$`-metadata with a total accessor:
-  `card.at("$kind", default: none)`, `card.at("$body", default: "")`: never a
-  bare `card.$body`
-- User payload fields sit flat at the root next to the `$` keys; field names match `[a-z_][a-z0-9_]*` and therefore never collide with `$` metadata
+    absent for a body-disabled kind. A present `$body` is always a content
+    object, never a raw object needing a type check.
+- User payload fields sit flat at the root next to the `$` keys; field names match `[a-z_][a-z0-9_]*` and therefore never collide with `$` metadata on the wire. The Typst projection drops the sigil (§Typst Helper Package), so the bare names `body`, `cards`, `kind`, `path` and `quill` are refused as field names at load (`quill::reserved_field_name`)
 
 #### A `matrix` field
 
@@ -78,18 +76,27 @@ The Typst backend injects a virtual package `@local/quillmark-helper:<version>` 
 #import "@local/quillmark-helper:0.1.0": data
 
 #data.title                  // plain field access
-#data.at("$body")            // root $body: a content object when the main enables a body
+#data.body                   // the root body: content, a key where the main enables a body
 #data.date.year()            // date/datetime fields are native datetimes
 #display("date", "…")        // …and `display` places the click-to-edit rendering
-#for card in data.at("$cards") {
-  if card.at("$kind", default: none) == "indorsement" {
-    // per-kind handling; $kind/$body are present only where the schema
-    // defines them, so read them totally: card.<field>, card.at("$body", default: "")
+#for card in data.cards {
+  if card.kind == "indorsement" {
+    // per-kind handling: card.<field>; card.body where the kind enables one;
+    // card.path, the card's address prefix, for display/form-field/field-region
   }
 }
 ```
 
-The `$`-prefixed keys must be accessed via `.at("$...")` because Typst identifiers do not include `$`.
+The wire's `$` keys arrive without the sigil, which a Typst identifier cannot
+spell: `$body`, `$cards` and `$quill` are `data.body`, `data.cards` and
+`data.quill`, and a card's `$kind` and `$body` are `card.kind` and `card.body`,
+beside `card.path`, the address prefix the projection mints
+(`$cards.<kind>.<n>.`). Presence is the wire's: `body` is a key exactly where
+the schema enables a body, so a plate for a body-disabled main has no
+`data.body` to read, and `cards` is always a key, `()` with none. The bare names
+are reserved field names (`quill::reserved_field_name`). Addresses keep the
+sigil: `card.path + "date"` is `$cards.indorsement.0.date`, and the root body's
+region is `$body`.
 
 Helper contents (generated in `backends/typst/helper.rs` from `lib.typ.template`):
 
@@ -176,13 +183,12 @@ grammar is written twice, in two languages, and held to one table by
 **An address the grammar admits is a key the plate carries.** The blank-fill is
 total at every depth ([SCHEMAS.md](SCHEMAS.md#blank-filled-render)), so a
 declared address resolves however much of its container the document left out:
-`data.contact.address.city` is a direct read, never a guarded one. This is the
-converse of the `$`-metadata rule above — those keys are read with a total
-accessor *because* they may be absent, and a declared field may not be.
+`data.contact.address.city` is a direct read, never a guarded one. A body is
+the same read: `data.body` is a key exactly where the schema enables one.
 
-Cards carry their canonical prefix as `$path`, so a plate composes a card
+Cards carry their canonical prefix as `path`, so a plate composes a card
 address without reimplementing the kind+ordinal grammar:
-`field-region(card.at("$path") + "$body")`. A body is content rather than a
+`field-region(card.path + "$body")`. A body is content rather than a
 bindable field, so a `$body` address is the plate grammar's alone: acroform's
 resolver roots none.
 

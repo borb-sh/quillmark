@@ -2,8 +2,8 @@
 //! omits `$kind` for one rather than fabricating `""`. Every route from a
 //! document to plate data (`compile_data`, and `compile_checked` beneath
 //! `Quillmark::render`) passes `coerce_and_validate`, where a card whose kind
-//! resolves to no schema is fatal, so a plate reading the discriminator with a
-//! bare `card.at("$kind")` never sees one: the failure is a path-anchored
+//! resolves to no schema is fatal, so a plate reading `card.kind` never sees
+//! one: the failure is a path-anchored
 //! `validation::unknown_card` naming the card, never a backend panic.
 
 #![cfg(feature = "typst")]

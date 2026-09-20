@@ -32,7 +32,7 @@ main:
 card_kinds:
   note:
     fields:
-      body:
+      remark:
         type: string
         default: TBD
       tag:
@@ -99,7 +99,7 @@ def test_seed_document_commits_examples(tmp_path):
     md = doc.to_markdown()
 
     assert "FIRST LAST" in md, "byline example must be committed"
-    assert "TBD" not in md, "note body default must not be persisted"
+    assert "TBD" not in md, "note remark default must not be persisted"
 
 
 def test_seed_main_and_card(tmp_path):

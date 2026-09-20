@@ -224,8 +224,8 @@ card_kinds:
     let plate = r#"
 #import "@local/quillmark-helper:0.1.0": data, field-region
 #set page(width: 400pt, height: 200pt, margin: 40pt)
-#for card in data.at("$cards") {
-  field-region(card.at("$path") + "origin.office")[#card.origin.office]
+#for card in data.cards {
+  field-region(card.path + "origin.office")[#card.origin.office]
 }
 "#;
     let session = TypstBackend

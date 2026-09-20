@@ -67,14 +67,14 @@ Your first plate template:
 
 Dear #data.recipient,
 
-#data.at("$body", default: "")
+#data.body
 
 Sincerely,
 
 #data.sender
 ```
 
-For data access patterns, helper package details, optional fields, and `$cards` iteration, see the [Typst Backend](typst-backend.md) guide.
+For data access patterns, helper package details, optional fields, and `cards` iteration, see the [Typst Backend](typst-backend.md) guide.
 
 ## 4. Write a document
 

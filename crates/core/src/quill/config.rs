@@ -1681,6 +1681,20 @@ impl QuillConfig {
                 );
                 continue;
             }
+            if super::PLATE_RESERVED_FIELD_NAMES.contains(&field_name.as_str()) {
+                errors.push(
+                    Diagnostic::new(
+                        Severity::Error,
+                        format!(
+                            "Invalid {context} '{field_name}': a plate reads the document's \
+                             body, cards, quill reference, card kind and card address under \
+                             that key, so a field there would be unreachable. Rename the field."
+                        ),
+                    )
+                    .with_code("quill::reserved_field_name".to_string()),
+                );
+                continue;
+            }
 
             let quill_value = QuillValue::from_json(field_value.clone());
             match FieldSchema::from_quill_value(field_name.clone(), &quill_value) {

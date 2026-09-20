@@ -27,7 +27,7 @@ main:
 card_kinds:
   note:
     fields:
-      body:
+      remark:
         type: richtext
 "#;
 
@@ -87,7 +87,7 @@ fn typed_read_spells_through_the_facade() {
         let mut writer: TypedWriter = quill.writer(&mut doc);
         writer.set("subject", "Hello **world**").expect("richtext");
         writer
-            .add_card("note", [("body", "a *card*")], None, None)
+            .add_card("note", [("remark", "a *card*")], None, None)
             .expect("note is a declared card kind");
     }
 
@@ -101,8 +101,8 @@ fn typed_read_spells_through_the_facade() {
 
     let card: CardReader = reader.card(0).expect("the note card resolves its schema");
     assert_eq!(card.kind(), Some("note"));
-    let body: Option<QuillValue> = card.get("body").expect("body is declared on `note`");
-    assert_eq!(body.as_ref().and_then(|v| v.as_str()), Some("a *card*"));
+    let remark: Option<QuillValue> = card.get("remark").expect("remark is declared on `note`");
+    assert_eq!(remark.as_ref().and_then(|v| v.as_str()), Some("a *card*"));
 }
 
 #[test]

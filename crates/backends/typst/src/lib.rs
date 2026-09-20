@@ -685,11 +685,11 @@ mod tests {
         const PLATE: &str = r#"#import "@local/quillmark-helper:0.1.0": data
 #set page(width: 300pt, height: 200pt, margin: 20pt)
 #set text(size: 11pt)
-#data.body
+#data.prose
 "#;
         let quill_with = |extra_field: bool| {
             let mut yaml = String::from(
-                "quill:\n  name: shift\n  version: 0.1.0\n  backend: typst\n  description: span shift probe\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    body:\n      type: richtext\n      description: body\n",
+                "quill:\n  name: shift\n  version: 0.1.0\n  backend: typst\n  description: span shift probe\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    prose:\n      type: richtext\n      description: body\n",
             );
             if extra_field {
                 yaml.push_str(
@@ -713,7 +713,7 @@ mod tests {
         };
 
         let json =
-            serde_json::json!({ "body": content("A **markdown** body with real ink to lay out.") });
+            serde_json::json!({ "prose": content("A **markdown** body with real ink to lay out.") });
         let hashes_of = |quill: &Quill| {
             let plate_content = read_plate(quill).expect("plate");
             let transform_schema = build_transform_schema(quill.config());
@@ -745,10 +745,10 @@ mod tests {
         const PLATE: &str = r#"#import "@local/quillmark-helper:0.1.0": data
 #set page(width: 300pt, height: 400pt, margin: 20pt)
 #set text(size: 11pt)
-#data.body
+#data.prose
 "#;
         let quill = || {
-            let yaml = "quill:\n  name: anchor\n  version: 0.1.0\n  backend: typst\n  description: line-anchor guard\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    body:\n      type: richtext\n      description: body\n";
+            let yaml = "quill:\n  name: anchor\n  version: 0.1.0\n  backend: typst\n  description: line-anchor guard\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    prose:\n      type: richtext\n      description: body\n";
             let mut files = HashMap::new();
             files.insert(
                 "Quill.yaml".to_string(),
@@ -762,7 +762,7 @@ mod tests {
         };
         let counts = |rt: &quillmark_content::model::Normalized| {
             let json =
-                serde_json::json!({ "body": quillmark_content::serial::to_canonical_value(rt) });
+                serde_json::json!({ "prose": quillmark_content::serial::to_canonical_value(rt) });
             let q = quill();
             let plate_content = read_plate(&q).expect("plate");
             let transform_schema = build_transform_schema(q.config());

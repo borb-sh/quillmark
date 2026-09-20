@@ -330,7 +330,7 @@ main:
 card_kinds:
   note:
     fields:
-      body:
+      remark:
         type: richtext
 ";
 
@@ -444,11 +444,11 @@ card_kinds:
         let config = config();
         let mut doc = blank_doc();
         let mut ed = TypedWriter::new(&config, &mut doc);
-        ed.add_card("note", [("body", "**hi**")], Some("card body"), None)
+        ed.add_card("note", [("remark","**hi**")], Some("card body"), None)
             .unwrap();
         assert_eq!(doc.cards().len(), 1);
         assert_eq!(doc.cards()[0].kind(), Some("note"));
-        assert_eq!(doc.cards()[0].field_text("body", Codec::Richtext).unwrap().unwrap(), "**hi**");
+        assert_eq!(doc.cards()[0].field_text("remark",Codec::Richtext).unwrap().unwrap(), "**hi**");
         assert_eq!(doc.cards()[0].body_markdown(), "card body");
     }
 
@@ -458,14 +458,14 @@ card_kinds:
         let mut doc = blank_doc();
         {
             let mut ed = TypedWriter::new(&config, &mut doc);
-            ed.add_card("note", [("body", "a")], None, None).unwrap();
-            ed.add_card("note", [("body", "c")], None, None).unwrap();
-            ed.add_card("note", [("body", "b")], None, Some(1)).unwrap();
+            ed.add_card("note", [("remark","a")], None, None).unwrap();
+            ed.add_card("note", [("remark","c")], None, None).unwrap();
+            ed.add_card("note", [("remark","b")], None, Some(1)).unwrap();
         }
         let bodies: Vec<String> = doc
             .cards()
             .iter()
-            .map(|c| c.field_text("body", Codec::Richtext).unwrap().unwrap())
+            .map(|c| c.field_text("remark",Codec::Richtext).unwrap().unwrap())
             .collect();
         assert_eq!(bodies, ["a", "b", "c"]);
 
@@ -473,7 +473,7 @@ card_kinds:
         {
             let mut ed = TypedWriter::new(&config, &mut doc);
             let errs = ed
-                .add_card("note", [("body", "x")], None, Some(9))
+                .add_card("note", [("remark","x")], None, Some(9))
                 .unwrap_err();
             assert_eq!(errs[0].0, "$kind");
         }
@@ -482,7 +482,7 @@ card_kinds:
         {
             let mut ed = TypedWriter::new(&config, &mut doc);
             let removed = ed.remove_card(1).unwrap();
-            assert_eq!(removed.field_text("body", Codec::Richtext).unwrap().unwrap(), "b");
+            assert_eq!(removed.field_text("remark",Codec::Richtext).unwrap().unwrap(), "b");
             assert!(ed.remove_card(5).is_none());
         }
         assert_eq!(doc.cards().len(), 2);
@@ -509,11 +509,11 @@ card_kinds:
 
         let mut ed = TypedWriter::new(&config, &mut doc);
         let mut card_ed = ed.card(0).unwrap();
-        card_ed.set("body", "**hi**").unwrap();
+        card_ed.set("remark","**hi**").unwrap();
         let err = card_ed.set("stray", "v").unwrap_err();
         assert_eq!(err.code(), "edit::unknown_field");
 
-        assert_eq!(doc.cards()[0].field_text("body", Codec::Richtext).unwrap().unwrap(), "**hi**");
+        assert_eq!(doc.cards()[0].field_text("remark",Codec::Richtext).unwrap().unwrap(), "**hi**");
 
         let mut ed = TypedWriter::new(&config, &mut doc);
         assert!(matches!(
@@ -548,8 +548,8 @@ card_kinds:
         doc.push_card(Card::new("note").unwrap()).unwrap();
 
         let mut ed = TypedWriter::new(&config, &mut doc);
-        ed.card(0).unwrap().revise_field("body", "**hi**").unwrap();
-        assert_eq!(doc.cards()[0].field_text("body", Codec::Richtext).unwrap().unwrap(), "**hi**");
+        ed.card(0).unwrap().revise_field("remark","**hi**").unwrap();
+        assert_eq!(doc.cards()[0].field_text("remark",Codec::Richtext).unwrap().unwrap(), "**hi**");
 
         let mut ed = TypedWriter::new(&config, &mut doc);
         assert_eq!(

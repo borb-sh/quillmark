@@ -84,7 +84,7 @@
   assert(field == none or std.type(field) == str,
     message: "form-field: field must be a string or none, got " + repr(std.type(field)))
   assert(field == none or _qm-known-path(field),
-    message: "form-field: " + repr(field) + " is not a schema field address; expected a field name, an array element like \"refs.2\", a container property like \"classification.poc\", or a card path composed from the card's $path prefix")
+    message: "form-field: " + repr(field) + " is not a schema field address; expected a field name, an array element like \"refs.2\", a container property like \"classification.poc\", or a card path composed from the card's `path` prefix")
   assert(font in ("helvetica", "times", "courier"),
     message: "form-field: font must be one of helvetica/times/courier, got " + repr(font))
   assert(align in ("left", "center", "right"),
@@ -141,7 +141,7 @@
 /// The claim is a **fallback**, not an override: ink already tracked to a field
 /// keeps that field, so wrapping only ever adds a region and never moves one.
 /// Each *call* claims independently, so a wrapper invoked once per card with
-/// `card.at("$path") + "$body"` yields one region per card.
+/// `card.path + "$body"` yields one region per card.
 ///
 /// `<__qm_region__>` and `kind: "__qm_region__"` are reserved for this
 /// hand-off; the `query(metadata)` caveat on `form-field` applies here too.
@@ -149,7 +149,7 @@
   assert(std.type(field) == str,
     message: "field-region: field must be a string, got " + repr(std.type(field)))
   assert(_qm-known-path(field),
-    message: "field-region: " + repr(field) + " is not a schema field address; expected a field name, an array element like \"refs.2\", a container property like \"classification.poc\", or a card path composed from the card's $path prefix")
+    message: "field-region: " + repr(field) + " is not a schema field address; expected a field name, an array element like \"refs.2\", a container property like \"classification.poc\", or a card path composed from the card's `path` prefix")
   [#metadata((kind: "__qm_region__", field: field, close: false))<__qm_region__>]
   body
   [#metadata((kind: "__qm_region__", field: field, close: true))<__qm_region__>]
@@ -167,7 +167,10 @@
 /// `datetime(..)` (blank ⇒ `none`), a number an int or float, a typed
 /// dictionary a dict — save the content types, whose authored text is a
 /// canonical rendering and so reference their `_qm_cN` markup block. The rule
-/// holds at every depth. `$cards` carry their per-kind-ordinal `$path` prefix.
+/// holds at every depth. The wire's `$` keys arrive bare: `body` where the
+/// schema enables one, `cards` always, `quill`; each card its `kind`, its
+/// `body` where its kind enables one, and `path`, its per-kind-ordinal
+/// address prefix.
 #let data = {data_literal}
 
 /// Backend-generated content projection for every **present** `date`/`datetime`
@@ -183,8 +186,8 @@
 /// package stays click-to-edit. Use `data.<field>.display(..)` where a plain
 /// `str` is wanted and no region is.
 ///
-/// `field` is the schema address (compose a card field from the card's `$path`:
-/// `display(card.at("$path") + "on", "[year]")`). An address the schema does not
+/// `field` is the schema address (compose a card field from the card's `path`:
+/// `display(card.path + "on", "[year]")`). An address the schema does not
 /// have is a compile error; a known address carrying no date — a blank one, or a
 /// field that is not a date — returns `none`, so a `== none` fallback still
 /// fires.
@@ -192,7 +195,7 @@
   assert(std.type(field) == str,
     message: "display: field must be a string, got " + repr(std.type(field)))
   assert(_qm-known-path(field),
-    message: "display: " + repr(field) + " is not a schema field address; expected a field name, an array element like \"refs.2\", a container property like \"classification.poc\", or a card path composed from the card's $path prefix")
+    message: "display: " + repr(field) + " is not a schema field address; expected a field name, an array element like \"refs.2\", a container property like \"classification.poc\", or a card path composed from the card's `path` prefix")
   let render = _qm-display.at(field, default: none)
   if render != none { render(..args) }
 }

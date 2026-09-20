@@ -23,7 +23,7 @@ main:
     intro:
       type: richtext
       description: a short intro paragraph
-    body:
+    prose:
       type: richtext
       description: a long body that wraps and breaks across pages
 "#;
@@ -42,14 +42,14 @@ main:
 
 #data.intro
 
-#data.body
+#data.prose
 "#;
 
     // Long enough to overflow page 0 and continue.
     let long = "This is a markdown paragraph that wraps across several lines. ".repeat(200);
     let data = serde_json::json!({
         "intro": content("A **short** intro paragraph on the first page."),
-        "body": content(&long),
+        "prose": content(&long),
     });
 
     let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
@@ -64,7 +64,7 @@ main:
         intro[0].rect
     );
 
-    let body: Vec<_> = regions.iter().filter(|r| r.field == "body").collect();
+    let body: Vec<_> = regions.iter().filter(|r| r.field == "prose").collect();
     assert!(
         body.len() >= 2,
         "page-spanning body surfaces one fragment per page: {body:?}"
@@ -223,7 +223,7 @@ typst:
   plate_file: plate.typ
 main:
   fields:
-    body:
+    prose:
       type: richtext
       description: a body piped through a capture-and-replay package shape
 "#;
@@ -240,7 +240,7 @@ main:
   it
 }
 
-#capture(data.body)
+#capture(data.prose)
 
 #context {
   for c in BUF.get() {
@@ -248,12 +248,12 @@ main:
   }
 }
 "#;
-    let data = serde_json::json!({ "body": content("A body paragraph the package rebuilds.") });
+    let data = serde_json::json!({ "prose": content("A body paragraph the package rebuilds.") });
 
     let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
     let regions = session.regions();
     assert!(
-        regions.iter().any(|r| r.field == "body"),
+        regions.iter().any(|r| r.field == "prose"),
         "a rebuilt body still surfaces a region, with no explicit tagging: {regions:?}"
     );
 }
@@ -339,7 +339,7 @@ card_kinds:
 
 #data.intro
 
-#for card in data.at("$cards", default: ()) {
+#for card in data.cards {
   card.at("note", default: [])
   parbreak()
 }
@@ -458,10 +458,10 @@ card_kinds:
 #set page(width: 612pt, height: 792pt, margin: 72pt)
 #set text(size: 11pt)
 
-#for card in data.at("$cards", default: ()) {
+#for card in data.cards {
   let d = card.at("on", default: none)
   if d != none {
-    display(card.at("$path") + "on", "[day padding:none] [month repr:long] [year]")
+    display(card.path + "on", "[day padding:none] [month repr:long] [year]")
   } else {
     [—]
   }
@@ -692,7 +692,7 @@ typst:
   plate_file: plate.typ
 main:
   fields:
-    body:
+    prose:
       type: richtext
       description: a body that may carry malformed inline markup
 "#;
@@ -701,10 +701,10 @@ main:
 #import "@local/quillmark-helper:0.1.0": data
 #set page(width: 400pt, height: 400pt, margin: 40pt)
 #assert(data.at("n") == -9223372036854775807 - 1)
-#data.body
+#data.prose
 "#;
     let data = serde_json::json!({
-        "body": content("Please <u>sign here"),
+        "prose": content("Please <u>sign here"),
         "n": i64::MIN,
     });
     // Compile success is the assertion.
@@ -776,7 +776,7 @@ typst:
   plate_file: plate.typ
 main:
   fields:
-    body:
+    prose:
       type: richtext
       description: a two-paragraph body
 "#;
@@ -785,16 +785,16 @@ main:
 #set page(width: 612pt, height: 792pt, margin: 72pt)
 #set text(size: 11pt)
 
-#data.body
+#data.prose
 "#;
     let data = serde_json::json!({
-        "body": content("First paragraph, alpha.\n\nSecond paragraph, beta."),
+        "prose": content("First paragraph, alpha.\n\nSecond paragraph, beta."),
     });
     let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
     let body: Vec<_> = session
         .regions()
         .into_iter()
-        .filter(|r| r.field == "body")
+        .filter(|r| r.field == "prose")
         .collect();
     assert_eq!(
         body.len(),
@@ -835,7 +835,7 @@ typst:
   plate_file: plate.typ
 main:
   fields:
-    body:
+    prose:
       type: richtext
       description: one paragraph
 "#;
@@ -844,14 +844,14 @@ main:
 #set page(width: 612pt, height: 792pt, margin: 72pt)
 #set text(size: 11pt)
 
-#data.body
+#data.prose
 "#;
-    let data = serde_json::json!({ "body": content("Alpha beta gamma delta epsilon.") });
+    let data = serde_json::json!({ "prose": content("Alpha beta gamma delta epsilon.") });
     let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
     let body: Vec<_> = session
         .regions()
         .into_iter()
-        .filter(|r| r.field == "body")
+        .filter(|r| r.field == "prose")
         .collect();
     assert_eq!(body.len(), 1, "one paragraph, one region: {body:?}");
     let region = &body[0];
@@ -862,7 +862,7 @@ main:
     let hit = session
         .position_at(region.page, cx, cy, 0.0)
         .expect("a click inside content resolves to a content position");
-    assert_eq!(hit.field, "body");
+    assert_eq!(hit.field, "prose");
     assert!(
         span[0] <= hit.pos && hit.pos <= span[1],
         "pos {} within span {span:?}",
@@ -875,7 +875,7 @@ main:
     );
 
     let caret = session
-        .locate("body", hit.pos)
+        .locate("prose", hit.pos)
         .expect("a content position locates a caret rect");
     assert_eq!(caret.page, region.page);
     assert_eq!(caret.span, Some([hit.pos, hit.pos]));
@@ -894,9 +894,9 @@ main:
     // One past the last character — the caret position while typing — sits at
     // the last glyph, not back at the paragraph's first.
     let text_len = "Alpha beta gamma delta epsilon.".chars().count();
-    let end = session.locate("body", text_len).expect("end-of-text caret");
-    let last = session.locate("body", text_len - 1).expect("last-glyph caret");
-    let first = session.locate("body", 0).expect("first-glyph caret");
+    let end = session.locate("prose", text_len).expect("end-of-text caret");
+    let last = session.locate("prose", text_len - 1).expect("last-glyph caret");
+    let first = session.locate("prose", 0).expect("first-glyph caret");
     assert!(
         end.rect[0] >= last.rect[0] && end.rect[0] > first.rect[0],
         "end caret {:?} is at the last glyph {:?}, not the first {:?}",
@@ -918,7 +918,7 @@ typst:
   plate_file: plate.typ
 main:
   fields:
-    body:
+    prose:
       type: richtext
       description: one paragraph closed by a hard break
 "#;
@@ -927,7 +927,7 @@ main:
 #set page(width: 612pt, height: 792pt, margin: 72pt)
 #set text(size: 11pt)
 
-#data.body
+#data.prose
 "#;
     // Shift+enter at the end of a paragraph: the segment's last content
     // character is the hard break, which lowers to `#linebreak()` and closes no
@@ -942,12 +942,12 @@ main:
     )
     .into_normalized();
     assert_eq!(rt.validate(), Ok(()));
-    let data = serde_json::json!({ "body": quillmark_content::serial::to_canonical_value(&rt) });
+    let data = serde_json::json!({ "prose": quillmark_content::serial::to_canonical_value(&rt) });
     let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
 
-    let first = session.locate("body", 0).expect("first-glyph caret");
-    let last = session.locate("body", 10).expect("last-glyph caret");
-    let end = session.locate("body", 11).expect("past-the-break caret");
+    let first = session.locate("prose", 0).expect("first-glyph caret");
+    let last = session.locate("prose", 10).expect("last-glyph caret");
+    let end = session.locate("prose", 11).expect("past-the-break caret");
     assert!(
         end.rect[0] >= last.rect[0] && end.rect[0] > first.rect[0],
         "the caret past the break is at the last glyph {:?}, not the paragraph's \
@@ -970,7 +970,7 @@ typst:
   plate_file: plate.typ
 main:
   fields:
-    body:
+    prose:
       type: richtext
       description: a paragraph plus a multi-line code fence
 "#;
@@ -979,16 +979,16 @@ main:
 #set page(width: 612pt, height: 792pt, margin: 72pt)
 #set text(size: 11pt)
 
-#data.body
+#data.prose
 "#;
     let data = serde_json::json!({
-        "body": content("Intro prose here.\n\n```\nfirst code line\nsecond code line\nthird code line\n```"),
+        "prose": content("Intro prose here.\n\n```\nfirst code line\nsecond code line\nthird code line\n```"),
     });
     let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
     let body: Vec<_> = session
         .regions()
         .into_iter()
-        .filter(|r| r.field == "body")
+        .filter(|r| r.field == "prose")
         .collect();
     assert_eq!(
         body.len(),
@@ -1005,7 +1005,7 @@ main:
     };
     let top = hit_at(code.rect[3] - 3.0).expect("a click on the first fence line resolves");
     let bottom = hit_at(code.rect[1] + 3.0).expect("a click on the last fence line resolves");
-    assert_eq!(top.field, "body");
+    assert_eq!(top.field, "prose");
     assert_eq!(
         top.pos, bottom.pos,
         "different fence lines both degrade to the one code-segment start: {top:?} {bottom:?}"
