@@ -1,8 +1,6 @@
 use crate::errors::{CliError, Result};
 use clap::Parser;
-use quillmark::Quill;
-use quillmark_core::quill::{CardSchema, FieldSchema};
-use quillmark_core::error::{Diagnostic, Severity};
+use quillmark::{CardSchema, Diagnostic, FieldSchema, Quill, Severity};
 use indexmap::IndexMap;
 use std::path::{Path, PathBuf};
 
