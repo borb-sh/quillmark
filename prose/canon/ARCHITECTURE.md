@@ -59,9 +59,12 @@ backends lower the content.
 
 ### `quillmark` (orchestration)
 
-The `Quillmark` engine plus the `quill_from_path` loader; re-exports core's
-`Quill`. Filesystem walking lives here, so core stays filesystem-agnostic:
-in-memory loading is `Quill::from_tree` in core.
+The `Quillmark` engine plus the `quill_from_path` loader. It re-exports the
+core types its own verbs take and return, so `quillmark-cli` compiles against
+it alone; the python and wasm bindings sit lower, on core's wire and addressing
+seam, and depend on `quillmark-core` directly. Filesystem walking lives here,
+so core stays filesystem-agnostic: in-memory loading is `Quill::from_tree` in
+core.
 
 ### `backends/quillmark-typst`
 

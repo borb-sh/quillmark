@@ -28,9 +28,11 @@
 //! writer.set("title", "Hello").unwrap();
 //! ```
 
-// Every documented flow is spellable through this facade alone, with no direct
-// `quillmark-core` dependency: a verb's return type belongs here whenever the
-// verb does. `tests/facade_surface.rs` is the gate.
+// A verb's return type belongs here whenever the verb does. `quillmark-cli`
+// compiles against this crate alone, so a re-export dropped here breaks its
+// build; `tests/facade_surface.rs` covers the lanes the CLI does not reach.
+// The python and wasm bindings sit lower, on core's wire and addressing seam,
+// and name `quillmark-core` directly.
 pub use quillmark_core::{
     backend::Backend,
     document::{Card, Document, EditError, ImportError, Parsed},

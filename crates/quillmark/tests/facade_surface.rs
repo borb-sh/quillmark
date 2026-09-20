@@ -1,12 +1,12 @@
-//! Compile gate on the `quillmark` re-export list: this file names only
-//! `quillmark::`, and annotates every binding explicitly, so a type dropping
-//! out of `crates/quillmark/src/lib.rs` stops it compiling.
+//! Compile gate on the re-exports `quillmark-cli` does not reach. This file
+//! names only `quillmark::` and annotates every binding explicitly, so a type
+//! dropping out of `crates/quillmark/src/lib.rs` stops it compiling.
 
 use std::collections::HashMap;
 
 use quillmark::{
-    BoundParseError, CardReader, Delta, Document, EditError, FileTreeNode, ImportError, Normalized,
-    Parsed, Quill, QuillReference, QuillValue, TypedReader, TypedWriter,
+    CardReader, Delta, Document, EditError, FileTreeNode, ImportError, Normalized, Parsed, Quill,
+    QuillReference, QuillValue, TypedReader, TypedWriter,
 };
 
 const QUILL: &str = r#"
@@ -18,8 +18,6 @@ quill:
 
 main:
   fields:
-    title:
-      type: string
     subject:
       type: richtext
       inline: true
@@ -43,43 +41,7 @@ fn quill() -> Quill {
 }
 
 #[test]
-fn authoring_spells_through_the_facade() {
-    let quill = quill();
-    let reference: QuillReference = "facade_surface".parse().expect("reference parses");
-    let mut doc = Document::new(reference);
-
-    let mut writer: TypedWriter = quill.writer(&mut doc);
-    let written: Result<(), EditError> = writer.set("title", "Hello");
-    written.expect("title is a declared string field");
-
-    let title: Option<&QuillValue> = doc.main().payload().get("title");
-    assert_eq!(title.and_then(|v| v.as_str()), Some("Hello"));
-}
-
-#[test]
-fn bound_parse_spells_through_the_facade() {
-    let quill = quill();
-    let md = "~~~\n$quill: facade_surface\n$kind: main\ntitle: Hello\n~~~\n\n# Body\n";
-
-    let parsed: Result<Parsed, BoundParseError> = quill.parse(md);
-    let parsed = parsed.expect("document matches the quill");
-    assert_eq!(
-        parsed
-            .document
-            .main()
-            .payload()
-            .get("title")
-            .and_then(|v| v.as_str()),
-        Some("Hello")
-    );
-
-    let elsewhere = md.replace("facade_surface", "other_quill");
-    let mismatch: Result<Parsed, BoundParseError> = quill.parse(&elsewhere);
-    assert!(mismatch.is_err(), "a $quill naming another quill fails");
-}
-
-#[test]
-fn typed_read_spells_through_the_facade() {
+fn typed_write_and_read_spell_through_the_facade() {
     let quill = quill();
     let reference: QuillReference = "facade_surface".parse().expect("reference parses");
     let mut doc = Document::new(reference);
@@ -109,7 +71,8 @@ fn typed_read_spells_through_the_facade() {
 fn content_lane_spells_through_the_facade() {
     let quill = quill();
     let md = "~~~\n$quill: facade_surface\n$kind: main\nsubject: Hello **world**\n~~~\n\n# Body\n";
-    let mut doc = quill.parse(md).expect("document matches the quill").document;
+    let parsed: Parsed = quill.parse(md).expect("document matches the quill");
+    let mut doc = parsed.document;
 
     let body: &Normalized = doc.main().body();
     assert_eq!(body.text, "Body", "the body rests as content, not as markdown");
