@@ -2,6 +2,8 @@
 
 A Quill is a format bundle that defines how your Markdown content is rendered. This tutorial walks from an empty directory to a rendered PDF.
 
+It builds a `typst` quill, which draws a page from a plate you write. If you already hold a PDF form to fill, the `acroform` backend fills that form rather than redrawing it: start at the [PDF Form Backend](acroform-backend.md), where stripping the form into a background and a field spec is the author's own work.
+
 ## 1. Create the directory
 
 Start with this layout:
@@ -102,7 +104,33 @@ quillmark render ./my-quill document.md
 
 For command options and output controls, see the [CLI Reference](../cli/reference.md).
 
-## 6. Next steps
+## 6. A second plate
+
+The plate in §3 reads two fields. The next one has a date in it, a field the author may leave unanswered, a repeating part, and layout of its own; the [Typst Backend](typst-backend.md) guide documents each of those on its own. `status_report` is them together, short enough to copy whole.
+
+Its `Quill.yaml`:
+
+```yaml
+--8<-- "crates/fixtures/resources/quills/status_report/0.1.0/Quill.yaml"
+```
+
+Its `plate.typ`:
+
+```typst
+--8<-- "crates/fixtures/resources/quills/status_report/0.1.0/plate.typ"
+```
+
+Five constructs to lift from it:
+
+- **A date that prints.** `display("issued", ..)` takes the field's *address* and returns content, so the printed date stays the click-to-edit target for that field. `data.issued` is the `datetime` behind it: reach for that to compare, to take components, or to hand a package a date it formats itself. See [Dates](typst-backend.md#dates).
+- **An enum left unanswered.** The blank is a value no `values:` list holds, so `data.state != ""` guards it and an `else` on a branch over the declared values would render a state nobody picked. See [the blank](quill-yaml-reference.md#the-blank-values-is-for-choices-not-for-the-absence-of-one).
+- **A card loop.** `$kind` is document-defined, so `card.at("$kind", default: none)` reads it and every other kind falls through. A field declared on the kind arrives filled, which is why `card.title` is a plain read. See [Body, arrays, and cards](typst-backend.md#body-arrays-and-cards).
+- **A claim on composed ink.** The banner's glyphs are drawn by the plate rather than by the field, so `field-region("state")` is what makes a click on them resolve to `state`. A card's scalar reads are the same case from the other side — one call site shared by every iteration — and `card.at("$path") + "due"` is the address that tells the iterations apart. See [Tying Composed Content to a Field](typst-backend.md#tying-composed-content-to-a-field) and [Which Reads Get Regions](typst-backend.md#which-reads-get-regions).
+- **`#set`.** Page and text defaults are ordinary Typst. See [Typesetting](typst-backend.md#typesetting).
+
+Both listings are included from `crates/fixtures/resources/quills/status_report/0.1.0/`, which the repository's quiver sweep renders.
+
+## 7. Next steps
 
 - [Quill.yaml Reference](quill-yaml-reference.md): full field types, UI hints, `card_kinds`, `typst` section
 - [Typst Backend](typst-backend.md): data access patterns, `$cards` iteration, helper package
