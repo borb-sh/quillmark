@@ -107,22 +107,22 @@ The ceiling is deliberate and enforced at load rather than discovered at render:
 
 A variant cell carries any type a card field may — prose, dates and containers included. Every surface reaches it through the same dispatcher a card field uses — coercion through `conform_value`, validation through `validate_value`, the render floor through `resolve_value`, lowering through the schema-node walk ([PLATE_DATA.md](PLATE_DATA.md)), the content read through `get_content_at` — so it behaves as a card-level field of that type does. What a cell does not carry is `ui.group` (it inherits the discriminant's) or `variants:` of its own.
 
-**Why `variants:` alone stays card-level.** Every other container's shape is a
-function of the schema; a variant's is a function of the schema *and* the
-discriminant. The transform schema projects the union of the worlds — at schema
-time there is no live world — and the wire carries whichever one the document
-selects. Four things hold because that gap is exactly one level deep:
+**Why `variants:` stays card-level.** A variant's shape is a function of the
+schema *and* the discriminant: the transform schema projects the union of the
+worlds — at schema time there is no live world — and the wire carries whichever
+one the document selects. `variants:` inside another variant spends the two
+properties a single level buys:
 
-- `variant_field` resolves a name by a flat scan across the worlds, which is
-  what lets `quill::variant_field_collision` guarantee one name is one cell.
-- A form binds once at open, so a cell is *unconditionally addressable* while
-  only *conditionally live*.
 - A plate branches once over `values ∪ blank` and needs no guard inside that
   branch.
 - `validation::out_of_variant` names one discriminant rather than a chain.
 
-Nesting spends all four, so the restriction is a rule about `variants:` rather
-than about depth.
+Below card level it is instead the three walks carrying the variant dispatch at
+card level only: seeding, the blueprint, and the stranded-value scan behind
+`validation::out_of_variant`. A `variants:` inside an `object`'s `properties:`
+or an `array`'s `items:` would load, then seed its `example:` as a bare
+discriminant rather than as the container, blueprint without its worlds, and
+never warn a stranded cell. Both halves are `quill::variant_placement`.
 
 Two limits follow from the container shape and are accepted, not worked around:
 [`resolve()`](#the-resolved-value-view-resolve) reports **one** rung for the whole

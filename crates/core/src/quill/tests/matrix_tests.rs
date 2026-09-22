@@ -289,6 +289,77 @@ fn a_matrix_seeds_empty() {
     );
 }
 
+/// A matrix nests. The two walks it overrides dispatch on the node rather than
+/// on the level, so a matrix under an `object`'s `properties:` carries the same
+/// empty seed and the same sparse blueprint cell a card-level one does, and the
+/// wire still closes over the members nobody ticked.
+#[test]
+fn a_nested_matrix_keeps_the_walks_its_card_level_form_has() {
+    let yaml = r#"
+quill:
+  name: nested_matrix_probe
+  version: "0.1.0"
+  backend: typst
+  description: Nested matrix probe
+
+typst:
+  plate_file: plate.typ
+
+main:
+  fields:
+    section:
+      type: object
+      properties:
+        quals:
+          type: matrix
+          members:
+            sq_cc_candidate: Sq/CC Candidate
+            flight_cc: Flight CC
+          properties:
+            detail:
+              type: plaintext
+              inline: true
+              default: ""
+              example: Earned 2024
+"#;
+    let quill = quill_from_yaml(yaml);
+
+    let bp = quill.config().blueprint();
+    assert!(
+        bp.contains("  quals: {} # matrix<sq_cc_candidate | flight_cc>\n"),
+        "{bp}"
+    );
+    assert!(
+        quill.seed_document().main().payload().get("section").is_none(),
+        "a seeded document ticks nothing at depth either"
+    );
+
+    let document = Document::parse(
+        "~~~\n$quill: nested_matrix_probe@0.1.0\n$kind: main\n\
+         section:\n  quals:\n    flight_cc: true\n~~~\n",
+    )
+    .expect("document parses")
+    .document;
+    let wire = quill
+        .config()
+        .compile_data(&document)
+        .expect("compile_data succeeds")["section"]["quals"]
+        .clone();
+
+    assert_eq!(wire["flight_cc"]["held"], json!(true));
+    assert_eq!(
+        wire["flight_cc"]["title"],
+        json!("Flight CC"),
+        "the roster is written onto the wire at depth"
+    );
+    assert_eq!(wire["sq_cc_candidate"]["held"], json!(false));
+    assert_eq!(
+        wire["sq_cc_candidate"]["detail"]["text"],
+        json!(""),
+        "an unheld member's columns render at their blanks at depth"
+    );
+}
+
 /// A member's cells are ordinary addresses: a region on the Typst backend, a
 /// widget on acroform. The transform schema is where both resolve one.
 #[test]
