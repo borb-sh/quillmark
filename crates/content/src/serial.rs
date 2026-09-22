@@ -312,7 +312,7 @@ pub fn line_kind_from_value(v: &Value) -> Result<LineKind, ParseError> {
                 .map(crate::import::sanitize_lang)
                 .filter(|l| !l.is_empty()),
         }),
-        // No encoder writes `island`; the decoder keeps reading it because the
+        // No encoder writes `island`; the decoder reads it because the
         // content encoding is not migratable — a `richtext` field and a `$seed`
         // overlay rest inside opaque payload values carrying no schema tag, so
         // no hop reaches them (DOCUMENT_STORAGE.md § "Adding a Schema Version").
@@ -1657,13 +1657,13 @@ mod tests {
         assert!(from_authored_value(&v).is_ok(), "inline island refused");
     }
 
-    /// `island` named the line a block island sat on; the line is a `Para` and
+    /// `island` names the line a block island sits on, which is a `Para`, and
     /// no encoder writes the name. It reads forever: the content encoding
     /// carries no schema tag of its own, so a `richtext` field or a `$seed`
-    /// overlay in the old spelling is reachable by no migration hop. The row
-    /// re-encodes as `para`, which is the byte movement the storage bump names.
+    /// overlay spelling it is reachable by no migration hop. The row re-encodes
+    /// as `para`, which is the byte movement the storage bump names.
     #[test]
-    fn the_retired_island_line_kind_reads_as_the_para_it_projected() {
+    fn a_stored_island_line_kind_reads_as_the_para_it_projects() {
         assert_eq!(
             line_kind_from_value(&serde_json::json!({"kind": "island"})).unwrap(),
             LineKind::Para

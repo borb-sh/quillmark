@@ -655,7 +655,6 @@ fn the_blueprint_comments_out_every_world_it_does_not_show() {
         .clone();
     assert_eq!(classification, json!({ "value": "" }), "{bp}");
 
-    // And the block survives re-emission byte for byte.
     assert_eq!(parsed.to_markdown(), bp);
 }
 

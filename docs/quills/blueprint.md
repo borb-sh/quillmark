@@ -39,12 +39,12 @@ Seeding materializes a real `Document` (committed, structured content) rather th
 
 ## Accessors
 
-| | Blueprint | Seed |
-|---|---|---|
-| Python | `quill.blueprint` | `quill.seed_document()` |
-| JavaScript | `quill.blueprint` | `quill.seedDocument()` |
-| Rust | `QuillConfig::blueprint()` | `Quill::seed_document()` |
-| CLI | `quillmark blueprint <quill>` | `quillmark render <quill>` (no input file) |
+| | Blueprint | Seed | Empty |
+|---|---|---|---|
+| Python | `quill.blueprint` | `quill.seed_document()` | `quill.empty_document()` |
+| JavaScript | `quill.blueprint` | `quill.seedDocument()` | `quill.emptyDocument()` |
+| Rust | `QuillConfig::blueprint()` | `Quill::seed_document()` | `Quill::empty_document()` |
+| CLI | `quillmark blueprint <quill>` | `quillmark render <quill>` (no input file) | `quillmark validate <quill>` renders all three |
 
 ## The empty-document contract
 

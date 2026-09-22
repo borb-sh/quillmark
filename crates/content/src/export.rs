@@ -353,10 +353,18 @@ fn emit_code(ctx: &Ctx, range: std::ops::Range<usize>, lang: Option<&str>, out: 
 /// Emit one leaf block: the lines `range.start` (a block start) plus any
 /// continuation lines. A paragraph block joins its lines with a markdown hard
 /// break (`\` + newline); a code block renders one fence; a heading is a single
-/// line. A block island's line is a `Para` holding its slot, and the slot's
-/// markup is the block: [`render_inline`] writes it, and `normalize` leaves the
-/// line no continuation to join to it.
+/// line. A block island's line is a `Para` whose slot's markup *is* the block,
+/// so the island writes the whole line and `normalize` leaves it no
+/// continuation to join to it.
 fn emit_leaf_block(ctx: &Ctx, range: std::ops::Range<usize>, out: &mut String) {
+    // Ahead of the kind, which cannot tell this line from prose. Markdown has
+    // no syntax wrapping a block in an inline mark: `[<pipe table>](u)`
+    // re-imports as prose with the island gone, so a mark reaching over the
+    // slot projects as nothing.
+    if let Some(isl) = block_island(ctx, range.start) {
+        emit_island(isl, out);
+        return;
+    }
     let first = &ctx.rt.lines[range.start];
     match &first.kind {
         LineKind::Code { lang } => emit_code(ctx, range, lang.as_deref(), out),
@@ -393,6 +401,13 @@ fn emit_leaf_block(ctx: &Ctx, range: std::ops::Range<usize>, out: &mut String) {
 fn seg_str<'a>(ctx: &'a Ctx, i: usize) -> &'a str {
     let seg = &ctx.segments[i];
     &ctx.rt.text[seg.byte_start..seg.byte_end]
+}
+
+/// [`Content::block_island_at`] for line `i`, off the segment index this pass
+/// already carries.
+fn block_island<'a>(ctx: &'a Ctx, i: usize) -> Option<&'a Island> {
+    let isl = ctx.rt.islands.get(ctx.segments[i].slots_before);
+    isl.filter(|_| crate::model::is_block_island_line(seg_str(ctx, i), isl))
 }
 
 fn emit_island(isl: &Island, out: &mut String) {
@@ -1604,6 +1619,51 @@ mod tests {
         assert_eq!(rt.validate(), Ok(()), "table island invalid");
         let md = to_markdown(&rt);
         assert_eq!(&from_markdown(&md).unwrap(), &rt, "cell edges lost: {md:?}");
+    }
+
+    /// The island writes its line whole, so a mark reaching over its slot
+    /// projects as nothing: `[<pipe table>](u)` re-imports as prose with the
+    /// island gone, taking the table out of the document. Landing a table
+    /// inside a link run is how a host reaches the shape — the `\n` that opens
+    /// the island's line extends the mark over its slot.
+    #[test]
+    fn a_mark_reaching_over_a_block_islands_slot_does_not_wrap_its_markup() {
+        let mut rt = from_markdown("[abc](u)").unwrap();
+        rt.apply_field_change(&crate::ops::ChangeBundle {
+            delta: crate::delta::Delta {
+                ops: vec![
+                    crate::delta::Op::Retain(1),
+                    crate::delta::Op::Insert("\n\n".into()),
+                    crate::delta::Op::Retain(2),
+                ],
+            },
+            island_ops: vec![crate::ops::IslandOp::Insert {
+                at: 2,
+                island: Island::new("isl-t".into(), IslandType::Table).with_props(
+                    serde_json::json!({
+                        "aligns": ["none"],
+                        "header": [{"marks": [], "text": "h"}],
+                        "rows": [[{"marks": [], "text": "c"}]],
+                    }),
+                ),
+            }],
+            ..Default::default()
+        })
+        .expect("the slot is alone on its line");
+        assert_eq!(rt.text, format!("a\n{ISLAND_SLOT}\nbc"));
+        assert_eq!(
+            rt.marks,
+            vec![Mark::new(0, 6, MarkKind::Link { url: "u".into() })],
+            "the inserted line extends the link over the slot"
+        );
+
+        let md = to_markdown(&rt);
+        assert_eq!(md, "[a](u)\n\n| h |\n| --- |\n| c |\n\n[bc](u)");
+        assert_eq!(
+            from_markdown(&md).unwrap().islands.len(),
+            1,
+            "the table left the document: {md:?}"
+        );
     }
 
     #[test]
