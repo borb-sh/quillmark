@@ -160,7 +160,7 @@ pub fn from_canonical_value(v: &Value) -> Result<Normalized, ParseError> {
 /// encoder writes them: an island's `loss` key dropped, a line's `island` kind
 /// spelled `para`. A caller comparing stored bytes against
 /// [`to_canonical_value`] compares this instead, so an untagged content value
-/// written before the retirement still reads as content.
+/// in a retired spelling reads as content.
 pub fn respell_retired(v: &Value) -> Value {
     let mut v = v.clone();
     if let Some(islands) = v.get_mut("islands").and_then(Value::as_array_mut) {

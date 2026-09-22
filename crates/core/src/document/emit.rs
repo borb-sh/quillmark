@@ -265,10 +265,9 @@ fn emit_payload_items(out: &mut String, payload: &Payload) {
 /// ([`respell_retired`](quillmark_content::serial::respell_retired)), to
 /// serialize back to a **byte-identical** canonical content, so a user object
 /// that merely resembles one stays structural. The comparison is on the
-/// serialized *strings*: under
-/// `serde_json/preserve_order`, `Value`'s `PartialEq` is order-independent, so a
-/// `Value` guard would also project a content-canonical object whose keys are in
-/// non-canonical order.
+/// serialized *strings*: under `serde_json/preserve_order`, `Value`'s
+/// `PartialEq` is order-independent, so a `Value` guard would also project a
+/// content-canonical object whose keys are in non-canonical order.
 pub(super) fn project_content_field(value: &JsonValue) -> Option<String> {
     if !value.is_object() {
         return None;

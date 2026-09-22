@@ -77,8 +77,9 @@ Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).
   with no input file renders the seed, the fullest of the three: a plate that
   reads a blank badly passed both. A quill whose plate does not compile now
   exits `1` where it exited `0`, and a backend that does not resolve is
-  `cli::backend_unresolved`; `validate --no-render` is the configuration read on
-  its own. Closes #1844.
+  `cli::backend_unresolved` followed by the engine's own diagnostic. A render's
+  warnings join the `-v` list, and `validate --no-render` is the configuration
+  read on its own. Closes #1844.
 
 ### The content model
 
@@ -146,13 +147,13 @@ Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).
   `matrix<a | b | c>` off one flat key space, so the partition reached the
   visual editor and nowhere else, buying one shared `properties` map for a
   schema concept, its load rules and a reserved key. `members:` is now
-  `{id: Title}` directly, `MatrixGroup` and the TypeScript `QuillMatrixGroup`
-  are deleted, and `FieldType::Matrix` carries an `IndexMap<String, String>`
-  read through the new `FieldType::matrix_roster`, which replaces
-  `matrix_members`. The projection stops writing `group` onto every member,
-  which returns `group` to the column names a quill may declare, and
-  `quill::duplicate_matrix_member` retires: the roster is a mapping, so it has
-  one slot per id exactly as the stored value does and a duplicate is
+  `{id: Title}` directly, `MatrixGroup`, `MATRIX_GROUP_KEY` and the TypeScript
+  `QuillMatrixGroup` are deleted, and `FieldType::Matrix` carries an
+  `IndexMap<String, String>` read through the new `FieldType::matrix_roster`,
+  which replaces `matrix_members`. The projection stops writing `group` onto
+  every member, which returns `group` to the column names a quill may declare,
+  and `quill::duplicate_matrix_member` retires: the roster is a mapping, so it
+  has one slot per id exactly as the stored value does and a duplicate is
   unspellable on both sides. Closes #1851.
 
 ### The blueprint
