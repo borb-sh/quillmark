@@ -286,6 +286,11 @@ The container line carries the `enum<…>` annotation and `value` carries none:
 on `value` rather than the container, since `!must_fill` is rejected on a
 mapping.
 
+A world a typed dictionary holds emits the same block at the dictionary's
+indent: the worlds seat themselves in whichever container holds the
+discriminant, so the cells a reader uncomments are the cells that container
+takes.
+
 This is the one place the `unauthored` cell set is **value-dependent**: which
 cells the schema-side predicate addresses follows from the discriminant a
 document authored, so the blueprint and that document speak about the same cells

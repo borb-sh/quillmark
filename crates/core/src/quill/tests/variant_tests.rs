@@ -341,12 +341,84 @@ fn a_name_two_worlds_declare_identically_loads() {
     assert_eq!(data["classification"]["controlled_by"], json!("SAF/AA"));
 }
 
+/// A world may open where the position's own live shape is the schema's. A
+/// typed dictionary qualifies at any depth; an element, a column and a cell do
+/// not, and an object inherits their ban rather than laundering it.
 #[test]
-fn variants_below_card_level_is_a_load_error() {
-    let err = load_error(
-        "    o:\n      type: object\n      properties:\n        c:\n          type: enum\n          values: [A]\n          variants:\n            A:\n              x: { type: string }\n",
-    );
-    assert!(err.contains("quill::variant_placement"));
+fn a_world_opens_in_a_dictionary_and_nowhere_else_below_a_card() {
+    QuillConfig::from_yaml(&format!(
+        "quill:\n  name: ok\n  version: \"0.1.0\"\n  backend: typst\n  description: ok\n\ntypst:\n  plate_file: plate.typ\n\nmain:\n  fields:\n{}",
+        r#"    o:
+      type: object
+      properties:
+        c:
+          type: enum
+          values: [A]
+          variants:
+            A:
+              x: { type: string }
+"#
+    ))
+    .expect("a dictionary's property opens a world");
+
+    // Each ban reaches through an object, so the position a message names is the
+    // one that carries it rather than the dictionary that laundered it.
+    for (position, fields) in [
+        (
+            "an array element",
+            r#"    a:
+      type: array
+      items:
+        type: object
+        properties:
+          c:
+            type: enum
+            values: [A]
+            variants:
+              A:
+                x: { type: string }
+"#,
+        ),
+        (
+            "a matrix column",
+            r#"    m:
+      type: matrix
+      members:
+        one: One
+      properties:
+        c:
+          type: enum
+          values: [A]
+          variants:
+            A:
+              x: { type: string }
+"#,
+        ),
+        (
+            "another variant's field",
+            r#"    c:
+      type: enum
+      values: [P]
+      variants:
+        P:
+          o:
+            type: object
+            properties:
+              d:
+                type: enum
+                values: [A]
+                variants:
+                  A:
+                    x: { type: string }
+"#,
+        ),
+    ] {
+        let err = load_error(fields);
+        assert!(
+            err.contains("quill::variant_placement") && err.contains(position),
+            "{position}: {err}"
+        );
+    }
 }
 
 #[test]
@@ -873,3 +945,193 @@ fn a_scalar_schema_literal_stays_legal_on_a_variant_bearing_enum() {
         .expect("a blank scalar `default:` loads and compiles");
     assert_eq!(plate["classification"]["value"], json!(""));
 }
+
+/// A world inside a typed dictionary. The dictionary's own shape is the
+/// schema's, so the gap between declared and live shape stays exactly one level
+/// deep — it sits one step further down the address, which is the whole of what
+/// this position changes. Each test below pins one surface to that reading.
+const NESTED_YAML: &str = r#"
+quill:
+  name: nested_probe
+  version: "0.1.0"
+  backend: typst
+  description: A world inside a typed dictionary
+
+typst:
+  plate_file: plate.typ
+
+main:
+  fields:
+    header:
+      type: object
+      description: Banner block.
+      properties:
+        office: { type: string, default: "" }
+        classification:
+          type: enum
+          values: [UNCLASSIFIED, CUI]
+          default: ""
+          description: Marking shown in the banner.
+          variants:
+            CUI:
+              controlled_by: { type: string }
+              category: { type: string, default: "" }
+"#;
+
+fn nested_doc(fields: &str) -> Document {
+    let markdown = format!("~~~\n$quill: nested_probe@0.1.0\n$kind: main\n{fields}~~~\n");
+    Document::parse(&markdown).expect("document parses").document
+}
+
+fn nested_header(document: &Document) -> serde_json::Value {
+    QuillConfig::from_yaml(NESTED_YAML)
+        .expect("loads")
+        .compile_data(document)
+        .expect("compile_data succeeds")["header"]
+        .clone()
+}
+
+fn nested_codes(document: &Document) -> Vec<(String, String)> {
+    quill_from_yaml(NESTED_YAML)
+        .validate(document)
+        .into_iter()
+        .map(|d| (d.code.unwrap_or_default(), d.path.unwrap_or_default()))
+        .collect()
+}
+
+/// The render floor's three answers, one address down: the blank container in an
+/// empty document, the live world complete, and a dormant cell off the wire.
+#[test]
+fn a_nested_world_reaches_the_plate_as_the_closed_shape() {
+    assert_eq!(
+        nested_header(&nested_doc("")),
+        json!({ "office": "", "classification": { "value": "" } })
+    );
+    assert_eq!(
+        nested_header(&nested_doc("header:\n  classification:\n    value: CUI\n")),
+        json!({
+            "office": "",
+            "classification": { "value": "CUI", "controlled_by": "", "category": "" }
+        })
+    );
+    assert_eq!(
+        nested_header(&nested_doc(
+            "header:\n  classification:\n    value: UNCLASSIFIED\n    controlled_by: SAF/AA\n"
+        )),
+        json!({ "office": "", "classification": { "value": "UNCLASSIFIED" } })
+    );
+}
+
+/// Both conditional diagnostics anchor through the dictionary. The strand is the
+/// one that has to *find* the container at all: the walk reaches it by descending
+/// an object's declared properties rather than by scanning card fields.
+#[test]
+fn a_nested_worlds_diagnostics_name_the_path_through_the_dictionary() {
+    let obliged = nested_codes(&nested_doc("header:\n  classification:\n    value: CUI\n"));
+    assert!(
+        obliged.contains(&(
+            "validation::must_fill".to_string(),
+            "main.header.classification.controlled_by".to_string()
+        )),
+        "{obliged:?}"
+    );
+
+    let document = nested_doc(
+        "header:\n  classification:\n    value: UNCLASSIFIED\n    controlled_by: SAF/AA\n",
+    );
+    let stranded = quill_from_yaml(NESTED_YAML)
+        .validate(&document)
+        .into_iter()
+        .find(|d| d.code.as_deref() == Some("validation::out_of_variant"))
+        .expect("out_of_variant warning");
+    assert_eq!(stranded.severity, crate::error::Severity::Warning);
+    assert_eq!(
+        stranded.path.as_deref(),
+        Some("main.header.classification.controlled_by")
+    );
+    assert_eq!(stranded.args["variant"], json!("CUI"));
+
+    // Kept in the document, as it is at card level: only the wire is strict.
+    assert_eq!(
+        document.main().payload().get("header").unwrap().as_json()["classification"]
+            ["controlled_by"],
+        json!("SAF/AA")
+    );
+}
+
+/// The worlds seat themselves in whichever container holds the discriminant, so
+/// a dormant block lands at the dictionary's indent and what a reader uncomments
+/// is the line the live world would show.
+#[test]
+fn the_blueprint_seats_a_nested_worlds_cells_in_the_dictionary() {
+    let bp = QuillConfig::from_yaml(NESTED_YAML).expect("loads").blueprint();
+    assert!(
+        bp.contains(concat!(
+            "  classification: # enum<UNCLASSIFIED | CUI>\n",
+            "    value: \"\"\n",
+            "    # when CUI:\n",
+            "    # controlled_by: !must_fill # string\n",
+            "    # category: \"\" # string\n",
+        )),
+        "{bp}"
+    );
+
+    let parsed = Document::parse(&bp).expect("blueprint round-trips").document;
+    assert_eq!(
+        parsed.main().payload().get("header").unwrap().as_json()["classification"],
+        json!({ "value": "" }),
+        "{bp}"
+    );
+    assert_eq!(parsed.to_markdown(), bp);
+
+    // A live world stamps its marker at the path the obligation predicate
+    // addresses, which is the nested one.
+    let yaml = NESTED_YAML.replace("          default: \"\"\n", "          default: CUI\n");
+    let live = QuillConfig::from_yaml(&yaml).expect("loads").blueprint();
+    assert!(live.contains("    controlled_by: !must_fill # string\n"), "{live}");
+    let document = Document::parse(&live).expect("parses").document;
+    let warned: Vec<String> = quill_from_yaml(&yaml)
+        .validate(&document)
+        .into_iter()
+        .filter(|d| d.code.as_deref() == Some("validation::must_fill"))
+        .filter_map(|d| d.path)
+        .collect();
+    assert_eq!(warned, ["main.header.classification.controlled_by"], "{live}");
+}
+
+/// The discriminant resolves before the field set is walked at this position
+/// too, so a seeded cell lands under the member the seeded card renders.
+#[test]
+fn seeding_reaches_a_world_inside_a_dictionary() {
+    let yaml = NESTED_YAML
+        .replace("          default: \"\"\n", "          example: CUI\n")
+        .replace(
+            "              controlled_by: { type: string }",
+            "              controlled_by: { type: string, example: SAF/AA }",
+        );
+    let seeded = quill_from_yaml(&yaml).seed_document();
+    let header = seeded
+        .main()
+        .payload()
+        .get("header")
+        .expect("seeded header")
+        .as_json()
+        .clone();
+    assert_eq!(header["classification"]["value"], json!("CUI"));
+    assert_eq!(header["classification"]["controlled_by"], json!("SAF/AA"));
+}
+
+/// A cell stays unconditionally addressable while only conditionally live: the
+/// union crosses as the dictionary's own property, so `header.classification.poc`
+/// resolves against the schema whichever world a document later selects.
+#[test]
+fn a_nested_cell_is_addressable_through_the_dictionary() {
+    let config = QuillConfig::from_yaml(NESTED_YAML).expect("loads");
+    let schema = build_transform_schema(&config);
+    let cls = &schema.as_json()["properties"]["header"]["properties"]["classification"];
+    assert_eq!(cls["type"], json!("object"));
+    assert_eq!(cls["properties"]["value"]["enum"], json!(["", "UNCLASSIFIED", "CUI"]));
+    assert_eq!(cls["properties"]["controlled_by"]["type"], json!("string"));
+    assert_eq!(cls["properties"]["category"]["type"], json!("string"));
+}
+
