@@ -537,9 +537,9 @@ fn type_expression(field: &FieldSchema) -> String {
         FieldType::Matrix { .. } => {
             let ids: Vec<&str> = field
                 .r#type
-                .matrix_members()
-                .into_iter()
-                .map(|(id, _, _)| id)
+                .matrix_roster()
+                .keys()
+                .map(String::as_str)
                 .collect();
             format!("matrix<{}>", ids.join(" | "))
         }

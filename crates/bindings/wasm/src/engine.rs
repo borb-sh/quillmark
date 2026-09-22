@@ -91,10 +91,10 @@ export interface QuillFieldSchema {
      *  `{value: <member>, …that member's fields}`, rather than a bare string. */
     variants?: Record<string, Record<string, QuillFieldSchema>>;
     /** The roster of a `type: "matrix"` field, required there and valid
-     *  nowhere else: the closed vocabulary a document ticks, in display order.
+     *  nowhere else: member id to display title, key order the display order.
      *  Each member is an object of `held` plus the field's `properties`
      *  (the columns), addressed as `<field>.<member id>.held`. */
-    members?: QuillMatrixGroup[];
+    members?: Record<string, string>;
     ui?: QuillFieldUi;
     properties?: Record<string, QuillFieldSchema>;
     items?: QuillFieldSchema;
@@ -105,13 +105,6 @@ export interface QuillFieldSchema {
     /** `true` on a `richtext` or `plaintext` field declared `inline`: the
      *  single-paragraph, container-free, island-free constraint. */
     inline?: boolean;
-}
-
-/** One block of a `type: "matrix"` roster: an optional display heading and the
- * members under it, member id to display title. Key order is display order. */
-export interface QuillMatrixGroup {
-    group?: string;
-    values: Record<string, string>;
 }
 
 /** Schema entry for the main card or a named card kind. */

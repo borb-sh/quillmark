@@ -10,9 +10,8 @@ use crate::document::Document;
 use crate::quill::{blank, build_transform_schema, quill_from_yaml, Quill, QuillConfig};
 use serde_json::json;
 
-/// A five-member roster across three blocks, the last ungrouped, with one
-/// column. `detail` carries a `default:`, so nothing inside a held member is
-/// obliged unless a test says so.
+/// A four-member roster with one column. `detail` carries a `default:`, so
+/// nothing inside a held member is obliged unless a test says so.
 fn quill_yaml() -> &'static str {
     r#"
 quill:
@@ -29,15 +28,10 @@ main:
     qualifications:
       type: matrix
       members:
-        - group: Leadership
-          values:
-            sq_cc_candidate: Sq/CC Candidate
-            flight_cc: Flight CC
-        - group: Operations
-          values:
-            dodin_ops: DODIN Ops
-        - values:
-            cyber_200: Cyber 200
+        sq_cc_candidate: Sq/CC Candidate
+        flight_cc: Flight CC
+        dodin_ops: DODIN Ops
+        cyber_200: Cyber 200
       properties:
         detail: { type: plaintext, inline: true, default: "" }
     title:
@@ -149,12 +143,6 @@ fn the_projection_is_total_and_carries_the_roster() {
         "every member present, in declaration order"
     );
     assert_eq!(wire["flight_cc"]["title"], json!("Flight CC"));
-    assert_eq!(wire["flight_cc"]["group"], json!("Leadership"));
-    assert_eq!(
-        wire["cyber_200"]["group"],
-        json!(""),
-        "an ungrouped member carries the blank heading, so a plate reads it unguarded"
-    );
 }
 
 /// The roster is what a document may name, as an enum's `values:` is.
@@ -203,8 +191,7 @@ fn an_absent_matrix_blank_fills_to_every_member_unheld() {
 fn a_literal_on_a_matrix_is_refused_as_a_namespace_literal() {
     for slot in ["default", "example"] {
         let err = load_error(&format!(
-            "    m:\n      type: matrix\n      {slot}: {{}}\n      \
-             members:\n        - values: {{ a: A }}\n"
+            "    m:\n      type: matrix\n      {slot}: {{}}\n      members: {{ a: A }}\n"
         ));
         assert!(
             err.contains(&format!("quill::{slot}_on_namespace")),
@@ -218,26 +205,23 @@ fn a_literal_on_a_matrix_is_refused_as_a_namespace_literal() {
 #[test]
 fn a_member_id_that_is_not_an_identifier_is_a_load_error() {
     let err = load_error(
-        "    m:\n      type: matrix\n      members:\n        - values: { \"DO / Det CC\": Label }\n",
+        "    m:\n      type: matrix\n      members: { \"DO / Det CC\": Label }\n",
     );
     assert!(err.contains("quill::invalid_matrix_member"), "{err}");
 }
 
-/// A mapping has one slot per key, so a duplicate is unspellable in a document;
-/// the roster is a sequence of blocks and can spell one, which the loader refuses.
+/// The roster is a mapping, so it has one slot per member id exactly as the
+/// stored value does: a duplicate is unspellable on both sides.
 #[test]
 fn a_member_declared_twice_is_a_load_error() {
-    let err = load_error(
-        "    m:\n      type: matrix\n      members:\n        - values: { a: A }\n        \
-         - values: { a: Again }\n",
-    );
-    assert!(err.contains("quill::duplicate_matrix_member"), "{err}");
+    let err = load_error("    m:\n      type: matrix\n      members: { a: A, a: Again }\n");
+    assert!(err.contains("duplicate mapping key"), "{err}");
 }
 
 #[test]
 fn the_synthesized_tick_cannot_be_declared_as_a_column() {
     let err = load_error(
-        "    m:\n      type: matrix\n      members:\n        - values: { a: A }\n      \
+        "    m:\n      type: matrix\n      members: { a: A }\n      \
          properties:\n        held: { type: string }\n",
     );
     assert!(err.contains("quill::matrix_reserved_column"), "{err}");
@@ -250,9 +234,7 @@ fn a_matrix_without_a_roster_is_a_load_error() {
 
 #[test]
 fn a_roster_off_a_matrix_is_a_load_error() {
-    let err = load_error(
-        "    m:\n      type: string\n      members:\n        - values: { a: A }\n",
-    );
+    let err = load_error("    m:\n      type: string\n      members: { a: A }\n");
     assert!(err.contains("quill::field_parse_error"), "{err}");
 }
 
@@ -339,14 +321,14 @@ fn the_blueprint_shows_the_vocabulary_in_the_annotation_and_ticks_nothing() {
     );
 }
 
-/// `held` is the tick the type synthesizes; `title` and `group` are written
-/// onto every member from the roster. A column under any of the three would
-/// load, validate and address, then be overwritten where it matters.
+/// `held` is the tick the type synthesizes; `title` is written onto every
+/// member from the roster. A column under either would load, validate and
+/// address, then be overwritten where it matters.
 #[test]
 fn a_column_may_not_spell_a_key_the_matrix_writes_itself() {
-    for reserved in ["held", "title", "group"] {
+    for reserved in ["held", "title"] {
         let err = load_error(&format!(
-            "    m:\n      type: matrix\n      members:\n        - values: {{ a: A }}\n      \
+            "    m:\n      type: matrix\n      members: {{ a: A }}\n      \
              properties:\n        {reserved}: {{ type: string }}\n"
         ));
         assert!(

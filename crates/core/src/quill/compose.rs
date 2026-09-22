@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use super::resolved::FieldSource;
 use super::{
     seed, CardSchema, CoercionError, FieldSchema, FieldType, Leniency, Quill, QuillConfig,
-    MATRIX_GROUP_KEY, MATRIX_HELD_KEY, MATRIX_TITLE_KEY, VARIANT_DISCRIMINANT_KEY,
+    MATRIX_HELD_KEY, MATRIX_TITLE_KEY, VARIANT_DISCRIMINANT_KEY,
 };
 use crate::normalize::{normalize_document, normalize_field_name};
 use crate::quill::blank;
@@ -571,22 +571,22 @@ fn is_held(member: &FieldSchema, stored: &serde_json::Value) -> bool {
 /// Write a matrix's roster onto the composed members, and close the wire over
 /// the unheld ones.
 ///
-/// `title` and `group` are the projection's, not the document's: a matrix
-/// carries them on every member whatever the document holds, so a plate reads a
-/// label it never has to look up. An unheld member's columns render at their
-/// blanks for the reason a variant's unselected world does not render at all —
-/// the wire carries the live world only, so a plate reads `held` and its columns
-/// without a guard and never prints a stranded answer. What the document retains
-/// under an unticked member is a fact about the stored form alone.
+/// `title` is the projection's, not the document's: a matrix carries it on every
+/// member whatever the document holds, so a plate reads a label it never has to
+/// look up. An unheld member's columns render at their blanks for the reason a
+/// variant's unselected world does not render at all — the wire carries the live
+/// world only, so a plate reads `held` and its columns without a guard and never
+/// prints a stranded answer. What the document retains under an unticked member
+/// is a fact about the stored form alone.
 ///
 /// A no-op for every other type.
 fn close_matrix_wire(field: &FieldSchema, out: &mut serde_json::Map<String, serde_json::Value>) {
-    let roster = field.r#type.matrix_members();
+    let roster = field.r#type.matrix_roster();
     if roster.is_empty() {
         return;
     }
     let columns = field.matrix_columns();
-    for (id, title, group) in roster {
+    for (id, title) in roster {
         let Some(serde_json::Value::Object(member)) = out.get_mut(id) else {
             continue;
         };
@@ -601,14 +601,7 @@ fn close_matrix_wire(field: &FieldSchema, out: &mut serde_json::Map<String, serd
         }
         member.insert(
             MATRIX_TITLE_KEY.to_string(),
-            serde_json::Value::String(title.to_string()),
-        );
-        member.insert(
-            MATRIX_GROUP_KEY.to_string(),
-            match group {
-                Some(group) => serde_json::Value::String(group.to_string()),
-                None => serde_json::Value::String(String::new()),
-            },
+            serde_json::Value::String(title.clone()),
         );
     }
 }
