@@ -85,13 +85,14 @@ the DTO alike.
 ### Legacy schemas (V0_112_0, V0_93_0, V0_92_0, V0_82_0, V0_81_0)
 
 Documents written under `"schema": "quillmark/document@0.112.0"` carry the same
-tree as the current one, over the content form that spelled a block island's
-line `{"kind":"island"}` rather than `{"kind":"para"}`. The line kind is
-derived, not stored: a lone island slot's line is a paragraph, and whether that
-slot's markup is a block is the island *type*'s to say. The hop is the `body`
-decode, on the same terms as the one below: the decoder reads `island` wherever
-it meets it, permanently, because the same spelling rests untagged inside every
-`richtext` field.
+tree as the current one, over the content form that carried a `loss` class on
+every island and spelled a block island's line `{"kind":"island"}` rather than
+`{"kind":"para"}`. The line kind is derived, not stored: a lone island slot's
+line is a paragraph, and whether that slot's markup is a block is the island
+*type*'s to say. The hop is the `body` decode, on the same terms as the one
+below: the decoder reads `island` wherever it meets it and ignores `loss`,
+permanently, because the same spellings rest untagged inside every `richtext`
+field.
 
 Documents written under `"schema": "quillmark/document@0.93.0"` carry the same
 tree as the current one, over the content form that spelled a built-in's payload
@@ -121,7 +122,7 @@ reached no backend, which is what makes dropping it the cheaper loss.
 `"schema": "quillmark/document@0.81.0"` is the oldest tag that exists, not
 just the oldest one read: `0.81.0` is where `Document` serialization begins, and
 no build before it serialized a `Document` at all. Every stored blob therefore
-carries one of the four tags above, and the reader set is complete. Its shape
+carries one of the six tags this page names, and the reader set is complete. Its shape
 is pre-unification: a separate `sentinel` beside a `frontmatter` item list. It
 carries neither `$id` nor `$ext`, so its hop to V0_82_0 is lossless.
 
@@ -231,10 +232,10 @@ result. A malformed discriminator is a different failure and stays
 name.
 
 `island` is the one name a decoder reads that no encoder writes, and the
-exception that shows the rule's price. It named the line a block island sat on,
-a fact the island's own type already settles, so `@0.115.0` retired it and reads
-it as the `para` it always projected — the re-encode the paragraph above calls
-dishonest, made honest by a version tag that says the writer moved. The tag
+exception that shows the rule's price. It names the line a block island sits on,
+a fact the island's own type settles, so the decoder reads it as `para` — the
+re-encode the paragraph above calls dishonest, made honest by the `@0.115.0`
+tag that says the writer moved. The tag
 covers the rows it stamps and nothing else: the same spelling rests untagged
 inside every `richtext` field, which is why the read is permanent rather than a
 migration hop (§ "Adding a Schema Version").
@@ -530,9 +531,9 @@ current format was fixed in `0.115.0`, so the version tag is
 value, because patches do not change the format.
 
 The format is the *bytes*, not only the envelope: `0.115.0` left the DTO tree
-untouched and retired the `island` line kind (§ Content vocabularies), which is
-a format change because the writer emits different bytes for the same document
-— every document holding a table.
+untouched, dropped an island's `loss` key and retired the `island` line kind
+(§ Content vocabularies), which is a format change because the writer emits
+different bytes for the same document — every document holding an island.
 
 `0.92.0` is a unified payload-item list (typed `$` entries living alongside
 user fields and comments in a single `Vec<PayloadItem>`), a per-field
@@ -543,7 +544,8 @@ the `seed` payload-item variant (the `$seed` per-card-kind overlay map).
 `body` as the **canonical content**: structurally, as a nested object, not a
 markdown string (see Byte-stability). `0.112.0` leaves the tree unchanged in
 turn and moves every built-in's payload into `attrs` inside that content.
-`0.115.0` leaves it unchanged again and spells a block island's line `para`.
+`0.115.0` leaves it unchanged again, drops an island's `loss` and spells a
+block island's line `para`.
 
 The V0_92_0 hop cold-imports the stored markdown `body` string through the same
 Markdown → richtext path `Document::parse` uses, so a pathologically

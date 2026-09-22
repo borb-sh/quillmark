@@ -997,7 +997,7 @@ describe('Document applyChange: the anchor-preserving change bundle', () => {
     ).toThrow()
   })
 
-  it('applyChange creates a block island in one bundle', () => {
+  it('applyChange lands an island on a line it opens in one bundle', () => {
     const doc = blankDoc()
     doc.revise({}, 'intro')
     // The two channels in the order they apply: the delta opens the line, the

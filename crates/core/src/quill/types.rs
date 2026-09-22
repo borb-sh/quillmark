@@ -7,14 +7,15 @@ use serde::{Deserialize, Serialize};
 use crate::value::QuillValue;
 
 /// The control a field asks an editor to draw, where the shape admits more than
-/// one and the default reads wrong. A **request**, not a contract: a consumer
-/// that cannot honor it falls back to its own choice for the type.
+/// one and the default reads wrong. Drawing it is a **request**: a consumer that
+/// cannot honor it falls back to its own choice for the type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum FieldLayout {
     /// A typed table drawn as a grid, one row per element and one column per
     /// property. Valid only on an `array` whose `items` is an `object`
-    /// (`quill::invalid_ui`).
+    /// (`quill::invalid_ui`), and a contract that every column is a
+    /// [`FieldType::is_leaf`] type (`quill::table_column_not_flat`).
     Table,
 }
 
@@ -378,6 +379,9 @@ impl FieldType {
     /// schema, so nothing addresses below it. Prose is a leaf whatever its
     /// `inline` — how tall a cell renders is the consumer's judgement, what it
     /// contains is not.
+    ///
+    /// The type alone answers: an `enum` is a leaf here even on a field whose
+    /// [`FieldSchema::variants`] address cells below it.
     ///
     /// Exhaustive by construction: a type joining the vocabulary answers here
     /// or does not compile.

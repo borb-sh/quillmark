@@ -174,7 +174,7 @@ const HANDLE_KINDS = {
 	},
 	Document: {
 		code: 'runtime::not_a_document',
-		hint: 'Pass a Document built by Document.fromMarkdown / fromStored or quill.seedDocument. A Document from another copy of @quillmark/wasm is refused too — each copy is its own WASM linear memory and its own class — so run `npm ls @quillmark/wasm` and dedupe to one.'
+		hint: 'Pass a Document built by Document.fromMarkdown / fromStored or quill.seedDocument / emptyDocument. A Document from another copy of @quillmark/wasm is refused too — each copy is its own WASM linear memory and its own class — so run `npm ls @quillmark/wasm` and dedupe to one.'
 	}
 };
 

@@ -476,9 +476,9 @@ A document ticks sparsely, and a bare scalar is the tick:
 
 ```yaml
 qualifications:
-  flight_cc: true                            # held; columns take their defaults
-  dodin_ops: { held: true, detail: "2024" }  # held, with columns
-  cyber_200: { held: false, detail: kept }   # not held; the detail is kept in the file
+  flight_cc: true                                 # held; columns take their defaults
+  dodin_ops: { held: true, detail: "2024" }       # held, with columns
+  sq_cc_candidate: { held: false, detail: kept }  # not held; the detail is kept in the file
 ```
 
 A mapping is the member object itself, so one naming no `held` is unticked, its
@@ -668,7 +668,7 @@ one at a time — right for a row of long prose, wrong for four short cells.
 Declaring it says two things.
 
 **A contract: every column is a leaf.** A column holding an `array`, an `object`
-or a `matrix` addresses below itself and is no longer one cell, so it is a load
+or a `matrix` addresses below itself and is not one cell, so it is a load
 error naming the column — `quill::table_column_not_flat` on
 `appendices[].entries`. Prose is a column whatever its `inline`: how tall a cell
 renders is the editor's call, what it contains is not. On any field that is not a
@@ -678,7 +678,7 @@ typed table at all, the key is `quill::invalid_ui`.
 not hold the columns, a cell renderer that will not take a block `richtext` — and
 fall back to the record list. What it will not meet is a shape it cannot draw at
 all; the contract settled that at load. Nothing else reads the key: the plate,
-`validate` and the blueprint are all deliberately inert on it, and `schema()`
+document validation and the blueprint are all deliberately inert on it, and `schema()`
 echoes it verbatim for the editor to find.
 
 ### `title` on `items`

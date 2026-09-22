@@ -220,7 +220,7 @@ pub struct CardV0_93_0 {
 pub type PayloadV0_93_0 = PayloadV0_92_0;
 
 // `DocumentV0_92_0` / `CardV0_92_0` are read + migrate-forward only, but the
-// payload types under them are also the *current* write path: `PayloadV0_112_0`
+// payload types under them are also the *current* write path: `PayloadV0_115_0`
 // aliases them and `From<&Document>` builds them.
 
 /// Frozen `0.92.0` representation of a [`Document`].
@@ -527,9 +527,9 @@ impl TryFrom<CardV0_115_0> for Card {
 // The trees are the same shape and the content decoder reads both spellings, so
 // the hop is only the decode the frozen tree's raw `body` defers — which is also
 // where an invalid legacy body is caught, `CanonicalContent`'s parse-time check
-// not being available to a raw field. `island` is the spelling this hop crosses:
-// the decoder reads it as the `para` it always projected, and the row rewrites
-// under the new tag.
+// not being available to a raw field. This hop crosses two spellings: the
+// decoder reads an `island` line as `para` and ignores an island's `loss`, and
+// the row rewrites under the new tag without either.
 
 impl TryFrom<DocumentV0_112_0> for DocumentV0_115_0 {
     type Error = StorageError;
@@ -1151,9 +1151,10 @@ This body and the metadata above are an indorsement card.
         assert!(serde_json::from_str::<Document>(json).is_err());
     }
 
-    /// The `@0.112.0` hop's whole content: a block island's line was spelled
-    /// `island` and is spelled `para`, so the row loads unchanged in meaning and
-    /// rewrites under the new tag with its table-bearing bytes moved.
+    /// The `@0.112.0` hop's whole content: a block island's line spelled
+    /// `island` reads as `para` and an island's `loss` drops, so the row loads
+    /// unchanged in meaning and rewrites under the new tag with its
+    /// island-bearing bytes moved.
     #[test]
     fn a_0_112_0_row_migrates_its_island_line_to_para() {
         let legacy = serde_json::json!({
@@ -1542,6 +1543,25 @@ title: Hi
                 .expect("canonical content serializes");
         serde_json::from_str::<Document>(&blob(&canonical, "true"))
             .expect("a fill-marked content object still loads");
+
+        // A field's content is untagged, so no hop respells a stored `loss` or
+        // `island` line kind there.
+        let content = quillmark_content::import::from_markdown("see ![a](u.png)\n\n| h |\n|---|\n| c |")
+            .expect("content");
+        let canonical =
+            serde_json::to_string(&quillmark_content::serial::to_canonical_value(&content))
+                .expect("canonical content serializes");
+        let retired = canonical
+            .replace(r#""id":"isl-0","#, r#""id":"isl-0","loss":"lossless","#)
+            .replace(r#""id":"isl-1","#, r#""id":"isl-1","loss":"degraded","#)
+            .replacen(r#""kind":"para"}]"#, r#""kind":"island"}]"#, 1);
+        assert_eq!(retired.matches(r#""loss":"#).count(), 2, "{retired}");
+        assert!(retired.contains(r#""kind":"island""#), "{retired}");
+        let current = serde_json::from_str::<Document>(&blob(&canonical, "true"))
+            .expect("the current spelling loads");
+        let respelled = serde_json::from_str::<Document>(&blob(&retired, "true"))
+            .expect("a fill-marked retired spelling loads");
+        assert_eq!(respelled.to_markdown(), current.to_markdown());
     }
 
     #[test]
@@ -1707,7 +1727,7 @@ title: Hi
     }
 
     #[test]
-    fn v0_112_0_round_trips_as_fixed_point() {
+    fn current_tag_round_trips_as_fixed_point() {
         let doc = sample();
         let first = serde_json::to_string(&doc).unwrap();
         let restored: Document = serde_json::from_str(&first).unwrap();
@@ -1715,7 +1735,7 @@ title: Hi
         let second = serde_json::to_string(&restored).unwrap();
         assert_eq!(
             first, second,
-            "V0_112_0 serialize→deserialize is a byte-fixed point"
+            "V0_115_0 serialize→deserialize is a byte-fixed point"
         );
         assert_eq!(peek_storage_version(&first).as_deref(), Some(STORAGE_V0_115_0));
     }

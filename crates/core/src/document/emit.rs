@@ -261,18 +261,20 @@ fn emit_payload_items(out: &mut String, payload: &Payload) {
 /// content-only marks do not survive, and the storage DTO is the lossless
 /// carrier.
 ///
-/// The guard requires the object to serialize back to a **byte-identical**
-/// canonical content, so a user object that merely resembles one stays
-/// structural. The comparison is on the serialized *strings*: under
-/// `serde_json/preserve_order`, `Value`'s `PartialEq` is order-independent, so a
-/// `Value` guard would also project a content-canonical object whose keys are in
-/// non-canonical order.
+/// The guard requires the object, its retired spellings respelled
+/// ([`respell_retired`](quillmark_content::serial::respell_retired)), to
+/// serialize back to a **byte-identical** canonical content, so a user object
+/// that merely resembles one stays structural. The comparison is on the
+/// serialized *strings*: under `serde_json/preserve_order`, `Value`'s
+/// `PartialEq` is order-independent, so a `Value` guard would also project a
+/// content-canonical object whose keys are in non-canonical order.
 pub(super) fn project_content_field(value: &JsonValue) -> Option<String> {
     if !value.is_object() {
         return None;
     }
     let rt = quillmark_content::serial::from_canonical_value(value).ok()?;
-    let as_written = serde_json::to_string(value).ok()?;
+    let as_written =
+        serde_json::to_string(&quillmark_content::serial::respell_retired(value)).ok()?;
     let canonical =
         serde_json::to_string(&quillmark_content::serial::to_canonical_value(&rt)).ok()?;
     if as_written != canonical {

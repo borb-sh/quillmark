@@ -157,8 +157,9 @@ card_kinds:
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("cli::canonical_document_failed") && stderr.contains("empty"),
-        "the failure does not name the empty document: {stderr}"
+        stderr.matches("cli::canonical_document_failed").count() == 1
+            && stderr.contains("empty"),
+        "the empty document alone should fail: {stderr}"
     );
 
     ok(&["validate", path, "--no-render"]);

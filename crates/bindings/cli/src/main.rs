@@ -25,7 +25,7 @@ enum Commands {
     /// Output the annotated Markdown blueprint for a quill
     Blueprint(commands::blueprint::BlueprintArgs),
 
-    /// Validate a quill's configuration (including defaults)
+    /// Validate a quill's configuration and compile its plate
     Validate(commands::validate::ValidateArgs),
 
     /// Display a quill's identity and schema counts
