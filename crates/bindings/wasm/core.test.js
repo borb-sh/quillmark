@@ -80,6 +80,15 @@ describe('@quillmark/wasm/core surface', () => {
     expect(Array.isArray(diags)).toBe(true)
   })
 
+  it("emptyDocument is the blank document under the quill's own reference", () => {
+    const quill = Quill.fromTree(makeCoreQuill())
+    const empty = quill.emptyDocument()
+
+    expect(empty).toBeInstanceOf(Document)
+    expect(empty.equals(new Document('core_test@1.0.0'))).toBe(true)
+    expect(empty.cards.length).toBe(0)
+  })
+
   it('seedCard layers a $seed overlay over the schema example', () => {
     const yaml = `quill:
   name: seed_core

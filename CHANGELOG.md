@@ -4,6 +4,27 @@
 
 Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).
 
+### The quill authoring contract
+
+- feat(core,wasm,python): **the empty document has a constructor.**
+  `Quill::empty_document()` is `Document::new` under the quill's own reference,
+  so the three canonical documents are three constructors beside
+  `QuillConfig::blueprint()` and `Quill::seed_document()`, and no caller spells
+  `name@version` to reach the one a plate is bound to render. `quiver_test.rs`
+  reads it rather than formatting the two-line markdown itself. The bindings
+  carry it as `Quill.emptyDocument()` / `Quill.empty_document()`.
+- feat(cli)!: **`quillmark validate` compiles the plate.** It renders the empty
+  document, the blueprint and the seed through the quill's backend at the
+  backend's first declared format, and reports each failure as a
+  `cli::canonical_document_failed` error naming which of the three it is,
+  followed by the backend's own diagnostics. The contract that a plate renders
+  the empty document was checked for the fixtures quiver alone, and `render`
+  with no input file renders the seed, the fullest of the three: a plate that
+  reads a blank badly passed both. A quill whose plate does not compile now
+  exits `1` where it exited `0`, and a backend that does not resolve is
+  `cli::backend_unresolved`; `validate --no-render` is the configuration read on
+  its own. Closes #1844.
+
 ### The content model
 
 - refactor(content,core,wasm,python)!: **a block island's line is a `para`, and

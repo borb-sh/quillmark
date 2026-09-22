@@ -90,6 +90,17 @@ def test_validate_json_serializable(tmp_path):
     assert len(json.loads(dumped)) == len(diags)
 
 
+def test_empty_document_is_the_blank_document_under_the_quill_reference(tmp_path):
+    """empty_document returns the blank document `Document(ref)` builds, with the
+    reference read off the quill rather than spelled by the caller."""
+    quill = make_quill(tmp_path)
+
+    empty = quill.empty_document()
+
+    assert empty.to_markdown() == Document("py_validate_smoke@1.0").to_markdown()
+    assert empty.cards == []
+
+
 def test_seed_document_commits_examples(tmp_path):
     """seed_document returns a Document committing example values and leaving
     default-only fields absent (interpolated at render, not persisted)."""

@@ -241,6 +241,18 @@ impl PyQuill {
         Ok(list.clone())
     }
 
+    /// The empty document: a main card carrying this quill's `$quill` and
+    /// `$kind: main`, no field committed, no composable card, no body. The
+    /// type-minimal valid input, and the document a plate is bound to render
+    /// (the quill authoring contract). `Document(ref)` is the same document
+    /// reached by spelling the reference.
+    fn empty_document(&self) -> PyDocument {
+        PyDocument {
+            inner: self.inner.empty_document(),
+            parse_warnings: Vec::new(),
+        }
+    }
+
     /// Seed a starter `Document` from the schema: the main card plus one instance
     /// of each composable card kind, each committing its fields' `example` values
     /// and leaving every other field absent (interpolated at render). A field

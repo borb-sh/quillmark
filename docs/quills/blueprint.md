@@ -55,6 +55,6 @@ Under blank-filled render every absent field becomes its blank, so the empty doc
 - **No template asserts a declared field is *non-empty*.** The schema guarantees presence, not non-emptiness.
 - **A template branching on an `enum` covers `values ∪ blank` exhaustively.** The blank is valid present input for every enum, so an `else` fallback renders a variant nobody chose.
 
-Bundled quills are checked against this by fixture tests.
+Bundled quills are checked against this by fixture tests; `quillmark validate <quill>` runs the same check over any quill, rendering the empty document, the blueprint and the seed through its backend.
 
 Full model: [BLUEPRINT.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/BLUEPRINT.md); the seeding cascade is in [SCHEMAS.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/SCHEMAS.md) § "Document seeding".

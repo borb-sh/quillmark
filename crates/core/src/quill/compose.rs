@@ -286,6 +286,18 @@ impl Quill {
         diags
     }
 
+    /// The **empty document**: a main card carrying `$quill` and `$kind: main`,
+    /// no field committed, no composable card, no body. The type-minimal valid
+    /// input, and the document the quill authoring contract binds a plate to
+    /// render (`prose/canon/BLUEPRINT.md` §Guarantees).
+    ///
+    /// The leanest of the three canonical documents, beside the annotated
+    /// [`blueprint`](crate::quill::QuillConfig::blueprint) and the
+    /// example-filled [`seed_document`](Self::seed_document).
+    pub fn empty_document(&self) -> Document {
+        seed::empty_document(self)
+    }
+
     /// Seed a starter [`Document`]: the main card plus one instance of each
     /// declared composable card kind, each committing its fields' `example`
     /// values and leaving all other fields absent (interpolated at render:

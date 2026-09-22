@@ -37,6 +37,26 @@ card_kinds:
 "#;
 
 #[test]
+fn empty_document_equals_the_hand_written_two_line_document() {
+    let quill = quill_from_yaml(QUILL);
+    let config = quill.config();
+    let markdown = format!(
+        "~~~\n$quill: {}@{}\n$kind: main\n~~~\n",
+        config.name, config.version
+    );
+
+    let parsed = Document::parse(&markdown)
+        .expect("the two-line empty document must parse")
+        .document;
+
+    assert_eq!(
+        quill.empty_document(),
+        parsed,
+        "the constructor must spell the document the authoring contract names"
+    );
+}
+
+#[test]
 fn seed_main_commits_only_example_fields() {
     let quill = quill_from_yaml(QUILL);
     let card = quill.seed_main();

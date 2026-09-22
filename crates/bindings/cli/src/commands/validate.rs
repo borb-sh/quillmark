@@ -1,6 +1,8 @@
 use crate::errors::{CliError, Result};
 use clap::Parser;
-use quillmark::{CardSchema, Diagnostic, FieldSchema, Quill, Severity};
+use quillmark::{
+    CardSchema, Diagnostic, Document, FieldSchema, Quill, Quillmark, RenderOptions, Severity,
+};
 use indexmap::IndexMap;
 use std::path::{Path, PathBuf};
 
@@ -13,6 +15,10 @@ pub struct ValidateArgs {
     /// Show verbose output with all validation details
     #[arg(short, long)]
     verbose: bool,
+
+    /// Skip the render check: only read the configuration
+    #[arg(long)]
+    no_render: bool,
 }
 
 #[derive(Debug, Default)]
@@ -74,6 +80,12 @@ pub fn execute(args: ValidateArgs) -> Result<()> {
         validate_card_schema(&card_schema.name, card_schema, &mut result);
     }
 
+    // A config already refused is not compiled: every canonical document would
+    // fail for the reason already named, three times over.
+    if !args.no_render && !result.has_errors() {
+        validate_canonical_renders(&quill, &mut result, args.verbose);
+    }
+
     print_validation_result(&result, args.verbose);
 
     if result.has_errors() {
@@ -112,6 +124,85 @@ fn validate_file_references(quill: &Quill, result: &mut ValidationResult) {
                 format!("Referenced plate_file '{}' does not exist", plate_file),
                 "cli::plate_file_missing",
             );
+        }
+    }
+}
+
+/// The quill authoring contract, which no config read reaches: each of the
+/// three canonical documents — the empty document, the blueprint, the seed —
+/// compiles through the quill's own plate (`BLUEPRINT.md` §Guarantees). The
+/// backend's first declared format is the one rendered: a plate that compiles
+/// carries every format its backend serves.
+fn validate_canonical_renders(quill: &Quill, result: &mut ValidationResult, verbose: bool) {
+    let engine = Quillmark::new();
+
+    let format = match engine.supported_formats(quill) {
+        Ok([format, ..]) => *format,
+        Ok([]) => {
+            result.add(
+                Severity::Error,
+                "the quill's backend declares no output format",
+                "cli::backend_unresolved",
+            );
+            return;
+        }
+        Err(e) => {
+            result.add(
+                Severity::Error,
+                format!("the quill's backend does not resolve: {}", e),
+                "cli::backend_unresolved",
+            );
+            return;
+        }
+    };
+
+    if verbose {
+        println!("  Rendering the three canonical documents to {}", format);
+    }
+
+    let blueprint = quill.config().blueprint();
+    let documents = [
+        ("empty", Ok(quill.empty_document())),
+        (
+            "blueprint",
+            Document::parse(&blueprint).map(|parsed| parsed.document),
+        ),
+        ("seed", Ok(quill.seed_document())),
+    ];
+
+    let options = RenderOptions::default().with_output_format(format);
+    for (label, document) in documents {
+        let document = match document {
+            Ok(document) => document,
+            Err(e) => {
+                result.add(
+                    Severity::Error,
+                    format!("the {label} document does not parse: {}", e),
+                    "cli::canonical_document_failed",
+                );
+                continue;
+            }
+        };
+
+        match engine.render(quill, &document, &options) {
+            Ok(rendered) if rendered.artifacts.iter().all(|a| a.bytes.is_empty()) => result.add(
+                Severity::Error,
+                format!("the {label} document rendered no {format} bytes"),
+                "cli::canonical_document_failed",
+            ),
+            Ok(_) => {
+                if verbose {
+                    println!("    {label}: ok");
+                }
+            }
+            Err(e) => {
+                result.add(
+                    Severity::Error,
+                    format!("the {label} document does not render through the quill's plate"),
+                    "cli::canonical_document_failed",
+                );
+                result.issues.extend(e.into_diagnostics());
+            }
         }
     }
 }

@@ -102,7 +102,10 @@ quillmark blueprint ./my-quill > blueprint.md
 
 ### validate
 
-Validate quill configuration and structure.
+Validate quill configuration and structure, and compile the plate against the
+three canonical documents: the empty document, the blueprint, and the seed. A
+plate that renders its seed and not the empty document fails here, which is the
+quill authoring contract every plate is bound by.
 
 ```bash
 quillmark validate [OPTIONS] <QUILL_PATH>
@@ -115,15 +118,19 @@ quillmark validate [OPTIONS] <QUILL_PATH>
 **Options:**
 
 - `-v` / `--verbose`: Show verbose output with all validation details
+- `--no-render`: Skip the render check: only read the configuration
 
 **Examples:**
 
 ```bash
-# Validate quill structure
+# Validate quill structure and compile the plate
 quillmark validate ./my-quill
 
 # Verbose validation
 quillmark validate ./my-quill -v
+
+# Configuration only, no compile
+quillmark validate ./my-quill --no-render
 ```
 
 ### info
