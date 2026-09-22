@@ -175,9 +175,9 @@ const doc = Document.storageVersionOf(content)
   : Document.fromMarkdown(content);
 ```
 
-The `schema` value (`quillmark/document@0.112.0`) is the **model version**,
+The `schema` value (`quillmark/document@0.115.0`) is the **model version**,
 not the running crate version. It is a hand-set constant, bumped only when
-the `Document` model itself changes, so every `0.112.x` patch release reads
+the `Document` model itself changes, so every `0.115.x` patch release reads
 and writes that same value.
 
 - **Upgrading is safe.** A newer build reads documents an older build's
@@ -187,8 +187,10 @@ and writes that same value.
   canonical on-disk format keeps loading across crate upgrades: there is no
   need to pin old wasm to read old data. The exception is a row a host
   authored a content construct of its own into — a line `kind`, container,
-  mark `type`, island `type` or `loss` outside the vocabulary. Those are
-  refused from 0.113 on; see that release's migration guide.
+  mark `type` or island `type` outside the vocabulary. Those are refused from
+  0.113 on; see that release's migration guide. An island `loss` was a fifth
+  such vocabulary until 0.115, which dropped the key: a row still spelling one
+  opens, whatever the class, and comes back without it.
 - **Downgrading is not.** `fromStored` rejects an *unknown* (i.e. newer)
   `schema` version rather than guessing at a format it predates. Don't feed
   documents written by a newer build back into an older one.

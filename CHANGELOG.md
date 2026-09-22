@@ -27,6 +27,23 @@ Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).
 
 ### The content model
 
+- refactor(content)!: **an island stores its value, not its provenance.** `Loss`
+  had one minting rule — a table cell dropping an inline image's url — and no
+  reader: export dispatches on an island's `type`, the Typst emitter and the
+  acroform binder never looked, and an `islandOps` `set` stored whatever class
+  the op named. Two cells written `| a cat |` and `| ![a cat](cat.png) |` mint
+  equal `props` and differ only in the markdown behind them, which the
+  projection has no syntax to carry back out, so the class survived neither a
+  `to_markdown` → `from_markdown` hop nor re-derivation from the row holding it
+  — which is why the content fixed point had to be stated modulo it. An
+  island's canonical form is `{id, type, props}`, the fixed point is exact, and
+  the closed vocabularies cover the four discriminators a projection dispatches
+  on. `Loss`, `Island::loss`, `Island::with_loss`, `IslandType::default_loss`,
+  `ContentIsland.loss` and `ContentLossClass` are deleted; a stored row spelling
+  `loss` opens with the key ignored and absent from what comes back, and a
+  `loss` on an authored island or an `islandOps` entry is ignored rather than
+  refused. A host that surfaced the class surfaces the drop at the import
+  instead, where the markdown it is about is still in hand. Closes #1757.
 - refactor(content,core,wasm,python)!: **a block island's line is a `para`, and
   `LineKind::Island` is gone.** The kind was a second copy of a fact the island
   beside it already carried: markdown writes a `table` as a block and an `image`
@@ -41,8 +58,9 @@ Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).
   op fills it, and the `setKind` goes. The TS `ContentLineKind` loses its
   `{ kind: "island" }` arm, so a host branching on it typechecks red; a `setKind`
   still naming `island` lands as the `para` it would have settled to.
-- refactor(core)!: **the storage tag is `quillmark/document@0.115.0`.** The line
-  above moves canonical bytes for every document holding a table, so content
+- refactor(core)!: **the storage tag is `quillmark/document@0.115.0`.** The two
+  lines above move canonical bytes — the `loss` key for every document holding
+  an island, the line kind for every document holding a table — so content
   hashes recompute once on those rows. `DocumentV0_112_0` freezes with a raw
   `body` and the new `DocumentV0_115_0` carries the `CanonicalContent`; the hop
   between them is that body's decode, and `V0_93_0 → V0_112_0` becomes a retag
@@ -53,6 +71,20 @@ Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).
 
 ### Schema, validation and the resolved view
 
+- refactor(core)!: **a schema is loaded, not deserialized.** `QuillConfig`,
+  `CardSchema` and `FieldSchema` serialize and no longer implement
+  `Deserialize`, and `FieldSchema::from_quill_value` is crate-internal. A field
+  arrives in two steps — the parse, which folds the sibling keys (`inline:`,
+  `values:`, `members:`, `max:`) into the type payload, and the shape walk,
+  which rejects an `object` without `properties`, an `array` without `items`,
+  an empty `properties` map, and the placements — and only `parse_fields` ran
+  both, so a config assembled through serde carried states no `Quill.yaml` can
+  reach, absorbed downstream without a diagnostic. Gating the serde path
+  instead would have duplicated the walk and collapsed its diagnostic codes
+  into `quill::field_parse_error` at that boundary. The way to a config is
+  `QuillConfig::from_yaml_with_warnings`, or a `Quill` read off a file tree;
+  serialization is untouched, so `schema()`, `schema_yaml()` and every emission
+  read the same loaded form they did. Closes #1836.
 - refactor(core,wasm)!: **a matrix roster is one flat mapping; group headings
   are gone.** A block's `group:` was declared in the schema and absent from the
   value, the address and the vocabulary — the blueprint emits

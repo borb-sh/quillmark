@@ -726,7 +726,9 @@ fn fragment_line(line: &Line, span: std::ops::Range<Usv>, breaks: &[Usv], first:
 ///
 /// Such a line is a [`LineKind::Para`] that nonetheless renders one block, so
 /// this answers beside [`LineKind::takes_continuations`] rather than through it.
-fn is_block_island_line(seg: &str, island: Option<&Island>) -> bool {
+/// [`Content::block_island_at`] is the public read; a pass already holding the
+/// line's text and slot index calls this instead of rescanning for them.
+pub(crate) fn is_block_island_line(seg: &str, island: Option<&Island>) -> bool {
     let mut chars = seg.chars();
     (chars.next(), chars.next()) == (Some(ISLAND_SLOT), None)
         && island.is_some_and(|i| i.island_type.block_only())
