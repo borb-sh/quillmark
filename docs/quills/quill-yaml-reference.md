@@ -472,14 +472,18 @@ only. The roster is a mapping, so it has one slot per id and a member cannot be
 declared twice. The two keys the matrix writes itself — `held`, `title` —
 cannot be column names.
 
-A document ticks sparsely, and key presence is the tick:
+A document ticks sparsely, and a bare scalar is the tick:
 
 ```yaml
 qualifications:
-  flight_cc: true                  # held; columns take their defaults
-  dodin_ops: { detail: "2024" }    # held, with columns
+  flight_cc: true                            # held; columns take their defaults
+  dodin_ops: { held: true, detail: "2024" }  # held, with columns
   cyber_200: { held: false, detail: kept }   # not held; the detail is kept in the file
 ```
+
+A mapping is the member object itself, so one naming no `held` is unticked, its
+columns kept in the file as under any other unticked member. Spell the tick
+beside the column to set both.
 
 A member the roster does not declare is refused, as an out-of-domain `enum`
 value is. A mapping has one slot per key, so a member cannot be ticked twice.

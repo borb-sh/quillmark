@@ -197,16 +197,19 @@ sides. The two keys the matrix writes onto every member itself — `held`,
 column under one of them would load, validate and address, then lose to the
 projection.
 
-**Document.** A mapping keyed by member id, sparse. Key presence implies
-`held: true` unless the mapping spells otherwise, and coercion normalizes to the
-member object — the [variant precedent](#enum-variants), where the bare
-`classification: CUI` is the spelling of a world carrying no variant answers.
+**Document.** A mapping keyed by member id, sparse. A bare scalar is the tick
+itself, and coercion normalizes it to the member object — the [variant
+precedent](#enum-variants), where the bare `classification: CUI` is the spelling
+of a world carrying no variant answers. A mapping is the member object already,
+so the tick it names no key for takes the ordinary ladder as every other absent
+cell does, to the synthesized `default: false`.
 
 | Stored | Means |
 |---|---|
 | key absent | not held |
 | `cyber_200: true` | held, columns at whatever the ordinary ladder gives them |
-| `flight_cc: { detail: X }` | held, with columns |
+| `flight_cc: { held: true, detail: X }` | held, with columns |
+| `flight_cc: { detail: X }` | not held; the detail is retained in the document |
 | `flight_cc: { held: false, detail: X }` | not held; the detail is retained in the document |
 
 A mapping has one slot per key, so a duplicate is unspellable. An id outside the
@@ -245,11 +248,11 @@ quill's maximal fixture.
 **Implementation.** Sugar over a typed dictionary: the loader expands members
 into an `object` whose properties are the member ids, reached through
 `FieldSchema::namespace_props`, so coercion, validation, blank-fill and
-addressing are inherited. Four things are the type's own — `title` written onto
-the wire, the presence-implies-held spelling, the closed wire for unheld
-members, and obligation gated on the tick — and two walks are overridden
-rather than inherited: seeding, which stops at the matrix, and the blueprint,
-which emits the sparse cell instead of expanding every member.
+addressing are inherited. Three things are the type's own — `title` written onto
+the wire, the closed wire for unheld members, and obligation gated on the tick
+— and two walks are overridden rather than inherited: seeding, which stops at
+the matrix, and the blueprint, which emits the sparse cell instead of expanding
+every member.
 
 ### Cardinality
 
