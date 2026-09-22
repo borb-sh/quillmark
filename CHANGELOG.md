@@ -47,6 +47,21 @@ Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).
   one slot per id exactly as the stored value does and a duplicate is
   unspellable on both sides. Closes #1851.
 
+### The blueprint
+
+- feat(core)!: **a dormant variant world is its own cells, commented out.** A
+  variant-bearing enum's blueprint named every world it could not show, one
+  `# when CUI: controlled_by, poc, category` line each — the one place on the
+  surface where a cell was named rather than shown, dropping the position,
+  obligation, type, description and example a cell carries. Every world now sits
+  under a `# when <MEMBER>:` header in declaration order: the selected world's
+  cells live, every other world's the same cells with a `# ` in front, at the
+  slot they would occupy live. A reader activates a world by setting the
+  discriminant and deleting `# `. One builder and one emitter serve both, so a
+  dormant line is byte-for-byte the live line, and the block round-trips through
+  `Document::parse` as the comments it is, reaching neither the validator nor
+  the render floor. Closes #1846.
+
 ## v0.114.0 - 2026-09-18
 
 ### Schema, validation and the resolved view

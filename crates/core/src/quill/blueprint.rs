@@ -7,8 +7,10 @@
 
 use indexmap::IndexMap;
 
-use super::{CardSchema, FieldSchema, FieldType, QuillConfig, VARIANT_DISCRIMINANT_KEY};
-use crate::document::emit::{saphyr_emit_flow, saphyr_emit_scalar};
+use super::{
+    CardSchema, FieldSchema, FieldType, QuillConfig, VariantFields, VARIANT_DISCRIMINANT_KEY,
+};
+use crate::document::emit::{emit_mapping_lines, saphyr_emit_flow, saphyr_emit_scalar};
 use crate::document::prescan::NestedComment;
 use crate::document::{Card, Document, Payload, PayloadItem};
 use crate::value::{PathSegment, QuillValue};
@@ -446,21 +448,12 @@ fn container_cell(
     }
 }
 
-/// Append a variant-bearing enum: the container, its discriminant cell, the
-/// fields of the world that discriminant selects, and a
-/// `# when <MEMBER>: <fields>` line for every other world that owns a field set
-/// (`prose/canon/BLUEPRINT.md` § "Enum variants").
+/// Append a variant-bearing enum: the container, its discriminant cell, then
+/// every world under a `# when <MEMBER>:` header — the selected world's cells
+/// live, every other world's commented out (`prose/canon/BLUEPRINT.md`
+/// § "Enum variants").
 fn append_variant(items: &mut CardItems, field: &FieldSchema) {
     push_leading(items, field, field.default.is_some());
-    if let Some(variants) = &field.variants {
-        for (member, fields) in variants {
-            let names: Vec<&str> = fields.keys().map(String::as_str).collect();
-            items.push(PayloadItem::comment(format!(
-                "when {member}: {}",
-                names.join(", ")
-            )));
-        }
-    }
 
     let member = scalar_value(field);
     let mut map = JsonMap::new();
@@ -478,18 +471,22 @@ fn append_variant(items: &mut CardItems, field: &FieldSchema) {
         fills.push(vec![PathSegment::Key(VARIANT_DISCRIMINANT_KEY.to_string())]);
     }
 
-    // A cell is a field of the container, so it expands as one: the mapping
-    // already holding the discriminant is what seats the live world one slot
-    // past it.
-    let live = member.as_str().and_then(|m| field.variant_fields(m));
-    let nested = match live {
-        Some(fields) => {
-            let (nested, sub_fills) = build_property_mapping(&mut map, fields, &[]);
+    let selected = member.as_str();
+    let mut nested = Vec::new();
+    for (name, world) in field.variants.iter().flatten() {
+        // A cell is a field of the container, so it expands as one. A world's
+        // slot is where the mapping has reached, which seats a dormant block
+        // where its live form would sit.
+        let slot = map.len();
+        nested.push(world_comment(slot, format!("when {name}:")));
+        if Some(name.as_str()) == selected {
+            let (sub_nested, sub_fills) = build_property_mapping(&mut map, world, &[]);
+            nested.extend(sub_nested);
             fills.extend(sub_fills);
-            nested
+        } else {
+            nested.extend(dormant_world(world, slot));
         }
-        None => Vec::new(),
-    };
+    }
 
     push_container_field(
         items,
@@ -499,6 +496,27 @@ fn append_variant(items: &mut CardItems, field: &FieldSchema) {
         fills,
         field,
     );
+}
+
+/// A dormant world's cells as own-line comments. `to_markdown` writes the `# `
+/// itself, so there is no prefixing step here and what a reader uncomments is
+/// byte-for-byte the line the live world would show.
+fn dormant_world(world: &VariantFields, slot: usize) -> Vec<NestedComment> {
+    let mut map = JsonMap::new();
+    let (nested, fills) = build_property_mapping(&mut map, world, &[]);
+    emit_mapping_lines(&map, &nested, &fills)
+        .lines()
+        .map(|line| world_comment(slot, line))
+        .collect()
+}
+
+fn world_comment(slot: usize, text: impl Into<String>) -> NestedComment {
+    NestedComment {
+        container_path: Vec::new(),
+        position: slot,
+        text: text.into(),
+        inline: false,
+    }
 }
 
 /// Push a typed-container field (value + nested comments + nested fills) and
