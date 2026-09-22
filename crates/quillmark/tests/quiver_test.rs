@@ -37,24 +37,20 @@ static QUIVER: LazyLock<Vec<(String, Quill)>> = LazyLock::new(|| {
 #[test]
 fn every_quill_renders_an_empty_document() {
     for (name, quill) in QUIVER.iter() {
-        let config = quill.config();
-        let markdown = format!(
-            "~~~\n$quill: {}@{}\n$kind: main\n~~~\n",
-            config.name, config.version
-        );
-        let parsed = Document::parse(&markdown)
-            .unwrap_or_else(|e| {
-                panic!("quill '{name}' empty document failed to parse: {e:?}\n---\n{markdown}")
-            })
-            .document;
+        let empty = quill.empty_document();
 
         let rendered = ENGINE
             .render(
                 quill,
-                &parsed,
+                &empty,
                 &RenderOptions::default().with_output_format(OutputFormat::Pdf),
             )
-            .unwrap_or_else(|e| panic!("quill '{name}' failed to render: {e:?}\n---\n{markdown}"));
+            .unwrap_or_else(|e| {
+                panic!(
+                    "quill '{name}' failed to render: {e:?}\n---\n{}",
+                    empty.to_markdown()
+                )
+            });
         assert!(
             !rendered.artifacts.is_empty(),
             "quill '{name}': render produced no artifacts"

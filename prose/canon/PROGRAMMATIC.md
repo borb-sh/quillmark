@@ -35,7 +35,9 @@ the same emitter parsed ones do.
 fields, an empty body, and no composable cards. Absent fields resolve at
 render time (schema `default`, else the field's blank; see
 [SCHEMAS.md](SCHEMAS.md)), so nothing the program did not set reaches the
-output.
+output. `Quill::empty_document()` is that same document from a quill already in
+hand, which is the form the quill authoring contract names
+([BLUEPRINT.md](BLUEPRINT.md) § "Guarantees").
 
 `Quill::seed_document()` is the illustration-first starter: `example` values
 committed, one card per declared kind: the structured twin of the blueprint

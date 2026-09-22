@@ -4,6 +4,15 @@
 
 Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).
 
+### The quill authoring contract
+
+- feat(core,wasm,python): **the empty document has a constructor.**
+  `Quill::empty_document()` is `Document::new` under the quill's own reference,
+  so the three canonical documents are three constructors beside
+  `QuillConfig::blueprint()` and `Quill::seed_document()`, and no caller spells
+  `name@version` to reach the one a plate is bound to render. `quiver_test.rs`
+  reads it rather than formatting the two-line markdown itself. The bindings
+  carry it as `Quill.emptyDocument()` / `Quill.empty_document()`.
 ### The content model
 
 - refactor(content,core,wasm,python)!: **a block island's line is a `para`, and

@@ -283,6 +283,13 @@ fn seed_composable(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> Card {
     Card::from_parts(payload, body)
 }
 
+/// The empty document: [`Document::new`] under the quill's own reference, so no
+/// caller spells `name@version` to reach the document the authoring contract
+/// binds.
+pub(crate) fn empty_document(quill: &Quill) -> Document {
+    Document::new(main_reference(quill))
+}
+
 pub(crate) fn seed_document(quill: &Quill) -> Document {
     // A fresh document carries no `$seed`, so every kind seeds from its schema
     // example base (overlay = `None`).
