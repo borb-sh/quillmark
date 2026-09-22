@@ -438,6 +438,28 @@ fn emit_field_at(
     }
 }
 
+/// Render a mapping's children — cells, `!must_fill` markers, and the comments
+/// among them — as standalone lines at column 0, outside any document. The
+/// blueprint renders a dormant variant world through this to comment it out.
+pub(crate) fn emit_mapping_lines(
+    map: &serde_json::Map<String, JsonValue>,
+    nested: &[NestedComment],
+    fills: &[Vec<PathSegment>],
+) -> String {
+    let mut out = String::new();
+    emit_mapping_children(
+        &mut out,
+        map,
+        0,
+        EmitCtx {
+            path: &[],
+            nested,
+            fills,
+        },
+    );
+    out
+}
+
 fn emit_mapping_children(
     out: &mut String,
     map: &serde_json::Map<String, JsonValue>,

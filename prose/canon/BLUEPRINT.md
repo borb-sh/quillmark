@@ -74,8 +74,12 @@ follow:
 The two slots divide by *grammar*, not by subject: the inline slot is the fixed
 `<type>[<format>]` expression and takes nothing else, so a constraint that is not
 part of a type expression rides the leading slot as prose (`# up to <N>`, the one
-such line). No colon-separated `key: value` annotation syntax appears in either
-slot, so neither pattern collides with YAML key/value parsing.
+such line). No annotation is colon-separated `key: value`, so no annotation
+collides with YAML key/value parsing.
+
+One own-line form is not an annotation: a dormant variant world, which is cells
+with a `# ` in front under a `# when <MEMBER>:` header (see "Enum variants").
+The colons in it are the cells' own.
 
 ### Leading lines: order
 
@@ -209,12 +213,14 @@ typed dictionary (which holds no cell of its own): **except `richtext`**, which
 never inlines its example as a value at all; its `example:` always surfaces as
 the `# e.g.` line (see "Richtext fields").
 
-All fields render as **live YAML**: no commented-out fields. The `!must_fill`
-marker is the sole "must fill" signal on this surface: a reader's mental model
-is one rule, **`!must_fill` on a field → replace before shipping; otherwise the
-value cell is shippable as-is**. A marked document still renders (the cell
-blank-fills, or uses its suggested value); the marker only drives the non-fatal
-`validation::must_fill` warning (see "Guarantees").
+Every cell of the live world renders as **live YAML**; a dormant variant world's
+cells are commented out, and only they are. The `# when <MEMBER>:` header says
+which, and says they are disabled until that member is chosen. Every live cell
+on the page keeps one rule: **`!must_fill` on a field → replace before shipping;
+otherwise the value cell is shippable as-is**. That marker is the sole "must
+fill" signal on this surface. A marked document still
+renders (the cell blank-fills, or uses its suggested value); the marker only
+drives the non-fatal `validation::must_fill` warning (see "Guarantees").
 
 A value shown under `!must_fill` is the schema's own `example:` —
 illustrative, not real data. Dropping the tag while keeping that value
@@ -247,20 +253,33 @@ speak about the same cells (`SCHEMAS.md` § "Native validation").
 ### Enum variants
 
 A variant-bearing `enum` emits its container: the discriminant under `value`,
-then the fields of the world that discriminant names (`default:` › `example:` ›
-blank). A blueprint **is** a document, so it can show only one world; the others
-are named instead, one `# when <MEMBER>: <fields>` leading line each. Every member
-owning a field set gets a line, the shown one included if it owns one — a member
-that brings no cells has nothing to announce, which is why the example below,
-sitting in the blank world, carries only `CUI`'s. The lines are the map, the cells
-are the position.
+then every member of `variants:` under a `# when <MEMBER>:` header, in
+declaration order (load rejects a member owning no cells, so every member has a
+header). A blueprint **is** a document, so one world is live — the one the
+discriminant names (`default:` › `example:` › blank). Every other world's cells
+are commented out, at the slot they would occupy live. A reader activates a
+world by setting the discriminant and deleting `# ` from that world's lines.
 
 ```
 # Select the classification marking shown in the header and footer banner.
-# when CUI: controlled_by, poc, category, limited_dissemination
 classification: # enum<UNCLASSIFIED | CUI | CONFIDENTIAL | SECRET | TOP SECRET>
   value: ""
+  # when CUI:
+  # # Office or organization that designated this information as CUI.
+  # controlled_by: !must_fill SAF/AA # string
+  # # CUI category from the DoD CUI Registry. Leave blank to omit.
+  # category: "" # string
 ```
+
+One builder and one emitter serve both, so a dormant world is rendered exactly
+as a live one and then handed over as own-line comments. `to_markdown` writes
+the `# `, so a commented line is byte-for-byte the live line, and a comment
+*inside* the world arrives double-prefixed (`# # …`) by the same rule. A cell's
+position, obligation, type, description and example all cross.
+
+`Document::parse` reads the block back as the comments it is, so a dormant cell
+reaches neither the validator nor the render floor. Uncommenting one without
+setting the discriminant strands it, which `validation::out_of_variant` names.
 
 The container line carries the `enum<…>` annotation and `value` carries none:
 `value` *is* that enum, so a second annotation would restate it. The marker sits
