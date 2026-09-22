@@ -2272,6 +2272,43 @@ fn ui_layout_table_loads_on_a_typed_table_and_is_refused_elsewhere() {
     }
 }
 
+/// Declaring the key contracts that every column is a leaf, so the only decline
+/// left to a consumer is the capability one it alone can answer. The boundary is
+/// containment, not height: prose is a column whatever its `inline`.
+#[test]
+fn a_table_column_is_a_leaf_and_a_container_column_is_refused() {
+    quill_with_field(
+        "    notes:\n      type: array\n      ui:\n        layout: table\n      \
+         items:\n        type: object\n        properties:\n          \
+         body: { type: richtext }\n",
+    )
+    .expect("a block richtext is a leaf: how tall it renders is the consumer's call");
+
+    for (label, column) in [
+        ("an array column", "{ type: array, items: { type: string } }"),
+        (
+            "an object column",
+            "{ type: object, properties: { city: { type: string } } }",
+        ),
+    ] {
+        let err = quill_with_field(&format!(
+            "    appendices:\n      type: array\n      ui:\n        layout: table\n      \
+             items:\n        type: object\n        properties:\n          \
+             entries: {column}\n"
+        ))
+        .expect_err(label);
+        let diag = err
+            .iter()
+            .find(|d| d.code.as_deref() == Some("quill::table_column_not_flat"))
+            .unwrap_or_else(|| panic!("{label}: expected the column refusal, got {err:?}"));
+        assert!(
+            diag.message.contains("appendices[].entries"),
+            "{label}: the refusal names the column, not the field: {}",
+            diag.message
+        );
+    }
+}
+
 /// `max:` caps an array's element count, which is arity: a fact no other type
 /// has, and no `items:` declaration can carry.
 #[test]

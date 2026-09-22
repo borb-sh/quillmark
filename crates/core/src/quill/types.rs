@@ -374,6 +374,28 @@ impl FieldType {
         }
     }
 
+    /// Whether a value of this type rests in one cell: it carries no nested
+    /// schema, so nothing addresses below it. Prose is a leaf whatever its
+    /// `inline` — how tall a cell renders is the consumer's judgement, what it
+    /// contains is not.
+    ///
+    /// Exhaustive by construction: a type joining the vocabulary answers here
+    /// or does not compile.
+    pub fn is_leaf(&self) -> bool {
+        match self {
+            FieldType::String
+            | FieldType::Number
+            | FieldType::Integer
+            | FieldType::Boolean
+            | FieldType::Date
+            | FieldType::DateTime
+            | FieldType::RichText { .. }
+            | FieldType::PlainText { .. }
+            | FieldType::Enum { .. } => true,
+            FieldType::Array | FieldType::Object | FieldType::Matrix { .. } => false,
+        }
+    }
+
     /// A matrix's roster, member id to display title in declaration order.
     /// Empty for every other type.
     pub fn matrix_roster(&self) -> &IndexMap<String, String> {

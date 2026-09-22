@@ -101,6 +101,7 @@ Identity resolution:
 - Field schemas that fail to parse (e.g. a bare `title:`, missing `type:`) error with `quill::field_parse_error` and an actionable hint where applicable, rather than being dropped from the schema.
 - `object` fields without a `properties` map error with `quill::object_missing_properties`; an empty `properties` map errors with `quill::object_empty_properties`.
 - Malformed `quill.ui` / `main.ui` / `card_kinds.<name>.ui` blocks error with `quill::invalid_ui` rather than being silently discarded.
+- A `ui.layout: table` column that is not a leaf errors with `quill::table_column_not_flat`, naming the column: declaring the key contracts the shape the control needs, leaving an editor only the capability decline ([SCHEMAS.md](SCHEMAS.md#schema-emission)).
 - Malformed `main.body` / `card_kinds.<name>.body` blocks error with `quill::invalid_body`.
 - A `body.example` set together with `body.enabled: false` warns with `quill::body_example_unused` (the example has no effect).
 - A card declaring more than `MAX_FIELD_COUNT` (1000) fields errors with `quill::too_many_fields`: seeding and the blueprint build one card-yaml block per card schema, so the block's cap is the schema's to meet. Counted per card over declared fields alone — nested `properties`, array `items`, and `variants:` cells ride inside the field declaring them.

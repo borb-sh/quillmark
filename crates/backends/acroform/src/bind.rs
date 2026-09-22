@@ -267,7 +267,7 @@ pub fn project_kind(
         // in what a signer types into the blank widget, so it is multiline
         // whatever `ui` says.
         SchemaType::Array => match field.items.as_deref() {
-            Some(items) if is_scalar_or_prose(items) => WidgetType::Text { multiline: true },
+            Some(items) if items.r#type.is_leaf() => WidgetType::Text { multiline: true },
             _ => return Err(unbindable()),
         },
         SchemaType::Enum { values } => WidgetType::Choice {
@@ -294,13 +294,6 @@ fn is_multiline(field: &FieldSchema) -> bool {
         .as_ref()
         .and_then(|u| u.multiline)
         .unwrap_or(false)
-}
-
-fn is_scalar_or_prose(field: &FieldSchema) -> bool {
-    !matches!(
-        field.r#type,
-        SchemaType::Array | SchemaType::Object | SchemaType::Matrix { .. }
-    )
 }
 
 fn type_desc(field: &FieldSchema) -> String {
