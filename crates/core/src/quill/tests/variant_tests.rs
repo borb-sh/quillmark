@@ -625,16 +625,38 @@ fn only_the_live_worlds_fields_are_type_checked() {
         .any(|(code, _)| code == "validation::type_mismatch"));
 }
 
-/// A blueprint is a document, so it shows one world and *names* the rest.
+/// A blueprint is a document, so only one world can be live: the rest are the
+/// same cells, commented out.
 #[test]
-fn the_blueprint_shows_one_world_and_names_the_others() {
+fn the_blueprint_comments_out_every_world_it_does_not_show() {
     let bp = config().blueprint();
-    assert!(bp.contains("# when CUI: controlled_by, category"));
-    assert!(bp.contains("# when SECRET: declassify_on"));
     assert!(bp.contains("classification: # enum<UNCLASSIFIED | CUI | SECRET>"));
-    assert!(bp.contains("value: \"\""));
-    // The blank world owns no field set, so no variant cell is emitted.
-    assert!(!bp.contains("controlled_by:"));
+    assert!(
+        bp.contains(concat!(
+            "  value: \"\"\n",
+            "  # when CUI:\n",
+            "  # controlled_by: !must_fill # string\n",
+            "  # category: \"\" # string\n",
+            "  # when SECRET:\n",
+            "  # declassify_on: !must_fill # string\n",
+        )),
+        "{bp}"
+    );
+
+    // The blank world is selected and owns no field set, so nothing is live: a
+    // commented cell reaches the payload as a comment or not at all.
+    let parsed = Document::parse(&bp).expect("blueprint round-trips").document;
+    let classification = parsed
+        .main()
+        .payload()
+        .get("classification")
+        .expect("the container survives")
+        .as_json()
+        .clone();
+    assert_eq!(classification, json!({ "value": "" }), "{bp}");
+
+    // And the block survives re-emission byte for byte.
+    assert_eq!(parsed.to_markdown(), bp);
 }
 
 #[test]
