@@ -19,16 +19,11 @@ main:
       type: matrix
       description: Tick each qualification held; annotate a tick with the date earned.
       members:
-        - group: Leadership & Command
-          values:
-            sq_cc_candidate: Sq/CC Candidate
-            flight_cc: Flight CC
-        - group: Operations
-          values:
-            dodin_ops: DODIN Ops
-            dco: DCO (Defensive)
-        - values:
-            cyber_200: Cyber 200
+        sq_cc_candidate: Sq/CC Candidate
+        flight_cc: Flight CC
+        dodin_ops: DODIN Ops
+        dco: DCO (Defensive)
+        cyber_200: Cyber 200
       properties:
         detail:
           type: plaintext

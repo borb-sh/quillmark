@@ -1079,8 +1079,7 @@ impl QuillConfig {
                 Self::validate_field_schema_shape(items, &format!("{owner}[]"), false)
             }
             FieldType::Matrix { .. } => {
-                let mut seen: HashSet<&str> = HashSet::new();
-                for (id, _, _) in schema.r#type.matrix_members() {
+                for id in schema.r#type.matrix_roster().keys() {
                     if !Self::is_snake_case_identifier(id) {
                         return err(
                             "quill::invalid_matrix_member",
@@ -1092,39 +1091,25 @@ impl QuillConfig {
                             ),
                         );
                     }
-                    if !seen.insert(id) {
-                        return err(
-                            "quill::duplicate_matrix_member",
-                            format!(
-                                "Field '{owner}' declares matrix member '{id}' more than \
-                                 once. A member id is one key of the stored mapping, so it \
-                                 names one member."
-                            ),
-                        );
-                    }
                 }
                 if let Some(props) = &schema.properties {
-                    // `held` is the synthesized tick; `title` and `group` are
-                    // written onto every member from the roster. A column under
-                    // any of the three would load, validate and address, then be
-                    // overwritten where it matters.
-                    if let Some(reserved) = [
-                        super::MATRIX_HELD_KEY,
-                        super::MATRIX_TITLE_KEY,
-                        super::MATRIX_GROUP_KEY,
-                    ]
-                    .into_iter()
-                    .find(|k| props.contains_key(*k))
+                    // `held` is the synthesized tick; `title` is written onto
+                    // every member from the roster. A column under either would
+                    // load, validate and address, then be overwritten where it
+                    // matters.
+                    if let Some(reserved) = super::MATRIX_RESERVED_COLUMNS
+                        .iter()
+                        .copied()
+                        .find(|k| props.contains_key(*k))
                     {
                         return err(
                             "quill::matrix_reserved_column",
                             format!(
                                 "Field '{owner}' declares a column named '{reserved}', which a \
                                  matrix writes onto every member itself: '{held}' is the tick, \
-                                 '{title}' and '{group}' the roster's labels. Rename the column.",
+                                 '{title}' the roster's label. Rename the column.",
                                 held = super::MATRIX_HELD_KEY,
                                 title = super::MATRIX_TITLE_KEY,
-                                group = super::MATRIX_GROUP_KEY,
                             ),
                         );
                     }

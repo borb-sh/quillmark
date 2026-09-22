@@ -51,15 +51,14 @@ byte-equal source.
 
 ```json
 "qualifications": {
-  "flight_cc":  { "held": true,  "title": "Flight CC",  "group": "Leadership", "detail": {…} },
-  "dodin_ops":  { "held": false, "title": "DODIN Ops",  "group": "Operations", "detail": {…} }
+  "flight_cc":  { "held": true,  "title": "Flight CC", "detail": {…} },
+  "dodin_ops":  { "held": false, "title": "DODIN Ops", "detail": {…} }
 }
 ```
 
 - `held` is the tick, a boolean the schema synthesizes on every member.
-- `title` and `group` come from the roster, not from the document, so a plate
-  prints the vocabulary without holding a second copy of it. An ungrouped member
-  carries `""`, the string blank, so the key always resolves.
+- `title` comes from the roster, not from the document, so a plate prints the
+  vocabulary without holding a second copy of it.
 - The remaining keys are the field's declared columns, each at its declared
   type.
 - **The wire carries the live world only**: an unheld member's columns are their
@@ -67,8 +66,8 @@ byte-equal source.
   and never prints a stranded answer.
 
 Member cells are ordinary addresses: `qualifications.flight_cc.held` regions and
-binds like any leaf. `title` and `group` are written by the projection rather
-than held as cells, so neither carries one.
+binds like any leaf. `title` is written by the projection rather than held as a
+cell, so it carries none.
 
 ## Typst Helper Package
 

@@ -311,24 +311,11 @@ pub enum FieldType {
     /// A closed string domain, `values` in declaration order. The blank (`""`)
     /// is accepted beside them and is never one of them.
     Enum { values: Vec<String> },
-    /// A closed vocabulary someone ticks: `groups` in declaration order, whose
-    /// members each hold a synthesized [`MATRIX_HELD_KEY`] beside the field's
-    /// declared columns. A namespace, not a cell
-    /// (`prose/canon/SCHEMAS.md` §"Cells and namespaces").
-    Matrix { groups: Vec<MatrixGroup> },
-}
-
-/// One block of a [`FieldType::Matrix`] roster: an optional display heading and
-/// the members under it, member id to display title, in declaration order.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct MatrixGroup {
-    /// The heading these members sit under; absent for an ungrouped block.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub group: Option<String>,
-    /// Member id to display title. Ids are snake_case identifiers: they are
-    /// what the wire, the address and the document speak.
-    pub values: IndexMap<String, String>,
+    /// A closed vocabulary someone ticks: `roster` is member id to display
+    /// title in declaration order, and every member holds a synthesized
+    /// [`MATRIX_HELD_KEY`] beside the field's declared columns. A namespace,
+    /// not a cell (`prose/canon/SCHEMAS.md` §"Cells and namespaces").
+    Matrix { roster: IndexMap<String, String> },
 }
 
 /// The tick a [`FieldType::Matrix`] synthesizes on every member, beside the
@@ -336,24 +323,14 @@ pub struct MatrixGroup {
 /// (`quill::matrix_reserved_column`).
 pub const MATRIX_HELD_KEY: &str = "held";
 
-/// The per-member wire keys a matrix projection writes from its roster. Neither
-/// is a cell: they carry no address, take no literal, and a document authoring
-/// one is overwritten at the projection.
+/// The per-member wire key a matrix projection writes from its roster. Not a
+/// cell: it carries no address, takes no literal, and a document authoring one
+/// is overwritten at the projection.
 pub const MATRIX_TITLE_KEY: &str = "title";
-/// See [`MATRIX_TITLE_KEY`].
-pub const MATRIX_GROUP_KEY: &str = "group";
 
 /// The member keys a matrix writes itself, and which a column may therefore not
 /// declare (`quill::matrix_reserved_column`).
-pub const MATRIX_RESERVED_COLUMNS: &[&str] =
-    &[MATRIX_HELD_KEY, MATRIX_TITLE_KEY, MATRIX_GROUP_KEY];
-
-impl MatrixGroup {
-    /// Every member of this block, id first.
-    pub fn members(&self) -> impl Iterator<Item = (&str, &str)> {
-        self.values.iter().map(|(id, title)| (id.as_str(), title.as_str()))
-    }
-}
+pub const MATRIX_RESERVED_COLUMNS: &[&str] = &[MATRIX_HELD_KEY, MATRIX_TITLE_KEY];
 
 impl FieldType {
     /// The `type:` token alone. An `enum`'s domain and a prose type's `inline`
@@ -373,7 +350,9 @@ impl FieldType {
             "richtext" => Some(FieldType::RichText { inline: false }),
             "plaintext" => Some(FieldType::PlainText { inline: false }),
             "enum" => Some(FieldType::Enum { values: Vec::new() }),
-            "matrix" => Some(FieldType::Matrix { groups: Vec::new() }),
+            "matrix" => Some(FieldType::Matrix {
+                roster: IndexMap::new(),
+            }),
             _ => None,
         }
     }
@@ -395,19 +374,13 @@ impl FieldType {
         }
     }
 
-    /// Every member of a matrix roster, flattened across its groups in
-    /// declaration order: id, title, and the group heading it sits under.
+    /// A matrix's roster, member id to display title in declaration order.
     /// Empty for every other type.
-    pub fn matrix_members(&self) -> Vec<(&str, &str, Option<&str>)> {
+    pub fn matrix_roster(&self) -> &IndexMap<String, String> {
+        static EMPTY: std::sync::OnceLock<IndexMap<String, String>> = std::sync::OnceLock::new();
         match self {
-            FieldType::Matrix { groups } => groups
-                .iter()
-                .flat_map(|g| {
-                    g.members()
-                        .map(move |(id, title)| (id, title, g.group.as_deref()))
-                })
-                .collect(),
-            _ => Vec::new(),
+            FieldType::Matrix { roster } => roster,
+            _ => EMPTY.get_or_init(IndexMap::new),
         }
     }
 }
@@ -527,7 +500,7 @@ struct FieldSchemaDef {
     pub max: Option<u32>,
     /// The roster of a `type: matrix` field, and the only spelling of one.
     /// Lands in the [`FieldType::Matrix`] payload.
-    pub members: Option<Vec<MatrixGroup>>,
+    pub members: Option<IndexMap<String, String>>,
 }
 
 impl FieldSchema {
@@ -695,11 +668,10 @@ impl FieldSchema {
     /// The members are copies of the columns, so the loader re-expands once its
     /// content companions are imported.
     pub(crate) fn rebuild_matrix_members(&mut self) -> Result<(), String> {
-        let roster = self.r#type.matrix_members();
-        if roster.is_empty() {
+        let ids: Vec<String> = self.r#type.matrix_roster().keys().cloned().collect();
+        if ids.is_empty() {
             return Ok(());
         }
-        let ids: Vec<String> = roster.iter().map(|(id, _, _)| (*id).to_string()).collect();
         let columns = self.properties.clone().unwrap_or_default();
         let mut members = IndexMap::new();
         for id in ids {
@@ -799,13 +771,11 @@ impl FieldSchema {
     /// `members:` elsewhere is an error.
     fn resolve_matrix_roster(
         r#type: FieldType,
-        members: Option<Vec<MatrixGroup>>,
+        members: Option<IndexMap<String, String>>,
     ) -> Result<FieldType, String> {
         match (r#type, members) {
-            (FieldType::Matrix { .. }, Some(groups))
-                if groups.iter().any(|g| !g.values.is_empty()) =>
-            {
-                Ok(FieldType::Matrix { groups })
+            (FieldType::Matrix { .. }, Some(roster)) if !roster.is_empty() => {
+                Ok(FieldType::Matrix { roster })
             }
             (FieldType::Matrix { .. }, _) => Err(
                 "type: matrix requires a members: roster naming at least one member".to_string(),
@@ -845,8 +815,8 @@ impl Serialize for FieldSchema {
             FieldType::Enum { values } => Some(values),
             _ => None,
         };
-        let groups = match &self.r#type {
-            FieldType::Matrix { groups } => Some(groups),
+        let roster = match &self.r#type {
+            FieldType::Matrix { roster } => Some(roster),
             _ => None,
         };
         let len = 1
@@ -856,7 +826,7 @@ impl Serialize for FieldSchema {
             + self.example.is_some() as usize
             + self.ui.is_some() as usize
             + values.is_some() as usize
-            + groups.is_some() as usize
+            + roster.is_some() as usize
             + self.variants.is_some() as usize
             + self.properties.is_some() as usize
             + self.items.is_some() as usize
@@ -881,7 +851,7 @@ impl Serialize for FieldSchema {
         if let Some(v) = values {
             map.serialize_entry("values", v)?;
         }
-        if let Some(v) = groups {
+        if let Some(v) = roster {
             map.serialize_entry("members", v)?;
         }
         if let Some(v) = &self.variants {
