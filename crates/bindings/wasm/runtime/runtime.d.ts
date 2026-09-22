@@ -108,7 +108,6 @@ export type {
 	QuillFieldUi,
 	QuillCardUi,
 	QuillGroupUi,
-	QuillMatrixGroup,
 	QuillMetadata
 } from '../core/wasm.js';
 
