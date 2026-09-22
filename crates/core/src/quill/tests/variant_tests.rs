@@ -282,7 +282,7 @@ classification:
     assert_eq!(blank_plate, json!({ "value": "" }));
 }
 
-/// The two card-level keys are what a cell may not carry.
+/// A cell carries neither a `ui.group` nor a `variants:` of its own.
 #[test]
 fn a_variant_field_may_not_carry_variants_or_a_group() {
     // A cell inherits the discriminant's group, so declaring one is a dead knob.

@@ -198,9 +198,9 @@ pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
                 }
             }
             // The desugared members, so `qualifications.flight_cc.held` resolves
-            // as any typed dictionary's leaf does. `title` and `group` are
-            // written by the projection rather than held as cells, so they carry
-            // no address and stay out.
+            // as any typed dictionary's leaf does. `title` is written by the
+            // projection rather than held as a cell, so it carries no address
+            // and stays out.
             FieldType::Matrix { .. } => {
                 schema.insert(
                     "type".to_string(),

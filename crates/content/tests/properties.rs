@@ -1,8 +1,7 @@
-//! The content property suite: round-trip modulo loss class
-//! (`import(export(rt)) == rt`, exact here since the generator emits only
-//! lossless islands), canonical serialization, diff-import preserving the
-//! marks markdown cannot carry, and the JSON doors refusing rather than
-//! panicking on what a caller hands them.
+//! The content property suite: the exact round-trip
+//! (`import(export(rt)) == rt`), canonical serialization, diff-import
+//! preserving the marks markdown cannot carry, and the JSON doors refusing
+//! rather than panicking on what a caller hands them.
 
 use proptest::prelude::*;
 use quillmark_content::island::IslandType;

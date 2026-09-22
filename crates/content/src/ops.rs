@@ -58,8 +58,8 @@ pub enum LineOp {
     /// Split, join and text-delta `\n` insertion all mint `continues: false`
     /// lines, so this is the only op that reaches the flag. The terminal
     /// normalize clears a flag no block above can take: line 0, which nothing
-    /// precedes, a differing container path, or a heading, island or rule above,
-    /// each rendering one line.
+    /// precedes, a differing container path, or a heading, a rule or a block
+    /// island's line above, each rendering one line.
     SetContinues { line: usize, continues: bool },
 }
 
@@ -70,8 +70,8 @@ pub enum LineOp {
 /// Removal needs no op: a text delta that deletes a slot drops the backing
 /// entry ([`Content::apply_text_delta`]'s cascade). That drop is whole, so
 /// re-landing the island is an [`IslandOp::Insert`] carrying the [`Island`]
-/// itself. A *block* island's line demotes to `Para` when its slot goes, so
-/// re-landing one re-tags the line too.
+/// itself. A *block* island's line is a `Para` with or without its slot, so
+/// re-landing one needs no line op.
 #[derive(Debug, Clone, PartialEq)]
 pub enum IslandOp {
     /// Replace the entry `island.id` names, in place. The id is the target *and*

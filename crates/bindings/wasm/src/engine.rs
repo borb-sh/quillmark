@@ -23,9 +23,10 @@ export interface QuillFieldUi {
      *  conventional label of its own. */
     blank_title?: string;
     /** The control the field asks for, where the shape admits more than one.
-     *  A request, not a contract: a consumer that cannot draw it falls back to
-     *  its own choice for the type. `"table"` is valid only on an `array`
-     *  whose `items` is an `object`. */
+     *  `"table"` is valid only on an `array` whose `items` is an `object`.
+     *  Every column is a leaf, a contract refused at load as
+     *  `quill::table_column_not_flat`. Drawing the grid is a request: a
+     *  consumer that cannot falls back to its own choice for the type. */
     layout?: "table";
 }
 
@@ -85,10 +86,11 @@ export interface QuillFieldSchema {
     /** The closed set of allowed values. Required on `type: "enum"`, and valid
      *  nowhere else. */
     values?: string[];
-    /** Per-member field sets on a card-level `type: "enum"` field, keyed by
-     *  member: the fields that exist only where the discriminant holds that
-     *  member. Declaring it makes the field rest as a container,
-     *  `{value: <member>, …that member's fields}`, rather than a bare string. */
+    /** Per-member field sets on a `type: "enum"` field that is a card's own
+     *  field or a typed dictionary's property, keyed by member: the fields that
+     *  exist only where the discriminant holds that member. Declaring it makes
+     *  the field rest as a container, `{value: <member>, …that member's
+     *  fields}`, rather than a bare string. */
     variants?: Record<string, Record<string, QuillFieldSchema>>;
     /** The roster of a `type: "matrix"` field, required there and valid
      *  nowhere else: member id to display title, key order the display order.
