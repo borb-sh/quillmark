@@ -6,6 +6,24 @@ Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).
 
 ### The quill authoring contract
 
+- feat(core)!: **a `matrix` member mapping takes the ordinary ladder.** Two
+  rules decided what a stored member spelling meant — a bare scalar is the tick,
+  and a mapping naming no `held` is held — and the second retires. A member is
+  an `object` of a synthesized `held: {type: boolean, default: false}` beside
+  its columns, so a mapping is the member object already and the tick it names
+  no key for resolves as every other absent cell does, to its `default:`. The
+  old rule overrode that ladder for one key in one type, and bought a spelling
+  convenience for it: two mappings one key apart meant opposite ticks, the
+  shorter one ticked, and any producer building the member object without
+  conforming — an editor writing a column before the tick, a serde-built
+  payload, `{}` — set a tick it never wrote. `{ detail: X }` is now unheld with
+  its detail retained, which is what `{ held: false, detail: X }` already meant;
+  the bare scalar and every mapping naming `held` are unchanged. What remains is
+  exactly `conform_variant`'s bare-scalar rule, so `SCHEMAS.md` §Matrix lists
+  three things as the type's own rather than four. The flip is silent — the
+  value is well-typed under both readings, and a defaultless column's
+  `validation::must_fill` leaves with the tick it was gated on — so the upgrade
+  guide leads with it. (#1860)
 - feat(core)!: **`ui.layout: table` contracts its columns.** The key was checked
   for its outer shape alone — `type: array` whose `items` is an `object` — so a
   row holding a container loaded clean and no editor could draw it: the author

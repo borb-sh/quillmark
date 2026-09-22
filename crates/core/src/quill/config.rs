@@ -705,13 +705,10 @@ impl QuillConfig {
         }
     }
 
-    /// Coerce a matrix's stored mapping to its total member form. A key's
-    /// presence is the spelling of a tick, the variant precedent
-    /// (`SCHEMAS.md` §"Enum variants"): a bare scalar becomes
-    /// `{held: <scalar>}`, and a mapping that names no
-    /// [`MATRIX_HELD_KEY`](super::MATRIX_HELD_KEY) is held. A key naming no
-    /// member passes through for the domain check
-    /// (`validation::enum_violation`) to refuse.
+    /// Coerce a matrix's stored mapping to its total member form. A bare scalar
+    /// is the tick itself and becomes `{held: <scalar>}`, the variant precedent
+    /// (`SCHEMAS.md` §"Enum variants"). A key naming no member passes through
+    /// for the domain check (`validation::enum_violation`) to refuse.
     fn coerce_matrix_members(
         obj: &serde_json::Map<String, serde_json::Value>,
         members: &IndexMap<String, Box<super::FieldSchema>>,
@@ -2260,9 +2257,13 @@ fn example_contains_fence_line(text: &str) -> bool {
 }
 
 /// The member object a stored matrix spelling means, before coercion: a bare
-/// scalar is the tick itself, and a mapping naming no
-/// [`MATRIX_HELD_KEY`](super::MATRIX_HELD_KEY) is held. `None` for a null, which
-/// is absent at every type and so reaches the ladder unheld.
+/// scalar is the tick itself. `None` for a null, which is absent at every type
+/// and so reaches the ladder unheld.
+///
+/// A mapping is the member object already, so its
+/// [`MATRIX_HELD_KEY`](super::MATRIX_HELD_KEY) takes the ordinary ladder as
+/// every other absent cell does: naming none is unheld, the synthesized
+/// `default: false`.
 ///
 /// Coercion and validation both read it, so the two cannot disagree on what a
 /// document spelled.
@@ -2274,18 +2275,14 @@ pub(crate) fn matrix_member_spelling(
     if stored.is_null() {
         return None;
     }
-    let mut spelled = match stored.as_object() {
+    Some(match stored.as_object() {
         Some(map) => map.clone(),
         None => {
             let mut map = serde_json::Map::new();
             map.insert(MATRIX_HELD_KEY.to_string(), stored.clone());
             map
         }
-    };
-    spelled
-        .entry(MATRIX_HELD_KEY.to_string())
-        .or_insert(serde_json::Value::Bool(true));
-    Some(spelled)
+    })
 }
 
 /// Whether a field's type tree contains any content leaf: the gate for caching

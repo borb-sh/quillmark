@@ -2,8 +2,9 @@
 //!
 //! A matrix is sugar over a typed dictionary, so the risk is not that the
 //! inherited walks break but that the three things the type *adds* disagree
-//! with them: the presence-implies-held spelling, the roster written onto the
-//! wire, and the wire closed over an unheld member. Each test below pins one
+//! with them: the roster written onto the wire, the wire closed over an unheld
+//! member, and obligation gated on the tick. The bare-scalar tick is the
+//! variant precedent, inherited rather than added. Each test below pins one
 //! surface to the same reading of the same schema.
 
 use crate::document::Document;
@@ -90,21 +91,44 @@ main:
     format!("{err:?}")
 }
 
-/// The stored-spelling table: key presence is the tick unless the mapping
-/// spells otherwise, and every spelling conforms to the member object.
+/// The stored-spelling table: a bare scalar is the tick, and every spelling
+/// conforms to the member object.
 #[test]
 fn every_stored_spelling_conforms_to_the_member_object() {
     let held = plate(&doc(
-        "qualifications:\n  flight_cc: true\n  dodin_ops: { detail: X }\n",
+        "qualifications:\n  flight_cc: true\n  dodin_ops: { held: true, detail: X }\n",
     ));
 
     // Absent: not held.
     assert_eq!(held["sq_cc_candidate"]["held"], json!(false));
     // Bare `true`: held, columns at their blanks.
     assert_eq!(held["flight_cc"]["held"], json!(true));
-    // A mapping naming no `held`: held, with its columns.
+    // A mapping spelling the tick: held, with its columns.
     assert_eq!(held["dodin_ops"]["held"], json!(true));
     assert_eq!(held["dodin_ops"]["detail"]["text"], json!("X"));
+}
+
+/// A mapping is the member object already, so the tick it names no key for
+/// takes the ordinary ladder rather than a rule of the matrix's own. The empty
+/// mapping is the case a producer reaches first: an editor opening a member's
+/// row, or a serde-built payload, writes a column before the tick.
+#[test]
+fn a_mapping_naming_no_held_is_unheld() {
+    let document = doc("qualifications:\n  flight_cc: { detail: X }\n  dodin_ops: {}\n");
+
+    let wire = plate(&document);
+    assert_eq!(wire["flight_cc"]["held"], json!(false));
+    assert_eq!(wire["dodin_ops"]["held"], json!(false));
+    // Unheld, so the wire carries the column at its blank whatever the document
+    // retains — the closed-wire rule, reached through the ladder.
+    assert_eq!(wire["flight_cc"]["detail"]["text"], json!(""));
+
+    let stored = document.main().payload().get("qualifications").unwrap();
+    assert_eq!(
+        stored.as_json()["flight_cc"]["detail"],
+        json!("X"),
+        "the column is retained, as under any other unheld member"
+    );
 }
 
 /// An unticked member's retained answer is a fact about the stored form alone:
@@ -266,6 +290,10 @@ fn a_defaultless_column_is_obliged_only_inside_a_held_member() {
     assert!(
         obliged("qualifications:\n  flight_cc: { held: false }\n").is_empty(),
         "an unticked member obliges nothing"
+    );
+    assert!(
+        obliged("qualifications:\n  flight_cc: {}\n").is_empty(),
+        "a mapping naming no tick is unticked, so it obliges nothing either"
     );
     assert_eq!(
         obliged("qualifications:\n  flight_cc: true\n"),
