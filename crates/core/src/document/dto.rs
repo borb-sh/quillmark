@@ -1542,6 +1542,25 @@ title: Hi
                 .expect("canonical content serializes");
         serde_json::from_str::<Document>(&blob(&canonical, "true"))
             .expect("a fill-marked content object still loads");
+
+        // A field's content is untagged, so a row written before `loss` and the
+        // `island` line kind retired still carries them there.
+        let content = quillmark_content::import::from_markdown("see ![a](u.png)\n\n| h |\n|---|\n| c |")
+            .expect("content");
+        let canonical =
+            serde_json::to_string(&quillmark_content::serial::to_canonical_value(&content))
+                .expect("canonical content serializes");
+        let retired = canonical
+            .replace(r#""id":"isl-0","#, r#""id":"isl-0","loss":"lossless","#)
+            .replace(r#""id":"isl-1","#, r#""id":"isl-1","loss":"degraded","#)
+            .replacen(r#""kind":"para"}]"#, r#""kind":"island"}]"#, 1);
+        assert_eq!(retired.matches(r#""loss":"#).count(), 2, "{retired}");
+        assert!(retired.contains(r#""kind":"island""#), "{retired}");
+        let current = serde_json::from_str::<Document>(&blob(&canonical, "true"))
+            .expect("the current spelling loads");
+        let respelled = serde_json::from_str::<Document>(&blob(&retired, "true"))
+            .expect("a fill-marked retired spelling loads");
+        assert_eq!(respelled.to_markdown(), current.to_markdown());
     }
 
     #[test]

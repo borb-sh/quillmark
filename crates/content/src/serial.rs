@@ -156,6 +156,28 @@ pub fn from_canonical_value(v: &Value) -> Result<Normalized, ParseError> {
     seal(Content::from_value(v)?)
 }
 
+/// `v` with the retired spellings the decoder reads permanently written as the
+/// encoder writes them: an island's `loss` key dropped, a line's `island` kind
+/// spelled `para`. A caller comparing stored bytes against
+/// [`to_canonical_value`] compares this instead, so an untagged content value
+/// written before the retirement still reads as content.
+pub fn respell_retired(v: &Value) -> Value {
+    let mut v = v.clone();
+    if let Some(islands) = v.get_mut("islands").and_then(Value::as_array_mut) {
+        for island in islands.iter_mut().filter_map(Value::as_object_mut) {
+            island.shift_remove("loss");
+        }
+    }
+    if let Some(lines) = v.get_mut("lines").and_then(Value::as_array_mut) {
+        for line in lines.iter_mut().filter_map(Value::as_object_mut) {
+            if let Some(kind) = line.get_mut("kind").filter(|k| k.as_str() == Some("island")) {
+                *kind = Value::String("para".into());
+            }
+        }
+    }
+    v
+}
+
 /// Mint and check: the tail both wire lanes share, after the authored lane has
 /// read its own refusals off the decode.
 fn seal(rt: Content) -> Result<Normalized, ParseError> {
