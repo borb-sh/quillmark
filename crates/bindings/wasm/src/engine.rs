@@ -378,8 +378,9 @@ export type MarkOp =
  * on one following a heading, a rule or a block island's line, each a block of
  * one line. `setKind` lands a kind the line's text contradicts — `rule` over
  * prose, `code` over a slot — as `para`, which is what re-importing the line's
- * own markdown yields, and reads the retired `island` as the `para` it always
- * projected. Read the content back to see where an op settled.
+ * own markdown yields, and reads an `island` the union does not offer as the
+ * `para` that spelling projects. Read the content back to see where an op
+ * settled.
  */
 export type LineOp =
     | { op: "split"; at: number }

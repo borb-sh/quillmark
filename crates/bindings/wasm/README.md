@@ -188,9 +188,9 @@ and writes that same value.
   need to pin old wasm to read old data. The exception is a row a host
   authored a content construct of its own into — a line `kind`, container,
   mark `type` or island `type` outside the vocabulary. Those are refused from
-  0.113 on; see that release's migration guide. An island `loss` was a fifth
-  such vocabulary until 0.115, which dropped the key: a row still spelling one
-  opens, whatever the class, and comes back without it.
+  0.113 on; see that release's migration guide. An island `loss` is not one of
+  them: 0.115 drops the key, so a row spelling one opens whatever the class and
+  comes back without it.
 - **Downgrading is not.** `fromStored` rejects an *unknown* (i.e. newer)
   `schema` version rather than guessing at a format it predates. Don't feed
   documents written by a newer build back into an older one.

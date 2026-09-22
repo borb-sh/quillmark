@@ -819,9 +819,9 @@ impl Content {
     /// and the island's markup is a block
     /// ([`IslandType::block_only`](crate::island::IslandType::block_only)).
     ///
-    /// This is what a reader asks where it once matched a line kind: such a line
-    /// is a [`LineKind::Para`] like any other, and the island is the only thing
-    /// that says its markup is a block.
+    /// The read a line kind cannot answer: such a line is a
+    /// [`LineKind::Para`] like any other, and the island is the only thing
+    /// saying its markup is a block.
     pub fn block_island_at(&self, line: usize) -> Option<&Island> {
         let mut slot = 0usize;
         for (i, seg) in self.text.split('\n').enumerate() {
@@ -1321,11 +1321,11 @@ mod tests {
         }))
     }
 
-    /// The read the retired `LineKind::Island` stood for: a lone slot's line
-    /// answers with its island where that island's markup is a block, and with
-    /// nothing where it is inline or where the line holds more than the slot.
+    /// A lone slot's line answers with its island where that island's markup is
+    /// a block, and with nothing where it is inline or where the line holds
+    /// more than the slot.
     #[test]
-    fn block_island_at_answers_where_the_kind_did() {
+    fn block_island_at_answers_for_a_block_islands_lone_slot() {
         let image = |id: &str| {
             Island::new(id.into(), IslandType::Image)
                 .with_props(serde_json::json!({"alt": "a", "url": "u"}))

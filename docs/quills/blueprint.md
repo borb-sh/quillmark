@@ -39,8 +39,6 @@ Seeding materializes a real `Document` (committed, structured content) rather th
 
 ## Accessors
 
-The three canonical documents are three constructors: the blueprint, the seed, and the empty document the contract below binds a plate to render.
-
 | | Blueprint | Seed | Empty |
 |---|---|---|---|
 | Python | `quill.blueprint` | `quill.seed_document()` | `quill.empty_document()` |
