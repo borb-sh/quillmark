@@ -31,12 +31,6 @@ fn seed_parts(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> (Payload, N
     let mut items: Vec<PayloadItem> = Vec::new();
     for (name, field) in &schema.fields {
         let overlaid = overlay.and_then(|o| o.fields.get(name));
-        if field.is_variant_bearing() {
-            if let Some(item) = seed_variant(name, field, overlaid) {
-                items.push(item);
-            }
-            continue;
-        }
         let Some(Seeded { value, fills }) = seed_field(field, overlaid) else {
             continue;
         };
@@ -96,8 +90,16 @@ struct Seeded {
 /// The content companion is read before the raw `example:`, so a content field
 /// seeds its resting form. An overlay covers the whole field, cells included,
 /// and lifts the marker: `$seed` is a template author deciding, which is the
-/// act the marker asks for.
+/// act the marker asks for. A variant container is the one field that merges an
+/// overlay rather than taking it whole ([`seed_variant`]).
 fn seed_field(field: &crate::quill::FieldSchema, overlaid: Option<&QuillValue>) -> Option<Seeded> {
+    // Ahead of the whole-field overlay, because a variant container *merges*
+    // one: the discriminant an overlay names selects the world whose `example:`
+    // cells then fill, where taking the overlay whole would commit a tag with
+    // none of its world's answers.
+    if field.is_variant_bearing() {
+        return seed_variant(field, overlaid);
+    }
     if let Some(value) = overlaid {
         return Some(Seeded {
             value: value.clone(),
@@ -162,10 +164,9 @@ fn seed_field(field: &crate::quill::FieldSchema, overlaid: Option<&QuillValue>) 
 /// `default:` is read-only here as everywhere. Per cell the precedence is the
 /// ordinary `overlay › example: › absent`.
 fn seed_variant(
-    name: &str,
     field: &crate::quill::FieldSchema,
     overlaid: Option<&QuillValue>,
-) -> Option<PayloadItem> {
+) -> Option<Seeded> {
     let overlay_json = overlaid.map(|v| v.as_json());
     let overlay_object = overlay_json.and_then(|j| j.as_object());
     let overlay_member =
@@ -214,20 +215,12 @@ fn seed_variant(
         return None;
     }
 
-    let mut value = seeded_rest(
-        name,
-        &QuillValue::from_json(serde_json::Value::Object(map)),
-        field,
-    );
-    for path in &fills {
-        value.set_fill_at(path);
-    }
-    Some(PayloadItem::Field {
-        key: name.to_string(),
-        value,
-        // A mapping never carries the root marker: the obligation sits on the
-        // discriminant cell inside it.
-        fill: false,
+    // No empty path among them: a mapping never carries the root marker, so the
+    // caller's `fill` flag stays false and the obligation sits on the
+    // discriminant cell inside the container.
+    Some(Seeded {
+        value: QuillValue::from_json(serde_json::Value::Object(map)),
+        fills,
     })
 }
 

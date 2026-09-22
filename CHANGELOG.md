@@ -6,6 +6,27 @@ Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).
 
 ### The quill authoring contract
 
+- feat(core): **a typed dictionary's property opens a variant world.**
+  `variants:` was card-level, so a conditional block had to sit at the top of a
+  card even where the fields it governs belong to a dictionary. The rule was
+  never about depth: what stays one level deep is the gap between a field's
+  *declared* shape and its *live* one, and a dictionary's own shape is the
+  schema's — so a world opened there deepens the address and leaves the gap
+  alone. `header.classification` reads, binds, branches and strands exactly as
+  `classification` does, one step down. Every other position would deepen the
+  gap and still refuses one: an array element, whose liveness would vary per
+  index against a form bound once; a matrix column, inside a grid the page
+  prints in full; and another variant's cell, which would make the plate's one
+  branch a tree. `quill::variant_placement` now names the position carrying the
+  ban rather than restating the old rule, and the ban is **sticky** — an object
+  inside any of them inherits it instead of laundering a world into a position
+  that cannot hold one. The surfaces that dispatch on the container before
+  walking the type needed nothing (coercion, validation, the render floor,
+  conditional `must_fill`, the transform schema, `acroform` binding); the three
+  that scanned card fields now descend, so `validation::out_of_variant` finds a
+  strand at `main.header.classification.controlled_by`, the blueprint seats a
+  world's cells — live or commented — at the dictionary's indent, and the seed
+  resolves a nested discriminant before walking its field set.
 - feat(core)!: **`ui.layout: table` contracts its columns.** The key was checked
   for its outer shape alone — `type: array` whose `items` is an `object` — so a
   row holding a container loaded clean and no editor could draw it: the author

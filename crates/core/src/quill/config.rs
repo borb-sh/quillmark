@@ -11,6 +11,48 @@ use crate::value::QuillValue;
 use super::types::{BODY_CARD_SCHEMA_KEYS, UI_CARD_SCHEMA_KEYS, VARIANT_DISCRIMINANT_KEY};
 use super::{BodyCardSchema, CardSchema, FieldSchema, FieldType, GroupRegistry, UiCardSchema};
 
+/// Where a field sits in the type tree. Every type nests at every depth; this
+/// gates the two keys that do not — `ui.group`, which clusters card-level fields
+/// only, and `variants:`, which opens a world only where the position's own live
+/// shape is the schema's (`SCHEMAS.md` §"Enum variants").
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FieldPosition {
+    /// A card's own field.
+    Card,
+    /// A typed dictionary's property.
+    Property,
+    /// An array's element schema.
+    Item,
+    /// A matrix column.
+    Column,
+    /// A variant's own cell.
+    VariantCell,
+}
+
+impl FieldPosition {
+    /// The position a typed dictionary's property inherits. A dictionary
+    /// reached from a world-opening position is one itself; below a banned
+    /// position the ban is sticky, which is what keeps a variant out of an
+    /// object that an element or another world holds.
+    fn property(self) -> Self {
+        match self {
+            Self::Card | Self::Property => Self::Property,
+            banned => banned,
+        }
+    }
+
+    /// Why `variants:` may not open a world here, as the noun
+    /// `quill::variant_placement` names — `None` where it may.
+    fn variant_ban(self) -> Option<&'static str> {
+        match self {
+            Self::Card | Self::Property => None,
+            Self::Item => Some("an array element"),
+            Self::Column => Some("a matrix column"),
+            Self::VariantCell => Some("another variant's field"),
+        }
+    }
+}
+
 /// Canonical string text for a bare scalar unambiguously representable as a
 /// string: a boolean (`true`/`false`) or number (`47`, `1.0`). `None` for
 /// `null` (≡ absent), strings (already strings), and collections.
@@ -862,8 +904,8 @@ impl QuillConfig {
     }
 
     /// Recursively validate a field's structural shape. Every type nests at
-    /// every depth; `at_card_level` gates the two keys that do not,
-    /// `variants:` and `ui.group`.
+    /// every depth; `position` gates the two keys that do not, `variants:` and
+    /// `ui.group`.
     ///
     /// Returns the first violation as a ready-to-push [`Diagnostic`] whose
     /// message names `owner` (the field-name path, e.g. `rows[].tags`), or
@@ -871,7 +913,7 @@ impl QuillConfig {
     fn validate_field_schema_shape(
         schema: &FieldSchema,
         owner: &str,
-        at_card_level: bool,
+        position: FieldPosition,
     ) -> Option<Diagnostic> {
         let err = |code: &str, message: String| {
             Some(Diagnostic::new(Severity::Error, message).with_code(code.to_string()))
@@ -891,7 +933,9 @@ impl QuillConfig {
         // pass never descends into object properties or array items, so a nested
         // `group` is an inert knob. Reject it rather than let it silently do
         // nothing, the same dead-knob class this walk exists to catch.
-        if !at_card_level && schema.ui.as_ref().and_then(|u| u.group.as_ref()).is_some() {
+        if position != FieldPosition::Card
+            && schema.ui.as_ref().and_then(|u| u.group.as_ref()).is_some()
+        {
             return err(
                 "quill::nested_group_not_supported",
                 format!(
@@ -941,15 +985,17 @@ impl QuillConfig {
         }
 
         if let Some(variants) = &schema.variants {
-            // One level only, for the reason `SCHEMAS.md` §"Enum variants" gives.
-            if !at_card_level {
+            // Conditionality stays one level deep, for the reason `SCHEMAS.md`
+            // §"Enum variants" gives. A typed dictionary's own shape is the
+            // schema's, so a world opened there deepens the address and not the
+            // gap; every other position would deepen the gap.
+            if let Some(banned) = position.variant_ban() {
                 return err(
                     "quill::variant_placement",
                     format!(
-                        "Field '{owner}' declares 'variants' in a nested position. \
-                         Variants apply only to card-level enum fields; an object \
-                         property, an array item, and another variant's field cannot \
-                         carry one."
+                        "Field '{owner}' declares 'variants' where a world may not open: \
+                         {banned} carries none. Variants apply to a card-level enum field \
+                         or a typed dictionary's property."
                     ),
                 );
             }
@@ -1020,7 +1066,7 @@ impl QuillConfig {
                     if let Some(diag) = Self::validate_field_schema_shape(
                         field,
                         &format!("{member_owner}.{name}"),
-                        false,
+                        FieldPosition::VariantCell,
                     ) {
                         return Some(diag);
                     }
@@ -1068,7 +1114,11 @@ impl QuillConfig {
                     );
                 }
                 props.iter().find_map(|(name, prop)| {
-                    Self::validate_field_schema_shape(prop, &format!("{owner}.{name}"), false)
+                    Self::validate_field_schema_shape(
+                        prop,
+                        &format!("{owner}.{name}"),
+                        position.property(),
+                    )
                 })
             }
             FieldType::Array => {
@@ -1093,7 +1143,7 @@ impl QuillConfig {
                         ),
                     );
                 };
-                Self::validate_field_schema_shape(items, &format!("{owner}[]"), false)
+                Self::validate_field_schema_shape(items, &format!("{owner}[]"), FieldPosition::Item)
             }
             FieldType::Matrix { .. } => {
                 for id in schema.r#type.matrix_roster().keys() {
@@ -1131,7 +1181,11 @@ impl QuillConfig {
                         );
                     }
                     return props.iter().find_map(|(name, prop)| {
-                        Self::validate_field_schema_shape(prop, &format!("{owner}.{name}"), false)
+                        Self::validate_field_schema_shape(
+                            prop,
+                            &format!("{owner}.{name}"),
+                            FieldPosition::Column,
+                        )
                     });
                 }
                 None
@@ -1688,7 +1742,7 @@ impl QuillConfig {
             match FieldSchema::from_quill_value(field_name.clone(), &quill_value) {
                 Ok(schema) => {
                     if let Some(diag) =
-                        Self::validate_field_schema_shape(&schema, field_name, true)
+                        Self::validate_field_schema_shape(&schema, field_name, FieldPosition::Card)
                     {
                         errors.push(diag);
                         continue;

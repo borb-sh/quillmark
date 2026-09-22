@@ -100,18 +100,18 @@ The ceiling is deliberate and enforced at load rather than discovered at render:
 |---|---|
 | `variants:` on a non-enum field | `quill::variants_on_non_enum` |
 | a key outside `values:` (the blank owns no variant) | `quill::variant_unknown_value` |
-| `variants:` below card level, or inside another variant | `quill::variant_placement` |
+| `variants:` outside a card field or a typed dictionary's property | `quill::variant_placement` |
 | an empty `variants:` map, or an empty variant | `quill::variant_empty` |
 | a variant field named `value` | `quill::variant_reserved_field_name` |
 | a name two variants declare *differently* | `quill::variant_field_collision` |
 
 A variant cell carries any type a card field may — prose, dates and containers included. Every surface reaches it through the same dispatcher a card field uses — coercion through `conform_value`, validation through `validate_value`, the render floor through `resolve_value`, lowering through the schema-node walk ([PLATE_DATA.md](PLATE_DATA.md)), the content read through `get_content_at` — so it behaves as a card-level field of that type does. What a cell does not carry is `ui.group` (it inherits the discriminant's) or `variants:` of its own.
 
-**Why `variants:` alone stays card-level.** Every other container's shape is a
-function of the schema; a variant's is a function of the schema *and* the
-discriminant. The transform schema projects the union of the worlds — at schema
-time there is no live world — and the wire carries whichever one the document
-selects. Four things hold because that gap is exactly one level deep:
+**Where a world may open.** Every other container's shape is a function of the
+schema; a variant's is a function of the schema *and* the discriminant. The
+transform schema projects the union of the worlds — at schema time there is no
+live world — and the wire carries whichever one the document selects. Four
+things hold because that gap is exactly one level deep:
 
 - `variant_field` resolves a name by a flat scan across the worlds, which is
   what lets `quill::variant_field_collision` guarantee one name is one cell.
@@ -121,8 +121,18 @@ selects. Four things hold because that gap is exactly one level deep:
   branch.
 - `validation::out_of_variant` names one discriminant rather than a chain.
 
-Nesting spends all four, so the restriction is a rule about `variants:` rather
-than about depth.
+So the rule is about that gap, not about depth. A **typed dictionary's property**
+carries `variants:` for the same reason a card field does: the dictionary's own
+live shape is the schema's, so a world opened there deepens the *address* and
+leaves the gap one level. A card's `header.classification` reads and binds as
+`classification` does, one step down.
+
+Every other position would deepen the gap instead, and each is refused at load:
+an array element, whose liveness would vary per index against a form bound once;
+a matrix column, inside a grid the page prints in full; and another variant's
+cell, which would make the plate's one branch a tree and the strand diagnostic a
+chain. The ban is **sticky** — an object inside any of them inherits it, rather
+than laundering a world into a position that cannot hold one.
 
 Two limits follow from the container shape and are accepted, not worked around:
 [`resolve()`](#the-resolved-value-view-resolve) reports **one** rung for the whole
@@ -912,7 +922,7 @@ The type-gated keys:
     falls back to its own choice for the type. Shape is not among its reasons:
     the contract already settled it.
 - `variants`: per-member field sets on an `enum` field, valid only there and only
-  at card level (see [Enum variants](#enum-variants)). `schema()` emits it as
+  where a world may open (see [Enum variants](#enum-variants)). `schema()` emits it as
   authored, keyed by member; the transform schema instead projects the container,
   flattening every world's fields under `properties` with no member scoping.
 - `items`: the element schema, itself a `FieldSchema`; required on `array`
