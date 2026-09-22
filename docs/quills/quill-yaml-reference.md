@@ -450,14 +450,10 @@ hold and may annotate a tick. `type: matrix` is that shape.
 qualifications:
   type: matrix
   description: Tick each qualification held.
-  members:                      # ordered; `group:` optional; `id: Title`
-    - group: Leadership & Command
-      values:
-        sq_cc_candidate: Sq/CC Candidate
-        flight_cc: Flight CC
-    - group: Operations
-      values:
-        dodin_ops: DODIN Ops
+  members:                      # ordered; `id: Title`
+    sq_cc_candidate: Sq/CC Candidate
+    flight_cc: Flight CC
+    dodin_ops: DODIN Ops
   properties:                   # the columns; omit them for a plain checklist
     detail:
       type: plaintext
@@ -466,10 +462,11 @@ qualifications:
 ```
 
 Every member becomes an object of a synthesized `held` (a boolean, `false` by
-default) plus the declared columns. Member **ids** are snake_case and must be
-unique: they are what the wire, the address and the document speak, while the
-**title** is display only. The three keys the matrix writes itself — `held`,
-`title`, `group` — cannot be column names.
+default) plus the declared columns. Member **ids** are snake_case: they are what
+the wire, the address and the document speak, while the **title** is display
+only. The roster is a mapping, so it has one slot per id and a member cannot be
+declared twice. The two keys the matrix writes itself — `held`, `title` —
+cannot be column names.
 
 A document ticks sparsely, and key presence is the tick:
 
@@ -488,7 +485,7 @@ arrives on every render:
 
 ```typst
 #for (id, m) in data.qualifications {
-  [#(if m.held { "[x]" } else { "[ ]" }) #m.title — #m.group #m.detail]
+  [#(if m.held { "[x]" } else { "[ ]" }) #m.title — #m.detail]
 }
 ```
 

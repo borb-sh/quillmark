@@ -51,6 +51,23 @@ Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).
   since the same spelling rests untagged inside every `richtext` field and
   `$seed` overlay, where no hop reaches it. Closes #1647.
 
+### Schema, validation and the resolved view
+
+- refactor(core,wasm)!: **a matrix roster is one flat mapping; group headings
+  are gone.** A block's `group:` was declared in the schema and absent from the
+  value, the address and the vocabulary — the blueprint emits
+  `matrix<a | b | c>` off one flat key space, so the partition reached the
+  visual editor and nowhere else, buying one shared `properties` map for a
+  schema concept, its load rules and a reserved key. `members:` is now
+  `{id: Title}` directly, `MatrixGroup` and the TypeScript `QuillMatrixGroup`
+  are deleted, and `FieldType::Matrix` carries an `IndexMap<String, String>`
+  read through the new `FieldType::matrix_roster`, which replaces
+  `matrix_members`. The projection stops writing `group` onto every member,
+  which returns `group` to the column names a quill may declare, and
+  `quill::duplicate_matrix_member` retires: the roster is a mapping, so it has
+  one slot per id exactly as the stored value does and a duplicate is
+  unspellable on both sides. Closes #1851.
+
 ## v0.114.0 - 2026-09-18
 
 ### Schema, validation and the resolved view

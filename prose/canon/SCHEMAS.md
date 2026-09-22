@@ -161,11 +161,11 @@ ticks what they hold and may annotate a tick:
 ```yaml
 qualifications:
   type: matrix
-  members:                        # ordered; groups optional; id: Title
-    - group: Leadership & Command
-      values: { sq_cc_candidate: Sq/CC Candidate, flight_cc: Flight CC }
-    - group: Operations
-      values: { dodin_ops: DODIN Ops, dco: DCO (Defensive) }
+  members:                        # ordered; id: Title
+    sq_cc_candidate: Sq/CC Candidate
+    flight_cc: Flight CC
+    dodin_ops: DODIN Ops
+    dco: DCO (Defensive)
   properties:                     # the columns; empty is a checklist
     detail: { type: plaintext, inline: true, default: "" }
 ```
@@ -179,12 +179,13 @@ declared columns, so a matrix is skippable by construction and an absent one
 blank-fills to every member unheld, columns at their blanks.
 
 **Members.** Ids are snake_case identifiers
-(`quill::invalid_matrix_member`), unique across the roster
-(`quill::duplicate_matrix_member`); titles are display. Ids are what the wire,
-the address and the document speak. The three keys the matrix writes onto every
-member itself — `held`, `title`, `group` — are reserved as column names
-(`quill::matrix_reserved_column`): a column under one of them would load,
-validate and address, then lose to the projection.
+(`quill::invalid_matrix_member`); titles are display. Ids are what the wire, the
+address and the document speak. The roster is a mapping, so it has one slot per
+id exactly as the stored value does and a duplicate is unspellable on both
+sides. The two keys the matrix writes onto every member itself — `held`,
+`title` — are reserved as column names (`quill::matrix_reserved_column`): a
+column under one of them would load, validate and address, then lose to the
+projection.
 
 **Document.** A mapping keyed by member id, sparse. Key presence implies
 `held: true` unless the mapping spells otherwise, and coercion normalizes to the
@@ -203,11 +204,11 @@ roster is refused as an out-of-domain enum member is
 (`validation::enum_violation`).
 
 **Plate.** Total, like every container: every member present in declaration
-order, each `{held, title, group, …columns}`. A held member's columns cut the
+order, each `{held, title, …columns}`. A held member's columns cut the
 ordinary ladder — the authored value, else the column's `default:`, else its
-blank. `title` and `group` are the
-projection's, written from the roster rather than held as cells, so they carry
-no address and a document authoring one is overwritten. **The wire carries the
+blank. `title` is the projection's, written from the roster rather than held as
+a cell, so it carries no address and a document authoring one is overwritten.
+**The wire carries the
 live world only**: an unheld member's columns render at their blanks whatever
 the document retains, the closed shape variants already hold, so a plate reads
 `held` and its columns without a guard and never prints a stranded answer. At
@@ -234,9 +235,9 @@ quill's maximal fixture.
 **Implementation.** Sugar over a typed dictionary: the loader expands members
 into an `object` whose properties are the member ids, reached through
 `FieldSchema::namespace_props`, so coercion, validation, blank-fill and
-addressing are inherited. Four things are the type's own — `title` and `group`
-written onto the wire, the presence-implies-held spelling, the closed wire for
-unheld members, and obligation gated on the tick — and two walks are overridden
+addressing are inherited. Four things are the type's own — `title` written onto
+the wire, the presence-implies-held spelling, the closed wire for unheld
+members, and obligation gated on the tick — and two walks are overridden
 rather than inherited: seeding, which stops at the matrix, and the blueprint,
 which emits the sparse cell instead of expanding every member.
 
