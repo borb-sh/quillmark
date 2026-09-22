@@ -149,9 +149,10 @@ fn validate_canonical_renders(quill: &Quill, result: &mut ValidationResult, verb
         Err(e) => {
             result.add(
                 Severity::Error,
-                format!("the quill's backend does not resolve: {}", e),
+                "the quill's backend does not resolve",
                 "cli::backend_unresolved",
             );
+            result.issues.extend(e.into_diagnostics());
             return;
         }
     };
@@ -190,10 +191,11 @@ fn validate_canonical_renders(quill: &Quill, result: &mut ValidationResult, verb
                 format!("the {label} document rendered no {format} bytes"),
                 "cli::canonical_document_failed",
             ),
-            Ok(_) => {
+            Ok(rendered) => {
                 if verbose {
                     println!("    {label}: ok");
                 }
+                result.issues.extend(rendered.warnings);
             }
             Err(e) => {
                 result.add(

@@ -216,9 +216,9 @@ export interface Content {
 }
 
 /** One `\n`-separated segment of `Content.text`, in order. `kind` is a closed
- * set: a role outside it is refused wherever content is decoded. Every role
- * spells its payload in `attrs`, so `kind === "heading"` narrows `attrs` to
- * `{ level: number }` with no guard. */
+ * set: `island` reads as `para`, and any other role outside it is refused
+ * wherever content is decoded. Every role spells its payload in `attrs`, so
+ * `kind === "heading"` narrows `attrs` to `{ level: number }` with no guard. */
 export type ContentLine = {
     containers: ContentContainer[];
     /** A within-block hard line break rather than a new block. Omitted (false) in the common case. */
@@ -404,17 +404,16 @@ export type LineOp =
  * one `insert` per slot.
  *
  * Deleting an island needs no op: a `delta` that removes its slot drops the
- * island whole, and a block island's line demotes to `para`. Re-landing it is an
- * `insert` of the full island under its original id; a pasted copy of a live
- * island mints a fresh one.
+ * island whole. Re-landing it is an `insert` of the full island under its
+ * original id; a pasted copy of a live island mints a fresh one.
  *
  * An island is *inline* (a slot inside a paragraph) or a **block** (that slot
  * alone on its own line), and the type settles which: markdown writes a `table`
  * as a block and an image inline. Both lines read `kind: "para"` — the block is
  * the slot's markup, not a role the line carries — so landing a block island is
- * two channels rather than three: `delta` inserts the `\n` that opens the line,
- * `islandOps` inserts the slot. `{ op: "split" }` cannot open that line, since
- * line ops run after island ops.
+ * two channels: `delta` inserts the `\n` that opens the line, `islandOps`
+ * inserts the slot. `{ op: "split" }` cannot open that line, since line ops run
+ * after island ops.
  *
  * A `table` has no inline placement: markdown writes it as a block, so an
  * `insert` whose `at` is not an empty line throws, as does a `set` retyping an
