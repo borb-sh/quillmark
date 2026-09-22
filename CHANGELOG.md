@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.115.0 - 2026-09-22
 
 Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).
 
@@ -170,6 +170,7 @@ Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).
   dormant line is byte-for-byte the live line, and the block round-trips through
   `Document::parse` as the comments it is, reaching neither the validator nor
   the render floor. Closes #1846.
+
 
 ## v0.114.0 - 2026-09-18
 
