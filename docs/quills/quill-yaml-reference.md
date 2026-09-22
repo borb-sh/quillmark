@@ -657,12 +657,21 @@ main:
 Without it, an editor draws a typed table as a stack of collapsed rows that open
 one at a time — right for a row of long prose, wrong for four short cells.
 
-It is a **request, not a contract**. An editor may decline it — a row holding a
-block `richtext` or a container, a width that will not hold the columns — and
-fall back to the record list. Nothing else reads the key: the plate, `validate`
-and the blueprint are all deliberately inert on it, and `schema()` echoes it
-verbatim for the editor to find. On any other field it is a load error,
-`quill::invalid_ui`.
+Declaring it says two things.
+
+**A contract: every column is a leaf.** A column holding an `array`, an `object`
+or a `matrix` addresses below itself and is no longer one cell, so it is a load
+error naming the column — `quill::table_column_not_flat` on
+`appendices[].entries`. Prose is a column whatever its `inline`: how tall a cell
+renders is the editor's call, what it contains is not. On any field that is not a
+typed table at all, the key is `quill::invalid_ui`.
+
+**A request: draw it as a grid.** An editor may still decline — a width that will
+not hold the columns, a cell renderer that will not take a block `richtext` — and
+fall back to the record list. What it will not meet is a shape it cannot draw at
+all; the contract settled that at load. Nothing else reads the key: the plate,
+`validate` and the blueprint are all deliberately inert on it, and `schema()`
+echoes it verbatim for the editor to find.
 
 ### `title` on `items`
 

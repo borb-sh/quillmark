@@ -6,6 +6,22 @@ Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).
 
 ### The quill authoring contract
 
+- feat(core)!: **`ui.layout: table` contracts its columns.** The key was checked
+  for its outer shape alone — `type: array` whose `items` is an `object` — so a
+  row holding a container loaded clean and no editor could draw it: the author
+  wrote a key, the loader took it, and a surface ignored it with no signal at
+  either end. A column that is not a leaf is now
+  `quill::table_column_not_flat`, naming the column (`appendices[].entries`)
+  rather than the field. This splits the key along a seam it always had: a
+  **contract** that every column is a leaf, settled at load, and a **request**
+  to draw a grid, which an editor still declines for a width or a cell renderer
+  it does not have. Shape leaves the decline list, since shape was never a
+  consumer's judgement to make. The boundary is containment, not height — prose
+  is a column whatever its `inline`, because how tall a cell renders is the
+  editor's call and what it contains is not. `FieldType::is_leaf` is the one
+  definition, an exhaustive match a new type cannot skip, and `acroform`'s
+  `is_scalar_or_prose` is gone in favor of it: the same question had two
+  answers in two crates. Part of #1859.
 - feat(core,wasm,python): **the empty document has a constructor.**
   `Quill::empty_document()` is `Document::new` under the quill's own reference,
   so the three canonical documents are three constructors beside

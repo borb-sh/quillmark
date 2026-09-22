@@ -902,15 +902,15 @@ impl QuillConfig {
             );
         }
 
-        // A table draws one row per element and one column per property, so the
-        // shape it asks for is the only shape it reads.
+        // A table draws one row per element and one column per property. The key
+        // is a request to draw a grid and a contract that every column is a leaf:
+        // the shape is refused here, so a consumer declines on capability alone.
         if schema.ui.as_ref().and_then(|u| u.layout).is_some() {
-            let row_is_object = matches!(schema.r#type, FieldType::Array)
-                && schema
-                    .items
-                    .as_deref()
-                    .is_some_and(|i| matches!(i.r#type, FieldType::Object));
-            if !row_is_object {
+            let row = matches!(schema.r#type, FieldType::Array)
+                .then(|| schema.items.as_deref())
+                .flatten()
+                .filter(|i| matches!(i.r#type, FieldType::Object));
+            let Some(row) = row else {
                 return err(
                     "quill::invalid_ui",
                     format!(
@@ -918,6 +918,23 @@ impl QuillConfig {
                          A table draws one row per element and one column per property, \
                          so declare type: array with items: {{ type: object, \
                          properties: … }}, or drop the key."
+                    ),
+                );
+            };
+            if let Some((name, column)) = row
+                .properties
+                .iter()
+                .flatten()
+                .find(|(_, column)| !column.r#type.is_leaf())
+            {
+                return err(
+                    "quill::table_column_not_flat",
+                    format!(
+                        "Field '{owner}[].{name}' is type: {column_type} and cannot be a \
+                         table column: a column holds one cell, and a container addresses \
+                         below it. Declare a leaf type, or drop ui.layout: table from \
+                         '{owner}'.",
+                        column_type = column.r#type.as_str()
                     ),
                 );
             }

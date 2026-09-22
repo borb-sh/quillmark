@@ -898,10 +898,19 @@ The type-gated keys:
 - `ui.layout`: the control a field asks an editor to draw where the shape admits
   more than one and the default reads wrong. `table` is valid only on an `array`
   whose `items` is an `object`; `quill::invalid_ui` names the field anywhere
-  else. A **request, not a contract**: the plate, `validate` and the blueprint
-  are inert on it by design, and a consumer that cannot draw the control — a row
-  holding a block `richtext` or a container, a width that will not hold the
-  columns — falls back to its own choice for the type.
+  else. The key carries two halves:
+  - A **contract**: every column is a leaf, refused at load as
+    `quill::table_column_not_flat` naming the column (`appendices[].entries`).
+    The boundary is containment, not height — prose is a column whatever its
+    `inline`, since how tall a cell renders is the consumer's judgement and what
+    it contains is not. `FieldType::is_leaf` is the one definition, exhaustive
+    over the vocabulary; `acroform` binds an array's elements through the same
+    predicate.
+  - A **request**: draw it as a grid. The plate, `validate` and the blueprint are
+    inert on it by design, and a consumer that cannot draw the control — a width
+    that will not hold the columns, a cell renderer that will not take a block —
+    falls back to its own choice for the type. Shape is not among its reasons:
+    the contract already settled it.
 - `variants`: per-member field sets on an `enum` field, valid only there and only
   at card level (see [Enum variants](#enum-variants)). `schema()` emits it as
   authored, keyed by member; the transform schema instead projects the container,
