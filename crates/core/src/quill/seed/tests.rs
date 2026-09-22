@@ -384,6 +384,43 @@ card_kinds:
     );
 }
 
+/// A container overlay is *merged*, not taken whole: the discriminant it names
+/// selects the world, and that world's `example:` cells fill the ones it leaves
+/// out. Taking it whole would commit a tag carrying none of its world's answers.
+#[test]
+fn a_variant_overlay_naming_only_the_discriminant_fills_its_worlds_examples() {
+    let quill = quill_from_yaml(
+        r#"
+quill: { name: seed_test, version: 1.0.0, backend: typst, description: x }
+main:
+  fields:
+    title: { type: string, default: "" }
+card_kinds:
+  entry:
+    fields:
+      classification:
+        type: enum
+        values: [UNCLASSIFIED, CUI]
+        default: ""
+        variants:
+          CUI:
+            controlled_by: { type: string, example: SAF/AA }
+"#,
+    );
+    let overlay = overlay(json!({ "classification": { "value": "CUI" } }));
+    let card = quill
+        .seed_card("entry", Some(&overlay))
+        .expect("kind exists");
+    let seeded = card
+        .payload()
+        .get("classification")
+        .expect("seeded classification")
+        .as_json()
+        .clone();
+    assert_eq!(seeded["value"], json!("CUI"));
+    assert_eq!(seeded["controlled_by"], json!("SAF/AA"), "{seeded}");
+}
+
 /// `value` stays absent — a `default:` is never persisted — and the container
 /// that leaves it out is a valid card.
 #[test]

@@ -323,7 +323,11 @@ are still there. Remove the field to drop the value for good.
 A variant cell is an ordinary field: any type a card field may carry, prose,
 dates and containers included, reaching the plate exactly as a card-level one
 does. What it cannot carry is `variants:` of its own. `variants:` itself
-is valid only on a card-level `type: enum` field,
+is valid on a `type: enum` field that is a card's own field or a typed
+dictionary's property — `header.classification` reads, binds and branches as
+`classification` does, one step down — and nowhere else: an array element, a
+matrix column and another variant's cell each refuse one, as does an object
+inside any of them. It
 keys only on declared members (never `""`, which owns no field set), and cannot
 declare a field named `value`. Variant fields inherit the discriminant's
 `ui.group`; declaring one inside a variant is an error. A field set shared by
@@ -408,7 +412,7 @@ element type but never the arity, so `default: []` and `default: [{…}]` say
 something no property declaration can. Each element it supplies is completed
 against `items` exactly as an authored element is.
 
-Two keys are card-level regardless of depth: `ui.group` (grouping never descends) and `variants:` (see [Variants](#variants-fields-that-exist-only-for-one-choice)).
+`ui.group` is card-level regardless of depth: grouping never descends. `variants:` reaches one step further — a card field or a typed dictionary's property carries one, and an array element, a matrix column and another variant's cell do not (see [Variants](#variants-fields-that-exist-only-for-one-choice)).
 
 ### `max`: what the page holds
 

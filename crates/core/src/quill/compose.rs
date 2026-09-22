@@ -964,15 +964,30 @@ fn collect_variant_diags(
 ) {
     let payload = card.payload();
     for (name, field) in &schema.fields {
-        if !field.is_variant_bearing() {
-            continue;
-        }
         let Some(json) = payload.get(name).map(|v| v.as_json()) else {
             continue;
         };
-        let Some(object) = json.as_object() else {
-            continue;
-        };
+        collect_stranded(field, json, &base.field(name), out);
+    }
+}
+
+/// Every stranded cell in one field's subtree.
+///
+/// The descent is the placement rule read as a walk: a world opens at card level
+/// or in a typed dictionary's property, so this passes through an `object`'s
+/// declared properties and stops at the container it finds. Nothing below a
+/// container can be one — an element, a column and a cell all carry the ban, and
+/// an object inherits it — so a found container is the end of the path.
+fn collect_stranded(
+    field: &FieldSchema,
+    json: &serde_json::Value,
+    path: &DocPath,
+    out: &mut Vec<Diagnostic>,
+) {
+    let Some(object) = json.as_object() else {
+        return;
+    };
+    if field.is_variant_bearing() {
         let member = field.selected_member(Some(json));
         let live = field.variant_fields(&member);
         for key in object.keys() {
@@ -990,12 +1005,18 @@ fn collect_variant_diags(
             }) else {
                 continue;
             };
-            out.push(out_of_variant_warning(
-                &base.field(name).field(key),
-                &owner,
-                &member,
-            ));
+            out.push(out_of_variant_warning(&path.field(key), &owner, &member));
         }
+        return;
+    }
+    if !matches!(field.r#type, FieldType::Object) {
+        return;
+    }
+    for (name, prop) in field.properties.iter().flatten() {
+        let Some(cell) = object.get(name) else {
+            continue;
+        };
+        collect_stranded(prop, cell, &path.field(name), out);
     }
 }
 

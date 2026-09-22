@@ -394,6 +394,9 @@ fn property_cell(
     prop: &FieldSchema,
     path: &[PathSegment],
 ) -> (JsonValue, Vec<NestedComment>, Vec<Vec<PathSegment>>) {
+    if prop.is_variant_bearing() {
+        return variant_cell(prop, path);
+    }
     if matches!(prop.r#type, FieldType::Matrix { .. }) {
         return (matrix_cell(), Vec::new(), Vec::new());
     }
@@ -454,7 +457,18 @@ fn container_cell(
 /// § "Enum variants").
 fn append_variant(items: &mut CardItems, field: &FieldSchema) {
     push_leading(items, field, field.default.is_some());
+    let (json, nested, fills) = variant_cell(field, &[]);
+    push_container_field(items, &field.name, json, nested, fills, field);
+}
 
+/// The variant container at `path`: the discriminant cell, then every world
+/// under a `# when <MEMBER>:` header. The worlds seat themselves in whichever
+/// container holds the discriminant, so a typed dictionary's property reaches
+/// this through [`property_cell`] carrying its own path.
+fn variant_cell(
+    field: &FieldSchema,
+    path: &[PathSegment],
+) -> (JsonValue, Vec<NestedComment>, Vec<Vec<PathSegment>>) {
     let member = scalar_value(field);
     let mut map = JsonMap::new();
     let mut fills = Vec::new();
@@ -468,7 +482,9 @@ fn append_variant(items: &mut CardItems, field: &FieldSchema) {
         },
     );
     if field.must_fill() {
-        fills.push(vec![PathSegment::Key(VARIANT_DISCRIMINANT_KEY.to_string())]);
+        let mut discriminant = path.to_vec();
+        discriminant.push(PathSegment::Key(VARIANT_DISCRIMINANT_KEY.to_string()));
+        fills.push(discriminant);
     }
 
     let selected = member.as_str();
@@ -478,41 +494,36 @@ fn append_variant(items: &mut CardItems, field: &FieldSchema) {
         // slot is where the mapping has reached, which seats a dormant block
         // where its live form would sit.
         let slot = map.len();
-        nested.push(world_comment(slot, format!("when {name}:")));
+        nested.push(world_comment(path, slot, format!("when {name}:")));
         if Some(name.as_str()) == selected {
-            let (sub_nested, sub_fills) = build_property_mapping(&mut map, world, &[]);
+            let (sub_nested, sub_fills) = build_property_mapping(&mut map, world, path);
             nested.extend(sub_nested);
             fills.extend(sub_fills);
         } else {
-            nested.extend(dormant_world(world, slot));
+            nested.extend(dormant_world(world, path, slot));
         }
     }
 
-    push_container_field(
-        items,
-        &field.name,
-        JsonValue::Object(map),
-        nested,
-        fills,
-        field,
-    );
+    (JsonValue::Object(map), nested, fills)
 }
 
 /// A dormant world's cells as own-line comments. `to_markdown` writes the `# `
 /// itself, so there is no prefixing step here and what a reader uncomments is
 /// byte-for-byte the line the live world would show.
-fn dormant_world(world: &VariantFields, slot: usize) -> Vec<NestedComment> {
+fn dormant_world(world: &VariantFields, path: &[PathSegment], slot: usize) -> Vec<NestedComment> {
     let mut map = JsonMap::new();
+    // Rendered standalone, so the block's own lines are cut against its own
+    // root; `path` seats the finished lines in the container holding them.
     let (nested, fills) = build_property_mapping(&mut map, world, &[]);
     emit_mapping_lines(&map, &nested, &fills)
         .lines()
-        .map(|line| world_comment(slot, line))
+        .map(|line| world_comment(path, slot, line))
         .collect()
 }
 
-fn world_comment(slot: usize, text: impl Into<String>) -> NestedComment {
+fn world_comment(path: &[PathSegment], slot: usize, text: impl Into<String>) -> NestedComment {
     NestedComment {
-        container_path: Vec::new(),
+        container_path: path.to_vec(),
         position: slot,
         text: text.into(),
         inline: false,

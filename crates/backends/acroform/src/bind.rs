@@ -362,6 +362,17 @@ main:
       properties:
         street: { type: string }
         city: { type: string }
+    header:
+      type: object
+      properties:
+        office: { type: string }
+        marking:
+          type: enum
+          values: [UNCLASSIFIED, CUI]
+          default: ""
+          variants:
+            CUI:
+              controlled_by: { type: string }
     refs:
       type: array
       items:
@@ -456,6 +467,22 @@ card_kinds:
             WidgetType::Text { multiline: false }
         );
         assert_eq!(kind("classification.urgent").unwrap(), WidgetType::Checkbox);
+    }
+
+    /// A world a typed dictionary holds binds the same way, one step further
+    /// down: the walk descends the dictionary and meets the container there.
+    #[test]
+    fn a_nested_variant_container_binds_through_the_dictionary() {
+        assert_eq!(
+            kind("header.marking.value").unwrap(),
+            WidgetType::Choice {
+                options: vec!["".into(), "UNCLASSIFIED".into(), "CUI".into()]
+            }
+        );
+        assert_eq!(
+            kind("header.marking.controlled_by").unwrap(),
+            WidgetType::Text { multiline: false }
+        );
     }
 
     #[test]
