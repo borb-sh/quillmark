@@ -540,6 +540,12 @@ empty document (`quiver_test.rs::every_quill_renders_an_empty_document`) and, fo
 the `blueprint()` guarantee above, parse, round-trip, and render each quill's
 generated blueprint (`quiver_test.rs::every_quill_blueprint_round_trips_and_renders`).
 
+A quill outside that directory is bound by the same contract and reaches it
+through `quillmark validate`, which renders all three canonical documents — the
+empty document, the blueprint, the seed — and reports each failure as a
+`cli::canonical_document_failed` error naming which of the three it is
+([CLI.md](CLI.md)).
+
 ## The blueprint and its filled-out twin
 
 The blueprint is the **one** annotated reference document. Its "show me a
@@ -564,10 +570,10 @@ the render floor's `default: → blank` (`blank`, [SCHEMAS.md](SCHEMAS.md)
 
 | Binding | Accessor |
 |---|---|
-| Rust | `QuillConfig::blueprint() -> String`; the filled-out twin is `Quill::seed_document() -> Document` |
-| Wasm | `Quill.blueprint` getter; `Quill.seedDocument()` |
-| Python | `Quill.blueprint` property; `Quill.seed_document()` |
-| CLI | `quillmark blueprint <QUILL_PATH>`; `render` with no input file renders the **seeded** document |
+| Rust | `QuillConfig::blueprint() -> String`; the filled-out twin is `Quill::seed_document() -> Document`; the empty document is `Quill::empty_document() -> Document` |
+| Wasm | `Quill.blueprint` getter; `Quill.seedDocument()`; `Quill.emptyDocument()` |
+| Python | `Quill.blueprint` property; `Quill.seed_document()`; `Quill.empty_document()` |
+| CLI | `quillmark blueprint <QUILL_PATH>`; `render` with no input file renders the **seeded** document; `validate` renders all three |
 
 The Rust example `cargo run -p quillmark-core --example print_blueprint
 -- <quill_name> [<version>]` prints the blueprint for any bundled

@@ -111,6 +111,59 @@ main:
     assert_eq!(summaries, 1, "expected one summary line: {stderr}");
 }
 
+/// The quill authoring contract, which only a render reaches: this plate indexes
+/// a card the seed carries and the empty document does not, so `render` and
+/// `validate --no-render` both pass it and the default check does not.
+#[test]
+fn validate_renders_the_empty_document_a_seed_render_would_miss() {
+    let dir = quill_with_config(
+        r#"quill:
+  name: brittle
+  version: 0.1.0
+  backend: typst
+  description: A plate that indexes a card the empty document does not carry
+typst:
+  plate_file: plate.typ
+main:
+  fields:
+    title:
+      description: title of document
+      type: string
+card_kinds:
+  note:
+    description: A note
+    fields:
+      author:
+        description: who wrote it
+        type: string
+        example: A. Author
+"#,
+    );
+    std::fs::write(
+        dir.path().join("plate.typ"),
+        "#import \"@local/quillmark-helper:0.1.0\": data\n\
+         #data.title\n\
+         #data.at(\"$cards\").at(0).author\n",
+    )
+    .expect("write plate.typ");
+    let path = dir.path().to_str().unwrap();
+
+    let out = run(&["validate", path]);
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "a plate that cannot render the empty document exited {:?}",
+        out.status.code()
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("cli::canonical_document_failed") && stderr.contains("empty"),
+        "the failure does not name the empty document: {stderr}"
+    );
+
+    ok(&["validate", path, "--no-render"]);
+}
+
 /// A config that will not load is a quill failure, and reads as one.
 #[test]
 fn an_unloadable_quill_is_not_an_invalid_argument() {
