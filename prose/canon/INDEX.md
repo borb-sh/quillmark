@@ -11,7 +11,7 @@
 - **[DOCUMENT_STORAGE.md](DOCUMENT_STORAGE.md)** - Versioned JSON serialization of `Document` for database persistence
 - **[QUILL.md](QUILL.md)** - Quill resource file structure and the declarative `Quill` data type
 - **[VERSIONING.md](VERSIONING.md)** - Quill version format and `$quill` reference syntax (selector parsed, not runtime-resolved)
-- **[SCHEMAS.md](SCHEMAS.md)** - `QuillConfig` schema model, native validation, and emission overview
+- **[SCHEMAS.md](SCHEMAS.md)** - `QuillConfig` schema model, native validation, what blocks a render, and emission overview
 - **[BLUEPRINT.md](BLUEPRINT.md)** - Annotated Markdown blueprint for LLM/MCP authoring
 - **[PROGRAMMATIC.md](PROGRAMMATIC.md)** - Building documents in memory (blank canvas, batched mutators) for automation
 - **[CARDS.md](CARDS.md)** - Composable cards delivered on the `$cards` plate-JSON array

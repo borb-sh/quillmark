@@ -37,6 +37,7 @@ One rule governs the lowering, at every depth: **a declared type means the same 
   Absence is the signal. Read `$`-metadata with a total accessor:
   `card.at("$kind", default: none)`, `card.at("$body", default: "")`: never a
   bare `card.$body`
+- A card no declared kind claims (its `$kind` missing or undeclared) keeps its place in `$cards`, fields verbatim and uncoerced, so a plate's `$cards` loop falls through on a kind it does not know ([SCHEMAS.md](SCHEMAS.md#what-blocks-a-render))
 - User payload fields sit flat at the root next to the `$` keys; field names match `[a-z_][a-z0-9_]*` and therefore never collide with `$` metadata
 
 #### A `matrix` field

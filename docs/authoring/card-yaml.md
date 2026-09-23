@@ -56,8 +56,12 @@ on the block's typed metadata.
   is missing `$quill`, parsing fails.
 - **`$kind: <kind>`** identifies a card's kind. The root block's kind is
   `main` by position; `$kind: main` may be omitted or declared explicitly:
-  any other value is a parse error. Every composable card must declare a kind
-  matching `[a-z_][a-z0-9_]*` other than `main`.
+  any other value is a parse error. A composable card names its kind, matching
+  `[a-z_][a-z0-9_]*` other than `main`, from the quill's `card_kinds`. A card
+  with no `$kind`, or with a kind the quill does not declare, still renders,
+  but nothing checks its fields, and a plate shows only the kinds it knows.
+  `quill.validate(doc)` warns on it (`validation::kindless_card`,
+  `validation::unknown_card`) and lists the declared kinds.
 - **`$ext: <mapping>`** is an opaque YAML mapping reserved for out-of-band
   extension data: UI editor state, agent annotations, anything bespoke to a
   consumer that should not reach the rendered output. Round-trips through
@@ -201,7 +205,9 @@ never silent.
 
 Every block after the root is a *card*: a composable, repeatable record. A card
 declares `$kind: <kind>` (matching `[a-z_][a-z0-9_]*`, never `main`) alongside its
-data fields; the Markdown after its closing `~~~` fence is the card's body.
+data fields; the Markdown after its closing `~~~` fence is the card's body. A
+card of a kind declaring `body.enabled: false` renders without its body, and
+`quill.validate(doc)` warns (`validation::body_disabled`).
 
 ```
 ~~~

@@ -614,14 +614,6 @@ mod args_canon {
                 path: "main.when".into(),
                 format: "date".into(),
             },
-            ValidationError::UnknownCard {
-                path: "cards[0]".into(),
-                card: "ghost".into(),
-            },
-            ValidationError::BodyDisabled {
-                path: "cards.sig[0].body".into(),
-                card: "sig".into(),
-            },
             ValidationError::NotInline {
                 path: "main.title".into(),
             },
@@ -713,7 +705,7 @@ mod args_canon {
         }
 
         // The rest have no error variant to iterate: `validation::coercion_failed`
-        // wraps a whole `CoercionError`, and the four warnings are minted at a walk
+        // wraps a whole `CoercionError`, and the warnings are minted at a walk
         // where nothing failed.
         add(
             "validation::coercion_failed",
@@ -741,6 +733,19 @@ mod args_canon {
         add(
             "validation::cardinality",
             crate::quill::compose::cardinality_warning(&path, 37, 38).args,
+        );
+        let card = crate::path::DocPath::card(None, 0);
+        add(
+            "validation::unknown_card",
+            crate::quill::compose::unknown_card_warning(&card, "ghost", &["sig"]).args,
+        );
+        add(
+            "validation::kindless_card",
+            crate::quill::compose::kindless_card_warning(&card, &["sig"]).args,
+        );
+        add(
+            "validation::body_disabled",
+            crate::quill::compose::body_disabled_warning(&path.body(), "sig").args,
         );
         // The `$seed` checks are minted at the overlay walk, so the sample is a
         // document that trips them: two overlays, three codes.

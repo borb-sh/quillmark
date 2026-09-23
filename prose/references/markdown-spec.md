@@ -148,8 +148,9 @@ source order with user fields and YAML comments. They are surfaced through typed
 accessors: `card.quill()`, `card.kind()`, `card.ext()`,
 `card.seed()`: which return `Option<…>`. On a successfully parsed document the root
 card always returns `Some(_)` for both `quill()` and `kind()` (with
-`kind() == "main"`); composable cards return `None` for `quill()` and
-`Some(_)` for `kind()` (any value other than `"main"`). The root's
+`kind() == "main"`); composable cards return `None` for `quill()`, and
+`kind()` returns the declared kind (any value other than `"main"`) or `None`
+for a block that declares none. The root's
 `$kind: main` is synthesised when omitted in source (see §3.3 rules),
 so the typed-accessor invariant holds regardless of whether the
 author wrote the line.
@@ -164,7 +165,9 @@ author wrote the line.
   `main` by position. An explicit `$kind: main` is accepted (round-trips
   byte-equal); omitting it is also accepted and synthesised at parse time.
   A non-`main` `$kind` on the root is a parse error. No composable card may
-  declare `$kind: main`.
+  declare `$kind: main`. A composable block may omit `$kind`: it parses as a
+  *kindless* card and emits without the line. Whether a kind, or its absence,
+  names anything a quill declares is the schema's question, not the parser's.
 - **`$ext: <mapping>`**: an opaque, optional **mapping** reserved for
   out-of-band extension data (UI editor state, agent annotations, …).
   Required to be a YAML mapping (object); scalars and sequences are
@@ -447,8 +450,8 @@ That is: a bare `~~~` opener, the YAML payload (typed `$` system
 metadata, user data fields, and YAML comments interleaved in source
 order), and a `~~~` closer. The root block must declare `$quill`;
 canonical emission also writes `$kind: main` on the root, synthesising
-it when the input omitted the line (see §3.3). Composable cards must
-declare `$kind: <kind>`. A document round-trips to this canonical
+it when the input omitted the line (see §3.3). A composable card emits
+`$kind: <kind>` when it declares one. A document round-trips to this canonical
 shape: fence markers and YAML quoting are normalised, and an opener's info
 string re-emits as bare `~~~`.
 `!must_fill` tags and YAML comments

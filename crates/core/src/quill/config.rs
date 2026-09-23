@@ -1621,9 +1621,8 @@ impl QuillConfig {
                 )
                 .with_code(format!("quill::{slot}_format_violation"))
                 .with_hint(format!("Provide a valid {format} value for the {slot}.")),
-                // UnknownCard and BodyDisabled cannot arise on a literal.
-                // NotInline and NotPlain can, and `literal_content` reports
-                // them at load.
+                // NotInline and NotPlain can arise on a literal, and
+                // `literal_content` reports them at load.
                 _ => continue,
             };
             errors.push(diag);

@@ -264,7 +264,8 @@ a quill seeding past its own cap would warn on a document nobody authored.
 `Quill::validate` warns `validation::cardinality` at the field's own path, args
 `{max, actual}`, at every depth: an array nested in a typed dictionary, a matrix
 member, a live variant world, or another array's elements is capped by its own
-declaration. The obligation family, never a gate — fatal ≡ won't-render is an
+declaration. The surplus is unclaimed input
+([What blocks a render](#what-blocks-a-render)), never a gate — fatal ≡ won't-render is an
 invariant of the diagnostic model ([ERROR.md](ERROR.md#warning-flow)), and a
 document over the limit renders with the plate's own rule for the surplus.
 
@@ -428,8 +429,11 @@ Validation is implemented by a native walker over `QuillConfig` in `quill/valida
 - Returns `Result<(), Vec<ValidationError>>`
 - Collects all errors (does not short-circuit)
 - Emits path-aware errors for top-level fields and card fields
-- Validates each card's `$kind` matches a known card kind
-- Enforces `body.enabled: false` on the main card and on each card kind: body content for a body-disabled card emits `ValidationError::BodyDisabled` (whitespace-only bodies are treated as empty)
+- Judges a card's fields only when its `$kind` names a declared kind. A card
+  with no `$kind` or an undeclared one is unclaimed input, and so is body prose
+  under `body.enabled: false` (a whitespace-only body is empty).
+  `Quill::validate` warns on each, and neither gates render
+  ([What blocks a render](#what-blocks-a-render))
 - `body.enabled: false` also drops `$body` from `build_transform_schema`'s `properties` for that kind: absent, not present-and-empty. This cascades into the Typst helper's generated `_qm-meta` address tables, so `form-field(field:)` rejects a `$body` address on that kind at compile time (see `PLATE_DATA.md`)
 - **Null ≡ absent.** A present-null value (`field:`, `field: null`,
   `field: ~`) carries no data: it is treated exactly like an omitted field.
@@ -672,7 +676,8 @@ survives every write through this lane.
 
 **A document need not be complete to render**: render success is not a
 completeness signal. Shippability is the author's judgment; the engine's only
-hard requirement is that the document be *well-formed* (values coerce). A
+hard requirement is that the document be *well-formed*
+([What blocks a render](#what-blocks-a-render)). A
 `!must_fill` marker and a present-null cell are both renderable, and neither
 surfaces as a diagnostic beyond the non-fatal `validation::must_fill` warning
 (see [Native validation](#native-validation)).
@@ -694,15 +699,6 @@ inherited and each cell cuts its own ladder
 whether its container was written, left out, or seeded from an `array`
 `default:`.
 
-- **Incomplete is renderable.** A document that merely omits a field (or
-  leaves it present-null) renders fine: the field is blank-filled in the
-  projection, and coercion/validation pass. A must-fill field it leaves
-  unauthored warns on the editor surface and still renders.
-- **Malformed is fatal.** The only malformed case is a value that cannot
-  coerce to (or validate against) its declared type. Placeholders and null
-  are *not* malformed: a `!must_fill` marker renders, using its suggested
-  value or blank-filling, and a present-null cell blank-fills like an absent
-  field.
 - **Non-persist invariant.** The blank-fill lives only in the ephemeral
   projection and must never be written back. A blank is
   indistinguishable from authored-empty, so persisting it would erase the
@@ -760,6 +756,65 @@ two apart. This is a retrofit obligation on existing plates, not only guidance
 for new ones. Where the enum declares `variants:` the obligation also earns
 something: the branch is what makes the world's fields readable without a guard
 (see [Enum variants](#enum-variants)).
+
+## What blocks a render
+
+**A render fails only where the engine would have to invent what the author
+wrote.** Everything else renders, and input no declaration claims warns. Input
+short of a complete, well-formed answer falls in one of three classes:
+
+| Class | Input | Render | Signal |
+|---|---|---|---|
+| Incomplete | a declared cell left absent, present-null, or marked `!must_fill` | blank-fills it | `validation::must_fill`, where the schema obliges the cell |
+| Malformed | markup the grammar cannot read, or a value that will not read as its declared cell's type | fails | `parse::*` errors; `validation::type_mismatch`, `enum_violation`, `format_violation`, `coercion_failed`, `not_inline`, `not_plain` |
+| Unclaimed | input no declaration reads | renders; no declared cell reads it | a warning naming the input |
+
+The `validation::*` severity is the class: an `Error` is malformed, a `Warning`
+incomplete or unclaimed ([ERROR.md](ERROR.md#warning-flow)).
+
+**Malformed is fatal because the plate is total.** A declared cell always holds
+a value ([Blank-filled render](#blank-filled-render)), so a value the engine
+cannot read leaves it only substitutes, and each asserts something false. The
+blank says nobody answered. A `default:` says the author accepted it. A guessed
+coercion picks a meaning. `meeting_type: Regular` against
+`values: [regular, special]` fails for that reason.
+
+Markup is the same case one level up. The grammar decides what a line is, never
+its content. A `~~~` line with no blank line above is not an opener, so it reads
+as a code block and warns (`parse::card_fence_missing_blank`). A `~~~` block
+whose payload is not a mapping is a card that cannot be read, and fails, as does
+a `$` key outside the closed set: an unknown `$` key may change what a document
+means, so ignoring one is a guess.
+
+**Unclaimed renders because it displaces nothing.** Every declared cell still
+resolves from its own ladder, so the page asserts nothing the author did not
+write. What it loses is the author's intent, and a typo is the usual cause. So
+the input warns: a render that ignored it otherwise looks identical to one that
+read it.
+
+| Unclaimed input | Code | On the plate |
+|---|---|---|
+| a card with no `$kind` | `validation::kindless_card` | in `$cards`, fields verbatim, no `$kind`, no `$body` |
+| a card whose `$kind` the quill does not declare | `validation::unknown_card` | in `$cards`, fields verbatim, `$kind` as authored, no `$body` |
+| body prose under `body.enabled: false` | `validation::body_disabled` | absent |
+| a variant cell outside the selected world | `validation::out_of_variant` | absent ([Enum variants](#enum-variants)) |
+| elements past an array's `max:` | `validation::cardinality` | verbatim; the plate's own rule leaves the surplus off the page ([Cardinality](#cardinality)) |
+| a `$seed` overlay naming no declared kind or field | `validation::seed_unknown_kind`, `seed_unknown_field` | absent, as `$seed` always is |
+| an undeclared key on a claimed card | none | verbatim |
+
+The last row is the one unclaimed input that draws no warning.
+
+**Unclaimed input stays in the document.** It stores and round-trips as
+authored; only the render passes it by. A schema that later declares the key
+or the kind reads it with no migration.
+
+**Nothing declared reads it.** The schema is a floor, not an allowlist: a
+payload key crosses to the plate verbatim and uncoerced, and a card no kind
+claims keeps its place in `$cards`, so the array stays index-aligned with the
+document. A plate reads such input only through a total accessor and falls
+through on a kind it does not know ([PLATE_DATA.md](PLATE_DATA.md#data-shape)).
+`$body` is schema-defined and a variant's wire is closed, so the prose and
+cells in the table marked absent do not cross.
 
 ## Document seeding
 

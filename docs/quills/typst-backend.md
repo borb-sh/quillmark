@@ -90,7 +90,7 @@ The document body is exposed under the `$body` key, accessed via `data.at("$body
 }
 ```
 
-A card block with no `$kind:` line is a *kindless* card: it reaches the plate carrying its authored fields verbatim and no `$kind`, so a bare `card.at("$kind")` panics on it. Read the discriminator with a default and let unrecognized kinds fall through.
+A card block with no `$kind:` line is a *kindless* card: it reaches the plate carrying its authored fields verbatim and no `$kind`, so a bare `card.at("$kind")` panics on it. A card whose `$kind` the quill does not declare reaches the plate the same way, carrying the `$kind` it names. Neither carries `$body`, and the render does not fail on either: `quill.validate(doc)` warns instead. Read the discriminator with a default and let unrecognized kinds fall through.
 
 ## Typst Packages
 
