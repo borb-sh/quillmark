@@ -42,9 +42,9 @@ Because every column-zero `~~~` block is a card-yaml block, writing a literal
 fenced code block in prose requires the escape hatch: use a **backtick fence**.
 Tildes offer no escape. Adding more does not help — a `~~~~` block is still a
 card (its closer must just be at least as long) — and neither does a language
-info string: `~~~rust` opens a card whose payload is your Rust. The parse then
-fails at that fence's line and names the backtick fence to write instead,
-unless the code happens to read as a card's fields.
+info string: `~~~rust` opens a card whose payload is your Rust. Code that reads
+as a YAML string or list fails at that fence's line and names the backtick
+fence to write instead.
 
 ## System Metadata (`$`)
 

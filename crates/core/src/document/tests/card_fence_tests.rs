@@ -177,6 +177,10 @@ fn tilde_code_in_a_body_fails_at_its_fence() {
         "{}",
         colon.message
     );
+
+    let card = fails("~~~yaml\n$kind: note\nbad-name: 1\n~~~\n");
+    assert_eq!(card.code.as_deref(), Some("parse::invalid_structure"));
+    assert!(!card.message.contains("```"), "{}", card.message);
 }
 
 #[test]

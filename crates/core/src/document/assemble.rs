@@ -393,8 +393,11 @@ pub(super) fn decompose_with_warnings(
         )
         .map_err(|e| match e {
             // Code with a `: ` in it reads as a mapping and fails here instead
-            // of as `PayloadNotMapping`, so a tagged fence carries the same hint.
-            ParseError::InvalidStructure(msg) => match opener_info(markdown, block.start) {
+            // of as `PayloadNotMapping`, so a fence tagged with a language
+            // carries the same hint. `yaml` and `card-yaml` tag real cards.
+            ParseError::InvalidStructure(msg) => match opener_info(markdown, block.start)
+                .filter(|info| !matches!(*info, "yaml" | "card-yaml"))
+            {
                 Some(info) => ParseError::InvalidStructure(format!(
                     "Invalid YAML in the `~~~{}` card block at line {}: {}. {}",
                     info,

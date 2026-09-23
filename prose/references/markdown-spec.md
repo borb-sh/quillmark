@@ -365,9 +365,7 @@ CommonMark-native syntax covers underline.
 not a fenced code block, whatever its info string** (§3.2, §4). A backtick
 fence is the one fence for code. Rationale: the card-yaml format claims the
 tilde fence outright, so whether a block is data never depends on its info
-string. Tilde-fenced code reaches the YAML parser as a payload and fails
-under §10 unless it happens to read as a card; the failure names the
-opener's line and the backtick fence.
+string.
 
 No other syntax deviates from CommonMark. Delimiter-run semantics for `*`,
 `_`, `**`, `__`, and `~~` follow CommonMark and GFM exactly: in particular,
