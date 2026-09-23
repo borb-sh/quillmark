@@ -10,7 +10,7 @@ use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
 use typst::{Library, World};
 
-use crate::helper;
+use crate::{helper, Plate};
 use quillmark_core::{error::{Diagnostic, Severity}, quill::Quill};
 
 /// One `(plate address, count)` per content field holding image islands, which
@@ -49,6 +49,7 @@ pub(crate) struct QuillWorld {
     book: LazyHash<FontBook>,
     fonts: Vec<Font>,
     source: Source,
+    plate_file: Option<String>,
     sources: HashMap<FileId, Source>,
     binaries: HashMap<FileId, Bytes>,
     /// Non-fatal defects from loading the quill's assets and packages. Without
@@ -60,7 +61,7 @@ pub(crate) struct QuillWorld {
 impl QuillWorld {
     pub(crate) fn new(
         source: &Quill,
-        main: &str,
+        plate: &Plate,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let mut sources = HashMap::new();
         let mut binaries = HashMap::new();
@@ -101,17 +102,24 @@ impl QuillWorld {
             Bytes::new(helper::generate_typst_toml().into_bytes()),
         );
 
-        let main_id = file_id(
-            None,
-            VirtualPath::new("main.typ").expect("\"main.typ\" is a valid virtual path"),
-        );
-        let source = Source::new(main_id, main.to_string());
+        // At the project root whatever directory `plate_file` names: the plate
+        // reaches `assets/...` by its path from the quill root.
+        let main_vpath = plate
+            .file
+            .as_deref()
+            .and_then(|f| Path::new(f).file_name()?.to_str())
+            .and_then(|name| VirtualPath::new(name).ok())
+            .unwrap_or_else(|| {
+                VirtualPath::new("main.typ").expect("\"main.typ\" is a valid virtual path")
+            });
+        let source = Source::new(file_id(None, main_vpath), plate.text.clone());
 
         Ok(Self {
             library: LazyHash::new(<Library as typst::LibraryExt>::default()),
             book: LazyHash::new(book),
             fonts,
             source,
+            plate_file: plate.file.clone(),
             sources,
             binaries,
             load_warnings,
@@ -122,6 +130,15 @@ impl QuillWorld {
         &self.load_warnings
     }
 
+    /// The file a diagnostic names for `id`: the plate by its declared
+    /// `plate_file`, anything else by its virtual path.
+    pub(crate) fn display_path(&self, id: FileId) -> String {
+        match &self.plate_file {
+            Some(file) if id == self.source.id() => file.clone(),
+            _ => id.vpath().get_without_slash().to_string(),
+        }
+    }
+
     /// Test-only: boxing collapses codegen's own error, so `open` runs
     /// [`new`](Self::new) and
     /// [`inject_helper_package`](Self::inject_helper_package) itself to keep a
@@ -129,12 +146,12 @@ impl QuillWorld {
     #[cfg(test)]
     pub fn new_with_data(
         source: &Quill,
-        main: &str,
+        plate: &Plate,
         data: &serde_json::Value,
         meta: &crate::SchemaMeta,
     ) -> Result<(Self, Vec<crate::overlay::FieldWindow>), Box<dyn std::error::Error + Send + Sync>>
     {
-        let mut world = Self::new(source, main)?;
+        let mut world = Self::new(source, plate)?;
 
         let (windows, _declined) = world.inject_helper_package(data, meta)?;
 
@@ -593,7 +610,8 @@ name = "minimal-package"
             ("packages/brokenpkg/typst.toml", "this is not [ valid toml"),
             ("packages/brokenpkg/lib.typ", "#let x = 1\n"),
         ]);
-        let world = QuillWorld::new(&quill, "// probe").expect("world builds anyway");
+        let plate = crate::read_plate(&quill).expect("plate");
+        let world = QuillWorld::new(&quill, &plate).expect("world builds anyway");
 
         let codes: Vec<&str> = world
             .load_warnings()
@@ -616,7 +634,8 @@ name = "minimal-package"
     #[test]
     fn a_package_without_a_manifest_is_skipped_with_a_warning() {
         let quill = quill_with(&[("packages/bare/lib.typ", "#let x = 1\n")]);
-        let world = QuillWorld::new(&quill, "// probe").expect("world builds anyway");
+        let plate = crate::read_plate(&quill).expect("plate");
+        let world = QuillWorld::new(&quill, &plate).expect("world builds anyway");
 
         let warning = world
             .load_warnings()
@@ -639,7 +658,8 @@ name = "minimal-package"
             ),
             ("packages/goodpkg/lib.typ", "#let x = 1\n"),
         ]);
-        let world = QuillWorld::new(&quill, "// probe").expect("world");
+        let plate = crate::read_plate(&quill).expect("plate");
+        let world = QuillWorld::new(&quill, &plate).expect("world");
         assert!(
             world.load_warnings().is_empty(),
             "clean quill warned: {:?}",
@@ -659,7 +679,8 @@ name = "minimal-package"
             ),
             ("packages/oldver/lib.typ", "#let x = 1\n"),
         ]);
-        let world = QuillWorld::new(&quill, "// probe").expect("world builds anyway");
+        let plate = crate::read_plate(&quill).expect("plate");
+        let world = QuillWorld::new(&quill, &plate).expect("world builds anyway");
         let codes: Vec<&str> = world
             .load_warnings()
             .iter()
@@ -677,7 +698,8 @@ name = "minimal-package"
             ),
             ("packages/escapee/lib.typ", "#let x = 1\n"),
         ]);
-        let world = QuillWorld::new(&quill, "// probe").expect("world builds anyway");
+        let plate = crate::read_plate(&quill).expect("plate");
+        let world = QuillWorld::new(&quill, &plate).expect("world builds anyway");
         let codes: Vec<&str> = world
             .load_warnings()
             .iter()
@@ -695,7 +717,8 @@ name = "minimal-package"
             "packages/hollow/typst.toml",
             "[package]\nname = \"hollow\"\nversion = \"0.1.0\"\nentrypoint = \"lib.typ\"\n",
         )]);
-        let world = QuillWorld::new(&quill, "// probe").expect("world");
+        let plate = crate::read_plate(&quill).expect("plate");
+        let world = QuillWorld::new(&quill, &plate).expect("world");
         let codes: Vec<&str> = world
             .load_warnings()
             .iter()
