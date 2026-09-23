@@ -327,8 +327,8 @@ impl QuillWorld {
                         Severity::Warning,
                         format!(
                             "Skipping package '{package_name}': it has no typst.toml. Add one \
-                             declaring `[package]` with a `name`; `namespace`, `version` and \
-                             `entrypoint` default to `local`, `0.1.0` and `lib.typ`."
+                             declaring `[package]` with a `name`, `version` and `entrypoint`; \
+                             `namespace` defaults to `local`."
                         ),
                     )
                     .with_code("typst::package_manifest".to_string()),
@@ -501,35 +501,25 @@ fn parse_package_toml(
         .get("package")
         .ok_or("Missing [package] section in typst.toml")?;
 
-    let namespace = package_section
-        .get("namespace")
-        .and_then(|v| v.as_str())
-        .unwrap_or("local")
-        .to_string();
-
-    let name = package_section
-        .get("name")
-        .and_then(|v| v.as_str())
-        .ok_or("Package name is required in typst.toml")?
-        .to_string();
-
-    let version = package_section
-        .get("version")
-        .and_then(|v| v.as_str())
-        .unwrap_or("0.1.0")
-        .to_string();
-
-    let entrypoint = package_section
-        .get("entrypoint")
-        .and_then(|v| v.as_str())
-        .unwrap_or("lib.typ")
-        .to_string();
+    // Typst parses the manifest again on `#import` and refuses one missing any
+    // of these, so a package loaded without them is unimportable.
+    let required = |key: &str| {
+        package_section
+            .get(key)
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| format!("`{key}` is required under [package]"))
+    };
 
     Ok(PackageInfo {
-        namespace,
-        name,
-        version,
-        entrypoint,
+        namespace: package_section
+            .get("namespace")
+            .and_then(|v| v.as_str())
+            .unwrap_or("local")
+            .to_string(),
+        name: required("name")?,
+        version: required("version")?,
+        entrypoint: required("entrypoint")?,
     })
 }
 
@@ -538,21 +528,55 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_package_toml_defaults() {
-        let toml_content = r#"
-[package]
-name = "minimal-package"
-"#;
+    fn a_manifest_defaults_only_its_namespace() {
+        let full = "[package]\nname = \"p\"\nversion = \"0.1.0\"\nentrypoint = \"lib.typ\"\n";
+        assert_eq!(parse_package_toml(full).unwrap().namespace, "local");
 
-        let package_info = parse_package_toml(toml_content).unwrap();
-        assert_eq!(package_info.name, "minimal-package");
-        assert_eq!(package_info.version, "0.1.0");
-        assert_eq!(package_info.namespace, "local");
-        assert_eq!(package_info.entrypoint, "lib.typ");
+        for missing in ["name", "version", "entrypoint"] {
+            let partial: String = full
+                .lines()
+                .filter(|line| !line.starts_with(missing))
+                .map(|line| format!("{line}\n"))
+                .collect();
+            assert!(
+                parse_package_toml(&partial).is_err(),
+                "a manifest without `{missing}` loads"
+            );
+        }
+    }
+
+    #[test]
+    fn a_vendored_package_imports_its_dependency_under_the_declared_namespace() {
+        let quill = quill_with(&[
+            (
+                "packages/outer/typst.toml",
+                "[package]\nnamespace = \"preview\"\nname = \"outer\"\nversion = \"1.2.0\"\n\
+                 entrypoint = \"lib.typ\"\n",
+            ),
+            (
+                "packages/outer/lib.typ",
+                "#import \"@preview/inner:0.1.0\": word\n#let greet = [hi #word]\n",
+            ),
+            (
+                "packages/inner/typst.toml",
+                "[package]\nnamespace = \"preview\"\nname = \"inner\"\nversion = \"0.1.0\"\n\
+                 entrypoint = \"lib.typ\"\n",
+            ),
+            ("packages/inner/lib.typ", "#let word = \"there\"\n"),
+        ]);
+        let world =
+            QuillWorld::new(&quill, "#import \"@preview/outer:1.2.0\": greet\n#greet\n")
+                .expect("world");
+        crate::compile::compile_document(&world).expect("the vendored chain resolves");
     }
 
     /// `extra` files are inserted under their `/`-joined tree paths.
     fn quill_with(extra: &[(&str, &str)]) -> quillmark_core::quill::Quill {
+        quill_with_typst_section("  plate_file: plate.typ\n", extra)
+    }
+
+    /// `typst` is the indented body of the `typst:` section.
+    fn quill_with_typst_section(typst: &str, extra: &[(&str, &str)]) -> quillmark_core::quill::Quill {
         use quillmark_core::quill::{FileTreeNode, Quill};
         let mut root = FileTreeNode::Directory {
             files: HashMap::new(),
@@ -560,11 +584,13 @@ name = "minimal-package"
         root.insert(
             "Quill.yaml",
             FileTreeNode::File {
-                contents: b"quill:\n  name: warn\n  version: 0.1.0\n  backend: typst\n  \
-                            description: load-warning probe\ntypst:\n  plate_file: plate.typ\n\
-                            main:\n  fields:\n    title:\n      type: string\n      \
-                            description: title\n"
-                    .to_vec(),
+                contents: format!(
+                    "quill:\n  name: warn\n  version: 0.1.0\n  backend: typst\n  \
+                     description: load-warning probe\ntypst:\n{typst}\
+                     main:\n  fields:\n    title:\n      type: string\n      \
+                     description: title\n"
+                )
+                .into_bytes(),
             },
         )
         .expect("insert Quill.yaml");
