@@ -1,0 +1,160 @@
+quill:
+  name: meeting_minutes
+  version: "1.0.0"
+  backend: typst
+  description: Minutes of a governing-body meeting — attendance, agenda items, motions, and action items.
+  author: Quillmark docs exercise
+
+typst:
+  plate_file: plate.typ
+
+main:
+  description: One meeting of a board, committee, or steering group.
+  ui:
+    groups:
+      meeting: {}
+      people: { title: "Attendance" }
+      closing: {}
+  body:
+    example: The chair called the meeting to order and welcomed the members.
+  fields:
+    organization:
+      type: string
+      description: The organization whose body met.
+      example: Example Software Foundation
+      ui:
+        group: meeting
+    body_name:
+      type: string
+      description: The body that met.
+      default: Board of Directors
+      ui:
+        group: meeting
+        title: Body
+    meeting_type:
+      type: enum
+      description: The kind of meeting, as the bylaws name it.
+      values: [regular, special, annual]
+      default: regular
+      ui:
+        group: meeting
+    date:
+      type: date
+      description: The day the meeting was held.
+      example: 2026-09-15
+      ui:
+        group: meeting
+    called_to_order:
+      type: datetime
+      description: When the chair called the meeting to order.
+      example: 2026-09-15T18:00
+      ui:
+        group: meeting
+    location:
+      type: string
+      description: Where the meeting was held, or the video link.
+      default: ""
+      ui:
+        group: meeting
+    confidential:
+      type: boolean
+      description: Mark every page as confidential.
+      default: false
+      ui:
+        group: meeting
+
+    chair:
+      type: string
+      description: The presiding officer.
+      example: Ada Lovelace
+      ui:
+        group: people
+    secretary:
+      type: string
+      description: Who took these minutes.
+      example: Grace Hopper
+      ui:
+        group: people
+    quorum:
+      type: integer
+      description: Voting members needed present for quorum; 0 omits the quorum line.
+      default: 0
+      ui:
+        group: people
+    attendees:
+      type: array
+      description: Everyone on the roll, present or not.
+      default: []
+      ui:
+        group: people
+        layout: table
+      items:
+        type: object
+        ui:
+          title: "{name}"
+        properties:
+          name: { type: string, default: "" }
+          role: { type: string, default: "" }
+          voting: { type: boolean, default: true }
+          present: { type: boolean, default: true }
+
+    adjourned:
+      type: datetime
+      description: When the meeting adjourned.
+      example: 2026-09-15T19:30
+      ui:
+        group: closing
+    next_meeting:
+      type: date
+      description: The next scheduled meeting, if set.
+      default: ""
+      ui:
+        group: closing
+
+card_kinds:
+  agenda_item:
+    description: One item of business, with its discussion as the body.
+    ui:
+      title: "{topic}"
+    body:
+      example: Summary of the discussion.
+    fields:
+      topic:
+        type: string
+        description: The item's heading.
+        example: Treasurer's report
+      presenter:
+        type: string
+        default: ""
+      outcome:
+        type: enum
+        description: Whether the item was a report or went to a vote.
+        values: [report, motion]
+        default: report
+        variants:
+          motion:
+            motion_text:
+              type: richtext
+              inline: true
+              description: The motion as moved.
+            moved_by: { type: string }
+            seconded_by: { type: string, default: "" }
+            votes_for: { type: integer, default: 0 }
+            votes_against: { type: integer, default: 0 }
+            abstentions: { type: integer, default: 0 }
+            result:
+              type: enum
+              values: [carried, failed, tabled, withdrawn]
+      action_items:
+        type: array
+        default: []
+        ui:
+          layout: table
+        items:
+          type: object
+          ui:
+            title: "{owner}: {task}"
+          properties:
+            owner: { type: string, default: "" }
+            task: { type: plaintext, inline: true, default: "" }
+            due: { type: date, default: "" }
