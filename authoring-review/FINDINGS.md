@@ -12,8 +12,8 @@ were enough to get a validated quill on the first try. The findings below are
 about what happened off the happy path, and about what an open-source
 ecosystem of quills needs that the engine does not yet give it.
 
-Each finding carries the probe that showed it. Findings marked *docs* come from
-reading the docs, not from running anything.
+Each finding carries the probe that showed it. The two marked *(docs)* come
+from reading the docs, not from running anything.
 
 ## Severity key
 
@@ -117,7 +117,7 @@ mismatches. The docs warn about this (versioning.md). The engine could simply
 refuse a non-string `version`, and a warning in the docs does not replace that
 refusal.
 
-### P2: One schema carries three audiences
+### P2: One schema carries three audiences *(docs)*
 
 A field's declaration serves three audiences at once:
 
@@ -140,7 +140,7 @@ end-to-end example.
 `format: plain|markdown`, `enum`, numbers, dates, containers). Move the
 editor-only distinctions under `ui:`, and teach from a data-only core outward.
 
-### P2: No way to share or reuse a schema
+### P2: No way to share or reuse a schema *(docs)*
 
 Nothing in the docs lets you share field sets across card kinds or across
 quills, extend a base quill, or import a common letterhead/signature block. The
