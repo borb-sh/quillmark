@@ -63,8 +63,8 @@ for a backend session that does not override the incremental-`update` seam
 requested format is outside the backend's `supported_formats`, one code on
 every backend so a caller matches the condition once;
 `backend::invalid_raster_scale`: a `RenderOptions.ppi` or a `render_rgba` scale
-that is not finite and positive, or that would rasterize a page past
-`MAX_RASTER_PIXELS` — ppi and canvas scale are the same quantity in two units,
+that is not finite and positive, or that would rasterize a side of a page past
+`MAX_RASTER_SIDE` — ppi and canvas scale are the same quantity in two units,
 so they share the code and the message names which one was passed;
 `backend::page_index_out_of_bounds` / `backend::page_selection_not_supported`:
 a `RenderOptions::pages` selection naming a page the document does not have, or
@@ -235,7 +235,9 @@ rather than derived from a Typst diagnostic: `typst::path_skipped` (a file
 Typst's `VirtualPath` rejected: asset or package file alike),
 `typst::package_manifest`, and `typst::package_entrypoint_missing`. Each marks a
 file the world had to skip, which otherwise surfaces only as an unresolved
-`#import` pointing at the plate instead of at the defect. They are properties of the quill, not of a compile, so
+`#import` pointing at the plate instead of at the defect. The fourth,
+`typst::unknown_key`, marks a key under `typst:` the backend never
+reads: core stores that section verbatim, so nothing else would report it. They are properties of the quill, not of a compile, so
 `QuillWorld` holds them and the session serves them ahead of every compile's
 own: an `update` swaps the compile half and keeps these.
 

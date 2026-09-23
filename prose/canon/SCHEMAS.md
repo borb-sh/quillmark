@@ -242,8 +242,9 @@ obliges nothing, and an unticked member asks for nothing.
 **Seeding.** A matrix seeds empty. It holds no literal, and a column's
 `example:` documents one cell's shape rather than which members a fresh document
 ticks. The blueprint shows the vocabulary through its roster
-([BLUEPRINT.md](BLUEPRINT.md#inline-annotation)); a filled specimen is the
-quill's maximal fixture.
+([BLUEPRINT.md](BLUEPRINT.md#inline-annotation)) and the columns through one
+illustrative held member in the `# e.g.` line; a filled specimen is the quill's
+maximal fixture.
 
 **Implementation.** Sugar over a typed dictionary: the loader expands members
 into an `object` whose properties are the member ids, reached through
@@ -287,8 +288,8 @@ forced, not chosen:
 | `plaintext` | the literal string | `from_plaintext`/`to_plaintext` are inverses on plain content and `is_plain` excludes every mark, so string rest loses nothing, while object rest corrupts at emit |
 
 Emit is schema-free: `project_content_field` routes every canonical content
-object it finds through `export::to_markdown`, and it cannot sniff the codec
-from the shape (a `richtext` content that happens to be plain is
+object in a field's value, at any depth, through `export::to_markdown`, and it
+cannot sniff the codec from the shape (a `richtext` content that happens to be plain is
 indistinguishable from a `plaintext` one). An object-rest `plaintext` field
 holding `a *literal* line` would therefore emit markdown-escaped
 (`a \*literal\* line`), and a re-parse would read the backslashes as

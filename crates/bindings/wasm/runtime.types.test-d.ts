@@ -11,8 +11,6 @@ import type {
 	Artifact as CanonicalArtifact,
 	OutputFormat as CanonicalOutputFormat,
 	PageSize as CanonicalPageSize,
-	PaintOptions as CanonicalPaintOptions,
-	PaintResult as CanonicalPaintResult,
 	FieldRegion as CanonicalFieldRegion,
 	ChangeSet as CanonicalChangeSet,
 	ContentHit as CanonicalContentHit
@@ -27,8 +25,6 @@ import type {
 	Artifact as TypstArtifact,
 	OutputFormat as TypstOutputFormat,
 	PageSize as TypstPageSize,
-	PaintOptions as TypstPaintOptions,
-	PaintResult as TypstPaintResult,
 	FieldRegion as TypstFieldRegion,
 	ChangeSet as TypstChangeSet,
 	ContentHit as TypstContentHit
@@ -39,7 +35,7 @@ import type {
 // error under noUnusedLocals.
 //
 // Mutual assignability alone cannot catch a missing OPTIONAL member: for an
-// all-optional interface pair (RenderOptions, PaintOptions) both assignments
+// all-optional interface pair (RenderOptions) both assignments
 // compile even when one side lacks a member entirely. The `KeysEqual`
 // assertions close that hole: `true` only when both sides declare exactly
 // the same property names.
@@ -76,16 +72,6 @@ const pageSizeB: TypstPageSize = {} as CanonicalPageSize;
 void pageSizeA;
 void pageSizeB;
 
-const paintOptionsA: CanonicalPaintOptions = {} as TypstPaintOptions;
-const paintOptionsB: TypstPaintOptions = {} as CanonicalPaintOptions;
-void paintOptionsA;
-void paintOptionsB;
-
-const paintResultA: CanonicalPaintResult = {} as TypstPaintResult;
-const paintResultB: TypstPaintResult = {} as CanonicalPaintResult;
-void paintResultA;
-void paintResultB;
-
 const fieldRegionA: CanonicalFieldRegion = {} as TypstFieldRegion;
 const fieldRegionB: TypstFieldRegion = {} as CanonicalFieldRegion;
 void fieldRegionA;
@@ -105,8 +91,6 @@ const renderResultKeys: KeysEqual<CanonicalRenderResult, TypstRenderResult> = tr
 const renderOptionsKeys: KeysEqual<CanonicalRenderOptions, TypstRenderOptions> = true;
 const artifactKeys: KeysEqual<CanonicalArtifact, TypstArtifact> = true;
 const pageSizeKeys: KeysEqual<CanonicalPageSize, TypstPageSize> = true;
-const paintOptionsKeys: KeysEqual<CanonicalPaintOptions, TypstPaintOptions> = true;
-const paintResultKeys: KeysEqual<CanonicalPaintResult, TypstPaintResult> = true;
 const fieldRegionKeys: KeysEqual<CanonicalFieldRegion, TypstFieldRegion> = true;
 const changeSetKeys: KeysEqual<CanonicalChangeSet, TypstChangeSet> = true;
 const contentHitKeys: KeysEqual<CanonicalContentHit, TypstContentHit> = true;
@@ -114,8 +98,6 @@ void renderResultKeys;
 void renderOptionsKeys;
 void artifactKeys;
 void pageSizeKeys;
-void paintOptionsKeys;
-void paintResultKeys;
 void fieldRegionKeys;
 void changeSetKeys;
 void contentHitKeys;

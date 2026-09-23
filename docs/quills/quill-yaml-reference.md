@@ -505,7 +505,8 @@ matrix is skippable; leave one off and it is required *inside a ticked member*,
 which is how "required when held" is spelled. The matrix itself takes no
 `default:` or `example:` and seeds empty, so a fresh document ticks nothing and
 the blueprint shows the vocabulary in the field's annotation,
-`# matrix<sq_cc_candidate | flight_cc | dodin_ops>`. And each cell is an
+`# matrix<sq_cc_candidate | flight_cc | dodin_ops>`, and its columns in a
+leading `# e.g.` line that ticks the first member. And each cell is an
 ordinary address — `qualifications.flight_cc.held` regions on Typst and binds a
 checkbox on acroform — so an editor unticks by writing `held: false` rather than
 by dropping the key, and the detail survives.
@@ -871,16 +872,13 @@ Backend-specific configuration for the Typst renderer.
 | Key          | Type   | Required | Description |
 |--------------|--------|----------|-------------|
 | `plate_file` | string | no       | Path (relative to the quill root) to the Typst template the backend compiles |
-| `packages`   | array  | no       | Typst packages the template depends on |
 
 ```yaml
 typst:
   plate_file: plate.typ
-  packages:
-    - "@preview/appreciated-letter:0.1.0"
 ```
 
-See the [Typst Backend Guide](typst-backend.md) for details.
+Any other key under `typst` is ignored, with a `typst::unknown_key` warning on each render. Packages are not declared here: a quill vendors them under `packages/`, as the [Typst Backend Guide](typst-backend.md#typst-packages) describes.
 
 ---
 

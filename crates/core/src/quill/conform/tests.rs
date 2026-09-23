@@ -35,6 +35,13 @@ main:
           type: plaintext
         blurb:
           type: richtext
+    rows:
+      type: array
+      items:
+        type: object
+        properties:
+          cell:
+            type: richtext
 card_kinds:
   entry:
     fields:
@@ -70,6 +77,8 @@ tags:
 meta:
   label: keep *this*
   blurb: and **this**
+rows:
+  - cell: row **one**
 ~~~
 
 Main body.
@@ -100,6 +109,7 @@ fn parse_then_conform_equals_typed_write() {
             json!({ "label": "keep *this*", "blurb": "and **this**" }),
         )
         .unwrap();
+        w.set("rows", json!([{ "cell": "row **one**" }])).unwrap();
         let mut card = w.card(0).unwrap();
         card.set("body", "card **body**").unwrap();
         card.set("caption", "raw *text*").unwrap();
@@ -135,6 +145,26 @@ fn rest_is_per_codec_at_every_depth() {
         card.payload().get("caption").unwrap().as_json(),
         &json!("raw *text*")
     );
+}
+
+#[test]
+fn a_nested_content_cell_emits_markdown_and_the_bound_door_restores_it() {
+    let quill = quill();
+    let (doc, _) = parse_bound(&quill, MD);
+
+    let md = doc.to_markdown();
+    for line in [
+        "  - one **bold**\n",
+        "  blurb: and **this**\n",
+        "  - cell: row **one**\n",
+    ] {
+        assert!(md.contains(line), "missing {line:?}:\n{md}");
+    }
+    assert!(!md.contains("islands"), "a content tree reached card-yaml:\n{md}");
+
+    let (back, warnings) = parse_bound(&quill, &md);
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(bytes(&back), bytes(&doc));
 }
 
 #[test]

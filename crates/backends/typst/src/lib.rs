@@ -428,14 +428,14 @@ impl Backend for TypstBackend {
         source: &Quill,
         json_data: &serde_json::Value,
     ) -> Result<LiveSession, RenderError> {
-        let plate_content = read_plate(source)?;
+        let plate = read_plate(source)?;
 
         let transform_schema = build_transform_schema(source.config());
         let schema_meta = SchemaMeta::from_schema_json(transform_schema.as_json());
         // Built in two steps rather than through `new_with_data` so codegen's own
         // diagnostic code survives: boxing it into the world-creation error would
         // relabel a bad date `typst::world_creation`.
-        let mut world = world::QuillWorld::new(source, &plate_content).map_err(|e| {
+        let mut world = world::QuillWorld::new(source, &plate).map_err(|e| {
             RenderError::coded(
                 "typst::world_creation",
                 format!("Failed to create Typst compilation environment: {e}"),
@@ -478,10 +478,16 @@ impl Default for TypstBackend {
     }
 }
 
+pub(crate) struct Plate {
+    /// `typst.plate_file` as declared; `None` for a quill declaring none.
+    pub(crate) file: Option<String>,
+    pub(crate) text: String,
+}
+
 /// The plate is a Typst-only notion: its filename is declared under the
 /// `typst:` backend-config section as `plate_file` and the source lives in the
 /// quill's file bundle. A quill declaring no `plate_file` renders an empty one.
-fn read_plate(source: &Quill) -> Result<String, RenderError> {
+fn read_plate(source: &Quill) -> Result<Plate, RenderError> {
     let plate_file = source
         .config()
         .backend_config
@@ -489,7 +495,10 @@ fn read_plate(source: &Quill) -> Result<String, RenderError> {
         .and_then(|v| v.as_str());
 
     let Some(plate_file) = plate_file else {
-        return Ok(String::new());
+        return Ok(Plate {
+            file: None,
+            text: String::new(),
+        });
     };
 
     let bytes = source.files().get_file(plate_file).ok_or_else(|| {
@@ -499,11 +508,15 @@ fn read_plate(source: &Quill) -> Result<String, RenderError> {
         )
     })?;
 
-    String::from_utf8(bytes.to_vec()).map_err(|e| {
+    let text = String::from_utf8(bytes.to_vec()).map_err(|e| {
         RenderError::coded(
             "typst::invalid_utf8",
             format!("plate file '{plate_file}' is not valid UTF-8: {e}"),
         )
+    })?;
+    Ok(Plate {
+        file: Some(plate_file.to_string()),
+        text,
     })
 }
 

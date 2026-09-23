@@ -107,6 +107,16 @@ Per field, in order:
    defaultless richtext field with an `example:` therefore keeps the `# e.g.`
    line (see "Richtext fields").
 
+   A `matrix` declaring columns fills the slot its refused `example:` leaves
+   empty with one held member:
+   `# e.g. {flight_cc: {held: true, detail: 333 TRS/DO, earned: !must_fill}}`.
+   The member is the roster's first and is illustrative only; the line exists
+   to name the columns and the `held: true` a mapping needs to tick. Each
+   column shows its `example:`, else its `default:`, else its container shape,
+   else `!must_fill` — the blueprint's own spelling of a cell awaiting a value,
+   where a type name would read as a string. A checklist (no columns) has no
+   line: the bare tick is its whole spelling.
+
 That's it. There is no leading `# required`, `# enum:`, `# default:`, or
 `# type:`: those collapse into the inline.
 
@@ -135,7 +145,8 @@ Form: **`# <type>[<format>]`**
     declaration order, structurally the `enum` form so no third annotation is
     minted. The cell carries the sparse spelling only — `{}` on a fresh
     blueprint, since a matrix seeds empty — so a model sees the whole vocabulary
-    in the annotation, cannot invent a member, and has nothing to delete
+    in the annotation, cannot invent a member, and has nothing to delete. The
+    columns ride the leading `# e.g.` line
   - omitted for `string`, `integer`, `number`, `boolean`, `object`
     (nothing meaningful to refine).
 
@@ -185,7 +196,7 @@ Examples:
 | `date: !must_fill # date<YYYY-MM-DD>` | must-fill date |
 | `severity: !must_fill # enum<low \| medium \| high>` | must-fill enum |
 | `endorsements: !must_fill # array<string>` under a leading `# up to 3` | a capped array: the cap is the leading line, the type the inline |
-| `qualifications: {} # matrix<flight_cc \| dodin_ops>` | a matrix: the whole vocabulary in the annotation, nothing ticked |
+| `qualifications: {} # matrix<flight_cc \| dodin_ops>` | a matrix: the whole vocabulary in the annotation, nothing ticked; a leading `# e.g.` names its columns, if it has any |
 | `$quill: cmu_letter@0.1.0 # keep verbatim` | quill binding metadata, emitted verbatim; the inline reminder guards against dropping the line |
 | `$kind: skill` followed by `# composable (0..N)` and `# sample card; delete if not needed` | repeat the entire `~~~` … `~~~` block per instance, or delete it if none are needed |
 

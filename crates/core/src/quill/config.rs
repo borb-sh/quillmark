@@ -1804,6 +1804,24 @@ impl QuillConfig {
         Self::is_snake_case_identifier(fixed).then(|| fixed.to_string())
     }
 
+    /// `quill.version` as written. A plain `1.10` is the number 1.1 once
+    /// parsed into a `Value`; asked for a string, saphyr hands back the scalar's
+    /// source text instead.
+    fn version_source_text(yaml_content: &str) -> Option<String> {
+        #[derive(serde::Deserialize)]
+        struct Header {
+            version: Option<String>,
+        }
+        #[derive(serde::Deserialize)]
+        struct Root {
+            quill: Header,
+        }
+        serde_saphyr::from_str::<Root>(yaml_content)
+            .ok()?
+            .quill
+            .version
+    }
+
     /// Parse QuillConfig from YAML content while collecting non-fatal warnings.
     ///
     /// Returns `Ok((config, warnings))` on success, or `Err(errors)` containing all
@@ -1941,12 +1959,11 @@ impl QuillConfig {
 
         let version = match quill_section.get("version") {
             Some(version_val) => {
-                // A YAML `1.0` arrives as a number; rendering the JSON number
-                // keeps its fraction, which `f64::to_string` drops (`1.0` → `1`).
                 let raw = if let Some(s) = version_val.as_str() {
                     s.to_string()
                 } else if version_val.is_number() {
-                    version_val.to_string()
+                    Self::version_source_text(yaml_content)
+                        .unwrap_or_else(|| version_val.to_string())
                 } else {
                     errors.push(
                         Diagnostic::new(

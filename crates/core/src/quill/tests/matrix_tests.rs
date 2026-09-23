@@ -337,16 +337,119 @@ fn a_members_cells_are_addressable() {
 
 /// The roster rides the format slot as an enum's domain does, and the body
 /// carries the sparse spelling: no third annotation form, and nothing for a
-/// model to delete.
+/// model to delete. A checklist's bare tick is its whole spelling, so it takes
+/// no hint line.
 #[test]
 fn the_blueprint_shows_the_vocabulary_in_the_annotation_and_ticks_nothing() {
-    let bp = config().blueprint();
+    let checklist = quill_yaml().replace(
+        "      properties:\n        detail: { type: plaintext, inline: true, default: \"\" }\n",
+        "",
+    );
+    let bp = QuillConfig::from_yaml(&checklist).expect("loads").blueprint();
     assert!(
-        bp.contains(
-            "qualifications: {} # matrix<sq_cc_candidate | flight_cc | dodin_ops | cyber_200>\n"
-        ),
+        bp.contains(concat!(
+            "# Matrix probe\n",
+            "qualifications: {} # matrix<sq_cc_candidate | flight_cc | dodin_ops | cyber_200>\n",
+        )),
         "{bp}"
     );
+}
+
+/// A matrix declaring columns names them in its `# e.g.` line, spelled as a
+/// held member so the tick a mapping needs is on the page. Pasted into the
+/// cell, the hint is a member the schema accepts, and the placeholder column is
+/// the one a held member obliges.
+#[test]
+fn the_blueprint_hint_spells_a_held_member_with_every_column() {
+    let yaml = quill_yaml().replace(
+        "detail: { type: plaintext, inline: true, default: \"\" }",
+        "detail: { type: plaintext, inline: true, default: \"\", example: \"333 TRS/DO, 2024\" }\n        \
+         unit: { type: string, default: HQ }\n        \
+         earned: { type: date }",
+    );
+    let bp = QuillConfig::from_yaml(&yaml).expect("loads").blueprint();
+    let hint = "{sq_cc_candidate: {held: true, detail: \"333 TRS/DO, 2024\", unit: HQ, earned: !must_fill}}";
+    assert!(
+        bp.contains(&format!(
+            "# e.g. {hint}\nqualifications: {{}} # matrix<sq_cc_candidate | flight_cc | dodin_ops | cyber_200>\n"
+        )),
+        "{bp}"
+    );
+
+    let quill = quill_from_yaml(&yaml);
+    let markdown =
+        format!("~~~\n$quill: matrix_probe@0.1.0\n$kind: main\nqualifications: {hint}\n~~~\n");
+    let pasted = Document::parse(&markdown).expect("the hint parses").document;
+    let wire = quill.compile_data(&pasted).expect("compiles")["qualifications"]
+        ["sq_cc_candidate"]
+        .clone();
+    assert_eq!(wire["held"], json!(true));
+    assert_eq!(wire["detail"]["text"], json!("333 TRS/DO, 2024"));
+    let found: Vec<(String, String)> = quill
+        .validate(&pasted)
+        .into_iter()
+        .map(|d| (d.code.unwrap_or_default(), d.path.unwrap_or_default()))
+        .collect();
+    assert_eq!(
+        found,
+        [(
+            "validation::must_fill".to_string(),
+            "main.qualifications.sq_cc_candidate.earned".to_string()
+        )]
+    );
+}
+
+/// A matrix below a typed dictionary or a table row carries the same hint at
+/// its own slot, and the blueprint still round-trips.
+#[test]
+fn a_nested_matrix_carries_its_hint_at_its_own_slot() {
+    let yaml = r#"
+quill: { name: x, version: 1.0.0, backend: typst, description: x }
+main:
+  fields:
+    record:
+      type: object
+      properties:
+        quals:
+          type: matrix
+          members: { flight_cc: Flight CC }
+          properties:
+            detail: { type: string, example: Ops }
+    rows:
+      type: array
+      items:
+        type: object
+        properties:
+          quals:
+            type: matrix
+            members: { flight_cc: Flight CC }
+            properties:
+              detail: { type: string, example: Cyber }
+"#;
+    let bp = QuillConfig::from_yaml(yaml).expect("loads").blueprint();
+    assert!(
+        bp.contains(concat!(
+            "record: # object\n",
+            "  # e.g. {flight_cc: {held: true, detail: Ops}}\n",
+            "  quals: {} # matrix<flight_cc>\n",
+        )),
+        "{bp}"
+    );
+    assert!(
+        bp.contains(concat!(
+            "rows: # array<object>\n",
+            "  -\n",
+            "    # e.g. {flight_cc: {held: true, detail: Cyber}}\n",
+            "    quals: {} # matrix<flight_cc>\n",
+        )),
+        "{bp}"
+    );
+
+    let doc1 = Document::parse(&bp).expect("blueprint parses").document;
+    let doc2 = Document::parse(&doc1.to_markdown())
+        .expect("re-emit parses")
+        .document;
+    assert_eq!(doc1, doc2);
 }
 
 /// `held` is the tick the type synthesizes; `title` is written onto every
