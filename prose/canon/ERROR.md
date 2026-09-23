@@ -140,7 +140,8 @@ families:
   malformed input, and the document does not render; a `Warning` is incomplete
   or unclaimed input, which renders. The warnings are `must_fill`,
   `cardinality`, `out_of_variant`, `unknown_card`, `kindless_card`,
-  `body_disabled`, and the `$seed` checks.
+  `body_disabled`, and the `$seed` checks, which warn whatever their class
+  because no render reads `$seed`.
   This is the editor-facing surface: the render gate consults only the fatal
   set, and carries none of the warnings into `RenderResult.warnings`. Values
   are judged in the form the render floor builds from them
