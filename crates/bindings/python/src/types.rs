@@ -34,8 +34,8 @@ impl PyQuillmark {
     /// Render `doc` against `quill` in one shot, resolving `quill`'s backend on
     /// this engine. The default `output_format` falls back to the backend's
     /// first supported format. `ppi` (raster formats only, default 144) must be
-    /// finite, above 0, and small enough to keep every rendered page under
-    /// [`MAX_RASTER_PIXELS`](quillmark_core::backend::MAX_RASTER_PIXELS).
+    /// finite, above 0, and small enough to keep both sides of every rendered
+    /// page within [`MAX_RASTER_SIDE`](quillmark_core::backend::MAX_RASTER_SIDE).
     /// Raises `QuillmarkError` (`engine::backend_not_found`) when the backend
     /// is not registered, or `backend::invalid_raster_scale` for a `ppi`
     /// outside that range.

@@ -242,8 +242,9 @@ obliges nothing, and an unticked member asks for nothing.
 **Seeding.** A matrix seeds empty. It holds no literal, and a column's
 `example:` documents one cell's shape rather than which members a fresh document
 ticks. The blueprint shows the vocabulary through its roster
-([BLUEPRINT.md](BLUEPRINT.md#inline-annotation)); a filled specimen is the
-quill's maximal fixture.
+([BLUEPRINT.md](BLUEPRINT.md#inline-annotation)) and the columns through one
+illustrative held member in the `# e.g.` line; a filled specimen is the quill's
+maximal fixture.
 
 **Implementation.** Sugar over a typed dictionary: the loader expands members
 into an `object` whose properties are the member ids, reached through

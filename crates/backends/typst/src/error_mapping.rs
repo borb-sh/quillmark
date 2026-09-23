@@ -66,7 +66,7 @@ fn resolve_span_to_location(span: typst::syntax::DiagSpan, world: &QuillWorld) -
     use typst::{World, WorldExt};
 
     // A diagnostic from an injected helper or vendored package reports
-    // coordinates in that file, not main.typ. Detached spans fall back to main.
+    // coordinates in that file, not the plate. Detached spans fall back to main.
     let source_id = span.id().unwrap_or_else(|| world.main());
     let source = world.source(source_id).ok()?;
     let range = world.range(span)?;
@@ -74,7 +74,7 @@ fn resolve_span_to_location(span: typst::syntax::DiagSpan, world: &QuillWorld) -
     let (line, column) = line_and_column(source.text(), range.start);
 
     Some(Location::new(
-        source.id().vpath().get_without_slash().to_string(),
+        world.display_path(source_id),
         line as u32,
         column as u32,
     ))
@@ -116,7 +116,8 @@ mod tests {
     fn fixture_world() -> Option<QuillWorld> {
         let tree = walk_fixture()?;
         let source = Quill::from_tree(tree).expect("load source");
-        Some(QuillWorld::new(&source, "// Test").expect("create world"))
+        let plate = crate::read_plate(&source).expect("plate");
+        Some(QuillWorld::new(&source, &plate).expect("create world"))
     }
 
     /// The fixture's `typst.plate_file: plate.typ` makes the backend read this.
