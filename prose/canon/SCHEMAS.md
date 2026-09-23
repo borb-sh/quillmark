@@ -766,12 +766,13 @@ short of a complete, well-formed answer falls in one of three classes:
 
 | Class | Input | Render | Signal |
 |---|---|---|---|
-| Incomplete | a declared cell left absent, present-null, or marked `!must_fill` | blank-fills it | `validation::must_fill`, where the schema obliges the cell |
+| Incomplete | a declared cell left absent, present-null, or marked `!must_fill` | blank-fills it | `validation::must_fill`, at a marker or where the schema obliges the cell |
 | Malformed | markup the grammar cannot read, or a value that will not read as its declared cell's type | fails | `parse::*` errors; `validation::type_mismatch`, `enum_violation`, `format_violation`, `coercion_failed`, `not_inline`, `not_plain` |
 | Unclaimed | input no declaration reads | renders; no declared cell reads it | a warning naming the input |
 
 The `validation::*` severity is the class: an `Error` is malformed, a `Warning`
-incomplete or unclaimed ([ERROR.md](ERROR.md#warning-flow)).
+incomplete or unclaimed ([ERROR.md](ERROR.md#warning-flow)). No render reads
+`$seed`, so every check on it warns, a malformed overlay value included.
 
 **Malformed is fatal because the plate is total.** A declared cell always holds
 a value ([Blank-filled render](#blank-filled-render)), so a value the engine

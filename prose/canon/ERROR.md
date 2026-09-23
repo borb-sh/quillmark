@@ -22,7 +22,9 @@ severity.
 
 **`Diagnostic`**: severity, optional error `code`, `message`, optional `location` (text anchor: file/line/column), optional `path` (document-model anchor, dotted/bracketed path into the typed `Document`, set by schema validation/coercion), optional `hint`. `location` and `path` are independent and may co-exist.
 
-**`ParseError`**: parsing-stage error enum, `InputTooLarge`, `TooManyFields`, `TooManyCards`, `InvalidStructure`, `EmptyInput`, `MissingQuill`, `InvalidQuillReference`, `BodyImport`, `YamlErrorWithLocation`; converts to `Diagnostic` via `to_diagnostic()`. The `InvalidQuillReference` case (`parse::invalid_quill_reference`) attaches the canonical `$quill` grammar (`quill_ref_hint()`) as the diagnostic hint. That hint is the single source of truth for the reference grammar: bindings surface it verbatim (e.g. WASM `Document.quillRefHint`) rather than re-stating the rule.
+**`ParseError`**: parsing-stage error enum, `InputTooLarge`, `TooManyFields`, `TooManyCards`, `InvalidStructure`, `EmptyInput`, `MissingQuill`, `InvalidQuillReference`, `BodyImport`, `PayloadNotMapping`, `YamlErrorWithLocation`; converts to `Diagnostic` via `to_diagnostic()`. The `InvalidQuillReference` case (`parse::invalid_quill_reference`) attaches the canonical `$quill` grammar (`quill_ref_hint()`) as the diagnostic hint. That hint is the single source of truth for the reference grammar: bindings surface it verbatim (e.g. WASM `Document.quillRefHint`) rather than re-stating the rule.
+
+The `PayloadNotMapping` case (`parse::payload_not_mapping`) is a card-yaml payload that is YAML but not a mapping, usually tilde-fenced code. It locates at the block's opening fence, and its hint names the backtick fence, spelled with the opener's info string.
 
 The diagnostic's `message` is the variant's `Display` rendering, so the
 `#[error]` attribute is the one place a variant's English is spelled and a Rust
@@ -140,7 +142,8 @@ families:
   malformed input, and the document does not render; a `Warning` is incomplete
   or unclaimed input, which renders. The warnings are `must_fill`,
   `cardinality`, `out_of_variant`, `unknown_card`, `kindless_card`,
-  `body_disabled`, `unknown_field`, and the `$seed` checks.
+  `body_disabled`, `unknown_field`, and the `$seed` checks, which warn
+  whatever their class because no render reads `$seed`.
   This is the editor-facing surface: the render gate consults only the fatal
   set, and carries none of the warnings into `RenderResult.warnings`. Values
   are judged in the form the render floor builds from them
@@ -431,6 +434,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `parse::too_many_cards` | `count`, `max` | structured |
 | `parse::invalid_quill_reference` | `value` | structured, coarser |
 | `parse::yaml_error_with_location` | `blockIndex` | structured, coarser |
+| `parse::payload_not_mapping` | `actual`, `info`? | structured |
 | `parse::empty_input` | — | code-determined |
 | `parse::invalid_structure` | — | fallback |
 | `parse::missing_quill` | — | fallback |
