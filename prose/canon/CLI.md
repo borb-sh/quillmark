@@ -6,9 +6,10 @@
 ## TL;DR
 
 `quillmark-cli` is a `clap` surface over the engine holding no logic of its own:
-`render` turns a quill + markdown into PDF/SVG/PNG, `validate` reads a quill's
-configuration and compiles its plate, and `schema`/`blueprint`/`info`
-introspect a quill without rendering it.
+`render` turns a quill + markdown into PDF/SVG/PNG, `check` reads documents
+against a quill's schema, `validate` reads a quill's configuration and compiles
+its plate, and `schema`/`blueprint`/`info` introspect a quill without rendering
+it.
 Commands, options, and examples are the
 [CLI reference](../../docs/cli/reference.md); this page is the contract behind
 them.
@@ -16,10 +17,27 @@ them.
 ## Contract
 
 - **`render` and `validate` need the engine.** Each constructs `Quillmark` to
-  resolve the quill's backend; `schema` / `blueprint` / `info` load the quill
-  with `quillmark::quill_from_path` and read the pure config-read operations a
-  `Quill` already carries ([QUILL.md](QUILL.md)). `validate --no-render` is the
-  config-read-only validate.
+  resolve the quill's backend; `check` / `schema` / `blueprint` / `info` load the
+  quill with `quillmark::quill_from_path` and read the pure config-read
+  operations a `Quill` already carries ([QUILL.md](QUILL.md)). `validate
+  --no-render` is the config-read-only validate.
+- **`check` is the document's verdict, `validate` the quill's.** `check` parses
+  each `MARKDOWN_FILE` through the bound door (`Quill::parse`) and prints the
+  parse warnings and every `Quill::validate` diagnostic, under the file's path.
+  It compiles nothing, so a plate failure or a `backend::declined_construct` is
+  `render`'s to find. A document that fails to read or parse draws that one
+  error and does not stop the rest. An
+  `Error` exits `1`; `--strict` exits `1` on a `Warning` too, the strict consumer
+  [SCHEMAS.md](SCHEMAS.md#native-validation) names, for a CI gate over a
+  repository of documents.
+- **`render` prints what the page leaves out.** Its warnings are the parse
+  carrier, then the `Quill::validate` warnings of the unclaimed class, then the
+  compile's ([ERROR.md](ERROR.md#warning-flow)). The incomplete class,
+  `validation::must_fill`, is a draft's normal state and condenses to one count
+  line naming the `check` that lists them; the seeded render prints none, its
+  blanks being the quill's. The
+  class is the code's ([SCHEMAS.md](SCHEMAS.md#what-blocks-a-render)), so the
+  selection is one filter on `validation::must_fill`, not a list the CLI keeps.
 - **`validate` compiles the plate.** It renders the three canonical documents —
   the empty document, the blueprint, the seed — through the quill's backend at
   the backend's first declared format, and reports each failure as a

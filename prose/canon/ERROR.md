@@ -145,7 +145,8 @@ families:
   `body_disabled`, `unknown_field`, and the `$seed` checks, which warn
   whatever their class because no render reads `$seed`.
   This is the editor-facing surface: the render gate consults only the fatal
-  set, and carries none of the warnings into `RenderResult.warnings`. Values
+  set, and carries none of the warnings into `RenderResult.warnings`. The CLI's
+  `render` prints the unclaimed ones itself ([CLI.md](CLI.md)). Values
   are judged in the form the render floor builds from them
   ([SCHEMAS.md](SCHEMAS.md) § "Type coercion").
 - **`plate::unsupported_construct`: declined-construct warnings.** A quill
