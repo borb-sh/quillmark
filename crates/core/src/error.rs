@@ -308,6 +308,21 @@ pub enum ParseError {
     #[error("{0}")]
     BodyImport(String),
 
+    /// A card-yaml block's payload reads as YAML but not as a mapping: most
+    /// often code fenced with tildes, since a column-zero `~~~` always opens a
+    /// card.
+    /// Code `parse::payload_not_mapping`.
+    #[error("{}", payload_not_mapping_message(info.as_deref(), actual))]
+    PayloadNotMapping {
+        /// 1-indexed document line of the block's opening fence.
+        line: usize,
+        /// The opener's info string (`python` in `~~~python`), when it has one.
+        info: Option<String>,
+        /// What the payload reads as: `string`, `number`, `boolean` or
+        /// `sequence`.
+        actual: &'static str,
+    },
+
     #[error("YAML error in {}: {message}", block_label(*block_index))]
     YamlErrorWithLocation {
         message: String,
@@ -331,6 +346,32 @@ fn block_label(block_index: usize) -> String {
     }
 }
 
+fn payload_not_mapping_message(info: Option<&str>, actual: &str) -> String {
+    match info {
+        Some(info) => format!(
+            "`~~~{info}` opens a card-yaml block, not a code block, and its payload is a \
+             YAML {actual}, not a mapping of fields"
+        ),
+        None => format!(
+            "`~~~` opens a card-yaml block, and its payload is a YAML {actual}, not a \
+             mapping of fields"
+        ),
+    }
+}
+
+/// The hint for code fenced with `~~~`: the rule it met and the fence to use.
+pub(crate) fn tilde_code_hint(info: Option<&str>) -> String {
+    match info {
+        Some(info) => format!(
+            "Every column-zero `~~~` fence opens a card-yaml block, whatever its info \
+             string. Fence code with backticks instead: ```{info}"
+        ),
+        None => "Every column-zero `~~~` fence opens a card-yaml block, whose payload is \
+                 `key: value` fields. Fence code with backticks instead: ```"
+            .to_string(),
+    }
+}
+
 /// The document a [`ParseError`] points at. Markdown reaches the engine as a
 /// string, so the anchor names the input rather than a path on disk.
 pub const DOCUMENT_FILE: &str = "input.md";
@@ -349,6 +390,7 @@ impl ParseError {
             ParseError::MissingQuill(_) => "parse::missing_quill",
             ParseError::InvalidQuillReference { .. } => "parse::invalid_quill_reference",
             ParseError::BodyImport(_) => "parse::body_import",
+            ParseError::PayloadNotMapping { .. } => "parse::payload_not_mapping",
             ParseError::YamlErrorWithLocation { .. } => "parse::yaml_error_with_location",
         }
     }
@@ -379,6 +421,18 @@ impl ParseError {
             ParseError::InvalidQuillReference { value, reason: _ } => diag_args! {
                 "value" => value,
             },
+            // The opener's line rides on the diagnostic's `location`.
+            ParseError::PayloadNotMapping {
+                line: _,
+                info,
+                actual,
+            } => {
+                let mut args = diag_args! { "actual" => actual };
+                if let Some(info) = info {
+                    args.insert("info".to_string(), serde_json::json!(info));
+                }
+                args
+            }
             // The coordinates ride on the diagnostic's `location`; `message` is
             // the YAML engine's own prose and keeps no key.
             ParseError::YamlErrorWithLocation {
@@ -405,6 +459,9 @@ impl ParseError {
             ParseError::InvalidQuillReference { .. } => {
                 diag.with_hint(crate::version::quill_ref_hint().to_string())
             }
+            ParseError::PayloadNotMapping { line, info, .. } => diag
+                .with_location(Location::new(DOCUMENT_FILE.to_string(), *line as u32, 1))
+                .with_hint(tilde_code_hint(info.as_deref())),
             ParseError::YamlErrorWithLocation {
                 line, column, hint, ..
             } => {
@@ -542,6 +599,11 @@ fn parse_error_samples() -> Vec<ParseError> {
         ParseError::InvalidQuillReference {
             value: "a@b".into(),
             reason: "x".into(),
+        },
+        ParseError::PayloadNotMapping {
+            line: 7,
+            info: Some("python".into()),
+            actual: "string",
         },
         ParseError::YamlErrorWithLocation {
             message: "x".into(),

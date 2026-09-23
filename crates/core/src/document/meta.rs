@@ -116,7 +116,7 @@ fn require_string(label: &str, value: JsonValue) -> Result<String, ParseError> {
     }
 }
 
-fn yaml_type_name(value: &JsonValue) -> &'static str {
+pub(super) fn yaml_type_name(value: &JsonValue) -> &'static str {
     match value {
         JsonValue::Null => "null",
         JsonValue::Bool(_) => "boolean",
