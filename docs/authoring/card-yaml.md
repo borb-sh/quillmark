@@ -95,8 +95,9 @@ A bare name selects the latest version; `@latest`, `@2`, `@2.1`, and `@2.1.0`
 pin progressively tighter. The [Quill Versioning](../quills/versioning.md#how-authors-select-versions)
 page owns the full selector semantics.
 
-Quill names must match `[a-z_][a-z0-9_]*` (lowercase letters, digits, and
-underscores; must start with a lowercase letter or underscore).
+Quill names are lowercase letters, digits, and underscores. `Quill.yaml`
+requires a leading letter (`[a-z][a-z0-9_]*`); the `$quill` line also parses a
+leading underscore, but no loadable quill carries one.
 
 ## Payload Data Types
 
@@ -146,9 +147,11 @@ and a `properties:` map; array-valued fields with `type: array` and an
 object, properties: … }` for a list of objects). See
 [Quill.yaml Reference: Field Types](../quills/quill-yaml-reference.md#field-types).
 
-Field names must match `[A-Za-z_][A-Za-z0-9_]*`. Lowercase is the canonical,
-recommended convention, but uppercase is accepted and preserved verbatim (case
-is significant). Only `$`-prefixed keys are reserved for system metadata.
+A `Quill.yaml` declares field names as `[a-z][a-z0-9_]*`, so every schema
+field is lowercase. The document parser is wider: it accepts any
+`[A-Za-z_][A-Za-z0-9_]*` key and preserves case, so an uppercase or
+underscore-led key parses but is always undeclared. Only `$`-prefixed keys are
+reserved for system metadata.
 
 ## Comments
 

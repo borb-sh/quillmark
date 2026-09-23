@@ -29,7 +29,7 @@ The file must open with a `~~~` block containing a `$quill:` key identifying the
 
 - `-o <PATH>` / `--output <PATH>`: Output file path (default: input filename with format extension, e.g. `input.pdf`; `example.<format>` when no markdown file is given)
 - `-f <FORMAT>` / `--format <FORMAT>`: Output format: `pdf`, `svg`, `png` (default: `pdf`)
-- `--output-data <DATA_FILE>`: Write compiled JSON data to a file
+- `--output-data <DATA_FILE>`: Write the compiled, blank-filled JSON data to a file. This is the data before the backend lowers it: a `richtext` value appears as a content object (`{text, lines, marks, islands}`) and a date as its string, where a Typst plate receives content and a `datetime`.
 - `--quiet`: Suppress warnings and the output-destination line; errors still print
 - `--stdout`: Write the artifact to stdout instead of a file (and ignore `-o`); refused when the render produces more than one page
 
@@ -117,7 +117,7 @@ quillmark validate [OPTIONS] <QUILL_PATH>
 
 **Options:**
 
-- `-v` / `--verbose`: Show verbose output with all validation details
+- `-v` / `--verbose`: Show each check as it runs, and print warnings as well as errors. Among them, `cli::missing_description` flags every field and card kind without a `description:`, the help text editors and the blueprint show.
 - `--no-render`: Skip the render check: only read the configuration
 
 **Examples:**

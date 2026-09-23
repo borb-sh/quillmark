@@ -701,11 +701,13 @@ Card-kind names (the keys under `card_kinds`) must match `[a-z_][a-z0-9_]*` (lea
 card_kinds:
   indorsement:                    # Card-kind name
     description: Chain of routing endorsements.
+    ui:
+      groups: [addressing]
     fields:
       from:
         type: string
         ui:
-          group: Addressing
+          group: addressing
       format:
         type: enum
         values: [standard, informal, separate_page]
@@ -906,29 +908,31 @@ typst:
   plate_file: plate.typ
 
 main:
+  ui:
+    groups: [header, team, financials]
   fields:
     project_name:
       type: string
       ui:
-        group: Header
+        group: header
 
     status:
       type: enum
       values: [on_track, at_risk, blocked]
       ui:
-        group: Header
+        group: header
 
     risk_description:
       type: string
       default: ""
       ui:
-        group: Header
+        group: header
       description: Describe the risk or blocker. Only needed when status is not on_track.
 
     date:
       type: date
       ui:
-        group: Header
+        group: header
 
     team_members:
       type: array
@@ -936,13 +940,13 @@ main:
         type: string
       default: []
       ui:
-        group: Team
+        group: team
 
     budget:
       type: number
       default: 0
       ui:
-        group: Financials
+        group: financials
 
 card_kinds:
   milestone:
