@@ -662,8 +662,8 @@ export class LiveSession {
 	 * @param {number} page
 	 * @param {object} [options]
 	 */
-	paint(ctx, page, options) {
-		return this.#inner.paint(ctx, page, options);
+	paint(ctx, page, scale) {
+		this.#inner.paint(ctx, page, scale);
 	}
 
 	free() {

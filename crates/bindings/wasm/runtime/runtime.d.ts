@@ -292,8 +292,8 @@ export interface ContentHit {
  *
  * ```js
  * const [x0, y0, x1, y1] = region.rect;
- * // Into a raster painted at renderScale (= layoutScale × densityScale):
- * const left = x0 * renderScale, top = (pageHeightPt - y1) * renderScale;
+ * // Into a raster painted at `paint`'s scale:
+ * const left = x0 * scale, top = (pageHeightPt - y1) * scale;
  * // Or, for an HTML overlay on a width:100% canvas, as % of the page, which
  * // tracks the displayed size across DPI and pane resize with no scale to thread:
  * const leftPct = (x0 / pageWidthPt) * 100, topPct = (1 - y1 / pageHeightPt) * 100;
@@ -341,36 +341,6 @@ export type OutputFormat = 'pdf' | 'svg' | 'png';
 export interface PageSize {
 	widthPt: number;
 	heightPt: number;
-}
-
-/** Inputs to `paint`. */
-export interface PaintOptions {
-	/** How big the page is on screen, in CSS px per point. Default 1. */
-	layoutScale?: number;
-	/**
-	 * How sharp it is: `window.devicePixelRatio`, in-app zoom and
-	 * `visualViewport.scale` folded into one number. Default 1, because the
-	 * painter cannot see any of them (SSR, tests, off-screen).
-	 */
-	densityScale?: number;
-}
-
-/** Output of `paint`. */
-export interface PaintResult {
-	layoutWidth: number;      // canvas.style.width target; independent of densityScale
-	layoutHeight: number;
-	pixelWidth: number;       // canvas.width the painter wrote (clamped at 16384)
-	pixelHeight: number;
-	/**
-	 * True when the backing-store clamp forced `densityScale` down: the page
-	 * renders soft at the same `canvas.style` size.
-	 */
-	clamped: boolean;
-	/**
-	 * The `densityScale` actually applied, reduced proportionally when
-	 * `clamped`. `layoutScale × effectiveDensityScale` is the rasterized scale.
-	 */
-	effectiveDensityScale: number;
 }
 
 /**
@@ -505,13 +475,13 @@ export declare class LiveSession {
 	 * `DocPath` address to focus in the editor, or `undefined` off any field's
 	 * ink. `x`/`y` are PDF points with a **bottom-left** origin, the same space as
 	 * {@link FieldRegion.rect}, so from a canvas click invert the overlay
-	 * transform documented there: `x = clickPx.x / renderScale`,
-	 * `y = pageHeightPt - clickPx.y / renderScale`. Unlike {@link regions},
+	 * transform documented there: `x = clickPx.x / scale`,
+	 * `y = pageHeightPt - clickPx.y / scale`. Unlike {@link regions},
 	 * *every* placement answers, not just the first.
 	 *
 	 * `tolPt` is how far off the ink a click still counts, in the same points,
 	 * and defaults to `0` — exact. It is pointer slack, so derive it from the
-	 * scale the page was drawn at (`slackPx / renderScale`) rather than fixing a
+	 * scale the page was drawn at (`slackPx / scale`) rather than fixing a
 	 * value in points, which shrinks under the cursor as the page zooms out. The
 	 * nearest placement answers and containment is distance zero, so raising
 	 * `tolPt` only ever fills a miss.
@@ -531,14 +501,14 @@ export declare class LiveSession {
 	 * canonical `DocPath` address (`parseDocPath`-routable), as {@link regions} keys.
 	 */
 	locate(field: string, pos: number): FieldRegion | undefined;
-	/** Page geometry in points (1/72″). Report-only; the painter sizes the canvas. */
+	/** Page geometry in points (1/72″). */
 	pageSize(page: number): PageSize;
 	/**
-	 * Paint `page` into a 2D canvas context, sizing the backing store itself (it
-	 * owns `canvas.width`/`height`; the caller owns `canvas.style.*`). The
-	 * rasterization scale is `layoutScale × densityScale`, clamped so neither
-	 * backing dimension exceeds 16384 px; {@link PaintResult.clamped} reports the
-	 * clamp and {@link PaintResult.effectiveDensityScale} the density applied.
+	 * Paint `page` into a 2D canvas context at `scale` backing-store pixels per
+	 * point (default 1): `devicePixelRatio` times the CSS px per point the page is
+	 * shown at. The painter owns `canvas.width`/`height`, reduced proportionally so
+	 * neither exceeds 16384 px; the caller owns `canvas.style.*`, and a canvas styled
+	 * `width: 100%` needs nothing back from the paint.
 	 *
 	 * The write is a whole-backing-store `putImageData`, which bypasses the 2D
 	 * context transform, `globalAlpha`, and clip, so give each visible page its
@@ -551,8 +521,8 @@ export declare class LiveSession {
 	paint(
 		ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
 		page: number,
-		options?: PaintOptions
-	): PaintResult;
+		scale?: number
+	): void;
 	free(): void;
 }
 

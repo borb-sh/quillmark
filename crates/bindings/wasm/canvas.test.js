@@ -235,107 +235,71 @@ describe('LiveSession canvas preview', () => {
     expect(hit.field).toBe('main.references[0]')
   })
 
-  it('paint sizes the canvas backing store and returns layout + pixel dimensions', () => {
+  it('paint sizes the canvas backing store at scale pixels per point', () => {
     const session = openSession()
     const { widthPt, heightPt } = session.pageSize(0)
-    const layoutScale = 1
-    const densityScale = 1.5
+    const scale = 1.5
 
     const ctx = new FakeCanvasRenderingContext2D()
-    const result = session.paint(ctx, 0, { layoutScale, densityScale })
+    expect(session.paint(ctx, 0, scale)).toBeUndefined()
 
-    // Layout dimensions reflect layoutScale only: independent of density.
-    expect(result.layoutWidth).toBeCloseTo(widthPt * layoutScale, 4)
-    expect(result.layoutHeight).toBeCloseTo(heightPt * layoutScale, 4)
-
-    // Pixel dimensions reflect layoutScale * densityScale, rounded.
-    expect(result.pixelWidth).toBe(Math.round(widthPt * layoutScale * densityScale))
-    expect(result.pixelHeight).toBe(Math.round(heightPt * layoutScale * densityScale))
-
-    // No clamp on this modest density: reported honestly on the result.
-    expect(result.clamped).toBe(false)
-    expect(result.effectiveDensityScale).toBeCloseTo(densityScale, 6)
-
-    // Painter owns canvas.width/height: they must equal the reported
-    // pixel dimensions.
-    expect(ctx.canvas.width).toBe(result.pixelWidth)
-    expect(ctx.canvas.height).toBe(result.pixelHeight)
+    expect(ctx.canvas.width).toBe(Math.round(widthPt * scale))
+    expect(ctx.canvas.height).toBe(Math.round(heightPt * scale))
 
     expect(ctx.calls).toHaveLength(1)
     const call = ctx.calls[0]
     expect(call.dx).toBe(0)
     expect(call.dy).toBe(0)
-    expect(call.width).toBe(result.pixelWidth)
-    expect(call.height).toBe(result.pixelHeight)
+    expect(call.width).toBe(ctx.canvas.width)
+    expect(call.height).toBe(ctx.canvas.height)
     expect(call.data.length).toBe(call.width * call.height * 4)
 
-    // Pixel-content sanity. The test plate renders a title heading, so the
-    // rasterized buffer must contain non-white pixels (visible glyph ink)
-    // *and* opaque pixels (page background).
+    // The test plate renders a title heading, so the raster carries glyph ink
+    // and an opaque page background.
     expectInkAndOpaquePixels(call)
   })
 
-  it('paint defaults layoutScale and densityScale to 1 when opts are omitted', () => {
+  it('paint defaults scale to 1', () => {
     const session = openSession()
     const { widthPt, heightPt } = session.pageSize(0)
 
     const ctx = new FakeCanvasRenderingContext2D()
-    const result = session.paint(ctx, 0)
+    session.paint(ctx, 0)
 
-    expect(result.layoutWidth).toBeCloseTo(widthPt, 4)
-    expect(result.layoutHeight).toBeCloseTo(heightPt, 4)
-    expect(result.pixelWidth).toBe(Math.round(widthPt))
-    expect(result.pixelHeight).toBe(Math.round(heightPt))
+    expect(ctx.canvas.width).toBe(Math.round(widthPt))
+    expect(ctx.canvas.height).toBe(Math.round(heightPt))
   })
 
   it('also paints into an OffscreenCanvasRenderingContext2D', () => {
     const session = openSession()
     const ctx = new FakeOffscreenCanvasRenderingContext2D()
-    const result = session.paint(ctx, 0, { densityScale: 2 })
+    session.paint(ctx, 0, 2)
 
     expect(ctx.calls).toHaveLength(1)
-    expect(ctx.canvas.width).toBe(result.pixelWidth)
-    expect(ctx.canvas.height).toBe(result.pixelHeight)
+    expect(ctx.canvas.width).toBe(ctx.calls[0].width)
+    expect(ctx.canvas.height).toBe(ctx.calls[0].height)
   })
 
-  it('paint clamps backing-store dimensions to the safe maximum', () => {
+  it('paint reduces the scale to keep the backing store within 16384 px a side', () => {
     const session = openSession()
     const { widthPt, heightPt } = session.pageSize(0)
-    const longest = Math.max(widthPt, heightPt)
-    // Pick a densityScale that drives the longest backing dimension well
-    // past the 16384-px clamp threshold.
-    const densityScale = (16384 / longest) * 4
+    const scale = (16384 / Math.max(widthPt, heightPt)) * 4
 
     const ctx = new FakeCanvasRenderingContext2D()
-    const result = session.paint(ctx, 0, { densityScale })
+    session.paint(ctx, 0, scale)
 
-    // Backing dimensions clamp at 16384 on the longer side.
-    expect(Math.max(result.pixelWidth, result.pixelHeight)).toBeLessThanOrEqual(16384)
-    // Layout dimensions are independent of the clamp.
-    expect(result.layoutWidth).toBeCloseTo(widthPt, 4)
-    expect(result.layoutHeight).toBeCloseTo(heightPt, 4)
-    // Detect-clamp contract: pixelWidth < round(layoutWidth * densityScale).
-    expect(result.pixelWidth).toBeLessThan(Math.round(result.layoutWidth * densityScale))
-    // The clamp is reported on the result, not just derivable from the dims.
-    expect(result.clamped).toBe(true)
-    // effectiveDensityScale is the reduced density; layoutScale defaults to 1,
-    // so pixelWidth == round(layoutWidth * effectiveDensityScale).
-    expect(result.effectiveDensityScale).toBeLessThan(densityScale)
-    expect(result.pixelWidth).toBe(
-      Math.round(result.layoutWidth * result.effectiveDensityScale),
-    )
+    expect(Math.max(ctx.canvas.width, ctx.canvas.height)).toBeLessThanOrEqual(16384)
+    // Reduced proportionally: the page keeps its aspect ratio.
+    expect(ctx.canvas.width / ctx.canvas.height).toBeCloseTo(widthPt / heightPt, 2)
   })
 
-  it('paint throws on non-finite or non-positive layoutScale / densityScale', () => {
+  it('paint throws on a non-finite or non-positive scale', () => {
     const session = openSession()
     const ctx = new FakeCanvasRenderingContext2D()
-    expect(() => session.paint(ctx, 0, { layoutScale: 0 })).toThrow(/layoutScale/)
-    expect(() => session.paint(ctx, 0, { layoutScale: -1 })).toThrow(/layoutScale/)
-    expect(() => session.paint(ctx, 0, { layoutScale: Number.NaN })).toThrow(/layoutScale/)
-    expect(() => session.paint(ctx, 0, { densityScale: 0 })).toThrow(/densityScale/)
-    expect(() =>
-      session.paint(ctx, 0, { densityScale: Number.POSITIVE_INFINITY }),
-    ).toThrow(/densityScale/)
+    // An options object is refused rather than painted at the default.
+    for (const scale of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, { densityScale: 2 }]) {
+      expect(() => session.paint(ctx, 0, scale)).toThrow(/scale/)
+    }
   })
 
   it('throws an out-of-range error when paint is called with a bad page index', () => {
@@ -373,32 +337,22 @@ describe('LiveSession canvas preview (acroform backend)', () => {
     expect(size.heightPt).toBeGreaterThan(0)
   })
 
-  it('paint sizes the canvas per the DPR math and bakes field-value ink into the raster', () => {
+  it('paint sizes the canvas at scale and bakes field-value ink into the raster', () => {
     const session = openAcroformSession()
     const { widthPt, heightPt } = session.pageSize(0)
-    const layoutScale = 1
-    const densityScale = 1.5
+    const scale = 1.5
 
     const ctx = new FakeCanvasRenderingContext2D()
-    const result = session.paint(ctx, 0, { layoutScale, densityScale })
+    session.paint(ctx, 0, scale)
 
-    // Layout dimensions reflect layoutScale only: independent of density.
-    expect(result.layoutWidth).toBeCloseTo(widthPt * layoutScale, 4)
-    expect(result.layoutHeight).toBeCloseTo(heightPt * layoutScale, 4)
-
-    // Pixel dimensions reflect layoutScale * densityScale, rounded (toBeCloseTo
-    // precision -1 tolerates the rasterizer's per-axis rounding).
-    expect(result.pixelWidth).toBeCloseTo(Math.round(widthPt * layoutScale * densityScale), -1)
-    expect(result.pixelHeight).toBeCloseTo(Math.round(heightPt * layoutScale * densityScale), -1)
-
-    // Painter owns canvas.width/height: they equal the reported pixel dims.
-    expect(ctx.canvas.width).toBe(result.pixelWidth)
-    expect(ctx.canvas.height).toBe(result.pixelHeight)
+    // toBeCloseTo precision -1 tolerates the rasterizer's per-axis rounding.
+    expect(ctx.canvas.width).toBeCloseTo(Math.round(widthPt * scale), -1)
+    expect(ctx.canvas.height).toBeCloseTo(Math.round(heightPt * scale), -1)
 
     expect(ctx.calls).toHaveLength(1)
     const call = ctx.calls[0]
-    expect(call.width).toBe(result.pixelWidth)
-    expect(call.height).toBe(result.pixelHeight)
+    expect(call.width).toBe(ctx.canvas.width)
+    expect(call.height).toBe(ctx.canvas.height)
     expect(call.data.length).toBe(call.width * call.height * 4)
 
     // COMPLETE-RASTER contract: "Ada Lovelace" et al. are baked into the
@@ -446,8 +400,8 @@ describe('LiveSession.update', () => {
     // Every read still serves the last-good compile.
     expect(session.pageCount).toBe(before)
     const ctx = new FakeCanvasRenderingContext2D()
-    const result = session.paint(ctx, 0)
-    expect(result.pixelWidth).toBeGreaterThan(0)
+    session.paint(ctx, 0)
+    expect(ctx.canvas.width).toBeGreaterThan(0)
     expect(ctx.calls.length).toBe(1)
 
     // The session recovers on the next good update.

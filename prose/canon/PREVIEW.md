@@ -326,7 +326,7 @@ beside it.
 One origin serves the whole canvas surface: `pageSize`, `regions`, the point
 queries, and the raster all measure from the **page's lower-left corner as
 drawn**, so `(0, 0)` is the raster's first pixel and `pageSize × renderScale`
-(`layoutScale × densityScale`, the scale the page was painted at) is its extent. A Typst page starts there already. An acroform background's page need
+(`paint`'s `scale`, after the clamp) is its extent. A Typst page starts there already. An acroform background's page need
 not. The file's own numbers are in PDF user space, and the page a viewer shows
 is the **canvas box**, `/CropBox` ∩ `/MediaBox`, which `pdfcrop` leaves
 translated away from `(0, 0)`. The backend reports that box's extent as the page
@@ -428,19 +428,19 @@ The wasm `render` feature pulls in `web-sys`, the generic canvas *painter*
   `wasm_bindgen` into `core` or make `Artifact` dishonest.
 - **Coalesce at the session, not the format.** One compile feeds bytes
   (`render`), pixels (`paint`), and metadata (`pageSize`, `warnings`).
-- **`layoutScale` and `densityScale` separated, both optional.** A single
-  scalar conflated layout (how big on screen) with sharpness (how many backing
-  pixels). The split mirrors how editor consumers think: `layoutScale` is a
-  layout decision, `densityScale` a sharpness decision folding `devicePixelRatio`
-  + zoom + `visualViewport.scale`. Both default to 1 because the painter cannot
-  know the consumer's DPR (SSR, tests, off-screen).
+- **One `scale`, backing-store pixels per point, defaulting to 1.** The
+  rasterizer takes one number, so the call does too: display size is the
+  consumer's CSS, and how many pixels back it is `devicePixelRatio`, zoom and
+  `visualViewport.scale` folded into that number. It defaults to 1 because the
+  painter cannot see any of them (SSR, tests, off-screen).
 - **Painter owns `canvas.width`/`height`; consumer owns `canvas.style.*`.**
   Folding backing-store math into the painter eliminates a class of "blurry on
   retina" bugs and lets the 16384-px clamp (`MAX_BACKING_DIMENSION`) live in one
   place. That number is the floor that works across browsers, and it is the side
   of `quillmark_core::backend::MAX_RASTER_PIXELS`, so a scale the core admits is
-  one the painter can paint. The painter reports the clamp on the result rather
-  than leaving a consumer to reconstruct it from the dimensions.
+  one the painter can paint. `paint` returns nothing: the backing store it wrote
+  is `canvas.width`/`height`, and a canvas styled to fill its box needs no size
+  back.
 - **Unpremultiplied RGBA on the wire.** Rasterizers produce premultiplied
   alpha; `ImageData` expects non-premultiplied. The backend unpremultiplies
   before handing back the buffer. One allocation per repaint; fine for edit

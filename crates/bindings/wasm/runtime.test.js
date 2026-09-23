@@ -1219,8 +1219,8 @@ A single line of body ink.`
       // paint.
       expect(typeof session.paint).toBe('function')
       const ctx = new FakeCanvasRenderingContext2D()
-      const paintResult = session.paint(ctx, body.page)
-      expect(paintResult.pixelWidth).toBeGreaterThan(0)
+      session.paint(ctx, body.page)
+      expect(ctx.canvas.width).toBeGreaterThan(0)
 
       // update: recompile in place.
       expect(typeof session.update).toBe('function')
