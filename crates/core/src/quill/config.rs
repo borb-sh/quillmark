@@ -1789,6 +1789,22 @@ impl QuillConfig {
         chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
     }
 
+    fn snake_case_suggestion(name: &str) -> Option<String> {
+        let mapped: String = name
+            .to_lowercase()
+            .chars()
+            .map(|c| {
+                if c.is_ascii_lowercase() || c.is_ascii_digit() {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let fixed = mapped.trim_start_matches(|c: char| !c.is_ascii_lowercase());
+        Self::is_snake_case_identifier(fixed).then(|| fixed.to_string())
+    }
+
     /// Parse QuillConfig from YAML content while collecting non-fatal warnings.
     ///
     /// Returns `Ok((config, warnings))` on success, or `Err(errors)` containing all
@@ -1849,22 +1865,20 @@ impl QuillConfig {
         let name = match quill_section.get("name").and_then(|v| v.as_str()) {
             Some(n) => {
                 if !Self::is_snake_case_identifier(n) {
-                    errors.push(
-                        Diagnostic::new(
-                            Severity::Error,
-                            format!(
-                                "Invalid Quill name '{}': quill.name must be snake_case \
-                                 (lowercase letters, digits, and underscores only).",
-                                n
-                            ),
-                        )
-                        .with_code("quill::invalid_name".to_string())
-                        .with_hint(format!(
-                            "Rename '{}' to '{}'",
-                            n,
-                            n.to_lowercase().replace('-', "_")
-                        )),
-                    );
+                    let mut diag = Diagnostic::new(
+                        Severity::Error,
+                        format!(
+                            "Invalid Quill name '{}': quill.name must be snake_case \
+                             (a lowercase letter, then lowercase letters, digits, and \
+                             underscores).",
+                            n
+                        ),
+                    )
+                    .with_code("quill::invalid_name".to_string());
+                    if let Some(fixed) = Self::snake_case_suggestion(n) {
+                        diag = diag.with_hint(format!("Rename '{}' to '{}'", n, fixed));
+                    }
+                    errors.push(diag);
                 }
                 n.to_string()
             }
