@@ -98,13 +98,10 @@
     for (const w of session.warnings) console.warn(w.message);
 
     function renderPage(canvas, page, userZoom = 1) {
-      const densityScale = (window.devicePixelRatio || 1) * userZoom;
-      const result = session.paint(canvas.getContext("2d"), page, {
-        layoutScale: 1,
-        densityScale,
-      });
-      canvas.style.width  = `${result.layoutWidth}px`;
-      canvas.style.height = `${result.layoutHeight}px`;
+      canvas.style.width = "100%";                     // the box sets display size
+      const cssPxPerPt = canvas.clientWidth / session.pageSize(page).widthPt;
+      const scale = cssPxPerPt * (window.devicePixelRatio || 1) * userZoom;
+      session.paint(canvas.getContext("2d"), page, scale);
     }
 
     for (let p = 0; p < session.pageCount; p++) renderPage(canvases[p], p);
@@ -114,16 +111,12 @@
 
     Key contract points:
 
+    - `scale` is backing-store pixels per point: the CSS px per point the
+      page is shown at, times `devicePixelRatio` and any in-app zoom.
     - The painter owns `canvas.width` / `canvas.height` and rewrites them on
-      every call (so each `paint` is a full repaint: no `clearRect` needed).
-      The consumer owns `canvas.style.*` and reads `result.layoutWidth` /
-      `layoutHeight` to size the display box.
-    - Fold `devicePixelRatio` and in-app zoom into `densityScale`;
-      `layoutScale` controls display size.
-    - If `layoutScale * densityScale` would push either dimension past 16384
-      px, `densityScale` is clamped to fit; `result.clamped` reports it and
-      `result.effectiveDensityScale` is the density actually applied (a clamped
-      page renders soft at the same `canvas.style` size).
+      every call (so each `paint` is a full repaint: no `clearRect` needed),
+      reducing `scale` where it must so neither exceeds 16384 px. The consumer
+      owns `canvas.style.*`.
     - `pageCount` and `pageSize(page)` reflect the session's current compile:
       stable between edits, but re-read them after a committed `update(doc)`,
       which recompiles in place and can change the page count

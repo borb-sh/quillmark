@@ -10,7 +10,7 @@ use typst::text::{Font, FontBook};
 use typst::utils::LazyHash;
 use typst::{Library, World};
 
-use crate::helper;
+use crate::{helper, Plate};
 use quillmark_core::{error::{Diagnostic, Severity}, quill::Quill};
 
 /// One `(plate address, count)` per content field holding image islands, which
@@ -31,6 +31,39 @@ fn skipped_path(path: &Path, err: impl std::fmt::Display) -> Diagnostic {
     .with_hint("Rename it to a plain relative path.".to_string())
 }
 
+/// The keys under `typst:` in `Quill.yaml` this backend reads. Core stores the
+/// section verbatim, so every other key would otherwise vanish unremarked.
+const CONFIG_KEYS: &[&str] = &["plate_file"];
+
+fn unread_config_keys(source: &Quill, warnings: &mut Vec<Diagnostic>) {
+    let mut unread: Vec<&str> = source
+        .config()
+        .backend_config
+        .keys()
+        .map(String::as_str)
+        .filter(|key| !CONFIG_KEYS.contains(key))
+        .collect();
+    unread.sort_unstable();
+    for key in unread {
+        let hint = if key == "packages" {
+            "Quillmark never downloads a package: vendor each one under `packages/<dir>/` \
+             with its `typst.toml`, and delete `typst.packages`."
+                .to_string()
+        } else {
+            format!("Valid keys under 'typst' are: {}.", CONFIG_KEYS.join(", "))
+        };
+        warnings.push(
+            Diagnostic::new(
+                Severity::Warning,
+                format!("Ignoring 'typst.{key}' in Quill.yaml: the Typst backend does not read it"),
+            )
+            .with_code("typst::unknown_key".to_string())
+            .with_arg("key", serde_json::Value::String(key.to_string()))
+            .with_hint(hint),
+        );
+    }
+}
+
 /// Typst 0.15 routes file ids through [`RootedPath`]: project-local files use
 /// [`VirtualRoot::Project`], package files use [`VirtualRoot::Package`].
 fn file_id(spec: Option<PackageSpec>, vpath: VirtualPath) -> FileId {
@@ -49,6 +82,7 @@ pub(crate) struct QuillWorld {
     book: LazyHash<FontBook>,
     fonts: Vec<Font>,
     source: Source,
+    plate_file: Option<String>,
     sources: HashMap<FileId, Source>,
     binaries: HashMap<FileId, Bytes>,
     /// Non-fatal defects from loading the quill's assets and packages. Without
@@ -60,11 +94,12 @@ pub(crate) struct QuillWorld {
 impl QuillWorld {
     pub(crate) fn new(
         source: &Quill,
-        main: &str,
+        plate: &Plate,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let mut sources = HashMap::new();
         let mut binaries = HashMap::new();
         let mut load_warnings = Vec::new();
+        unread_config_keys(source, &mut load_warnings);
 
         let mut book = FontBook::new();
         let mut fonts = Vec::new();
@@ -101,17 +136,24 @@ impl QuillWorld {
             Bytes::new(helper::generate_typst_toml().into_bytes()),
         );
 
-        let main_id = file_id(
-            None,
-            VirtualPath::new("main.typ").expect("\"main.typ\" is a valid virtual path"),
-        );
-        let source = Source::new(main_id, main.to_string());
+        // At the project root whatever directory `plate_file` names: the plate
+        // reaches `assets/...` by its path from the quill root.
+        let main_vpath = plate
+            .file
+            .as_deref()
+            .and_then(|f| Path::new(f).file_name()?.to_str())
+            .and_then(|name| VirtualPath::new(name).ok())
+            .unwrap_or_else(|| {
+                VirtualPath::new("main.typ").expect("\"main.typ\" is a valid virtual path")
+            });
+        let source = Source::new(file_id(None, main_vpath), plate.text.clone());
 
         Ok(Self {
             library: LazyHash::new(<Library as typst::LibraryExt>::default()),
             book: LazyHash::new(book),
             fonts,
             source,
+            plate_file: plate.file.clone(),
             sources,
             binaries,
             load_warnings,
@@ -122,6 +164,15 @@ impl QuillWorld {
         &self.load_warnings
     }
 
+    /// The file a diagnostic names for `id`: the plate by its declared
+    /// `plate_file`, anything else by its virtual path.
+    pub(crate) fn display_path(&self, id: FileId) -> String {
+        match &self.plate_file {
+            Some(file) if id == self.source.id() => file.clone(),
+            _ => id.vpath().get_without_slash().to_string(),
+        }
+    }
+
     /// Test-only: boxing collapses codegen's own error, so `open` runs
     /// [`new`](Self::new) and
     /// [`inject_helper_package`](Self::inject_helper_package) itself to keep a
@@ -129,12 +180,12 @@ impl QuillWorld {
     #[cfg(test)]
     pub fn new_with_data(
         source: &Quill,
-        main: &str,
+        plate: &Plate,
         data: &serde_json::Value,
         meta: &crate::SchemaMeta,
     ) -> Result<(Self, Vec<crate::overlay::FieldWindow>), Box<dyn std::error::Error + Send + Sync>>
     {
-        let mut world = Self::new(source, main)?;
+        let mut world = Self::new(source, plate)?;
 
         let (windows, _declined) = world.inject_helper_package(data, meta)?;
 
@@ -313,8 +364,8 @@ impl QuillWorld {
                             Diagnostic::new(
                                 Severity::Warning,
                                 format!(
-                                    "Skipping package '{package_name}': its typst.toml did not \
-                                     parse ({e})"
+                                    "Skipping package '{package_name}': its typst.toml is invalid \
+                                     ({e})"
                                 ),
                             )
                             .with_code("typst::package_manifest".to_string()),
@@ -327,8 +378,8 @@ impl QuillWorld {
                         Severity::Warning,
                         format!(
                             "Skipping package '{package_name}': it has no typst.toml. Add one \
-                             declaring `[package]` with a `name`; `namespace`, `version` and \
-                             `entrypoint` default to `local`, `0.1.0` and `lib.typ`."
+                             declaring `[package]` with a `name`, `version` and `entrypoint`; \
+                             `namespace` defaults to `local`."
                         ),
                     )
                     .with_code("typst::package_manifest".to_string()),
@@ -501,35 +552,25 @@ fn parse_package_toml(
         .get("package")
         .ok_or("Missing [package] section in typst.toml")?;
 
-    let namespace = package_section
-        .get("namespace")
-        .and_then(|v| v.as_str())
-        .unwrap_or("local")
-        .to_string();
-
-    let name = package_section
-        .get("name")
-        .and_then(|v| v.as_str())
-        .ok_or("Package name is required in typst.toml")?
-        .to_string();
-
-    let version = package_section
-        .get("version")
-        .and_then(|v| v.as_str())
-        .unwrap_or("0.1.0")
-        .to_string();
-
-    let entrypoint = package_section
-        .get("entrypoint")
-        .and_then(|v| v.as_str())
-        .unwrap_or("lib.typ")
-        .to_string();
+    // Typst parses the manifest again on `#import` and refuses one missing any
+    // of these, so a package loaded without them is unimportable.
+    let required = |key: &str| {
+        package_section
+            .get(key)
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .ok_or_else(|| format!("`{key}` is required under [package]"))
+    };
 
     Ok(PackageInfo {
-        namespace,
-        name,
-        version,
-        entrypoint,
+        namespace: package_section
+            .get("namespace")
+            .and_then(|v| v.as_str())
+            .unwrap_or("local")
+            .to_string(),
+        name: required("name")?,
+        version: required("version")?,
+        entrypoint: required("entrypoint")?,
     })
 }
 
@@ -538,21 +579,55 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_package_toml_defaults() {
-        let toml_content = r#"
-[package]
-name = "minimal-package"
-"#;
+    fn a_manifest_defaults_only_its_namespace() {
+        let full = "[package]\nname = \"p\"\nversion = \"0.1.0\"\nentrypoint = \"lib.typ\"\n";
+        assert_eq!(parse_package_toml(full).unwrap().namespace, "local");
 
-        let package_info = parse_package_toml(toml_content).unwrap();
-        assert_eq!(package_info.name, "minimal-package");
-        assert_eq!(package_info.version, "0.1.0");
-        assert_eq!(package_info.namespace, "local");
-        assert_eq!(package_info.entrypoint, "lib.typ");
+        for missing in ["name", "version", "entrypoint"] {
+            let partial: String = full
+                .lines()
+                .filter(|line| !line.starts_with(missing))
+                .map(|line| format!("{line}\n"))
+                .collect();
+            assert!(
+                parse_package_toml(&partial).is_err(),
+                "a manifest without `{missing}` loads"
+            );
+        }
+    }
+
+    #[test]
+    fn a_vendored_package_imports_its_dependency_under_the_declared_namespace() {
+        let quill = quill_with(&[
+            (
+                "packages/outer/typst.toml",
+                "[package]\nnamespace = \"preview\"\nname = \"outer\"\nversion = \"1.2.0\"\n\
+                 entrypoint = \"lib.typ\"\n",
+            ),
+            (
+                "packages/outer/lib.typ",
+                "#import \"@preview/inner:0.1.0\": word\n#let greet = [hi #word]\n",
+            ),
+            (
+                "packages/inner/typst.toml",
+                "[package]\nnamespace = \"preview\"\nname = \"inner\"\nversion = \"0.1.0\"\n\
+                 entrypoint = \"lib.typ\"\n",
+            ),
+            ("packages/inner/lib.typ", "#let word = \"there\"\n"),
+        ]);
+        let world =
+            QuillWorld::new(&quill, "#import \"@preview/outer:1.2.0\": greet\n#greet\n")
+                .expect("world");
+        crate::compile::compile_document(&world).expect("the vendored chain resolves");
     }
 
     /// `extra` files are inserted under their `/`-joined tree paths.
     fn quill_with(extra: &[(&str, &str)]) -> quillmark_core::quill::Quill {
+        quill_with_typst_section("  plate_file: plate.typ\n", extra)
+    }
+
+    /// `typst` is the indented body of the `typst:` section.
+    fn quill_with_typst_section(typst: &str, extra: &[(&str, &str)]) -> quillmark_core::quill::Quill {
         use quillmark_core::quill::{FileTreeNode, Quill};
         let mut root = FileTreeNode::Directory {
             files: HashMap::new(),
@@ -560,11 +635,13 @@ name = "minimal-package"
         root.insert(
             "Quill.yaml",
             FileTreeNode::File {
-                contents: b"quill:\n  name: warn\n  version: 0.1.0\n  backend: typst\n  \
-                            description: load-warning probe\ntypst:\n  plate_file: plate.typ\n\
-                            main:\n  fields:\n    title:\n      type: string\n      \
-                            description: title\n"
-                    .to_vec(),
+                contents: format!(
+                    "quill:\n  name: warn\n  version: 0.1.0\n  backend: typst\n  \
+                     description: load-warning probe\ntypst:\n{typst}\
+                     main:\n  fields:\n    title:\n      type: string\n      \
+                     description: title\n"
+                )
+                .into_bytes(),
             },
         )
         .expect("insert Quill.yaml");
@@ -593,7 +670,8 @@ name = "minimal-package"
             ("packages/brokenpkg/typst.toml", "this is not [ valid toml"),
             ("packages/brokenpkg/lib.typ", "#let x = 1\n"),
         ]);
-        let world = QuillWorld::new(&quill, "// probe").expect("world builds anyway");
+        let plate = crate::read_plate(&quill).expect("plate");
+        let world = QuillWorld::new(&quill, &plate).expect("world builds anyway");
 
         let codes: Vec<&str> = world
             .load_warnings()
@@ -616,7 +694,8 @@ name = "minimal-package"
     #[test]
     fn a_package_without_a_manifest_is_skipped_with_a_warning() {
         let quill = quill_with(&[("packages/bare/lib.typ", "#let x = 1\n")]);
-        let world = QuillWorld::new(&quill, "// probe").expect("world builds anyway");
+        let plate = crate::read_plate(&quill).expect("plate");
+        let world = QuillWorld::new(&quill, &plate).expect("world builds anyway");
 
         let warning = world
             .load_warnings()
@@ -639,7 +718,8 @@ name = "minimal-package"
             ),
             ("packages/goodpkg/lib.typ", "#let x = 1\n"),
         ]);
-        let world = QuillWorld::new(&quill, "// probe").expect("world");
+        let plate = crate::read_plate(&quill).expect("plate");
+        let world = QuillWorld::new(&quill, &plate).expect("world");
         assert!(
             world.load_warnings().is_empty(),
             "clean quill warned: {:?}",
@@ -659,7 +739,8 @@ name = "minimal-package"
             ),
             ("packages/oldver/lib.typ", "#let x = 1\n"),
         ]);
-        let world = QuillWorld::new(&quill, "// probe").expect("world builds anyway");
+        let plate = crate::read_plate(&quill).expect("plate");
+        let world = QuillWorld::new(&quill, &plate).expect("world builds anyway");
         let codes: Vec<&str> = world
             .load_warnings()
             .iter()
@@ -677,7 +758,8 @@ name = "minimal-package"
             ),
             ("packages/escapee/lib.typ", "#let x = 1\n"),
         ]);
-        let world = QuillWorld::new(&quill, "// probe").expect("world builds anyway");
+        let plate = crate::read_plate(&quill).expect("plate");
+        let world = QuillWorld::new(&quill, &plate).expect("world builds anyway");
         let codes: Vec<&str> = world
             .load_warnings()
             .iter()
@@ -695,7 +777,8 @@ name = "minimal-package"
             "packages/hollow/typst.toml",
             "[package]\nname = \"hollow\"\nversion = \"0.1.0\"\nentrypoint = \"lib.typ\"\n",
         )]);
-        let world = QuillWorld::new(&quill, "// probe").expect("world");
+        let plate = crate::read_plate(&quill).expect("plate");
+        let world = QuillWorld::new(&quill, &plate).expect("world");
         let codes: Vec<&str> = world
             .load_warnings()
             .iter()
@@ -705,6 +788,23 @@ name = "minimal-package"
             codes.contains(&"typst::package_entrypoint_missing"),
             "expected an entrypoint warning, got {codes:?}"
         );
+    }
+
+    #[test]
+    fn a_typst_key_the_backend_does_not_read_warns() {
+        let quill = quill_with_typst_section(
+            "  plate_file: plate.typ\n  packages:\n    - \"@preview/bubble:0.2.2\"\n",
+            &[],
+        );
+        let world = QuillWorld::new(&quill, "// probe").expect("world");
+        let flagged: Vec<&str> = world
+            .load_warnings()
+            .iter()
+            .filter(|d| d.code.as_deref() == Some("typst::unknown_key"))
+            .map(|d| d.message.as_str())
+            .collect();
+        assert_eq!(flagged.len(), 1, "only `packages` is unread: {flagged:?}");
+        assert!(flagged[0].contains("typst.packages"), "{}", flagged[0]);
     }
 
 }
