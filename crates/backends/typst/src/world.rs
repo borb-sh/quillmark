@@ -615,9 +615,11 @@ mod tests {
             ),
             ("packages/inner/lib.typ", "#let word = \"there\"\n"),
         ]);
-        let world =
-            QuillWorld::new(&quill, "#import \"@preview/outer:1.2.0\": greet\n#greet\n")
-                .expect("world");
+        let plate = crate::Plate {
+            file: None,
+            text: "#import \"@preview/outer:1.2.0\": greet\n#greet\n".to_string(),
+        };
+        let world = QuillWorld::new(&quill, &plate).expect("world");
         crate::compile::compile_document(&world).expect("the vendored chain resolves");
     }
 
@@ -796,7 +798,11 @@ mod tests {
             "  plate_file: plate.typ\n  packages:\n    - \"@preview/bubble:0.2.2\"\n",
             &[],
         );
-        let world = QuillWorld::new(&quill, "// probe").expect("world");
+        let plate = crate::Plate {
+            file: None,
+            text: "// probe".to_string(),
+        };
+        let world = QuillWorld::new(&quill, &plate).expect("world");
         let flagged: Vec<&str> = world
             .load_warnings()
             .iter()
