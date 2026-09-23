@@ -12,9 +12,9 @@ Quills declare a semantic `version` in `Quill.yaml`, and documents carry an opti
 Semantic versioning: `MAJOR.MINOR.PATCH`, with two-segment `MAJOR.MINOR` also
 valid. `version` is required in the `quill:` section, and an invalid or missing
 value fails at load. Segments are plain digits: a `+`-signed one is refused, as
-is a `$quill` reference whose `@` carries no selector. Always quote the value: an
-unquoted `1.10` is read as the YAML number `1.1` and loads as that version, a
-different one from the one written.
+is a `$quill` reference whose `@` carries no selector. The value is its source
+text, quoted or not: an unquoted `1.10` is version `1.10`, not the YAML number
+`1.1`.
 
 | Increment | When |
 |-----------|------|
