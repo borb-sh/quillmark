@@ -57,7 +57,8 @@ fn unread_config_keys(source: &Quill, warnings: &mut Vec<Diagnostic>) {
                 Severity::Warning,
                 format!("Ignoring 'typst.{key}' in Quill.yaml: the Typst backend does not read it"),
             )
-            .with_code("typst::unknown_config_key".to_string())
+            .with_code("typst::unknown_key".to_string())
+            .with_arg("key", serde_json::Value::String(key.to_string()))
             .with_hint(hint),
         );
     }
@@ -346,8 +347,8 @@ impl QuillWorld {
                             Diagnostic::new(
                                 Severity::Warning,
                                 format!(
-                                    "Skipping package '{package_name}': its typst.toml did not \
-                                     parse ({e})"
+                                    "Skipping package '{package_name}': its typst.toml is invalid \
+                                     ({e})"
                                 ),
                             )
                             .with_code("typst::package_manifest".to_string()),
@@ -776,7 +777,7 @@ mod tests {
         let flagged: Vec<&str> = world
             .load_warnings()
             .iter()
-            .filter(|d| d.code.as_deref() == Some("typst::unknown_config_key"))
+            .filter(|d| d.code.as_deref() == Some("typst::unknown_key"))
             .map(|d| d.message.as_str())
             .collect();
         assert_eq!(flagged.len(), 1, "only `packages` is unread: {flagged:?}");

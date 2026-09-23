@@ -877,7 +877,7 @@ typst:
   plate_file: plate.typ
 ```
 
-Any other key under `typst` is ignored, with a `typst::unknown_config_key` warning on each render. Packages are not declared here: a quill vendors them under `packages/`, as the [Typst Backend Guide](typst-backend.md#typst-packages) describes.
+Any other key under `typst` is ignored, with a `typst::unknown_key` warning on each render. Packages are not declared here: a quill vendors them under `packages/`, as the [Typst Backend Guide](typst-backend.md#typst-packages) describes.
 
 ---
 

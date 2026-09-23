@@ -236,7 +236,7 @@ Typst's `VirtualPath` rejected: asset or package file alike),
 `typst::package_manifest`, and `typst::package_entrypoint_missing`. Each marks a
 file the world had to skip, which otherwise surfaces only as an unresolved
 `#import` pointing at the plate instead of at the defect. The fourth,
-`typst::unknown_config_key`, marks a key under `typst:` the backend never
+`typst::unknown_key`, marks a key under `typst:` the backend never
 reads: core stores that section verbatim, so nothing else would report it. They are properties of the quill, not of a compile, so
 `QuillWorld` holds them and the session serves them ahead of every compile's
 own: an `update` swaps the compile half and keeps these.
