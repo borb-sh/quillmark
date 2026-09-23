@@ -42,8 +42,6 @@ fn missing_plate_file_errors_at_open_not_load() {
     );
 }
 
-/// A plate in a subdirectory reaches `assets/` from the quill root, and its
-/// diagnostics name its declared path.
 #[test]
 fn a_nested_plate_resolves_assets_from_the_root_and_diagnoses_under_its_own_path() {
     use quillmark_core::quill::{FileTreeNode, Quill};
@@ -84,7 +82,9 @@ fn a_nested_plate_resolves_assets_from_the_root_and_diagnoses_under_its_own_path
         Err(e) => e.into_diagnostics(),
     };
     assert!(
-        !diags.iter().any(|d| d.message.starts_with("file not found")),
+        !diags
+            .iter()
+            .any(|d| d.code.as_deref() == Some("typst::file_not_found")),
         "assets/ resolves from the quill root: {diags:?}"
     );
     let location = diags
