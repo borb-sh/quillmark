@@ -4,17 +4,18 @@
 > **Base**: [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/)
 > **Implementation**: `crates/core/src/document/`
 
-Quillmark Markdown is a **strict superset of CommonMark** with one declared
-deviation. It layers a structured-data system (the **card-yaml** format) on
-top of ordinary markdown, and selects a small, stable set of GFM extensions.
+Quillmark Markdown is a **strict superset of CommonMark** with two declared
+deviations (§6.2). It layers a structured-data system (the **card-yaml**
+format) on top of ordinary markdown, and selects a small, stable set of GFM
+extensions.
 This document is the authoritative syntax standard.
 
 ## 1. Superset Statement
 
 Every valid CommonMark 0.31.2 document parses to the same block / inline
-structure under this spec, *except* for the deviations declared in §6.2
-(raw HTML), §3.2 (a column-zero `~~~` block with a blank line above it is a
-card-yaml block, not an ordinary fenced code block, whatever its info string;
+structure under this spec, *except* for the two deviations declared in §6.2:
+raw HTML, and a column-zero `~~~` block with a blank line above it, which is a
+card-yaml block rather than a fenced code block whatever its info string (§3.2;
 an indented `~~~` is not a card-yaml opener). Additionally, this spec defines:
 
 - **Structured data**: card-yaml blocks (§3).
@@ -350,7 +351,7 @@ Body regions (the root body and every card body) are rendered as CommonMark
 | Pipe tables | GFM pipe-table syntax with alignment rows | Supports `:---`, `:---:`, `---:` alignment. |
 | Underline (HTML) | `<u>text</u>` | The one allowlisted HTML tag (see §6.2). The only syntax for underline; handles intraword and arbitrary-range cases. |
 
-### 6.2 Declared Deviation from CommonMark
+### 6.2 Declared Deviations from CommonMark
 
 **Raw HTML is accepted syntactically but produces no output, except
 `<u>…</u>` which renders as underline.** The parser recognises HTML per
@@ -359,6 +360,14 @@ CommonMark §4.6 / §6.11, discards every event, and re-emits only the
 passthrough would create an injection vector for downstream
 HTML-producing tooling; `<u>` is the one exception because no
 CommonMark-native syntax covers underline.
+
+**A column-zero `~~~` with a blank line above it opens a card-yaml block,
+not a fenced code block, whatever its info string** (§3.2, §4). A backtick
+fence is the one fence for code. Rationale: the card-yaml format claims the
+tilde fence outright, so whether a block is data never depends on its info
+string. Tilde-fenced code reaches the YAML parser as a payload and fails
+under §10 unless it happens to read as a card; the failure names the
+opener's line and the backtick fence.
 
 No other syntax deviates from CommonMark. Delimiter-run semantics for `*`,
 `_`, `**`, `__`, and `~~` follow CommonMark and GFM exactly: in particular,
@@ -516,6 +525,10 @@ Parse errors include:
 - A `$` metadata key whose value type is incompatible with the key.
 - A data-field name failing `/^[A-Za-z_][A-Za-z0-9_]*$/`.
 - Invalid YAML inside any block payload.
+- A payload that is YAML but not a mapping: a string, number, boolean or
+  sequence (`PayloadNotMapping`). An empty or null payload is an empty
+  mapping. The error is located at the opener's line and names the backtick
+  fence (§6.2), since tilde-fenced code is the usual source.
 - Any §8 limit exceeded.
 
 ## 11. References

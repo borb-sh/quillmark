@@ -10,7 +10,7 @@ use crate::value::{PathSegment, QuillValue};
 use crate::error::{Diagnostic, Severity};
 
 use super::fences::{find_metadata_blocks, UnclosedRoot};
-use super::meta::{extract_meta_items, meta_key};
+use super::meta::{extract_meta_items, meta_key, yaml_type_name};
 use super::payload::{MetaKey, Payload, PayloadItem};
 use quillmark_content::model::Normalized;
 
@@ -284,6 +284,7 @@ pub(super) fn decompose_with_warnings(
         ));
     }
 
+    let root_mapping = payload_mapping(markdown, &mut blocks[0])?;
     let root_block = &blocks[0];
     let has_root_quill = root_block
         .meta_items
@@ -324,7 +325,7 @@ pub(super) fn decompose_with_warnings(
         std::mem::take(&mut root_block.pre_items),
         std::mem::take(&mut root_block.pre_nested_comments),
         std::mem::take(&mut root_block.pre_nested_fills),
-        root_block.yaml_value.take(),
+        root_mapping,
     )?;
     if main_payload.kind().is_none() {
         main_payload.set_kind("main");
@@ -382,17 +383,29 @@ pub(super) fn decompose_with_warnings(
         }
 
         let block = &mut blocks[idx];
+        let card_mapping = payload_mapping(markdown, block)?;
         let card_payload = build_payload(
             std::mem::take(&mut block.meta_items),
             std::mem::take(&mut block.pre_items),
             std::mem::take(&mut block.pre_nested_comments),
             std::mem::take(&mut block.pre_nested_fills),
-            block.yaml_value.take(),
+            card_mapping,
         )
         .map_err(|e| match e {
-            ParseError::InvalidStructure(msg) => {
-                ParseError::InvalidStructure(format!("Invalid YAML in card block: {}", msg))
-            }
+            // Code with a `: ` in it reads as a mapping and fails here instead
+            // of as `PayloadNotMapping`, so a tagged fence carries the same hint.
+            ParseError::InvalidStructure(msg) => match opener_info(markdown, block.start) {
+                Some(info) => ParseError::InvalidStructure(format!(
+                    "Invalid YAML in the `~~~{}` card block at line {}: {}. {}",
+                    info,
+                    line_of(markdown, block.start),
+                    msg,
+                    crate::error::tilde_code_hint(Some(info))
+                )),
+                None => {
+                    ParseError::InvalidStructure(format!("Invalid YAML in card block: {}", msg))
+                }
+            },
             other => other,
         })?;
         for w in &blocks[idx].pre_warnings {
@@ -427,23 +440,42 @@ fn take_meta_item(typed: &mut [Option<PayloadItem>], key: &str) -> Option<Payloa
         .take()
 }
 
+/// The block's payload as a mapping, an empty or null payload reading as an
+/// empty one. Anything else is refused at the opener's line.
+fn payload_mapping(
+    markdown: &str,
+    block: &mut MetadataBlock,
+) -> Result<serde_json::Map<String, serde_json::Value>, ParseError> {
+    match block.yaml_value.take() {
+        Some(serde_json::Value::Object(map)) => Ok(map),
+        Some(serde_json::Value::Null) | None => Ok(serde_json::Map::new()),
+        Some(other) => Err(ParseError::PayloadNotMapping {
+            line: line_of(markdown, block.start),
+            info: opener_info(markdown, block.start).map(str::to_string),
+            actual: yaml_type_name(&other),
+        }),
+    }
+}
+
+/// The 1-indexed line holding byte `pos`.
+fn line_of(markdown: &str, pos: usize) -> usize {
+    markdown[..pos].matches('\n').count() + 1
+}
+
+/// The info string on the opening fence at `start`, when it has one.
+fn opener_info(markdown: &str, start: usize) -> Option<&str> {
+    let opener = markdown[start..].lines().next().unwrap_or("");
+    let info = opener.trim_start_matches('~').trim();
+    (!info.is_empty()).then_some(info)
+}
+
 fn build_payload(
     meta_items: Vec<PayloadItem>,
     pre_items: Vec<PreItem>,
     pre_nested_comments: Vec<NestedComment>,
     pre_nested_fills: Vec<Vec<PathSegment>>,
-    yaml_value: Option<serde_json::Value>,
+    mut mapping: serde_json::Map<String, serde_json::Value>,
 ) -> Result<Payload, ParseError> {
-    let mut mapping = match yaml_value {
-        Some(serde_json::Value::Object(map)) => map,
-        Some(serde_json::Value::Null) | None => serde_json::Map::new(),
-        Some(_) => {
-            return Err(ParseError::InvalidStructure(
-                "expected a mapping".to_string(),
-            ));
-        }
-    };
-
     // Typed `$` items, consumed at most once each; leftovers are appended in
     // source order. The assert pins `extract_meta_items` to the closed set, so a
     // regression upstream is loud rather than a silent drop.

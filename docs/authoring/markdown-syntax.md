@@ -1,6 +1,6 @@
 # Markdown Syntax
 
-Quillmark Markdown is a **strict superset of [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/)** with a small set of [GitHub Flavored Markdown](https://github.github.com/gfm/) extensions and **one declared deviation**. If you already know CommonMark, you only need to learn what is on this page.
+Quillmark Markdown is a **strict superset of [CommonMark 0.31.2](https://spec.commonmark.org/0.31.2/)** with a small set of [GitHub Flavored Markdown](https://github.github.com/gfm/) extensions and **two declared deviations**: [raw HTML](#raw-html-is-not-rendered-except-u) and [`~~~` fences](#a-column-zero-always-opens-a-card-yaml-block). If you already know CommonMark, you only need to learn what is on this page.
 
 For the authoritative grammar, block-detection rules, normalization, and limits, see the formal [Markdown specification](../reference/markdown-spec.md).
 
@@ -25,7 +25,7 @@ Quillmark enables a small, stable subset of GFM:
 
 Task lists, autolinks beyond CommonMark's, and other GFM features are **not** enabled.
 
-## Deviation from CommonMark
+## Deviations from CommonMark
 
 ### Raw HTML is not rendered, except `<u>`
 
@@ -44,6 +44,33 @@ Consequences:
 - `<br>`, `<br/>`, `<br />` produce no output. Use a CommonMark hard break instead: two trailing spaces before a newline, or a trailing `\` before a newline.
 - HTML entities and embedded SVG are dropped.
 - HTML comments do not appear in output.
+
+### A column-zero `~~~` always opens a card-yaml block
+
+CommonMark reads a `~~~` fence as a code block, like a backtick fence. Quillmark
+reads a `~~~` at column zero with a blank line above it as a
+[card-yaml block](card-yaml.md), whatever its info string: `~~~python` opens a
+card, not Python.
+
+````markdown
+```python
+print("hi")
+```
+````
+
+Why: card-yaml blocks claim the tilde fence outright, so whether a block is
+data never depends on its info string.
+
+Consequences:
+
+- Fence code with backticks. A longer tilde run or a language tag does not
+  escape.
+- Tilde-fenced code in a body is parsed as YAML. Unless it happens to read as a
+  card's fields, the parse fails at the fence's line and names the backtick
+  fence to write instead (`parse::payload_not_mapping` where the code reads as
+  a YAML string or list).
+- A `~~~` indented by one to three spaces, or with no blank line above it, stays
+  a CommonMark code block.
 
 ## Out of scope
 
