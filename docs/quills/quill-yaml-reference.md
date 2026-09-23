@@ -871,16 +871,13 @@ Backend-specific configuration for the Typst renderer.
 | Key          | Type   | Required | Description |
 |--------------|--------|----------|-------------|
 | `plate_file` | string | no       | Path (relative to the quill root) to the Typst template the backend compiles |
-| `packages`   | array  | no       | Typst packages the template depends on |
 
 ```yaml
 typst:
   plate_file: plate.typ
-  packages:
-    - "@preview/appreciated-letter:0.1.0"
 ```
 
-See the [Typst Backend Guide](typst-backend.md) for details.
+Any other key under `typst` is ignored, with a `typst::unknown_key` warning on each render. Packages are not declared here: a quill vendors them under `packages/`, as the [Typst Backend Guide](typst-backend.md#typst-packages) describes.
 
 ---
 
