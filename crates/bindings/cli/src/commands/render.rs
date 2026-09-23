@@ -4,7 +4,7 @@ use crate::output::{derive_output_path, page_output_path, write_file, write_stdo
 use clap::Parser;
 use quillmark::{OutputFormat, Quillmark, RenderOptions, Severity};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 pub struct RenderArgs {
@@ -20,9 +20,9 @@ pub struct RenderArgs {
     #[arg(short, long, value_name = "FILE")]
     output: Option<PathBuf>,
 
-    /// Output format: pdf, svg, png
-    #[arg(short, long, value_name = "FORMAT", default_value = "pdf")]
-    format: String,
+    /// Output format: pdf, svg, png (default: the -o extension when it names one, else pdf)
+    #[arg(short, long, value_name = "FORMAT")]
+    format: Option<String>,
 
     /// Write output to stdout instead of file
     #[arg(long)]
@@ -57,10 +57,10 @@ pub fn execute(args: RenderArgs) -> Result<()> {
             (quill.seed_document(), Vec::new(), None)
         };
 
-    let output_format = args
-        .format
-        .parse::<OutputFormat>()
-        .map_err(|e| CliError::InvalidArgument(e.to_string()))?;
+    let output_format = resolve_format(
+        args.format.as_deref(),
+        args.output.as_deref().filter(|_| !args.stdout),
+    )?;
 
     if let Some(data_path) = args.output_data {
         let json_data = quill.compile_data(&parsed).map_err(CliError::Render)?;
@@ -152,4 +152,30 @@ pub fn execute(args: RenderArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// An `-o` extension that names a format is a second statement of it: it
+/// supplies an omitted `-f` and must agree with a given one. Any other
+/// extension names no format and is written as given.
+fn resolve_format(flag: Option<&str>, output: Option<&Path>) -> Result<OutputFormat> {
+    let flag = flag
+        .map(str::parse::<OutputFormat>)
+        .transpose()
+        .map_err(|e| CliError::InvalidArgument(e.to_string()))?;
+    let named = output.and_then(|path| {
+        let format = path.extension()?.to_str()?.parse::<OutputFormat>().ok()?;
+        Some((format, path))
+    });
+    match (flag, named) {
+        (Some(flag), Some((named, path))) if flag != named => {
+            Err(CliError::InvalidArgument(format!(
+                "-f {flag} disagrees with -o {}, which names {named}; \
+                 drop -f to write {named}, or give -o a .{flag} extension",
+                path.display()
+            )))
+        }
+        (flag, named) => Ok(flag
+            .or(named.map(|(format, _)| format))
+            .unwrap_or(OutputFormat::Pdf)),
+    }
 }

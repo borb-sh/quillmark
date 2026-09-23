@@ -42,7 +42,7 @@ Renders a document. With `MARKDOWN_FILE` omitted, the quill's seeded document is
 rendered instead, so a quill previews without any authored input.
 
 - `-o, --output <FILE>` — output path (default: the input filename with the format's extension)
-- `-f, --format <FORMAT>` — `pdf` (default), `svg`, or `png`
+- `-f, --format <FORMAT>` — `pdf`, `svg`, or `png`; defaults to the `-o` extension when it names one, else `pdf`, and refuses one that disagrees with it
 - `--stdout` — write the artifact to stdout; all chatter moves to stderr
 - `--output-data <DATA_FILE>` — also write the compiled JSON data handed to the backend
 - `--quiet` — suppress warnings and the output-destination line

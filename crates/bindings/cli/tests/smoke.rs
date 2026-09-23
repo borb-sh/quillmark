@@ -531,6 +531,43 @@ fn unknown_format_fails_loudly() {
     );
 }
 
+/// An `-o` extension naming a format supplies an omitted `-f` and refuses a
+/// disagreeing one before any file is written; an extension naming none is
+/// written as given.
+#[test]
+fn the_output_extension_reconciles_with_the_format_flag() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let quill = taro();
+    let quill = quill.to_str().unwrap();
+    let path = |name: &str| dir.path().join(name).to_str().unwrap().to_owned();
+
+    ok(&["render", quill, "-o", &path("inferred.SVG")]);
+    let svg = std::fs::read_to_string(dir.path().join("inferred.SVG"))
+        .expect("render wrote the inferred file");
+    assert!(svg.contains("<svg"), "-o inferred.SVG did not write SVG");
+
+    let out = run(&[
+        "render",
+        quill,
+        "-f",
+        "png",
+        "-o",
+        &path("clash.pdf"),
+        "--output-data",
+        &path("clash.json"),
+    ]);
+    assert_eq!(out.status.code(), Some(1), "-f png -o clash.pdf was not refused");
+    let written: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .filter(|name| name != "inferred.SVG")
+        .collect();
+    assert!(written.is_empty(), "a refused render wrote {written:?}");
+
+    ok(&["render", quill, "-f", "svg", "-o", &path("page.bin")]);
+    let svg = std::fs::read_to_string(dir.path().join("page.bin")).expect("page.bin exists");
+    assert!(svg.contains("<svg"), "-f svg -o page.bin did not write SVG");
+}
 
 /// `--format` parses case-insensitively, and the derived filename takes the
 /// parsed format's id, not the flag as typed.
