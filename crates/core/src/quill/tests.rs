@@ -397,6 +397,31 @@ fn test_quill_config_rejects_non_snake_case_identifiers() {
 }
 
 #[test]
+fn test_invalid_quill_name_hint_suggests_a_valid_name() {
+    for (name, suggestion) in [
+        ("My-Quill", Some("my_quill")),
+        ("_private", Some("private")),
+        ("2nd.form", Some("nd_form")),
+        ("__", None),
+    ] {
+        let yaml = format!(
+            "quill:\n  name: \"{name}\"\n  version: \"1.0\"\n  backend: typst\n  description: q\n"
+        );
+        let errs = QuillConfig::from_yaml_with_warnings(&yaml).unwrap_err();
+        let diag = errs
+            .iter()
+            .find(|d| d.code.as_deref() == Some("quill::invalid_name"))
+            .unwrap_or_else(|| panic!("{name} is not a valid quill name"));
+        let expected = suggestion.map(|s| format!("Rename '{name}' to '{s}'"));
+        assert_eq!(diag.hint, expected, "hint for {name}");
+        if let Some(s) = suggestion {
+            let renamed = yaml.replace(&format!("\"{name}\""), s);
+            assert!(QuillConfig::from_yaml(&renamed).is_ok(), "{s} loads");
+        }
+    }
+}
+
+#[test]
 fn test_quill_config_accepts_leading_underscore_card_name() {
     let yaml = &with_header(r#"card_kinds:
   _private_card:

@@ -28,12 +28,7 @@ A present `type: date` / `type: datetime` field is a native `datetime`; a blank 
 #if data.issued != none { .. }                                        // presence
 ```
 
-Everything except the last two is ordinary Typst, because the value is an ordinary `datetime`.
-
-- **`display(field, ..args)` renders and is clickable.** It takes the field's *schema address*, not its value, and returns Typst *content* whose glyphs carry a region keyed on that address: the atomic, picker-editable click-to-edit target. It accepts the same patterns `datetime.display` does, and a `date`-only field inherits Typst's native error on a `[hour]` pattern. The address is checked against the schema at compile time, the same check `form-field(field:)` and `field-region` apply, so a typo fails the render instead of dropping the date from it. `none` for a blank date, so a `== none` fallback still fires.
-- **`data.<field>` is the value.** Reach for it whenever you want a `datetime` — math, comparison, components, handing it to a package. A direct plate reference (`#data.issued.display("…")` written in the plate itself) still regions, the same way any scalar reference site does.
-
-One rule: **want a value → `data.<field>`; want clickable ink → `display("<field>", ..)`.** The difference matters exactly when a *package* does the inking: a `datetime` handed to a package draws its glyphs wherever the package places them, so nothing ties them to your schema field, while `display`'s ink is born in generated code and keeps its address however deep it travels. It is the only helper that takes an address rather than a value, and that is exactly why: an address survives the value being copied.
+Everything except the last two is ordinary Typst, because the value is an ordinary `datetime`. `display(field, ..args)` takes the field's *schema address* rather than its value, and prints the date as `datetime.display` would with the same patterns; an unknown address fails the render, and a blank date gives `none`. Reach for `data.<field>` whenever you want the value itself: math, comparison, components, or handing it to a package. The two print the same ink and differ only in [editor previews](editor-regions.md#dates-display-and-data), where `display` keeps the printed date clickable.
 
 ### Which accessor to reach for
 
@@ -41,7 +36,7 @@ A key's *declaration* decides whether it can be absent, and that decides the acc
 
 | Key | Accessor | Why |
 |---|---|---|
-| A field declared in `Quill.yaml` | `data.subtitle` | Always present: compilation blank-fills every declared field with its authored value, else the schema `default:`, else the field's blank (`""`, `()`, `0`, the empty content). |
+| A field declared in `Quill.yaml` | `data.subtitle` | Always present: compilation blank-fills every declared field with its authored value, else the schema `default:`, else the field's [blank](#blank-values). |
 | A `$`-sigiled key (`$kind`, `$body`, `$cards`, `$path`) | `data.at("$body", default: "")` | Typst identifiers exclude `$`, *and* `$`-metadata is present only where it is defined: `$kind` only on a card that authors one, `$body` only where the kind enables a body. |
 | An undeclared key, or any field of a card whose `$kind` is unknown | `data.at("logo", default: none)` | No schema fills it, so absence is real. |
 
@@ -60,6 +55,24 @@ An `enum` needs this most: its blank is `""`, which is never one of its `values:
 ```typst
 #if data.seal != "" { .. }        // the blank means "no seal", not the first value
 ```
+
+### Blank values
+
+What an unanswered field holds when it reaches the plate, and the guard that tests for it:
+
+| Declared type | Blank in the plate | Guard |
+|---|---|---|
+| `string`, `enum` | `""` | `data.f != ""` |
+| `enum` with `variants:` | `(value: "")` | `data.f.value != ""` |
+| `richtext`, `plaintext` | `""` (an authored value arrives as content) | `data.f != ""` |
+| `date`, `datetime` | `none` | `data.f != none` |
+| `integer`, `number` | `0` | `data.f != 0` |
+| `boolean` | `false` | `data.f` |
+| `array` | `()` | `data.f.len() > 0` |
+| `object` | a dictionary of its properties, each at its own blank | guard the properties |
+| `matrix` | every member, each with `held: false` | `m.held` per member |
+
+`$body` follows the content rule: `data.at("$body", default: "") != ""` is true only when the body has text.
 
 ### Body, arrays, and cards
 
@@ -274,93 +287,9 @@ The label `<__qm_field__>` and metadata `kind: "__qm_field__"` are reserved for 
 > `query(metadata)`, filter to your own elements rather than assuming a single
 > or last metadata element.
 
-## Which Reads Get Regions
-
-A **scalar** is tracked at the expression that draws it, so where you write the read decides whether it surfaces in `session.regions()`. Naming the value first is fine: a `let` bound once to one whole `data` chain is followed, and stepping into a container through that name keeps the cell's address.
-
-```typst
-#let c = data.classification
-#c.poc                       // regions as `classification.poc`, same as #data.classification.poc
-```
-
-A read into a typed table works the same way, one step further: the index and
-then the row property, the addresses `form-field(field:)` takes.
-
-```typst
-#data.refs.at(0).org         // regions as `refs.0.org`
-#data.refs.at(0)             // regions as `refs.0` — each step is its own address
-#let row = data.refs.at(0)
-#row.org                     // regions as `refs.0.org` too
-```
-
-Rebind that name anywhere in the plate — a second `let`, a closure parameter, a loop pattern, an assignment — and it stops being followed, because a read can no longer be tied to one value. Three shapes are past what the tracker follows at all:
-
-| Shape | Why |
-|---|---|
-| a value handed to a function (`#let f(c) = [#c.poc]`) | the parameter is a fresh name bound per call |
-| a destructured binding (`#let (poc, ..) = data.classification`) | the pattern names no chain |
-| a per-card loop variable (`#for card in data.at("$cards")`) | one shared expression site carries no per-instance identity |
-
-Each of those still renders correctly and loses only the click target, which is why nothing announces it. Wrap the read in a `field-region` claim to get the region back.
-
-**Backend-generated ink needs none of this.** A `richtext` value's ink is born in generated code, so it keeps its address through a function, a loop, or a package that rebuilds it — and so does a date placed through `display("<field>", ..)`, which is why the projection takes an address rather than a value. A *value* laundered through any of the shapes above is on the list like every other value, dates included.
-
-## Tying Composed Content to a Field
-
-A live preview routes a click back to the schema field that produced the ink under it, and it finds that field automatically for content it generated: a `richtext` field's markup, a `#data.subject` reference in your plate. Content your plate *composes* — a banner keyed off `data.classification`, an address block a vendored package lays out, a computed table — draws ink Quillmark cannot attribute to anything. `field-region` claims it:
-
-```typst
-#import "@local/quillmark-helper:0.1.0": data, field-region
-
-#let banner(level) = box(stroke: 1pt, inset: 6pt)[#upper(level)]
-
-#field-region("classification")[#banner(data.classification)]
-```
-
-The banner now appears in `session.regions()` under `classification` and a click on it resolves through `session.fieldAt(...)`, exactly as if the field had drawn it.
-
-`body` is returned untouched, bracketed by two invisible `metadata` markers, so the wrapper changes nothing about layout or output bytes. Unlike a `form-field` widget it reserves no space and draws no click target of its own: it claims the ink that is already there.
-
-### What it claims
-
-A claim is a **fallback**, not an override. Ink already tracked to a field keeps that field, and the wrapper takes only what is left:
-
-```typst
-#field-region("recipient")[
-  #line(length: 2in)          // no field of its own → claimed for `recipient`
-  #data.body                  // a richtext field → stays `body`
-  Prepared by #data.author    // a scalar reference → stays `author`
-]
-```
-
-Nesting therefore reads as ordinary scoping, and wrapping never moves a region off the field that generated it. The flip side: you cannot use `field-region` to *retarget* ink that is already attributed. Ink Typst attributes to no source position at all — list bullets, underline rules — stays unclaimed here as it is everywhere else.
-
-Each **call** claims independently, so `field` need not be a literal and a wrapper used once per card yields one region per card:
-
-```typst
-#for card in data.at("$cards", default: ()) {
-  field-region(card.at("$path") + "$body", render-card(card))
-}
-```
-
-That is the way to give a card's *scalar* fields regions: read from the loop variable, they carry no per-instance identity of their own.
-
-### Parameters and errors
-
-| Name | Type | Default | Meaning |
-|------|------|---------|---------|
-| `field` | `str` | required (positional) | Schema address: a field name, an array element like `"refs.2"`, or a card path built from the card's `$path` prefix. |
-| `body` | any content | required (positional) | Returned unchanged; its ink is what gets claimed. |
-
-- A `field` that is not a known schema address, or is not a string, raises a Typst assert pointing at `field-region`.
-- A claim whose content Typst lays out somewhere else entirely (`#place`, a float) claims whatever ink lands between its markers instead; wrap the placed content rather than the `place` call.
-- Emit the call's return value whole. Splitting it — passing `.children` through separately, say — can land the opening marker in a frame without its closing one. Such a claim is bounded by nothing, so rather than let it take every unattributed piece of ink to the end of the document it is dropped entirely and reported as a `typst::unclosed_field_region` warning naming the field.
-
-The label `<__qm_region__>` and metadata `kind: "__qm_region__"` are reserved for this hand-off: the same `query(metadata)` caveat applies.
-
 ## Output Formats
 
-PDF and SVG render as a single artifact. PNG renders one artifact per page.
+PDF renders as a single artifact. SVG and PNG render one artifact per page.
 
 Python binding (rendering lives on the engine, not the quill):
 
@@ -394,4 +323,5 @@ PNG resolution is set via the `ppi` option (default **144**, 2× at 72pt/inch, s
 ## Next Steps
 
 - [Create your own Typst Quill](creating-quills.md)
+- [Editor Regions](editor-regions.md): keeping plate ink clickable in a live preview
 - [Learn about Markdown syntax](../authoring/markdown-syntax.md)

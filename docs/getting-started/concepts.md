@@ -53,7 +53,7 @@ A backend compiles a quill's backend-specific inputs plus injected JSON data int
 
 ### Required `$quill` Metadata
 
-Each document must declare its target format in the root block's `$quill` system metadata line. If missing, parsing fails. Quill names must be `snake_case` (`[a-z_][a-z0-9_]*`); hyphens are not allowed.
+Each document must declare its target format in the root block's `$quill` system metadata line. If missing, parsing fails. Quill names must be `snake_case` (`[a-z][a-z0-9_]*`); hyphens are not allowed.
 
 ## The Rendering Pipeline
 
