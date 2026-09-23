@@ -41,16 +41,6 @@ pub enum ValidationError {
         format: String,
     },
 
-    UnknownCard {
-        path: String,
-        card: String,
-    },
-
-    BodyDisabled {
-        path: String,
-        card: String,
-    },
-
     /// An `inline: true` field whose content is not a single line: a block, a
     /// list or quote container, or an island. Both prose codecs declare
     /// `inline`, so this is one condition under one code, the validation twin of
@@ -107,16 +97,6 @@ impl std::fmt::Display for ValidationError {
                     "field `{path}` does not match expected format `{format}`"
                 )
             }
-            ValidationError::UnknownCard { path, card } => {
-                write!(f, "unknown card kind `{card}` at `{path}`")
-            }
-            ValidationError::BodyDisabled { path, card } => {
-                write!(
-                    f,
-                    "card `{card}` at `{path}` has body content but the card kind declares `body.enabled: false`: {hint}",
-                    hint = body_disabled_hint(),
-                )
-            }
             ValidationError::NotInline { path } => {
                 write!(
                     f,
@@ -151,11 +131,6 @@ fn type_mismatch_hint(expected: &str, actual: &str, default: Option<&str>) -> St
     }
 }
 
-/// Actionable exit clause for a `BodyDisabled` error.
-fn body_disabled_hint() -> &'static str {
-    "remove the body content or set `body.enabled: true` on the card kind"
-}
-
 /// Actionable exit clause for a `NotInline` error, codec-neutral because both
 /// prose types declare `inline`.
 fn not_inline_hint() -> &'static str {
@@ -178,8 +153,6 @@ impl ValidationError {
             ValidationError::TypeMismatch { path, .. }
             | ValidationError::EnumViolation { path, .. }
             | ValidationError::FormatViolation { path, .. }
-            | ValidationError::UnknownCard { path, .. }
-            | ValidationError::BodyDisabled { path, .. }
             | ValidationError::NotInline { path, .. }
             | ValidationError::NotPlain { path, .. } => path,
         }
@@ -192,8 +165,6 @@ impl ValidationError {
             ValidationError::TypeMismatch { .. } => "validation::type_mismatch",
             ValidationError::EnumViolation { .. } => "validation::enum_violation",
             ValidationError::FormatViolation { .. } => "validation::format_violation",
-            ValidationError::UnknownCard { .. } => "validation::unknown_card",
-            ValidationError::BodyDisabled { .. } => "validation::body_disabled",
             ValidationError::NotInline { .. } => "validation::not_inline",
             ValidationError::NotPlain { .. } => "validation::not_plain",
         }
@@ -241,12 +212,6 @@ impl ValidationError {
             ValidationError::FormatViolation { path: _, format } => diag_args! {
                 "format" => format,
             },
-            ValidationError::UnknownCard { path: _, card } => diag_args! {
-                "card" => card,
-            },
-            ValidationError::BodyDisabled { path: _, card } => diag_args! {
-                "card" => card,
-            },
             ValidationError::NotInline { path: _ } => diag_args! {},
             ValidationError::NotPlain { path: _ } => diag_args! {},
         }
@@ -263,12 +228,9 @@ impl ValidationError {
                 default,
                 ..
             } => Some(type_mismatch_hint(expected, actual, default.as_deref())),
-            ValidationError::BodyDisabled { .. } => Some(body_disabled_hint().to_string()),
             ValidationError::NotInline { .. } => Some(not_inline_hint().to_string()),
             ValidationError::NotPlain { .. } => Some(not_plain_hint().to_string()),
-            ValidationError::EnumViolation { .. }
-            | ValidationError::FormatViolation { .. }
-            | ValidationError::UnknownCard { .. } => None,
+            ValidationError::EnumViolation { .. } | ValidationError::FormatViolation { .. } => None,
         }
     }
 
@@ -330,41 +292,21 @@ pub fn validate_typed_document(
 ) -> Result<(), Vec<ValidationError>> {
     let mut errors = validate_fields_for_card(&config.main, doc.main().payload(), &DocPath::main());
 
-    // A whitespace-only body is empty: only meaningful prose triggers this.
-    if !config.main.body_enabled() && !doc.main().body().is_blank() {
-        errors.push(ValidationError::BodyDisabled {
-            path: DocPath::main_body().to_string(),
-            card: "main".to_string(),
-        });
-    }
-
+    // A card no declared kind claims has no field to judge, and a body under
+    // `body.enabled: false` no place to fill: both render without the input
+    // and warn from `Quill::validate` instead.
     for (index, card) in doc.cards().iter().enumerate() {
-        let card_name = card.kind().unwrap_or("").to_string();
-
-        let Some(card_schema) = config.card_kind(card_name.as_str()) else {
-            // An unknown-kind card has no kind to qualify with: `cards[<i>]`,
-            // the sole bare-index root. (A document's cards are always a
-            // `cards` list; the kind *definitions* live under `card_kinds:`.)
-            errors.push(ValidationError::UnknownCard {
-                path: DocPath::card(None, index).to_string(),
-                card: card_name,
-            });
+        let Some((kind, card_schema)) = card
+            .kind()
+            .and_then(|kind| config.card_kind(kind).map(|schema| (kind, schema)))
+        else {
             continue;
         };
-
-        let card_path = DocPath::card(Some(&card_name), index);
         errors.extend(validate_fields_for_card(
             card_schema,
             card.payload(),
-            &card_path,
+            &DocPath::card(Some(kind), index),
         ));
-
-        if !card_schema.body_enabled() && !card.body().is_blank() {
-            errors.push(ValidationError::BodyDisabled {
-                path: card_path.body().to_string(),
-                card: card_name,
-            });
-        }
     }
 
     if errors.is_empty() {
@@ -993,19 +935,6 @@ main:
     }
 
     #[test]
-    fn rejects_unknown_card_discriminator() {
-        let config = config_with(
-            "    title:\n      type: string\n      default: \"\"",
-            "card_kinds:\n  indorsement:\n    fields:\n      signature_block:\n        type: string",
-        );
-        let doc = doc_with_typed_cards(&[], vec![typed_card("unknown", &[])]);
-        let errors = validate_typed_document(&config, &doc).unwrap_err();
-        assert!(has_error(&errors, |e| {
-            matches!(e, ValidationError::UnknownCard { path, card } if path == "cards[0]" && card == "unknown")
-        }));
-    }
-
-    #[test]
     fn reports_card_field_paths_with_card_name_and_index() {
         let config = config_with(
             "    title:\n      type: string\n      default: \"\"",
@@ -1022,28 +951,6 @@ main:
         assert!(has_error(&errors, |e| {
             matches!(e, ValidationError::TypeMismatch { path, .. } if path == "cards.indorsement[0].signature_block")
         }));
-    }
-
-    #[test]
-    fn body_disabled_card_enforces_trim_boundary() {
-        let config = config_with(
-            "    title:\n      type: string\n      default: \"\"",
-            "card_kinds:\n  skills:\n    body:\n      enabled: false\n    fields:\n      items:\n        type: array\n        items:\n          type: string\n        default: []",
-        );
-        let mut prose_card = typed_card("skills", &[("items", json!(["Rust"]))]);
-        prose_card.revise_body("Should not be here.").unwrap();
-        let doc = doc_with_typed_cards(&[], vec![prose_card]);
-        let errors = validate_typed_document(&config, &doc).unwrap_err();
-        assert!(has_error(&errors, |e| matches!(
-            e,
-            ValidationError::BodyDisabled { path, card }
-            if card == "skills" && path == "cards.skills[0].body"
-        )));
-
-        let mut ws_card = typed_card("skills", &[("items", json!(["Rust"]))]);
-        ws_card.revise_body("\n   \n").unwrap();
-        let ok_doc = doc_with_typed_cards(&[], vec![ws_card]);
-        assert!(validate_typed_document(&config, &ok_doc).is_ok());
     }
 
     #[test]
@@ -1085,42 +992,6 @@ main:
                 "bare scalar {value} should validate as a string"
             );
         }
-    }
-
-    #[test]
-    fn main_body_disabled_with_body_content_is_an_error() {
-        let config = QuillConfig::from_yaml(
-            r#"
-quill:
-  name: native_validation
-  backend: typst
-  description: Native validator tests
-  version: 1.0.0
-main:
-  body:
-    enabled: false
-  fields:
-    title:
-      type: string
-      default: ""
-"#,
-        )
-        .unwrap();
-        use crate::document::Payload;
-        let mut p = Payload::from_index_map(IndexMap::new());
-        p.set_quill("test_quill".parse().unwrap());
-        p.set_kind("main");
-        let main = Card::from_parts(
-            p,
-            crate::document::import_body("Body content that should not be here.").unwrap(),
-        );
-        let doc = Document::from_main_and_cards(main, vec![]);
-        let errors = validate_typed_document(&config, &doc).unwrap_err();
-        assert!(has_error(&errors, |e| matches!(
-            e,
-            ValidationError::BodyDisabled { path, card }
-            if card == "main" && path == "main.body"
-        )));
     }
 
     #[test]

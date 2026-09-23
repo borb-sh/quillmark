@@ -206,6 +206,7 @@ impl Quill {
             Ok(()) => Vec::new(),
             Err(errors) => errors.iter().map(|e| e.to_diagnostic()).collect(),
         };
+        diags.extend(validate_unclaimed(self.config(), doc));
         let marked = validate_fills(self.config(), doc);
         let claimed: HashSet<Option<String>> = marked.iter().map(|d| d.path.clone()).collect();
         diags.extend(marked);
@@ -763,9 +764,8 @@ fn validate_fills(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
 /// Every card of `doc`, the main card first, with the schema its kind resolves
 /// to (`None` for an undeclared kind) and the [`DocPath`] it is reported under.
 ///
-/// A card whose declared `$kind` has no schema drops the kind segment and stays
-/// `cards[<i>]`, matching `validate_typed_document`; a schema-declared kind
-/// qualifies as `cards.<kind>[<i>]`.
+/// A card whose `$kind` is missing or has no schema drops the kind segment and
+/// stays `cards[<i>]`; a schema-declared kind qualifies as `cards.<kind>[<i>]`.
 fn schema_cards<'a>(
     config: &'a QuillConfig,
     doc: &'a Document,
@@ -941,6 +941,95 @@ fn collect_unauthored_field(
             collect_unauthored_field(items, Some(&element), &path.index(index), out);
         }
     }
+}
+
+/// Report each card and body no declaration claims: a card whose `$kind` is
+/// missing or undeclared, and body prose under `body.enabled: false`. Each
+/// renders without the input (`prose/canon/SCHEMAS.md` § "What blocks a
+/// render"), so each is a warning.
+fn validate_unclaimed(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
+    let kinds: Vec<&str> = config.card_kinds.iter().map(|k| k.name.as_str()).collect();
+    let mut diags = Vec::new();
+    for (schema, card, path) in schema_cards(config, doc) {
+        match schema {
+            None => diags.push(match card.kind() {
+                Some(kind) => unknown_card_warning(&path, kind, &kinds),
+                None => kindless_card_warning(&path, &kinds),
+            }),
+            // A whitespace-only body is empty: only meaningful prose warns.
+            Some(schema) if !schema.body_enabled() && !card.body().is_blank() => {
+                diags.push(body_disabled_warning(&path.body(), &schema.name));
+            }
+            Some(_) => {}
+        }
+    }
+    diags
+}
+
+fn quoted_kinds(kinds: &[&str]) -> String {
+    kinds
+        .iter()
+        .map(|k| format!("`{k}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+pub(crate) fn unknown_card_warning(path: &DocPath, kind: &str, kinds: &[&str]) -> Diagnostic {
+    let path = path.to_string();
+    let hint = if kinds.is_empty() {
+        "This quill declares no card kinds: remove the card.".to_string()
+    } else {
+        format!(
+            "Set `$kind` to one of this quill's card kinds: {}.",
+            quoted_kinds(kinds)
+        )
+    };
+    Diagnostic::new(
+        Severity::Warning,
+        format!("Card `{path}` names kind `{kind}`, which this quill does not declare."),
+    )
+    .with_code("validation::unknown_card".to_string())
+    .with_path(path)
+    .with_arg("card", kind.into())
+    .with_arg("allowed", kinds.into())
+    .with_hint(hint)
+}
+
+pub(crate) fn kindless_card_warning(path: &DocPath, kinds: &[&str]) -> Diagnostic {
+    let path = path.to_string();
+    let add = if kinds.is_empty() {
+        "This quill declares no card kinds.".to_string()
+    } else {
+        format!(
+            "Add a `$kind:` line naming one of this quill's card kinds: {}.",
+            quoted_kinds(kinds)
+        )
+    };
+    Diagnostic::new(
+        Severity::Warning,
+        format!("Card `{path}` has no `$kind`, so no card kind of this quill claims it."),
+    )
+    .with_code("validation::kindless_card".to_string())
+    .with_path(path)
+    .with_arg("allowed", kinds.into())
+    .with_hint(format!(
+        "{add} A `~~~` block always opens a card: fence a code block with backticks."
+    ))
+}
+
+pub(crate) fn body_disabled_warning(path: &DocPath, card: &str) -> Diagnostic {
+    let path = path.to_string();
+    Diagnostic::new(
+        Severity::Warning,
+        format!(
+            "Card `{card}` has body content at `{path}`, but the card kind declares \
+             `body.enabled: false`: the body will not render."
+        ),
+    )
+    .with_code("validation::body_disabled".to_string())
+    .with_path(path)
+    .with_arg("card", card.into())
+    .with_hint("Remove the body content, or set `body.enabled: true` on the card kind.".to_string())
 }
 
 /// Report every authored cell that belongs to a variant the discriminant does
@@ -1266,6 +1355,56 @@ card_kinds:
             paths.contains(&"cards[1].memo".to_string()),
             "kindless card fill must anchor at the bare index; got {paths:?}"
         );
+    }
+
+    #[test]
+    fn unclaimed_cards_and_bodies_render_and_warn() {
+        let config = QuillConfig::from_yaml(
+            r#"
+quill: { name: uc, version: 1.0.0, backend: typst, description: x }
+main:
+  body:
+    enabled: false
+  fields:
+    title: { type: string }
+card_kinds:
+  stamp:
+    body:
+      enabled: false
+    fields:
+      label: { type: string }
+"#,
+        )
+        .expect("valid quill");
+        let md = "~~~\n$quill: uc@1.0.0\n$kind: main\ntitle: T\n~~~\n\nRoot prose.\n\n\
+                  ~~~\n$kind: stamp\nlabel: L\n~~~\n\nStamp prose.\n\n\
+                  ~~~\n$kind: stamp\n~~~\n\n   \n\n\
+                  ~~~\n$kind: ghost\nnote: g\n~~~\n\n\
+                  ~~~\nnote: k\n~~~\n";
+        let doc = Document::parse(md).expect("parse").document;
+
+        let plate = config.compile_data(&doc).expect("unclaimed input renders");
+        let cards = plate["$cards"].as_array().unwrap();
+        assert_eq!(cards.len(), 4, "every card rides `$cards` in document order");
+        assert_eq!(cards[2]["$kind"], "ghost");
+        assert_eq!(cards[2]["note"], "g");
+        assert!(cards[3].get("$kind").is_none(), "a kindless card carries none");
+        assert!(cards[2].get("$body").is_none() && cards[3].get("$body").is_none());
+
+        let warned: Vec<(String, String)> = validate_unclaimed(&config, &doc)
+            .into_iter()
+            .inspect(|d| assert_eq!(d.severity, Severity::Warning, "{d:?}"))
+            .map(|d| (d.code.unwrap(), d.path.unwrap()))
+            .collect();
+        let expected = [
+            ("validation::body_disabled", "main.body"),
+            ("validation::body_disabled", "cards.stamp[0].body"),
+            ("validation::unknown_card", "cards[2]"),
+            ("validation::kindless_card", "cards[3]"),
+        ]
+        .map(|(c, p)| (c.to_string(), p.to_string()));
+        assert_eq!(warned, expected, "a whitespace-only body is empty");
+        assert!(config.validate_document(&doc).is_ok(), "nothing here is fatal");
     }
 
     fn plate_of(yaml: &str, md: &str) -> serde_json::Value {

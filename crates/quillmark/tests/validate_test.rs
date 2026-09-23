@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use quillmark::{Document, FileTreeNode, Quill};
+use quillmark::{Document, FileTreeNode, Quill, Severity};
 
 fn quill_from_yaml(yaml: &str) -> Quill {
     let mut files = HashMap::new();
@@ -71,20 +71,21 @@ fn validate_forwards_type_mismatch_with_path_and_hint() {
 }
 
 #[test]
-fn validate_reports_unknown_card_kind() {
+fn validate_warns_on_unknown_card_kind_naming_the_declared_ones() {
     let quill = quill_from_yaml(SIMPLE);
     let md = "~~~card-yaml\n$quill: validate_test\n$kind: main\ntitle: \"T\"\ncount: 1\n~~~\n\n\
               ~~~card-yaml\n$kind: ghost\nbody: \"B\"\n~~~\n";
     let doc = Document::parse(md).unwrap().document;
 
     let diags = quill.validate(&doc);
-    assert!(
-        diags
-            .iter()
-            .any(|d| d.code.as_deref() == Some("validation::unknown_card")),
-        "expected validation::unknown_card; got: {:?}",
-        diags.iter().map(|d| &d.code).collect::<Vec<_>>()
-    );
+    let diag = diags
+        .iter()
+        .find(|d| d.code.as_deref() == Some("validation::unknown_card"))
+        .expect("expected validation::unknown_card");
+    assert_eq!(diag.severity, Severity::Warning);
+    assert_eq!(diag.path.as_deref(), Some("cards[0]"));
+    assert_eq!(diag.args.get("card"), Some(&serde_json::json!("ghost")));
+    assert_eq!(diag.args.get("allowed"), Some(&serde_json::json!(["note"])));
 }
 
 #[test]

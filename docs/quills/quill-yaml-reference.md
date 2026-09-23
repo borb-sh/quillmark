@@ -809,7 +809,7 @@ When omitted, UI consumers fall back to the prettified map key.
 
 #### `body.enabled`
 
-When `false`, the card kind has no body/content area. Consumers must not accept or store body content for instances of this card kind. The validator enforces this: a document instance that provides body content for a `body.enabled: false` card kind is rejected with a `BodyDisabled` error.
+When `false`, the card kind has no body/content area, and an editor should offer none. A document that provides body content for such a card anyway still renders without it: the plate receives no `$body`, and `quill.validate(doc)` warns with `validation::body_disabled`.
 
 ```yaml
 card_kinds:

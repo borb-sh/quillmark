@@ -137,12 +137,16 @@ families:
   *render floor* also refuses it (`validation::type_mismatch`); the floor is
   more lenient than the write, and what it adopts is valid.
 - **Validation warnings**: `Quill::validate(doc)` returns every
-  `validation::*` diagnostic, mixing severities; `validation::must_fill`,
-  `validation::out_of_variant`, `validation::cardinality` and the `$seed`
-  checks are the non-fatal ones.
-  This is the editor-facing surface; the render pipeline blank-fills instead of
-  warning on incomplete documents. A **fatal** row here means the document does
-  not render: values are judged in the form the render floor builds from them
+  `validation::*` diagnostic, mixing severities. Severity is the class
+  [SCHEMAS.md](SCHEMAS.md#what-blocks-a-render) assigns: an `Error` is
+  malformed input, and the document does not render; a `Warning` is incomplete
+  or unclaimed input, which renders. The warnings are `must_fill`,
+  `cardinality`, `out_of_variant`, `unknown_card`, `kindless_card`,
+  `body_disabled`, and the `$seed` checks, which warn whatever their class
+  because no render reads `$seed`.
+  This is the editor-facing surface: the render gate consults only the fatal
+  set, and carries none of the warnings into `RenderResult.warnings`. Values
+  are judged in the form the render floor builds from them
   ([SCHEMAS.md](SCHEMAS.md) § "Type coercion").
 - **`plate::unsupported_construct`: declined-construct warnings.** A quill
   names, per body (`BodyCardSchema.unsupported`), the block constructs its
@@ -311,12 +315,13 @@ with `format!`, so the engine never ships two shapes for one anchor.
 | Typed card (whole) | `cards.indorsement[0]` |
 | Field on a typed card | `cards.indorsement[0].signature_block` |
 | Body on a typed card | `cards.indorsement[0].body` |
-| Card with unknown kind | `cards[0]` |
+| Card no declared kind claims (unknown or missing `$kind`) | `cards[0]` |
 
 Every path is **rooted**: a main field at `main.<field>`, a card field
 kind-qualified at `cards.<kind>[<index>].<field>` (kind and document-array index
-fused so a consumer gets both without a second lookup). The unknown-kind
-whole-card `cards[<index>]` is the only bare-index form. Rooting keeps the
+fused so a consumer gets both without a second lookup). A card no declared kind
+claims has no kind to qualify with, so `cards[<index>]`, and every field path
+under it, is the only bare-index form. Rooting keeps the
 grammar total against a field named for a root (`main.cards`, `main.main`); only
 a field literally named `body` still collides with the body terminal. Field
 names and card kinds exclude `.`, `[`, `]`, so the rendered form round-trips;
@@ -368,7 +373,7 @@ Values keep their JSON shape (`allowed` arrives as a list, `len` as a number) be
 
 **Falling back is wholesale.** A formatter whose template needs a key that is absent renders `message`, never a sentence with a hole in it. It takes `hint` from the engine in the same breath: the hint is the same English as the message tail (`ValidationError`'s `Display` appends it verbatim), so translating one and passing the other through ships a two-language diagnostic. Localize a code and you own both sentences; fall back and you take both.
 
-**`hint` needs no code of its own.** It is a function of `code` and `args`: three of the four hinted variants are per-variant constants, and `type_mismatch_hint` branches only on whether a default exists, which is why `default` is present as a key exactly when the schema declares one, rather than present-and-null. Any datum a hint branches on is message-relevant by definition and belongs in `args`; a parallel `hint_code` would be derived state on the wire, free to drift.
+**`hint` needs no code of its own.** It is a function of `code` and `args`. Most hints are per-code constants. `type_mismatch_hint` branches only on whether a default exists, which is why `default` is present as a key exactly when the schema declares one, rather than present-and-null; the two card-kind hints branch only on whether `allowed` is empty. Any datum a hint branches on is message-relevant by definition and belongs in `args`; a parallel `hint_code` would be derived state on the wire, free to drift.
 
 **Anchors do not travel twice.** `path` is never an arg. `field` and `kind` are, even though `doc_path` also folds them into the anchor; the rule bars the assembled path string, and recovering a name from one is unsound anyway, since `DocPath` renders field segments unescaped and parses on `.` and `[`, so exactly the malformed names `edit::invalid_field_name` reports can round-trip into different segments. `CoercionError`'s `path` stays out for the separate reason below in § "Three grammars": it is a schema-space anchor and does not cross.
 
@@ -391,7 +396,8 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `validation::type_mismatch` | `expected`, `actual`, `sourceToken`, `default`? | structured |
 | `validation::enum_violation` | `value`, `allowed` | structured |
 | `validation::format_violation` | `format` | structured |
-| `validation::unknown_card` | `card` | structured |
+| `validation::unknown_card` | `allowed`, `card` | structured |
+| `validation::kindless_card` | `allowed` | structured |
 | `validation::body_disabled` | `card` | structured |
 | `validation::coercion_failed` | `value`, `target` | structured, coarser |
 | `validation::must_fill` | `trigger` | structured |
