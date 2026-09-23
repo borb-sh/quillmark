@@ -962,8 +962,7 @@ fn validate_unclaimed(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
         if !schema.body_enabled() && !card.body().is_blank() {
             diags.push(body_disabled_warning(&path.body(), &schema.name));
         }
-        let declared: Vec<(&str, &FieldSchema)> =
-            schema.fields.iter().map(|(n, f)| (n.as_str(), f)).collect();
+        let declared: Declared = schema.fields.iter().map(|(n, f)| (n.as_str(), f)).collect();
         let authored: Vec<(&str, &serde_json::Value)> = card
             .payload()
             .iter()
@@ -974,31 +973,48 @@ fn validate_unclaimed(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
     diags
 }
 
+/// A mapping's declared fields in declaration order, which breaks a
+/// suggestion tie.
+type Declared<'a> = IndexMap<&'a str, &'a FieldSchema>;
+
+/// A declared variant-bearing field and the member its authored value selects.
+type Container<'a> = (&'a str, &'a FieldSchema, String);
+
 /// Warn at each key of one authored mapping that `declared` does not name, and
 /// descend into each one it does. `$` keys never reach here: the payload
 /// iterator excludes them, and nested ones are ordinary keys.
 fn collect_unknown_keys(
-    declared: &[(&str, &FieldSchema)],
+    declared: &Declared,
     authored: &[(&str, &serde_json::Value)],
     base: &DocPath,
     out: &mut Vec<Diagnostic>,
 ) {
+    // Built at the first unknown key, once per mapping: a mapping of `n`
+    // unknown keys stays linear in `n`.
+    let mut hints: Option<(Vec<&str>, Vec<Container>)> = None;
     for &(key, value) in authored {
         let path = base.field(key);
-        if let Some((_, field)) = declared.iter().find(|(name, _)| *name == key) {
+        if let Some(field) = declared.get(key) {
             collect_unknown_in(field, value, &path, out);
             continue;
         }
-        let owner = variant_owner(key, declared, authored);
+        let (unwritten, containers) = hints.get_or_insert_with(|| {
+            let written: HashSet<&str> = authored.iter().map(|(k, _)| *k).collect();
+            let unwritten = declared.keys().copied().filter(|n| !written.contains(n)).collect();
+            let containers = declared
+                .iter()
+                .filter(|(_, field)| field.is_variant_bearing())
+                .map(|(&name, &field)| {
+                    let value = authored.iter().find(|(k, _)| *k == name).map(|(_, v)| *v);
+                    (name, field, field.selected_member(value))
+                })
+                .collect();
+            (unwritten, containers)
+        });
+        let owner = variant_owner(key, containers);
         let suggestion = match owner {
             Some(_) => None,
-            None => nearest_name(
-                key,
-                declared
-                    .iter()
-                    .map(|(name, _)| *name)
-                    .filter(|name| authored.iter().all(|(k, _)| k != name)),
-            ),
+            None => nearest_name(key, unwritten),
         };
         out.push(unknown_field_warning(&path, key, suggestion, owner));
     }
@@ -1017,7 +1033,7 @@ fn collect_unknown_in(
     if field.is_variant_bearing() {
         let Some(object) = json.as_object() else { return };
         let live = field.variant_fields(&field.selected_member(Some(json)));
-        let declared: Vec<(&str, &FieldSchema)> = live
+        let declared: Declared = live
             .into_iter()
             .flatten()
             .map(|(n, f)| (n.as_str(), f.as_ref()))
@@ -1047,8 +1063,7 @@ fn collect_unknown_in(
     }
     if let Some(props) = field.namespace_props() {
         let Some(object) = json.as_object() else { return };
-        let declared: Vec<(&str, &FieldSchema)> =
-            props.iter().map(|(n, f)| (n.as_str(), f.as_ref())).collect();
+        let declared: Declared = props.iter().map(|(n, f)| (n.as_str(), f.as_ref())).collect();
         let authored: Vec<(&str, &serde_json::Value)> =
             object.iter().map(|(k, v)| (k.as_str(), v)).collect();
         collect_unknown_keys(&declared, &authored, path, out);
@@ -1068,34 +1083,37 @@ fn collect_unknown_in(
 }
 
 /// The sibling variant container, and the member, whose world declares `key`:
-/// the variant cell written beside its discriminant instead of under it. The
-/// selected world wins where several declare the name.
+/// the variant cell written beside its discriminant instead of under it. Each
+/// container comes with its selected member, which wins where several worlds
+/// declare the name.
 fn variant_owner<'a>(
     key: &str,
-    declared: &[(&'a str, &'a FieldSchema)],
-    authored: &[(&str, &serde_json::Value)],
+    containers: &[Container<'a>],
 ) -> Option<(&'a str, &'a str)> {
-    declared.iter().find_map(|&(name, field)| {
+    containers.iter().find_map(|(name, field, selected)| {
         let variants = field.variants.as_ref()?;
-        let value = authored.iter().find(|(k, _)| *k == name).map(|(_, v)| *v);
-        let selected = field.selected_member(value);
         let member = variants
             .get_key_value(selected.as_str())
             .filter(|(_, set)| set.contains_key(key))
             .or_else(|| variants.iter().find(|(_, set)| set.contains_key(key)))?
             .0;
-        Some((name, member.as_str()))
+        Some((*name, member.as_str()))
     })
 }
 
 /// The candidate `key` most likely misspells: the closest by edit distance,
 /// ignoring case, within a third of the key's length (at least one edit). The
 /// earliest declared wins a tie.
-fn nearest_name<'a>(key: &str, candidates: impl Iterator<Item = &'a str>) -> Option<&'a str> {
+fn nearest_name<'a>(key: &str, candidates: &[&'a str]) -> Option<&'a str> {
     let key_lower = key.to_lowercase();
+    let len = key_lower.chars().count();
     let limit = (key.chars().count() / 3).max(1);
     candidates
-        .map(|c| (edit_distance(&key_lower, &c.to_lowercase()), c))
+        .iter()
+        .map(|&c| (c.to_lowercase(), c))
+        // Edit distance is at least the length difference.
+        .filter(|(lower, _)| lower.chars().count().abs_diff(len) <= limit)
+        .map(|(lower, c)| (edit_distance(&key_lower, &lower), c))
         .filter(|&(d, _)| d <= limit)
         .min_by_key(|&(d, _)| d)
         .map(|(_, c)| c)

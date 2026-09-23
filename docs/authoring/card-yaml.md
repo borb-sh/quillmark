@@ -42,7 +42,9 @@ Because every column-zero `~~~` block is a card-yaml block, writing a literal
 fenced code block in prose requires the escape hatch: use a **backtick fence**.
 Tildes offer no escape. Adding more does not help — a `~~~~` block is still a
 card (its closer must just be at least as long) — and neither does a language
-info string: `~~~rust` opens a card whose payload is your Rust.
+info string: `~~~rust` opens a card whose payload is your Rust. Code that reads
+as a YAML string or list fails at that fence's line and names the backtick
+fence to write instead.
 
 ## System Metadata (`$`)
 
@@ -156,7 +158,7 @@ field is lowercase. The document parser is wider: it accepts any
 `[A-Za-z_][A-Za-z0-9_]*` key and preserves case, so an uppercase or
 underscore-led key parses but is always undeclared. An undeclared key stays in
 the document, and `quill.validate(doc)` warns on it (`validation::unknown_field`),
-naming the declared field it most likely meant. Only `$`-prefixed keys are
+naming the declared field it most likely meant where one is close. Only `$`-prefixed keys are
 reserved for system metadata.
 
 ## Comments
