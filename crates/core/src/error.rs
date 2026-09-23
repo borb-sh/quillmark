@@ -747,6 +747,17 @@ mod args_canon {
             "validation::body_disabled",
             crate::quill::compose::body_disabled_warning(&path.body(), "sig").args,
         );
+        // The walk mints one hint's keys at a time; the sample carries both.
+        add(
+            "validation::unknown_field",
+            crate::quill::compose::unknown_field_warning(
+                &path,
+                "subjet",
+                Some("subject"),
+                Some(("outcome", "motion")),
+            )
+            .args,
+        );
         // The `$seed` checks are minted at the overlay walk, so the sample is a
         // document that trips them: two overlays, three codes.
         let seed_quill = crate::quill::quill_from_yaml(

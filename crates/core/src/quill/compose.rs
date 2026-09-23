@@ -943,27 +943,222 @@ fn collect_unauthored_field(
     }
 }
 
-/// Report each card and body no declaration claims: a card whose `$kind` is
-/// missing or undeclared, and body prose under `body.enabled: false`. Each
-/// renders without the input (`prose/canon/SCHEMAS.md` § "What blocks a
-/// render"), so each is a warning.
+/// Report the input no declaration claims: a card whose `$kind` is missing or
+/// undeclared, body prose under `body.enabled: false`, and a key no
+/// declaration at its position names. Each renders without the input
+/// (`prose/canon/SCHEMAS.md` § "What blocks a render"), so each is a warning.
 fn validate_unclaimed(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
     let kinds: Vec<&str> = config.card_kinds.iter().map(|k| k.name.as_str()).collect();
     let mut diags = Vec::new();
     for (schema, card, path) in schema_cards(config, doc) {
-        match schema {
-            None => diags.push(match card.kind() {
+        let Some(schema) = schema else {
+            diags.push(match card.kind() {
                 Some(kind) => unknown_card_warning(&path, kind, &kinds),
                 None => kindless_card_warning(&path, &kinds),
-            }),
-            // A whitespace-only body is empty: only meaningful prose warns.
-            Some(schema) if !schema.body_enabled() && !card.body().is_blank() => {
-                diags.push(body_disabled_warning(&path.body(), &schema.name));
-            }
-            Some(_) => {}
+            });
+            continue;
+        };
+        // A whitespace-only body is empty: only meaningful prose warns.
+        if !schema.body_enabled() && !card.body().is_blank() {
+            diags.push(body_disabled_warning(&path.body(), &schema.name));
         }
+        let declared: Vec<(&str, &FieldSchema)> =
+            schema.fields.iter().map(|(n, f)| (n.as_str(), f)).collect();
+        let authored: Vec<(&str, &serde_json::Value)> = card
+            .payload()
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_json()))
+            .collect();
+        collect_unknown_keys(&declared, &authored, &path, &mut diags);
     }
     diags
+}
+
+/// Warn at each key of one authored mapping that `declared` does not name, and
+/// descend into each one it does. `$` keys never reach here: the payload
+/// iterator excludes them, and nested ones are ordinary keys.
+fn collect_unknown_keys(
+    declared: &[(&str, &FieldSchema)],
+    authored: &[(&str, &serde_json::Value)],
+    base: &DocPath,
+    out: &mut Vec<Diagnostic>,
+) {
+    for &(key, value) in authored {
+        let path = base.field(key);
+        if let Some((_, field)) = declared.iter().find(|(name, _)| *name == key) {
+            collect_unknown_in(field, value, &path, out);
+            continue;
+        }
+        let owner = variant_owner(key, declared, authored);
+        let suggestion = match owner {
+            Some(_) => None,
+            None => nearest_name(
+                key,
+                declared
+                    .iter()
+                    .map(|(name, _)| *name)
+                    .filter(|name| authored.iter().all(|(k, _)| k != name)),
+            ),
+        };
+        out.push(unknown_field_warning(&path, key, suggestion, owner));
+    }
+}
+
+/// The unknown-key walk below one declared field, over the namespaces its value
+/// opens: a typed dictionary, a matrix member, an array's elements, the live
+/// world of a variant container. A key some other world declares is
+/// `out_of_variant`'s, and a matrix key naming no member `enum_violation`'s.
+fn collect_unknown_in(
+    field: &FieldSchema,
+    json: &serde_json::Value,
+    path: &DocPath,
+    out: &mut Vec<Diagnostic>,
+) {
+    if field.is_variant_bearing() {
+        let Some(object) = json.as_object() else { return };
+        let live = field.variant_fields(&field.selected_member(Some(json)));
+        let declared: Vec<(&str, &FieldSchema)> = live
+            .into_iter()
+            .flatten()
+            .map(|(n, f)| (n.as_str(), f.as_ref()))
+            .collect();
+        let authored: Vec<(&str, &serde_json::Value)> = object
+            .iter()
+            .filter(|(k, _)| *k != VARIANT_DISCRIMINANT_KEY)
+            .filter(|(k, _)| {
+                live.is_some_and(|f| f.contains_key(*k)) || field.variant_field(k).is_none()
+            })
+            .map(|(k, v)| (k.as_str(), v))
+            .collect();
+        collect_unknown_keys(&declared, &authored, path, out);
+        return;
+    }
+    if let (FieldType::Matrix { .. }, Some(members)) = (&field.r#type, field.namespace_props()) {
+        let Some(object) = json.as_object() else { return };
+        for (id, cell) in object {
+            let (Some(member), Some(spelled)) =
+                (members.get(id), super::config::matrix_member_spelling(cell))
+            else {
+                continue;
+            };
+            collect_unknown_in(member, &serde_json::Value::Object(spelled), &path.field(id), out);
+        }
+        return;
+    }
+    if let Some(props) = field.namespace_props() {
+        let Some(object) = json.as_object() else { return };
+        let declared: Vec<(&str, &FieldSchema)> =
+            props.iter().map(|(n, f)| (n.as_str(), f.as_ref())).collect();
+        let authored: Vec<(&str, &serde_json::Value)> =
+            object.iter().map(|(k, v)| (k.as_str(), v)).collect();
+        collect_unknown_keys(&declared, &authored, path, out);
+        return;
+    }
+    if let (FieldType::Array, Some(items)) = (&field.r#type, &field.items) {
+        // The floor wraps a bare value as the one element it lays out.
+        match json.as_array() {
+            Some(elements) => {
+                for (index, element) in elements.iter().enumerate() {
+                    collect_unknown_in(items, element, &path.index(index), out);
+                }
+            }
+            None => collect_unknown_in(items, json, &path.index(0), out),
+        }
+    }
+}
+
+/// The sibling variant container, and the member, whose world declares `key`:
+/// the variant cell written beside its discriminant instead of under it. The
+/// selected world wins where several declare the name.
+fn variant_owner<'a>(
+    key: &str,
+    declared: &[(&'a str, &'a FieldSchema)],
+    authored: &[(&str, &serde_json::Value)],
+) -> Option<(&'a str, &'a str)> {
+    declared.iter().find_map(|&(name, field)| {
+        let variants = field.variants.as_ref()?;
+        let value = authored.iter().find(|(k, _)| *k == name).map(|(_, v)| *v);
+        let selected = field.selected_member(value);
+        let member = variants
+            .get_key_value(selected.as_str())
+            .filter(|(_, set)| set.contains_key(key))
+            .or_else(|| variants.iter().find(|(_, set)| set.contains_key(key)))?
+            .0;
+        Some((name, member.as_str()))
+    })
+}
+
+/// The candidate `key` most likely misspells: the closest by edit distance,
+/// ignoring case, within a third of the key's length (at least one edit). The
+/// earliest declared wins a tie.
+fn nearest_name<'a>(key: &str, candidates: impl Iterator<Item = &'a str>) -> Option<&'a str> {
+    let key_lower = key.to_lowercase();
+    let limit = (key.chars().count() / 3).max(1);
+    candidates
+        .map(|c| (edit_distance(&key_lower, &c.to_lowercase()), c))
+        .filter(|&(d, _)| d <= limit)
+        .min_by_key(|&(d, _)| d)
+        .map(|(_, c)| c)
+}
+
+/// Optimal-string-alignment distance: insertions, deletions, substitutions,
+/// and adjacent transpositions, each one edit.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut before: Vec<usize> = vec![0; b.len() + 1];
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    for i in 1..=a.len() {
+        let mut cur = vec![i; b.len() + 1];
+        for j in 1..=b.len() {
+            let cost = usize::from(a[i - 1] != b[j - 1]);
+            cur[j] = (prev[j] + 1).min(cur[j - 1] + 1).min(prev[j - 1] + cost);
+            if i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] {
+                cur[j] = cur[j].min(before[j - 2] + 1);
+            }
+        }
+        before = std::mem::replace(&mut prev, cur);
+    }
+    prev[b.len()]
+}
+
+pub(crate) fn unknown_field_warning(
+    path: &DocPath,
+    field: &str,
+    suggestion: Option<&str>,
+    owner: Option<(&str, &str)>,
+) -> Diagnostic {
+    let path = path.to_string();
+    let hint = match (owner, suggestion) {
+        (Some((container, variant)), _) => format!(
+            "`{field}` is a field of `{container}` when it is `{variant}`: nest it under \
+             `{container}`, beside `value: {variant}`."
+        ),
+        (None, Some(suggestion)) => {
+            format!("Did you mean `{suggestion}`? Rename the key to it, or remove the key.")
+        }
+        (None, None) => "Remove the key, or rename it to a field the quill declares.".to_string(),
+    };
+    let mut diag = Diagnostic::new(
+        Severity::Warning,
+        format!(
+            "Field `{path}` is not declared by this quill: the value is kept, and no declared \
+             field reads it."
+        ),
+    )
+    .with_code("validation::unknown_field".to_string())
+    .with_path(path)
+    .with_arg("field", field.into())
+    .with_hint(hint);
+    if let Some(suggestion) = suggestion {
+        diag = diag.with_arg("suggestion", suggestion.into());
+    }
+    if let Some((container, variant)) = owner {
+        diag = diag
+            .with_arg("container", container.into())
+            .with_arg("variant", variant.into());
+    }
+    diag
 }
 
 fn quoted_kinds(kinds: &[&str]) -> String {
@@ -1083,9 +1278,8 @@ fn collect_stranded(
             if key == VARIANT_DISCRIMINANT_KEY || live.is_some_and(|f| f.contains_key(key)) {
                 continue;
             }
-            // A key no variant declares is an undeclared field, which every
-            // other surface carries without comment; only a key some *other*
-            // world owns is the stranded case worth naming.
+            // A key no variant declares is `unknown_field`'s; only a key some
+            // *other* world owns is stranded.
             let Some(owner) = field.variants.as_ref().and_then(|variants| {
                 variants
                     .iter()
@@ -1405,6 +1599,84 @@ card_kinds:
         .map(|(c, p)| (c.to_string(), p.to_string()));
         assert_eq!(warned, expected, "a whitespace-only body is empty");
         assert!(config.validate_document(&doc).is_ok(), "nothing here is fatal");
+    }
+
+    #[test]
+    fn undeclared_keys_warn_at_every_depth_with_the_likeliest_fix() {
+        let config = QuillConfig::from_yaml(
+            r#"
+quill: { name: uk, version: 1.0.0, backend: typst, description: x }
+main:
+  fields:
+    secretary: { type: string }
+    outcome:
+      type: enum
+      values: [motion, report]
+      variants:
+        motion:
+          moved_by: { type: string }
+        report:
+          presenter: { type: string }
+    address:
+      type: object
+      properties:
+        street: { type: string }
+    rows:
+      type: array
+      items:
+        type: object
+        properties:
+          name: { type: string }
+    quals:
+      type: matrix
+      members:
+        flight_cc: Flight CC
+      properties:
+        detail: { type: string, default: "" }
+card_kinds:
+  item:
+    fields:
+      presenter: { type: string }
+"#,
+        )
+        .expect("valid quill");
+        let md = "~~~\n$quill: uk@1.0.0\n$kind: main\nsecretery: Grace Hopper\n\
+                  outcome: { value: motion, presenter: P, extra: Z }\nmoved_by: Ada\n\
+                  address: { stret: Main }\nrows:\n  - { nme: A }\n\
+                  quals:\n  flight_cc: { held: true, detial: x }\n~~~\n\n\
+                  ~~~\n$kind: item\npresentr: Alan Turing\n~~~\n";
+        let doc = Document::parse(md).expect("parse").document;
+
+        assert!(config.compile_data(&doc).is_ok(), "an undeclared key renders");
+        assert!(config.validate_document(&doc).is_ok(), "nothing here is fatal");
+
+        let warned: Vec<(String, Option<String>, Option<String>)> =
+            validate_unclaimed(&config, &doc)
+                .into_iter()
+                .inspect(|d| {
+                    assert_eq!(d.severity, Severity::Warning, "{d:?}");
+                    assert_eq!(d.code.as_deref(), Some("validation::unknown_field"));
+                })
+                .map(|d| {
+                    let arg = |k: &str| d.args.get(k).and_then(|v| v.as_str()).map(String::from);
+                    let hint = arg("suggestion").or_else(|| {
+                        Some(format!("{}/{}", arg("container")?, arg("variant")?))
+                    });
+                    (d.path.unwrap(), arg("field"), hint)
+                })
+                .collect();
+        let expected = [
+            ("main.secretery", "secretery", Some("secretary")),
+            // `presenter` belongs to the unselected world: `out_of_variant`'s.
+            ("main.outcome.extra", "extra", None),
+            ("main.moved_by", "moved_by", Some("outcome/motion")),
+            ("main.address.stret", "stret", Some("street")),
+            ("main.rows[0].nme", "nme", Some("name")),
+            ("main.quals.flight_cc.detial", "detial", Some("detail")),
+            ("cards.item[0].presentr", "presentr", Some("presenter")),
+        ]
+        .map(|(p, f, h)| (p.to_string(), Some(f.to_string()), h.map(String::from)));
+        assert_eq!(warned, expected);
     }
 
     fn plate_of(yaml: &str, md: &str) -> serde_json::Value {

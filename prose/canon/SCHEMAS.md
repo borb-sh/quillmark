@@ -430,8 +430,9 @@ Validation is implemented by a native walker over `QuillConfig` in `quill/valida
 - Collects all errors (does not short-circuit)
 - Emits path-aware errors for top-level fields and card fields
 - Judges a card's fields only when its `$kind` names a declared kind. A card
-  with no `$kind` or an undeclared one is unclaimed input, and so is body prose
-  under `body.enabled: false` (a whitespace-only body is empty).
+  with no `$kind` or an undeclared one is unclaimed input, and so are body
+  prose under `body.enabled: false` (a whitespace-only body is empty) and a
+  key the schema does not declare.
   `Quill::validate` warns on each, and neither gates render
   ([What blocks a render](#what-blocks-a-render))
 - `body.enabled: false` also drops `$body` from `build_transform_schema`'s `properties` for that kind: absent, not present-and-empty. This cascades into the Typst helper's generated `_qm-meta` address tables, so `form-field(field:)` rejects a `$body` address on that kind at compile time (see `PLATE_DATA.md`)
@@ -800,9 +801,16 @@ read it.
 | a variant cell outside the selected world | `validation::out_of_variant` | absent ([Enum variants](#enum-variants)) |
 | elements past an array's `max:` | `validation::cardinality` | verbatim; the plate's own rule leaves the surplus off the page ([Cardinality](#cardinality)) |
 | a `$seed` overlay naming no declared kind or field | `validation::seed_unknown_kind`, `seed_unknown_field` | absent, as `$seed` always is |
-| an undeclared key on a claimed card | none | verbatim |
+| a key the schema does not declare at its position, at any depth of a claimed card | `validation::unknown_field` | verbatim; absent inside a variant container |
 
-The last row is the one unclaimed input that draws no warning.
+`validation::unknown_field` names the likeliest fix. A key one world of a
+sibling variant declares is that world's cell written beside its discriminant
+rather than under it, so the hint says to nest it (args `container`,
+`variant`). Otherwise a declared name the document leaves unwritten, within a
+third of the key's length in edits and ignoring case, is the likely typo
+(`suggestion`). A key another world declares is `out_of_variant`'s, and a
+matrix key naming no member is malformed (`enum_violation`), so neither draws
+it.
 
 **Unclaimed input stays in the document.** It stores and round-trips as
 authored; only the render passes it by. A schema that later declares the key

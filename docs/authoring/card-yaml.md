@@ -154,7 +154,9 @@ object, properties: … }` for a list of objects). See
 A `Quill.yaml` declares field names as `[a-z][a-z0-9_]*`, so every schema
 field is lowercase. The document parser is wider: it accepts any
 `[A-Za-z_][A-Za-z0-9_]*` key and preserves case, so an uppercase or
-underscore-led key parses but is always undeclared. Only `$`-prefixed keys are
+underscore-led key parses but is always undeclared. An undeclared key stays in
+the document, and `quill.validate(doc)` warns on it (`validation::unknown_field`),
+naming the declared field it most likely meant. Only `$`-prefixed keys are
 reserved for system metadata.
 
 ## Comments
