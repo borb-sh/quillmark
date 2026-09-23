@@ -90,7 +90,8 @@ pub fn execute(args: RenderArgs) -> Result<()> {
     )?;
 
     // The incomplete class is a draft's normal state, so it condenses to a
-    // count; the rest of `validate`'s warnings name input the page leaves out
+    // count, and the seed's blanks are the quill's rather than an author's; the
+    // rest of `validate`'s warnings name input the page leaves out
     // (`prose/canon/SCHEMAS.md` § "What blocks a render").
     let (unanswered, unclaimed): (Vec<_>, Vec<_>) = quill
         .validate(&parsed)
@@ -103,18 +104,13 @@ pub fn execute(args: RenderArgs) -> Result<()> {
 
     if !args.quiet {
         crate::errors::print_warnings(&result.warnings);
-        if !unanswered.is_empty() {
-            let listed = match &markdown_path_for_output {
-                Some(path) => format!(
-                    "; `quillmark check {} {}` lists them",
-                    args.quill.display(),
-                    path.display()
-                ),
-                None => String::new(),
-            };
+        if let (Some(path), false) = (&markdown_path_for_output, unanswered.is_empty()) {
             eprintln!(
-                "\n{} field(s) await a value (validation::must_fill){listed}",
-                unanswered.len()
+                "\n{} field(s) await a value (validation::must_fill); \
+                 `quillmark check {} {}` lists them",
+                unanswered.len(),
+                args.quill.display(),
+                path.display()
             );
         }
     }

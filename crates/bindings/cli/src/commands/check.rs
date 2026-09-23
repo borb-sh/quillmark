@@ -31,7 +31,7 @@ pub fn execute(args: CheckArgs) -> Result<()> {
 
     let (mut errors, mut warnings) = (0, 0);
     for path in &args.markdown_files {
-        let diagnostics = check_document(&quill, path)?;
+        let diagnostics = check_document(&quill, path);
         if diagnostics.is_empty() {
             continue;
         }
@@ -57,16 +57,25 @@ pub fn execute(args: CheckArgs) -> Result<()> {
 }
 
 /// Every diagnostic one document draws against `quill`: the bound parse's
-/// warnings, then `Quill::validate`'s. A document that does not parse draws
-/// only the parse failure, there being no document to validate.
-fn check_document(quill: &Quill, path: &Path) -> Result<Vec<Diagnostic>> {
-    let markdown = fs::read_to_string(path)?;
-    Ok(match quill.parse(&markdown) {
+/// warnings, then `Quill::validate`'s. A document that does not read or parse
+/// draws only that failure, there being no document to validate.
+fn check_document(quill: &Quill, path: &Path) -> Vec<Diagnostic> {
+    let markdown = match fs::read_to_string(path) {
+        Ok(markdown) => markdown,
+        Err(e) => {
+            return vec![Diagnostic::new(
+                Severity::Error,
+                format!("the document could not be read: {e}"),
+            )
+            .with_code("cli::unreadable_document".to_string())]
+        }
+    };
+    match quill.parse(&markdown) {
         Ok(parsed) => {
             let mut diagnostics = parsed.warnings;
             diagnostics.extend(quill.validate(&parsed.document));
             diagnostics
         }
         Err(e) => e.to_diagnostics(),
-    })
+    }
 }

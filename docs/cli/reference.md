@@ -33,7 +33,7 @@ The file must open with a `~~~` block containing a `$quill:` key identifying the
 - `--quiet`: Suppress warnings and the output-destination line; errors still print
 - `--stdout`: Write the artifact to stdout instead of a file (and ignore `-o`); refused when the render produces more than one page
 
-**Warnings:** `render` prints the parse warnings, then each warning for input the page leaves out — an undeclared key (`validation::unknown_field`), a card no kind claims, a body under `body.enabled: false`, a stranded variant cell, elements past `max:` — then the backend's. Fields the document has yet to answer (`validation::must_fill`) are a draft's normal state, so they print as one line counting them; `quillmark check` lists each.
+**Warnings:** `render` prints the parse warnings, then each warning for input the page leaves out — an undeclared key (`validation::unknown_field`), a card no kind claims, a body under `body.enabled: false`, a stranded variant cell, elements past `max:` — then the backend's. Fields the document has yet to answer (`validation::must_fill`) are a draft's normal state, so they print as one line counting them; `quillmark check` lists each. A render of the seeded document counts none: its blanks are the quill's.
 
 **Streams:** under `--stdout` the artifact owns stdout, and warnings and errors go to stderr, so `quillmark render ./my-quill input.md --stdout > out.pdf` writes a valid PDF. Without `--stdout`, the one stdout line is `Output written to: <path>`, which `--quiet` suppresses.
 
@@ -60,7 +60,7 @@ quillmark render ./my-quill
 
 ### check
 
-Check markdown documents against a quill's schema, printing every diagnostic each one draws: parse warnings, then every `validation::*` diagnostic, including the unanswered fields `render` only counts. It does not compile the plate; `render` does.
+Check markdown documents against a quill's schema, printing every diagnostic each one draws: parse warnings, then every `validation::*` diagnostic, including the unanswered fields `render` only counts. It does not compile the plate, so a plate failure or a construct the backend declines (`backend::declined_construct`) is `render`'s to report.
 
 ```bash
 quillmark check [OPTIONS] <QUILL_PATH> <MARKDOWN_FILE>...
@@ -69,7 +69,7 @@ quillmark check [OPTIONS] <QUILL_PATH> <MARKDOWN_FILE>...
 **Arguments:**
 
 - `<QUILL_PATH>`: Path to quill directory
-- `<MARKDOWN_FILE>...`: One or more documents to check. Each document's diagnostics print under its path, and a document that fails to parse does not stop the rest.
+- `<MARKDOWN_FILE>...`: One or more documents to check. Each document's diagnostics print under its path, and a document that fails to read or parse does not stop the rest.
 
 **Options:**
 
