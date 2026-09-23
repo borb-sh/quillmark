@@ -150,10 +150,37 @@ fn tilde_fence_with_language_info_opens_a_card() {
 }
 
 #[test]
-fn language_tagged_tilde_code_in_a_body_is_parsed_as_yaml() {
-    let src = "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~rust\nlet x = 1;\n~~~\n";
-    let err = Document::parse(src).unwrap_err().to_string();
-    assert!(err.contains("mapping"), "got: {err}");
+fn tilde_code_in_a_body_fails_at_its_fence() {
+    let head = "~~~\n$quill: q\n$kind: main\n~~~\n\nExample:\n\n";
+    let fails = |block: &str| {
+        Document::parse(&format!("{head}{block}"))
+            .unwrap_err()
+            .to_diagnostic()
+    };
+
+    let tagged = fails("~~~python\nprint(\"hi\")\n~~~\n");
+    assert_eq!(tagged.code.as_deref(), Some("parse::payload_not_mapping"));
+    assert_eq!(tagged.location.map(|l| (l.line, l.column)), Some((8, 1)));
+    assert_eq!(tagged.args.get("info"), Some(&serde_json::json!("python")));
+    assert_eq!(tagged.args.get("actual"), Some(&serde_json::json!("string")));
+
+    let bare = fails("~~~~  \n- a\n- b\n~~~~\n");
+    assert_eq!(bare.code.as_deref(), Some("parse::payload_not_mapping"));
+    assert_eq!(bare.args.get("info"), None);
+    assert_eq!(bare.args.get("actual"), Some(&serde_json::json!("sequence")));
+
+    // Code with a `: ` in it reads as a mapping and fails on a field name.
+    let colon = fails("~~~python\ndef f(x):\n    return x\n~~~\n");
+    assert_eq!(colon.code.as_deref(), Some("parse::invalid_structure"));
+    assert!(
+        colon.message.contains("line 8") && colon.message.contains("```python"),
+        "{}",
+        colon.message
+    );
+
+    let card = fails("~~~yaml\n$kind: note\nbad-name: 1\n~~~\n");
+    assert_eq!(card.code.as_deref(), Some("parse::invalid_structure"));
+    assert!(!card.message.contains("```"), "{}", card.message);
 }
 
 #[test]
