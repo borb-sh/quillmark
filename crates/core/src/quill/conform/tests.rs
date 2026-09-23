@@ -138,6 +138,22 @@ fn rest_is_per_codec_at_every_depth() {
 }
 
 #[test]
+fn a_nested_content_cell_emits_markdown_and_the_bound_door_restores_it() {
+    let quill = quill();
+    let (doc, _) = parse_bound(&quill, MD);
+
+    let md = doc.to_markdown();
+    for line in ["  - one **bold**\n", "  blurb: and **this**\n"] {
+        assert!(md.contains(line), "missing {line:?}:\n{md}");
+    }
+    assert!(!md.contains("islands"), "a content tree reached card-yaml:\n{md}");
+
+    let (back, warnings) = parse_bound(&quill, &md);
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(bytes(&back), bytes(&doc));
+}
+
+#[test]
 fn conform_preserves_comments_and_untouched_bytes() {
     let quill = quill();
     let md = "\

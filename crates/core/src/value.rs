@@ -37,7 +37,7 @@ pub enum PathSegment {
     Index(usize),
 }
 
-fn json_at<'a>(value: &'a JsonValue, path: &[PathSegment]) -> Option<&'a JsonValue> {
+pub(crate) fn json_at<'a>(value: &'a JsonValue, path: &[PathSegment]) -> Option<&'a JsonValue> {
     let mut cur = value;
     for seg in path {
         cur = match (cur, seg) {

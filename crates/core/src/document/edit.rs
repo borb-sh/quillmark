@@ -512,22 +512,21 @@ pub fn validate_payload(payload: &Payload) -> Result<(), PayloadViolation> {
 /// Refuse a `!must_fill` marker targeting a mapping
 /// ([`FieldViolation::FillOnMapping`]), the rule the parser enforces on source.
 ///
-/// The root under `fill` may still be a canonical content object: emit projects
-/// that to its markdown scalar before writing the marker
-/// (`emit::project_content_field`). A nested node is emitted structurally, with
-/// no projection, so a marker there targets a scalar or a sequence.
+/// A canonical content object is not a mapping here, at the root or nested: emit
+/// projects it to its markdown scalar before writing the marker
+/// (`emit::project_content_field`).
 pub fn validate_fill_targets(
     value: &crate::value::QuillValue,
     fill: bool,
 ) -> Result<(), FieldViolation> {
-    if fill
-        && value.as_json().is_object()
-        && super::emit::project_content_field(value.as_json()).is_none()
-    {
+    let targets_mapping = |node: Option<&serde_json::Value>| {
+        node.is_some_and(|n| n.is_object() && super::emit::project_content_field(n).is_none())
+    };
+    if fill && targets_mapping(Some(value.as_json())) {
         return Err(FieldViolation::FillOnMapping);
     }
     for path in value.nonroot_fill_paths() {
-        if value.is_object_at(&path) {
+        if targets_mapping(crate::value::json_at(value.as_json(), &path)) {
             return Err(FieldViolation::FillOnMapping);
         }
     }
