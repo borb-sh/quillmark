@@ -512,22 +512,26 @@ pub fn validate_payload(payload: &Payload) -> Result<(), PayloadViolation> {
 /// Refuse a `!must_fill` marker targeting a mapping
 /// ([`FieldViolation::FillOnMapping`]), the rule the parser enforces on source.
 ///
-/// The root under `fill` may still be a canonical content object: emit projects
-/// that to its markdown scalar before writing the marker
-/// (`emit::project_content_field`). A nested node is emitted structurally, with
-/// no projection, so a marker there targets a scalar or a sequence.
+/// A canonical content object at the root or under a key is not a mapping here:
+/// emit projects it to its markdown scalar before writing the marker
+/// (`emit::project_content_field`). One at an array index is, since a sequence
+/// item has no `!must_fill` spelling.
 pub fn validate_fill_targets(
     value: &crate::value::QuillValue,
     fill: bool,
 ) -> Result<(), FieldViolation> {
-    if fill
-        && value.as_json().is_object()
-        && super::emit::project_content_field(value.as_json()).is_none()
-    {
+    use crate::value::PathSegment;
+    let targets_mapping = |node: Option<&serde_json::Value>, projects: bool| {
+        node.is_some_and(|n| {
+            n.is_object() && !(projects && super::emit::project_content_field(n).is_some())
+        })
+    };
+    if fill && targets_mapping(Some(value.as_json()), true) {
         return Err(FieldViolation::FillOnMapping);
     }
     for path in value.nonroot_fill_paths() {
-        if value.is_object_at(&path) {
+        let under_key = matches!(path.last(), Some(PathSegment::Key(_)));
+        if targets_mapping(crate::value::json_at(value.as_json(), &path), under_key) {
             return Err(FieldViolation::FillOnMapping);
         }
     }

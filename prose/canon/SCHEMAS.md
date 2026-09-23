@@ -288,8 +288,8 @@ forced, not chosen:
 | `plaintext` | the literal string | `from_plaintext`/`to_plaintext` are inverses on plain content and `is_plain` excludes every mark, so string rest loses nothing, while object rest corrupts at emit |
 
 Emit is schema-free: `project_content_field` routes every canonical content
-object it finds through `export::to_markdown`, and it cannot sniff the codec
-from the shape (a `richtext` content that happens to be plain is
+object in a field's value, at any depth, through `export::to_markdown`, and it
+cannot sniff the codec from the shape (a `richtext` content that happens to be plain is
 indistinguishable from a `plaintext` one). An object-rest `plaintext` field
 holding `a *literal* line` would therefore emit markdown-escaped
 (`a \*literal\* line`), and a re-parse would read the backslashes as

@@ -28,8 +28,8 @@ impl Document {
     ///    `QuillValue::String("on")` round-trips as a string, never as a bool;
     ///    `QuillValue::String("01234")` never as an integer.
     ///
-    ///    **Content-field carve-out.** A richtext field committed as a canonical
-    ///    content object (and the card `$body`) projects to its markdown form, so
+    ///    **Content-field carve-out.** A canonical content object anywhere in a
+    ///    field's value (and the card `$body`) projects to its markdown form, so
     ///    identity marks and content-only marks do not survive a
     ///    `to_markdown`→`from_markdown` round-trip. The storage DTO is the
     ///    lossless carrier; the guarantee above holds for every other field.
@@ -88,7 +88,9 @@ fn emit_meta_line(out: &mut String, key: &str, value: &str, trailer: Option<&str
 }
 
 /// Emit an out-of-band meta block (`$ext` / `$seed`). `nested` carries comments
-/// at paths relative to the value tree. Meta maps never carry `!must_fill`.
+/// at paths relative to the value tree. Meta maps never carry `!must_fill`, and
+/// a content object in one emits structurally: no load converts a projection
+/// there back.
 fn emit_meta_block(
     out: &mut String,
     key: &str,
@@ -120,12 +122,14 @@ fn emit_meta_block(
 
 /// The sidecar tables threaded through the recursive emit: `path` is the
 /// container path the current node sits at, `nested` and `fills` the whole
-/// block's comment and `!must_fill` tables.
+/// block's comment and `!must_fill` tables. `project_content` routes each
+/// canonical content object through [`project_content_field`].
 #[derive(Clone, Copy)]
 struct EmitCtx<'a> {
     path: &'a [PathSegment],
     nested: &'a [NestedComment],
     fills: &'a [Vec<PathSegment>],
+    project_content: bool,
 }
 
 impl<'a> EmitCtx<'a> {
@@ -133,6 +137,7 @@ impl<'a> EmitCtx<'a> {
         path: &[],
         nested: &[],
         fills: &[],
+        project_content: false,
     };
 
     fn at(self, path: &'a [PathSegment]) -> Self {
@@ -142,6 +147,22 @@ impl<'a> EmitCtx<'a> {
     /// Fill sets are small, so a linear scan beats building a hash set per field.
     fn is_fill(self, path: &[PathSegment]) -> bool {
         self.fills.iter().any(|p| p.as_slice() == path)
+    }
+
+    /// The markdown `value` emits as, when it is a canonical content object in a
+    /// field's value. A marker inside the object keeps it structural, since the
+    /// projected scalar has no path to write one at; comments inside it drop.
+    fn projection(self, value: &JsonValue) -> Option<JsonValue> {
+        if !self.project_content || self.has_fill_below() {
+            return None;
+        }
+        project_content_field(value).map(JsonValue::String)
+    }
+
+    fn has_fill_below(self) -> bool {
+        self.fills
+            .iter()
+            .any(|p| p.len() > self.path.len() && p.starts_with(self.path))
     }
 }
 
@@ -208,25 +229,6 @@ fn emit_payload_items(out: &mut String, payload: &Payload) {
                 emit_meta_block(out, key.as_str(), value, trailer, &nested);
             }
             PayloadItem::Field { key, value, fill } => {
-                // card-yaml is the human-authored surface, so a stored content
-                // object projects back to markdown here. The projection runs
-                // marker or no marker: a seeded `example` on a must-fill content
-                // field carries one, and the raw object has no card-yaml
-                // spelling. Once projected the cell is a scalar, which is the
-                // shape `!must_fill` emits against.
-                if let Some(markdown) = project_content_field(value.as_json()) {
-                    emit_field_at(
-                        out,
-                        key,
-                        &JsonValue::String(markdown),
-                        KeyPos::Line(0),
-                        *fill,
-                        EmitCtx::EMPTY,
-                        trailer,
-                    );
-                    i += if consumed_trailer { 2 } else { 1 };
-                    continue;
-                }
                 // Nested fill markers; the top-level one rides on `*fill`.
                 let fills = value.fill_paths();
                 let nested = payload.nested_comments_for(key);
@@ -239,6 +241,7 @@ fn emit_payload_items(out: &mut String, payload: &Payload) {
                     EmitCtx {
                         nested: &nested,
                         fills: &fills,
+                        project_content: true,
                         ..EmitCtx::EMPTY
                     },
                     trailer,
@@ -253,8 +256,9 @@ fn emit_payload_items(out: &mut String, payload: &Payload) {
     }
 }
 
-/// The markdown projection of a richtext-valued field, or `None` when `value` is
-/// not a canonical content object.
+/// The markdown projection of a content object, or `None` when `value` is not a
+/// canonical one. Emit applies it at every depth of a field's value: a
+/// top-level field, an object property, an array element.
 ///
 /// Projecting keeps card-yaml markdown-clean rather than carrying a nested
 /// `{text, lines, marks, islands}` tree. It is lossy: island ids and
@@ -364,7 +368,8 @@ fn push_trailer(out: &mut String, trailer: Option<&str>) {
 /// null → `key: !must_fill`, non-empty seqs → `key: !must_fill\n  - …`. A marked
 /// mapping has no spelling, so every ingress refuses one
 /// (`edit::validate_fill_targets`); one reaching here emits structurally, marker
-/// dropped, rather than as a line no parser accepts.
+/// dropped, rather than as a line no parser accepts. A projected content object
+/// is a scalar here, so a marker on it takes the scalar form.
 fn emit_field_at(
     out: &mut String,
     key: &str,
@@ -374,6 +379,9 @@ fn emit_field_at(
     ctx: EmitCtx<'_>,
     inline_trailer: Option<&str>,
 ) {
+    if let Some(markdown) = ctx.projection(value) {
+        return emit_field_at(out, key, &markdown, pos, fill, ctx, inline_trailer);
+    }
     pos.write_key(out, key);
     if fill {
         match value {
@@ -457,6 +465,7 @@ pub(crate) fn emit_mapping_lines(
             path: &[],
             nested,
             fills,
+            project_content: true,
         },
     );
     out
@@ -517,6 +526,9 @@ fn emit_sequence_item(
     ctx: EmitCtx<'_>,
     inline_trailer: Option<&str>,
 ) {
+    if let Some(markdown) = ctx.projection(value) {
+        return emit_sequence_item(out, &markdown, base_indent, ctx, inline_trailer);
+    }
     match value {
         JsonValue::Object(map) if map.is_empty() => {
             push_indent(out, base_indent);
