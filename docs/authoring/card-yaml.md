@@ -158,7 +158,7 @@ field is lowercase. The document parser is wider: it accepts any
 `[A-Za-z_][A-Za-z0-9_]*` key and preserves case, so an uppercase or
 underscore-led key parses but is always undeclared. An undeclared key stays in
 the document, and `quill.validate(doc)` warns on it (`validation::unknown_field`),
-naming the declared field it most likely meant. Only `$`-prefixed keys are
+naming the declared field it most likely meant where one is close. Only `$`-prefixed keys are
 reserved for system metadata.
 
 ## Comments
