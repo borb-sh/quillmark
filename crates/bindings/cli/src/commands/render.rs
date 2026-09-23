@@ -2,7 +2,7 @@ use crate::commands::load_quill;
 use crate::errors::{CliError, Result};
 use crate::output::{derive_output_path, page_output_path, write_file, write_stdout};
 use clap::Parser;
-use quillmark::{OutputFormat, Quillmark, RenderOptions};
+use quillmark::{OutputFormat, Quillmark, RenderOptions, Severity};
 use std::fs;
 use std::path::PathBuf;
 
@@ -89,10 +89,34 @@ pub fn execute(args: RenderArgs) -> Result<()> {
         &RenderOptions::default().with_output_format(output_format),
     )?;
 
-    result.warnings.splice(0..0, parse_warnings);
+    // The incomplete class is a draft's normal state, so it condenses to a
+    // count; the rest of `validate`'s warnings name input the page leaves out
+    // (`prose/canon/SCHEMAS.md` § "What blocks a render").
+    let (unanswered, unclaimed): (Vec<_>, Vec<_>) = quill
+        .validate(&parsed)
+        .into_iter()
+        .filter(|d| d.severity == Severity::Warning)
+        .partition(|d| d.code.as_deref() == Some("validation::must_fill"));
+    result
+        .warnings
+        .splice(0..0, parse_warnings.into_iter().chain(unclaimed));
 
-    if !result.warnings.is_empty() && !args.quiet {
+    if !args.quiet {
         crate::errors::print_warnings(&result.warnings);
+        if !unanswered.is_empty() {
+            let listed = match &markdown_path_for_output {
+                Some(path) => format!(
+                    "; `quillmark check {} {}` lists them",
+                    args.quill.display(),
+                    path.display()
+                ),
+                None => String::new(),
+            };
+            eprintln!(
+                "\n{} field(s) await a value (validation::must_fill){listed}",
+                unanswered.len()
+            );
+        }
     }
 
     if result.artifacts.is_empty() {

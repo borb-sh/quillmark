@@ -19,6 +19,9 @@ enum Commands {
     /// Render markdown file to output format
     Render(commands::render::RenderArgs),
 
+    /// Check markdown files against a quill's schema, printing every diagnostic
+    Check(commands::check::CheckArgs),
+
     /// Output the YAML schema for a quill
     Schema(commands::schema::SchemaArgs),
 
@@ -37,6 +40,7 @@ fn main() {
 
     let result = match cli.command {
         Commands::Render(args) => commands::render::execute(args),
+        Commands::Check(args) => commands::check::execute(args),
         Commands::Schema(args) => commands::schema::execute(args),
         Commands::Blueprint(args) => commands::blueprint::execute(args),
         Commands::Validate(args) => commands::validate::execute(args),
