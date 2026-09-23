@@ -63,8 +63,8 @@ for a backend session that does not override the incremental-`update` seam
 requested format is outside the backend's `supported_formats`, one code on
 every backend so a caller matches the condition once;
 `backend::invalid_raster_scale`: a `RenderOptions.ppi` or a `render_rgba` scale
-that is not finite and positive, or that would rasterize a page past
-`MAX_RASTER_PIXELS` — ppi and canvas scale are the same quantity in two units,
+that is not finite and positive, or that would rasterize a side of a page past
+`MAX_RASTER_SIDE` — ppi and canvas scale are the same quantity in two units,
 so they share the code and the message names which one was passed;
 `backend::page_index_out_of_bounds` / `backend::page_selection_not_supported`:
 a `RenderOptions::pages` selection naming a page the document does not have, or

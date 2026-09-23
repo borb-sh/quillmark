@@ -367,30 +367,23 @@ the compile half alone — read `doc.warnings` beside them.
 
 ### Canvas Preview
 
-`session.paint(ctx, page, opts?)` rasterizes a page directly into a
+`session.paint(ctx, page, scale)` rasterizes a page directly into a
 `CanvasRenderingContext2D` (main thread) or
 `OffscreenCanvasRenderingContext2D` (Worker), skipping PNG/SVG byte
 round-trips.
 
-The painter owns `canvas.width` / `canvas.height`: it sizes the backing
-store itself. Consumers own `canvas.style.*` (or the layout system that
-sets them) and read `layoutWidth` / `layoutHeight` from the returned
-`PaintResult`.
+`scale` is backing-store pixels per point. The painter owns `canvas.width` /
+`canvas.height`, reducing `scale` where it must so neither exceeds 16384 px;
+consumers own `canvas.style.*`. A canvas styled to fill its page box
+needs nothing back from the paint:
 
 ```ts
-const result = session.paint(canvas.getContext("2d"), 0, {
-  layoutScale: 1,                            // layout px per pt (page geometry unit)
-  densityScale: window.devicePixelRatio,     // backing-store density
-});
-
-canvas.style.width  = `${result.layoutWidth}px`;
-canvas.style.height = `${result.layoutHeight}px`;
+canvas.style.width = "100%";                 // the box sets the display size
+const cssPxPerPt = canvas.clientWidth / session.pageSize(0).widthPt;
+session.paint(canvas.getContext("2d"), 0, cssPxPerPt * window.devicePixelRatio);
 ```
 
-- `layoutScale` sets the display-box size (`layoutWidth = widthPt * layoutScale`);
-  fold `devicePixelRatio`, in-app zoom, and `visualViewport.scale` into
-  `densityScale`. Their product is the rasterization scale, clamped at 16384 px
-  per side (`result.clamped`, `result.effectiveDensityScale`).
+- Fold `devicePixelRatio`, in-app zoom, and `visualViewport.scale` into `scale`.
 - `paint` writes the whole backing store with `putImageData`, which ignores the
   2D context transform, `globalAlpha`, and clip. Give each visible page its own
   `<canvas>`: no compositing, sub-rect, or transform reaches through `paint`.

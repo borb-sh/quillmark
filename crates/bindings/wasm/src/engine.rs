@@ -4,7 +4,7 @@ use crate::types::Diagnostic;
 use crate::types::{ChangeSet, ContentHit, FieldRegion, RenderOptions, RenderResult};
 use js_sys::{Array, Uint8Array};
 #[cfg(feature = "render")]
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
 #[cfg(feature = "render")]
 use tsify::Ts;
@@ -453,12 +453,6 @@ export interface ChangeBundle {
     markOps?: MarkOp[];
 }
 "#;
-
-/// Device pixels per side: the floor across browser canvas limits (~32k on
-/// Chrome/Firefox, 16k on Safari). A request past it clamps `densityScale`
-/// proportionally, reported on `PaintResult`.
-#[cfg(feature = "render")]
-const MAX_BACKING_DIMENSION: u32 = 16384;
 
 /// Render engine: a backend registry and render dispatcher. Render build only:
 /// the core build constructs and validates quills without it.
@@ -2423,56 +2417,12 @@ fn js_bytes_for_tree_entry(path: &str, value: JsValue) -> Result<Vec<u8>, JsValu
 #[wasm_bindgen(typescript_custom_section)]
 const CANVAS_PREVIEW_TS: &'static str = r#"
 /**
- * Page dimensions in points (1 pt = 1/72 inch). Report-only: the painter sizes
- * the canvas itself from `PaintOptions`. `pageSize` is for callers that need
- * page geometry up-front, e.g. to lay out a scrollable list of canvases.
+ * Page dimensions in points (1 pt = 1/72 inch). `pageSize` is for callers that
+ * need page geometry up-front, e.g. to lay out a scrollable list of canvases.
  */
 export interface PageSize {
     widthPt: number;
     heightPt: number;
-}
-
-/**
- * Inputs to `LiveSession.paint`. Both default to `1`, must be finite and `> 0`,
- * and multiply to the effective rasterization scale.
- *
- * - `layoutScale`: layout-space pixels per point — CSS pixels per pt for an
- *   on-screen canvas — surfaced back as `layoutWidth` / `layoutHeight`.
- * - `densityScale`: backing-store density. Fold `window.devicePixelRatio`,
- *   in-app zoom, and `visualViewport.scale` into this one value; the default
- *   `1` produces a non-retina backing store.
- */
-export interface PaintOptions {
-    layoutScale?: number;
-    densityScale?: number;
-}
-
-/**
- * Returned by `LiveSession.paint`.
- *
- * - `layoutWidth` / `layoutHeight`: the display box, in CSS pixels for an
- *   on-screen canvas, to drive `canvas.style.*`. Independent of `densityScale`.
- * - `pixelWidth` / `pixelHeight`: the backing store the painter wrote to
- *   `canvas.width` / `canvas.height`, `round(layout * densityScale)` unless the
- *   request exceeded 16384 px per side and `densityScale` was clamped to fit.
- * - `clamped`: `true` when that clamp fired, so the page renders soft at the
- *   same `canvas.style` size.
- * - `effectiveDensityScale`: the `densityScale` actually applied.
- *
- * The painter owns `canvas.width` / `canvas.height` and never touches
- * `canvas.style.*`. The write is a whole-backing-store `putImageData`, which
- * bypasses the 2D context transform, `globalAlpha`, and clip: give each visible
- * page its own `<canvas>`, since no compositing, sub-rect, or transform reaches
- * through `paint`. Under `OffscreenCanvasRenderingContext2D` the layout
- * dimensions are informational — there is no CSS box to apply them to.
- */
-export interface PaintResult {
-    layoutWidth: number;
-    layoutHeight: number;
-    pixelWidth: number;
-    pixelHeight: number;
-    clamped: boolean;
-    effectiveDensityScale: number;
 }
 "#;
 
@@ -2686,20 +2636,19 @@ impl LiveSession {
     }
 
     /// Paint `page` into a `CanvasRenderingContext2D` or
-    /// `OffscreenCanvasRenderingContext2D`. The painter owns
-    /// `canvas.width`/`height` (no `clearRect` needed); consumers own
-    /// `canvas.style.*`. If `layoutScale * densityScale` exceeds 16384 px per
-    /// side, `densityScale` is clamped and `PaintResult` reports it.
+    /// `OffscreenCanvasRenderingContext2D` at `scale` backing-store pixels per
+    /// point, reduced where it must be to keep both sides within
+    /// `MAX_RASTER_SIDE` (16384 px). The painter owns `canvas.width`/`height`;
+    /// consumers own `canvas.style.*`.
     ///
     /// `put_image_data` writes the whole backing store, bypassing the 2D
     /// context's transform, `globalAlpha`, and clip, so each visible page needs
     /// its own `<canvas>`: no compositing, sub-rect, or transform reaches through
     /// this call.
     ///
-    /// Throws if `page` is out of range, `ctx` is the wrong type, either scale is
-    /// non-finite or `<= 0`, or the page cannot be rasterized at the resulting
-    /// scale (`backend::invalid_raster_scale`).
-    #[wasm_bindgen(js_name = paint, unchecked_return_type = "PaintResult")]
+    /// Throws if `page` is out of range, `ctx` is the wrong type, or `scale` is
+    /// not finite and positive (`backend::invalid_raster_scale`).
+    #[wasm_bindgen(js_name = paint)]
     pub fn paint(
         &self,
         #[wasm_bindgen(
@@ -2707,8 +2656,8 @@ impl LiveSession {
         )]
         ctx: JsValue,
         page: usize,
-        #[wasm_bindgen(unchecked_param_type = "PaintOptions | undefined")] opts: JsValue,
-    ) -> Result<JsValue, JsValue> {
+        scale: f64,
+    ) -> Result<(), JsValue> {
         let canvas_ctx = CanvasCtx::from_js(&ctx)?;
 
         let (width_pt, height_pt) = self
@@ -2716,60 +2665,13 @@ impl LiveSession {
             .page_size_pt(page)
             .ok_or_else(|| self.page_oob_error("paint", page))?;
 
-        let opts: PaintOptions = if opts.is_undefined() || opts.is_null() {
-            PaintOptions::default()
-        } else {
-            serde_wasm_bindgen::from_value(opts).map_err(|e| {
-                WasmError::from(format!("paint: invalid options: {e}")).to_js_value()
-            })?
-        };
-
-        let layout_scale = opts.layout_scale.unwrap_or(1.0);
-        let requested_density = opts.density_scale.unwrap_or(1.0);
-
-        if !layout_scale.is_finite() || layout_scale <= 0.0 {
-            return Err(WasmError::from(
-                "paint: layoutScale must be a finite number greater than 0",
-            )
-            .to_js_value());
-        }
-        if !requested_density.is_finite() || requested_density <= 0.0 {
-            return Err(WasmError::from(
-                "paint: densityScale must be a finite number greater than 0",
-            )
-            .to_js_value());
-        }
-
-        let layout_width = (width_pt as f64) * (layout_scale as f64);
-        let layout_height = (height_pt as f64) * (layout_scale as f64);
-
-        let desired_w = (layout_width * requested_density as f64).round();
-        let desired_h = (layout_height * requested_density as f64).round();
-        let max_dim = desired_w.max(desired_h);
-
-        let clamped = max_dim > MAX_BACKING_DIMENSION as f64;
-        let effective_density = if clamped {
-            (requested_density as f64) * (MAX_BACKING_DIMENSION as f64 / max_dim)
-        } else {
-            requested_density as f64
-        };
-
-        let render_scale = (layout_scale as f64) * effective_density;
-        // Each factor is validated finite and positive, but the product (or the
-        // f64->f32 cast) can still overflow: a zero-dimension page bypasses the
-        // MAX_BACKING_DIMENSION clamp.
-        if !render_scale.is_finite() || render_scale <= 0.0 || render_scale > f32::MAX as f64 {
-            return Err(WasmError::from(
-                "paint: computed render scale is non-finite or out of range",
-            )
-            .to_js_value());
-        }
+        let scale = quillmark_core::backend::fit_raster_scale(scale as f32, width_pt, height_pt);
 
         // `page_size_pt(page)` answered, so the page is in range and a raster is
         // owed; a `None` here is a backend bug.
         let (pixel_w, pixel_h, mut rgba) = self
             .inner
-            .render_rgba(page, render_scale as f32)
+            .render_rgba(page, scale)
             .map_err(|e| WasmError::from(e).to_js_value())?
             .ok_or_else(|| {
                 WasmError::from(format!(
@@ -2791,17 +2693,7 @@ impl LiveSession {
         .map_err(|e| {
             WasmError::from(format!("paint: ImageData construction failed: {:?}", e)).to_js_value()
         })?;
-        canvas_ctx.put_image_data(&img)?;
-
-        let result = PaintResult {
-            layout_width,
-            layout_height,
-            pixel_width: pixel_w,
-            pixel_height: pixel_h,
-            clamped,
-            effective_density_scale: effective_density,
-        };
-        serialize_or_throw(&result, "paint")
+        canvas_ctx.put_image_data(&img)
     }
 }
 
@@ -2873,24 +2765,3 @@ struct PageSize {
     height_pt: f32,
 }
 
-#[cfg(feature = "render")]
-#[derive(Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct PaintOptions {
-    #[serde(default)]
-    layout_scale: Option<f32>,
-    #[serde(default)]
-    density_scale: Option<f32>,
-}
-
-#[cfg(feature = "render")]
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct PaintResult {
-    layout_width: f64,
-    layout_height: f64,
-    pixel_width: u32,
-    pixel_height: u32,
-    clamped: bool,
-    effective_density_scale: f64,
-}
