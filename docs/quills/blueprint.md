@@ -22,7 +22,7 @@ department: "" # string
 Write main body here.
 ```
 
-Two annotation slots, disjoint by purpose: **leading `# …` lines** carry prose (a description, an `# e.g.` example) plus an `array`'s `# up to <N>` cap; the **inline `# …`** at the end of a value line carries structure, the field's `# <type>[<format>]`. A closed vocabulary shows its whole roster there — `# matrix<flight_cc | dodin_ops>` — so a reader can tick a member without looking the schema up, and cannot invent one.
+Two annotation slots, disjoint by purpose: **leading `# …` lines** carry prose (a description, an `# e.g.` example) plus an `array`'s `# up to <N>` cap; the **inline `# …`** at the end of a value line carries structure, the field's `# <type>[<format>]`. A closed vocabulary shows its whole roster there — `# matrix<flight_cc | dodin_ops>` — so a reader can tick a member without looking the schema up, and cannot invent one. A matrix with columns adds an `# e.g.` line spelling one held member, `{flight_cc: {held: true, detail: …}}`, which names every column; the member it picks is only an illustration.
 
 One thing in the own-line slot is not an annotation. An `enum` declaring `variants:` shows the cells of the world its discriminant names live, and every other world's cells commented out under a `# when <MEMBER>:` header — the same cells, with a `# ` in front, at the column they would sit at. Choose that member and delete the `# `.
 

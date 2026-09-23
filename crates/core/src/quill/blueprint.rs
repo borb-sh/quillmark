@@ -8,7 +8,8 @@
 use indexmap::IndexMap;
 
 use super::{
-    CardSchema, FieldSchema, FieldType, QuillConfig, VariantFields, VARIANT_DISCRIMINANT_KEY,
+    CardSchema, FieldSchema, FieldType, QuillConfig, VariantFields, MATRIX_HELD_KEY,
+    VARIANT_DISCRIMINANT_KEY,
 };
 use crate::document::emit::{emit_mapping_lines, saphyr_emit_flow, saphyr_emit_scalar};
 use crate::document::prescan::NestedComment;
@@ -238,6 +239,59 @@ fn matrix_cell() -> JsonValue {
     JsonValue::Object(JsonMap::new())
 }
 
+/// The `# e.g.` text for a matrix declaring columns: its first member held,
+/// each column at [`column_hint`]. A matrix holds no `example:` of its own, so
+/// the slot is free; a checklist has no line, the bare tick being its whole
+/// spelling.
+fn matrix_eg(field: &FieldSchema) -> Option<String> {
+    let columns = field.matrix_columns();
+    if columns.is_empty() {
+        return None;
+    }
+    let first = field.r#type.matrix_roster().keys().next()?;
+    let cells: Vec<String> = std::iter::once(format!("{MATRIX_HELD_KEY}: true"))
+        .chain(columns.iter().map(|(name, col)| {
+            format!("{}: {}", flow_scalar(name), column_hint(col))
+        }))
+        .collect();
+    Some(format!("{{{}: {{{}}}}}", flow_scalar(first), cells.join(", ")))
+}
+
+/// One column's value in a matrix hint: `example:` › `default:` › its
+/// container shape › the `!must_fill` placeholder. The marker is what the
+/// blueprint writes for a cell awaiting a value, so a column with nothing to
+/// show still names itself without offering its type name as a string.
+fn column_hint(col: &FieldSchema) -> String {
+    if let Some(value) = col.example.as_ref().or(col.default.as_ref()) {
+        return saphyr_emit_flow(value.as_json());
+    }
+    if matches!(col.r#type, FieldType::Matrix { .. }) {
+        return "{}".into();
+    }
+    if let Some(props) = typed_dict_props(col) {
+        return flow_hint_mapping(props);
+    }
+    if let Some(row) = typed_table_props(col) {
+        if row.is_empty() || col.max == Some(0) {
+            return "[]".into();
+        }
+        return format!("[{}]", flow_hint_mapping(row));
+    }
+    "!must_fill".into()
+}
+
+fn flow_hint_mapping(props: &IndexMap<String, Box<FieldSchema>>) -> String {
+    let cells: Vec<String> = props
+        .iter()
+        .map(|(name, prop)| format!("{}: {}", flow_scalar(name), column_hint(prop)))
+        .collect();
+    format!("{{{}}}", cells.join(", "))
+}
+
+fn flow_scalar(key: &str) -> String {
+    saphyr_emit_flow(&JsonValue::String(key.to_string()))
+}
+
 fn typed_dict_props(field: &FieldSchema) -> Option<&IndexMap<String, Box<FieldSchema>>> {
     match field.r#type {
         FieldType::Object => field.properties.as_ref(),
@@ -275,10 +329,17 @@ fn push_leading(items: &mut CardItems, field: &FieldSchema, eg_when: bool) {
     if let Some(cap) = cap_hint(field) {
         items.push(PayloadItem::comment(cap));
     }
-    if eg_when {
-        if let Some(eg) = field.example.as_ref() {
-            items.push(PayloadItem::comment(format!("e.g. {}", eg_hint(eg))));
-        }
+    if let Some(eg) = eg_text(field, eg_when) {
+        items.push(PayloadItem::comment(format!("e.g. {eg}")));
+    }
+}
+
+/// The text after `# e.g. ` for a field: its `example:` where `eg_when` lets
+/// it surface, else a matrix's member hint.
+fn eg_text(field: &FieldSchema, eg_when: bool) -> Option<String> {
+    match field.example.as_ref() {
+        Some(eg) if eg_when => Some(eg_hint(eg)),
+        _ => matrix_eg(field),
     }
 }
 
@@ -361,15 +422,13 @@ fn build_property_mapping(
                 inline: false,
             });
         }
-        if eg_hinted(prop) {
-            if let Some(eg) = prop.example.as_ref() {
-                nested.push(NestedComment {
-                    container_path: prefix.to_vec(),
-                    position: slot,
-                    text: format!("e.g. {}", eg_hint(eg)),
-                    inline: false,
-                });
-            }
+        if let Some(eg) = eg_text(prop, eg_hinted(prop)) {
+            nested.push(NestedComment {
+                container_path: prefix.to_vec(),
+                position: slot,
+                text: format!("e.g. {eg}"),
+                inline: false,
+            });
         }
         let mut path = prefix.to_vec();
         path.push(PathSegment::Key(prop.name.clone()));
