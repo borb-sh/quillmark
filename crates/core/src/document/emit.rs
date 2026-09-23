@@ -150,13 +150,19 @@ impl<'a> EmitCtx<'a> {
     }
 
     /// The markdown `value` emits as, when it is a canonical content object in a
-    /// field's value. The projection is a leaf: comments and markers addressed
-    /// inside the object have no spelling and drop.
+    /// field's value. A marker inside the object keeps it structural, since the
+    /// projected scalar has no path to write one at; comments inside it drop.
     fn projection(self, value: &JsonValue) -> Option<JsonValue> {
-        if !self.project_content {
+        if !self.project_content || self.has_fill_below() {
             return None;
         }
         project_content_field(value).map(JsonValue::String)
+    }
+
+    fn has_fill_below(self) -> bool {
+        self.fills
+            .iter()
+            .any(|p| p.len() > self.path.len() && p.starts_with(self.path))
     }
 }
 

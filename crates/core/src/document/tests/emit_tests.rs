@@ -344,6 +344,31 @@ fn a_marked_nested_content_cell_projects_and_ext_content_does_not() {
 }
 
 #[test]
+fn a_marker_inside_a_content_cell_keeps_it_structural_and_one_on_an_element_refuses() {
+    use crate::value::{PathSegment, QuillValue};
+
+    let content = quillmark_content::serial::to_canonical_value(
+        &quillmark_content::import::from_markdown("and **this**").unwrap(),
+    );
+    let key = |k: &str| PathSegment::Key(k.to_string());
+    let inside = vec![key("blurb"), key("text")];
+    let mut meta = QuillValue::from_json(serde_json::json!({ "blurb": content.clone() }));
+    assert!(meta.set_fill_at(&inside));
+
+    let mut doc = Document::new("q@1.0.0".parse().expect("reference"));
+    doc.main_mut().store_field("meta", meta).expect("stores");
+    let md = doc.to_markdown();
+    let back = Document::parse(&md).expect("re-parses").document;
+    let meta = back.main().payload().get("meta").unwrap();
+    assert_eq!(meta.fill_paths(), vec![inside], "{md}");
+    assert_eq!(meta.as_json()["blurb"], content, "{md}");
+
+    let mut tags = QuillValue::from_json(serde_json::json!([content]));
+    assert!(tags.set_fill_at(&[PathSegment::Index(0)]));
+    assert!(doc.main_mut().store_field("tags", tags).is_err());
+}
+
+#[test]
 fn synthesised_kind_leaves_the_quill_trailer_on_quill() {
     let src = "~~~card-yaml\n$quill: q@1.0 # note on quill\ntitle: x\n~~~\n";
     let doc = parse(src);
