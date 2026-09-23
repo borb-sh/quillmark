@@ -142,8 +142,8 @@ families:
   malformed input, and the document does not render; a `Warning` is incomplete
   or unclaimed input, which renders. The warnings are `must_fill`,
   `cardinality`, `out_of_variant`, `unknown_card`, `kindless_card`,
-  `body_disabled`, and the `$seed` checks, which warn whatever their class
-  because no render reads `$seed`.
+  `body_disabled`, `unknown_field`, and the `$seed` checks, which warn
+  whatever their class because no render reads `$seed`.
   This is the editor-facing surface: the render gate consults only the fatal
   set, and carries none of the warnings into `RenderResult.warnings`. Values
   are judged in the form the render floor builds from them
@@ -399,6 +399,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `validation::unknown_card` | `allowed`, `card` | structured |
 | `validation::kindless_card` | `allowed` | structured |
 | `validation::body_disabled` | `card` | structured |
+| `validation::unknown_field` | `field`, `suggestion`?, `container`?, `variant`? | structured |
 | `validation::coercion_failed` | `value`, `target` | structured, coarser |
 | `validation::must_fill` | `trigger` | structured |
 | `validation::out_of_variant` | `variant`, `selected` | structured |

@@ -282,7 +282,10 @@ classification:
 ```
 
 A world with nothing to fill in still writes plainly — `classification:
-UNCLASSIFIED` is accepted and means the same as `{value: UNCLASSIFIED}`.
+UNCLASSIFIED` is accepted and means the same as `{value: UNCLASSIFIED}`. A cell
+written beside the field instead of under it (`poc:` at card level next to
+`classification: CUI`) is an undeclared key that no declared field reads, and
+`quill.validate(doc)` warns `validation::unknown_field` with a hint to nest it.
 
 The container is a *document* shape. The schema's own `default:` and `example:`
 name the discriminant alone (`default: ""`, `example: CUI`); a container-shaped
