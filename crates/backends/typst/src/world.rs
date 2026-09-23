@@ -31,6 +31,38 @@ fn skipped_path(path: &Path, err: impl std::fmt::Display) -> Diagnostic {
     .with_hint("Rename it to a plain relative path.".to_string())
 }
 
+/// The keys under `typst:` in `Quill.yaml` this backend reads. Core stores the
+/// section verbatim, so every other key would otherwise vanish unremarked.
+const CONFIG_KEYS: &[&str] = &["plate_file"];
+
+fn unread_config_keys(source: &Quill, warnings: &mut Vec<Diagnostic>) {
+    let mut unread: Vec<&str> = source
+        .config()
+        .backend_config
+        .keys()
+        .map(String::as_str)
+        .filter(|key| !CONFIG_KEYS.contains(key))
+        .collect();
+    unread.sort_unstable();
+    for key in unread {
+        let hint = if key == "packages" {
+            "Quillmark never downloads a package: vendor each one under `packages/<dir>/` \
+             with its `typst.toml`, and delete `typst.packages`."
+                .to_string()
+        } else {
+            format!("Valid keys under 'typst' are: {}.", CONFIG_KEYS.join(", "))
+        };
+        warnings.push(
+            Diagnostic::new(
+                Severity::Warning,
+                format!("Ignoring 'typst.{key}' in Quill.yaml: the Typst backend does not read it"),
+            )
+            .with_code("typst::unknown_config_key".to_string())
+            .with_hint(hint),
+        );
+    }
+}
+
 /// Typst 0.15 routes file ids through [`RootedPath`]: project-local files use
 /// [`VirtualRoot::Project`], package files use [`VirtualRoot::Package`].
 fn file_id(spec: Option<PackageSpec>, vpath: VirtualPath) -> FileId {
@@ -65,6 +97,7 @@ impl QuillWorld {
         let mut sources = HashMap::new();
         let mut binaries = HashMap::new();
         let mut load_warnings = Vec::new();
+        unread_config_keys(source, &mut load_warnings);
 
         let mut book = FontBook::new();
         let mut fonts = Vec::new();
@@ -731,6 +764,23 @@ mod tests {
             codes.contains(&"typst::package_entrypoint_missing"),
             "expected an entrypoint warning, got {codes:?}"
         );
+    }
+
+    #[test]
+    fn a_typst_key_the_backend_does_not_read_warns() {
+        let quill = quill_with_typst_section(
+            "  plate_file: plate.typ\n  packages:\n    - \"@preview/bubble:0.2.2\"\n",
+            &[],
+        );
+        let world = QuillWorld::new(&quill, "// probe").expect("world");
+        let flagged: Vec<&str> = world
+            .load_warnings()
+            .iter()
+            .filter(|d| d.code.as_deref() == Some("typst::unknown_config_key"))
+            .map(|d| d.message.as_str())
+            .collect();
+        assert_eq!(flagged.len(), 1, "only `packages` is unread: {flagged:?}");
+        assert!(flagged[0].contains("typst.packages"), "{}", flagged[0]);
     }
 
 }
