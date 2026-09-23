@@ -454,11 +454,6 @@ export interface ChangeBundle {
 }
 "#;
 
-/// Device pixels per side: the floor across browser canvas limits (~32k on
-/// Chrome/Firefox, 16k on Safari). A `paint` scale past it is reduced to fit.
-#[cfg(feature = "render")]
-const MAX_BACKING_DIMENSION: u32 = 16384;
-
 /// Render engine: a backend registry and render dispatcher. Render build only:
 /// the core build constructs and validates quills without it.
 #[cfg(feature = "render")]
@@ -2642,18 +2637,17 @@ impl LiveSession {
 
     /// Paint `page` into a `CanvasRenderingContext2D` or
     /// `OffscreenCanvasRenderingContext2D` at `scale` backing-store pixels per
-    /// point (default `1`). The painter owns `canvas.width`/`height`, reduced
-    /// proportionally so neither exceeds 16384 px; consumers own
-    /// `canvas.style.*`.
+    /// point, reduced where it must be to keep both sides within
+    /// `MAX_RASTER_SIDE` (16384 px). The painter owns `canvas.width`/`height`;
+    /// consumers own `canvas.style.*`.
     ///
     /// `put_image_data` writes the whole backing store, bypassing the 2D
     /// context's transform, `globalAlpha`, and clip, so each visible page needs
     /// its own `<canvas>`: no compositing, sub-rect, or transform reaches through
     /// this call.
     ///
-    /// Throws if `page` is out of range, `ctx` is the wrong type, `scale` is
-    /// non-finite or `<= 0`, or the page cannot be rasterized at it
-    /// (`backend::invalid_raster_scale`).
+    /// Throws if `page` is out of range, `ctx` is the wrong type, or `scale` is
+    /// not finite and positive (`backend::invalid_raster_scale`).
     #[wasm_bindgen(js_name = paint)]
     pub fn paint(
         &self,
@@ -2662,7 +2656,7 @@ impl LiveSession {
         )]
         ctx: JsValue,
         page: usize,
-        scale: Option<f64>,
+        scale: f64,
     ) -> Result<(), JsValue> {
         let canvas_ctx = CanvasCtx::from_js(&ctx)?;
 
@@ -2671,36 +2665,13 @@ impl LiveSession {
             .page_size_pt(page)
             .ok_or_else(|| self.page_oob_error("paint", page))?;
 
-        let requested = scale.unwrap_or(1.0);
-        if !requested.is_finite() || requested <= 0.0 {
-            return Err(
-                WasmError::from("paint: scale must be a finite number greater than 0")
-                    .to_js_value(),
-            );
-        }
-
-        let max_dim = ((width_pt as f64) * requested)
-            .round()
-            .max(((height_pt as f64) * requested).round());
-        let render_scale = if max_dim > MAX_BACKING_DIMENSION as f64 {
-            requested * (MAX_BACKING_DIMENSION as f64 / max_dim)
-        } else {
-            requested
-        };
-        // A zero-dimension page bypasses the clamp, so the f64->f32 cast can
-        // still overflow.
-        if render_scale > f32::MAX as f64 {
-            return Err(WasmError::from(
-                "paint: computed render scale is non-finite or out of range",
-            )
-            .to_js_value());
-        }
+        let scale = quillmark_core::backend::fit_raster_scale(scale as f32, width_pt, height_pt);
 
         // `page_size_pt(page)` answered, so the page is in range and a raster is
         // owed; a `None` here is a backend bug.
         let (pixel_w, pixel_h, mut rgba) = self
             .inner
-            .render_rgba(page, render_scale as f32)
+            .render_rgba(page, scale)
             .map_err(|e| WasmError::from(e).to_js_value())?
             .ok_or_else(|| {
                 WasmError::from(format!(

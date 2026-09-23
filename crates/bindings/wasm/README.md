@@ -367,14 +367,14 @@ the compile half alone — read `doc.warnings` beside them.
 
 ### Canvas Preview
 
-`session.paint(ctx, page, scale?)` rasterizes a page directly into a
+`session.paint(ctx, page, scale)` rasterizes a page directly into a
 `CanvasRenderingContext2D` (main thread) or
 `OffscreenCanvasRenderingContext2D` (Worker), skipping PNG/SVG byte
 round-trips.
 
-`scale` is backing-store pixels per point (default `1`). The painter owns
-`canvas.width` / `canvas.height`, reduced proportionally so neither exceeds
-16384 px; consumers own `canvas.style.*`. A canvas styled to fill its page box
+`scale` is backing-store pixels per point. The painter owns `canvas.width` /
+`canvas.height`, reducing `scale` where it must so neither exceeds 16384 px;
+consumers own `canvas.style.*`. A canvas styled to fill its page box
 needs nothing back from the paint:
 
 ```ts

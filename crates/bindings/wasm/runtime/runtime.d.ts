@@ -292,7 +292,8 @@ export interface ContentHit {
  *
  * ```js
  * const [x0, y0, x1, y1] = region.rect;
- * // Into a raster painted at `paint`'s scale:
+ * // Into a painted raster, at the scale it was painted at:
+ * const scale = canvas.width / pageWidthPt;
  * const left = x0 * scale, top = (pageHeightPt - y1) * scale;
  * // Or, for an HTML overlay on a width:100% canvas, as % of the page, which
  * // tracks the displayed size across DPI and pane resize with no scale to thread:
@@ -505,10 +506,12 @@ export declare class LiveSession {
 	pageSize(page: number): PageSize;
 	/**
 	 * Paint `page` into a 2D canvas context at `scale` backing-store pixels per
-	 * point (default 1): `devicePixelRatio` times the CSS px per point the page is
-	 * shown at. The painter owns `canvas.width`/`height`, reduced proportionally so
-	 * neither exceeds 16384 px; the caller owns `canvas.style.*`, and a canvas styled
-	 * `width: 100%` needs nothing back from the paint.
+	 * point: `devicePixelRatio` times the CSS px per point the page is shown at.
+	 * The painter owns `canvas.width`/`height`, reducing `scale` where it must so
+	 * neither exceeds 16384 px, so `canvas.width / widthPt` is the scale painted
+	 * at; the caller owns `canvas.style.*`, and a canvas styled `width: 100%`
+	 * needs nothing back from the paint. Throws `backend::invalid_raster_scale`
+	 * on a `scale` that is not finite and positive.
 	 *
 	 * The write is a whole-backing-store `putImageData`, which bypasses the 2D
 	 * context transform, `globalAlpha`, and clip, so give each visible page its
@@ -521,7 +524,7 @@ export declare class LiveSession {
 	paint(
 		ctx: CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D,
 		page: number,
-		scale?: number
+		scale: number
 	): void;
 	free(): void;
 }

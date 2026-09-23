@@ -259,17 +259,6 @@ describe('LiveSession canvas preview', () => {
     expectInkAndOpaquePixels(call)
   })
 
-  it('paint defaults scale to 1', () => {
-    const session = openSession()
-    const { widthPt, heightPt } = session.pageSize(0)
-
-    const ctx = new FakeCanvasRenderingContext2D()
-    session.paint(ctx, 0)
-
-    expect(ctx.canvas.width).toBe(Math.round(widthPt))
-    expect(ctx.canvas.height).toBe(Math.round(heightPt))
-  })
-
   it('also paints into an OffscreenCanvasRenderingContext2D', () => {
     const session = openSession()
     const ctx = new FakeOffscreenCanvasRenderingContext2D()
@@ -293,19 +282,24 @@ describe('LiveSession canvas preview', () => {
     expect(ctx.canvas.width / ctx.canvas.height).toBeCloseTo(widthPt / heightPt, 2)
   })
 
-  it('paint throws on a non-finite or non-positive scale', () => {
+  it('paint throws on a scale that is not a finite positive number', () => {
     const session = openSession()
     const ctx = new FakeCanvasRenderingContext2D()
-    // An options object is refused rather than painted at the default.
-    for (const scale of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, { densityScale: 2 }]) {
+    // A missing scale or an options object is refused rather than guessed.
+    for (const scale of [undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, { densityScale: 2 }]) {
       expect(() => session.paint(ctx, 0, scale)).toThrow(/scale/)
+      try {
+        session.paint(ctx, 0, scale)
+      } catch (err) {
+        expect(err.diagnostics[0].code).toBe('backend::invalid_raster_scale')
+      }
     }
   })
 
   it('throws an out-of-range error when paint is called with a bad page index', () => {
     const session = openSession()
     const ctx = new FakeCanvasRenderingContext2D()
-    expect(() => session.paint(ctx, session.pageCount + 5)).toThrow(
+    expect(() => session.paint(ctx, session.pageCount + 5, 1)).toThrow(
       /out of range.*pageCount=/,
     )
   })
@@ -400,7 +394,7 @@ describe('LiveSession.update', () => {
     // Every read still serves the last-good compile.
     expect(session.pageCount).toBe(before)
     const ctx = new FakeCanvasRenderingContext2D()
-    session.paint(ctx, 0)
+    session.paint(ctx, 0, 1)
     expect(ctx.canvas.width).toBeGreaterThan(0)
     expect(ctx.calls.length).toBe(1)
 

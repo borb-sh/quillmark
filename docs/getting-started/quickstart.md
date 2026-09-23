@@ -115,8 +115,8 @@
       page is shown at, times `devicePixelRatio` and any in-app zoom.
     - The painter owns `canvas.width` / `canvas.height` and rewrites them on
       every call (so each `paint` is a full repaint: no `clearRect` needed),
-      reduced proportionally so neither exceeds 16384 px. The consumer owns
-      `canvas.style.*`.
+      reducing `scale` where it must so neither exceeds 16384 px. The consumer
+      owns `canvas.style.*`.
     - `pageCount` and `pageSize(page)` reflect the session's current compile:
       stable between edits, but re-read them after a committed `update(doc)`,
       which recompiles in place and can change the page count

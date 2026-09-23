@@ -72,16 +72,14 @@ pub fn declined_construct(
     .with_args(args)
 }
 
-/// The pixel ceiling on one rasterized page, shared by every raster path so a
-/// caller meets one number.
+/// The pixel ceiling on either side of one rasterized page, shared by every
+/// raster path so a caller meets one number.
 ///
-/// RGBA is 4 bytes a pixel, so one page's buffer stops at 1 GiB: a quarter of
-/// wasm32's whole address space, and far under the size at which the
-/// rasterizers' own 32-bit dimension arithmetic wraps. It is also the area of
-/// the WASM painter's 16384-px-per-side backing-store clamp
-/// ([PREVIEW.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PREVIEW.md)),
-/// so every raster that clamp admits still renders.
-pub const MAX_RASTER_PIXELS: u64 = 16_384 * 16_384;
+/// It is the floor across browser canvas limits (~32k a side on Chrome and
+/// Firefox, 16k on Safari), and it bounds one page's RGBA buffer at 1 GiB: a quarter of wasm32's whole address
+/// space, and far under the size at which the rasterizers' own dimension
+/// arithmetic wraps.
+pub const MAX_RASTER_SIDE: u32 = 16_384;
 
 fn invalid_raster_scale(message: String, hint: &str) -> RenderError {
     RenderError::coded_hint("backend::invalid_raster_scale", message, hint)
@@ -102,7 +100,8 @@ pub fn raster_scale(ppi: f32) -> Result<f32, RenderError> {
 /// The refusal every raster backend owes a page it cannot rasterize, checked
 /// before the rasterizer allocates: under `backend::invalid_raster_scale` unless
 /// `scale` (device pixels per point, as [`raster_scale`] returns) is finite and
-/// positive and the `width_pt` × `height_pt` page fits [`MAX_RASTER_PIXELS`].
+/// positive and neither side of the `width_pt` × `height_pt` page passes
+/// [`MAX_RASTER_SIDE`].
 pub fn check_raster(scale: f32, width_pt: f32, height_pt: f32) -> Result<(), RenderError> {
     if !scale.is_finite() || scale <= 0.0 {
         return Err(invalid_raster_scale(
@@ -114,15 +113,26 @@ pub fn check_raster(scale: f32, width_pt: f32, height_pt: f32) -> Result<(), Ren
     // pixel the rasterizers floor it at.
     let px = |pt: f32| (f64::from(scale) * f64::from(pt)).round().max(1.0);
     let (w, h) = (px(width_pt), px(height_pt));
-    if w * h > MAX_RASTER_PIXELS as f64 {
+    if w.max(h) > f64::from(MAX_RASTER_SIDE) {
         return Err(invalid_raster_scale(
             format!(
-                "a {width_pt}x{height_pt} pt page at {scale} device pixels per point is {w}x{h} px, past the {MAX_RASTER_PIXELS} px ceiling"
+                "a {width_pt}x{height_pt} pt page at {scale} device pixels per point is {w}x{h} px, past the {MAX_RASTER_SIDE} px ceiling on a side"
             ),
             "Rasterize fewer pixels: lower the ppi (the default is 144) or the canvas scale.",
         ));
     }
     Ok(())
+}
+
+/// `scale` reduced, where it must be, to the largest at which neither side of
+/// the `width_pt` × `height_pt` page passes [`MAX_RASTER_SIDE`]: what a preview
+/// paints at, where a softer page beats a refused one. A scale that is not
+/// finite and positive is returned as given, for [`check_raster`] to refuse.
+pub fn fit_raster_scale(scale: f32, width_pt: f32, height_pt: f32) -> f32 {
+    if !scale.is_finite() || scale <= 0.0 {
+        return scale;
+    }
+    scale.min(MAX_RASTER_SIDE as f32 / width_pt.max(height_pt))
 }
 
 /// The pages a render covers: `pages` as given, or every page of `page_count`
@@ -194,12 +204,12 @@ mod tests {
     }
 
     #[test]
-    fn check_raster_refuses_a_page_past_the_pixel_ceiling() {
+    fn check_raster_refuses_a_page_past_the_side_ceiling() {
         let (w, h) = LETTER_PT;
-        let ceiling = (MAX_RASTER_PIXELS as f64 / f64::from(w * h)).sqrt() as f32;
+        let ceiling = MAX_RASTER_SIDE as f32 / h;
         assert!(check_raster(ceiling, w, h).is_ok());
         assert_eq!(
-            code(check_raster(ceiling * 2.0, w, h).expect_err("twice the ceiling scale")),
+            code(check_raster(ceiling * 1.01, w, h).expect_err("past the ceiling scale")),
             "backend::invalid_raster_scale"
         );
         assert_eq!(
@@ -209,11 +219,25 @@ mod tests {
     }
 
     #[test]
+    fn a_fitted_scale_is_one_check_raster_admits() {
+        for (w, h) in [LETTER_PT, (792.0, 612.0), (1.0, 14_400.0), (3.3, 7.7)] {
+            for scale in [0.5, 2.0, 21.0, 1e6, f32::MAX] {
+                let fitted = fit_raster_scale(scale, w, h);
+                assert!(fitted <= scale);
+                check_raster(fitted, w, h)
+                    .unwrap_or_else(|_| panic!("{w}x{h} pt at {scale} fits at {fitted}"));
+            }
+        }
+        assert_eq!(fit_raster_scale(2.0, LETTER_PT.0, LETTER_PT.1), 2.0);
+        assert!(fit_raster_scale(f32::NAN, LETTER_PT.0, LETTER_PT.1).is_nan());
+    }
+
+    #[test]
     fn the_default_ppi_leaves_a_letter_page_far_under_the_ceiling() {
         let (w, h) = LETTER_PT;
         let scale = raster_scale(RenderOptions::DEFAULT_PPI).expect("the default ppi");
         check_raster(scale, w, h).expect("the default render is not near the ceiling");
-        assert!(f64::from(w * scale) * f64::from(h * scale) * 100.0 < MAX_RASTER_PIXELS as f64);
+        assert!(h * scale * 10.0 < MAX_RASTER_SIDE as f32);
     }
 
     #[test]

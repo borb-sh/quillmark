@@ -1219,7 +1219,7 @@ A single line of body ink.`
       // paint.
       expect(typeof session.paint).toBe('function')
       const ctx = new FakeCanvasRenderingContext2D()
-      session.paint(ctx, body.page)
+      session.paint(ctx, body.page, 1)
       expect(ctx.canvas.width).toBeGreaterThan(0)
 
       // update: recompile in place.
