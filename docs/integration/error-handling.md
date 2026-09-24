@@ -57,6 +57,8 @@ Notable codes: `quill::name_mismatch` / `quill::version_mismatch` (a well-formed
 
 `parse::payload_not_mapping` is a card-yaml block whose payload is YAML but not a mapping, usually code fenced with `~~~` in a body. It is located at the fence's line. Its `args` carry `actual` (`string`, `number`, `boolean` or `sequence`) and, when the fence has one, `info`, the info string.
 
+`parse::missing_kind` is a card-yaml block after the root whose payload names no `$kind`: a card missing its kind line, or code fenced with `~~~` whose text reads as a mapping. It is located at the fence's line, and its `args` carry `info` when the fence has one.
+
 A Typst compile classifies into four codes: `typst::file_not_found` (a file the quill's world refused — a missing asset is the common one), `typst::unknown_variable`, `typst::type_error`, and `typst::compile` for everything else, warnings included. They are a routing key only: which file was searched for, or which symbol was unknown, is read from `message`.
 
 ## Warnings vs errors
@@ -66,7 +68,7 @@ Fatality is a two-value ladder: `Error` blocks the stage that emits it; `Warning
 - **Parse warnings** (e.g. a `~~~` opener missing its blank line) carried on the parsed document (`doc.warnings`) and spliced into a render's warnings.
 - **Validation warnings**: `quill.validate(doc)` returns every diagnostic, and its severity says whether the document renders ([full rule](https://github.com/borb-sh/quillmark/blob/main/prose/canon/SCHEMAS.md#what-blocks-a-render)):
     - An `Error` is input the engine cannot read as written, such as a value that is not its field's type or an enum value outside `values:`. The render fails.
-    - A `Warning` is input no declaration claims: a card with a missing or undeclared `$kind` (`validation::kindless_card`, `validation::unknown_card`), a body under `body.enabled: false` (`validation::body_disabled`), a key the schema does not declare (`validation::unknown_field`, whose hint names the likely fix), a stranded variant cell (`validation::out_of_variant`), elements past `max:` (`validation::cardinality`), and the `$seed` checks. The document renders without it. A library render does not run `validate`, so these warnings reach you only from `quill.validate(doc)`.
+    - A `Warning` is input no declaration claims: a card with an undeclared `$kind` (`validation::unknown_card`), a body under `body.enabled: false` (`validation::body_disabled`), a key the schema does not declare (`validation::unknown_field`, whose hint names the likely fix), a stranded variant cell (`validation::out_of_variant`), elements past `max:` (`validation::cardinality`), and the `$seed` checks. The document renders without it. A library render does not run `validate`, so these warnings reach you only from `quill.validate(doc)`.
 
     A field the document leaves unanswered draws no diagnostic: it renders its `default:`, else its blank.
 

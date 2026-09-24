@@ -103,7 +103,8 @@ the next opening fence or EOF.
   (```` ``` ````), including a YAML one (```` ```yaml ````). Tildes offer no
   escape: neither a longer run nor a language info string opens a code block.
   A tilde-fenced code block reaches the YAML parser as a payload, so it fails
-  under §10 unless it happens to be a well-formed card.
+  under §10 unless it happens to be a well-formed card: after the root, one
+  whose text reads as a mapping fails for naming no `$kind` (§3.3).
 - **Indentation.** Both fences are at column zero: **no leading spaces**.
   An indented opener (1–3 spaces) is *not* a card-yaml opener: it is
   delegated to CommonMark as an ordinary fenced code block, exactly like an
@@ -150,8 +151,7 @@ accessors: `card.quill()`, `card.kind()`, `card.ext()`,
 `card.seed()`: which return `Option<…>`. On a successfully parsed document the root
 card always returns `Some(_)` for both `quill()` and `kind()` (with
 `kind() == "main"`); composable cards return `None` for `quill()`, and
-`kind()` returns the declared kind (any value other than `"main"`) or `None`
-for a block that declares none. The root's
+`kind()` returns the declared kind (any value other than `"main"`). The root's
 `$kind: main` is synthesised when omitted in source (see §3.3 rules),
 so the typed-accessor invariant holds regardless of whether the
 author wrote the line.
@@ -166,9 +166,10 @@ author wrote the line.
   `main` by position. An explicit `$kind: main` is accepted (round-trips
   byte-equal); omitting it is also accepted and synthesised at parse time.
   A non-`main` `$kind` on the root is a parse error. No composable card may
-  declare `$kind: main`. A composable block may omit `$kind`: it parses as a
-  *kindless* card and emits without the line. Whether a kind, or its absence,
-  names anything a quill declares is the schema's question, not the parser's.
+  declare `$kind: main`. Every block after the root is a composable card and
+  must declare `$kind`: one that names none is a parse error (§10). Whether a
+  kind names anything a quill declares is the schema's question, not the
+  parser's.
 - **`$ext: <mapping>`**: an opaque, optional **mapping** reserved for
   out-of-band extension data (UI editor state, agent annotations, …).
   Required to be a YAML mapping (object); scalars and sequences are
@@ -510,6 +511,10 @@ Parse errors include:
   value is rejected).
 - A composable (non-root) block declaring `$quill`, or declaring
   `$kind: main` (which is reserved for the document root).
+- A composable block whose mapping payload names no `$kind`
+  (`MissingKind`), located at the opener's line. Its hint names the
+  `$kind:` line and the backtick fence (§6.2), since tilde-fenced code whose
+  text reads as a mapping is the other usual source.
 - A duplicate `$key` within a single block (caught by the YAML parser as a
   duplicate mapping key).
 - An unknown `$key` outside the closed set `{quill, kind, ext, seed}`.

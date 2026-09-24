@@ -11,11 +11,13 @@
 
 #![allow(non_camel_case_types)]
 
+use std::collections::HashSet;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use quillmark_content::model::Normalized;
+use quillmark_content::import::ImportError;
+use quillmark_content::model::{Container, Content, Mark, MarkKind, Normalized};
 
 use super::meta::validate_composable_kind;
 use super::payload::{MetaKey, Payload, PayloadItem};
@@ -528,6 +530,7 @@ impl TryFrom<DocumentV0_116_0> for Document {
             .into_iter()
             .map(Card::try_from)
             .collect::<Result<Vec<_>, _>>()?;
+        let mut kindless = false;
         for card in &cards {
             if card.quill().is_some() {
                 return Err(StorageError::Malformed(
@@ -539,24 +542,156 @@ impl TryFrom<DocumentV0_116_0> for Document {
                     "composable cards must not carry a $seed entry".into(),
                 ));
             }
-            if let Some(kind) = card.kind() {
-                match validate_composable_kind(kind) {
-                    Ok(()) => {}
-                    Err(super::meta::CardKindError::InvalidName) => {
-                        return Err(StorageError::Malformed(format!(
-                            "invalid composable card kind {kind:?}: must match \
-                             [a-z_][a-z0-9_]*"
-                        )));
-                    }
-                    Err(super::meta::CardKindError::Reserved) => {
-                        return Err(StorageError::Malformed(format!(
-                            "composable card kind {kind:?} is reserved (root only)"
-                        )));
-                    }
+            let Some(kind) = card.kind() else {
+                kindless = true;
+                continue;
+            };
+            match validate_composable_kind(kind) {
+                Ok(()) => {}
+                Err(super::meta::CardKindError::InvalidName) => {
+                    return Err(StorageError::Malformed(format!(
+                        "invalid composable card kind {kind:?}: must match \
+                         [a-z_][a-z0-9_]*"
+                    )));
+                }
+                Err(super::meta::CardKindError::Reserved) => {
+                    return Err(StorageError::Malformed(format!(
+                        "composable card kind {kind:?} is reserved (root only)"
+                    )));
                 }
             }
         }
+        if kindless {
+            return fold_kindless(main, cards);
+        }
         Ok(Document::from_main_and_cards(main, cards))
+    }
+}
+
+/// Fold each card naming no `$kind` into the body above it: its payload as a
+/// code block, then its own body. A composable card names its kind, so this is
+/// the one reading of such a stored card that keeps its text. Every
+/// other card loads untouched.
+fn fold_kindless(mut main: Card, cards: Vec<Card>) -> Result<Document, StorageError> {
+    let malformed = |e: &dyn std::fmt::Debug| {
+        StorageError::Malformed(format!("folding a card with no $kind: {e:?}"))
+    };
+    let mut kept: Vec<Card> = Vec::with_capacity(cards.len());
+    for card in cards {
+        if card.kind().is_some() {
+            kept.push(card);
+            continue;
+        }
+        let target = match kept.last_mut() {
+            Some(card) => card,
+            None => &mut main,
+        };
+        let mut yaml = String::new();
+        super::emit::emit_payload_items(&mut yaml, card.payload());
+        let code = code_block(&yaml).map_err(|e| malformed(&e))?;
+        let body = append_block(target.body().clone().into_content(), code);
+        let body = append_block(body, card.body().clone().into_content()).into_normalized();
+        body.validate().map_err(|e| malformed(&e))?;
+        *target.body_mut() = body;
+    }
+    Ok(Document::from_main_and_cards(main, kept))
+}
+
+/// `yaml` as one untagged code block, imported as markdown so its text is
+/// admitted as any body's is: a field value may hold a bidi control or a line
+/// separator that body text refuses.
+fn code_block(yaml: &str) -> Result<Content, ImportError> {
+    if yaml.trim().is_empty() {
+        return Ok(Content::empty());
+    }
+    let longest = yaml.split(|c| c != '`').map(str::len).max().unwrap_or(0);
+    let fence = "`".repeat((longest + 1).max(3));
+    let newline = if yaml.ends_with('\n') { "" } else { "\n" };
+    super::import_body(&format!("{fence}\n{yaml}{newline}{fence}\n")).map(Normalized::into_content)
+}
+
+/// `src` as the blocks following `dst`'s, each its own block: its top-level
+/// containers never continue `dst`'s last run, and an island or anchor id
+/// `dst` already holds is renamed, since both are unique per content.
+fn append_block(mut dst: Content, mut src: Content) -> Content {
+    let void = |c: &Content| c.text.is_empty() && c.marks.is_empty() && c.islands.is_empty();
+    if void(&src) {
+        return dst;
+    }
+    if void(&dst) {
+        return src;
+    }
+    let offset = dst.len_usv() + 1;
+
+    let mut taken: HashSet<String> = dst.islands.iter().map(|i| i.id.clone()).collect();
+    taken.extend(src.islands.iter().map(|i| i.id.clone()));
+    let mut next = 0usize;
+    for island in &mut src.islands {
+        if dst.islands.iter().any(|i| i.id == island.id) {
+            while taken.contains(&format!("isl-{next}")) {
+                next += 1;
+            }
+            island.id = format!("isl-{next}");
+            taken.insert(island.id.clone());
+        }
+    }
+
+    let anchor_id = |m: &Mark| match &m.kind {
+        MarkKind::Anchor { id } => Some(id.clone()),
+        _ => None,
+    };
+    let held: HashSet<String> = dst.marks.iter().filter_map(anchor_id).collect();
+    let mut taken: HashSet<String> = held.clone();
+    taken.extend(src.marks.iter().filter_map(anchor_id));
+    for mark in &mut src.marks {
+        if let MarkKind::Anchor { id } = &mut mark.kind
+            && held.contains(id.as_str())
+        {
+            let mut n = 1usize;
+            while taken.contains(&format!("{id}-{n}")) {
+                n += 1;
+            }
+            *id = format!("{id}-{n}");
+            taken.insert(id.clone());
+        }
+    }
+
+    // A run opens where the stored `instance` changes, so lifting every
+    // top-level instance past `dst`'s keeps `src`'s runs its own.
+    let lift = dst
+        .lines
+        .iter()
+        .filter_map(|l| l.containers.first().map(container_instance))
+        .max()
+        .map_or(0, |max| max + 1);
+    for line in &mut src.lines {
+        if let Some(top) = line.containers.first_mut() {
+            match top {
+                Container::ListItem { instance, .. } | Container::Quote { instance } => {
+                    *instance += lift;
+                }
+            }
+        }
+    }
+
+    if let Some(first) = src.lines.first_mut() {
+        first.continues = false;
+    }
+    dst.text.push('\n');
+    dst.text.push_str(&src.text);
+    dst.lines.append(&mut src.lines);
+    dst.marks.extend(src.marks.into_iter().map(|mut m| {
+        m.start += offset;
+        m.end += offset;
+        m
+    }));
+    dst.islands.append(&mut src.islands);
+    dst
+}
+
+fn container_instance(container: &Container) -> u64 {
+    match container {
+        Container::ListItem { instance, .. } | Container::Quote { instance } => *instance,
     }
 }
 
@@ -1694,6 +1829,95 @@ title: Hi
         }"#;
         let err = serde_json::from_str::<Document>(json).unwrap_err();
         assert!(err.to_string().contains("reserved (root only)"));
+    }
+
+    /// A stored card with no `$kind` folds into the body above it: its payload
+    /// as a code block, then its body, whose marks shift with it.
+    #[test]
+    fn a_stored_kindless_card_folds_into_the_body_above() {
+        let parsed = Document::parse(
+            "~~~\n$quill: q@1.0\n~~~\n\nIntro.\n\n~~~\n$kind: note\n~~~\n\nNote.\n",
+        )
+        .unwrap()
+        .document;
+        let kindless = Payload::from_items(vec![PayloadItem::Field {
+            key: "name".to_string(),
+            value: QuillValue::from_json(serde_json::json!("server")),
+        }]);
+        let kindless = Card::from_parts(kindless, super::super::import_body("Conclusion.").unwrap());
+        let stored = Document {
+            main: parsed.main().clone(),
+            cards: vec![kindless, parsed.cards()[0].clone()],
+        };
+
+        let mut json: serde_json::Value = serde_json::to_value(&stored).unwrap();
+        let anchor = serde_json::json!([{"type": "anchor", "id": "c1", "start": 0, "end": 5}]);
+        json["main"]["body"]["marks"] = anchor.clone();
+        json["cards"][1]["body"]["marks"] = anchor;
+        json["cards"][0]["body"]["marks"] =
+            serde_json::json!([{"type": "anchor", "id": "c1", "start": 0, "end": 10}]);
+        let restored: Document = serde_json::from_value(json).unwrap();
+        assert_eq!(restored.cards().len(), 1);
+        assert_eq!(restored.cards()[0].kind(), Some("note"));
+        assert_eq!(
+            restored.main().body_markdown(),
+            "Intro.\n\n```\nname: server\n```\n\nConclusion."
+        );
+        let main = restored.main().body();
+        let anchors: Vec<(String, String)> = main
+            .marks
+            .iter()
+            .map(|m| match &m.kind {
+                MarkKind::Anchor { id } => (
+                    id.clone(),
+                    main.text.chars().skip(m.start).take(m.end - m.start).collect(),
+                ),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        let expected = [("c1", "Intro"), ("c1-1", "Conclusion")];
+        assert_eq!(anchors, expected.map(|(i, t)| (i.to_string(), t.to_string())));
+        assert_eq!(restored.cards()[0].body().marks.len(), 1);
+    }
+
+    /// A fold loads whatever the stored card holds, keeps the blocks on either
+    /// side of it apart, and emits markdown that parses back to it.
+    #[test]
+    fn a_stored_kindless_fold_is_valid_and_a_fixed_point() {
+        let fold = |main_md: &str, fields: serde_json::Value, body_md: &str| {
+            let main = Document::parse(&format!("~~~\n$quill: q@1.0\n~~~\n\n{main_md}\n"))
+                .unwrap()
+                .document
+                .main()
+                .clone();
+            let items = fields
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(key, value)| PayloadItem::Field {
+                    key: key.clone(),
+                    value: QuillValue::from_json(value.clone()),
+                })
+                .collect();
+            let card = Card::from_parts(
+                Payload::from_items(items),
+                super::super::import_body(body_md).unwrap(),
+            );
+            let json = serde_json::to_value(&Document { main, cards: vec![card] }).unwrap();
+            let restored: Document = serde_json::from_value(json).unwrap_or_else(|e| panic!("{e}"));
+            let again = Document::parse(&restored.to_markdown()).unwrap().document;
+            assert_eq!(again, restored);
+            restored.main().body().clone()
+        };
+
+        let body = fold("Intro.", serde_json::json!({ "name": "a\u{202D}b\u{2028}c\u{FFFC}d" }), "");
+        assert_eq!(body.text, "Intro.\nname: \"ab\\Lcd\"", "admitted as a body import admits it");
+
+        for (above, below) in [("> a", "> b"), ("1. a", "1. b"), ("- a", "- b")] {
+            let body = fold(above, serde_json::json!({}), below);
+            let top = |line: &quillmark_content::model::Line| line.containers.first().cloned();
+            assert_ne!(top(&body.lines[0]), top(body.lines.last().unwrap()), "{above:?}: {body:?}");
+        }
     }
 
     #[test]

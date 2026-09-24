@@ -27,8 +27,8 @@
 
 #data.at("$body", default: "")
 
-// `$kind` is document-defined: a kindless card carries none, so read it with a
-// default and let every other kind fall through. A field declared on the kind
+// `$kind` is document-defined: a card may name a kind this quill does not
+// declare, so let every other kind fall through. A field declared on the kind
 // arrives filled the way a `main` field does, so `card.title` is a plain read
 // while `card.at("$body")` — a `$`-sigiled key — still takes its default.
 #for card in data.at("$cards", default: ()) {

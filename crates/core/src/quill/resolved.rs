@@ -77,12 +77,12 @@ pub struct ResolvedMain {
     pub body: Option<ResolvedField>,
 }
 
-/// One composable card's resolved rows, with its authored `kind` (present even
-/// for an unknown kind, which carries its fields verbatim), its document-array
+/// One composable card's resolved rows, with its authored `kind` (an undeclared
+/// one included, whose card carries its fields verbatim), its document-array
 /// `index`, and its body row when the kind enables a body.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ResolvedCard {
-    pub kind: Option<String>,
+    pub kind: String,
     pub index: usize,
     pub fields: Vec<ResolvedField>,
     pub body: Option<ResolvedField>,
@@ -179,9 +179,8 @@ fn resolve_card_fields(
 }
 
 /// Resolve one composable card. A card whose `$kind` names a schema resolves
-/// through the ladder; an unknown-kind card (declared `$kind` with no schema, or
-/// a kindless card) carries its authored fields verbatim: no coercion, no
-/// ladder, no `$body` row.
+/// through the ladder; a card whose `$kind` names none carries its authored
+/// fields verbatim: no coercion, no ladder, no `$body` row.
 fn card_states(
     config: &QuillConfig,
     card: &Card,
@@ -190,7 +189,7 @@ fn card_states(
 ) -> ResolvedCard {
     // The raw authored kind rides the entry even when it names no schema: the
     // card reports what it *claimed* to be.
-    let kind = card.kind().map(String::from);
+    let kind = card.kind().unwrap_or_default().to_string();
     match card.kind().and_then(|k| config.card_kind(k)) {
         Some(schema) => {
             let (fields, body) = resolve_card_fields(schema, card, today);
@@ -536,7 +535,7 @@ card_kinds:
         let states = quill.resolve(&doc, None);
         let card = &states.cards[0];
 
-        assert_eq!(card.kind.as_deref(), Some("mystery"));
+        assert_eq!(card.kind, "mystery");
         assert_eq!(card.index, 0);
         // Authored fields only: no body row, no ladder.
         assert_eq!(row(&card.fields, "foo").source, FieldSource::Authored);
