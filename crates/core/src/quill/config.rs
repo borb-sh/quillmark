@@ -1241,7 +1241,7 @@ impl QuillConfig {
                     .with_code("quill::enum_blank_member".to_string())
                     .with_hint(
                         "Remove `\"\"` from `values:`; every enum accepts the blank \
-                         already. Keep `default: \"\"` to leave the field optional, \
+                         already. Keep `default: \"\"` to leave the field unobliged, \
                          and declare a member such as `undecided` or `n_a` where \
                          the empty state is itself a choice someone makes."
                             .to_string(),
@@ -1274,6 +1274,7 @@ impl QuillConfig {
     ) {
         Self::validate_description_singleline(schema.description.as_deref(), owner_label, errors);
         Self::validate_enum_literals(schema, owner_label, errors);
+        Self::validate_optional(schema, owner_label, errors);
         if schema.example.is_some() {
             Self::reject_namespace_literal("example", schema, owner_label, errors);
         }
@@ -1415,6 +1416,57 @@ impl QuillConfig {
                 .with_hint(
                     "Split the fields across card kinds, or group related ones under an object \
                      field: nested properties are one field."
+                        .to_string(),
+                ),
+            );
+        }
+    }
+
+    /// Refuse a `?` the cell cannot honour: beside a `default:`, which answers
+    /// for an unanswered cell so it never renders `none`, and on a namespace,
+    /// which has no rung of its own to leave unanswered.
+    fn validate_optional(schema: &FieldSchema, owner_label: &str, errors: &mut Vec<Diagnostic>) {
+        if !schema.optional {
+            return;
+        }
+        let token = schema.r#type.as_str();
+        if schema.is_variant_bearing()
+            || matches!(schema.r#type, FieldType::Object | FieldType::Matrix { .. })
+        {
+            errors.push(
+                Diagnostic::new(
+                    Severity::Error,
+                    format!(
+                        "{owner_label} declares `type: {token}?`, but a {kind} is a namespace, \
+                         not a cell: it always renders, and its cells answer for themselves.",
+                        kind = if schema.is_variant_bearing() {
+                            "variant-bearing enum"
+                        } else {
+                            token
+                        },
+                    ),
+                )
+                .with_code("quill::optional_namespace".to_string())
+                .with_hint(format!(
+                    "Drop the `?` from `type: {token}?`, and mark the cells inside it \
+                     optional instead."
+                )),
+            );
+        }
+        if schema.default.is_some() {
+            errors.push(
+                Diagnostic::new(
+                    Severity::Error,
+                    format!(
+                        "{owner_label} declares `type: {token}?` and a default. `?` renders an \
+                         unanswered cell as `none`, and a default answers for it, so the two \
+                         cannot both hold."
+                    ),
+                )
+                .with_code("quill::optional_default".to_string())
+                .with_hint(
+                    "Drop the `?` to always render a value, or move the value to `example:` \
+                     to suggest it without answering for the author."
                         .to_string(),
                 ),
             );

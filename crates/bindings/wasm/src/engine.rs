@@ -78,8 +78,13 @@ export interface QuillCardBody {
  * `validation::must_fill` while the document leaves it unauthored. Neither
  * gates render: an absent field blank-fills.
  */
+export type QuillFieldType = "string" | "number" | "integer" | "boolean" | "array" | "object" | "date" | "datetime" | "richtext" | "plaintext" | "enum" | "matrix";
+
 export interface QuillFieldSchema {
-    type: "string" | "number" | "integer" | "boolean" | "array" | "object" | "date" | "datetime" | "richtext" | "plaintext" | "enum" | "matrix";
+    /** A trailing `?` marks the cell optional: unanswered, it renders `none`
+     *  rather than its type's blank, and it never carries a `default`. A
+     *  consumer offers a way back to unanswered (`removeField`) on such a cell. */
+    type: QuillFieldType | `${Exclude<QuillFieldType, "object" | "matrix">}?`;
     description?: string;
     default?: unknown;
     example?: unknown;

@@ -76,7 +76,23 @@ fn discriminant_schema(field: &FieldSchema) -> serde_json::Value {
 /// that kind at compile time, matching `Quill::validate`'s hard error on
 /// authored body content for the same kind.
 pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
+    /// An optional cell's wire admits `null` beside its type, as the JSON-Schema
+    /// `type: [<type>, "null"]` union, and an enum's list gains `null` beside
+    /// its blank.
     fn field_to_schema(field: &FieldSchema) -> serde_json::Value {
+        let mut schema = declared_schema(field);
+        if field.optional {
+            if let Some(ty) = schema.get("type").cloned() {
+                schema["type"] = serde_json::json!([ty, "null"]);
+            }
+            if let Some(serde_json::Value::Array(members)) = schema.get_mut("enum") {
+                members.insert(0, serde_json::Value::Null);
+            }
+        }
+        schema
+    }
+
+    fn declared_schema(field: &FieldSchema) -> serde_json::Value {
         let mut schema = serde_json::Map::new();
         // A variant-bearing enum crosses as the container it rests as, every
         // world's fields flattened beside the discriminant: at schema time there

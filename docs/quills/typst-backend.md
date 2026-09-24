@@ -40,7 +40,7 @@ A key's *declaration* decides whether it can be absent, and that decides the acc
 | A `$`-sigiled key (`$kind`, `$body`, `$cards`, `$path`) | `data.at("$body", default: "")` | Typst identifiers exclude `$`, *and* `$`-metadata is present only where it is defined: `$kind` only on a card that authors one, `$body` only where the kind enables a body. |
 | An undeclared key, or any field of a card whose `$kind` is unknown | `data.at("logo", default: none)` | No schema fills it, so absence is real. `quill.validate(doc)` warns on it (`validation::unknown_field`, `validation::unknown_card`), so a key the plate reads belongs in `Quill.yaml`. |
 
-So a `default:` on a declared field is dead code, and an `#if "field" in data` guard on one is always true. When a declared field is optional, guard its *value*, not its presence:
+So a `default:` on a declared field is dead code, and an `#if "field" in data` guard on one is always true. When a declared field may be left blank, guard its *value*, not its presence:
 
 ```typst
 #if data.subtitle != "" {
@@ -71,8 +71,21 @@ What an unanswered field holds when it reaches the plate, and the guard that tes
 | `array` | `()` | `data.f.len() > 0` |
 | `object` | a dictionary of its properties, each at its own blank | guard the properties |
 | `matrix` | every member, each with `held: false` | `m.held` per member |
+| any optional type (`integer?`, `boolean?`, …) | `none` | `data.f != none` |
 
 `$body` follows the content rule: `data.at("$body", default: "") != ""` is true only when the body has text.
+
+The `0` and `false` guards cannot tell an unanswered field from an authored `0` or `false`. Where the plate must, declare the field [optional](quill-yaml-reference.md#optional-fields-t): it arrives as `none` when nobody answered it:
+
+```typst
+#if data.quorum == none [
+  _Quorum not recorded._
+] else if present >= data.quorum [
+  A quorum of #data.quorum was established.
+]
+```
+
+Printing `none` places nothing, and `+` treats it as absent (`"Dear " + none` is `"Dear "`), so neither needs a guard. Arithmetic, comparison, `if`, and `for` reject `none`: branch on `!= none` before them.
 
 ### Body, arrays, and cards
 

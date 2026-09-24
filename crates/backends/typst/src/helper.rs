@@ -369,7 +369,7 @@ fn lowering(node: Option<&serde_json::Value>) -> Lower<'_> {
         Some("date-time") => return Lower::Date(DateKind::DateTime),
         _ => {}
     }
-    match str_key("type") {
+    match node_type(node) {
         Some("array") => Lower::Array(node.get("items")),
         // A richtext node is `type: object` too, and the media type claimed it
         // above.
@@ -378,6 +378,19 @@ fn lowering(node: Option<&serde_json::Value>) -> Lower<'_> {
             None => Lower::Native,
         },
         _ => Lower::Native,
+    }
+}
+
+/// A node's declared type: its `type` string, or the non-`null` member of an
+/// optional cell's `[<type>, "null"]` union.
+pub(crate) fn node_type(node: &serde_json::Value) -> Option<&str> {
+    match node.get("type")? {
+        serde_json::Value::String(ty) => Some(ty),
+        serde_json::Value::Array(union) => union
+            .iter()
+            .filter_map(|v| v.as_str())
+            .find(|ty| *ty != "null"),
+        _ => None,
     }
 }
 

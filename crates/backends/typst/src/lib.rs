@@ -546,7 +546,7 @@ impl AddressNode {
                     .collect()
             })
             .unwrap_or_default();
-        let item = (node.get("type").and_then(|v| v.as_str()) == Some("array")).then(|| {
+        let item = (helper::node_type(node) == Some("array")).then(|| {
             Box::new(
                 node.get("items")
                     .map(Self::from_schema)

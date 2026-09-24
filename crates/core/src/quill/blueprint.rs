@@ -618,6 +618,15 @@ fn push_container_field(
 /// the value cell alone (a concrete value is shippable as-is, a `!must_fill`
 /// marker asks to be filled) so the annotation needs no cell-state tag.
 fn type_expression(field: &FieldSchema) -> String {
+    let expression = declared_type_expression(field);
+    if field.optional {
+        format!("{expression}?")
+    } else {
+        expression
+    }
+}
+
+fn declared_type_expression(field: &FieldSchema) -> String {
     match &field.r#type {
         FieldType::Enum { values } => format!("enum<{}>", values.join(" | ")),
         // The roster rides the format slot as an enum's domain does: the whole

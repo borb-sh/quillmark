@@ -425,6 +425,27 @@ impl<'de> Deserialize<'de> for FieldType {
     }
 }
 
+/// A `type:` value as written: the type token, and whether a trailing `?`
+/// declares the cell [optional](FieldSchema::optional).
+#[derive(Debug)]
+struct TypeToken {
+    r#type: FieldType,
+    optional: bool,
+}
+
+impl<'de> Deserialize<'de> for TypeToken {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        let (token, optional) = match s.trim().strip_suffix('?') {
+            Some(token) => (token, true),
+            None => (s.as_str(), false),
+        };
+        let r#type = FieldType::from_str(token)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown field type: {s:?}")))?;
+        Ok(Self { r#type, optional })
+    }
+}
+
 /// The field set one enum member brings into play, in declaration order.
 pub type VariantFields = IndexMap<String, Box<FieldSchema>>;
 
@@ -452,6 +473,11 @@ pub struct FieldSchema {
     /// The map key carries this on the wire; not serialized, to avoid duplication.
     pub name: String,
     pub r#type: FieldType,
+    /// `type: <token>?`: an unanswered cell renders `none` rather than its
+    /// type's blank. Exclusive with [`default`](Self::default)
+    /// (`quill::optional_default`), and refused on a namespace
+    /// (`quill::optional_namespace`).
+    pub optional: bool,
     pub description: Option<String>,
     /// The value most authors want; interpolated when the field is omitted.
     /// Its presence is the whole of [`must_fill()`](Self::must_fill).
@@ -506,7 +532,7 @@ pub struct FieldSchema {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct FieldSchemaDef {
-    pub r#type: FieldType,
+    pub r#type: TypeToken,
     pub description: Option<String>,
     pub default: Option<QuillValue>,
     pub example: Option<QuillValue>,
@@ -534,6 +560,7 @@ impl FieldSchema {
         Self {
             name,
             r#type,
+            optional: false,
             description,
             default: None,
             example: None,
@@ -621,13 +648,15 @@ impl FieldSchema {
             .map_err(|e| format!("Failed to parse field schema: {}", e))?;
         // The sole sync point for `inline:` and `values:`: past here the type
         // payload is each key's one carrier.
-        let r#type = Self::resolve_prose_inline(def.r#type, def.inline)?;
+        let optional = def.r#type.optional;
+        let r#type = Self::resolve_prose_inline(def.r#type.r#type, def.inline)?;
         let r#type = Self::resolve_enum_domain(r#type, def.values)?;
         let r#type = Self::resolve_matrix_roster(r#type, def.members)?;
         let max = Self::resolve_array_max(&r#type, def.max)?;
         let schema = Self {
             name: key.clone(),
             r#type,
+            optional,
             description: def.description,
             default: def.default,
             example: def.example,
@@ -861,7 +890,11 @@ impl Serialize for FieldSchema {
         // pins: `values` between `ui` and `variants`, `inline` trailing the
         // block, both read off the type payload.
         let mut map = serializer.serialize_map(Some(len))?;
-        map.serialize_entry("type", &self.r#type)?;
+        if self.optional {
+            map.serialize_entry("type", &format!("{}?", self.r#type.as_str()))?;
+        } else {
+            map.serialize_entry("type", &self.r#type)?;
+        }
         if let Some(v) = &self.description {
             map.serialize_entry("description", v)?;
         }
