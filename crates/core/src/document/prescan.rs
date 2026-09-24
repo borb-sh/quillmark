@@ -1,26 +1,26 @@
 //! Pre-scan of a card-yaml block's YAML payload to recover what serde_saphyr
-//! discards: comments and `!must_fill` tags.
+//! discards: comments and tags.
 //!
 //! Top-level comments become [`super::PayloadItem::Comment`]. Comments inside
 //! block mappings/sequences are captured with their structural path and an
 //! ordinal, which the emitter re-injects at (see [`NestedComment`]). The lines
 //! themselves stay in the cleaned YAML, where they are comments to serde_saphyr
-//! too. A `!must_fill` tag is stripped, so serde_saphyr sees a plain scalar, and
-//! recorded as a `fill` marker.
+//! too.
 //!
-//! `!must_fill` is the only recognized fill tag; every other custom tag is
-//! dropped with a `parse::unsupported_yaml_tag` warning, value kept.
+//! A custom tag is dropped with a `parse::unsupported_yaml_tag` warning, value
+//! kept. The retired `!must_fill` placeholder tag is the exception: its path is
+//! recorded so the assembler drops the value under it too.
 
 use crate::value::PathSegment;
 use crate::error::Diagnostic;
 use crate::error::Severity;
 
 /// One ordered hint extracted from the fence body. `Field` captures only the
-/// `fill` flag; the value comes from serde_saphyr. An inline `Comment`
-/// immediately follows its host `Field` in the item stream.
+/// key; the value comes from serde_saphyr. An inline `Comment` immediately
+/// follows its host `Field` in the item stream.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum PreItem {
-    Field { key: String, fill: bool },
+    Field { key: String },
     Comment { text: String, inline: bool },
 }
 
@@ -50,10 +50,9 @@ pub(crate) struct PreScan {
     /// Top-level fields and comments in source order.
     pub items: Vec<PreItem>,
     pub nested_comments: Vec<NestedComment>,
-    /// Paths of nested fields tagged `!must_fill`, relative to the fence root
-    /// (the first segment is the owning top-level key). Applied onto the
-    /// value tree by the assembler. Top-level fills ride on `PreItem::Field`.
-    pub nested_fills: Vec<Vec<PathSegment>>,
+    /// Paths of the nodes tagged `!must_fill`, relative to the fence root (the
+    /// first segment is the owning top-level key).
+    pub retired_fills: Vec<Vec<PathSegment>>,
     pub warnings: Vec<Diagnostic>,
 }
 
@@ -78,8 +77,6 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
 
     // Indent of the `key:` line that opened the current block scalar, if any.
     let mut block_scalar_indent: Option<usize> = None;
-
-    let mut unsupported_fill_tag = false;
 
     for raw_line in &lines {
         // The split is on `\n`, so a CRLF line ends in `\r`. Dropped once here:
@@ -175,11 +172,10 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             {
                 let (fill, value_without_tag, had_non_fill_tag) =
                     record_fill_and_tags(&mut out, &after_colon, &key);
-                unsupported_fill_tag |= value_has_unsupported_fill_tag(&value_without_tag);
                 if fill {
                     let mut key_path = item_path.clone();
                     key_path.push(PathSegment::Key(key.clone()));
-                    out.nested_fills.push(key_path);
+                    out.retired_fills.push(key_path);
                 }
                 if fill || had_non_fill_tag {
                     dash_body_clean = Some(format!("{}:{}", source_key, value_without_tag));
@@ -189,8 +185,6 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                     path: item_path,
                     child_count: 1,
                 });
-            } else {
-                unsupported_fill_tag |= value_has_unsupported_fill_tag(after_dash_trimmed);
             }
 
             if let Some(c) = &trailing_comment {
@@ -229,16 +223,15 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
 
                 let (fill, value_without_tag, _) =
                     record_fill_and_tags(&mut out, &value_part, &key);
-                unsupported_fill_tag |= value_has_unsupported_fill_tag(&value_without_tag);
 
-                out.items.push(PreItem::Field {
-                    key: key.clone(),
-                    fill,
-                });
+                out.items.push(PreItem::Field { key: key.clone() });
 
                 let root = &mut stack[0];
                 root.child_count += 1;
                 let key_path = vec![PathSegment::Key(key.clone())];
+                if fill {
+                    out.retired_fills.push(key_path.clone());
+                }
 
                 while stack.len() > 1 {
                     stack.pop();
@@ -288,9 +281,8 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             let (value_part, trailing_comment) = split_trailing_comment(&after_colon);
 
             let (fill, value_without_tag, _) = record_fill_and_tags(&mut out, &value_part, &key);
-            unsupported_fill_tag |= value_has_unsupported_fill_tag(&value_without_tag);
             if fill {
-                out.nested_fills.push(key_path.clone());
+                out.retired_fills.push(key_path.clone());
             }
 
             if trailing_comment.is_some() || fill {
@@ -322,74 +314,11 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             continue;
         }
 
-        unsupported_fill_tag |= line_has_unsupported_fill_tag(line);
         cleaned.push(line.to_string());
-    }
-
-    if unsupported_fill_tag {
-        out.warnings.push(
-            Diagnostic::new(
-                Severity::Warning,
-                "a `!must_fill` marker appears in a flow collection or on a bare \
-                 sequence element and is not preserved; use block style \
-                 (`key: !must_fill`) to mark a placeholder"
-                    .to_string(),
-            )
-            .with_code("parse::fill_marker_unsupported_position".to_string()),
-        );
     }
 
     out.cleaned_yaml = cleaned.join("\n");
     out
-}
-
-/// True when `value` — the text after a `key:` or a `- `, with a block-style
-/// marker already stripped — carries a `!must_fill` tag prescan cannot lift:
-/// the whole element, or a member of a flow collection. A quoted scalar is
-/// text, so a tag spelled inside one (`note: "see key: !must_fill here"`) does
-/// not match.
-fn value_has_unsupported_fill_tag(value: &str) -> bool {
-    let value = value.trim_start();
-    !value.starts_with(['"', '\'']) && fill_tag_in_node_position(value, true)
-}
-
-/// True when `line`, which prescan resolved into neither a key nor an element
-/// (a flow collection continued across lines), carries a `!must_fill` tag
-/// after flow punctuation. What opens the line is unknown, so a tag at its
-/// head is not read as a node.
-fn line_has_unsupported_fill_tag(line: &str) -> bool {
-    fill_tag_in_node_position(line, false)
-}
-
-/// True when a fill tag in `text` stands where YAML reads a node: after flow
-/// punctuation, or — when `head_is_node` — at the head of `text` itself.
-fn fill_tag_in_node_position(text: &str, head_is_node: bool) -> bool {
-    let mut from = 0;
-    while let Some(rel) = text[from..].find(FILL_TAG) {
-        let at = from + rel;
-        let after = at + FILL_TAG.len();
-        // Trailing boundary: a real tag ends at whitespace, flow
-        // punctuation, or end of text, not mid-word (`!fillet`).
-        let trailing_ok = text[after..]
-            .chars()
-            .next()
-            .is_none_or(|c| c.is_whitespace() || matches!(c, ',' | '}' | ']'));
-        // Leading boundary: the tag sits directly after `{` / `[` / `,`,
-        // or after whitespace following `:` / `-` / `,` / `{` / `[`.
-        let before = text[..at].trim_end_matches([' ', '\t']);
-        let had_ws = before.len() != at;
-        let leading_ok = match before.chars().last() {
-            Some('{') | Some('[') | Some(',') => true,
-            Some(':') | Some('-') => had_ws,
-            None => head_is_node,
-            _ => false,
-        };
-        if trailing_ok && leading_ok {
-            return true;
-        }
-        from = after;
-    }
-    false
 }
 
 /// The deepest frame at `indent`, pushing a new one if the current top is
@@ -641,9 +570,7 @@ fn split_flow_trailing_comment(value: &str) -> (String, Option<String>) {
     (value.to_string(), None)
 }
 
-/// The placeholder tag. `!must_fill` is the only recognized fill tag; any
-/// other custom tag is treated as a noncanonical tag: dropped with a
-/// `parse::unsupported_yaml_tag` warning.
+/// The retired placeholder tag.
 const FILL_TAG: &str = "!must_fill";
 
 /// If `trimmed` begins with the fill tag (either the bare tag or the tag
@@ -657,8 +584,8 @@ fn strip_fill_tag(trimmed: &str) -> Option<&str> {
     (rest.starts_with(' ') || rest.starts_with('\t')).then_some(rest)
 }
 
-/// Inspect a field value for the `!must_fill` tag and other (noncanonical)
-/// tags, warning onto `out` for a noncanonical tag. Returns
+/// Inspect a field value for the `!must_fill` tag and other custom tags,
+/// warning onto `out` for a custom tag. Returns
 /// `(fill, value_without_tag, had_other_tag)`.
 fn record_fill_and_tags(out: &mut PreScan, value: &str, key: &str) -> (bool, String, bool) {
     let trimmed = value.trim_start();
@@ -712,7 +639,6 @@ mod tests {
                 },
                 PreItem::Field {
                     key: "title".to_string(),
-                    fill: false,
                 },
                 PreItem::Comment {
                     text: "mid".to_string(),
@@ -720,7 +646,6 @@ mod tests {
                 },
                 PreItem::Field {
                     key: "author".to_string(),
-                    fill: false,
                 },
             ]
         );
@@ -736,7 +661,6 @@ mod tests {
             vec![
                 PreItem::Field {
                     key: "title".to_string(),
-                    fill: false,
                 },
                 PreItem::Comment {
                     text: "inline".to_string(),
@@ -756,7 +680,6 @@ mod tests {
             out.items,
             vec![PreItem::Field {
                 key: "dept".to_string(),
-                fill: false,
             }]
         );
         assert!(
@@ -775,9 +698,9 @@ mod tests {
             out.items,
             vec![PreItem::Field {
                 key: "dept".to_string(),
-                fill: true,
             }]
         );
+        assert_eq!(out.retired_fills, vec![vec![PathSegment::Key("dept".to_string())]]);
         assert!(out.cleaned_yaml.contains("dept: Department"));
         assert!(!out.cleaned_yaml.contains("!must_fill"));
         assert!(!out.cleaned_yaml.contains("!fill"));
@@ -791,9 +714,9 @@ mod tests {
             out.items,
             vec![PreItem::Field {
                 key: "dept".to_string(),
-                fill: true,
             }]
         );
+        assert_eq!(out.retired_fills, vec![vec![PathSegment::Key("dept".to_string())]]);
         assert!(!out.cleaned_yaml.contains("!must_fill"));
     }
 
@@ -806,7 +729,6 @@ mod tests {
             vec![
                 PreItem::Field {
                     key: "dept".to_string(),
-                    fill: true,
                 },
                 PreItem::Comment {
                     text: "note".to_string(),
@@ -814,7 +736,6 @@ mod tests {
                 },
                 PreItem::Field {
                     key: "title".to_string(),
-                    fill: false,
                 },
                 PreItem::Comment {
                     text: "trailing".to_string(),
@@ -834,7 +755,6 @@ mod tests {
             out.items,
             vec![PreItem::Field {
                 key: "x".to_string(),
-                fill: false,
             }]
         );
     }
@@ -970,20 +890,19 @@ mod tests {
     }
 
     #[test]
-    fn fill_on_flow_sequence_allowed() {
-        let input = "x: !must_fill [1, 2]\n";
+    fn must_fill_on_a_nested_key_and_a_dash_line_records_its_path() {
+        let input = "addr:\n  street: !must_fill Main\nto:\n  - name: !must_fill\n";
         let out = prescan_fence_content(input);
-        assert!(
-            out.warnings.is_empty(),
-            "expected no diagnostic; !must_fill on sequences is supported"
-        );
+        let key = |k: &str| PathSegment::Key(k.to_string());
         assert_eq!(
-            out.items,
-            vec![PreItem::Field {
-                key: "x".to_string(),
-                fill: true,
-            }]
+            out.retired_fills,
+            vec![
+                vec![key("addr"), key("street")],
+                vec![key("to"), PathSegment::Index(0), key("name")],
+            ]
         );
+        assert!(!out.cleaned_yaml.contains("!must_fill"), "{}", out.cleaned_yaml);
+        assert!(out.warnings.is_empty(), "got: {:?}", out.warnings);
     }
 
     #[test]

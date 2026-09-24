@@ -35,8 +35,6 @@ fn test_structural_violations_are_refused() {
         ("unknown $ key on a card", format!("{root}~~~card-yaml\n$foo: bar\n$kind: note\n~~~")),
         ("$id on a card", format!("{root}~~~card-yaml\n$kind: note\n$id: a\n~~~")),
         ("$id on the root", "~~~\n$quill: q@0.1\n$id: x\n~~~\n".to_string()),
-        ("!must_fill on $quill", "~~~card-yaml\n$quill: !must_fill test_quill\n$kind: main\n~~~".to_string()),
-        ("!must_fill on $ext", "~~~card-yaml\n$quill: q\n$kind: main\n$ext: !must_fill\n  foo: 1\n~~~".to_string()),
         ("scalar $ext", "~~~card-yaml\n$quill: q\n$kind: main\n$ext: just-a-string\n~~~".to_string()),
         ("scalar $seed", "~~~card-yaml\n$quill: q\n$kind: main\n$seed: just-a-string\n~~~".to_string()),
         ("non-ASCII field name", "~~~card-yaml\n$quill: q\n$kind: main\nタイトル: x\n~~~".to_string()),

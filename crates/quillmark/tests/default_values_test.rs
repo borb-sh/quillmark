@@ -44,7 +44,7 @@ main:
     );
     let quill = quillmark::quill_from_path(&quill_path).expect("from_path failed");
     let md = "~~~card-yaml\n$quill: test_quill\n$kind: main\n\
-              addr:\n  street: !must_fill\n  city: Pittsburgh\n\
+              addr:\n  street:\n  city: Pittsburgh\n\
               tags:\n  - alpha\n  - null\n  - gamma\n~~~\n\nbody\n";
     let parsed = Document::parse(md).expect("parse failed").document;
     let data = quill

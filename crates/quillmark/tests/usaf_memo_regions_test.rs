@@ -14,7 +14,14 @@ mod common;
 #[test]
 fn usaf_memo_regions_cover_body_signature_and_cards() {
     // One card per declared kind, so the indorsement addresses are present.
-    let (engine, quill, parsed) = common::seeded_memo();
+    let (engine, quill, mut parsed) = common::seeded_memo();
+    parsed
+        .main_mut()
+        .store_field(
+            "references",
+            quillmark_core::value::QuillValue::from_json(serde_json::json!(["AFI 33-360"])),
+        )
+        .expect("references stores");
 
     let mut session = engine
         .open(quill, &parsed, None)

@@ -192,8 +192,7 @@ fn an_unloadable_quill_is_not_an_invalid_argument() {
 }
 
 /// `-o` names a directory that does not exist yet, and the artifact still lands
-/// there. taro declares no `example:`, so its seed leaves each obliged field
-/// blank: blanks the quill chose, which the seed render does not count.
+/// there.
 #[test]
 fn render_writes_a_pdf_creating_parent_directories() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -202,10 +201,6 @@ fn render_writes_a_pdf_creating_parent_directories() {
     let out = run(&["render", taro().to_str().unwrap(), "-o", path.to_str().unwrap()]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(out.status.success(), "render exited nonzero: {stderr}");
-    assert!(
-        !stderr.contains("validation::must_fill"),
-        "the seed render counted the quill's blanks: {stderr}"
-    );
 
     let bytes = std::fs::read(&path).expect("the -o file exists");
     assert!(
@@ -306,9 +301,10 @@ fn check_lists_every_diagnostic_and_strict_fails_on_a_warning() {
     let out = run(&["check", quill, typo]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(0), "warnings alone failed check: {stderr}");
-    for code in ["validation::unknown_field", "validation::must_fill"] {
-        assert!(stderr.contains(code), "check omits {code}: {stderr}");
-    }
+    assert!(
+        stderr.contains("validation::unknown_field"),
+        "check omits the warning: {stderr}"
+    );
 
     let out = run(&["check", "--strict", quill, typo]);
     assert_eq!(out.status.code(), Some(1), "--strict passed a warning");
@@ -324,10 +320,9 @@ fn check_lists_every_diagnostic_and_strict_fails_on_a_warning() {
     );
 }
 
-/// `render` prints the input its page leaves out, and condenses the fields a
-/// draft has yet to answer to one line rather than a warning each.
+/// `render` prints the input its page leaves out.
 #[test]
-fn render_warns_on_unclaimed_input_and_counts_unanswered_fields() {
+fn render_warns_on_unclaimed_input() {
     let dir = tempfile::tempdir().expect("tempdir");
     let doc = dir.path().join("typo.md");
     std::fs::write(&doc, TYPO_DOC).expect("write the input document");
@@ -344,15 +339,6 @@ fn render_warns_on_unclaimed_input_and_counts_unanswered_fields() {
     assert!(
         stderr.contains("validation::unknown_field"),
         "the undeclared key raised no warning: {stderr}"
-    );
-    let fill_warnings = stderr
-        .lines()
-        .filter(|l| l.starts_with("[WARN]") && l.contains("validation::must_fill"))
-        .count();
-    assert_eq!(fill_warnings, 0, "render printed must_fill warnings: {stderr}");
-    assert!(
-        stderr.contains("2 field(s) await a value"),
-        "render omits the unanswered count: {stderr}"
     );
 }
 

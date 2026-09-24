@@ -195,38 +195,6 @@ Body.
 }
 
 #[test]
-fn fill_marked_fields_are_skipped() {
-    let quill = quill();
-    let md = "\
-~~~card-yaml
-$quill: conform_test@1.0.0
-subject: !must_fill Q3 **results**
-meta:
-  label: keep *this*
-  blurb: !must_fill and **this**
-~~~
-
-Body.
-";
-    let (mut doc, _) = parse_bound(&quill, md);
-    let payload = doc.main().payload();
-    assert!(
-        payload.get("subject").unwrap().as_json().is_string(),
-        "a root marker skips the field"
-    );
-    assert!(
-        payload.get("meta").unwrap().as_json()["blurb"].is_string()
-            && payload.get("meta").unwrap().as_json()["label"] == json!("keep *this*"),
-        "a marker on one property skips the whole field, its clean siblings included"
-    );
-    assert!(doc.main().payload().is_fill("subject"));
-
-    let before = bytes(&doc);
-    quill.conform(&mut doc).expect("conform");
-    assert_eq!(bytes(&doc), before, "and a repeat conform moves nothing");
-}
-
-#[test]
 fn wrong_quill_errors_before_any_mutation() {
     let quill = quill();
     let md = "~~~card-yaml\n$quill: other_quill\nsubject: hi\n~~~\n\nBody.";
@@ -353,55 +321,6 @@ card_kinds:
     let diags = quill.conform(&mut doc).expect("conform");
     assert!(diags.is_empty(), "{diags:?}");
     assert_eq!(bytes(&doc), before, "the seeded container is already at rest");
-}
-
-#[test]
-fn a_fill_tag_on_a_seeded_cell_survives_store_load_conform() {
-    let quill = quill();
-    let doc = quill.seed_document();
-    // Seeding stamps them: an `example` on a must-fill field is shape
-    // documentation, not the answer.
-    let tagged = bytes(&doc);
-
-    let mut loaded = Document::try_from(
-        serde_json::from_str::<StoredDocument>(&tagged).expect("the tagged seed loads"),
-    )
-    .expect("and converts to a document");
-    let diags = quill.conform(&mut loaded).expect("the quill matches");
-
-    assert!(diags.is_empty(), "{diags:?}");
-    assert_eq!(bytes(&loaded), tagged, "the cycle moves no bytes");
-    assert!(
-        loaded.main().payload().is_fill("subject") && loaded.main().payload().is_fill("note"),
-        "both tags survive the round trip"
-    );
-    assert_eq!(
-        loaded.main().payload().get("note").unwrap().as_json(),
-        &json!("a *literal* line"),
-        "the tagged plaintext cell keeps its resting form"
-    );
-    assert!(
-        loaded.main().payload().get("subject").unwrap().as_json().is_object(),
-        "and the tagged richtext cell keeps its canonical content object"
-    );
-
-    // The flag rides the payload item; nothing recomputes it from the schema at
-    // load. Dropped from a document whose schema still says must-fill, it stays
-    // dropped — the document is sovereign over its own markers.
-    let mut cleared = quill.seed_document();
-    for key in ["subject", "note"] {
-        let seeded = cleared.main().payload().get(key).expect("seeded").clone();
-        cleared.main_mut().store_field(key, seeded).unwrap();
-    }
-    let untagged = bytes(&cleared);
-    assert_ne!(tagged, untagged, "the tag is stored, not inferred");
-
-    let mut reloaded = Document::try_from(
-        serde_json::from_str::<StoredDocument>(&untagged).expect("the untagged seed loads"),
-    )
-    .expect("and converts to a document");
-    quill.conform(&mut reloaded).expect("the quill matches");
-    assert_eq!(bytes(&reloaded), untagged, "and no cycle re-stamps it");
 }
 
 #[test]

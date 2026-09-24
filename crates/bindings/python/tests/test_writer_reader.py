@@ -109,29 +109,6 @@ def test_writer_revise_field():
         w.revise_field("nope", "x")
 
 
-def test_typed_set_clears_must_fill_marker():
-    """seed → validate(must_fill) → typed `set` is the fill lifecycle: the typed
-    commit lands a real value and clears the marker."""
-    quill = taro_quill()
-    doc = Document.from_markdown(
-        "~~~card-yaml\n$quill: taro@0.1.0\n$kind: main\ntitle: !must_fill\n~~~\n"
-    )
-    def fills(path):
-        return [
-            d
-            for d in quill.validate(doc)
-            if d.get("code") == "validation::must_fill" and d.get("path") == path
-        ]
-
-    # Scoped to `main.title`: this quill's other defaultless field is obliged
-    # too, and stays so.
-    assert [d.get("args", {}).get("trigger") for d in fills("main.title")] == ["marker"]
-
-    quill.writer(doc).set("title", "Real Title")
-    assert fills("main.title") == []
-    assert field(doc.main, "title") == "Real Title"
-
-
 def test_view_interprets_by_declared_type():
     """view.get reads richtext as markdown, a scalar as its canonical value,
     absence as None; an undeclared name raises."""

@@ -187,74 +187,16 @@ fn test_card_store_fields_collects_every_violation_and_applies_none() {
     assert_eq!(card.payload().get("existing").unwrap().as_str(), Some("old"));
 }
 
-/// The emitted `x: a: 1` does not re-parse, so the mutator refuses what parse
-/// refuses in source. A canonical content object stays storable.
 #[test]
-fn test_store_fill_refuses_a_mapping() {
+fn test_card_store_fields_repeated_name_last_wins() {
     let mut card = Card::new("note").unwrap();
-    let err = card
-        .store_fill("x", QuillValue::from_json(serde_json::json!({"a": 1})))
-        .expect_err("a fill-marked mapping is refused");
-    assert_eq!(err.code(), "edit::fill_on_mapping", "{err}");
-    assert!(card.payload().get("x").is_none(), "and nothing was stored");
-
-    // A canonical content object is the one mapping a marker may target: emit
-    // projects it to a markdown scalar first.
-    let content = quillmark_content::import::from_markdown("Q3 results").unwrap();
-    card.store_fill(
-        "subject",
-        QuillValue::from_json(quillmark_content::serial::to_canonical_value(&content)),
-    )
-    .expect("a fill-marked content object is stored");
-
-    let md = crate::document::Document::from_main_and_cards(
-        {
-            let mut main = card.clone();
-            main.payload_mut()
-                .set_quill("q@1.0.0".parse().expect("reference"));
-            main.payload_mut().set_kind("main");
-            main
-        },
-        Vec::new(),
-    )
-    .to_markdown();
-    let _ = crate::document::Document::parse(&md).expect("the emitted document re-parses");
-}
-
-#[test]
-fn test_card_store_fields_refuses_a_nested_fill_on_a_mapping() {
-    let marked = || {
-        let mut value = QuillValue::from_json(serde_json::json!({"a": {"b": 1}}));
-        assert!(value.set_fill_at(&[crate::value::PathSegment::Key("a".to_string())]));
-        value
-    };
-    let mut card = Card::new("note").unwrap();
-    card.store_field("keep", qv("old")).unwrap();
-
-    let single = card
-        .store_field("x", marked())
-        .expect_err("a marker on a nested mapping is refused");
-    let batch = card
-        .store_fields([("keep".to_string(), qv("new")), ("x".to_string(), marked())])
-        .expect_err("and the batch refuses it identically");
-
-    assert_eq!(batch, vec![("x".to_string(), single)]);
-    assert!(card.payload().get("x").is_none());
-    assert_eq!(card.payload().get("keep").unwrap().as_str(), Some("old"));
-}
-
-#[test]
-fn test_card_store_fields_clears_fill_and_repeated_name_last_wins() {
-    let mut card = Card::new("note").unwrap();
-    card.store_fill("title", qv("draft")).unwrap();
+    card.store_field("title", qv("draft")).unwrap();
     card.store_fields([
         ("title".to_string(), qv("first")),
         ("title".to_string(), qv("final")),
     ])
     .unwrap();
-    let value = card.payload().get("title").unwrap();
-    assert!(!value.fill());
-    assert_eq!(value.as_str(), Some("final"));
+    assert_eq!(card.payload().get("title").unwrap().as_str(), Some("final"));
 }
 
 #[test]
@@ -758,8 +700,6 @@ fn store_field_rejects_value_past_depth_limit() {
         matches!(err, crate::document::EditError::ValueTooDeep { max: 128 }),
         "expected ValueTooDeep, got {err:?}"
     );
-    let too_deep = crate::value::QuillValue::from_json(deep_value(150));
-    assert!(doc.main_mut().store_fill("y", too_deep).is_err());
     let serde_json::Value::Object(map) = deep_value(150) else {
         unreachable!()
     };
@@ -909,8 +849,6 @@ fn test_wire_refuses_payload_level_violations() {
     let field = |key: &str| PayloadItemWire::Field {
         key: key.to_string(),
         value: serde_json::json!(1),
-        fill: false,
-        nested_fills: Vec::new(),
     };
 
     let dup = built(vec![field("title"), field("title")]).unwrap_err();
@@ -1002,7 +940,6 @@ fn a_field_write_past_the_count_is_refused_at_the_write() {
 
     let mut refused = Vec::new();
     refused.push(doc.main_mut().store_field("late", qv("v")).unwrap_err());
-    refused.push(doc.main_mut().store_fill("late", qv("v")).unwrap_err());
     refused.push(doc.main_mut().revise_field("late", "text").unwrap_err());
     refused.push(
         doc.main_mut()
@@ -1076,9 +1013,8 @@ fn no_verb_on_a_placed_card_moves_it_between_roles() {
     }
     fn ignore<T, E>(_: Result<T, E>) {}
 
-    let verbs: [(&str, fn(&mut CardMut<'_>)); 16] = [
+    let verbs: [(&str, fn(&mut CardMut<'_>)); 15] = [
         ("store_field", |c| ignore(c.store_field("f", qv("v")))),
-        ("store_fill", |c| ignore(c.store_fill("g", qv("v")))),
         ("store_fields", |c| ignore(c.store_fields([("h", qv("v"))]))),
         ("remove_field", |c| ignore(c.remove_field("f"))),
         ("store_ext", |c| ignore(c.store_ext(serde_json::Map::new()))),

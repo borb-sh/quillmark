@@ -168,25 +168,22 @@ Body.
     let reparsed = Document::parse(&md).expect("the emitted document re-parses").document;
     assert_eq!(doc, reparsed, "emit is not a fixed point: {md}");
 
-    // And the nested fill under a quoted key resolves against the parsed value.
+    // And a retired `!must_fill` under a quoted key nulls the node it tags.
     let filled = "\
 ~~~card-yaml
 $quill: test@1.0
 $kind: main
 config:
-  \"a b\": !must_fill
+  \"a b\": !must_fill Example
   city: Anytown
 ~~~
 
 Body.
 ";
     let doc = Document::parse(filled).expect("parses").document;
-    let md = doc.to_markdown();
-    assert!(md.contains("a b: !must_fill\n"), "the marker moved: {md}");
     assert_eq!(
-        doc,
-        Document::parse(&md).expect("re-parses").document,
-        "emit is not a fixed point: {md}"
+        doc.main().payload().get("config").unwrap().as_json(),
+        &serde_json::json!({"a b": null, "city": "Anytown"})
     );
 }
 
@@ -241,62 +238,27 @@ fn only_the_canonical_spelling_of_a_content_field_projects_to_markdown() {
     );
 }
 
-/// A marker on a nested content cell takes the projected scalar's form, so the
-/// store accepts it and it re-parses at the same path. `$ext` is no field value:
+/// A nested content cell emits its projected scalar. `$ext` is no field value:
 /// nothing converts a projection there back, so its content stays structural.
 #[test]
-fn a_marked_nested_content_cell_projects_and_ext_content_does_not() {
-    use crate::value::{PathSegment, QuillValue};
+fn a_nested_content_cell_projects_and_ext_content_does_not() {
+    use crate::value::QuillValue;
 
     let content = quillmark_content::serial::to_canonical_value(
         &quillmark_content::import::from_markdown("and **this**").unwrap(),
     );
-    let blurb = vec![PathSegment::Key("blurb".to_string())];
-    let mut meta = QuillValue::from_json(serde_json::json!({ "blurb": content.clone() }));
-    assert!(meta.set_fill_at(&blurb));
+    let meta = QuillValue::from_json(serde_json::json!({ "blurb": content.clone() }));
 
     let mut doc = Document::new("q@1.0.0".parse().expect("reference"));
-    doc.main_mut()
-        .store_field("meta", meta)
-        .expect("a marker on a content cell is not one on a mapping");
+    doc.main_mut().store_field("meta", meta).expect("stores");
     let mut ext = serde_json::Map::new();
     ext.insert("host".to_string(), content.clone());
     doc.main_mut().store_ext(ext).expect("ext stores");
 
     let md = doc.to_markdown();
-    assert!(md.contains("  blurb: !must_fill and **this**\n"), "{md}");
+    assert!(md.contains("  blurb: and **this**\n"), "{md}");
     let back = Document::parse(&md).expect("re-parses").document;
-    assert_eq!(
-        back.main().payload().get("meta").unwrap().fill_paths(),
-        vec![blurb],
-        "{md}"
-    );
     assert_eq!(back.main().ext().unwrap()["host"], content, "{md}");
-}
-
-#[test]
-fn a_marker_inside_a_content_cell_keeps_it_structural_and_one_on_an_element_refuses() {
-    use crate::value::{PathSegment, QuillValue};
-
-    let content = quillmark_content::serial::to_canonical_value(
-        &quillmark_content::import::from_markdown("and **this**").unwrap(),
-    );
-    let key = |k: &str| PathSegment::Key(k.to_string());
-    let inside = vec![key("blurb"), key("text")];
-    let mut meta = QuillValue::from_json(serde_json::json!({ "blurb": content.clone() }));
-    assert!(meta.set_fill_at(&inside));
-
-    let mut doc = Document::new("q@1.0.0".parse().expect("reference"));
-    doc.main_mut().store_field("meta", meta).expect("stores");
-    let md = doc.to_markdown();
-    let back = Document::parse(&md).expect("re-parses").document;
-    let meta = back.main().payload().get("meta").unwrap();
-    assert_eq!(meta.fill_paths(), vec![inside], "{md}");
-    assert_eq!(meta.as_json()["blurb"], content, "{md}");
-
-    let mut tags = QuillValue::from_json(serde_json::json!([content]));
-    assert!(tags.set_fill_at(&[PathSegment::Index(0)]));
-    assert!(doc.main_mut().store_field("tags", tags).is_err());
 }
 
 #[test]
@@ -339,46 +301,6 @@ fn store_ext_leaves_the_kind_trailer_on_kind() {
     );
 }
 
-/// Emit, the wire and the storage DTO all read a root `!must_fill` off the
-/// payload item's flag, so a value tree whose own root bit disagrees with that
-/// flag compares as a different `Document` than it emits. A caller's root bit
-/// is normalized on the way in, and both round-trips return an equal document
-/// whether the field is marked or not.
-#[test]
-fn a_root_fill_bit_on_a_stored_value_round_trips() {
-    use crate::value::QuillValue;
-
-    let mut marked = QuillValue::from_json(serde_json::json!("draft"));
-    assert!(marked.set_fill_at(&[]));
-
-    let mut doc = Document::new("q@1.0.0".parse().expect("reference"));
-    doc.main_mut()
-        .store_fields([("x".to_string(), marked.clone())])
-        .expect("store_fields accepts the value");
-    doc.main_mut()
-        .store_field("y", marked.clone())
-        .expect("store_field accepts the value");
-    doc.main_mut()
-        .store_fill("z", marked)
-        .expect("store_fill accepts the value");
-
-    let md = doc.to_markdown();
-    assert!(md.contains("\nx: draft\n"), "{md}");
-    assert!(md.contains("\ny: draft\n"), "{md}");
-    assert!(md.contains("\nz: !must_fill draft\n"), "{md}");
-
-    let reparsed = Document::parse(&md)
-        .expect("the emitted document re-parses")
-        .document;
-    assert_eq!(reparsed, doc, "markdown round-trip:\n{md}");
-
-    let json = serde_json::to_string(&doc).expect("to_json");
-    let restored: Document = serde_json::from_str(&json).expect("from_json");
-    assert_eq!(restored, doc, "storage DTO round-trip");
-}
-
-/// A comment between a bare `-` and the item's first key belongs to the item, so
-/// it re-emits inside the item and the first emit is already the fixed point.
 #[test]
 fn a_comment_before_a_sequence_item_first_key_stays_inside_the_item() {
     let src = "\
