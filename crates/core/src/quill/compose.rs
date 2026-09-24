@@ -812,7 +812,7 @@ fn schema_cards<'a>(
     )
 }
 
-/// Report the input no declaration claims: a card whose `$kind` is missing or
+/// Report the input no declaration claims: a card whose `$kind` is
 /// undeclared, body prose under `body.enabled: false`, and a key no
 /// declaration at its position names. Each renders without the input
 /// (`prose/canon/SCHEMAS.md` § "What blocks a render"), so each is a warning.
@@ -821,10 +821,9 @@ fn validate_unclaimed(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
     for (schema, card, path) in schema_cards(config, doc) {
         let Some(schema) = schema else {
-            diags.push(match card.kind() {
-                Some(kind) => unknown_card_warning(&path, kind, &kinds),
-                None => kindless_card_warning(&path, &kinds),
-            });
+            if let Some(kind) = card.kind() {
+                diags.push(unknown_card_warning(&path, kind, &kinds));
+            }
             continue;
         };
         // A whitespace-only body is empty: only meaningful prose warns.
@@ -1075,28 +1074,6 @@ pub(crate) fn unknown_card_warning(path: &DocPath, kind: &str, kinds: &[&str]) -
     .with_arg("card", kind.into())
     .with_arg("allowed", kinds.into())
     .with_hint(hint)
-}
-
-pub(crate) fn kindless_card_warning(path: &DocPath, kinds: &[&str]) -> Diagnostic {
-    let path = path.to_string();
-    let add = if kinds.is_empty() {
-        "This quill declares no card kinds.".to_string()
-    } else {
-        format!(
-            "Add a `$kind:` line naming one of this quill's card kinds: {}.",
-            quoted_kinds(kinds)
-        )
-    };
-    Diagnostic::new(
-        Severity::Warning,
-        format!("Card `{path}` has no `$kind`, so no card kind of this quill claims it."),
-    )
-    .with_code("validation::kindless_card".to_string())
-    .with_path(path)
-    .with_arg("allowed", kinds.into())
-    .with_hint(format!(
-        "{add} A `~~~` block always opens a card: fence a code block with backticks."
-    ))
 }
 
 pub(crate) fn body_disabled_warning(path: &DocPath, card: &str) -> Diagnostic {
@@ -1378,17 +1355,15 @@ card_kinds:
         let md = "~~~\n$quill: uc@1.0.0\n$kind: main\ntitle: T\n~~~\n\nRoot prose.\n\n\
                   ~~~\n$kind: stamp\nlabel: L\n~~~\n\nStamp prose.\n\n\
                   ~~~\n$kind: stamp\n~~~\n\n   \n\n\
-                  ~~~\n$kind: ghost\nnote: g\n~~~\n\n\
-                  ~~~\nnote: k\n~~~\n";
+                  ~~~\n$kind: ghost\nnote: g\n~~~\n\nGhost prose.\n";
         let doc = Document::parse(md).expect("parse").document;
 
         let plate = config.compile_data(&doc, None).expect("unclaimed input renders");
         let cards = plate["$cards"].as_array().unwrap();
-        assert_eq!(cards.len(), 4, "every card rides `$cards` in document order");
+        assert_eq!(cards.len(), 3, "every card rides `$cards` in document order");
         assert_eq!(cards[2]["$kind"], "ghost");
         assert_eq!(cards[2]["note"], "g");
-        assert!(cards[3].get("$kind").is_none(), "a kindless card carries none");
-        assert!(cards[2].get("$body").is_none() && cards[3].get("$body").is_none());
+        assert!(cards[2].get("$body").is_none());
 
         let warned: Vec<(String, String)> = validate_unclaimed(&config, &doc)
             .into_iter()
@@ -1399,7 +1374,6 @@ card_kinds:
             ("validation::body_disabled", "main.body"),
             ("validation::body_disabled", "cards.stamp[0].body"),
             ("validation::unknown_card", "cards[2]"),
-            ("validation::kindless_card", "cards[3]"),
         ]
         .map(|(c, p)| (c.to_string(), p.to_string()));
         assert_eq!(warned, expected, "a whitespace-only body is empty");

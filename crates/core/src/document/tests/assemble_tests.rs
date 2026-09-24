@@ -634,30 +634,6 @@ Card body here.
 }
 
 #[test]
-fn test_to_plate_json_kindless_card_omits_kind() {
-    use crate::document::{Card, Payload};
-
-    let mut doc = Document::parse("~~~card-yaml\n$quill: my_quill\n$kind: main\n~~~\n\nBody.\n")
-        .unwrap()
-        .document;
-    doc.cards_vec_mut().push(Card::from_parts(
-        Payload::new(),
-        quillmark_content::model::Normalized::empty(),
-    ));
-
-    let json = doc.to_plate_json_gated(true, None);
-    let card = &json["$cards"][0];
-    assert!(
-        card.get("$kind").is_none(),
-        "a kindless card must carry no $kind: {card}"
-    );
-    assert!(
-        card.get("$body").is_some(),
-        "the schema-free serializer still emits $body: {card}"
-    );
-}
-
-#[test]
 fn test_to_plate_json_quill_first() {
     let doc = Document::parse(
         "~~~card-yaml\n$quill: my_quill\n$kind: main\nfoo: bar\nbaz: qux\n~~~\n",

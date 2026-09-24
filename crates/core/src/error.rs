@@ -323,6 +323,18 @@ pub enum ParseError {
         actual: &'static str,
     },
 
+    /// A card-yaml block after the root whose payload names no `$kind`: a card
+    /// missing its kind line, or tilde-fenced code whose text reads as a YAML
+    /// mapping.
+    /// Code `parse::missing_kind`.
+    #[error("{}", missing_kind_message(info.as_deref()))]
+    MissingKind {
+        /// 1-indexed document line of the block's opening fence.
+        line: usize,
+        /// The opener's info string (`python` in `~~~python`), when it has one.
+        info: Option<String>,
+    },
+
     #[error("YAML error in {}: {message}", block_label(*block_index))]
     YamlErrorWithLocation {
         message: String,
@@ -359,8 +371,24 @@ fn payload_not_mapping_message(info: Option<&str>, actual: &str) -> String {
     }
 }
 
+fn missing_kind_message(info: Option<&str>) -> String {
+    format!(
+        "The `~~~{}` block after the document's root is a card, and its payload names no \
+         `$kind`",
+        info.unwrap_or("")
+    )
+}
+
+fn missing_kind_hint(info: Option<&str>) -> String {
+    format!(
+        "Add a `$kind: <kind>` line naming the card's kind. If the block is code, fence it \
+         with backticks instead: ```{}",
+        info.unwrap_or("")
+    )
+}
+
 /// The hint for code fenced with `~~~`: the rule it met and the fence to use.
-pub(crate) fn tilde_code_hint(info: Option<&str>) -> String {
+fn tilde_code_hint(info: Option<&str>) -> String {
     match info {
         Some(info) => format!(
             "Every column-zero `~~~` fence opens a card-yaml block, whatever its info \
@@ -391,6 +419,7 @@ impl ParseError {
             ParseError::InvalidQuillReference { .. } => "parse::invalid_quill_reference",
             ParseError::BodyImport(_) => "parse::body_import",
             ParseError::PayloadNotMapping { .. } => "parse::payload_not_mapping",
+            ParseError::MissingKind { .. } => "parse::missing_kind",
             ParseError::YamlErrorWithLocation { .. } => "parse::yaml_error_with_location",
         }
     }
@@ -433,6 +462,10 @@ impl ParseError {
                 }
                 args
             }
+            ParseError::MissingKind { line: _, info } => match info {
+                Some(info) => diag_args! { "info" => info },
+                None => diag_args! {},
+            },
             // The coordinates ride on the diagnostic's `location`; `message` is
             // the YAML engine's own prose and keeps no key.
             ParseError::YamlErrorWithLocation {
@@ -462,6 +495,9 @@ impl ParseError {
             ParseError::PayloadNotMapping { line, info, .. } => diag
                 .with_location(Location::new(DOCUMENT_FILE.to_string(), *line as u32, 1))
                 .with_hint(tilde_code_hint(info.as_deref())),
+            ParseError::MissingKind { line, info } => diag
+                .with_location(Location::new(DOCUMENT_FILE.to_string(), *line as u32, 1))
+                .with_hint(missing_kind_hint(info.as_deref())),
             ParseError::YamlErrorWithLocation {
                 line, column, hint, ..
             } => {
@@ -604,6 +640,10 @@ fn parse_error_samples() -> Vec<ParseError> {
             line: 7,
             info: Some("python".into()),
             actual: "string",
+        },
+        ParseError::MissingKind {
+            line: 7,
+            info: Some("python".into()),
         },
         ParseError::YamlErrorWithLocation {
             message: "x".into(),
@@ -789,10 +829,6 @@ mod args_canon {
         add(
             "validation::unknown_card",
             crate::quill::compose::unknown_card_warning(&card, "ghost", &["sig"]).args,
-        );
-        add(
-            "validation::kindless_card",
-            crate::quill::compose::kindless_card_warning(&card, &["sig"]).args,
         );
         add(
             "validation::body_disabled",

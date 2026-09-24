@@ -164,8 +164,7 @@ pub fn field_boxes(regions: &[RenderedRegion], field: &str) -> Vec<RenderedRegio
 use crate::path::{DocPath, DocSeg};
 
 /// The absolute document-array index of the `ord`-th (0-based) card of `kind`.
-/// `card_kinds` is the current compile's ordered card kinds, `None` per
-/// kindless card.
+/// `card_kinds` is the current compile's ordered card kinds.
 fn abs_card_index(card_kinds: &[Option<&str>], kind: &str, ord: usize) -> Option<usize> {
     card_kinds
         .iter()
