@@ -284,7 +284,7 @@ pub(super) fn decompose_with_warnings(
         ));
     }
 
-    let root_mapping = payload_mapping(markdown, &mut blocks[0])?;
+    let root_mapping = payload_mapping(markdown, &mut blocks[0], true)?;
     let root_block = &blocks[0];
     let has_root_quill = root_block
         .meta_items
@@ -383,7 +383,7 @@ pub(super) fn decompose_with_warnings(
         }
 
         let block = &mut blocks[idx];
-        let card_mapping = payload_mapping(markdown, block)?;
+        let card_mapping = payload_mapping(markdown, block, false)?;
         let card_payload = build_payload(
             std::mem::take(&mut block.meta_items),
             std::mem::take(&mut block.pre_items),
@@ -448,6 +448,7 @@ fn take_meta_item(typed: &mut [Option<PayloadItem>], key: &str) -> Option<Payloa
 fn payload_mapping(
     markdown: &str,
     block: &mut MetadataBlock,
+    root: bool,
 ) -> Result<serde_json::Map<String, serde_json::Value>, ParseError> {
     match block.yaml_value.take() {
         Some(serde_json::Value::Object(map)) => Ok(map),
@@ -456,6 +457,7 @@ fn payload_mapping(
             line: line_of(markdown, block.start),
             info: opener_info(markdown, block.start).map(str::to_string),
             actual: yaml_type_name(&other),
+            root,
         }),
     }
 }

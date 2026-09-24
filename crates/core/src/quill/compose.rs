@@ -1217,8 +1217,7 @@ pub(crate) fn unknown_field_warning(
     let mut diag = Diagnostic::new(
         Severity::Warning,
         format!(
-            "Field `{path}` is not declared by this quill: the value is kept, and no declared \
-             field reads it."
+            "Field `{path}` is not declared by this quill, and no declared field reads it."
         ),
     )
     .with_code("validation::unknown_field".to_string())

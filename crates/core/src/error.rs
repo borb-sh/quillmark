@@ -321,6 +321,8 @@ pub enum ParseError {
         /// What the payload reads as: `string`, `number`, `boolean` or
         /// `sequence`.
         actual: &'static str,
+        /// The block is the document's root, which declares `$quill`.
+        root: bool,
     },
 
     #[error("YAML error in {}: {message}", block_label(*block_index))]
@@ -356,6 +358,18 @@ fn payload_not_mapping_message(info: Option<&str>, actual: &str) -> String {
             "`~~~` opens a card-yaml block, and its payload is a YAML {actual}, not a \
              mapping of fields"
         ),
+    }
+}
+
+fn payload_not_mapping_hint(info: Option<&str>, root: bool) -> String {
+    if root {
+        return "The root card-yaml block holds `key: value` fields, `$quill: <name>` first \
+                (e.g. `$quill: usaf_memo@0.2.0`)."
+            .to_string();
+    }
+    match info {
+        Some("yaml" | "card-yaml") => "A card-yaml payload is `key: value` fields.".to_string(),
+        info => tilde_code_hint(info),
     }
 }
 
@@ -426,6 +440,7 @@ impl ParseError {
                 line: _,
                 info,
                 actual,
+                root: _,
             } => {
                 let mut args = diag_args! { "actual" => actual };
                 if let Some(info) = info {
@@ -459,9 +474,11 @@ impl ParseError {
             ParseError::InvalidQuillReference { .. } => {
                 diag.with_hint(crate::version::quill_ref_hint().to_string())
             }
-            ParseError::PayloadNotMapping { line, info, .. } => diag
+            ParseError::PayloadNotMapping {
+                line, info, root, ..
+            } => diag
                 .with_location(Location::new(DOCUMENT_FILE.to_string(), *line as u32, 1))
-                .with_hint(tilde_code_hint(info.as_deref())),
+                .with_hint(payload_not_mapping_hint(info.as_deref(), *root)),
             ParseError::YamlErrorWithLocation {
                 line, column, hint, ..
             } => {
@@ -604,6 +621,7 @@ fn parse_error_samples() -> Vec<ParseError> {
             line: 7,
             info: Some("python".into()),
             actual: "string",
+            root: false,
         },
         ParseError::YamlErrorWithLocation {
             message: "x".into(),
