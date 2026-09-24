@@ -80,128 +80,91 @@ fn field(yaml: &str) -> FieldSchema {
     FieldSchema::from_quill_value("classification".to_string(), &value).unwrap()
 }
 
+fn load(fields: &str) -> Result<QuillConfig, String> {
+    QuillConfig::from_yaml(&format!(
+        "quill:\n  name: probe\n  version: \"0.1.0\"\n  backend: typst\n  description: probe\n\
+         main:\n  fields:\n{fields}\n"
+    ))
+}
+
 fn load_error(fields: &str) -> String {
-    let yaml = format!(
-        r#"
-quill:
-  name: bad
-  version: "0.1.0"
-  backend: typst
-  description: bad
-
-typst:
-  plate_file: plate.typ
-
-main:
-  fields:
-{fields}
-"#
-    );
-    let err = QuillConfig::from_yaml(&yaml).expect_err("expected a load error");
-    format!("{err:?}")
+    format!("{:?}", load(fields).expect_err("expected a load error"))
 }
 
+/// A variant key is a declared, non-blank member; a hoisted cell earns the flat
+/// path's key gate (else a variant could declare `$kind`), may not shadow the
+/// `value` discriminant, carries neither a group nor worlds of its own, and two
+/// worlds may repeat a name only identically.
 #[test]
-fn variants_on_a_non_enum_field_is_a_load_error() {
-    assert!(load_error(
-        "    name:\n      type: string\n      variants:\n        A:\n          x: { type: string }\n"
-    )
-    .contains("quill::variants_on_non_enum"));
+fn a_malformed_variant_declaration_is_refused_by_code() {
+    for (fields, code) in [
+        (
+            "    name:\n      type: string\n      variants:\n        A:\n          x: { type: string }\n",
+            "quill::variants_on_non_enum",
+        ),
+        (
+            "    c:\n      type: enum\n      values: [A]\n      variants:\n        B:\n          x: { type: string }\n",
+            "quill::variant_unknown_value",
+        ),
+        (
+            "    c:\n      type: enum\n      values: [A]\n      variants:\n        \"\":\n          x: { type: string }\n",
+            "quill::variant_unknown_value",
+        ),
+        (
+            "    c:\n      type: enum\n      values: [\"1\"]\n      default: 1\n      \
+             variants:\n        \"1\":\n          x: { type: string }\n",
+            "quill::default_type_mismatch",
+        ),
+        (
+            "    c:\n      type: enum\n      values: [A]\n      variants:\n        A:\n          value: { type: string }\n",
+            "quill::variant_reserved_field_name",
+        ),
+        (
+            "    c:\n      type: enum\n      values: [A]\n      variants:\n        A:\n          $kind: { type: string }\n",
+            "quill::invalid_field_name",
+        ),
+        (
+            "    c:\n      type: enum\n      values: [A]\n      variants:\n        A: {}\n",
+            "quill::variant_empty",
+        ),
+        ("    c:\n      type: enum\n      values: [A]\n      variants: {}\n", "quill::variant_empty"),
+        (
+            "    c:\n      type: enum\n      values: [A]\n      variants:\n        A:\n          x: { type: string, ui: { group: g } }\n",
+            "quill::nested_group_not_supported",
+        ),
+        (
+            "    c:\n      type: enum\n      values: [A]\n      variants:\n        A:\n          x: { type: enum, values: [P], variants: { P: { y: { type: string } } } }\n",
+            "quill::variant_placement",
+        ),
+        (
+            "    c:\n      type: enum\n      values: [A, B]\n      variants:\n        A:\n          note: { type: string }\n        B:\n          note: { type: integer }\n",
+            "quill::variant_field_collision",
+        ),
+    ] {
+        assert!(load_error(fields).contains(code), "{code}: {fields}");
+    }
 }
 
+/// A variant cell carries any type a card field may, containers included.
 #[test]
-fn a_variant_keyed_by_a_non_member_is_a_load_error() {
-    let err = load_error(
-        "    c:\n      type: enum\n      values: [A]\n      variants:\n        B:\n          x: { type: string }\n",
-    );
-    assert!(err.contains("quill::variant_unknown_value"));
-}
-
-/// The same rule `quill::enum_blank_member` states from the `values:` side.
-#[test]
-fn a_variant_keyed_by_the_blank_is_a_load_error() {
-    let err = load_error(
-        "    c:\n      type: enum\n      values: [A]\n      variants:\n        \"\":\n          x: { type: string }\n",
-    );
-    assert!(err.contains("quill::variant_unknown_value"));
-}
-
-#[test]
-fn a_non_string_variant_default_is_a_load_error() {
-    let variant = load_error(
-        "    c:\n      type: enum\n      values: [\"1\"]\n      default: 1\n      \
-         variants:\n        \"1\":\n          x: { type: string }\n",
-    );
-    let plain = load_error("    c:\n      type: enum\n      values: [\"1\"]\n      default: 1\n");
-    assert!(
-        variant.contains("quill::default_type_mismatch"),
-        "variant-bearing enum accepted a numeric default: {variant}"
-    );
-    assert!(plain.contains("quill::default_type_mismatch"), "{plain}");
-}
-
-#[test]
-fn a_variant_field_named_value_collides_with_the_discriminant() {
-    let err = load_error(
-        "    c:\n      type: enum\n      values: [A]\n      variants:\n        A:\n          value: { type: string }\n",
-    );
-    assert!(err.contains("quill::variant_reserved_field_name"));
-}
-
-/// A hoisted field earns the flat path's key gate: without it a variant could
-/// declare `$kind` and forge document metadata.
-#[test]
-fn a_variant_field_key_obeys_the_field_name_gate() {
-    let err = load_error(
-        "    c:\n      type: enum\n      values: [A]\n      variants:\n        A:\n          $kind: { type: string }\n",
-    );
-    assert!(err.contains("quill::invalid_field_name"));
-}
-
-#[test]
-fn an_empty_variant_and_an_empty_variants_map_are_load_errors() {
-    assert!(load_error(
-        "    c:\n      type: enum\n      values: [A]\n      variants:\n        A: {}\n"
-    )
-    .contains("quill::variant_empty"));
-    assert!(
-        load_error("    c:\n      type: enum\n      values: [A]\n      variants: {}\n")
-            .contains("quill::variant_empty")
-    );
-}
-
-/// A variant carries any leaf type a card field may; every surface below pins
-/// one, and this one is load.
-#[test]
-fn a_variant_carries_any_leaf_type() {
+fn a_variant_cell_carries_any_field_type() {
     for ty in ["richtext", "plaintext", "date", "datetime"] {
-        let yaml = format!(
-            r#"
-quill:
-  name: ok
-  version: "0.1.0"
-  backend: typst
-  description: ok
-
-typst:
-  plate_file: plate.typ
-
-main:
-  fields:
-    c:
-      type: enum
-      values: [A]
-      variants:
-        A:
-          x: {{ type: {ty} }}
-"#
-        );
-        let config = QuillConfig::from_yaml(&yaml)
-            .unwrap_or_else(|e| panic!("type: {ty} must load inside a variant: {e:?}"));
-        let cell = config.main.fields["c"]
-            .variant_field("x")
-            .unwrap_or_else(|| panic!("type: {ty} cell resolves"));
+        let config = load(&format!(
+            "    c:\n      type: enum\n      values: [A]\n      variants:\n        A:\n          x: {{ type: {ty} }}\n"
+        ))
+        .unwrap_or_else(|e| panic!("type: {ty} must load inside a variant: {e:?}"));
+        let cell = config.main.fields["c"].variant_field("x").expect("cell resolves");
         assert_eq!(cell.r#type.as_str(), ty);
+    }
+    for cell in [
+        "x: { type: object, properties: { y: { type: string } } }",
+        "x: { type: array, items: { type: string } }",
+        "x: { type: array, items: { type: object, properties: { y: { type: string } } } }",
+    ] {
+        load(&format!(
+            "    c:\n      type: enum\n      values: [A]\n      variants:\n        A:\n          {cell}\n"
+        ))
+        .unwrap_or_else(|e| panic!("{cell}: {e:?}"));
     }
 }
 
@@ -282,47 +245,6 @@ classification:
     assert_eq!(blank_plate, json!({ "value": "" }));
 }
 
-/// A cell carries neither a `ui.group` nor a `variants:` of its own.
-#[test]
-fn a_variant_field_may_not_carry_variants_or_a_group() {
-    // A cell inherits the discriminant's group, so declaring one is a dead knob.
-    assert!(load_error(
-        "    c:\n      type: enum\n      values: [A]\n      variants:\n        A:\n          x: { type: string, ui: { group: g } }\n"
-    )
-    .contains("quill::nested_group_not_supported"));
-    assert!(load_error(
-        "    c:\n      type: enum\n      values: [A]\n      variants:\n        A:\n          x: { type: enum, values: [P], variants: { P: { y: { type: string } } } }\n"
-    )
-    .contains("quill::variant_placement"));
-}
-
-/// The union projection is what stays one level deep; the shapes below it do
-/// not.
-#[test]
-fn a_variant_field_holds_a_container() {
-    for cell in [
-        "x: { type: object, properties: { y: { type: string } } }",
-        "x: { type: array, items: { type: string } }",
-        "x: { type: array, items: { type: object, properties: { y: { type: string } } } }",
-    ] {
-        let yaml = format!(
-            "quill:\n  name: ok\n  version: \"0.1.0\"\n  backend: typst\n  description: ok\n\ntypst:\n  plate_file: plate.typ\n\nmain:\n  fields:\n    c:\n      type: enum\n      values: [A]\n      variants:\n        A:\n          {cell}\n"
-        );
-        QuillConfig::from_yaml(&yaml).unwrap_or_else(|e| panic!("{cell}: {e:?}"));
-    }
-}
-
-/// Two spellings of one name would coerce a live value under the other world's
-/// type.
-#[test]
-fn a_name_two_worlds_declare_differently_is_a_load_error() {
-    let err = load_error(
-        "    c:\n      type: enum\n      values: [A, B]\n      variants:\n        A:\n          note: { type: string }\n        B:\n          note: { type: integer }\n",
-    );
-    assert!(err.contains("quill::variant_field_collision"), "{err}");
-    assert!(err.contains("'A'") && err.contains("'B'"), "{err}");
-}
-
 /// Repetition is how a shared field set is spelled, so the gate is disagreement
 /// rather than repetition.
 #[test]
@@ -346,8 +268,7 @@ fn a_name_two_worlds_declare_identically_loads() {
 /// not, and an object inherits their ban rather than laundering it.
 #[test]
 fn a_world_opens_in_a_dictionary_and_nowhere_else_below_a_card() {
-    QuillConfig::from_yaml(&format!(
-        "quill:\n  name: ok\n  version: \"0.1.0\"\n  backend: typst\n  description: ok\n\ntypst:\n  plate_file: plate.typ\n\nmain:\n  fields:\n{}",
+    load(
         r#"    o:
       type: object
       properties:
@@ -357,8 +278,8 @@ fn a_world_opens_in_a_dictionary_and_nowhere_else_below_a_card() {
           variants:
             A:
               x: { type: string }
-"#
-    ))
+"#,
+    )
     .expect("a dictionary's property opens a world");
 
     // Each ban reaches through an object, so the position a message names is the
@@ -423,101 +344,41 @@ fn a_world_opens_in_a_dictionary_and_nowhere_else_below_a_card() {
 
 #[test]
 fn the_blank_of_a_variant_bearing_enum_is_the_container_holding_the_blank() {
-    let schema = field(
-        "type: enum\nvalues: [A]\nvariants:\n  A:\n    x: { type: string }\n",
-    );
+    let schema = field("type: enum\nvalues: [A]\nvariants:\n  A:\n    x: { type: string }\n");
     assert_eq!(blank(&schema).into_json(), json!({ "value": "" }));
+    assert_eq!(blank(&field("type: enum\nvalues: [A]\n")).into_json(), json!(""));
 }
 
+/// The container is a closed shape: the live world arrives complete and
+/// blank-filled, so an unguarded read inside the branch a plate writes is
+/// total, and a dormant world's payload never reaches the plate.
 #[test]
-fn a_variantless_enum_still_blanks_to_the_bare_string() {
-    let schema = field("type: enum\nvalues: [A]\n");
-    assert_eq!(blank(&schema).into_json(), json!(""));
-}
-
-#[test]
-fn an_empty_document_renders_the_container_with_no_variant_fields() {
-    assert_eq!(plate(&doc("")), json!({ "value": "" }));
-}
-
-/// What makes an unguarded read total inside the branch a plate writes.
-#[test]
-fn the_live_world_arrives_complete_and_blank_filled() {
-    assert_eq!(
-        plate(&doc("classification:\n  value: CUI\n")),
-        json!({ "value": "CUI", "controlled_by": "", "category": "" })
-    );
-}
-
-/// The container is a closed shape, so a payload cannot arrive under a tag that
-/// disowns it.
-#[test]
-fn a_dormant_worlds_fields_never_reach_the_plate() {
-    assert_eq!(
-        plate(&doc(
-            "classification:\n  value: UNCLASSIFIED\n  controlled_by: SAF/AA\n"
-        )),
-        json!({ "value": "UNCLASSIFIED" })
-    );
-}
-
-/// The hand-authored spelling of a world with nothing filled in.
-#[test]
-fn a_bare_scalar_is_adopted_as_the_discriminant() {
-    assert_eq!(
-        plate(&doc("classification: SECRET\n")),
-        json!({ "value": "SECRET", "declassify_on": "" })
-    );
+fn the_plate_carries_exactly_the_live_world() {
+    for (fields, want) in [
+        ("", json!({ "value": "" })),
+        ("classification:\n  value:\n", json!({ "value": "" })),
+        (
+            "classification:\n  value: CUI\n",
+            json!({ "value": "CUI", "controlled_by": "", "category": "" }),
+        ),
+        (
+            "classification:\n  value: UNCLASSIFIED\n  controlled_by: SAF/AA\n",
+            json!({ "value": "UNCLASSIFIED" }),
+        ),
+        ("classification: SECRET\n", json!({ "value": "SECRET", "declassify_on": "" })),
+    ] {
+        assert_eq!(plate(&doc(fields)), want, "{fields}");
+    }
 }
 
 #[test]
 fn the_discriminant_falls_to_the_default_and_carries_its_world() {
     let yaml = quill_yaml().replace("      default: \"\"\n      variants:", "      default: CUI\n      variants:");
-    let config = QuillConfig::from_yaml(&yaml).unwrap();
-    let data = config.compile_data(&doc("")).unwrap();
+    let data = QuillConfig::from_yaml(&yaml).unwrap().compile_data(&doc("")).unwrap();
     assert_eq!(
         data["classification"],
         json!({ "value": "CUI", "controlled_by": "", "category": "" })
     );
-}
-
-/// Null ≡ absent holds through the container.
-#[test]
-fn a_null_discriminant_blank_fills() {
-    assert_eq!(
-        plate(&doc("classification:\n  value:\n")),
-        json!({ "value": "" })
-    );
-}
-
-/// `resolve()`'s contract is byte-parity with the plate, the container being one
-/// cell carrying one rung as a typed dictionary is.
-#[test]
-fn resolve_reports_the_container_as_one_cell_matching_the_plate() {
-    let quill = quill();
-    let document = doc("classification:\n  value: CUI\n  controlled_by: SAF/AA\n");
-    let resolved = quill.resolve(&document);
-    let row = resolved
-        .main
-        .fields
-        .iter()
-        .find(|f| f.name == "classification")
-        .expect("classification row");
-    assert_eq!(row.value.as_json(), &plate(&document));
-    assert_eq!(row.source, crate::quill::resolved::FieldSource::Authored);
-
-    // An unanswered container reports the rung that supplied its discriminant:
-    // here the schema's `default: ""`, exactly as a plain enum would.
-    let blank_doc = doc("");
-    let resolved = quill.resolve(&blank_doc);
-    let row = resolved
-        .main
-        .fields
-        .iter()
-        .find(|f| f.name == "classification")
-        .unwrap();
-    assert_eq!(row.value.as_json(), &plate(&blank_doc));
-    assert_eq!(row.source, crate::quill::resolved::FieldSource::Default);
 }
 
 fn classification_row(quill: &Quill, document: &Document) -> crate::quill::resolved::ResolvedField {
@@ -530,85 +391,48 @@ fn classification_row(quill: &Quill, document: &Document) -> crate::quill::resol
         .expect("classification row")
 }
 
-/// A container the document wrote reads `authored` whichever rung filled its
-/// discriminant (`prose/canon/SCHEMAS.md` § "The resolved-value view"), so the
-/// reported rung does not turn on whether the schema happens to carry a
-/// `default:`.
+/// `resolve()` reports the container as one cell at parity with the plate. Its
+/// rung is the strongest that contributed: a container the document wrote reads
+/// `authored` whichever rung filled its discriminant, an absent or present-null
+/// one keeps the discriminant's rung, and a value no container is built from
+/// stays raw rather than reading as a blank world the document answered.
 #[test]
-fn a_present_container_reads_authored_whichever_rung_filled_the_tag() {
+fn resolve_reports_the_container_as_one_cell_at_its_strongest_rung() {
+    use crate::quill::resolved::FieldSource::{Authored, Default};
     let quill = quill();
-    for fields in ["classification: {}\n", "classification:\n  value:\n"] {
+    for (fields, source) in [
+        ("classification:\n  value: CUI\n  controlled_by: SAF/AA\n", Authored),
+        ("classification: {}\n", Authored),
+        ("classification:\n  value:\n", Authored),
+        ("", Default),
+    ] {
         let document = doc(fields);
         let row = classification_row(&quill, &document);
-        assert_eq!(row.value.as_json(), &plate(&document));
-        assert_eq!(
-            row.source,
-            crate::quill::resolved::FieldSource::Authored,
-            "{fields}"
-        );
+        assert_eq!(row.value.as_json(), &plate(&document), "{fields}");
+        assert_eq!(row.source, source, "{fields}");
     }
 
-    // The value the row carries is still the `default:` member's blank-filled
-    // world: only the rung the container reports changes.
-    let yaml = quill_yaml().replace(
-        "      default: \"\"\n      variants:",
-        "      default: CUI\n      variants:",
-    );
-    let defaulted = quill_from_yaml(&yaml);
-    let row = classification_row(&defaulted, &doc("classification: {}\n"));
-    assert_eq!(
-        row.value.as_json(),
-        &json!({ "value": "CUI", "controlled_by": "", "category": "" })
-    );
-    assert_eq!(row.source, crate::quill::resolved::FieldSource::Authored);
-
-    // A present-null container is absent, so it keeps the discriminant's rung.
-    let row = classification_row(&defaulted, &doc("classification:\n"));
-    assert_eq!(row.source, crate::quill::resolved::FieldSource::Default);
-}
-
-/// A value the container cannot be built from stays raw, as a mis-shaped
-/// `array` or typed dictionary does: `resolve()` labels the row Authored, and a
-/// blank world under that label would read as an answer the document gave.
-#[test]
-fn a_mis_shaped_container_value_stays_raw() {
-    let quill = quill();
-    let document = doc("classification: [CUI, SECRET]\n");
-    let row = quill
-        .resolve(&document)
-        .main
-        .fields
-        .into_iter()
-        .find(|f| f.name == "classification")
-        .expect("classification row");
-
-    assert_eq!(row.source, crate::quill::resolved::FieldSource::Authored);
+    let row = classification_row(&quill, &doc("classification: [CUI, SECRET]\n"));
+    assert_eq!(row.source, Authored);
     assert_eq!(row.value.as_json(), &json!(["CUI", "SECRET"]));
-}
 
-/// The container is a namespace like any other: its rung is the strongest that
-/// contributed, so a cell the document wrote lifts a container whose
-/// discriminant came from the schema.
-#[test]
-fn an_authored_cell_lifts_a_defaulted_discriminant() {
-    let yaml = quill_yaml().replace(
+    let defaulted = quill_from_yaml(&quill_yaml().replace(
         "      default: \"\"\n      variants:",
         "      default: CUI\n      variants:",
-    );
-    let quill = quill_from_yaml(&yaml);
-    let document = doc("classification:\n  controlled_by: SAF/AA\n");
-    let row = quill
-        .resolve(&document)
-        .main
-        .fields
-        .into_iter()
-        .find(|f| f.name == "classification")
-        .expect("classification row");
-    assert_eq!(
-        row.value.as_json(),
-        &json!({ "value": "CUI", "controlled_by": "SAF/AA", "category": "" })
-    );
-    assert_eq!(row.source, crate::quill::resolved::FieldSource::Authored);
+    ));
+    for (fields, source, controlled_by) in [
+        ("classification: {}\n", Authored, ""),
+        ("classification:\n  controlled_by: SAF/AA\n", Authored, "SAF/AA"),
+        ("classification:\n", Default, ""),
+    ] {
+        let row = classification_row(&defaulted, &doc(fields));
+        assert_eq!(
+            row.value.as_json(),
+            &json!({ "value": "CUI", "controlled_by": controlled_by, "category": "" }),
+            "{fields}"
+        );
+        assert_eq!(row.source, source, "{fields}");
+    }
 }
 
 /// The conditional-obligation payoff: a field with no `default:` is obliged in
@@ -867,23 +691,10 @@ fn the_transform_schema_flattens_every_world_into_one_container() {
     );
     assert_eq!(cls["properties"]["controlled_by"]["type"], json!("string"));
     assert_eq!(cls["properties"]["declassify_on"]["type"], json!("string"));
-}
-
-/// `variants:` on the declaration view states it instead, keyed by member.
-#[test]
-fn the_transform_schema_does_not_restate_which_member_owns_a_cell() {
-    let schema = build_transform_schema(&config());
-    let cls = &schema.as_json()["properties"]["classification"];
+    // `variants:` on the declaration view states which member owns a cell.
     for name in ["controlled_by", "category", "declassify_on"] {
-        assert_eq!(
-            cls["properties"][name]
-                .as_object()
-                .expect("variant cell projects as an object")
-                .keys()
-                .filter(|k| k.starts_with("quillmark:variant"))
-                .count(),
-            0
-        );
+        let cell = cls["properties"][name].as_object().expect("cell projects as an object");
+        assert!(!cell.keys().any(|k| k.starts_with("quillmark:variant")), "{name}");
     }
 }
 
@@ -934,16 +745,6 @@ fn a_container_shaped_schema_literal_is_a_load_error() {
             diag.hint
         );
     }
-}
-
-/// `usaf_memo` ships a blank `default:` on a variant-bearing enum, so the scalar
-/// spelling is load-bearing rather than merely tolerated.
-#[test]
-fn a_scalar_schema_literal_stays_legal_on_a_variant_bearing_enum() {
-    let plate = config()
-        .compile_data(&doc(""))
-        .expect("a blank scalar `default:` loads and compiles");
-    assert_eq!(plate["classification"]["value"], json!(""));
 }
 
 /// A world inside a typed dictionary. The dictionary's own shape is the

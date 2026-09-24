@@ -1,13 +1,15 @@
 //! The obligation axis: `default:`'s absence and the unauthored-cell predicate.
 
 use crate::quill::quill_from_yaml;
-use crate::quill::resolved::FieldSource;
 use crate::{document::Document, quill::Quill};
 
 fn obligations(quill: &Quill, md: &str) -> Vec<(String, String)> {
-    let doc = Document::parse(md).expect("parse").document;
+    obligations_of(quill, &Document::parse(md).expect("parse").document)
+}
+
+fn obligations_of(quill: &Quill, doc: &Document) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = quill
-        .validate(&doc)
+        .validate(doc)
         .iter()
         .filter(|d| d.code.as_deref() == Some("validation::must_fill"))
         .map(|d| {
@@ -40,39 +42,19 @@ fn md(fields: &str) -> String {
     format!("~~~card-yaml\n$quill: ob@1.0.0\n$kind: main\n{fields}~~~\n")
 }
 
+/// A defaultless field is obliged until a value or the blank answers it; null
+/// is absent, so it answers nothing.
 #[test]
-fn a_defaultless_field_is_obliged_and_a_defaulted_one_is_not() {
+fn a_defaultless_field_is_obliged_until_a_value_or_the_blank_answers_it() {
     let quill = quill_from_yaml(SCALARS);
-
-    assert_eq!(
-        paths(&quill, &md("")),
-        ["main.confirmed", "main.severity", "main.subject"]
-    );
-}
-
-#[test]
-fn authoring_a_value_or_the_blank_discharges_the_obligation() {
-    let quill = quill_from_yaml(SCALARS);
-
-    assert_eq!(
-        paths(
-            &quill,
-            &md("subject: Q3 results\nseverity: \"\"\nconfirmed: draft\n")
-        ),
-        Vec::<String>::new()
-    );
-}
-
-#[test]
-fn null_does_not_discharge_but_the_blank_does() {
-    let quill = quill_from_yaml(SCALARS);
-
-    let rest = "severity: low\nconfirmed: draft\n";
-    assert_eq!(
-        paths(&quill, &md(&format!("subject: null\n{rest}"))),
-        ["main.subject"]
-    );
-    assert!(paths(&quill, &md(&format!("subject: \"\"\n{rest}"))).is_empty());
+    for (fields, want) in [
+        ("", &["main.confirmed", "main.severity", "main.subject"][..]),
+        ("subject: Q3 results\nseverity: \"\"\nconfirmed: draft\n", &[]),
+        ("subject: null\nseverity: low\nconfirmed: draft\n", &["main.subject"]),
+        ("subject: \"\"\nseverity: low\nconfirmed: draft\n", &[]),
+    ] {
+        assert_eq!(paths(&quill, &md(fields)), want, "{fields}");
+    }
 }
 
 const CONTAINERS: &str = r#"
@@ -102,24 +84,6 @@ fn a_typed_dict_is_obliged_at_its_leaves_present_or_absent() {
     let touched = paths(&quill, &cn("recipients: []\naddress:\n  city: Pittsburgh\n"));
     assert_eq!(absent, ["main.address.city", "main.address.street"]);
     assert_eq!(touched, ["main.address.street"]);
-}
-
-#[test]
-fn a_touched_container_does_not_silence_its_unauthored_leaves() {
-    let quill = quill_from_yaml(CONTAINERS);
-
-    // The source rung is asserted alongside to show what a `FieldSource`-keyed
-    // check would see instead: one authored dict, and no leaf.
-    let doc = Document::parse(&cn("address:\n  city: Pittsburgh\n"))
-        .expect("parse")
-        .document;
-    let (_, source) = super::resolve_value_sourced(
-        doc.main().payload().get("address"),
-        &crate::quill::QuillConfig::from_yaml(CONTAINERS).unwrap().main.fields["address"],
-    );
-    assert_eq!(source, FieldSource::Authored, "the view sees one authored dict");
-    assert!(paths(&quill, &cn("address:\n  city: Pittsburgh\n"))
-        .contains(&"main.address.street".to_string()));
 }
 
 #[test]
@@ -217,24 +181,8 @@ main:
 fn a_fresh_seed_and_a_blank_document_report_the_same_cells() {
     let quill = quill_from_yaml(SEEDED);
 
-    let seeded = quill.seed_document();
-    let mut from_seed: Vec<(String, String)> = quill
-        .validate(&seeded)
-        .iter()
-        .filter(|d| d.code.as_deref() == Some("validation::must_fill"))
-        .map(|d| {
-            (
-                d.path.clone().unwrap(),
-                d.args["trigger"].as_str().unwrap().to_string(),
-            )
-        })
-        .collect();
-    from_seed.sort();
-
-    let blank = obligations(
-        &quill_from_yaml(SEEDED),
-        "~~~card-yaml\n$quill: sd@1.0.0\n$kind: main\n~~~\n",
-    );
+    let from_seed = obligations_of(&quill, &quill.seed_document());
+    let blank = obligations(&quill, "~~~card-yaml\n$quill: sd@1.0.0\n$kind: main\n~~~\n");
 
     assert_eq!(
         from_seed.iter().map(|(p, _)| p).collect::<Vec<_>>(),

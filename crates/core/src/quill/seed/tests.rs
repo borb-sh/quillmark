@@ -84,51 +84,11 @@ fn seed_main_commits_only_example_fields() {
 }
 
 #[test]
-fn seeded_document_round_trips_through_markdown() {
-    let quill = quill_from_yaml(QUILL);
-    let doc = quill.seed_document();
-
-    let markdown = doc.to_markdown();
-    let reparsed = crate::document::Document::parse(&markdown)
-        .expect("seeded document must re-parse from its own markdown")
-        .document;
-
-    assert_eq!(
-        reparsed.main().quill().map(|r| r.name.as_str()),
-        Some("seed_test")
-    );
-    assert_eq!(reparsed.main().kind(), Some("main"));
-    assert_eq!(
-        reparsed
-            .main()
-            .payload()
-            .get("title")
-            .and_then(|v| v.as_str()),
-        Some("FIRSTNAME LASTNAME"),
-    );
-    assert_eq!(reparsed.main().body_markdown(), "Main body text.");
-
-    assert_eq!(reparsed.cards().len(), 1);
-    assert_eq!(reparsed.cards()[0].kind(), Some("note"));
-    assert_eq!(
-        reparsed.cards()[0]
-            .payload()
-            .get("author")
-            .and_then(|v| v.as_str()),
-        Some("A. Author"),
-    );
-}
-
-#[test]
 fn seed_document_emits_one_seeded_card_per_kind() {
     let quill = quill_from_yaml(QUILL);
     let doc = quill.seed_document();
 
-    assert_eq!(
-        doc.main().payload().get("title").and_then(|v| v.as_str()),
-        Some("FIRSTNAME LASTNAME"),
-    );
-
+    assert_eq!(doc.main(), &quill.seed_main());
     assert_eq!(doc.cards().len(), 1);
     let note = &doc.cards()[0];
     assert_eq!(note.kind(), Some("note"));
@@ -141,6 +101,12 @@ fn seed_document_emits_one_seeded_card_per_kind() {
         Some("A. Author"),
     );
     assert!(note.payload().get("tag").is_none());
+    assert!(quill.seed_card("missing", None).is_none());
+
+    let reparsed = Document::parse(&doc.to_markdown())
+        .expect("seeded document must re-parse from its own markdown")
+        .document;
+    assert_eq!(reparsed, doc);
 }
 
 #[test]
@@ -158,44 +124,6 @@ fn seeded_document_compiles_with_default_then_blank_for_absent_fields() {
     );
     assert_eq!(data.get("status").and_then(|v| v.as_str()), Some("draft"));
     assert_eq!(data.get("notes").and_then(|v| v.as_str()), Some(""));
-}
-
-#[test]
-fn seed_card_for_known_and_unknown_kind() {
-    let quill = quill_from_yaml(QUILL);
-
-    let note = quill.seed_card("note", None).expect("known kind");
-    assert_eq!(note.kind(), Some("note"));
-    assert_eq!(
-        note.payload().get("author").and_then(|v| v.as_str()),
-        Some("A. Author"),
-    );
-
-    assert!(
-        quill.seed_card("missing", None).is_none(),
-        "unknown kind must return None"
-    );
-}
-
-#[test]
-fn overlay_adds_a_field_the_base_omits() {
-    let quill = quill_from_yaml(QUILL);
-    assert!(quill
-        .seed_card("note", None)
-        .unwrap()
-        .payload()
-        .get("tag")
-        .is_none());
-    let ov = overlay(json!({ "tag": "pinned" }));
-    let card = quill.seed_card("note", Some(&ov)).expect("known kind");
-    assert_eq!(
-        card.payload().get("tag").and_then(|v| v.as_str()),
-        Some("pinned")
-    );
-    assert_eq!(
-        card.payload().get("author").and_then(|v| v.as_str()),
-        Some("A. Author"),
-    );
 }
 
 #[test]
@@ -224,16 +152,14 @@ card_kinds:
 }
 
 #[test]
-fn overlay_body_overrides_and_non_schema_keys_are_ignored() {
+fn overlay_fills_fields_and_body_and_ignores_non_schema_keys() {
     let quill = quill_from_yaml(QUILL);
-    assert_eq!(quill.seed_card("note", None).unwrap().body_markdown(), "");
-    let ov = overlay(json!({ "author": "X", "$body": "Overlay body.", "bogus": "drop me" }));
+    let ov = overlay(json!({ "tag": "pinned", "$body": "Overlay body.", "bogus": "drop me" }));
     let card = quill.seed_card("note", Some(&ov)).expect("known kind");
+    assert_eq!(card.payload().get("tag").and_then(|v| v.as_str()), Some("pinned"));
+    assert_eq!(card.payload().get("author").and_then(|v| v.as_str()), Some("A. Author"));
     assert_eq!(card.body_markdown(), "Overlay body.");
-    assert!(
-        card.payload().get("bogus").is_none(),
-        "a key naming no schema field must not land on the card",
-    );
+    assert!(card.payload().get("bogus").is_none());
 }
 
 #[test]
@@ -278,59 +204,34 @@ fn doc_with_seed(seed_block: &str) -> Document {
     Document::parse(&md).expect("doc should parse").document
 }
 
+/// A seed overlay is advisory: a defect is a warning at its `$seed` path and
+/// never gates render, and a well-formed or present-null cell draws nothing.
 #[test]
-fn seed_overlay_type_mismatch_is_advisory_and_does_not_gate_render() {
+fn seed_overlay_diagnostics_are_advisory_and_do_not_gate_render() {
     let quill = quill_from_yaml(QUILL);
-    let doc = doc_with_seed("$seed:\n  note:\n    author: { given: A }\n");
-
-    let diags = quill.validate(&doc);
-    let seed_diag = diags
-        .iter()
-        .find(|d| d.path.as_deref() == Some("$seed.note.author"))
-        .expect("a diagnostic rooted at the seed field");
-    assert_eq!(
-        seed_diag.code.as_deref(),
-        Some("validation::type_mismatch"),
-        "a shape no card could carry is still flagged: {seed_diag:?}",
-    );
-    assert_eq!(
-        seed_diag.severity,
-        Severity::Warning,
-        "seed diagnostics are advisory, not errors",
-    );
-
-    assert!(
-        quill.compile_data(&doc).is_ok(),
-        "compile_data must ignore $seed"
-    );
-    assert!(quill.dry_run(&doc).is_ok(), "dry_run must ignore $seed");
-}
-
-#[test]
-fn seed_overlay_unknown_kind_is_flagged_but_renders() {
-    let quill = quill_from_yaml(QUILL);
-    let doc = doc_with_seed("$seed:\n  bogus_kind:\n    x: 1\n");
-    let diags = quill.validate(&doc);
-    let d = diags
-        .iter()
-        .find(|d| d.code.as_deref() == Some("validation::seed_unknown_kind"))
-        .expect("unknown-kind advisory");
-    assert_eq!(d.path.as_deref(), Some("$seed.bogus_kind"));
-    assert_eq!(d.severity, Severity::Warning);
-    assert!(quill.compile_data(&doc).is_ok());
-}
-
-#[test]
-fn well_formed_seed_overlay_yields_no_seed_diagnostics() {
-    let quill = quill_from_yaml(QUILL);
-    let doc = doc_with_seed("$seed:\n  note:\n    author: Custom\n");
-    let diags = quill.validate(&doc);
-    assert!(
-        !diags
+    for (seed, path, code) in [
+        ("$seed:\n  note:\n    author: { given: A }\n", "$seed.note.author", "validation::type_mismatch"),
+        ("$seed:\n  bogus_kind:\n    x: 1\n", "$seed.bogus_kind", "validation::seed_unknown_kind"),
+    ] {
+        let doc = doc_with_seed(seed);
+        let diags = quill.validate(&doc);
+        let d = diags
             .iter()
-            .any(|d| d.path.as_deref().is_some_and(|p| p.starts_with("$seed"))),
-        "a well-formed overlay should produce no seed diagnostics: {diags:?}",
-    );
+            .find(|d| d.path.as_deref() == Some(path))
+            .unwrap_or_else(|| panic!("no diagnostic at {path}: {diags:?}"));
+        assert_eq!(d.code.as_deref(), Some(code));
+        assert_eq!(d.severity, Severity::Warning);
+        assert!(quill.compile_data(&doc).is_ok(), "{path}");
+        assert!(quill.dry_run(&doc).is_ok(), "{path}");
+    }
+
+    for seed in ["$seed:\n  note:\n    author: Custom\n", "$seed:\n  note:\n    author: null\n"] {
+        let diags = quill.validate(&doc_with_seed(seed));
+        assert!(
+            !diags.iter().any(|d| d.path.as_deref().is_some_and(|p| p.starts_with("$seed"))),
+            "{seed}: {diags:?}"
+        );
+    }
 }
 
 /// The container is the spelling `seed_variant` reads its discriminant off, so
@@ -472,21 +373,6 @@ card_kinds:
     let doc = Document::from_main_and_cards(quill.seed_main(), vec![card]);
     let diags = quill.validate(&doc);
     assert!(diags.is_empty(), "a seeded card is a valid document: {diags:?}");
-}
-
-/// Null ≡ absent in an overlay cell as in any authored one: the field is simply
-/// unanswered, and the seeded card blank-fills it at render.
-#[test]
-fn a_null_overlay_cell_draws_no_diagnostic() {
-    let quill = quill_from_yaml(QUILL);
-    let doc = doc_with_seed("$seed:\n  note:\n    author: null\n");
-    let diags = quill.validate(&doc);
-    assert!(
-        !diags
-            .iter()
-            .any(|d| d.path.as_deref().is_some_and(|p| p.starts_with("$seed"))),
-        "a present-null overlay cell is an absent one: {diags:?}",
-    );
 }
 
 /// A typed dictionary's seed composes from the examples its properties declare,

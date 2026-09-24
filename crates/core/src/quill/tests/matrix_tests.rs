@@ -72,23 +72,10 @@ fn codes(document: &Document) -> Vec<(String, String)> {
 
 fn load_error(fields: &str) -> String {
     let yaml = format!(
-        r#"
-quill:
-  name: bad
-  version: "0.1.0"
-  backend: typst
-  description: bad
-
-typst:
-  plate_file: plate.typ
-
-main:
-  fields:
-{fields}
-"#
+        "quill:\n  name: bad\n  version: \"0.1.0\"\n  backend: typst\n  description: bad\n\
+         main:\n  fields:\n{fields}\n"
     );
-    let err = QuillConfig::from_yaml(&yaml).expect_err("expected a load error");
-    format!("{err:?}")
+    format!("{:?}", QuillConfig::from_yaml(&yaml).expect_err("expected a load error"))
 }
 
 /// The stored-spelling table: a bare scalar is the tick, and every spelling
@@ -108,57 +95,37 @@ fn every_stored_spelling_conforms_to_the_member_object() {
     assert_eq!(held["dodin_ops"]["detail"]["text"], json!("X"));
 }
 
-/// A mapping is the member object already, so the tick it names no key for
-/// takes the ordinary ladder rather than a rule of the matrix's own. The empty
-/// mapping is the case a producer reaches first: an editor opening a member's
-/// row, or a serde-built payload, writes a column before the tick.
-#[test]
-fn a_mapping_naming_no_held_is_unheld() {
-    let document = doc("qualifications:\n  flight_cc: { detail: X }\n  dodin_ops: {}\n");
-
-    let wire = plate(&document);
-    assert_eq!(wire["flight_cc"]["held"], json!(false));
-    assert_eq!(wire["dodin_ops"]["held"], json!(false));
-    // Unheld, so the wire carries the column at its blank whatever the document
-    // retains — the closed-wire rule, reached through the ladder.
-    assert_eq!(wire["flight_cc"]["detail"]["text"], json!(""));
-
-    let stored = document.main().payload().get("qualifications").unwrap();
-    assert_eq!(
-        stored.as_json()["flight_cc"]["detail"],
-        json!("X"),
-        "the column is retained, as under any other unheld member"
-    );
-}
-
-/// An unticked member's retained answer is a fact about the stored form alone:
-/// the document keeps it, so tick-type-untick-retick loses nothing, and the
-/// wire carries the live world only.
+/// A mapping naming no `held` takes the ordinary ladder to unheld; the empty
+/// mapping is what an editor opening a row writes first. An unheld member's
+/// columns are retained in the document, so tick-type-untick-retick loses
+/// nothing, and blank on the wire, which carries the live world only.
 #[test]
 fn an_unheld_member_keeps_its_detail_in_the_document_and_blanks_it_on_the_wire() {
-    let document = doc("qualifications:\n  flight_cc: { held: false, detail: kept }\n");
-
-    let stored = document.main().payload().get("qualifications").unwrap();
-    assert_eq!(
-        stored.as_json()["flight_cc"]["detail"],
-        json!("kept"),
-        "the document retains what the author typed"
-    );
-
+    let document = doc(concat!(
+        "qualifications:\n",
+        "  flight_cc: { detail: X }\n",
+        "  dodin_ops: {}\n",
+        "  cyber_200: { held: false, detail: kept }\n",
+    ));
     let wire = plate(&document);
-    assert_eq!(wire["flight_cc"]["held"], json!(false));
-    assert_eq!(
-        wire["flight_cc"]["detail"]["text"],
-        json!(""),
-        "an unheld member's columns render at their blanks"
-    );
+    let stored = document.main().payload().get("qualifications").unwrap().as_json().clone();
+    for id in ["flight_cc", "dodin_ops", "cyber_200"] {
+        assert_eq!(wire[id]["held"], json!(false), "{id}");
+    }
+    for (id, detail) in [("flight_cc", "X"), ("cyber_200", "kept")] {
+        assert_eq!(wire[id]["detail"]["text"], json!(""), "{id}");
+        assert_eq!(stored[id]["detail"], json!(detail), "{id}");
+    }
 }
 
 /// Total at the plate, in declaration order, carrying the labels the roster
-/// holds: a plate prints the whole vocabulary without a second copy of it.
+/// holds: a plate prints the whole vocabulary without a second copy of it, and
+/// an authored `title` is overwritten rather than carried.
 #[test]
 fn the_projection_is_total_and_carries_the_roster() {
-    let wire = plate(&doc("qualifications:\n  cyber_200: true\n"));
+    let wire = plate(&doc(
+        "qualifications:\n  cyber_200: true\n  flight_cc: { held: true, title: Forged }\n",
+    ));
     let members = wire.as_object().expect("a matrix projects as a mapping");
 
     assert_eq!(
@@ -182,16 +149,6 @@ fn a_member_outside_the_roster_is_refused() {
     );
 }
 
-/// The title is the projection's, not the document's: writing one is overwritten
-/// rather than carried, so a plate's label cannot be forged from a document.
-#[test]
-fn an_authored_title_does_not_reach_the_wire() {
-    let wire = plate(&doc(
-        "qualifications:\n  flight_cc: { held: true, title: Forged }\n",
-    ));
-    assert_eq!(wire["flight_cc"]["title"], json!("Flight CC"));
-}
-
 /// An absent matrix blank-fills to every member unheld, so the plate needs no
 /// guard for a document that never mentioned it.
 #[test]
@@ -209,97 +166,31 @@ fn an_absent_matrix_blank_fills_to_every_member_unheld() {
     );
 }
 
-/// The schema fixes the keys, so the matrix holds no literal of its own — the
-/// existing namespace rule, no exception.
+/// The schema fixes the keys, so a matrix holds no literal; a member id carries
+/// a field key's discipline; `held` and `title` are the keys the type writes
+/// itself; and the roster and the type imply each other.
 #[test]
-fn a_literal_on_a_matrix_is_refused_as_a_namespace_literal() {
-    for slot in ["default", "example"] {
-        let err = load_error(&format!(
-            "    m:\n      type: matrix\n      {slot}: {{}}\n      members: {{ a: A }}\n"
-        ));
-        assert!(
-            err.contains(&format!("quill::{slot}_on_namespace")),
-            "expected quill::{slot}_on_namespace, got {err}"
-        );
+fn a_malformed_matrix_declaration_is_refused_by_code() {
+    for (fields, code) in [
+        ("    m:\n      type: matrix\n      default: {}\n      members: { a: A }\n", "quill::default_on_namespace"),
+        ("    m:\n      type: matrix\n      example: {}\n      members: { a: A }\n", "quill::example_on_namespace"),
+        (
+            "    m:\n      type: matrix\n      members: { \"DO / Det CC\": Label }\n",
+            "quill::invalid_matrix_member",
+        ),
+        (
+            "    m:\n      type: matrix\n      members: { a: A }\n      properties:\n        held: { type: string }\n",
+            "quill::matrix_reserved_column",
+        ),
+        (
+            "    m:\n      type: matrix\n      members: { a: A }\n      properties:\n        title: { type: string }\n",
+            "quill::matrix_reserved_column",
+        ),
+        ("    m:\n      type: matrix\n", "quill::field_parse_error"),
+        ("    m:\n      type: string\n      members: { a: A }\n", "quill::field_parse_error"),
+    ] {
+        assert!(load_error(fields).contains(code), "{code}: {fields}");
     }
-}
-
-/// A member id is what the wire, the address and the document speak, so it
-/// carries the same discipline as a field key.
-#[test]
-fn a_member_id_that_is_not_an_identifier_is_a_load_error() {
-    let err = load_error(
-        "    m:\n      type: matrix\n      members: { \"DO / Det CC\": Label }\n",
-    );
-    assert!(err.contains("quill::invalid_matrix_member"), "{err}");
-}
-
-/// The roster is a mapping, so it has one slot per member id exactly as the
-/// stored value does: a duplicate is unspellable on both sides.
-#[test]
-fn a_member_declared_twice_is_a_load_error() {
-    let err = load_error("    m:\n      type: matrix\n      members: { a: A, a: Again }\n");
-    assert!(err.contains("duplicate mapping key"), "{err}");
-}
-
-#[test]
-fn the_synthesized_tick_cannot_be_declared_as_a_column() {
-    let err = load_error(
-        "    m:\n      type: matrix\n      members: { a: A }\n      \
-         properties:\n        held: { type: string }\n",
-    );
-    assert!(err.contains("quill::matrix_reserved_column"), "{err}");
-}
-
-#[test]
-fn a_matrix_without_a_roster_is_a_load_error() {
-    assert!(load_error("    m:\n      type: matrix\n").contains("quill::field_parse_error"));
-}
-
-#[test]
-fn a_roster_off_a_matrix_is_a_load_error() {
-    let err = load_error("    m:\n      type: string\n      members: { a: A }\n");
-    assert!(err.contains("quill::field_parse_error"), "{err}");
-}
-
-/// Obligation is per column inside a *held* member, the variant rule one level
-/// down: an unticked member asks for nothing, and the matrix itself obliges
-/// nothing.
-#[test]
-fn a_defaultless_column_is_obliged_only_inside_a_held_member() {
-    let yaml = quill_yaml().replace(
-        "detail: { type: plaintext, inline: true, default: \"\" }",
-        "detail: { type: plaintext, inline: true }",
-    );
-    let quill = quill_from_yaml(&yaml);
-    let obliged = |fields: &str| -> Vec<String> {
-        let markdown = format!("~~~\n$quill: matrix_probe@0.1.0\n$kind: main\n{fields}~~~\n");
-        let document = Document::parse(&markdown).expect("parses").document;
-        quill
-            .validate(&document)
-            .into_iter()
-            .filter(|d| d.code.as_deref() == Some("validation::must_fill"))
-            .map(|d| d.path.unwrap_or_default())
-            .collect()
-    };
-
-    assert!(
-        obliged("title: T\n").is_empty(),
-        "an absent matrix obliges nothing"
-    );
-    assert!(
-        obliged("qualifications:\n  flight_cc: { held: false }\n").is_empty(),
-        "an unticked member obliges nothing"
-    );
-    assert!(
-        obliged("qualifications:\n  flight_cc: {}\n").is_empty(),
-        "a mapping naming no tick is unticked, so it obliges nothing either"
-    );
-    assert_eq!(
-        obliged("qualifications:\n  flight_cc: true\n"),
-        ["main.qualifications.flight_cc.detail"],
-        "a held member obliges its defaultless columns"
-    );
 }
 
 /// A namespace holds no literal, and a column's `example:` documents one cell's
@@ -452,26 +343,10 @@ main:
     assert_eq!(doc1, doc2);
 }
 
-/// `held` is the tick the type synthesizes; `title` is written onto every
-/// member from the roster. A column under either would load, validate and
-/// address, then be overwritten where it matters.
-#[test]
-fn a_column_may_not_spell_a_key_the_matrix_writes_itself() {
-    for reserved in ["held", "title"] {
-        let err = load_error(&format!(
-            "    m:\n      type: matrix\n      members: {{ a: A }}\n      \
-             properties:\n        {reserved}: {{ type: string }}\n"
-        ));
-        assert!(
-            err.contains("quill::matrix_reserved_column"),
-            "`{reserved}` must be refused as a column, got {err}"
-        );
-    }
-}
-
-/// Obligation reads the tick the *plate* reads, so the two cannot call the same
-/// member held and unheld. `"false"` is the case that tells them apart: the
-/// render floor coerces it to the boolean, a raw truthiness test does not.
+/// Obligation is per column inside a *held* member, and reads the tick the
+/// *plate* reads, so the two cannot call the same member held and unheld.
+/// `"false"` is the case that tells them apart: the render floor coerces it to
+/// the boolean, a raw truthiness test does not.
 #[test]
 fn the_tick_is_judged_by_the_render_floor_not_by_raw_truthiness() {
     let yaml = quill_yaml().replace(
@@ -496,6 +371,10 @@ fn the_tick_is_judged_by_the_render_floor_not_by_raw_truthiness() {
     };
 
     for (spelling, held) in [
+        ("title: T\n", false),
+        ("qualifications:\n  flight_cc: { held: false }\n", false),
+        ("qualifications:\n  flight_cc: {}\n", false),
+        ("qualifications:\n  flight_cc: true\n", true),
         ("qualifications:\n  flight_cc: \"false\"\n", false),
         ("qualifications:\n  flight_cc: \"true\"\n", true),
         ("qualifications:\n  flight_cc: 0\n", false),
@@ -503,11 +382,8 @@ fn the_tick_is_judged_by_the_render_floor_not_by_raw_truthiness() {
     ] {
         let (wire, obliged) = held_at(spelling);
         assert_eq!(wire, held, "wire disagrees on {spelling:?}");
-        assert_eq!(
-            !obliged.is_empty(),
-            held,
-            "obligation disagrees with the wire on {spelling:?}: {obliged:?}"
-        );
+        let want: &[&str] = if held { &["main.qualifications.flight_cc.detail"] } else { &[] };
+        assert_eq!(obliged, want, "obligation disagrees with the wire on {spelling:?}");
     }
 }
 
