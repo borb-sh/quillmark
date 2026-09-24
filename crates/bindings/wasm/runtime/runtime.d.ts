@@ -103,6 +103,7 @@ export type {
 	Severity,
 	QuillSchema,
 	QuillFieldSchema,
+	QuillFieldType,
 	QuillCardSchema,
 	QuillCardBody,
 	QuillFieldUi,

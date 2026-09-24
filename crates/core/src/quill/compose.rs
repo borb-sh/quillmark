@@ -468,7 +468,7 @@ pub(crate) fn resolve_value_sourced(
     if field.is_variant_bearing() {
         return resolve_variant_sourced(value, field);
     }
-    let (seed, source) = match value.filter(|v| !v.as_json().is_null()) {
+    let (seed, source) = match value.filter(|v| !is_unanswered(v, field)) {
         Some(v) => (Some(v.clone()), FieldSource::Authored),
         None => match seed_default(field) {
             Some(default) => (Some(default), FieldSource::Default),
@@ -477,6 +477,18 @@ pub(crate) fn resolve_value_sourced(
     };
     let (resolved, composed) = compose(seed.as_ref(), field, source);
     (resolved, source.join(composed))
+}
+
+/// Null, and an optional enum's `""`: the blank spelled in a document, which
+/// an optional cell renders as `none` like any other unanswered one.
+fn is_unanswered(value: &QuillValue, field: &FieldSchema) -> bool {
+    match value.as_json() {
+        serde_json::Value::Null => true,
+        serde_json::Value::String(s) => {
+            s.is_empty() && field.optional && matches!(field.r#type, FieldType::Enum { .. })
+        }
+        _ => false,
+    }
 }
 
 /// The `default:` a cell enters the descent with, in the form the plate takes it.
@@ -512,6 +524,9 @@ fn compose(
     field: &FieldSchema,
     seed_rung: FieldSource,
 ) -> (QuillValue, FieldSource) {
+    if seed.is_none() && field.optional {
+        return (blank(field), FieldSource::Blank);
+    }
     match (&field.r#type, field.namespace_props(), &field.items) {
         (FieldType::Object | FieldType::Matrix { .. }, Some(props), _)
             if composes_as(seed, serde_json::Value::is_object) =>

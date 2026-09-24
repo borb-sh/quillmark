@@ -1,4 +1,5 @@
 mod matrix_tests;
+mod optional_tests;
 mod properties;
 mod support_tests;
 mod variant_tests;

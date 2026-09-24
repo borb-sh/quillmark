@@ -39,6 +39,36 @@ Supported field types:
 | `plaintext` | Navigable **unformatted** prose over the same canonical content (`Content`) as `richtext` (same media type, nav, and regions) but a **literal** codec (`from_plaintext`/`to_plaintext`): delimiters stay literal, no markup, verbatim round-trip. Declare `inline: true` for the single-line variant. Constrained mark-/island-free (`Content::is_plain`); a formatted wire content is rejected (`validation::not_plain`), not stripped. **Rests as the literal string** — in the *document*. A plate receives the content object, exactly as for `richtext` (no backend reads the `plaintext` annotation): there is deliberately no plate-side content→`str` projection, since no plate has needed one |
 | `richtext` | Rich **formatted** prose over a canonical content (`Content`); markdown is a projection of it. Declare `inline: true` for the single-line variant (exactly one `Para` line, no container, no islands). The pre-richtext `markdown` spelling and the retired `type: richtext(inline)` token are schema load errors (`quill::field_parse_error`). **Rests as the canonical content object** |
 
+### Optional cells
+
+A trailing `?` on a cell's type token (`integer?`, `boolean?`, `string?`,
+`enum?`, `date?`, `richtext?`, `array?`, …) makes the cell **optional**: left
+unanswered, it renders `none` rather than its type's blank. The `?` moves the
+render floor and nothing else.
+
+| Declaration | Unanswered renders | Plate reads | `must_fill` |
+|---|---|---|---|
+| `type: t` | the type's [blank](#blank-filled-render) | always a `t` | warns |
+| `type: t` + `default:` | the default | always a `t` | never |
+| `type: t?` | `none` | a `t` or `none` | warns |
+
+- **Exclusive with `default:`** (`quill::optional_default`). A default answers
+  for an unanswered cell, so the cell would never render `none`. `example:`
+  suggests a value without answering.
+- **A cell only.** `object`, `matrix` and a variant-bearing `enum` are
+  namespaces with no rung of their own (`quill::optional_namespace`); their cells
+  take the `?` instead.
+- **An authored value is an answer**, `0`, `false`, `""` and `[]` included. An
+  `enum?`'s `""` is the exception: it is the blank's own spelling, so it renders
+  `none`.
+- **The wire admits `null`.** The transform schema projects `type: [t, "null"]`,
+  and an `enum?` lists `null` beside its blank. The declaration view and the
+  blueprint annotation keep the `?`.
+- **A plate guards `none` only where a schema says `?`.** The helper's `when`
+  and `value-or` read an optional cell ([PLATE_DATA.md](PLATE_DATA.md)).
+- **An editor offers a way back to unanswered** on an optional cell:
+  `removeField`, the one unset verb ([Native validation](#native-validation)).
+
 ### Enum variants
 
 An `enum` may declare `variants:`, a per-member field set that exists only in the
@@ -721,6 +751,7 @@ domain.** It is both the render floor and the value a reader recognizes as
 | `integer`, `number` | `0` |
 | `boolean` | `false` |
 | `enum` with `variants:` | `{value: ""}` — the container holding the blank |
+| any optional cell (`t?`) | `null`, lowered to Typst `none` ([Optional cells](#optional-cells)) |
 
 Nothing forces an enum's blank to sit inside `values:`, and putting it there
 destroys it: the floor would return a real choice nobody made, and a cosmetic
@@ -740,13 +771,14 @@ engine accepts. A consumer's picker offers the blank as a real, re-selectable
 option labelled by `ui.blank_title` — never a vanishing placeholder, because
 returning to it is how a human clears a cell back to unset.
 
-**The table has a permanent seam at `integer`, `number` and `boolean`**, and any
-`object` or `array` over them, since their blank is the recursive one: `0` and
-`false` are indistinguishable at the plate from an authored `0` and `false`. A
-wire `none` for those types would be type-*absent* rather than type-*minimal*,
-and Typst arithmetic and comparison reject it, which would cost the totality the
-floor exists to buy. An author needing to spell "unset" for a number models it
-as an `enum`, which has a real blank — at the cost of forfeiting arithmetic.
+**At `integer`, `number` and `boolean` the blank reads as an answer**, and so
+does any `object` or `array` over them, since their blank is the recursive one:
+`0` and `false` are indistinguishable at the plate from an authored `0` and
+`false`. A uniform wire `none` for those types would be type-*absent* rather than
+type-*minimal*, and Typst arithmetic and comparison reject it, which would cost
+every plate the totality the floor exists to buy. So the floor stays
+type-minimal, and a cell whose plate must see "unanswered" declares it:
+`type: integer?` renders `none` ([Optional cells](#optional-cells)).
 
 `blank` is the shared producer behind the render floor: for authored, blank, and
 seeded documents alike (see [BLUEPRINT.md](BLUEPRINT.md)).
