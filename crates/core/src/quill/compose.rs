@@ -797,8 +797,8 @@ fn rebuild_payload_with_meta(source: &Card, fields: IndexMap<String, QuillValue>
 /// Every card of `doc`, the main card first, with the schema its kind resolves
 /// to (`None` for an undeclared kind) and the [`DocPath`] it is reported under.
 ///
-/// A card whose `$kind` is missing or has no schema drops the kind segment and
-/// stays `cards[<i>]`; a schema-declared kind qualifies as `cards.<kind>[<i>]`.
+/// A card whose `$kind` has no schema drops the kind segment and stays
+/// `cards[<i>]`; a schema-declared kind qualifies as `cards.<kind>[<i>]`.
 fn schema_cards<'a>(
     config: &'a QuillConfig,
     doc: &'a Document,

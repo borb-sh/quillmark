@@ -71,13 +71,15 @@ fn tilde_code_in_a_body_fails_at_its_fence() {
         ("~~~yaml\nname: server\n~~~\n\nConclusion.\n", Some("yaml")),
         ("~~~python\ndef f(x):\n    return x\n~~~\n", Some("python")),
         ("~~~\n~~~\n", None),
+        ("~~~card-yaml\ntitle: T\n~~~\n", Some("card-yaml")),
     ] {
         let kindless = fails(block);
         assert_eq!(kindless.code.as_deref(), Some("parse::missing_kind"), "{block:?}");
         assert_eq!(kindless.location.map(|l| (l.line, l.column)), Some((8, 1)));
         assert_eq!(kindless.args.get("info"), info.map(|i| serde_json::json!(i)).as_ref());
         let hint = kindless.hint.unwrap();
-        assert!(hint.contains("`$kind: <kind>`") && hint.contains(&format!("```{}", info.unwrap_or(""))), "{hint}");
+        let fence = format!("```{}", info.filter(|i| *i != "card-yaml").unwrap_or(""));
+        assert!(hint.contains("`$kind: <kind>`") && hint.ends_with(&fence), "{hint}");
     }
 
     let card = fails("~~~yaml\n$kind: note\nbad-name: 1\n~~~\n");

@@ -382,17 +382,28 @@ fn missing_kind_message(info: Option<&str>) -> String {
 fn missing_kind_hint(info: Option<&str>) -> String {
     format!(
         "Add a `$kind: <kind>` line naming the card's kind. If the block is code, fence it \
-         with backticks instead: ```{}",
-        info.unwrap_or("")
+         with backticks instead: {}",
+        backtick_fence(info)
     )
+}
+
+/// The backtick opener to write for code fenced as `~~~<info>`: the info
+/// string carries over unless it names the card format or holds a backtick,
+/// which a backtick opener cannot.
+fn backtick_fence(info: Option<&str>) -> String {
+    match info.filter(|i| *i != "card-yaml" && !i.contains('`')) {
+        Some(info) => format!("```{info}"),
+        None => "```".to_string(),
+    }
 }
 
 /// The hint for code fenced with `~~~`: the rule it met and the fence to use.
 fn tilde_code_hint(info: Option<&str>) -> String {
     match info {
-        Some(info) => format!(
+        Some(_) => format!(
             "Every column-zero `~~~` fence opens a card-yaml block, whatever its info \
-             string. Fence code with backticks instead: ```{info}"
+             string. Fence code with backticks instead: {}",
+            backtick_fence(info)
         ),
         None => "Every column-zero `~~~` fence opens a card-yaml block, whose payload is \
                  `key: value` fields. Fence code with backticks instead: ```"
