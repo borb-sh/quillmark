@@ -26,7 +26,7 @@ fn quill() -> quillmark::Quill {
 
 fn open_session(markdown: &str) -> quillmark::LiveSession {
     let doc = Document::parse(markdown).expect("parse markdown").document;
-    Quillmark::new().open(&quill(), &doc).expect("open ok")
+    Quillmark::new().open(&quill(), &doc, None).expect("open ok")
 }
 
 /// The rendered PDF and its AcroForm dict.
@@ -43,6 +43,7 @@ fn render(markdown: &str) -> (PdfDoc, lopdf::Dictionary) {
         .render(
             &quill(),
             &doc,
+            None,
             &RenderOptions::default().with_output_format(OutputFormat::Pdf),
         )
         .expect("render ok");

@@ -22,10 +22,63 @@ static DATETIME_FMTS: LazyLock<[FormatDescriptionV3<'static>; 2]> = LazyLock::ne
     ]
 });
 
+/// The `type: date` keyword standing for the render date. It stores as written;
+/// the compile replaces it with the date its host supplies.
+pub const TODAY: &str = "today";
+
+/// A calendar date: the render date a host supplies to a compile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CalendarDate {
+    year: i32,
+    month: u8,
+    day: u8,
+}
+
+impl CalendarDate {
+    /// `None` for a day the calendar lacks (`2026-02-30`) or a year outside
+    /// the `type: date` grammar.
+    pub fn new(year: i32, month: u8, day: u8) -> Option<Self> {
+        let month_of = time::Month::try_from(month).ok()?;
+        let date = Date::from_calendar_date(year, month_of, day).ok()?;
+        (0..=9999)
+            .contains(&date.year())
+            .then_some(Self { year, month, day })
+    }
+
+    pub fn year(self) -> i32 {
+        self.year
+    }
+
+    pub fn month(self) -> u8 {
+        self.month
+    }
+
+    pub fn day(self) -> u8 {
+        self.day
+    }
+}
+
+impl std::str::FromStr for CalendarDate {
+    type Err = String;
+
+    /// The `type: date` grammar, [`parse_date`]; `today` is not a date.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        parse_date(s)
+            .and_then(|(year, month, day)| Self::new(year, month, day))
+            .ok_or_else(|| format!("expected a date `YYYY-MM-DD`, got {s:?}"))
+    }
+}
+
+impl std::fmt::Display for CalendarDate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:04}-{:02}-{:02}", self.year, self.month, self.day)
+    }
+}
+
 /// True when `s` is a valid `type: date` value: a strict calendar date with
-/// no time component. See [`parse_date`].
+/// no time component (see [`parse_date`]), or [`TODAY`].
 pub(crate) fn is_valid_date(s: &str) -> bool {
-    parse_date(s).is_some()
+    s == TODAY || parse_date(s).is_some()
 }
 
 /// True when `s` is a valid `type: datetime` value: a strict offset-less

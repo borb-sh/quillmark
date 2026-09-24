@@ -115,7 +115,7 @@ fn seeded_document_compiles_with_default_then_blank_for_absent_fields() {
     let doc = quill.seed_document();
 
     let data = quill
-        .compile_data(&doc)
+        .compile_data(&doc, None)
         .expect("seeded document must compile");
 
     assert_eq!(
@@ -221,7 +221,7 @@ fn seed_overlay_diagnostics_are_advisory_and_do_not_gate_render() {
             .unwrap_or_else(|| panic!("no diagnostic at {path}: {diags:?}"));
         assert_eq!(d.code.as_deref(), Some(code));
         assert_eq!(d.severity, Severity::Warning);
-        assert!(quill.compile_data(&doc).is_ok(), "{path}");
+        assert!(quill.compile_data(&doc, None).is_ok(), "{path}");
         assert!(quill.dry_run(&doc).is_ok(), "{path}");
     }
 

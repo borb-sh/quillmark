@@ -14,7 +14,7 @@ fn svg(body: &str) -> String {
     let quill = quillmark::quill_from_path(quills_path("table_demo")).expect("load");
     let md = format!("~~~card-yaml\n$quill: table_demo@0.1.0\n$kind: main\ntitle: T\n~~~\n\n{body}\n");
     let parsed = Document::parse(&md).expect("parse").document;
-    let r = engine.render(&quill, &parsed,
+    let r = engine.render(&quill, &parsed, None,
         &RenderOptions::default().with_output_format(OutputFormat::Svg)).expect("render");
     String::from_utf8_lossy(&r.artifacts[0].bytes).to_string()
 }

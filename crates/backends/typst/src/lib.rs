@@ -20,7 +20,7 @@ use std::collections::BTreeMap;
 use quillmark_core::{
     backend::Backend,
     error::{Diagnostic, RenderError, RenderResult, Severity},
-    quill::{build_transform_schema, BlockConstruct, Quill},
+    quill::{build_transform_schema, BlockConstruct, CalendarDate, Quill},
     region::{ContentHit, RenderedRegion},
     session::{ChangeSet, LiveSession, SessionHandle},
     types::{OutputFormat, RenderOptions},
@@ -427,6 +427,7 @@ impl Backend for TypstBackend {
         &self,
         source: &Quill,
         json_data: &serde_json::Value,
+        today: Option<CalendarDate>,
     ) -> Result<LiveSession, RenderError> {
         let plate = read_plate(source)?;
 
@@ -441,6 +442,7 @@ impl Backend for TypstBackend {
                 format!("Failed to create Typst compilation environment: {e}"),
             )
         })?;
+        world.set_today(today);
         // The plate is static for the session: window its scalar sites once.
         let scalar_windows: Vec<overlay::FieldWindow> = {
             use typst::World as _;
@@ -468,6 +470,7 @@ impl Backend for TypstBackend {
         Ok(LiveSession::new(
             Box::new(session),
             source.config().clone(),
+            today,
         ))
     }
 }
@@ -546,7 +549,7 @@ impl AddressNode {
                     .collect()
             })
             .unwrap_or_default();
-        let item = (node.get("type").and_then(|v| v.as_str()) == Some("array")).then(|| {
+        let item = (helper::node_type(node) == Some("array")).then(|| {
             Box::new(
                 node.get("items")
                     .map(Self::from_schema)

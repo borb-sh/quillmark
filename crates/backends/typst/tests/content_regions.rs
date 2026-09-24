@@ -12,7 +12,7 @@ use common::{content, quill_with_plate as quill, yaml};
 
 fn open(schema: &str, plate: &str, data: serde_json::Value) -> LiveSession {
     TypstBackend
-        .open(&quill(&yaml(schema), plate), &data)
+        .open(&quill(&yaml(schema), plate), &data, None)
         .expect("open")
 }
 
@@ -494,6 +494,7 @@ fn form_field_path_rejected_when_address_tables_are_empty() {
         .open(
             &quill(&yaml("main:\n  body:\n    enabled: false\n"), PLATE),
             &serde_json::json!({}),
+            None,
         )
         .err()
         .expect("an address must still fail when the tables are empty, not absent");
@@ -538,6 +539,7 @@ fn adversarial_codegen_inputs_still_compile() {
                 "overlap": quillmark_content::serial::to_canonical_value(&overlap.into_normalized()),
                 "n": i64::MIN,
             }),
+            None,
         )
         .expect("adversarial data must still compile");
 }

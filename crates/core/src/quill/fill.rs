@@ -7,13 +7,17 @@ use super::{FieldSchema, FieldType, VARIANT_DISCRIMINANT_KEY};
 use crate::value::QuillValue;
 
 /// The **blank** for `field`: the leanest value satisfying its declared type,
-/// and the value a reader recognizes as "nobody said anything". The per-type
-/// table is `SCHEMAS.md` § "Blank-filled render".
+/// and the value a reader recognizes as "nobody said anything"; `null` for an
+/// [optional](FieldSchema::optional) cell. The per-type table is `SCHEMAS.md`
+/// § "Blank-filled render".
 ///
 /// The `enum` blank is `""` unconditionally: the loader rejects a declared `""`
 /// (`quill::enum_blank_member`), but a [`FieldSchema`] built by field assignment
 /// carries whatever domain it was given, so this does not lean on that.
 pub fn blank(field: &FieldSchema) -> QuillValue {
+    if field.optional {
+        return QuillValue::from_json(serde_json::Value::Null);
+    }
     // The blank activates no variant, so the container carries the blank
     // discriminant and nothing else.
     if field.is_variant_bearing() {

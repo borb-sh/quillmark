@@ -13,7 +13,7 @@ const YAML: &str = "quill:\n  name: t\n  version: \"1.0\"\n  backend: typst\n  \
 #[test]
 fn missing_plate_file_errors_at_open_not_load() {
     let q = quill(YAML, &[]);
-    let err = match TypstBackend.open(&q, &serde_json::json!({})) {
+    let err = match TypstBackend.open(&q, &serde_json::json!({}), None) {
         Ok(_) => panic!("a missing plate file must fail at open"),
         Err(e) => e,
     };
@@ -62,7 +62,7 @@ fn a_nested_plate_resolves_assets_from_the_root_and_diagnoses_under_its_own_path
     }
     let q = Quill::from_tree(root).expect("load quill");
 
-    let diags = match TypstBackend.open(&q, &serde_json::json!({})) {
+    let diags = match TypstBackend.open(&q, &serde_json::json!({}), None) {
         Ok(_) => panic!("the missing key must fail the compile"),
         Err(e) => e.into_diagnostics(),
     };

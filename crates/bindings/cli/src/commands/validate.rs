@@ -172,6 +172,7 @@ fn validate_canonical_renders(quill: &Quill, result: &mut ValidationResult, verb
     ];
 
     let options = RenderOptions::default().with_output_format(format);
+    let today = Some(super::render_date(None));
     for (label, document) in documents {
         let document = match document {
             Ok(document) => document,
@@ -185,7 +186,7 @@ fn validate_canonical_renders(quill: &Quill, result: &mut ValidationResult, verb
             }
         };
 
-        match engine.render(quill, &document, &options) {
+        match engine.render(quill, &document, today, &options) {
             Ok(rendered) if rendered.artifacts.iter().all(|a| a.bytes.is_empty()) => result.add(
                 Severity::Error,
                 format!("the {label} document rendered no {format} bytes"),

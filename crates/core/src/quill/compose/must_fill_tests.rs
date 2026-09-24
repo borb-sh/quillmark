@@ -164,7 +164,7 @@ fn an_unauthored_obligation_never_gates_render() {
     let doc = Document::parse(&md("")).expect("parse").document;
 
     assert_eq!(paths(&quill, &md("")).len(), 3, "the document is incomplete");
-    let plate = quill.compile_data(&doc).expect("and renders anyway");
+    let plate = quill.compile_data(&doc, None).expect("and renders anyway");
     assert_eq!(plate["subject"], "", "the unauthored cell blank-fills");
 }
 

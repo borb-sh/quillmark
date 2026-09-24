@@ -57,7 +57,7 @@ fn doc(fields: &str) -> Document {
 /// The matrix as the plate receives it.
 fn plate(document: &Document) -> serde_json::Value {
     config()
-        .compile_data(document)
+        .compile_data(document, None)
         .expect("compile_data succeeds")["qualifications"]
         .clone()
 }
@@ -271,7 +271,7 @@ fn the_blueprint_hint_spells_a_held_member_with_every_column() {
     let markdown =
         format!("~~~\n$quill: matrix_probe@0.1.0\n$kind: main\nqualifications: {hint}\n~~~\n");
     let pasted = Document::parse(&markdown).expect("the hint parses").document;
-    let wire = quill.compile_data(&pasted).expect("compiles")["qualifications"]
+    let wire = quill.compile_data(&pasted, None).expect("compiles")["qualifications"]
         ["sq_cc_candidate"]
         .clone();
     assert_eq!(wire["held"], json!(true));
@@ -357,7 +357,7 @@ fn the_tick_is_judged_by_the_render_floor_not_by_raw_truthiness() {
     let held_at = |fields: &str| -> (bool, Vec<String>) {
         let markdown = format!("~~~\n$quill: matrix_probe@0.1.0\n$kind: main\n{fields}~~~\n");
         let document = Document::parse(&markdown).expect("parses").document;
-        let wire = quill.compile_data(&document).expect("compiles")["qualifications"]
+        let wire = quill.compile_data(&document, None).expect("compiles")["qualifications"]
             ["flight_cc"]["held"]
             .as_bool()
             .expect("the tick is a boolean on the wire");

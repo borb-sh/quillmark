@@ -20,7 +20,7 @@ const PLATE: &str = "#set page(width: 200pt, height: 120pt, margin: 12pt)\nink\n
 
 fn open() -> LiveSession {
     TypstBackend
-        .open(&quill(&yaml("main:\n  fields: {}\n"), PLATE), &serde_json::json!({}))
+        .open(&quill(&yaml("main:\n  fields: {}\n"), PLATE), &serde_json::json!({}), None)
         .expect("open")
 }
 

@@ -103,6 +103,7 @@ export type {
 	Severity,
 	QuillSchema,
 	QuillFieldSchema,
+	QuillFieldType,
 	QuillCardSchema,
 	QuillCardBody,
 	QuillFieldUi,
@@ -401,16 +402,22 @@ export declare class Engine {
 	 * `plate::unsupported_construct`) ahead of the compile's own. A
 	 * {@link LiveSession} outlives the document it opened from, so
 	 * {@link LiveSession.render} carries the compile half alone.
+	 *
+	 * `today` reads as on {@link open}.
 	 */
-	render(quill: Quill, doc: Document, options?: RenderOptions): Promise<RenderResult>;
+	render(quill: Quill, doc: Document, options?: RenderOptions, today?: string): Promise<RenderResult>;
 
 	/**
 	 * Open a live render session (canvas preview / per-page paint / `update`).
 	 * The `quill` and `doc` handles are read synchronously before the first
 	 * await, so the caller may `free()` them as soon as this call returns; the
 	 * caller owns the returned session and must `.free()` it.
+	 *
+	 * `today` (`YYYY-MM-DD`, default the local date) is the render date: a
+	 * `today` date field renders as it, and so does a plate's
+	 * `datetime.today()`. The session keeps it for every `update`.
 	 */
-	open(quill: Quill, doc: Document): Promise<LiveSession>;
+	open(quill: Quill, doc: Document, today?: string): Promise<LiveSession>;
 
 	/**
 	 * Output formats `quill`'s backend can emit. An always-free pre-render probe:
@@ -712,9 +719,9 @@ export declare class DocumentReader {
 	 * projection would use and the rung it came from (`authored` / `default` /
 	 * `blank`). The one read that blank-fills and coerces; {@link get} reports
 	 * what the document carries. Value and provenance only; completeness stays
-	 * `quill.validate`'s.
+	 * `quill.validate`'s. `today` reads as on {@link Engine.open}.
 	 */
-	resolve(): Resolved;
+	resolve(today?: string): Resolved;
 	/**
 	 * A {@link CardReader} for the composable card at `index`. Index validity is
 	 * checked lazily at read time, so an out-of-range index does not throw here.

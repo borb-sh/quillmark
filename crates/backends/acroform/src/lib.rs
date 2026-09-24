@@ -17,7 +17,7 @@ use quillmark_core::session::SessionHandle;
 use quillmark_core::{
     backend::Backend,
     error::{RenderError, RenderResult},
-    quill::Quill,
+    quill::{CalendarDate, Quill},
     region::RenderedRegion,
     session::{ChangeSet, LiveSession},
     types::{Artifact, OutputFormat, RenderOptions},
@@ -55,6 +55,7 @@ impl Backend for AcroformBackend {
         &self,
         source: &Quill,
         json_data: &serde_json::Value,
+        today: Option<CalendarDate>,
     ) -> Result<LiveSession, RenderError> {
         let files = source.files();
         let base_pdf = files
@@ -95,6 +96,7 @@ impl Backend for AcroformBackend {
                 stamped,
             }),
             source.config().clone(),
+            today,
         ))
     }
 }

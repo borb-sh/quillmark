@@ -35,7 +35,7 @@ fn open() -> LiveSession {
         .open(&quill(
             &yaml("main:\n  fields:\n    inline_field: { type: string }\n    centered_field: { type: string }\n"),
             PLATE,
-        ), &serde_json::json!({}))
+        ), &serde_json::json!({}), None)
         .expect("open")
 }
 

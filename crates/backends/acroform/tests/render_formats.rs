@@ -22,7 +22,7 @@ fn sample_form() -> Quill {
 
 fn render(opts: &RenderOptions) -> Result<quillmark::RenderResult, RenderError> {
     let doc = Document::parse(FILLED).expect("parse markdown").document;
-    Quillmark::new().render(&sample_form(), &doc, opts)
+    Quillmark::new().render(&sample_form(), &doc, None, opts)
 }
 
 fn refusal_code(opts: &RenderOptions) -> String {

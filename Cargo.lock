@@ -1745,6 +1745,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "num_threads"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c7398b9c8b70908f6371f47ed36737907c87c52af34c268fed0bf0ceb92ead9"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "object"
 version = "0.37.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2187,6 +2196,7 @@ dependencies = [
  "quillmark-fixtures",
  "serde_json",
  "tempfile",
+ "time",
 ]
 
 [[package]]
@@ -2251,7 +2261,6 @@ name = "quillmark-typst"
 version = "0.115.0"
 dependencies = [
  "comemo",
- "js-sys",
  "lopdf",
  "proptest",
  "quillmark",
@@ -2262,14 +2271,12 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
- "time",
  "toml 1.1.6+spec-1.1.0",
  "typst",
  "typst-layout",
  "typst-pdf",
  "typst-render",
  "typst-svg",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -3017,7 +3024,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cdb87b95ec50ddfa440816d227a17b2ccbdda963a316a727fda0fc4334f7d134"
 dependencies = [
  "deranged",
+ "libc",
  "num-conv",
+ "num_threads",
  "powerfmt",
  "serde_core",
  "time-core",

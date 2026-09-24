@@ -84,7 +84,7 @@ main:
 
 | Property      | Type              | Required | Description |
 |---------------|-------------------|----------|-------------|
-| `type`        | string            | yes      | Data type (see [Field Types](#field-types)) |
+| `type`        | string            | yes      | Data type (see [Field Types](#field-types)); a trailing `?` makes the field [optional](#optional-fields-t) |
 | `description` | string            | no       | Detailed help text |
 | `default`     | matches `type`    | no       | The value the **majority of authors want**. When the cell is omitted, the default is filled in — at any depth, whether or not the container above it was authored — and the blueprint renders that concrete value with a type-only annotation, shippable as-is. Declaring it also makes the field unobliged (see [Obligation](#obligation)). Declared on a **cell**: a leaf or an `array`. On an `object` it is a load error (`quill::default_on_namespace`), since its properties hold their own. |
 | `example`     | matches `type`    | no       | A value matching the **type and shape** of what the author wants, but **not** the value desired most of the time. Documents shape only, never rendered as the value: it takes the blueprint cell when no `default` holds it, and surfaces in the `# e.g.` line otherwise. Declared on a **cell**, as `default` is (`quill::example_on_namespace`). |
@@ -100,7 +100,7 @@ One question per field: **does it have a value when nobody types anything?**
 `default` is the answer, and its absence is what obliges a human.
 
 ```yaml
-# Optional, with nothing to suggest: the type's blank is the answer "nothing".
+# Unobliged, with nothing to suggest: the type's blank is the answer "nothing".
 internal_note:
   type: string
   default: ""
@@ -147,11 +147,48 @@ discharges it.
 | `integer`  | Integer-only numeric scalar, sized as an `i64`; a literal past that range takes `number` |
 | `boolean`  | `true` or `false` |
 | `array`    | Ordered list; requires an `items:` element schema. Optional `max:`, the element count the page holds (see [`max`](#max-what-the-page-holds)) |
-| `date`     | A strict calendar date `YYYY-MM-DD`; rejects any time component |
+| `date`     | A strict calendar date `YYYY-MM-DD`, or `today` (see [Dated by the render](#dated-by-the-render-today)); rejects any time component |
 | `datetime` | A strict offset-less wall-clock datetime `YYYY-MM-DDThh:mm[:ss]`; rejects offsets, the space separator, fractional seconds, and bare dates |
 | `richtext` | Rich, **formatted** prose over a canonical content; backends lower it to the target format. Markdown is its import/export projection. Add `inline: true` for the single-paragraph variant |
 | `object`   | Structured map; requires a `properties:` map |
 | `matrix`   | A closed vocabulary the author ticks; requires a `members:` roster. Each member is an object of a synthesized `held` plus the field's `properties:` (see [Matrix](#matrix-a-vocabulary-the-author-ticks)) |
+
+#### Dated by the render: `today`
+
+A certificate or a form issued on the spot is dated by the day it is rendered. A `date` value may be the word `today`, authored in a document or as a `default:`:
+
+```yaml
+issued:
+  type: date
+  default: today   # every document leaving the field unset renders on its render date
+```
+
+The document stores `today`, not a date. The render supplies the date: the CLI and the WASM and Python bindings use the local date unless given one (`quillmark render --today 2026-03-14`, `engine.render(quill, doc, opts, "2026-03-14")`, `engine.render(..., today=date(2026, 3, 14))`). A plate's `datetime.today()` returns the same date. A document that writes a date instead pins it.
+
+#### Optional fields: `t?`
+
+An unanswered field reaches the plate as its type's blank: `0` for a number, `false` for a boolean. Those read as answers, so a plate cannot tell "0 votes against" from "nobody entered a tally". Append `?` to the type where it must:
+
+```yaml
+quorum:
+  type: integer?      # none when unanswered, an integer otherwise
+confidential:
+  type: boolean
+  default: false      # always a boolean
+```
+
+| Declaration | Renders when unanswered | The plate reads |
+|---|---|---|
+| `type: t` | the type's blank | always a `t` |
+| `type: t` with `default:` | the default | always a `t` |
+| `type: t?` | `none` | a `t` or `none` |
+
+- Any cell takes the `?`: every scalar type, `richtext`, `plaintext`, `date`, `enum`, and `array`. An `object`, a `matrix`, and an `enum` with `variants:` do not (`quill::optional_namespace`); mark the fields inside them instead.
+- `?` and `default:` are exclusive (`quill::optional_default`): a default answers for the author, so the field would never be `none`. Use `example:` to suggest a value.
+- An authored value is kept as written: `0`, `false`, `""`, and `[]` are answers. On an `enum?`, `""` is the blank and reads `none`.
+- Obligation is unchanged: with no `default:`, an unanswered `t?` still carries `!must_fill` and warns.
+
+Reading an optional field in a plate: [Blank values](typst-backend.md#blank-values).
 
 #### Choosing among `string`, `enum`, `plaintext`, and `richtext`
 
@@ -230,8 +267,8 @@ accepted in the other:
 ```
 
 `values:` enumerates *choices*. `default:`, your documents, and the projections
-all range over `values ∪ blank`. Keeping `default: ""` is how you say "this field
-is optional"; dropping it makes the field one an author is expected to answer.
+all range over `values ∪ blank`. Keeping `default: ""` is how you say "nobody need
+answer this"; dropping it makes the field one an author is expected to answer.
 
 Where the empty state is itself a decision someone makes and the document should
 record it, make it a member — `undecided`, `waived`, `n_a` — not the blank. The

@@ -33,7 +33,9 @@ use quillmark_content::model::Normalized;
 
 use crate::document::edit::field_decode;
 use crate::document::{Card, Codec, Document, EditError};
-use crate::quill::{resolve_document, CardSchema, FieldSchema, FieldType, QuillConfig, Resolved};
+use crate::quill::{
+    resolve_document, CalendarDate, CardSchema, FieldSchema, FieldType, QuillConfig, Resolved,
+};
 use crate::value::{PathSegment, QuillValue};
 
 /// A [`Document`] bound to its [`QuillConfig`] for typed reads. Construct with
@@ -118,9 +120,10 @@ impl<'a> TypedReader<'a> {
     /// The resolved view: for every declared field, the value the render
     /// projection would use and the rung it came from. The one read that
     /// blank-fills and coerces; see
-    /// [`Quill::resolve`](crate::quill::Quill::resolve).
-    pub fn resolve(&self) -> Resolved {
-        resolve_document(self.config, self.doc)
+    /// [`Quill::resolve`](crate::quill::Quill::resolve), which takes `today` as
+    /// this does.
+    pub fn resolve(&self, today: Option<CalendarDate>) -> Resolved {
+        resolve_document(self.config, self.doc, today)
     }
 
     /// A schema-bound reader for the composable card at `index`. The card's

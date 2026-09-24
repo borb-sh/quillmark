@@ -28,6 +28,8 @@ A present `type: date` / `type: datetime` field is a native `datetime`; a blank 
 #if data.issued != none { .. }                                        // presence
 ```
 
+`datetime.today()` returns the render date the host supplied, the same date a `today` field renders as. The engine reads no clock: a render given no date fails at `datetime.today()`, where a `today` field renders blank.
+
 Everything except the last two is ordinary Typst, because the value is an ordinary `datetime`. `display(field, ..args)` takes the field's *schema address* rather than its value, and prints the date as `datetime.display` would with the same patterns; an unknown address fails the render, and a blank date gives `none`. Reach for `data.<field>` whenever you want the value itself: math, comparison, components, or handing it to a package. The two print the same ink and differ only in [editor previews](editor-regions.md#dates-display-and-data), where `display` keeps the printed date clickable.
 
 ### Which accessor to reach for
@@ -40,7 +42,7 @@ A key's *declaration* decides whether it can be absent, and that decides the acc
 | A `$`-sigiled key (`$kind`, `$body`, `$cards`, `$path`) | `data.at("$body", default: "")` | Typst identifiers exclude `$`, *and* `$`-metadata is present only where it is defined: `$kind` only on a card that authors one, `$body` only where the kind enables a body. |
 | An undeclared key, or any field of a card whose `$kind` is unknown | `data.at("logo", default: none)` | No schema fills it, so absence is real. `quill.validate(doc)` warns on it (`validation::unknown_field`, `validation::unknown_card`), so a key the plate reads belongs in `Quill.yaml`. |
 
-So a `default:` on a declared field is dead code, and an `#if "field" in data` guard on one is always true. When a declared field is optional, guard its *value*, not its presence:
+So a `default:` on a declared field is dead code, and an `#if "field" in data` guard on one is always true. When a declared field may be left blank, guard its *value*, not its presence:
 
 ```typst
 #if data.subtitle != "" {
@@ -71,8 +73,21 @@ What an unanswered field holds when it reaches the plate, and the guard that tes
 | `array` | `()` | `data.f.len() > 0` |
 | `object` | a dictionary of its properties, each at its own blank | guard the properties |
 | `matrix` | every member, each with `held: false` | `m.held` per member |
+| any optional type (`integer?`, `boolean?`, …) | `none` | `data.f != none` |
 
 `$body` follows the content rule: `data.at("$body", default: "") != ""` is true only when the body has text.
+
+The `0` and `false` guards cannot tell an unanswered field from an authored `0` or `false`. Where the plate must, declare the field [optional](quill-yaml-reference.md#optional-fields-t): it arrives as `none` when nobody answered it:
+
+```typst
+#if data.quorum == none [
+  _Quorum not recorded._
+] else if present >= data.quorum [
+  A quorum of #data.quorum was established.
+]
+```
+
+Printing `none` places nothing, and `+` treats it as absent (`"Dear " + none` is `"Dear "`), so neither needs a guard. Arithmetic, comparison, `if`, and `for` reject `none`: branch on `!= none` before them.
 
 ### Body, arrays, and cards
 

@@ -63,12 +63,12 @@ fn update_rechecks_the_reference_against_the_sessions_quill() {
 
     let engine = Quillmark::new();
     let err = engine
-        .render(&quill, &doc("other_quill@3"), &RenderOptions::default())
+        .render(&quill, &doc("other_quill@3"), None, &RenderOptions::default())
         .expect_err("render must refuse another quill's document");
     assert_eq!(code(&err), Some("quill::name_mismatch"));
 
     let mut session = engine
-        .open(&quill, &doc("test_quill@3"))
+        .open(&quill, &doc("test_quill@3"), None)
         .expect("open against the matching quill");
     let pages = session.page_count();
 

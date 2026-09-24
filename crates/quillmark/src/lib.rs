@@ -13,7 +13,7 @@
 //! let engine = Quillmark::new();
 //!
 //! let doc = quill.parse("~~~\n$quill: my_quill\n$kind: main\ntitle: Hello\n~~~\n\n# Hello World").unwrap().document;
-//! let result = engine.render(&quill, &doc, &RenderOptions::default().with_output_format(OutputFormat::Pdf)).unwrap();
+//! let result = engine.render(&quill, &doc, None, &RenderOptions::default().with_output_format(OutputFormat::Pdf)).unwrap();
 //! ```
 //!
 //! Or no Markdown at all: a blank canvas and the schema-bound writer.
@@ -38,8 +38,8 @@ pub use quillmark_core::{
     document::{Card, Document, EditError, ImportError, Parsed},
     error::{Diagnostic, Location, ParseError, RenderError, RenderResult, Severity},
     quill::{
-        BoundParseError, CardSchema, FieldSchema, FieldType, FileTreeNode, Quill, QuillConfig,
-        QuillIgnore, ValidationError,
+        BoundParseError, CalendarDate, CardSchema, FieldSchema, FieldType, FileTreeNode, Quill,
+        QuillConfig, QuillIgnore, ValidationError,
     },
     reader::{CardReader, TypedReader},
     region::{ContentHit, HitGranularity, RenderedRegion},

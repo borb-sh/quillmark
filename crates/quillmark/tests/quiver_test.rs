@@ -43,6 +43,7 @@ fn every_quill_renders_an_empty_document() {
             .render(
                 quill,
                 &empty,
+                None,
                 &RenderOptions::default().with_output_format(OutputFormat::Pdf),
             )
             .unwrap_or_else(|e| {
@@ -76,6 +77,7 @@ fn every_quill_blueprint_round_trips_and_renders() {
             .render(
                 quill,
                 &doc1,
+                None,
                 &RenderOptions::default().with_output_format(OutputFormat::Pdf),
             )
             .unwrap_or_else(|e| {
@@ -98,6 +100,7 @@ fn every_quill_renders_its_seed_document() {
             .render(
                 quill,
                 &quill.seed_document(),
+                None,
                 &RenderOptions::default().with_output_format(format),
             )
             .unwrap_or_else(|e| panic!("{name} failed to render its seed to {format:?}: {e:?}"));

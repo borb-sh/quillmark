@@ -19,6 +19,7 @@ fn compile(
     TypstBackend.open(
         &source,
         &serde_json::json!({ "classification": "SECRET", "subject": "Widgets" }),
+        None,
     )
 }
 

@@ -48,6 +48,9 @@ them.
   `--no-render`. A backend that does not resolve is `cli::backend_unresolved`,
   and a configuration the read already refused is not compiled: each document
   would fail for the reason already named.
+- **The render date is the local date.** `render` and `validate` supply it
+  to the engine, which reads no clock; `render --today YYYY-MM-DD` pins it for
+  a reproducible render. The local offset unreadable, the date is UTC's.
 - **Seeded fallback.** `render` with no `MARKDOWN_FILE` renders the quill's
   seeded document: each field's `example:`, with `default:`/blank interpolated,
   so a quill renders with no input file. Output defaults to

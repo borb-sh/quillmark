@@ -48,7 +48,7 @@ main:
               tags:\n  - alpha\n  - null\n  - gamma\n~~~\n\nbody\n";
     let parsed = Document::parse(md).expect("parse failed").document;
     let data = quill
-        .compile_data(&parsed)
+        .compile_data(&parsed, None)
         .expect("compile_data should succeed");
 
     let addr = data

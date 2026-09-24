@@ -65,7 +65,7 @@ fn session(temp_dir: &TempDir) -> LiveSession {
          subject: \"{SUBJECT}\"\ntags:\n  - \"{STAR_TAG}\"\n  - \"second plain tag\"\n~~~\n"
     );
     let parsed = Document::parse(&md).expect("parse").document;
-    Quillmark::new().open(&quill, &parsed).expect("open")
+    Quillmark::new().open(&quill, &parsed, None).expect("open")
 }
 
 #[test]

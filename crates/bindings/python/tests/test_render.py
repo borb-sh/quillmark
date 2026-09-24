@@ -1,5 +1,7 @@
 """Tests for rendering workflow."""
 
+import datetime
+
 import pytest
 
 from quillmark import OutputFormat, Document, Quill, QuillmarkError
@@ -116,3 +118,31 @@ def test_quill_load_error_carries_diagnostics(tmp_path):
     with pytest.raises(QuillmarkError) as exc_info:
         Quill.from_path(str(bogus))
     assert exc_info.value.diagnostics
+
+
+def test_render_dates_a_today_field(engine, tmp_path):
+    """`today` is the render date: a given `datetime.date`, else the local one, and the plate's `datetime.today()` agrees."""
+
+    def dated_quill(name, check):
+        root = tmp_path / name
+        root.mkdir()
+        (root / "Quill.yaml").write_text(
+            "quill:\n  name: dated\n  version: 0.1.0\n  backend: typst\n"
+            "  description: A field dated by the day it renders\n"
+            "typst:\n  plate_file: plate.typ\n"
+            "main:\n  fields:\n    issued: { type: date, default: today }\n"
+        )
+        (root / "plate.typ").write_text(
+            '#import "@local/quillmark-helper:0.1.0": data\n'
+            "#assert.eq(data.issued, datetime.today())\n"
+            f"#assert({check})\n"
+        )
+        return Quill.from_path(str(root))
+
+    doc = Document.from_markdown("~~~card-yaml\n$quill: dated\n$kind: main\n~~~\n")
+
+    pinned = dated_quill("pinned", "data.issued == datetime(year: 2026, month: 3, day: 14)")
+    engine.render(pinned, doc, OutputFormat.SVG, today=datetime.date(2026, 3, 14))
+
+    local = dated_quill("local", "data.issued != none")
+    engine.render(local, doc, OutputFormat.SVG)
