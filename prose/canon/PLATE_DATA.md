@@ -8,6 +8,8 @@ Plates get document data through a backend-injected virtual Typst package, not a
 
 One rule governs the lowering, at every depth: **a declared type means the same thing wherever it is declared, and every type lowers to its native Typst value unless it has a canonical rendering.** Only the content types have one — the authored text — so only they lower to content; a date lowers to a native `datetime`, because every rendering of `2026-01-02` is a typographic decision the plate owns. Backend-generated *ink* is reached by address instead (`display(addr, ..)`), which is also what makes it laundering-proof.
 
+A render reads no clock. Every date a plate prints is one the document carries; `datetime.today()` returns the fixed placeholder `1970-01-01` at any offset, so the same inputs render the same bytes on any day.
+
 ## Overview
 
 1. `Quill::compile_data()` coerces, validates, normalizes, and **blank-fills** the
