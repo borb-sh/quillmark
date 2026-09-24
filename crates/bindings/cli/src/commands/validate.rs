@@ -32,6 +32,16 @@ impl ValidationResult {
             .push(Diagnostic::new(severity, message.into()).with_code(code.to_string()));
     }
 
+    /// The three canonical renders share one quill, so its load warnings come
+    /// back from each.
+    fn extend_unseen(&mut self, diags: Vec<Diagnostic>) {
+        for diag in diags {
+            if !self.issues.contains(&diag) {
+                self.issues.push(diag);
+            }
+        }
+    }
+
     fn count(&self, severity: Severity) -> usize {
         self.issues.iter().filter(|d| d.severity == severity).count()
     }
@@ -196,7 +206,7 @@ fn validate_canonical_renders(quill: &Quill, result: &mut ValidationResult, verb
                 if verbose {
                     println!("    {label}: ok");
                 }
-                result.issues.extend(rendered.warnings);
+                result.extend_unseen(rendered.warnings);
             }
             Err(e) => {
                 result.add(
@@ -204,7 +214,7 @@ fn validate_canonical_renders(quill: &Quill, result: &mut ValidationResult, verb
                     format!("the {label} document does not render through the quill's plate"),
                     "cli::canonical_document_failed",
                 );
-                result.issues.extend(e.into_diagnostics());
+                result.extend_unseen(e.into_diagnostics());
             }
         }
     }

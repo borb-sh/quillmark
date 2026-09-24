@@ -36,6 +36,7 @@ enum Commands {
 }
 
 fn main() {
+    commands::local_offset();
     let cli = Cli::parse();
 
     let result = match cli.command {
