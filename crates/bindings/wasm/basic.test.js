@@ -936,7 +936,10 @@ describe('quill.open + session.render', () => {
     const engine = new Quillmark()
     const quill = Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
     const session = engine.open(quill, Document.fromMarkdown(TEST_MARKDOWN))
-    expect(() => session.render({ format: 'png', ppi: 80, pages: [0, session.pageCount + 10] })).toThrow()
+    expectEditCode(
+      () => session.render({ format: 'png', ppi: 80, pages: [0, session.pageCount + 10] }),
+      'backend::page_index_out_of_bounds'
+    )
     expect(() => session.render({ format: 'pdf', pages: [0] })).toThrow()
   })
 })

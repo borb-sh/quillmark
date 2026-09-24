@@ -2732,9 +2732,13 @@ impl LiveSession {
 #[cfg(feature = "render")]
 impl LiveSession {
     fn page_oob_error(&self, op: &str, page: usize) -> JsValue {
-        WasmError::from(format!(
-            "{op}: page index {page} out of range (pageCount={})",
-            self.inner.page_count()
+        WasmError::from(quillmark_core::error::RenderError::coded_hint(
+            "backend::page_index_out_of_bounds",
+            format!(
+                "{op}: page index {page} out of range (pageCount={})",
+                self.inner.page_count()
+            ),
+            "Read the session's page count before requesting pages.",
         ))
         .to_js_value()
     }

@@ -294,7 +294,7 @@ describe('LiveSession canvas preview', () => {
   it('throws an out-of-range error when paint is called with a bad page index', () => {
     const session = openSession()
     const ctx = new FakeCanvasRenderingContext2D()
-    expect(() => session.paint(ctx, session.pageCount + 5, 1)).toThrow()
+    expectEditCode(() => session.paint(ctx, session.pageCount + 5, 1), 'backend::page_index_out_of_bounds')
   })
 })
 
