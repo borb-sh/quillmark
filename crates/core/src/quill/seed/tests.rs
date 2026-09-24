@@ -57,20 +57,14 @@ fn empty_document_equals_the_hand_written_two_line_document() {
 }
 
 #[test]
-fn seed_main_commits_only_example_fields() {
+fn seed_main_commits_the_body_example_and_no_field() {
     let quill = quill_from_yaml(QUILL);
     let card = quill.seed_main();
-    let payload = card.payload();
 
-    assert_eq!(
-        payload.get("title").and_then(|v| v.as_str()),
-        Some("FIRSTNAME LASTNAME"),
-    );
     assert!(
-        payload.get("status").is_none(),
-        "default-only field must be absent (interpolated at render)"
+        card.payload().is_empty(),
+        "an `example:` never answers a field, and a `default:` is interpolated at render"
     );
-    assert!(payload.get("notes").is_none());
 
     let reference = card.quill().expect("main card must carry $quill");
     assert_eq!(reference.name, "seed_test");
@@ -96,11 +90,7 @@ fn seed_document_emits_one_seeded_card_per_kind() {
         note.quill().is_none(),
         "composable card must not carry $quill"
     );
-    assert_eq!(
-        note.payload().get("author").and_then(|v| v.as_str()),
-        Some("A. Author"),
-    );
-    assert!(note.payload().get("tag").is_none());
+    assert!(note.payload().is_empty());
     assert!(quill.seed_card("missing", None).is_none());
 
     let reparsed = Document::parse(&doc.to_markdown())
@@ -118,10 +108,7 @@ fn seeded_document_compiles_with_default_then_blank_for_absent_fields() {
         .compile_data(&doc, None)
         .expect("seeded document must compile");
 
-    assert_eq!(
-        data.get("title").and_then(|v| v.as_str()),
-        Some("FIRSTNAME LASTNAME"),
-    );
+    assert_eq!(data.get("title").and_then(|v| v.as_str()), Some(""));
     assert_eq!(data.get("status").and_then(|v| v.as_str()), Some("draft"));
     assert_eq!(data.get("notes").and_then(|v| v.as_str()), Some(""));
 }
@@ -145,7 +132,7 @@ card_kinds:
         example: B
 "#,
     );
-    let ov = overlay(json!({ "alpha": "A" }));
+    let ov = overlay(json!({ "beta": "B", "alpha": "A" }));
     let card = quill.seed_card("note", Some(&ov)).expect("known kind");
     let keys: Vec<&str> = card.payload().keys().map(String::as_str).collect();
     assert_eq!(keys, vec!["alpha", "beta"]);
@@ -157,7 +144,7 @@ fn overlay_fills_fields_and_body_and_ignores_non_schema_keys() {
     let ov = overlay(json!({ "tag": "pinned", "$body": "Overlay body.", "bogus": "drop me" }));
     let card = quill.seed_card("note", Some(&ov)).expect("known kind");
     assert_eq!(card.payload().get("tag").and_then(|v| v.as_str()), Some("pinned"));
-    assert_eq!(card.payload().get("author").and_then(|v| v.as_str()), Some("A. Author"));
+    assert!(card.payload().get("author").is_none());
     assert_eq!(card.body_markdown(), "Overlay body.");
     assert!(card.payload().get("bogus").is_none());
 }
@@ -192,10 +179,6 @@ card_kinds:
         card.body_markdown(),
         "",
         "body must be empty when body.enabled is false"
-    );
-    assert_eq!(
-        card.payload().get("value").and_then(|v| v.as_str()),
-        Some("V"),
     );
 }
 
@@ -285,43 +268,6 @@ card_kinds:
     );
 }
 
-/// A container overlay is *merged*, not taken whole: the discriminant it names
-/// selects the world, and that world's `example:` cells fill the ones it leaves
-/// out. Taking it whole would commit a tag carrying none of its world's answers.
-#[test]
-fn a_variant_overlay_naming_only_the_discriminant_fills_its_worlds_examples() {
-    let quill = quill_from_yaml(
-        r#"
-quill: { name: seed_test, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    title: { type: string, default: "" }
-card_kinds:
-  entry:
-    fields:
-      classification:
-        type: enum
-        values: [UNCLASSIFIED, CUI]
-        default: ""
-        variants:
-          CUI:
-            controlled_by: { type: string, example: SAF/AA }
-"#,
-    );
-    let overlay = overlay(json!({ "classification": { "value": "CUI" } }));
-    let card = quill
-        .seed_card("entry", Some(&overlay))
-        .expect("kind exists");
-    let seeded = card
-        .payload()
-        .get("classification")
-        .expect("seeded classification")
-        .as_json()
-        .clone();
-    assert_eq!(seeded["value"], json!("CUI"));
-    assert_eq!(seeded["controlled_by"], json!("SAF/AA"), "{seeded}");
-}
-
 /// `value` stays absent — a `default:` is never persisted — and the container
 /// that leaves it out is a valid card.
 #[test]
@@ -373,48 +319,4 @@ card_kinds:
     let doc = Document::from_main_and_cards(quill.seed_main(), vec![card]);
     let diags = quill.validate(&doc);
     assert!(diags.is_empty(), "a seeded card is a valid document: {diags:?}");
-}
-
-/// A typed dictionary's seed composes from the examples its properties declare,
-/// and stays absent when none of them declare any.
-#[test]
-fn a_dictionarys_seed_is_composed_from_its_properties_examples() {
-    let quill = quill_from_yaml(
-        r#"
-quill: { name: sd, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    contact:
-      type: object
-      properties:
-        name: { type: string, example: Ada }
-        email: { type: string, default: "hi@example.com" }
-        note: { type: string }
-    empty:
-      type: object
-      properties:
-        tag: { type: string, default: t }
-"#,
-    );
-    let seeded = quill.seed_document();
-    let payload = seeded.main().payload();
-
-    assert_eq!(
-        payload.get("contact").map(|v| v.as_json().clone()),
-        Some(serde_json::json!({ "name": "Ada" })),
-        "the commit is sparse: only the cells with an example, the rest deferred"
-    );
-    assert!(
-        payload.get("empty").is_none(),
-        "a dictionary whose cells commit nothing stays absent, as any field does"
-    );
-    // The marker rides a committed example on a must-fill cell, at its own path.
-    assert!(
-        payload
-            .get("contact")
-            .expect("contact seeded")
-            .nonroot_fill_paths()
-            .any(|p| p == vec![crate::value::PathSegment::Key("name".to_string())]),
-        "a must-fill cell's marker rides at the cell, not the container"
-    );
 }

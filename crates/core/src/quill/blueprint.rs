@@ -19,15 +19,9 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 
 impl QuillConfig {
     /// Generate the canonical annotated Markdown blueprint for this quill:
-    /// the authoring surface handed to LLMs and humans, with every must-fill
-    /// cell carrying the `!must_fill` marker. The annotation grammar is
-    /// `prose/canon/BLUEPRINT.md` §Annotation grammar; the function is total
+    /// the authoring surface handed to LLMs and humans. The annotation grammar
+    /// is `prose/canon/BLUEPRINT.md` §Annotation grammar; the function is total
     /// over any valid `QuillConfig`.
-    ///
-    /// The "filled-out" twin of the blueprint is **seeding**
-    /// ([`Quill::seed_document`](crate::quill::Quill::seed_document)), a
-    /// committed [`Document`] rather than an annotated string. See
-    /// `prose/canon/BLUEPRINT.md`.
     ///
     /// The result is guaranteed schema-valid and parseable (every key
     /// present, every value type-correct). It is *not* guaranteed to render:
@@ -206,25 +200,15 @@ fn append_field(items: &mut CardItems, field: &FieldSchema) {
     }
 
     if matches!(field.r#type, FieldType::Matrix { .. }) {
-        push_leading(items, field, true);
-        push_container_field(
-            items,
-            &field.name,
-            matrix_cell(),
-            Vec::new(),
-            Vec::new(),
-            field,
-        );
+        push_leading(items, field);
+        push_container_field(items, &field.name, matrix_cell(), Vec::new(), field);
         return;
     }
 
     if typed_dict_props(field).is_some() || typed_table_props(field).is_some() {
-        // The container key itself is untagged: `!must_fill` is rejected on a
-        // mapping (`prose/references/markdown-spec.md` §3.4), so the obligation
-        // lives on the leaves.
-        push_leading(items, field, true);
-        let (value, nested, fills) = container_cell(field, &[]);
-        push_container_field(items, &field.name, value, nested, fills, field);
+        push_leading(items, field);
+        let (value, nested) = container_cell(field, &[]);
+        push_container_field(items, &field.name, value, nested, field);
         return;
     }
 
@@ -258,9 +242,8 @@ fn matrix_eg(field: &FieldSchema) -> Option<String> {
 }
 
 /// One column's value in a matrix hint: `example:` › `default:` › its
-/// container shape › the `!must_fill` placeholder. The marker is what the
-/// blueprint writes for a cell awaiting a value, so a column with nothing to
-/// show still names itself without offering its type name as a string.
+/// container shape › `null`, so a column with nothing to show still names
+/// itself without offering its type name as a string.
 fn column_hint(col: &FieldSchema) -> String {
     if let Some(value) = col.example.as_ref().or(col.default.as_ref()) {
         return saphyr_emit_flow(value.as_json());
@@ -277,7 +260,7 @@ fn column_hint(col: &FieldSchema) -> String {
         }
         return format!("[{}]", flow_hint_mapping(row));
     }
-    "!must_fill".into()
+    "null".into()
 }
 
 fn flow_hint_mapping(props: &IndexMap<String, Box<FieldSchema>>) -> String {
@@ -309,38 +292,24 @@ fn typed_table_props(field: &FieldSchema) -> Option<&IndexMap<String, Box<FieldS
     }
 }
 
-/// Whether a leaf's `example:` surfaces as a `# e.g.` hint rather than as the
-/// cell's own value: a `default:` already occupies the cell, or the leaf is
-/// richtext, whose cell an example never inlines (see `scalar_value`). The gate
-/// is a value-axis question and stays keyed on `default`: `must_fill` never
-/// moves an example between the cell and the hint.
-fn eg_hinted(field: &FieldSchema) -> bool {
-    field.default.is_some() || matches!(field.r#type, FieldType::RichText { .. })
-}
-
 /// Push the leading prose comments for a *top-level* field: the description,
-/// then the `# e.g.` hint. `eg_when` gates the hint: a leaf surfaces it under
-/// `eg_hinted`, while typed containers always surface it (their example never
-/// inlines).
-fn push_leading(items: &mut CardItems, field: &FieldSchema, eg_when: bool) {
+/// the cap, then the `# e.g.` hint.
+fn push_leading(items: &mut CardItems, field: &FieldSchema) {
     if let Some(desc) = collapse_opt(field.description.as_deref()) {
         items.push(PayloadItem::comment(desc));
     }
     if let Some(cap) = cap_hint(field) {
         items.push(PayloadItem::comment(cap));
     }
-    if let Some(eg) = eg_text(field, eg_when) {
+    if let Some(eg) = eg_text(field) {
         items.push(PayloadItem::comment(format!("e.g. {eg}")));
     }
 }
 
-/// The text after `# e.g. ` for a field: its `example:` where `eg_when` lets
-/// it surface, else a matrix's member hint.
-fn eg_text(field: &FieldSchema, eg_when: bool) -> Option<String> {
-    match field.example.as_ref() {
-        Some(eg) if eg_when => Some(eg_hint(eg)),
-        _ => matrix_eg(field),
-    }
+/// The text after `# e.g. ` for a field: its `example:`, else a matrix's
+/// member hint.
+fn eg_text(field: &FieldSchema) -> Option<String> {
+    field.example.as_ref().map(eg_hint).or_else(|| matrix_eg(field))
 }
 
 /// The `# up to <N>` leading line for a capped array, in the own-line form
@@ -351,38 +320,22 @@ fn cap_hint(field: &FieldSchema) -> Option<String> {
     field.max.map(|max| format!("up to {max}"))
 }
 
-/// The cell's `(value, fill)` for a scalar/array/richtext leaf. The value is
-/// `default:` › `example:` › bare null; the marker is `default:`'s absence, so
-/// an `example` always arrives under it.
-fn scalar_cell(field: &FieldSchema) -> (JsonValue, bool) {
-    (scalar_value(field), field.must_fill())
-}
-
-/// The value half. A richtext leaf never inlines an example: its `example:`
-/// surfaces as a `# e.g.` hint instead (see `append_scalar`), so its
-/// defaultless cell is always bare.
+/// A leaf's cell: its `default:`, else empty. An `example:` never answers a
+/// cell; it rides the `# e.g.` hint.
 fn scalar_value(field: &FieldSchema) -> JsonValue {
-    if let Some(default) = &field.default {
-        return default.as_json().clone();
-    }
-    if matches!(field.r#type, FieldType::RichText { .. }) {
-        return JsonValue::Null;
-    }
-    match field.example.as_ref() {
-        Some(eg) => eg.as_json().clone(),
-        None => JsonValue::Null,
-    }
+    field
+        .default
+        .as_ref()
+        .map_or(JsonValue::Null, |d| d.as_json().clone())
 }
 
 /// Append a scalar / scalar-array / richtext field as a single payload field
 /// plus its trailing inline type annotation.
 fn append_scalar(items: &mut CardItems, field: &FieldSchema) {
-    push_leading(items, field, eg_hinted(field));
-    let (json, fill) = scalar_cell(field);
+    push_leading(items, field);
     items.push(PayloadItem::Field {
         key: field.name.clone(),
-        value: QuillValue::from_json(json),
-        fill,
+        value: QuillValue::from_json(scalar_value(field)),
     });
     items.push(PayloadItem::comment_inline(type_expression(field)));
 }
@@ -390,7 +343,7 @@ fn append_scalar(items: &mut CardItems, field: &FieldSchema) {
 /// Build the per-property body of a defaultless typed container into `map`:
 /// each property at its own cell in declaration order, plus the nested comments
 /// (description + `# e.g.` + inline type annotation, addressed by
-/// `container_path`/slot) and the nested fill paths. `prefix` is the container
+/// `container_path`/slot). `prefix` is the container
 /// path of the mapping relative to the field value (`[]` for a typed dict,
 /// `[Index(0)]` for a typed table's synthetic row).
 ///
@@ -401,9 +354,8 @@ fn build_property_mapping(
     map: &mut JsonMap<String, JsonValue>,
     props: &IndexMap<String, Box<FieldSchema>>,
     prefix: &[PathSegment],
-) -> (Vec<NestedComment>, Vec<Vec<PathSegment>>) {
+) -> Vec<NestedComment> {
     let mut nested = Vec::new();
-    let mut fills = Vec::new();
     for prop in props.values().map(|b| b.as_ref()) {
         let slot = map.len();
         if let Some(desc) = collapse_opt(prop.description.as_deref()) {
@@ -422,7 +374,7 @@ fn build_property_mapping(
                 inline: false,
             });
         }
-        if let Some(eg) = eg_text(prop, eg_hinted(prop)) {
+        if let Some(eg) = eg_text(prop) {
             nested.push(NestedComment {
                 container_path: prefix.to_vec(),
                 position: slot,
@@ -432,10 +384,9 @@ fn build_property_mapping(
         }
         let mut path = prefix.to_vec();
         path.push(PathSegment::Key(prop.name.clone()));
-        let (json, sub_nested, sub_fills) = property_cell(prop, &path);
+        let (json, sub_nested) = property_cell(prop, &path);
         map.insert(prop.name.clone(), json);
         nested.extend(sub_nested);
-        fills.extend(sub_fills);
         nested.push(NestedComment {
             container_path: prefix.to_vec(),
             position: slot,
@@ -443,45 +394,36 @@ fn build_property_mapping(
             inline: true,
         });
     }
-    (nested, fills)
+    nested
 }
 
 /// One property's contribution to its parent's mapping: its value, and the
-/// nested comments and fill paths its own subtree carries. `path` is the
-/// property's address relative to the field value.
-fn property_cell(
-    prop: &FieldSchema,
-    path: &[PathSegment],
-) -> (JsonValue, Vec<NestedComment>, Vec<Vec<PathSegment>>) {
+/// nested comments its own subtree carries. `path` is the property's address
+/// relative to the field value.
+fn property_cell(prop: &FieldSchema, path: &[PathSegment]) -> (JsonValue, Vec<NestedComment>) {
     if prop.is_variant_bearing() {
         return variant_cell(prop, path);
     }
     if matches!(prop.r#type, FieldType::Matrix { .. }) {
-        return (matrix_cell(), Vec::new(), Vec::new());
+        return (matrix_cell(), Vec::new());
     }
     if typed_dict_props(prop).is_some() || typed_table_props(prop).is_some() {
         return container_cell(prop, path);
     }
-    let (json, fill) = scalar_cell(prop);
-    let fills = if fill { vec![path.to_vec()] } else { Vec::new() };
-    (json, Vec::new(), fills)
+    (scalar_value(prop), Vec::new())
 }
 
-/// A container's value plus the nested comments and fill paths its subtree
-/// carries, at `path` relative to the field value (`[]` at card level).
+/// A container's value plus the nested comments its subtree carries, at `path`
+/// relative to the field value (`[]` at card level).
 ///
 /// An **array** `default:` is shippable as-is, so it renders verbatim and its
-/// subtree carries neither marker nor annotation. A **typed dictionary** holds
-/// no literal (`quill::default_on_namespace`), so it always expands per
-/// property.
-fn container_cell(
-    field: &FieldSchema,
-    path: &[PathSegment],
-) -> (JsonValue, Vec<NestedComment>, Vec<Vec<PathSegment>>) {
+/// subtree carries no annotation. A **typed dictionary** holds no literal
+/// (`quill::default_on_namespace`), so it always expands per property.
+fn container_cell(field: &FieldSchema, path: &[PathSegment]) -> (JsonValue, Vec<NestedComment>) {
     if let Some(props) = typed_dict_props(field) {
         let mut map = JsonMap::new();
-        let (nested, fills) = build_property_mapping(&mut map, props, path);
-        return (JsonValue::Object(map), nested, fills);
+        let nested = build_property_mapping(&mut map, props, path);
+        return (JsonValue::Object(map), nested);
     }
 
     let row_props = typed_table_props(field).unwrap_or_else(|| {
@@ -489,23 +431,19 @@ fn container_cell(
     });
     match field.default.as_ref().map(|d| d.as_json()) {
         // `[]` included: an array default stays inline rather than expanding.
-        Some(default) => (default.clone(), Vec::new(), Vec::new()),
+        Some(default) => (default.clone(), Vec::new()),
         // A row type declaring no properties is schema-invalid in practice, and
         // a `max: 0` table holds no row at all: emit a type-valid empty array
         // rather than a null synthetic row, or one the quill's own cap refuses.
         None if row_props.is_empty() || field.max == Some(0) => {
-            (JsonValue::Array(Vec::new()), Vec::new(), Vec::new())
+            (JsonValue::Array(Vec::new()), Vec::new())
         }
         None => {
             let mut row_path = path.to_vec();
             row_path.push(PathSegment::Index(0));
             let mut row = JsonMap::new();
-            let (nested, fills) = build_property_mapping(&mut row, row_props, &row_path);
-            (
-                JsonValue::Array(vec![JsonValue::Object(row)]),
-                nested,
-                fills,
-            )
+            let nested = build_property_mapping(&mut row, row_props, &row_path);
+            (JsonValue::Array(vec![JsonValue::Object(row)]), nested)
         }
     }
 }
@@ -515,22 +453,18 @@ fn container_cell(
 /// live, every other world's commented out (`prose/canon/BLUEPRINT.md`
 /// § "Enum variants").
 fn append_variant(items: &mut CardItems, field: &FieldSchema) {
-    push_leading(items, field, field.default.is_some());
-    let (json, nested, fills) = variant_cell(field, &[]);
-    push_container_field(items, &field.name, json, nested, fills, field);
+    push_leading(items, field);
+    let (json, nested) = variant_cell(field, &[]);
+    push_container_field(items, &field.name, json, nested, field);
 }
 
 /// The variant container at `path`: the discriminant cell, then every world
 /// under a `# when <MEMBER>:` header. The worlds seat themselves in whichever
 /// container holds the discriminant, so a typed dictionary's property reaches
 /// this through [`property_cell`] carrying its own path.
-fn variant_cell(
-    field: &FieldSchema,
-    path: &[PathSegment],
-) -> (JsonValue, Vec<NestedComment>, Vec<Vec<PathSegment>>) {
+fn variant_cell(field: &FieldSchema, path: &[PathSegment]) -> (JsonValue, Vec<NestedComment>) {
     let member = scalar_value(field);
     let mut map = JsonMap::new();
-    let mut fills = Vec::new();
     map.insert(
         VARIANT_DISCRIMINANT_KEY.to_string(),
         match &member {
@@ -540,11 +474,6 @@ fn variant_cell(
             other => other.clone(),
         },
     );
-    if field.must_fill() {
-        let mut discriminant = path.to_vec();
-        discriminant.push(PathSegment::Key(VARIANT_DISCRIMINANT_KEY.to_string()));
-        fills.push(discriminant);
-    }
 
     let selected = member.as_str();
     let mut nested = Vec::new();
@@ -555,15 +484,13 @@ fn variant_cell(
         let slot = map.len();
         nested.push(world_comment(path, slot, format!("when {name}:")));
         if Some(name.as_str()) == selected {
-            let (sub_nested, sub_fills) = build_property_mapping(&mut map, world, path);
-            nested.extend(sub_nested);
-            fills.extend(sub_fills);
+            nested.extend(build_property_mapping(&mut map, world, path));
         } else {
             nested.extend(dormant_world(world, path, slot));
         }
     }
 
-    (JsonValue::Object(map), nested, fills)
+    (JsonValue::Object(map), nested)
 }
 
 /// A dormant world's cells as own-line comments. `to_markdown` writes the `# `
@@ -573,8 +500,8 @@ fn dormant_world(world: &VariantFields, path: &[PathSegment], slot: usize) -> Ve
     let mut map = JsonMap::new();
     // Rendered standalone, so the block's own lines are cut against its own
     // root; `path` seats the finished lines in the container holding them.
-    let (nested, fills) = build_property_mapping(&mut map, world, &[]);
-    emit_mapping_lines(&map, &nested, &fills)
+    let nested = build_property_mapping(&mut map, world, &[]);
+    emit_mapping_lines(&map, &nested)
         .lines()
         .map(|line| world_comment(path, slot, line))
         .collect()
@@ -589,34 +516,27 @@ fn world_comment(path: &[PathSegment], slot: usize, text: impl Into<String>) -> 
     }
 }
 
-/// Push a typed-container field (value + nested comments + nested fills) and
-/// its trailing inline type annotation. The top-level `fill` flag is always
-/// `false`: typed containers are tagged on their leaves, never the container.
+/// Push a typed-container field (value + nested comments) and its trailing
+/// inline type annotation.
 fn push_container_field(
     items: &mut CardItems,
     key: &str,
     value: JsonValue,
     nested_comments: Vec<NestedComment>,
-    fills: Vec<Vec<PathSegment>>,
     field: &FieldSchema,
 ) {
-    let mut quill_value = QuillValue::from_json(value);
-    for path in &fills {
-        quill_value.set_fill_at(path);
-    }
     items.adopt_nested(key, nested_comments);
     items.push(PayloadItem::Field {
         key: key.to_string(),
-        value: quill_value,
-        fill: false,
+        value: QuillValue::from_json(value),
     });
     items.push(PayloadItem::comment_inline(type_expression(field)));
 }
 
 /// Build the inline annotation body (without the leading `# `): purely the
-/// structural type expression `<type>[<format>]`. Shippability is carried by
-/// the value cell alone (a concrete value is shippable as-is, a `!must_fill`
-/// marker asks to be filled) so the annotation needs no cell-state tag.
+/// structural type expression `<type>[<format>]`. The value cell carries the
+/// cell's state (a concrete value is shippable as-is, an empty cell awaits
+/// one), so the annotation needs no cell-state tag.
 fn type_expression(field: &FieldSchema) -> String {
     let expression = declared_type_expression(field);
     if field.optional {
@@ -690,8 +610,8 @@ mod tests {
         QuillConfig::from_yaml(yaml).expect("valid yaml")
     }
 
-    /// Marker, annotation and description reach a leaf at whatever depth it is
-    /// declared, and a `default:` still covers the subtree under it.
+    /// Annotation and description reach a leaf at whatever depth it is declared,
+    /// and a `default:` still covers the subtree under it.
     #[test]
     fn a_container_expands_at_every_depth() {
         let t = cfg(r#"
@@ -723,10 +643,10 @@ main:
         assert!(
             t.contains(concat!(
                 "contact: # object\n",
-                "  tags: !must_fill # array<string>\n",
+                "  tags: # array<string>\n",
                 "  address: # object\n",
                 "    # The city\n",
-                "    city: !must_fill # string\n",
+                "    city: # string\n",
                 "    zip: \"00000\" # string\n",
             )),
             "{t}"
@@ -734,14 +654,14 @@ main:
         assert!(
             t.contains(concat!(
                 "refs: # array<object>\n",
-                "  - org: !must_fill # string\n",
+                "  - org: # string\n",
                 "    lead: # object\n",
-                "      email: !must_fill # string\n",
+                "      email: # string\n",
             )),
             "{t}"
         );
 
-        // A blueprint is written to be parsed back, markers at depth included.
+        // A blueprint is written to be parsed back, cells at depth included.
         let doc1 = Document::parse(&t).expect("blueprint must parse").document;
         let doc2 = Document::parse(&doc1.to_markdown())
             .expect("re-emit must parse")
@@ -768,16 +688,11 @@ main:
 "#)
         .blueprint();
         assert!(t.contains("  address: # object\n"), "{t}");
-        assert!(!t.contains("address: !must_fill"), "{t}");
-        assert!(t.contains("Reston"), "{t}");
-        assert!(
-            !t.contains("city: !must_fill"),
-            "a covered leaf asks for nothing: {t}"
-        );
+        assert!(t.contains("    city: Reston # string\n"), "{t}");
     }
 
     #[test]
-    fn must_fill_markdown_example_surfaces_as_eg_hint_not_inline_value() {
+    fn a_markdown_example_surfaces_as_eg_hint_not_inline_value() {
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -785,13 +700,13 @@ main:
     bio: { type: richtext, example: "Hello world" }
 "#)
         .blueprint();
-        assert!(t.contains("# e.g. Hello world\nbio: !must_fill # richtext<markdown>\n"));
+        assert!(t.contains("# e.g. Hello world\nbio: # richtext<markdown>\n"));
     }
 
-    /// A suggested value a human must still confirm: the example takes the cell
-    /// no `default:` holds, and the derived obligation marks it there.
+    /// An example documents shape, never an answer: the cell no `default:`
+    /// holds stays empty and the example rides the hint.
     #[test]
-    fn an_example_takes_the_cell_it_suggests_under_the_marker() {
+    fn an_example_never_takes_the_cell() {
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -800,14 +715,13 @@ main:
 "#)
         .blueprint();
         assert!(
-            t.contains("classification: !must_fill UNCLASSIFIED # enum<UNCLASSIFIED | CUI>\n"),
+            t.contains("# e.g. UNCLASSIFIED\nclassification: # enum<UNCLASSIFIED | CUI>\n"),
             "{t}"
         );
-        assert!(!t.contains("e.g."), "the example is the cell, not a hint: {t}");
     }
 
     #[test]
-    fn a_blank_default_emits_an_unmarked_cell() {
+    fn a_blank_default_emits_a_blank_cell() {
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -816,7 +730,6 @@ main:
 "#)
         .blueprint();
         assert!(t.contains("\nnote: \"\" # string\n"), "{t}");
-        assert!(!t.contains("!must_fill"), "{t}");
 
         let doc = Document::parse(&t).expect("the blank cell parses").document;
         assert_eq!(doc, Document::parse(&doc.to_markdown()).expect("re-emit").document);
@@ -835,7 +748,7 @@ main:
     }
 
     #[test]
-    fn must_fill_array_example_renders_as_block_sequence_with_context_quoting() {
+    fn an_array_example_renders_as_a_flow_hint_with_context_quoting() {
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -849,10 +762,12 @@ main:
         - "Anytown, USA"
 "#)
         .blueprint();
-        assert!(t.contains(
-            "recipient: !must_fill # array<string>\n  - Mr. John Doe\n  - 123 Main St\n  - Anytown, USA\n"
-        ));
-        assert!(!t.contains("# e.g."));
+        assert!(
+            t.contains(
+                "# e.g. [Mr. John Doe, 123 Main St, \"Anytown, USA\"]\nrecipient: # array<string>\n"
+            ),
+            "{t}"
+        );
     }
 
     #[test]
@@ -869,7 +784,7 @@ main:
     }
 
     #[test]
-    fn enum_must_fill_renders_bare_marker() {
+    fn a_defaultless_enum_renders_an_empty_cell() {
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -877,7 +792,7 @@ main:
     severity: { type: enum, values: [low, medium, high] }
 "#)
         .blueprint();
-        assert!(t.contains("severity: !must_fill # enum<low | medium | high>\n"));
+        assert!(t.contains("severity: # enum<low | medium | high>\n"));
     }
 
     #[test]
@@ -894,11 +809,11 @@ main:
     refs: { type: array, default: [], items: { type: string } }
 "#)
         .blueprint();
-        assert!(t.contains("title: !must_fill # string\n"));
+        assert!(t.contains("title: # string\n"));
         assert!(t.contains("size: 11 # number\n"));
         assert!(t.contains("flag: false # boolean\n"));
-        assert!(t.contains("issued: !must_fill # date<YYYY-MM-DD | today>\n"));
-        assert!(t.contains("published: !must_fill # datetime<YYYY-MM-DDThh:mm[:ss]>\n"));
+        assert!(t.contains("issued: # date<YYYY-MM-DD | today>\n"));
+        assert!(t.contains("published: # datetime<YYYY-MM-DDThh:mm[:ss]>\n"));
         assert!(t.contains("refs: [] # array<string>\n"));
     }
 
@@ -913,12 +828,12 @@ main:
     tags:     { type: array, items: { type: string } }
 "#)
         .blueprint();
-        assert!(t.contains("counts: !must_fill # array<integer>\n"), "{t}");
+        assert!(t.contains("counts: # array<integer>\n"), "{t}");
         assert!(
-            t.contains("sections: !must_fill # array<richtext<markdown>>\n"),
+            t.contains("sections: # array<richtext<markdown>>\n"),
             "{t}"
         );
-        assert!(t.contains("tags: !must_fill # array<string>\n"), "{t}");
+        assert!(t.contains("tags: # array<string>\n"), "{t}");
     }
 
     #[test]
@@ -932,7 +847,6 @@ main:
         .blueprint();
         assert!(t.contains("bio: \"\" # richtext<markdown>\n"));
         assert!(!t.contains("|-"));
-        assert!(!t.contains("!must_fill"));
     }
 
     #[test]
@@ -1075,7 +989,7 @@ main:
     }
 
     #[test]
-    fn typed_table_must_fill_emits_synthetic_row_with_leaf_markers() {
+    fn a_defaultless_typed_table_emits_a_synthetic_row() {
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -1091,7 +1005,7 @@ main:
 "#)
         .blueprint();
         assert!(t.contains(
-            "# Cited works.\nreferences: # array<object>\n  -\n    # Citing organization.\n    org: !must_fill # string\n"
+            "# Cited works.\nreferences: # array<object>\n  -\n    # Citing organization.\n    org: # string\n"
         ));
         assert!(t.contains("    # Publication year.\n    year: 0 # integer\n"));
     }
@@ -1114,7 +1028,7 @@ main:
 "#)
         .blueprint();
         assert!(t.contains("# e.g. [{org: ACME, year: 2020}]\n"));
-        assert!(t.contains("refs: # array<object>\n  - org: !must_fill # string\n"));
+        assert!(t.contains("refs: # array<object>\n  - org: # string\n"));
         assert!(t.contains("    year: 0 # integer\n"));
     }
 
@@ -1157,7 +1071,6 @@ main:
             t.contains("refs: [] # array<object>\n"),
             "wrong rendering: {t}"
         );
-        assert!(!t.contains("!must_fill"), "no markers expected: {t}");
     }
 
     #[test]
@@ -1180,11 +1093,10 @@ main:
             "wrong rendering: {t}"
         );
         assert!(!t.contains("{}"), "no bare empty object expected: {t}");
-        assert!(!t.contains("!must_fill"), "no markers expected: {t}");
     }
 
     #[test]
-    fn typed_dict_must_fill_emits_per_property_annotations() {
+    fn a_typed_dict_emits_per_property_annotations() {
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -1199,8 +1111,8 @@ main:
 "#)
         .blueprint();
         assert!(t.contains("# Mailing address.\naddress: # object\n"));
-        assert!(t.contains("  # Street line.\n  street: !must_fill # string\n"));
-        assert!(t.contains("  city: !must_fill # string\n"));
+        assert!(t.contains("  # Street line.\n  street: # string\n"));
+        assert!(t.contains("  city: # string\n"));
         assert!(t.contains("  zip: \"\" # string\n"));
     }
 
@@ -1223,10 +1135,6 @@ main:
                 || t.contains("  street: \"5000 Forbes Ave\" # string\n")
         );
         assert!(t.contains("  city: Pittsburgh # string\n"));
-        assert!(
-            !t.contains("street: !must_fill"),
-            "a defaulted leaf asks for nothing: {t}"
-        );
     }
 
     #[test]
@@ -1244,12 +1152,11 @@ main:
         .blueprint();
         assert!(t.contains("address: # object\n"));
         assert!(t.contains("# e.g. Cupertino\n"), "{t}");
-        assert!(t.contains("  street: !must_fill # string\n"));
+        assert!(t.contains("  street: # string\n"));
         assert!(t.contains("  city: \"\" # string\n"));
     }
 
-    /// A richtext cell never inlines its example, so the `# e.g.` hint is the
-    /// only place the example can land — at every depth a property is declared.
+    /// The `# e.g.` hint lands at every depth a property is declared.
     #[test]
     fn a_richtext_example_surfaces_as_an_eg_hint_at_every_depth() {
         let t = cfg(r#"
@@ -1271,14 +1178,14 @@ main:
         .blueprint();
 
         assert!(
-            t.contains("# e.g. Top hello\nbio: !must_fill # richtext<markdown>\n"),
+            t.contains("# e.g. Top hello\nbio: # richtext<markdown>\n"),
             "{t}"
         );
         assert!(
             t.contains(concat!(
                 "contact: # object\n",
                 "  # e.g. Nested hello\n",
-                "  bio: !must_fill # richtext<markdown>\n",
+                "  bio: # richtext<markdown>\n",
             )),
             "{t}"
         );
@@ -1287,7 +1194,7 @@ main:
                 "rows: # array<object>\n",
                 "  -\n",
                 "    # e.g. Row hello\n",
-                "    bio: !must_fill # richtext<markdown>\n",
+                "    bio: # richtext<markdown>\n",
             )),
             "{t}"
         );
@@ -1378,42 +1285,6 @@ main:
             .expect("re-emit must parse")
             .document;
         assert_eq!(doc1, doc2, "typed-table blueprint must round-trip");
-    }
-
-    #[test]
-    fn must_fill_markers_round_trip_and_survive_as_fill() {
-        let bp = cfg(r#"
-quill: { name: letter, version: 1.0.0, backend: typst, description: A letter. }
-main:
-  fields:
-    recipient:
-      type: array
-      items: { type: string }
-      example: [Mr. John Doe, "Anytown, USA"]
-    subject: { type: string }
-    date: { type: datetime }
-"#)
-        .blueprint();
-
-        let doc1 = Document::parse(&bp).expect("blueprint must parse").document;
-        let payload = doc1.main().payload();
-        for key in ["recipient", "subject", "date"] {
-            assert!(
-                payload.is_fill(key),
-                "`{key}` must carry the fill marker:\n{bp}"
-            );
-        }
-        assert_eq!(
-            payload
-                .get("recipient")
-                .and_then(|v| v.as_json().as_array().map(|a| a.len())),
-            Some(2),
-            "recipient suggested value should survive: {bp}"
-        );
-
-        let md2 = doc1.to_markdown();
-        let doc2 = Document::parse(&md2).expect("re-emitted markdown must parse").document;
-        assert_eq!(doc1, doc2, "blueprint must round-trip idempotently");
     }
 
     #[test]

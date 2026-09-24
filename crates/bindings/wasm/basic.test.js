@@ -756,15 +756,14 @@ Card two.
 
   it('a card the wire refuses carries the code its addressed mutator mints', () => {
     // Two doors onto one violation: what storeField / setQuillRef throw for a
-    // name, a reference and a fill is what a card built from a wire throws.
+    // name and a reference is what a card built from a wire throws.
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const withField = (key, value, fill = false) => ({
+    const withField = (key, value) => ({
       kind: 'note',
-      payloadItems: [{ type: 'field', key, value, fill }],
+      payloadItems: [{ type: 'field', key, value }],
     })
 
     expectEditCode(() => doc.insertCard(withField('bad-name', 1)), 'edit::invalid_field_name')
-    expectEditCode(() => doc.insertCard(withField('addr', { a: 1 }, true)), 'edit::fill_on_mapping')
     expectEditCode(
       () => doc.insertCard({ kind: 'note', quill: '@nope' }),
       'parse::invalid_quill_reference',
@@ -873,28 +872,6 @@ describe('Document editor surface: $ext', () => {
     expectEditCode(() => doc.storeExt({ card: 5 }, {}), 'edit::index_out_of_range')
     expectEditCode(() => doc.removeExt({ card: 5 }), 'edit::index_out_of_range')
     expectEditCode(() => doc.getExt({ card: 5 }), 'edit::index_out_of_range')
-  })
-})
-
-describe('Document editor surface: storeFill / isFill', () => {
-  it('storeFill marks a field, storeField clears it, and isFill is total over fields', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.storeFill('subject', 'x')
-    expect(doc.isFill('subject')).toBe(true)
-    doc.storeField('subject', 'x')
-    expect(doc.isFill('subject')).toBe(false)
-    expect(doc.isFill('nonesuch')).toBe(false)
-    expect(doc.isFill({})).toBe(false)
-    expectEditCode(() => doc.isFill({ card: 5, field: 'title' }), 'edit::index_out_of_range')
-  })
-
-  it('storeFill is card-capable and rejects a body address', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.insertCard({ kind: 'note', body: 'x' })
-    doc.storeFill({ card: 0, field: 'signer' }, 'TBD')
-    expect(doc.isFill({ card: 0, field: 'signer' })).toBe(true)
-    expect(doc.isFill({ card: 0, field: 'other' })).toBe(false)
-    expect(() => doc.storeFill({}, 'v')).toThrow(/storeFill/)
   })
 })
 
@@ -1084,15 +1061,15 @@ count: "not-a-number"
 
 // The blueprint text and the authored/default/blank ladder are core's
 // (`core/src/quill/blueprint.rs`, `core/src/quill/resolved.rs`). Here: the
-// schema DTO's shape and a `!must_fill` marker reaching render and validate.
-describe('value / obligation schema model', () => {
-  // The plate `unwrap`s `data.title` (obliged) and substitutes the optional
+// schema DTO's shape and an unanswered cell reaching render.
+describe('value schema model', () => {
+  // The plate reads `data.title` (no default) and substitutes the optional
   // `data.subtitle` if present, so one quill carries both cell states.
   const SCHEMA_QUILL_YAML = `quill:
   name: schema_test
   version: "1.0"
   backend: typst
-  description: value / obligation coverage
+  description: value coverage
 
 typst:
   plate_file: plate.typ
@@ -1101,7 +1078,7 @@ main:
   fields:
     title:
       type: string
-      description: Document title (obliged, no default)
+      description: Document title (no default)
     subtitle:
       type: string
       default: "Untitled subtitle"
@@ -1144,68 +1121,17 @@ main:
     expect(quill.blueprint.length).toBeGreaterThan(0)
   })
 
-  it('render tolerates a `!must_fill` marker left in (non-fatal, blank-fills)', () => {
+  it('render blank-fills an unanswered cell', () => {
     const { engine, quill } = buildQuill()
-
-    // The marker survives the boundary as a marker rather than a bare null, so
-    // render blank-fills the field and succeeds.
     const md = `~~~card-yaml
 $quill: schema_test
 $kind: main
-title: !must_fill
+title:
 ~~~
 
 # Body
 `
     const result = engine.render(quill, Document.fromMarkdown(md), { format: 'svg' })
     expect(result.artifacts.length).toBeGreaterThan(0)
-  })
-
-  it('validate surfaces a `validation::must_fill` warning carrying its args', () => {
-    const { quill } = buildQuill()
-    const md = `~~~card-yaml
-$quill: schema_test
-$kind: main
-~~~
-`
-    const title = quill
-      .validate(Document.fromMarkdown(md))
-      .find((d) => d.code === 'validation::must_fill' && d.path === 'main.title')
-    expect(title.severity).toBe('warning')
-    expect(title.args.trigger).toBe('unauthored')
-  })
-})
-
-describe('nested !must_fill', () => {
-  it('exposes nestedFills on a field item only where markers nest, surviving insertCard', () => {
-    const md = `~~~card-yaml
-$quill: q@0.1
-$kind: main
-addr:
-  street: !must_fill
-  city: Anytown
-~~~
-`
-    const doc = Document.fromMarkdown(md)
-    const addr = doc.main.payloadItems.find((i) => i.key === 'addr')
-    expect(addr.nestedFills).toEqual([['street']])
-
-    const doc2 = Document.fromMarkdown(
-      '~~~card-yaml\n$quill: q@0.1\n$kind: main\ntitle: x\n~~~\n',
-    )
-    expect(doc2.main.payloadItems.find((i) => i.key === 'title').nestedFills).toBeUndefined()
-    doc2.insertCard({
-      kind: 'note',
-      payloadItems: [
-        {
-          type: 'field',
-          key: 'addr',
-          value: { street: null, city: 'A' },
-          nestedFills: [['street']],
-        },
-      ],
-      body: '',
-    })
-    expect(doc2.toMarkdown()).toContain('street: !must_fill')
   })
 })

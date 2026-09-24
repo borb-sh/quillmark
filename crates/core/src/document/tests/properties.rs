@@ -74,6 +74,7 @@ proptest! {
     #[test]
     fn storage_decode_never_panics_past_the_tag(main in arb_json(), cards in arb_json()) {
         for schema in [
+            "quillmark/document@0.116.0",
             "quillmark/document@0.115.0",
             "quillmark/document@0.112.0",
             "quillmark/document@0.93.0",

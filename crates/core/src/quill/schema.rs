@@ -315,28 +315,6 @@ mod tests {
         build_transform_schema(&config)
     }
 
-    /// The projection is the wire *validity* contract, and obligation is not a
-    /// validity fact: an unauthored must-fill cell is wire-valid by design. A
-    /// `required`-shaped flag here would read as the gate `SCHEMAS.md` forbids.
-    #[test]
-    fn obligation_does_not_cross_into_the_transform_schema() {
-        let yaml = r#"
-quill:
-  name: x
-  version: 1.0.0
-  backend: typst
-  description: x
-main:
-  fields:
-    severity:   { type: enum, values: [low, high] }
-    status:     { type: string, default: draft }
-"#;
-        let json = build_from_yaml(yaml).as_json().clone();
-
-        assert!(!json.to_string().contains("must_fill"), "{json}");
-        assert_eq!(json["properties"]["status"], serde_json::json!({"type": "string"}));
-    }
-
     #[test]
     fn enum_carries_its_domain_at_every_depth() {
         let yaml = r#"

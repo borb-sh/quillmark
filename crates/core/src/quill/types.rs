@@ -455,9 +455,7 @@ pub type VariantFields = IndexMap<String, Box<FieldSchema>>;
 /// (`quill::variant_reserved_field_name`).
 pub const VARIANT_DISCRIMINANT_KEY: &str = "value";
 
-/// Schema definition for a template field. `default:` answers both the value
-/// axis and the obligation one ([`must_fill`](Self::must_fill)); `SCHEMAS.md`
-/// §"Value and obligation: one declaration" is the rule.
+/// Schema definition for a template field.
 ///
 /// The prose types' single-line constraint and an `enum`'s domain each have
 /// **one** carrier, the [`FieldType`] payload. The wire's sibling `inline:` and
@@ -480,7 +478,6 @@ pub struct FieldSchema {
     pub optional: bool,
     pub description: Option<String>,
     /// The value most authors want; interpolated when the field is omitted.
-    /// Its presence is the whole of [`must_fill()`](Self::must_fill).
     pub default: Option<QuillValue>,
     /// A value matching the desired type and shape but not the value most
     /// authors want; documents shape only and never renders as the value.
@@ -523,10 +520,6 @@ pub struct FieldSchema {
     /// bearing no content leaf, a null or absent default, or a schema built
     /// outside the loader.
     pub default_content: Option<QuillValue>,
-    /// Canonical-content form of [`example`](Self::example), cached and absent
-    /// under the same conditions as
-    /// [`default_content`](Self::default_content). Seeding commits it.
-    pub example_content: Option<QuillValue>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -571,7 +564,6 @@ impl FieldSchema {
             max: None,
             members: None,
             default_content: None,
-            example_content: None,
         }
     }
 
@@ -629,14 +621,6 @@ impl FieldSchema {
             .or_else(|| self.default.as_ref()?.as_str())
             .unwrap_or_default()
             .to_string()
-    }
-
-    /// Whether a human must author this cell: the one answer the blueprint's
-    /// marker, the seeding stamp and the `Quill::validate` predicate all read.
-    /// Keyed on `default`'s *presence*, so a `default: ""` stays a skippable
-    /// cell rather than becoming a marker.
-    pub fn must_fill(&self) -> bool {
-        self.default.is_none()
     }
 
     /// Parse one field's wire form. Crate-internal because it is half the gate:
@@ -709,7 +693,6 @@ impl FieldSchema {
             // Filled by the loader's post-pass, which alone imports and
             // validates the literals; a bare `from_quill_value` leaves them empty.
             default_content: None,
-            example_content: None,
         };
         let mut schema = schema;
         schema.rebuild_matrix_members()?;

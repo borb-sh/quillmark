@@ -18,7 +18,7 @@ use serde_json::{Map as JsonMap, Value as JsonValue};
 use super::payload::{MetaKey, Payload, PayloadItem};
 use super::{Card, EditError};
 use crate::error::diag_args;
-use crate::value::{PathSegment, QuillValue};
+use crate::value::QuillValue;
 use crate::version::QuillReference;
 use crate::error::{Diagnostic, Severity};
 use quillmark_content::model::Normalized;
@@ -29,22 +29,7 @@ use quillmark_content::model::Normalized;
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum PayloadItemWire {
     /// A user-defined field.
-    Field {
-        key: String,
-        value: JsonValue,
-        /// `true` when the field itself is `key: !must_fill <value>` in source.
-        #[serde(default)]
-        fill: bool,
-        /// Paths to `!must_fill` markers nested *inside* `value`, whose JSON
-        /// projection is fill-free. Empty for a top-level-only or no-fill field.
-        #[serde(
-            default,
-            rename = "nestedFills",
-            alias = "nested_fills",
-            skip_serializing_if = "Vec::is_empty"
-        )]
-        nested_fills: Vec<Vec<PathSegment>>,
-    },
+    Field { key: String, value: JsonValue },
     /// A YAML comment line (text excludes the leading `#`).
     Comment {
         text: String,
@@ -175,15 +160,10 @@ impl From<&Card> for CardWire {
                     value,
                     ..
                 } => wire.seed = Some(value.clone()),
-                PayloadItem::Field {
-                    key, value, fill, ..
-                } => {
-                    let nested_fills = value.nonroot_fill_paths().collect();
+                PayloadItem::Field { key, value } => {
                     wire.payload_items.push(PayloadItemWire::Field {
                         key: key.clone(),
                         value: value.as_json().clone(),
-                        fill: *fill,
-                        nested_fills,
                     })
                 }
                 PayloadItem::Comment { text, inline } => {
@@ -206,26 +186,13 @@ impl TryFrom<CardWire> for Card {
             .payload_items
             .into_iter()
             .map(|item| match item {
-                PayloadItemWire::Field {
-                    key,
-                    value,
-                    fill,
-                    nested_fills,
-                } => {
-                    let refuse =
-                        |v| WireError::Edit(super::edit::edit_error_from_violation(&key, v));
-                    super::edit::validate_field(&key, &value).map_err(refuse)?;
-                    let mut qv = QuillValue::from_json(value);
-                    for path in &nested_fills {
-                        qv.set_fill_at(path);
-                    }
-                    // The fill-target check reads the wire's nested markers off
-                    // the value, so it runs after `set_fill_at`.
-                    super::edit::validate_fill_targets(&qv, fill).map_err(refuse)?;
+                PayloadItemWire::Field { key, value } => {
+                    super::edit::validate_field(&key, &value).map_err(|v| {
+                        WireError::Edit(super::edit::edit_error_from_violation(&key, v))
+                    })?;
                     Ok(PayloadItem::Field {
                         key,
-                        value: qv,
-                        fill,
+                        value: QuillValue::from_json(value),
                     })
                 }
                 PayloadItemWire::Comment { text, inline } => {
@@ -282,104 +249,6 @@ mod tests {
     use crate::document::Codec;
     use serde_json::json;
 
-    /// Nested `!must_fill` markers inside a field value survive Card → wire →
-    /// Card via the `nestedFills` path list (the JSON itself is fill-free).
-    #[test]
-    fn card_wire_round_trips_nested_fill() {
-        let mut addr = QuillValue::from_json(json!({"street": null, "city": "Anytown"}));
-        assert!(addr.set_fill_at(&[PathSegment::Key("street".to_string())]));
-        let payload = Payload::from_items(vec![PayloadItem::Field {
-            key: "addr".to_string(),
-            value: addr,
-            fill: false,
-        }]);
-        let card = Card::from_parts(payload, quillmark_content::model::Normalized::empty());
-
-        let wire = CardWire::from(&card);
-        let as_json = serde_json::to_value(&wire).unwrap();
-        assert_eq!(
-            as_json["payloadItems"][0]["nestedFills"],
-            json!([["street"]]),
-            "nested fill path rides the wire as a JS array; JSON value stays fill-free"
-        );
-        assert_eq!(
-            as_json["payloadItems"][0]["value"],
-            json!({"street": null, "city": "Anytown"})
-        );
-
-        let back = Card::try_from(wire).expect("wire → card");
-        assert_eq!(back, card, "nested fill must survive Card → wire → Card");
-    }
-
-    /// A `nestedFills` path is untagged JSON — a string per key, a number per
-    /// index — so it crosses the binding wire as a plain JS array.
-    #[test]
-    fn nested_fill_path_segments_are_untagged() {
-        let mut value = QuillValue::from_json(json!({"to": [{"name": null}]}));
-        assert!(value.set_fill_at(&[
-            PathSegment::Key("to".to_string()),
-            PathSegment::Index(0),
-            PathSegment::Key("name".to_string()),
-        ]));
-        let payload = Payload::from_items(vec![PayloadItem::Field {
-            key: "recipients".to_string(),
-            value,
-            fill: false,
-        }]);
-        let wire = CardWire::from(&Card::from_parts(
-            payload,
-            quillmark_content::model::Normalized::empty(),
-        ));
-
-        let as_json = serde_json::to_value(&wire).unwrap();
-        assert_eq!(
-            as_json["payloadItems"][0]["nestedFills"],
-            json!([["to", 0, "name"]]),
-            "a key rides as a JSON string and an index as a JSON number"
-        );
-
-        let back: CardWire = serde_json::from_value(as_json).expect("JSON → wire");
-        assert_eq!(back, wire, "an untagged path deserializes back unchanged");
-    }
-
-    /// The emitted `key: !must_fill` has no line for a block mapping, so the
-    /// wire refuses one where parse does — at the root and nested.
-    #[test]
-    fn card_wire_refuses_a_fill_marked_mapping() {
-        let field = |key: &str, value: JsonValue, fill: bool, nested: Vec<Vec<PathSegment>>| {
-            let mut wire = CardWire::new("note".to_string(), JsonValue::Null);
-            wire.payload_items.push(PayloadItemWire::Field {
-                key: key.to_string(),
-                value,
-                fill,
-                nested_fills: nested,
-            });
-            wire
-        };
-
-        let err = Card::try_from(field("x", json!({"a": 1}), true, Vec::new()))
-            .expect_err("a fill-marked mapping is refused");
-        assert!(
-            matches!(&err, WireError::Edit(EditError::FillOnMapping { field }) if field == "x"),
-            "{err:?}"
-        );
-
-        let nested = vec![vec![PathSegment::Key("inner".to_string())]];
-        let err = Card::try_from(field("addr", json!({"inner": {"a": 1}}), false, nested))
-            .expect_err("a nested fill on a mapping is refused");
-        assert!(
-            matches!(&err, WireError::Edit(EditError::FillOnMapping { field }) if field == "addr"),
-            "{err:?}"
-        );
-
-        // The one mapping a marker may target: emit projects it to a markdown
-        // scalar first.
-        let content = quillmark_content::import::from_markdown("Q3 results").expect("content");
-        let canonical = quillmark_content::serial::to_canonical_value(&content);
-        Card::try_from(field("subject", canonical, true, Vec::new()))
-            .expect("a fill-marked content object still crosses");
-    }
-
     /// A content object rides the wire structurally and losslessly, so an
     /// `underline` with no markdown projection survives Card → wire → Card.
     #[test]
@@ -414,11 +283,7 @@ mod tests {
         let mut payload = Payload::from_items(vec![
             PayloadItem::comment("a note"),
             PayloadItem::field("title", QuillValue::from_json(json!("Hi"))),
-            PayloadItem::Field {
-                key: "count".to_string(),
-                value: QuillValue::from_json(json!(3)),
-                fill: true,
-            },
+            PayloadItem::field("count", QuillValue::from_json(json!(3))),
         ]);
         payload.set_kind("note");
         let card = Card::from_parts(payload, crate::document::import_body("body text").unwrap());
@@ -456,8 +321,6 @@ mod tests {
             payload_items: vec![PayloadItemWire::Field {
                 key: "x".to_string(),
                 value: json!(1),
-                fill: false,
-                nested_fills: Vec::new(),
             }],
             body: JsonValue::Null,
         })
@@ -491,13 +354,11 @@ mod tests {
 
     #[test]
     fn card_wire_refuses_a_field_under_the_mutator_code() {
-        let refused = |key: &str, value: JsonValue, fill: bool| {
+        let refused = |key: &str, value: JsonValue| {
             let mut wire = CardWire::new("note".to_string(), JsonValue::Null);
             wire.payload_items.push(PayloadItemWire::Field {
                 key: key.to_string(),
                 value,
-                fill,
-                nested_fills: Vec::new(),
             });
             Card::try_from(wire).expect_err("the wire refuses it")
         };
@@ -507,18 +368,13 @@ mod tests {
 
         for (wire_err, mutator_err) in [
             (
-                refused("bad-name", json!(1), false),
+                refused("bad-name", json!(1)),
                 card.store_field("bad-name", QuillValue::from_json(json!(1)))
                     .unwrap_err(),
             ),
             (
-                refused("deep", deep.clone(), false),
+                refused("deep", deep.clone()),
                 card.store_field("deep", QuillValue::from_json(deep))
-                    .unwrap_err(),
-            ),
-            (
-                refused("addr", json!({"a": 1}), true),
-                card.store_fill("addr", QuillValue::from_json(json!({"a": 1})))
                     .unwrap_err(),
             ),
         ] {

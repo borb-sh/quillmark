@@ -689,9 +689,6 @@ mod args_canon {
             },
             EditError::IndexOutOfRange { index: 3, len: 1 },
             EditError::ValueTooDeep { max: 8 },
-            EditError::FillOnMapping {
-                field: "addr".into(),
-            },
             EditError::Import(quillmark_content::import::ImportError::NestingTooDeep {
                 depth: 9,
                 max: 8,
@@ -773,14 +770,6 @@ mod args_canon {
             .args(),
         );
         let path = crate::path::DocPath::main().field("subject");
-        let marker = crate::quill::compose::fill_warning(&path);
-        let unauthored = crate::quill::compose::unauthored_warning(&path);
-        assert_eq!(
-            marker.args.keys().collect::<Vec<_>>(),
-            unauthored.args.keys().collect::<Vec<_>>(),
-            "both `validation::must_fill` triggers must carry one key set"
-        );
-        add("validation::must_fill", marker.args);
         add(
             "validation::out_of_variant",
             crate::quill::compose::out_of_variant_warning(&path, "CUI", "UNCLASSIFIED").args,

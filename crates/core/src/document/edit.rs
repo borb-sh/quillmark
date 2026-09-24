@@ -100,11 +100,6 @@ pub enum EditError {
     #[error("value nests deeper than the maximum of {max} levels")]
     ValueTooDeep { max: usize },
 
-    /// The offending marker may be on a node nested inside `field` rather than on
-    /// `field` itself.
-    #[error("`!must_fill` on field '{field}' targets a mapping; `!must_fill` is supported on scalars and sequences only")]
-    FillOnMapping { field: String },
-
     /// Markdown import failed: the content codec rejected the input for a body
     /// *or* a field path (e.g. container nesting past
     /// [`MAX_NESTING_DEPTH`](quillmark_content::MAX_NESTING_DEPTH)). Returned
@@ -209,7 +204,6 @@ impl EditError {
             EditError::RootOnlyEntry { .. } => "edit::root_only_entry",
             EditError::IndexOutOfRange { .. } => "edit::index_out_of_range",
             EditError::ValueTooDeep { .. } => "edit::value_too_deep",
-            EditError::FillOnMapping { .. } => "edit::fill_on_mapping",
             EditError::Import(_) => "edit::import",
             EditError::FieldDecode { .. } => "edit::field_decode",
             EditError::FieldNotContent { .. } => "edit::field_not_content",
@@ -239,7 +233,6 @@ impl EditError {
                 "len" => len,
             },
             EditError::ValueTooDeep { max } => diag_args! { "max" => max },
-            EditError::FillOnMapping { field } => diag_args! { "field" => field },
             EditError::Import(_) => diag_args! {},
             EditError::FieldDecode {
                 field,
@@ -296,7 +289,6 @@ impl EditError {
             }
             EditError::InvalidFieldName(f)
             | EditError::FieldNotInline { field: f, .. }
-            | EditError::FillOnMapping { field: f }
             | EditError::FieldCoercionFailed { field: f, .. } => Some(base.field(f)),
             EditError::IndexOutOfRange { index, .. } => Some(DocPath::card(None, *index)),
             _ => (!base.segs().is_empty()).then(|| base.clone()),
@@ -318,10 +310,6 @@ pub enum FieldViolation {
     /// The value nests deeper than [`MAX_JSON_DEPTH`](quillmark_content::MAX_JSON_DEPTH)
     /// (spec §8).
     TooDeep,
-    /// A `!must_fill` marker targets a mapping. The marker rides a value's tag,
-    /// and a block mapping opens on the next line, with no tag position of its
-    /// own (spec §3.4).
-    FillOnMapping,
 }
 
 impl FieldViolation {
@@ -343,9 +331,6 @@ impl std::fmt::Display for FieldViolation {
                 f,
                 "nests deeper than the maximum of {} levels",
                 quillmark_content::MAX_JSON_DEPTH
-            ),
-            FieldViolation::FillOnMapping => f.write_str(
-                "`!must_fill` targets a mapping; `!must_fill` is supported on scalars and sequences only",
             ),
         }
     }
@@ -399,9 +384,6 @@ pub(crate) fn edit_error_from_violation(name: &str, v: FieldViolation) -> EditEr
         FieldViolation::InvalidName => EditError::InvalidFieldName(name.to_string()),
         FieldViolation::TooDeep => EditError::ValueTooDeep {
             max: quillmark_content::MAX_JSON_DEPTH,
-        },
-        FieldViolation::FillOnMapping => EditError::FillOnMapping {
-            field: name.to_string(),
         },
     }
 }
@@ -504,35 +486,6 @@ pub fn validate_payload(payload: &Payload) -> Result<(), PayloadViolation> {
                     return Err(PayloadViolation::MultiLineComment);
                 }
             }
-        }
-    }
-    Ok(())
-}
-
-/// Refuse a `!must_fill` marker targeting a mapping
-/// ([`FieldViolation::FillOnMapping`]), the rule the parser enforces on source.
-///
-/// A canonical content object at the root or under a key is not a mapping here:
-/// emit projects it to its markdown scalar before writing the marker
-/// (`emit::project_content_field`). One at an array index is, since a sequence
-/// item has no `!must_fill` spelling.
-pub fn validate_fill_targets(
-    value: &crate::value::QuillValue,
-    fill: bool,
-) -> Result<(), FieldViolation> {
-    use crate::value::PathSegment;
-    let targets_mapping = |node: Option<&serde_json::Value>, projects: bool| {
-        node.is_some_and(|n| {
-            n.is_object() && !(projects && super::emit::project_content_field(n).is_some())
-        })
-    };
-    if fill && targets_mapping(Some(value.as_json()), true) {
-        return Err(FieldViolation::FillOnMapping);
-    }
-    for path in value.nonroot_fill_paths() {
-        let under_key = matches!(path.last(), Some(PathSegment::Key(_)));
-        if targets_mapping(crate::value::json_at(value.as_json(), &path), under_key) {
-            return Err(FieldViolation::FillOnMapping);
         }
     }
     Ok(())
@@ -642,11 +595,6 @@ impl<'a> CardMut<'a> {
     /// [`Card::store_field`].
     pub fn store_field(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
         self.0.store_field(name, value)
-    }
-
-    /// [`Card::store_fill`].
-    pub fn store_fill(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
-        self.0.store_fill(name, value)
     }
 
     /// [`Card::store_fields`].
@@ -871,8 +819,7 @@ impl Card {
         ))
     }
 
-    /// Store a payload field verbatim, clearing any `!must_fill` marker on that
-    /// key. Coercion is deferred to render; contrast the typed
+    /// Store a payload field verbatim. Coercion is deferred to render; contrast the typed
     /// [`TypedWriter::set`](crate::writer::TypedWriter::set). Scalars convert
     /// in place (`store_field("qty", 3)`) via the `From` impls on
     /// [`QuillValue`].
@@ -885,28 +832,13 @@ impl Card {
     pub fn store_field(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
         let value = value.into();
         check_field(name, value.as_json())?;
-        validate_fill_targets(&value, false).map_err(|v| edit_error_from_violation(name, v))?;
         self.payload_mut()
             .insert(name.to_string(), value)
             .map_err(EditError::InvalidPayload)?;
         Ok(())
     }
 
-    /// Store a payload field verbatim and mark it as a `!must_fill` placeholder.
-    /// `Null` emits as `key: !must_fill`; other values as
-    /// `key: !must_fill <value>`. Validation as [`Card::store_field`].
-    pub fn store_fill(&mut self, name: &str, value: impl Into<QuillValue>) -> Result<(), EditError> {
-        let value = value.into();
-        check_field(name, value.as_json())?;
-        validate_fill_targets(&value, true).map_err(|v| edit_error_from_violation(name, v))?;
-        self.payload_mut()
-            .insert_fill(name.to_string(), value)
-            .map_err(EditError::InvalidPayload)?;
-        Ok(())
-    }
-
-    /// Store several payload fields verbatim and atomically, clearing any
-    /// `!must_fill` marker on each key. The whole batch is validated first: on
+    /// Store several payload fields verbatim and atomically. The whole batch is validated first: on
     /// any violation nothing is applied and every offending field is reported as
     /// a `(name, error)` pair. Per-field rules are those of
     /// [`Card::store_field`]; insertion order follows the iterator, and a
@@ -930,10 +862,6 @@ impl Card {
             .iter()
             .filter_map(|(name, value)| {
                 check_field(name, value.as_json())
-                    .and_then(|()| {
-                        validate_fill_targets(value, false)
-                            .map_err(|v| edit_error_from_violation(name, v))
-                    })
                     .err()
                     .map(|e| (name.clone(), e))
             })
@@ -1366,10 +1294,6 @@ mod tests {
         for name in ["bad name", "$id"] {
             assert_eq!(
                 card.store_field(name, qv(serde_json::json!("v"))),
-                Err(EditError::InvalidFieldName(name.to_string()))
-            );
-            assert_eq!(
-                card.store_fill(name, qv(serde_json::json!("v"))),
                 Err(EditError::InvalidFieldName(name.to_string()))
             );
         }

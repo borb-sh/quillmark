@@ -38,7 +38,7 @@ Two surfaces return one directly (`QuillValue::from_yaml_str`, `QuillConfig::sch
 
 Its `line`/`column` are document coordinates, not block-relative ones:
 
-- The engine reports a position inside the string it parsed: the fence content, line-for-line (prescan strips `!must_fill` tags but leaves every line standing, comment lines included), minus the whitespace `trim` takes off the front. The assembler translates that position onto the document.
+- The engine reports a position inside the string it parsed: the fence content, line-for-line (prescan strips custom tags but leaves every line standing, comment lines included), minus the whitespace `trim` takes off the front. The assembler translates that position onto the document.
 - `to_diagnostic()` renders it as a `Location` against `DOCUMENT_FILE` (`input.md`). Markdown reaches the engine as a string, so the anchor names the input rather than a path on disk.
 - The message names the block instead of repeating a number (`YAML error in the root card-yaml block: …`, `… in card-yaml block 2: …`). The engine's own snippet inside it stays block-relative, as the engine rendered it.
 
@@ -139,8 +139,8 @@ families:
 - **Validation warnings**: `Quill::validate(doc)` returns every
   `validation::*` diagnostic, mixing severities. Severity is the class
   [SCHEMAS.md](SCHEMAS.md#what-blocks-a-render) assigns: an `Error` is
-  malformed input, and the document does not render; a `Warning` is incomplete
-  or unclaimed input, which renders. The warnings are `must_fill`,
+  malformed input, and the document does not render; a `Warning` is unclaimed
+  input, which renders. The warnings are
   `cardinality`, `out_of_variant`, `unknown_card`, `body_disabled`,
   `unknown_field`, and the `$seed` checks, which warn
   whatever their class because no render reads `$seed`.
@@ -243,8 +243,7 @@ own: an `update` swaps the compile half and keeps these.
 
 ## Validation message contract
 
-Field-level validation diagnostics: `validation::type_mismatch` (fatal) and
-`validation::must_fill` (non-fatal, `Severity::Warning`): emit a single
+Field-level validation diagnostics (`validation::type_mismatch`) emit a single
 canonical shape:
 
 - **Field path**: the document-model anchor of the offending field
@@ -252,8 +251,7 @@ canonical shape:
   paths](#document-model-paths).
 - **Source token**: the YAML scalar that triggered the error, rendered
   verbatim in its YAML-canonical form (`42`, `null`, `true`, `""`). Strings
-  appear quoted; primitives appear bare. (Absent fields have no source
-  token.)
+  appear quoted; primitives appear bare.
 - **Schema declaration**: the field's declared type and, when present,
   its default. Defaults render with the same verbatim formatting.
 - **Both exits when applicable**: the message names two ways out. The
@@ -267,48 +265,21 @@ Either quote the value (`build_number: "42"`) or change the schema's
 `type:` to `integer`.
 ```
 
-`validation::must_fill` has two triggers, distinguished by its `trigger` arg
-and by nothing else — one code, one anchor grammar, one severity. The messages
-differ because the two name different situations:
-
-```
-Field `name` is marked `!must_fill`: a placeholder awaiting a value.
-```
-
-(`trigger: marker`) with the hint *"Replace the value and drop the `!must_fill`
-marker, or remove the marker if the current value is intended."*
-
-```
-Field `name` must be filled in: nobody has authored a value.
-```
-
-(`trigger: unauthored`) with the hint *"Author a value. To record that empty is
-the intended answer, write the field's blank explicitly rather than leaving it
-out."* Either way it is a warning, not an error: the field still renders (the
-cell blank-fills or uses its suggested value). At most one is emitted per path;
-where both apply the marker wins, its hint being the actionable one.
-
 A present-null value (`subtitle:`, `subtitle: null`, `subtitle: ~`) is treated
-exactly like an omitted field on the **value** ladder: null ≡ absent, it
-coerces and validates clean, and it blank-fills at render (authored ›
-`default:` › blank). On the obligation surface the two are together on the
-other side: neither is an authored answer, so both trigger `unauthored` where
-the schema obliges the cell (see [SCHEMAS.md](SCHEMAS.md) § "Native
-validation"). An incomplete document therefore produces no *fatal* field-level
-diagnostic, and warns exactly where a human has yet to make a call.
+exactly like an omitted field: null ≡ absent, it coerces and validates clean,
+and it blank-fills at render (authored › `default:` › blank). An incomplete
+document therefore produces no field-level diagnostic at all.
 
 Implementation: `crates/core/src/quill/validation.rs` (the `ValidationError`
-`Display` impl, for `validation::type_mismatch`) and
-`crates/core/src/quill/compose.rs` (`validate_fills`/`fill_warning` and
-`validate_unauthored`/`unauthored_warning`, for `validation::must_fill`).
+`Display` impl).
 
 ## Document-model paths
 
 `Diagnostic.path` is a **document-model** anchor into a typed `Document`:
 one canonical grammar, one serializer, one parser: `DocPath`
-(`crates/core/src/path.rs`). Every emit site (schema validation,
-`!must_fill` collection) constructs a `DocPath`; no site assembles a path
-with `format!`, so the engine never ships two shapes for one anchor.
+(`crates/core/src/path.rs`). Every emit site constructs a `DocPath`; no site
+assembles a path with `format!`, so the engine never ships two shapes for one
+anchor.
 
 | Anchor | Path |
 |---|---|
@@ -403,7 +374,6 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `validation::body_disabled` | `card` | structured |
 | `validation::unknown_field` | `field`, `suggestion`?, `container`?, `variant`? | structured |
 | `validation::coercion_failed` | `value`, `target` | structured, coarser |
-| `validation::must_fill` | `trigger` | structured |
 | `validation::out_of_variant` | `variant`, `selected` | structured |
 | `validation::cardinality` | `max`, `actual` | structured |
 | `validation::seed_unknown_kind` | — | code-determined |
@@ -416,7 +386,6 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `edit::invalid_kind_name` | `kind` | structured |
 | `edit::index_out_of_range` | `index`, `len` | structured |
 | `edit::value_too_deep` | `max` | structured |
-| `edit::fill_on_mapping` | `field` | structured |
 | `edit::field_not_inline` | `field`, `codec` | structured |
 | `edit::field_not_content` | `field`, `declared` | structured |
 | `edit::field_coercion_failed` | `field`, `target` | structured, coarser |

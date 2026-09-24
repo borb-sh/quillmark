@@ -150,8 +150,7 @@ document was built. Parse warnings and the `conform::*` warnings both ride
 other way (`fromStored`, a stored row), returning the `conform::*` `Diagnostic[]`
 (`[]` when everything rested). It is idempotent and a byte no-op on an
 already-canonical document, YAML comments included, so calling it on every load
-is safe. A `!must_fill` marker anywhere in a field's value skips that field; a
-value the strict write refuses stays as authored under a warning. Both throw
+is safe. A value the strict write refuses stays as authored under a warning. Both throw
 when the document declares a `$quill` this quill does not answer to, before any
 mutation.
 
@@ -220,8 +219,9 @@ To render a form editor, read field definitions from `quill.schema` (walk
 values from the `Document` payload: there is no separate form-view projection.
 `quill.validate(doc)` scores it without invoking the backend.
 
-`quill.seedDocument()` returns a starter document with each field's `example:`
-committed; `quill.seedMain()` and `quill.seedCard(kind)` seed one card. All
+`quill.seedDocument()` returns a starter document: one card per kind, each body
+from `body.example`, every field absent (no `example:` is committed);
+`quill.seedMain()` and `quill.seedCard(kind)` seed one card. All
 return the read `Card` shape of `doc.main` / `doc.cards`, which `doc.insertCard`
 accepts directly:
 
@@ -248,7 +248,7 @@ card is an object literal: one `{ type: "field", key, value }` per field in
 `{ card?, field? }`, absent `card` = main, absent `field` = body, and a bare
 string is shorthand for `{ field }`. So `doc.storeField("qty", 3)` targets the
 main card's `qty`, `doc.storeField({ card: 2, field: "qty" }, 3)` a composable
-card's. Reads are total over the field axis (`getStored` → `undefined`, `isFill` → `false` for
+card's. Reads are total over the field axis (`getStored` → `undefined` for
 an absent field; only an out-of-range card throws); field writes throw on a body
 address. `getStored` is the verbatim transport read, distinct from the interpreted
 `quill.reader(doc).get`; `bodyMarkdown` is the body markdown read (a `CardAddr`; a field's
@@ -289,7 +289,7 @@ on `Document` itself (**store** = verbatim, **set** = typed):
   `_reviseField` ABI the writer delegates to, hidden from the `.d.ts`.)
 
 - **`store*`: the deliberate quill-free primitive.** `doc.storeField(addr, value)`
-  / `doc.storeFields(cardAddr, {...})` (and `storeFill`) validate only the field
+  / `doc.storeFields(cardAddr, {...})` validate only the field
   name/depth/kind and store the value verbatim, no quill required. Reach for it
   on purpose when you *want* the opaque store: quill-agnostic storage/migration
   infra that has no bundle and must write regardless of a drifted schema;
@@ -409,24 +409,18 @@ session.paint(canvas.getContext("2d"), 0, cssPxPerPt * window.devicePixelRatio);
 
 ### Schema model
 
-A field carries two independent axes, and no `required` one.
+A field declares no `required` key: nothing is required.
 
-**Value** — what the cell holds. With a `default:`, `quill.blueprint` renders
-that value under a type-only `# <type>` annotation and the render path uses it
-when the document omits the field. Without one, an `example` takes the cell as
-a suggested value, and an absent field blank-fills.
+**`default:`** — what an unanswered field renders. With one, `quill.blueprint`
+renders that value under a type-only `# <type>` annotation and the render path
+uses it when the document omits the field. Without one, the blueprint leaves the
+cell empty and an absent field blank-fills.
 
-**Obligation** — whether a human must author the field, read off `default:`'s
-absence: a defaulted field asks nobody, a defaultless one asks. An obliged
-field carries the `!must_fill` marker in `quill.blueprint`, and
-`quill.validate(doc)` emits the non-fatal `validation::must_fill` warning while
-the document leaves it unauthored — from either of two triggers, named by the
-diagnostic's `trigger` arg: `marker` for a marker the document still carries,
-`unauthored` for a cell the schema obliges and the document never filled.
-Authoring the field's blank discharges the obligation; clearing the key does
-not.
+**`example:`** — the schema's illustration of the field's shape.
+`quill.blueprint` shows it on a `# e.g.` line above the field; it never takes a
+cell and never renders.
 
-Neither axis gates render. Partial documents are accepted, and
+An unanswered field draws no diagnostic. Partial documents are accepted, and
 `engine.render(quill, doc)` throws only for malformed input.
 
 ### Errors

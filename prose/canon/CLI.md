@@ -27,17 +27,12 @@ them.
   It compiles nothing, so a plate failure or a `backend::declined_construct` is
   `render`'s to find. A document that fails to read or parse draws that one
   error and does not stop the rest. An
-  `Error` exits `1`; `--strict` exits `1` on a `Warning` too, the strict consumer
-  [SCHEMAS.md](SCHEMAS.md#native-validation) names, for a CI gate over a
-  repository of documents.
+  `Error` exits `1`; `--strict` exits `1` on a `Warning` too, for a CI gate over
+  a repository of documents.
 - **`render` prints what the page leaves out.** Its warnings are the parse
-  carrier, then the `Quill::validate` warnings of the unclaimed class, then the
-  compile's ([ERROR.md](ERROR.md#warning-flow)). The incomplete class,
-  `validation::must_fill`, is a draft's normal state and condenses to one count
-  line naming the `check` that lists them; the seeded render prints none, its
-  blanks being the quill's. The
-  class is the code's ([SCHEMAS.md](SCHEMAS.md#what-blocks-a-render)), so the
-  selection is one filter on `validation::must_fill`, not a list the CLI keeps.
+  carrier, then every `Quill::validate` warning, each naming unclaimed input
+  ([SCHEMAS.md](SCHEMAS.md#what-blocks-a-render)), then the compile's
+  ([ERROR.md](ERROR.md#warning-flow)).
 - **`validate` compiles the plate.** It renders the three canonical documents —
   the empty document, the blueprint, the seed — through the quill's backend at
   the backend's first declared format, and reports each failure as a
@@ -52,8 +47,8 @@ them.
   to the engine, which reads no clock; `render --today YYYY-MM-DD` pins it for
   a reproducible render. The local offset unreadable, the date is UTC's.
 - **Seeded fallback.** `render` with no `MARKDOWN_FILE` renders the quill's
-  seeded document: each field's `example:`, with `default:`/blank interpolated,
-  so a quill renders with no input file. Output defaults to
+  seeded document: one card per kind, bodies from `body.example`, every field at
+  its `default:`/blank, so a quill renders with no input file. Output defaults to
   `example.{format}`.
 - **Parsing is not relaxed for the CLI.** A `MARKDOWN_FILE` needs a root `~~~`
   block (the opener's info string is ignored) carrying a `$quill` line,

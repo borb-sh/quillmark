@@ -11,8 +11,7 @@ use crate::value::QuillValue;
 /// `Display` to render the uniform message `ERROR.md` § "Validation message
 /// contract" describes.
 ///
-/// The `!must_fill` marker and field absence are completeness concerns, not
-/// well-formedness ones, so neither has a variant here.
+/// Field absence is not a well-formedness concern, so it has no variant here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationError {
     TypeMismatch {
@@ -367,8 +366,7 @@ fn validate_value(
     ctx: ValueContext,
 ) -> Vec<ValidationError> {
     // Null ≡ absent: a present-null value in a document is treated as omitted
-    // (no type error). The `!must_fill` marker is surfaced separately as a
-    // warning by `Quill::validate`, not here.
+    // (no type error).
     if ctx == ValueContext::Document && value.as_json().is_null() {
         return vec![];
     }

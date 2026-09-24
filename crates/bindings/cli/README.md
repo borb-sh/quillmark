@@ -53,7 +53,7 @@ prints in full, and fields the document has yet to answer print as one count.
 ### `quillmark check [--strict] <QUILL_PATH> <MARKDOWN_FILE>...`
 
 Checks documents against the quill's schema and prints every diagnostic,
-unanswered fields included, without compiling the plate. Exits 1 where a
+without compiling the plate. Exits 1 where a
 document draws an error; `--strict` exits 1 on any warning too, for CI.
 
 ### `quillmark schema <QUILL_PATH>`
@@ -63,7 +63,8 @@ Prints the quill's field schema as YAML.
 ### `quillmark blueprint <QUILL_PATH>`
 
 Prints an annotated Markdown blueprint: a starting document with every declared
-field, `!must_fill` where a value is expected.
+field, each holding its `default:` or left empty (`title: # string`) where a
+value is expected, and each `example:` on a `# e.g.` line above its field.
 
 ### `quillmark validate <QUILL_PATH> [-v] [--no-render]`
 

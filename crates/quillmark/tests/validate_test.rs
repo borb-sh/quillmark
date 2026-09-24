@@ -88,32 +88,6 @@ fn validate_warns_on_unknown_card_kind_naming_the_declared_ones() {
     assert_eq!(diag.args.get("allowed"), Some(&serde_json::json!(["note"])));
 }
 
-#[test]
-fn validate_warns_on_must_fill_marker() {
-    let quill = quill_from_yaml(SIMPLE);
-    // With and without a suggested value, on the main card and a composable one.
-    let md = "~~~card-yaml\n$quill: validate_test\n$kind: main\n\
-              title: !must_fill Draft\ncount: !must_fill\n~~~\n\n\
-              ~~~card-yaml\n$kind: note\nlabel: !must_fill\n~~~\n";
-    let doc = Document::parse(md).unwrap().document;
-
-    let diags = quill.validate(&doc);
-    let marked: Vec<_> = diags
-        .iter()
-        .filter(|d| d.code.as_deref() == Some("validation::must_fill"))
-        .inspect(|d| assert_eq!(d.severity, quillmark::Severity::Warning))
-        .filter_map(|d| d.path.clone())
-        .collect();
-    assert!(
-        marked.contains(&"main.title".to_string())
-            && marked.contains(&"main.count".to_string())
-            && marked.contains(&"cards.note[0].label".to_string()),
-        "main-card and composable-card !must_fill markers should all warn; \
-         got paths: {marked:?}"
-    );
-    assert!(quill.dry_run(&doc).is_ok(), "a marker blank-fills rather than failing the render door");
-}
-
 /// The render floor's leniencies, one per row of the type table. A value the
 /// floor adopts is valid; `validate` and the render door give one verdict.
 const LENIENT: &str = r#"

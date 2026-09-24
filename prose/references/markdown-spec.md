@@ -230,28 +230,20 @@ data payload.
   (arrays, maps) are also preserved: the pre-scan captures each nested
   comment with a structural path and the emitter re-injects it at the
   matching position.
-- **The `!must_fill` tag.** `!must_fill` marks a data field as a placeholder
-  awaiting user input and round-trips through emit. It is what
-  `QuillConfig::blueprint` stamps into every obliged cell: the canonical
-  authoring placeholder, and a marker that survives into a rendered document
-  is surfaced by `Quill::validate` as the non-fatal `validation::must_fill`
-  warning (it never gates render). It applies both to a
-  top-level field and to a leaf nested inside an object or an array element
-  (e.g. `addr.street`, `recipients[0].name`); nested markers are recorded on
-  the value tree and survive markdown, live-wire, and storage round-trips.
-  `!must_fill` may be applied to scalars (string, integer, float, bool, null)
-  and sequences; it is rejected on a mapping (tag the leaves, not the
-  container). `!must_fill` may not be applied to a `$` metadata key. The marker
-  is preserved only in **block style** under a data field: `key: !must_fill` at
-  any depth. A marker written inside a **flow collection** (`{…}` / `[…]`), on a
-  **bare sequence element** (`- !must_fill`), or nested inside a **`$` metadata
-  value** (`$seed`, `$ext`) cannot be round-tripped and is reported with a
-  `parse::fill_marker_unsupported_position` warning (the value is kept, the
-  marker is not); markers under YAML **anchors/merge keys** are likewise
-  not preserved. `!must_fill` is the only fill tag: every other custom tag,
-  `!include`, `!env`, and the former `!fill` spelling: is dropped with a
-  `parse::unsupported_yaml_tag` warning; the scalar value is kept but the tag
-  does not round-trip.
+- **Custom tags.** A custom YAML tag (`!include`, `!env`, `!fill`, …) is
+  dropped with a `parse::unsupported_yaml_tag` warning; the value is kept, and
+  the tag does not round-trip.
+- **The `!must_fill` tag.** Its handling depends on position:
+  - Block style under a data field (a top-level key, a nested mapping key, or
+    the first key of a `- ` sequence line): the tagged node reads as null,
+    dropping any value under it (a following block sequence or a flow
+    collection included), and a `parse::unsupported_yaml_tag` warning names its
+    path (e.g. `addr.street`).
+  - On a `$` key or inside its value (`$ext`, `$seed`): the tag drops and the
+    value is kept, as any custom tag's.
+  - Inside a flow collection or on a bare sequence element: an unsupported tag
+    the YAML parser drops, keeping the value.
+  - Inside a quoted or block scalar: the text is that scalar's content.
 
 ### 3.5 Version Selectors
 
@@ -466,9 +458,8 @@ it when the input omitted the line (see §3.3). A composable card emits
 `$kind: <kind>` when it declares one. A document round-trips to this canonical
 shape: fence markers and YAML quoting are normalised, and an opener's info
 string re-emits as bare `~~~`.
-`!must_fill` tags and YAML comments
-(own-line and inline, including those adjacent to `$` lines) survive the
-round-trip.
+YAML comments (own-line and inline, including those adjacent to `$` lines)
+survive the round-trip.
 
 **Empty containers.** An empty mapping emits as `key: {}` and an empty
 sequence as `key: []`, at every nesting level and under `$ext` / `$seed`

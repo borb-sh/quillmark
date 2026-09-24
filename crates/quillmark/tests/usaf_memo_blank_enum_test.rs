@@ -48,11 +48,7 @@ fn every_enum_authored_blank_still_renders() {
         .expect("document should parse")
         .document;
 
-    let blocking: Vec<_> = quill
-        .validate(&parsed)
-        .into_iter()
-        .filter(|d| d.code.as_deref() != Some("validation::must_fill"))
-        .collect();
+    let blocking = quill.validate(&parsed);
     assert!(
         blocking.is_empty(),
         "an authored blank is in-domain for every enum; got: {blocking:?}"

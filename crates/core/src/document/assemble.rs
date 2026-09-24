@@ -118,12 +118,10 @@ pub(super) struct MetadataBlock {
     pub(super) yaml_value: Option<serde_json::Value>, // Parsed YAML payload as JSON
     /// Typed `$` system-metadata payload items in source order.
     pub(super) meta_items: Vec<PayloadItem>,
-    /// Pre-scan items (comments + fill-tagged field keys) in source order.
+    /// Pre-scan items (comments + field keys) in source order.
     pub(super) pre_items: Vec<PreItem>,
     /// Pre-scan nested comments (with structural paths).
     pub(super) pre_nested_comments: Vec<NestedComment>,
-    /// Pre-scan nested `!must_fill` paths (rooted at the owning top-level key).
-    pub(super) pre_nested_fills: Vec<Vec<PathSegment>>,
     /// Pre-scan warnings (unknown-tag strips, ...).
     pub(super) pre_warnings: Vec<Diagnostic>,
 }
@@ -183,23 +181,6 @@ pub(super) fn build_block(
 
     let mut pre = prescan_fence_content(raw_content);
 
-    // `!must_fill` is not permitted on `$` metadata keys: those are extracted into
-    // typed values and have no placeholder semantics.
-    for item in &pre.items {
-        if let PreItem::Field { key, fill: true } = item {
-            if key.starts_with('$') {
-                return Err(ParseError::InvalidStructure(format!(
-                    "`!must_fill` on `{}` is not permitted: system-metadata keys \
-                     cannot be placeholders",
-                    key
-                )));
-            }
-        }
-    }
-
-    pre.warnings
-        .extend(meta_rooted_fill_warnings(&pre.nested_fills));
-
     let content = pre.cleaned_yaml.trim().to_string();
     let (meta_items, yaml_value) = if content.is_empty() {
         (Vec::new(), None)
@@ -225,6 +206,7 @@ pub(super) fn build_block(
             }
         };
         let meta = extract_meta_items(&mut parsed)?;
+        drop_retired_fills(&mut parsed, &pre.retired_fills, &mut pre.warnings);
         (meta, Some(parsed))
     };
 
@@ -246,7 +228,6 @@ pub(super) fn build_block(
         meta_items,
         pre_items: pre.items,
         pre_nested_comments: pre.nested_comments,
-        pre_nested_fills: pre.nested_fills,
         pre_warnings: pre.warnings,
     })
 }
@@ -339,7 +320,6 @@ pub(super) fn decompose_with_warnings(
         std::mem::take(&mut root_block.meta_items),
         std::mem::take(&mut root_block.pre_items),
         std::mem::take(&mut root_block.pre_nested_comments),
-        std::mem::take(&mut root_block.pre_nested_fills),
         root_mapping,
     )?;
     if main_payload.kind().is_none() {
@@ -402,7 +382,6 @@ pub(super) fn decompose_with_warnings(
             std::mem::take(&mut block.meta_items),
             std::mem::take(&mut block.pre_items),
             std::mem::take(&mut block.pre_nested_comments),
-            std::mem::take(&mut block.pre_nested_fills),
             card_mapping,
         )
         .map_err(|e| match e {
@@ -498,7 +477,6 @@ fn build_payload(
     meta_items: Vec<PayloadItem>,
     pre_items: Vec<PreItem>,
     pre_nested_comments: Vec<NestedComment>,
-    pre_nested_fills: Vec<Vec<PathSegment>>,
     mut mapping: serde_json::Map<String, serde_json::Value>,
 ) -> Result<Payload, ParseError> {
     // Typed `$` items, consumed at most once each; leftovers are appended in
@@ -520,7 +498,7 @@ fn build_payload(
             PreItem::Comment { text, inline } => {
                 items.push(PayloadItem::Comment { text, inline });
             }
-            PreItem::Field { key, fill } => {
+            PreItem::Field { key } => {
                 if key.starts_with('$') {
                     if let Some(meta) = take_meta_item(&mut typed, &key) {
                         items.push(meta);
@@ -528,19 +506,10 @@ fn build_payload(
                     continue;
                 }
                 if let Some(value) = mapping.shift_remove(&key) {
-                    if fill && value.is_object() {
-                        return Err(ParseError::InvalidStructure(format!(
-                            "`!must_fill` on key `{}` targets a mapping; `!must_fill` is supported on scalars and sequences only",
-                            key
-                        )));
-                    }
                     validate_parsed_field(&key, &value)?;
-                    let mut qv = QuillValue::from_json(value);
-                    apply_nested_fills(&key, &mut qv, &pre_nested_fills)?;
                     items.push(PayloadItem::Field {
                         key,
-                        value: qv,
-                        fill,
+                        value: QuillValue::from_json(value),
                     });
                 }
             }
@@ -553,76 +522,44 @@ fn build_payload(
 
     for (key, value) in mapping {
         validate_parsed_field(&key, &value)?;
-        let mut qv = QuillValue::from_json(value);
-        apply_nested_fills(&key, &mut qv, &pre_nested_fills)?;
         items.push(PayloadItem::Field {
             key,
-            value: qv,
-            fill: false,
+            value: QuillValue::from_json(value),
         });
     }
 
     Ok(Payload::from_items_with_nested(items, pre_nested_comments))
 }
 
-/// Apply the nested `!must_fill` markers rooted at `key` onto `value`'s tree.
-/// Paths are rooted at the owning top-level key, so the first segment is
-/// stripped. A path that is nothing but that key names the root, whose marker
-/// the item's own `fill` flag carries. A marker on a mapping node is rejected,
-/// as at the top level.
-fn apply_nested_fills(
-    key: &str,
-    value: &mut QuillValue,
-    pre_nested_fills: &[Vec<PathSegment>],
-) -> Result<(), ParseError> {
-    for path in pre_nested_fills {
-        let Some((PathSegment::Key(first), rest)) = path.split_first() else {
-            continue;
-        };
-        if first != key || rest.is_empty() {
-            continue;
-        }
-        if value.is_object_at(rest) {
-            return Err(ParseError::InvalidStructure(format!(
-                "`!must_fill` on `{}` targets a mapping; `!must_fill` is supported on scalars and sequences only",
+/// Null each node the retired `!must_fill` tag marked in the user fields of
+/// `parsed`, which the `$` keys have already left. The value under the tag was
+/// a placeholder, so the field reads as unanswered. A tag inside `$` metadata
+/// is dropped and its value kept, as any other custom tag's.
+fn drop_retired_fills(
+    parsed: &mut serde_json::Value,
+    paths: &[Vec<PathSegment>],
+    warnings: &mut Vec<Diagnostic>,
+) {
+    for path in paths {
+        let in_meta = matches!(path.first(), Some(PathSegment::Key(k)) if k.starts_with('$'));
+        let message = if in_meta {
+            format!(
+                "YAML tag on `{}` is not supported; the tag has been dropped and the value kept",
                 render_path(path)
-            )));
-        }
-        // The path came from prescan over the same source, so a miss means
-        // prescan and the YAML parser disagreed on structure.
-        let applied = value.set_fill_at(rest);
-        debug_assert!(
-            applied,
-            "prescan recorded a nested fill path that did not resolve against \
-             the parsed value: `{}`",
-            render_path(path)
+            )
+        } else {
+            crate::value::null_at(parsed, path);
+            format!(
+                "`!must_fill` on `{}` is retired; the placeholder and any value under it \
+                 have been dropped, leaving the field unanswered",
+                render_path(path)
+            )
+        };
+        warnings.push(
+            Diagnostic::new(Severity::Warning, message)
+                .with_code("parse::unsupported_yaml_tag".to_string()),
         );
     }
-    Ok(())
-}
-
-/// One warning per nested `!must_fill` path rooted at a `$` metadata key. A
-/// `PayloadItem::Meta` value is a plain tree with no fill carrier, so the marker
-/// reaches neither storage nor emit; the value under it survives, as in every
-/// other unpreservable marker position.
-fn meta_rooted_fill_warnings(nested_fills: &[Vec<PathSegment>]) -> Vec<Diagnostic> {
-    nested_fills
-        .iter()
-        .filter(|path| {
-            matches!(path.first(), Some(PathSegment::Key(k)) if k.starts_with('$'))
-        })
-        .map(|path| {
-            Diagnostic::new(
-                Severity::Warning,
-                format!(
-                    "a `!must_fill` marker at `{}` is inside `$` system metadata and is \
-                     not preserved; system-metadata values carry no placeholder markers",
-                    render_path(path)
-                ),
-            )
-            .with_code("parse::fill_marker_unsupported_position".to_string())
-        })
-        .collect()
 }
 
 /// Render a structural path as a dotted/bracketed string for diagnostics,

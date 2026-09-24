@@ -177,7 +177,7 @@ pub(crate) mod yaml_hints;
 
 pub use dto::{
     peek_storage_version, StorageError, StoredDocument, STORAGE_V0_112_0, STORAGE_V0_115_0,
-    STORAGE_V0_93_0,
+    STORAGE_V0_116_0, STORAGE_V0_93_0,
 };
 pub use edit::{CardMut, EditError};
 /// Carried by [`EditError::Import`], so nameable from here.
@@ -198,17 +198,16 @@ pub const FORMAT_RULES: &str = "Document format rules:
 \u{2022} Reserved `$`-keys: `$quill`, `$kind`, `$ext`, `$seed`. User fields use lowercase snake_case.
 \u{2022} Prose body is the text after a block's closing `~~~`, up to the next opener or EOF. To include a literal fenced code block in prose, use a backtick fence (```); any column-zero `~~~` block is parsed as card metadata.
 \u{2022} A field that already shows a concrete value carries a default and is shippable as-is \u{2014} keep the line, override the value, or delete it to fall back to the default. A blank or null value (`field:`, `field: null`, `field: ~`) is treated the same as omitting the field: it falls back to the default, or to the field's blank. An explicit `field: \"\"` is different \u{2014} it is kept as-is, not folded into the blank/null fallback, so write it on purpose when you want the field empty rather than defaulted.
-\u{2022} `field: !must_fill <value>` marks a placeholder awaiting your input \u{2014} the `<value>` shown, when present, is the schema's own example, not real data; replace it with a real value and drop the `!must_fill` tag before shipping. A bare `field: !must_fill` is an empty placeholder. A leftover marker never blocks rendering, but it is reported as a warning until you replace it.
+\u{2022} A field with no value (`field: # string`) awaits your input. A `# e.g.` comment above a field shows the schema's own example of its shape, not real data: write the real value into the field.
 \u{2022} Numbers and booleans MUST be unquoted (`year: 2025`, `pinned: true`); quoting turns them into strings and fails validation.
 \u{2022} Plain-scalar values cannot start with `*` or `&` (YAML alias/anchor markers) and cannot contain `: ` (colon-space). For markdown emphasis, embedded colons, or other special prefixes, quote the value: `field: '**bold**'` or `field: \"Name: subtitle\"`. Multi-line values use `|-`, not multi-line quoted scalars.";
 
-/// States a blueprint's fill obligation for the quill it targets; `{quill}` is
+/// Directs a consumer to fill in the blueprint of the quill it targets; `{quill}` is
 /// substituted with the quill name. [`FORMAT_RULES`] covers the field-level
 /// semantics. Names no tool and asserts no layout: the consumer that composes
 /// this owns where it sits and what it directs the model to call next.
 const BLUEPRINT_INSTRUCTION_TEMPLATE: &str =
-    "Fill in the `{quill}` blueprint: replace each `!must_fill` placeholder with a real \
-value and edit the body prose.";
+    "Fill in the `{quill}` blueprint: answer each empty field and edit the body prose.";
 
 /// Render the blueprint instruction with `quill_name` substituted in.
 pub fn blueprint_instruction(quill_name: &str) -> String {

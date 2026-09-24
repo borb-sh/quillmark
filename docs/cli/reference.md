@@ -21,7 +21,7 @@ quillmark render [OPTIONS] <QUILL_PATH> [MARKDOWN_FILE]
 **Arguments:**
 
 - `<QUILL_PATH>`: Path to quill directory
-- `[MARKDOWN_FILE]`: Path to markdown file with a root card-yaml block (optional, when omitted, the quill's seeded document is rendered, each field populated from its `example:` value, with `default:` used as fallback)
+- `[MARKDOWN_FILE]`: Path to markdown file with a root card-yaml block (optional, when omitted, the quill's seeded document is rendered: one card per kind with bodies from `body.example`, every field at its `default:` or blank)
 
 The file must open with a `~~~` block containing a `$quill:` key identifying the quill; the opener's info string is ignored.
 
@@ -34,7 +34,7 @@ The file must open with a `~~~` block containing a `$quill:` key identifying the
 - `--quiet`: Suppress warnings and the output-destination line; errors still print
 - `--stdout`: Write the artifact to stdout instead of a file (and ignore `-o`); refused when the render produces more than one page
 
-**Warnings:** `render` prints the parse warnings, then each warning for input the page leaves out — an undeclared key (`validation::unknown_field`), a card no kind claims, a body under `body.enabled: false`, a stranded variant cell, elements past `max:` — then the backend's. Fields the document has yet to answer (`validation::must_fill`) are a draft's normal state, so they print as one line counting them; `quillmark check` lists each. A render of the seeded document counts none: its blanks are the quill's.
+**Warnings:** `render` prints the parse warnings, then each warning for input the page leaves out — an undeclared key (`validation::unknown_field`), a card no kind claims, a body under `body.enabled: false`, a stranded variant cell, elements past `max:` — then the backend's.
 
 **Streams:** under `--stdout` the artifact owns stdout, and warnings and errors go to stderr, so `quillmark render ./my-quill input.md --stdout > out.pdf` writes a valid PDF. Without `--stdout`, the one stdout line is `Output written to: <path>`, which `--quiet` suppresses.
 
@@ -61,7 +61,7 @@ quillmark render ./my-quill
 
 ### check
 
-Check markdown documents against a quill's schema, printing every diagnostic each one draws: parse warnings, then every `validation::*` diagnostic, including the unanswered fields `render` only counts. It does not compile the plate, so a plate failure or a construct the backend declines (`backend::declined_construct`) is `render`'s to report.
+Check markdown documents against a quill's schema, printing every diagnostic each one draws: parse warnings, then every `validation::*` diagnostic. It does not compile the plate, so a plate failure or a construct the backend declines (`backend::declined_construct`) is `render`'s to report.
 
 ```bash
 quillmark check [OPTIONS] <QUILL_PATH> <MARKDOWN_FILE>...
@@ -74,7 +74,7 @@ quillmark check [OPTIONS] <QUILL_PATH> <MARKDOWN_FILE>...
 
 **Options:**
 
-- `--strict`: Exit `1` on any warning, not only on an error. An unanswered field, an undeclared key, and a card no kind claims all fail a strict check.
+- `--strict`: Exit `1` on any warning, not only on an error. An undeclared key and a card no kind claims both fail a strict check.
 
 Without `--strict`, `check` exits `1` only on an error: a parse error, a value that is not its field's type, a `$quill` naming another quill.
 

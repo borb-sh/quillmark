@@ -64,26 +64,6 @@ fn an_unanswered_optional_cell_renders_none_at_every_depth() {
     };
     assert_eq!(row("quorum"), (json!(0), FieldSource::Authored));
     assert_eq!(row("confidential"), (json!(null), FieldSource::Blank));
-
-    let mut obliged: Vec<String> = quill
-        .validate(&doc)
-        .into_iter()
-        .filter(|d| d.code.as_deref() == Some("validation::must_fill"))
-        .map(|d| d.path.unwrap_or_default())
-        .collect();
-    obliged.sort();
-    assert_eq!(
-        obliged,
-        [
-            "main.adjourned",
-            "main.attendees",
-            "main.confidential",
-            "main.minutes",
-            "main.tally.votes_against",
-            "main.tally.votes_for",
-        ],
-        "a `?` leaves obligation to `default:`, and an authored blank discharges it"
-    );
 }
 
 /// The declaration view spells the `?` as the quill did and reloads to the same
@@ -113,7 +93,7 @@ fn every_projection_carries_the_question_mark() {
     assert_eq!(props["tally"]["properties"]["votes_against"]["type"], json!("integer"));
 
     let blueprint = config.blueprint();
-    assert!(blueprint.contains("quorum: !must_fill # integer?"), "{blueprint}");
+    assert!(blueprint.contains("quorum: # integer?"), "{blueprint}");
     assert!(blueprint.contains("# enum<carried | failed>?"), "{blueprint}");
 }
 

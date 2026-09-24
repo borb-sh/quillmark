@@ -115,17 +115,8 @@ fn conform_card(
     diags: &mut Vec<Diagnostic>,
 ) {
     let mut updates: Vec<(String, QuillValue)> = Vec::new();
-    // Over `items()` rather than the map projection: a root `!must_fill` rides
-    // on the payload item, nested ones on the value tree, and the skip rule
-    // covers both.
     for item in card.payload().items() {
-        let PayloadItem::Field {
-            key: name,
-            value,
-            fill,
-            ..
-        } = item
-        else {
+        let PayloadItem::Field { key: name, value } = item else {
             continue;
         };
         let Some(field) = schema.fields.get(name) else {
@@ -135,12 +126,6 @@ fn conform_card(
         // to enforce; a scalar field's shorthands are the typed write's to
         // canonicalize.
         if !field_contains_content(field) {
-            continue;
-        }
-        // The payload item's own flag carries a root marker, the value tree the
-        // nested ones. A null needs no guard: the strict write passes it
-        // through and the no-op check below then skips the write.
-        if *fill || !value.fill_paths().is_empty() {
             continue;
         }
         match resolve_field_write(name, value.clone(), field) {

@@ -86,55 +86,49 @@ main:
 |---------------|-------------------|----------|-------------|
 | `type`        | string            | yes      | Data type (see [Field Types](#field-types)); a trailing `?` makes the field [optional](#optional-fields-t) |
 | `description` | string            | no       | Detailed help text |
-| `default`     | matches `type`    | no       | The value the **majority of authors want**. When the cell is omitted, the default is filled in — at any depth, whether or not the container above it was authored — and the blueprint renders that concrete value with a type-only annotation, shippable as-is. Declaring it also makes the field unobliged (see [Obligation](#obligation)). Declared on a **cell**: a leaf or an `array`. On an `object` it is a load error (`quill::default_on_namespace`), since its properties hold their own. |
-| `example`     | matches `type`    | no       | A value matching the **type and shape** of what the author wants, but **not** the value desired most of the time. Documents shape only, never rendered as the value: it takes the blueprint cell when no `default` holds it, and surfaces in the `# e.g.` line otherwise. Declared on a **cell**, as `default` is (`quill::example_on_namespace`). |
+| `default`     | matches `type`    | no       | The value the **majority of authors want**. When the cell is omitted, the default is filled in — at any depth, whether or not the container above it was authored — and the blueprint renders that concrete value with a type-only annotation, shippable as-is (see [`default` and `example`](#default-and-example)). Declared on a **cell**: a leaf or an `array`. On an `object` it is a load error (`quill::default_on_namespace`), since its properties hold their own. |
+| `example`     | matches `type`    | no       | A value matching the **type and shape** of what the author wants, but **not** the value desired most of the time. Documents shape only: it never takes a cell, is never committed to a document, and never renders. The blueprint shows it on a `# e.g.` line above the field. Declared on a **cell**, as `default` is (`quill::example_on_namespace`). |
 | `values`      | array of strings  | for `enum` | The closed set of allowed string values: the **choices**. Required on every `enum` field. Declaring `""` is a load error — every enum also accepts its [blank](#the-blank-values-is-for-choices-not-for-the-absence-of-one), which the engine supplies. |
 | `ui`          | object            | no       | UI rendering hints (see [UI Properties](#ui-properties)) |
 | `items`       | object            | for `array` | Element schema for an `array` field (a nested field schema). Required on every array. |
 | `properties`  | object            | for `object` | Nested field schemas for an `object` typed dictionary (or an array's `object`-typed `items`). Required on every `object` field. |
 | `inline`      | boolean           | no       | For `richtext` and `plaintext` only: constrain the content to a single paragraph/line (a one-line editor surface). |
 
-### Obligation
+### `default` and `example`
 
 One question per field: **does it have a value when nobody types anything?**
-`default` is the answer, and its absence is what obliges a human.
+`default` is the answer.
 
 ```yaml
-# Unobliged, with nothing to suggest: the type's blank is the answer "nothing".
+# Nothing to suggest: the type's blank is the answer "nothing".
 internal_note:
   type: string
   default: ""
 
-# A suggested marking a human must still confirm: no default, so the cell is
-# obliged, and the example fills it under the marker.
+# No default: the cell stays empty until an author answers it.
 classification:
   type: enum
   values: [UNCLASSIFIED, CUI]
   example: UNCLASSIFIED
 ```
 
-There is no `must_fill:` key: declaring one is a load error. Write the `default:`
-or `example:` that carries the obligation instead.
+The blueprint renders them as:
 
-An obliged field is one that carries the `!must_fill` marker in the blueprint,
-is stamped when seeding commits its `example`, and raises the non-fatal
-`validation::must_fill` warning from `Quill::validate` while the document leaves
-it unauthored. Three things discharge it: authoring a value, authoring the
-field's [blank](#the-blank-values-is-for-choices-not-for-the-absence-of-one)
-(deliberately nothing is an answer), or dropping the marker by hand.
+```
+internal_note: "" # string
+# e.g. UNCLASSIFIED
+classification: # enum<UNCLASSIFIED | CUI>
+```
 
-**It is an affordance, not a submit gate.** If you arrive from web forms, the
-familiar half transfers — the editor knows which fields to mark — and the
-enforcement half does not. An unfilled must-fill field **renders**; nothing
-refuses it. "Must pick" is this warning plus whatever policy a consumer layers
-on top, canonically *a strict consumer treats any outstanding marker as not
-done*. There is no `required:` and no severity knob: on this surface
-`Severity::Error` already means "won't render".
+An unanswered field renders its `default:`, else its
+[blank](#the-blank-values-is-for-choices-not-for-the-absence-of-one), else
+`none` where the type is [optional](#optional-fields-t). `example:` never
+answers: it is the schema's illustration, shown on the blueprint's `# e.g.`
+line and nowhere else.
 
-On a **typed dictionary** the key is inert on the container — the obligation
-lives on its leaves, which is where the blueprint marks and the warning
-anchors. An **array** is its own cell, so `[]` is an authored answer that
-discharges it.
+Nothing is required. There is no `required:` key, `Quill::validate` reports
+nothing about an unanswered field, and an unanswered field renders. A consumer
+wanting "can't submit until answered" layers that policy on top.
 
 ### Field Types
 
@@ -186,7 +180,6 @@ confidential:
 - Any cell takes the `?`: every scalar type, `richtext`, `plaintext`, `date`, `enum`, and `array`. An `object`, a `matrix`, and an `enum` with `variants:` do not (`quill::optional_namespace`); mark the fields inside them instead.
 - `?` and `default:` are exclusive (`quill::optional_default`): a default answers for the author, so the field would never be `none`. Use `example:` to suggest a value.
 - An authored value is kept as written: `0`, `false`, `""`, and `[]` are answers. On an `enum?`, `""` is the blank and reads `none`.
-- Obligation is unchanged: with no `default:`, an unanswered `t?` still carries `!must_fill` and warns.
 
 Reading an optional field in a plate: [Blank values](typst-backend.md#blank-values).
 
@@ -303,7 +296,7 @@ them under `variants:`, keyed by the member that brings them into play:
       default: ""
       variants:
         CUI:
-          controlled_by: { type: string }        # obliged, but only on a CUI memo
+          controlled_by: { type: string }        # exists only on a CUI memo
           poc:           { type: string }
           category:      { type: string, default: "" }
 ```
@@ -329,15 +322,11 @@ name the discriminant alone (`default: ""`, `example: CUI`); a container-shaped
 one is a load error, because each cell in a world carries its literal on its own
 declaration.
 
-Three things follow, and they are the reason to reach for this over a
+Two things follow, and they are the reason to reach for this over a
 `cui_`-prefixed row of flat fields:
 
 - **The names shorten.** The prefix was hand-written namespacing; nesting
   supplies it structurally, so `cui_poc` becomes `poc`.
-- **`must_fill` becomes conditional.** `controlled_by` declares no `default:`,
-  so it is obliged — but only where `classification` reads `CUI`. On every other
-  memo the same schema asks for nothing. That is the one cross-field rule the
-  engine checks rather than describes in `description:` prose.
 - **Editors know.** The schema says which cells are out of play, so a form
   retires them instead of showing a CUI block on an unclassified memo.
 
@@ -441,9 +430,7 @@ address:
 ```
 
 The container spelling would be a second declaration of a value the property
-already holds, and the two disagree: `must_fill` derives per property, so a
-container default renders a value *and* still reports the cell unauthored. Each
-property's `default:` is reached whether or not a document authors the container
+already holds, free to disagree with it. Each property's `default:` is reached whether or not a document authors the container
 above it, so writing `address: {}` changes nothing — which also makes a whole
 dictionary skippable by giving each property a type-empty default.
 
@@ -479,10 +466,9 @@ capped array nested inside a row is checked against its own.
 The blueprint shows the cap as an own-line `# up to 37` under the field's
 description, which is where an MCP author reads it before writing.
 
-There is no `min:`. Obligation is `default:`'s absence
-([Obligation](#obligation)), so `min: 1` would be `required:` under another
-name, contradict a sibling `default: []`, and double-report with `must_fill` on
-an absent array.
+There is no `min:`. `min: 1` would be `required:` under another name, and no
+field is required ([`default` and `example`](#default-and-example)); it would
+also contradict a sibling `default: []`.
 
 ### Matrix: a vocabulary the author ticks
 
@@ -537,11 +523,10 @@ arrives on every render:
 }
 ```
 
-Three things to author against. Declare a `default:` on each column and the
-matrix is skippable; leave one off and it is required *inside a ticked member*,
-which is how "required when held" is spelled. The matrix itself takes no
-`default:` or `example:` and seeds empty, so a fresh document ticks nothing and
-the blueprint shows the vocabulary in the field's annotation,
+Three things to author against. Declare a `default:` on each column to say
+what a ticked member's unanswered column renders; without one it renders the
+column's blank. The matrix itself takes no `default:` or `example:`, so a fresh
+document ticks nothing and the blueprint shows the vocabulary in the field's annotation,
 `# matrix<sq_cc_candidate | flight_cc | dodin_ops>`, and its columns in a
 leading `# e.g.` line that ticks the first member. And each cell is an
 ordinary address — `qualifications.flight_cc.held` regions on Typst and binds a

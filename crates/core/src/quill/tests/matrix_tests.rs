@@ -2,8 +2,8 @@
 //!
 //! A matrix is sugar over a typed dictionary, so the risk is not that the
 //! inherited walks break but that the three things the type *adds* disagree
-//! with them: the roster written onto the wire, the wire closed over an unheld
-//! member, and obligation gated on the tick. The bare-scalar tick is the
+//! with them: the roster written onto the wire, and the wire closed over an
+//! unheld member. The bare-scalar tick is the
 //! variant precedent, inherited rather than added. Each test below pins one
 //! surface to the same reading of the same schema.
 
@@ -11,8 +11,7 @@ use crate::document::Document;
 use crate::quill::{blank, build_transform_schema, quill_from_yaml, Quill, QuillConfig};
 use serde_json::json;
 
-/// A four-member roster with one column. `detail` carries a `default:`, so
-/// nothing inside a held member is obliged unless a test says so.
+/// A four-member roster with one column.
 fn quill_yaml() -> &'static str {
     r#"
 quill:
@@ -248,8 +247,7 @@ fn the_blueprint_shows_the_vocabulary_in_the_annotation_and_ticks_nothing() {
 
 /// A matrix declaring columns names them in its `# e.g.` line, spelled as a
 /// held member so the tick a mapping needs is on the page. Pasted into the
-/// cell, the hint is a member the schema accepts, and the placeholder column is
-/// the one a held member obliges.
+/// cell, the hint is a member the schema accepts.
 #[test]
 fn the_blueprint_hint_spells_a_held_member_with_every_column() {
     let yaml = quill_yaml().replace(
@@ -259,7 +257,7 @@ fn the_blueprint_hint_spells_a_held_member_with_every_column() {
          earned: { type: date }",
     );
     let bp = QuillConfig::from_yaml(&yaml).expect("loads").blueprint();
-    let hint = "{sq_cc_candidate: {held: true, detail: \"333 TRS/DO, 2024\", unit: HQ, earned: !must_fill}}";
+    let hint = "{sq_cc_candidate: {held: true, detail: \"333 TRS/DO, 2024\", unit: HQ, earned: null}}";
     assert!(
         bp.contains(&format!(
             "# e.g. {hint}\nqualifications: {{}} # matrix<sq_cc_candidate | flight_cc | dodin_ops | cyber_200>\n"
@@ -276,18 +274,7 @@ fn the_blueprint_hint_spells_a_held_member_with_every_column() {
         .clone();
     assert_eq!(wire["held"], json!(true));
     assert_eq!(wire["detail"]["text"], json!("333 TRS/DO, 2024"));
-    let found: Vec<(String, String)> = quill
-        .validate(&pasted)
-        .into_iter()
-        .map(|d| (d.code.unwrap_or_default(), d.path.unwrap_or_default()))
-        .collect();
-    assert_eq!(
-        found,
-        [(
-            "validation::must_fill".to_string(),
-            "main.qualifications.sq_cc_candidate.earned".to_string()
-        )]
-    );
+    assert!(quill.validate(&pasted).is_empty());
 }
 
 /// A matrix below a typed dictionary or a table row carries the same hint at
@@ -343,10 +330,8 @@ main:
     assert_eq!(doc1, doc2);
 }
 
-/// Obligation is per column inside a *held* member, and reads the tick the
-/// *plate* reads, so the two cannot call the same member held and unheld.
-/// `"false"` is the case that tells them apart: the render floor coerces it to
-/// the boolean, a raw truthiness test does not.
+/// The tick is the render floor's boolean coercion, not raw truthiness:
+/// `"false"` is the case that tells them apart.
 #[test]
 fn the_tick_is_judged_by_the_render_floor_not_by_raw_truthiness() {
     let yaml = quill_yaml().replace(
@@ -354,20 +339,13 @@ fn the_tick_is_judged_by_the_render_floor_not_by_raw_truthiness() {
         "detail: { type: plaintext, inline: true }",
     );
     let quill = quill_from_yaml(&yaml);
-    let held_at = |fields: &str| -> (bool, Vec<String>) {
+    let held_at = |fields: &str| -> bool {
         let markdown = format!("~~~\n$quill: matrix_probe@0.1.0\n$kind: main\n{fields}~~~\n");
         let document = Document::parse(&markdown).expect("parses").document;
-        let wire = quill.compile_data(&document, None).expect("compiles")["qualifications"]
-            ["flight_cc"]["held"]
+        quill.compile_data(&document, None).expect("compiles")["qualifications"]["flight_cc"]
+            ["held"]
             .as_bool()
-            .expect("the tick is a boolean on the wire");
-        let obliged = quill
-            .validate(&document)
-            .into_iter()
-            .filter(|d| d.code.as_deref() == Some("validation::must_fill"))
-            .map(|d| d.path.unwrap_or_default())
-            .collect();
-        (wire, obliged)
+            .expect("the tick is a boolean on the wire")
     };
 
     for (spelling, held) in [
@@ -380,10 +358,7 @@ fn the_tick_is_judged_by_the_render_floor_not_by_raw_truthiness() {
         ("qualifications:\n  flight_cc: 0\n", false),
         ("qualifications:\n  flight_cc: 1\n", true),
     ] {
-        let (wire, obliged) = held_at(spelling);
-        assert_eq!(wire, held, "wire disagrees on {spelling:?}");
-        let want: &[&str] = if held { &["main.qualifications.flight_cc.detail"] } else { &[] };
-        assert_eq!(obliged, want, "obligation disagrees with the wire on {spelling:?}");
+        assert_eq!(held_at(spelling), held, "wire disagrees on {spelling:?}");
     }
 }
 
