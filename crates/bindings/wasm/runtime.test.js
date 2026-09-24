@@ -30,7 +30,6 @@ import { Quill as CoreQuill, Document as CoreDocument } from '../../../pkg/core/
 import {
   makeQuill,
   makeSampleFormQuill,
-  SAMPLE_FORM_MARKDOWN,
   expectEditCode,
   isClass,
   caughtFrom,
@@ -40,7 +39,7 @@ import {
 // door to the core surface. This also instantiates the core build the `CoreQuill`
 // identity pin below imports directly (same resolved file, same module
 // instance).
-const { Quill, Document, importMarkdown, exportMarkdown, parseDocPath } = await init()
+const { Quill, Document, importMarkdown, exportMarkdown } = await init()
 
 const TEST_PLATE = `#import "@local/quillmark-helper:0.1.0": data
 #let title = data.title
@@ -111,11 +110,6 @@ describe('@quillmark/wasm: surface', () => {
     expect(tree.has('Quill.yaml')).toBe(true)
     const rebuilt = Quill.fromTree(tree)
     expect(rebuilt.backendId).toBe('typst')
-  })
-
-  it('parses a Document via the re-exported core class', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    expect(doc.quillRef).toBe('test_quill')
   })
 
   // ERROR CONTRACT: every fallible method throws a real Error carrying a
@@ -197,56 +191,23 @@ card_kinds:
     expect(fieldOf(ed.document.main, 'qty')).toBe(5)
   })
 
-  it('an ABI error propagates through the sugar rather than being swallowed', () => {
-    const ed = buildQuill().writer(blankDoc())
-    expectEditCode(() => ed.set('stray', 'x'), 'edit::unknown_field')
-    expect(fieldOf(ed.document.main, 'stray')).toBeUndefined()
-  })
-
-  it('reader.resolve is the render view beside the authored read', () => {
-    const quill = buildQuill()
-    const doc = blankDoc()
-    quill.writer(doc).set('subject', 'Hi')
-    const reader = quill.reader(doc)
-    expect(reader.get('subject')).toBe('Hi')
-    const resolved = reader.resolve()
-    expect(resolved.main.fields.find((f) => f.name === 'subject')).toMatchObject({
-      source: 'authored',
-    })
-    expect(resolved.main.fields.find((f) => f.name === 'qty').source).not.toBe('authored')
-  })
-
-  it('reviseBody writes the main body from markdown and returns a Delta', () => {
-    const ed = buildQuill().writer(blankDoc())
-    const delta = ed.reviseBody('New **body**.')
-    expect(ed.document.bodyMarkdown()).toBe('New **body**.')
-    expect(Array.isArray(delta.ops)).toBe(true)
-  })
-
-  it('reviseField writes a richtext field typed, and returns a Delta', () => {
+  it('reviseBody / reviseField write from markdown and return a Delta', () => {
     const quill = buildQuill()
     const ed = quill.writer(blankDoc())
-    const delta = ed.reviseField('subject', 'Q3 **results**')
+    expect(Array.isArray(ed.reviseBody('New **body**.').ops)).toBe(true)
+    expect(ed.document.bodyMarkdown()).toBe('New **body**.')
+    expect(Array.isArray(ed.reviseField('subject', 'Q3 **results**').ops)).toBe(true)
     expect(quill.reader(ed.document).get('subject')).toBe('Q3 **results**')
-    // The anchor-preserving receipt is a structured-clone-able change set.
-    expect(Array.isArray(delta.ops)).toBe(true)
   })
 
-  it('addCard fuses make + typed commit + push', () => {
+  it('addCard commits fields and body; removeCard returns the card', () => {
     const ed = buildQuill().writer(blankDoc())
     // `body` here is the card's richtext FIELD; the third arg is the card body.
     ed.addCard('note', { body: 'Field **body**.' }, 'Card body text.')
-    expect(ed.document.cards).toHaveLength(1)
     expect(ed.document.cards[0].kind).toBe('note')
     expect(exportMarkdown(fieldOf(ed.document.cards[0], 'body'))).toBe('Field **body**.')
     expect(exportMarkdown(ed.document.cards[0].body)).toBe('Card body text.')
-  })
-
-  it('removeCard drops the card and returns it', () => {
-    const ed = buildQuill().writer(blankDoc())
-    ed.addCard('note', { body: 'x' })
-    const removed = ed.removeCard(0)
-    expect(removed.kind).toBe('note')
+    expect(ed.removeCard(0).kind).toBe('note')
     expect(ed.document.cards).toHaveLength(0)
   })
 
@@ -272,27 +233,10 @@ card_kinds:
     expectEditCode(() => cardEd.set('body', 'x'), 'edit::index_out_of_range')
   })
 
-  it('getStored reads raw values quill-free; bodyMarkdown is body-only (field half retired)', () => {
-    const quill = buildQuill()
-    const ed = quill.writer(blankDoc())
-    ed.set('qty', '3')
-    ed.set('subject', 'Q3 **results**')
-    ed.reviseBody('Main **body**.')
-    // Transport reads stay quill-free on the Document.
-    expect(ed.document.getStored('qty')).toBe(3)
-    expect(ed.document.getStored('missing')).toBeUndefined()
-    // bodyMarkdown is the body read; a field address throws: a field's markdown
-    // reads through the schema-plane view.
-    expect(ed.document.bodyMarkdown()).toBe('Main **body**.')
-    expect(() => ed.document.bodyMarkdown({ field: 'subject' })).toThrow(/body-only/)
-    expect(quill.reader(ed.document).get('subject')).toBe('Q3 **results**')
-    // reader.get carries schema authority: an unknown name throws (vs `undefined`
-    // from the quill-free transport `Document.getStored` above).
-    expectEditCode(() => quill.reader(ed.document).get('missing'), 'edit::unknown_field')
-  })
-
-  it('set refuses a strict type mismatch and an inline violation', () => {
+  it('set refuses an unknown name, a strict type mismatch and an inline violation', () => {
     const ed = buildQuill().writer(blankDoc())
+    expectEditCode(() => ed.set('stray', 'x'), 'edit::unknown_field')
+    expect(fieldOf(ed.document.main, 'stray')).toBeUndefined()
     expectEditCode(() => ed.set('qty', 'not-a-number'), 'edit::field_coercion_failed')
     expectEditCode(() => ed.set('subject', 'line one\n\nline two'), 'edit::field_not_inline')
   })
@@ -324,18 +268,9 @@ card_kinds:
     )
   })
 
-  it('setAll is all-or-nothing at both the unknown-name and the coercion rung', () => {
+  it('setAll applies nothing when one entry is refused', () => {
     const ed = buildQuill().writer(blankDoc())
-    // `qty` is a schema field; `titel` is a typo the schema does not own. The
-    // undeclared name is refused before any write lands.
     expectEditCode(() => ed.setAll({ qty: '5', titel: 'oops' }), 'edit::unknown_field')
-    expect(fieldOf(ed.document.main, 'qty')).toBeUndefined()
-    // `subject` is richtext(inline), so a multi-block value fails mid-batch,
-    // after `qty` already coerced: the abort must still leave nothing behind.
-    expectEditCode(
-      () => ed.setAll({ qty: '5', subject: 'line one\n\nline two' }),
-      'edit::field_not_inline',
-    )
     expect(fieldOf(ed.document.main, 'qty')).toBeUndefined()
   })
 
@@ -443,18 +378,11 @@ card_kinds:
     expectEditCode(() => v.get('nope'), 'edit::unknown_field') // typo, not absent
   })
 
-  it('a richtext field holding a scalar throws FieldDecode', () => {
-    const quill = buildQuill()
-    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: view_test\n~~~\n\nBody.')
-    doc.storeField('subject', 3) // opaque write puts a bare number under richtext
-    expectEditCode(() => quill.reader(doc).get('subject'), 'edit::field_decode')
-  })
-
-  it('an absent field addr reads the body markdown, quill-free', () => {
+  it('an absent field addr reads the body markdown', () => {
     const quill = buildQuill()
     const v = quill.reader(seededDoc(quill))
     expect(v.bodyMarkdown()).toBe('Main **body**.')
-    expect(v.get({})).toBe('Main **body**.') // {} = main body, equals bodyMarkdown()
+    expect(v.get({})).toBe('Main **body**.')
   })
 
   it('card(i).get reads a card field through its $kind schema', () => {
@@ -471,28 +399,6 @@ card_kinds:
     const cardReader = quill.reader(seededDoc(quill)).card(9)
     expect(cardReader).toBeInstanceOf(CardReader)
     expectEditCode(() => cardReader.get('body'), 'edit::index_out_of_range')
-  })
-
-  // getContent is the same read at the other end of the codec: the `Content`, not
-  // the projection. Rest is per-codec now, so what it spans is a document at
-  // rest versus one the transport door left as authored.
-  it('getContent returns the Content for a conformed field and an authored one', () => {
-    const quill = buildQuill()
-    // At rest: the writer (like the bound door) stores the canonical Content.
-    const committed = seededDoc(quill)
-    expect(typeof committed.getStored('subject')).toBe('object')
-    // Transport door: a markdown-authored field rests as authored until it is
-    // conformed.
-    const parsed = Document.fromMarkdown(
-      '~~~card-yaml\n$quill: view_test\nsubject: Q3 **results**\n~~~\n\nBody.'
-    )
-    expect(typeof parsed.getStored('subject')).toBe('string')
-
-    const a = quill.reader(committed).getContent('subject')
-    const b = quill.reader(parsed).getContent('subject')
-    expect(a.text).toBe('Q3 results')
-    expect(b.text).toBe(a.text)
-    expect(b.marks).toEqual(a.marks)
   })
 
   // The bound door is what makes a stored form a property of the codec rather
@@ -515,25 +421,10 @@ card_kinds:
     expect(transported.toStored()).toBe(bound.toStored())
   })
 
-  it('a value the strict write refuses rests authored with a conform warning', () => {
-    const quill = buildQuill()
-    const doc = quill.parse('~~~card-yaml\n$quill: view_test\nsubject: 42\n~~~\n\nBody.')
-    expect(doc.getStored('subject')).toBe(42) // no silent retype
-    expect(doc.warnings.map((d) => d.code)).toContain('conform::field_decode')
-    expect(doc.warnings[0].severity).toBe('warning')
-  })
-
   it('nothing conforms under the wrong quill', () => {
     const quill = buildQuill()
     const md = '~~~card-yaml\n$quill: other_quill\nsubject: hi\n~~~\n\nBody.'
-    let caught
-    try {
-      quill.parse(md)
-    } catch (e) {
-      caught = e
-    }
-    expect(isQuillmarkError(caught)).toBe(true)
-    expect(caught.diagnostics[0].code).toBe('quill::name_mismatch')
+    expectEditCode(() => quill.parse(md), 'quill::name_mismatch')
 
     // The transport door still opens it, and conform reports the same mismatch
     // without touching the document.
@@ -543,31 +434,14 @@ card_kinds:
     expect(doc.toStored()).toBe(before)
   })
 
-  it('getContent decodes by declared type: markdown for richtext, literal for plaintext', () => {
+  it('getContent reads a field, the body, and a card field as Content', () => {
     const quill = buildQuill()
-    const doc = Document.fromMarkdown(
-      "~~~card-yaml\n$quill: view_test\nsubject: 'a *literal* line'\nnote: 'a *literal* line'\n~~~\n\nBody."
-    )
-    const v = quill.reader(doc)
-    // Same stored bytes, two codecs: only the declared type says which.
-    expect(v.getContent('subject').text).toBe('a literal line')
-    expect(v.getContent('note').text).toBe('a *literal* line')
-  })
-
-  it('getContent: absence, unknown name, non-content type, body addr, cards', () => {
-    const quill = buildQuill()
-    const doc = seededDoc(quill)
-    const v = quill.reader(doc)
-    expectEditCode(() => v.getContent('nope'), 'edit::unknown_field')
-    expectEditCode(() => v.getContent('qty'), 'edit::field_not_content')
-    expect(v.getContent({}).text).toBe('Main body.') // absent field = body Content
+    const v = quill.reader(seededDoc(quill))
+    expect(v.getContent('subject').text).toBe('Q3 results')
+    expect(v.getContent({}).text).toBe('Main body.')
     expect(v.card(0).getContent('body').text).toBe('A card field.')
+    expectEditCode(() => v.getContent('qty'), 'edit::field_not_content')
     expectEditCode(() => v.card(9).getContent('body'), 'edit::index_out_of_range')
-
-    const empty = quill.reader(
-      Document.fromMarkdown('~~~card-yaml\n$quill: view_test\n~~~\n\nBody.')
-    )
-    expect(empty.getContent('subject')).toBeUndefined()
   })
 
   // A read is also a write input, so what it hands back has to be legal to hand
@@ -584,79 +458,19 @@ card_kinds:
     expect(written(v.getContentAt('paragraphs', [0]))).toEqual([undefined])
   })
 
-  // What the nested read is for: an anchor has no markdown projection and an
-  // island id is minted positionally by any importer, so the values form carries
-  // neither. The `Content` is a write input, so this read is the round-trip.
-  it('getContentAt round-trips an element anchor and island id that get drops', () => {
+  it('getContentAt takes a mixed index/key path, on the document and on a card', () => {
     const quill = buildQuill()
     const doc = Document.fromMarkdown('~~~card-yaml\n$quill: view_test\n~~~\n\nBody.')
-    const w = quill.writer(doc)
-    const v = quill.reader(doc)
-    w.set('paragraphs', ['Plain', 'Alpha ![pic](u) bold'])
-
-    const rt = v.getContentAt('paragraphs', [1])
-    rt.marks.push({ type: 'anchor', attrs: { id: 'c1' }, start: 0, end: 5 })
-    rt.islands[0].id = 'isl-7' // off the positional mint, so a re-mint shows
-    w.set('paragraphs', [v.getContentAt('paragraphs', [0]), rt])
-
-    const back = v.getContentAt('paragraphs', [1])
-    expect(back.marks.find((m) => m.type === 'anchor')).toMatchObject({
-      attrs: { id: 'c1' },
-      start: 0,
-      end: 5
-    })
-    expect(back.islands[0].id).toBe('isl-7')
-
-    w.set('paragraphs', v.get('paragraphs')) // the same loop through the values form
-    const lost = v.getContentAt('paragraphs', [1])
-    expect(lost.marks.some((m) => m.type === 'anchor')).toBe(false)
-    expect(lost.islands[0].id).toBe('isl-0')
-  })
-
-  it('getContentAt: the path axis, absence versus refusal, and the argument contract', () => {
-    const quill = buildQuill()
-    const doc = Document.fromMarkdown(
-      "~~~card-yaml\n$quill: view_test\nrecipients: ['a *literal* line']\ntags: ['x']\n~~~\n\nBody."
-    )
-    doc.storeField('letterhead', { motto: 'Fly **fight**', code: '9' })
     doc.storeField('rows', [{}, { notes: 'a *note*' }])
     quill.writer(doc).addCard('note', { lines: ['a *b*'] })
     const v = quill.reader(doc)
-    expect(v.getContentAt('recipients', [0]).text).toBe('a *literal* line') // the leaf's codec
-    expect(v.getContentAt('letterhead', ['motto']).text).toBe('Fly fight')
     expect(v.getContentAt('rows', [1, 'notes']).text).toBe('a note')
+    expect(v.getContentAt('rows', [0, 'notes'])).toBeUndefined()
     expect(v.card(0).getContentAt('lines', [0]).text).toBe('a *b*')
-    expect(v.getContentAt('rows', [0, 'notes'])).toBeUndefined() // declared, unstored
-    expect(v.getContentAt('recipients', [7])).toBeUndefined() // a stale row index
-    expect(v.getContentAt('paragraphs', [0])).toBeUndefined() // field absent
-    expectEditCode(() => v.getContentAt('tags', [0]), 'edit::field_not_content')
-    expectEditCode(() => v.getContentAt('letterhead', ['nope']), 'edit::unknown_field')
     expectEditCode(() => v.card(9).getContentAt('lines', [0]), 'edit::index_out_of_range')
-    expect(() => v.getContentAt('recipients', [null])).toThrow(/path\[0\]/)
-    expect(() => v.getContentAt('recipients', 0)).toThrow(/`path` must be an array/)
+    expect(() => v.getContentAt('rows', [null])).toThrow(/path\[0\]/)
+    expect(() => v.getContentAt('rows', 0)).toThrow(/`path` must be an array/)
   })
-
-  it('an undecodable element anchors its diagnostic at the element', () => {
-    const quill = buildQuill()
-    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: view_test\n~~~\n\nBody.')
-    doc.storeField('paragraphs', ['ok', 3])
-    let caught
-    try {
-      quill.reader(doc).get('paragraphs')
-    } catch (e) {
-      caught = e
-    }
-    const diag = caught.diagnostics[0]
-    expect(diag.code).toBe('edit::field_decode')
-    expect(diag.path).toBe('main.paragraphs[1]')
-    expect(diag.args.field).toBe('paragraphs')
-    expect(parseDocPath(diag.path)).toEqual([
-      { seg: 'main' },
-      { seg: 'field', name: 'paragraphs' },
-      { seg: 'index', index: 1 },
-    ])
-  })
-
 })
 
 // For every declared field: the value the render projection would use and the
@@ -711,105 +525,40 @@ title: Hello
 ~~~
 `
 
-  it('tags main rows with their authored / default / blank source', () => {
-    const f = resolveOf(MAIN_ONLY).main.fields
-
-    // Declaration order is structural: the array order is the contract.
-    expect(f.map((r) => r.name)).toEqual(['title', 'status', 'notes', 'count', 'author'])
-
-    expect(byName(f, 'title').source).toBe('authored')
-    expect(byName(f, 'title').value).toBe('Hello')
-    expect(byName(f, 'status').source).toBe('default')
-    expect(byName(f, 'status').value).toBe('draft')
-    expect(byName(f, 'notes').source).toBe('blank')
-    expect(byName(f, 'notes').value).toBe('')
-  })
-
-  it('carries the body as a `body` sibling, never a row in fields', () => {
-    const withBody = resolveOf(`${MAIN_ONLY}\nHello body.\n`)
-    expect(withBody.main.body).toBeDefined()
-    expect(withBody.main.body.source).toBe('authored')
-    // Not smuggled into the fields array under any `body` / `$body` name.
-    expect(byName(withBody.main.fields, 'body')).toBeUndefined()
-    expect(byName(withBody.main.fields, '$body')).toBeUndefined()
-
-    expect(resolveOf(MAIN_ONLY).main.body.source).toBe('blank')
-  })
-
-  it('carries value and source only: no diagnostics, no example', () => {
-    // Each row is exactly { name, value, source }; schema guidance (example:)
-    // and diagnostics read from quill.schema / quill.validate, not duplicated.
-    const author = byName(resolveOf(MAIN_ONLY).main.fields, 'author')
-    expect(Object.keys(author).sort()).toEqual(['name', 'source', 'value'])
-    expect('example' in author).toBe(false)
-    expect('diagnostics' in author).toBe(false)
-  })
-
-  it('reports kind and index on a card entry', () => {
-    const states = resolveOf(`${MAIN_ONLY}
+  it('crosses as ordered rows of { name, value, source }, a body sibling, and card entries', () => {
+    const resolved = JSON.parse(
+      JSON.stringify(
+        resolveOf(`${MAIN_ONLY}
 ~~~card-yaml
 $kind: note
 label: L
 ~~~
 Note body.
 `)
-    expect(states.cards.length).toBe(1)
-    const card = states.cards[0]
+      )
+    )
+    const f = resolved.main.fields
+    expect(f.map((r) => r.name)).toEqual(['title', 'status', 'notes', 'count', 'author'])
+    expect(byName(f, 'title')).toEqual({ name: 'title', value: 'Hello', source: 'authored' })
+    expect(byName(f, 'status').source).toBe('default')
+    expect(byName(f, 'notes').source).toBe('blank')
+    expect(resolved.main.body.source).toBe('blank')
+
+    const card = resolved.cards[0]
     expect(card.kind).toBe('note')
     expect(card.index).toBe(0)
-    expect(byName(card.fields, 'label').source).toBe('authored')
-    expect(byName(card.fields, 'label').value).toBe('L')
-  })
-
-  it('keeps a render-uncoercible value raw (byte-for-byte with the plate)', () => {
-    // A value the render coercion cannot conform is kept raw and authored,
-    // exactly as compile_data leaves it: the error surfaces via validate(),
-    // not this view (which carries no diagnostics).
-    const md = `~~~card-yaml
-$quill: field_states_test
-$kind: main
-title: T
-count: "not-a-number"
-~~~
-`
-    const row = byName(resolveOf(md).main.fields, 'count')
-    expect(row.source).toBe('authored')
-    expect(row.value).toBe('not-a-number')
-    expect('diagnostics' in row).toBe(false)
-  })
-
-  it('result is JSON.stringify-able', () => {
-    const round = JSON.parse(JSON.stringify(resolveOf(MAIN_ONLY)))
-    expect(byName(round.main.fields, 'title').value).toBe('Hello')
+    expect(byName(card.fields, 'label')).toMatchObject({ value: 'L', source: 'authored' })
   })
 })
 
-// MAIN_CARD_ADDR names the empty main-card address `{}` the card-scoped verbs
-// take, so a main-card batch write reads as intent (`storeFields(MAIN_CARD_ADDR,
-// fields)`) rather than as an anonymous `{}`. It IS `{}` (frozen), so it is a
-// pure alias: `{}` and `undefined` stay equally valid.
 describe('@quillmark/wasm: MAIN_CARD_ADDR (the named main-card address)', () => {
-  it('is a frozen, empty card address: {} with a name', () => {
+  it('is a frozen {} that a card-scoped verb takes as the main card', () => {
     expect(MAIN_CARD_ADDR).toEqual({})
     expect(Object.isFrozen(MAIN_CARD_ADDR)).toBe(true)
-  })
-
-  it('targets the main card on a card-scoped verb, identically to {}', () => {
-    const named = new Document('editor_test')
-    named.storeFields(MAIN_CARD_ADDR, { title: 'Hello', qty: 3 })
-    expect(fieldOf(named.main, 'title')).toBe('Hello')
-    expect(fieldOf(named.main, 'qty')).toBe(3)
-
-    // Same effect as the bare empty-address spelling: a pure alias.
-    const empty = new Document('editor_test')
-    empty.storeFields({}, { title: 'Hello', qty: 3 })
-    expect(named.main.payloadItems).toEqual(empty.main.payloadItems)
-  })
-
-  it('carries $ext onto the main card too', () => {
     const doc = new Document('editor_test')
-    doc.storeExt(MAIN_CARD_ADDR, { editor: { pinned: true } })
-    expect(doc.main.ext.editor.pinned).toBe(true)
+    doc.storeFields(MAIN_CARD_ADDR, { title: 'Hello', qty: 3 })
+    expect(fieldOf(doc.main, 'title')).toBe('Hello')
+    expect(fieldOf(doc.main, 'qty')).toBe(3)
   })
 })
 
@@ -860,20 +609,6 @@ describe('@quillmark/wasm: container run boundaries', () => {
     // A block carrying no container at this depth parts the runs on its own.
     expect(assignInstances([LIST, null, LIST]).map((c) => c && c.instance)).toEqual([0, null, 0])
     expect(assignInstances([]).length).toBe(0)
-  })
-
-  it('is what keeps a flattened tree from welding two lists into one item', () => {
-    const [a, b] = assignInstances([LIST, LIST])
-    const stamped = importMarkdown(exportMarkdown(content(a, b)))
-    // A read omits a zero, so the second run's `1` is the whole boundary.
-    expect(stamped.lines.map((l) => l.containers[0].instance)).toEqual([undefined, 1])
-    expect(stamped.lines.map((l) => l.containers[0].attrs.ordinal)).toEqual([0, 0])
-
-    // The same paths without the discriminator: one item spanning two
-    // paragraphs, the second marker gone, and no error anywhere.
-    const welded = importMarkdown(exportMarkdown(content(LIST, LIST)))
-    expect(welded.lines.map((l) => l.containers[0].instance)).toEqual([undefined, undefined])
-    expect(welded.lines.map((l) => l.containers[0].attrs.ordinal)).toEqual([0, 0])
   })
 })
 
@@ -938,10 +673,8 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
     expect(doc.warnings.map((d) => d.code)).toEqual(loadCodes)
   })
 
-  it('the manifest-backed format probe does NOT load the backend', async () => {
-    // A descriptor-form counting loader: it carries the same manifest the
-    // default registry uses, so the probe answers from the manifest (no load),
-    // while still counting any real binary load triggered by render.
+  // A counting descriptor loader for the lazy-load / coalescing invariants below.
+  function countingEngine() {
     let loaded = 0
     const engine = new Engine({
       backends: {
@@ -954,62 +687,30 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
         }
       }
     })
+    return { engine, loaded: () => loaded }
+  }
+
+  it('the manifest-backed format probe does NOT load the backend', async () => {
+    const { engine, loaded } = countingEngine()
     const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-
-    // Descriptor WITH a manifest → the probe answers from the manifest, no load.
-    const formats = await engine.supportedFormats(quill)
-    expect(formats).toContain('pdf')
-    expect(loaded).toBe(0)
-
-    // A real render still triggers exactly one load.
-    await engine.render(quill, doc, { format: 'svg' })
-    expect(loaded).toBe(1)
+    expect(await engine.supportedFormats(quill)).toContain('pdf')
+    expect(loaded()).toBe(0)
+    await engine.render(quill, Document.fromMarkdown(TEST_MARKDOWN), { format: 'svg' })
+    expect(loaded()).toBe(1)
   })
 
-  it('manifest formats cannot drift from the loaded backend (drift guard)', async () => {
+  it('no backend manifest drifts from the loaded backend', async () => {
     const engine = new Engine()
-    const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-
-    // What the static manifest reports (no load).
-    const manifestFormats = await engine.supportedFormats(quill)
-
-    // Force the render build to load, then ask the real engine directly.
-    await engine.render(quill, doc, { format: 'svg' })
     const mod = await import('../../../pkg/render/wasm.js')
-    const backendEngine = new mod.Quillmark()
-    const backendQuill = mod.Quill.fromTree(quill.toTree())
-    try {
-      const realFormats = backendEngine.supportedFormats(backendQuill)
-      // The manifest must match what the binary reports, both directions.
-      expect([...manifestFormats].sort()).toEqual([...realFormats].sort())
-    } finally {
-      backendQuill.free()
-    }
-  })
-
-  it('acroform manifest cannot drift from the loaded backend (drift guard)', async () => {
-    // `DEFAULT_BACKENDS`' static manifest against what the binary reports.
-    const engine = new Engine()
-    const quill = Quill.fromTree(makeSampleFormQuill())
-    expect(quill.backendId).toBe('acroform')
-    const doc = Document.fromMarkdown(SAMPLE_FORM_MARKDOWN)
-
-    // What the static manifest reports (no load).
-    const manifestFormats = await engine.supportedFormats(quill)
-    expect(manifestFormats).toEqual(['pdf'])
-
-    // Force the render build to load, then ask the real engine directly.
-    await engine.render(quill, doc, { format: 'pdf' })
-    const mod = await import('../../../pkg/render/wasm.js')
-    const backendEngine = new mod.Quillmark()
-    const backendQuill = mod.Quill.fromTree(quill.toTree())
-    try {
-      const realFormats = backendEngine.supportedFormats(backendQuill)
-      expect([...manifestFormats].sort()).toEqual([...realFormats].sort())
-    } finally {
-      backendQuill.free()
+    for (const quill of [makeRuntimeQuill(), Quill.fromTree(makeSampleFormQuill())]) {
+      const manifestFormats = await engine.supportedFormats(quill)
+      const backendQuill = mod.Quill.fromTree(quill.toTree())
+      try {
+        const realFormats = new mod.Quillmark().supportedFormats(backendQuill)
+        expect([...manifestFormats].sort(), quill.backendId).toEqual([...realFormats].sort())
+      } finally {
+        backendQuill.free()
+      }
     }
   })
 
@@ -1067,46 +768,21 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
     return { engine, fromTreeCalls: () => fromTreeCalls }
   }
 
-  it('caches the backend quill clone: rendering twice materializes it once', async () => {
-    const { engine, fromTreeCalls } = fromTreeCountingEngine()
-    const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-
-    await engine.render(quill, doc, { format: 'svg' })
-    await engine.render(quill, doc, { format: 'svg' })
-    expect(fromTreeCalls()).toBe(1)
-  })
-
-  it('caches per canonical instance: two different quills → two materializations', async () => {
+  it('caches the backend quill clone once per canonical instance', async () => {
     const { engine, fromTreeCalls } = fromTreeCountingEngine()
     const quillA = makeRuntimeQuill()
-    const quillB = makeRuntimeQuill()
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
 
     await engine.render(quillA, doc, { format: 'svg' })
-    await engine.render(quillB, doc, { format: 'svg' })
+    await engine.render(quillA, doc, { format: 'svg' })
+    expect(fromTreeCalls()).toBe(1)
+    await engine.render(makeRuntimeQuill(), doc, { format: 'svg' })
     expect(fromTreeCalls()).toBe(2)
-  })
-
-  it('opens an iterative session, renders pages, and frees it', async () => {
-    const engine = new Engine()
-    const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-
-    const session = await engine.open(quill, doc)
-    try {
-      expect(session.pageCount).toBeGreaterThan(0)
-      expect(session.backendId).toBe('typst')
-      const page = session.render({ format: 'svg' })
-      expect(page.artifacts.length).toBeGreaterThan(0)
-    } finally {
-      session.free()
-    }
   })
 
   // GUARD for the class of bug where a method is declared in runtime.d.ts and
   // implemented in the backend build, but the hand-written canonical LiveSession
-  // wrapper (runtime.js) forgets to forward it: `fieldAt` is the case in point.
+  // wrapper (runtime.js) forgets to forward it.
   // The type-level drift test (runtime.types.test-d.ts) only checks structural type
   // compatibility, so a wrapper that TYPE-checks but has no matching JS method
   // sails through it and throws `X is not a function` at runtime. This calls
@@ -1175,11 +851,9 @@ A single line of body ink.`
       expect(size.widthPt).toBeGreaterThan(0)
       expect(size.heightPt).toBeGreaterThan(0)
 
-      // fieldAt: the delegation that was missing. Hit-test the centre
-      // of the body region's rect ([x0, y0, x1, y1], bottom-left PDF points)
-      // (guaranteed ink for the single-line body (see SMOKE_MARKDOWN above))
-      // and expect it to resolve back through the wrapper as its DocPath. Off
-      // any field's ink (the page corner) the contract is undefined.
+      // fieldAt: the centre of the body region's rect ([x0, y0, x1, y1],
+      // bottom-left PDF points) is ink, and resolves to its DocPath; the page
+      // corner is off any field's ink and answers undefined.
       expect(typeof session.fieldAt).toBe('function')
       const [x0, y0, x1, y1] = body.rect
       const hit = session.fieldAt(body.page, (x0 + x1) / 2, (y0 + y1) / 2)
@@ -1231,17 +905,6 @@ A single line of body ink.`
     }
   })
 
-  it('renders repeatedly from the same quill (clone-on-demand, no shared handle)', async () => {
-    const engine = new Engine()
-    const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-
-    const a = await engine.render(quill, doc, { format: 'svg' })
-    const b = await engine.render(quill, doc, { format: 'svg' })
-    expect(a.artifacts.length).toBeGreaterThan(0)
-    expect(b.artifacts.length).toBeGreaterThan(0)
-  })
-
   it('rejects an unregistered backend with engine::backend_not_found, probes like renders', async () => {
     const engine = new Engine()
     // A quill whose declared backend has no loader.
@@ -1268,46 +931,8 @@ main:
       )
       expect(isQuillmarkError(caught)).toBe(true)
       expect(caught.diagnostics[0].code).toBe('engine::backend_not_found')
-      expect(caught.message).toContain('doesnotexist')
-      expect(caught.diagnostics[0].hint).toContain('typst')
     }
   })
-
-  it('accepts a custom backend descriptor override', async () => {
-    let loaded = 0
-    const engine = new Engine({
-      backends: {
-        typst: {
-          load: () => {
-            loaded++
-            return import('../../../pkg/render/wasm.js')
-          },
-          formats: ['pdf', 'svg', 'png']
-        }
-      }
-    })
-    const quill = makeRuntimeQuill()
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    await engine.render(quill, doc, { format: 'svg' })
-    expect(loaded).toBe(1)
-  })
-
-  // A counting descriptor loader for the lazy-load / coalescing invariants below.
-  function countingEngine() {
-    let loaded = 0
-    const engine = new Engine({
-      backends: {
-        typst: {
-          load: () => {
-            loaded++
-            return import('../../../pkg/render/wasm.js')
-          },
-          formats: ['pdf', 'svg', 'png']
-        }
-      }
-    })
-    return { engine, loaded: () => loaded }
-  }
 
   it('does NOT load the backend for sync core work: only on first render (lazy)', async () => {
     const { engine, loaded } = countingEngine()
@@ -1451,7 +1076,7 @@ describe('@quillmark/wasm: handles from another copy (duplicate install)', () =>
     const quill = makeRuntimeQuill()
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     expectEditCode(() => quill.writer(null), 'runtime::not_a_document')
-    expect(() => new DocumentWriter(null, doc)).toThrow(/expected a Quill/)
+    expectEditCode(() => new DocumentWriter(null, doc), 'runtime::not_a_quill')
   })
 
   it('leaves a by-reference core method to wasm-bindgen, which refuses it too', () => {

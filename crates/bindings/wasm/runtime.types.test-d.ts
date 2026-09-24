@@ -233,9 +233,8 @@ void liftedMark;
 const liftedWhole: MarkOp = { op: 'remove', ...liftMark };
 void liftedWhole;
 
-// The payload rides `attrs` on the op as on the mark. The named sibling is the
-// retired `@0.93.0` spelling, which the authored lane refuses as `legacy mark
-// payload`, so the type that admits it is the one that cannot be written.
+// The payload rides `attrs` on the op as on the mark; the authored lane refuses
+// a named sibling, so the type must too.
 // @ts-expect-error a link's url rides `attrs`
 const siblingUrl: MarkOp = { op: 'add', start: 0, end: 1, type: 'link', url: 'https://x' };
 void siblingUrl;
