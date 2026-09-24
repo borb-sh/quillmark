@@ -7,25 +7,12 @@ use quillmark_core::{backend::Backend, session::LiveSession};
 use quillmark_typst::TypstBackend;
 
 mod common;
-use common::{content, quill_with_plate as quill};
+use common::{content, quill_with_plate as quill, yaml};
 
-const YAML: &str = r#"
-quill:
-  name: hit_tolerance
-  version: 0.1.0
-  backend: typst
-  description: tolerant hit-testing
-typst:
-  plate_file: plate.typ
-main:
-  fields:
-    intro:
-      type: richtext
-      description: the paragraph above
-    body:
-      type: richtext
-      description: the paragraph below
-"#;
+const SCHEMA: &str = "main:\n  fields:\n    intro: { type: richtext }\n    body: { type: richtext }\n";
+
+/// A fill-in widget above a paragraph.
+const WIDGET_SCHEMA: &str = "main:\n  fields:\n    blank: { type: string }\n    body: { type: richtext }\n";
 
 const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.1.0": data
@@ -42,7 +29,7 @@ fn open() -> LiveSession {
         "intro": content(&"Intro text that wraps across more than one line of the measure. ".repeat(3)),
         "body": content(&"Body text that also wraps across more than one line of the measure. ".repeat(3)),
     });
-    TypstBackend.open(&quill(YAML, PLATE), &data).expect("open")
+    TypstBackend.open(&quill(&yaml(SCHEMA), PLATE), &data).expect("open")
 }
 
 /// The `[low, high]` y bands on page 0 that answer at column `x` with no
@@ -189,7 +176,7 @@ fn open_with_a_short_line() -> LiveSession {
         "body": content(&"Body text that fills the measure and wraps past one line. ".repeat(3)),
     });
     TypstBackend
-        .open(&quill(YAML, PLATE), &data)
+        .open(&quill(&yaml(SCHEMA), PLATE), &data)
         .expect("open")
 }
 
@@ -231,40 +218,25 @@ fn a_point_past_the_tolerance_is_still_a_miss() {
 }
 
 /// A point that is not finite is outside every box, so both queries answer
-/// nothing. The documented click transform produces one whenever `renderScale`
-/// is zero.
+/// nothing at any tolerance, an infinite one included: the gap is absent rather
+/// than large. The documented click transform yields both at once, an infinite
+/// `tolPt` and a non-finite point, whenever `renderScale` is zero.
 #[test]
 fn a_non_finite_point_resolves_to_nothing() {
     let session = open();
-    for (x, y) in [
-        (f32::NAN, f32::NAN),
-        (f32::NAN, 100.0),
-        (120.0, f32::NAN),
-        (f32::INFINITY, f32::INFINITY),
-        (f32::NEG_INFINITY, 100.0),
-    ] {
-        assert_eq!(session.position_at(0, x, y, 8.0), None, "positionAt({x}, {y})");
-        assert_eq!(session.field_at(0, x, y, 8.0), None, "fieldAt({x}, {y})");
+    for tol in [8.0, f32::INFINITY] {
+        for (x, y) in [
+            (f32::NAN, f32::NAN),
+            (f32::NAN, 100.0),
+            (120.0, f32::NAN),
+            (f32::INFINITY, f32::INFINITY),
+            (f32::NEG_INFINITY, 100.0),
+        ] {
+            assert_eq!(session.position_at(0, x, y, tol), None, "positionAt({x}, {y}, {tol})");
+            assert_eq!(session.field_at(0, x, y, tol), None, "fieldAt({x}, {y}, {tol})");
+        }
     }
 }
-
-const WIDGET_YAML: &str = r#"
-quill:
-  name: hit_tolerance_widget
-  version: 0.1.0
-  backend: typst
-  description: a widget above a paragraph
-typst:
-  plate_file: plate.typ
-main:
-  fields:
-    blank:
-      type: string
-      description: the fill-in widget
-    body:
-      type: richtext
-      description: the paragraph below it
-"#;
 
 const WIDGET_PLATE: &str = r#"
 #import "@local/quillmark-helper:0.1.0": data, form-field
@@ -284,7 +256,7 @@ fn open_with_widget() -> LiveSession {
         "body": content("Body text well below the widget."),
     });
     TypstBackend
-        .open(&quill(WIDGET_YAML, WIDGET_PLATE), &data)
+        .open(&quill(&yaml(WIDGET_SCHEMA), WIDGET_PLATE), &data)
         .expect("open")
 }
 
@@ -317,22 +289,6 @@ fn raising_the_tolerance_never_moves_a_click_to_a_farther_field() {
     }
 }
 
-/// No tolerance admits a non-finite point, an infinite one included: the gap is
-/// absent rather than large. `renderScale == 0` yields both at once, an infinite
-/// `tolPt` and a non-finite point, from the same division.
-#[test]
-fn an_infinite_tolerance_does_not_admit_a_non_finite_point() {
-    let session = open();
-    for (x, y) in [
-        (f32::NAN, f32::NAN),
-        (120.0, f32::NAN),
-        (f32::NEG_INFINITY, 100.0),
-    ] {
-        assert_eq!(session.field_at(0, x, y, f32::INFINITY), None, "fieldAt({x}, {y})");
-        assert_eq!(session.position_at(0, x, y, f32::INFINITY), None, "positionAt({x}, {y})");
-    }
-}
-
 const OVERLAID_PLATE: &str = r#"
 #import "@local/quillmark-helper:0.1.0": data, form-field
 #set page(width: 400pt, height: 300pt, margin: 30pt)
@@ -350,7 +306,7 @@ fn open_with_overlaid_widget() -> LiveSession {
         "body": content(&"Body text under and around the placed widget. ".repeat(6)),
     });
     TypstBackend
-        .open(&quill(WIDGET_YAML, OVERLAID_PLATE), &data)
+        .open(&quill(&yaml(WIDGET_SCHEMA), OVERLAID_PLATE), &data)
         .expect("open")
 }
 

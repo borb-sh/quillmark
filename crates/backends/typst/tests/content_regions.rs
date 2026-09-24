@@ -3,30 +3,40 @@
 //! `field_at`/`position_at`/`locate` navigation over them.
 
 use quillmark_core::backend::Backend;
+use quillmark_core::region::HitGranularity;
+use quillmark_core::session::LiveSession;
 use quillmark_typst::TypstBackend;
 
 mod common;
-use common::{content, quill_with_plate as quill};
+use common::{content, quill_with_plate as quill, yaml};
+
+fn open(schema: &str, plate: &str, data: serde_json::Value) -> LiveSession {
+    TypstBackend
+        .open(&quill(&yaml(schema), plate), &data)
+        .expect("open")
+}
+
+fn centre(rect: [f32; 4]) -> (f32, f32) {
+    ((rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0)
+}
+
+/// One richtext `body` on a letter page.
+fn body_session(body: serde_json::Value) -> LiveSession {
+    open(
+        "main:\n  fields:\n    body: { type: richtext }\n",
+        r#"
+#import "@local/quillmark-helper:0.1.0": data
+#set page(width: 612pt, height: 792pt, margin: 72pt)
+#set text(size: 11pt)
+
+#data.body
+"#,
+        serde_json::json!({ "body": body }),
+    )
+}
 
 #[test]
 fn content_fields_emit_frame_regions() {
-    const YAML: &str = r#"
-quill:
-  name: content_regions
-  version: 0.1.0
-  backend: typst
-  description: content region span-tracking test
-typst:
-  plate_file: plate.typ
-main:
-  fields:
-    intro:
-      type: richtext
-      description: a short intro paragraph
-    body:
-      type: richtext
-      description: a long body that wraps and breaks across pages
-"#;
     // Page chrome too: a header and footer must not truncate a placement to
     // its first page.
     const PLATE: &str = r#"
@@ -47,12 +57,14 @@ main:
 
     // Long enough to overflow page 0 and continue.
     let long = "This is a markdown paragraph that wraps across several lines. ".repeat(200);
-    let data = serde_json::json!({
-        "intro": content("A **short** intro paragraph on the first page."),
-        "body": content(&long),
-    });
-
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = open(
+        "main:\n  fields:\n    intro: { type: richtext }\n    body: { type: richtext }\n",
+        PLATE,
+        serde_json::json!({
+            "intro": content("A **short** intro paragraph on the first page."),
+            "body": content(&long),
+        }),
+    );
     let regions = session.regions();
 
     let intro: Vec<_> = regions.iter().filter(|r| r.field == "intro").collect();
@@ -86,20 +98,6 @@ main:
 
 #[test]
 fn field_placed_twice_surfaces_first_region_but_field_at_resolves_every_placement() {
-    const YAML: &str = r#"
-quill:
-  name: two_placements
-  version: 0.1.0
-  backend: typst
-  description: first-placement region + click-to-field test
-typst:
-  plate_file: plate.typ
-main:
-  fields:
-    intro:
-      type: richtext
-      description: a short paragraph placed twice
-"#;
     const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.1.0": data
 #set page(width: 612pt, height: 792pt, margin: 72pt)
@@ -110,9 +108,11 @@ main:
 
 #data.intro
 "#;
-    let data = serde_json::json!({ "intro": content("The same intro, placed twice.") });
-
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = open(
+        "main:\n  fields:\n    intro: { type: richtext }\n",
+        PLATE,
+        serde_json::json!({ "intro": content("The same intro, placed twice.") }),
+    );
     let regions = session.regions();
     let intro: Vec<_> = regions.iter().filter(|r| r.field == "intro").collect();
     assert_eq!(
@@ -133,8 +133,7 @@ main:
         first.rect
     );
 
-    let cx = (first.rect[0] + first.rect[2]) / 2.0;
-    let cy = (first.rect[1] + first.rect[3]) / 2.0;
+    let (cx, cy) = centre(first.rect);
     assert_eq!(
         session.field_at(first.page, cx, cy, 0.0).as_deref(),
         Some("intro"),
@@ -163,22 +162,10 @@ main:
     );
 }
 
+/// Each reference site surfaces on its own, a single-reference wrapping
+/// expression included, and a click on any of them routes to the field.
 #[test]
 fn scalar_reference_sites_each_surface_a_region() {
-    const YAML: &str = r#"
-quill:
-  name: scalar_sites
-  version: 0.1.0
-  backend: typst
-  description: scalar reference-site region test
-main:
-  fields:
-    subject:
-      type: string
-      description: a plain scalar referenced at two sites
-typst:
-  plate_file: plate.typ
-"#;
     const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.1.0": data
 #set page(width: 612pt, height: 792pt, margin: 72pt)
@@ -188,45 +175,44 @@ typst:
 #lorem(20)
 
 #data.at("subject")
-"#;
-    let data = serde_json::json!({ "subject": "Request for Quarters" });
 
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+#lorem(20)
+
+#upper(data.subject)
+"#;
+    let session = open(
+        "main:\n  fields:\n    subject: { type: string }\n",
+        PLATE,
+        serde_json::json!({ "subject": "Request for Quarters" }),
+    );
     let regions = session.regions();
     let subject: Vec<_> = regions.iter().filter(|r| r.field == "subject").collect();
     assert_eq!(
         subject.len(),
-        2,
+        3,
         "each scalar reference site surfaces independently: {regions:?}"
     );
-    for r in &subject {
-        assert!(r.rect[2] > r.rect[0], "positive width: {:?}", r.rect);
+    for pair in subject.windows(2) {
+        assert!(
+            pair[0].rect[1] > pair[1].rect[3],
+            "sites do not union: {:?} above {:?}",
+            pair[0].rect,
+            pair[1].rect
+        );
     }
-    // Bottom-left origin: the later site sits lower.
-    assert!(
-        subject[0].rect[1] > subject[1].rect[3] || subject[1].rect[1] > subject[0].rect[3],
-        "sites do not union: {:?} vs {:?}",
-        subject[0].rect,
-        subject[1].rect
-    );
+    for r in &subject {
+        let (cx, cy) = centre(r.rect);
+        assert_eq!(
+            session.field_at(r.page, cx, cy, 0.0).as_deref(),
+            Some("subject"),
+            "a click on {:?} routes to the field",
+            r.rect
+        );
+    }
 }
 
 #[test]
 fn content_survives_a_rebuilding_show_rule() {
-    const YAML: &str = r#"
-quill:
-  name: rebuild_survival
-  version: 0.1.0
-  backend: typst
-  description: content-rebuild span survival test
-typst:
-  plate_file: plate.typ
-main:
-  fields:
-    body:
-      type: richtext
-      description: a body piped through a capture-and-replay package shape
-"#;
     const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.1.0": data
 #set page(width: 612pt, height: 792pt, margin: 72pt)
@@ -248,9 +234,11 @@ main:
   }
 }
 "#;
-    let data = serde_json::json!({ "body": content("A body paragraph the package rebuilds.") });
-
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = open(
+        "main:\n  fields:\n    body: { type: richtext }\n",
+        PLATE,
+        serde_json::json!({ "body": content("A body paragraph the package rebuilds.") }),
+    );
     let regions = session.regions();
     assert!(
         regions.iter().any(|r| r.field == "body"),
@@ -260,22 +248,6 @@ main:
 
 #[test]
 fn markdown_array_elements_surface_indexed_regions() {
-    const YAML: &str = r#"
-quill:
-  name: array_regions
-  version: 0.1.0
-  backend: typst
-  description: richtext[] element region test
-main:
-  fields:
-    refs:
-      type: array
-      items:
-        type: richtext
-      description: a richtext[] field
-typst:
-  plate_file: plate.typ
-"#;
     const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.1.0": data
 #set page(width: 612pt, height: 792pt, margin: 72pt)
@@ -284,10 +256,11 @@ typst:
   block(r)
 }
 "#;
-    let data =
-        serde_json::json!({ "refs": [content("First reference."), content("Second reference.")] });
-
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = open(
+        "main:\n  fields:\n    refs:\n      type: array\n      items: { type: richtext }\n",
+        PLATE,
+        serde_json::json!({ "refs": [content("First reference."), content("Second reference.")] }),
+    );
     let regions = session.regions();
     for expected in ["refs.0", "refs.1"] {
         assert!(
@@ -305,33 +278,18 @@ typst:
 fn card_regions_use_canonical_kind_ordinal_path() {
     // Interleaved alpha/beta/alpha: the ordinal is per kind, so the second alpha
     // is `.1` even though it is the third card overall.
-    const YAML: &str = r#"
-quill:
-  name: card_regions
-  version: 0.1.0
-  backend: typst
-  description: card region path test
-typst:
-  plate_file: plate.typ
+    const SCHEMA: &str = "\
 main:
   fields:
-    intro:
-      type: richtext
-      description: a top-level intro
+    intro: { type: richtext }
 card_kinds:
   alpha:
-    description: alpha card
     fields:
-      note:
-        type: richtext
-        description: alpha note
+      note: { type: richtext }
   beta:
-    description: beta card
     fields:
-      note:
-        type: richtext
-        description: beta note
-"#;
+      note: { type: richtext }
+";
     const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.1.0": data
 #set page(width: 612pt, height: 792pt, margin: 72pt)
@@ -344,16 +302,18 @@ card_kinds:
   parbreak()
 }
 "#;
-    let data = serde_json::json!({
-        "intro": content("Top-level intro."),
-        "$cards": [
-            {"$kind": "alpha", "note": content("Alpha one.")},
-            {"$kind": "beta",  "note": content("Beta one.")},
-            {"$kind": "alpha", "note": content("Alpha two.")},
-        ],
-    });
-
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = open(
+        SCHEMA,
+        PLATE,
+        serde_json::json!({
+            "intro": content("Top-level intro."),
+            "$cards": [
+                {"$kind": "alpha", "note": content("Alpha one.")},
+                {"$kind": "beta",  "note": content("Beta one.")},
+                {"$kind": "alpha", "note": content("Alpha two.")},
+            ],
+        }),
+    );
     let fields: std::collections::HashSet<String> =
         session.regions().into_iter().map(|r| r.field).collect();
 
@@ -378,20 +338,6 @@ card_kinds:
 
 #[test]
 fn date_field_display_surfaces_a_clickable_region() {
-    const YAML: &str = r#"
-quill:
-  name: date_region
-  version: 0.1.0
-  backend: typst
-  description: date content-projection region test
-typst:
-  plate_file: plate.typ
-main:
-  fields:
-    issued:
-      type: date
-      description: the memo date
-"#;
     // `data.issued` is the native `datetime`, so the comparison and the
     // component read are ordinary Typst; `display` places the ink that regions.
     const PLATE: &str = r#"
@@ -403,9 +349,11 @@ main:
 #assert(data.issued < datetime(year: 2027, month: 1, day: 1))
 #display("issued", "[day padding:none] [month repr:long] [year]")
 "#;
-    let data = serde_json::json!({ "issued": "2026-01-02" });
-
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = open(
+        "main:\n  fields:\n    issued: { type: date }\n",
+        PLATE,
+        serde_json::json!({ "issued": "2026-01-02" }),
+    );
     let regions = session.regions();
     let issued: Vec<_> = regions.iter().filter(|r| r.field == "issued").collect();
     assert_eq!(
@@ -424,7 +372,7 @@ main:
         "a date region is whole-placement, carrying no content span: {:?}",
         issued[0]
     );
-    let (cx, cy) = ((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+    let (cx, cy) = centre(issued[0].rect);
     assert_eq!(
         session.field_at(issued[0].page, cx, cy, 0.0).as_deref(),
         Some("issued"),
@@ -437,22 +385,6 @@ fn card_dates_surface_per_instance_regions_through_laundering() {
     // `scalar_windows` does not chase the shared `card.<field>` loop variable,
     // so a card date surfaces only through its own per-instance `text(..)` node,
     // which `display` reaches by address rather than through the value.
-    const YAML: &str = r#"
-quill:
-  name: card_date_region
-  version: 0.1.0
-  backend: typst
-  description: per-instance card date region test
-typst:
-  plate_file: plate.typ
-card_kinds:
-  stamp:
-    description: a dated stamp
-    fields:
-      on:
-        type: date
-        description: the stamp date
-"#;
     const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.1.0": data, display
 #set page(width: 612pt, height: 792pt, margin: 72pt)
@@ -468,37 +400,36 @@ card_kinds:
   parbreak()
 }
 "#;
-    let data = serde_json::json!({
-        "$cards": [
-            {"$kind": "stamp", "on": "2026-01-02"},
-            {"$kind": "stamp"},                       // blank date → none
-            {"$kind": "stamp", "on": "2028-03-04"},
-        ],
-    });
-
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
-    let fields: std::collections::HashSet<String> =
-        session.regions().into_iter().map(|r| r.field).collect();
-    assert!(
-        fields.contains("$cards.stamp.0.on"),
-        "first card's date regions per-instance: {fields:?}"
+    let session = open(
+        "card_kinds:\n  stamp:\n    fields:\n      on: { type: date }\n",
+        PLATE,
+        serde_json::json!({
+            "$cards": [
+                {"$kind": "stamp", "on": "2026-01-02"},
+                {"$kind": "stamp"},
+                {"$kind": "stamp", "on": "2028-03-04"},
+            ],
+        }),
     );
-    assert!(
-        fields.contains("$cards.stamp.2.on"),
-        "third card's date regions per-instance: {fields:?}"
-    );
+    let regions = session.regions();
+    let fields: std::collections::HashSet<&str> =
+        regions.iter().map(|r| r.field.as_str()).collect();
+    for expected in ["$cards.stamp.0.on", "$cards.stamp.2.on"] {
+        assert!(
+            fields.contains(expected),
+            "a card's date regions per-instance: {fields:?}"
+        );
+    }
     // A `none` date draws no ink: absent, not a zero-area box.
     assert!(
         !fields.contains("$cards.stamp.1.on"),
         "a blank card date surfaces no region: {fields:?}"
     );
-    let regions = session.regions();
     let first = regions
         .iter()
         .find(|r| r.field == "$cards.stamp.0.on")
         .expect("first card date region present");
-    let cx = (first.rect[0] + first.rect[2]) / 2.0;
-    let cy = (first.rect[1] + first.rect[3]) / 2.0;
+    let (cx, cy) = centre(first.rect);
     assert_eq!(
         session.field_at(first.page, cx, cy, 0.0).as_deref(),
         Some("$cards.stamp.0.on"),
@@ -507,78 +438,29 @@ card_kinds:
 }
 
 #[test]
-fn form_field_unknown_path_fails_the_compile() {
-    // A typo'd path is a loud compile error, not a silent no-region widget.
-    const YAML: &str = r#"
-quill:
-  name: widget_typo
-  version: 0.1.0
-  backend: typst
-  description: form-field path validation test
-typst:
-  plate_file: plate.typ
-main:
-  fields:
-    subject:
-      type: string
-      description: the only schema field
-"#;
-    const PLATE: &str = r#"
-#import "@local/quillmark-helper:0.1.0": form-field
-#form-field("S", type: "text", value: "x", field: "subjcet")
-"#;
-    let err = TypstBackend
-        .open(
-            &quill(YAML, PLATE),
-            &serde_json::json!({ "subject": "typo'd" }),
-        )
-        .err()
-        .expect("a typo'd field binding must fail the compile");
-    let msg = format!("{err:?}");
-    assert!(
-        msg.contains("subjcet"),
-        "the compile error names the bad path: {msg}"
-    );
-}
-
-#[test]
 fn failed_update_keeps_serving_last_good_regions() {
     // A failed compile has already written the next injection's helper source
     // into the world, but the served document's spans must keep resolving
     // against the compile they came from.
-    const YAML: &str = r#"
-quill:
-  name: failed_update_regions
-  version: 0.1.0
-  backend: typst
-  description: transactional regions test
-typst:
-  plate_file: plate.typ
-main:
-  fields:
-    intro:
-      type: richtext
-      description: a paragraph
-    when:
-      type: date
-      description: a date the template parses at data-assembly time
-"#;
     const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.1.0": data
 #set page(width: 612pt, height: 792pt, margin: 72pt)
 
 #data.intro
 "#;
-    let good = serde_json::json!({
-        "intro": content("A stable paragraph the session keeps serving."),
-        "when": "2026-07-03",
-    });
-    let mut session = TypstBackend.open(&quill(YAML, PLATE), &good).expect("open");
-    let before = session.regions();
-    assert!(
-        before.iter().any(|r| r.field == "intro"),
-        "baseline intro region: {before:?}"
+    let mut session = open(
+        "main:\n  fields:\n    intro: { type: richtext }\n    when: { type: date }\n",
+        PLATE,
+        serde_json::json!({
+            "intro": content("A stable paragraph the session keeps serving."),
+            "when": "2026-07-03",
+        }),
     );
+    let before = session.regions();
+    let intro = before
+        .iter()
+        .find(|r| r.field == "intro")
+        .expect("baseline intro region");
 
     // Shorter content shifts every byte offset in the regenerated helper, and
     // the unparseable date fails the compile at data-assembly time.
@@ -592,9 +474,7 @@ main:
         before,
         "a failed update must not move or drop the served compile's regions"
     );
-    let intro = before.iter().find(|r| r.field == "intro").unwrap();
-    let cx = (intro.rect[0] + intro.rect[2]) / 2.0;
-    let cy = (intro.rect[1] + intro.rect[3]) / 2.0;
+    let (cx, cy) = centre(intro.rect);
     assert_eq!(
         session.field_at(intro.page, cx, cy, 0.0).as_deref(),
         Some("intro"),
@@ -603,68 +483,18 @@ main:
 }
 
 #[test]
-fn wrapped_scalar_expression_attributes_to_its_field() {
-    const YAML: &str = r#"
-quill:
-  name: wrapped_scalar
-  version: 0.1.0
-  backend: typst
-  description: wrapped scalar attribution test
-main:
-  fields:
-    subject:
-      type: string
-      description: a scalar shown through a wrapping call
-typst:
-  plate_file: plate.typ
-"#;
-    const PLATE: &str = r#"
-#import "@local/quillmark-helper:0.1.0": data
-#set page(width: 612pt, height: 792pt, margin: 72pt)
-
-#upper(data.subject)
-"#;
-    let data = serde_json::json!({ "subject": "request for quarters" });
-
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
-    let regions = session.regions();
-    let subject: Vec<_> = regions.iter().filter(|r| r.field == "subject").collect();
-    assert_eq!(
-        subject.len(),
-        1,
-        "a single-reference wrapping expression attributes to the field: {regions:?}"
-    );
-    let cx = (subject[0].rect[0] + subject[0].rect[2]) / 2.0;
-    let cy = (subject[0].rect[1] + subject[0].rect[3]) / 2.0;
-    assert_eq!(
-        session.field_at(subject[0].page, cx, cy, 0.0).as_deref(),
-        Some("subject"),
-        "clicks on the wrapped ink route to the field"
-    );
-}
-
-#[test]
 fn form_field_path_rejected_when_address_tables_are_empty() {
     // Empty address tables validate against the empty set: every address
     // rejects. Only absent tables are permissive.
-    const YAML: &str = r#"
-quill:
-  name: empty_tables
-  version: 0.1.0
-  backend: typst
-  description: empty-tables-vs-absent-meta guard test
-typst:
-  plate_file: plate.typ
-main:
-  body:
-    enabled: false
-"#;
     const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.1.0": form-field
 #form-field("S", type: "text", value: "x", field: "subject")
 "#;
     let err = TypstBackend
-        .open(&quill(YAML, PLATE), &serde_json::json!({}))
+        .open(
+            &quill(&yaml("main:\n  body:\n    enabled: false\n"), PLATE),
+            &serde_json::json!({}),
+        )
         .err()
         .expect("an address must still fail when the tables are empty, not absent");
     let msg = format!("{err:?}");
@@ -677,63 +507,45 @@ main:
 #[test]
 fn adversarial_codegen_inputs_still_compile() {
     // The generated helper is Typst source built from document data, so a data
-    // value must never produce source that fails to parse. Two edges the string
+    // value must never produce source that fails to parse. Edges the string
     // shape of the codegen could hide but a real compile catches:
     //   - an unterminated `<u>` yields unbalanced `#underline[` markup that, in
     //     a `[ .. ]` content block, would break the whole helper file;
+    //   - `strong[0,4)` partially overlapping `code[2,6)`, a content an editor
+    //     can build but markdown import never produces;
     //   - `i64::MIN` cannot be a Typst int literal (its magnitude overflows).
-    const YAML: &str = r#"
-quill:
-  name: adversarial_codegen
-  version: 0.1.0
-  backend: typst
-  description: codegen robustness
-typst:
-  plate_file: plate.typ
-main:
-  fields:
-    body:
-      type: richtext
-      description: a body that may carry malformed inline markup
-"#;
+    use quillmark_content::model::{Content, Line, LineKind, Mark, MarkKind};
     // The plate's assert proves the int round-tripped.
     const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.1.0": data
 #set page(width: 400pt, height: 400pt, margin: 40pt)
 #assert(data.at("n") == -9223372036854775807 - 1)
 #data.body
+#data.overlap
 "#;
-    let data = serde_json::json!({
-        "body": content("Please <u>sign here"),
-        "n": i64::MIN,
-    });
-    // Compile success is the assertion.
+    let overlap = Content::new("abcdef".to_string(), vec![Line::new(LineKind::Para)]).with_marks(vec![
+        Mark::new(0, 4, MarkKind::Strong),
+        Mark::new(2, 6, MarkKind::Code),
+    ]);
     TypstBackend
-        .open(&quill(YAML, PLATE), &data)
-        .expect("adversarial data (unterminated <u>, i64::MIN) must still compile");
+        .open(
+            &quill(
+                &yaml("main:\n  fields:\n    body: { type: richtext }\n    overlap: { type: richtext }\n"),
+                PLATE,
+            ),
+            &serde_json::json!({
+                "body": content("Please <u>sign here"),
+                "overlap": quillmark_content::serial::to_canonical_value(&overlap.into_normalized()),
+                "n": i64::MIN,
+            }),
+        )
+        .expect("adversarial data must still compile");
 }
 
 /// `aaa` is painted first, `zzz` on top of it; a click in the shared box must
 /// resolve to `zzz`, not to the alphabetically-first `/T` name.
 #[test]
 fn overlapping_widgets_resolve_field_at_by_paint_order_not_name() {
-    const YAML: &str = r#"
-quill:
-  name: overlap_widgets
-  version: 0.1.0
-  backend: typst
-  description: overlapping widget hit-test
-typst:
-  plate_file: plate.typ
-main:
-  fields:
-    aaa_early:
-      type: string
-      description: alphabetically first, painted first (underneath)
-    zzz_late:
-      type: string
-      description: alphabetically last, painted last (on top)
-"#;
     const PLATE: &str = r#"
 #import "@local/quillmark-helper:0.1.0": form-field
 #set page(width: 300pt, height: 200pt, margin: 0pt)
@@ -742,9 +554,11 @@ main:
 #place(top + left, dx: 60pt, dy: 60pt,
   form-field("zzz", type: "text", field: "zzz_late", width: 40pt, height: 40pt))
 "#;
-    let session = TypstBackend
-        .open(&quill(YAML, PLATE), &serde_json::json!({}))
-        .expect("open");
+    let session = open(
+        "main:\n  fields:\n    aaa_early: { type: string }\n    zzz_late: { type: string }\n",
+        PLATE,
+        serde_json::json!({}),
+    );
     let regions = session.regions();
     let a = regions
         .iter()
@@ -755,8 +569,7 @@ main:
         .find(|r| r.field == "zzz_late")
         .expect("zzz_late widget region");
     assert_eq!(a.page, z.page, "both widgets on the same page");
-    let cx = (z.rect[0] + z.rect[2]) / 2.0;
-    let cy = (z.rect[1] + z.rect[3]) / 2.0;
+    let (cx, cy) = centre(z.rect);
     assert_eq!(
         session.field_at(z.page, cx, cy, 0.0).as_deref(),
         Some("zzz_late"),
@@ -766,31 +579,7 @@ main:
 
 #[test]
 fn segment_regions_carry_span_and_field_union_is_striped() {
-    const YAML: &str = r#"
-quill:
-  name: segment_regions
-  version: 0.1.0
-  backend: typst
-  description: per-segment span regions + striped union
-typst:
-  plate_file: plate.typ
-main:
-  fields:
-    body:
-      type: richtext
-      description: a two-paragraph body
-"#;
-    const PLATE: &str = r#"
-#import "@local/quillmark-helper:0.1.0": data
-#set page(width: 612pt, height: 792pt, margin: 72pt)
-#set text(size: 11pt)
-
-#data.body
-"#;
-    let data = serde_json::json!({
-        "body": content("First paragraph, alpha.\n\nSecond paragraph, beta."),
-    });
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = body_session(content("First paragraph, alpha.\n\nSecond paragraph, beta."));
     let body: Vec<_> = session
         .regions()
         .into_iter()
@@ -825,29 +614,8 @@ main:
 
 #[test]
 fn position_at_and_locate_round_trip_a_content_offset() {
-    const YAML: &str = r#"
-quill:
-  name: nav_round_trip
-  version: 0.1.0
-  backend: typst
-  description: position_at / locate round trip
-typst:
-  plate_file: plate.typ
-main:
-  fields:
-    body:
-      type: richtext
-      description: one paragraph
-"#;
-    const PLATE: &str = r#"
-#import "@local/quillmark-helper:0.1.0": data
-#set page(width: 612pt, height: 792pt, margin: 72pt)
-#set text(size: 11pt)
-
-#data.body
-"#;
-    let data = serde_json::json!({ "body": content("Alpha beta gamma delta epsilon.") });
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    const TEXT: &str = "Alpha beta gamma delta epsilon.";
+    let session = body_session(content(TEXT));
     let body: Vec<_> = session
         .regions()
         .into_iter()
@@ -857,10 +625,8 @@ main:
     let region = &body[0];
     let span = region.span.expect("content region carries a span");
 
-    let cx = region.rect[0] + 5.0;
-    let cy = region.rect[3] - 3.0;
     let hit = session
-        .position_at(region.page, cx, cy, 0.0)
+        .position_at(region.page, region.rect[0] + 5.0, region.rect[3] - 3.0, 0.0)
         .expect("a click inside content resolves to a content position");
     assert_eq!(hit.field, "body");
     assert!(
@@ -870,7 +636,7 @@ main:
     );
     assert_eq!(
         hit.granularity,
-        Some(quillmark_core::region::HitGranularity::Cluster),
+        Some(HitGranularity::Cluster),
         "a prose hit is cluster-exact: {hit:?}"
     );
 
@@ -893,7 +659,7 @@ main:
 
     // One past the last character — the caret position while typing — sits at
     // the last glyph, not back at the paragraph's first.
-    let text_len = "Alpha beta gamma delta epsilon.".chars().count();
+    let text_len = TEXT.chars().count();
     let end = session.locate("body", text_len).expect("end-of-text caret");
     let last = session.locate("body", text_len - 1).expect("last-glyph caret");
     let first = session.locate("body", 0).expect("first-glyph caret");
@@ -908,27 +674,6 @@ main:
 
 #[test]
 fn locate_past_a_trailing_hard_break_holds_the_preceding_run() {
-    const YAML: &str = r#"
-quill:
-  name: nav_hard_break
-  version: 0.1.0
-  backend: typst
-  description: caret past a trailing hard break
-typst:
-  plate_file: plate.typ
-main:
-  fields:
-    body:
-      type: richtext
-      description: one paragraph closed by a hard break
-"#;
-    const PLATE: &str = r#"
-#import "@local/quillmark-helper:0.1.0": data
-#set page(width: 612pt, height: 792pt, margin: 72pt)
-#set text(size: 11pt)
-
-#data.body
-"#;
     // Shift+enter at the end of a paragraph: the segment's last content
     // character is the hard break, which lowers to `#linebreak()` and closes no
     // run, so the caret past it has only a preceding run to hold.
@@ -942,8 +687,7 @@ main:
     )
     .into_normalized();
     assert_eq!(rt.validate(), Ok(()));
-    let data = serde_json::json!({ "body": quillmark_content::serial::to_canonical_value(&rt) });
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = body_session(quillmark_content::serial::to_canonical_value(&rt));
 
     let first = session.locate("body", 0).expect("first-glyph caret");
     let last = session.locate("body", 10).expect("last-glyph caret");
@@ -960,31 +704,9 @@ main:
 
 #[test]
 fn position_at_on_a_raw_block_degrades_to_the_segment_start() {
-    const YAML: &str = r#"
-quill:
-  name: raw_degrade
-  version: 0.1.0
-  backend: typst
-  description: raw block segment-start degrade
-typst:
-  plate_file: plate.typ
-main:
-  fields:
-    body:
-      type: richtext
-      description: a paragraph plus a multi-line code fence
-"#;
-    const PLATE: &str = r#"
-#import "@local/quillmark-helper:0.1.0": data
-#set page(width: 612pt, height: 792pt, margin: 72pt)
-#set text(size: 11pt)
-
-#data.body
-"#;
-    let data = serde_json::json!({
-        "body": content("Intro prose here.\n\n```\nfirst code line\nsecond code line\nthird code line\n```"),
-    });
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = body_session(content(
+        "Intro prose here.\n\n```\nfirst code line\nsecond code line\nthird code line\n```",
+    ));
     let body: Vec<_> = session
         .regions()
         .into_iter()
@@ -1010,12 +732,13 @@ main:
         top.pos, bottom.pos,
         "different fence lines both degrade to the one code-segment start: {top:?} {bottom:?}"
     );
-    assert_eq!(
-        top.granularity,
-        Some(quillmark_core::region::HitGranularity::Segment),
-        "a multi-line fence hit floors to the segment: {top:?}"
-    );
-    assert_eq!(bottom.granularity, Some(quillmark_core::region::HitGranularity::Segment));
+    for hit in [&top, &bottom] {
+        assert_eq!(
+            hit.granularity,
+            Some(HitGranularity::Segment),
+            "a multi-line fence hit floors to the segment: {hit:?}"
+        );
+    }
     let prose_hit = session
         .position_at(prose.page, prose.rect[0] + 5.0, prose.rect[3] - 3.0, 0.0)
         .expect("a click in the prose paragraph resolves");

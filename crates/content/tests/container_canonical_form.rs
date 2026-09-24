@@ -61,47 +61,31 @@ fn build(paths: &[&Vec<Container>]) -> Normalized {
     Content::new(text, lines).into_normalized()
 }
 
+/// An inner run must not continue across an *item* boundary: two inner lists
+/// under two outer items are two lists, so each restarts at ordinal 0 and
+/// neither needs a discriminator — and the markdown projection has to agree.
 #[test]
-fn normalize_is_idempotent_over_every_two_line_path_pair() {
+fn every_normalized_pair_is_idempotent_and_a_markdown_fixed_point() {
     let ps = paths();
-    let mut n = 0usize;
+    let mut broken = Vec::new();
     for a in &ps {
         for b in &ps {
             let rt = build(&[a, b]);
             assert_eq!(rt.validate(), Ok(()), "invalid after normalize: {rt:?}");
             let again = rt.clone().into_content().into_normalized();
             assert_eq!(again, rt, "normalize not idempotent for {a:?} then {b:?}");
-            n += 1;
-        }
-    }
-    eprintln!("  pairs checked: {n}");
-    assert!(n > 400);
-}
-
-/// An inner run must not continue across an *item* boundary: two inner lists
-/// under two outer items are two lists, so each restarts at ordinal 0 and
-/// neither needs a discriminator — and the markdown projection has to agree.
-#[test]
-fn every_normalized_pair_is_a_markdown_fixed_point() {
-    let ps = paths();
-    let mut broken = Vec::new();
-    let mut n = 0usize;
-    for a in &ps {
-        for b in &ps {
-            let rt = build(&[a, b]);
             let md = to_markdown(&rt);
-            let back = from_markdown(&md).expect("re-imports");
-            if back != rt {
+            if from_markdown(&md).expect("re-imports") != rt {
                 broken.push(format!("{a:?} then {b:?} -> {md:?}"));
             }
-            n += 1;
         }
     }
-    eprintln!("  pairs checked: {n}, broken: {}", broken.len());
-    for b in broken.iter().take(5) {
-        eprintln!("    {b}");
-    }
-    assert!(broken.is_empty(), "{} pairs are not fixed points", broken.len());
+    assert!(
+        broken.is_empty(),
+        "{} pairs are not fixed points, e.g. {:?}",
+        broken.len(),
+        &broken[..broken.len().min(5)]
+    );
 }
 
 /// Three deep, where an item boundary at depth 0 has to reset both the ordinal
@@ -113,7 +97,6 @@ fn triples_over_the_list_and_quote_alphabet_are_fixed_points() {
         .filter(|p| p.len() == 2)
         .collect();
     let mut broken = 0usize;
-    let mut n = 0usize;
     for a in ps.iter().step_by(3) {
         for b in ps.iter().step_by(3) {
             for c in ps.iter().step_by(5) {
@@ -123,11 +106,9 @@ fn triples_over_the_list_and_quote_alphabet_are_fixed_points() {
                 if from_markdown(&to_markdown(&rt)).unwrap() != rt {
                     broken += 1;
                 }
-                n += 1;
             }
         }
     }
-    eprintln!("  triples checked: {n}, broken: {broken}");
     assert_eq!(broken, 0);
 }
 

@@ -59,58 +59,46 @@ const PLATE: &str = r#"
 #form-field("centred", type: "text", font: "courier", align: "center")
 "#;
 
-#[test]
-fn da_carries_the_requested_face_and_size() {
-    let (_, _, w) = acroform(PLATE);
-    assert_eq!(da(&w["plain"]), "/Helv 0 Tf 0 g");
-    assert_eq!(da(&w["dated"]), "/TiRo 12 Tf 0 g");
-    assert_eq!(da(&w["centred"]), "/Cour 0 Tf 0 g");
-}
-
-#[test]
-fn quadding_is_written_only_when_it_moves_the_text() {
-    let (_, _, w) = acroform(PLATE);
-    assert!(
-        w["plain"].get(b"Q").is_err(),
-        "left is the PDF default and stays unwritten"
-    );
-    assert_eq!(w["dated"].get(b"Q").unwrap().as_i64().unwrap(), 2);
-    assert_eq!(w["centred"].get(b"Q").unwrap().as_i64().unwrap(), 1);
-}
-
-/// A `/DA` naming a face absent from `/DR` `/Font` is undefined behavior, so
-/// every face used must resolve, and Helvetica must be there for the
-/// form-level `/DA` even when no widget asks for it.
-#[test]
-fn dr_font_carries_every_face_named_by_a_da() {
-    let (doc, af, _) = acroform(PLATE);
-    let dr = af.get(b"DR").unwrap().as_dict().unwrap();
-    let fonts = dr.get(b"Font").unwrap().as_dict().unwrap();
-
+/// The base fonts `/DR` `/Font` registers, sorted.
+fn dr_base_fonts(doc: &lopdf::Document, af: &lopdf::Dictionary) -> Vec<String> {
+    let fonts = af.get(b"DR").unwrap().as_dict().unwrap().get(b"Font").unwrap().as_dict().unwrap();
     let mut base_fonts: Vec<String> = fonts
         .iter()
         .map(|(_, v)| {
-            let f = doc
-                .get_object(v.as_reference().unwrap())
-                .unwrap()
-                .as_dict()
-                .unwrap();
+            let f = doc.get_object(v.as_reference().unwrap()).unwrap().as_dict().unwrap();
             String::from_utf8_lossy(f.get(b"BaseFont").unwrap().as_name().unwrap()).into_owned()
         })
         .collect();
     base_fonts.sort();
+    base_fonts
+}
 
-    assert_eq!(base_fonts, ["Courier", "Helvetica", "Times-Roman"]);
+/// Quadding is written only when it moves the text, left being the PDF
+/// default. A `/DA` naming a face absent from `/DR` `/Font` is undefined
+/// behavior, so every face used must resolve, and Helvetica must be there for
+/// the form-level `/DA` even when no widget asks for it.
+#[test]
+fn the_dials_reach_da_q_and_dr() {
+    let (doc, af, w) = acroform(PLATE);
+    assert_eq!(da(&w["plain"]), "/Helv 0 Tf 0 g");
+    assert_eq!(da(&w["dated"]), "/TiRo 12 Tf 0 g");
+    assert_eq!(da(&w["centred"]), "/Cour 0 Tf 0 g");
+
+    assert!(w["plain"].get(b"Q").is_err());
+    assert_eq!(w["dated"].get(b"Q").unwrap().as_i64().unwrap(), 2);
+    assert_eq!(w["centred"].get(b"Q").unwrap().as_i64().unwrap(), 1);
+
+    assert_eq!(dr_base_fonts(&doc, &af), ["Courier", "Helvetica", "Times-Roman"]);
+    let fonts = af.get(b"DR").unwrap().as_dict().unwrap().get(b"Font").unwrap().as_dict().unwrap();
     for key in ["Helv", "TiRo", "Cour"] {
         assert!(fonts.has(key.as_bytes()), "/DR /Font is missing /{key}");
     }
 }
 
-/// A quill that never touches the dials must stamp exactly as it did before
-/// they existed: one Helvetica in `/DR`, auto-size `/DA`, no `/Q`.
+/// A quill that never touches the dials registers one Helvetica in `/DR`.
 #[test]
-fn untouched_fields_keep_the_house_style() {
-    let (doc, af, w) = acroform(
+fn untouched_fields_register_helvetica_alone() {
+    let (doc, af, _) = acroform(
         r#"
 #import "@local/quillmark-helper:0.1.0": form-field
 
@@ -118,61 +106,27 @@ fn untouched_fields_keep_the_house_style() {
 #form-field("a", type: "text")
 "#,
     );
-    assert_eq!(da(&w["a"]), "/Helv 0 Tf 0 g");
-    assert!(w["a"].get(b"Q").is_err());
-
-    let fonts = af
-        .get(b"DR")
-        .unwrap()
-        .as_dict()
-        .unwrap()
-        .get(b"Font")
-        .unwrap()
-        .as_dict()
-        .unwrap();
-    assert_eq!(fonts.len(), 1);
-    let f = doc
-        .get_object(fonts.get(b"Helv").unwrap().as_reference().unwrap())
-        .unwrap()
-        .as_dict()
-        .unwrap();
-    assert_eq!(f.get(b"BaseFont").unwrap().as_name().unwrap(), b"Helvetica");
+    assert_eq!(dr_base_fonts(&doc, &af), ["Helvetica"]);
 }
 
 /// `0pt` reaches the PDF as `0 Tf`, which *is* auto-size, so it has to be
-/// refused rather than granted as the opposite of what it asks for.
+/// refused rather than granted as the opposite of what it asks for. The dials
+/// are meaningless where there is no variable text, so a signature refuses
+/// them rather than accepting a call whose styling silently vanishes.
 #[test]
-fn a_non_positive_size_is_rejected() {
-    for bad in ["0pt", "-4pt"] {
+fn a_dial_the_widget_cannot_honour_is_rejected() {
+    for (call, assert) in [
+        ("type: \"text\", size: 0pt", "positive length"),
+        ("type: \"text\", size: -4pt", "positive length"),
+        ("type: \"signature\", align: \"right\"", "text fields only"),
+    ] {
         let e = compile(&format!(
-            r#"
-#import "@local/quillmark-helper:0.1.0": form-field
-
-#form-field("t", type: "text", size: {bad})
-"#
+            "#import \"@local/quillmark-helper:0.1.0\": form-field\n#form-field(\"t\", {call})\n"
         ))
-        .expect_err(&format!("size: {bad} must not compile"));
+        .expect_err(&format!("{call} must not compile"));
         assert!(
-            format!("{e:?}").contains("positive length"),
-            "expected the helper's assert for size: {bad}, got {e:?}"
+            format!("{e:?}").contains(assert),
+            "expected the helper's assert for {call}, got {e:?}"
         );
     }
-}
-
-/// The dials are meaningless where there is no variable text, so the helper
-/// rejects them rather than accepting a call whose styling silently vanishes.
-#[test]
-fn dials_are_rejected_on_fields_without_variable_text() {
-    let e = compile(
-        r#"
-#import "@local/quillmark-helper:0.1.0": form-field
-
-#form-field("sig", type: "signature", align: "right")
-"#,
-    )
-    .expect_err("a styled signature field is an error");
-    assert!(
-        format!("{e:?}").contains("text fields only"),
-        "expected the helper's assert, got {e:?}"
-    );
 }

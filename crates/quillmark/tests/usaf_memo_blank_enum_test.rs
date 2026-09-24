@@ -77,26 +77,25 @@ fn every_enum_authored_blank_still_renders() {
 fn a_blank_seal_omits_the_seal_rather_than_choosing_one() {
     let (engine, quill) = common::memo();
 
-    let render = |seal: &str| {
+    let images = |seal: &str| {
         let md = BLANK_EVERYWHERE.replace("letterhead_seal: \"\"", seal);
         let doc = quillmark::Document::parse(&md).expect("parse").document;
-        engine
+        let svg = engine
             .render(
                 quill,
                 &doc,
-                &RenderOptions::default().with_output_format(OutputFormat::Pdf),
+                &RenderOptions::default().with_output_format(OutputFormat::Svg),
             )
             .expect("render")
             .artifacts[0]
             .bytes
-            .len()
+            .clone();
+        String::from_utf8(svg).expect("svg").matches("<image").count()
     };
 
-    let blank = render("letterhead_seal: \"\"");
-    let dow = render("letterhead_seal: dow");
-    assert_ne!(
-        blank, dow,
-        "a blank seal must not render the same page as an authored `dow`: that \
-         is the silent fabrication the blank exists to close"
+    assert!(
+        images("letterhead_seal: \"\"") < images("letterhead_seal: dow"),
+        "a blank seal must draw no seal: that is the silent fabrication the \
+         blank exists to close"
     );
 }

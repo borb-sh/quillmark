@@ -29,6 +29,15 @@ pub fn quill(yaml: &str, files: &[(&str, &[u8])]) -> Quill {
     Quill::from_tree(FileTreeNode::Directory { files: map }).expect("load quill")
 }
 
+/// A `Quill.yaml` whose plate is `plate.typ`, declaring `schema` (its `main:`
+/// and `card_kinds:` sections).
+pub fn yaml(schema: &str) -> String {
+    format!(
+        "quill:\n  name: t\n  version: 0.1.0\n  backend: typst\n  description: t\n\
+         typst:\n  plate_file: plate.typ\n{schema}"
+    )
+}
+
 /// [`quill`] for the common `Quill.yaml` + `plate.typ` pair.
 pub fn quill_with_plate(yaml: &str, plate: &str) -> Quill {
     quill(yaml, &[("plate.typ", plate.as_bytes())])

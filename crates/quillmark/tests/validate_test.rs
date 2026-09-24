@@ -111,6 +111,7 @@ fn validate_warns_on_must_fill_marker() {
         "main-card and composable-card !must_fill markers should all warn; \
          got paths: {marked:?}"
     );
+    assert!(quill.dry_run(&doc).is_ok(), "a marker blank-fills rather than failing the render door");
 }
 
 /// The render floor's leniencies, one per row of the type table. A value the

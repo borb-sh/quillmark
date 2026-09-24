@@ -19,26 +19,34 @@ headline: The **headline**\n\
 bio: A **bold** claim and _emphasis_.\n\
 ~~~\n";
 
-fn render(markdown: &str) -> quillmark::RenderResult {
-    let quill = quillmark::quill_from_path(quillmark_fixtures::quills_path("sample_form"))
-        .expect("load sample_form quill");
-    let engine = Quillmark::new();
-    let doc = Document::parse(markdown).expect("parse markdown").document;
-    engine
-        .render(
-            &quill,
-            &doc,
-            &RenderOptions::default().with_output_format(OutputFormat::Pdf),
-        )
-        .expect("render ok")
+fn quill() -> quillmark::Quill {
+    quillmark::quill_from_path(quillmark_fixtures::quills_path("sample_form"))
+        .expect("load sample_form quill")
 }
 
 fn open_session(markdown: &str) -> quillmark::LiveSession {
-    let quill = quillmark::quill_from_path(quillmark_fixtures::quills_path("sample_form"))
-        .expect("load sample_form quill");
-    let engine = Quillmark::new();
     let doc = Document::parse(markdown).expect("parse markdown").document;
-    engine.open(&quill, &doc).expect("open ok")
+    Quillmark::new().open(&quill(), &doc).expect("open ok")
+}
+
+/// The rendered PDF and its AcroForm dict.
+fn acroform(result: &quillmark::RenderResult) -> (PdfDoc, lopdf::Dictionary) {
+    let doc = PdfDoc::load_mem(&result.artifacts[0].bytes).expect("lopdf reparse: structurally valid");
+    let af_ref = doc.catalog().unwrap().get(b"AcroForm").unwrap().as_reference().unwrap();
+    let af = doc.get_object(af_ref).unwrap().as_dict().unwrap().clone();
+    (doc, af)
+}
+
+fn render(markdown: &str) -> (PdfDoc, lopdf::Dictionary) {
+    let doc = Document::parse(markdown).expect("parse markdown").document;
+    let result = Quillmark::new()
+        .render(
+            &quill(),
+            &doc,
+            &RenderOptions::default().with_output_format(OutputFormat::Pdf),
+        )
+        .expect("render ok");
+    acroform(&result)
 }
 
 mod common;
@@ -46,17 +54,8 @@ use common::{decode_pdf_text, widget};
 
 #[test]
 fn fixture_renders_structurally_valid_filled_pdf() {
-    let result = render(FILLED);
-    assert_eq!(result.output_format, OutputFormat::Pdf);
-    let pdf = &result.artifacts[0].bytes;
-
-    let doc = PdfDoc::load_mem(pdf).expect("lopdf reparse: structurally valid");
-    let cat = doc.catalog().expect("catalog");
-    let af = doc
-        .get_object(cat.get(b"AcroForm").unwrap().as_reference().unwrap())
-        .unwrap()
-        .as_dict()
-        .unwrap();
+    let (doc, af) = render(FILLED);
+    let af = &af;
     assert!(af.get(b"NeedAppearances").unwrap().as_bool().unwrap());
     assert_eq!(af.get(b"SigFlags").unwrap().as_i64().unwrap(), 1);
     assert_eq!(af.get(b"Fields").unwrap().as_array().unwrap().len(), 10);
@@ -90,24 +89,6 @@ fn fixture_renders_structurally_valid_filled_pdf() {
         assert!(w.get(b"RV").is_err(), "{name} carries no /RV");
     }
 
-    // One region per schema-bound field: the fixture's four unbound widgets
-    // carry no `schema_field`, so ten fields yield six regions.
-    let regions = open_session(FILLED).regions();
-    assert_eq!(regions.len(), 6);
-    assert!(
-        regions
-            .iter()
-            .all(|r| !r.field.starts_with("Signer") && r.field != "Signature"),
-        "no unbound widget produces a region"
-    );
-    let r_full = regions.iter().find(|r| r.field == "full_name").unwrap();
-    assert!(r_full.page < doc.get_pages().len().max(1));
-    assert!(
-        r_full.rect[2] > r_full.rect[0] && r_full.rect[3] > r_full.rect[1],
-        "region rect is a proper box: {:?}",
-        r_full.rect
-    );
-
     let info = doc
         .get_object(doc.trailer.get(b"Info").unwrap().as_reference().unwrap())
         .unwrap()
@@ -123,14 +104,8 @@ fn fixture_renders_structurally_valid_filled_pdf() {
 
 #[test]
 fn unbound_widgets_stamp_their_declared_kind_and_take_no_value() {
-    let result = render(FILLED);
-    let doc = PdfDoc::load_mem(&result.artifacts[0].bytes).expect("lopdf reparse");
-    let cat = doc.catalog().expect("catalog");
-    let af = doc
-        .get_object(cat.get(b"AcroForm").unwrap().as_reference().unwrap())
-        .unwrap()
-        .as_dict()
-        .unwrap();
+    let (doc, af) = render(FILLED);
+    let af = &af;
 
     for (name, ft) in [
         ("SignerInitials", &b"Tx"[..]),
@@ -168,50 +143,25 @@ fn unbound_widgets_stamp_their_declared_kind_and_take_no_value() {
     );
 }
 
+/// A non-ASCII value round-trips through `/V`; an unchecked box and an absent
+/// array render blank.
 #[test]
-fn non_ascii_value_round_trips_through_acroform_v() {
+fn a_non_ascii_value_round_trips_and_unset_fields_render_blank() {
     let md = "~~~\n\
 $quill: sample_form\n\
 $kind: main\n\
 full_name: \"Café — Señor 'Ünïcøde'\"\n\
-agree: true\n\
-favorite_color: green\n\
+agree: false\n\
+favorite_color: red\n\
 ~~~\n";
-    let result = render(md);
-    let pdf = &result.artifacts[0].bytes;
-    let doc = PdfDoc::load_mem(pdf).expect("lopdf reparse");
-    let cat = doc.catalog().unwrap();
-    let af = doc
-        .get_object(cat.get(b"AcroForm").unwrap().as_reference().unwrap())
-        .unwrap()
-        .as_dict()
-        .unwrap();
+    let (doc, af) = render(md);
+    let af = &af;
 
     let full = widget(&doc, af, "FullName");
     assert_eq!(
         decode_pdf_text(full.get(b"V").unwrap().as_str().unwrap()),
         "Café — Señor 'Ünïcøde'"
     );
-}
-
-#[test]
-fn unchecked_and_unmatched_choice_render_blank() {
-    let md = "~~~\n\
-$quill: sample_form\n\
-$kind: main\n\
-full_name: Bob\n\
-agree: false\n\
-favorite_color: red\n\
-~~~\n";
-    let result = render(md);
-    let pdf = &result.artifacts[0].bytes;
-    let doc = PdfDoc::load_mem(pdf).unwrap();
-    let cat = doc.catalog().unwrap();
-    let af = doc
-        .get_object(cat.get(b"AcroForm").unwrap().as_reference().unwrap())
-        .unwrap()
-        .as_dict()
-        .unwrap();
 
     let agree = widget(&doc, af, "Agree");
     assert_eq!(agree.get(b"V").unwrap().as_name().unwrap(), b"Off");
@@ -223,11 +173,8 @@ favorite_color: red\n\
 
 #[test]
 fn apply_rebinds_values_and_reports_dirty_pages() {
-    let quill = quillmark::quill_from_path(quillmark_fixtures::quills_path("sample_form"))
-        .expect("load sample_form quill");
-    let engine = Quillmark::new();
     let doc = Document::parse(FILLED).expect("parse markdown").document;
-    let mut session = engine.open(&quill, &doc).expect("open ok");
+    let mut session = open_session(FILLED);
 
     let cs = session.update(&doc).expect("update");
     assert_eq!(cs.page_count, session.page_count());
@@ -239,23 +186,20 @@ fn apply_rebinds_values_and_reports_dirty_pages() {
     let cs = session.update(&doc2).expect("update");
     assert_eq!(cs.dirty_pages, vec![0]);
 
-    let result = session
-        .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
-        .expect("render ok");
-    let pdf = PdfDoc::load_mem(&result.artifacts[0].bytes).unwrap();
-    let cat = pdf.catalog().unwrap();
-    let af = pdf
-        .get_object(cat.get(b"AcroForm").unwrap().as_reference().unwrap())
-        .unwrap()
-        .as_dict()
-        .unwrap();
-    let name = widget(&pdf, af, "FullName");
+    let (pdf, af) = acroform(
+        &session
+            .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
+            .expect("render ok"),
+    );
+    let name = widget(&pdf, &af, "FullName");
     assert_eq!(
         decode_pdf_text(name.get(b"V").unwrap().as_str().unwrap()),
         "Grace Hopper"
     );
 }
 
+/// One region per schema-bound field, in form.json order, which is stamping
+/// order: the fixture's four unbound widgets produce none.
 #[test]
 fn regions_follow_form_json_order_which_is_stamping_order() {
     let regions = open_session(FILLED).regions();

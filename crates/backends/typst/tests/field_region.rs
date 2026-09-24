@@ -9,28 +9,13 @@ use quillmark_typst::TypstBackend;
 
 mod common;
 
-const YAML: &str = r#"
-quill:
-  name: field_region
-  version: 0.1.0
-  backend: typst
-  description: field-region acceptance
-typst:
-  plate_file: plate.typ
-main:
-  fields:
-    classification:
-      type: string
-      description: a scalar the plate presents as a banner
-    subject:
-      type: string
-      description: an unrelated scalar
-"#;
-
 fn compile(
     plate: &str,
 ) -> Result<quillmark_core::session::LiveSession, quillmark_core::error::RenderError> {
-    let source = common::quill_with_plate(YAML, plate);
+    let source = common::quill_with_plate(
+        &common::yaml("main:\n  fields:\n    classification: { type: string }\n    subject: { type: string }\n"),
+        plate,
+    );
     TypstBackend.open(
         &source,
         &serde_json::json!({ "classification": "SECRET", "subject": "Widgets" }),

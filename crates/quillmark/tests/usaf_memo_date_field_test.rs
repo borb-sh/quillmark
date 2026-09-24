@@ -87,8 +87,14 @@ fn page_width(pdf: &[u8]) -> f32 {
     nums[2]
 }
 
+/// AFH 33-337 places the date one inch from the right edge, and `/Q 2` measures
+/// from the widget's right edge, so that edge is what has to land on the margin.
+///
+/// The width is asserted as a multiple of the body size, not as points, because
+/// `font_size` is a document field with no declared ceiling: a width that merely
+/// cleared 96pt would still clip once a memo raised the size under it.
 #[test]
-fn indorsement_date_widget_is_set_like_the_date_it_replaces() {
+fn date_widgets_are_set_like_the_date_they_replace() {
     let pdf = seeded_memo_pdf();
     let obj = widget_object(&pdf, "Ind_0_Date");
 
@@ -104,13 +110,16 @@ fn indorsement_date_widget_is_set_like_the_date_it_replaces() {
          would; got {}",
         String::from_utf8_lossy(obj)
     );
-}
 
-/// AFH 33-337 places the date one inch from the right edge, and `/Q 2` measures
-/// from the widget's right edge, so that edge is what has to land on the margin.
-#[test]
-fn date_widgets_end_on_the_right_margin() {
-    let pdf = seeded_memo_pdf();
+    let [x0, _, x1, _] = rect(obj);
+    let ems = (x1 - x0) / DEFAULT_FONT_SIZE_PT;
+    let needed = LONGEST_DATE_PT / DEFAULT_FONT_SIZE_PT;
+    assert!(
+        ems >= needed,
+        "widget is {ems:.2}em wide, under the {needed:.2}em \
+         \"September 28, 2026\" sets in Times: a value that long would clip"
+    );
+
     for name in ["Date", "Ind_0_Date"] {
         let [_, _, x1, _] = rect(widget_object(&pdf, name));
         let gap = page_width(&pdf) - x1;
@@ -119,24 +128,4 @@ fn date_widgets_end_on_the_right_margin() {
             "{name}'s right edge should sit 1in from the page edge, sits {gap}pt"
         );
     }
-}
-
-/// The regression guard for the fixed-size trade-off: auto-size shrinks an
-/// overlong value to fit, a fixed size clips it. Only the box width keeps the
-/// longest real date on the page.
-///
-/// Asserted as a multiple of the body size, not as points, because `font_size`
-/// is a document field with no declared ceiling: a width that merely cleared
-/// 96pt would still clip once a memo raised the size under it.
-#[test]
-fn indorsement_date_widget_fits_the_longest_date_at_any_body_size() {
-    let pdf = seeded_memo_pdf();
-    let [x0, _, x1, _] = rect(widget_object(&pdf, "Ind_0_Date"));
-    let ems = (x1 - x0) / DEFAULT_FONT_SIZE_PT;
-    let needed = LONGEST_DATE_PT / DEFAULT_FONT_SIZE_PT;
-    assert!(
-        ems >= needed,
-        "widget is {ems:.2}em wide, under the {needed:.2}em \
-         \"September 28, 2026\" sets in Times: a value that long would clip"
-    );
 }

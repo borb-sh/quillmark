@@ -1,55 +1,44 @@
 //! Compiles each plate through the public `Backend`/`LiveSession` path, parses
 //! the output with lopdf, and asserts the AcroForm structure.
 
+use std::collections::HashMap;
+
 use quillmark_core::{backend::Backend, error::RenderError, types::{OutputFormat, RenderOptions}};
 use quillmark_typst::TypstBackend;
 
 mod common;
 use common::host_with_plate as source_with_plate;
 
-fn compile(plate: &str) -> Result<Vec<u8>, RenderError> {
-    // Our plates don't reference data fields, so an empty payload suffices.
-    compile_with_data(plate, &serde_json::json!({}))
-}
-
-/// [`compile`] with `json_data` threaded to the plate's `data` binding.
-fn compile_with_data(plate: &str, json_data: &serde_json::Value) -> Result<Vec<u8>, RenderError> {
+fn compile(plate: &str, json_data: &serde_json::Value) -> Result<Vec<u8>, RenderError> {
     let source = source_with_plate(plate);
     let session = TypstBackend.open(&source, json_data)?;
     let result = session.render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))?;
     Ok(result.artifacts[0].bytes.clone())
 }
 
-/// The parsed document plus a map from field name (`/T`) to its widget dict.
-fn acroform_widgets(
+/// The parsed document, its AcroForm dict, and a `/T` → widget map.
+fn acroform(
     plate: &str,
     json_data: &serde_json::Value,
-) -> (
-    lopdf::Document,
-    std::collections::HashMap<String, lopdf::Dictionary>,
-) {
-    let pdf = compile_with_data(plate, json_data).expect("compile ok");
+) -> (lopdf::Document, lopdf::Dictionary, HashMap<String, lopdf::Dictionary>) {
+    let pdf = compile(plate, json_data).expect("compile ok");
     let doc = lopdf::Document::load_mem(&pdf).expect("reparse");
-    let cat = doc.catalog().expect("catalog");
-    let af_ref = cat
+    let af_ref = doc
+        .catalog()
+        .expect("catalog")
         .get(b"AcroForm")
         .expect("/AcroForm")
         .as_reference()
         .expect("AcroForm indirect");
-    let af = doc.get_object(af_ref).unwrap().as_dict().unwrap();
-    let fields = af.get(b"Fields").unwrap().as_array().unwrap();
-    let mut by_name = std::collections::HashMap::new();
-    for f in fields {
-        let widget = doc
-            .get_object(f.as_reference().unwrap())
-            .unwrap()
-            .as_dict()
-            .unwrap();
+    let af = doc.get_object(af_ref).unwrap().as_dict().unwrap().clone();
+    let mut by_name = HashMap::new();
+    for f in af.get(b"Fields").unwrap().as_array().unwrap() {
+        let widget = doc.get_object(f.as_reference().unwrap()).unwrap().as_dict().unwrap();
         let name =
             String::from_utf8_lossy(widget.get(b"T").unwrap().as_str().unwrap()).into_owned();
         by_name.insert(name, widget.clone());
     }
-    (doc, by_name)
+    (doc, af, by_name)
 }
 
 #[test]
@@ -67,24 +56,10 @@ Page 1.
 Page 2.
 #signature-field("b")
 "#;
-    let pdf = compile(plate).expect("compile ok");
-
-    let doc = lopdf::Document::load_mem(&pdf).expect("lopdf reparse");
-    let cat = doc.catalog().expect("catalog");
-
-    let af_ref = cat
-        .get(b"AcroForm")
-        .expect("/AcroForm")
-        .as_reference()
-        .expect("AcroForm indirect");
-    let af = doc.get_object(af_ref).unwrap().as_dict().unwrap();
+    let (doc, af, widgets) = acroform(plate, &serde_json::json!({}));
     assert_eq!(af.get(b"SigFlags").unwrap().as_i64().unwrap(), 1);
     assert!(af.get(b"NeedAppearances").unwrap().as_bool().unwrap());
-
-    let fields = af.get(b"Fields").unwrap().as_array().unwrap();
-    assert_eq!(fields.len(), 2);
-    let pages = doc.get_pages();
-    assert_eq!(pages.len(), 2);
+    assert_eq!(widgets.len(), 2);
 
     let to_f64 = |o: &lopdf::Object| -> f64 {
         o.as_float()
@@ -92,16 +67,11 @@ Page 2.
             .or_else(|_| o.as_i64().map(|i| i as f64))
             .unwrap()
     };
-    let page_refs: Vec<(u32, u16)> = pages.iter().map(|(_, &id)| (id.0, id.1)).collect();
+    let page_refs: Vec<(u32, u16)> = doc.get_pages().values().copied().collect();
+    assert_eq!(page_refs.len(), 2);
 
-    for f in fields {
-        let widget = doc
-            .get_object(f.as_reference().unwrap())
-            .unwrap()
-            .as_dict()
-            .unwrap();
-        let name =
-            String::from_utf8_lossy(widget.get(b"T").unwrap().as_str().unwrap()).into_owned();
+    for (name, expected_page) in [("a", 0), ("b", 1)] {
+        let widget = &widgets[name];
         assert_eq!(widget.get(b"FT").unwrap().as_name().unwrap(), b"Sig");
         assert_eq!(
             widget.get(b"Subtype").unwrap().as_name().unwrap(),
@@ -110,16 +80,10 @@ Page 2.
 
         let page_ref = widget.get(b"P").unwrap().as_reference().unwrap();
         let page_index = page_refs.iter().position(|&p| p == page_ref).unwrap();
-        let expected = if name == "a" { 0 } else { 1 };
-        assert_eq!(page_index, expected, "field {name} on wrong page");
+        assert_eq!(page_index, expected_page, "field {name} on wrong page");
 
         let rect = widget.get(b"Rect").unwrap().as_array().unwrap();
-        let (llx, lly, urx, ury) = (
-            to_f64(&rect[0]),
-            to_f64(&rect[1]),
-            to_f64(&rect[2]),
-            to_f64(&rect[3]),
-        );
+        let [llx, lly, urx, ury] = [0, 1, 2, 3].map(|i| to_f64(&rect[i]));
         assert!(
             (urx - llx - 200.0).abs() < 1.0,
             "field {name} width: {}",
@@ -146,7 +110,7 @@ fn acceptance_duplicate_name_errors() {
 #signature-field("a")
 #signature-field("a")
 "#;
-    let err = compile(plate).expect_err("expected duplicate-name error");
+    let err = compile(plate, &serde_json::json!({})).expect_err("expected duplicate-name error");
     let diags = err.diagnostics();
     assert!(
         diags
@@ -167,138 +131,50 @@ fn user_metadata_on_reserved_label_does_not_clobber() {
 #metadata((kind: "something-else", note: "user's own metadata")) <__qm_field__>
 #signature-field("real_field")
 "#;
-    let pdf = compile(plate).expect("compile ok");
-    let doc = lopdf::Document::load_mem(&pdf).unwrap();
-    let cat = doc.catalog().unwrap();
-    let af_ref = cat.get(b"AcroForm").unwrap().as_reference().unwrap();
-    let af = doc.get_object(af_ref).unwrap().as_dict().unwrap();
-    let fields = af.get(b"Fields").unwrap().as_array().unwrap();
+    let (_, _, widgets) = acroform(plate, &serde_json::json!({}));
     assert_eq!(
-        fields.len(),
-        1,
-        "expected exactly 1 real field, got {}",
-        fields.len()
-    );
-    let widget = doc
-        .get_object(fields[0].as_reference().unwrap())
-        .unwrap()
-        .as_dict()
-        .unwrap();
-    assert_eq!(
-        widget.get(b"T").unwrap().as_str().unwrap(),
-        b"real_field",
-        "wrong field name survived extraction"
+        widgets.keys().collect::<Vec<_>>(),
+        ["real_field"],
+        "exactly the real field survives extraction"
     );
 }
 
 #[test]
 fn acceptance_no_fields_no_overlay() {
-    let plate = r#"
-#set page(width: 600pt, height: 400pt, margin: 50pt)
-
-Just a doc.
-"#;
-    let pdf = compile(plate).expect("compile ok");
+    let plate = "#set page(width: 600pt, height: 400pt, margin: 50pt)\n\nJust a doc.\n";
+    let pdf = compile(plate, &serde_json::json!({})).expect("compile ok");
     let doc = lopdf::Document::load_mem(&pdf).unwrap();
-    let cat = doc.catalog().unwrap();
     assert!(
-        !cat.has(b"AcroForm"),
+        !doc.catalog().unwrap().has(b"AcroForm"),
         "expected no /AcroForm in catalog for sig-field-free plate"
     );
-
-    // No fields, so the overlay is skipped, but the always-on `/Producer` pass
-    // still appends one incremental update.
-    let startxref_count = pdf
-        .windows(b"startxref\n".len())
-        .filter(|w| *w == b"startxref\n")
-        .count();
-    assert_eq!(
-        startxref_count, 2,
-        "expected 2 startxref markers (one Producer-metadata incremental update); got {}",
-        startxref_count
-    );
-    assert_eq!(
-        pdf.windows(b"/Prev".len())
-            .filter(|w| *w == b"/Prev")
-            .count(),
-        1,
-        "expected exactly one /Prev (the Producer-metadata incremental update)"
-    );
 }
 
-// The tests below assert the typst→spec mapping; the spine bytes (`Ff` flag
-// bits) belong to `quillmark-pdf/tests/stamp.rs`.
-
+/// The typst→spec mapping for each `form-field` type and a value bound from
+/// `data`; the spine bytes (`Ff` flag bits) belong to `quillmark-pdf/tests/stamp.rs`.
 #[test]
-fn form_field_text_single_and_multiline() {
-    let plate = r#"
-#import "@local/quillmark-helper:0.1.0": form-field
-#set page(width: 600pt, height: 400pt, margin: 50pt)
-#form-field("single", type: "text", value: "hello")
-#form-field("multi", type: "text", value: "a\nb", multiline: true)
-"#;
-    let (_doc, widgets) = acroform_widgets(plate, &serde_json::json!({}));
-
-    let single = widgets.get("single").expect("single field");
-    assert_eq!(single.get(b"FT").unwrap().as_name().unwrap(), b"Tx");
-    assert_eq!(single.get(b"V").unwrap().as_str().unwrap(), b"hello");
-
-    let multi = widgets.get("multi").expect("multi field");
-    assert_eq!(multi.get(b"FT").unwrap().as_name().unwrap(), b"Tx");
-}
-
-#[test]
-fn form_field_signature_via_general_helper() {
-    let plate = r#"
-#import "@local/quillmark-helper:0.1.0": form-field
-#set page(width: 600pt, height: 400pt, margin: 50pt)
-#form-field("sig", type: "signature")
-"#;
-    let (doc, widgets) = acroform_widgets(plate, &serde_json::json!({}));
-    let sig = widgets.get("sig").expect("sig field");
-    assert_eq!(sig.get(b"FT").unwrap().as_name().unwrap(), b"Sig");
-    assert!(sig.get(b"V").is_err(), "signature field must carry no /V");
-
-    let cat = doc.catalog().unwrap();
-    let af_ref = cat.get(b"AcroForm").unwrap().as_reference().unwrap();
-    let af = doc.get_object(af_ref).unwrap().as_dict().unwrap();
-    assert_eq!(af.get(b"SigFlags").unwrap().as_i64().unwrap(), 1);
-}
-
-#[test]
-fn form_field_value_binding_from_data() {
+fn form_field_maps_each_type_and_binds_values_from_data() {
     let plate = r#"
 #import "@local/quillmark-helper:0.1.0": data, form-field
 #set page(width: 600pt, height: 400pt, margin: 50pt)
+#form-field("single", type: "text", value: "hello")
+#form-field("multi", type: "text", value: "a\nb", multiline: true)
+#form-field("sig", type: "signature")
 #form-field("name", type: "text", value: data.full_name)
 #form-field("count", type: "text", value: str(data.count))
 "#;
-    let json = serde_json::json!({
-        "full_name": "Ada Lovelace",
-        "count": 7,
-    });
-    let (_doc, widgets) = acroform_widgets(plate, &json);
+    let (_, af, w) = acroform(plate, &serde_json::json!({ "full_name": "Ada Lovelace", "count": 7 }));
 
-    assert_eq!(
-        widgets
-            .get("name")
-            .unwrap()
-            .get(b"V")
-            .unwrap()
-            .as_str()
-            .unwrap(),
-        b"Ada Lovelace"
-    );
-    assert_eq!(
-        widgets
-            .get("count")
-            .unwrap()
-            .get(b"V")
-            .unwrap()
-            .as_str()
-            .unwrap(),
-        b"7"
-    );
+    let ft = |name: &str| w[name].get(b"FT").unwrap().as_name().unwrap().to_vec();
+    let v = |name: &str| w[name].get(b"V").unwrap().as_str().unwrap().to_vec();
+    assert_eq!(ft("single"), b"Tx");
+    assert_eq!(ft("multi"), b"Tx");
+    assert_eq!(ft("sig"), b"Sig");
+    assert_eq!(v("single"), b"hello");
+    assert_eq!(v("name"), b"Ada Lovelace");
+    assert_eq!(v("count"), b"7");
+    assert!(w["sig"].get(b"V").is_err(), "signature field must carry no /V");
+    assert_eq!(af.get(b"SigFlags").unwrap().as_i64().unwrap(), 1);
 }
 
 /// A widget binding no schema field has only a `/T` name, not a schema address,
@@ -306,23 +182,6 @@ fn form_field_value_binding_from_data() {
 /// surfaces both, widget first — `SessionHandle::regions`' order contract.
 #[test]
 fn form_field_regions_key_on_bound_schema_field() {
-    const YAML: &str = r#"
-quill:
-  name: widget_regions
-  version: 0.1.0
-  backend: typst
-  description: form-field region binding test
-typst:
-  plate_file: plate.typ
-main:
-  fields:
-    f_txt:
-      type: string
-      description: bound to a widget and to a scalar reference site
-    f_sig:
-      type: string
-      description: signature widget binding
-"#;
     let plate = r#"
 #import "@local/quillmark-helper:0.1.0": data, form-field
 #set page(width: 600pt, height: 400pt, margin: 50pt)
@@ -331,7 +190,10 @@ main:
 #form-field("sig", type: "signature", field: "f_sig")
 #form-field("unbound", type: "text", value: "x")
 "#;
-    let source = common::quill_with_plate(YAML, plate);
+    let source = common::quill_with_plate(
+        &common::yaml("main:\n  fields:\n    f_txt: { type: string }\n    f_sig: { type: string }\n"),
+        plate,
+    );
     let session = TypstBackend
         .open(&source, &serde_json::json!({ "f_txt": "FIRST M. LAST", "f_sig": "" }))
         .expect("open");

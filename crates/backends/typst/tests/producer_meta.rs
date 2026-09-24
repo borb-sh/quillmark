@@ -21,10 +21,6 @@ fn render_pdf(plate: &str) -> Vec<u8> {
     result.artifacts[0].bytes.clone()
 }
 
-fn producer_of(pdf: &[u8]) -> Vec<u8> {
-    info_string(pdf, b"Producer")
-}
-
 fn info_string(pdf: &[u8], key: &[u8]) -> Vec<u8> {
     let doc = lopdf::Document::load_mem(pdf).expect("reparse pdf");
     let info_ref = doc
@@ -41,17 +37,13 @@ fn info_string(pdf: &[u8], key: &[u8]) -> Vec<u8> {
 }
 
 /// The stamp reads `quillmark-pdf`'s version; `CARGO_PKG_VERSION` here is this
-/// crate's. One `version.workspace = true` gives both the same string.
+/// crate's. One `version.workspace = true` gives both the same string. The
+/// pass rewrites `/Producer` alone, so Typst's `/Creator` survives it.
 #[test]
-fn default_producer_is_quillmark_version() {
+fn producer_is_quillmark_and_creator_stays_typst() {
     let pdf = render_pdf(PLATE);
     let expected = format!("Quillmark {}", env!("CARGO_PKG_VERSION"));
-    assert_eq!(producer_of(&pdf), expected.as_bytes());
-}
-
-#[test]
-fn default_pass_preserves_typst_creator() {
-    let pdf = render_pdf(PLATE);
+    assert_eq!(info_string(&pdf, b"Producer"), expected.as_bytes());
     let creator = info_string(&pdf, b"Creator");
     assert!(
         creator.starts_with(b"Typst"),
