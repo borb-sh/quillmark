@@ -25,6 +25,9 @@ quillmark render ./quills/usaf_memo document.md
 # Omit the markdown file to render the quill's seeded document
 quillmark render ./quills/usaf_memo -o preview.pdf
 
+# Every diagnostic a document draws; --strict fails on warnings too
+quillmark check --strict ./quills/usaf_memo document.md
+
 # Pipe the artifact instead of writing a file
 quillmark render ./quills/usaf_memo document.md --stdout | evince -
 ```
@@ -39,10 +42,19 @@ Renders a document. With `MARKDOWN_FILE` omitted, the quill's seeded document is
 rendered instead, so a quill previews without any authored input.
 
 - `-o, --output <FILE>` — output path (default: the input filename with the format's extension)
-- `-f, --format <FORMAT>` — `pdf` (default), `svg`, or `png`
+- `-f, --format <FORMAT>` — `pdf`, `svg`, or `png`; defaults to the `-o` extension when it names one, else `pdf`, and refuses one that disagrees with it
 - `--stdout` — write the artifact to stdout; all chatter moves to stderr
 - `--output-data <DATA_FILE>` — also write the compiled JSON data handed to the backend
 - `--quiet` — suppress warnings and the output-destination line
+
+Warnings go to stderr: input the page leaves out, such as an undeclared key,
+prints in full, and fields the document has yet to answer print as one count.
+
+### `quillmark check [--strict] <QUILL_PATH> <MARKDOWN_FILE>...`
+
+Checks documents against the quill's schema and prints every diagnostic,
+unanswered fields included, without compiling the plate. Exits 1 where a
+document draws an error; `--strict` exits 1 on any warning too, for CI.
 
 ### `quillmark schema <QUILL_PATH>`
 
@@ -72,8 +84,8 @@ card and defaults counts.
 `0` on success, `--help`, and `--version`. `2` where argument parsing rejected
 the invocation before any command ran — an unknown flag, a missing argument, an
 unknown subcommand. `1` where the command ran and refused — an invalid quill, a
-missing file, a failed render, an argument value the command itself rejects
-(`-f docx`). Diagnostics go to stderr.
+missing file, a failed render, a failed `check`, an argument value the command
+itself rejects (`-f docx`). Diagnostics go to stderr.
 
 ## Links
 

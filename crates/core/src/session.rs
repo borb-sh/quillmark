@@ -201,8 +201,10 @@ impl LiveSession {
     /// for the raster's contract.
     ///
     /// `scale` is device pixels per point, and must be finite, positive, and
-    /// small enough to keep the page under
-    /// [`MAX_RASTER_PIXELS`](crate::backend::MAX_RASTER_PIXELS); anything else
+    /// small enough to keep both sides of the page within
+    /// [`MAX_RASTER_SIDE`](crate::backend::MAX_RASTER_SIDE), which
+    /// [`fit_raster_scale`](crate::backend::fit_raster_scale) reduces a scale to
+    /// meet; anything else
     /// is a `backend::invalid_raster_scale` refusal.
     pub fn render_rgba(
         &self,

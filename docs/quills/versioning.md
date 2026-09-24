@@ -12,9 +12,9 @@ quill:
   version: "1.2.0"
 ```
 
-**Quote the value.** An unquoted `1.10` is YAML's number `1.1` and loads as
-that version — a different one from the one you wrote. `version` is required,
-and an invalid or missing value fails at load.
+The value reads as written, quoted or not: an unquoted `1.10` is version
+`1.10`, not YAML's number `1.1`. `version` is required, and an invalid or
+missing value fails at load.
 
 Use semantic versioning (`MAJOR.MINOR.PATCH`, or two-segment `MAJOR.MINOR`) to
 communicate compatibility:

@@ -102,9 +102,9 @@ content), and fail at the write on a mismatch: the default whenever a Quill is
 in hand. A name the schema does not declare fails with `EditError::UnknownField`
 rather than falling to the opaque store: on the typed path an undeclared name is
 a typo, not a fallback, so it is refused at the write rather than surfacing later
-at validation. `set_all` is all-or-nothing and reports every undeclared name
-(and every conform failure) in one pass, so a whole-form batch surfaces every
-typo at once.
+as a `validation::unknown_field` warning. `set_all` is all-or-nothing and
+reports every undeclared name (and every conform failure) in one pass, so a
+whole-form batch surfaces every typo at once.
 
 **Conform is the third stratum, and it is the typed commit run by the schema
 instead of by a caller.** `Quill::conform(&mut doc)` walks every declared

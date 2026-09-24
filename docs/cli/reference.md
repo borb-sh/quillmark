@@ -28,10 +28,12 @@ The file must open with a `~~~` block containing a `$quill:` key identifying the
 **Options:**
 
 - `-o <PATH>` / `--output <PATH>`: Output file path (default: input filename with format extension, e.g. `input.pdf`; `example.<format>` when no markdown file is given)
-- `-f <FORMAT>` / `--format <FORMAT>`: Output format: `pdf`, `svg`, `png` (default: `pdf`)
+- `-f <FORMAT>` / `--format <FORMAT>`: Output format: `pdf`, `svg`, `png` (default: the `-o` extension when it names one of these, else `pdf`). A `-f` that disagrees with such an extension is refused (`-f png -o out.pdf`); an `-o` extension naming no format is written as given.
 - `--output-data <DATA_FILE>`: Write the compiled, blank-filled JSON data to a file. This is the data before the backend lowers it: a `richtext` value appears as a content object (`{text, lines, marks, islands}`) and a date as its string, where a Typst plate receives content and a `datetime`.
 - `--quiet`: Suppress warnings and the output-destination line; errors still print
 - `--stdout`: Write the artifact to stdout instead of a file (and ignore `-o`); refused when the render produces more than one page
+
+**Warnings:** `render` prints the parse warnings, then each warning for input the page leaves out — an undeclared key (`validation::unknown_field`), a card no kind claims, a body under `body.enabled: false`, a stranded variant cell, elements past `max:` — then the backend's. Fields the document has yet to answer (`validation::must_fill`) are a draft's normal state, so they print as one line counting them; `quillmark check` lists each. A render of the seeded document counts none: its blanks are the quill's.
 
 **Streams:** under `--stdout` the artifact owns stdout, and warnings and errors go to stderr, so `quillmark render ./my-quill input.md --stdout > out.pdf` writes a valid PDF. Without `--stdout`, the one stdout line is `Output written to: <path>`, which `--quiet` suppresses.
 
@@ -54,6 +56,35 @@ quillmark render ./my-quill input.md --stdout > output.pdf
 
 # Render the quill's seeded document
 quillmark render ./my-quill
+```
+
+### check
+
+Check markdown documents against a quill's schema, printing every diagnostic each one draws: parse warnings, then every `validation::*` diagnostic, including the unanswered fields `render` only counts. It does not compile the plate, so a plate failure or a construct the backend declines (`backend::declined_construct`) is `render`'s to report.
+
+```bash
+quillmark check [OPTIONS] <QUILL_PATH> <MARKDOWN_FILE>...
+```
+
+**Arguments:**
+
+- `<QUILL_PATH>`: Path to quill directory
+- `<MARKDOWN_FILE>...`: One or more documents to check. Each document's diagnostics print under its path, and a document that fails to read or parse does not stop the rest.
+
+**Options:**
+
+- `--strict`: Exit `1` on any warning, not only on an error. An unanswered field, an undeclared key, and a card no kind claims all fail a strict check.
+
+Without `--strict`, `check` exits `1` only on an error: a parse error, a value that is not its field's type, a `$quill` naming another quill.
+
+**Examples:**
+
+```bash
+# Every diagnostic for one document
+quillmark check ./my-quill input.md
+
+# CI gate: fail on anything unfinished or unread
+quillmark check --strict ./my-quill documents/*.md
 ```
 
 ### schema
@@ -155,5 +186,5 @@ quillmark info ./my-quill
 ## Exit Codes
 
 - `0`: success, `--help`, and `--version`
-- `1`: the command ran and refused — an invalid quill, a file not found, a parse error, a compilation error, or an argument value the command itself rejects (`-f docx`)
+- `1`: the command ran and refused — an invalid quill, a file not found, a parse error, a compilation error, a failed `check` (any warning under `--strict`), or an argument value the command itself rejects (`-f docx`)
 - `2`: usage error — an unknown flag, a missing argument, an unknown subcommand; argument parsing rejected the invocation before any command ran

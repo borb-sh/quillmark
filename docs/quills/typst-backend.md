@@ -38,7 +38,7 @@ A key's *declaration* decides whether it can be absent, and that decides the acc
 |---|---|---|
 | A field declared in `Quill.yaml` | `data.subtitle` | Always present: compilation blank-fills every declared field with its authored value, else the schema `default:`, else the field's [blank](#blank-values). |
 | A `$`-sigiled key (`$kind`, `$body`, `$cards`, `$path`) | `data.at("$body", default: "")` | Typst identifiers exclude `$`, *and* `$`-metadata is present only where it is defined: `$kind` only on a card that authors one, `$body` only where the kind enables a body. |
-| An undeclared key, or any field of a card whose `$kind` is unknown | `data.at("logo", default: none)` | No schema fills it, so absence is real. |
+| An undeclared key, or any field of a card whose `$kind` is unknown | `data.at("logo", default: none)` | No schema fills it, so absence is real. `quill.validate(doc)` warns on it (`validation::unknown_field`, `validation::unknown_card`), so a key the plate reads belongs in `Quill.yaml`. |
 
 So a `default:` on a declared field is dead code, and an `#if "field" in data` guard on one is always true. When a declared field is optional, guard its *value*, not its presence:
 
@@ -94,25 +94,20 @@ A card block with no `$kind:` line is a *kindless* card: it reaches the plate ca
 
 ## Typst Packages
 
-Declare packages in `Quill.yaml`, then `#import` them from the plate:
+Quillmark never downloads a package. A plate imports only packages the quill
+vendors under `packages/`, one directory each, and an `#import` of any other
+fails the render with `typst::file_not_found`.
 
-```yaml
-typst:
-  packages:
-    - "@preview/appreciated-letter:0.1.0"
+```
+my-quill/
+└── packages/
+    └── my-helper/
+        ├── typst.toml
+        └── lib.typ
 ```
 
-```typst
-#import "@local/quillmark-helper:0.1.0": data
-#import "@preview/appreciated-letter:0.1.0": letter
-
-#show: letter.with(sender: data.sender, recipient: data.recipient)
-```
-
-Browse the full catalog at [Typst Universe](https://typst.app/universe/).
-
-A package vendored into the quill under `packages/<dir>/` carries its own
-`typst.toml`, which names the spec the plate imports:
+The package's `typst.toml` names the spec the plate imports. The directory
+name plays no part in it:
 
 ```toml
 [package]
@@ -121,9 +116,27 @@ version = "0.1.0"
 entrypoint = "lib.typ"
 ```
 
-A `packages/<dir>/` without one is skipped at load with a
-`typst::package_manifest` warning, and the plate's `#import` for it then fails
-as an unresolved file.
+```typst
+#import "@local/my-helper:0.1.0": letterhead
+```
+
+| Manifest key | Required | Meaning |
+|---|---|---|
+| `name` | yes | The `<name>` in `@<namespace>/<name>:<version>` |
+| `version` | yes | `major.minor.patch` |
+| `entrypoint` | yes | The file the import evaluates, relative to the package directory |
+| `namespace` | no | Defaults to `local` |
+
+A package's own `#import`s resolve the same way, so every package it depends on
+is vendored beside it. A package copied from Typst Universe ships a manifest
+with no `namespace`, so it loads as `@local/…`, while its sources import their
+dependencies as `@preview/…`. Adding `namespace = "preview"` to its manifest and
+to each dependency's lets the plate and the package import them as published.
+
+A `packages/<dir>/` whose `typst.toml` is absent, does not parse, or lacks a
+required key is skipped at load with a `typst::package_manifest` warning, and
+an entrypoint the package does not ship warns `typst::package_entrypoint_missing`.
+Either way, the plate's `#import` for it then fails as an unresolved file.
 
 ## Fonts
 
@@ -318,7 +331,6 @@ PNG resolution is set via the `ppi` option (default **144**, 2× at 72pt/inch, s
 ## Resources
 
 - [Typst Documentation](https://typst.app/docs/)
-- [Typst Universe](https://typst.app/universe/): package directory
 
 ## Next Steps
 

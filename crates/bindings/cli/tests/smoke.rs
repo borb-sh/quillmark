@@ -211,18 +211,26 @@ fn output_flag_creates_parent_directories() {
     );
 }
 
+/// taro declares no `example:`, so its seed leaves each obliged field blank:
+/// blanks the quill chose, which the seed render does not count.
 #[test]
 fn render_writes_a_pdf() {
     let dir = tempfile::tempdir().expect("tempdir");
     let out = dir.path().join("out.pdf");
     let quill = taro();
 
-    ok(&[
+    let run_out = run(&[
         "render",
         quill.to_str().unwrap(),
         "-o",
         out.to_str().unwrap(),
     ]);
+    let stderr = String::from_utf8_lossy(&run_out.stderr);
+    assert!(run_out.status.success(), "render exited nonzero: {stderr}");
+    assert!(
+        !stderr.contains("validation::must_fill"),
+        "the seed render counted the quill's blanks: {stderr}"
+    );
 
     let bytes = std::fs::read(&out).expect("render wrote its output file");
     assert!(
@@ -387,6 +395,83 @@ fn a_declined_construct_warns_on_stderr() {
     );
 }
 
+/// taro obliges `author` and `title`; `titel` is a typo of the second.
+const TYPO_DOC: &str = "~~~card-yaml\n$quill: taro\ntitel: Hello\n~~~\n\nBody.\n";
+
+/// A warning passes and `--strict` fails it; an error fails either way, and a
+/// document that fails to read or parse does not stop the ones after it being
+/// checked.
+#[test]
+fn check_lists_every_diagnostic_and_strict_fails_on_a_warning() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let typo = dir.path().join("typo.md");
+    std::fs::write(&typo, TYPO_DOC).expect("write the typo document");
+    let bad = dir.path().join("bad.md");
+    std::fs::write(&bad, "~~~card-yaml\n$quill: taro\ntitle: [1\n~~~\n")
+        .expect("write the malformed document");
+    let binary = dir.path().join("binary.md");
+    std::fs::write(&binary, b"\xff\xfe").expect("write the non-UTF-8 document");
+    let quill = taro();
+    let (quill, typo, bad, binary) = (
+        quill.to_str().unwrap(),
+        typo.to_str().unwrap(),
+        bad.to_str().unwrap(),
+        binary.to_str().unwrap(),
+    );
+
+    let out = run(&["check", quill, typo]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "warnings alone failed check: {stderr}");
+    for code in ["validation::unknown_field", "validation::must_fill"] {
+        assert!(stderr.contains(code), "check omits {code}: {stderr}");
+    }
+
+    let out = run(&["check", "--strict", quill, typo]);
+    assert_eq!(out.status.code(), Some(1), "--strict passed a warning");
+
+    let out = run(&["check", quill, binary, bad, typo]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "a parse error passed check: {stderr}");
+    assert!(
+        stderr.contains("cli::unreadable_document")
+            && stderr.contains("parse::")
+            && stderr.contains("validation::unknown_field"),
+        "check stopped at a failing document: {stderr}"
+    );
+}
+
+/// `render` prints the input its page leaves out, and condenses the fields a
+/// draft has yet to answer to one line rather than a warning each.
+#[test]
+fn render_warns_on_unclaimed_input_and_counts_unanswered_fields() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let doc = dir.path().join("typo.md");
+    std::fs::write(&doc, TYPO_DOC).expect("write the input document");
+
+    let out = run(&[
+        "render",
+        taro().to_str().unwrap(),
+        doc.to_str().unwrap(),
+        "-o",
+        dir.path().join("typo.pdf").to_str().unwrap(),
+    ]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "render exited nonzero: {stderr}");
+    assert!(
+        stderr.contains("validation::unknown_field"),
+        "the undeclared key raised no warning: {stderr}"
+    );
+    let fill_warnings = stderr
+        .lines()
+        .filter(|l| l.starts_with("[WARN]") && l.contains("validation::must_fill"))
+        .count();
+    assert_eq!(fill_warnings, 0, "render printed must_fill warnings: {stderr}");
+    assert!(
+        stderr.contains("2 field(s) await a value"),
+        "render omits the unanswered count: {stderr}"
+    );
+}
+
 /// Exit 1 rather than any non-zero code: a panic exits differently, so a script
 /// reading the status can tell a refusal from a crash.
 #[test]
@@ -446,6 +531,43 @@ fn unknown_format_fails_loudly() {
     );
 }
 
+/// An `-o` extension naming a format supplies an omitted `-f` and refuses a
+/// disagreeing one before any file is written; an extension naming none is
+/// written as given.
+#[test]
+fn the_output_extension_reconciles_with_the_format_flag() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let quill = taro();
+    let quill = quill.to_str().unwrap();
+    let path = |name: &str| dir.path().join(name).to_str().unwrap().to_owned();
+
+    ok(&["render", quill, "-o", &path("inferred.SVG")]);
+    let svg = std::fs::read_to_string(dir.path().join("inferred.SVG"))
+        .expect("render wrote the inferred file");
+    assert!(svg.contains("<svg"), "-o inferred.SVG did not write SVG");
+
+    let out = run(&[
+        "render",
+        quill,
+        "-f",
+        "png",
+        "-o",
+        &path("clash.pdf"),
+        "--output-data",
+        &path("clash.json"),
+    ]);
+    assert_eq!(out.status.code(), Some(1), "-f png -o clash.pdf was not refused");
+    let written: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .filter(|name| name != "inferred.SVG")
+        .collect();
+    assert!(written.is_empty(), "a refused render wrote {written:?}");
+
+    ok(&["render", quill, "-f", "svg", "-o", &path("page.bin")]);
+    let svg = std::fs::read_to_string(dir.path().join("page.bin")).expect("page.bin exists");
+    assert!(svg.contains("<svg"), "-f svg -o page.bin did not write SVG");
+}
 
 /// `--format` parses case-insensitively, and the derived filename takes the
 /// parsed format's id, not the flag as typed.

@@ -148,8 +148,8 @@ pub struct RenderOptions {
     /// `None` resolves to [`RenderOptions::DEFAULT_PPI`] through
     /// [`ppi_or_default`](RenderOptions::ppi_or_default).
     ///
-    /// Must be finite and positive, and small enough to keep every rendered
-    /// page under [`MAX_RASTER_PIXELS`](crate::backend::MAX_RASTER_PIXELS); a
+    /// Must be finite and positive, and small enough to keep both sides of every
+    /// rendered page within [`MAX_RASTER_SIDE`](crate::backend::MAX_RASTER_SIDE); a
     /// raster backend refuses anything else with a
     /// `backend::invalid_raster_scale`
     /// [`RenderError`](crate::error::RenderError).

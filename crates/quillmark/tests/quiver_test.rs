@@ -108,3 +108,20 @@ fn every_quill_renders_its_seed_document() {
         );
     }
 }
+
+#[test]
+fn every_quill_declares_every_key_its_canonical_documents_write() {
+    for (name, quill) in QUIVER.iter() {
+        let blueprint = Document::parse(&quill.config().blueprint())
+            .expect("the blueprint parses")
+            .document;
+        for doc in [quill.seed_document(), blueprint] {
+            let unknown: Vec<_> = quill
+                .validate(&doc)
+                .into_iter()
+                .filter(|d| d.code.as_deref() == Some("validation::unknown_field"))
+                .collect();
+            assert!(unknown.is_empty(), "{name}: {unknown:?}\n---\n{}", doc.to_markdown());
+        }
+    }
+}

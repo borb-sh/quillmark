@@ -1,4 +1,5 @@
 pub mod blueprint;
+pub mod check;
 pub mod info;
 pub mod render;
 pub mod schema;
