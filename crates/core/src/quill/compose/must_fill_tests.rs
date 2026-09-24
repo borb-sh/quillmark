@@ -116,6 +116,7 @@ fn a_touched_container_does_not_silence_its_unauthored_leaves() {
     let (_, source) = super::resolve_value_sourced(
         doc.main().payload().get("address"),
         &crate::quill::QuillConfig::from_yaml(CONTAINERS).unwrap().main.fields["address"],
+        None,
     );
     assert_eq!(source, FieldSource::Authored, "the view sees one authored dict");
     assert!(paths(&quill, &cn("address:\n  city: Pittsburgh\n"))
@@ -200,7 +201,7 @@ fn an_unauthored_obligation_never_gates_render() {
     let doc = Document::parse(&md("")).expect("parse").document;
 
     assert_eq!(paths(&quill, &md("")).len(), 3, "the document is incomplete");
-    let plate = quill.compile_data(&doc).expect("and renders anyway");
+    let plate = quill.compile_data(&doc, None).expect("and renders anyway");
     assert_eq!(plate["subject"], "", "the unauthored cell blank-fills");
 }
 

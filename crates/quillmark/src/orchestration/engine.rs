@@ -2,7 +2,7 @@ use quillmark_core::{
     backend::Backend,
     document::Document,
     error::{Diagnostic, RenderError, RenderResult, Severity},
-    quill::Quill,
+    quill::{CalendarDate, Quill},
     session::LiveSession,
     types::{OutputFormat, RenderOptions},
 };
@@ -72,10 +72,19 @@ impl Quillmark {
     }
 
     /// Open a live render session for `doc` against `quill`'s backend.
-    pub fn open(&self, quill: &Quill, doc: &Document) -> Result<LiveSession, RenderError> {
+    ///
+    /// `today` is the render date: a `today` date field renders as it, and so
+    /// does a Typst plate's `datetime.today()`. The engine reads no clock, so
+    /// without one the field renders blank and `datetime.today()` fails.
+    pub fn open(
+        &self,
+        quill: &Quill,
+        doc: &Document,
+        today: Option<CalendarDate>,
+    ) -> Result<LiveSession, RenderError> {
         let backend = self.resolve_backend(quill)?;
-        let json_data = quill.compile_checked(doc)?;
-        backend.open(quill, &json_data)
+        let json_data = quill.compile_checked(doc, today)?;
+        backend.open(quill, &json_data, today)
     }
 
     /// Render `doc` against `quill` in one shot. Convenience over
@@ -85,11 +94,11 @@ impl Quillmark {
         &self,
         quill: &Quill,
         doc: &Document,
+        today: Option<CalendarDate>,
         opts: &RenderOptions,
     ) -> Result<RenderResult, RenderError> {
-        let backend = self.resolve_backend(quill)?;
-        let default_format = backend.supported_formats().first().copied();
-        let session = backend.open(quill, &quill.compile_checked(doc)?)?;
+        let default_format = self.resolve_backend(quill)?.supported_formats().first().copied();
+        let session = self.open(quill, doc, today)?;
         // Clone-and-narrow so a new RenderOptions field is carried through by
         // default; only `output_format` gets the backend-default fallback.
         let mut resolved = opts.clone();

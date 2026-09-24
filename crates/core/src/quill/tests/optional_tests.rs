@@ -43,7 +43,7 @@ fn document(fields: &str) -> Document {
 fn an_unanswered_optional_cell_renders_none_at_every_depth() {
     let quill = quill_from_yaml(QUILL_YAML);
     let doc = document("quorum: 0\nlocation: \"\"\nresult: \"\"\ntally: {}\n");
-    let plate = quill.config().compile_data(&doc).expect("compiles");
+    let plate = quill.config().compile_data(&doc, None).expect("compiles");
 
     assert_eq!(plate["quorum"], json!(0));
     assert_eq!(plate["location"], json!(""));
@@ -52,7 +52,7 @@ fn an_unanswered_optional_cell_renders_none_at_every_depth() {
     }
     assert_eq!(plate["tally"], json!({ "votes_for": null, "votes_against": 0 }));
 
-    let resolved = quill.resolve(&doc);
+    let resolved = quill.resolve(&doc, None);
     let row = |name: &str| {
         resolved
             .main

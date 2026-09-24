@@ -42,7 +42,12 @@ impl PyQuillmark {
     ///
     /// `pages` selects 0-based page indices counting from the first page; a
     /// negative one selects no page and raises like an index past the last.
-    #[pyo3(signature = (quill, doc, format=None, ppi=None, pages=None, regions=false))]
+    ///
+    /// `today` is the render date, a `datetime.date` (default
+    /// `datetime.date.today()`): a `today` date field renders as it, and so does
+    /// a plate's `datetime.today()`.
+    #[pyo3(signature = (quill, doc, format=None, ppi=None, pages=None, regions=false, today=None))]
+    #[allow(clippy::too_many_arguments)]
     fn render(
         &self,
         quill: &PyQuill,
@@ -51,7 +56,9 @@ impl PyQuillmark {
         ppi: Option<f32>,
         pages: Option<Vec<isize>>,
         regions: bool,
+        today: Option<Bound<'_, PyAny>>,
     ) -> PyResult<PyRenderResult> {
+        let today = Some(render_date(doc.py(), today)?);
         let mut opts = quillmark_core::types::RenderOptions::default();
         opts.output_format = format.map(OutputFormat::from);
         opts.ppi = ppi;
@@ -59,7 +66,7 @@ impl PyQuillmark {
         opts.regions = regions;
         let mut result = self
             .inner
-            .render(&quill.inner, &doc.inner, &opts)
+            .render(&quill.inner, &doc.inner, today, &opts)
             .map_err(convert_render_error)?;
         let kinds: Vec<Option<&str>> = doc.inner.cards().iter().map(|c| c.kind()).collect();
         result.regions = quillmark_core::region::regions_to_doc_path(result.regions, &kinds);
@@ -90,6 +97,28 @@ impl PyQuillmark {
             .map(|s| s.to_string())
             .collect()
     }
+}
+
+/// The render date: `today`'s `year`/`month`/`day`, else Python's local
+/// `datetime.date.today()`.
+fn render_date(
+    py: Python<'_>,
+    today: Option<Bound<'_, PyAny>>,
+) -> PyResult<quillmark_core::quill::CalendarDate> {
+    let date = match today {
+        Some(date) => date,
+        None => py.import("datetime")?.getattr("date")?.call_method0("today")?,
+    };
+    let (year, month, day) = (
+        date.getattr("year")?.extract()?,
+        date.getattr("month")?.extract()?,
+        date.getattr("day")?.extract()?,
+    );
+    quillmark_core::quill::CalendarDate::new(year, month, day).ok_or_else(|| {
+        pyo3::exceptions::PyValueError::new_err(format!(
+            "today is not a calendar date: {year}-{month}-{day}"
+        ))
+    })
 }
 
 #[pyclass(name = "Quill", from_py_object)]

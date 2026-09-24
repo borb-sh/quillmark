@@ -19,8 +19,9 @@ One rule governs the lowering, at every depth: **a declared type means the same 
    editor-supplied one). An incomplete document still renders: an absent or
    present-null field blank-fills, and a `!must_fill` marker uses its suggested
    value or blank-fills. Only a malformed value: one that won't coerce or
-   validate to its type: errors.
-2. `Backend::open()` receives that JSON and generates the helper package. `Codegen::emit_value` walks the data beside the schema node declaring it: a content node lowers via `emit::emit_content`, a date node to `datetime(..)`, an `array` recurses on `items`, an `object` on `properties`, everything else to a value literal. There is no markdown-string transform, and no name table: the walk is the inverse of the one `field_to_schema` built the node with, so it cannot be shallower than the schema is.
+   validate to its type: errors. A `today` date renders as the render date the
+   host supplied ([SCHEMAS.md](SCHEMAS.md#the-render-date-today)).
+2. `Backend::open()` receives that JSON and generates the helper package. `Codegen::emit_value` walks the data beside the schema node declaring it: a content node lowers via `emit::emit_content`, a date node to `datetime(..)`, an `array` recurses on `items`, an `object` on `properties`, everything else to a value literal. There is no markdown-string transform, and no name table: the walk is the inverse of the one `field_to_schema` built the node with, so it cannot be shallower than the schema is. It also takes the render date, which `datetime.today()` returns; a render reads no clock, so a plate given none fails at that call.
 
 ### Data Shape
 

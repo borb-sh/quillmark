@@ -519,15 +519,16 @@ export class Engine {
 	 * @param {Quill} quill
 	 * @param {Document} doc
 	 * @param {object} [options] render options (`{ format, ppi, pages, regions }`)
+	 * @param {string} [today] the render date, `YYYY-MM-DD`
 	 * @returns {Promise<import('./runtime.js').RenderResult>}
 	 */
-	async render(quill, doc, options) {
+	async render(quill, doc, options, today) {
 		return this.#withClones(
 			'engine.render(quill, doc)',
 			quill,
 			doc,
 			({ engine, quill: q, doc: d, docWarnings }) => {
-				const result = engine.render(q, d, options ?? undefined);
+				const result = engine.render(q, d, options ?? undefined, today);
 				result.warnings = docWarnings.concat(result.warnings);
 				return result;
 			}
@@ -537,14 +538,15 @@ export class Engine {
 	/**
 	 * @param {Quill} quill
 	 * @param {Document} doc
+	 * @param {string} [today] the render date, `YYYY-MM-DD`
 	 * @returns {Promise<LiveSession>}
 	 */
-	async open(quill, doc) {
+	async open(quill, doc, today) {
 		return this.#withClones(
 			'engine.open(quill, doc)',
 			quill,
 			doc,
-			({ mod, engine, quill: q, doc: d }) => new LiveSession(engine.open(q, d), mod)
+			({ mod, engine, quill: q, doc: d }) => new LiveSession(engine.open(q, d, today), mod)
 		);
 	}
 
@@ -866,10 +868,11 @@ export class DocumentReader {
 		return this.#doc._readerGet(this.#quill, {});
 	}
 	/**
+	 * @param {string} [today] the render date, `YYYY-MM-DD`
 	 * @returns {Resolved}
 	 */
-	resolve() {
-		return this.#quill._resolve(this.#doc);
+	resolve(today) {
+		return this.#quill._resolve(this.#doc, today);
 	}
 	/**
 	 * @param {number} index

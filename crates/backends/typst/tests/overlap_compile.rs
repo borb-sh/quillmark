@@ -48,7 +48,7 @@ const PLATE: &str = r#"
 fn overlapping_wrap_and_code_compiles() {
     let data = serde_json::json!({ "body": overlap_content() });
     let session = TypstBackend
-        .open(&quill(YAML, PLATE), &data)
+        .open(&quill(YAML, PLATE), &data, None)
         .expect("overlapping wrap+code content must compile");
     assert!(session.page_count() >= 1, "produced at least one page");
 }

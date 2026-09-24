@@ -9,6 +9,7 @@ both are `Any`-shaped: their schemas are the quill's, not Python's.
 """
 
 from collections.abc import Sequence
+from datetime import date
 from pathlib import Path
 from typing import Any, final
 
@@ -221,6 +222,7 @@ class Quillmark:
         ppi: float | None = None,
         pages: list[int] | None = None,
         regions: bool = False,
+        today: date | None = None,
     ) -> RenderResult: ...
     def supported_formats(self, quill: Quill) -> list[OutputFormat]: ...
     def registered_backends(self) -> list[str]: ...

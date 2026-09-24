@@ -354,6 +354,11 @@ tells you which pages to repaint (`dirty ∩ visible`). `update` is transactiona
 on throw, every read keeps serving the last-good compile. Don't open a session
 per export, and don't re-open per edit: `update` instead.
 
+Both take the render date as an optional last argument (`YYYY-MM-DD`, default
+the local date): what a `today` date field and a plate's `datetime.today()`
+render as. A session keeps the date it opened with, so a preview left open past
+midnight renders yesterday's until it is reopened.
+
 A document that compiles to zero pages still produces a valid session
 (`pageCount === 0`); `paint(ctx, 0)` and `pageSize(0)` then throw. Branch on
 `pageCount === 0` to render a "no pages to preview" UI rather than relying on

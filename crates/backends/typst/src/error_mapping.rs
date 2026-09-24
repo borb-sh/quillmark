@@ -210,7 +210,7 @@ mod tests {
             return;
         };
 
-        let diags = match TypstBackend.open(&source, &serde_json::json!({})) {
+        let diags = match TypstBackend.open(&source, &serde_json::json!({}), None) {
             Ok(session) => session
                 .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
                 .expect_err("a missing image should fail to compile")
@@ -241,7 +241,7 @@ mod tests {
         };
 
         // Compilation happens during `open`, so the error may surface there.
-        let diags = match TypstBackend.open(&source, &serde_json::json!({})) {
+        let diags = match TypstBackend.open(&source, &serde_json::json!({}), None) {
             Ok(session) => session
                 .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
                 .expect_err("eval of `#general` should fail to compile")

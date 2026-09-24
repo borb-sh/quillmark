@@ -28,6 +28,7 @@ fn render(markdown: &str) -> quillmark::RenderResult {
         .render(
             &quill,
             &doc,
+            None,
             &RenderOptions::default().with_output_format(OutputFormat::Pdf),
         )
         .expect("render ok")
@@ -38,7 +39,7 @@ fn open_session(markdown: &str) -> quillmark::LiveSession {
         .expect("load sample_form quill");
     let engine = Quillmark::new();
     let doc = Document::parse(markdown).expect("parse markdown").document;
-    engine.open(&quill, &doc).expect("open ok")
+    engine.open(&quill, &doc, None).expect("open ok")
 }
 
 mod common;
@@ -227,7 +228,7 @@ fn apply_rebinds_values_and_reports_dirty_pages() {
         .expect("load sample_form quill");
     let engine = Quillmark::new();
     let doc = Document::parse(FILLED).expect("parse markdown").document;
-    let mut session = engine.open(&quill, &doc).expect("open ok");
+    let mut session = engine.open(&quill, &doc, None).expect("open ok");
 
     let cs = session.update(&doc).expect("update");
     assert_eq!(cs.page_count, session.page_count());

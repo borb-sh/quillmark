@@ -31,6 +31,7 @@ fn seeded_memo_pdf() -> Vec<u8> {
         .render(
             quill,
             &parsed,
+            None,
             &RenderOptions::default().with_output_format(OutputFormat::Pdf),
         )
         .expect("render should succeed");

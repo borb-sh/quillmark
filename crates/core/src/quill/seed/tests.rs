@@ -149,7 +149,7 @@ fn seeded_document_compiles_with_default_then_blank_for_absent_fields() {
     let doc = quill.seed_document();
 
     let data = quill
-        .compile_data(&doc)
+        .compile_data(&doc, None)
         .expect("seeded document must compile");
 
     assert_eq!(
@@ -300,7 +300,7 @@ fn seed_overlay_type_mismatch_is_advisory_and_does_not_gate_render() {
     );
 
     assert!(
-        quill.compile_data(&doc).is_ok(),
+        quill.compile_data(&doc, None).is_ok(),
         "compile_data must ignore $seed"
     );
     assert!(quill.dry_run(&doc).is_ok(), "dry_run must ignore $seed");
@@ -317,7 +317,7 @@ fn seed_overlay_unknown_kind_is_flagged_but_renders() {
         .expect("unknown-kind advisory");
     assert_eq!(d.path.as_deref(), Some("$seed.bogus_kind"));
     assert_eq!(d.severity, Severity::Warning);
-    assert!(quill.compile_data(&doc).is_ok());
+    assert!(quill.compile_data(&doc, None).is_ok());
 }
 
 #[test]

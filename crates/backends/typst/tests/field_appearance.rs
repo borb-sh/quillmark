@@ -10,7 +10,7 @@ use common::host_with_plate as source_with_plate;
 
 fn compile(plate: &str) -> Result<Vec<u8>, RenderError> {
     let source = source_with_plate(plate);
-    let session = TypstBackend.open(&source, &serde_json::json!({}))?;
+    let session = TypstBackend.open(&source, &serde_json::json!({}), None)?;
     let result = session.render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))?;
     Ok(result.artifacts[0].bytes.clone())
 }

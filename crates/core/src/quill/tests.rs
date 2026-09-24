@@ -2,6 +2,7 @@ mod matrix_tests;
 mod optional_tests;
 mod properties;
 mod support_tests;
+mod today_tests;
 mod variant_tests;
 
 use super::*;
@@ -1890,7 +1891,7 @@ fn a_nested_content_defaults_literal_reaches_the_plate_at_every_position() {
     ))
     .expect("parses")
     .document;
-    let plate = config.compile_data(&document).expect("compiles");
+    let plate = config.compile_data(&document, None).expect("compiles");
 
     for (path, cell, text) in [
         ("top", &plate["top"], "A top note"),
@@ -1949,7 +1950,7 @@ fn a_content_default_inside_an_absent_container_reaches_the_plate_as_content() {
     ))
     .expect("parses")
     .document;
-    let plate = config.compile_data(&document).expect("compiles");
+    let plate = config.compile_data(&document, None).expect("compiles");
 
     for (path, cell, text) in [
         ("dict.note", &plate["dict"]["note"], "A dict note"),
@@ -2429,7 +2430,7 @@ fn an_over_filled_array_warns_at_its_own_path() {
     );
     assert!(found[0].1.contains("\"max\"") && found[0].1.contains("\"actual\""));
     assert!(
-        quill.compile_data(&doc).is_ok(),
+        quill.compile_data(&doc, None).is_ok(),
         "an over-filled document still renders"
     );
 }

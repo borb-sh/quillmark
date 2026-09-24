@@ -1621,3 +1621,48 @@ describe('@quillmark/wasm: handles from another copy (duplicate install)', () =>
   })
 })
 
+
+describe('@quillmark/wasm: today (the render date a host supplies)', () => {
+  const QUILL_YAML = `quill:
+  name: dated
+  version: "1.0"
+  backend: typst
+  description: A field dated by the day it renders
+
+main:
+  fields:
+    issued: { type: date, default: today }
+`
+  const PLATE = `#import "@local/quillmark-helper:0.1.0": data
+#assert.eq(data.issued, datetime.today())
+#assert.eq(data.issued, datetime(year: 2026, month: 3, day: 14))`
+
+  const quill = () => Quill.fromTree(makeQuill({ name: 'dated', plate: PLATE, quillYaml: QUILL_YAML }))
+  const doc = () => Document.fromMarkdown('~~~card-yaml\n$quill: dated\n$kind: main\n~~~\n')
+  const issued = (resolved) => resolved.main.fields.find((r) => r.name === 'issued')
+
+  it('resolves `today` as the given date, else the local one', () => {
+    expect(issued(quill().reader(doc()).resolve('2026-03-14'))).toMatchObject({
+      value: '2026-03-14',
+      source: 'default',
+    })
+
+    const now = new Date()
+    const local = [now.getFullYear(), now.getMonth() + 1, now.getDate()]
+      .map((n, i) => String(n).padStart(i === 0 ? 4 : 2, '0'))
+      .join('-')
+    expect(issued(quill().reader(doc()).resolve()).value).toBe(local)
+  })
+
+  it('renders the field and the plate on the same date, and refuses a non-date', async () => {
+    const engine = new Engine()
+    const result = await engine.render(quill(), doc(), { format: 'svg' }, '2026-03-14')
+    expect(result.outputFormat).toBe('svg')
+
+    const session = await engine.open(quill(), doc(), '2026-03-14')
+    session.update(doc())
+    session.free()
+
+    await expect(engine.open(quill(), doc(), 'today')).rejects.toThrow('YYYY-MM-DD')
+  })
+})

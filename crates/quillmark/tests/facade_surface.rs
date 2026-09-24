@@ -100,7 +100,7 @@ fn preview_regions_spell_through_the_facade() {
     let quill = quillmark::quill_from_path(quillmark_fixtures::quills_path("usaf_memo"))
         .expect("usaf_memo should load");
     let parsed = quill.seed_document();
-    let session: LiveSession = engine.open(&quill, &parsed).expect("open a session");
+    let session: LiveSession = engine.open(&quill, &parsed, None).expect("open a session");
 
     let regions: Vec<RenderedRegion> = session.regions();
     // `field_boxes` and `position_at` are content-only, so the query needs a

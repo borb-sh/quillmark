@@ -57,7 +57,7 @@ fn doc(fields: &str) -> Document {
 
 fn plate(document: &Document) -> serde_json::Value {
     config()
-        .compile_data(document)
+        .compile_data(document, None)
         .expect("compile_data succeeds")["classification"]
         .clone()
 }
@@ -258,7 +258,7 @@ classification:
         quill_from_yaml(YAML).validate(&document)
     );
 
-    let plate = config.compile_data(&document).expect("compiles")["classification"].clone();
+    let plate = config.compile_data(&document, None).expect("compiles")["classification"].clone();
     // Coercion imported the markdown to canonical content, so the cell reaches
     // the plate as the content object a card-level richtext would.
     assert_eq!(plate["value"], json!("CUI"));
@@ -278,7 +278,7 @@ classification:
     ))
     .expect("parses")
     .document;
-    let blank_plate = config.compile_data(&blank_doc).expect("compiles")["classification"].clone();
+    let blank_plate = config.compile_data(&blank_doc, None).expect("compiles")["classification"].clone();
     assert_eq!(blank_plate, json!({ "value": "" }));
 }
 
@@ -337,7 +337,7 @@ fn a_name_two_worlds_declare_identically_loads() {
     )
     .expect("parses")
     .document;
-    let data = config.compile_data(&doc).expect("compile_data succeeds");
+    let data = config.compile_data(&doc, None).expect("compile_data succeeds");
     assert_eq!(data["classification"]["controlled_by"], json!("SAF/AA"));
 }
 
@@ -474,7 +474,7 @@ fn a_bare_scalar_is_adopted_as_the_discriminant() {
 fn the_discriminant_falls_to_the_default_and_carries_its_world() {
     let yaml = quill_yaml().replace("      default: \"\"\n      variants:", "      default: CUI\n      variants:");
     let config = QuillConfig::from_yaml(&yaml).unwrap();
-    let data = config.compile_data(&doc("")).unwrap();
+    let data = config.compile_data(&doc(""), None).unwrap();
     assert_eq!(
         data["classification"],
         json!({ "value": "CUI", "controlled_by": "", "category": "" })
@@ -496,7 +496,7 @@ fn a_null_discriminant_blank_fills() {
 fn resolve_reports_the_container_as_one_cell_matching_the_plate() {
     let quill = quill();
     let document = doc("classification:\n  value: CUI\n  controlled_by: SAF/AA\n");
-    let resolved = quill.resolve(&document);
+    let resolved = quill.resolve(&document, None);
     let row = resolved
         .main
         .fields
@@ -509,7 +509,7 @@ fn resolve_reports_the_container_as_one_cell_matching_the_plate() {
     // An unanswered container reports the rung that supplied its discriminant:
     // here the schema's `default: ""`, exactly as a plain enum would.
     let blank_doc = doc("");
-    let resolved = quill.resolve(&blank_doc);
+    let resolved = quill.resolve(&blank_doc, None);
     let row = resolved
         .main
         .fields
@@ -522,7 +522,7 @@ fn resolve_reports_the_container_as_one_cell_matching_the_plate() {
 
 fn classification_row(quill: &Quill, document: &Document) -> crate::quill::resolved::ResolvedField {
     quill
-        .resolve(document)
+        .resolve(document, None)
         .main
         .fields
         .into_iter()
@@ -575,7 +575,7 @@ fn a_mis_shaped_container_value_stays_raw() {
     let quill = quill();
     let document = doc("classification: [CUI, SECRET]\n");
     let row = quill
-        .resolve(&document)
+        .resolve(&document, None)
         .main
         .fields
         .into_iter()
@@ -598,7 +598,7 @@ fn an_authored_cell_lifts_a_defaulted_discriminant() {
     let quill = quill_from_yaml(&yaml);
     let document = doc("classification:\n  controlled_by: SAF/AA\n");
     let row = quill
-        .resolve(&document)
+        .resolve(&document, None)
         .main
         .fields
         .into_iter()
@@ -941,7 +941,7 @@ fn a_container_shaped_schema_literal_is_a_load_error() {
 #[test]
 fn a_scalar_schema_literal_stays_legal_on_a_variant_bearing_enum() {
     let plate = config()
-        .compile_data(&doc(""))
+        .compile_data(&doc(""), None)
         .expect("a blank scalar `default:` loads and compiles");
     assert_eq!(plate["classification"]["value"], json!(""));
 }
@@ -986,7 +986,7 @@ fn nested_doc(fields: &str) -> Document {
 fn nested_header(document: &Document) -> serde_json::Value {
     QuillConfig::from_yaml(NESTED_YAML)
         .expect("loads")
-        .compile_data(document)
+        .compile_data(document, None)
         .expect("compile_data succeeds")["header"]
         .clone()
 }

@@ -41,7 +41,7 @@ fn update_commits_and_dirties_only_the_touched_suffix() {
     let n = 60;
 
     let mut session = backend
-        .open(&q, &json!({ "msg": msg(n, None, "") }))
+        .open(&q, &json!({ "msg": msg(n, None, "") }), None)
         .expect("open");
     let pages = session.page_count();
     assert!(pages >= 3, "fixture must span several pages, got {pages}");
@@ -109,7 +109,7 @@ fn update_with_reordered_fields_same_content_is_clean() {
     )
     .unwrap();
 
-    let mut session = backend.open(&q, &opened).expect("open");
+    let mut session = backend.open(&q, &opened, None).expect("open");
     let cs = session.update_data(&reordered).expect("update reordered");
     assert!(
         cs.dirty_pages.is_empty(),
@@ -129,7 +129,7 @@ fn update_is_transactional_on_compile_failure() {
     let q = quill();
 
     let mut session = backend
-        .open(&q, &json!({ "msg": "last good" }))
+        .open(&q, &json!({ "msg": "last good" }), None)
         .expect("open");
     let pages = session.page_count();
 
@@ -154,7 +154,7 @@ fn update_tracks_page_count_growth_and_shrink() {
     let q = quill();
 
     let mut session = backend
-        .open(&q, &json!({ "msg": msg(4, None, "") }))
+        .open(&q, &json!({ "msg": msg(4, None, "") }), None)
         .expect("open");
     let small = session.page_count();
 

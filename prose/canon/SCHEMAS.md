@@ -34,7 +34,7 @@ Supported field types:
 | `array` | Ordered list; requires an `items:` element schema (e.g. `items: { type: string }` for `string[]`, `items: { type: object, properties: … }` for a typed table). Optional `max:`, the element count past which the surplus leaves the page ([Cardinality](#cardinality)) |
 | `matrix` | A closed vocabulary someone ticks; requires a `members:` roster. A namespace whose keys the roster fixes, each member an object of a synthesized `held` plus the field's `properties:` (the columns). See [Matrix](#matrix) |
 | `object` | Structured map; requires `properties:` |
-| `date` | A strict calendar date `YYYY-MM-DD`. Rejects any time component (a time-bearing string is a `datetime`, not a truncated date). The common case in a document engine, so it is the unmarked date type. Stored verbatim; lowers to a native Typst `datetime(year:, month:, day:)`, with `display(<addr>, ..)` for a click-to-edit rendering (see `PLATE_DATA.md`) |
+| `date` | A strict calendar date `YYYY-MM-DD`, or the keyword `today` ([The render date](#the-render-date-today)). Rejects any time component (a time-bearing string is a `datetime`, not a truncated date). The common case in a document engine, so it is the unmarked date type. Stored verbatim; lowers to a native Typst `datetime(year:, month:, day:)`, with `display(<addr>, ..)` for a click-to-edit rendering (see `PLATE_DATA.md`) |
 | `datetime` | A strict offset-less wall-clock datetime `YYYY-MM-DDThh:mm[:ss]`, seconds optional (zero-filled). Rejects timezone offsets (`Z`, `±HH:MM`), the space separator, fractional seconds, and a bare date (which is a `date`). An offset is **rejected, never dropped**: the engine does no zone math, keeping wall-clock semantics end to end. Stored verbatim; lowers the same way over the six-component `datetime(year:, .., second:)` |
 | `plaintext` | Navigable **unformatted** prose over the same canonical content (`Content`) as `richtext` (same media type, nav, and regions) but a **literal** codec (`from_plaintext`/`to_plaintext`): delimiters stay literal, no markup, verbatim round-trip. Declare `inline: true` for the single-line variant. Constrained mark-/island-free (`Content::is_plain`); a formatted wire content is rejected (`validation::not_plain`), not stripped. **Rests as the literal string** — in the *document*. A plate receives the content object, exactly as for `richtext` (no backend reads the `plaintext` annotation): there is deliberately no plate-side content→`str` projection, since no plate has needed one |
 | `richtext` | Rich **formatted** prose over a canonical content (`Content`); markdown is a projection of it. Declare `inline: true` for the single-line variant (exactly one `Para` line, no container, no islands). The pre-richtext `markdown` spelling and the retired `type: richtext(inline)` token are schema load errors (`quill::field_parse_error`). **Rests as the canonical content object** |
@@ -791,6 +791,36 @@ two apart. This is a retrofit obligation on existing plates, not only guidance
 for new ones. Where the enum declares `variants:` the obligation also earns
 something: the branch is what makes the world's fields readable without a guard
 (see [Enum variants](#enum-variants)).
+
+### The render date (`today`)
+
+`today` is a `date` value standing for the day of the render. It is valid
+wherever a `date` value is: authored, as a `default:` or an `example:`, at any
+depth. It is not a `datetime` value.
+
+The engine reads no clock. The date is an input to the compile, supplied by
+the host at every door that turns a document into plate data:
+`compile_data` / `compile_checked`, `Quill::resolve` / `reader.resolve`, and
+`Quillmark::open` / `Quillmark::render`. A session keeps the date it was opened
+with for every `update`.
+
+| Compile given | A `today` cell renders | A Typst plate's `datetime.today()` |
+|---|---|---|
+| a date | that date | that date |
+| none | the date's blank (`none`) | fails the render |
+
+- **It stores as written.** `reader.get()`, storage and the blueprint carry
+  `today`; a document never holds the day it was rendered.
+- **`resolve` reports it under its own rung.** The value is the rendered date,
+  the source is the rung that wrote `today` (`authored` or `default`).
+- **Floating is a per-document choice.** `default: today` floats every document
+  that leaves the field unset; an authored `today` floats one document; a
+  written date pins it.
+- **The host owns the time zone.** The CLI, the WASM runtime and the Python
+  binding supply the local date unless given one ([BINDINGS.md](BINDINGS.md)).
+
+A field without a date renders blank because a field has a floor to render at;
+`datetime.today()` has none, so it fails rather than print a date nobody chose.
 
 ## What blocks a render
 

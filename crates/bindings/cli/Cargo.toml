@@ -26,6 +26,7 @@ clap = { version = "~4.6", features = ["derive"] }
 indexmap = { workspace = true }
 quillmark = { workspace = true }
 serde_json = { workspace = true }
+time = { workspace = true, features = ["local-offset"] }
 
 # `quillmark-fixtures` is path-only, so cargo strips it from the published
 # manifest; `include` leaves `tests/` out of the archive besides.
