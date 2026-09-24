@@ -221,7 +221,7 @@ main:
       ui:
         group: additional
         compact: true
-      description: YYYY-MM-DD. Leave blank to use today's date.
+      description: YYYY-MM-DD. Leave blank to render a fill-in field for the signer to date by hand.
 
 card_kinds:
   indorsement:

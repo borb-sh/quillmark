@@ -215,7 +215,9 @@ main:
         compact: true
     date:
       type: date
-      description: YYYY-MM-DD. Leave blank to use today's date.
+      description: >-
+        YYYY-MM-DD. Leave blank to render a fill-in field for the signer to date by
+        hand.
       default: ""
       ui:
         group: additional

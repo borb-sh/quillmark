@@ -115,8 +115,8 @@ fn usaf_memo_date_region_rides_the_vendored_display() {
     let (engine, quill, parsed) = common::seeded_memo();
     let mut session = engine.open(quill, &parsed).expect("open a session");
 
-    // The seed leaves the date blank: a native `today()` fallback inks no field
-    // region, so commit a real date first.
+    // The seed leaves the date blank, which regions through its fill-in widget
+    // rather than the vendored display, so commit a real date first.
     let mut edited = parsed.clone();
     quillmark::TypedWriter::new(quill.config(), &mut edited)
         .set("date", "2026-01-02")
@@ -142,32 +142,14 @@ fn usaf_memo_date_region_rides_the_vendored_display() {
     );
 }
 
-/// An indorsement whose date is blank draws nothing at all, so the widget seated
-/// in its reserved space is the only thing carrying that address. Without it the
-/// endorser's date is the one memo field a preview cannot route a click to.
+/// A blank date draws nothing at all, so the widget seated in its reserved
+/// space is the only thing carrying that address. Without it the one date a
+/// memo leaves for its signer is the one field a preview cannot route a click to.
 #[test]
-fn a_blank_indorsement_date_regions_through_its_fill_in_widget() {
-    // The seed leaves the indorsement date blank, which is the fill-in case.
+fn a_blank_date_regions_through_its_fill_in_widget() {
+    // The seed leaves the memo date and the indorsement date blank.
     let (engine, quill, parsed) = common::seeded_memo();
     let session = engine.open(quill, &parsed).expect("open a session");
-
-    let regions = session.regions();
-    let date = regions
-        .iter()
-        .find(|r| r.field == "$cards.indorsement.0.date")
-        .unwrap_or_else(|| panic!("the blank date must surface a region: {regions:?}"));
-    assert!(
-        date.span.is_none(),
-        "a widget region carries no content span: {date:?}"
-    );
-    let cx = (date.rect[0] + date.rect[2]) / 2.0;
-    let cy = (date.rect[1] + date.rect[3]) / 2.0;
-    assert_eq!(
-        session.field_at(date.page, cx, cy, 0.0).as_deref(),
-        Some("$cards.indorsement.0.date"),
-        "a click on the fill-in widget routes to the card's date"
-    );
-
     let pdf = engine
         .render(
             quill,
@@ -176,10 +158,28 @@ fn a_blank_indorsement_date_regions_through_its_fill_in_widget() {
         )
         .expect("render to PDF");
     let bytes = &pdf.artifacts[0].bytes;
-    assert!(
-        bytes
-            .windows(b"Ind_0_Date".len())
-            .any(|w| w == b"Ind_0_Date"),
-        "the same span is a typeable AcroForm text field in the PDF"
-    );
+
+    let regions = session.regions();
+    for (field, widget) in [("date", "Date"), ("$cards.indorsement.0.date", "Ind_0_Date")] {
+        let date = regions
+            .iter()
+            .find(|r| r.field == field)
+            .unwrap_or_else(|| panic!("the blank {field} must surface a region: {regions:?}"));
+        assert!(
+            date.span.is_none(),
+            "a widget region carries no content span: {date:?}"
+        );
+        let cx = (date.rect[0] + date.rect[2]) / 2.0;
+        let cy = (date.rect[1] + date.rect[3]) / 2.0;
+        assert_eq!(
+            session.field_at(date.page, cx, cy, 0.0).as_deref(),
+            Some(field),
+            "a click on the fill-in widget routes to {field}"
+        );
+        let name = format!("/T ({widget})");
+        assert!(
+            bytes.windows(name.len()).any(|w| w == name.as_bytes()),
+            "{field} is a typeable AcroForm text field named {widget} in the PDF"
+        );
+    }
 }
