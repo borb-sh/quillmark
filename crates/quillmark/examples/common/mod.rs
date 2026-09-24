@@ -14,6 +14,7 @@ pub fn demo(quill_dir: &str, render_output: &str) -> Result<(), Box<dyn Error>> 
     let rendered = engine.render(
         &quill,
         &parsed,
+        None,
         &quillmark::RenderOptions::default().with_output_format(quillmark::OutputFormat::Pdf),
     )?;
     let output_bytes = rendered.artifacts[0].bytes.clone();

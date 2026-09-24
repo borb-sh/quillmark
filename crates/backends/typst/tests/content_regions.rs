@@ -52,7 +52,7 @@ main:
         "body": content(&long),
     });
 
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = TypstBackend.open(&quill(YAML, PLATE), &data, None).expect("open");
     let regions = session.regions();
 
     let intro: Vec<_> = regions.iter().filter(|r| r.field == "intro").collect();
@@ -112,7 +112,7 @@ main:
 "#;
     let data = serde_json::json!({ "intro": content("The same intro, placed twice.") });
 
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = TypstBackend.open(&quill(YAML, PLATE), &data, None).expect("open");
     let regions = session.regions();
     let intro: Vec<_> = regions.iter().filter(|r| r.field == "intro").collect();
     assert_eq!(
@@ -191,7 +191,7 @@ typst:
 "#;
     let data = serde_json::json!({ "subject": "Request for Quarters" });
 
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = TypstBackend.open(&quill(YAML, PLATE), &data, None).expect("open");
     let regions = session.regions();
     let subject: Vec<_> = regions.iter().filter(|r| r.field == "subject").collect();
     assert_eq!(
@@ -250,7 +250,7 @@ main:
 "#;
     let data = serde_json::json!({ "body": content("A body paragraph the package rebuilds.") });
 
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = TypstBackend.open(&quill(YAML, PLATE), &data, None).expect("open");
     let regions = session.regions();
     assert!(
         regions.iter().any(|r| r.field == "body"),
@@ -287,7 +287,7 @@ typst:
     let data =
         serde_json::json!({ "refs": [content("First reference."), content("Second reference.")] });
 
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = TypstBackend.open(&quill(YAML, PLATE), &data, None).expect("open");
     let regions = session.regions();
     for expected in ["refs.0", "refs.1"] {
         assert!(
@@ -353,7 +353,7 @@ card_kinds:
         ],
     });
 
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = TypstBackend.open(&quill(YAML, PLATE), &data, None).expect("open");
     let fields: std::collections::HashSet<String> =
         session.regions().into_iter().map(|r| r.field).collect();
 
@@ -405,7 +405,7 @@ main:
 "#;
     let data = serde_json::json!({ "issued": "2026-01-02" });
 
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = TypstBackend.open(&quill(YAML, PLATE), &data, None).expect("open");
     let regions = session.regions();
     let issued: Vec<_> = regions.iter().filter(|r| r.field == "issued").collect();
     assert_eq!(
@@ -476,7 +476,7 @@ card_kinds:
         ],
     });
 
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = TypstBackend.open(&quill(YAML, PLATE), &data, None).expect("open");
     let fields: std::collections::HashSet<String> =
         session.regions().into_iter().map(|r| r.field).collect();
     assert!(
@@ -531,6 +531,7 @@ main:
         .open(
             &quill(YAML, PLATE),
             &serde_json::json!({ "subject": "typo'd" }),
+            None,
         )
         .err()
         .expect("a typo'd field binding must fail the compile");
@@ -573,7 +574,7 @@ main:
         "intro": content("A stable paragraph the session keeps serving."),
         "when": "2026-07-03",
     });
-    let mut session = TypstBackend.open(&quill(YAML, PLATE), &good).expect("open");
+    let mut session = TypstBackend.open(&quill(YAML, PLATE), &good, None).expect("open");
     let before = session.regions();
     assert!(
         before.iter().any(|r| r.field == "intro"),
@@ -626,7 +627,7 @@ typst:
 "#;
     let data = serde_json::json!({ "subject": "request for quarters" });
 
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = TypstBackend.open(&quill(YAML, PLATE), &data, None).expect("open");
     let regions = session.regions();
     let subject: Vec<_> = regions.iter().filter(|r| r.field == "subject").collect();
     assert_eq!(
@@ -664,7 +665,7 @@ main:
 #form-field("S", type: "text", value: "x", field: "subject")
 "#;
     let err = TypstBackend
-        .open(&quill(YAML, PLATE), &serde_json::json!({}))
+        .open(&quill(YAML, PLATE), &serde_json::json!({}), None)
         .err()
         .expect("an address must still fail when the tables are empty, not absent");
     let msg = format!("{err:?}");
@@ -709,7 +710,7 @@ main:
     });
     // Compile success is the assertion.
     TypstBackend
-        .open(&quill(YAML, PLATE), &data)
+        .open(&quill(YAML, PLATE), &data, None)
         .expect("adversarial data (unterminated <u>, i64::MIN) must still compile");
 }
 
@@ -743,7 +744,7 @@ main:
   form-field("zzz", type: "text", field: "zzz_late", width: 40pt, height: 40pt))
 "#;
     let session = TypstBackend
-        .open(&quill(YAML, PLATE), &serde_json::json!({}))
+        .open(&quill(YAML, PLATE), &serde_json::json!({}), None)
         .expect("open");
     let regions = session.regions();
     let a = regions
@@ -790,7 +791,7 @@ main:
     let data = serde_json::json!({
         "body": content("First paragraph, alpha.\n\nSecond paragraph, beta."),
     });
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = TypstBackend.open(&quill(YAML, PLATE), &data, None).expect("open");
     let body: Vec<_> = session
         .regions()
         .into_iter()
@@ -847,7 +848,7 @@ main:
 #data.body
 "#;
     let data = serde_json::json!({ "body": content("Alpha beta gamma delta epsilon.") });
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = TypstBackend.open(&quill(YAML, PLATE), &data, None).expect("open");
     let body: Vec<_> = session
         .regions()
         .into_iter()
@@ -943,7 +944,7 @@ main:
     .into_normalized();
     assert_eq!(rt.validate(), Ok(()));
     let data = serde_json::json!({ "body": quillmark_content::serial::to_canonical_value(&rt) });
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = TypstBackend.open(&quill(YAML, PLATE), &data, None).expect("open");
 
     let first = session.locate("body", 0).expect("first-glyph caret");
     let last = session.locate("body", 10).expect("last-glyph caret");
@@ -984,7 +985,7 @@ main:
     let data = serde_json::json!({
         "body": content("Intro prose here.\n\n```\nfirst code line\nsecond code line\nthird code line\n```"),
     });
-    let session = TypstBackend.open(&quill(YAML, PLATE), &data).expect("open");
+    let session = TypstBackend.open(&quill(YAML, PLATE), &data, None).expect("open");
     let body: Vec<_> = session
         .regions()
         .into_iter()

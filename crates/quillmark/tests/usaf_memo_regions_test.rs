@@ -17,7 +17,7 @@ fn usaf_memo_regions_cover_body_signature_and_cards() {
     let (engine, quill, parsed) = common::seeded_memo();
 
     let mut session = engine
-        .open(quill, &parsed)
+        .open(quill, &parsed, None)
         .expect("usaf_memo should open a session");
 
     let regions = session.regions();
@@ -84,6 +84,7 @@ fn usaf_memo_regions_cover_body_signature_and_cards() {
         .render(
             quill,
             &parsed,
+            None,
             &RenderOptions::default().with_output_format(OutputFormat::Pdf).with_regions(true),
         )
         .expect("usaf_memo should render to PDF");
@@ -96,6 +97,7 @@ fn usaf_memo_regions_cover_body_signature_and_cards() {
         .render(
             quill,
             &parsed,
+            None,
             &RenderOptions::default().with_output_format(OutputFormat::Pdf),
         )
         .expect("usaf_memo should render to PDF");
@@ -113,7 +115,7 @@ fn usaf_memo_regions_cover_body_signature_and_cards() {
 #[test]
 fn usaf_memo_date_region_rides_the_vendored_display() {
     let (engine, quill, parsed) = common::seeded_memo();
-    let mut session = engine.open(quill, &parsed).expect("open a session");
+    let mut session = engine.open(quill, &parsed, None).expect("open a session");
 
     // The seed leaves the date blank, which regions through its fill-in widget
     // rather than the vendored display, so commit a real date first.
@@ -149,11 +151,12 @@ fn usaf_memo_date_region_rides_the_vendored_display() {
 fn a_blank_date_regions_through_its_fill_in_widget() {
     // The seed leaves the memo date and the indorsement date blank.
     let (engine, quill, parsed) = common::seeded_memo();
-    let session = engine.open(quill, &parsed).expect("open a session");
+    let session = engine.open(quill, &parsed, None).expect("open a session");
     let pdf = engine
         .render(
             quill,
             &parsed,
+            None,
             &RenderOptions::default().with_output_format(OutputFormat::Pdf),
         )
         .expect("render to PDF");

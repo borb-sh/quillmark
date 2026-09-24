@@ -257,7 +257,7 @@ fn non_conforming_value_rests_authored_with_a_diagnostic() {
         &json!(42),
         "the value stays authored: no silent retype"
     );
-    quill.compile_data(&doc).expect("still renders");
+    quill.compile_data(&doc, None).expect("still renders");
     assert!(
         !quill
             .validate(&doc)
@@ -422,7 +422,7 @@ fn the_plate_shape_for_plaintext_is_unchanged() {
             let mut w = quill.writer(&mut doc);
             w.set("note", value).unwrap();
         }
-        let plate = quill.compile_data(&doc).expect("compiles");
+        let plate = quill.compile_data(&doc, None).expect("compiles");
         plate["note"].clone()
     };
 

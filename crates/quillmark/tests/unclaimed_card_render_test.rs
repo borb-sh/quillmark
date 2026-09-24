@@ -26,6 +26,7 @@ fn unclaimed_cards_render_and_warn(quill_name: &str) {
         .render(
             &quill,
             &doc,
+            None,
             &RenderOptions::default().with_output_format(OutputFormat::Svg),
         )
         .unwrap_or_else(|e| panic!("{quill_name}: unclaimed cards must render: {e:?}"));

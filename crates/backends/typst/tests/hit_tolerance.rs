@@ -42,7 +42,7 @@ fn open() -> LiveSession {
         "intro": content(&"Intro text that wraps across more than one line of the measure. ".repeat(3)),
         "body": content(&"Body text that also wraps across more than one line of the measure. ".repeat(3)),
     });
-    TypstBackend.open(&quill(YAML, PLATE), &data).expect("open")
+    TypstBackend.open(&quill(YAML, PLATE), &data, None).expect("open")
 }
 
 /// The `[low, high]` y bands on page 0 that answer at column `x` with no
@@ -189,7 +189,7 @@ fn open_with_a_short_line() -> LiveSession {
         "body": content(&"Body text that fills the measure and wraps past one line. ".repeat(3)),
     });
     TypstBackend
-        .open(&quill(YAML, PLATE), &data)
+        .open(&quill(YAML, PLATE), &data, None)
         .expect("open")
 }
 
@@ -284,7 +284,7 @@ fn open_with_widget() -> LiveSession {
         "body": content("Body text well below the widget."),
     });
     TypstBackend
-        .open(&quill(WIDGET_YAML, WIDGET_PLATE), &data)
+        .open(&quill(WIDGET_YAML, WIDGET_PLATE), &data, None)
         .expect("open")
 }
 
@@ -350,7 +350,7 @@ fn open_with_overlaid_widget() -> LiveSession {
         "body": content(&"Body text under and around the placed widget. ".repeat(6)),
     });
     TypstBackend
-        .open(&quill(WIDGET_YAML, OVERLAID_PLATE), &data)
+        .open(&quill(WIDGET_YAML, OVERLAID_PLATE), &data, None)
         .expect("open")
 }
 

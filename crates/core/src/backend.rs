@@ -1,7 +1,7 @@
 //! Backend trait for output backends.
 
 use crate::error::RenderError;
-use crate::quill::Quill;
+use crate::quill::{CalendarDate, Quill};
 use crate::{session::LiveSession, types::OutputFormat};
 
 /// Backend trait for rendering different output formats.
@@ -20,10 +20,15 @@ pub trait Backend: Send + Sync + std::fmt::Debug {
     /// The backend pulls whatever static inputs it needs straight from
     /// `source`. There is no universal "template" input: a plate is one
     /// backend's private notion, read by that backend from its own files.
+    ///
+    /// `today` is the render date `json_data` was compiled with. A backend
+    /// whose plates can ask for the date answers with it, and the session keeps
+    /// it for every [`update`](LiveSession::update).
     fn open(
         &self,
         source: &Quill,
         json_data: &serde_json::Value,
+        today: Option<CalendarDate>,
     ) -> Result<LiveSession, RenderError>;
 }
 

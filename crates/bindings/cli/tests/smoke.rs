@@ -633,3 +633,54 @@ fn quiet_silences_the_warning_and_the_destination_line() {
         String::from_utf8_lossy(&out.stdout)
     );
 }
+
+/// `--today` is the render date a `today` field renders as; without it the CLI
+/// supplies the local date, and a plate asking `datetime.today()` still renders.
+#[test]
+fn render_dates_a_today_field() {
+    let dir = quill_with_config(
+        r#"quill:
+  name: dated
+  version: 0.1.0
+  backend: typst
+  description: A field dated by the day it renders
+typst:
+  plate_file: plate.typ
+main:
+  fields:
+    issued: { type: date, default: today }
+"#,
+    );
+    std::fs::write(
+        dir.path().join("plate.typ"),
+        "#import \"@local/quillmark-helper:0.1.0\": data\n\
+         #assert.eq(data.issued, datetime.today())\n",
+    )
+    .expect("write plate.typ");
+    let quill = dir.path().to_str().unwrap();
+    let data = |name: &str| -> serde_json::Value {
+        let file = dir.path().join(name);
+        serde_json::from_str(&std::fs::read_to_string(file).expect("data written"))
+            .expect("data is JSON")
+    };
+    let path = |name: &str| dir.path().join(name).to_str().unwrap().to_owned();
+
+    ok(&[
+        "render",
+        quill,
+        "--today",
+        "2026-03-14",
+        "-o",
+        &path("pinned.svg"),
+        "--output-data",
+        &path("pinned.json"),
+    ]);
+    assert_eq!(data("pinned.json")["issued"], "2026-03-14");
+
+    ok(&["render", quill, "-o", &path("local.svg"), "--output-data", &path("local.json")]);
+    let local = data("local.json")["issued"].as_str().unwrap_or_default().to_owned();
+    assert!(local.parse::<quillmark::CalendarDate>().is_ok(), "{local:?} is not a date");
+
+    ok(&["validate", quill]);
+    assert_eq!(run(&["render", quill, "--today", "today"]).status.code(), Some(2));
+}

@@ -32,6 +32,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .render(
             &gf_quill,
             &gf_doc,
+            None,
             &RenderOptions::default().with_output_format(OutputFormat::Pdf),
         )
         .expect("sample_form render");
@@ -44,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Region geometry is a session-level query, not on the render result.
     let gf_session = engine
-        .open(&gf_quill, &gf_doc)
+        .open(&gf_quill, &gf_doc, None)
         .expect("open sample_form session");
     let regions = gf_session.regions();
     println!("\nField regions ({} fields):", regions.len());

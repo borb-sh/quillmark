@@ -50,7 +50,7 @@ const SCALE: f32 = 4.0;
 
 fn open() -> LiveSession {
     TypstBackend
-        .open(&quill(YAML, PLATE), &serde_json::json!({}))
+        .open(&quill(YAML, PLATE), &serde_json::json!({}), None)
         .expect("open")
 }
 

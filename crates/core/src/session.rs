@@ -1,4 +1,4 @@
-use crate::quill::QuillConfig;
+use crate::quill::{CalendarDate, QuillConfig};
 use crate::{
     document::Document,
     error::{Diagnostic, RenderError, RenderResult},
@@ -165,6 +165,9 @@ pub struct LiveSession {
     /// because the compile is a pure config read; the font and package bytes
     /// stay with the backend that needed them.
     config: QuillConfig,
+    /// The render date the session was opened with, which every
+    /// [`update`](Self::update) compiles against.
+    today: Option<CalendarDate>,
     /// The current compile's geometry, rebuilt by the backend at most once per
     /// compile: invariant between commits, so the commit points clear it.
     regions: OnceLock<Vec<RenderedRegion>>,
@@ -178,10 +181,15 @@ impl LiveSession {
     /// verb whose plate is always compiled by *this* config: the pairing is
     /// structural, not an obligation on the caller.
     #[doc(hidden)]
-    pub fn new(inner: Box<dyn SessionHandle>, config: QuillConfig) -> Self {
+    pub fn new(
+        inner: Box<dyn SessionHandle>,
+        config: QuillConfig,
+        today: Option<CalendarDate>,
+    ) -> Self {
         Self {
             inner,
             config,
+            today,
             regions: OnceLock::new(),
         }
     }
@@ -302,7 +310,7 @@ impl LiveSession {
     /// same pipeline as the first compile, so an edit cannot reach the backend
     /// under a schema the session was not opened against.
     pub fn update(&mut self, doc: &Document) -> Result<ChangeSet, RenderError> {
-        let json_data = self.config.compile_checked(doc)?;
+        let json_data = self.config.compile_checked(doc, self.today)?;
         self.regions.take();
         self.inner.update(&json_data)
     }
@@ -412,6 +420,7 @@ main:
                 applies: 0,
             }),
             config(),
+            None,
         );
         assert_eq!(session.warnings()[0].message, "open-time");
 
@@ -494,7 +503,7 @@ main:
 
     #[test]
     fn field_at_tie_takes_the_later_region() {
-        let session = LiveSession::new(Box::new(TiedRegionHandle), config());
+        let session = LiveSession::new(Box::new(TiedRegionHandle), config(), None);
         assert_eq!(session.field_at(0, 5.0, 5.0, 0.0).as_deref(), Some("over"));
         // Outside both rects by the same gap: the tolerant path ties too.
         assert_eq!(session.field_at(0, 14.0, 5.0, 8.0).as_deref(), Some("over"));
@@ -502,7 +511,7 @@ main:
 
     #[test]
     fn field_boxes_derives_off_regions() {
-        let session = LiveSession::new(Box::new(RegionHandle), config());
+        let session = LiveSession::new(Box::new(RegionHandle), config(), None);
         let boxes = session.field_boxes("subject");
         assert_eq!(boxes.len(), 1, "one span-bearing region → one box");
         assert_eq!(boxes[0].field, "subject");

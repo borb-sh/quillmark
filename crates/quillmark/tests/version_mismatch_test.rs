@@ -44,6 +44,7 @@ fn render_ref(
     engine.render(
         &quill,
         &doc,
+        None,
         &RenderOptions::default().with_output_format(OutputFormat::Pdf),
     )
 }
@@ -106,7 +107,7 @@ fn update_rechecks_the_reference_against_the_sessions_quill() {
 
     let engine = Quillmark::new();
     let mut session = engine
-        .open(&quill, &doc("test_quill@3"))
+        .open(&quill, &doc("test_quill@3"), None)
         .expect("open against the matching quill");
     let pages = session.page_count();
 

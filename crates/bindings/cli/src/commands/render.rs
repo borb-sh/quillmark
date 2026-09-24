@@ -1,8 +1,8 @@
-use crate::commands::load_quill;
+use crate::commands::{load_quill, render_date};
 use crate::errors::{CliError, Result};
 use crate::output::{derive_output_path, page_output_path, write_file, write_stdout};
 use clap::Parser;
-use quillmark::{OutputFormat, Quillmark, RenderOptions, Severity};
+use quillmark::{CalendarDate, OutputFormat, Quillmark, RenderOptions, Severity};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -35,9 +35,14 @@ pub struct RenderArgs {
     /// Output intermediate JSON data to file
     #[arg(long, value_name = "DATA_FILE")]
     output_data: Option<PathBuf>,
+
+    /// The render date a `today` date renders as (default: the local date)
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    today: Option<CalendarDate>,
 }
 
 pub fn execute(args: RenderArgs) -> Result<()> {
+    let today = Some(render_date(args.today));
     let quill = load_quill(&args.quill)?;
 
     let (parsed, parse_warnings, markdown_path_for_output) =
@@ -63,7 +68,7 @@ pub fn execute(args: RenderArgs) -> Result<()> {
     )?;
 
     if let Some(data_path) = args.output_data {
-        let json_data = quill.compile_data(&parsed).map_err(CliError::Render)?;
+        let json_data = quill.compile_data(&parsed, today).map_err(CliError::Render)?;
         let f = std::fs::File::create(&data_path).map_err(|e| {
             CliError::Io(std::io::Error::new(
                 e.kind(),
@@ -86,6 +91,7 @@ pub fn execute(args: RenderArgs) -> Result<()> {
     let mut result = engine.render(
         &quill,
         &parsed,
+        today,
         &RenderOptions::default().with_output_format(output_format),
     )?;
 

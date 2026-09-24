@@ -521,12 +521,19 @@ impl Quillmark {
         }
     }
 
-    /// Open a live render session for `doc` against `quill`'s backend.
+    /// Open a live render session for `doc` against `quill`'s backend, on the
+    /// render date `today` (`YYYY-MM-DD`, default the local date).
     #[wasm_bindgen(js_name = open)]
-    pub fn open(&self, quill: &Quill, doc: &Document) -> Result<LiveSession, JsValue> {
+    pub fn open(
+        &self,
+        quill: &Quill,
+        doc: &Document,
+        today: Option<String>,
+    ) -> Result<LiveSession, JsValue> {
+        let today = Some(render_date(today)?);
         let session = self
             .inner
-            .open(&quill.inner, &doc.inner)
+            .open(&quill.inner, &doc.inner, today)
             .map_err(|e| WasmError::from(e).to_js_value())?;
         Ok(LiveSession {
             inner: session,
@@ -537,18 +544,20 @@ impl Quillmark {
 
     /// Render `doc` against `quill` in one shot. Convenience over `open` +
     /// `LiveSession.render`: an unset `output_format` falls back to the
-    /// backend's first supported format.
+    /// backend's first supported format. `today` reads as on `open`.
     #[wasm_bindgen(js_name = render)]
     pub fn render(
         &self,
         quill: &Quill,
         doc: &Document,
         opts: Option<Ts<RenderOptions>>,
+        today: Option<String>,
     ) -> Result<Ts<RenderResult>, JsValue> {
         let rust_opts = render_options_or_throw(opts)?;
+        let today = Some(render_date(today)?);
         let result = self
             .inner
-            .render(&quill.inner, &doc.inner, &rust_opts)
+            .render(&quill.inner, &doc.inner, today, &rust_opts)
             .map_err(|e| WasmError::from(e).to_js_value())?;
         let mut warnings: Vec<Diagnostic> =
             doc.parse_warnings.iter().cloned().map(Into::into).collect();
@@ -716,10 +725,10 @@ impl Quill {
     /// `FieldSource` rung it came from (`"authored" | "default" | "blank"`). The
     /// card body is a `body` sibling on its card, never a row in `fields`, and
     /// `null` when the kind enables no body. Value and provenance only;
-    /// completeness stays `validate`'s.
+    /// completeness stays `validate`'s. `today` reads as on `Quillmark.open`.
     #[wasm_bindgen(js_name = _resolve, skip_typescript, unchecked_return_type = "Resolved")]
-    pub fn resolve(&self, doc: &Document) -> Result<JsValue, JsValue> {
-        let states = self.inner.resolve(&doc.inner);
+    pub fn resolve(&self, doc: &Document, today: Option<String>) -> Result<JsValue, JsValue> {
+        let states = self.inner.resolve(&doc.inner, Some(render_date(today)?));
         serialize_nullable_or_throw(&states, "resolve")
     }
 
@@ -2276,6 +2285,24 @@ where
     value
         .to_rust()
         .map_err(|e| WasmError::from(e.to_string()).to_js_value())
+}
+
+/// The render date a host supplies: `today` as `YYYY-MM-DD`, else JavaScript's
+/// local date.
+fn render_date(today: Option<String>) -> Result<quillmark_core::quill::CalendarDate, JsValue> {
+    match today {
+        Some(s) => s.parse().map_err(|e: String| WasmError::from(e).to_js_value()),
+        None => {
+            let now = js_sys::Date::new_0();
+            quillmark_core::quill::CalendarDate::new(
+                now.get_full_year() as i32,
+                // `get_month` is 0-based.
+                now.get_month() as u8 + 1,
+                now.get_date() as u8,
+            )
+            .ok_or_else(|| WasmError::from("the local clock reads no date".to_string()).to_js_value())
+        }
+    }
 }
 
 /// The render verbs' shared argument read: an absent `options` is the default.

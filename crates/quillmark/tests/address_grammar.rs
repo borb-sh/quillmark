@@ -277,7 +277,7 @@ fn bound(helper: &str, call: &str, address: &str) -> String {
 
 fn compile(plate: &str) -> Result<quillmark::LiveSession, String> {
     TypstBackend
-        .open(&quill(plate), &data())
+        .open(&quill(plate), &data(), None)
         .map_err(|e| format!("{e}"))
 }
 

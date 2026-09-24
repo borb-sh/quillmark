@@ -147,11 +147,23 @@ discharges it.
 | `integer`  | Integer-only numeric scalar, sized as an `i64`; a literal past that range takes `number` |
 | `boolean`  | `true` or `false` |
 | `array`    | Ordered list; requires an `items:` element schema. Optional `max:`, the element count the page holds (see [`max`](#max-what-the-page-holds)) |
-| `date`     | A strict calendar date `YYYY-MM-DD`; rejects any time component |
+| `date`     | A strict calendar date `YYYY-MM-DD`, or `today` (see [Dated by the render](#dated-by-the-render-today)); rejects any time component |
 | `datetime` | A strict offset-less wall-clock datetime `YYYY-MM-DDThh:mm[:ss]`; rejects offsets, the space separator, fractional seconds, and bare dates |
 | `richtext` | Rich, **formatted** prose over a canonical content; backends lower it to the target format. Markdown is its import/export projection. Add `inline: true` for the single-paragraph variant |
 | `object`   | Structured map; requires a `properties:` map |
 | `matrix`   | A closed vocabulary the author ticks; requires a `members:` roster. Each member is an object of a synthesized `held` plus the field's `properties:` (see [Matrix](#matrix-a-vocabulary-the-author-ticks)) |
+
+#### Dated by the render: `today`
+
+A certificate or a form issued on the spot is dated by the day it is rendered. A `date` value may be the word `today`, authored in a document or as a `default:`:
+
+```yaml
+issued:
+  type: date
+  default: today   # every document leaving the field unset renders on its render date
+```
+
+The document stores `today`, not a date. The render supplies the date: the CLI and the WASM and Python bindings use the local date unless given one (`quillmark render --today 2026-03-14`, `engine.render(quill, doc, opts, "2026-03-14")`, `engine.render(..., today=date(2026, 3, 14))`). A plate's `datetime.today()` returns the same date. A document that writes a date instead pins it.
 
 #### Optional fields: `t?`
 
