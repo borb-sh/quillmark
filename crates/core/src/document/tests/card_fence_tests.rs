@@ -25,18 +25,61 @@ fn every_tilde_opener_parses_as_the_bare_form() {
     }
 }
 
+/// No schema can claim a block that names no `$kind`, so it is no card: it
+/// stays in the body above as a code block, and the prose after it with it.
 #[test]
-fn card_fence_without_kind_is_allowed() {
-    let src = "~~~card-yaml\n$quill: q\n$kind: main\n~~~\n\n~~~card-yaml\nname: Widget\n~~~\n";
-    let doc = Document::parse(src).unwrap().document;
+fn a_block_without_kind_is_code_in_the_body_above() {
+    let src = "~~~\n$quill: q\n$kind: main\n~~~\n\nIntro.\n\n~~~yaml\nname: server\n~~~\n\nConclusion.\n\n\
+               ~~~\n$kind: note\n~~~\n\nNote.\n\n~~~python\nprint(\"hi\")\n~~~\n\n~~~~\n- a\n- b\n~~~~\n";
+    let out = Document::parse(src).unwrap();
+    let doc = out.document;
     assert_eq!(doc.cards().len(), 1);
-    assert_eq!(doc.cards()[0].kind(), None);
+    let main = doc.main().body_markdown();
+    assert!(main.contains("name: server") && main.contains("Conclusion."), "{main}");
+    let note = doc.cards()[0].body_markdown();
+    assert!(note.contains("print(\"hi\")") && note.contains("- a"), "{note}");
+
+    let warned: Vec<(Option<&str>, Option<u32>)> = out
+        .warnings
+        .iter()
+        .map(|w| (w.code.as_deref(), w.location.as_ref().map(|l| l.line)))
+        .collect();
+    let missing = Some("parse::missing_kind");
+    assert_eq!(warned, [(missing, Some(8)), (missing, Some(20)), (missing, Some(24))]);
+}
+
+/// A block's YAML is read before its `$kind`, whatever its info string, so an
+/// unreadable one fails at its line.
+#[test]
+fn an_unreadable_block_fails_whatever_its_info_string() {
+    let head = "~~~\n$quill: q\n$kind: main\n~~~\n\nBody.\n\n";
+    let fails = |block: &str| Document::parse(&format!("{head}{block}")).unwrap_err().to_diagnostic();
+
+    let code = fails("~~~python\nvalues: [1, 2\n~~~\n");
+    assert_eq!(code.code.as_deref(), Some("parse::yaml_error_with_location"));
+    assert_eq!(code.location.map(|l| l.line), Some(9));
+
+    let card = fails("~~~yaml\n$kind: note\nbad-name: 1\n~~~\n");
+    assert_eq!(card.code.as_deref(), Some("parse::invalid_structure"));
+}
+
+/// The root is the first block whatever it holds, so code there fails at its
+/// fence and names the backtick fence.
+#[test]
+fn tilde_code_as_the_root_fails_at_its_fence() {
+    let diag = Document::parse("Example:\n\n~~~python\nprint(\"hi\")\n~~~\n")
+        .unwrap_err()
+        .to_diagnostic();
+    assert_eq!(diag.code.as_deref(), Some("parse::payload_not_mapping"));
+    assert_eq!(diag.location.map(|l| (l.line, l.column)), Some((3, 1)));
+    assert_eq!(diag.args.get("info"), Some(&serde_json::json!("python")));
+    assert_eq!(diag.args.get("actual"), Some(&serde_json::json!("string")));
 }
 
 #[test]
 fn shorter_tilde_run_does_not_close_a_longer_fence() {
     // CommonMark fence matching: the closer must be at least as long as the opener.
-    let src = "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~~\nbody: \"a ~~~ b\"\n~~~~\n";
+    let src = "~~~\n$quill: q\n$kind: main\n~~~\n\n~~~~\n$kind: note\nbody: \"a ~~~ b\"\n~~~~\n";
     let doc = Document::parse(src).unwrap().document;
     assert_eq!(doc.cards().len(), 1);
     assert_eq!(
@@ -51,40 +94,6 @@ fn backtick_fence_is_the_code_block_escape_hatch() {
     let doc = Document::parse(src).unwrap().document;
     assert_eq!(doc.cards().len(), 0);
     assert!(doc.main().body_markdown().contains("not a card"));
-}
-
-#[test]
-fn tilde_code_in_a_body_fails_at_its_fence() {
-    let head = "~~~\n$quill: q\n$kind: main\n~~~\n\nExample:\n\n";
-    let fails = |block: &str| {
-        Document::parse(&format!("{head}{block}"))
-            .unwrap_err()
-            .to_diagnostic()
-    };
-
-    let tagged = fails("~~~python\nprint(\"hi\")\n~~~\n");
-    assert_eq!(tagged.code.as_deref(), Some("parse::payload_not_mapping"));
-    assert_eq!(tagged.location.map(|l| (l.line, l.column)), Some((8, 1)));
-    assert_eq!(tagged.args.get("info"), Some(&serde_json::json!("python")));
-    assert_eq!(tagged.args.get("actual"), Some(&serde_json::json!("string")));
-
-    let bare = fails("~~~~  \n- a\n- b\n~~~~\n");
-    assert_eq!(bare.code.as_deref(), Some("parse::payload_not_mapping"));
-    assert_eq!(bare.args.get("info"), None);
-    assert_eq!(bare.args.get("actual"), Some(&serde_json::json!("sequence")));
-
-    // Code with a `: ` in it reads as a mapping and fails on a field name.
-    let colon = fails("~~~python\ndef f(x):\n    return x\n~~~\n");
-    assert_eq!(colon.code.as_deref(), Some("parse::invalid_structure"));
-    assert!(
-        colon.message.contains("line 8") && colon.message.contains("```python"),
-        "{}",
-        colon.message
-    );
-
-    let card = fails("~~~yaml\n$kind: note\nbad-name: 1\n~~~\n");
-    assert_eq!(card.code.as_deref(), Some("parse::invalid_structure"));
-    assert!(!card.message.contains("```"), "{}", card.message);
 }
 
 #[test]

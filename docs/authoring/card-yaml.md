@@ -60,10 +60,11 @@ on the block's typed metadata.
   `main` by position; `$kind: main` may be omitted or declared explicitly:
   any other value is a parse error. A composable card names its kind, matching
   `[a-z_][a-z0-9_]*` other than `main`, from the quill's `card_kinds`. A card
-  with no `$kind`, or with a kind the quill does not declare, still renders,
-  but nothing checks its fields, and a plate shows only the kinds it knows.
-  `quill.validate(doc)` warns on it (`validation::kindless_card`,
-  `validation::unknown_card`) and lists the declared kinds.
+  with no `$kind` is no card: it renders as a code block in the body above,
+  and parsing warns (`parse::missing_kind`) at its fence. A card with a kind
+  the quill does not declare still renders, but nothing checks its
+  fields, and a plate shows only the kinds it knows. `quill.validate(doc)`
+  warns on it (`validation::unknown_card`) and lists the declared kinds.
 - **`$ext: <mapping>`** is an opaque YAML mapping reserved for out-of-band
   extension data: UI editor state, agent annotations, anything bespoke to a
   consumer that should not reach the rendered output. Round-trips through

@@ -308,9 +308,9 @@ pub enum ParseError {
     #[error("{0}")]
     BodyImport(String),
 
-    /// A card-yaml block's payload reads as YAML but not as a mapping: most
-    /// often code fenced with tildes, since a column-zero `~~~` always opens a
-    /// card.
+    /// The root card-yaml block's payload reads as YAML but not as a mapping:
+    /// most often a document opening with code fenced in tildes, since the
+    /// first column-zero `~~~` block is the root whatever it holds.
     /// Code `parse::payload_not_mapping`.
     #[error("{}", payload_not_mapping_message(info.as_deref(), actual))]
     PayloadNotMapping {
@@ -347,29 +347,22 @@ fn block_label(block_index: usize) -> String {
 }
 
 fn payload_not_mapping_message(info: Option<&str>, actual: &str) -> String {
-    match info {
-        Some(info) => format!(
-            "`~~~{info}` opens a card-yaml block, not a code block, and its payload is a \
-             YAML {actual}, not a mapping of fields"
-        ),
-        None => format!(
-            "`~~~` opens a card-yaml block, and its payload is a YAML {actual}, not a \
-             mapping of fields"
-        ),
-    }
+    let fence = info.unwrap_or("");
+    format!(
+        "`~~~{fence}` opens the root card-yaml block, and its payload is a YAML {actual}, \
+         not a mapping of fields"
+    )
 }
 
-/// The hint for code fenced with `~~~`: the rule it met and the fence to use.
-pub(crate) fn tilde_code_hint(info: Option<&str>) -> String {
-    match info {
-        Some(info) => format!(
-            "Every column-zero `~~~` fence opens a card-yaml block, whatever its info \
-             string. Fence code with backticks instead: ```{info}"
-        ),
-        None => "Every column-zero `~~~` fence opens a card-yaml block, whose payload is \
-                 `key: value` fields. Fence code with backticks instead: ```"
-            .to_string(),
-    }
+/// The hint for a document opening with code fenced in `~~~`: the rule it met
+/// and the fence to use.
+fn tilde_code_hint(info: Option<&str>) -> String {
+    let fence = info.unwrap_or("");
+    format!(
+        "A document's first column-zero `~~~` block is its root card-yaml block, whatever \
+         its info string: open the document with `~~~`, `$quill: <name>`, and a closing \
+         `~~~`. Fence code before it with backticks: ```{fence}"
+    )
 }
 
 /// The document a [`ParseError`] points at. Markdown reaches the engine as a
@@ -800,10 +793,6 @@ mod args_canon {
         add(
             "validation::unknown_card",
             crate::quill::compose::unknown_card_warning(&card, "ghost", &["sig"]).args,
-        );
-        add(
-            "validation::kindless_card",
-            crate::quill::compose::kindless_card_warning(&card, &["sig"]).args,
         );
         add(
             "validation::body_disabled",

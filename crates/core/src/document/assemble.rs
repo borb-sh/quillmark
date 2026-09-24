@@ -275,13 +275,28 @@ pub(super) fn decompose_with_warnings(
 
     // The first block is the document root; the rest are composable cards.
     let scan = find_metadata_blocks(markdown)?;
-    let mut blocks = scan.blocks;
-    let warnings = scan.warnings;
+    let mut warnings = scan.warnings;
 
-    if blocks.is_empty() {
+    if scan.blocks.is_empty() {
         return Err(crate::error::ParseError::MissingQuill(
             missing_block_message(markdown, scan.unclosed_root.as_ref()),
         ));
+    }
+
+    // A block after the root that names no `$kind` is no card: no schema can
+    // claim it. It stays in the body above as the fenced code block CommonMark
+    // reads it as, which `body_after` spans once the block leaves the list.
+    let mut blocks: Vec<MetadataBlock> = Vec::with_capacity(scan.blocks.len());
+    for (idx, block) in scan.blocks.into_iter().enumerate() {
+        let kinded = block
+            .meta_items
+            .iter()
+            .any(|m| matches!(m, PayloadItem::Kind { .. }));
+        if idx == 0 || kinded {
+            blocks.push(block);
+        } else {
+            warnings.push(missing_kind_warning(line_of(markdown, block.start)));
+        }
     }
 
     let root_mapping = payload_mapping(markdown, &mut blocks[0])?;
@@ -330,7 +345,6 @@ pub(super) fn decompose_with_warnings(
     if main_payload.kind().is_none() {
         main_payload.set_kind("main");
     }
-    let mut warnings = warnings;
     for w in &blocks[0].pre_warnings {
         warnings.push(w.clone());
     }
@@ -392,23 +406,9 @@ pub(super) fn decompose_with_warnings(
             card_mapping,
         )
         .map_err(|e| match e {
-            // Code with a `: ` in it reads as a mapping and fails here instead
-            // of as `PayloadNotMapping`, so a fence tagged with a language
-            // carries the same hint. `yaml` and `card-yaml` tag real cards.
-            ParseError::InvalidStructure(msg) => match opener_info(markdown, block.start)
-                .filter(|info| !matches!(*info, "yaml" | "card-yaml"))
-            {
-                Some(info) => ParseError::InvalidStructure(format!(
-                    "Invalid YAML in the `~~~{}` card block at line {}: {}. {}",
-                    info,
-                    line_of(markdown, block.start),
-                    msg,
-                    crate::error::tilde_code_hint(Some(info))
-                )),
-                None => {
-                    ParseError::InvalidStructure(format!("Invalid YAML in card block: {}", msg))
-                }
-            },
+            ParseError::InvalidStructure(msg) => {
+                ParseError::InvalidStructure(format!("Invalid YAML in card block: {}", msg))
+            }
             other => other,
         })?;
         for w in &blocks[idx].pre_warnings {
@@ -444,7 +444,8 @@ fn take_meta_item(typed: &mut [Option<PayloadItem>], key: &str) -> Option<Payloa
 }
 
 /// The block's payload as a mapping, an empty or null payload reading as an
-/// empty one. Anything else is refused at the opener's line.
+/// empty one. Anything else is refused at the opener's line: in practice the
+/// root, since a card's `$kind` makes its payload a mapping.
 fn payload_mapping(
     markdown: &str,
     block: &mut MetadataBlock,
@@ -458,6 +459,27 @@ fn payload_mapping(
             actual: yaml_type_name(&other),
         }),
     }
+}
+
+fn missing_kind_warning(line: usize) -> Diagnostic {
+    Diagnostic::new(
+        Severity::Warning,
+        format!(
+            "The `~~~` block at line {line} names no `$kind`, so it reads as a code block \
+             in the body above, not a card."
+        ),
+    )
+    .with_code("parse::missing_kind".to_string())
+    .with_location(crate::error::Location::new(
+        crate::error::DOCUMENT_FILE.to_string(),
+        line as u32,
+        1,
+    ))
+    .with_hint(
+        "Add a `$kind: <kind>` line to make it a card. To keep it as code, fence it with \
+         backticks (```)."
+            .to_string(),
+    )
 }
 
 /// The 1-indexed line holding byte `pos`.

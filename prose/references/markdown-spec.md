@@ -102,8 +102,9 @@ the next opening fence or EOF.
   write a literal fenced *code* block in prose with a **backtick fence**
   (```` ``` ````), including a YAML one (```` ```yaml ````). Tildes offer no
   escape: neither a longer run nor a language info string opens a code block.
-  A tilde-fenced code block reaches the YAML parser as a payload, so it fails
-  under §10 unless it happens to be a well-formed card.
+  A tilde-fenced code block reaches the YAML parser as a payload. YAML that
+  does not parse fails under §10; YAML that parses and names no `$kind` reads
+  as code with a warning (§3.3).
 - **Indentation.** Both fences are at column zero: **no leading spaces**.
   An indented opener (1–3 spaces) is *not* a card-yaml opener: it is
   delegated to CommonMark as an ordinary fenced code block, exactly like an
@@ -166,9 +167,12 @@ author wrote the line.
   `main` by position. An explicit `$kind: main` is accepted (round-trips
   byte-equal); omitting it is also accepted and synthesised at parse time.
   A non-`main` `$kind` on the root is a parse error. No composable card may
-  declare `$kind: main`. A composable block may omit `$kind`: it parses as a
-  *kindless* card and emits without the line. Whether a kind, or its absence,
-  names anything a quill declares is the schema's question, not the parser's.
+  declare `$kind: main`. A block after the root whose payload names no
+  `$kind` is no card, since no schema could claim it: it stays in the prose
+  body above as the fenced code block CommonMark reads it as, info string
+  included, and the parser warns (`parse::missing_kind`). Its payload is read
+  first, so YAML that does not parse still fails (§10). Whether a kind names
+  anything a quill declares is the schema's question, not the parser's.
 - **`$ext: <mapping>`**: an opaque, optional **mapping** reserved for
   out-of-band extension data (UI editor state, agent annotations, …).
   Required to be a YAML mapping (object); scalars and sequences are
@@ -368,7 +372,8 @@ CommonMark-native syntax covers underline.
 not a fenced code block, whatever its info string** (§3.2, §4). A backtick
 fence is the one fence for code. Rationale: the card-yaml format claims the
 tilde fence outright, so whether a block is data never depends on its info
-string.
+string. A block after the root that names no `$kind` falls back to the code
+block CommonMark reads (§3.3).
 
 No other syntax deviates from CommonMark. Delimiter-run semantics for `*`,
 `_`, `**`, `__`, and `~~` follow CommonMark and GFM exactly: in particular,
@@ -526,10 +531,12 @@ Parse errors include:
 - A `$` metadata key whose value type is incompatible with the key.
 - A data-field name failing `/^[A-Za-z_][A-Za-z0-9_]*$/`.
 - Invalid YAML inside any block payload.
-- A payload that is YAML but not a mapping: a string, number, boolean or
+- A root payload that is YAML but not a mapping: a string, number, boolean or
   sequence (`PayloadNotMapping`). An empty or null payload is an empty
   mapping. The error is located at the opener's line and names the backtick
-  fence (§6.2), since tilde-fenced code is the usual source.
+  fence (§6.2), since a document opening with tilde-fenced code is the usual
+  source. A later block's non-mapping payload names no `$kind`, so it reads as
+  code (§3.3).
 - Any §8 limit exceeded.
 
 ## 11. References

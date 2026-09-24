@@ -481,6 +481,7 @@ impl TryFrom<DocumentV0_115_0> for Document {
             .into_iter()
             .map(Card::try_from)
             .collect::<Result<Vec<_>, _>>()?;
+        let mut kindless = false;
         for card in &cards {
             if card.quill().is_some() {
                 return Err(StorageError::Malformed(
@@ -492,22 +493,32 @@ impl TryFrom<DocumentV0_115_0> for Document {
                     "composable cards must not carry a $seed entry".into(),
                 ));
             }
-            if let Some(kind) = card.kind() {
-                match validate_composable_kind(kind) {
-                    Ok(()) => {}
-                    Err(super::meta::CardKindError::InvalidName) => {
-                        return Err(StorageError::Malformed(format!(
-                            "invalid composable card kind {kind:?}: must match \
-                             [a-z_][a-z0-9_]*"
-                        )));
-                    }
-                    Err(super::meta::CardKindError::Reserved) => {
-                        return Err(StorageError::Malformed(format!(
-                            "composable card kind {kind:?} is reserved (root only)"
-                        )));
-                    }
+            let Some(kind) = card.kind() else {
+                kindless = true;
+                continue;
+            };
+            match validate_composable_kind(kind) {
+                Ok(()) => {}
+                Err(super::meta::CardKindError::InvalidName) => {
+                    return Err(StorageError::Malformed(format!(
+                        "invalid composable card kind {kind:?}: must match \
+                         [a-z_][a-z0-9_]*"
+                    )));
+                }
+                Err(super::meta::CardKindError::Reserved) => {
+                    return Err(StorageError::Malformed(format!(
+                        "composable card kind {kind:?} is reserved (root only)"
+                    )));
                 }
             }
+        }
+        if kindless {
+            // A block naming no `$kind` is a code block in the body above, so a
+            // stored card without one reads as its markdown parses.
+            let markdown = Document { main, cards }.to_markdown();
+            return Document::parse(&markdown)
+                .map(|parsed| parsed.document)
+                .map_err(|e| StorageError::Malformed(e.to_string()));
         }
         Ok(Document::from_main_and_cards(main, cards))
     }
@@ -1592,6 +1603,36 @@ title: Hi
         }"#;
         let err = serde_json::from_str::<Document>(json).unwrap_err();
         assert!(err.to_string().contains("reserved (root only)"));
+    }
+
+    /// A stored card with no `$kind` loads as its markdown parses: a code
+    /// block, its body joining the body above it.
+    #[test]
+    fn a_stored_kindless_card_folds_into_the_body_above() {
+        let parsed = Document::parse(
+            "~~~\n$quill: q@1.0\n~~~\n\nIntro.\n\n~~~\n$kind: note\n~~~\n\nNote.\n",
+        )
+        .unwrap()
+        .document;
+        let kindless = Payload::from_items(vec![PayloadItem::Field {
+            key: "name".to_string(),
+            value: QuillValue::from_json(serde_json::json!("server")),
+            fill: false,
+        }]);
+        let kindless = Card::from_parts(kindless, super::super::import_body("Conclusion.").unwrap());
+        let stored = Document {
+            main: parsed.main().clone(),
+            cards: vec![kindless, parsed.cards()[0].clone()],
+        };
+
+        let json = serde_json::to_string(&stored).unwrap();
+        let restored: Document = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.cards().len(), 1);
+        assert_eq!(restored.cards()[0].kind(), Some("note"));
+        assert_eq!(
+            restored.main().body_markdown(),
+            "Intro.\n\n```\nname: server\n```\n\nConclusion."
+        );
     }
 
     #[test]

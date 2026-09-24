@@ -179,9 +179,8 @@ fn resolve_card_fields(
 }
 
 /// Resolve one composable card. A card whose `$kind` names a schema resolves
-/// through the ladder; an unknown-kind card (declared `$kind` with no schema, or
-/// a kindless card) carries its authored fields verbatim: no coercion, no
-/// ladder, no `$body` row.
+/// through the ladder; a card whose `$kind` names none carries its authored
+/// fields and body verbatim: no coercion, no ladder.
 fn card_states(
     config: &QuillConfig,
     card: &Card,
@@ -202,7 +201,6 @@ fn card_states(
             }
         }
         None => {
-            // `to_index_map` drops `$` keys, so no body row either.
             let fields = card
                 .payload()
                 .to_index_map()
@@ -217,7 +215,7 @@ fn card_states(
                 kind,
                 index,
                 fields,
-                body: None,
+                body: Some(body_state(card)),
             }
         }
     }
@@ -531,17 +529,17 @@ card_kinds:
         let quill = quill_from_yaml(QUILL);
         let doc = parse(
             "~~~card-yaml\n$quill: fs_test@1.0\n$kind: main\ntitle: T\n~~~\n\n\
-             ~~~card-yaml\n$kind: mystery\nfoo: bar\n~~~\nUnread body.\n",
+             ~~~card-yaml\n$kind: mystery\nfoo: bar\n~~~\nMystery body.\n",
         );
         let states = quill.resolve(&doc, None);
         let card = &states.cards[0];
 
         assert_eq!(card.kind.as_deref(), Some("mystery"));
         assert_eq!(card.index, 0);
-        // Authored fields only: no body row, no ladder.
+        // Authored fields and body, no ladder.
         assert_eq!(row(&card.fields, "foo").source, FieldSource::Authored);
         assert_eq!(row(&card.fields, "foo").value.as_json(), &serde_json::json!("bar"));
-        assert!(card.body.is_none());
+        assert_eq!(card.body.as_ref().map(|b| b.source), Some(FieldSource::Authored));
     }
 
 

@@ -24,7 +24,7 @@ severity.
 
 **`ParseError`**: parsing-stage error enum, `InputTooLarge`, `TooManyFields`, `TooManyCards`, `InvalidStructure`, `EmptyInput`, `MissingQuill`, `InvalidQuillReference`, `BodyImport`, `PayloadNotMapping`, `YamlErrorWithLocation`; converts to `Diagnostic` via `to_diagnostic()`. The `InvalidQuillReference` case (`parse::invalid_quill_reference`) attaches the canonical `$quill` grammar (`quill_ref_hint()`) as the diagnostic hint. That hint is the single source of truth for the reference grammar: bindings surface it verbatim (e.g. WASM `Document.quillRefHint`) rather than re-stating the rule.
 
-The `PayloadNotMapping` case (`parse::payload_not_mapping`) is a card-yaml payload that is YAML but not a mapping, usually tilde-fenced code. It locates at the block's opening fence, and its hint names the backtick fence, spelled with the opener's info string.
+The `PayloadNotMapping` case (`parse::payload_not_mapping`) is a root card-yaml payload that is YAML but not a mapping, usually a document opening with tilde-fenced code: the first `~~~` block is the root whatever it holds, while a later block naming no `$kind` reads as code (`parse::missing_kind`, a warning). It locates at the block's opening fence, and its hint names the backtick fence, spelled with the opener's info string.
 
 The diagnostic's `message` is the variant's `Display` rendering, so the
 `#[error]` attribute is the one place a variant's English is spelled and a Rust
@@ -141,8 +141,8 @@ families:
   [SCHEMAS.md](SCHEMAS.md#what-blocks-a-render) assigns: an `Error` is
   malformed input, and the document does not render; a `Warning` is incomplete
   or unclaimed input, which renders. The warnings are `must_fill`,
-  `cardinality`, `out_of_variant`, `unknown_card`, `kindless_card`,
-  `body_disabled`, `unknown_field`, and the `$seed` checks, which warn
+  `cardinality`, `out_of_variant`, `unknown_card`, `body_disabled`,
+  `unknown_field`, and the `$seed` checks, which warn
   whatever their class because no render reads `$seed`.
   This is the editor-facing surface: the render gate consults only the fatal
   set, and carries none of the warnings into `RenderResult.warnings`. The CLI's
@@ -400,7 +400,6 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `validation::enum_violation` | `value`, `allowed` | structured |
 | `validation::format_violation` | `format` | structured |
 | `validation::unknown_card` | `allowed`, `card` | structured |
-| `validation::kindless_card` | `allowed` | structured |
 | `validation::body_disabled` | `card` | structured |
 | `validation::unknown_field` | `field`, `suggestion`?, `container`?, `variant`? | structured |
 | `validation::coercion_failed` | `value`, `target` | structured, coarser |

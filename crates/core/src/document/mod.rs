@@ -194,7 +194,7 @@ pub use wire::{CardWire, PayloadItemWire, WireError};
 pub const FORMAT_RULES: &str = "Document format rules:
 \u{2022} Block opener and closer are EXACTLY `~~~` (three tildes). The opener's info string is ignored \u{2014} `~~~card-yaml` is accepted and re-emits as a bare `~~~`.
 \u{2022} A blank line must precede every `~~~` block opener (unless it is line 1), and the opener must be at column zero (no leading spaces). An indented `~~~` is an ordinary code block, not a card.
-\u{2022} The first block is the root and MUST contain `$quill: <name>@<version>`. Its `$kind` is `main` by position \u{2014} an explicit `$kind: main` is accepted but not required. Additional blocks declare composable cards via `$kind: <card_kind>`.
+\u{2022} The first block is the root and MUST contain `$quill: <name>@<version>`. Its `$kind` is `main` by position \u{2014} an explicit `$kind: main` is accepted but not required. Every later block is a composable card and MUST declare `$kind: <card_kind>`; a block without one renders as a code block.
 \u{2022} Reserved `$`-keys: `$quill`, `$kind`, `$ext`, `$seed`. User fields use lowercase snake_case.
 \u{2022} Prose body is the text after a block's closing `~~~`, up to the next opener or EOF. To include a literal fenced code block in prose, use a backtick fence (```); any column-zero `~~~` block is parsed as card metadata.
 \u{2022} A field that already shows a concrete value carries a default and is shippable as-is \u{2014} keep the line, override the value, or delete it to fall back to the default. A blank or null value (`field:`, `field: null`, `field: ~`) is treated the same as omitting the field: it falls back to the default, or to the field's blank. An explicit `field: \"\"` is different \u{2014} it is kept as-is, not folded into the blank/null fallback, so write it on purpose when you want the field empty rather than defaulted.
@@ -397,8 +397,8 @@ impl Document {
     }
 
     /// Create a `Document` from a pre-built main card and composable cards.
-    /// `main` must carry `$quill`; composable cards must not carry `$quill` or
-    /// `$seed`.
+    /// `main` must carry `$quill`; composable cards must carry `$kind` and must
+    /// not carry `$quill` or `$seed`.
     ///
     /// The invariants are `debug_assert`s because no caller can break them.
     /// This is crate-internal; every public door that places a card gates it
@@ -409,6 +409,10 @@ impl Document {
     /// as a [`CardMut`], which carries no whole-card assignment.
     pub(crate) fn from_main_and_cards(main: Card, cards: Vec<Card>) -> Self {
         debug_assert!(main.quill().is_some(), "main card must carry `$quill`");
+        debug_assert!(
+            cards.iter().all(|c| c.kind().is_some()),
+            "composable cards must carry `$kind`"
+        );
         debug_assert!(
             cards.iter().all(|c| c.quill().is_none()),
             "composable cards must not carry `$quill`"
@@ -488,9 +492,6 @@ impl Document {
     /// root: they cannot collide with `$` keys because user field names are
     /// never `$`-prefixed (they match `[A-Za-z_][A-Za-z0-9_]*`).
     ///
-    /// `$kind` is document-defined and omitted for a kindless card (never a
-    /// fabricated `""`).
-    ///
     /// Body presence is the caller's decision: the root carries `$body` iff
     /// `main_body`, and card *i* iff `card_bodies` is `None` (all present) or
     /// `card_bodies[i]` holds. The schema-gated render plate
@@ -526,8 +527,6 @@ impl Document {
             .enumerate()
             .map(|(i, card)| {
                 let mut card_map = serde_json::Map::new();
-                // A kindless card carries no `$kind`, never a fabricated `""`:
-                // matching the resolved view's `kind: None`.
                 if let Some(kind) = card.kind() {
                     card_map.insert(
                         "$kind".to_string(),
