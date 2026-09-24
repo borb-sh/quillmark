@@ -1,281 +1,10 @@
 use serde_json::json;
 
 use crate::document::tests::parse;
-use crate::document::{Document, MetaKey, PayloadItem};
+use crate::document::Document;
 
 #[test]
-fn ext_with_mapping_value_is_accepted() {
-    let doc = parse(
-        "\
-~~~card-yaml
-$quill: q@1.0
-$kind: main
-$ext:
-  presentation:
-    title: \"My Display Name\"
-  collapsed: false
-title: Hi
-~~~
-",
-    );
-    let ext = doc.main().ext().expect("$ext present");
-    assert_eq!(
-        ext.get("presentation")
-            .and_then(|v| v.get("title"))
-            .and_then(|v| v.as_str()),
-        Some("My Display Name"),
-    );
-    assert_eq!(ext.get("collapsed").and_then(|v| v.as_bool()), Some(false),);
-}
-
-#[test]
-fn ext_with_scalar_value_is_rejected() {
-    let err = Document::parse(
-        "\
-~~~card-yaml
-$quill: q@1.0
-$kind: main
-$ext: just-a-string
-~~~
-",
-    )
-    .unwrap_err()
-    .to_string();
-    assert!(
-        err.contains("Invalid `$ext`") && err.contains("mapping"),
-        "expected $ext-must-be-mapping rejection, got: {err}",
-    );
-}
-
-#[test]
-fn fill_on_ext_is_rejected() {
-    let err = Document::parse(
-        "\
-~~~card-yaml
-$quill: q@1.0
-$kind: main
-$ext: !must_fill
-  foo: 1
-~~~
-",
-    )
-    .unwrap_err()
-    .to_string();
-    assert!(
-        err.contains("`!must_fill`") && err.contains("$ext"),
-        "expected !must_fill-on-$ext rejection, got: {err}",
-    );
-}
-
-#[test]
-fn ext_on_composable_card_is_accepted() {
-    let doc = parse(
-        "\
-~~~card-yaml
-$quill: q@1.0
-$kind: main
-~~~
-
-~~~card-yaml
-$kind: indorsement
-$ext:
-  rename: \"Cmdr's response\"
-from: ORG1/SYMBOL
-~~~
-",
-    );
-    assert_eq!(doc.cards().len(), 1);
-    let card = &doc.cards()[0];
-    assert_eq!(card.kind(), Some("indorsement"));
-    let ext = card.ext().expect("composable card $ext present");
-    assert_eq!(
-        ext.get("rename").and_then(|v| v.as_str()),
-        Some("Cmdr's response"),
-    );
-}
-
-#[test]
-fn ext_round_trips_through_markdown() {
-    let src = "\
-~~~card-yaml
-$quill: q@1.0
-$kind: main
-$ext:
-  presentation:
-    title: A
-  flag: true
-title: Body
-~~~
-
-Body content.
-";
-    let doc = parse(src);
-    let emitted = doc.to_markdown();
-    let reparsed = parse(&emitted);
-    assert_eq!(doc, reparsed);
-    assert!(
-        emitted.contains("$ext:\n  presentation:\n    title: A\n  flag: true\n"),
-        "unexpected emit:\n{emitted}",
-    );
-}
-
-#[test]
-fn empty_ext_emits_as_inline_braces() {
-    let src = "\
-~~~card-yaml
-$quill: q@1.0
-$kind: main
-$ext: {}
-~~~
-";
-    let doc = parse(src);
-    let emitted = doc.to_markdown();
-    assert!(
-        emitted.contains("$ext: {}\n"),
-        "expected `$ext: {{}}` literal in emit, got:\n{emitted}",
-    );
-    let reparsed = parse(&emitted);
-    assert_eq!(doc, reparsed);
-}
-
-#[test]
-fn emptied_ext_namespace_round_trips() {
-    let src = "\
-~~~card-yaml
-$quill: q@1.0
-$kind: main
-$ext:
-  editor:
-    tips:
-      - a tip
-title: Body
-~~~
-
-Body content.
-";
-    let mut doc = parse(src);
-    doc.main_mut()
-        .store_ext(json!({ "editor": {} }).as_object().unwrap().clone())
-        .expect("store empty namespace");
-
-    let emitted = doc.to_markdown();
-    assert!(
-        emitted.contains("$ext:\n  editor: {}\n"),
-        "emptied namespace must keep its key, got:\n{emitted}",
-    );
-    assert_eq!(doc, parse(&emitted));
-}
-
-/// `$ext` is the only slot type-checked, so an inner mapping reading back as
-/// null raises nothing.
-#[test]
-fn empty_mapping_inside_ext_namespace_round_trips() {
-    let src = "\
-~~~card-yaml
-$quill: q@1.0
-$kind: main
-title: Body
-~~~
-";
-    let mut doc = parse(src);
-    doc.main_mut()
-        .store_ext(
-            json!({ "editor": { "tips": {} } })
-                .as_object()
-                .unwrap()
-                .clone(),
-        )
-        .expect("store nested empty mapping");
-
-    let emitted = doc.to_markdown();
-    let reparsed = parse(&emitted);
-    assert_eq!(
-        reparsed.main().ext().expect("ext present")["editor"]["tips"],
-        json!({}),
-        "a nested empty mapping must not read back as null, got:\n{emitted}",
-    );
-    assert_eq!(doc, reparsed);
-    assert_eq!(emitted, reparsed.to_markdown());
-}
-
-#[test]
-fn set_ext_inserts_after_kind_and_before_user_fields() {
-    let mut doc = parse(
-        "\
-~~~card-yaml
-$quill: q@1.0
-$kind: main
-title: Hi
-~~~
-",
-    );
-    let mut ext = serde_json::Map::new();
-    ext.insert("rename".into(), json!("Greeting"));
-    doc.main_mut().payload_mut().set_ext(ext);
-
-    let items = doc.main().payload().items();
-    // Canonical order: $quill, $kind, $ext, then user fields in source order.
-    assert!(matches!(items[0], PayloadItem::Quill { .. }));
-    assert!(matches!(items[1], PayloadItem::Kind { .. }));
-    assert!(matches!(
-        items[2],
-        PayloadItem::Meta {
-            key: MetaKey::Ext,
-            ..
-        }
-    ));
-    assert!(matches!(items[3], PayloadItem::Field { .. }));
-}
-
-#[test]
-fn take_ext_removes_the_entry() {
-    let mut doc = parse(
-        "\
-~~~card-yaml
-$quill: q@1.0
-$kind: main
-$ext:
-  a: 1
-~~~
-",
-    );
-    let taken = doc.main_mut().payload_mut().take_ext().unwrap();
-    assert_eq!(taken.get("a").and_then(|v| v.as_i64()), Some(1));
-    assert!(doc.main().ext().is_none());
-}
-
-#[test]
-fn ext_is_stripped_from_plate_json() {
-    let doc = parse(
-        "\
-~~~card-yaml
-$quill: q@1.0
-$kind: main
-$ext:
-  presentation:
-    title: \"Should not reach the backend\"
-title: Hi
-~~~
-",
-    );
-    let plate = doc.to_plate_json_gated(true, None);
-    let obj = plate.as_object().expect("plate is an object");
-    assert!(
-        !obj.contains_key("$ext"),
-        "plate must not contain `$ext`: {plate}",
-    );
-    assert!(
-        !obj.contains_key("ext"),
-        "plate must not contain `ext`: {plate}",
-    );
-    assert_eq!(obj.get("title").and_then(|v| v.as_str()), Some("Hi"));
-    assert!(obj.contains_key("$quill"));
-    assert!(obj.contains_key("$body"));
-    assert!(obj.contains_key("$cards"));
-}
-
-#[test]
-fn ext_round_trips_through_serde_json() {
+fn ext_rides_any_card_through_markdown_and_storage() {
     let doc = parse(
         "\
 ~~~card-yaml
@@ -298,13 +27,37 @@ from: X
 ~~~
 ",
     );
+    let ext = doc.main().ext().expect("$ext present");
+    assert_eq!(ext["presentation"]["title"], json!("Greeting Card"));
+    assert_eq!(ext["collapsed"], json!(false));
+    assert_eq!(
+        doc.cards()[0].ext().expect("composable card $ext present")["rename"],
+        json!("Cmdr's response")
+    );
+
+    assert_eq!(doc, parse(&doc.to_markdown()));
+
     let json = serde_json::to_string(&doc).unwrap();
     let restored: Document = serde_json::from_str(&json).unwrap();
     assert_eq!(doc, restored);
-    assert_eq!(doc.to_markdown(), restored.to_markdown());
+    assert!(json.contains("\"type\":\"ext\""), "{json}");
+}
 
-    assert!(
-        json.contains("\"type\":\"ext\""),
-        "expected ext variant in DTO, got: {json}",
-    );
+/// An empty mapping at any depth of `$ext` or `$seed` keeps its key and reads
+/// back as a mapping, not as null.
+#[test]
+fn empty_meta_mappings_keep_their_braces() {
+    for block in [
+        "$ext: {}\n",
+        "$seed: {}\n",
+        "$ext:\n  editor: {}\n",
+        "$ext:\n  editor:\n    tips: {}\n",
+        "$seed:\n  indorsement: {}\n",
+    ] {
+        let src = format!("~~~card-yaml\n$quill: q@1.0\n$kind: main\n{block}~~~\n");
+        let doc = parse(&src);
+        let emitted = doc.to_markdown();
+        assert!(emitted.contains(block), "{block:?} lost:\n{emitted}");
+        assert_eq!(doc, parse(&emitted), "{block:?}");
+    }
 }

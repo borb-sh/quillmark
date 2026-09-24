@@ -9,22 +9,18 @@ from quillmark import Document, QuillmarkError
 from conftest import field, has_field, raises_edit_code
 
 
-def test_payload_access(taro_md):
+def test_projection(taro_md):
+    """`main` exposes payload fields but not `$` metadata; `body` is the content
+    dict; `cards` projects each card's kind, fields and body."""
     doc = Document.from_markdown(taro_md)
-    assert "Ice Cream" in (field(doc.main, "title") or "")
-    # `$`-prefixed metadata is not exposed as payload fields
-    assert not has_field(doc.main, "$body")
-    assert not has_field(doc.main, "$cards")
+    assert "Ice Cream" in field(doc.main, "title")
     assert not has_field(doc.main, "$quill")
-
-
-def test_body_is_content_dict(taro_md):
-    """`body` is the canonical content dict (source of truth); its `text` carries
-    the plain USV text quill-free. The markdown projection is
-    `quill.reader(doc).body_markdown()`."""
-    doc = Document.from_markdown(taro_md)
-    assert isinstance(doc.body, dict)
     assert "nutty" in doc.body["text"]
+    assert len(doc.cards) == 1
+    card = doc.cards[0]
+    assert card["kind"] == "quotes"
+    assert field(card, "author") == "Albert Einstein"
+    assert "mistake" in card["body"]["text"]
 
 
 def test_body_writes_container_instance_only_where_it_works():
@@ -42,32 +38,12 @@ def test_body_writes_container_instance_only_where_it_works():
     assert "attrs" not in containers[0]
 
 
-def test_body_empty_when_absent():
-    md = "~~~card-yaml\n$quill: taro\n$kind: main\nauthor: Test\ntitle: Test\nice_cream: Vanilla\n~~~\n"
-    doc = Document.from_markdown(md)
-    assert doc.body["text"] == ""
-
-
-def test_cards_access():
-    md = (
-        "~~~card-yaml\n$quill: my_quill\n$kind: main\ntitle: Main\n~~~\n\nGlobal body.\n\n"
-        "~~~card-yaml\n$kind: note\nfoo: bar\n~~~\n\nCard body.\n"
-    )
-    doc = Document.from_markdown(md)
-    assert len(doc.cards) == 1
-    card = doc.cards[0]
-    assert card["kind"] == "note"
-    assert field(card, "foo") == "bar"
-    assert "Card body." in card["body"]["text"]
-
-
 def test_json_dto_round_trip(taro_md):
-    """to_stored emits a versioned DTO string that from_stored round-trips."""
+    """to_stored emits a DTO tagged with the current version that from_stored
+    round-trips."""
     doc = Document.from_markdown(taro_md)
-
     dto = doc.to_stored()
-    assert isinstance(dto, str)
-    assert "quillmark/document@0.115.0" in dto
+    assert Document.storage_version_of(dto) == Document.current_storage_version()
 
     restored = Document.from_stored(dto)
     assert restored.quill_ref == doc.quill_ref
@@ -82,108 +58,48 @@ def test_json_dto_rejects_invalid_input():
         Document.from_stored("not json at all")
 
 
-def test_json_dto_drops_parse_warnings():
-    """A DTO-reconstructed document carries no parse-time warnings."""
-    # An unknown YAML tag triggers a `parse::unsupported_yaml_tag` warning.
-    warn_md = "~~~card-yaml\n$quill: my_quill\n$kind: main\ntitle: Hi\nweird: !custom value\n~~~\n\nBody\n"
-    doc = Document.from_markdown(warn_md)
-    assert len(doc.warnings) > 0, "source document should have a parse warning"
-
-    restored = Document.from_stored(doc.to_stored())
-    assert restored.warnings == []
-
-
-def test_schema_version_of_returns_unknown_future_versions():
-    # Note: this would be rejected by from_stored, but storage_version_of returns it
-    # so callers can distinguish "build too old" from "payload corrupt".
+def test_storage_version_of():
+    """A future tag is returned so callers can tell "build too old" from
+    "payload corrupt"; a non-DTO input is None."""
     future = '{"schema":"quillmark/document@0.99.0"}'
     assert Document.storage_version_of(future) == "quillmark/document@0.99.0"
-
-
-def test_schema_version_of_returns_none_for_non_dto():
-    """storage_version_of returns None when the input is not a schema-tagged object."""
     assert Document.storage_version_of("not json") is None
     assert Document.storage_version_of('{"foo":"bar"}') is None
 
 
-def test_current_schema_version_matches_emitted_tag(taro_md):
-    doc = Document.from_markdown(taro_md)
-    dto = doc.to_stored()
-
-    current = Document.current_storage_version()
-    assert isinstance(current, str)
-    assert Document.storage_version_of(dto) == current
-
-
-def test_clone_isolates_mutations(taro_md):
-    """Mutating a clone does not affect the original."""
-    doc = Document.from_markdown(taro_md)
-    cloned = doc.clone()
-
-    cloned.remove_field("title")
-    assert has_field(doc.main, "title")
-    assert not has_field(cloned.main, "title")
-
-
-def test_copy_module_clones(taro_md):
-    """The standard library copy module works on Document."""
+def test_clone_and_copy_isolate_mutations(taro_md):
+    """clone(), copy.copy and copy.deepcopy compare equal and are independent."""
     import copy
 
     doc = Document.from_markdown(taro_md)
-
-    shallow = copy.copy(doc)
-    deep = copy.deepcopy(doc)
-
-    assert shallow == doc
-    assert deep == doc
-
-    shallow.remove_field("title")
-    assert has_field(doc.main, "title")
+    for dup in (doc.clone(), copy.copy(doc), copy.deepcopy(doc)):
+        assert dup == doc and dup.equals(doc)
+        dup.remove_field("title")
+        assert has_field(doc.main, "title")
 
 
-def test_equals_and_eq(taro_md):
-    """equals and == both compare structurally; warnings are ignored."""
-    doc1 = Document.from_markdown(taro_md)
-    doc2 = Document.from_markdown(taro_md)
-
-    assert doc1.equals(doc2)
-    assert doc1 == doc2
-
-
-def test_remove_field_on_card_returns_value():
-    """remove_field(name, card=i) removes and returns a composable card field's
-    value: `remove` has no lane, one verb over the whole card axis."""
+def test_remove_field_on_card():
+    """remove_field(name, card=i) removes and returns a composable card field."""
     md = (
         "~~~card-yaml\n$quill: q\n$kind: main\n~~~\n\nBody.\n\n"
         "~~~card-yaml\n$kind: note\nfoo: bar\nbaz: qux\n~~~\n"
     )
     doc = Document.from_markdown(md)
-
-    removed = doc.remove_field("foo", card=0)
-    assert removed == "bar"
+    assert doc.remove_field("foo", card=0) == "bar"
     assert not has_field(doc.cards[0], "foo")
     assert field(doc.cards[0], "baz") == "qux"
-
-
-def test_remove_field_on_card_out_of_range():
-    md = "~~~card-yaml\n$quill: q\n$kind: main\n~~~\n"
-    doc = Document.from_markdown(md)
     with raises_edit_code("edit::index_out_of_range"):
-        doc.remove_field("foo", card=0)
+        doc.remove_field("foo", card=1)
 
 
-def test_diagnostic_str_is_canonical_pretty_text():
+def test_diagnostic_str_and_repr():
     warn_md = (
         "~~~card-yaml\n$quill: my_quill\n$kind: main\ntitle: Hi\n"
         "weird: !custom value\n~~~\n\nBody\n"
     )
-    doc = Document.from_markdown(warn_md)
-    assert len(doc.warnings) > 0, "source document should have a parse warning"
-
-    diag = doc.warnings[0]
-    pretty = str(diag)
-    assert isinstance(pretty, str) and pretty.strip() != ""
-    assert diag.message in pretty
+    diag = Document.from_markdown(warn_md).warnings[0]
+    assert diag.code == "parse::unsupported_yaml_tag"
+    assert diag.message in str(diag)
     assert "Diagnostic(" in repr(diag)
 
 

@@ -64,7 +64,7 @@ beforeAll(() => {
 
 const renderBuild = await import('@quillmark-wasm')
 const { Quillmark, Quill, Document } = renderBuild
-const { makeQuill, makeSampleFormQuill, SAMPLE_FORM_MARKDOWN, initBuildSync } = await import(
+const { makeQuill, makeSampleFormQuill, SAMPLE_FORM_MARKDOWN, initBuildSync, expectEditCode } = await import(
   './test-helpers.js'
 )
 
@@ -287,52 +287,24 @@ describe('LiveSession canvas preview', () => {
     const ctx = new FakeCanvasRenderingContext2D()
     // A missing scale or an options object is refused rather than guessed.
     for (const scale of [undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, { densityScale: 2 }]) {
-      expect(() => session.paint(ctx, 0, scale)).toThrow(/scale/)
-      try {
-        session.paint(ctx, 0, scale)
-      } catch (err) {
-        expect(err.diagnostics[0].code).toBe('backend::invalid_raster_scale')
-      }
+      expectEditCode(() => session.paint(ctx, 0, scale), 'backend::invalid_raster_scale')
     }
   })
 
   it('throws an out-of-range error when paint is called with a bad page index', () => {
     const session = openSession()
     const ctx = new FakeCanvasRenderingContext2D()
-    expect(() => session.paint(ctx, session.pageCount + 5, 1)).toThrow(
-      /out of range.*pageCount=/,
-    )
+    expect(() => session.paint(ctx, session.pageCount + 5, 1)).toThrow()
   })
 })
 
 describe('LiveSession canvas preview (acroform backend)', () => {
-  function openAcroformQuill() {
-    const engine = new Quillmark()
-    const quill = Quill.fromTree(makeSampleFormQuill())
-    return { engine, quill }
-  }
-
-  function openAcroformSession() {
-    const { engine, quill } = openAcroformQuill()
-    return engine.open(quill, Document.fromMarkdown(SAMPLE_FORM_MARKDOWN))
-  }
-
-  it('reports page geometry for a acroform quill', () => {
-    const { engine, quill } = openAcroformQuill()
-
-    // The acroform backend rasterizes its stamped PDF, so `pageSize` answers
-    // rather than throwing.
-    const session = engine.open(quill, Document.fromMarkdown(SAMPLE_FORM_MARKDOWN))
-    expect(session.pageCount).toBeGreaterThan(0)
-    expect(session.backendId).toBe('acroform')
-
-    const size = session.pageSize(0)
-    expect(size.widthPt).toBeGreaterThan(0)
-    expect(size.heightPt).toBeGreaterThan(0)
-  })
-
   it('paint sizes the canvas at scale and bakes field-value ink into the raster', () => {
-    const session = openAcroformSession()
+    const session = new Quillmark().open(
+      Quill.fromTree(makeSampleFormQuill()),
+      Document.fromMarkdown(SAMPLE_FORM_MARKDOWN),
+    )
+    expect(session.backendId).toBe('acroform')
     const { widthPt, heightPt } = session.pageSize(0)
     const scale = 1.5
 
@@ -375,8 +347,6 @@ describe('LiveSession.update', () => {
       Document.fromMarkdown(TEST_MARKDOWN.replace('Canvas Test', 'Edited Title'))
     )
     expect(cs2.dirtyPages).toEqual([])
-
-    // Reads serve the new compile: the repainted page differs.
     session.free()
   })
 

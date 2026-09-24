@@ -174,12 +174,8 @@ fn every_counted_page_paints_and_an_undrawable_scale_is_refused() {
 }
 
 #[test]
-fn a_translated_media_box_keeps_page_geometry_on_the_ink() {
+fn a_translated_media_box_or_crop_box_keeps_page_geometry_on_the_ink() {
     geometry_lands_on_the_ink(BasePdf::letter(1).media_box(NARROW_LETTER).build());
-}
-
-#[test]
-fn a_crop_box_keeps_page_geometry_on_the_ink() {
     geometry_lands_on_the_ink(BasePdf::letter(1).crop_box(NARROW_LETTER).build());
 }
 

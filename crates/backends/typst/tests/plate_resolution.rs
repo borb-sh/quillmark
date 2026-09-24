@@ -11,21 +11,6 @@ const YAML: &str = "quill:\n  name: t\n  version: \"1.0\"\n  backend: typst\n  \
                     description: d\n\ntypst:\n  plate_file: plate.typ\n";
 
 #[test]
-fn plate_file_is_resolved_from_the_typst_section() {
-    let q = quill(
-        YAML,
-        &[(
-            "plate.typ",
-            b"#set page(width: 100pt, height: 100pt)\n= Hi\n",
-        )],
-    );
-    let session = TypstBackend
-        .open(&q, &serde_json::json!({}), None)
-        .expect("open should resolve typst.plate_file and compile");
-    assert!(session.page_count() >= 1);
-}
-
-#[test]
 fn missing_plate_file_errors_at_open_not_load() {
     let q = quill(YAML, &[]);
     let err = match TypstBackend.open(&q, &serde_json::json!({}), None) {

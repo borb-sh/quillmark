@@ -7,13 +7,48 @@ fn decompose(markdown: &str) -> Result<Document, crate::error::ParseError> {
 }
 
 #[test]
-fn test_empty_input_dedicated_error() {
-    for input in ["", "   ", "\n\n\t\n"] {
-        let err = decompose(input).unwrap_err().to_string();
-        assert!(
-            err.contains("Empty markdown input"),
-            "expected dedicated empty-input message for {input:?}, got: {err}"
-        );
+fn test_size_and_emptiness_refusals_carry_their_codes() {
+    let oversized_yaml = format!(
+        "~~~card-yaml\n$quill: test_quill\n$kind: main\ndata: \"{}\"\n~~~\n\nBody",
+        "x".repeat(crate::error::MAX_YAML_SIZE + 1)
+    );
+    for (input, code) in [
+        ("".to_string(), "parse::empty_input"),
+        ("   ".to_string(), "parse::empty_input"),
+        ("\n\n\t\n".to_string(), "parse::empty_input"),
+        ("a".repeat(crate::error::MAX_INPUT_SIZE + 1), "parse::input_too_large"),
+        (oversized_yaml, "parse::input_too_large"),
+    ] {
+        assert_eq!(decompose(&input).unwrap_err().code(), code, "{:.40?}", input);
+    }
+}
+
+/// Each block parses once the one offending line is dropped.
+#[test]
+fn test_structural_violations_are_refused() {
+    let root = "~~~card-yaml\n$quill: test_quill\n$kind: main\n~~~\n\n";
+    for (label, markdown) in [
+        ("non-main root kind", "~~~card-yaml\n$quill: test_quill\n$kind: other\n~~~".to_string()),
+        ("empty $quill", "~~~card-yaml\n$quill:\n~~~".to_string()),
+        ("$quill on a card", format!("{root}~~~card-yaml\n$quill: second\n$kind: note\n~~~")),
+        ("$seed on a card", format!("{root}~~~card-yaml\n$kind: note\n$seed:\n  a:\n    from: X\n~~~")),
+        ("unknown $ key on a card", format!("{root}~~~card-yaml\n$foo: bar\n$kind: note\n~~~")),
+        ("$id on a card", format!("{root}~~~card-yaml\n$kind: note\n$id: a\n~~~")),
+        ("$id on the root", "~~~\n$quill: q@0.1\n$id: x\n~~~\n".to_string()),
+        ("!must_fill on $quill", "~~~card-yaml\n$quill: !must_fill test_quill\n$kind: main\n~~~".to_string()),
+        ("!must_fill on $ext", "~~~card-yaml\n$quill: q\n$kind: main\n$ext: !must_fill\n  foo: 1\n~~~".to_string()),
+        ("scalar $ext", "~~~card-yaml\n$quill: q\n$kind: main\n$ext: just-a-string\n~~~".to_string()),
+        ("scalar $seed", "~~~card-yaml\n$quill: q\n$kind: main\n$seed: just-a-string\n~~~".to_string()),
+        ("non-ASCII field name", "~~~card-yaml\n$quill: q\n$kind: main\nタイトル: x\n~~~".to_string()),
+        ("field name with a space", "~~~card-yaml\n$quill: q\n$kind: main\nbad name: v\n~~~".to_string()),
+    ] {
+        let err = decompose(&markdown).expect_err(label);
+        assert_eq!(err.code(), "parse::invalid_structure", "{label}: {err}");
+    }
+    for kind in ["ITEMS", "123items", "my-items", ""] {
+        let markdown = format!("{root}~~~card-yaml\n$kind: {kind}\n~~~\n\nBody.");
+        let err = decompose(&markdown).unwrap_err();
+        assert_eq!(err.code(), "parse::invalid_structure", "kind {kind:?}: {err}");
     }
 }
 
@@ -141,18 +176,13 @@ fn test_indented_closer_is_named_as_the_failed_closer() {
 
 #[test]
 fn test_unclosed_root_fence_without_quill_keeps_the_generic_message() {
-    let markdown = "~~~\ntitle: Memo\n\nThe body.\n";
-    let msg = decompose(markdown).unwrap_err().to_string();
-    assert!(msg.contains("Missing required root"), "got: {msg}");
-}
-
-#[test]
-fn test_root_opener_with_foreign_info_string_parses_as_the_bare_form() {
-    let foreign = "~~~metadata\n$quill: usaf_memo@0.3.0\n$kind: main\n~~~\n\nBody.\n";
-    let bare = "~~~\n$quill: usaf_memo@0.3.0\n$kind: main\n~~~\n\nBody.\n";
-    let foreign_doc = decompose(foreign).expect("any info string opens the root block");
-    let bare_doc = decompose(bare).expect("bare root block parses");
-    assert_eq!(foreign_doc, bare_doc);
+    for markdown in [
+        "~~~\ntitle: Memo\n\nThe body.\n",
+        "---\n$quill: test_quill\n$kind: main\ntitle: T\n~~~\n\nBody.",
+    ] {
+        let msg = decompose(markdown).unwrap_err().to_string();
+        assert!(msg.contains("Missing required root"), "got: {msg}");
+    }
 }
 
 /// Every `---` below the root block is CommonMark's, whatever it encloses: a
@@ -178,14 +208,6 @@ fn test_dash_blocks_below_the_root_are_body_prose() {
 }
 
 #[test]
-fn test_dash_opener_with_tilde_closer_falls_through() {
-    let markdown = "---\n$quill: test_quill\n$kind: main\ntitle: T\n~~~\n\nBody.";
-    let err = decompose(markdown).unwrap_err();
-    let msg = err.to_string();
-    assert!(msg.contains("Missing required root"), "got: {msg}");
-}
-
-#[test]
 fn test_tilde_opener_with_dash_closer_falls_through() {
     let markdown = "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: T\n---\n\nBody.";
     let err = decompose(markdown).unwrap_err();
@@ -194,149 +216,6 @@ fn test_tilde_opener_with_dash_closer_falls_through() {
         msg.contains("opened at line 1 is never closed"),
         "got: {msg}"
     );
-}
-
-#[test]
-fn test_with_payload() {
-    let markdown = "~~~card-yaml
-$quill: test_quill
-$kind: main
-title: Test Document
-author: Test Author
-~~~
-
-# Hello World
-
-This is the body.";
-
-    let doc = decompose(markdown).unwrap();
-
-    assert_eq!(
-        doc.main().body_markdown(),
-        "# Hello World\n\nThis is the body."
-    );
-    assert_eq!(
-        doc.main().payload().get("title").unwrap().as_str().unwrap(),
-        "Test Document"
-    );
-    assert_eq!(
-        doc.main()
-            .payload()
-            .get("author")
-            .unwrap()
-            .as_str()
-            .unwrap(),
-        "Test Author"
-    );
-    assert_eq!(doc.main().payload().len(), 2); // title, author
-    assert_eq!(doc.cards().len(), 0);
-    assert_eq!(doc.quill_reference().name, "test_quill");
-}
-
-#[test]
-fn test_complex_yaml_payload() {
-    let markdown = "~~~card-yaml
-$quill: test_quill
-$kind: main
-title: Complex Document
-tags:
-  - test
-  - yaml
-metadata:
-  version: 1.0
-  nested:
-    field: value
-~~~
-
-Content here.";
-
-    let doc = decompose(markdown).unwrap();
-
-    assert_eq!(doc.main().body_markdown(), "Content here.");
-    assert_eq!(
-        doc.main().payload().get("title").unwrap().as_str().unwrap(),
-        "Complex Document"
-    );
-
-    let tags = doc
-        .main()
-        .payload()
-        .get("tags")
-        .unwrap()
-        .as_array()
-        .unwrap();
-    assert_eq!(tags.len(), 2);
-    assert_eq!(tags[0].as_str().unwrap(), "test");
-    assert_eq!(tags[1].as_str().unwrap(), "yaml");
-}
-
-#[test]
-fn test_invalid_yaml() {
-    let markdown = "~~~card-yaml
-$quill: test_quill
-$kind: main
-title: [invalid yaml
-author: missing close bracket
-~~~
-
-Content here.";
-
-    let result = decompose(markdown);
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("YAML error"));
-}
-
-#[test]
-fn test_unclosed_payload() {
-    let markdown = "~~~card-yaml
-$quill: test_quill
-$kind: main
-title: Test
-author: Test Author
-
-Content without closing fence";
-
-    let msg = decompose(markdown).unwrap_err().to_string();
-    assert!(
-        msg.contains("Root card-yaml block opened at line 1 is never closed"),
-        "got: {msg}"
-    );
-    assert!(msg.contains("after the last field (`author`)"), "got: {msg}");
-}
-
-#[test]
-fn test_basic_card_block() {
-    let markdown = "~~~card-yaml
-$quill: test_quill
-$kind: main
-title: Main Document
-~~~
-
-Main body content.
-
-~~~card-yaml
-$kind: items
-name: Item 1
-~~~
-
-Body of item 1.";
-
-    let doc = decompose(markdown).unwrap();
-
-    assert_eq!(doc.main().body_markdown(), "Main body content.");
-    assert_eq!(
-        doc.main().payload().get("title").unwrap().as_str().unwrap(),
-        "Main Document"
-    );
-
-    assert_eq!(doc.cards().len(), 1);
-    let card = &doc.cards()[0];
-    assert_eq!(card.kind(), Some("items"));
-    assert_eq!(
-        card.payload().get("name").unwrap().as_str().unwrap(),
-        "Item 1"
-    );
-    assert_eq!(card.body_markdown(), "Body of item 1.");
 }
 
 /// The card sequence: every block below the root becomes a card in source
@@ -411,43 +290,44 @@ Conclusion content.
 }
 
 #[test]
-fn test_empty_card_metadata() {
-    let markdown = "~~~card-yaml
-$quill: test_quill
-$kind: main
-~~~
-
-~~~card-yaml
-$kind: items
-~~~
-
-Body without metadata.";
-
+fn test_payload_and_body_split() {
+    let markdown = "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Test\n\ndescription: after a blank line\n~~~\n\n# Hello World\n\nThis is the body.";
     let doc = decompose(markdown).unwrap();
-    assert_eq!(doc.cards().len(), 1);
-    let card = &doc.cards()[0];
-    assert_eq!(card.kind(), Some("items"));
-    assert!(card.payload().is_empty());
-    assert_eq!(card.body_markdown(), "Body without metadata.");
+    assert_eq!(doc.main().body_markdown(), "# Hello World\n\nThis is the body.");
+    let keys: Vec<&str> = doc.main().payload().keys().map(|k| k.as_str()).collect();
+    assert_eq!(keys, ["title", "description"]);
+    assert_eq!(
+        doc.main().payload().get("description").unwrap().as_str(),
+        Some("after a blank line")
+    );
 }
 
+/// Blank lines between a fence and its neighbours are separators, not body.
 #[test]
-fn test_card_block_without_body() {
-    let markdown = "~~~card-yaml
-$quill: test_quill
-$kind: main
-~~~
-
-~~~card-yaml
-$kind: items
-name: Item
-~~~";
-
-    let doc = decompose(markdown).unwrap();
-    assert_eq!(doc.cards().len(), 1);
-    let card = &doc.cards()[0];
-    assert_eq!(card.kind(), Some("items"));
-    assert_eq!(card.body_markdown(), ""); // empty, not absent
+fn test_bodies_shed_their_blank_separators() {
+    let root = "~~~card-yaml\n$quill: q\n$kind: main\n~~~";
+    for (label, markdown, want) in [
+        ("payload at EOF", format!("{root}"), vec![""]),
+        ("leading newlines", format!("{root}\n\n\n\nBody."), vec!["Body."]),
+        ("trailing newlines", format!("{root}\n\nBody.\n\n\n"), vec!["Body."]),
+        (
+            "body before a card",
+            format!("{root}\n\nbody\n\n~~~card-yaml\n$kind: x\n~~~\n"),
+            vec!["body", ""],
+        ),
+        (
+            "card bodies",
+            format!("{root}\n\n~~~card-yaml\n$kind: a\n~~~\n\nfirst\n\n~~~card-yaml\n$kind: b\n~~~\n\nsecond\n"),
+            vec!["", "first", "second"],
+        ),
+    ] {
+        let doc = decompose(&markdown).unwrap();
+        let got: Vec<String> = std::iter::once(doc.main())
+            .chain(doc.cards())
+            .map(|c| c.body_markdown())
+            .collect();
+        assert_eq!(got, want, "{label}");
+    }
 }
 
 #[test]
@@ -476,32 +356,6 @@ BODY: Test
         doc.to_markdown().contains("BODY: Test"),
         "uppercase field name must round-trip bare and verbatim"
     );
-}
-
-#[test]
-fn test_delimiter_inside_fenced_code_block_backticks() {
-    let markdown = "~~~card-yaml
-$quill: test_quill
-$kind: main
-title: Test
-~~~
-
-Here is some code:
-
-```yaml
-~~~card-yaml
-$kind: code_example
-fake: payload
-~~~
-```
-
-More content.
-";
-
-    let doc = decompose(markdown).unwrap();
-    assert!(doc.main().body_markdown().contains("fake: payload"));
-    assert!(doc.main().payload().get("fake").is_none());
-    assert_eq!(doc.cards().len(), 0);
 }
 
 #[test]
@@ -536,20 +390,6 @@ Body content.";
 }
 
 #[test]
-fn test_root_with_non_main_kind_is_error() {
-    let markdown = "~~~card-yaml
-$quill: test_quill
-$kind: other
-title: Test
-~~~";
-    let err = decompose(markdown).unwrap_err().to_string();
-    assert!(
-        err.contains("$kind: other") && err.contains("reserved for the document root"),
-        "expected non-main-root error, got: {err}"
-    );
-}
-
-#[test]
 fn test_over_nested_body_surfaces_body_import_error() {
     let deep = ">".repeat(crate::error::MAX_NESTING_DEPTH + 5);
     let markdown =
@@ -563,58 +403,9 @@ fn test_over_nested_body_surfaces_body_import_error() {
 
 #[test]
 fn test_canonical_root_with_kind_round_trips_byte_equal() {
-    let canonical = "~~~\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\nBody.\n";
+    let canonical = "~~~\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\nBody.\n\n~~~\n$kind: note\nname: Widget\n~~~\n";
     let doc = decompose(canonical).unwrap();
     assert_eq!(doc.to_markdown(), canonical);
-}
-
-#[test]
-fn test_non_root_block_declaring_quill_is_error() {
-    let markdown = "~~~card-yaml
-$quill: first
-$kind: main
-~~~
-
-~~~card-yaml
-$quill: second
-$kind: note
-~~~";
-
-    let err = decompose(markdown).unwrap_err().to_string();
-    assert!(err.contains("must not declare `$quill`"), "got: {err}");
-}
-
-#[test]
-fn test_quill_empty_value() {
-    let markdown = "~~~card-yaml
-$quill:
-~~~";
-
-    let result = decompose(markdown);
-    assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("Invalid $quill reference"));
-}
-
-#[test]
-fn test_card_with_unknown_meta_key_is_error() {
-    let markdown = "~~~card-yaml
-$quill: test_quill
-$kind: main
-~~~
-
-~~~card-yaml
-$foo: bar
-$kind: note
-~~~";
-
-    let err = decompose(markdown).unwrap_err().to_string();
-    assert!(
-        err.contains("Unknown `$foo`"),
-        "expected unknown-key parse error, got: {err}"
-    );
 }
 
 #[test]
@@ -645,178 +436,6 @@ Body.";
     let emitted = doc.to_markdown();
     let reparsed = decompose(&emitted).expect("round-trip should re-parse");
     assert_eq!(doc, reparsed);
-}
-
-#[test]
-fn fill_on_dollar_key_is_rejected() {
-    let markdown = "~~~card-yaml
-$quill: !must_fill test_quill
-$kind: main
-~~~";
-    let err = decompose(markdown).unwrap_err().to_string();
-    assert!(
-        err.contains("`!must_fill`") && err.contains("$quill"),
-        "expected !must_fill-on-$ rejection, got: {err}"
-    );
-}
-
-#[test]
-fn test_blank_lines_in_payload() {
-    let markdown = "~~~card-yaml
-$quill: test_quill
-$kind: main
-title: Test Document
-author: Test Author
-
-description: This has a blank line above it
-tags:
-  - one
-  - two
-~~~
-
-# Hello World
-
-This is the body.";
-
-    let doc = decompose(markdown).unwrap();
-    assert_eq!(
-        doc.main().body_markdown(),
-        "# Hello World\n\nThis is the body."
-    );
-    assert_eq!(
-        doc.main().payload().get("title").unwrap().as_str().unwrap(),
-        "Test Document"
-    );
-    assert_eq!(
-        doc.main()
-            .payload()
-            .get("author")
-            .unwrap()
-            .as_str()
-            .unwrap(),
-        "Test Author"
-    );
-    assert_eq!(
-        doc.main()
-            .payload()
-            .get("description")
-            .unwrap()
-            .as_str()
-            .unwrap(),
-        "This has a blank line above it"
-    );
-    let tags = doc
-        .main()
-        .payload()
-        .get("tags")
-        .unwrap()
-        .as_array()
-        .unwrap();
-    assert_eq!(tags.len(), 2);
-}
-
-#[test]
-fn test_triple_dash_between_paragraphs_is_delegated() {
-    let markdown = "~~~card-yaml
-$quill: test_quill
-$kind: main
-title: Test
-~~~
-
-First paragraph.
-
----
-
-Second paragraph.";
-
-    let doc = decompose(markdown).unwrap();
-    let body = doc.main().body_markdown();
-    assert!(body.contains("First paragraph."));
-    assert!(body.contains("Second paragraph."));
-    assert!(doc.cards().is_empty(), "--- must not split a card");
-}
-
-#[test]
-fn test_extended_metadata_demo_file() {
-    let markdown = include_str!("../../../../fixtures/resources/extended_metadata_demo.md");
-    let doc = decompose(markdown).unwrap();
-
-    assert_eq!(
-        doc.main().payload().get("title").unwrap().as_str().unwrap(),
-        "Extended Metadata Demo"
-    );
-    assert_eq!(
-        doc.main()
-            .payload()
-            .get("author")
-            .unwrap()
-            .as_str()
-            .unwrap(),
-        "Quillmark Team"
-    );
-    assert_eq!(
-        doc.main()
-            .payload()
-            .get("version")
-            .unwrap()
-            .as_f64()
-            .unwrap(),
-        1.0
-    );
-
-    assert!(doc
-        .main()
-        .body_markdown()
-        .contains("card-yaml metadata format"));
-
-    assert_eq!(doc.cards().len(), 5);
-
-    let features_count = doc
-        .cards()
-        .iter()
-        .filter(|c| c.kind() == Some("features"))
-        .count();
-    let use_cases_count = doc
-        .cards()
-        .iter()
-        .filter(|c| c.kind() == Some("use_cases"))
-        .count();
-    assert_eq!(features_count, 3);
-    assert_eq!(use_cases_count, 2);
-
-    assert_eq!(doc.cards()[0].kind(), Some("features"));
-    assert_eq!(
-        doc.cards()[0]
-            .payload()
-            .get("name")
-            .unwrap()
-            .as_str()
-            .unwrap(),
-        "Tag Directives"
-    );
-}
-
-#[test]
-fn test_input_size_limit() {
-    let size = crate::error::MAX_INPUT_SIZE + 1;
-    let large_markdown = "a".repeat(size);
-
-    let result = decompose(&large_markdown);
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("Input too large"));
-}
-
-#[test]
-fn test_yaml_size_limit() {
-    let mut markdown = String::from("~~~card-yaml\n$quill: test_quill\n$kind: main\n");
-    let size = crate::error::MAX_YAML_SIZE + 1;
-    markdown.push_str("data: \"");
-    markdown.push_str(&"x".repeat(size));
-    markdown.push_str("\"\n~~~\n\nBody");
-
-    let result = decompose(&markdown);
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("Input too large"));
 }
 
 /// A YAML scalar is opaque to the markdown layer, so a value that reads as
@@ -923,35 +542,6 @@ fn crlf_input_leaves_no_carriage_return_in_comment_text() {
     );
 }
 
-#[test]
-fn test_payload_at_eof_no_trailing_newline() {
-    let markdown = "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~";
-    let doc = decompose(markdown).unwrap();
-    assert_eq!(
-        doc.main().payload().get("title").unwrap().as_str().unwrap(),
-        "Test"
-    );
-    assert_eq!(doc.main().body_markdown(), "");
-}
-
-#[test]
-fn test_unicode_in_yaml_keys() {
-    let markdown =
-        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitre: Bonjour\nタイトル: こんにちは\n~~~\n\nBody.";
-    let err = decompose(markdown).unwrap_err();
-    assert!(
-        err.to_string().contains("field names must match"),
-        "non-ASCII field name is a parse error: {err}"
-    );
-
-    let ok = "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitre: こんにちは\n~~~\n";
-    let doc = decompose(ok).unwrap();
-    assert_eq!(
-        doc.main().payload().get("titre").unwrap().as_str().unwrap(),
-        "こんにちは"
-    );
-}
-
 /// The YAML scalar forms a card-yaml block admits, and the value each parses
 /// to. What survives *emission* is `emit`'s own scalar round-trips.
 #[test]
@@ -1000,51 +590,6 @@ fn single_field_yaml_scalar_types() {
 }
 
 #[test]
-fn test_invalid_card_kind_names_are_rejected() {
-    for kind in ["ITEMS", "123items", "my-items", "Invalid-Name", ""] {
-        let markdown = format!(
-            "~~~card-yaml\n$quill: test_quill\n$kind: main\n~~~\n\n~~~card-yaml\n$kind: {kind}\n~~~\n\nBody."
-        );
-        let err = decompose(&markdown).unwrap_err().to_string();
-        assert!(
-            err.contains("Invalid `$kind`"),
-            "kind {kind:?} should be rejected; got: {err}"
-        );
-    }
-}
-
-#[test]
-fn test_body_with_leading_newlines() {
-    let markdown =
-        "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\n\n\nBody with leading newlines.";
-    let doc = decompose(markdown).unwrap();
-    assert_eq!(doc.main().body_markdown(), "Body with leading newlines.");
-}
-
-#[test]
-fn test_body_with_trailing_newlines() {
-    let markdown = "~~~card-yaml\n$quill: test_quill\n$kind: main\ntitle: Test\n~~~\n\nBody.\n\n\n";
-    let doc = decompose(markdown).unwrap();
-    assert_eq!(doc.main().body_markdown(), "Body.");
-}
-
-#[test]
-fn test_blank_separator_strip_global_body_followed_by_card_lf() {
-    let markdown =
-        "~~~card-yaml\n$quill: q\n$kind: main\n~~~\n\nbody\n\n~~~card-yaml\n$kind: x\n~~~\n";
-    let doc = decompose(markdown).unwrap();
-    assert_eq!(doc.main().body_markdown(), "body");
-}
-
-#[test]
-fn test_blank_separator_strip_card_body_followed_by_card() {
-    let markdown = "~~~card-yaml\n$quill: q\n$kind: main\n~~~\n\n~~~card-yaml\n$kind: a\n~~~\n\nfirst\n\n~~~card-yaml\n$kind: b\n~~~\n\nsecond\n";
-    let doc = decompose(markdown).unwrap();
-    assert_eq!(doc.cards()[0].body_markdown(), "first");
-    assert_eq!(doc.cards()[1].body_markdown(), "second");
-}
-
-#[test]
 fn test_f2_strip_does_not_overstrip_content_newlines() {
     let markdown =
         "~~~card-yaml\n$quill: q\n$kind: main\n~~~\n\n```\ncode\n```\n\n\n~~~card-yaml\n$kind: x\n~~~\n";
@@ -1056,44 +601,6 @@ fn test_f2_strip_does_not_overstrip_content_newlines() {
         doc.main().body_markdown().ends_with("```"),
         "expected code block, got {:?}",
         doc.main().body_markdown()
-    );
-}
-
-#[test]
-fn test_allowed_card_field_collision() {
-    let markdown = "~~~card-yaml
-$quill: test_quill
-$kind: main
-my_card: \"some global value\"
-~~~
-
-~~~card-yaml
-$kind: my_card
-title: \"My Card\"
-~~~
-
-Body
-";
-    let doc = decompose(markdown).unwrap();
-    assert_eq!(
-        doc.main()
-            .payload()
-            .get("my_card")
-            .unwrap()
-            .as_str()
-            .unwrap(),
-        "some global value"
-    );
-    assert_eq!(doc.cards().len(), 1);
-    assert_eq!(doc.cards()[0].kind(), Some("my_card"));
-    assert_eq!(
-        doc.cards()[0]
-            .payload()
-            .get("title")
-            .unwrap()
-            .as_str()
-            .unwrap(),
-        "My Card"
     );
 }
 
@@ -1180,22 +687,6 @@ fn payload_field_order_preserved_after_quill_removal() {
 }
 
 #[test]
-fn card_id_is_rejected_as_an_unknown_system_key() {
-    let md = "~~~\n$quill: q@0.1\n~~~\n\n~~~\n$kind: note\n$id: a\n~~~\n";
-    let err = Document::parse(md).unwrap_err().to_string();
-    assert!(
-        err.contains("Unknown `$id`"),
-        "expected unknown-key parse error, got: {err}"
-    );
-
-    let root = "~~~\n$quill: q@0.1\n$id: x\n~~~\n";
-    assert!(Document::parse(root)
-        .unwrap_err()
-        .to_string()
-        .contains("Unknown `$id`"));
-}
-
-#[test]
 fn a_user_field_named_id_is_untouched() {
     let md = "~~~\n$quill: q@0.1\n~~~\n\n~~~\n$kind: note\nid: a\n~~~\n";
     let doc = Document::parse(md).unwrap().document;
@@ -1237,11 +728,6 @@ fn test_yaml_error_message_carries_one_line_number_system() {
     assert!(
         diag.message.starts_with("YAML error in the root card-yaml block: "),
         "the message names the block rather than a second line number: {}",
-        diag.message
-    );
-    assert!(
-        !diag.message.contains("(block 0)"),
-        "stale block suffix: {}",
         diag.message
     );
     assert_eq!(

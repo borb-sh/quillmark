@@ -67,19 +67,42 @@ fn all_four_fields() -> Vec<FieldSpec> {
     vec![full, comments, agree, color]
 }
 
-#[test]
-fn stamps_all_four_field_types_into_valid_acroform() {
-    let base = build_base_pdf(1);
-    let result = stamp(base, &all_four_fields(), &StampOptions::default()).expect("stamp ok");
-
-    let doc = lopdf::Document::load_mem(&result).expect("lopdf reparse");
-    let cat = doc.catalog().expect("catalog");
-    let af_ref = cat
+/// The stamped document, its AcroForm dict, and its `/T` → widget map.
+fn stamped_on(
+    base: Vec<u8>,
+    fields: &[FieldSpec],
+) -> (lopdf::Document, lopdf::Dictionary, HashMap<String, lopdf::Dictionary>) {
+    let out = stamp(base, fields, &StampOptions::default()).expect("stamp ok");
+    let doc = lopdf::Document::load_mem(&out).expect("lopdf reparse");
+    let af_ref = doc
+        .catalog()
+        .unwrap()
         .get(b"AcroForm")
         .expect("/AcroForm")
         .as_reference()
         .expect("AcroForm indirect");
-    let af = doc.get_object(af_ref).unwrap().as_dict().unwrap();
+    let af = doc.get_object(af_ref).unwrap().as_dict().unwrap().clone();
+    let mut by_name = HashMap::new();
+    for f in af.get(b"Fields").unwrap().as_array().unwrap() {
+        let w = doc
+            .get_object(f.as_reference().unwrap())
+            .unwrap()
+            .as_dict()
+            .unwrap();
+        let name = String::from_utf8_lossy(w.get(b"T").unwrap().as_str().unwrap()).into_owned();
+        by_name.insert(name, w.clone());
+    }
+    (doc, af, by_name)
+}
+
+/// [`stamped_on`] a one-page base.
+fn stamped(fields: &[FieldSpec]) -> (lopdf::Document, lopdf::Dictionary, HashMap<String, lopdf::Dictionary>) {
+    stamped_on(build_base_pdf(1), fields)
+}
+
+#[test]
+fn stamps_all_four_field_types_into_valid_acroform() {
+    let (_, af, by_name) = stamped(&all_four_fields());
 
     assert!(af.get(b"NeedAppearances").unwrap().as_bool().unwrap());
     assert!(af.get(b"SigFlags").is_err(), "no signature → no SigFlags");
@@ -87,22 +110,9 @@ fn stamps_all_four_field_types_into_valid_acroform() {
     let dr = af.get(b"DR").unwrap().as_dict().unwrap();
     let fonts = dr.get(b"Font").unwrap().as_dict().unwrap();
     assert!(fonts.has(b"Helv"), "house font Helv registered in /DR");
+    assert_eq!(by_name.len(), 4);
 
-    let fields = af.get(b"Fields").unwrap().as_array().unwrap();
-    assert_eq!(fields.len(), 4);
-
-    let mut by_name = HashMap::new();
-    for f in fields {
-        let w = doc
-            .get_object(f.as_reference().unwrap())
-            .unwrap()
-            .as_dict()
-            .unwrap();
-        let name = String::from_utf8_lossy(w.get(b"T").unwrap().as_str().unwrap()).into_owned();
-        by_name.insert(name, w);
-    }
-
-    let full = by_name.get("FullName").unwrap();
+    let full = &by_name["FullName"];
     assert_eq!(full.get(b"FT").unwrap().as_name().unwrap(), b"Tx");
     assert_eq!(full.get(b"V").unwrap().as_str().unwrap(), b"Ada Lovelace");
     assert!(full.get(b"DA").is_ok(), "text field carries /DA");
@@ -112,17 +122,17 @@ fn stamps_all_four_field_types_into_valid_acroform() {
     );
     assert_eq!(full.get(b"Subtype").unwrap().as_name().unwrap(), b"Widget");
 
-    let comments = by_name.get("Comments").unwrap();
+    let comments = &by_name["Comments"];
     let ff = comments.get(b"Ff").unwrap().as_i64().unwrap();
     assert_eq!(ff & (1 << 12), 1 << 12, "multiline flag set");
     assert!(comments.get(b"V").is_err(), "blank field has no /V");
 
-    let agree = by_name.get("Agree").unwrap();
+    let agree = &by_name["Agree"];
     assert_eq!(agree.get(b"FT").unwrap().as_name().unwrap(), b"Btn");
     assert_eq!(agree.get(b"V").unwrap().as_name().unwrap(), b"Yes");
     assert_eq!(agree.get(b"AS").unwrap().as_name().unwrap(), b"Yes");
 
-    let color = by_name.get("FavoriteColor").unwrap();
+    let color = &by_name["FavoriteColor"];
     assert_eq!(color.get(b"FT").unwrap().as_name().unwrap(), b"Ch");
     let cff = color.get(b"Ff").unwrap().as_i64().unwrap();
     assert_eq!(cff & (1 << 17), 1 << 17, "combo flag set");
@@ -138,7 +148,6 @@ fn stamps_all_four_field_types_into_valid_acroform() {
 
 #[test]
 fn signature_field_sets_sigflags() {
-    let base = build_base_pdf(2);
     let mut sig = FieldSpec::new(
         "Signature".into(),
         1,
@@ -146,30 +155,11 @@ fn signature_field_sets_sigflags() {
         FieldType::Signature,
     );
     sig.schema_field = Some("signature".into());
-    let fields = vec![sig];
-    let result = stamp(base, &fields, &StampOptions::default()).expect("stamp ok");
-
-    let doc = lopdf::Document::load_mem(&result).expect("reparse");
-    let cat = doc.catalog().unwrap();
-    let af = doc
-        .get_object(cat.get(b"AcroForm").unwrap().as_reference().unwrap())
-        .unwrap()
-        .as_dict()
-        .unwrap();
+    let (doc, af, w) = stamped_on(build_base_pdf(2), &[sig]);
     assert_eq!(af.get(b"SigFlags").unwrap().as_i64().unwrap(), 1);
-    let w = doc
-        .get_object(
-            af.get(b"Fields").unwrap().as_array().unwrap()[0]
-                .as_reference()
-                .unwrap(),
-        )
-        .unwrap()
-        .as_dict()
-        .unwrap();
-    assert_eq!(w.get(b"FT").unwrap().as_name().unwrap(), b"Sig");
-    let pages = doc.get_pages();
+    assert_eq!(w["Signature"].get(b"FT").unwrap().as_name().unwrap(), b"Sig");
     let page2 = doc
-        .get_object(*pages.get(&2).unwrap())
+        .get_object(*doc.get_pages().get(&2).unwrap())
         .unwrap()
         .as_dict()
         .unwrap();
@@ -179,15 +169,17 @@ fn signature_field_sets_sigflags() {
     );
 }
 
-/// The `/Producer` [`StampOptions::default`] carries.
-fn default_producer() -> Vec<u8> {
-    format!("Quillmark {}", env!("CARGO_PKG_VERSION")).into_bytes()
-}
-
+/// A field-less stamp writes `/Producer` alone: no `/AcroForm`, and a trailing
+/// hex `/Title` survives the `/Info` rewrite.
 #[test]
 fn no_fields_stamps_info_producer_alone() {
-    let base = build_base_pdf(1);
-    let result = stamp(base, &[], &StampOptions::default()).expect("stamp ok");
+    let title = "Résumé";
+    let result = stamp(
+        BasePdf::letter(1).compact().info_title(title).build(),
+        &[],
+        &StampOptions::default(),
+    )
+    .expect("stamp ok");
 
     let doc = lopdf::Document::load_mem(&result).expect("lopdf reparse");
     assert!(
@@ -203,31 +195,7 @@ fn no_fields_stamps_info_producer_alone() {
     let info = doc.get_object(info_ref).unwrap().as_dict().unwrap();
     assert_eq!(
         info.get(b"Producer").unwrap().as_str().unwrap(),
-        default_producer()
-    );
-}
-
-#[test]
-fn producer_stamp_preserves_a_trailing_hex_title() {
-    let title = "Résumé";
-    let result = stamp(
-        BasePdf::letter(1).compact().info_title(title).build(),
-        &[],
-        &StampOptions::default(),
-    )
-    .expect("stamp ok");
-
-    let doc = lopdf::Document::load_mem(&result).expect("lopdf reparse");
-    let info_ref = doc
-        .trailer
-        .get(b"Info")
-        .expect("trailer /Info")
-        .as_reference()
-        .expect("/Info indirect");
-    let info = doc.get_object(info_ref).unwrap().as_dict().unwrap();
-    assert_eq!(
-        info.get(b"Producer").unwrap().as_str().unwrap(),
-        default_producer()
+        format!("Quillmark {}", env!("CARGO_PKG_VERSION")).as_bytes()
     );
     let mut utf16be = vec![0xFE, 0xFF];
     for unit in title.encode_utf16() {
@@ -238,46 +206,6 @@ fn producer_stamp_preserves_a_trailing_hex_title() {
         utf16be.as_slice(),
         "the hex /Title survives the /Producer rewrite"
     );
-}
-
-#[test]
-fn rotated_page_rejected_cleanly() {
-    let fields = vec![text_field(
-        "FullName",
-        "full_name",
-        0,
-        [180.0, 700.0, 520.0, 720.0],
-        "Ada",
-    )];
-    let err = stamp(
-        BasePdf::letter(1).rotate(90).build(),
-        &fields,
-        &StampOptions::default(),
-    )
-    .expect_err("rotated page rejected");
-    assert_eq!(err.code, "pdf::rotated_page");
-}
-
-#[test]
-fn indirect_rotate_rejected_cleanly() {
-    let fields = vec![text_field(
-        "FullName",
-        "full_name",
-        0,
-        [180.0, 700.0, 520.0, 720.0],
-        "Ada",
-    )];
-    let err = stamp(
-        BasePdf::letter(1).indirect_rotate(90).build(),
-        &fields,
-        &StampOptions::default(),
-    )
-    .expect_err("an indirect /Rotate is not a resolvable rotation");
-    assert_eq!(err.code, "pdf::parse");
-    assert!(err.message.contains("/Rotate"), "{}", err.message);
-
-    stamp(build_base_pdf(1), &fields, &StampOptions::default())
-        .expect("the same base without the /Rotate stamps");
 }
 
 /// A one-page base whose trailer `/Size` reads `size`. The xref table precedes
@@ -294,46 +222,6 @@ fn base_with_spliced_size(size: &str) -> Vec<u8> {
     tampered.extend_from_slice(format!("/Size {size}").as_bytes());
     tampered.extend_from_slice(&base[at + needle.len()..]);
     tampered
-}
-
-#[test]
-fn implausible_size_errors_cleanly_without_panic() {
-    let err = stamp(
-        base_with_spliced_size("4294967295"),
-        &[],
-        &StampOptions::default(),
-    )
-    .expect_err("near-u32::MAX /Size should error");
-    assert!(err.message.contains("id space"), "{}", err.message);
-}
-
-#[test]
-fn size_past_i32_max_errors_cleanly_without_panic() {
-    // Ids seeded from here fit a `u32` but not the `i32` a reference holds.
-    let fields = vec![text_field(
-        "FullName",
-        "full_name",
-        0,
-        [180.0, 700.0, 520.0, 720.0],
-        "Ada",
-    )];
-    let err = stamp(
-        base_with_spliced_size("2147483648"),
-        &fields,
-        &StampOptions::default(),
-    )
-    .expect_err("/Size past i32::MAX should error");
-    assert_eq!(err.code, "pdf::write");
-    assert!(err.message.contains("id space"), "{}", err.message);
-}
-
-#[test]
-fn field_targeting_missing_page_errors() {
-    let base = build_base_pdf(1);
-    let mut sig = FieldSpec::new("X".into(), 5, [0.0, 0.0, 10.0, 10.0], FieldType::Signature);
-    sig.schema_field = Some("x".into());
-    let err = stamp(base, &[sig], &StampOptions::default()).expect_err("out of range");
-    assert!(err.message.contains("page"), "{}", err.message);
 }
 
 fn find_sub(haystack: &[u8], needle: &[u8]) -> usize {
@@ -363,49 +251,100 @@ fn insert_after(pdf: &[u8], needle: &[u8], insertion: &[u8]) -> Vec<u8> {
     out
 }
 
-#[test]
-fn nonzero_generation_catalog_rejected_cleanly() {
-    let mut base = build_base_pdf(1);
-    // Bump the catalog (object 1) header and the trailer /Root to generation 2.
-    replace_first(&mut base, b"1 0 obj", b"1 2 obj");
-    replace_first(&mut base, b"/Root 1 0 R", b"/Root 1 2 R");
-    let err = stamp(base, &[], &StampOptions::default())
-        .expect_err("non-zero generation catalog rejected");
-    assert_eq!(err.code, "pdf::nonzero_generation");
-    assert!(err.message.contains("generation 2"), "{}", err.message);
+/// `base` with `insertion` spliced in before the page object's closing `>>`,
+/// `startxref` re-pointed past it.
+fn with_page_insertion(base: &[u8], insertion: &[u8]) -> Vec<u8> {
+    let page_start = find_sub(base, b"3 0 obj");
+    let close = page_start + find_sub(&base[page_start..], b">>");
+    let mut tampered = base[..close].to_vec();
+    tampered.extend_from_slice(insertion);
+    tampered.extend_from_slice(&base[close..]);
+    let marker = b"startxref\n";
+    let pos = tampered
+        .windows(marker.len())
+        .rposition(|w| w == marker)
+        .unwrap()
+        + marker.len();
+    let mut end = pos;
+    while end < tampered.len() && tampered[end].is_ascii_digit() {
+        end += 1;
+    }
+    let off: usize = std::str::from_utf8(&tampered[pos..end])
+        .unwrap()
+        .parse()
+        .unwrap();
+    let mut out = tampered[..pos].to_vec();
+    out.extend_from_slice((off + insertion.len()).to_string().as_bytes());
+    out.extend_from_slice(&tampered[end..]);
+    out
 }
 
+/// Every base or field the spine's input contract refuses, refused under its
+/// code rather than stamped or panicking.
 #[test]
-fn nonzero_generation_page_rejected_cleanly() {
-    // Same guard, reached via a page node a field targets (object 3).
-    let mut base = build_base_pdf(1);
-    replace_first(&mut base, b"3 0 obj", b"3 4 obj");
-    let fields = vec![text_field("X", "x", 0, [10.0, 10.0, 100.0, 30.0], "hi")];
-    let err = stamp(base, &fields, &StampOptions::default())
-        .expect_err("non-zero generation page rejected");
-    assert_eq!(err.code, "pdf::nonzero_generation");
-    assert!(err.message.contains("page"), "{}", err.message);
-}
+fn an_out_of_contract_input_is_refused_under_its_code() {
+    let field = || text_field("X", "x", 0, [10.0, 10.0, 100.0, 30.0], "hi");
+    let replaced = |pairs: &[(&[u8], &[u8])]| {
+        let mut base = build_base_pdf(1);
+        for (needle, replacement) in pairs {
+            replace_first(&mut base, needle, replacement);
+        }
+        base
+    };
+    let mut off_page = FieldSpec::new("X".into(), 5, [0.0, 0.0, 10.0, 10.0], FieldType::Signature);
+    off_page.schema_field = Some("x".into());
 
-#[test]
-fn encrypted_pdf_rejected_cleanly() {
-    // After the xref table, so the startxref offset stays valid.
-    let base = build_base_pdf(1);
-    let tampered = insert_after(&base, b"/Root 1 0 R", b" /Encrypt 1 0 R");
-    let err = stamp(tampered, &[], &StampOptions::default())
-        .expect_err("encrypted PDF rejected");
-    assert_eq!(err.code, "pdf::encrypted");
-}
-
-#[test]
-fn xref_stream_rejected_cleanly() {
-    // A non-`xref` byte run at the startxref offset reads as an xref stream.
-    // `xref\n0` heads the table; `startxref\n<n>` never matches it.
-    let mut base = build_base_pdf(1);
-    replace_first(&mut base, b"xref\n0", b"1 0 \n0");
-    let err = stamp(base, &[], &StampOptions::default())
-        .expect_err("xref stream rejected");
-    assert_eq!(err.code, "pdf::xref_stream");
+    let mut cases: Vec<(&str, Vec<u8>, Vec<FieldSpec>, &str)> = vec![
+        ("rotated page", BasePdf::letter(1).rotate(90).build(), vec![field()], "pdf::rotated_page"),
+        ("indirect /Rotate", BasePdf::letter(1).indirect_rotate(90).build(), vec![field()], "pdf::parse"),
+        (
+            "encrypted",
+            insert_after(&build_base_pdf(1), b"/Root 1 0 R", b" /Encrypt 1 0 R"),
+            vec![],
+            "pdf::encrypted",
+        ),
+        // A non-`xref` byte run at the startxref offset reads as an xref stream.
+        ("xref stream", replaced(&[(b"xref\n0", b"1 0 \n0")]), vec![], "pdf::xref_stream"),
+        // Two `/AcroForm` keys are undefined per spec, and the old form's
+        // widgets stay live in the preserved page `/Annots`.
+        ("existing /AcroForm", BasePdf::letter(1).acroform().build(), vec![field()], "pdf::existing_acroform"),
+        (
+            "non-zero generation catalog",
+            replaced(&[(b"1 0 obj", b"1 2 obj"), (b"/Root 1 0 R", b"/Root 1 2 R")]),
+            vec![],
+            "pdf::nonzero_generation",
+        ),
+        (
+            "non-zero generation page",
+            replaced(&[(b"3 0 obj", b"3 4 obj")]),
+            vec![field()],
+            "pdf::nonzero_generation",
+        ),
+        (
+            "indirect /Annots",
+            with_page_insertion(&build_base_pdf(1), b" /Annots 99 0 R"),
+            vec![field()],
+            "pdf::indirect_annots",
+        ),
+        ("near-u32::MAX /Size", base_with_spliced_size("4294967295"), vec![], "pdf::write"),
+        // Ids seeded from here fit a `u32` but not the `i32` a reference holds.
+        ("/Size past i32::MAX", base_with_spliced_size("2147483648"), vec![field()], "pdf::write"),
+        ("field past the last page", build_base_pdf(1), vec![off_page], "pdf::update_parse"),
+    ];
+    // pdf-writer prints a non-finite float verbatim, which parses as no PDF number.
+    for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        cases.push((
+            "non-finite rect",
+            build_base_pdf(1),
+            vec![text_field("X", "x", 0, [10.0, bad, 100.0, 30.0], "hi")],
+            "pdf::bad_rect",
+        ));
+    }
+    for (what, base, fields, code) in cases {
+        let err = stamp(base, &fields, &StampOptions::default())
+            .expect_err(&format!("{what} is refused"));
+        assert_eq!(err.code, code, "{what}: {}", err.message);
+    }
 }
 
 #[test]
@@ -445,44 +384,6 @@ fn inline_annots_are_merged_not_replaced() {
         ids.len() >= 2,
         "widget appended alongside existing: {ids:?}"
     );
-}
-
-#[test]
-fn indirect_annots_rejected_cleanly() {
-    let base = build_base_pdf(1);
-    // Insert ` /Annots 99 0 R` before the page object's closing `>>`.
-    let page_start = find_sub(&base, b"3 0 obj");
-    let close = page_start + find_sub(&base[page_start..], b">>");
-    let insertion = b" /Annots 99 0 R";
-    let mut tampered = base[..close].to_vec();
-    tampered.extend_from_slice(insertion);
-    tampered.extend_from_slice(&base[close..]);
-    // Re-point startxref past the inserted bytes.
-    {
-        let marker = b"startxref\n";
-        let pos = tampered
-            .windows(marker.len())
-            .rposition(|w| w == marker)
-            .unwrap()
-            + marker.len();
-        let mut end = pos;
-        while end < tampered.len() && tampered[end].is_ascii_digit() {
-            end += 1;
-        }
-        let off: usize = std::str::from_utf8(&tampered[pos..end])
-            .unwrap()
-            .parse()
-            .unwrap();
-        let fixed = (off + insertion.len()).to_string();
-        let mut out = tampered[..pos].to_vec();
-        out.extend_from_slice(fixed.as_bytes());
-        out.extend_from_slice(&tampered[end..]);
-        tampered = out;
-    }
-    let fields = vec![text_field("X", "x", 0, [10.0, 10.0, 100.0, 30.0], "hi")];
-    let err =
-        stamp(tampered, &fields, &StampOptions::default()).expect_err("indirect /Annots rejected");
-    assert_eq!(err.code, "pdf::indirect_annots");
 }
 
 #[test]
@@ -543,37 +444,13 @@ fn a_nonsense_font_size_falls_back_to_auto_rather_than_forging_a_da() {
     }
 }
 
-/// `rect` is public on the same terms as `font_size`, and pdf-writer prints a
-/// non-finite float verbatim: `inf`/`NaN` in a `/Rect` parses as no PDF number.
+/// A checkbox's `/DA` is the engine's check font, registered in `/DR` for a
+/// viewer synthesizing the `/MK /CA` caption under `/NeedAppearances` (in
+/// Helvetica the check glyph is the digit `4`). Its `font` names nothing, so
+/// registering it would emit an unreferenced Type1 object; a text widget's is
+/// still registered, and a form with no checkbox registers no check font.
 #[test]
-fn a_non_finite_rect_is_refused_rather_than_written() {
-    for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-        let fields = vec![text_field("X", "x", 0, [10.0, bad, 100.0, 30.0], "hi")];
-        let err = stamp(build_base_pdf(1), &fields, &StampOptions::default())
-            .expect_err("non-finite rect rejected");
-        assert_eq!(err.code, "pdf::bad_rect", "{bad}");
-    }
-}
-
-/// A catalog with two `/AcroForm` keys is undefined per spec and
-/// parser-dependent in practice, and the old form's widgets stay live in the
-/// preserved page `/Annots`.
-#[test]
-fn a_base_that_already_carries_an_acroform_is_refused() {
-    let fields = vec![text_field("X", "x", 0, [10.0, 10.0, 100.0, 30.0], "hi")];
-    let err = stamp(
-        BasePdf::letter(1).acroform().build(),
-        &fields,
-        &StampOptions::default(),
-    )
-    .expect_err("pre-existing /AcroForm rejected");
-    assert_eq!(err.code, "pdf::existing_acroform");
-}
-
-/// A checkbox's `/DA` is the engine's check font, so its `font` names nothing
-/// and registering it would emit an unreferenced Type1 object.
-#[test]
-fn a_checkbox_font_registers_no_font_object() {
+fn a_checkbox_registers_the_check_font_and_only_it() {
     let mut agree = FieldSpec::new(
         "Agree".into(),
         0,
@@ -581,40 +458,13 @@ fn a_checkbox_font_registers_no_font_object() {
         FieldType::Checkbox,
     );
     agree.font = quillmark_pdf::FormFont::Times;
-    let out = stamp(build_base_pdf(1), &[agree], &StampOptions::default()).expect("stamp ok");
+    let out = stamp(build_base_pdf(1), &[agree.clone()], &StampOptions::default()).expect("stamp ok");
     let text = String::from_utf8_lossy(&out);
     assert!(
         !text.contains("Times-Roman") && !text.contains("/TiRo"),
         "a checkbox's inert font reached the output"
     );
-
-    let mut typed = text_field("X", "x", 0, [10.0, 10.0, 100.0, 30.0], "hi");
-    typed.font = quillmark_pdf::FormFont::Times;
-    let out = stamp(build_base_pdf(1), &[typed], &StampOptions::default()).expect("stamp ok");
-    let text = String::from_utf8_lossy(&out);
-    assert!(
-        text.contains("Times-Roman") && text.contains("/TiRo"),
-        "a text widget's font is still registered"
-    );
-}
-
-/// The `/DR` `/Font` entry and the widget `/DA` a checkbox needs, and only a
-/// checkbox: a viewer synthesizing the `/MK /CA` caption under
-/// `/NeedAppearances` sets it in the `/DA` face, and in Helvetica the check
-/// glyph is the digit `4`.
-#[test]
-fn a_checkbox_appearance_names_the_registered_check_font() {
-    let agree = FieldSpec::new(
-        "Agree".into(),
-        0,
-        [180.0, 560.0, 194.0, 574.0],
-        FieldType::Checkbox,
-    );
-    let out = stamp(build_base_pdf(1), &[agree], &StampOptions::default()).expect("stamp ok");
-
-    let doc = lopdf::Document::load_mem(&out).expect("lopdf reparse");
-    let af_ref = doc.catalog().unwrap().get(b"AcroForm").unwrap().as_reference().unwrap();
-    let af = doc.get_object(af_ref).unwrap().as_dict().unwrap();
+    let (doc, af, w) = stamped(&[agree]);
     let fonts = af.get(b"DR").unwrap().as_dict().unwrap();
     let fonts = fonts.get(b"Font").unwrap().as_dict().unwrap();
     let zadb = fonts
@@ -627,52 +477,24 @@ fn a_checkbox_appearance_names_the_registered_check_font() {
         zadb.get(b"BaseFont").unwrap().as_name().unwrap(),
         quillmark_pdf::CHECK_FONT
     );
-
-    let widget_ref = af.get(b"Fields").unwrap().as_array().unwrap()[0]
-        .as_reference()
-        .unwrap();
-    let widget = doc.get_object(widget_ref).unwrap().as_dict().unwrap();
-    let da = String::from_utf8_lossy(widget.get(b"DA").unwrap().as_str().unwrap()).into_owned();
+    let da = String::from_utf8_lossy(w["Agree"].get(b"DA").unwrap().as_str().unwrap()).into_owned();
     assert!(
         da.starts_with(&format!("/{} ", quillmark_pdf::CHECK_FONT_RESOURCE)),
         "checkbox /DA selects the check font, got {da:?}"
     );
 
-    let out = stamp(
-        build_base_pdf(1),
-        &[text_field("X", "x", 0, [10.0, 10.0, 100.0, 30.0], "hi")],
-        &StampOptions::default(),
-    )
-    .expect("stamp ok");
+    let mut typed = text_field("X", "x", 0, [10.0, 10.0, 100.0, 30.0], "hi");
+    typed.font = quillmark_pdf::FormFont::Times;
+    let out = stamp(build_base_pdf(1), &[typed], &StampOptions::default()).expect("stamp ok");
+    let text = String::from_utf8_lossy(&out);
     assert!(
-        !String::from_utf8_lossy(&out).contains("ZapfDingbats"),
+        text.contains("Times-Roman") && text.contains("/TiRo"),
+        "a text widget's font is still registered"
+    );
+    assert!(
+        !text.contains("ZapfDingbats"),
         "a form with no checkbox registers no check font"
     );
-}
-
-/// The stamped document, and its `/T` → widget map.
-fn stamped(fields: &[FieldSpec]) -> (lopdf::Document, HashMap<String, lopdf::Dictionary>) {
-    let out = stamp(build_base_pdf(1), fields, &StampOptions::default()).expect("stamp ok");
-    let doc = lopdf::Document::load_mem(&out).expect("lopdf reparse");
-    let af_ref = doc
-        .catalog()
-        .unwrap()
-        .get(b"AcroForm")
-        .unwrap()
-        .as_reference()
-        .unwrap();
-    let af = doc.get_object(af_ref).unwrap().as_dict().unwrap();
-    let mut by_name = HashMap::new();
-    for f in af.get(b"Fields").unwrap().as_array().unwrap() {
-        let w = doc
-            .get_object(f.as_reference().unwrap())
-            .unwrap()
-            .as_dict()
-            .unwrap();
-        let name = String::from_utf8_lossy(w.get(b"T").unwrap().as_str().unwrap()).into_owned();
-        by_name.insert(name, w.clone());
-    }
-    (doc, by_name)
 }
 
 /// A widget's `/AP` `/N` stream object, or `None` when it bakes no appearance.
@@ -687,7 +509,7 @@ fn normal_appearance<'a>(doc: &'a lopdf::Document, w: &lopdf::Dictionary) -> Opt
 
 #[test]
 fn a_value_is_baked_into_the_widgets_own_appearance_stream() {
-    let (doc, w) = stamped(&all_four_fields());
+    let (doc, af, w) = stamped(&all_four_fields());
 
     let full = normal_appearance(&doc, &w["FullName"]).expect("a filled text field bakes an /AP");
     assert_eq!(
@@ -726,18 +548,7 @@ fn a_value_is_baked_into_the_widgets_own_appearance_stream() {
         .expect("the appearance binds the face it selects")
         .as_reference()
         .unwrap();
-    let af_ref = doc
-        .catalog()
-        .unwrap()
-        .get(b"AcroForm")
-        .unwrap()
-        .as_reference()
-        .unwrap();
-    let dr_font = doc
-        .get_object(af_ref)
-        .unwrap()
-        .as_dict()
-        .unwrap()
+    let dr_font = af
         .get(b"DR")
         .unwrap()
         .as_dict()
@@ -783,7 +594,7 @@ fn a_widget_with_nothing_to_show_bakes_no_appearance() {
         [180.0, 100.0, 520.0, 140.0],
         FieldType::Signature,
     );
-    let (_, w) = stamped(&[unchecked, sig]);
+    let (_, _, w) = stamped(&[unchecked, sig]);
 
     assert!(w["Agree"].get(b"AP").is_err(), "an unchecked box");
     assert!(w["Signature"].get(b"AP").is_err(), "an unsigned signature");
@@ -791,7 +602,7 @@ fn a_widget_with_nothing_to_show_bakes_no_appearance() {
 
 #[test]
 fn a_face_an_appearance_draws_with_declares_the_encoding_it_writes() {
-    let (doc, w) = stamped(&all_four_fields());
+    let (doc, _, w) = stamped(&all_four_fields());
     let font = |widget: &lopdf::Dictionary, resource: &[u8]| {
         let id = normal_appearance(&doc, widget)
             .expect("an appearance")
@@ -829,7 +640,7 @@ fn a_face_an_appearance_draws_with_declares_the_encoding_it_writes() {
 #[test]
 fn a_non_winansi_value_draws_substituted_while_the_field_keeps_it_whole() {
     let value = "\u{65e5}\u{672c} Caf\u{e9}";
-    let (doc, w) = stamped(&[text_field(
+    let (doc, _, w) = stamped(&[text_field(
         "FullName",
         "full_name",
         0,

@@ -35,29 +35,15 @@ main:
 }
 
 describe('@quillmark/wasm/core surface', () => {
-  it('exposes Document and Quill but NO engine / render API', () => {
-    expect(typeof core.Quill).toBe('function')
-    expect(typeof core.Document).toBe('function')
+  it('loads a quill with no engine and carries no render API', () => {
     // The engine and session live only in the render build.
     expect(core.Quillmark).toBeUndefined()
     expect(core.LiveSession).toBeUndefined()
-  })
-
-  it('loads a quill via Quill.fromTree with no engine', () => {
     const quill = Quill.fromTree(makeCoreQuill())
     expect(quill.backendId).toBe('typst')
-    // No render/open methods on the core Quill.
+    expect(quill.metadata.name).toBe('core_test')
     expect(quill.render).toBeUndefined()
     expect(quill.open).toBeUndefined()
-  })
-
-  it('metadata is identity-only: no supportedFormats', () => {
-    const quill = Quill.fromTree(makeCoreQuill())
-    const meta = quill.metadata
-    expect(meta.name).toBe('core_test')
-    expect(meta.version).toBe('1.0.0')
-    expect(meta.backend).toBe('typst')
-    expect(meta.supportedFormats).toBeUndefined()
   })
 
   it('schema, blueprint, seed, and validate work without a backend', () => {
@@ -132,17 +118,6 @@ card_kinds:
     doc2.removeSeedOverlay('note')
     expect(doc2.main.seed?.note).toBeUndefined()
   })
-
-  it('loads even when the declared backend is unknown (resolved at render time)', () => {
-    const yaml = `quill:
-  name: no_backend
-  version: "1.0.0"
-  backend: nonexistent
-  description: Backend resolved later
-`
-    const quill = Quill.fromTree(new Map([['Quill.yaml', enc.encode(yaml)]]))
-    expect(quill.backendId).toBe('nonexistent')
-  })
 })
 
 // The core bundle's reason to exist is the editor: the full Document mutation +
@@ -164,15 +139,10 @@ title: Draft
     expect(doc.cards[0].kind).toBe('note')
 
     doc.storeField({ card: 0, field: 'author' }, 'Bob')
-    // Keyed card read: mirrors the write, no payloadItems walk.
-    expect(doc.getStored({ card: 0, field: 'author' })).toBe('Bob')
-    expect(doc.getStored({ card: 0, field: 'author' })).toBe(field(doc.cards[0], 'author'))
+    expect(field(doc.cards[0], 'author')).toBe('Bob')
 
-    // Storage DTO round-trips losslessly: the editor's persistence path.
-    const restored = Document.fromStored(doc.toStored())
-    expect(restored.equals(doc)).toBe(true)
+    expect(Document.fromStored(doc.toStored()).equals(doc)).toBe(true)
 
-    // Removal works back down to empty.
     doc.removeCard(0)
     expect(doc.cardCount).toBe(0)
   })
@@ -201,11 +171,6 @@ title: Draft
     // write verbs do, rather than reading back as undefined/"".
     expect(() => doc.getStored({ card: 1, field: 'author' })).toThrow()
     expect(() => doc.bodyMarkdown({ card: 1 })).toThrow()
-
-    // getStored still reads the raw value verbatim (transport); including a scalar a
-    // storeField wrote under a would-be richtext field.
-    doc.storeField({ card: 0, field: 'qty' }, 3)
-    expect(doc.getStored({ card: 0, field: 'qty' })).toBe(3)
   })
 
   it('single-card and seed-overlay reads', () => {

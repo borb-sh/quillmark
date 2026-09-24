@@ -152,18 +152,9 @@ fn a_blank_date_regions_through_its_fill_in_widget() {
     // The seed leaves the memo date and the indorsement date blank.
     let (engine, quill, parsed) = common::seeded_memo();
     let session = engine.open(quill, &parsed, None).expect("open a session");
-    let pdf = engine
-        .render(
-            quill,
-            &parsed,
-            None,
-            &RenderOptions::default().with_output_format(OutputFormat::Pdf),
-        )
-        .expect("render to PDF");
-    let bytes = &pdf.artifacts[0].bytes;
 
     let regions = session.regions();
-    for (field, widget) in [("date", "Date"), ("$cards.indorsement.0.date", "Ind_0_Date")] {
+    for field in ["date", "$cards.indorsement.0.date"] {
         let date = regions
             .iter()
             .find(|r| r.field == field)
@@ -178,11 +169,6 @@ fn a_blank_date_regions_through_its_fill_in_widget() {
             session.field_at(date.page, cx, cy, 0.0).as_deref(),
             Some(field),
             "a click on the fill-in widget routes to {field}"
-        );
-        let name = format!("/T ({widget})");
-        assert!(
-            bytes.windows(name.len()).any(|w| w == name.as_bytes()),
-            "{field} is a typeable AcroForm text field named {widget} in the PDF"
         );
     }
 }

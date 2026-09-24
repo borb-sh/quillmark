@@ -10,7 +10,6 @@ def test_quill_properties(engine, taro_quill_dir):
     quill = Quill.from_path(str(taro_quill_dir))
 
     metadata = quill.metadata
-    assert isinstance(metadata, dict)
     assert metadata["name"] == "taro"
     # The key order BINDINGS.md pins across both surfaces.
     assert list(metadata) == ["name", "version", "backend", "author", "description"]
@@ -19,25 +18,14 @@ def test_quill_properties(engine, taro_quill_dir):
     assert quill.backend_id == "typst"
     assert isinstance(quill.blueprint, str) and quill.blueprint != ""
 
-    schema = quill.schema
-    assert isinstance(schema, dict)
-    assert "main" in schema
-    assert "fields" in schema["main"]
-
-    # Capability is resolved by the engine, against the quill.
-    supported_formats = engine.supported_formats(quill)
-    assert isinstance(supported_formats, list)
-    assert OutputFormat.PDF in supported_formats
+    assert "fields" in quill.schema["main"]
+    assert OutputFormat.PDF in engine.supported_formats(quill)
 
 
 def test_registered_backends(engine):
     """The engine's backend roster: which backends this build compiled in, as
     opposed to which formats a given quill supports (`supported_formats`)."""
-    backends = engine.registered_backends()
-    assert isinstance(backends, list)
-    assert all(isinstance(b, str) for b in backends)
-    # The published wheel builds both backends in; order is not guaranteed.
-    assert "typst" in backends
+    assert "typst" in engine.registered_backends()
 
 
 def test_enum_members_are_hashable():
@@ -72,9 +60,7 @@ def test_quill_from_path_bad_backend_loads_then_fails_at_render(tmp_path):
 
 
 def test_warnings_carry_the_loads_advisories(taro_quill_dir, tmp_path):
-    """A config warning reaches the host off the loaded quill. Before, only the
-    CLI's own loader door kept them and a Python host could not read them at
-    all."""
+    """A config warning reaches the host off the loaded quill."""
     assert Quill.from_path(str(taro_quill_dir)).warnings == []
 
     quill_dir = tmp_path / "warn_quill"
@@ -92,5 +78,3 @@ def test_warnings_carry_the_loads_advisories(taro_quill_dir, tmp_path):
         "quill::body_example_unused",
         "quill::bodiless_card_kind",
     ]
-
-

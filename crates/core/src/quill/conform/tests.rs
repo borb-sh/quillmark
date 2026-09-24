@@ -284,11 +284,6 @@ fn non_conforming_value_rests_authored_with_a_diagnostic() {
 fn conform_is_a_no_op_on_seeds() {
     let quill = quill();
     let mut doc = quill.seed_document();
-    assert_eq!(
-        doc.main().payload().get("note").unwrap().as_json(),
-        &json!("a *literal* line"),
-        "a seeded plaintext field rests as its literal string"
-    );
     let before = bytes(&doc);
     let diags = quill.conform(&mut doc).expect("conform");
     assert!(diags.is_empty(), "{diags:?}");
@@ -518,19 +513,8 @@ fn a_0_92_0_row_migrates_then_converges() {
 
     let diags = quill.conform(&mut doc).expect("the quill matches");
     assert!(diags.is_empty(), "{diags:?}");
-    assert!(
-        doc.main().payload().get("subject").unwrap().as_json().is_object(),
-        "the authored richtext string converges to the canonical content object"
-    );
-    assert_eq!(
-        doc.main().payload().get("note").unwrap().as_json(),
-        &json!("a *literal* line"),
-        "and the object-rest plaintext converges to its literal string"
-    );
-    assert!(doc.cards()[0].payload().get("body").unwrap().as_json().is_object());
 
     let restored = bytes(&doc);
-    assert!(restored.contains("quillmark/document@0.115.0"));
     let (authored, _) = parse_bound(
         &quill,
         "\

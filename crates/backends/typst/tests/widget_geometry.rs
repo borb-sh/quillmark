@@ -8,25 +8,7 @@ use quillmark_core::{backend::Backend, region::RenderedRegion, session::LiveSess
 use quillmark_typst::TypstBackend;
 
 mod common;
-use common::quill_with_plate as quill;
-
-const YAML: &str = r#"
-quill:
-  name: widget_geometry
-  version: 0.1.0
-  backend: typst
-  description: widget rect against rendered ink
-typst:
-  plate_file: plate.typ
-main:
-  fields:
-    inline_field:
-      type: string
-      description: a widget seated in a line of text
-    centered_field:
-      type: string
-      description: a widget under #align(center, ..)
-"#;
+use common::{quill_with_plate as quill, yaml};
 
 /// Each widget page is followed by its twin: same text, same box, filled.
 const PLATE: &str = r#"
@@ -50,7 +32,10 @@ const SCALE: f32 = 4.0;
 
 fn open() -> LiveSession {
     TypstBackend
-        .open(&quill(YAML, PLATE), &serde_json::json!({}), None)
+        .open(&quill(
+            &yaml("main:\n  fields:\n    inline_field: { type: string }\n    centered_field: { type: string }\n"),
+            PLATE,
+        ), &serde_json::json!({}), None)
         .expect("open")
 }
 
@@ -115,21 +100,15 @@ fn assert_region_covers_ink(session: &LiveSession, r: &RenderedRegion, ink: [f32
 }
 
 /// An inline box hangs a full box-height above the line's own baseline, so no
-/// point the line supplies is the box's top-left.
+/// point the line supplies is the box's top-left. A block-level tag is hoisted
+/// to the flow cursor, whose x is the left margin whatever the alignment does
+/// to the box beside it.
 #[test]
-fn an_inline_widget_reports_the_rect_its_box_prints_in() {
+fn a_widget_reports_the_rect_its_box_prints_in() {
     let session = open();
-    let r = region(&session, "inline_field");
-    assert_eq!(r.page, 0, "the inline widget is on the first page");
-    assert_region_covers_ink(&session, &r, diff_bbox(&session, 0, 1), "inline widget");
-}
-
-/// A block-level tag is hoisted to the flow cursor, whose x is the left margin
-/// whatever the alignment does to the box beside it.
-#[test]
-fn a_centered_widget_reports_the_rect_its_box_prints_in() {
-    let session = open();
-    let r = region(&session, "centered_field");
-    assert_eq!(r.page, 2, "the centered widget is on the third page");
-    assert_region_covers_ink(&session, &r, diff_bbox(&session, 2, 3), "centered widget");
+    for (field, page) in [("inline_field", 0), ("centered_field", 2)] {
+        let r = region(&session, field);
+        assert_eq!(r.page, page, "{field} sits on its page");
+        assert_region_covers_ink(&session, &r, diff_bbox(&session, page, page + 1), field);
+    }
 }

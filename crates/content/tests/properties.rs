@@ -396,21 +396,15 @@ proptest! {
         prop_assert_eq!(&rt, &rt2, "alt/url specials not a fixed point.\n  md: {:?}", md);
     }
 
-    /// Property 2a: the *byte* fixed point.
+    /// Property 2a: the *byte* fixed point and the *value* fixed point. Bytes
+    /// can hold while a value that encodes to some other value's bytes loses
+    /// the second.
     #[test]
     fn canonical_json_fixed_point(md in document()) {
         let rt = from_markdown(&md).unwrap();
         let json = rt.to_canonical_json();
         let back = Content::from_canonical_json(&json).unwrap();
         prop_assert_eq!(back.to_canonical_json(), json);
-    }
-
-    /// Property 2a': the *value* fixed point, the other promise. Bytes can hold
-    /// while a value that encodes to some other value's bytes loses this.
-    #[test]
-    fn canonical_value_fixed_point(md in document()) {
-        let rt = from_markdown(&md).unwrap();
-        let back = Content::from_canonical_json(&rt.to_canonical_json()).unwrap();
         prop_assert_eq!(back, rt);
     }
 

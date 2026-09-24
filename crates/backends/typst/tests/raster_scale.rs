@@ -14,25 +14,13 @@ use quillmark_core::{
 use quillmark_typst::TypstBackend;
 
 mod common;
-use common::quill_with_plate as quill;
-
-const YAML: &str = r#"
-quill:
-  name: raster_scale
-  version: 0.1.0
-  backend: typst
-  description: one small page to rasterize
-typst:
-  plate_file: plate.typ
-main:
-  fields: {}
-"#;
+use common::{quill_with_plate as quill, yaml};
 
 const PLATE: &str = "#set page(width: 200pt, height: 120pt, margin: 12pt)\nink\n";
 
 fn open() -> LiveSession {
     TypstBackend
-        .open(&quill(YAML, PLATE), &serde_json::json!({}), None)
+        .open(&quill(&yaml("main:\n  fields: {}\n"), PLATE), &serde_json::json!({}), None)
         .expect("open")
 }
 

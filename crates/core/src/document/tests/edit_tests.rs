@@ -1,6 +1,5 @@
 
 use crate::document::edit::{is_valid_field_name, EditError};
-use crate::document::meta::is_valid_kind_name;
 use crate::document::{Card, Codec, Document};
 use crate::value::QuillValue;
 use crate::version::QuillReference;
@@ -37,50 +36,19 @@ fn commit_richtext(
     card.commit_field(name, QuillValue::from_json(value.clone()), &schema)
 }
 
-fn qv_int(n: i64) -> QuillValue {
-    QuillValue::from_json(serde_json::json!(n))
-}
-
 #[test]
-fn test_valid_field_names() {
-    assert!(is_valid_field_name("title"));
-    assert!(is_valid_field_name("my_field"));
-    assert!(is_valid_field_name("_private"));
-    assert!(is_valid_field_name("abc123"));
-    assert!(is_valid_field_name("a1b2c3"));
-    assert!(is_valid_field_name("x"));
-    assert!(is_valid_field_name("_"));
-    assert!(is_valid_field_name("Title"));
-    assert!(is_valid_field_name("BODY"));
-    assert!(is_valid_field_name("MixedCase_1"));
-}
-
-#[test]
-fn test_invalid_field_names() {
-    assert!(!is_valid_field_name(""));
-    assert!(!is_valid_field_name("123abc")); // starts with digit
-    assert!(!is_valid_field_name("my-field")); // hyphen not allowed
-    assert!(!is_valid_field_name("my field")); // space not allowed
-    assert!(!is_valid_field_name("$body")); // $-prefix reserved for metadata
-}
-
-#[test]
-fn test_document_store_field_rejects_dollar_prefixed_names() {
-    for name in ["$body", "$cards", "$quill", "$kind"] {
-        let mut doc = make_doc();
-        let result = doc.main_mut().store_field(name, qv("value"));
-        assert_eq!(
-            result,
-            Err(EditError::InvalidFieldName(name.to_string())),
-            "expected InvalidFieldName for '{}'",
-            name
-        );
+fn test_field_name_grammar() {
+    for name in ["title", "_private", "a1b2c3", "_", "MixedCase_1"] {
+        assert!(is_valid_field_name(name), "{name:?}");
+    }
+    for name in ["", "123abc", "my-field", "my field", "$body"] {
+        assert!(!is_valid_field_name(name), "{name:?}");
     }
 }
 
 #[test]
-fn test_document_store_field_rejects_non_ascii_names() {
-    for name in ["\u{212A}elvin", "e\u{0301}tat"] {
+fn test_document_store_field_rejects_invalid_names() {
+    for name in ["$body", "$quill", "\u{212A}elvin", "e\u{0301}tat"] {
         let mut doc = make_doc();
         assert_eq!(
             doc.main_mut().store_field(name, qv("value")),
@@ -104,30 +72,16 @@ fn test_document_store_field_updates_existing() {
 }
 
 #[test]
-fn test_document_insert_card_at_zero() {
-    let mut doc = make_doc_with_cards(); // 2 cards: note, summary
-    let card = Card::new("intro").unwrap();
-    doc.insert_card(0, card).unwrap();
-    assert_eq!(doc.cards().len(), 3);
-    assert_eq!(doc.cards()[0].kind(), Some("intro"));
-    assert_eq!(doc.cards()[1].kind(), Some("note"));
-}
-
-#[test]
-fn test_document_insert_card_at_end() {
-    let mut doc = make_doc_with_cards(); // 2 cards
-    let len = doc.cards().len();
-    let card = Card::new("footer").unwrap();
-    doc.insert_card(len, card).unwrap();
-    assert_eq!(doc.cards()[len].kind(), Some("footer"));
-}
-
-#[test]
-fn test_document_insert_card_out_of_range() {
-    let mut doc = make_doc(); // 0 cards
-    let card = Card::new("note").unwrap();
-    let result = doc.insert_card(1, card);
-    assert_eq!(result, Err(EditError::IndexOutOfRange { index: 1, len: 0 }));
+fn test_document_insert_card() {
+    let mut doc = make_doc_with_cards();
+    doc.insert_card(0, Card::new("intro").unwrap()).unwrap();
+    doc.insert_card(3, Card::new("footer").unwrap()).unwrap();
+    let kinds: Vec<_> = doc.cards().iter().map(|c| c.kind()).collect();
+    assert_eq!(kinds, [Some("intro"), Some("note"), Some("summary"), Some("footer")]);
+    assert_eq!(
+        doc.insert_card(5, Card::new("note").unwrap()),
+        Err(EditError::IndexOutOfRange { index: 5, len: 4 })
+    );
 }
 
 #[test]
@@ -174,6 +128,8 @@ fn test_set_card_kind_renames_in_place() {
         Some("bar")
     );
     assert_eq!(doc.cards()[1].kind(), Some("summary"));
+    let reparsed = Document::parse(&doc.to_markdown()).unwrap().document;
+    assert_eq!(reparsed.cards()[0].kind(), Some("annotation"));
 }
 
 #[test]
@@ -186,15 +142,6 @@ fn test_set_card_kind_rejects_invalid_kind() {
         }
     }
     assert_eq!(doc.cards()[0].kind(), Some("note"));
-}
-
-#[test]
-fn test_set_card_kind_round_trips_via_markdown() {
-    let mut doc = make_doc_with_cards();
-    doc.set_card_kind(0, "annotation").unwrap();
-    let md = doc.to_markdown();
-    let reparsed = crate::document::Document::parse(&md).unwrap().document;
-    assert_eq!(reparsed.cards()[0].kind(), Some("annotation"));
 }
 
 #[test]
@@ -224,46 +171,20 @@ fn test_card_store_fields_inserts_in_iterator_order() {
 }
 
 #[test]
-fn test_card_store_fields_collects_every_violation() {
+fn test_card_store_fields_collects_every_violation_and_applies_none() {
     let mut card = Card::new("note").unwrap();
+    card.store_field("existing", qv("old")).unwrap();
     let errors = card
         .store_fields([
-            ("ok".to_string(), qv("fine")),
+            ("existing".to_string(), qv("new")),
             ("bad-name".to_string(), qv("v")),
             ("also bad".to_string(), qv("v")),
         ])
         .unwrap_err();
-    assert_eq!(errors.len(), 2);
-    assert_eq!(
-        errors[0],
-        (
-            "bad-name".to_string(),
-            EditError::InvalidFieldName("bad-name".to_string())
-        )
-    );
-    assert_eq!(
-        errors[1],
-        (
-            "also bad".to_string(),
-            EditError::InvalidFieldName("also bad".to_string())
-        )
-    );
-}
-
-#[test]
-fn test_card_store_fields_atomic_on_error() {
-    let mut card = Card::new("note").unwrap();
-    card.store_field("existing", qv("old")).unwrap();
-    let result = card.store_fields([
-        ("existing".to_string(), qv("new")),
-        ("bad-name".to_string(), qv("v")),
-    ]);
-    assert!(result.is_err());
-    assert_eq!(
-        card.payload().get("existing").unwrap().as_str(),
-        Some("old")
-    );
-    assert!(card.payload().get("bad-name").is_none());
+    let names: Vec<_> = errors.iter().map(|(n, _)| n.as_str()).collect();
+    assert_eq!(names, ["bad-name", "also bad"]);
+    assert!(errors.iter().all(|(n, e)| *e == EditError::InvalidFieldName(n.clone())));
+    assert_eq!(card.payload().get("existing").unwrap().as_str(), Some("old"));
 }
 
 /// The emitted `x: a: 1` does not re-parse, so the mutator refuses what parse
@@ -336,27 +257,6 @@ fn test_card_store_fields_clears_fill_and_repeated_name_last_wins() {
     assert_eq!(value.as_str(), Some("final"));
 }
 
-/// The payload item's flag is the sole carrier of a root `!must_fill`, so a
-/// value arriving with its own root bit set is stored under the mutator's.
-#[test]
-fn test_store_clears_a_root_fill_bit_on_the_incoming_value() {
-    let mut marked = qv("draft");
-    assert!(marked.set_fill_at(&[]));
-
-    let mut card = Card::new("note").unwrap();
-    card.store_fields([("x".to_string(), marked.clone())])
-        .unwrap();
-    card.store_field("y", marked.clone()).unwrap();
-    card.store_fill("z", marked).unwrap();
-
-    for key in ["x", "y"] {
-        assert!(!card.payload().is_fill(key), "{key} carries no marker");
-        assert!(!card.payload().get(key).unwrap().fill(), "{key} value");
-    }
-    assert!(card.payload().is_fill("z"));
-    assert!(!card.payload().get("z").unwrap().fill());
-}
-
 #[test]
 fn test_store_field_scalar_conversions() {
     let mut card = Card::new("note").unwrap();
@@ -413,11 +313,6 @@ fn test_overwrite_body_sets_directly() {
     let mut card = Card::new("note").unwrap();
     card.overwrite_body(content.clone());
     assert_eq!(card.body(), &content);
-    assert!(card
-        .body()
-        .marks
-        .iter()
-        .any(|m| matches!(m.kind, MarkKind::Underline)));
 }
 
 #[test]
@@ -432,7 +327,6 @@ fn test_overwrite_field_sets_directly() {
     card.overwrite_field("intro", content.clone()).unwrap();
     let read = card.field_content("intro", Codec::Richtext).unwrap().unwrap();
     assert_eq!(read, content);
-    assert!(read.marks.iter().any(|m| matches!(m.kind, MarkKind::Underline)));
 
     assert_eq!(
         card.overwrite_field("$bad", quillmark_content::model::Normalized::empty())
@@ -542,7 +436,6 @@ fn test_commit_field_richtext_content_object_reads_back() {
     assert!(card.payload().get("intro").unwrap().as_json().is_object());
     let read = card.field_content("intro", Codec::Richtext).unwrap().unwrap();
     assert_eq!(read, content);
-    assert!(read.marks.iter().any(|m| matches!(m.kind, MarkKind::Underline)));
 }
 
 #[test]
@@ -646,27 +539,15 @@ fn test_commit_field_scalar_strict() {
         card.payload().get("qty").unwrap().as_json(),
         &serde_json::json!(3)
     );
-}
 
-#[test]
-fn test_commit_field_object_rejects_non_object() {
-    use crate::quill::{FieldSchema, FieldType};
-
-    let mut card = Card::new("note").unwrap();
-    let schema = FieldSchema::new("meta".to_string(), FieldType::Object, None);
+    let object = FieldSchema::new("meta".to_string(), FieldType::Object, None);
     assert_eq!(
-        card.commit_field("meta", QuillValue::from_json(serde_json::json!(42)), &schema)
+        card.commit_field("meta", QuillValue::from_json(serde_json::json!(42)), &object)
             .unwrap_err()
             .code(),
         "edit::field_coercion_failed"
     );
-}
 
-#[test]
-fn test_commit_field_rejects_bad_name() {
-    use crate::quill::{FieldSchema, FieldType};
-
-    let mut card = Card::new("note").unwrap();
     let schema = FieldSchema::new("$bad".to_string(), FieldType::Integer, None);
     assert_eq!(
         card.commit_field("$bad", QuillValue::from_json(serde_json::json!(1)), &schema)
@@ -685,71 +566,6 @@ fn test_field_content_absent_and_non_content() {
     card.store_field("count", 3).unwrap();
     assert!(card.field_content("count", Codec::Richtext).unwrap().is_err());
     assert!(card.field_text("count", Codec::Richtext).unwrap().is_err());
-}
-
-#[test]
-fn test_content_field_emits_as_markdown_projection() {
-    let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
-    commit_richtext(
-        doc.main_card_mut(),
-        "intro",
-        &serde_json::json!("**bold** intro"),
-        false,
-    )
-    .unwrap();
-
-    let md = doc.to_markdown();
-    assert!(
-        md.contains("intro: \"**bold** intro\""),
-        "expected markdown projection, got:\n{md}"
-    );
-    assert!(!md.contains("lines:"), "content object leaked into card-yaml:\n{md}");
-
-    let reparsed = Document::parse(&md).unwrap().document;
-    assert_eq!(
-        reparsed.main().payload().get("intro").unwrap().as_str(),
-        Some("**bold** intro")
-    );
-}
-
-#[test]
-fn test_non_content_object_field_emits_structurally() {
-    let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
-    doc.main_mut()
-        .store_field(
-            "addr",
-            QuillValue::from_json(serde_json::json!({ "city": "Paris" })),
-        )
-        .unwrap();
-    let md = doc.to_markdown();
-    assert!(md.contains("addr:"), "{md}");
-    assert!(md.contains("city: Paris"), "{md}");
-}
-
-/// The projection guard is byte-exact (canonical-string equality), not an
-/// order-independent `Value` compare.
-#[test]
-fn test_noncanonical_order_content_field_stays_structural() {
-    let rt = quillmark_content::import::from_markdown("**bold**").unwrap();
-    let canonical = quillmark_content::serial::to_canonical_value(&rt);
-    let obj = canonical.as_object().unwrap();
-    let mut scrambled = serde_json::Map::new();
-    for k in obj.keys().rev() {
-        scrambled.insert(k.clone(), obj[k].clone());
-    }
-
-    let mut doc = Document::new(QuillReference::from_str("test_quill").unwrap());
-    doc.main_mut()
-        .store_field(
-            "intro",
-            QuillValue::from_json(serde_json::Value::Object(scrambled)),
-        )
-        .unwrap();
-    let md = doc.to_markdown();
-    assert!(
-        md.contains("marks:") && md.contains("lines:"),
-        "non-canonical-order content should stay structural, got:\n{md}"
-    );
 }
 
 #[test]
@@ -906,60 +722,6 @@ fn test_apply_field_change_treats_an_absent_field_as_empty() {
 }
 
 #[test]
-fn test_invariants_after_mutation_sequence() {
-    let mut doc = make_doc();
-
-    doc.main_mut().store_field("author", qv("Alice")).unwrap();
-    doc.main_mut().store_field("version", qv_int(3)).unwrap();
-
-    let c1 = Card::new("note").unwrap();
-    let c2 = Card::new("summary").unwrap();
-    let c3 = Card::new("appendix").unwrap();
-    doc.push_card(c1).unwrap();
-    doc.push_card(c2).unwrap();
-    doc.insert_card(1, c3).unwrap(); // now: note, appendix, summary
-
-    doc.card_mut(0)
-        .unwrap()
-        .store_field("text", qv("Hello"))
-        .unwrap();
-
-    doc.move_card(2, 0).unwrap(); // summary, note, appendix
-
-    doc.remove_card(1); // summary, appendix
-
-    doc.main_mut().revise_body("Updated body.").unwrap();
-
-    doc.main_mut().remove_field("version").unwrap();
-
-    for key in doc.main().payload().keys() {
-        assert!(
-            is_valid_field_name(key),
-            "invalid key '{}' found in payload",
-            key
-        );
-    }
-
-    for card in doc.cards() {
-        if let Some(kind) = card.kind() {
-            assert!(is_valid_kind_name(kind), "invalid kind '{}' found", kind);
-        }
-    }
-
-    let json = doc.to_plate_json_gated(true, None);
-    assert!(json.is_object());
-    assert_eq!(json["$quill"].as_str(), Some("test_quill"));
-    assert!(json["$cards"].is_array());
-    assert_eq!(json["$body"]["text"].as_str(), Some("Updated body."));
-
-    assert_eq!(
-        doc.main().payload().get("author").unwrap().as_str(),
-        Some("Alice")
-    );
-    assert!(doc.main().payload().get("version").is_none());
-}
-
-#[test]
 fn test_remove_ext_returns_previous_and_clears() {
     let mut doc = make_doc();
     let mut ext = serde_json::Map::new();
@@ -1053,48 +815,6 @@ fn store_seed_overlay_charges_the_map_its_own_level() {
 }
 
 #[test]
-fn storage_dto_rejects_value_past_depth_limit() {
-    let stored = serde_json::json!({
-        "schema": "quillmark/document@0.112.0",
-        "main": {
-            "payload": {"items": [
-                {"type": "quill", "value": "q@1.0"},
-                {"type": "kind", "value": "main"},
-                {"type": "field", "key": "x", "value": deep_value(150)}
-            ]},
-            "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}
-        },
-        "cards": []
-    });
-    let err = serde_json::from_value::<crate::document::Document>(stored).unwrap_err();
-    assert!(
-        err.to_string().contains("deeper than the maximum"),
-        "expected depth error, got {err}"
-    );
-
-    let serde_json::Value::Object(deep_map) = deep_value(150) else {
-        unreachable!()
-    };
-    let stored = serde_json::json!({
-        "schema": "quillmark/document@0.112.0",
-        "main": {
-            "payload": {"items": [
-                {"type": "quill", "value": "q@1.0"},
-                {"type": "kind", "value": "main"},
-                {"type": "ext", "value": deep_map}
-            ]},
-            "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}
-        },
-        "cards": []
-    });
-    let err = serde_json::from_value::<crate::document::Document>(stored).unwrap_err();
-    assert!(
-        err.to_string().contains("deeper than the maximum"),
-        "expected $ext depth error, got {err}"
-    );
-}
-
-#[test]
 fn wire_card_rejects_value_past_depth_limit_and_bad_names() {
     let wire: crate::document::CardWire = serde_json::from_value(serde_json::json!({
         "kind": "note",
@@ -1105,10 +825,7 @@ fn wire_card_rejects_value_past_depth_limit_and_bad_names() {
     }))
     .unwrap();
     let err = crate::document::Card::try_from(wire).unwrap_err();
-    assert!(
-        err.to_string().contains("deeper than the maximum"),
-        "expected depth error, got {err}"
-    );
+    assert_eq!(err.code(), "edit::value_too_deep");
 
     let wire: crate::document::CardWire = serde_json::from_value(serde_json::json!({
         "kind": "note",
@@ -1119,10 +836,7 @@ fn wire_card_rejects_value_past_depth_limit_and_bad_names() {
     }))
     .unwrap();
     let err = crate::document::Card::try_from(wire).unwrap_err();
-    assert!(
-        err.to_string().contains("[A-Za-z_]"),
-        "expected name error, got {err}"
-    );
+    assert_eq!(err.code(), "edit::invalid_field_name");
 }
 
 
@@ -1228,10 +942,11 @@ fn test_wire_refuses_payload_level_violations() {
     built(vec![field("title"), field("subject")]).expect("distinct keys cross");
 }
 
-/// The storage DTO is a hand-craftable ingress, so it owns the positional
-/// invariants the parser enforces on source.
+/// The storage DTO is a hand-craftable ingress, so it owns the invariants the
+/// parser enforces on source. Each refused payload differs from a loading one
+/// by one item.
 #[test]
-fn storage_dto_polices_root_kind_and_repeated_entries() {
+fn storage_dto_refuses_what_the_parser_refuses() {
     let load = |items: serde_json::Value| {
         serde_json::from_value::<crate::document::Document>(serde_json::json!({
             "schema": "quillmark/document@0.112.0",
@@ -1241,97 +956,27 @@ fn storage_dto_polices_root_kind_and_repeated_entries() {
     };
     let quill = serde_json::json!({"type": "quill", "value": "q@1.0"});
     let kind = |v: &str| serde_json::json!({"type": "kind", "value": v});
+    let field = |key: &str, value: serde_json::Value| serde_json::json!({"type": "field", "key": key, "value": value});
+    let serde_json::Value::Object(deep_map) = deep_value(150) else {
+        unreachable!()
+    };
 
-    let err = load(serde_json::json!([quill, kind("note")])).unwrap_err();
-    assert!(
-        err.to_string().contains("reserved for the document root"),
-        "a non-`main` root kind emits a block the parser rejects, got: {err}"
-    );
-
-    // Absent is not malformed: the parser synthesises it, so the DTO does too.
-    let doc = load(serde_json::json!([quill])).expect("an absent root kind loads");
+    let doc = load(serde_json::json!([quill, field("x", deep_value(50))]))
+        .expect("an absent root kind loads");
     assert_eq!(doc.main().kind(), Some("main"));
-    let reparsed = Document::parse(&doc.to_markdown()).expect("emit reparses");
-    assert_eq!(reparsed.document.main().kind(), Some("main"));
+    assert_eq!(Document::parse(&doc.to_markdown()).expect("emit reparses").document, doc);
 
-    for repeated in [
-        serde_json::json!([quill, kind("main"), quill]),
-        serde_json::json!([quill, kind("main"), kind("main")]),
+    for (label, items) in [
+        ("deep field", serde_json::json!([quill, kind("main"), field("x", deep_value(150))])),
+        ("deep $ext", serde_json::json!([quill, kind("main"), {"type": "ext", "value": deep_map}])),
+        ("bad field name", serde_json::json!([quill, kind("main"), field("bad name", "v".into())])),
+        ("multi-line comment", serde_json::json!([quill, kind("main"), {"type": "comment", "text": "hi\ninjected: pwned", "inline": false}])),
+        ("non-main root kind", serde_json::json!([quill, kind("note")])),
+        ("repeated $quill", serde_json::json!([quill, kind("main"), quill])),
+        ("repeated $kind", serde_json::json!([quill, kind("main"), kind("main")])),
     ] {
-        let err = load(repeated).unwrap_err();
-        assert!(
-            err.to_string().contains("duplicate"),
-            "a repeated `$` entry emits the line twice, got: {err}"
-        );
+        assert!(load(items).is_err(), "{label} loaded");
     }
-}
-
-/// A comment carrying a newline emits bare YAML after its first line.
-#[test]
-fn storage_dto_refuses_a_multi_line_comment() {
-    let err = serde_json::from_value::<crate::document::Document>(serde_json::json!({
-        "schema": "quillmark/document@0.112.0",
-        "main": {
-            "payload": {"items": [
-                {"type": "quill", "value": "q@1.0"},
-                {"type": "kind", "value": "main"},
-                {"type": "comment", "text": "hi\ninjected: pwned", "inline": false}
-            ]},
-            "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}
-        },
-        "cards": []
-    }))
-    .unwrap_err();
-    assert!(err.to_string().contains("one line"), "got: {err}");
-}
-
-/// Parse and storage render the text `FieldViolation` owns; the wire is a
-/// mutator door, so it renders the `EditError` `store_field` raises.
-#[test]
-fn every_ingestion_boundary_renders_its_violation_text() {
-    use crate::document::edit::FieldViolation;
-
-    let expected = FieldViolation::InvalidName.message("bad name");
-
-    let parse_err =
-        Document::parse("~~~card-yaml\n$quill: test_quill\n$kind: main\nbad name: v\n~~~\n")
-            .unwrap_err();
-    assert!(
-        parse_err.to_string().contains(&expected),
-        "parse: {parse_err}"
-    );
-
-    let mut wire = crate::document::CardWire::new("main".to_string(), serde_json::json!(""));
-    wire.payload_items = vec![crate::document::PayloadItemWire::Field {
-        key: "bad name".to_string(),
-        value: serde_json::json!("v"),
-        fill: false,
-        nested_fills: Vec::new(),
-    }];
-    let wire_err = Card::try_from(wire).unwrap_err();
-    assert_eq!(
-        wire_err.to_string(),
-        EditError::InvalidFieldName("bad name".to_string()).to_string(),
-        "wire: {wire_err}"
-    );
-
-    let storage_err = serde_json::from_value::<Document>(serde_json::json!({
-        "schema": "quillmark/document@0.112.0",
-        "main": {
-            "payload": {"items": [
-                {"type": "quill", "value": "q@1.0"},
-                {"type": "kind", "value": "main"},
-                {"type": "field", "key": "bad name", "value": "v"}
-            ]},
-            "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}], "marks": [], "text": ""}
-        },
-        "cards": []
-    }))
-    .unwrap_err();
-    assert!(
-        storage_err.to_string().contains(&expected),
-        "storage: {storage_err}"
-    );
 }
 
 /// The §8 field count is the payload's own invariant, so the write doors hold

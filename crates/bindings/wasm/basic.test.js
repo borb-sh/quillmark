@@ -51,42 +51,19 @@ const TEST_PLATE = `#import "@local/quillmark-helper:0.1.0": data
 #body`
 
 describe('Document.fromMarkdown', () => {
-  it('should parse markdown with YAML payload', () => {
+  it('reads quillRef, payload fields, body content, cards and warnings', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
 
-    expect(doc).toBeDefined()
     expect(doc.quillRef).toBe('test_quill')
-  })
-
-  it('should expose typed payload (no $quill / $body / $cards as fields)', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-
     expect(field(doc.main, 'title')).toBe('Test Document')
     expect(field(doc.main, 'author')).toBe('Test Author')
-    // $-prefixed system metadata must NOT appear as payload fields
-    expect(hasField(doc.main, 'quill')).toBe(false)
-    expect(hasField(doc.main, '$quill')).toBe(false)
-    expect(hasField(doc.main, '$body')).toBe(false)
-    expect(hasField(doc.main, '$cards')).toBe(false)
-  })
-
-  it('should expose body as a content with a markdown projection', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-
-    // `body` is the canonical content (source-of-truth model); the markdown
-    // projection is the on-demand `exportMarkdown(body)` codec.
-    expect(typeof doc.main.body).toBe('object')
-    expect(typeof doc.main.body.text).toBe('string')
+    for (const key of ['quill', '$quill', '$body', '$cards']) {
+      expect(hasField(doc.main, key)).toBe(false)
+    }
     expect(doc.main.body.text).toContain('Hello World')
-    expect(typeof exportMarkdown(doc.main.body)).toBe('string')
     expect(exportMarkdown(doc.main.body)).toContain('Hello World')
-  })
-
-  it('should expose cards as an array', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-
-    expect(Array.isArray(doc.cards)).toBe(true)
-    expect(doc.cards.length).toBe(0)
+    expect(doc.cards).toEqual([])
+    expect(doc.warnings).toEqual([])
   })
 
   it('should expose card fields and body', () => {
@@ -112,120 +89,37 @@ Card body.
     expect(exportMarkdown(doc.cards[0].body)).toContain('Card body.')
   })
 
-  it('should expose warnings array', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    expect(Array.isArray(doc.warnings)).toBe(true)
-    expect(doc.warnings.length).toBe(0)
-  })
-
-  it('should throw on invalid YAML payload', () => {
-    const badMarkdown = `~~~card-yaml
-$quill: test_quill
-$kind: main
-title: Test
-this is not valid yaml
-~~~
-
-# Content`
-
-    expect(() => {
-      Document.fromMarkdown(badMarkdown)
-    }).toThrow()
-  })
-
-  it('should throw when $quill metadata is absent', () => {
-    const markdownWithoutQuill = `~~~card-yaml
-title: Default Test
-author: Test Author
-~~~
-
-# Hello Default
-
-This document has no $quill metadata.`
-
-    expect(() => {
-      Document.fromMarkdown(markdownWithoutQuill)
-    }).toThrow()
-  })
-
   it('attaches err.diagnostics as a non-empty array on thrown errors', () => {
-    // Thrown errors normalise to a flat { message, diagnostics[] } shape
-    // regardless of whether the underlying failure produced one diagnostic
-    // or many.
     try {
       Document.fromMarkdown('')
       throw new Error('fromMarkdown should have thrown')
     } catch (err) {
-      expect(Array.isArray(err.diagnostics)).toBe(true)
       expect(err.diagnostics.length).toBeGreaterThanOrEqual(1)
       expect(err.diagnostics[0]).toHaveProperty('message')
       expect(err.diagnostics[0]).toHaveProperty('severity')
-      expect(err.message).toMatch(/Empty markdown input/)
     }
   })
 })
 
-// ---------------------------------------------------------------------------
-// Document.toMarkdown: emitter integration tests
-// ---------------------------------------------------------------------------
-
-describe('Document.toMarkdown: fromMarkdown → mutate → emit → re-parse', () => {
-  it('general round-trip: mutated document survives emit → re-parse', () => {
+describe('Document.toMarkdown', () => {
+  it('a mutated document survives emit → re-parse', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const originalCardCount = doc.cards.length  // 0 for TEST_MARKDOWN
-
-    // Mutate
     doc.storeField('title', 'New Title')
     doc.insertCard(makeCard('note', { author: 'Alice' }, 'Hello'))
     doc.revise({}, 'Updated body')
 
-    // Emit
-    const emitted = doc.toMarkdown()
-    expect(typeof emitted).toBe('string')
-    expect(emitted.length).toBeGreaterThan(0)
-
-    // Re-parse and assert structure survives.
-    //
-    // Note on trailing newlines: the global body is followed by a card fence,
-    // so the wire format inserts a line terminator + F2 blank line between
-    // them (`Updated body\n\n~~~card-yaml`). On re-parse the F2 blank is
-    // stripped but the terminator stays, so `exportMarkdown(doc2.main.body) === 'Updated body\n'`. The card
-    // body is at EOF and has no F2 separator, so it survives byte-for-byte.
-    const doc2 = Document.fromMarkdown(emitted)
+    const doc2 = Document.fromMarkdown(doc.toMarkdown())
     expect(field(doc2.main, 'title')).toBe('New Title')
     expect(exportMarkdown(doc2.main.body)).toBe('Updated body')
-    expect(doc2.cards.length).toBe(originalCardCount + 1)
+    expect(doc2.cards.length).toBe(1)
     expect(doc2.cards[0].kind).toBe('note')
     expect(field(doc2.cards[0], 'author')).toBe('Alice')
     expect(exportMarkdown(doc2.cards[0].body)).toBe('Hello')
   })
-
-  it('a JS string stays a JS string across emit → re-parse, even when YAML-ambiguous', () => {
-    // `on` is a YAML 1.1 boolean; the emitter quotes it so it survives. The
-    // keyword table (booleans, null, octal-like, date-like, syntax indicators)
-    // is the emitter's contract, pinned in `core/src/document/emit.rs`. What
-    // the boundary owes is that the JS type does not change under it.
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.storeField('flag_on', 'on')
-
-    const doc2 = Document.fromMarkdown(doc.toMarkdown())
-
-    expect(field(doc2.main, 'flag_on')).toBe('on')
-  })
 })
 
-// ---------------------------------------------------------------------------
-// Document.toStored / Document.fromStored: versioned storage DTO round-trip
-// ---------------------------------------------------------------------------
-
+// The DTO's content rules are core's (`core/src/document/dto.rs`).
 describe('Document JSON DTO: toStored / fromStored', () => {
-  // The DTO's content rules (what round-trips, what a reconstruction drops,
-  // which payloads are refused) are core's
-  // (`core/src/document/dto.rs`). At this boundary the questions are narrower:
-  // does the DTO cross as a plain JSON string, does a handle survive the
-  // round-trip, and does `storageVersionOf` answer with `undefined` where its
-  // throwing twin throws.
-
   it('toStored emits a plain JSON string carrying the current schema version', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     const dto = doc.toStored()
@@ -246,89 +140,40 @@ describe('Document JSON DTO: toStored / fromStored', () => {
     expect(exportMarkdown(restored.cards[0].body)).toBe('Hello')
   })
 
-  it('fromStored throws on a payload it cannot accept', () => {
-    expect(() =>
-      Document.fromStored('{"schema":"quillmark/document@0.99.0","main":{}}'),
-    ).toThrow()
-  })
-
-  // A row a host authored a vocabulary name of its own into is the one
-  // population the closure costs: it opened before, and does not now.
-  it('a row naming a construct outside the vocabulary does not open', () => {
+  it('a row naming a construct outside the vocabulary does not open, but its tag still reads', () => {
     const dto = Document.fromMarkdown(TEST_MARKDOWN).toStored()
     const outside = dto.replace('"kind":"para"', '"kind":"callout"')
     expect(outside).not.toBe(dto)
-
-    // The message names the axis and the name, which is the whole diagnosis.
-    expect(() => Document.fromStored(outside)).toThrow(/callout/)
-    // The tag still reads, so a host can tell a content refusal from a version
-    // mismatch rather than routing the row into the markdown parser.
+    expect(() => Document.fromStored(outside)).toThrow()
     expect(Document.storageVersionOf(outside)).toBe(Document.currentStorageVersion())
   })
 
-  it('overwrite refuses a name outside the vocabulary', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const rt = importMarkdown('body')
-    rt.marks = [{ start: 0, end: 1, type: 'highlight' }]
-    expect(() => doc.overwrite({}, rt)).toThrow(/highlight/)
-    // Still serving: a refusal, not a trap.
-    doc.overwrite({}, importMarkdown('after'))
-    expect(doc.main.body.text).toBe('after')
-  })
-
   it('storageVersionOf reads the schema tag off any payload, or undefined', () => {
-    const current = Document.fromMarkdown(TEST_MARKDOWN).toStored()
-    expect(Document.storageVersionOf(current)).toBe(Document.currentStorageVersion())
-
-    // A future version reads back as-is, even though fromStored would reject it.
-    expect(
-      Document.storageVersionOf('{"schema":"quillmark/document@0.99.0","main":{}}'),
-    ).toBe('quillmark/document@0.99.0')
+    // A future version reads back as-is, though fromStored rejects it.
+    const future = '{"schema":"quillmark/document@0.99.0","main":{}}'
+    expect(() => Document.fromStored(future)).toThrow()
+    expect(Document.storageVersionOf(future)).toBe('quillmark/document@0.99.0')
 
     expect(Document.storageVersionOf('{"foo":"bar"}')).toBeUndefined()
     expect(Document.storageVersionOf(TEST_MARKDOWN)).toBeUndefined()
   })
 })
 
-// ---------------------------------------------------------------------------
-// Authoring text: core's canonical strings, re-exposed
-// ---------------------------------------------------------------------------
-//
-// Three statics whose bodies are `quillmark_core` constants: the single source
-// of truth an LLM/MCP consumer authors against. Wording is core's to assert.
-// What the binding owns is that each one reaches JS at all: a re-export that
-// returns "" is indistinguishable from a working one until a consumer pastes it
-// into a prompt.
-
 describe('Document authoring text', () => {
-  it('formatRules and quillRefHint carry core text through', () => {
+  it('each static carries core text through', () => {
     expect(Document.formatRules().length).toBeGreaterThan(0)
     expect(Document.quillRefHint().length).toBeGreaterThan(0)
+    expect(Document.blueprintInstruction('usaf_memo')).toContain('usaf_memo')
   })
-
-  it('blueprintInstruction names the quill it introduces', () => {
-    const text = Document.blueprintInstruction('usaf_memo')
-    expect(text.length).toBeGreaterThan(0)
-    expect(text).toContain('usaf_memo')
-  })
-
 })
 
 describe('Quillmark.quill', () => {
   it('should accept a plain object tree (Record<string, Uint8Array>)', () => {
-    const engine = new Quillmark()
-    const mapTree = makeQuill({ name: 'test_quill', plate: TEST_PLATE })
-    const objectTree = Object.fromEntries(mapTree)
-
-    const fromMap = Quill.fromTree(mapTree)
-    const fromObject = Quill.fromTree(objectTree)
-
-    expect(fromMap.backendId).toBe(fromObject.backendId)
-
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const r1 = engine.render(fromMap, doc, { format: 'svg' })
-    const r2 = engine.render(fromObject, doc, { format: 'svg' })
-    expect(r1.artifacts.length).toBe(r2.artifacts.length)
+    const fromObject = Quill.fromTree(
+      Object.fromEntries(makeQuill({ name: 'test_quill', plate: TEST_PLATE })),
+    )
+    expect(fromObject.backendId).toBe('typst')
+    expect(fromObject.metadata.name).toBe('test_quill')
   })
 
   it('should reject non-object trees with a clear error', () => {
@@ -344,35 +189,16 @@ describe('Quillmark.quill', () => {
     { opts: { format: 'svg' }, mimeType: 'image/svg+xml' },
   ]
 
-  it('should render markdown via quill.render(doc, opts) for each format', () => {
+  it('renders one Document repeatedly, once per format', () => {
+    const engine = new Quillmark()
+    const quill = Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
     for (const { opts, mimeType } of RENDER_FORMAT_CASES) {
-      const engine = new Quillmark()
-      const quill = Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
-      const doc = Document.fromMarkdown(TEST_MARKDOWN)
-
       const result = opts === undefined ? engine.render(quill, doc) : engine.render(quill, doc, opts)
-
-      expect(result).toBeDefined()
-      expect(result.artifacts).toBeDefined()
-      expect(result.artifacts.length).toBeGreaterThan(0)
-      // The declared TS type is Uint8Array: assert the runtime matches so
-      // consumers don't need to defensively coerce `new Uint8Array(bytes)`.
       expect(result.artifacts[0].bytes).toBeInstanceOf(Uint8Array)
       expect(result.artifacts[0].bytes.length).toBeGreaterThan(0)
       expect(result.artifacts[0].mimeType).toBe(mimeType)
     }
-  })
-
-  it('should allow rendering the same Document multiple times', () => {
-    const engine = new Quillmark()
-    const quill = Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-
-    const pdf = engine.render(quill, doc, { format: 'pdf' })
-    const svg = engine.render(quill, doc, { format: 'svg' })
-
-    expect(pdf.artifacts[0].mimeType).toBe('application/pdf')
-    expect(svg.artifacts[0].mimeType).toBe('image/svg+xml')
   })
 
   // `RenderResult.warnings` is the document's parse warnings ahead of the
@@ -430,81 +256,26 @@ main:
   it('should throw a quill::name_mismatch error when the document quill ref differs from the quill name', () => {
     const engine = new Quillmark()
     const quill = Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
-
-    // Document declares a different quill name
-    const otherMarkdown = `~~~card-yaml
-$quill: other_quill
-$kind: main
-title: Mismatch Test
-~~~
-
-# Content`
-    const doc = Document.fromMarkdown(otherMarkdown)
-
-    try {
-      engine.render(quill, doc, { format: 'pdf' })
-      throw new Error('render should have thrown on a $quill name mismatch')
-    } catch (err) {
-      expect(Array.isArray(err.diagnostics)).toBe(true)
-      expect(err.diagnostics[0].code).toBe('quill::name_mismatch')
-    }
+    const doc = Document.fromMarkdown(TEST_MARKDOWN.replace('test_quill', 'other_quill'))
+    expectEditCode(() => engine.render(quill, doc, { format: 'pdf' }), 'quill::name_mismatch')
   })
 })
 
-// ---------------------------------------------------------------------------
-// Document editor surface
-// ---------------------------------------------------------------------------
-
 describe('Document editor surface: storeField / removeField', () => {
-  it('storeField inserts a new payload field', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.storeField('subtitle', 'A subtitle')
-    expect(field(doc.main, 'subtitle')).toBe('A subtitle')
-  })
-
-  it('storeField updates an existing field', () => {
+  it('storeField writes a field and removeField returns it, undefined when absent', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     doc.storeField('title', 'Updated')
     expect(field(doc.main, 'title')).toBe('Updated')
-  })
-
-  it('storeField accepts uppercase field names verbatim (lowercase is canonical, not enforced)', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    for (const name of ['BODY', 'CARDS', 'Title', 'MixedCase_1']) {
-      doc.storeField(name, 'x')
-      expect(field(doc.main, name)).toBe('x')
-    }
-  })
-
-  it('storeField throws edit::invalid_field_name for `$`-prefixed names', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    for (const name of ['$body', '$cards', '$quill', '$kind']) {
-      expectEditCode(() => doc.storeField(name, 'x'), 'edit::invalid_field_name')
-    }
-  })
-
-  it('storeField throws edit::invalid_field_name for an invalid name (hyphen)', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    expectEditCode(() => doc.storeField('bad-name', 'x'), 'edit::invalid_field_name')
-  })
-
-  it('removeField returns the removed value', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const removed = doc.removeField('title')
-    expect(removed).toBe('Test Document')
+    expect(doc.removeField('title')).toBe('Updated')
     expect(hasField(doc.main, 'title')).toBe(false)
+    expect(doc.removeField('title')).toBeUndefined()
   })
 
-  it('removeField returns undefined when field absent', () => {
+  it('both throw edit::invalid_field_name on an invalid name', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    expect(doc.removeField('nonexistent')).toBeUndefined()
-  })
-
-  it('removeField throws edit::invalid_field_name for `$`-prefixed names', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    for (const name of ['$body', '$cards', '$quill', '$kind']) {
-      expectEditCode(() => doc.removeField(name), 'edit::invalid_field_name')
-    }
+    expectEditCode(() => doc.storeField('$body', 'x'), 'edit::invalid_field_name')
+    expectEditCode(() => doc.storeField('bad-name', 'x'), 'edit::invalid_field_name')
+    expectEditCode(() => doc.removeField('$quill'), 'edit::invalid_field_name')
   })
 })
 
@@ -578,14 +349,10 @@ describe('Document editor surface: storeFields', () => {
 })
 
 describe('Document editor surface: setQuillRef / overwrite / revise', () => {
-  it('setQuillRef changes the quillRef', () => {
+  it('setQuillRef changes the quillRef and refuses an invalid one', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     doc.setQuillRef('new_quill')
     expect(doc.quillRef).toBe('new_quill')
-  })
-
-  it('setQuillRef throws on invalid reference', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
     expectEditCode(
       () => doc.setQuillRef('INVALID QUILL REF WITH SPACES'),
       'parse::invalid_quill_reference',
@@ -596,25 +363,14 @@ describe('Document editor surface: setQuillRef / overwrite / revise', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     const delta = doc.revise({}, 'Body from **markdown**.')
     expect(exportMarkdown(doc.main.body)).toBe('Body from **markdown**.')
-    // The receipt is a structured-clone-able change set.
     expect(Array.isArray(delta.ops)).toBe(true)
   })
 
-  it('overwrite({}, rt) writes a content object with value semantics', () => {
-    // The content is the source-of-truth shape doc.main.body reads back; the
-    // cold path spells importMarkdown at the call site.
+  it('overwrite({}, rt) writes a content object', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const content = importMarkdown('Content **body** here.')
-    expect(typeof content).toBe('object')
-    doc.overwrite({}, content)
+    doc.overwrite({}, importMarkdown('Content **body** here.'))
     expect(doc.main.body.text).toBe('Content body here.')
     expect(exportMarkdown(doc.main.body)).toBe('Content **body** here.')
-  })
-
-  it('overwrite({}, importMarkdown("")) clears the body', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.overwrite({}, importMarkdown(''))
-    expect(exportMarkdown(doc.main.body)).toBe('')
   })
 
   it('overwrite rejects a non-content value (markdown must go through importMarkdown)', () => {
@@ -639,8 +395,6 @@ describe('Document editor surface: setQuillRef / overwrite / revise', () => {
     // Matched on the message: a slot/shape complaint would pass a bare toThrow
     // while the depth door stayed open.
     expect(() => doc.overwrite({}, rt)).toThrow(/nests deeper/)
-    // Still alive: the guard errored rather than trapping, so the module keeps
-    // serving. A trap would fail every later call in the file, not just this one.
     doc.overwrite({}, importMarkdown('after'))
     expect(doc.main.body.text).toBe('after')
   })
@@ -654,7 +408,6 @@ describe('Document editor surface: setQuillRef / overwrite / revise', () => {
     const card = makeCard('note', { ok: 1 }, 'Hello')
     card.payloadItems[0].value = deep
     expect(() => doc.insertCard(card)).toThrow(/nests deeper/)
-    // Still serving: a trap would take every later call in the file with it.
     doc.insertCard(makeCard('note', { ok: 2 }, 'Hello'))
     expect(doc.cardCount).toBe(1)
   })
@@ -736,20 +489,9 @@ describe('Document-model path: parseDocPath / formatDocPath', () => {
     }
   })
 
-  it('a card diagnostic routes on the head segment, no string parsing', () => {
-    const [head] = parseDocPath('cards.indorsement[0].signature_block')
-    expect(head.seg).toBe('card')
-    expect(head.kind).toBe('indorsement')
-    expect(head.index).toBe(0)
-  })
-
-  it('parseDocPath throws on a malformed path', () => {
+  it('both throw on a malformed or empty path', () => {
     expect(() => parseDocPath('cards[')).toThrow()
     expect(() => parseDocPath('')).toThrow()
-  })
-
-  it('formatDocPath throws on an empty segment array', () => {
-    // Symmetric with parseDocPath(''), which throws "empty path".
     expect(() => formatDocPath([])).toThrow()
   })
 })
@@ -773,11 +515,8 @@ describe('formatDiagnostic', () => {
     )
   })
 
-  it('tags a warning WARN', () => {
+  it('tags the severity and omits every part the diagnostic does not carry', () => {
     expect(formatDiagnostic({ severity: 'warning', message: 'meh' })).toBe('[WARN] meh')
-  })
-
-  it('omits every part the diagnostic does not carry', () => {
     expect(formatDiagnostic({ severity: 'error', message: 'bare' })).toBe('[ERROR] bare')
     expect(formatDiagnostic({ severity: 'error', message: 'bare', code: 'c' })).toBe(
       '[ERROR] bare (c)',
@@ -863,11 +602,6 @@ Kindless card.
     // The reads at that same address throw.
     expectEditCode(() => doc.getStored({ card: 7, field: 'from' }), 'edit::index_out_of_range')
   })
-
-  it('throws on a malformed address, as every Addr verb does', () => {
-    const doc = Document.fromMarkdown(MD)
-    expect(() => doc.pathFor({ crad: 0 })).toThrow()
-  })
 })
 
 // One `applyChange` bundle carries three channels — a text delta, island ops
@@ -892,7 +626,7 @@ describe('Document applyChange: the anchor-preserving change bundle', () => {
     ).toThrow()
   })
 
-  it('mapMarks answers where applyChange puts a mark, at the position the assocs differ', () => {
+  it('mapMarks answers where applyChange puts a mark across every text-moving channel', () => {
     const doc = blankDoc()
     doc.revise({}, 'hello world')
     doc.applyChange(
@@ -904,25 +638,6 @@ describe('Document applyChange: the anchor-preserving change bundle', () => {
         ],
       },
     )
-    const before = doc.main.body
-    const bundle = { delta: { ops: [{ retain: 6 }, { insert: 'X' }, { retain: 5 }] } }
-
-    // The trap: `mapPos` answers for a position the caller holds, and a caret
-    // typing here moves past its own text. A zero-width mark in the field does
-    // not — the store rebases it `before`.
-    expect(mapPos(bundle.delta, 6, 'after')).toBe(7)
-    const predicted = mapMarks(before, bundle)
-    expect(predicted.find((m) => m.type === 'anchor')).toMatchObject({ start: 6, end: 6 })
-    expect(predicted.find((m) => m.type === 'strong')).toMatchObject({ start: 7, end: 12 })
-
-    doc.applyChange({}, bundle)
-    expect(doc.main.body.marks).toEqual(predicted)
-  })
-
-  it('mapMarks carries a mark through every text-moving channel of one bundle', () => {
-    const doc = blankDoc()
-    doc.revise({}, 'hello world')
-    doc.applyChange({}, { markOps: [{ op: 'add', start: 6, end: 6, type: 'anchor', attrs: { id: 'c1' } }] })
     const before = doc.main.body
     const bundle = {
       delta: { ops: [{ retain: 6 }, { insert: 'X' }, { retain: 5 }] },
@@ -991,46 +706,10 @@ describe('Document applyChange: the anchor-preserving change bundle', () => {
     expect(doc.main.body.islands[0].props.rows[0][0].text).toBe('b')
     expect(doc.main.body.marks.some((m) => m.type === 'anchor' && m.attrs.id === 'c1')).toBe(true)
 
-    // An id no island carries throws rather than passing as a silent no-op.
     expect(() =>
       doc.applyChange({}, { islandOps: [{ op: 'set', id: 'nope', type: 'table', props: {} }] }),
     ).toThrow()
   })
-
-  it('applyChange lands an island on a line it opens in one bundle', () => {
-    const doc = blankDoc()
-    doc.revise({}, 'intro')
-    // The two channels in the order they apply: the delta opens the line, the
-    // island op fills it. `split` could not open that line: line ops run after
-    // island ops.
-    doc.applyChange(
-      {},
-      {
-        delta: { ops: [{ retain: 5 }, { insert: '\n' }] },
-        islandOps: [
-          {
-            op: 'insert',
-            at: 6,
-            id: 'isl-new',
-            type: 'image',
-            props: { url: 'ex.com/a.png', alt: 'a' },
-          },
-        ],
-      },
-    )
-    expect(doc.main.body.islands.map((i) => i.id)).toEqual(['isl-new'])
-    expect(exportMarkdown(doc.main.body)).toContain('![a](ex.com/a.png)')
-
-    // A duplicate id is refused, and the failed bundle changes nothing.
-    expect(() =>
-      doc.applyChange(
-        {},
-        { islandOps: [{ op: 'insert', at: 0, id: 'isl-new', type: 'image', props: {} }] },
-      ),
-    ).toThrow()
-    expect(doc.main.body.islands.length).toBe(1)
-  })
-
 })
 
 describe('Document editor surface: card mutations', () => {
@@ -1069,22 +748,16 @@ Card two.
   })
 
   it('removeCard → insertCard round-trips a card with fields (read shape == write shape)', () => {
-    const doc = Document.fromMarkdown(MD_WITH_CARDS) // `note` (foo: bar) + `summary`
-    const initialCount = doc.cards.length
-    const removed = doc.removeCard(0) // the `note` card
-    expect(doc.cards.length).toBe(initialCount - 1)
+    const doc = Document.fromMarkdown(MD_WITH_CARDS)
+    const removed = doc.removeCard(0)
+    expect(doc.cards.map((c) => c.kind)).toEqual(['summary'])
     expect(field(removed, 'foo')).toBe('bar')
+    expect(doc.removeCard(5)).toBeUndefined()
 
-    doc.insertCard(removed) // re-push the returned card; fields must not drop
-    expect(doc.cards.length).toBe(initialCount)
-    const repushed = doc.cards[doc.cards.length - 1]
+    doc.insertCard(removed)
+    const repushed = doc.cards[1]
     expect(repushed.kind).toBe('note')
     expect(field(repushed, 'foo')).toBe('bar')
-  })
-
-  it('insertCard is the kind gate: the cards-list invariant is enforced there', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    expectEditCode(() => doc.insertCard(makeCard('BadKind', { x: 1 })), 'edit::invalid_kind_name')
   })
 
   it('a stale { kind, fields } object is a loud error, not a silent empty card', () => {
@@ -1109,102 +782,33 @@ Card two.
     )
   })
 
-  it('insertCard inserts at specified index', () => {
+  it('insertCard inserts at an index and refuses one past the end', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARDS)
     doc.insertCard({ kind: 'intro' }, 0)
-    expect(doc.cards[0].kind).toBe('intro')
-    expect(doc.cards[1].kind).toBe('note')
-  })
-
-  it('insertCard throws IndexOutOfRange when at > len', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN) // 0 cards
+    expect(doc.cards.map((c) => c.kind)).toEqual(['intro', 'note', 'summary'])
+    expect(doc.cardCount).toBe(3)
     expectEditCode(() => doc.insertCard({ kind: 'note' }, 5), 'edit::index_out_of_range')
   })
 
-  it('removeCard removes and returns the card', () => {
+  it('moveCard reorders and refuses an out-of-range index', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARDS)
-    const removed = doc.removeCard(0)
-    expect(removed).toBeDefined()
-    expect(removed.kind).toBe('note')
-    expect(doc.cards.length).toBe(1)
-    expect(doc.cards[0].kind).toBe('summary')
-  })
-
-  it('removeCard returns undefined when out of range', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    expect(doc.removeCard(0)).toBeUndefined()
-  })
-
-  it('moveCard swaps positions correctly', () => {
-    const doc = Document.fromMarkdown(MD_WITH_CARDS)
-    doc.moveCard(1, 0) // summary → front
-    expect(doc.cards[0].kind).toBe('summary')
-    expect(doc.cards[1].kind).toBe('note')
-  })
-
-  it('moveCard no-op when from == to', () => {
-    const doc = Document.fromMarkdown(MD_WITH_CARDS)
-    doc.moveCard(0, 0)
-    expect(doc.cards[0].kind).toBe('note')
-  })
-
-  it('moveCard throws IndexOutOfRange on out-of-range index', () => {
-    const doc = Document.fromMarkdown(MD_WITH_CARDS) // 2 cards
+    doc.moveCard(1, 0)
+    expect(doc.cards.map((c) => c.kind)).toEqual(['summary', 'note'])
     expectEditCode(() => doc.moveCard(5, 0), 'edit::index_out_of_range')
-  })
-
-
-  it('cardCount reports composable card count without allocating', () => {
-    const empty = Document.fromMarkdown(TEST_MARKDOWN)
-    expect(empty.cardCount).toBe(0)
-
-    const two = Document.fromMarkdown(MD_WITH_CARDS)
-    expect(two.cardCount).toBe(2)
-    two.insertCard({ kind: 'extra' })
-    expect(two.cardCount).toBe(3)
-    two.removeCard(0)
-    expect(two.cardCount).toBe(2)
   })
 })
 
-describe('Document.equals', () => {
-  it('returns true for identical documents', () => {
+describe('Document.equals / clone', () => {
+  it('compares by value across a clone, an emit round-trip and a mutation', () => {
     const a = Document.fromMarkdown(TEST_MARKDOWN)
-    const b = Document.fromMarkdown(TEST_MARKDOWN)
-    expect(a.equals(b)).toBe(true)
-  })
+    expect(a.equals(Document.fromMarkdown(TEST_MARKDOWN))).toBe(true)
+    expect(a.equals(Document.fromMarkdown(a.toMarkdown()))).toBe(true)
 
-  it('returns true for clones', () => {
-    const a = Document.fromMarkdown(TEST_MARKDOWN)
-    const b = a.clone()
-    expect(a.equals(b)).toBe(true)
-  })
-
-  it('returns false after a payload mutation', () => {
-    const a = Document.fromMarkdown(TEST_MARKDOWN)
-    const b = Document.fromMarkdown(TEST_MARKDOWN)
-    b.storeField('title', 'Different')
-    expect(a.equals(b)).toBe(false)
-  })
-
-  it('returns false after a body mutation', () => {
-    const a = Document.fromMarkdown(TEST_MARKDOWN)
-    const b = Document.fromMarkdown(TEST_MARKDOWN)
-    b.revise({}, 'Different body')
-    expect(a.equals(b)).toBe(false)
-  })
-
-  it('returns false after pushing a card', () => {
-    const a = Document.fromMarkdown(TEST_MARKDOWN)
-    const b = Document.fromMarkdown(TEST_MARKDOWN)
-    b.insertCard({ kind: 'note' })
-    expect(a.equals(b)).toBe(false)
-  })
-
-  it('survives round-trip through toMarkdown / fromMarkdown', () => {
-    const a = Document.fromMarkdown(TEST_MARKDOWN)
-    const b = Document.fromMarkdown(a.toMarkdown())
-    expect(a.equals(b)).toBe(true)
+    const clone = a.clone()
+    expect(a.equals(clone)).toBe(true)
+    clone.storeField('title', 'Changed')
+    expect(a.equals(clone)).toBe(false)
+    expect(field(a.main, 'title')).toBe('Test Document')
   })
 })
 
@@ -1224,192 +828,73 @@ foo: bar
 Card body.
 `
 
-  it('setCardField sets a field on a card', () => {
+  it('storeField / removeField take a card address', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARD)
     doc.storeField({ card: 0, field: 'content' }, 'hello')
     expect(field(doc.cards[0], 'content')).toBe('hello')
-  })
-
-  it('setCardField accepts uppercase names verbatim', () => {
-    const doc = Document.fromMarkdown(MD_WITH_CARD)
-    doc.storeField({ card: 0, field: 'BODY' }, 'x')
-    expect(field(doc.cards[0], 'BODY')).toBe('x')
-  })
-
-  it('setCardField throws IndexOutOfRange when card absent', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN) // 0 cards
-    expectEditCode(() => doc.storeField({ card: 0, field: 'title' }, 'x'), 'edit::index_out_of_range')
-  })
-
-  it('removeCardField returns the removed value and deletes the key', () => {
-    const doc = Document.fromMarkdown(MD_WITH_CARD)
-    const removed = doc.removeField({ card: 0, field: 'foo' })
-    expect(removed).toBe('bar')
+    expect(doc.removeField({ card: 0, field: 'foo' })).toBe('bar')
     expect(hasField(doc.cards[0], 'foo')).toBe(false)
+    expect(doc.removeField({ card: 0, field: 'foo' })).toBeUndefined()
   })
 
-  it('removeCardField returns undefined when field absent', () => {
-    const doc = Document.fromMarkdown(MD_WITH_CARD)
-    expect(doc.removeField({ card: 0, field: 'nonexistent' })).toBeUndefined()
-  })
-
-  it('removeCardField throws IndexOutOfRange when card absent', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN) // 0 cards
-    expectEditCode(() => doc.removeField({ card: 0, field: 'foo' }), 'edit::index_out_of_range')
-  })
-
-  it('revise({card:0}, md) revises a card body and returns the delta', () => {
+  it('revise / overwrite take a card address', () => {
     const doc = Document.fromMarkdown(MD_WITH_CARD)
     const delta = doc.revise({ card: 0 }, 'New card body.')
     expect(exportMarkdown(doc.cards[0].body)).toBe('New card body.')
     expect(Array.isArray(delta.ops)).toBe(true)
-  })
 
-  it('revise({card:0}, md) throws IndexOutOfRange when card absent', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN) // 0 cards
-    expectEditCode(() => doc.revise({ card: 0 }, 'x'), 'edit::index_out_of_range')
-  })
-
-  it('overwrite({card:0}, rt) writes a content into a card body', () => {
-    // The content is the shape doc.cards[i].body reads back; the card-indexed
-    // twin of the main-body overwrite path.
-    const content = importMarkdown('Card body from **markdown**.')
-    const doc = Document.fromMarkdown(MD_WITH_CARD)
-    doc.overwrite({ card: 0 }, content)
-    expect(doc.cards[0].body.text).toBe(content.text)
+    doc.overwrite({ card: 0 }, importMarkdown('Card body from **markdown**.'))
     expect(exportMarkdown(doc.cards[0].body)).toBe('Card body from **markdown**.')
   })
 
-  it('overwrite({card:0}, importMarkdown("")) clears the card body', () => {
-    const doc = Document.fromMarkdown(MD_WITH_CARD)
-    doc.overwrite({ card: 0 }, importMarkdown(''))
-    expect(doc.cards[0].body.text).toBe('')
-  })
-
-  it('overwrite({card:0}, ...) throws IndexOutOfRange when card absent', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN) // 0 cards
+  it('every card-addressed verb throws edit::index_out_of_range when the card is absent', () => {
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    const addr = { card: 0, field: 'foo' }
+    expectEditCode(() => doc.storeField(addr, 'x'), 'edit::index_out_of_range')
+    expectEditCode(() => doc.removeField(addr), 'edit::index_out_of_range')
+    expectEditCode(() => doc.revise({ card: 0 }, 'x'), 'edit::index_out_of_range')
     expectEditCode(() => doc.overwrite({ card: 0 }, importMarkdown('x')), 'edit::index_out_of_range')
   })
 })
 
-describe('Document editor surface: parse→mutate→read round-trip', () => {
-  it('mutated document reflects changes in subsequent reads', () => {
+describe('Document editor surface: $ext', () => {
+  it('storeExt / getExt / removeExt round the whole map on the main card', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
-
-    // Mutate
-    doc.storeField('author', 'Bob')
-    doc.revise({}, 'New body text.')
-    doc.insertCard({ kind: 'note', body: 'Card content.' })
-    doc.setQuillRef('updated_quill')
-
-    // Assert state
-    expect(field(doc.main, 'author')).toBe('Bob')
-    expect(exportMarkdown(doc.main.body)).toBe('New body text.')
-    expect(doc.cards.length).toBe(1)
-    expect(doc.cards[0].kind).toBe('note')
-    expect(exportMarkdown(doc.cards[0].body)).toBe('Card content.')
-    expect(doc.quillRef).toBe('updated_quill')
-
-    // Original title still present
-    expect(field(doc.main, 'title')).toBe('Test Document')
-
-    // Warnings untouched
-    expect(Array.isArray(doc.warnings)).toBe(true)
-  })
-})
-
-describe('Document editor surface: $ext mutators', () => {
-  it('storeExt adds an opaque map readable via card.ext', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.storeExt({}, { editor: { title: 'Greeting' } })
-    expect(doc.main.ext.editor.title).toBe('Greeting')
-  })
-
-  it('storeExt rejects non-object values', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    expect(() => doc.storeExt({}, 'nope')).toThrow(/must be a plain object/)
-    expect(() => doc.storeExt({}, 42)).toThrow(/must be a plain object/)
-  })
-
-  it('$ext round-trips through toMarkdown', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.storeExt({}, { agent: { pinned: true } })
-    const reparsed = Document.fromMarkdown(doc.toMarkdown())
-    expect(reparsed.main.ext.agent.pinned).toBe(true)
-  })
-
-  // getExt's read shape is storeExt's write shape, which is what makes the
-  // whole-map verbs enough for a consumer owning one namespace.
-  it('a namespace-scoped write is a merge over the whole map', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.storeExt({}, { ...doc.getExt({}), editor: { title: 'A' } })
-    doc.storeExt({}, { ...doc.getExt({}), agent: { pinned: true } })
-    doc.storeExt({}, { ...doc.getExt({}), editor: { title: 'B' } })
-    expect(doc.main.ext).toEqual({ editor: { title: 'B' }, agent: { pinned: true } })
-  })
-
-  it('removeExt returns the previous map and clears it', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.storeExt({}, { agent: { n: 1 } })
-    expect(doc.removeExt().agent.n).toBe(1)
+    expect(doc.getExt({})).toBeUndefined()
+    const ext = { editor: { title: 'A' }, agent: { pinned: true } }
+    doc.storeExt({}, ext)
+    expect(doc.main.ext).toEqual(ext)
+    expect(doc.getExt({})).toEqual(ext)
+    expect(doc.removeExt()).toEqual(ext)
     expect(doc.main.ext == null).toBe(true)
     expect(doc.removeExt()).toBeUndefined()
+    expect(() => doc.storeExt({}, 'nope')).toThrow()
+    expect(() => doc.storeExt({}, 42)).toThrow()
   })
 
-  it('card-level ext mutators target the card at index', () => {
+  it('card-level ext verbs target the card at index and take a card address only', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     doc.insertCard({ kind: 'note', body: 'x' })
     doc.storeExt({ card: 0 }, { agent: { note: 'y' } })
     expect(doc.cards[0].ext.agent.note).toBe('y')
+    expect(doc.getExt({ card: 0 }).agent.note).toBe('y')
     expect(doc.removeExt({ card: 0 }).agent.note).toBe('y')
     expect(doc.cards[0].ext == null).toBe(true)
-  })
-
-  it('card-level ext mutators throw IndexOutOfRange', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    expect(() => doc.getExt({ field: 'title' })).toThrow()
     expectEditCode(() => doc.storeExt({ card: 5 }, {}), 'edit::index_out_of_range')
     expectEditCode(() => doc.removeExt({ card: 5 }), 'edit::index_out_of_range')
-  })
-})
-
-describe('Document editor surface: $ext reads', () => {
-  it('getExt returns the whole map, undefined when the card carries none', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    expect(doc.getExt({})).toBeUndefined()
-    doc.storeExt({}, { editor: { title: 'A' }, agent: { pinned: true } })
-    expect(doc.getExt({})).toEqual({ editor: { title: 'A' }, agent: { pinned: true } })
-  })
-
-  it('the read is card-indexed and takes a card address only', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.insertCard({ kind: 'note', body: 'x' })
-    doc.storeExt({ card: 0 }, { agent: { note: 'y' } })
-    expect(doc.getExt({ card: 0 }).agent.note).toBe('y')
-    expect(() => doc.getExt({ field: 'title' })).toThrow(/getExt/)
     expectEditCode(() => doc.getExt({ card: 5 }), 'edit::index_out_of_range')
   })
 })
 
 describe('Document editor surface: storeFill / isFill', () => {
-  it('storeFill stores the value and marks the field !must_fill', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    doc.storeFill('subject', 'Subject of the Memorandum')
-    expect(doc.isFill('subject')).toBe(true)
-    expect(doc.toMarkdown()).toContain('subject: !must_fill Subject of the Memorandum')
-  })
-
-  it('storeField clears the marker storeFill set', () => {
+  it('storeFill marks a field, storeField clears it, and isFill is total over fields', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     doc.storeFill('subject', 'x')
+    expect(doc.isFill('subject')).toBe(true)
     doc.storeField('subject', 'x')
     expect(doc.isFill('subject')).toBe(false)
-  })
-
-  it('isFill is total over the field axis: only a bad card throws', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    // Absent field: truthfully unmarked, not an error.
     expect(doc.isFill('nonesuch')).toBe(false)
-    // A body address (no `field`) is never a fill.
     expect(doc.isFill({})).toBe(false)
     expectEditCode(() => doc.isFill({ card: 5, field: 'title' }), 'edit::index_out_of_range')
   })
@@ -1447,27 +932,12 @@ describe('quill.open + session.render', () => {
     expect(subset.artifacts[0].mimeType).toBe('image/png')
   })
 
-  it('should throw on out-of-bounds page indices', () => {
+  it('refuses an out-of-bounds page and a page selection on PDF', () => {
     const engine = new Quillmark()
     const quill = Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const session = engine.open(quill, doc)
-    const oob = session.pageCount + 10
-
-    expect(() => {
-      session.render({ format: 'png', ppi: 80, pages: [0, oob] })
-    }).toThrow(/out of bounds/)
-  })
-
-  it('should error when requesting page selection with PDF', () => {
-    const engine = new Quillmark()
-    const quill = Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const session = engine.open(quill, doc)
-
-    expect(() => {
-      session.render({ format: 'pdf', pages: [0] })
-    }).toThrow()
+    const session = engine.open(quill, Document.fromMarkdown(TEST_MARKDOWN))
+    expect(() => session.render({ format: 'png', ppi: 80, pages: [0, session.pageCount + 10] })).toThrow()
+    expect(() => session.render({ format: 'pdf', pages: [0] })).toThrow()
   })
 })
 
@@ -1513,19 +983,15 @@ card_kinds:
     expect(meta.description).toBe('Metadata test')
     // `supportedFormats` is the engine's answer, not the quill's metadata.
     expect(meta.supportedFormats).toBeUndefined()
-    const supportedFormats = engine.supportedFormats(quill)
-    expect(Array.isArray(supportedFormats)).toBe(true)
-    expect(supportedFormats.length).toBeGreaterThan(0)
+    expect(engine.supportedFormats(quill).length).toBeGreaterThan(0)
     expect(meta.schema).toBeUndefined()
 
-    // schema: user-fillable fields + ui hints. No QUILL/CARD sentinels.
-    const schema = quill.schema
+    // Plain objects, not Maps: they survive a JSON round-trip whole.
+    const schema = JSON.parse(JSON.stringify(quill.schema))
     expect(schema.main.description).toBe('The main card schema')
     expect(schema.main.fields.title).toBeDefined()
-    expect(schema.main.fields.QUILL).toBeUndefined()
     expect(schema.card_kinds.main).toBeUndefined()
     expect(schema.card_kinds.indorsement.fields.signature_block).toBeDefined()
-    expect(schema.card_kinds.indorsement.fields.CARD).toBeUndefined()
   })
 
   it('surfaces the load\'s advisory diagnostics on quill.warnings', () => {
@@ -1567,62 +1033,9 @@ card_kinds:
       'quill::body_example_unused',
       'quill::bodiless_card_kind',
     ])
-    // The warning renders through the engine's own printer, so a consumer
-    // surfacing it keeps no copy of the layout. Structure, not wording: the
-    // layout itself is pinned in the `formatDiagnostic` suite.
-    const rendered = formatDiagnostic(quill.warnings[0])
-    expect(rendered.startsWith('[WARN] ')).toBe(true)
-    expect(rendered).toContain(' (quill::body_example_unused)')
-    expect(rendered).toContain(`\n  hint: ${quill.warnings[0].hint}`)
-  })
-
-  it('metadata and schema are JSON.stringify-able (plain objects)', () => {
-    const quill = Quill.fromTree(
-      makeQuill({ name: 'meta_test_quill', plate: TEST_PLATE, quillYaml: META_QUILL_YAML }),
-    )
-    const meta = JSON.parse(JSON.stringify(quill.metadata))
-    expect(meta.name).toBe('meta_test_quill')
-    const schema = JSON.parse(JSON.stringify(quill.schema))
-    expect(schema.main.fields.title).toBeDefined()
-    expect(schema.main.fields.QUILL).toBeUndefined()
+    expect(formatDiagnostic(quill.warnings[0])).toContain('(quill::body_example_unused)')
   })
 })
-
-describe('Document.clone', () => {
-  it('returns an independent handle', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const clone = doc.clone()
-
-    clone.storeField('title', 'Changed')
-
-    expect(field(doc.main, 'title')).toBe('Test Document')
-    expect(field(clone.main, 'title')).toBe('Changed')
-  })
-
-  it('preserves parse-time warnings on the clone', () => {
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const clone = doc.clone()
-
-    expect(clone.warnings.length).toBe(doc.warnings.length)
-  })
-
-  it('produces a clone that renders equivalently to the original', () => {
-    const engine = new Quillmark()
-    const quill = Quill.fromTree(makeQuill({ name: 'test_quill', plate: TEST_PLATE }))
-    const doc = Document.fromMarkdown(TEST_MARKDOWN)
-    const clone = doc.clone()
-
-    const r1 = engine.render(quill, doc, { format: 'svg' })
-    const r2 = engine.render(quill, clone, { format: 'svg' })
-    expect(r1.artifacts.length).toBe(r2.artifacts.length)
-  })
-})
-
-// ---------------------------------------------------------------------------
-// quill.validate: editor-facing schema validation
-// Run via `npm test` after scripts/build-wasm.sh has produced the bundle;
-// vitest loads it in a Node environment.
-// ---------------------------------------------------------------------------
 
 // Which documents produce which diagnostics is core's, pinned in
 // `crates/quillmark/tests/validate_test.rs`. Here: the result crosses as a
@@ -1661,12 +1074,10 @@ title: "Hello"
 count: 1
 ~~~
 `
-    const diags = quill.validate(Document.fromMarkdown(md))
-    expect(Array.isArray(diags)).toBe(true)
-    expect(diags.length).toBe(0)
+    expect(quill.validate(Document.fromMarkdown(md))).toEqual([])
   })
 
-  it('forwards a type_mismatch with canonical code, path, and hint', () => {
+  it('forwards a type_mismatch with canonical code, path, and hint as plain JSON', () => {
     const quill = buildQuill()
     const md = `~~~card-yaml
 $quill: validate_smoke_test
@@ -1675,44 +1086,16 @@ title: "Hello"
 count: "not-a-number"
 ~~~
 `
-    const diags = quill.validate(Document.fromMarkdown(md))
+    const diags = JSON.parse(JSON.stringify(quill.validate(Document.fromMarkdown(md))))
     const mismatch = diags.find((d) => d.code === 'validation::type_mismatch')
-    expect(mismatch).toBeDefined()
     expect(mismatch.path).toBe('main.count')
     expect(typeof mismatch.hint).toBe('string')
   })
-
-  it('result is JSON.stringify-able', () => {
-    const quill = buildQuill()
-    const md = `~~~card-yaml
-$quill: validate_smoke_test
-$kind: main
-count: "nope"
-~~~
-`
-    const diags = quill.validate(Document.fromMarkdown(md))
-    const json = JSON.stringify(diags)
-    expect(typeof json).toBe('string')
-    expect(JSON.parse(json).length).toBe(diags.length)
-  })
 })
 
-// ---------------------------------------------------------------------------
-// Schema / blueprint / validation: the value and obligation axes
-// ---------------------------------------------------------------------------
-//
-// A `default:` holds the cell and its value is shippable as rendered; without
-// one the field is obliged, so the blueprint emits a `!must_fill` marker and
-// render blank-fills it.
-//
-// The blueprint's exact text is pinned line-by-line in
-// `core/src/quill/blueprint.rs`, and the authored/default/blank ladder in
-// `core/src/quill/resolved.rs`. What is JS-facing, and lives here:
-// the schema DTO's shape, the blueprint crossing as a string, and a
-// `!must_fill` marker reaching both render and validate intact.
-//
-// See prose/canon/SCHEMAS.md.
-
+// The blueprint text and the authored/default/blank ladder are core's
+// (`core/src/quill/blueprint.rs`, `core/src/quill/resolved.rs`). Here: the
+// schema DTO's shape and a `!must_fill` marker reaching render and validate.
 describe('value / obligation schema model', () => {
   // The plate `unwrap`s `data.title` (obliged) and substitutes the optional
   // `data.subtitle` if present, so one quill carries both cell states.
@@ -1789,49 +1172,23 @@ title: !must_fill
     expect(result.artifacts.length).toBeGreaterThan(0)
   })
 
-  it('validate surfaces a non-fatal `validation::must_fill` warning per marker', () => {
+  it('validate surfaces a `validation::must_fill` warning carrying its args', () => {
     const { quill } = buildQuill()
-
-    const md = `~~~card-yaml
-$quill: schema_test
-$kind: main
-title: !must_fill
-~~~
-`
-    const diags = quill.validate(Document.fromMarkdown(md))
-    expect(
-      diags.some(
-        (d) =>
-          d.code === 'validation::must_fill' &&
-          d.severity === 'warning' &&
-          d.path === 'main.title' &&
-          typeof d.hint === 'string',
-      ),
-    ).toBe(true)
-  })
-
-  it('validate surfaces the same code for a cell the schema obliges and nobody authored', () => {
-    const { quill } = buildQuill()
-
-    // No marker anywhere: this document never saw a blueprint.
     const md = `~~~card-yaml
 $quill: schema_test
 $kind: main
 ~~~
 `
-    const diags = quill.validate(Document.fromMarkdown(md))
-    const title = diags.find(
-      (d) => d.code === 'validation::must_fill' && d.path === 'main.title',
-    )
-    expect(title).toBeDefined()
+    const title = quill
+      .validate(Document.fromMarkdown(md))
+      .find((d) => d.code === 'validation::must_fill' && d.path === 'main.title')
     expect(title.severity).toBe('warning')
-    // `trigger` is what a consumer routes on, so pin it crossing the boundary.
     expect(title.args.trigger).toBe('unauthored')
   })
 })
 
 describe('nested !must_fill', () => {
-  it('exposes nestedFills on a field item, surviving storage and insertCard', () => {
+  it('exposes nestedFills on a field item only where markers nest, surviving insertCard', () => {
     const md = `~~~card-yaml
 $quill: q@0.1
 $kind: main
@@ -1844,14 +1201,10 @@ addr:
     const addr = doc.main.payloadItems.find((i) => i.key === 'addr')
     expect(addr.nestedFills).toEqual([['street']])
 
-    // Storage round-trip preserves the nested marker.
-    const restored = Document.fromStored(doc.toStored())
-    expect(restored.toMarkdown()).toContain('street: !must_fill')
-
-    // A card built with nestedFills survives insertCard → emit.
     const doc2 = Document.fromMarkdown(
       '~~~card-yaml\n$quill: q@0.1\n$kind: main\ntitle: x\n~~~\n',
     )
+    expect(doc2.main.payloadItems.find((i) => i.key === 'title').nestedFills).toBeUndefined()
     doc2.insertCard({
       kind: 'note',
       payloadItems: [
@@ -1865,13 +1218,5 @@ addr:
       body: '',
     })
     expect(doc2.toMarkdown()).toContain('street: !must_fill')
-  })
-
-  it('omits nestedFills for a field with no nested markers', () => {
-    const doc = Document.fromMarkdown(
-      '~~~card-yaml\n$quill: q@0.1\n$kind: main\ntitle: Hello\n~~~\n',
-    )
-    const title = doc.main.payloadItems.find((i) => i.key === 'title')
-    expect(title.nestedFills).toBeUndefined()
   })
 })

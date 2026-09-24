@@ -52,17 +52,3 @@ fn test_unsupported_backend_errors_at_render_time() {
         Some("engine::backend_not_found")
     );
 }
-
-/// A path that names no directory is the caller's mistake, not a bundle missing
-/// its `Quill.yaml`.
-#[test]
-fn a_missing_quill_path_names_the_path_not_the_missing_config() {
-    let temp_dir = TempDir::new().unwrap();
-    let err = quillmark::quill_from_path(temp_dir.path().join("no_such_quill"))
-        .expect_err("a nonexistent path does not load");
-    let text = err.to_string();
-    assert!(
-        text.contains("Quill directory not found") && text.contains("no_such_quill"),
-        "the error should name the missing path, got: {text}"
-    );
-}

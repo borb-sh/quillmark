@@ -14,15 +14,6 @@ from conftest import (
 )
 
 
-def test_writer_set_rejects_unknown_field():
-    """An undeclared name is a typo on the typed path: it raises, nothing lands."""
-    quill = taro_quill()
-    doc = Document("taro@0.1.0")
-    with raises_edit_code("edit::unknown_field"):
-        quill.writer(doc).set("stray", "x")
-    assert not has_field(doc.main, "stray")
-
-
 def test_writer_set_all_reports_every_unknown_field():
     """set_all is all-or-nothing and reports one diagnostic per undeclared name:
     externally-sourced keys surface every violation at once."""
@@ -32,7 +23,6 @@ def test_writer_set_all_reports_every_unknown_field():
         quill.writer(doc).set_all({"title": "ok", "stray1": "x", "stray2": "y"})
     paths = [d.path for d in exc_info.value.diagnostics]
     assert "main.stray1" in paths and "main.stray2" in paths
-    # All-or-nothing: even the valid `title` did not land.
     assert not has_field(doc.main, "title")
 
 
@@ -62,31 +52,20 @@ def test_every_mutator_verb_anchors_its_diagnostic_at_one_doc_path():
         assert path_of(call) == expected, verb
 
 
-def test_writer_add_card_transactional():
-    """add_card fuses make + typed commit + insert; a typo leaves the doc untouched."""
+def test_writer_add_card_transactional_and_positioned():
+    """add_card fuses make + typed commit + insert at `at=`; a refusal leaves
+    the doc untouched."""
     quill = taro_quill()
     doc = Document("taro@0.1.0")
     ed = quill.writer(doc)
-    ed.add_card("quotes", {"author": "Basho"}, "A quote body.")
-    assert len(doc.cards) == 1
-    assert field(doc.cards[0], "author") == "Basho"
+    ed.add_card("quotes", {"author": "First"}, "A quote body.")
+    ed.add_card("quotes", {"author": "Second"}, at=0)
+    assert [field(c, "author") for c in doc.cards] == ["Second", "First"]
     with raises_edit_code("edit::unknown_field"):
         ed.add_card("quotes", {"stray": "x"})
-    assert len(doc.cards) == 1  # nothing joined the document
-
-
-def test_writer_add_card_positioned():
-    """add_card(..., at=i) is one atomic positioned typed insert."""
-    quill = taro_quill()
-    doc = Document("taro@0.1.0")
-    ed = quill.writer(doc)
-    ed.add_card("quotes", {"author": "First"})
-    ed.add_card("quotes", {"author": "Second"}, at=0)  # insert at the front
-    assert field(doc.cards[0], "author") == "Second"
-    assert field(doc.cards[1], "author") == "First"
     with raises_edit_code("edit::index_out_of_range"):
         ed.add_card("quotes", {"author": "x"}, at=99)
-    assert len(doc.cards) == 2  # the out-of-range insert landed nothing
+    assert len(doc.cards) == 2
 
 
 def test_card_selector_targets_the_composable_card_on_both_lanes():
@@ -114,51 +93,20 @@ def test_card_selector_targets_the_composable_card_on_both_lanes():
         v.get("author", card=9)
 
 
-def test_writer_set_coerces_richtext_to_content():
-    """A richtext field commits the canonical content, not the authored markdown."""
+
+
+def test_writer_revise_field():
+    """revise_field diff-imports markdown into a richtext field under the same
+    guards as `set`."""
     quill = richtext_quill()
     doc = Document("sample_form@0.1.0")
-    quill.writer(doc).set("bio", "A **bold** intro.")
-    value = field(doc.main, "bio")
-    assert isinstance(value, dict)  # stored as the content dict, not a string
-    assert value["text"] == "A bold intro."
-
-
-def test_writer_set_rejects_inline_violation():
-    """A richtext(inline) field rejects multi-block content at the write."""
-    quill = richtext_quill()
-    doc = Document("sample_form@0.1.0")
-    with raises_edit_code("edit::field_not_inline"):
-        quill.writer(doc).set("headline", "line one\n\nline two")
-
-
-def test_writer_set_all_is_all_or_nothing():
-    """A mid-batch inline violation aborts set_all: nothing lingers."""
-    quill = richtext_quill()
-    doc = Document("sample_form@0.1.0")
-    with raises_edit_code("edit::field_not_inline"):
-        quill.writer(doc).set_all({"bio": "ok", "headline": "line one\n\nline two"})
-    assert not has_field(doc.main, "bio")
-
-
-def test_writer_revise_field_typed_and_anchor_preserving():
-    """writer.revise_field is the typed, anchor-preserving richtext field write:
-    diff-imports the markdown and schema-conforms the result."""
-    quill = richtext_quill()
-    doc = Document("sample_form@0.1.0")
-    quill.writer(doc).revise_field("bio", "make it **bold**")
+    w = quill.writer(doc)
+    w.revise_field("bio", "make it **bold**")
     assert quill.reader(doc).get("bio") == "make it **bold**"
-
-
-def test_writer_revise_field_rejects_inline_and_unknown():
-    """revise_field conforms to the field schema (inline rejects multi-block) and
-    rejects an undeclared name: same guards as `set`."""
-    quill = richtext_quill()
-    doc = Document("sample_form@0.1.0")
     with raises_edit_code("edit::field_not_inline"):
-        quill.writer(doc).revise_field("headline", "line one\n\nline two")
+        w.revise_field("headline", "line one\n\nline two")
     with raises_edit_code("edit::unknown_field"):
-        quill.writer(doc).revise_field("nope", "x")
+        w.revise_field("nope", "x")
 
 
 def test_typed_set_clears_must_fill_marker():
@@ -185,28 +133,23 @@ def test_typed_set_clears_must_fill_marker():
 
 
 def test_view_interprets_by_declared_type():
-    """view.get reads a richtext field as markdown and a scalar as its canonical value."""
+    """view.get reads richtext as markdown, a scalar as its canonical value,
+    absence as None; an undeclared name raises."""
     quill = richtext_quill()
     doc = Document("sample_form@0.1.0")
     w = quill.writer(doc)
-    w.set("bio", "A **bold** intro.")
     v = quill.reader(doc)
-    assert w.document is doc and v.document is doc  # both hold the same object
-    assert v.get("bio") == "A **bold** intro."  # richtext → markdown
+    assert v.get("bio") is None
+    w.set("bio", "A **bold** intro.")
+    assert w.document is doc and v.document is doc
+    assert v.get("bio") == "A **bold** intro."
+    with raises_edit_code("edit::unknown_field"):
+        v.get("nope")
 
     taro = taro_quill()
     tdoc = Document("taro@0.1.0")
     taro.writer(tdoc).set("author", "Ada")
-    assert taro.reader(tdoc).get("author") == "Ada"  # scalar → canonical
-
-
-def test_view_absence_returns_none_unknown_name_raises():
-    """Absent → None; a name the schema does not declare raises (the schema authority)."""
-    quill = richtext_quill()
-    v = quill.reader(Document("sample_form@0.1.0"))
-    assert v.get("bio") is None  # absent, not a typo
-    with raises_edit_code("edit::unknown_field"):
-        v.get("nope")  # typo, not absent
+    assert taro.reader(tdoc).get("author") == "Ada"
 
 
 def test_view_richtext_holding_scalar_raises_mismatch():

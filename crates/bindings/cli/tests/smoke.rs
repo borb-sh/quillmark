@@ -34,38 +34,41 @@ fn ok(args: &[&str]) -> String {
     String::from_utf8(out.stdout).expect("stdout is UTF-8")
 }
 
+/// Each read-only command against a shipped quill: `schema` names taro's own
+/// field, so a generic or empty dump fails.
 #[test]
-fn info_prints_the_quill_identity() {
+fn read_commands_print_the_quill() {
     let quill = taro();
-    let stdout = ok(&["info", quill.to_str().unwrap()]);
-    assert!(stdout.contains("taro"), "info omits the quill name: {stdout}");
-}
-
-#[test]
-fn schema_emits_yaml_naming_a_declared_field() {
-    let quill = taro();
-    let stdout = ok(&["schema", quill.to_str().unwrap()]);
-    // taro's own field, so a generic or empty dump fails.
-    assert!(
-        stdout.contains("ice_cream"),
-        "schema omits a declared field: {stdout}"
-    );
-}
-
-#[test]
-fn blueprint_emits_a_card_yaml_fence() {
-    let quill = taro();
-    let stdout = ok(&["blueprint", quill.to_str().unwrap()]);
-    assert!(
-        stdout.contains("$quill:"),
-        "blueprint carries no `$quill` line: {stdout}"
-    );
-}
-
-#[test]
-fn validate_accepts_a_shipped_quill() {
-    let quill = taro();
+    for (cmd, needle) in [("info", "taro"), ("schema", "ice_cream"), ("blueprint", "$quill:")] {
+        let stdout = ok(&[cmd, quill.to_str().unwrap()]);
+        assert!(stdout.contains(needle), "{cmd} omits {needle:?}: {stdout}");
+    }
     ok(&["validate", quill.to_str().unwrap()]);
+}
+
+/// A document `usaf_memo` renders with a warning: it declines a `***`.
+fn rule_doc(dir: &tempfile::TempDir) -> PathBuf {
+    let doc = dir.path().join("rule.md");
+    std::fs::write(
+        &doc,
+        "~~~card-yaml\n$quill: usaf_memo\n$kind: main\n~~~\n\none\n\n***\n\ntwo\n",
+    )
+    .expect("write the input document");
+    doc
+}
+
+/// A taro document long enough to span pages.
+fn long_doc(dir: &tempfile::TempDir) -> PathBuf {
+    let doc = dir.path().join("long.md");
+    let body: String = (0..120)
+        .map(|i| format!("Paragraph {i} of a body long enough to span pages.\n\n"))
+        .collect();
+    std::fs::write(
+        &doc,
+        format!("~~~card-yaml\n$quill: taro\ntitle: Long\nauthor: Tester\n~~~\n\n{body}"),
+    )
+    .expect("write the input document");
+    doc
 }
 
 /// A quill directory carrying just `yaml`, for the failure paths no shipped
@@ -189,19 +192,20 @@ fn an_unloadable_quill_is_not_an_invalid_argument() {
 }
 
 /// `-o` names a directory that does not exist yet, and the artifact still lands
-/// there.
+/// there. taro declares no `example:`, so its seed leaves each obliged field
+/// blank: blanks the quill chose, which the seed render does not count.
 #[test]
-fn output_flag_creates_parent_directories() {
+fn render_writes_a_pdf_creating_parent_directories() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let quill = taro();
     let path = dir.path().join("nested").join("deeper").join("out.pdf");
 
-    ok(&[
-        "render",
-        quill.to_str().unwrap(),
-        "-o",
-        path.to_str().unwrap(),
-    ]);
+    let out = run(&["render", taro().to_str().unwrap(), "-o", path.to_str().unwrap()]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(out.status.success(), "render exited nonzero: {stderr}");
+    assert!(
+        !stderr.contains("validation::must_fill"),
+        "the seed render counted the quill's blanks: {stderr}"
+    );
 
     let bytes = std::fs::read(&path).expect("the -o file exists");
     assert!(
@@ -211,47 +215,13 @@ fn output_flag_creates_parent_directories() {
     );
 }
 
-/// taro declares no `example:`, so its seed leaves each obliged field blank:
-/// blanks the quill chose, which the seed render does not count.
-#[test]
-fn render_writes_a_pdf() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let out = dir.path().join("out.pdf");
-    let quill = taro();
-
-    let run_out = run(&[
-        "render",
-        quill.to_str().unwrap(),
-        "-o",
-        out.to_str().unwrap(),
-    ]);
-    let stderr = String::from_utf8_lossy(&run_out.stderr);
-    assert!(run_out.status.success(), "render exited nonzero: {stderr}");
-    assert!(
-        !stderr.contains("validation::must_fill"),
-        "the seed render counted the quill's blanks: {stderr}"
-    );
-
-    let bytes = std::fs::read(&out).expect("render wrote its output file");
-    assert!(
-        bytes.starts_with(b"%PDF-"),
-        "output is not a PDF (first bytes: {:?})",
-        &bytes[..bytes.len().min(8)]
-    );
-}
-
 /// A warning line on stdout does not garble a message, it corrupts the PDF the
-/// caller is redirecting: `usaf_memo` declines a `***`, so this render warns.
+/// caller is redirecting. `render` parses through the bound door, so the
+/// construct the plate declines warns rather than vanishing.
 #[test]
 fn chatter_does_not_contaminate_the_stdout_artifact() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let doc = dir.path().join("rule.md");
-    std::fs::write(
-        &doc,
-        "~~~card-yaml\n$quill: usaf_memo\n$kind: main\n~~~\n\none\n\n***\n\ntwo\n",
-    )
-    .expect("write the input document");
-
+    let doc = rule_doc(&dir);
     let memo = quillmark_fixtures::quills_path("usaf_memo");
     let out = run(&[
         "render",
@@ -277,51 +247,18 @@ fn chatter_does_not_contaminate_the_stdout_artifact() {
     );
 }
 
-#[test]
-fn render_svg_honours_the_format_flag() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let out = dir.path().join("out.svg");
-    let quill = taro();
-
-    ok(&[
-        "render",
-        quill.to_str().unwrap(),
-        "-f",
-        "svg",
-        "-o",
-        out.to_str().unwrap(),
-    ]);
-
-    let svg = std::fs::read_to_string(&out).expect("render wrote its output file");
-    assert!(svg.contains("<svg"), "output is not SVG: {}", &svg[..svg.len().min(80)]);
-}
-
 /// No unnumbered file sits beside the numbered pages, claiming to be the whole
+/// document, and `--stdout` refuses loudly rather than writing page one as the
 /// document.
 #[test]
-fn multi_page_svg_writes_one_file_per_page() {
+fn multi_page_svg_writes_one_file_per_page_and_refuses_stdout() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let doc = dir.path().join("long.md");
-    let body: String = (0..120)
-        .map(|i| format!("Paragraph {i} of a body long enough to span pages.\n\n"))
-        .collect();
-    std::fs::write(
-        &doc,
-        format!("~~~card-yaml\n$quill: taro\ntitle: Long\nauthor: Tester\n~~~\n\n{body}"),
-    )
-    .expect("write the input document");
+    let doc = long_doc(&dir);
+    let (quill, doc) = (taro(), doc.to_str().unwrap().to_owned());
+    let quill = quill.to_str().unwrap();
 
     let out = dir.path().join("out.svg");
-    ok(&[
-        "render",
-        taro().to_str().unwrap(),
-        doc.to_str().unwrap(),
-        "-f",
-        "svg",
-        "-o",
-        out.to_str().unwrap(),
-    ]);
-
+    ok(&["render", quill, &doc, "-f", "svg", "-o", out.to_str().unwrap()]);
     assert!(
         !out.exists(),
         "an unnumbered out.svg sits beside the numbered pages"
@@ -332,66 +269,13 @@ fn multi_page_svg_writes_one_file_per_page() {
             .unwrap_or_else(|e| panic!("page {page} was not written: {e}"));
         assert!(svg.contains("<svg"), "page {page} is not SVG");
     }
-}
 
-/// Loudly, rather than by writing page one as the document.
-#[test]
-fn multi_page_stdout_is_refused() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let doc = dir.path().join("long.md");
-    let body: String = (0..120)
-        .map(|i| format!("Paragraph {i} of a body long enough to span pages.\n\n"))
-        .collect();
-    std::fs::write(
-        &doc,
-        format!("~~~card-yaml\n$quill: taro\ntitle: Long\nauthor: Tester\n~~~\n\n{body}"),
-    )
-    .expect("write the input document");
-
-    let out = run(&[
-        "render",
-        taro().to_str().unwrap(),
-        doc.to_str().unwrap(),
-        "-f",
-        "svg",
-        "--stdout",
-    ]);
+    let out = run(&["render", quill, &doc, "-f", "svg", "--stdout"]);
     assert!(!out.status.success(), "multi-page --stdout exited 0");
     assert!(
         out.stdout.is_empty(),
         "a refused --stdout still wrote {} bytes",
         out.stdout.len()
-    );
-}
-
-/// `render` parses through the bound door, so a construct the quill declares
-/// its plate does not typeset reaches stderr instead of vanishing: `usaf_memo`
-/// declares `body.unsupported: [rule]`, and a `***` leaves the page unmarked.
-#[test]
-fn a_declined_construct_warns_on_stderr() {
-    let dir = tempfile::tempdir().expect("tempdir");
-    let doc = dir.path().join("rule.md");
-    std::fs::write(
-        &doc,
-        "~~~card-yaml\n$quill: usaf_memo\n$kind: main\n~~~\n\none\n\n***\n\ntwo\n",
-    )
-    .expect("write the input document");
-
-    let memo = quillmark_fixtures::quills_path("usaf_memo");
-    let out_pdf = dir.path().join("rule.pdf");
-    let out = run(&[
-        "render",
-        memo.to_str().unwrap(),
-        doc.to_str().unwrap(),
-        "-o",
-        out_pdf.to_str().unwrap(),
-    ]);
-
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(out.status.success(), "render exited nonzero: {stderr}");
-    assert!(
-        stderr.contains("plate::unsupported_construct"),
-        "the declined construct raised no warning: {stderr}"
     );
 }
 
@@ -472,24 +356,6 @@ fn render_warns_on_unclaimed_input_and_counts_unanswered_fields() {
     );
 }
 
-/// Exit 1 rather than any non-zero code: a panic exits differently, so a script
-/// reading the status can tell a refusal from a crash.
-#[test]
-fn absent_quill_exits_one_with_stderr() {
-    let out = run(&["info", "/nonexistent/quill/path"]);
-    assert_eq!(
-        out.status.code(),
-        Some(1),
-        "expected a clean exit 1, got {:?}\nstderr: {}",
-        out.status,
-        String::from_utf8_lossy(&out.stderr)
-    );
-    assert!(
-        !out.stderr.is_empty(),
-        "absent quill wrote nothing to stderr"
-    );
-}
-
 /// Exit 2 rather than 1: a script reading the status can tell an invocation
 /// `clap` rejected from a command that ran and refused.
 #[test]
@@ -507,14 +373,16 @@ fn a_usage_error_exits_two_with_stderr() {
 
 /// Every command routes a typo'd path through the loader, which names the path
 /// rather than the `Quill.yaml` a directory that does not exist cannot be
-/// missing.
+/// missing. Exit 1 rather than any non-zero code: a panic exits differently,
+/// so a script reading the status can tell a refusal from a crash.
 #[test]
-fn a_missing_quill_path_names_the_path_on_every_command() {
+fn a_missing_quill_path_exits_one_naming_the_path_on_every_command() {
     for cmd in ["info", "schema", "validate"] {
         let out = run(&[cmd, "/nonexistent/quill/path"]);
         let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(1), "`quillmark {cmd}`: {stderr}");
         assert!(
-            stderr.contains("Quill directory not found"),
+            stderr.contains("/nonexistent/quill/path") && !stderr.contains("Quill.yaml"),
             "`quillmark {cmd}` on a missing path: {stderr}"
         );
     }
@@ -598,17 +466,11 @@ fn format_casing_does_not_reach_the_output_filename() {
 }
 
 /// `--quiet` silences both streams a successful render writes: the warning on
-/// stderr and the destination line on stdout. `usaf_memo` declines a `***`, so
-/// this render has a warning to suppress.
+/// stderr and the destination line on stdout.
 #[test]
 fn quiet_silences_the_warning_and_the_destination_line() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let doc = dir.path().join("rule.md");
-    std::fs::write(
-        &doc,
-        "~~~card-yaml\n$quill: usaf_memo\n$kind: main\n~~~\n\none\n\n***\n\ntwo\n",
-    )
-    .expect("write the input document");
+    let doc = rule_doc(&dir);
     let out_path = dir.path().join("out.pdf");
     let memo = quillmark_fixtures::quills_path("usaf_memo");
 
