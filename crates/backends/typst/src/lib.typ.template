@@ -170,6 +170,15 @@
 /// holds at every depth. `$cards` carry their per-kind-ordinal `$path` prefix.
 #let data = {data_literal}
 
+/// The clickable twin of a container's declared leaves: `ink(data).subject`,
+/// `ink(card).topic`, `ink(row).org`. Each scalar is the content `#<value>`
+/// prints, born in generated source so its glyphs keep their schema address
+/// through a function parameter, a loop variable, a destructuring or a
+/// package; a content field is its markup block; a present date is its
+/// `display` closure (`display(ink(row).due, "[year]")`); an array of leaves
+/// is the array of their ink. Compute with the container, print its ink.
+#let ink(container) = container.at("$ink", default: (:))
+
 /// Backend-generated content projection for every **present** `date`/`datetime`
 /// field, keyed by schema address. Each value is a `_qm_dN` closure block, so
 /// the ink it places is born in generated source.
@@ -189,6 +198,8 @@
 /// field that is not a date — returns `none`, so a `== none` fallback still
 /// fires.
 #let display(field, ..args) = {
+  if std.type(field) == function { return field(..args) }
+  if field == none { return none }
   assert(std.type(field) == str,
     message: "display: field must be a string, got " + repr(std.type(field)))
   assert(_qm-known-path(field),

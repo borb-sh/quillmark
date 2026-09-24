@@ -122,6 +122,7 @@ struct Codegen<'m> {
     emit_error: Option<EmitError>,
     /// `(schema address, block binding)` per present date. Backs `_qm-display`.
     display: Vec<(String, String)>,
+    scalars: usize,
 }
 
 impl<'m> Codegen<'m> {
@@ -133,7 +134,29 @@ impl<'m> Codegen<'m> {
             counter: 0,
             emit_error: None,
             display: Vec::new(),
+            scalars: 0,
         }
+    }
+
+    /// The scalar sibling of [`display_block`](Self::display_block): a
+    /// `[#<literal>]` block whose embedded literal is where the glyphs are born,
+    /// so they print what the plate's own `#data.<field>` would and carry this
+    /// generated span however far the content travels.
+    fn ink_block(&mut self, path: &str, literal: &str) -> String {
+        let id = format!("_qm_s{}", self.scalars);
+        self.scalars += 1;
+        self.blocks.push_str("#let ");
+        self.blocks.push_str(&id);
+        self.blocks.push_str(" = ");
+        let start = self.blocks.len();
+        self.blocks.push_str("[#");
+        self.blocks.push_str(literal);
+        self.blocks.push(']');
+        let end = self.blocks.len();
+        self.blocks.push('\n');
+        self.windows
+            .push((path.to_string(), start..end, Vec::new(), 0));
+        id
     }
 
     /// Binds `ec` as a `#let _qm_cN = [\n{markup}\n]` block. The `\n` wrap opens
@@ -170,7 +193,7 @@ impl<'m> Codegen<'m> {
     /// whose `text(..)` body is where the glyphs are born, so they carry this
     /// generated span wherever the plate finally calls it, which is what
     /// `display(addr, ..)` survives laundering on.
-    fn display_block(&mut self, path: &str, constructor: &str) {
+    fn display_block(&mut self, path: &str, constructor: &str) -> String {
         let id = format!("_qm_d{}", self.display.len());
         self.blocks.push_str("#let ");
         self.blocks.push_str(&id);
@@ -185,25 +208,26 @@ impl<'m> Codegen<'m> {
         self.blocks.push('\n');
         self.windows
             .push((path.to_string(), text_start..text_end, Vec::new(), 0));
-        self.display.push((path.to_string(), id));
+        self.display.push((path.to_string(), id.clone()));
+        id
     }
 
     /// Blank ⇒ `none`, so a plate's `!= none` guard is untouched. A non-blank
     /// value that will not parse raises `backend::invalid_date` from here, the
     /// one site that parses, which is what makes the check total over depth.
-    fn date_field(&mut self, path: &str, s: &str, kind: DateKind) -> String {
+    fn date_field(&mut self, path: &str, s: &str, kind: DateKind) -> (String, String) {
         match datetime_constructor(s, kind) {
             Some(constructor) => {
-                self.display_block(path, &constructor);
-                constructor
+                let id = self.display_block(path, &constructor);
+                (constructor, id)
             }
-            None if s.is_empty() => "none".to_string(),
+            None if s.is_empty() => ("none".to_string(), "none".to_string()),
             None => {
                 self.emit_error.get_or_insert(EmitError::InvalidDate {
                     field: path.to_string(),
                     value: s.to_string(),
                 });
-                "none".to_string()
+                ("none".to_string(), "none".to_string())
             }
         }
     }
@@ -232,7 +256,8 @@ impl<'m> Codegen<'m> {
     }
 
     fn emit_data(&mut self, obj: &serde_json::Map<String, serde_json::Value>) -> String {
-        let mut items = Vec::with_capacity(obj.len());
+        let mut items = Vec::with_capacity(obj.len() + 1);
+        let mut ink = Vec::new();
         for (key, value) in sorted(obj) {
             if key == "$cards" {
                 if let Some(cards) = value.as_array() {
@@ -241,8 +266,14 @@ impl<'m> Codegen<'m> {
                 }
             }
             let node = self.meta.field_node(key);
-            let expr = self.emit_value(key, node, value);
+            let (expr, leaf_ink) = self.emit_value(key, node, value);
             items.push(format!("\"{}\": {}", escape_string(key), expr));
+            if let Some(i) = leaf_ink {
+                ink.push(format!("\"{}\": {}", escape_string(key), i));
+            }
+        }
+        if !ink.is_empty() {
+            items.insert(0, format!("\"$ink\": {}", wrap_dict(ink)));
         }
         wrap_dict(items)
     }
@@ -280,17 +311,24 @@ impl<'m> Codegen<'m> {
         prefix: &str,
     ) -> String {
         let props = self.meta.card_props(kind);
-        let mut items = Vec::with_capacity(obj.len() + 1);
+        let mut items = Vec::with_capacity(obj.len() + 2);
+        let mut ink = Vec::new();
         // The canonical address prefix, so plates compose schema-field addresses
         // without reimplementing the kind+ordinal grammar.
         items.push(format!("\"$path\": \"{}\"", escape_string(prefix)));
         for (key, value) in sorted(obj) {
-            if key == "$path" {
+            if key == "$path" || key == "$ink" {
                 continue;
             }
             let node = props.and_then(|p| p.get(key));
-            let expr = self.emit_value(&format!("{prefix}{key}"), node, value);
+            let (expr, leaf_ink) = self.emit_value(&format!("{prefix}{key}"), node, value);
             items.push(format!("\"{}\": {}", escape_string(key), expr));
+            if let Some(i) = leaf_ink {
+                ink.push(format!("\"{}\": {}", escape_string(key), i));
+            }
+        }
+        if !ink.is_empty() {
+            items.insert(0, format!("\"$ink\": {}", wrap_dict(ink)));
         }
         wrap_dict(items)
     }
@@ -307,30 +345,58 @@ impl<'m> Codegen<'m> {
         path: &str,
         node: Option<&serde_json::Value>,
         value: &serde_json::Value,
-    ) -> String {
+    ) -> (String, Option<String>) {
         match (lowering(node), value) {
             (Lower::Content { inline }, serde_json::Value::Object(_)) => {
-                self.content_field(path, value, inline)
+                let expr = self.content_field(path, value, inline);
+                (expr.clone(), Some(expr))
             }
-            (Lower::Date(kind), serde_json::Value::String(s)) => self.date_field(path, s, kind),
-            (Lower::Array(items), serde_json::Value::Array(elems)) => wrap_array(
-                elems
+            (Lower::Date(kind), serde_json::Value::String(s)) => {
+                let (expr, ink) = self.date_field(path, s, kind);
+                (expr, Some(ink))
+            }
+            (Lower::Array(items), serde_json::Value::Array(elems)) => {
+                let (exprs, inks): (Vec<_>, Vec<_>) = elems
                     .iter()
                     .enumerate()
                     .map(|(i, elem)| self.emit_value(&format!("{path}.{i}"), items, elem))
-                    .collect(),
-            ),
-            (Lower::Object(props, order), serde_json::Value::Object(obj)) => wrap_dict(
-                ordered(obj, &order)
-                    .into_iter()
-                    .map(|(key, elem)| {
-                        let expr =
-                            self.emit_value(&format!("{path}.{key}"), props.get(key), elem);
-                        format!("\"{}\": {}", escape_string(key), expr)
-                    })
-                    .collect(),
-            ),
-            _ => lit(value),
+                    .unzip();
+                // A row container carries its own `$ink`; only leaf elements
+                // surface on the parent.
+                let ink = (!inks.is_empty() && inks.iter().all(Option::is_some))
+                    .then(|| wrap_array(inks.into_iter().flatten().collect()));
+                (wrap_array(exprs), ink)
+            }
+            (Lower::Object(props, order), serde_json::Value::Object(obj)) => {
+                let mut items = Vec::with_capacity(obj.len() + 1);
+                let mut ink = Vec::new();
+                for (key, elem) in ordered(obj, &order) {
+                    let (expr, leaf_ink) =
+                        self.emit_value(&format!("{path}.{key}"), props.get(key), elem);
+                    items.push(format!("\"{}\": {}", escape_string(key), expr));
+                    if let Some(i) = leaf_ink {
+                        ink.push(format!("\"{}\": {}", escape_string(key), i));
+                    }
+                }
+                if !ink.is_empty() {
+                    items.insert(0, format!("\"$ink\": {}", wrap_dict(ink)));
+                }
+                (wrap_dict(items), None)
+            }
+            (Lower::Native, serde_json::Value::Null) if node.is_some() => {
+                ("none".to_string(), Some("none".to_string()))
+            }
+            (
+                Lower::Native,
+                serde_json::Value::String(_)
+                | serde_json::Value::Number(_)
+                | serde_json::Value::Bool(_),
+            ) if node.is_some() => {
+                let literal = lit(value);
+                let ink = self.ink_block(path, &literal);
+                (literal, Some(ink))
+            }
+            _ => (lit(value), None),
         }
     }
 }

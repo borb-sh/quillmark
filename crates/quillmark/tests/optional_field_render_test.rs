@@ -61,7 +61,7 @@ fn an_unanswered_optional_cell_is_none() {
 #assert.eq(data.attendees, none)
 #assert.eq(data.adjourned, none)
 #assert.eq(data.minutes, none)
-#assert.eq(data.tally, (votes_against: 0, votes_for: none))
+#assert.eq((data.tally.votes_against, data.tally.votes_for), (0, none))
 #assert.eq("n" + data.quorum, "n")
 "#;
     render(plate, "").expect("the plate saw every unanswered cell as none");
