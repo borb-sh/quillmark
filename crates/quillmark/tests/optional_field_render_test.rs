@@ -2,6 +2,8 @@
 //! The plate asserts, so a render that succeeds is the plate having seen what
 //! each case states.
 
+#![cfg(feature = "typst")]
+
 use quillmark::{Document, OutputFormat, Quillmark, RenderOptions};
 use std::fs;
 use tempfile::TempDir;
