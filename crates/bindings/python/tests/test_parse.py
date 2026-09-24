@@ -50,6 +50,14 @@ def test_json_dto_round_trip(taro_md):
     assert restored.to_markdown() == doc.to_markdown()
 
 
+def test_json_dto_drops_parse_warnings():
+    doc = Document.from_markdown(
+        "~~~card-yaml\n$quill: my_quill\n$kind: main\nweird: !custom value\n~~~\n\nBody\n"
+    )
+    assert doc.warnings
+    assert Document.from_stored(doc.to_stored()).warnings == []
+
+
 def test_json_dto_rejects_invalid_input():
     """from_stored rejects an unknown schema tag and malformed JSON."""
     with pytest.raises(QuillmarkError):

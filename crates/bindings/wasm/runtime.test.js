@@ -421,6 +421,12 @@ card_kinds:
     expect(transported.toStored()).toBe(bound.toStored())
   })
 
+  it('a value the strict write refuses rests authored with a conform warning', () => {
+    const doc = buildQuill().parse('~~~card-yaml\n$quill: view_test\nsubject: 42\n~~~\n\nBody.')
+    expect(doc.getStored('subject')).toBe(42)
+    expect(doc.warnings.map((d) => d.code)).toContain('conform::field_decode')
+  })
+
   it('nothing conforms under the wrong quill', () => {
     const quill = buildQuill()
     const md = '~~~card-yaml\n$quill: other_quill\nsubject: hi\n~~~\n\nBody.'
@@ -456,6 +462,23 @@ card_kinds:
     const written = (rt) => rt.lines.flatMap((l) => l.containers).map((c) => c.instance)
     expect(written(v.getContent({}))).toEqual([undefined, undefined])
     expect(written(v.getContentAt('paragraphs', [0]))).toEqual([undefined])
+  })
+
+  it('a Content written through set keeps its anchors and island ids', () => {
+    const quill = buildQuill()
+    const doc = Document.fromMarkdown('~~~card-yaml\n$quill: view_test\n~~~\n\nBody.')
+    const w = quill.writer(doc)
+    const v = quill.reader(doc)
+    w.set('paragraphs', ['Alpha ![pic](u) bold'])
+
+    const rt = v.getContentAt('paragraphs', [0])
+    rt.marks.push({ type: 'anchor', attrs: { id: 'c1' }, start: 0, end: 5 })
+    rt.islands[0].id = 'isl-7'
+    w.set('paragraphs', [rt])
+
+    const back = v.getContentAt('paragraphs', [0])
+    expect(back.marks.find((m) => m.type === 'anchor')).toMatchObject({ attrs: { id: 'c1' } })
+    expect(back.islands[0].id).toBe('isl-7')
   })
 
   it('getContentAt takes a mixed index/key path, on the document and on a card', () => {

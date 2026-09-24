@@ -227,8 +227,20 @@ fn only_the_canonical_spelling_of_a_content_field_projects_to_markdown() {
     let canonical = quillmark_content::serial::to_canonical_value(&content);
     let mut spelled = canonical.clone();
     spelled["lines"][0]["containers"][0]["instance"] = serde_json::json!(0);
+    let reordered: serde_json::Map<_, _> = canonical
+        .as_object()
+        .unwrap()
+        .iter()
+        .rev()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
 
-    let md = doc_with(&[("stored", canonical), ("spelled", spelled)]).to_markdown();
+    let md = doc_with(&[
+        ("stored", canonical),
+        ("spelled", spelled),
+        ("reordered", reordered.into()),
+    ])
+    .to_markdown();
     assert!(md.contains(r#"stored: "> quoted""#), "got:\n{md}");
     let back = Document::parse(&md).expect("re-parses").document;
     assert_eq!(back.main().payload().get("stored").unwrap().as_str(), Some("> quoted"));
@@ -237,6 +249,10 @@ fn only_the_canonical_spelling_of_a_content_field_projects_to_markdown() {
     assert_eq!(
         spelled.as_json()["lines"][0]["containers"][0]["instance"],
         serde_json::json!(0),
+        "got:\n{md}"
+    );
+    assert!(
+        back.main().payload().get("reordered").unwrap().as_json().is_object(),
         "got:\n{md}"
     );
 }
