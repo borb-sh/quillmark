@@ -47,6 +47,7 @@ let doc = quill.parse(markdown)?.document;
 let result = engine.render(
     &quill,
     &doc,
+    Some("2026-03-14".parse()?),
     &RenderOptions::default().with_output_format(OutputFormat::Pdf),
 )?;
 

@@ -80,10 +80,9 @@ pub fn declined_construct(
 /// The pixel ceiling on either side of one rasterized page, shared by every
 /// raster path so a caller meets one number.
 ///
-/// It is the floor across browser canvas limits (~32k a side on Chrome and
-/// Firefox, 16k on Safari), and it bounds one page's RGBA buffer at 1 GiB: a quarter of wasm32's whole address
-/// space, and far under the size at which the rasterizers' own dimension
-/// arithmetic wraps.
+/// It bounds one page's RGBA buffer at 1 GiB: a quarter of wasm32's whole
+/// address space, and far under the size at which the rasterizers' own
+/// dimension arithmetic wraps.
 pub const MAX_RASTER_SIDE: u32 = 16_384;
 
 fn invalid_raster_scale(message: String, hint: &str) -> RenderError {

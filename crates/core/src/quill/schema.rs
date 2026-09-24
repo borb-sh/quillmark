@@ -73,8 +73,7 @@ fn discriminant_schema(field: &FieldSchema) -> serde_json::Value {
 /// `$body` is injected into a kind's `properties` only when that kind's
 /// `body.enabled` is not `false`. A body-disabled kind's `$body` is absent,
 /// not present-and-empty, so `form-field(field:)` rejects `$body` addresses on
-/// that kind at compile time, matching `Quill::validate`'s hard error on
-/// authored body content for the same kind.
+/// that kind at compile time.
 pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
     /// An optional cell's wire admits `null` beside its type, as the JSON-Schema
     /// `type: [<type>, "null"]` union, and an enum's list gains `null` beside

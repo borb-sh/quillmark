@@ -28,7 +28,7 @@ A present `type: date` / `type: datetime` field is a native `datetime`; a blank 
 #if data.issued != none { .. }                                        // presence
 ```
 
-`datetime.today()` returns the render date the host supplied, the same date a `today` field renders as. The engine reads no clock: a render given no date fails at `datetime.today()`, where a `today` field renders blank.
+`datetime.today()` returns the render date the host supplied, the same date a `today` field renders as, whatever its `offset:`. The engine reads no clock: a render given no date fails at `datetime.today()`, where a `today` field renders blank.
 
 Everything except the last two is ordinary Typst, because the value is an ordinary `datetime`. `display(field, ..args)` takes the field's *schema address* rather than its value, and prints the date as `datetime.display` would with the same patterns; an unknown address fails the render, and a blank date gives `none`. Reach for `data.<field>` whenever you want the value itself: math, comparison, components, or handing it to a package. The two print the same ink and differ only in [editor previews](editor-regions.md#dates-display-and-data), where `display` keeps the printed date clickable.
 
@@ -87,7 +87,7 @@ The `0` and `false` guards cannot tell an unanswered field from an authored `0` 
 ]
 ```
 
-Printing `none` places nothing, and `+` treats it as absent (`"Dear " + none` is `"Dear "`), so neither needs a guard. Arithmetic, comparison, `if`, and `for` reject `none`: branch on `!= none` before them.
+Printing `none` places nothing, and `+` treats it as absent (`"Dear " + none` is `"Dear "`), so neither needs a guard. Arithmetic, ordering comparisons (`<`, `>=`), `if`, and `for` reject `none`: branch on `!= none` before them.
 
 ### Body, arrays, and cards
 

@@ -293,8 +293,7 @@ pub fn validate_typed_document(
     let mut errors = validate_fields_for_card(&config.main, doc.main().payload(), &DocPath::main());
 
     // A card no declared kind claims has no field to judge, and a body under
-    // `body.enabled: false` no place to fill: both render without the input
-    // and warn from `Quill::validate` instead.
+    // `body.enabled: false` no place to fill: `Quill::validate` warns on both.
     for (index, card) in doc.cards().iter().enumerate() {
         let Some((kind, card_schema)) = card
             .kind()

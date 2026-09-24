@@ -65,8 +65,9 @@ render floor and nothing else.
   and an `enum?` lists `null` beside its blank. The declaration view and the
   blueprint annotation keep the `?`.
 - **A plate guards `none` only where a schema says `?`.** Printing `none`
-  places nothing and `+` absorbs it; arithmetic, comparison, `if` and `for`
-  reject it, so those branch on `!= none` first.
+  places nothing, `+` absorbs it, and `==` / `!=` compare it; arithmetic,
+  ordering (`<`, `>=`), `if` and `for` reject it, so those branch on `!= none`
+  first.
 - **An editor offers a way back to unanswered** on an optional cell:
   `removeField`, the one unset verb ([Native validation](#native-validation)).
 
@@ -465,7 +466,7 @@ Validation is implemented by a native walker over `QuillConfig` in `quill/valida
   with no `$kind` or an undeclared one is unclaimed input, and so are body
   prose under `body.enabled: false` (a whitespace-only body is empty) and a
   key the schema does not declare.
-  `Quill::validate` warns on each, and neither gates render
+  `Quill::validate` warns on each, and none gates render
   ([What blocks a render](#what-blocks-a-render))
 - `body.enabled: false` also drops `$body` from `build_transform_schema`'s `properties` for that kind: absent, not present-and-empty. This cascades into the Typst helper's generated `_qm-meta` address tables, so `form-field(field:)` rejects a `$body` address on that kind at compile time (see `PLATE_DATA.md`)
 - **Null ≡ absent.** A present-null value (`field:`, `field: null`,

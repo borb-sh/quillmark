@@ -514,7 +514,7 @@ in a browser that hasn't shipped it:
 const session = await engine.open(quill, doc);
 try {
   for (let p = 0; p < session.pageCount; p++) {
-    session.paint(ctx, p);
+    session.paint(ctx, p, window.devicePixelRatio);
   }
 } finally {
   session.free();
