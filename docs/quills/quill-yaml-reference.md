@@ -176,7 +176,7 @@ confidential:
 - An authored value is kept as written: `0`, `false`, `""`, and `[]` are answers. On an `enum?`, `""` is the blank and reads `none`.
 - Obligation is unchanged: with no `default:`, an unanswered `t?` still carries `!must_fill` and warns.
 
-The plate side, and the `when` / `value-or` helpers that read an optional field: [Blank values](typst-backend.md#blank-values).
+Reading an optional field in a plate: [Blank values](typst-backend.md#blank-values).
 
 #### Choosing among `string`, `enum`, `plaintext`, and `richtext`
 

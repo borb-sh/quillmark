@@ -75,19 +75,17 @@ What an unanswered field holds when it reaches the plate, and the guard that tes
 
 `$body` follows the content rule: `data.at("$body", default: "") != ""` is true only when the body has text.
 
-The `0` and `false` guards cannot tell an unanswered field from an authored `0` or `false`. Where the plate must, declare the field [optional](quill-yaml-reference.md#optional-fields-t): it arrives as `none` when nobody answered it. Two helpers read an optional field:
+The `0` and `false` guards cannot tell an unanswered field from an authored `0` or `false`. Where the plate must, declare the field [optional](quill-yaml-reference.md#optional-fields-t): it arrives as `none` when nobody answered it:
 
 ```typst
-#import "@local/quillmark-helper:0.1.0": data, when, value-or
-
-// Places nothing when quorum is unanswered.
-#when(data.quorum, q => [A quorum of #q was established.])
-
-// Arithmetic and comparison reject `none`; value-or supplies a stand-in.
-#let met = present >= value-or(data.quorum, 0)
+#if data.quorum == none [
+  _Quorum not recorded._
+] else if present >= data.quorum [
+  A quorum of #data.quorum was established.
+]
 ```
 
-Printing `none` places nothing, and `+` treats it as absent (`"Dear " + none` is `"Dear "`), so neither needs a guard.
+Printing `none` places nothing, and `+` treats it as absent (`"Dear " + none` is `"Dear "`), so neither needs a guard. Arithmetic, comparison, `if`, and `for` reject `none`: branch on `!= none` before them.
 
 ### Body, arrays, and cards
 

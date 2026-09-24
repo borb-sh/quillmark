@@ -64,8 +64,9 @@ render floor and nothing else.
 - **The wire admits `null`.** The transform schema projects `type: [t, "null"]`,
   and an `enum?` lists `null` beside its blank. The declaration view and the
   blueprint annotation keep the `?`.
-- **A plate guards `none` only where a schema says `?`.** The helper's `when`
-  and `value-or` read an optional cell ([PLATE_DATA.md](PLATE_DATA.md)).
+- **A plate guards `none` only where a schema says `?`.** Printing `none`
+  places nothing and `+` absorbs it; arithmetic, comparison, `if` and `for`
+  reject it, so those branch on `!= none` first.
 - **An editor offers a way back to unanswered** on an optional cell:
   `removeField`, the one unset verb ([Native validation](#native-validation)).
 

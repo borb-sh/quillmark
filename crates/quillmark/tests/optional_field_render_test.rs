@@ -1,6 +1,6 @@
-//! An optional cell (`type: t?`) crosses the whole render path as Typst `none`,
-//! and the helper's `when` / `value-or` read it. The plate asserts, so a render
-//! that succeeds is the plate having seen what each case states.
+//! An optional cell (`type: t?`) crosses the whole render path as Typst `none`.
+//! The plate asserts, so a render that succeeds is the plate having seen what
+//! each case states.
 
 use quillmark::{Document, OutputFormat, Quillmark, RenderOptions};
 use std::fs;
@@ -36,7 +36,7 @@ fn render(plate: &str, fields: &str) -> Result<(), String> {
     fs::write(
         quill_path.join("plate.typ"),
         format!(
-            "#import \"@local/quillmark-helper:0.1.0\": data, when, value-or\n{plate}\nok\n"
+            "#import \"@local/quillmark-helper:0.1.0\": data\n{plate}\nok\n"
         ),
     )
     .unwrap();
@@ -53,15 +53,14 @@ fn render(plate: &str, fields: &str) -> Result<(), String> {
 }
 
 #[test]
-fn an_unanswered_optional_cell_is_none_and_the_helpers_read_it() {
+fn an_unanswered_optional_cell_is_none() {
     let plate = r#"
 #assert.eq(data.quorum, none)
 #assert.eq(data.attendees, none)
 #assert.eq(data.adjourned, none)
 #assert.eq(data.minutes, none)
 #assert.eq(data.tally, (votes_against: 0, votes_for: none))
-#assert.eq(when(data.quorum, q => q + 1), none)
-#assert.eq(value-or(data.quorum, 7), 7)
+#assert.eq("n" + data.quorum, "n")
 "#;
     render(plate, "").expect("the plate saw every unanswered cell as none");
 }
@@ -70,8 +69,6 @@ fn an_unanswered_optional_cell_is_none_and_the_helpers_read_it() {
 fn an_authored_zero_is_an_answer() {
     let plate = r#"
 #assert.eq(data.quorum, 0)
-#assert.eq(when(data.quorum, q => q + 1), 1)
-#assert.eq(value-or(data.quorum, 7), 0)
 #assert.eq(data.attendees, ())
 #assert.eq(data.adjourned.year(), 2026)
 "#;

@@ -196,12 +196,3 @@
   let render = _qm-display.at(field, default: none)
   if render != none { render(..args) }
 }
-
-/// `f(value)`, or `none` where `value` is `none`: an optional (`type: <t>?`)
-/// field read once, with nothing placed when nobody answered it.
-/// `when(data.quorum, q => [A quorum of #q was established.])`.
-#let when(value, f) = if value != none { f(value) }
-
-/// `value`, or `fallback` where `value` is `none`: an optional field made total
-/// for arithmetic or comparison. `value-or(data.quorum, 0) > present`.
-#let value-or(value, fallback) = if value == none { fallback } else { value }

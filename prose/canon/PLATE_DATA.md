@@ -144,12 +144,6 @@ Helper contents (generated in `backends/typst/helper.rs` from `lib.typ.template`
   per cell gives a card's date the per-instance identity a shared `card.<field>`
   loop variable lacks. A native `datetime` handed to a package cannot do that:
   the ink is born wherever the package places it.
-- **`when(value, f)`** → `f(value)`, or `none` where `value` is `none`, and
-  **`value-or(value, fallback)`** → `value`, or `fallback` where it is `none`.
-  An unanswered [optional cell](SCHEMAS.md#optional-cells) (`type: t?`) reads
-  `none`, as a blank date does. `when` places nothing for it, and `value-or`
-  makes it total for arithmetic and comparison, which reject `none`. Printing
-  `none` places nothing and `+` absorbs it, so those need neither helper.
 
 ### Schema addresses
 
