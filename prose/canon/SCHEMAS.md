@@ -817,7 +817,7 @@ read it.
 
 | Unclaimed input | Code | On the plate |
 |---|---|---|
-| a card whose `$kind` the quill does not declare | `validation::unknown_card` | in `$cards`, fields and `$body` verbatim, `$kind` as authored |
+| a card whose `$kind` the quill does not declare | `validation::unknown_card` | in `$cards`, fields verbatim, `$kind` as authored, no `$body` |
 | body prose under `body.enabled: false` | `validation::body_disabled` | absent |
 | a variant cell outside the selected world | `validation::out_of_variant` | absent ([Enum variants](#enum-variants)) |
 | elements past an array's `max:` | `validation::cardinality` | verbatim; the plate's own rule leaves the surplus off the page ([Cardinality](#cardinality)) |
@@ -842,10 +842,8 @@ payload key crosses to the plate verbatim and uncoerced, and a card no kind
 claims keeps its place in `$cards`, so the array stays index-aligned with the
 document. A plate reads such input only through a total accessor and falls
 through on a kind it does not know ([PLATE_DATA.md](PLATE_DATA.md#data-shape)).
-A plate that falls through leaves the card's body off the page with its
-fields, so the warning is the only signal. A disabled body and a variant's
-closed wire are the schema's own word, so the prose and cells in the table
-marked absent do not cross.
+`$body` is schema-defined and a variant's wire is closed, so the prose and
+cells in the table marked absent do not cross.
 
 ## Document seeding
 

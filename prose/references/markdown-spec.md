@@ -151,15 +151,16 @@ accessors: `card.quill()`, `card.kind()`, `card.ext()`,
 `card.seed()`: which return `Option<…>`. On a successfully parsed document the root
 card always returns `Some(_)` for both `quill()` and `kind()` (with
 `kind() == "main"`); composable cards return `None` for `quill()`, and
-`kind()` returns the declared kind (any value other than `"main"`) or `None`
-for a block that declares none. The root's
+`kind()` returns the declared kind (any value other than `"main"`): a block
+that declares none reads as code, not as a card. The root's
 `$kind: main` is synthesised when omitted in source (see §3.3 rules),
 so the typed-accessor invariant holds regardless of whether the
 author wrote the line.
 
 - **`$quill: <name>@<version>`**: binds the document to a quill (see §3.5
   for the version-selector forms). The root block (the first block) must
-  declare it; no other block may. The value is parsed into a typed quill
+  declare it; no card may, and a later block declaring it with no `$kind`
+  reads as code (`$kind` below). The value is parsed into a typed quill
   reference as the block is read.
 - **`$kind: <value>`**: identifies a card's kind. The value is
   name-validated at parse time and must match `[a-z_][a-z0-9_]*`. The kind
@@ -183,8 +184,9 @@ author wrote the line.
   display name (an editor-side rename).
   An empty `$ext: {}` is preserved as a distinct, explicit declaration.
 - **`$seed: <mapping>`**: an optional **mapping keyed by composable
-  card-kind**, present on the **root block only**; a composable block carrying
-  `$seed` is a parse error, exactly like `$quill`. Each entry is a *sparse
+  card-kind**, present on the **root block only**; a card carrying `$seed` is a
+  parse error, exactly like `$quill`. A block after the root carrying either
+  but no `$kind` is no card, and reads as code (`$kind` above). Each entry is a *sparse
   overlay*: the user fields (plus an optional reserved `$body` string) that a
   newly-added card of that kind starts with, layered over the quill's
   schema-`example:` seed (`overlay › example › absent`). Required to be a YAML
@@ -430,7 +432,7 @@ error when any is exceeded:
 | Document size | 10 MiB |
 | YAML payload size per block | 1 MiB |
 | Field count per block | 1000 |
-| Card count per document | 1000 |
+| Card count per document (blocks read as code excluded) | 1000 |
 
 A conforming parser MUST also bound YAML nesting depth, at whatever depth
 its YAML parser accepts, so that deeply nested input is refused rather than
@@ -513,8 +515,9 @@ Parse errors include:
 - The root block declaring a non-`main` `$kind` (an omitted `$kind` on
   the root is accepted and synthesised; only an explicit non-`main`
   value is rejected).
-- A composable (non-root) block declaring `$quill`, or declaring
-  `$kind: main` (which is reserved for the document root).
+- A card (a block after the root declaring `$kind`) declaring `$quill` or
+  `$seed`, or declaring `$kind: main` (which is reserved for the document
+  root).
 - A duplicate `$key` within a single block (caught by the YAML parser as a
   duplicate mapping key).
 - An unknown `$key` outside the closed set `{quill, kind, ext, seed}`.

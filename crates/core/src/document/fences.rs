@@ -259,15 +259,6 @@ pub(super) fn find_metadata_blocks(markdown: &str) -> Result<FenceScan, ParseErr
         k += 1;
     }
 
-    // Composable cards are every block after the root (spec §8).
-    let card_count = blocks.len().saturating_sub(1);
-    if card_count > crate::error::MAX_CARD_COUNT {
-        return Err(ParseError::TooManyCards {
-            count: card_count,
-            max: crate::error::MAX_CARD_COUNT,
-        });
-    }
-
     // Card-yaml blocks below an unclosed opener were silently shielded, which
     // is almost never intended.
     if let Some((_, _, opener_line)) = open_code_fence {

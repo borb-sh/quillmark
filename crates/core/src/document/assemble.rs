@@ -101,12 +101,60 @@ fn strip_blank_separator(body: &str) -> &str {
 }
 
 /// The prose body following `blocks[idx]`: up to the next block's opener, or to
-/// EOF when it is the last one.
-fn body_after(markdown: &str, blocks: &[MetadataBlock], idx: usize) -> String {
+/// EOF when it is the last one, with each demoted block in that span replaced
+/// by its code fence.
+fn body_after(
+    markdown: &str,
+    blocks: &[MetadataBlock],
+    demoted: &[Demoted],
+    idx: usize,
+) -> String {
     let start = blocks[idx].end;
-    match blocks.get(idx + 1) {
-        Some(next) => strip_blank_separator(&markdown[start..next.start]).to_string(),
-        None => markdown[start..].to_string(),
+    let end = blocks.get(idx + 1).map_or(markdown.len(), |next| next.start);
+    let mut body = String::new();
+    let mut cursor = start;
+    for d in demoted.iter().filter(|d| d.start >= start && d.end <= end) {
+        body.push_str(&markdown[cursor..d.start]);
+        body.push_str(&d.code);
+        cursor = d.end;
+    }
+    body.push_str(&markdown[cursor..end]);
+    if idx + 1 < blocks.len() {
+        body.truncate(strip_blank_separator(&body).len());
+    }
+    body
+}
+
+/// A block after the root that names no `$kind`: no schema can claim it, so it
+/// stays in the body above as code.
+struct Demoted {
+    start: usize,
+    end: usize,
+    /// The block as a backtick fence. CommonMark closes a tilde fence on a
+    /// closer indented up to three spaces, which a YAML block scalar holds, so
+    /// the tilde form could end early; a backtick run longer than any inside
+    /// the payload closes exactly where the card scanner did.
+    code: String,
+    warning: Diagnostic,
+}
+
+impl Demoted {
+    fn new(markdown: &str, block: &MetadataBlock) -> Self {
+        let content = &markdown[block.content_start..block.content_end];
+        let longest = content
+            .split(|c| c != '`')
+            .map(str::len)
+            .max()
+            .unwrap_or(0);
+        let fence = "`".repeat((longest + 1).max(3));
+        let info = opener_info(markdown, block.start).filter(|info| !info.contains('`'));
+        let newline = if markdown[..block.end].ends_with('\n') { "\n" } else { "" };
+        Demoted {
+            start: block.start,
+            end: block.end,
+            code: format!("{fence}{}\n{content}{fence}{newline}", info.unwrap_or("")),
+            warning: missing_kind_warning(line_of(markdown, block.start), &block.meta_items),
+        }
     }
 }
 
@@ -115,6 +163,10 @@ fn body_after(markdown: &str, blocks: &[MetadataBlock], idx: usize) -> String {
 pub(super) struct MetadataBlock {
     pub(super) start: usize, // Position of the opening `~~~`
     pub(super) end: usize,   // Position after the closing `~~~`
+    /// The payload between the fences: from the line after the opener to the
+    /// closer's line.
+    pub(super) content_start: usize,
+    pub(super) content_end: usize,
     pub(super) yaml_value: Option<serde_json::Value>, // Parsed YAML payload as JSON
     /// Typed `$` system-metadata payload items in source order.
     pub(super) meta_items: Vec<PayloadItem>,
@@ -196,12 +248,18 @@ pub(super) fn build_block(
                     e.location()
                         .map(|l| (l.line() as usize, l.column() as usize)),
                 );
+                // Below the root, tilde-fenced code is the usual source.
+                let hint = match (block_index, enriched.hint) {
+                    (0, hint) => hint,
+                    (_, Some(hint)) => Some(format!("{hint} {TILDE_CODE_HINT}")),
+                    (_, None) => Some(TILDE_CODE_HINT.to_string()),
+                };
                 return Err(ParseError::YamlErrorWithLocation {
                     message: enriched.message,
                     line,
                     column,
                     block_index,
-                    hint: enriched.hint,
+                    hint,
                 });
             }
         };
@@ -224,6 +282,8 @@ pub(super) fn build_block(
     Ok(MetadataBlock {
         start: block_start,
         end: block_end,
+        content_start,
+        content_end,
         yaml_value,
         meta_items,
         pre_items: pre.items,
@@ -268,6 +328,7 @@ pub(super) fn decompose_with_warnings(
     // claim it. It stays in the body above as the fenced code block CommonMark
     // reads it as, which `body_after` spans once the block leaves the list.
     let mut blocks: Vec<MetadataBlock> = Vec::with_capacity(scan.blocks.len());
+    let mut demoted: Vec<Demoted> = Vec::new();
     for (idx, block) in scan.blocks.into_iter().enumerate() {
         let kinded = block
             .meta_items
@@ -276,9 +337,28 @@ pub(super) fn decompose_with_warnings(
         if idx == 0 || kinded {
             blocks.push(block);
         } else {
-            warnings.push(missing_kind_warning(line_of(markdown, block.start)));
+            demoted.push(Demoted::new(markdown, &block));
         }
     }
+
+    // Composable cards are every block after the root that stays a card
+    // (spec §8).
+    let card_count = blocks.len() - 1;
+    if card_count > crate::error::MAX_CARD_COUNT {
+        return Err(ParseError::TooManyCards {
+            count: card_count,
+            max: crate::error::MAX_CARD_COUNT,
+        });
+    }
+
+    // Warnings keep document order: a demoted block's lands before those of
+    // the first card below it.
+    let mut pending = demoted.iter().map(|d| (d.start, &d.warning)).peekable();
+    let mut drain_before = |pos: usize, warnings: &mut Vec<Diagnostic>| {
+        while let Some((_, w)) = pending.next_if(|(start, _)| *start < pos) {
+            warnings.push(w.clone());
+        }
+    };
 
     let root_mapping = payload_mapping(markdown, &mut blocks[0])?;
     let root_block = &blocks[0];
@@ -329,7 +409,7 @@ pub(super) fn decompose_with_warnings(
         warnings.push(w.clone());
     }
 
-    let global_body = body_after(markdown, &blocks, 0);
+    let global_body = body_after(markdown, &blocks, &demoted, 0);
 
     let main = Card::from_parts(main_payload, import_body_or_parse_error(&global_body)?);
 
@@ -390,17 +470,20 @@ pub(super) fn decompose_with_warnings(
             }
             other => other,
         })?;
+        drain_before(blocks[idx].start, &mut warnings);
         for w in &blocks[idx].pre_warnings {
             warnings.push(w.clone());
         }
 
-        let card_body = body_after(markdown, &blocks, idx);
+        let card_body = body_after(markdown, &blocks, &demoted, idx);
 
         cards.push(Card::from_parts(
             card_payload,
             import_body_or_parse_error(&card_body)?,
         ));
     }
+
+    drain_before(usize::MAX, &mut warnings);
 
     let doc = Document::from_main_and_cards(main, cards);
 
@@ -440,7 +523,25 @@ fn payload_mapping(
     }
 }
 
-fn missing_kind_warning(line: usize) -> Diagnostic {
+const TILDE_CODE_HINT: &str =
+    "Every column-zero `~~~` block is card YAML: fence code with backticks (```) instead.";
+
+fn missing_kind_warning(line: usize, meta: &[PayloadItem]) -> Diagnostic {
+    let hint = if meta.iter().any(|m| matches!(m, PayloadItem::Quill { .. })) {
+        "Only a document's first block declares `$quill`. To make this block a card, \
+         replace `$quill` with a `$kind: <kind>` line; to keep it as code, fence it with \
+         backticks (```)."
+    } else if meta
+        .iter()
+        .any(|m| matches!(m, PayloadItem::Meta { key: MetaKey::Seed, .. }))
+    {
+        "Only a document's first block carries `$seed`. To make this block a card, \
+         replace `$seed` with a `$kind: <kind>` line; to keep it as code, fence it with \
+         backticks (```)."
+    } else {
+        "Add a `$kind: <kind>` line to make it a card. To keep it as code, fence it with \
+         backticks (```)."
+    };
     Diagnostic::new(
         Severity::Warning,
         format!(
@@ -454,11 +555,7 @@ fn missing_kind_warning(line: usize) -> Diagnostic {
         line as u32,
         1,
     ))
-    .with_hint(
-        "Add a `$kind: <kind>` line to make it a card. To keep it as code, fence it with \
-         backticks (```)."
-            .to_string(),
-    )
+    .with_hint(hint.to_string())
 }
 
 /// The 1-indexed line holding byte `pos`.

@@ -1892,11 +1892,11 @@ export interface ResolvedMain {
 
 /**
  * One composable card's resolved rows in declaration order, with its authored
- * `kind` (`null` for an unknown-kind card), its document-array `index`, and its
+ * `kind` (an undeclared one included), its document-array `index`, and its
  * body row: `null` when the kind enables no body.
  */
 export interface ResolvedCard {
-    kind: string | null;
+    kind: string;
     index: number;
     fields: ResolvedField[];
     body: ResolvedField | null;

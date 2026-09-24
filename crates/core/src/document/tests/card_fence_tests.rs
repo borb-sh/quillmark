@@ -29,8 +29,9 @@ fn every_tilde_opener_parses_as_the_bare_form() {
 /// stays in the body above as a code block, and the prose after it with it.
 #[test]
 fn a_block_without_kind_is_code_in_the_body_above() {
-    let src = "~~~\n$quill: q\n$kind: main\n~~~\n\nIntro.\n\n~~~yaml\nname: server\n~~~\n\nConclusion.\n\n\
-               ~~~\n$kind: note\n~~~\n\nNote.\n\n~~~python\nprint(\"hi\")\n~~~\n\n~~~~\n- a\n- b\n~~~~\n";
+    let src = "~~~\n$quill: q\n$kind: main\nt: !env T\n~~~\n\nIntro.\n\n~~~yaml\nname: server\n~~~\n\nConclusion.\n\n\
+               ~~~\n$kind: note\nn: !env N\n~~~\n\nNote.\n\n~~~python\nprint(\"hi\")\n~~~\n\n~~~~\n- a\n- b\n~~~~\n\n\
+               ~~~\n$quill: other\n~~~\n";
     let out = Document::parse(src).unwrap();
     let doc = out.document;
     assert_eq!(doc.cards().len(), 1);
@@ -39,13 +40,43 @@ fn a_block_without_kind_is_code_in_the_body_above() {
     let note = doc.cards()[0].body_markdown();
     assert!(note.contains("print(\"hi\")") && note.contains("- a"), "{note}");
 
-    let warned: Vec<(Option<&str>, Option<u32>)> = out
+    // Document order, the root's and the card's own warnings included.
+    let warned: Vec<(&str, Option<u32>)> = out
         .warnings
         .iter()
-        .map(|w| (w.code.as_deref(), w.location.as_ref().map(|l| l.line)))
+        .map(|w| (w.code.as_deref().unwrap(), w.location.as_ref().map(|l| l.line)))
         .collect();
-    let missing = Some("parse::missing_kind");
-    assert_eq!(warned, [(missing, Some(8)), (missing, Some(20)), (missing, Some(24))]);
+    let (tag, missing) = ("parse::unsupported_yaml_tag", "parse::missing_kind");
+    assert_eq!(
+        warned.iter().map(|(c, _)| *c).collect::<Vec<_>>(),
+        [tag, missing, tag, missing, missing, missing]
+    );
+    let lines: Vec<u32> = warned.iter().filter(|(c, _)| *c == missing).filter_map(|(_, l)| *l).collect();
+    assert_eq!(lines, [9, 22, 26, 31]);
+    assert!(out.warnings[5].hint.as_deref().unwrap().contains("`$quill`"));
+}
+
+/// A demoted block is one code block exactly where the card scanner bounded it,
+/// though CommonMark would close its tilde fence on an indented `~~~` inside.
+#[test]
+fn a_demoted_block_is_one_code_block_and_a_fixed_point() {
+    let src = "~~~\n$quill: q\n~~~\n\nIntro.\n\n~~~\nnote: |\n  ~~~\n  inner ```\n~~~\n\nAfter prose.\n";
+    let doc = Document::parse(src).unwrap().document;
+    let body = doc.main().body();
+    let kinds: Vec<&str> = body.lines.iter().map(|l| l.kind.tag()).collect();
+    assert_eq!(kinds, ["para", "code", "code", "code", "para"]);
+    assert_eq!(body.text.lines().last(), Some("After prose."));
+
+    let again = Document::parse(&doc.to_markdown()).unwrap().document;
+    assert_eq!(again, doc);
+}
+
+/// The card cap counts cards, not the blocks that read as code.
+#[test]
+fn demoted_blocks_do_not_count_toward_the_card_cap() {
+    let code = "~~~python\nprint(i)\n~~~\n\n".repeat(crate::error::MAX_CARD_COUNT + 1);
+    let doc = Document::parse(&format!("~~~\n$quill: q\n~~~\n\n{code}")).unwrap().document;
+    assert!(doc.cards().is_empty());
 }
 
 /// A block's YAML is read before its `$kind`, whatever its info string, so an
@@ -58,6 +89,7 @@ fn an_unreadable_block_fails_whatever_its_info_string() {
     let code = fails("~~~python\nvalues: [1, 2\n~~~\n");
     assert_eq!(code.code.as_deref(), Some("parse::yaml_error_with_location"));
     assert_eq!(code.location.map(|l| l.line), Some(9));
+    assert!(code.hint.as_deref().unwrap().contains("backticks"), "{:?}", code.hint);
 
     let card = fails("~~~yaml\n$kind: note\nbad-name: 1\n~~~\n");
     assert_eq!(card.code.as_deref(), Some("parse::invalid_structure"));

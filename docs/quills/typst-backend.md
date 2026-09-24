@@ -105,7 +105,7 @@ The document body is exposed under the `$body` key, accessed via `data.at("$body
 }
 ```
 
-A card whose `$kind` the quill does not declare reaches the plate carrying the `$kind` it names, its authored fields verbatim, and its `$body`. The render does not fail on it: `quill.validate(doc)` warns instead. Branch on the kinds the plate knows and let the rest fall through.
+A card whose `$kind` the quill does not declare reaches the plate carrying the `$kind` it names and its authored fields verbatim, with no `$body`. The render does not fail on it: `quill.validate(doc)` warns instead. Branch on the kinds the plate knows and let the rest fall through.
 
 ## Typst Packages
 

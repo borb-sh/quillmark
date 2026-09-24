@@ -192,7 +192,7 @@ fn emit_block(out: &mut String, card: &Card) {
 
 /// Walk the unified item list and emit each entry. An `inline: true` comment
 /// immediately following a non-comment item is consumed as that item's trailer.
-fn emit_payload_items(out: &mut String, payload: &Payload) {
+pub(super) fn emit_payload_items(out: &mut String, payload: &Payload) {
     let items = payload.items();
     let mut i = 0;
     while i < items.len() {

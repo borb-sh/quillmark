@@ -15,7 +15,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-use quillmark_content::model::Normalized;
+use quillmark_content::model::{Content, Line, LineKind, Normalized};
 
 use super::meta::validate_composable_kind;
 use super::payload::{MetaKey, Payload, PayloadItem};
@@ -560,15 +560,83 @@ impl TryFrom<DocumentV0_116_0> for Document {
             }
         }
         if kindless {
-            // A block naming no `$kind` is a code block in the body above, so a
-            // stored card without one reads as its markdown parses.
-            let markdown = Document { main, cards }.to_markdown();
-            return Document::parse(&markdown)
-                .map(|parsed| parsed.document)
-                .map_err(|e| StorageError::Malformed(e.to_string()));
+            return fold_kindless(main, cards);
         }
         Ok(Document::from_main_and_cards(main, cards))
     }
+}
+
+/// Fold each card naming no `$kind` into the body above it, as its markdown
+/// parses: its payload as a code block, then its own body. Every other card
+/// loads untouched, marks and island ids included.
+fn fold_kindless(mut main: Card, cards: Vec<Card>) -> Result<Document, StorageError> {
+    let mut kept: Vec<Card> = Vec::with_capacity(cards.len());
+    for card in cards {
+        if card.kind().is_some() {
+            kept.push(card);
+            continue;
+        }
+        let target = match kept.last_mut() {
+            Some(card) => card,
+            None => &mut main,
+        };
+        let mut yaml = String::new();
+        super::emit::emit_payload_items(&mut yaml, card.payload());
+        let body = append_block(target.body().clone().into_content(), code_block(&yaml));
+        let body = append_block(body, card.body().clone().into_content()).into_normalized();
+        body.validate()
+            .map_err(|e| StorageError::Malformed(format!("folding a card with no $kind: {e:?}")))?;
+        *target.body_mut() = body;
+    }
+    Ok(Document::from_main_and_cards(main, kept))
+}
+
+/// `yaml`'s lines as one untagged code block.
+fn code_block(yaml: &str) -> Content {
+    let text = yaml.strip_suffix('\n').unwrap_or(yaml);
+    let lines = (0..text.split('\n').count())
+        .map(|i| Line::new(LineKind::Code { lang: None }).with_continues(i > 0))
+        .collect();
+    Content::new(text.to_string(), lines)
+}
+
+/// `src` as the blocks following `dst`'s. An island id `dst` already holds is
+/// renamed, since ids are unique per content.
+fn append_block(mut dst: Content, mut src: Content) -> Content {
+    let void = |c: &Content| c.text.is_empty() && c.marks.is_empty() && c.islands.is_empty();
+    if void(&src) {
+        return dst;
+    }
+    if void(&dst) {
+        return src;
+    }
+    let offset = dst.len_usv() + 1;
+    let mut taken: std::collections::HashSet<String> =
+        dst.islands.iter().map(|i| i.id.clone()).collect();
+    taken.extend(src.islands.iter().map(|i| i.id.clone()));
+    let mut next = 0usize;
+    for island in &mut src.islands {
+        if dst.islands.iter().any(|i| i.id == island.id) {
+            while taken.contains(&format!("isl-{next}")) {
+                next += 1;
+            }
+            island.id = format!("isl-{next}");
+            taken.insert(island.id.clone());
+        }
+    }
+    if let Some(first) = src.lines.first_mut() {
+        first.continues = false;
+    }
+    dst.text.push('\n');
+    dst.text.push_str(&src.text);
+    dst.lines.append(&mut src.lines);
+    dst.marks.extend(src.marks.into_iter().map(|mut m| {
+        m.start += offset;
+        m.end += offset;
+        m
+    }));
+    dst.islands.append(&mut src.islands);
+    dst
 }
 
 impl TryFrom<CardV0_116_0> for Card {
@@ -1726,14 +1794,20 @@ title: Hi
             cards: vec![kindless, parsed.cards()[0].clone()],
         };
 
-        let json = serde_json::to_string(&stored).unwrap();
-        let restored: Document = serde_json::from_str(&json).unwrap();
+        let mut json: serde_json::Value = serde_json::to_value(&stored).unwrap();
+        let anchor = serde_json::json!([{"type": "anchor", "id": "c1", "start": 0, "end": 5}]);
+        json["main"]["body"]["marks"] = anchor.clone();
+        json["cards"][1]["body"]["marks"] = anchor;
+        let restored: Document = serde_json::from_value(json).unwrap();
         assert_eq!(restored.cards().len(), 1);
         assert_eq!(restored.cards()[0].kind(), Some("note"));
         assert_eq!(
             restored.main().body_markdown(),
             "Intro.\n\n```\nname: server\n```\n\nConclusion."
         );
+        for body in [restored.main().body(), restored.cards()[0].body()] {
+            assert_eq!(body.marks.len(), 1, "an anchor elsewhere survives the fold: {body:?}");
+        }
     }
 
     #[test]

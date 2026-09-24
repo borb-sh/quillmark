@@ -25,19 +25,19 @@ One rule governs the lowering, at every depth: **a declared type means the same 
 ### Data Shape
 
 - Document-level metadata uses `$`-prefixed keys: `$quill` (quill ref string), `$body` (root prose body, a canonical `Content` object, present when the main enables a body), `$cards` (array of card objects)
-- Each card object carries its user fields flat, its `$kind` discriminator, and a `$body` (card prose body, a content object) unless its kind declares `body.enabled: false`
+- Each card object carries its user fields flat, its `$kind` discriminator, and a `$body` (card prose body, a content object) when the card's kind enables a body
 - **`$`-metadata is present exactly where the schema defines it** ("absent on
   undefined"). Which definition gates the key splits the rule:
   - `$kind` is *document-defined*: every card authors one, whether or not the
     quill declares it.
-  - `$body` is *schema-defined*: absent iff a declared kind disables the body;
-    a kind the quill does not declare carries it verbatim. A present `$body` is
-    always a content object, never a raw object needing a type check.
+  - `$body` is *schema-defined*: present iff a declared kind enables a body,
+    absent for a body-disabled or unknown kind. A present `$body` is always a
+    content object, never a raw object needing a type check.
 
   Absence is the signal. Read `$`-metadata with a total accessor:
   `card.at("$kind", default: none)`, `card.at("$body", default: "")`: never a
   bare `card.$body`
-- A card no declared kind claims keeps its place in `$cards`, fields and body verbatim and uncoerced, so a plate's `$cards` loop falls through on a kind it does not know ([SCHEMAS.md](SCHEMAS.md#what-blocks-a-render))
+- A card no declared kind claims keeps its place in `$cards`, fields verbatim and uncoerced, so a plate's `$cards` loop falls through on a kind it does not know ([SCHEMAS.md](SCHEMAS.md#what-blocks-a-render))
 - User payload fields sit flat at the root next to the `$` keys; field names match `[a-z_][a-z0-9_]*` and therefore never collide with `$` metadata
 
 #### A `matrix` field

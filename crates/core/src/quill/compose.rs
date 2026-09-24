@@ -86,18 +86,17 @@ impl QuillConfig {
             ),
             normalized.main().body().clone(),
         );
-        // A card's `$body` is withheld from the plate iff its kind resolves to
-        // a schema declaring `body.enabled: false`; a kind no schema claims
-        // carries its body as it carries its fields, verbatim. Captured here,
-        // where the schema is already in hand for field lowering, so the
-        // decision is never re-derived from the serialized plate.
+        // A card's `$body` is defined for the plate iff its kind resolves to a
+        // body-enabled schema. Captured here, where the schema is already in
+        // hand for field lowering, so the decision is never re-derived from the
+        // serialized plate; `$kind` is gated structurally by the plate builder.
         let mut card_bodies: Vec<bool> = Vec::with_capacity(normalized.cards().len());
         let cards_resolved: Vec<Card> = normalized
             .cards()
             .iter()
             .map(|card| {
                 let schema = self.card_kind(card.kind().unwrap_or(""));
-                card_bodies.push(schema.is_none_or(|s| s.body_enabled()));
+                card_bodies.push(schema.is_some_and(|s| s.body_enabled()));
                 let fields = match schema {
                     Some(schema) => {
                         plate_fields(ladder_sourced(schema, &card.payload().to_index_map(), today))
@@ -1364,8 +1363,7 @@ card_kinds:
         assert_eq!(cards.len(), 3, "every card rides `$cards` in document order");
         assert_eq!(cards[2]["$kind"], "ghost");
         assert_eq!(cards[2]["note"], "g");
-        assert_eq!(cards[2]["$body"]["text"], "Ghost prose.", "an unclaimed kind keeps its body");
-        assert!(cards[0].get("$body").is_none(), "a disabled body stays off the plate");
+        assert!(cards[0].get("$body").is_none() && cards[2].get("$body").is_none());
 
         let warned: Vec<(String, String)> = validate_unclaimed(&config, &doc)
             .into_iter()
