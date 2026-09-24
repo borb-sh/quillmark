@@ -688,6 +688,26 @@ mod tests {
     }
 
     #[test]
+    fn a_failed_import_carries_the_warning_that_names_its_cause() {
+        let quill = quill_with_typst_section(
+            "  plate_file: main.typ\n",
+            &[
+                ("main.typ", "#import \"@local/bare:0.1.0\": x\n"),
+                ("packages/bare/lib.typ", "#let x = 1\n"),
+            ],
+        );
+        let plate = crate::read_plate(&quill).expect("plate");
+        let world = QuillWorld::new(&quill, &plate).expect("world builds anyway");
+        let err = crate::compile::compile_document(&world).expect_err("the import is unresolved");
+        assert!(
+            err.diagnostics()
+                .iter()
+                .any(|d| d.code.as_deref() == Some("typst::package_manifest")),
+            "{err:?}"
+        );
+    }
+
+    #[test]
     fn a_well_formed_quill_loads_without_warnings() {
         let quill = quill_with(&[
             (

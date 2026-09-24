@@ -20,7 +20,13 @@ fn map_single_diagnostic(error: &SourceDiagnostic, world: &QuillWorld) -> Diagno
 
     let location = resolve_span_to_location(error.span, world);
 
-    let hint = error.hints.first().map(|h| h.v.to_string());
+    let hint = error.hints.first().map(|h| h.v.to_string()).or_else(|| {
+        (error.message == "unable to get the current date").then(|| {
+            "The plate reads `datetime.today()` and the render was given no date: pass \
+             `today` to the render call."
+                .to_string()
+        })
+    });
 
     let mut diag = Diagnostic::new(severity, error.message.to_string());
     diag.code = Some(classify(&error.message).to_string());

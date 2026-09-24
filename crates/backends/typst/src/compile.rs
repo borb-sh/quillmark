@@ -39,7 +39,12 @@ pub(crate) fn compile_document(
 
     match output {
         Ok(doc) => Ok((doc, map_typst_errors(&warnings, world))),
-        Err(errors) => Err(RenderError::new(map_typst_errors(&errors, world))),
+        // A load warning names the skipped file an unresolved `#import` points past.
+        Err(errors) => {
+            let mut diags = map_typst_errors(&errors, world);
+            diags.extend_from_slice(world.load_warnings());
+            Err(RenderError::new(diags))
+        }
     }
 }
 

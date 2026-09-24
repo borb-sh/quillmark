@@ -24,7 +24,7 @@ severity.
 
 **`ParseError`**: parsing-stage error enum, `InputTooLarge`, `TooManyFields`, `TooManyCards`, `InvalidStructure`, `EmptyInput`, `MissingQuill`, `InvalidQuillReference`, `BodyImport`, `PayloadNotMapping`, `YamlErrorWithLocation`; converts to `Diagnostic` via `to_diagnostic()`. The `InvalidQuillReference` case (`parse::invalid_quill_reference`) attaches the canonical `$quill` grammar (`quill_ref_hint()`) as the diagnostic hint. That hint is the single source of truth for the reference grammar: bindings surface it verbatim (e.g. WASM `Document.quillRefHint`) rather than re-stating the rule.
 
-The `PayloadNotMapping` case (`parse::payload_not_mapping`) is a card-yaml payload that is YAML but not a mapping, usually tilde-fenced code. It locates at the block's opening fence, and its hint names the backtick fence, spelled with the opener's info string.
+The `PayloadNotMapping` case (`parse::payload_not_mapping`) is a card-yaml payload that is YAML but not a mapping, usually tilde-fenced code. It locates at the block's opening fence. Its hint names the backtick fence, spelled with the opener's info string, except on the root block, where it names `$quill`, and on a `yaml` or `card-yaml` opener, where the block is a card.
 
 The diagnostic's `message` is the variant's `Display` rendering, so the
 `#[error]` attribute is the one place a variant's English is spelled and a Rust
@@ -239,7 +239,8 @@ file the world had to skip, which otherwise surfaces only as an unresolved
 `typst::unknown_key`, marks a key under `typst:` the backend never
 reads: core stores that section verbatim, so nothing else would report it. They are properties of the quill, not of a compile, so
 `QuillWorld` holds them and the session serves them ahead of every compile's
-own: an `update` swaps the compile half and keeps these.
+own: an `update` swaps the compile half and keeps these. A failed compile
+carries them after its errors.
 
 ## Validation message contract
 
