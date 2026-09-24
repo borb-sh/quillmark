@@ -280,8 +280,8 @@ expanding every member.
 `max:` on an `array` is the element count past which the surplus leaves the page
 the field is laid out on: page geometry, not style. A non-negative integer, and
 a `default:` / `example:` longer than it is `quill::{default,example}_over_max`:
-a default past the cap would warn on a document nobody authored, and an example
-past it teaches the overflow.
+a default past the cap overflows the page of a document nobody authored, and an
+example past it teaches the overflow.
 
 `Quill::validate` warns `validation::cardinality` at the field's own path, args
 `{max, actual}`, at every depth: an array nested in a typed dictionary, a matrix

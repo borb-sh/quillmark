@@ -66,7 +66,7 @@ doc     = quill.parse(markdown)           # the bound door: parse + conform, the
 diags   = quill.conform(doc)              # the same walk in place on a transported document ([] = at rest)
 diags   = quill.validate(parsed)          # list of validation::* diagnostic dicts ([] = valid)
 empty   = quill.empty_document()          # the empty Document: $quill + $kind: main, nothing committed
-seed    = quill.seed_document()           # starter Document seeded from `example:` values
+seed    = quill.seed_document()           # starter Document: one card per kind, bodies from `body.example`
 main    = quill.seed_main()               # just the $kind: main card (dict, like doc.main)
 card    = quill.seed_card("note")         # one starter composable card (dict), None if kind undeclared
 
@@ -139,7 +139,7 @@ Document.current_storage_version()               # what this build writes
 
 Document.format_rules()                          # card-yaml authoring rules (static text)
 Document.quill_ref_hint()                        # $quill reference grammar (static text)
-Document.blueprint_instruction("taro")           # a quill blueprint's fill obligation (no tool name)
+Document.blueprint_instruction("taro")           # the instruction to fill in a quill's blueprint (no tool name)
 
 doc.clone()
 doc.equals(other)
@@ -171,23 +171,18 @@ interpreted value is the reader's (`quill.reader(doc).get(...)`).
 
 ## Schema model
 
-A field carries two independent axes, and no `required:` one on `FieldSchema`.
+A field declares no `required:` key on `FieldSchema`: nothing is required.
 
-**Value** — what the cell holds. With a `default:`, the blueprint renders that
-value under a type-only `# <type>` annotation and the render path uses it when
-the document omits the field. Without one, an `example` takes the cell as a
-suggested value, and an absent field blank-fills.
+**`default:`** — what an unanswered field renders. With one, the blueprint
+renders that value under a type-only `# <type>` annotation and the render path
+uses it when the document omits the field. Without one, the blueprint leaves the
+cell empty and an absent field blank-fills.
 
-**Obligation** — whether a human must author the field, read off `default:`'s
-absence: a defaulted field asks nobody, a defaultless one asks. An obliged
-field carries the `!must_fill` marker in the blueprint, and validation emits the
-non-fatal `validation::must_fill` warning while the document leaves it
-unauthored — from either of two triggers, named by the diagnostic's `trigger`
-arg: `marker` for a marker the document still carries, `unauthored` for a cell
-the schema obliges and the document never filled. Authoring the field's blank
-discharges the obligation; clearing the key does not.
+**`example:`** — the schema's illustration of the field's shape. The blueprint
+shows it on a `# e.g.` line above the field; it never takes a cell and never
+renders.
 
-Neither axis gates render. Partial documents are accepted, and
+An unanswered field draws no diagnostic. Partial documents are accepted, and
 `engine.render(quill, doc)` raises only for malformed input.
 
 ## Error contract
