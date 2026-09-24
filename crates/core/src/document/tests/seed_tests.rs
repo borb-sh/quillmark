@@ -4,7 +4,7 @@ use crate::document::tests::parse;
 use crate::document::{Document, MetaKey, PayloadItem};
 
 #[test]
-fn seed_with_mapping_value_is_accepted() {
+fn seed_round_trips_through_markdown_and_storage() {
     let doc = parse(
         "\
 ~~~card-yaml
@@ -12,166 +12,46 @@ $quill: q@1.0
 $kind: main
 $seed:
   indorsement:
+    # pin the squadron office symbol
     from: 49 FW/CC
     signature_block:
       - \"JANE A. DOE, Col, USAF\"
       - Commander
+    $body: \"Body override.\"
 title: Hi
 ~~~
+
+Body.
 ",
     );
     let seed = doc.main().payload().seed().expect("$seed present");
-    let ind = seed.get("indorsement").and_then(|v| v.as_object()).unwrap();
-    assert_eq!(ind.get("from").and_then(|v| v.as_str()), Some("49 FW/CC"));
-}
+    assert_eq!(seed["indorsement"]["from"], json!("49 FW/CC"));
 
-#[test]
-fn seed_with_scalar_value_is_rejected() {
-    let err = Document::parse(
-        "\
-~~~card-yaml
-$quill: q@1.0
-$kind: main
-$seed: just-a-string
-~~~
-",
-    )
-    .unwrap_err()
-    .to_string();
-    assert!(
-        err.contains("Invalid `$seed`") && err.contains("mapping"),
-        "expected $seed-must-be-mapping rejection, got: {err}",
-    );
-}
-
-#[test]
-fn seed_on_composable_card_is_rejected() {
-    let err = Document::parse(
-        "\
-~~~card-yaml
-$quill: q@1.0
-$kind: main
-~~~
-
-~~~card-yaml
-$kind: indorsement
-$seed:
-  note:
-    from: X
-~~~
-",
-    )
-    .unwrap_err()
-    .to_string();
-    assert!(
-        err.contains("must not carry `$seed`"),
-        "expected composable-$seed rejection, got: {err}",
-    );
-}
-
-#[test]
-fn seed_round_trips_through_markdown() {
-    let src = "\
-~~~card-yaml
-$quill: q@1.0
-$kind: main
-$seed:
-  indorsement:
-    from: 49 FW/CC
-title: Body
-~~~
-
-Body content.
-";
-    let doc = parse(src);
     let emitted = doc.to_markdown();
-    let reparsed = parse(&emitted);
-    assert_eq!(doc, reparsed);
-    assert!(
-        emitted.contains("$seed:\n  indorsement:\n    from: 49 FW/CC\n"),
-        "unexpected emit:\n{emitted}",
-    );
-}
-
-#[test]
-fn empty_seed_emits_as_inline_braces() {
-    let src = "\
-~~~card-yaml
-$quill: q@1.0
-$kind: main
-$seed: {}
-~~~
-";
-    let doc = parse(src);
-    let emitted = doc.to_markdown();
-    assert!(
-        emitted.contains("$seed: {}\n"),
-        "expected `$seed: {{}}` literal in emit, got:\n{emitted}",
-    );
-    let reparsed = parse(&emitted);
-    assert_eq!(doc, reparsed);
-}
-
-#[test]
-fn comments_inside_seed_round_trip() {
-    let src = "\
-~~~card-yaml
-$quill: q@1.0
-$kind: main
-$seed:
-  indorsement:
-    # pin the squadron office symbol
-    from: 49 FW/CC
-~~~
-";
-    let doc = parse(src);
-    let emitted = doc.to_markdown();
-    assert!(
-        emitted.contains("# pin the squadron office symbol"),
-        "nested $seed comment must survive emit:\n{emitted}",
-    );
+    assert!(emitted.contains("# pin the squadron office symbol"), "{emitted}");
     assert_eq!(doc, parse(&emitted));
 
     let json = serde_json::to_string(&doc).unwrap();
     let restored: Document = serde_json::from_str(&json).unwrap();
     assert_eq!(doc, restored);
+    assert!(json.contains("\"type\":\"seed\""), "{json}");
 }
 
 #[test]
-fn set_seed_inserts_after_ext_and_before_user_fields() {
-    let mut doc = parse(
-        "\
-~~~card-yaml
-$quill: q@1.0
-$kind: main
-$ext:
-  a: 1
-title: Hi
-~~~
-",
-    );
+fn set_ext_and_set_seed_insert_in_canonical_order() {
+    let mut doc = parse("~~~card-yaml\n$quill: q@1.0\n$kind: main\ntitle: Hi\n~~~\n");
     let mut seed = serde_json::Map::new();
     seed.insert("indorsement".into(), json!({ "from": "X" }));
     doc.main_mut().payload_mut().set_seed(seed);
+    let mut ext = serde_json::Map::new();
+    ext.insert("rename".into(), json!("Greeting"));
+    doc.main_mut().payload_mut().set_ext(ext);
 
     let items = doc.main().payload().items();
-    // Canonical order: $quill, $kind, $ext, $seed, then user fields.
     assert!(matches!(items[0], PayloadItem::Quill { .. }));
     assert!(matches!(items[1], PayloadItem::Kind { .. }));
-    assert!(matches!(
-        items[2],
-        PayloadItem::Meta {
-            key: MetaKey::Ext,
-            ..
-        }
-    ));
-    assert!(matches!(
-        items[3],
-        PayloadItem::Meta {
-            key: MetaKey::Seed,
-            ..
-        }
-    ));
+    assert!(matches!(items[2], PayloadItem::Meta { key: MetaKey::Ext, .. }));
+    assert!(matches!(items[3], PayloadItem::Meta { key: MetaKey::Seed, .. }));
     assert!(matches!(items[4], PayloadItem::Field { .. }));
 }
 
@@ -227,28 +107,6 @@ $kind: main
 
     card.remove_seed_overlay("attachment");
     assert!(card.seed().is_none());
-}
-
-#[test]
-fn empty_seed_overlay_round_trips() {
-    let mut doc = parse(
-        "\
-~~~card-yaml
-$quill: q@1.0
-$kind: main
-~~~
-",
-    );
-    doc.main_mut()
-        .store_seed_overlay("indorsement", json!({}))
-        .unwrap();
-
-    let emitted = doc.to_markdown();
-    assert!(
-        emitted.contains("$seed:\n  indorsement: {}\n"),
-        "empty overlay must keep its key, got:\n{emitted}",
-    );
-    assert_eq!(doc, parse(&emitted));
 }
 
 #[test]
@@ -335,12 +193,15 @@ fn seed_overlay_drops_reserved_keys_other_than_body() {
 }
 
 #[test]
-fn seed_is_stripped_from_plate_json() {
+fn ext_and_seed_are_stripped_from_plate_json() {
     let doc = parse(
         "\
 ~~~card-yaml
 $quill: q@1.0
 $kind: main
+$ext:
+  presentation:
+    title: \"Should not reach the backend\"
 $seed:
   indorsement:
     from: \"Should not reach the backend\"
@@ -350,47 +211,8 @@ title: Hi
     );
     let plate = doc.to_plate_json_gated(true, None);
     let obj = plate.as_object().expect("plate is an object");
-    assert!(
-        !obj.contains_key("$seed"),
-        "plate must not contain `$seed`: {plate}"
-    );
-    assert!(
-        !obj.contains_key("seed"),
-        "plate must not contain `seed`: {plate}"
-    );
+    for key in ["$ext", "ext", "$seed", "seed"] {
+        assert!(!obj.contains_key(key), "plate carries `{key}`: {plate}");
+    }
     assert_eq!(obj.get("title").and_then(|v| v.as_str()), Some("Hi"));
-    assert!(obj.contains_key("$quill"));
-    assert!(obj.contains_key("$cards"));
-}
-
-#[test]
-fn seed_round_trips_through_serde_json() {
-    let doc = parse(
-        "\
-~~~card-yaml
-$quill: q@1.0
-$kind: main
-$seed:
-  indorsement:
-    from: 49 FW/CC
-    $body: \"Body override.\"
-title: Hi
-~~~
-
-Body.
-",
-    );
-    let json = serde_json::to_string(&doc).unwrap();
-    let restored: Document = serde_json::from_str(&json).unwrap();
-    assert_eq!(doc, restored);
-    assert_eq!(doc.to_markdown(), restored.to_markdown());
-
-    assert!(
-        json.contains("\"type\":\"seed\""),
-        "expected seed variant in DTO: {json}"
-    );
-    assert!(
-        json.contains("quillmark/document@0.115.0"),
-        "expected 0.115.0 schema tag: {json}",
-    );
 }

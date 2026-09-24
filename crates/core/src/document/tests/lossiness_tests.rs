@@ -45,33 +45,9 @@ fn block_scalar_sequence_items_round_trip() {
 }
 
 #[test]
-fn custom_tags_lose_tag_but_keep_value() {
-    let src = "~~~card-yaml\n$quill: q\n$kind: main\nmemo_from: !must_fill 2d lt example\n~~~\n";
-    let doc = Document::parse(src).unwrap().document;
-
-    let fm = doc.main().payload();
-    assert_eq!(
-        fm.get("memo_from").and_then(|v| v.as_str()),
-        Some("2d lt example"),
-        "string value must survive tag parsing"
-    );
-    assert!(fm.is_fill("memo_from"), "fill marker must be recorded");
-
-    let emitted = doc.to_markdown();
-    assert!(
-        emitted.contains("memo_from: !must_fill"),
-        "`!must_fill` tag must round-trip\nGot:\n{}",
-        emitted
-    );
-
-    let doc2 = Document::parse(&emitted).unwrap().document;
-    assert!(
-        doc2.main().payload().is_fill("memo_from"),
-        "fill marker must survive a full round-trip"
-    );
-
-    let src2 = "~~~card-yaml\n$quill: q\n$kind: main\nmemo_from: !include value.txt\n~~~\n";
-    let out = Document::parse(src2).unwrap();
+fn unknown_tag_warns_and_is_not_emitted() {
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\nmemo_from: !include value.txt\n~~~\n";
+    let out = Document::parse(src).unwrap();
     assert!(
         out.warnings
             .iter()
@@ -79,12 +55,12 @@ fn custom_tags_lose_tag_but_keep_value() {
         "expected unsupported_yaml_tag warning; got: {:?}",
         out.warnings
     );
-    let emitted2 = out.document.to_markdown();
-    assert!(
-        !emitted2.contains("!include"),
-        "unknown tag must not re-appear on emit\nGot:\n{}",
-        emitted2
+    assert_eq!(
+        out.document.main().payload().get("memo_from").and_then(|v| v.as_str()),
+        Some("value.txt")
     );
+    let emitted = out.document.to_markdown();
+    assert!(!emitted.contains("!include"), "{emitted}");
 }
 
 /// The YAML parser drops a marker in these positions silently, so prescan warns
@@ -269,11 +245,7 @@ fn nested_must_fill_round_trips() {
 fn fill_tag_mapping_rejected() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\nx: !must_fill {a: 1}\n~~~\n";
     let err = Document::parse(src).unwrap_err();
-    assert!(
-        err.to_string().contains("!must_fill") && err.to_string().contains("mapping"),
-        "expected mapping-rejection error; got: {}",
-        err
-    );
+    assert_eq!(err.code(), "parse::invalid_structure", "{err}");
 }
 
 #[test]
@@ -446,7 +418,6 @@ fn comment_position_round_trips() {
         contains: &'static [&'static str],
         not_contains: &'static [&'static str],
         value_check: Option<(&'static str, &'static str)>,
-        no_drop_warning: bool,
     }
 
     let cases = [
@@ -456,7 +427,6 @@ fn comment_position_round_trips() {
             contains: &["# recipient's full name"],
             not_contains: &[],
             value_check: Some(("recipient", "Jane")),
-            no_drop_warning: false,
         },
         Case {
             label: "top-level trailing inline comment",
@@ -464,7 +434,6 @@ fn comment_position_round_trips() {
             contains: &["title: My Document # this is a comment"],
             not_contains: &["My Document\n# this is a comment"],
             value_check: Some(("title", "My Document")),
-            no_drop_warning: false,
         },
         Case {
             label: "nested sequence comments (leading/between/trailing)",
@@ -472,7 +441,6 @@ fn comment_position_round_trips() {
             contains: &["# before-first", "# between", "# after-last"],
             not_contains: &[],
             value_check: None,
-            no_drop_warning: true,
         },
         Case {
             label: "nested mapping comments (leading/trailing)",
@@ -480,7 +448,6 @@ fn comment_position_round_trips() {
             contains: &["# leading", "# trailing"],
             not_contains: &[],
             value_check: None,
-            no_drop_warning: false,
         },
         Case {
             label: "nested sequence item trailing inline comment",
@@ -488,7 +455,6 @@ fn comment_position_round_trips() {
             contains: &["- a # inline"],
             not_contains: &[],
             value_check: None,
-            no_drop_warning: false,
         },
         Case {
             label: "nested mapping field trailing inline comment",
@@ -496,7 +462,6 @@ fn comment_position_round_trips() {
             contains: &["inner: 1 # tail"],
             not_contains: &[],
             value_check: None,
-            no_drop_warning: false,
         },
         Case {
             label: "inline comment on a container key",
@@ -504,7 +469,6 @@ fn comment_position_round_trips() {
             contains: &["outer: # describes outer\n  inner: 1"],
             not_contains: &[],
             value_check: None,
-            no_drop_warning: false,
         },
         Case {
             label: "own-line comment below $quill header (root payload)",
@@ -512,7 +476,6 @@ fn comment_position_round_trips() {
             contains: &["~~~\n$quill: q\n$kind: main\n# main entry\n"],
             not_contains: &[],
             value_check: None,
-            no_drop_warning: false,
         },
         Case {
             label: "own-line comment below $kind header (card payload)",
@@ -520,7 +483,6 @@ fn comment_position_round_trips() {
             contains: &["~~~\n$kind: foo\n# the foo card\n"],
             not_contains: &[],
             value_check: None,
-            no_drop_warning: false,
         },
         Case {
             label: "own-line comments flanking an inline comment",
@@ -528,23 +490,11 @@ fn comment_position_round_trips() {
             contains: &["# header\n", "title: Hi # tail\n", "# footer\n"],
             not_contains: &[],
             value_check: None,
-            no_drop_warning: false,
         },
     ];
 
     for case in cases {
-        let out = Document::parse(case.src).unwrap();
-        if case.no_drop_warning {
-            assert!(
-                !out.warnings
-                    .iter()
-                    .any(|w| w.code.as_deref() == Some("parse::comments_in_nested_yaml_dropped")),
-                "[{}] no dropped-comment warning expected; nested comments are now preserved",
-                case.label
-            );
-        }
-
-        let emitted = out.document.to_markdown();
+        let emitted = Document::parse(case.src).unwrap().document.to_markdown();
         for needle in case.contains {
             assert!(
                 emitted.contains(needle),

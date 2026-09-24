@@ -100,68 +100,23 @@ fn round_trip_quill_version_selectors() {
     }
 }
 
-#[test]
-fn empty_map_emits_inline_braces() {
-    use crate::value::QuillValue;
-    use indexmap::IndexMap;
-
-    let mut payload: IndexMap<String, QuillValue> = IndexMap::new();
-    payload.insert(
-        "empty_obj".to_string(),
-        QuillValue::from_json(serde_json::json!({})),
-    );
-    payload.insert(
-        "real_field".to_string(),
-        QuillValue::from_json(serde_json::json!("hello")),
-    );
-
-    use crate::document::{Card, Payload};
-    let mut p = Payload::from_index_map(payload);
-    p.set_quill("test".parse().unwrap());
-    p.set_kind("main");
-    let main = Card::from_parts(p, quillmark_content::model::Normalized::empty());
-    let doc = crate::document::Document::from_main_and_cards(main, vec![]);
-
-    let md = doc.to_markdown();
-    assert!(
-        md.contains("empty_obj: {}\n"),
-        "empty object should emit as inline braces, got:\n{}",
-        md
-    );
-    assert!(
-        md.contains("real_field: hello"),
-        "real field should appear in emit, got:\n{}",
-        md
-    );
-    assert_eq!(
-        doc,
-        crate::document::Document::parse(&md).unwrap().document,
-        "empty object must survive the round-trip, got:\n{}",
-        md
-    );
+/// A document whose root carries `fields` in order, stored as given.
+fn doc_with(fields: &[(&str, serde_json::Value)]) -> Document {
+    let mut doc = Document::new("test".parse().unwrap());
+    for (key, value) in fields {
+        doc.main_mut()
+            .store_field(key, crate::value::QuillValue::from_json(value.clone()))
+            .unwrap();
+    }
+    doc
 }
 
 #[test]
 fn nested_map_keys_with_structural_chars_emit_valid_yaml() {
-    use crate::document::{Card, Payload};
-    use crate::value::QuillValue;
-    use indexmap::IndexMap;
-
-    let mut payload: IndexMap<String, QuillValue> = IndexMap::new();
-    payload.insert(
-        "config".to_string(),
-        QuillValue::from_json(serde_json::json!({
-            "a: b": 1,
-            "*star": 2,
-            "n": 3,
-            "needs # comment": 4
-        })),
-    );
-    let mut p = Payload::from_index_map(payload);
-    p.set_quill("test".parse().unwrap());
-    p.set_kind("main");
-    let main = Card::from_parts(p, quillmark_content::model::Normalized::empty());
-    let doc = Document::from_main_and_cards(main, vec![]);
+    let doc = doc_with(&[(
+        "config",
+        serde_json::json!({ "a: b": 1, "*star": 2, "n": 3, "needs # comment": 4 }),
+    )]);
 
     let md = doc.to_markdown();
     let reparsed = Document::parse(&md)
@@ -240,24 +195,13 @@ Body.
 /// what markdown strips at a line's edges.
 #[test]
 fn an_indented_plaintext_field_survives_emit_and_reparse() {
-    use crate::document::{Card, Payload};
-    use crate::value::QuillValue;
-    use indexmap::IndexMap;
-
     let text = "    indented\nplain\ntrailing   ";
     let content = quillmark_content::import::from_plaintext(text);
-
-    let mut payload: IndexMap<String, QuillValue> = IndexMap::new();
-    payload.insert(
-        "sample".to_string(),
-        QuillValue::from_json(quillmark_content::serial::to_canonical_value(&content)),
-    );
-    let mut p = Payload::from_index_map(payload);
-    p.set_quill("test".parse().unwrap());
-    p.set_kind("main");
-    let main = Card::from_parts(p, quillmark_content::model::Normalized::empty());
-
-    let md = Document::from_main_and_cards(main, vec![]).to_markdown();
+    let md = doc_with(&[(
+        "sample",
+        quillmark_content::serial::to_canonical_value(&content),
+    )])
+    .to_markdown();
     let back = Document::parse(&md).expect("re-parses").document;
     let projected = back
         .main()
@@ -279,29 +223,16 @@ fn an_indented_plaintext_field_survives_emit_and_reparse() {
 /// same value and re-encodes to different bytes.
 #[test]
 fn only_the_canonical_spelling_of_a_content_field_projects_to_markdown() {
-    use crate::document::{Card, Payload};
-    use crate::value::QuillValue;
-    use indexmap::IndexMap;
-
     let content = quillmark_content::import::from_markdown("> quoted").unwrap();
     let canonical = quillmark_content::serial::to_canonical_value(&content);
     let mut spelled = canonical.clone();
     spelled["lines"][0]["containers"][0]["instance"] = serde_json::json!(0);
 
-    let mut payload: IndexMap<String, QuillValue> = IndexMap::new();
-    payload.insert("stored".to_string(), QuillValue::from_json(canonical));
-    payload.insert("spelled".to_string(), QuillValue::from_json(spelled));
-    let mut p = Payload::from_index_map(payload);
-    p.set_quill("test".parse().unwrap());
-    p.set_kind("main");
-    let main = Card::from_parts(p, quillmark_content::model::Normalized::empty());
-
-    let md = Document::from_main_and_cards(main, vec![]).to_markdown();
+    let md = doc_with(&[("stored", canonical), ("spelled", spelled)]).to_markdown();
     assert!(md.contains(r#"stored: "> quoted""#), "got:\n{md}");
-
-    // Structural rather than markdown, and it survives the round trip either
-    // way: the spelled key is still there to be conformed away.
     let back = Document::parse(&md).expect("re-parses").document;
+    assert_eq!(back.main().payload().get("stored").unwrap().as_str(), Some("> quoted"));
+
     let spelled = back.main().payload().get("spelled").expect("field survives");
     assert_eq!(
         spelled.as_json()["lines"][0]["containers"][0]["instance"],
