@@ -116,6 +116,7 @@ fn a_touched_container_does_not_silence_its_unauthored_leaves() {
     let (_, source) = super::resolve_value_sourced(
         doc.main().payload().get("address"),
         &crate::quill::QuillConfig::from_yaml(CONTAINERS).unwrap().main.fields["address"],
+        crate::quill::CalendarDate::from_clock(0),
     );
     assert_eq!(source, FieldSource::Authored, "the view sees one authored dict");
     assert!(paths(&quill, &cn("address:\n  city: Pittsburgh\n"))

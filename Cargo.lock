@@ -2207,6 +2207,7 @@ version = "0.115.0"
 dependencies = [
  "glob",
  "indexmap",
+ "js-sys",
  "proptest",
  "pulldown-cmark",
  "quillmark-content",
@@ -2217,6 +2218,7 @@ dependencies = [
  "thiserror",
  "time",
  "unicode-normalization",
+ "wasm-bindgen",
 ]
 
 [[package]]
@@ -2251,7 +2253,6 @@ name = "quillmark-typst"
 version = "0.115.0"
 dependencies = [
  "comemo",
- "js-sys",
  "lopdf",
  "proptest",
  "quillmark",
@@ -2262,14 +2263,12 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
- "time",
  "toml 1.1.6+spec-1.1.0",
  "typst",
  "typst-layout",
  "typst-pdf",
  "typst-render",
  "typst-svg",
- "wasm-bindgen",
 ]
 
 [[package]]

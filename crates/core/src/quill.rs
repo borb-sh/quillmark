@@ -23,7 +23,7 @@ pub use conform::BoundParseError;
 pub use resolved::{FieldSource, Resolved, ResolvedCard, ResolvedField, ResolvedMain};
 pub(crate) use resolved::resolve_document;
 pub use fill::blank;
-pub use formats::{parse_date, parse_datetime};
+pub use formats::{parse_date, parse_datetime, CalendarDate, TODAY};
 pub use ignore::QuillIgnore;
 pub use schema::{
     build_transform_schema, CONTENT_MEDIA_TYPE, QUILLMARK_INLINE_KEY, QUILLMARK_ORDER_KEY,

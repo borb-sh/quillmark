@@ -11,7 +11,10 @@ use typst::utils::LazyHash;
 use typst::{Library, World};
 
 use crate::{helper, Plate};
-use quillmark_core::{error::{Diagnostic, Severity}, quill::Quill};
+use quillmark_core::{
+    error::{Diagnostic, Severity},
+    quill::{CalendarDate, Quill},
+};
 
 /// One `(plate address, count)` per content field holding image islands, which
 /// this backend draws nothing for.
@@ -493,45 +496,11 @@ impl World for QuillWorld {
         self.fonts.get(index).cloned()
     }
 
+    /// The clock's UTC date, shifted by `offset`: the date a `today` field
+    /// renders as, when unshifted.
     fn today(&self, offset: Option<Duration>) -> Option<Datetime> {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            use time::{Duration as TimeDuration, OffsetDateTime};
-
-            let now = OffsetDateTime::now_utc();
-            let adjusted = if let Some(offset) = offset {
-                now + TimeDuration::seconds(offset.seconds() as i64)
-            } else {
-                now
-            };
-
-            let date = adjusted.date();
-            Datetime::from_ymd(date.year(), date.month() as u8, date.day())
-        }
-
-        #[cfg(target_arch = "wasm32")]
-        {
-            // js-sys returns components in UTC.
-            use js_sys::Date;
-            use wasm_bindgen::JsValue;
-
-            let d = Date::new_0();
-            let year = d.get_utc_full_year() as i32;
-            // `get_utc_month` is 0-based.
-            let month = (d.get_utc_month() as u8).saturating_add(1);
-            let day = d.get_utc_date() as u8;
-
-            if let Some(offset) = offset {
-                let millis = d.get_time() + offset.seconds() * 1_000.0;
-                let d2 = Date::new(&JsValue::from_f64(millis));
-                let year = d2.get_utc_full_year() as i32;
-                let month = (d2.get_utc_month() as u8).saturating_add(1);
-                let day = d2.get_utc_date() as u8;
-                return Datetime::from_ymd(year, month, day);
-            }
-
-            Datetime::from_ymd(year, month, day)
-        }
+        let date = CalendarDate::from_clock(offset.map_or(0, |o| o.seconds() as i64));
+        Datetime::from_ymd(date.year(), date.month(), date.day())
     }
 }
 

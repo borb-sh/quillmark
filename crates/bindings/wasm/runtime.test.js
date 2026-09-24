@@ -1621,3 +1621,26 @@ describe('@quillmark/wasm: handles from another copy (duplicate install)', () =>
   })
 })
 
+
+describe('@quillmark/wasm: today (the clock under WASM)', () => {
+  it("resolves a `today` date as JavaScript's UTC date", () => {
+    const quill = Quill.fromTree(
+      makeQuill({
+        name: 'dated',
+        quillYaml: `quill:
+  name: dated
+  version: "1.0"
+  backend: typst
+  description: dated
+
+main:
+  fields:
+    issued: { type: date, default: today }
+`,
+      })
+    )
+    const doc = Document.fromMarkdown('~~~\n$quill: dated\n$kind: main\n~~~\n')
+    const issued = quill.reader(doc).resolve().main.fields.find((r) => r.name === 'issued')
+    expect(issued).toMatchObject({ value: new Date().toISOString().slice(0, 10), source: 'default' })
+  })
+})

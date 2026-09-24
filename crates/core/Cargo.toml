@@ -26,6 +26,10 @@ unicode-normalization = { workspace = true }
 time = { workspace = true }
 indexmap = { workspace = true }
 
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { workspace = true }
+wasm-bindgen = { workspace = true }
+
 [dev-dependencies]
 quillmark-fixtures = { workspace = true }
 proptest = { workspace = true }

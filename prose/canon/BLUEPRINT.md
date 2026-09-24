@@ -133,8 +133,10 @@ Form: **`# <type>[<format>]`**
   as `array<object>`.)
 - **Format slot** (optional, in `<…>` angle brackets): refines the type
   when the refinement carries information beyond the type name itself.
-  - `date<YYYY-MM-DD>`: a bare calendar date; `datetime<YYYY-MM-DDThh:mm[:ss]>`:
-    an offset-less wall-clock datetime (no offset/space/fractional forms)
+  - `date<YYYY-MM-DD | today>`: a bare calendar date, or `today`, the day of
+    the render ([SCHEMAS.md](SCHEMAS.md) § "`today`");
+    `datetime<YYYY-MM-DDThh:mm[:ss]>`: an offset-less wall-clock datetime (no
+    offset/space/fractional forms)
   - `richtext<markdown>`, `richtext(inline)<markdown>`: the `<markdown>` slot
     names the surface encoding an author writes over the content model
   - `plaintext<plain>`, `plaintext(inline)<plain>`: the `<plain>` slot names
@@ -193,7 +195,7 @@ Examples:
 | `classification: !must_fill UNCLASSIFIED # enum<UNCLASSIFIED \| CUI>` | an `example` on a defaultless enum: the suggested marking fills the cell, still asking a human to confirm it |
 | `bio: !must_fill # richtext<markdown>` | must-fill richtext: bare marker (see "Richtext fields") |
 | `recipient: !must_fill # array<string>` | must-fill array of strings |
-| `date: !must_fill # date<YYYY-MM-DD>` | must-fill date |
+| `date: !must_fill # date<YYYY-MM-DD \| today>` | must-fill date |
 | `severity: !must_fill # enum<low \| medium \| high>` | must-fill enum |
 | `endorsements: !must_fill # array<string>` under a leading `# up to 3` | a capped array: the cap is the leading line, the type the inline |
 | `qualifications: {} # matrix<flight_cc \| dodin_ops>` | a matrix: the whole vocabulary in the annotation, nothing ticked; a leading `# e.g.` names its columns, if it has any |
@@ -511,7 +513,7 @@ address: !must_fill # array<string>
 # e.g. www.ece.cmu.edu
 url: "" # string
 # The date to appear on the letter.
-date: !must_fill # date<YYYY-MM-DD>
+date: !must_fill # date<YYYY-MM-DD | today>
 ~~~
 
 Write main body here.

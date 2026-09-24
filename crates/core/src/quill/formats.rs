@@ -22,10 +22,70 @@ static DATETIME_FMTS: LazyLock<[FormatDescriptionV3<'static>; 2]> = LazyLock::ne
     ]
 });
 
+/// The `type: date` keyword standing for the day of the render. It stores as
+/// written and never reaches a plate: the render projection replaces it with
+/// the clock's UTC date.
+pub const TODAY: &str = "today";
+
+/// A calendar date read off the clock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CalendarDate {
+    year: i32,
+    month: u8,
+    day: u8,
+}
+
+impl CalendarDate {
+    pub fn year(self) -> i32 {
+        self.year
+    }
+
+    pub fn month(self) -> u8 {
+        self.month
+    }
+
+    pub fn day(self) -> u8 {
+        self.day
+    }
+
+    /// The clock's UTC date, shifted by `offset_seconds`. Under WASM the clock
+    /// is JavaScript's `Date`, which `time` cannot read there.
+    pub fn from_clock(offset_seconds: i64) -> Self {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let now = time::OffsetDateTime::now_utc() + time::Duration::seconds(offset_seconds);
+            let date = now.date();
+            Self {
+                year: date.year(),
+                month: u8::from(date.month()),
+                day: date.day(),
+            }
+        }
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let millis = js_sys::Date::now() + offset_seconds as f64 * 1_000.0;
+            let date = js_sys::Date::new(&wasm_bindgen::JsValue::from_f64(millis));
+            Self {
+                year: date.get_utc_full_year() as i32,
+                // `get_utc_month` is 0-based.
+                month: (date.get_utc_month() as u8).saturating_add(1),
+                day: date.get_utc_date() as u8,
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for CalendarDate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:04}-{:02}-{:02}", self.year, self.month, self.day)
+    }
+}
+
 /// True when `s` is a valid `type: date` value: a strict calendar date with
-/// no time component. See [`parse_date`].
+/// no time component (see [`parse_date`]), or [`TODAY`].
 pub(crate) fn is_valid_date(s: &str) -> bool {
-    parse_date(s).is_some()
+    s == TODAY || parse_date(s).is_some()
 }
 
 /// True when `s` is a valid `type: datetime` value: a strict offset-less

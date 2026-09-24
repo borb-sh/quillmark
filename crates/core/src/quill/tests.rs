@@ -1052,6 +1052,57 @@ fn a_document_value_coerces_by_declared_type_or_names_where_it_could_not() {
     }
 }
 
+/// `today` stores as written and renders as the clock's date wherever a `date`
+/// cell holds it, authored or as a `default:`, at any depth. It is not a
+/// `datetime`.
+#[test]
+fn a_today_date_renders_the_clocks_date() {
+    use serde_json::json;
+
+    let config = QuillConfig::from_yaml(&with_header(
+        r#"main:
+  fields:
+    issued: { type: date, default: today }
+    signed: { type: date }
+    stamps:
+      type: array
+      items: { type: date }
+"#,
+    ))
+    .expect("`default: today` loads");
+    let doc = Document::parse(concat!(
+        "~~~\n",
+        "$quill: q@1.0\n",
+        "$kind: main\n",
+        "signed: today\n",
+        "stamps: [today, 2026-01-02]\n",
+        "~~~\n",
+    ))
+    .expect("parses")
+    .document;
+
+    let plate = config.compile_data(&doc).expect("compiles");
+    let date = json!(CalendarDate::from_clock(0).to_string());
+    assert_eq!(plate["issued"], date);
+    assert_eq!(plate["signed"], date);
+    assert_eq!(plate["stamps"], json!([date, "2026-01-02"]));
+
+    let resolved = resolve_document(&config, &doc);
+    for row in &resolved.main.fields {
+        assert_eq!(row.value.as_json(), &plate[&row.name], "{}", row.name);
+    }
+    let source = |name: &str| resolved.main.fields.iter().find(|r| r.name == name).unwrap().source;
+    assert_eq!(source("issued"), FieldSource::Default);
+    assert_eq!(source("signed"), FieldSource::Authored);
+
+    assert_eq!(doc.main().payload().get("signed").unwrap().as_str(), Some("today"));
+
+    assert!(
+        quill_with_field("    at: { type: datetime, default: today }\n").is_err(),
+        "`today` is a date, not a datetime"
+    );
+}
+
 #[test]
 fn test_array_missing_items_rejected() {
     let yaml_content = &with_header(r#"main:

@@ -645,7 +645,7 @@ fn type_expression(field: &FieldSchema) -> String {
         // markup, distinct from richtext's `<markdown>` surface.
         FieldType::PlainText { inline: false } => "plaintext<plain>".into(),
         FieldType::PlainText { inline: true } => "plaintext(inline)<plain>".into(),
-        FieldType::Date => "date<YYYY-MM-DD>".into(),
+        FieldType::Date => "date<YYYY-MM-DD | today>".into(),
         FieldType::DateTime => "datetime<YYYY-MM-DDThh:mm[:ss]>".into(),
         // The element type comes from `items`; a scalar element gives
         // `array<string>`/`array<integer>`/`array<markdown>`, an object
@@ -888,7 +888,7 @@ main:
         assert!(t.contains("title: !must_fill # string\n"));
         assert!(t.contains("size: 11 # number\n"));
         assert!(t.contains("flag: false # boolean\n"));
-        assert!(t.contains("issued: !must_fill # date<YYYY-MM-DD>\n"));
+        assert!(t.contains("issued: !must_fill # date<YYYY-MM-DD | today>\n"));
         assert!(t.contains("published: !must_fill # datetime<YYYY-MM-DDThh:mm[:ss]>\n"));
         assert!(t.contains("refs: [] # array<string>\n"));
     }

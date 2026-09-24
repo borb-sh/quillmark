@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 use serde::Serialize;
 
 use super::compose::resolve_card_sourced;
-use super::{CardSchema, Quill, QuillConfig};
+use super::{CalendarDate, CardSchema, Quill, QuillConfig};
 use crate::{document::{Card, Document}, value::QuillValue};
 
 /// The rung of the commitment ladder that produced a [`ResolvedField::value`].
@@ -113,13 +113,14 @@ impl Quill {
 /// The producer behind [`Quill::resolve`] and
 /// [`TypedReader::resolve`](crate::reader::TypedReader::resolve).
 pub(crate) fn resolve_document(config: &QuillConfig, doc: &Document) -> Resolved {
-    let (fields, body) = resolve_card_fields(&config.main, doc.main());
+    let today = CalendarDate::from_clock(0);
+    let (fields, body) = resolve_card_fields(&config.main, doc.main(), today);
     let main = ResolvedMain { fields, body };
     let cards = doc
         .cards()
         .iter()
         .enumerate()
-        .map(|(index, card)| card_states(config, card, index))
+        .map(|(index, card)| card_states(config, card, index, today))
         .collect();
     Resolved { main, cards }
 }
@@ -133,8 +134,13 @@ pub(crate) fn resolve_document(config: &QuillConfig, doc: &Document) -> Resolved
 /// order, then undeclared authored fields in authored order.
 ///
 /// [`compile_data`]: crate::quill::Quill::compile_data
-fn resolve_card_fields(schema: &CardSchema, card: &Card) -> (Vec<ResolvedField>, Option<ResolvedField>) {
-    let sourced: IndexMap<String, (QuillValue, FieldSource)> = resolve_card_sourced(schema, card);
+fn resolve_card_fields(
+    schema: &CardSchema,
+    card: &Card,
+    today: CalendarDate,
+) -> (Vec<ResolvedField>, Option<ResolvedField>) {
+    let sourced: IndexMap<String, (QuillValue, FieldSource)> =
+        resolve_card_sourced(schema, card, today);
     let mut fields = Vec::new();
 
     // Declared rows in schema declaration order. Every declared field is present
@@ -171,13 +177,18 @@ fn resolve_card_fields(schema: &CardSchema, card: &Card) -> (Vec<ResolvedField>,
 /// through the ladder; an unknown-kind card (declared `$kind` with no schema, or
 /// a kindless card) carries its authored fields verbatim: no coercion, no
 /// ladder, no `$body` row.
-fn card_states(config: &QuillConfig, card: &Card, index: usize) -> ResolvedCard {
+fn card_states(
+    config: &QuillConfig,
+    card: &Card,
+    index: usize,
+    today: CalendarDate,
+) -> ResolvedCard {
     // The raw authored kind rides the entry even when it names no schema: the
     // card reports what it *claimed* to be.
     let kind = card.kind().map(String::from);
     match card.kind().and_then(|k| config.card_kind(k)) {
         Some(schema) => {
-            let (fields, body) = resolve_card_fields(schema, card);
+            let (fields, body) = resolve_card_fields(schema, card, today);
             ResolvedCard {
                 kind,
                 index,
