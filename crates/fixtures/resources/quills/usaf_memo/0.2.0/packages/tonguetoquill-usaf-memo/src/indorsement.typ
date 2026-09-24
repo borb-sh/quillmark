@@ -88,7 +88,7 @@
       // so it travels to the next page *with* the content it heads rather than
       // being stranded at the bottom of a page.
       let separate-page-body = block(breakable: false, sticky: true)[
-        #[#indorsement_label to #original_from, #display-date(original_date, memo-style: memo-style), #original_subject]
+        #[#indorsement_label to #original_from, #if original_date != none [#display-date(original_date, memo-style: memo-style), ]#original_subject]
         #blank-line()
         #grid(columns: (auto, 1fr), ind_from, ind_date)
         #blank-line()

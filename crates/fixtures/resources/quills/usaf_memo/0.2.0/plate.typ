@@ -5,6 +5,42 @@
 // Resolved once here: `frontmatter` and the date's pattern must agree.
 #let memo_style = if data.memo_style != "" { data.memo_style } else { "usaf" }
 
+// A blank date is dated by hand at signing, so it renders as a text widget bound
+// to the date's schema address: typeable in a PDF reader, and the one thing that
+// gives the *unfilled* date a region to click. The package seats it in the slot
+// a printed date would fill (`date-placeholder`).
+//
+// Styled to match the printed date it stands in for, since the two are
+// alternatives for the same slot: the memo's Times-alike body face at the body
+// size (auto-size would fit the widget box instead, landing well under body size
+// and shrinking further as the signer types), and flush right, so a typed date
+// ends at the margin exactly where `display-date` puts a filled one. Right is
+// unreachable through geometry here, the widget being wider than the text it
+// will hold either way.
+//
+// Sized in multiples of that face's own size rather than inches, because
+// `font_size` is a document field with no declared ceiling: an inch width would
+// stay put while the text inside it grew, and a fixed size clips where auto-size
+// would shrink. The longest date either memo style produces sets just over 8em
+// in Times ("September 28, 2026", the DAF ordering, at 8.03em; USAF's "28
+// September 2026" is 7.78em), so 10em clears the worst case at any body size.
+// Wider than `date-placeholder`'s reserved span on purpose: the widget hangs off
+// that span's right edge and overruns leftwards, into the whitespace a printed
+// date grows into.
+#let dating-field(name, field) = {
+  let date_size = data.font_size * 1pt
+  form-field(
+    name,
+    type: "text",
+    width: 10 * date_size,
+    height: date_size,
+    field: field,
+    font: "times",
+    size: date_size,
+    align: "right",
+  )
+}
+
 // Frontmatter configuration
 #show: frontmatter.with(
   // Letterhead configuration
@@ -28,9 +64,10 @@
   // but its ink would be born inside the package and carry no schema address.
   // `display` places the field's *content* projection instead: the glyphs are
   // born in the generated helper, so the memo date stays click-to-edit however
-  // deep the package formats it. A blank date yields `none`, which is what
-  // `frontmatter`'s `datetime.today()` fallback keys on.
+  // deep the package formats it. A blank date yields `none`, which seats
+  // `dating_field` in the date's slot instead.
   date: display("date", date-pattern(memo-style: memo_style)),
+  dating_field: dating-field("Date", "date"),
 
   // Receiver information
   memo_for: data.memo_for,
@@ -115,38 +152,8 @@
       card.at("$path") + "date",
       date-pattern(memo-style: memo_style),
     )
-    // A filled date regions through that call. A blank one draws nothing, so
-    // bind a text widget to the same schema address: typeable in a PDF reader,
-    // and the one thing that gives the *unfilled* date a region to click.
-    //
-    // Styled to match the printed date it stands in for, since the two are
-    // alternatives for the same slot: the memo's Times-alike body face at the
-    // body size (auto-size would fit the widget box instead, landing well under
-    // body size and shrinking further as the endorser types), and flush right,
-    // so a typed date ends at the margin exactly where `display-date` puts a
-    // filled one. Right is unreachable through geometry here, the widget being
-    // wider than the text it will hold either way.
-    //
-    // Sized in multiples of that face's own size rather than inches, because
-    // `font_size` is a document field with no declared ceiling: an inch width
-    // would stay put while the text inside it grew, and a fixed size clips
-    // where auto-size would shrink. The longest date either memo style
-    // produces sets just over 8em in Times ("September 28, 2026", the DAF
-    // ordering, at 8.03em; USAF's "28 September 2026" is 7.78em), so 10em
-    // clears the worst case at any body size. Wider than `date-placeholder`'s
-    // reserved span on purpose: the widget hangs off that span's right edge and
-    // overruns leftwards, into the whitespace a printed date grows into.
-    let date_size = data.font_size * 1pt
-    let dating_field = form-field(
-      "Ind_" + str(i) + "_Date",
-      type: "text",
-      width: 10 * date_size,
-      height: date_size,
-      field: card.at("$path") + "date",
-      font: "times",
-      size: date_size,
-      align: "right",
-    )
+    // A filled date regions through that call; a blank one through the widget.
+    let dating_field = dating-field("Ind_" + str(i) + "_Date", card.at("$path") + "date")
     // The card's `$path` prefix composes its canonical schema addresses
     // (`$cards.indorsement.<n>.…`, per-kind ordinal): the absolute loop
     // index `i` is NOT that ordinal once kinds interleave, so it stays a

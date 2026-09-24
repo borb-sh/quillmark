@@ -121,9 +121,9 @@
   }
 }
 
-/// Reserves the space an indorsement's undetermined signing date will occupy.
+/// Reserves the space an undetermined signing date will occupy.
 ///
-/// Used for indorsements whose signing date is unknown at compile time. The
+/// Used for a memo or indorsement date unknown at compile time. The
 /// space sits on the line's baseline with one line of height above it, so a
 /// date entered later lands where a typeset one would and cannot collide with
 /// surrounding header text. Nothing is drawn: the widget is what carries the

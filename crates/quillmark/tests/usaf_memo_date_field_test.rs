@@ -1,7 +1,7 @@
-//! Styling and placement of the USAF memo's injected indorsement-date widget.
+//! Styling and placement of the USAF memo's injected date widgets.
 //!
-//! An indorsement is dated when the endorser signs it, so the date is normally
-//! blank at compile time and the widget is the only thing occupying its slot.
+//! A blank memo or indorsement date is dated by hand at signing, so the widget
+//! is the only thing occupying its slot.
 //! It stands in for a date the memo would otherwise typeset, so it has to be set
 //! like one: AFH 33-337's 12 point Times body face, ending at the same right
 //! margin `display-date` would have ended at.
@@ -24,8 +24,8 @@ const LONGEST_DATE_PT: f32 = 96.32;
 const DEFAULT_FONT_SIZE_PT: f32 = 12.0;
 
 fn seeded_memo_pdf() -> Vec<u8> {
-    // One card per declared kind, each blank: the indorsement date is unset,
-    // which is the case the widget exists for.
+    // One card per declared kind, each blank: both dates are unset, which is
+    // the case the widgets exist for.
     let (engine, quill, parsed) = common::seeded_memo();
     let result = engine
         .render(
@@ -109,14 +109,16 @@ fn indorsement_date_widget_is_set_like_the_date_it_replaces() {
 /// AFH 33-337 places the date one inch from the right edge, and `/Q 2` measures
 /// from the widget's right edge, so that edge is what has to land on the margin.
 #[test]
-fn indorsement_date_widget_ends_on_the_right_margin() {
+fn date_widgets_end_on_the_right_margin() {
     let pdf = seeded_memo_pdf();
-    let [_, _, x1, _] = rect(widget_object(&pdf, "Ind_0_Date"));
-    let gap = page_width(&pdf) - x1;
-    assert!(
-        (gap - PT_PER_IN).abs() < 0.5,
-        "widget right edge should sit 1in from the page edge, sits {gap}pt"
-    );
+    for name in ["Date", "Ind_0_Date"] {
+        let [_, _, x1, _] = rect(widget_object(&pdf, name));
+        let gap = page_width(&pdf) - x1;
+        assert!(
+            (gap - PT_PER_IN).abs() < 0.5,
+            "{name}'s right edge should sit 1in from the page edge, sits {gap}pt"
+        );
+    }
 }
 
 /// The regression guard for the fixed-size trade-off: auto-size shrinks an

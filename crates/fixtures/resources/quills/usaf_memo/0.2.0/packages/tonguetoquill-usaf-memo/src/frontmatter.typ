@@ -14,6 +14,9 @@
   memo_for: none,
   memo_from: none,
   date: none,
+  // Fill-in widget seated in the date's reserved space when `date` is blank;
+  // see `date-placeholder`.
+  dating_field: none,
   references: none,
   letterhead_title: "DEPARTMENT OF THE AIR FORCE",
   letterhead_caption: "[YOUR SQUADRON/UNIT NAME]",
@@ -41,8 +44,6 @@
     memo_style in ("usaf", "daf"),
     message: "memo_style must be \"usaf\" or \"daf\"",
   )
-
-  let actual_date = if date == none { datetime.today() } else { date }
 
   let classification_marking = if classification_level == none or type(classification_level) != str {
     none
@@ -211,14 +212,14 @@
 
   [#metadata((
     subject: subject,
-    original_date: actual_date,
+    original_date: date,
     original_from: first-or-value(memo_from),
     body_font: body_font,
     font_size: font_size,
     memo_style: memo_style,
   )) <usaf-memo-config>]
 
-  render-date-section(actual_date, memo-style: memo_style)
+  render-date-section(date, memo-style: memo_style, field: dating_field)
   render-for-section(memo_for, memo_for_cols)
   if not falsey(memo_from) { render-from-section(memo_from) }
   let single-ref = if type(references) == array and references.len() == 1 {
