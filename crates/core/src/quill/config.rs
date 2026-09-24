@@ -331,8 +331,6 @@ impl QuillConfig {
         let json_value = value.as_json();
 
         // Null ≡ absent, so a present-null passes through at every type.
-        // Returning `value` rather than the JSON also preserves a `!must_fill`
-        // marker riding on it: the fill flag is not part of the JSON.
         if json_value.is_null() {
             return Ok(value.clone());
         }
@@ -1241,8 +1239,7 @@ impl QuillConfig {
                     .with_code("quill::enum_blank_member".to_string())
                     .with_hint(
                         "Remove `\"\"` from `values:`; every enum accepts the blank \
-                         already. Keep `default: \"\"` to leave the field unobliged, \
-                         and declare a member such as `undecided` or `n_a` where \
+                         already, and declare a member such as `undecided` or `n_a` where \
                          the empty state is itself a choice someone makes."
                             .to_string(),
                     ),
@@ -2448,11 +2445,11 @@ pub(crate) fn field_contains_content(field: &FieldSchema) -> bool {
     }
 }
 
-/// Populate a field's `default_content` / `example_content` companion caches from
-/// its markdown literals, and every nested declaration's from its own. No-op
-/// where the type tree bears no content leaf, since nothing below it does either;
-/// a failed import or a `richtext(inline)` violation is appended to `errors` as a
-/// load diagnostic. The walk covers every declaration position, for the reason
+/// Populate a field's `default_content` companion cache from its markdown
+/// literal, and every nested declaration's from its own, checking each
+/// `example:` by the same import. No-op where the type tree bears no content
+/// leaf, since nothing below it does either; a failed import or a
+/// `richtext(inline)` violation is appended to `errors` as a load diagnostic. The walk covers every declaration position, for the reason
 /// `SCHEMAS.md` §"Document seeding" gives.
 ///
 /// `card` labels the owning card and `path` the field's declaration path
@@ -2476,9 +2473,8 @@ fn populate_field_content(
         }
     }
     if let Some(example) = field.example.clone() {
-        match literal_content(&example, field, &format!("{owner} `example`")) {
-            Ok(content) => field.example_content = content,
-            Err(d) => errors.push(d),
+        if let Err(d) = literal_content(&example, field, &format!("{owner} `example`")) {
+            errors.push(d);
         }
     }
     if let Some(props) = field.properties.as_mut() {
@@ -2504,8 +2500,8 @@ fn populate_field_content(
     }
 }
 
-/// Populate every content companion on a card: each field's
-/// `default`/`example` and each nested declaration's, plus the card's
+/// Populate every content companion on a card: each field's `default` and each
+/// nested declaration's, plus the card's
 /// `body.example` (block richtext, no inline constraint; skipped when the body is
 /// disabled, since its example is inert).
 fn populate_card_content(card: &mut CardSchema, label: &str, errors: &mut Vec<Diagnostic>) {

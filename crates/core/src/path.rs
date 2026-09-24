@@ -21,8 +21,7 @@
 //! ```
 //!
 //! A field name is what the document carries, not an identifier: a nested YAML
-//! map key is unconstrained, so `!must_fill` collection mints `main.m.0` and
-//! `main.m.a-b`. A name is free to contain `.`, `[`, `]` or `\` itself:
+//! map key is unconstrained, so validation mints `main.m.0` and `main.m.a-b`. A name is free to contain `.`, `[`, `]` or `\` itself:
 //! `Display` escapes each with a leading `\` wherever it occurs, and `FromStr`
 //! undoes exactly that when it reads a field word back, so every name
 //! round-trips rather than only ones that happen to avoid the four

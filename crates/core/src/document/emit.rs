@@ -88,9 +88,8 @@ fn emit_meta_line(out: &mut String, key: &str, value: &str, trailer: Option<&str
 }
 
 /// Emit an out-of-band meta block (`$ext` / `$seed`). `nested` carries comments
-/// at paths relative to the value tree. Meta maps never carry `!must_fill`, and
-/// a content object in one emits structurally: no load converts a projection
-/// there back.
+/// at paths relative to the value tree. A content object in one emits
+/// structurally: no load converts a projection there back.
 fn emit_meta_block(
     out: &mut String,
     key: &str,
@@ -121,14 +120,13 @@ fn emit_meta_block(
 }
 
 /// The sidecar tables threaded through the recursive emit: `path` is the
-/// container path the current node sits at, `nested` and `fills` the whole
-/// block's comment and `!must_fill` tables. `project_content` routes each
-/// canonical content object through [`project_content_field`].
+/// container path the current node sits at, `nested` the whole block's
+/// comment table. `project_content` routes each canonical content object
+/// through [`project_content_field`].
 #[derive(Clone, Copy)]
 struct EmitCtx<'a> {
     path: &'a [PathSegment],
     nested: &'a [NestedComment],
-    fills: &'a [Vec<PathSegment>],
     project_content: bool,
 }
 
@@ -136,7 +134,6 @@ impl<'a> EmitCtx<'a> {
     const EMPTY: Self = Self {
         path: &[],
         nested: &[],
-        fills: &[],
         project_content: false,
     };
 
@@ -144,25 +141,13 @@ impl<'a> EmitCtx<'a> {
         Self { path, ..self }
     }
 
-    /// Fill sets are small, so a linear scan beats building a hash set per field.
-    fn is_fill(self, path: &[PathSegment]) -> bool {
-        self.fills.iter().any(|p| p.as_slice() == path)
-    }
-
     /// The markdown `value` emits as, when it is a canonical content object in a
-    /// field's value. A marker inside the object keeps it structural, since the
-    /// projected scalar has no path to write one at; comments inside it drop.
+    /// field's value. Comments inside the object drop.
     fn projection(self, value: &JsonValue) -> Option<JsonValue> {
-        if !self.project_content || self.has_fill_below() {
+        if !self.project_content {
             return None;
         }
         project_content_field(value).map(JsonValue::String)
-    }
-
-    fn has_fill_below(self) -> bool {
-        self.fills
-            .iter()
-            .any(|p| p.len() > self.path.len() && p.starts_with(self.path))
     }
 }
 
@@ -228,19 +213,15 @@ fn emit_payload_items(out: &mut String, payload: &Payload) {
                 let nested = payload.nested_comments_for(key.as_str());
                 emit_meta_block(out, key.as_str(), value, trailer, &nested);
             }
-            PayloadItem::Field { key, value, fill } => {
-                // Nested fill markers; the top-level one rides on `*fill`.
-                let fills = value.fill_paths();
+            PayloadItem::Field { key, value } => {
                 let nested = payload.nested_comments_for(key);
                 emit_field_at(
                     out,
                     key,
                     value.as_json(),
                     KeyPos::Line(0),
-                    *fill,
                     EmitCtx {
                         nested: &nested,
-                        fills: &fills,
                         project_content: true,
                         ..EmitCtx::EMPTY
                     },
@@ -363,59 +344,20 @@ fn push_trailer(out: &mut String, trailer: Option<&str>) {
 
 /// Emit a `key: <value>\n` pair with the key placed per `pos`.
 ///
-/// Empty objects emit `key: {}\n`, empty arrays `key: []\n`. When `fill` is
-/// `true`: scalars → `key: !must_fill <value>`, empty seqs → `key: !must_fill []`,
-/// null → `key: !must_fill`, non-empty seqs → `key: !must_fill\n  - …`. A marked
-/// mapping has no spelling, so every ingress refuses one
-/// (`edit::validate_fill_targets`); one reaching here emits structurally, marker
-/// dropped, rather than as a line no parser accepts. A projected content object
-/// is a scalar here, so a marker on it takes the scalar form.
+/// Empty objects emit `key: {}\n`, empty arrays `key: []\n`, null a bare
+/// `key:\n`.
 fn emit_field_at(
     out: &mut String,
     key: &str,
     value: &JsonValue,
     pos: KeyPos,
-    fill: bool,
     ctx: EmitCtx<'_>,
     inline_trailer: Option<&str>,
 ) {
     if let Some(markdown) = ctx.projection(value) {
-        return emit_field_at(out, key, &markdown, pos, fill, ctx, inline_trailer);
+        return emit_field_at(out, key, &markdown, pos, ctx, inline_trailer);
     }
     pos.write_key(out, key);
-    if fill {
-        match value {
-            JsonValue::Null => {
-                out.push_str(": !must_fill");
-                push_trailer(out, inline_trailer);
-                out.push('\n');
-            }
-            JsonValue::Bool(_) | JsonValue::Number(_) | JsonValue::String(_) => {
-                out.push_str(": !must_fill ");
-                emit_scalar(out, value);
-                push_trailer(out, inline_trailer);
-                out.push('\n');
-            }
-            JsonValue::Array(items) if items.is_empty() => {
-                out.push_str(": !must_fill []");
-                push_trailer(out, inline_trailer);
-                out.push('\n');
-            }
-            JsonValue::Array(items) => {
-                out.push_str(": !must_fill");
-                push_trailer(out, inline_trailer);
-                out.push('\n');
-                emit_sequence_children(out, items, pos.seq_indent(), ctx);
-            }
-            JsonValue::Object(map) => {
-                out.push(':');
-                push_trailer(out, inline_trailer);
-                out.push('\n');
-                emit_mapping_children(out, map, pos.map_indent(), ctx);
-            }
-        }
-        return;
-    }
     match value {
         JsonValue::Object(map) if map.is_empty() => {
             out.push_str(": {}");
@@ -439,6 +381,11 @@ fn emit_field_at(
             out.push('\n');
             emit_sequence_children(out, items, pos.seq_indent(), ctx);
         }
+        JsonValue::Null => {
+            out.push(':');
+            push_trailer(out, inline_trailer);
+            out.push('\n');
+        }
         _ => {
             out.push_str(": ");
             emit_scalar(out, value);
@@ -448,13 +395,12 @@ fn emit_field_at(
     }
 }
 
-/// Render a mapping's children — cells, `!must_fill` markers, and the comments
-/// among them — as standalone lines at column 0, outside any document. The
-/// blueprint renders a dormant variant world through this to comment it out.
+/// Render a mapping's children — cells and the comments among them — as
+/// standalone lines at column 0, outside any document. The blueprint renders a
+/// dormant variant world through this to comment it out.
 pub(crate) fn emit_mapping_lines(
     map: &serde_json::Map<String, JsonValue>,
     nested: &[NestedComment],
-    fills: &[Vec<PathSegment>],
 ) -> String {
     let mut out = String::new();
     emit_mapping_children(
@@ -464,7 +410,6 @@ pub(crate) fn emit_mapping_lines(
         EmitCtx {
             path: &[],
             nested,
-            fills,
             project_content: true,
         },
     );
@@ -482,13 +427,11 @@ fn emit_mapping_children(
         let trailer = find_inline_trailer(out, ctx, i, child_indent);
         let mut child_path = ctx.path.to_vec();
         child_path.push(PathSegment::Key(k.clone()));
-        let child_fill = ctx.is_fill(&child_path);
         emit_field_at(
             out,
             k,
             v,
             KeyPos::Line(child_indent),
-            child_fill,
             ctx.at(&child_path),
             trailer,
         );
@@ -554,7 +497,6 @@ fn emit_sequence_item(
                 let inner_trailer = find_inline_trailer(out, ctx, i, base_indent + 2);
                 let mut child_path = ctx.path.to_vec();
                 child_path.push(PathSegment::Key(k.clone()));
-                let child_fill = ctx.is_fill(&child_path);
                 if first {
                     let line_trailer = inline_trailer.or(inner_trailer);
                     push_indent(out, base_indent);
@@ -564,7 +506,6 @@ fn emit_sequence_item(
                         k,
                         v,
                         KeyPos::SeqHead(base_indent),
-                        child_fill,
                         ctx.at(&child_path),
                         line_trailer,
                     );
@@ -578,7 +519,6 @@ fn emit_sequence_item(
                         k,
                         v,
                         KeyPos::Line(base_indent + 2),
-                        child_fill,
                         ctx.at(&child_path),
                         inner_trailer,
                     );
@@ -765,38 +705,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn a_marked_content_cell_emits_its_markdown_projection() {
-        // A canonical content object has no card-yaml spelling: emitted
-        // unprojected it lands as a nested mapping that will not re-parse, and
-        // drops the marker on the way.
-        let mut payload = crate::document::Payload::new();
-        payload.set_quill("q@1.0.0".parse().expect("reference"));
-        payload.set_kind("main");
-        let mut card = crate::document::Card::from_parts(
-            payload,
-            quillmark_content::model::Normalized::empty(),
-        );
-        let content = quillmark_content::import::from_markdown("Q3 results").expect("content");
-        card.store_fill(
-            "subject",
-            QuillValue::from_json(quillmark_content::serial::to_canonical_value(&content)),
-        )
-        .expect("stored");
-
-        let md = crate::document::Document::from_main_and_cards(card, Vec::new()).to_markdown();
-
-        assert!(
-            md.contains("subject: !must_fill Q3 results\n"),
-            "the cell projects to markdown under its marker: {md}"
-        );
-        let reparsed = crate::document::Document::parse(&md).expect("re-parses").document;
-        assert!(
-            reparsed.main().payload().is_fill("subject"),
-            "and the marker survives: {md}"
-        );
-    }
-
     /// Every string a YAML 1.1 parser would read as something else: a word
     /// boolean, a null, a numeric or date form, a syntax indicator, or a string
     /// whose own edges are whitespace.
@@ -887,7 +795,6 @@ mod tests {
             "empty_map",
             value.as_json(),
             KeyPos::Line(0),
-            false,
             ctx(&p("empty_map")),
             None,
         );
@@ -903,7 +810,6 @@ mod tests {
             "empty_map",
             value.as_json(),
             KeyPos::Line(0),
-            false,
             ctx(&p("empty_map")),
             Some("orphan"),
         );
@@ -919,7 +825,6 @@ mod tests {
             "empty_seq",
             value.as_json(),
             KeyPos::Line(0),
-            false,
             ctx(&p("empty_seq")),
             None,
         );
@@ -935,7 +840,6 @@ mod tests {
             "title",
             value.as_json(),
             KeyPos::Line(0),
-            false,
             ctx(&p("title")),
             Some("greeting"),
         );
@@ -951,58 +855,9 @@ mod tests {
             "outer",
             value.as_json(),
             KeyPos::Line(0),
-            false,
             ctx(&p("outer")),
             Some("note"),
         );
         assert_eq!(out, "outer: # note\n  inner: 1\n");
-    }
-
-    #[test]
-    fn fill_null_emits_bare_tag() {
-        let value = QuillValue::from_json(serde_json::Value::Null);
-        let mut out = String::new();
-        emit_field_at(
-            &mut out,
-            "recipient",
-            value.as_json(),
-            KeyPos::Line(0),
-            true,
-            ctx(&p("recipient")),
-            None,
-        );
-        assert_eq!(out, "recipient: !must_fill\n");
-    }
-
-    #[test]
-    fn fill_string_emits_tag_with_value() {
-        let value = QuillValue::from_json(serde_json::json!("placeholder"));
-        let mut out = String::new();
-        emit_field_at(
-            &mut out,
-            "dept",
-            value.as_json(),
-            KeyPos::Line(0),
-            true,
-            ctx(&p("dept")),
-            None,
-        );
-        assert_eq!(out, "dept: !must_fill placeholder\n");
-    }
-
-    #[test]
-    fn fill_with_inline_trailer() {
-        let value = QuillValue::from_json(serde_json::json!("placeholder"));
-        let mut out = String::new();
-        emit_field_at(
-            &mut out,
-            "dept",
-            value.as_json(),
-            KeyPos::Line(0),
-            true,
-            ctx(&p("dept")),
-            Some("note"),
-        );
-        assert_eq!(out, "dept: !must_fill placeholder # note\n");
     }
 }

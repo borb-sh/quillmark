@@ -11,7 +11,7 @@ use crate::value::QuillValue;
 use serde_json::json;
 
 /// A quill whose `classification` enum brings a `CUI` field set into play:
-/// `controlled_by` obliged in that world (no `default:`), `category` optional.
+/// `controlled_by` with no `default:`, `category` defaulted.
 fn quill_yaml() -> &'static str {
     r#"
 quill:
@@ -435,28 +435,6 @@ fn resolve_reports_the_container_as_one_cell_at_its_strongest_rung() {
     }
 }
 
-/// The conditional-obligation payoff: a field with no `default:` is obliged in
-/// its own world and silent everywhere else — the thing `must_fill` alone cannot
-/// say.
-#[test]
-fn obligation_follows_the_selected_world() {
-    let obliged = codes(&doc("classification:\n  value: CUI\n"));
-    assert!(obliged.contains(&(
-        "validation::must_fill".to_string(),
-        "main.classification.controlled_by".to_string()
-    )));
-    // `category` declares a `default:`, so it stays skippable in the same world.
-    assert!(!obliged
-        .iter()
-        .any(|(_, path)| path == "main.classification.category"));
-
-    // The identical schema obliges nothing once another world is selected.
-    let quiet = codes(&doc("classification:\n  value: UNCLASSIFIED\n"));
-    assert!(!quiet
-        .iter()
-        .any(|(_, path)| path.starts_with("main.classification.")));
-}
-
 /// Flipping a discriminant in an editor must not cost the author their answers,
 /// and must not hand them a document that refuses to render.
 #[test]
@@ -531,10 +509,10 @@ fn the_blueprint_comments_out_every_world_it_does_not_show() {
         bp.contains(concat!(
             "  value: \"\"\n",
             "  # when CUI:\n",
-            "  # controlled_by: !must_fill # string\n",
+            "  # controlled_by: # string\n",
             "  # category: \"\" # string\n",
             "  # when SECRET:\n",
-            "  # declassify_on: !must_fill # string\n",
+            "  # declassify_on: # string\n",
         )),
         "{bp}"
     );
@@ -578,8 +556,8 @@ fn the_blueprint_emits_the_default_worlds_cells_and_round_trips() {
 
 /// A cell holds a container like any field, so the blueprint expands one per
 /// property. A flattened cell would hand the author a scalar slot where the
-/// schema wants a mapping, drop every property's own description and `default:`,
-/// and stamp the marker on a path the obligation predicate never addresses.
+/// schema wants a mapping, and drop every property's own description and
+/// `default:`.
 #[test]
 fn the_blueprint_expands_a_container_cell_per_property() {
     const YAML: &str = r#"
@@ -619,64 +597,19 @@ main:
             "  # Controlling office.\n",
             "  controlled_by: # object\n",
             "    # Office symbol.\n",
-            "    office: !must_fill # string\n",
+            "    office: # string\n",
             "    phone: \"\" # string\n",
             "  citations: # array<object>\n",
-            "    - src: !must_fill # string\n",
+            "    - src: # string\n",
         )),
         "{bp}"
     );
 
-    // The marked cells are the cells the schema-side predicate warns at: a
-    // container is a namespace on both surfaces, never a cell on either.
     let document = Document::parse(&bp).expect("the blueprint parses").document;
-    let warned: Vec<String> = quill_from_yaml(YAML)
-        .validate(&document)
-        .into_iter()
-        .filter(|d| d.code.as_deref() == Some("validation::must_fill"))
-        .filter_map(|d| d.path)
-        .collect();
-    assert!(
-        warned.contains(&"main.classification.controlled_by.office".to_string())
-            && warned.contains(&"main.classification.citations[0].src".to_string()),
-        "{warned:?}"
-    );
-    assert!(
-        !warned
-            .iter()
-            .any(|p| p == "main.classification.controlled_by"),
-        "{warned:?}"
-    );
-
     let reparsed = Document::parse(&document.to_markdown())
         .expect("re-emit parses")
         .document;
     assert_eq!(document, reparsed, "the expansion round-trips");
-}
-
-/// Which world is live decides which fields are even candidates, so the
-/// discriminant must resolve before the field set is walked.
-#[test]
-fn seeding_resolves_the_discriminant_before_walking_the_field_set() {
-    let yaml = quill_yaml()
-        .replace("      default: \"\"\n", "      example: CUI\n")
-        .replace(
-            "          controlled_by: { type: string }",
-            "          controlled_by: { type: string, example: SAF/AA }",
-        );
-    let quill = quill_from_yaml(&yaml);
-    let seeded = quill.seed_document();
-    let value = seeded
-        .main()
-        .payload()
-        .get("classification")
-        .expect("seeded classification")
-        .as_json()
-        .clone();
-    assert_eq!(value["value"], json!("CUI"));
-    assert_eq!(value["controlled_by"], json!("SAF/AA"));
-    // `declassify_on` belongs to a world the seed did not select.
-    assert!(value.get("declassify_on").is_none());
 }
 
 #[test]
@@ -792,14 +725,6 @@ fn nested_header(document: &Document) -> serde_json::Value {
         .clone()
 }
 
-fn nested_codes(document: &Document) -> Vec<(String, String)> {
-    quill_from_yaml(NESTED_YAML)
-        .validate(document)
-        .into_iter()
-        .map(|d| (d.code.unwrap_or_default(), d.path.unwrap_or_default()))
-        .collect()
-}
-
 /// The render floor's three answers, one address down: the blank container in an
 /// empty document, the live world complete, and a dormant cell off the wire.
 #[test]
@@ -823,20 +748,11 @@ fn a_nested_world_reaches_the_plate_as_the_closed_shape() {
     );
 }
 
-/// Both conditional diagnostics anchor through the dictionary. The strand is the
-/// one that has to *find* the container at all: the walk reaches it by descending
-/// an object's declared properties rather than by scanning card fields.
+/// The strand anchors through the dictionary: the walk finds the container by
+/// descending an object's declared properties rather than by scanning card
+/// fields.
 #[test]
-fn a_nested_worlds_diagnostics_name_the_path_through_the_dictionary() {
-    let obliged = nested_codes(&nested_doc("header:\n  classification:\n    value: CUI\n"));
-    assert!(
-        obliged.contains(&(
-            "validation::must_fill".to_string(),
-            "main.header.classification.controlled_by".to_string()
-        )),
-        "{obliged:?}"
-    );
-
+fn a_nested_worlds_strand_names_the_path_through_the_dictionary() {
     let document = nested_doc(
         "header:\n  classification:\n    value: UNCLASSIFIED\n    controlled_by: SAF/AA\n",
     );
@@ -871,7 +787,7 @@ fn the_blueprint_seats_a_nested_worlds_cells_in_the_dictionary() {
             "  classification: # enum<UNCLASSIFIED | CUI>\n",
             "    value: \"\"\n",
             "    # when CUI:\n",
-            "    # controlled_by: !must_fill # string\n",
+            "    # controlled_by: # string\n",
             "    # category: \"\" # string\n",
         )),
         "{bp}"
@@ -885,41 +801,9 @@ fn the_blueprint_seats_a_nested_worlds_cells_in_the_dictionary() {
     );
     assert_eq!(parsed.to_markdown(), bp);
 
-    // A live world stamps its marker at the path the obligation predicate
-    // addresses, which is the nested one.
     let yaml = NESTED_YAML.replace("          default: \"\"\n", "          default: CUI\n");
     let live = QuillConfig::from_yaml(&yaml).expect("loads").blueprint();
-    assert!(live.contains("    controlled_by: !must_fill # string\n"), "{live}");
-    let document = Document::parse(&live).expect("parses").document;
-    let warned: Vec<String> = quill_from_yaml(&yaml)
-        .validate(&document)
-        .into_iter()
-        .filter(|d| d.code.as_deref() == Some("validation::must_fill"))
-        .filter_map(|d| d.path)
-        .collect();
-    assert_eq!(warned, ["main.header.classification.controlled_by"], "{live}");
-}
-
-/// The discriminant resolves before the field set is walked at this position
-/// too, so a seeded cell lands under the member the seeded card renders.
-#[test]
-fn seeding_reaches_a_world_inside_a_dictionary() {
-    let yaml = NESTED_YAML
-        .replace("          default: \"\"\n", "          example: CUI\n")
-        .replace(
-            "              controlled_by: { type: string }",
-            "              controlled_by: { type: string, example: SAF/AA }",
-        );
-    let seeded = quill_from_yaml(&yaml).seed_document();
-    let header = seeded
-        .main()
-        .payload()
-        .get("header")
-        .expect("seeded header")
-        .as_json()
-        .clone();
-    assert_eq!(header["classification"]["value"], json!("CUI"));
-    assert_eq!(header["classification"]["controlled_by"], json!("SAF/AA"));
+    assert!(live.contains("    controlled_by: # string\n"), "{live}");
 }
 
 /// A cell stays unconditionally addressable while only conditionally live: the

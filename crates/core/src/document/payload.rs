@@ -83,14 +83,8 @@ pub enum PayloadItem {
         key: MetaKey,
         value: JsonMap<String, JsonValue>,
     },
-    /// A user-defined YAML field, optionally tagged `!must_fill`.
-    Field {
-        key: String,
-        value: QuillValue,
-        /// `true` when the field was written as `key: !must_fill <value>` or
-        /// `key: !must_fill` in source.
-        fill: bool,
-    },
+    /// A user-defined YAML field.
+    Field { key: String, value: QuillValue },
     /// A YAML comment. Text excludes the leading `#` and one optional space.
     ///
     /// An `inline` comment (`field: value # text`) attaches to the item that
@@ -99,13 +93,12 @@ pub enum PayloadItem {
 }
 
 impl PayloadItem {
-    /// Shorthand for a plain (non-fill) field entry.
+    /// Shorthand for a field entry.
     #[cfg(test)]
     pub(crate) fn field(key: impl Into<String>, value: QuillValue) -> Self {
         PayloadItem::Field {
             key: key.into(),
             value,
-            fill: false,
         }
     }
 
@@ -173,15 +166,11 @@ impl Payload {
         }
     }
 
-    /// No `$` entries, no comments, no fill markers.
+    /// No `$` entries, no comments.
     pub(crate) fn from_index_map(map: IndexMap<String, QuillValue>) -> Self {
         let items = map
             .into_iter()
-            .map(|(key, value)| PayloadItem::Field {
-                key,
-                value,
-                fill: false,
-            })
+            .map(|(key, value)| PayloadItem::Field { key, value })
             .collect();
         Self::from_items(items)
     }
@@ -428,15 +417,7 @@ impl Payload {
         })
     }
 
-    /// `true` if a user field with this key is marked `!must_fill`.
-    pub fn is_fill(&self, key: &str) -> bool {
-        self.items.iter().any(|item| match item {
-            PayloadItem::Field { key: k, fill, .. } => k == key && *fill,
-            _ => false,
-        })
-    }
-
-    /// Insert or update a user field, clearing any `!must_fill` marker.
+    /// Insert or update a user field.
     /// Preserves position for an existing key; appends a new one. `$` entries
     /// and comments are untouched; replacing a field discards its
     /// `nested_comments` (the new value tree may not carry matching positions).
@@ -450,16 +431,7 @@ impl Payload {
         key: impl Into<String>,
         value: QuillValue,
     ) -> Result<Option<QuillValue>, PayloadViolation> {
-        self.insert_item(key.into(), value, false)
-    }
-
-    /// [`insert`](Self::insert) marking the field a `!must_fill` placeholder.
-    pub(crate) fn insert_fill(
-        &mut self,
-        key: impl Into<String>,
-        value: QuillValue,
-    ) -> Result<Option<QuillValue>, PayloadViolation> {
-        self.insert_item(key.into(), value, true)
+        self.insert_item(key.into(), value)
     }
 
     /// The `names` an insert would land past [`MAX_FIELD_COUNT`], and the count
@@ -487,27 +459,17 @@ impl Payload {
         (!past.is_empty()).then_some((count, past))
     }
 
-    /// Insert or replace field `key` with `value`, setting its fill marker.
-    /// Position-preserving for an existing key, append otherwise. The item's
-    /// `fill` flag is the one carrier of a root marker, so a root fill bit on
-    /// the incoming tree is cleared rather than stored beside it.
+    /// Insert or replace field `key` with `value`. Position-preserving for an
+    /// existing key, append otherwise.
     fn insert_item(
         &mut self,
         key: String,
-        mut value: QuillValue,
-        fill: bool,
+        value: QuillValue,
     ) -> Result<Option<QuillValue>, PayloadViolation> {
-        value.clear_root_fill();
         for item in self.items.iter_mut() {
-            if let PayloadItem::Field {
-                key: k,
-                value: v,
-                fill: item_fill,
-            } = item
-            {
+            if let PayloadItem::Field { key: k, value: v } = item {
                 if k == &key {
                     let old = std::mem::replace(v, value);
-                    *item_fill = fill;
                     self.prune_nested(&key);
                     return Ok(Some(old));
                 }
@@ -520,7 +482,7 @@ impl Payload {
                 max: MAX_FIELD_COUNT,
             });
         }
-        self.items.push(PayloadItem::Field { key, value, fill });
+        self.items.push(PayloadItem::Field { key, value });
         Ok(None)
     }
 
@@ -534,7 +496,7 @@ impl Payload {
     }
 
     /// Project the user-field portion into an `IndexMap<String, QuillValue>`.
-    /// Comments, fill markers, and `$` entries are dropped. Preserves order.
+    /// Comments and `$` entries are dropped. Preserves order.
     pub fn to_index_map(&self) -> IndexMap<String, QuillValue> {
         let mut map = IndexMap::new();
         for item in &self.items {
@@ -573,15 +535,6 @@ mod tests {
         let keys: Vec<&String> = fm.keys().collect();
         assert_eq!(keys, vec!["a", "b"]);
         assert_eq!(fm.get("a").unwrap().as_str(), Some("updated"));
-    }
-
-    #[test]
-    fn insert_clears_fill() {
-        let mut fm = Payload::new();
-        fm.insert_fill("k", qv("placeholder")).unwrap();
-        assert!(fm.is_fill("k"));
-        fm.insert("k", qv("user value")).unwrap();
-        assert!(!fm.is_fill("k"));
     }
 
     #[test]

@@ -75,7 +75,7 @@ describe('@quillmark/wasm/core surface', () => {
     expect(empty.cards.length).toBe(0)
   })
 
-  it('seedCard layers a $seed overlay over the schema example', () => {
+  it('seedCard commits a $seed overlay, and no schema example', () => {
     const yaml = `quill:
   name: seed_core
   version: "1.0.0"
@@ -104,10 +104,9 @@ card_kinds:
     expect(overlay.author).toBe('Custom Author')
     expect(doc.main.seed?.missing).toBeUndefined()
 
-    // seedCard layers it over the example (overlay › example); omitting the
-    // overlay yields the bare schema example.
+    // seedCard commits the overlay; omitting it leaves the example uncommitted.
     expect(field(quill.seedCard('note', overlay), 'author')).toBe('Custom Author')
-    expect(field(quill.seedCard('note'), 'author')).toBe('A. Author')
+    expect(quill.seedCard('note').payloadItems).toEqual([])
     // Total over the kind axis: an undeclared kind is undefined, not a throw.
     expect(quill.seedCard('missing')).toBeUndefined()
 

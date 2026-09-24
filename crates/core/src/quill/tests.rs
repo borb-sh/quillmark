@@ -380,8 +380,8 @@ fn test_parse_card_with_fields_in_yaml() {
     assert!(config.card_kind("myscope").unwrap().fields.is_empty());
 }
 
-/// A card schema is bounded by what one card-yaml block carries, so the seed it
-/// drives reaches the payload whole and re-parses.
+/// A card schema is bounded by what one card-yaml block carries, so the
+/// blueprint it drives spells every field and re-parses.
 #[test]
 fn a_card_declaring_more_fields_than_a_block_carries_is_refused_at_load() {
     let max = crate::error::MAX_FIELD_COUNT;
@@ -406,10 +406,9 @@ fn a_card_declaring_more_fields_than_a_block_carries_is_refused_at_load() {
         diag.message
     );
 
-    let seeded = quill_from_yaml(&yaml(max)).seed_document();
-    assert_eq!(seeded.cards()[0].payload().len(), max);
-    let reparsed = Document::parse(&seeded.to_markdown())
-        .expect("a seed at the cap re-parses")
+    let blueprint = QuillConfig::from_yaml(&yaml(max)).expect("loads").blueprint();
+    let reparsed = Document::parse(&blueprint)
+        .expect("a blueprint at the cap re-parses")
         .document;
     assert_eq!(reparsed.cards()[0].payload().len(), max);
 }
@@ -1005,14 +1004,6 @@ fn enum_rejects_a_blank_value_but_accepts_a_blank_default() {
             .any(|d| d.code.as_deref() == Some("quill::enum_blank_member")),
         "`\"\"` in values: should be a load error, got: {err:?}"
     );
-    assert!(
-        err.iter().any(|d| {
-            d.hint
-                .as_deref()
-                .is_some_and(|h| h.contains("default: \"\""))
-        }),
-        "the error should point at the key that survives, got: {err:?}"
-    );
 
     let config = quill_with_field(
         "    classification:\n      type: enum\n      values: [UNCLASSIFIED, CUI]\n      default: \"\"\n",
@@ -1260,14 +1251,14 @@ fn a_nested_inline_richtext_default_over_one_para_is_a_load_error() {
 #[test]
 fn array_of_inline_richtext_caches_each_element() {
     let config = quill_with_field(
-        "    refs:\n      type: array\n      items:\n        type: richtext\n        inline: true\n      example:\n        - \"first *ref*\"\n        - \"second ref\"\n",
+        "    refs:\n      type: array\n      items:\n        type: richtext\n        inline: true\n      default:\n        - \"first *ref*\"\n        - \"second ref\"\n",
     )
     .expect("array<inline richtext> loads");
     let field = config.main.fields.get("refs").unwrap();
     let content = field
-        .example_content
+        .default_content
         .as_ref()
-        .expect("example_content cached");
+        .expect("default_content cached");
     let arr = content.as_json().as_array().expect("array of content");
     assert_eq!(arr.len(), 2);
     assert!(
@@ -1304,12 +1295,12 @@ fn richtext_blank_is_empty_content() {
 #[test]
 fn plaintext_field_caches_literal_content() {
     let config = quill_with_field(
-        "    subject:\n      type: plaintext\n      example: \"a *literal* subject\"\n",
+        "    subject:\n      type: plaintext\n      default: \"a *literal* subject\"\n",
     )
-    .expect("plaintext example loads");
+    .expect("plaintext default loads");
     let field = config.main.fields.get("subject").unwrap();
     assert_eq!(field.r#type, FieldType::PlainText { inline: false });
-    let content = field.example_content.as_ref().expect("example_content cached");
+    let content = field.default_content.as_ref().expect("default_content cached");
     let rt = quillmark_content::serial::from_canonical_value(content.as_json()).unwrap();
     assert!(rt.is_plain(), "cached plaintext content is plain");
     assert_eq!(

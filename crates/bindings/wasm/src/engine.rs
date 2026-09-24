@@ -72,11 +72,8 @@ export interface QuillCardBody {
 
 /** Schema entry for a single field declared in a quill's `Quill.yaml`.
  *
- * One declaration, and no `required` key. `default` and `example` say what the
- * cell holds, and `default`'s absence is the obligation: a field nobody
- * declared a value for carries a `!must_fill` marker in the blueprint and warns
- * `validation::must_fill` while the document leaves it unauthored. Neither
- * gates render: an absent field blank-fills.
+ * `default` is the value an unanswered cell renders; `example` documents shape
+ * and never renders. An absent field without a `default` blank-fills.
  */
 export type QuillFieldType = "string" | "number" | "integer" | "boolean" | "array" | "object" | "date" | "datetime" | "richtext" | "plaintext" | "enum" | "matrix";
 
@@ -163,13 +160,6 @@ export type PayloadItem =
           type: "field";
           key: string;
           value: unknown;
-          fill?: boolean;
-          /**
-           * Paths to `!must_fill` markers nested *inside* `value` (the `value`
-           * projection itself is fill-free). Absent when the field has no nested
-           * placeholders. Preserved across `insertCard`.
-           */
-          nestedFills?: PathStep[][];
       }
     | { type: "comment"; text: string; inline?: boolean };
 
@@ -670,8 +660,7 @@ impl Quill {
 
     /// Validate `doc` against this quill's schema, returning every diagnostic
     /// (empty when the document is valid). Forwards the canonical
-    /// `validation::*` diagnostics the engine emits, including the non-fatal
-    /// `validation::must_fill` warning per `!must_fill` marker left behind.
+    /// `validation::*` diagnostics the engine emits.
     #[wasm_bindgen(js_name = validate, unchecked_return_type = "Diagnostic[]")]
     pub fn validate(&self, doc: &Document) -> Result<JsValue, JsValue> {
         let diags = self.inner.validate(&doc.inner);
@@ -706,8 +695,7 @@ impl Quill {
     /// transport door (`fromMarkdown`, `fromStored`, a stored row).
     ///
     /// Idempotent: an equal value is not rewritten, so YAML comments and stored
-    /// bytes survive. A `!must_fill` marker anywhere in a field's value skips
-    /// that field, and a value the strict write refuses stays as authored with a
+    /// bytes survive. A value the strict write refuses stays as authored with a
     /// diagnostic. Throws when `doc` declares a different `$quill`, before any
     /// mutation.
     #[wasm_bindgen(js_name = conform, unchecked_return_type = "Diagnostic[]")]
@@ -797,8 +785,8 @@ impl Document {
     /// A blank document: a main card carrying only `$quill`, an empty body, and
     /// no composable cards. Absent fields resolve at render time (`default`, else
     /// the field's blank), so nothing the caller did not set reaches the output.
-    /// For an example-filled starter use `Quill.seedDocument()`. Throws on an
-    /// invalid quill reference.
+    /// For one instance of every card kind use `Quill.seedDocument()`. Throws on
+    /// an invalid quill reference.
     #[wasm_bindgen(constructor)]
     pub fn new(quill_ref: &str) -> Result<Document, JsValue> {
         let qr: quillmark_core::version::QuillReference = quill_ref
@@ -852,7 +840,7 @@ impl Document {
     /// tag advances only when the wire format changes, not on every release.
     #[wasm_bindgen(js_name = currentStorageVersion)]
     pub fn current_storage_version() -> String {
-        quillmark_core::document::STORAGE_V0_115_0.to_string()
+        quillmark_core::document::STORAGE_V0_116_0.to_string()
     }
 
     /// Authoring-format rules for the card-yaml markdown surface, re-exposed from
@@ -862,7 +850,7 @@ impl Document {
         quillmark_core::document::FORMAT_RULES.to_string()
     }
 
-    /// A blueprint's fill obligation for the given `quillName`, re-exposed from
+    /// The instruction to fill in the blueprint of `quillName`, re-exposed from
     /// core. Carries no tool name: pair it with your own next-step directive.
     #[wasm_bindgen(js_name = blueprintInstruction)]
     pub fn blueprint_instruction(quill_name: &str) -> String {
@@ -1143,22 +1131,6 @@ impl Document {
         }
     }
 
-    /// Whether the field at `addr` is marked `!must_fill`. A bare string is `Addr`
-    /// shorthand for `{ field }`. `false` for an absent field and for a body
-    /// address; only an out-of-range `addr.card` throws.
-    #[wasm_bindgen(js_name = isFill)]
-    pub fn is_fill(
-        &self,
-        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
-    ) -> Result<bool, JsValue> {
-        let addr = Addr::from_js_or_string(&addr)?;
-        let card = self.addr_card_ref(&addr)?;
-        Ok(match &addr.field {
-            None => false,
-            Some(field) => card.payload().is_fill(field),
-        })
-    }
-
     /// The whole `$ext` map at `addr` (a card address, absent `card` = main), or
     /// `undefined` when the card carries none: the `$ext` read that avoids
     /// serializing the whole card. Throws on a present `field` or an
@@ -1265,7 +1237,7 @@ impl Document {
     /// Store a field verbatim at `addr`, deferring coercion to render; the typed
     /// write is [`commitField`](Document::commit_field). A bare string is `Addr`
     /// shorthand for `{ field }`; `{ card: 2, field: "qty" }` targets a
-    /// composable card. Clears any `!must_fill` marker. A body address throws:
+    /// composable card. A body address throws:
     /// write a body with `revise` / `overwrite`. Throws on an out-of-range card
     /// or a malformed name.
     #[wasm_bindgen(js_name = storeField)]
@@ -1281,24 +1253,6 @@ impl Document {
         let base = self.addr_base(&addr);
         self.addr_card_mut(&addr)?
             .store_field(&field, qv)
-            .map_err(|e| edit_error_to_js(&e, &base))
-    }
-
-    /// Store a field verbatim at `addr` and mark it `!must_fill`. A body address
-    /// throws; same validation as [`storeField`](Document::store_field).
-    #[wasm_bindgen(js_name = storeFill)]
-    pub fn store_fill(
-        &mut self,
-        #[wasm_bindgen(unchecked_param_type = "Addr | string")] addr: JsValue,
-        value: JsValue,
-    ) -> Result<(), JsValue> {
-        let addr = Addr::from_js_or_string(&addr)?;
-        let field = addr.require_field("storeFill")?.to_string();
-        let json = js_value_to_json(value, "storeFill")?;
-        let qv = quillmark_core::value::QuillValue::from_json(json);
-        let base = self.addr_base(&addr);
-        self.addr_card_mut(&addr)?
-            .store_fill(&field, qv)
             .map_err(|e| edit_error_to_js(&e, &base))
     }
 

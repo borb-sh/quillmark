@@ -99,20 +99,16 @@ def test_wire_refusal_carries_the_mutator_code():
     all stays a ValueError."""
     doc = Document.from_markdown(SIMPLE_MD)
 
-    def with_field(key, value, fill=False):
+    def with_field(key, value):
         return {
             "kind": "note",
-            "payload_items": [
-                {"type": "field", "key": key, "value": value, "fill": fill}
-            ],
+            "payload_items": [{"type": "field", "key": key, "value": value}],
         }
 
     with raises_edit_code("edit::invalid_kind_name"):
         doc.insert_card(make_card("BadKind", {"x": 1}))
     with raises_edit_code("edit::invalid_field_name"):
         doc.insert_card(with_field("bad-name", 1))
-    with raises_edit_code("edit::fill_on_mapping"):
-        doc.insert_card(with_field("addr", {"a": 1}, fill=True))
     with raises_edit_code("parse::invalid_quill_reference"):
         doc.insert_card({"kind": "note", "quill": "@nope"})
 

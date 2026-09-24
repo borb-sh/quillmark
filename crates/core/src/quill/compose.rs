@@ -216,7 +216,7 @@ impl Quill {
     /// render floor refuses is a blocker here: values are judged in the form the
     /// floor builds from them (`conform_value` at `Leniency::Render`).
     /// `prose/canon/SCHEMAS.md` §"Type coercion" and §"Native validation" carry
-    /// the leniencies and the two `validation::must_fill` triggers.
+    /// the leniencies.
     ///
     /// Field values, defaults, and presentation order are not part of this
     /// surface: read them from the [`Document`] payload and the quill schema
@@ -227,14 +227,6 @@ impl Quill {
             Err(errors) => errors.iter().map(|e| e.to_diagnostic()).collect(),
         };
         diags.extend(validate_unclaimed(self.config(), doc));
-        let marked = validate_fills(self.config(), doc);
-        let claimed: HashSet<Option<String>> = marked.iter().map(|d| d.path.clone()).collect();
-        diags.extend(marked);
-        diags.extend(
-            validate_unauthored(self.config(), doc)
-                .into_iter()
-                .filter(|d| !claimed.contains(&d.path)),
-        );
         diags.extend(validate_variants(self.config(), doc));
         diags.extend(validate_cardinality(self.config(), doc));
         diags.extend(self.validate_seed(doc));
@@ -314,17 +306,15 @@ impl Quill {
     ///
     /// The leanest of the three canonical documents, beside the annotated
     /// [`blueprint`](crate::quill::QuillConfig::blueprint) and the
-    /// example-filled [`seed_document`](Self::seed_document).
+    /// [`seed_document`](Self::seed_document).
     pub fn empty_document(&self) -> Document {
         seed::empty_document(self)
     }
 
     /// Seed a starter [`Document`]: the main card plus one instance of each
-    /// declared composable card kind, each committing its fields' `example`
-    /// values and leaving all other fields absent (interpolated at render:
-    /// `default` → the field's blank). The committed, structured "filled-out" twin
-    /// of the [`blueprint`](crate::quill::QuillConfig::blueprint). See the
-    /// `seed` module.
+    /// declared composable card kind, each committing its `body.example` and
+    /// leaving every field absent (interpolated at render: `default` → the
+    /// field's blank). See the `seed` module.
     pub fn seed_document(&self) -> Document {
         seed::seed_document(self)
     }
@@ -336,8 +326,8 @@ impl Quill {
     }
 
     /// Seed a starter composable [`Card`] of the given kind (carries `$kind`),
-    /// layering an optional per-kind [`SeedOverlay`] over the schema-example
-    /// base (`overlay › example › absent`); `None` if the kind is not declared.
+    /// committing an optional per-kind [`SeedOverlay`]'s fields and body over
+    /// the schema seed; `None` if the kind is not declared.
     /// Use to add a new card to a document: pass the document's `$seed` entry
     /// for the kind (`doc.main().seed().and_then(|m| m.get(card_kind)).and_then(SeedOverlay::from_json)`)
     /// so a card spawned into a template-derived document inherits its curated
@@ -610,7 +600,7 @@ fn is_today(value: &QuillValue, field: &FieldSchema) -> bool {
 /// it: the spelling coercion reads (`matrix_member_spelling`), with the tick
 /// itself put through the render floor's own boolean coercion. Reading the raw
 /// scalar instead would call `held: "false"` ticked where the plate calls it
-/// unticked, and obligation would ask for columns nothing renders.
+/// unticked.
 fn is_held(member: &FieldSchema, stored: &serde_json::Value) -> bool {
     let Some(spelled) = super::config::matrix_member_spelling(stored) else {
         return false;
@@ -804,20 +794,6 @@ fn rebuild_payload_with_meta(source: &Card, fields: IndexMap<String, QuillValue>
     payload
 }
 
-/// Surface every `!must_fill` marker as a non-fatal **warning**, root-and-nested
-/// across the main card and every composable card.
-///
-/// The marker fires whether or not the cell carries a suggested value, and never
-/// gates render (the cell blank-fills or uses its suggested value). A strict
-/// consumer treats any outstanding marker as "not done".
-fn validate_fills(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
-    let mut diags = Vec::new();
-    for (_, card, path) in schema_cards(config, doc) {
-        collect_fill_diags(card, &path, &mut diags);
-    }
-    diags
-}
-
 /// Every card of `doc`, the main card first, with the schema its kind resolves
 /// to (`None` for an undeclared kind) and the [`DocPath`] it is reported under.
 ///
@@ -834,170 +810,6 @@ fn schema_cards<'a>(
             (schema, card, DocPath::card(kind, index))
         }),
     )
-}
-
-/// Append a `validation::must_fill` warning for each marker in `card`'s fields.
-fn collect_fill_diags(card: &Card, base: &DocPath, out: &mut Vec<Diagnostic>) {
-    let payload = card.payload();
-    for (key, value) in payload.iter() {
-        let field_path = base.field(key);
-        // Root marker (the field-level `fill` flag) plus any nested markers
-        // carried on the value tree, each rebased onto the field path.
-        if payload.is_fill(key) {
-            out.push(fill_warning(&field_path));
-        }
-        for nested in value.nonroot_fill_paths() {
-            let nested_path = nested.iter().fold(field_path.clone(), |p, s| p.segment(s));
-            out.push(fill_warning(&nested_path));
-        }
-    }
-}
-
-pub(crate) fn fill_warning(path: &DocPath) -> Diagnostic {
-    let path = path.to_string();
-    Diagnostic::new(
-        Severity::Warning,
-        format!("Field `{path}` is marked `!must_fill`: a placeholder awaiting a value."),
-    )
-    .with_code("validation::must_fill".to_string())
-    .with_path(path)
-    .with_arg("trigger", "marker".into())
-    .with_hint(
-        "Replace the value and drop the `!must_fill` marker, or remove the marker if the \
-         current value is intended."
-            .to_string(),
-    )
-}
-
-/// Surface every schema-side must-fill cell the document leaves **unauthored**
-/// as a non-fatal warning, across the main card and every composable card. The
-/// schema half of `validation::must_fill`, reaching documents that carry no
-/// marker to read.
-///
-/// Unauthored is **absent-or-null**, never [`FieldSource`]: the rung is one per
-/// top-level field, so a present typed dict reports `Authored` as a whole
-/// ([`resolve_value_sourced`]) and a source-keyed check goes silent on a
-/// must-fill property inside it.
-fn validate_unauthored(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
-    let mut diags = Vec::new();
-    for (schema, card, path) in schema_cards(config, doc) {
-        let Some(schema) = schema else { continue };
-        collect_unauthored_diags(schema, card, &path, &mut diags);
-    }
-    diags
-}
-
-fn collect_unauthored_diags(
-    schema: &CardSchema,
-    card: &Card,
-    base: &DocPath,
-    out: &mut Vec<Diagnostic>,
-) {
-    let payload = card.payload();
-    for (name, field) in &schema.fields {
-        collect_unauthored_field(field, payload.get(name), &base.field(name), out);
-    }
-}
-
-/// Warn at each **cell** the schema obliges and the document leaves unauthored.
-/// Cells sit where the blueprint stamps its markers (`prose/canon/BLUEPRINT.md`
-/// § "Placeholder value precedence"), so the two triggers speak about the same
-/// paths:
-///
-/// - A **typed dictionary** is never itself a cell: `!must_fill` is rejected on
-///   a mapping (`prose/references/markdown-spec.md` §3.4). Recursion runs
-///   present or absent, so an absent `address` warns at `address.street`, a path
-///   an editor can resolve and a marker can occupy.
-/// - Every **other** type is the cell, the array included, so `[]` is an
-///   authored answer. A present array resolves its elements against the item
-///   schema; an absent one has no index to anchor on and warns at the container.
-fn collect_unauthored_field(
-    field: &FieldSchema,
-    value: Option<&QuillValue>,
-    path: &DocPath,
-    out: &mut Vec<Diagnostic>,
-) {
-    // A variant container is not itself a cell, for the reason a typed dictionary
-    // is not: `!must_fill` is rejected on a mapping. Its cells are the
-    // discriminant and — *only in the world the discriminant selects* — that
-    // world's fields. This is where obligation becomes conditional: a `poc` with
-    // no `default:` is obliged on a CUI memo and silent on every other one, which
-    // is the thing `must_fill` alone cannot say.
-    if field.is_variant_bearing() {
-        let json = value.map(|v| v.as_json());
-        let object = json.and_then(|j| j.as_object());
-        // Pre-coercion the cell may still be the bare scalar; read either.
-        let authored = FieldSchema::authored_member(json);
-
-        let discriminant = path.field(VARIANT_DISCRIMINANT_KEY);
-        if authored.is_none() && field.must_fill() {
-            out.push(unauthored_warning(&discriminant));
-        }
-        let member = field.selected_member(json);
-
-        if let Some(fields) = field.variant_fields(&member) {
-            for (name, schema) in fields {
-                let cell = object
-                    .and_then(|o| o.get(name))
-                    .map(|j| QuillValue::from_json(j.clone()));
-                collect_unauthored_field(schema, cell.as_ref(), &path.field(name), out);
-            }
-        }
-        return;
-    }
-
-    // A matrix's obligation is per column *inside a held member*, the variant
-    // rule one level down: an unticked member asks for nothing, and the matrix
-    // itself obliges nothing. An absent matrix is therefore silent, where an
-    // absent typed dictionary warns at each of its must-fill leaves.
-    if let (FieldType::Matrix { .. }, Some(members)) = (&field.r#type, field.namespace_props()) {
-        let obj = value.and_then(|v| v.as_json().as_object());
-        for (id, member) in members {
-            let Some(cell) = obj.and_then(|o| o.get(id)) else {
-                continue;
-            };
-            if !is_held(member, cell) {
-                continue;
-            }
-            // The spelling, so a bare `flight_cc: true` reaches the columns as
-            // the member object it means.
-            let Some(spelled) = super::config::matrix_member_spelling(cell) else {
-                continue;
-            };
-            collect_unauthored_field(
-                member,
-                Some(&QuillValue::from_json(serde_json::Value::Object(spelled))),
-                &path.field(id),
-                out,
-            );
-        }
-        return;
-    }
-
-    if let Some(props) = field.namespace_props() {
-        let obj = value.and_then(|v| v.as_json().as_object());
-        for (name, prop) in props {
-            let pv = obj
-                .and_then(|o| o.get(name))
-                .map(|j| QuillValue::from_json(j.clone()));
-            collect_unauthored_field(prop, pv.as_ref(), &path.field(name), out);
-        }
-        return;
-    }
-
-    let Some(present) = value.filter(|v| !v.as_json().is_null()) else {
-        if field.must_fill() {
-            out.push(unauthored_warning(path));
-        }
-        return;
-    };
-
-    if let (FieldType::Array, Some(items)) = (&field.r#type, &field.items) {
-        for (index, element) in present.as_json().as_array().into_iter().flatten().enumerate() {
-            let element = QuillValue::from_json(element.clone());
-            collect_unauthored_field(items, Some(&element), &path.index(index), out);
-        }
-    }
 }
 
 /// Report the input no declaration claims: a card whose `$kind` is missing or
@@ -1406,7 +1218,7 @@ pub(crate) fn out_of_variant_warning(path: &DocPath, owner: &str, member: &str) 
 /// main card and every composable card.
 ///
 /// `max:` is page geometry: the element count past which the surplus leaves the
-/// page the field is laid out on. The obligation family, never a gate — a
+/// page the field is laid out on. A warning, never a gate — a
 /// document over the limit renders, with the plate's own rule for the surplus.
 fn validate_cardinality(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic> {
     let mut diags = Vec::new();
@@ -1422,11 +1234,9 @@ fn validate_cardinality(config: &QuillConfig, doc: &Document) -> Vec<Diagnostic>
 
 /// Warn at each over-filled array `field` holds, at whatever depth: an array
 /// nested in a typed dictionary, a matrix member, a live variant world, or
-/// another array's elements is capped by its own declaration.
-///
-/// The walk mirrors [`collect_unauthored_field`]'s so the two speak about the
-/// same paths; unlike that one it descends only what the document authored,
-/// since an absent array has no count to exceed.
+/// another array's elements is capped by its own declaration. The walk descends
+/// only what the document authored, since an absent array has no count to
+/// exceed.
 fn collect_cardinality_diags(
     field: &FieldSchema,
     value: Option<&QuillValue>,
@@ -1516,25 +1326,6 @@ pub(crate) fn cardinality_warning(path: &DocPath, max: u32, actual: usize) -> Di
     ))
 }
 
-pub(crate) fn unauthored_warning(path: &DocPath) -> Diagnostic {
-    let path = path.to_string();
-    Diagnostic::new(
-        Severity::Warning,
-        format!("Field `{path}` must be filled in: nobody has authored a value."),
-    )
-    .with_code("validation::must_fill".to_string())
-    .with_path(path)
-    .with_arg("trigger", "unauthored".into())
-    .with_hint(
-        "Author a value. To record that empty is the intended answer, write the field's \
-         blank explicitly rather than leaving it out."
-            .to_string(),
-    )
-}
-
-#[cfg(test)]
-mod must_fill_tests;
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1562,67 +1353,6 @@ properties:
         assert_eq!(
             resolved,
             json!({ "street": "1 Infinite Loop", "zip": 0, "note": "extra" })
-        );
-    }
-
-    #[test]
-    fn unknown_kind_card_fill_path_is_bare_index() {
-        use crate::document::Payload;
-
-        let config = QuillConfig::from_yaml(
-            r#"
-quill:
-  name: fills_test
-  backend: typst
-  description: fill path tests
-  version: 1.0.0
-main:
-  fields:
-    title:
-      type: string
-      default: ""
-card_kinds:
-  known:
-    fields:
-      note:
-        type: string
-"#,
-        )
-        .unwrap();
-
-        let mut main = Payload::new();
-        main.set_quill("fills_test@1.0.0".parse().unwrap());
-        main.set_kind("main");
-        let main = Card::from_parts(main, quillmark_content::model::Normalized::empty());
-
-        let mut unknown = Card::new("mystery").unwrap();
-        unknown
-            .store_fill("note", QuillValue::from_json(json!(null)))
-            .unwrap();
-
-        let mut kindless =
-            Card::from_parts(Payload::new(), quillmark_content::model::Normalized::empty());
-        kindless
-            .store_fill("memo", QuillValue::from_json(json!(null)))
-            .unwrap();
-
-        let doc = Document::from_main_and_cards(main, vec![unknown, kindless]);
-        let paths: Vec<String> = validate_fills(&config, &doc)
-            .iter()
-            .filter_map(|d| d.path.clone())
-            .collect();
-
-        assert!(
-            paths.contains(&"cards[0].note".to_string()),
-            "unknown-kind card fill must anchor at the bare index; got {paths:?}"
-        );
-        assert!(
-            !paths.iter().any(|p| p.starts_with("cards.mystery")),
-            "unknown-kind card fill must NOT carry the kind segment; got {paths:?}"
-        );
-        assert!(
-            paths.contains(&"cards[1].memo".to_string()),
-            "kindless card fill must anchor at the bare index; got {paths:?}"
         );
     }
 

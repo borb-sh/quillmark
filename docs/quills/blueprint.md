@@ -1,19 +1,18 @@
 # Blueprint & Seeding
 
-A quill's schema yields two ready-made documents: a **blueprint** (an annotated form to fill) and a **seed** (a filled-out starter). Both come from `Quill.yaml` alone: no one hand-writes them.
+A quill's schema yields two ready-made documents: a **blueprint** (an annotated form to fill) and a **seed** (a starter document to edit). Both come from `Quill.yaml` alone: no one hand-writes them.
 
 ## Blueprint: the authoring surface
 
-`blueprint()` emits an annotated Markdown document, the same shape an author writes, pre-filled with placeholders, examples, and type hints. It is the authoring surface for LLM and MCP consumers: fill in the placeholders and the structure, `$` metadata, and body markers come for free. The emitted document is itself valid: it parses, round-trips, and renders.
+`blueprint()` emits an annotated Markdown document, the same shape an author writes: each cell holds its `default:` or is left empty, with examples and type hints as comments. It is the authoring surface for LLM and MCP consumers: answer the empty cells and the structure, `$` metadata, and body markers come for free. The emitted document is itself valid: it parses, round-trips, and renders.
 
 ```
 ~~~
 $quill: cmu_letter@0.1.0 # keep verbatim
 $kind: main
 # The recipient's name and full mailing address.
-recipient: !must_fill # array<string>
-  - Mr. John Doe
-  - 123 Main St
+# e.g. [Mr. John Doe, 123 Main St]
+recipient: # array<string>
 # The department name for the letterhead.
 # e.g. Department of Electrical and Computer Engineering
 department: "" # string
@@ -26,16 +25,16 @@ Two annotation slots, disjoint by purpose: **leading `# …` lines** carry prose
 
 One thing in the own-line slot is not an annotation. An `enum` declaring `variants:` shows the cells of the world its discriminant names live, and every other world's cells commented out under a `# when <MEMBER>:` header — the same cells, with a `# ` in front, at the column they would sit at. Choose that member and delete the `# `.
 
-The reader's one rule: a **`!must_fill`** marker present → replace it before shipping; a concrete value present → shippable as-is. The cell's *value* is `default:` › `example:` › bare; the *marker* is `default:`'s absence, so a cell can carry a suggested `example` **and** a marker asking a human to confirm it. A surviving marker never blocks render: it raises only the non-fatal `validation::must_fill` warning; a strict consumer (an LLM authoring loop) treats any outstanding marker as "not done."
+The reader's one rule: an empty cell (`title: # string`) awaits a value; a concrete value is the field's `default:`, shippable as-is. An `example:` never takes a cell: it always rides a `# e.g.` line above the field, as a one-line flow collection for an array or object, and is the schema's illustration rather than real data. An empty cell renders at the field's blank, and nothing warns about it.
 
-## Seeding: the filled-out twin
+## Seeding: the starter document
 
-Seeding materializes a real `Document` (committed, structured content) rather than an annotated string. It commits each field's `example:` and leaves every other field absent, so the render floor fills `default:`, else the field's blank, underneath. Hand it to an editor as a "new document" starter, or render it directly.
+Seeding materializes a real `Document` rather than an annotated string: the main card plus one card per composable kind, each body taken from `body.example`, and every field left absent so the render floor fills `default:`, else the field's blank. No `example:` is committed. Hand it to an editor as a "new document" starter, or render it directly.
 
 | Projection | Intent | Output |
 |---|---|---|
 | `blueprint` | "give me the form to fill" | annotated Markdown string |
-| seeding | "give me a filled-out one" | committed `Document` |
+| seeding | "give me a starter document" | committed `Document` |
 
 ## Accessors
 

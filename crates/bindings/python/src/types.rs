@@ -204,8 +204,7 @@ impl PyQuill {
 
     /// Validate `doc` against this quill's schema, returning a list of diagnostic
     /// dicts (empty when the document is valid). Forwards the canonical
-    /// `validation::*` diagnostics the engine emits, including the non-fatal
-    /// `validation::must_fill` warning per `!must_fill` marker left behind.
+    /// `validation::*` diagnostics the engine emits.
     fn validate<'py>(
         &self,
         py: Python<'py>,
@@ -247,8 +246,7 @@ impl PyQuill {
     /// transport door (`from_markdown`, `from_stored`, a stored row).
     ///
     /// Idempotent and a byte no-op on an already-canonical document, comments
-    /// included. A `!must_fill` marker anywhere in a field's value skips that
-    /// field; a value the strict write refuses stays as authored with a
+    /// included. A value the strict write refuses stays as authored with a
     /// diagnostic. Raises `QuillmarkError` when `doc` declares a different
     /// `$quill`, before any mutation.
     fn conform<'py>(
@@ -333,7 +331,7 @@ impl PyDocument {
     /// A blank document: a main card carrying only `$quill`, an empty body, and
     /// no composable cards. Absent fields resolve at render time (`default`, else
     /// the field's blank), so nothing the caller did not set reaches the output.
-    /// For an example-filled starter use `Quill.seed_document()`. Raises
+    /// For one instance of every card kind use `Quill.seed_document()`. Raises
     /// `ValueError` on an invalid quill reference.
     #[new]
     fn new(quill_ref: &str) -> PyResult<Self> {
@@ -391,7 +389,7 @@ impl PyDocument {
     /// Storage version this build writes.
     #[staticmethod]
     fn current_storage_version() -> &'static str {
-        quillmark_core::document::STORAGE_V0_115_0
+        quillmark_core::document::STORAGE_V0_116_0
     }
 
     /// Canonical card-yaml authoring rules.
@@ -400,7 +398,7 @@ impl PyDocument {
         quillmark_core::document::FORMAT_RULES
     }
 
-    /// A blueprint's fill obligation for `quill_name`. Carries no tool name:
+    /// The instruction to fill in the blueprint of `quill_name`. Carries no tool name:
     /// pair it with your own next-step directive.
     #[staticmethod]
     fn blueprint_instruction(quill_name: &str) -> String {

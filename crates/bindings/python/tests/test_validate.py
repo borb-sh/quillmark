@@ -83,12 +83,12 @@ def test_empty_document_is_the_blank_document_under_the_quill_reference(tmp_path
     assert empty.cards == []
 
 
-def test_seed_document_commits_examples(tmp_path):
-    """seed_document commits example values and leaves default-only fields
-    absent; the schema reports the declared default."""
+def test_seed_document_commits_no_field(tmp_path):
+    """seed_document leaves every field absent, `example:` and `default:`
+    alike; the schema reports the declared default."""
     quill = make_quill(tmp_path)
     md = quill.seed_document().to_markdown()
-    assert "FIRST LAST" in md
+    assert "FIRST LAST" not in md
     assert "TBD" not in md
     assert quill.schema["card_kinds"]["note"]["fields"]["body"]["default"] == "TBD"
     assert "default" not in quill.schema["main"]["fields"]["title"]
@@ -96,17 +96,17 @@ def test_seed_document_commits_examples(tmp_path):
 
 def test_seed_main_and_card(tmp_path):
     """seed_main / seed_card return per-card seeds (the Document.main / cards
-    dict shape), each committing its fields' example; seed_card is None for an
-    unknown kind."""
+    dict shape), each committing no field; seed_card is None for an unknown
+    kind."""
     quill = make_quill(tmp_path)
 
     main = quill.seed_main()
     assert main["kind"] == "main"
-    assert "FIRST LAST" in json.dumps(main)
+    assert main["payload_items"] == []
 
     note = quill.seed_card("note")
     assert note["kind"] == "note"
-    assert "NOTE TAG" in json.dumps(note)
+    assert note["payload_items"] == []
     assert quill.seed_card("missing") is None
 
 

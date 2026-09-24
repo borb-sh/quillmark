@@ -193,11 +193,12 @@ $seed:
 ~~~
 ````
 
-`Quill::seed_card(kind, overlay)` layers the overlay over the quill's
-schema-`example:` seed, per field `overlay › example › absent`, ordered by
-field declaration order (see [SCHEMAS.md](SCHEMAS.md) "Document seeding"). The overlay is
-*sparse*: fields it omits keep flowing from the live quill seed, so it tracks
-the quill rather than freezing a snapshot. The overlay is read off the main
+`Quill::seed_card(kind, overlay)` commits the overlay into the new card, per
+field `overlay › absent`, in field declaration order, and its body as
+`overlay $body › body.example › empty` (see [SCHEMAS.md](SCHEMAS.md) "Document
+seeding"). The overlay is *sparse*: fields it omits stay absent and resolve from
+the live quill at render, so it tracks the quill rather than freezing a
+snapshot. The overlay is read off the main
 card's `$seed` map (`Card::seed`, exposed as `card.seed` in the bindings) and
 parsed by `SeedOverlay::from_json`; the consumer passes it to `seed_card`
 (`quill.seedCard(kind, doc.main.seed?.[kind])`): a read of the document, never

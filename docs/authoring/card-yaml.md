@@ -174,36 +174,23 @@ title: My Document  # an inline comment
 Comments adjacent to `$` metadata keys (own-line or inline) round-trip
 identically to comments on data fields.
 
-## Placeholder Fields (`!must_fill`)
+## YAML Tags
 
-A field tagged `!must_fill` marks the value as a placeholder awaiting input.
-The tag round-trips through parsing and emit, so editors and bindings can
-detect and update placeholders without losing them.
+Custom YAML tags (`!include`, `!env`, `!fill`, …) are not supported: each is
+dropped with a `parse::unsupported_yaml_tag` warning and its value kept.
+
+`!must_fill` in block style on a data field drops together with the value under
+it: the field or nested property reads as null, and the warning names its path.
+Inside `$ext` or `$seed` it drops like any other tag, keeping the value.
 
 ```yaml
-recipient: !must_fill
-department: !must_fill Department Here
-tags: !must_fill []
+subject: !must_fill Example   # reads as `subject:` (unanswered)
 addr:
-  street: !must_fill        # nested leaf, inside an object
+  street: !must_fill Main     # reads as `street:`; `city` is kept
   city: Anytown
-recipients:
-  - name: !must_fill        # nested leaf, inside an array element
-    role: lead
 ```
 
-`!must_fill` is valid on scalars (string, number, bool, null) and sequences,
-both at the top level and on leaves nested inside objects and array elements.
-It is rejected on mappings (tag the leaves, not the container). `!must_fill`
-is the only placeholder tag; every other custom YAML tag (`!include`, `!env`,
-`!fill`) is dropped with a warning and the value kept.
-
-Use **block style** for placeholders, on a data field. A marker written inside
-a flow collection (`addr: {street: !must_fill}`), on a bare sequence element
-(`- !must_fill`), nested inside a `$` metadata value (`$seed`, `$ext`), or
-under a YAML anchor/merge key is **not** preserved. Every case but the anchor
-one emits a `parse::fill_marker_unsupported_position` warning so the loss is
-never silent.
+A field awaiting input is written empty (`subject:`) or left out.
 
 ## Card Blocks
 
@@ -257,9 +244,9 @@ opener, the `$` metadata lines in the canonical order `$quill`, `$kind`,
 block emits `$quill` and `$kind: main` plus any `$ext` / `$seed` it
 declared (`$seed` is root-only); composable cards emit `$kind: <kind>` plus
 any `$ext` they declared. Fence markers,
-key ordering, and YAML quoting are normalised; `!must_fill` tags and YAML
-comments (own-line and inline trailing, including those adjacent to `$`
-lines) survive the round-trip.
+key ordering, and YAML quoting are normalised; YAML comments (own-line and
+inline trailing, including those adjacent to `$` lines) survive the
+round-trip.
 
 The payload is coerced and validated against the schema declared in the
 Quill's `Quill.yaml` (`main.fields`). See the
