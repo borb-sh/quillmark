@@ -55,39 +55,21 @@ def _md(*lines):
 
 
 def test_validate_returns_empty_list_for_clean_document(tmp_path):
-    """A complete, well-formed document produces no diagnostics."""
     quill = make_quill(tmp_path)
     doc = Document.from_markdown(_md('title: "Hello"', "count: 1", 'byline: "A B"'))
-
-    diags = quill.validate(doc)
-
-    assert isinstance(diags, list)
-    assert diags == []
+    assert quill.validate(doc) == []
 
 
 def test_validate_forwards_type_mismatch(tmp_path):
-    """A bad type surfaces with its canonical code, path, and hint."""
+    """A bad type surfaces with its code, path and hint, as JSON-serializable dicts."""
     quill = make_quill(tmp_path)
     doc = Document.from_markdown(_md('title: "Hello"', 'count: "not-a-number"'))
 
     diags = quill.validate(doc)
-    mismatch = next(
-        (d for d in diags if d.get("code") == "validation::type_mismatch"), None
-    )
-    assert mismatch is not None, f"expected type_mismatch; got: {diags}"
+    mismatch = next(d for d in diags if d.get("code") == "validation::type_mismatch")
     assert mismatch["path"] == "main.count"
     assert mismatch.get("hint")
-
-
-def test_validate_json_serializable(tmp_path):
-    """The diagnostics list is fully JSON-serializable via json.dumps."""
-    quill = make_quill(tmp_path)
-    doc = Document.from_markdown(_md('count: "nope"'))
-
-    diags = quill.validate(doc)
-    dumped = json.dumps(diags)
-    assert isinstance(dumped, str)
-    assert len(json.loads(dumped)) == len(diags)
+    assert json.loads(json.dumps(diags)) == diags
 
 
 def test_empty_document_is_the_blank_document_under_the_quill_reference(tmp_path):
@@ -102,15 +84,14 @@ def test_empty_document_is_the_blank_document_under_the_quill_reference(tmp_path
 
 
 def test_seed_document_commits_examples(tmp_path):
-    """seed_document returns a Document committing example values and leaving
-    default-only fields absent (interpolated at render, not persisted)."""
+    """seed_document commits example values and leaves default-only fields
+    absent; the schema reports the declared default."""
     quill = make_quill(tmp_path)
-
-    doc = quill.seed_document()
-    md = doc.to_markdown()
-
-    assert "FIRST LAST" in md, "byline example must be committed"
-    assert "TBD" not in md, "note body default must not be persisted"
+    md = quill.seed_document().to_markdown()
+    assert "FIRST LAST" in md
+    assert "TBD" not in md
+    assert quill.schema["card_kinds"]["note"]["fields"]["body"]["default"] == "TBD"
+    assert "default" not in quill.schema["main"]["fields"]["title"]
 
 
 def test_seed_main_and_card(tmp_path):
@@ -121,37 +102,31 @@ def test_seed_main_and_card(tmp_path):
 
     main = quill.seed_main()
     assert main["kind"] == "main"
-    assert "FIRST LAST" in json.dumps(main), "byline example must be committed"
+    assert "FIRST LAST" in json.dumps(main)
 
     note = quill.seed_card("note")
     assert note["kind"] == "note"
-    assert "NOTE TAG" in json.dumps(note), "tag example must be committed"
+    assert "NOTE TAG" in json.dumps(note)
+    assert quill.seed_card("missing") is None
 
-    assert quill.seed_card("missing") is None, "unknown kind must be None"
 
-
-def test_document_seed_and_store_seed_overlay_round_trip(tmp_path):
-    """main['seed'][kind] reads what store_seed_overlay wrote; the overlay
-    feeds straight back into seed_card as a plain dict; remove_seed_overlay
-    clears it."""
-
-    def seed_of(document, kind):
-        # The per-kind overlay lives on the main card's `$seed` map; there is
-        # no `Document.seed` convenience.
-        return (document.main["seed"] or {}).get(kind)
-
+def test_seed_overlay_round_trip(tmp_path):
+    """seed_overlay reads what store_seed_overlay wrote, the same entry
+    main['seed'] carries; it feeds seed_card as a plain dict;
+    remove_seed_overlay clears it."""
     quill = make_quill(tmp_path)
-    doc = Document.from_markdown(_md())  # empty main card
+    doc = Document.from_markdown(_md())
 
-    assert seed_of(doc, "note") is None
+    assert doc.seed_overlay("note") is None
     doc.store_seed_overlay("note", {"tag": "WRITTEN"})
-    assert seed_of(doc, "note")["tag"] == "WRITTEN"
+    assert doc.seed_overlay("note") == {"tag": "WRITTEN"}
+    assert doc.main["seed"]["note"] == {"tag": "WRITTEN"}
 
-    card = quill.seed_card("note", seed_of(doc, "note"))
+    card = quill.seed_card("note", doc.seed_overlay("note"))
     assert "WRITTEN" in json.dumps(card)
 
     doc.remove_seed_overlay("note")
-    assert seed_of(doc, "note") is None
+    assert doc.seed_overlay("note") is None
 
 
 BOUND_QUILL_YAML = """quill:
@@ -194,8 +169,7 @@ def test_conform_converges_a_transported_document(tmp_path):
     md = _bound_md("subject: Q3 **results**", "note: 'a *literal* line'")
     doc = Document.from_markdown(md)
 
-    diags = quill.conform(doc)
-    assert isinstance(diags, list) and diags == []
+    assert quill.conform(doc) == []
     assert doc.to_stored() == quill.parse(md).to_stored()
     assert quill.conform(doc) == []
 
