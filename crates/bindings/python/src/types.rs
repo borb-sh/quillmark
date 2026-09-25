@@ -58,7 +58,7 @@ impl PyQuillmark {
         regions: bool,
         today: Option<Bound<'_, PyAny>>,
     ) -> PyResult<PyRenderResult> {
-        let today = Some(render_date(doc.py(), today)?);
+        let today = render_date(doc.py(), today)?;
         let mut opts = quillmark_core::types::RenderOptions::default();
         opts.output_format = format.map(OutputFormat::from);
         opts.ppi = ppi;

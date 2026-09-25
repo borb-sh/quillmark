@@ -88,7 +88,7 @@ fn data() -> serde_json::Value {
 
 fn open(plate: &str) -> quillmark_core::session::LiveSession {
     TypstBackend
-        .open(&common::quill_with_plate(YAML, plate), &data(), None)
+        .open(&common::quill_with_plate(YAML, plate), &data(), common::test_date())
         .expect("open")
 }
 
@@ -254,7 +254,7 @@ card_kinds:
             &serde_json::json!({
                 "$cards": [ { "$kind": "endorsement", "origin": { "office": "SAF/AA" } } ]
             }),
-            None,
+            common::test_date(),
         )
         .expect("open");
     let regions = session.regions();
@@ -278,6 +278,6 @@ fn a_blank_date_still_projects_none() {
     let mut blank = data();
     blank["classification"]["reply_by"] = serde_json::Value::String(String::new());
     TypstBackend
-        .open(&common::quill_with_plate(YAML, plate), &blank, None)
+        .open(&common::quill_with_plate(YAML, plate), &blank, common::test_date())
         .expect("a blank date compiles");
 }

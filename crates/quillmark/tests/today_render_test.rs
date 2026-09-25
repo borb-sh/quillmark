@@ -57,25 +57,11 @@ fn the_field_and_the_plate_read_the_supplied_date() {
     );
     let today: CalendarDate = "2026-03-14".parse().unwrap();
     let mut session = Quillmark::new()
-        .open(&quill, &doc(""), Some(today))
+        .open(&quill, &doc(""), today)
         .expect("the plate saw the supplied date");
     session.render(&svg()).expect("renders");
 
     session
         .update(&doc("issued: today\n"))
         .expect("an update compiles against the session's date");
-}
-
-#[test]
-fn without_a_date_the_field_is_blank_and_the_plate_cannot_ask() {
-    let (_dir, blank) = quill("#assert.eq(data.issued, none)");
-    Quillmark::new()
-        .render(&blank, &doc(""), None, &svg())
-        .expect("a today field without a date renders blank");
-
-    let (_dir, asks) = quill("#datetime.today()");
-    let err = Quillmark::new()
-        .render(&asks, &doc(""), None, &svg())
-        .expect_err("the engine reads no clock");
-    assert!(format!("{err:?}").contains("current date"), "{err:?}");
 }

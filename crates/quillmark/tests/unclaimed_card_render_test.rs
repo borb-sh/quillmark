@@ -7,6 +7,8 @@
 use quillmark::{Document, OutputFormat, Quillmark, RenderOptions, Severity};
 use quillmark_fixtures::quills_path;
 
+mod common;
+
 fn unclaimed_cards_render_and_warn(quill_name: &str) {
     let engine = Quillmark::new();
     let quill = quillmark::quill_from_path(quills_path(quill_name))
@@ -24,7 +26,7 @@ fn unclaimed_cards_render_and_warn(quill_name: &str) {
         .render(
             &quill,
             &doc,
-            None,
+            common::test_date(),
             &RenderOptions::default().with_output_format(OutputFormat::Svg),
         )
         .unwrap_or_else(|e| panic!("{quill_name}: unclaimed cards must render: {e:?}"));

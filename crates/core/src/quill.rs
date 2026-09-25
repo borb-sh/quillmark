@@ -129,3 +129,9 @@ pub(crate) fn quill_from_yaml(yaml: &str) -> Quill {
     );
     Quill::from_tree(FileTreeNode::Directory { files }).expect("quill_from_yaml: from_tree failed")
 }
+
+/// The render date core's tests compile with.
+#[cfg(test)]
+pub(crate) fn test_date() -> CalendarDate {
+    CalendarDate::new(2026, 3, 14).expect("a calendar day")
+}

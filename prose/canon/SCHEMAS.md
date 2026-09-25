@@ -752,16 +752,12 @@ something: the branch is what makes the world's fields readable without a guard
 wherever a `date` value is: authored, as a `default:` or an `example:`, at any
 depth. It is not a `datetime` value.
 
-The engine reads no clock. The date is an input to the compile, supplied by
-the host at every door that turns a document into plate data:
+The engine reads no clock. The date is a required input to the compile,
+supplied by the host at every door that turns a document into plate data:
 `compile_data` / `compile_checked`, `Quill::resolve` / `reader.resolve`, and
-`Quillmark::open` / `Quillmark::render`. A session keeps the date it was opened
-with for every `update`.
-
-| Compile given | A `today` cell renders | A Typst plate's `datetime.today()` |
-|---|---|---|
-| a date | that date | that date |
-| none | the date's blank (`none`) | fails the render |
+`Quillmark::open` / `Quillmark::render`. A `today` cell and a Typst plate's
+`datetime.today()` both render it. A session keeps the date it was opened with
+for every `update`.
 
 - **It stores as written.** `reader.get()`, storage and the blueprint carry
   `today`; a document never holds the day it was rendered.
@@ -772,9 +768,6 @@ with for every `update`.
   written date pins it.
 - **The host owns the time zone.** The CLI, the WASM runtime and the Python
   binding supply the local date unless given one ([BINDINGS.md](BINDINGS.md)).
-
-A field without a date renders blank because a field has a floor to render at;
-`datetime.today()` has none, so it fails rather than print a date nobody chose.
 
 ## What blocks a render
 

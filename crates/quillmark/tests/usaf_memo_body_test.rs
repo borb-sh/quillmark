@@ -16,7 +16,7 @@ fn body_regions(body: &str) -> Vec<([usize; 2], f32)> {
     let markdown = format!("~~~card-yaml\n$quill: usaf_memo\n$kind: main\n~~~\n\n{body}\n");
     let (engine, quill) = common::memo();
     let parsed = Document::parse(&markdown).expect("parses").document;
-    let session = engine.open(quill, &parsed, None).expect("opens");
+    let session = engine.open(quill, &parsed, common::test_date()).expect("opens");
     let mut regions: Vec<_> = session
         .regions()
         .iter()

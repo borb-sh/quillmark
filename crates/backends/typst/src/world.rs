@@ -194,8 +194,8 @@ impl QuillWorld {
         })
     }
 
-    pub(crate) fn set_today(&mut self, today: Option<CalendarDate>) {
-        self.today = today;
+    pub(crate) fn set_today(&mut self, today: CalendarDate) {
+        self.today = Some(today);
     }
 
     pub(crate) fn load_warnings(&self) -> &[Diagnostic] {
@@ -549,9 +549,8 @@ impl World for QuillWorld {
         self.fonts.get(index).cloned()
     }
 
-    /// The render date the host supplied, whatever the `offset`: a date
-    /// carries no time of day to shift. `None` without one, which Typst reports
-    /// as a plate error.
+    /// The render date the session opened with, whatever the `offset`: a date
+    /// carries no time of day to shift.
     fn today(&self, _offset: Option<Duration>) -> Option<Datetime> {
         let date = self.today?;
         Datetime::from_ymd(date.year(), date.month(), date.day())

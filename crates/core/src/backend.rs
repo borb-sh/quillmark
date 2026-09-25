@@ -28,7 +28,7 @@ pub trait Backend: Send + Sync + std::fmt::Debug {
         &self,
         source: &Quill,
         json_data: &serde_json::Value,
-        today: Option<CalendarDate>,
+        today: CalendarDate,
     ) -> Result<LiveSession, RenderError>;
 }
 

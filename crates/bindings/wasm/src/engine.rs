@@ -508,7 +508,7 @@ impl Quillmark {
         doc: &Document,
         today: Option<String>,
     ) -> Result<LiveSession, JsValue> {
-        let today = Some(render_date(today)?);
+        let today = render_date(today)?;
         let session = self
             .inner
             .open(&quill.inner, &doc.inner, today)
@@ -532,7 +532,7 @@ impl Quillmark {
         today: Option<String>,
     ) -> Result<Ts<RenderResult>, JsValue> {
         let rust_opts = render_options_or_throw(opts)?;
-        let today = Some(render_date(today)?);
+        let today = render_date(today)?;
         let result = self
             .inner
             .render(&quill.inner, &doc.inner, today, &rust_opts)
@@ -704,7 +704,7 @@ impl Quill {
     /// completeness stays `validate`'s. `today` reads as on `Quillmark.open`.
     #[wasm_bindgen(js_name = _resolve, skip_typescript, unchecked_return_type = "Resolved")]
     pub fn resolve(&self, doc: &Document, today: Option<String>) -> Result<JsValue, JsValue> {
-        let states = self.inner.resolve(&doc.inner, Some(render_date(today)?));
+        let states = self.inner.resolve(&doc.inner, render_date(today)?);
         serialize_nullable_or_throw(&states, "resolve")
     }
 

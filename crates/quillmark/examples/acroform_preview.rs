@@ -4,7 +4,7 @@
 //!
 //! `cargo run --example acroform_preview -p quillmark`
 
-use quillmark::{Document, OutputFormat, Quillmark, RenderOptions};
+use quillmark::{CalendarDate, Document, OutputFormat, Quillmark, RenderOptions};
 use quillmark_fixtures::{example_output_dir, quills_path, write_example_output};
 
 const SAMPLE_FORM_MD: &str = "\
@@ -23,6 +23,7 @@ favorite_color: green
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let engine = Quillmark::new();
     let out_dir = example_output_dir();
+    let today = CalendarDate::new(2026, 3, 14).expect("a calendar day");
 
     println!("=== acroform backend: sample_form → PDF ===");
     let gf_quill =
@@ -32,7 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .render(
             &gf_quill,
             &gf_doc,
-            None,
+            today,
             &RenderOptions::default().with_output_format(OutputFormat::Pdf),
         )
         .expect("sample_form render");
@@ -45,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Region geometry is a session-level query, not on the render result.
     let gf_session = engine
-        .open(&gf_quill, &gf_doc, None)
+        .open(&gf_quill, &gf_doc, today)
         .expect("open sample_form session");
     let regions = gf_session.regions();
     println!("\nField regions ({} fields):", regions.len());

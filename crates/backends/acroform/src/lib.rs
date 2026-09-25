@@ -55,7 +55,7 @@ impl Backend for AcroformBackend {
         &self,
         source: &Quill,
         json_data: &serde_json::Value,
-        today: Option<CalendarDate>,
+        today: CalendarDate,
     ) -> Result<LiveSession, RenderError> {
         let files = source.files();
         let base_pdf = files

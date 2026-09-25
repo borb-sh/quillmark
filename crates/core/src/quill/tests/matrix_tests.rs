@@ -8,7 +8,9 @@
 //! surface to the same reading of the same schema.
 
 use crate::document::Document;
-use crate::quill::{blank, build_transform_schema, quill_from_yaml, Quill, QuillConfig};
+use crate::quill::{
+    blank, build_transform_schema, quill_from_yaml, test_date, Quill, QuillConfig,
+};
 use serde_json::json;
 
 /// A four-member roster with one column.
@@ -56,7 +58,7 @@ fn doc(fields: &str) -> Document {
 /// The matrix as the plate receives it.
 fn plate(document: &Document) -> serde_json::Value {
     config()
-        .compile_data(document, None)
+        .compile_data(document, test_date())
         .expect("compile_data succeeds")["qualifications"]
         .clone()
 }
@@ -269,7 +271,7 @@ fn the_blueprint_hint_spells_a_held_member_with_every_column() {
     let markdown =
         format!("~~~\n$quill: matrix_probe@0.1.0\n$kind: main\nqualifications: {hint}\n~~~\n");
     let pasted = Document::parse(&markdown).expect("the hint parses").document;
-    let wire = quill.compile_data(&pasted, None).expect("compiles")["qualifications"]
+    let wire = quill.compile_data(&pasted, test_date()).expect("compiles")["qualifications"]
         ["sq_cc_candidate"]
         .clone();
     assert_eq!(wire["held"], json!(true));
@@ -342,7 +344,7 @@ fn the_tick_is_judged_by_the_render_floor_not_by_raw_truthiness() {
     let held_at = |fields: &str| -> bool {
         let markdown = format!("~~~\n$quill: matrix_probe@0.1.0\n$kind: main\n{fields}~~~\n");
         let document = Document::parse(&markdown).expect("parses").document;
-        quill.compile_data(&document, None).expect("compiles")["qualifications"]["flight_cc"]
+        quill.compile_data(&document, test_date()).expect("compiles")["qualifications"]["flight_cc"]
             ["held"]
             .as_bool()
             .expect("the tick is a boolean on the wire")

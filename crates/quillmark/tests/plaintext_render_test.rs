@@ -12,6 +12,8 @@ use quillmark::{Document, HitGranularity, LiveSession, Quillmark};
 use std::fs;
 use tempfile::TempDir;
 
+mod common;
+
 fn plaintext_quill(temp_dir: &TempDir) -> std::path::PathBuf {
     let quill_path = temp_dir.path().join("plain_quill");
     fs::create_dir_all(&quill_path).unwrap();
@@ -65,7 +67,7 @@ fn session(temp_dir: &TempDir) -> LiveSession {
          subject: \"{SUBJECT}\"\ntags:\n  - \"{STAR_TAG}\"\n  - \"second plain tag\"\n~~~\n"
     );
     let parsed = Document::parse(&md).expect("parse").document;
-    Quillmark::new().open(&quill, &parsed, None).expect("open")
+    Quillmark::new().open(&quill, &parsed, common::test_date()).expect("open")
 }
 
 #[test]

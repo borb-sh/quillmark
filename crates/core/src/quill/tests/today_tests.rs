@@ -1,5 +1,5 @@
 //! `today` in a `date` cell: stored as written, rendered as the date the host
-//! supplies to the compile, and at the date's blank without one.
+//! supplies to the compile.
 
 use crate::document::Document;
 use crate::quill::{quill_from_yaml, CalendarDate, FieldSource, QuillConfig};
@@ -38,7 +38,7 @@ fn day() -> CalendarDate {
 fn a_today_cell_renders_the_supplied_date_at_every_depth() {
     let quill = quill_from_yaml(QUILL_YAML);
     let doc = document();
-    let plate = quill.compile_data(&doc, Some(day())).expect("compiles");
+    let plate = quill.compile_data(&doc, day()).expect("compiles");
 
     assert_eq!(plate["issued"], json!("2026-03-14"));
     assert_eq!(plate["signed"], json!("2026-03-14"));
@@ -52,7 +52,7 @@ fn a_today_cell_renders_the_supplied_date_at_every_depth() {
         "the document keeps the keyword"
     );
 
-    let resolved = quill.resolve(&doc, Some(day()));
+    let resolved = quill.resolve(&doc, day());
     for row in &resolved.main.fields {
         assert_eq!(row.value.as_json(), &plate[&row.name], "{}", row.name);
     }
@@ -61,17 +61,6 @@ fn a_today_cell_renders_the_supplied_date_at_every_depth() {
     };
     assert_eq!(source("issued"), FieldSource::Default);
     assert_eq!(source("signed"), FieldSource::Authored);
-}
-
-/// The engine reads no clock: a compile given no date has no day to render.
-#[test]
-fn without_a_date_a_today_cell_renders_blank() {
-    let quill = quill_from_yaml(QUILL_YAML);
-    let plate = quill.compile_data(&document(), None).expect("compiles");
-
-    assert_eq!(plate["issued"], json!(""));
-    assert_eq!(plate["signed"], json!(""));
-    assert_eq!(plate["stamps"], json!(["", "2026-01-02"]));
 }
 
 #[test]

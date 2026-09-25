@@ -75,12 +75,12 @@ impl Quillmark {
     ///
     /// `today` is the render date: a `today` date field renders as it, and so
     /// does a Typst plate's `datetime.today()`. The engine reads no clock, so
-    /// without one the field renders blank and `datetime.today()` fails.
+    /// the host passes its local date.
     pub fn open(
         &self,
         quill: &Quill,
         doc: &Document,
-        today: Option<CalendarDate>,
+        today: CalendarDate,
     ) -> Result<LiveSession, RenderError> {
         let backend = self.resolve_backend(quill)?;
         let json_data = quill.compile_checked(doc, today)?;
@@ -94,7 +94,7 @@ impl Quillmark {
         &self,
         quill: &Quill,
         doc: &Document,
-        today: Option<CalendarDate>,
+        today: CalendarDate,
         opts: &RenderOptions,
     ) -> Result<RenderResult, RenderError> {
         let default_format = self.resolve_backend(quill)?.supported_formats().first().copied();

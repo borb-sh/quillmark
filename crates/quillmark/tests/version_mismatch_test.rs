@@ -6,6 +6,8 @@ use quillmark::{Document, RenderError};
 use std::fs;
 use tempfile::TempDir;
 
+mod common;
+
 #[cfg(feature = "typst")]
 use quillmark::{OutputFormat, Quillmark, RenderOptions};
 
@@ -63,12 +65,12 @@ fn update_rechecks_the_reference_against_the_sessions_quill() {
 
     let engine = Quillmark::new();
     let err = engine
-        .render(&quill, &doc("other_quill@3"), None, &RenderOptions::default())
+        .render(&quill, &doc("other_quill@3"), common::test_date(), &RenderOptions::default())
         .expect_err("render must refuse another quill's document");
     assert_eq!(code(&err), Some("quill::name_mismatch"));
 
     let mut session = engine
-        .open(&quill, &doc("test_quill@3"), None)
+        .open(&quill, &doc("test_quill@3"), common::test_date())
         .expect("open against the matching quill");
     let pages = session.page_count();
 

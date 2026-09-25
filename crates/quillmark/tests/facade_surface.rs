@@ -94,7 +94,9 @@ fn content_lane_spells_through_the_facade() {
 #[cfg(feature = "typst")]
 #[test]
 fn preview_regions_spell_through_the_facade() {
-    use quillmark::{ContentHit, HitGranularity, LiveSession, Quillmark, RenderedRegion};
+    use quillmark::{
+        CalendarDate, ContentHit, HitGranularity, LiveSession, Quillmark, RenderedRegion,
+    };
 
     let engine = Quillmark::new();
     let quill = quillmark::quill_from_path(quillmark_fixtures::quills_path("usaf_memo"))
@@ -103,7 +105,8 @@ fn preview_regions_spell_through_the_facade() {
     doc.main_mut()
         .revise_body("The first paragraph.")
         .expect("a plain paragraph imports");
-    let session: LiveSession = engine.open(&quill, &doc, None).expect("open a session");
+    let today: CalendarDate = "2026-03-14".parse().expect("a date");
+    let session: LiveSession = engine.open(&quill, &doc, today).expect("open a session");
 
     let regions: Vec<RenderedRegion> = session.regions();
     // `field_boxes` and `position_at` are content-only, so the query needs a

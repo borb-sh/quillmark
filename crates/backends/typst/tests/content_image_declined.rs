@@ -85,7 +85,7 @@ fn a_content_image_renders_nothing_and_the_plate_keeps_its_own() {
     });
 
     let session = TypstBackend
-        .open(&quill(), &data, None)
+        .open(&quill(), &data, common::test_date())
         .expect("an image island compiles rather than failing the render");
     let result = session
         .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
@@ -113,7 +113,7 @@ fn a_remote_or_missing_url_warns_rather_than_failing_the_compile() {
     for url in ["https://example.com/x.png", "missing.png", "assets/marc.png"] {
         let data = serde_json::json!({ "$body": content(&format!("![alt]({url})")) });
         let session = TypstBackend
-            .open(&quill(), &data, None)
+            .open(&quill(), &data, common::test_date())
             .unwrap_or_else(|e| panic!("{url} should compile: {e}"));
         assert_eq!(declines(session.warnings()).len(), 1, "for {url}");
     }
@@ -131,7 +131,7 @@ fn a_named_field_and_a_card_body_carry_their_own_paths() {
         ],
     });
 
-    let session = TypstBackend.open(&quill(), &data, None).expect("open");
+    let session = TypstBackend.open(&quill(), &data, common::test_date()).expect("open");
     let paths: Vec<_> = declines(session.warnings())
         .iter()
         .filter_map(|d| d.path.clone())
@@ -142,6 +142,6 @@ fn a_named_field_and_a_card_body_carry_their_own_paths() {
 #[test]
 fn a_content_without_images_warns_about_nothing() {
     let data = serde_json::json!({ "$body": content("plain **prose** and a [link](https://x)") });
-    let session = TypstBackend.open(&quill(), &data, None).expect("open");
+    let session = TypstBackend.open(&quill(), &data, common::test_date()).expect("open");
     assert!(declines(session.warnings()).is_empty());
 }

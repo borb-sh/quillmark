@@ -27,7 +27,7 @@ cargo add quillmark
 ## Quick Start (Rust)
 
 ```rust
-use quillmark::{quill_from_path, OutputFormat, Quillmark, RenderOptions};
+use quillmark::{quill_from_path, CalendarDate, OutputFormat, Quillmark, RenderOptions};
 
 // A `Quill` is declarative data: no engine needed to load it.
 let quill = quill_from_path("path/to/quill")?;
@@ -44,9 +44,12 @@ title: Example
 
 // The bound door: parse and conform against the quill that will render it.
 let doc = quill.parse(markdown)?.document;
+// The engine reads no clock: the host passes its local date.
+let today: CalendarDate = "2026-03-14".parse()?;
 let result = engine.render(
     &quill,
     &doc,
+    today,
     &RenderOptions::default().with_output_format(OutputFormat::Pdf),
 )?;
 

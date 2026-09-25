@@ -5,7 +5,7 @@
 // Each integration test binary compiles this module and uses part of it.
 #![allow(dead_code)]
 
-use quillmark_core::quill::{FileTreeNode, Quill};
+use quillmark_core::quill::{CalendarDate, FileTreeNode, Quill};
 use std::collections::HashMap;
 
 /// No fonts dir is needed (the backend's embedded Figtree faces render text)
@@ -66,4 +66,9 @@ pub fn host_with_plate(plate: &str) -> Quill {
 pub fn content(markdown: &str) -> serde_json::Value {
     let rt = quillmark_content::import::from_markdown(markdown).expect("import");
     quillmark_content::serial::to_canonical_value(&rt)
+}
+
+/// The render date the tests open sessions with.
+pub fn test_date() -> CalendarDate {
+    CalendarDate::new(2026, 3, 14).expect("a calendar day")
 }

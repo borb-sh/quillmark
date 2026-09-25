@@ -54,7 +54,7 @@ fn usaf_memo_signature_widget_aligns_with_signature_block() {
     let result = engine.render(
         quill,
         &parsed,
-        None,
+        common::test_date(),
         &RenderOptions::default().with_output_format(OutputFormat::Pdf),
     );
 

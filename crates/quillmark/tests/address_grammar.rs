@@ -13,6 +13,8 @@ use quillmark::{Backend, FileTreeNode, Quill};
 use quillmark_typst::TypstBackend;
 use std::collections::HashMap;
 
+mod common;
+
 /// Every position the schema admits, containers nested inside containers and a
 /// variant cell holding a typed table among them, declared on `main` and again
 /// on a card kind so each address has its card twin.
@@ -277,7 +279,7 @@ fn bound(helper: &str, call: &str, address: &str) -> String {
 
 fn compile(plate: &str) -> Result<quillmark::LiveSession, String> {
     TypstBackend
-        .open(&quill(plate), &data(), None)
+        .open(&quill(plate), &data(), common::test_date())
         .map_err(|e| format!("{e}"))
 }
 

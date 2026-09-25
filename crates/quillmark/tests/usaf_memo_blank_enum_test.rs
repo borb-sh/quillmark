@@ -58,7 +58,7 @@ fn every_enum_authored_blank_still_renders() {
         .render(
             quill,
             &parsed,
-            None,
+            common::test_date(),
             &RenderOptions::default().with_output_format(OutputFormat::Pdf),
         )
         .expect("a memo with every enum blank should render");
@@ -81,7 +81,7 @@ fn a_blank_seal_omits_the_seal_rather_than_choosing_one() {
             .render(
                 quill,
                 &doc,
-                None,
+                common::test_date(),
                 &RenderOptions::default().with_output_format(OutputFormat::Svg),
             )
             .expect("render")

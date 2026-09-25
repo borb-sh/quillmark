@@ -4,7 +4,7 @@
 // Each integration test binary compiles this module and uses part of it.
 #![allow(dead_code)]
 
-use quillmark::{Document, Quill, Quillmark};
+use quillmark::{CalendarDate, Document, Quill, Quillmark};
 use quillmark_fixtures::quills_path;
 use std::sync::LazyLock;
 
@@ -28,4 +28,9 @@ pub fn seeded_memo() -> (&'static Quillmark, &'static Quill, Document) {
         .revise_body("The first paragraph.\n\n- A nested bullet.")
         .expect("a paragraph and a bullet import");
     (&ENGINE, &MEMO, doc)
+}
+
+/// The render date the tests compile with.
+pub fn test_date() -> CalendarDate {
+    CalendarDate::new(2026, 3, 14).expect("a calendar day")
 }

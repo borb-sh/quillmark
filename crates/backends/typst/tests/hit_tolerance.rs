@@ -29,7 +29,7 @@ fn open() -> LiveSession {
         "intro": content(&"Intro text that wraps across more than one line of the measure. ".repeat(3)),
         "body": content(&"Body text that also wraps across more than one line of the measure. ".repeat(3)),
     });
-    TypstBackend.open(&quill(&yaml(SCHEMA), PLATE), &data, None).expect("open")
+    TypstBackend.open(&quill(&yaml(SCHEMA), PLATE), &data, common::test_date()).expect("open")
 }
 
 /// The `[low, high]` y bands on page 0 that answer at column `x` with no
@@ -176,7 +176,7 @@ fn open_with_a_short_line() -> LiveSession {
         "body": content(&"Body text that fills the measure and wraps past one line. ".repeat(3)),
     });
     TypstBackend
-        .open(&quill(&yaml(SCHEMA), PLATE), &data, None)
+        .open(&quill(&yaml(SCHEMA), PLATE), &data, common::test_date())
         .expect("open")
 }
 
@@ -256,7 +256,7 @@ fn open_with_widget() -> LiveSession {
         "body": content("Body text well below the widget."),
     });
     TypstBackend
-        .open(&quill(&yaml(WIDGET_SCHEMA), WIDGET_PLATE), &data, None)
+        .open(&quill(&yaml(WIDGET_SCHEMA), WIDGET_PLATE), &data, common::test_date())
         .expect("open")
 }
 
@@ -306,7 +306,7 @@ fn open_with_overlaid_widget() -> LiveSession {
         "body": content(&"Body text under and around the placed widget. ".repeat(6)),
     });
     TypstBackend
-        .open(&quill(&yaml(WIDGET_SCHEMA), OVERLAID_PLATE), &data, None)
+        .open(&quill(&yaml(WIDGET_SCHEMA), OVERLAID_PLATE), &data, common::test_date())
         .expect("open")
 }
 

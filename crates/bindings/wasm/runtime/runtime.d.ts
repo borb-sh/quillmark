@@ -723,7 +723,8 @@ export declare class DocumentReader {
 	 * projection would use and the rung it came from (`authored` / `default` /
 	 * `blank`). The one read that blank-fills and coerces; {@link get} reports
 	 * what the document carries. Value and provenance only; completeness stays
-	 * `quill.validate`'s. `today` reads as on {@link Engine.open}.
+	 * `quill.validate`'s. `today` reads as on {@link Engine.open}; an editor
+	 * pairing it with a session passes the session's opening date.
 	 */
 	resolve(today?: string): Resolved;
 	/**

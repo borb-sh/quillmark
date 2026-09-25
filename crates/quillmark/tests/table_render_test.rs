@@ -8,6 +8,8 @@
 use quillmark::{Document, OutputFormat, Quillmark, RenderOptions};
 use quillmark_fixtures::quills_path;
 
+mod common;
+
 fn render(markdown: &str, format: OutputFormat) -> quillmark::RenderResult {
     let engine = Quillmark::new();
     let quill =
@@ -19,7 +21,7 @@ fn render(markdown: &str, format: OutputFormat) -> quillmark::RenderResult {
         .render(
             &quill,
             &parsed,
-            None,
+            common::test_date(),
             &RenderOptions::default().with_output_format(format),
         )
         .unwrap_or_else(|e| panic!("render failed: {e:?}\n---\n{markdown}"))

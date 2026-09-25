@@ -429,7 +429,7 @@ impl Backend for TypstBackend {
         &self,
         source: &Quill,
         json_data: &serde_json::Value,
-        today: Option<CalendarDate>,
+        today: CalendarDate,
     ) -> Result<LiveSession, RenderError> {
         let plate = read_plate(source)?;
 

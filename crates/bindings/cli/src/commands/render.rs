@@ -41,7 +41,7 @@ pub struct RenderArgs {
 }
 
 pub fn execute(args: RenderArgs) -> Result<()> {
-    let today = Some(render_date(args.today));
+    let today = render_date(args.today);
     let quill = load_quill(&args.quill)?;
 
     let (parsed, parse_warnings) = read_document(&quill, args.markdown_file.as_deref())?;
