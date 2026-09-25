@@ -186,6 +186,18 @@ fn a_comment_on_a_continuation_line_stays_with_its_value() {
             "m:\n  x: {a: 1, # first\n    b: 2} # second\n  y: 4\n",
             "  x: # first\n    a: 1\n    b: 2\n  # second\n",
         ),
+        (
+            "rows:\n  - k0: [1, # a\n      2] # b\n    k1: x\n  - k2: z\n",
+            "  - k0: # a\n      - 1\n      - 2\n    # b\n    k1: x\n",
+        ),
+        (
+            "rows:\n  - k0: # a\n      [1,\n      2] # b\n    k1: x\n  - k2: z\n",
+            "  - k0: # a\n      - 1\n      - 2\n    # b\n    k1: x\n",
+        ),
+        (
+            "rows:\n  - k0: [1, # a\n      2] # b\n  - k2: z\n",
+            "      - 2\n    # b\n  - k2: z\n",
+        ),
     ];
     for (fields, emitted) in cases {
         let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");

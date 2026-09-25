@@ -68,10 +68,14 @@ struct Frame {
 #[derive(Debug, Clone)]
 enum Host {
     Field,
-    Child {
-        container_path: Vec<PathSegment>,
-        position: usize,
-    },
+    /// The line's own trailer slot, and the own-line slot right after its value.
+    Child { trailer: Slot, after: Slot },
+}
+
+#[derive(Debug, Clone)]
+struct Slot {
+    container_path: Vec<PathSegment>,
+    position: usize,
 }
 
 pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
@@ -179,9 +183,9 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             while stack.len() > frame_idx + 1 {
                 stack.pop();
             }
-            host = Host::Child {
+            let mut after = Slot {
                 container_path: parent_path.clone(),
-                position: item_index,
+                position: item_index + 1,
             };
 
             // `strip_prefix` rather than a byte range: user content follows,
@@ -216,6 +220,11 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                 dash_key_block_scalar = is_block_scalar_header(&value_without_tag);
                 open = opens_past_line(&value_without_tag);
                 node_below = node_text(&value_without_tag).is_empty();
+                // Past the first key's value, ahead of the item's next key.
+                after = Slot {
+                    container_path: item_path.clone(),
+                    position: 1,
+                };
                 stack.push(Frame {
                     indent: inline_indent_offset,
                     path: item_path,
@@ -232,6 +241,13 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                 open = opens_past_line(after_dash_trimmed);
                 node_below = node_text(after_dash_trimmed).is_empty();
             }
+            host = Host::Child {
+                trailer: Slot {
+                    container_path: parent_path.clone(),
+                    position: item_index,
+                },
+                after,
+            };
 
             if let Some(c) = &trailing_comment {
                 out.nested_comments.push(NestedComment {
@@ -327,8 +343,14 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                 stack.pop();
             }
             host = Host::Child {
-                container_path: parent_path.clone(),
-                position: key_index,
+                trailer: Slot {
+                    container_path: parent_path.clone(),
+                    position: key_index,
+                },
+                after: Slot {
+                    container_path: parent_path.clone(),
+                    position: key_index + 1,
+                },
             };
 
             let (value_part, trailing_comment) = split_trailing_comment(&after_colon);
@@ -412,16 +434,16 @@ fn continue_value(
                 let inline = matches!(out.items.last(), Some(PreItem::Field { .. }));
                 out.items.push(PreItem::Comment { text, inline });
             }
-            Host::Child {
-                container_path,
-                position,
-            } => {
+            Host::Child { trailer, after } => {
                 let trailed = out.nested_comments.iter().any(|c| {
-                    c.inline && c.position == *position && c.container_path == *container_path
+                    c.inline
+                        && c.position == trailer.position
+                        && c.container_path == trailer.container_path
                 });
+                let slot = if trailed { after } else { trailer };
                 out.nested_comments.push(NestedComment {
-                    container_path: container_path.clone(),
-                    position: position + usize::from(trailed),
+                    container_path: slot.container_path.clone(),
+                    position: slot.position,
                     text,
                     inline: !trailed,
                 });
