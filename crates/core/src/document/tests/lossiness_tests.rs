@@ -166,8 +166,9 @@ fn a_tag_inside_a_multi_line_flow_collection_stays_on_its_value() {
 }
 
 /// A comment trailing a line that continues a flow collection or a quoted
-/// scalar is the trailer of the key or item the value belongs to, or, when that
-/// has one already, a comment on its own line after it.
+/// scalar is the trailer of the key or item the value belongs to, or, when a
+/// comment already sits on that line or inside the value, a comment on its own
+/// line after the value.
 #[test]
 fn a_comment_on_a_continuation_line_stays_with_its_value() {
     let cases = [
@@ -197,6 +198,14 @@ fn a_comment_on_a_continuation_line_stays_with_its_value() {
         (
             "rows:\n  - k0: [1, # a\n      2] # b\n  - k2: z\n",
             "      - 2\n    # b\n  - k2: z\n",
+        ),
+        (
+            "m:\n  x: [1,\n    # mid\n    2] # c\n  y: 4\n",
+            "  x:\n    - 1\n    - 2\n  # mid\n  # c\n",
+        ),
+        (
+            "rows:\n  - [1,\n    # mid\n    2] # c\n  - 3\n",
+            "  -\n    - 1\n    - 2\n  # mid\n  # c\n  - 3\n",
         ),
     ];
     for (fields, emitted) in cases {

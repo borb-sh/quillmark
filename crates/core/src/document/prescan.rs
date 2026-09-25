@@ -68,8 +68,13 @@ struct Frame {
 #[derive(Debug, Clone)]
 enum Host {
     Field,
-    /// The line's own trailer slot, and the own-line slot right after its value.
-    Child { trailer: Slot, after: Slot },
+    /// The line's own trailer slot, the own-line slot right after its value,
+    /// and the count of nested comments recorded ahead of the line.
+    Child {
+        trailer: Slot,
+        after: Slot,
+        recorded: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -247,6 +252,7 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                     position: item_index,
                 },
                 after,
+                recorded: out.nested_comments.len(),
             };
 
             if let Some(c) = &trailing_comment {
@@ -351,6 +357,7 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                     container_path: parent_path.clone(),
                     position: key_index + 1,
                 },
+                recorded: out.nested_comments.len(),
             };
 
             let (value_part, trailing_comment) = split_trailing_comment(&after_colon);
@@ -420,7 +427,8 @@ fn ensure_frame_at_indent(stack: &mut Vec<Frame>, indent: usize) -> usize {
 
 /// `scan` past one more line of its value, while the value stays open. The
 /// line's trailing comment attaches to `host`: as its inline trailer, or, when
-/// it has one already, as an own-line comment right after it.
+/// a comment already sits on the host's line or inside the value, as an
+/// own-line comment right after the value.
 fn continue_value(
     out: &mut PreScan,
     mut scan: FlowScan,
@@ -434,12 +442,12 @@ fn continue_value(
                 let inline = matches!(out.items.last(), Some(PreItem::Field { .. }));
                 out.items.push(PreItem::Comment { text, inline });
             }
-            Host::Child { trailer, after } => {
-                let trailed = out.nested_comments.iter().any(|c| {
-                    c.inline
-                        && c.position == trailer.position
-                        && c.container_path == trailer.container_path
-                });
+            Host::Child {
+                trailer,
+                after,
+                recorded,
+            } => {
+                let trailed = out.nested_comments.len() > *recorded;
                 let slot = if trailed { after } else { trailer };
                 out.nested_comments.push(NestedComment {
                     container_path: slot.container_path.clone(),
