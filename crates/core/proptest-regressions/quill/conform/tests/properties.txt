@@ -7,3 +7,4 @@
 cc ab936ff064a5a86364be09f48a55e085b3e6f64f3211b6b163c4491b9362e00a # shrinks to (name, value) = ("qty", String("3"))
 cc 3057616951f46dcc62bd0364f6187916bc728b54c135e01bc7beed31bb199555 # shrinks to (name, value) = ("rich", String("- ***"))
 cc 93dcc6c69343c885fe348c203219319301f6cbddc2a609375f1be08578cc181a # shrinks to (name, value) = ("plain", String("*"))
+cc 4a0f2126161239866104651b2ed4819c7a9d9dec89948fdc3e381f52169541bd # shrinks to (name, value) = ("plain_inline", String("[x](y)\na\n\n"))
