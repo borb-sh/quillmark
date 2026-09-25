@@ -384,12 +384,12 @@ fn leading_space_count(line: &str) -> usize {
 }
 
 /// `true` when a field value is a YAML block-scalar header (`|` or `>`, with
-/// optional chomping/indent indicators). Unquoted plain scalars cannot begin
-/// with these characters, so a leading `|`/`>` unambiguously opens a literal/
-/// folded block whose following content lines are text, not YAML structure.
+/// optional chomping/indent indicators), past any tag or anchor. Unquoted
+/// plain scalars cannot begin with these characters, so a leading `|`/`>`
+/// unambiguously opens a literal/folded block whose following content lines
+/// are text, not YAML structure.
 fn is_block_scalar_header(value: &str) -> bool {
-    let t = value.trim_start();
-    t.starts_with('|') || t.starts_with('>')
+    node_text(value).starts_with(['|', '>'])
 }
 
 /// `true` when the indented lines under a `key:` line belong to its value: the

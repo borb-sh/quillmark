@@ -165,6 +165,26 @@ fn a_tag_inside_a_multi_line_flow_collection_stays_on_its_value() {
     assert_eq!(anchors(&out), [("parse::must_fill_dropped", Some("main.c"))]);
 }
 
+/// A tag or anchor ahead of `|` or `>` leaves the block's lines its text: no
+/// key, comment or marker among them reaches the mapping around it.
+#[test]
+fn a_block_scalar_behind_a_tag_or_anchor_is_text() {
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\n\
+               memo:\n  body: &a |\n    # Summary\n    subject: !must_fill TBD\n  subject: Final\n\
+               notes:\n  - !!str >\n    # kept\n~~~\n";
+    let out = Document::parse(src).unwrap();
+    let get = |k: &str| out.document.main().payload().get(k).unwrap().as_json().clone();
+    assert_eq!(
+        get("memo"),
+        serde_json::json!({"body": "# Summary\nsubject: !must_fill TBD\n", "subject": "Final"})
+    );
+    assert_eq!(get("notes"), serde_json::json!(["# kept\n"]));
+    assert!(out.warnings.is_empty(), "{:?}", out.warnings);
+    let md = out.document.to_markdown();
+    assert_eq!(md.matches("# Summary").count(), 1, "{md}");
+    assert_eq!(md.matches("# kept").count(), 1, "{md}");
+}
+
 /// The prescan splits on `\n`, so CRLF input reaches it with a trailing `\r` on
 /// every line.
 #[test]
