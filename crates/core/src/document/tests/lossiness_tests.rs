@@ -44,6 +44,23 @@ fn block_scalar_sequence_items_round_trip() {
     assert_eq!(arr[1].as_str(), Some("## Second\nbody two"));
 }
 
+/// A block scalar on a sequence item's dash-line key holds its `#`, `- ` and
+/// `key: value` lines as text; the item's next key, at the key's column, ends it.
+#[test]
+fn block_scalar_on_a_dash_line_key_holds_its_markdown() {
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\njobs:\n  - details: |\n      # Heading\n      - a\n      b: c\n    title: x\n~~~\n";
+
+    let doc = Document::parse(src).unwrap().document;
+    let emitted = doc.to_markdown();
+    assert!(!emitted.contains("\n    # Heading"), "no phantom comment\nGot:\n{emitted}");
+    let job = &doc.main().payload().get("jobs").unwrap().as_array().unwrap()[0];
+    assert_eq!(job["details"].as_str(), Some("# Heading\n- a\nb: c\n"));
+    assert_eq!(job["title"].as_str(), Some("x"));
+    let doc2 = Document::parse(&emitted).unwrap().document;
+    assert_eq!(doc, doc2, "Got:\n{emitted}");
+    assert_eq!(emitted, doc2.to_markdown(), "round-trip must be idempotent");
+}
+
 #[test]
 fn unknown_tag_warns_and_is_not_emitted() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\nmemo_from: !include value.txt\n~~~\n";

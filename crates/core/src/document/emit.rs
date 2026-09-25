@@ -172,7 +172,8 @@ impl KeyPos {
 
     fn map_indent(self) -> usize {
         match self {
-            KeyPos::Line(i) | KeyPos::SeqHead(i) => i + 2,
+            KeyPos::Line(i) => i + 2,
+            KeyPos::SeqHead(i) => i + 4,
         }
     }
 
