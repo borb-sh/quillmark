@@ -44,28 +44,12 @@ export interface QuillCardUi {
     groups?: Record<string, QuillGroupUi>;
 }
 
-/** A block construct a body can hold. `paragraph` is the floor and cannot be
- * declined, so it is absent. */
-export type QuillBlockConstruct =
-    | "heading"
-    | "rule"
-    | "code"
-    | "list"
-    | "quote"
-    | "table"
-    | "image";
-
 /** Body namespace for a card (main or named card kind). */
 export interface QuillCardBody {
     /** When false, consumers must not accept or store body content for this card kind. Defaults to true. */
     enabled?: boolean;
     /** Example body content embedded verbatim in the blueprint body region. Fallback is "Write <card> body here." */
     example?: string;
-    /** Block constructs this quill's plate does not typeset in this body;
-     * absent or empty declines nothing. A body that holds one anyway draws a
-     * non-fatal `plate::unsupported_construct` warning. Nothing verifies the
-     * claim: absence from this list is not a promise the plate typesets it. */
-    unsupported?: QuillBlockConstruct[];
 }
 
 /** Schema entry for a single field declared in a quill's `Quill.yaml`.

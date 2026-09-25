@@ -1,7 +1,6 @@
 mod matrix_tests;
 mod optional_tests;
 mod properties;
-mod support_tests;
 mod today_tests;
 mod variant_tests;
 
@@ -905,7 +904,7 @@ fn a_malformed_ui_or_body_block_reports_its_own_code_on_main_and_card_kinds() {
             .find(|d| d.code.as_deref() == Some("quill::invalid_body"))
             .and_then(|d| d.hint.clone())
             .expect("a malformed body carries a hint");
-        for key in ["enabled", "example", "unsupported"] {
+        for key in ["enabled", "example"] {
             assert!(hint.contains(key), "{prefix}: hint omits {key}: {hint}");
         }
     }

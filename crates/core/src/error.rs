@@ -902,12 +902,6 @@ card_kinds:
                 .unwrap_or_else(|| panic!("no `{code}` sample from the seed probe"));
             add(code, sample.args.clone());
         }
-        add("plate::unsupported_construct", {
-            let mut args = BTreeMap::new();
-            args.insert("construct".to_string(), "rule".into());
-            args.insert("count".to_string(), 3.into());
-            args
-        });
         add(
             "backend::declined_construct",
             crate::backend::declined_construct(

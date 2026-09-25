@@ -204,38 +204,40 @@ describe('Quillmark.quill', () => {
   })
 
   // `RenderResult.warnings` is the document's parse warnings ahead of the
-  // render's own, and a parse warning carries `args`: a declined construct the
-  // body still holds warns and renders. `args` is declared
-  // `Record<string, unknown>`, so it must read as one on the far side.
+  // render's own, and a parse warning carries `args`: a value conform cannot
+  // rest warns and renders. `args` is declared `Record<string, unknown>`, so it
+  // must read as one on the far side.
   it('a merged parse warning carries its args as a plain object', () => {
-    const DECLINE_QUILL_YAML = `quill:
-  name: decliner
+    const NOTES_QUILL_YAML = `quill:
+  name: notes
   version: "1.0"
   backend: typst
-  description: A quill that typesets no horizontal rule
+  description: A quill holding a list of richtext notes
 
 main:
-  body:
-    unsupported: [rule]
-  fields: {}
+  fields:
+    notes:
+      type: array
+      items:
+        type: richtext
 `
-    const DECLINE_PLATE = `#import "@local/quillmark-helper:0.1.0": data
+    const NOTES_PLATE = `#import "@local/quillmark-helper:0.1.0": data
 
 #data.at("$body")`
 
     const engine = new Quillmark()
     const quill = Quill.fromTree(
-      makeQuill({ name: 'decliner', plate: DECLINE_PLATE, quillYaml: DECLINE_QUILL_YAML }),
+      makeQuill({ name: 'notes', plate: NOTES_PLATE, quillYaml: NOTES_QUILL_YAML }),
     )
-    const doc = quill.parse('~~~card-yaml\n$quill: decliner\n~~~\n\nAlpha\n\n---\n\nBeta\n')
+    const doc = quill.parse('~~~card-yaml\n$quill: notes\nnotes: [42]\n~~~\n\nAlpha\n')
 
     const result = engine.render(quill, doc, { format: 'svg' })
     expect(result.artifacts.length).toBeGreaterThan(0)
 
-    const w = result.warnings.find((d) => d.code === 'plate::unsupported_construct')
+    const w = result.warnings.find((d) => d.code === 'conform::field_decode')
     expect(w).toBeDefined()
     expect(w.args).not.toBeInstanceOf(Map)
-    expect(w.args.construct).toBe('rule')
+    expect(w.args.field).toBe('notes')
   })
 
   it('session.regions() is always a non-null array, keyed by DocPath', () => {

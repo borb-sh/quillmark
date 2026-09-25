@@ -233,8 +233,6 @@ main:
       The first paragraph. Top-level paragraphs are auto-numbered; do not add manual numbering.
       
       - Nested bullets are automatically lettered.
-    unsupported:
-    - rule
 card_kinds:
   indorsement:
     title: Routing indorsement

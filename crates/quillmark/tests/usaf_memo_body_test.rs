@@ -79,30 +79,3 @@ fn the_run_in_style_still_runs_in() {
     assert!(on_one_line("- # Absorbed\n  item text"));
     assert!(on_one_line("# Absorbed\n\nitem text"));
 }
-
-/// An AFH 33-337 memo has no dividers: a rule leaves the page unmarked, so the
-/// walk's warning is the only place that says so.
-#[test]
-fn a_rule_in_the_memo_body_warns() {
-    let (_engine, quill) = common::memo();
-    let markdown = "~~~card-yaml\n$quill: usaf_memo\n$kind: main\n~~~\n\none\n\n***\n\ntwo\n";
-    let warnings: Vec<_> = quill
-        .parse(markdown)
-        .expect("parses and conforms")
-        .warnings
-        .iter()
-        .filter(|d| d.code.as_deref() == Some(quillmark_core::quill::UNSUPPORTED_CONSTRUCT))
-        .map(|d| (d.path.clone(), d.args["construct"].as_str().unwrap().to_string()))
-        .collect();
-    assert_eq!(
-        warnings,
-        [(Some("main.body".to_string()), "rule".to_string())]
-    );
-    let clean = "~~~card-yaml\n$quill: usaf_memo\n$kind: main\n~~~\n\n# H\n\n- a\n- b\n";
-    assert!(quill
-        .parse(clean)
-        .expect("parses")
-        .warnings
-        .iter()
-        .all(|d| d.code.as_deref() != Some(quillmark_core::quill::UNSUPPORTED_CONSTRUCT)));
-}

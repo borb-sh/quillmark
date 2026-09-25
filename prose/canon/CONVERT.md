@@ -160,10 +160,6 @@ self-contained or declared. A path into one quill's file tree is neither, and
 no `DocPath`, `validate` signal or url space makes it either. A backend that
 resolved the string anyway would bind documents to a reading nothing versions.
 
-The sibling lane `plate::unsupported_construct`
-(`crates/core/src/quill/support.rs`) is a *quill's* declaration about a body;
-this one is the backend's own observation about every content field.
-
 ### Island props
 
 An island's `props` is a per-type canonical object: the shape this lowering

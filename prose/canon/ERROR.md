@@ -106,7 +106,7 @@ for it, anchored at the card that is full.
 
 ## Warning flow
 
-Warnings travel the same `Diagnostic` currency as errors, on seven producer
+Warnings travel the same `Diagnostic` currency as errors, on six producer
 families:
 
 - **`quill::*` load warnings**: the second half of
@@ -121,7 +121,7 @@ families:
 - **Parse warnings**: the `warnings` on the `Parsed` that `Document::parse`
   returns (e.g. a `~~~` opener missing its blank line). The CLI render and the
   WASM one-shot render splice the whole `Parsed.warnings` carrier — this family
-  plus the two below that `Quill::parse` appends to it — into
+  plus the `conform::*` set that `Quill::parse` appends to it — into
   `RenderResult.warnings` ahead of any compile warnings. In WASM the surface
   that merges is the runtime `Engine.render`, reading the carrier off the
   caller's `doc.warnings`: the backend-memory clone it renders is built by
@@ -151,27 +151,13 @@ families:
   `render` prints the unclaimed ones itself ([CLI.md](CLI.md)). Values
   are judged in the form the render floor builds from them
   ([SCHEMAS.md](SCHEMAS.md) § "Type coercion").
-- **`plate::unsupported_construct`: declined-construct warnings.** A quill
-  names, per body (`BodyCardSchema.unsupported`), the block constructs its
-  plate does not typeset; `Quill::unsupported_constructs` walks a document's
-  bodies against those declarations and `Quill::parse` appends the result to
-  `Parsed.warnings` beside the `conform::*` set. One diagnostic per (body,
-  construct) carrying `construct` and `count` in `args` and the body's schema
-  address in `path`: the walk sees the whole body, so occurrences collapse
-  rather than scattering. Stateless, so a repeat call re-emits the identical
-  set. Empty for every quill that declares nothing, which is the default.
-  Core cannot *detect* a plate dropping a construct — the absence of ink is
-  not a signal a backend reports — so this family is a declaration, not an
-  observation: nothing verifies it, and an undeclared drop stays silent.
-- **`backend::declined_construct`: observed-decline warnings.** The twin above,
-  from the other side. A backend that declines a construct *outright* is the
-  observer core is not, so it says so itself: one diagnostic per (content
-  field, construct) carrying `backend`, `construct` and `count` in `args` and
-  the field's `DocPath` in `path`, minted by
-  `quillmark_core::backend::declined_construct` so the two lanes cannot drift
-  into two key sets. Per field, not per body, and
-  at the compile that dropped the construct, so it rides the session's compile
-  warnings. The Typst backend declines `image` in content
+- **`backend::declined_construct`: declined-construct warnings.** A backend
+  that declines a construct outright says so itself: one diagnostic per
+  (content field, construct) carrying `backend`, `construct` and `count` in
+  `args` and the field's `DocPath` in `path`, minted by
+  `quillmark_core::backend::declined_construct`. Raised at the compile that
+  dropped the construct, so it rides the session's compile warnings. The Typst
+  backend declines `image` in content
   ([CONVERT.md](CONVERT.md#declined-images)); nothing else declines anything.
 - **Compile warnings**: the Typst backend maps the compiler's non-fatal
   diagnostics (font fallback, overfull pages, …) through the same span
@@ -183,16 +169,9 @@ families:
   `open` → `render` path.
 
 Ordering in a merged `RenderResult.warnings` is pipeline order: parse
-warnings first, then compile warnings. No dedup *across* families, and one
-pair overlaps: a quill declaring `unsupported: [image]` on a body the Typst
-backend also declines draws both codes at one `path`. Two producers state two
-facts there, the quill's declaration and the backend's observation, on either
-side of a crate boundary the merge is the first place to see. A reader wanting
-one line collapses them itself.
-`plate::unsupported_construct` dedups *within* itself, at the walk, for
-the reason the others need not: it is the one family whose producer sees
-every occurrence at once. `backend::declined_construct` does the same, per
-field.
+warnings first, then compile warnings, with no dedup across families.
+`backend::declined_construct` dedups within itself, per field: its producer
+sees every occurrence at once, so the occurrences collapse into `count`.
 
 ## Bindings Error Delegation
 
@@ -413,7 +392,6 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `parse::invalid_structure` | — | fallback |
 | `parse::missing_quill` | — | fallback |
 | `parse::body_import` | — | fallback |
-| `plate::unsupported_construct` | `construct`, `count` | structured |
 | `backend::declined_construct` | `backend`, `construct`, `count` | structured |
 
 `parse::missing_quill` looks code-determined and is not: it picks one of three sentences by re-reading the source, and no field records which.

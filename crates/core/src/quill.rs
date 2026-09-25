@@ -11,7 +11,6 @@ mod ignore;
 mod load;
 mod schema;
 mod schema_yaml;
-pub(crate) mod support;
 mod seed;
 mod tree;
 mod types;
@@ -28,7 +27,6 @@ pub use ignore::QuillIgnore;
 pub use schema::{
     build_transform_schema, CONTENT_MEDIA_TYPE, QUILLMARK_INLINE_KEY, QUILLMARK_ORDER_KEY,
 };
-pub use support::UNSUPPORTED_CONSTRUCT;
 pub use tree::FileTreeNode;
 pub use validation::ValidationError;
 pub use types::{
