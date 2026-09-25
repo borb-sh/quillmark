@@ -172,7 +172,8 @@ impl KeyPos {
 
     fn map_indent(self) -> usize {
         match self {
-            KeyPos::Line(i) | KeyPos::SeqHead(i) => i + 2,
+            KeyPos::Line(i) => i + 2,
+            KeyPos::SeqHead(i) => i + 4,
         }
     }
 
@@ -345,7 +346,8 @@ fn push_trailer(out: &mut String, trailer: Option<&str>) {
 /// Emit a `key: <value>\n` pair with the key placed per `pos`.
 ///
 /// Empty objects emit `key: {}\n`, empty arrays `key: []\n`, null a bare
-/// `key:\n`.
+/// `key:\n`. An empty collection's own comments follow it at its children's
+/// indent, where the parser reads them back.
 fn emit_field_at(
     out: &mut String,
     key: &str,
@@ -363,6 +365,7 @@ fn emit_field_at(
             out.push_str(": {}");
             push_trailer(out, inline_trailer);
             out.push('\n');
+            emit_own_line_pending(out, ctx, 0, pos.map_indent());
         }
         JsonValue::Object(map) => {
             out.push(':');
@@ -374,6 +377,7 @@ fn emit_field_at(
             out.push_str(": []");
             push_trailer(out, inline_trailer);
             out.push('\n');
+            emit_own_line_pending(out, ctx, 0, pos.seq_indent());
         }
         JsonValue::Array(items) => {
             out.push(':');
@@ -406,6 +410,24 @@ pub(crate) fn emit_mapping_lines(
     emit_mapping_children(
         &mut out,
         map,
+        0,
+        EmitCtx {
+            path: &[],
+            nested,
+            project_content: true,
+        },
+    );
+    out
+}
+
+/// Render a sequence's items as standalone lines at column 0, the
+/// [`emit_mapping_lines`] of a sequence. The blueprint renders a typed table's
+/// row template through this to comment it out.
+pub(crate) fn emit_sequence_lines(items: &[JsonValue], nested: &[NestedComment]) -> String {
+    let mut out = String::new();
+    emit_sequence_children(
+        &mut out,
+        items,
         0,
         EmitCtx {
             path: &[],
@@ -742,6 +764,26 @@ mod tests {
         for numericish in &["_0", "_1", "-_0", "__0"] {
             assert_scalar_round_trips(serde_json::json!(*numericish));
         }
+    }
+
+    /// A container under a sequence item's first key nests past that key, and
+    /// an empty one keeps the comments inside it.
+    #[test]
+    fn a_container_under_a_dash_line_key_round_trips() {
+        let src = concat!(
+            "~~~\n$quill: q\n$kind: main\n",
+            "rows:\n",
+            "  - key:\n      a: 1\n    next: 1\n",
+            "  - key: {}\n      # inside the map\n",
+            "  - key: []\n      # - inside the list\n",
+            "~~~\n",
+        );
+        let doc = crate::document::Document::parse(src).expect("parse src").document;
+        assert_eq!(doc.to_markdown(), src);
+        assert_eq!(
+            doc.main().payload().get("rows").expect("rows").as_json()[0],
+            serde_json::json!({"key": {"a": 1}, "next": 1})
+        );
     }
 
     #[test]

@@ -226,7 +226,8 @@ data payload.
   round-trip through `toMarkdown`. Comments inside nested YAML values
   (arrays, maps) are also preserved: the pre-scan captures each nested
   comment with a structural path and the emitter re-injects it at the
-  matching position.
+  matching position. That includes an empty flow value: a comment indented
+  under `key: []` or `key: {}` is inside that value.
 - **Custom tags.** A custom YAML tag (`!include`, `!env`, `!fill`, …) is
   dropped with a `parse::unsupported_yaml_tag` warning; the value is kept, and
   the tag does not round-trip.
