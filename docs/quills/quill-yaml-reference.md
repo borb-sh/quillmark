@@ -624,7 +624,7 @@ main:
         blank_title: "(no marking)"
 ```
 
-It labels the blank, never a member: `values:` carries no entry for it. Consumers must keep the blank **selectable and re-selectable** — returning to it is how an author clears a cell back to unset, so a disabled placeholder that vanishes once a choice is made is the wrong idiom.
+It labels the blank, never a member: `values:` carries no entry for it. Consumers must keep **unset** selectable and re-selectable — returning to it is how an author clears a cell, so a disabled placeholder that vanishes once a choice is made is the wrong idiom. Unset and a stored `""` differ where `default:` names a member: the stored blank is an answer and outranks the default.
 
 ### `compact`
 
