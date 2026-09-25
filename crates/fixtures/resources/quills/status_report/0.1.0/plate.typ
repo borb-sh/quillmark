@@ -1,4 +1,4 @@
-#import "@local/quillmark-helper:0.1.0": data, display, field-region
+#import "@local/quillmark-helper:0.1.0": data, display, field-region, ink
 
 #set page(paper: "us-letter", margin: 1in)
 #set text(size: 11pt)
@@ -33,12 +33,12 @@
 // while `card.at("$body")` — a `$`-sigiled key — still takes its default.
 #for card in data.at("$cards", default: ()) {
   if card.at("$kind", default: none) == "milestone" {
-    heading(level: 2, card.title)
-    // The card's own address, composed from its `$path` prefix: `display` takes
-    // an address, so this one call site regions per card even though every
-    // iteration shares one loop variable.
+    // Every iteration reads through one loop variable, so a print of
+    // `card.title` names no card. Its ink is the card's own: compute with
+    // `card`, print with `ink(card)`, and format a date with `display(card, ..)`.
+    heading(level: 2, ink(card).title)
     if card.due != none {
-      [Due #display(card.at("$path") + "due", "[year]-[month]-[day]")]
+      [Due #display(card, "due", "[year]-[month]-[day]")]
       parbreak()
     }
     card.at("$body", default: "")
