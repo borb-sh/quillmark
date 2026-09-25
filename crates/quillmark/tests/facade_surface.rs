@@ -5,8 +5,8 @@
 use std::collections::HashMap;
 
 use quillmark::{
-    CardReader, Delta, Document, EditError, FileTreeNode, ImportError, Normalized, Parsed, Quill,
-    QuillReference, QuillValue, TypedReader, TypedWriter,
+    CalendarDate, CardReader, Delta, Document, EditError, FileTreeNode, ImportError, Normalized,
+    ParseDateError, Parsed, Quill, QuillReference, QuillValue, TypedReader, TypedWriter,
 };
 
 const QUILL: &str = r#"
@@ -91,12 +91,16 @@ fn content_lane_spells_through_the_facade() {
     assert!(depth > max, "the refusal names the depth that passed the limit");
 }
 
+#[test]
+fn a_render_date_refusal_spells_through_the_facade() {
+    let refused: Result<CalendarDate, ParseDateError> = "2026-02-30".parse();
+    assert!(refused.is_err(), "February has no 30th");
+}
+
 #[cfg(feature = "typst")]
 #[test]
 fn preview_regions_spell_through_the_facade() {
-    use quillmark::{
-        CalendarDate, ContentHit, HitGranularity, LiveSession, Quillmark, RenderedRegion,
-    };
+    use quillmark::{ContentHit, HitGranularity, LiveSession, Quillmark, RenderedRegion};
 
     let engine = Quillmark::new();
     let quill = quillmark::quill_from_path(quillmark_fixtures::quills_path("usaf_memo"))

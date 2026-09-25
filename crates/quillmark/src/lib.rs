@@ -39,8 +39,8 @@ pub use quillmark_core::{
     document::{Card, Document, EditError, ImportError, Parsed},
     error::{Diagnostic, Location, ParseError, RenderError, RenderResult, Severity},
     quill::{
-        BoundParseError, CalendarDate, CardSchema, FieldSchema, FieldType, FileTreeNode, Quill,
-        QuillConfig, QuillIgnore, ValidationError,
+        BoundParseError, CalendarDate, CardSchema, FieldSchema, FieldType, FileTreeNode,
+        ParseDateError, Quill, QuillConfig, QuillIgnore, ValidationError,
     },
     reader::{CardReader, TypedReader},
     region::{ContentHit, HitGranularity, RenderedRegion},
