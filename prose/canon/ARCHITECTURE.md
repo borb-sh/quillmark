@@ -68,7 +68,7 @@ core.
 
 ### `backends/quillmark-typst`
 
-Implements `Backend` for PDF, SVG, and PNG. Lowers each content field's `Content` value to Typst markup at codegen (`emit::emit_content`), recording a per-segment source map. Resolves fonts and assets. See [CONVERT.md](CONVERT.md) and [PLATE_DATA.md](PLATE_DATA.md).
+Implements `Backend` for PDF, SVG, and PNG. Lowers each content field's `Content` value to Typst markup at codegen (`emit::emit_content`), recording a per-segment source map. Resolves fonts and assets. `workspace::workspace` exports the generated helper, the vendored packages and the fonts for Typst's own tooling ([CLI.md](CLI.md)). See [CONVERT.md](CONVERT.md) and [PLATE_DATA.md](PLATE_DATA.md).
 
 ### `backends/quillmark-acroform`
 

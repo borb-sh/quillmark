@@ -14,6 +14,7 @@ mod error_mapping;
 mod helper;
 mod overlay;
 mod world;
+pub mod workspace;
 
 use std::collections::BTreeMap;
 

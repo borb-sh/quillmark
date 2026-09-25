@@ -362,6 +362,23 @@ PNG resolution is set via the `ppi` option (default **144**, 2× at 72pt/inch, s
 | 300 | Standard print quality |
 | 600 | High-quality print / archival |
 
+## Iterating on a Plate
+
+The plate imports a helper Quillmark generates per render, so Typst's own tools
+cannot compile it from the quill alone. `quillmark workspace` writes that helper
+for one document, beside the quill's packages and fonts, and prints the
+`typst watch` command that compiles the plate from them:
+
+```bash
+quillmark workspace ./my-quill input.md -o ws
+typst watch --root ./my-quill --package-path ws/packages --font-path ws/fonts --ignore-system-fonts --ignore-embedded-fonts ./my-quill/plate.typ
+```
+
+Edits to the plate recompile on save. The helper holds `input.md`'s data, so
+rerun `workspace` after changing the document. Tinymist takes the same flags
+through `tinymist.typstExtraArgs`, for completion on `data.` fields and a live
+preview. See the [CLI reference](../cli/reference.md#workspace).
+
 ## Resources
 
 - [Typst Documentation](https://typst.app/docs/)

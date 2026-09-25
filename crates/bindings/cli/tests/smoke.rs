@@ -532,3 +532,25 @@ main:
     ok(&["validate", quill]);
     assert_eq!(run(&["render", quill, "--today", "today"]).status.code(), Some(2));
 }
+
+/// `workspace` writes the helper package where the printed `--package-path`
+/// points, and the command names the quill's plate.
+#[test]
+fn workspace_writes_the_helper_and_prints_the_typst_command() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out = dir.path().join("ws");
+    let quill = taro();
+    let stdout = ok(&["workspace", quill.to_str().unwrap(), "-o", out.to_str().unwrap()]);
+    assert!(out
+        .join("packages/local/quillmark-helper/0.1.0/lib.typ")
+        .is_file());
+    let command = stdout
+        .lines()
+        .find(|l| l.starts_with("typst watch"))
+        .unwrap_or_else(|| panic!("no typst command: {stdout}"));
+    assert!(
+        command.contains(&format!("--package-path {}", out.join("packages").display()))
+            && command.contains(&quill.join("plate.typ").display().to_string()),
+        "{command}"
+    );
+}
