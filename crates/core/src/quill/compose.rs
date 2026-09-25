@@ -312,9 +312,9 @@ impl Quill {
     }
 
     /// Seed a starter [`Document`]: the main card plus one instance of each
-    /// declared composable card kind, each committing its `body.example` and
-    /// leaving every field absent (interpolated at render: `default` → the
-    /// field's blank). See the `seed` module.
+    /// declared composable card kind, each with an empty body and every field
+    /// absent (interpolated at render: `default` → the field's blank). See the
+    /// `seed` module.
     pub fn seed_document(&self) -> Document {
         seed::seed_document(self)
     }

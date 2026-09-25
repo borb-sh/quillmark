@@ -21,7 +21,7 @@ quillmark render [OPTIONS] <QUILL_PATH> [MARKDOWN_FILE]
 **Arguments:**
 
 - `<QUILL_PATH>`: Path to quill directory
-- `[MARKDOWN_FILE]`: Path to markdown file with a root card-yaml block (optional, when omitted, the quill's seeded document is rendered: one card per kind with bodies from `body.example`, every field at its `default:` or blank)
+- `[MARKDOWN_FILE]`: Path to markdown file with a root card-yaml block (optional, when omitted, the quill's seeded document is rendered: one card per kind with empty bodies, every field at its `default:` or blank)
 
 The file must open with a `~~~` block containing a `$quill:` key identifying the quill; the opener's info string is ignored.
 

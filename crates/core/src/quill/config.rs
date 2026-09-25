@@ -2501,30 +2501,23 @@ fn populate_field_content(
 }
 
 /// Populate every content companion on a card: each field's `default` and each
-/// nested declaration's, plus the card's
-/// `body.example` (block richtext, no inline constraint; skipped when the body is
-/// disabled, since its example is inert).
+/// nested declaration's. The card's `body.example` is imported as a check and
+/// cached nowhere (block richtext, no inline constraint; skipped when the body
+/// is disabled, since its example is inert).
 fn populate_card_content(card: &mut CardSchema, label: &str, errors: &mut Vec<Diagnostic>) {
     for (name, field) in card.fields.iter_mut() {
         populate_field_content(field, label, name, errors);
     }
     if card.body_enabled() {
-        if let Some(body) = card.body.as_mut() {
-            if let Some(example) = body.example.clone() {
-                match crate::document::import_body(&example) {
-                    Ok(rt) => {
-                        body.example_content = Some(QuillValue::from_json(
-                            quillmark_content::serial::to_canonical_value(&rt),
-                        ));
-                    }
-                    Err(e) => errors.push(
-                        Diagnostic::new(
-                            Severity::Error,
-                            format!("Failed to import {label} `body.example`: {e}"),
-                        )
-                        .with_code("quill::richtext_example_import".to_string()),
-                    ),
-                }
+        if let Some(example) = card.body.as_ref().and_then(|b| b.example.as_deref()) {
+            if let Err(e) = crate::document::import_body(example) {
+                errors.push(
+                    Diagnostic::new(
+                        Severity::Error,
+                        format!("Failed to import {label} `body.example`: {e}"),
+                    )
+                    .with_code("quill::richtext_example_import".to_string()),
+                );
             }
         }
     }

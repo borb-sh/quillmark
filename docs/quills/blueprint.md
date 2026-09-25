@@ -31,7 +31,7 @@ The reader's one rule: an empty cell (`title: # string`) awaits a value; a concr
 
 ## Seeding: the starter document
 
-Seeding materializes a real `Document` rather than an annotated string: the main card plus one card per composable kind, each body taken from `body.example`, and every field left absent so the render floor fills `default:`, else the field's blank. No `example:` is committed. Hand it to an editor as a "new document" starter, or render it directly.
+Seeding materializes a real `Document` rather than an annotated string: the main card plus one card per composable kind, each body empty, and every field left absent so the render floor fills `default:`, else the field's blank. No `example:` is committed, a field's or `body.example`. Hand it to an editor as a "new document" starter, or render it directly.
 
 | Projection | Intent | Output |
 |---|---|---|

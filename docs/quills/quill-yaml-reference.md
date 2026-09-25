@@ -851,7 +851,7 @@ Loading this draws `quill::bodiless_card_kind`, which asks whether the kind is a
 
 #### `body.example`
 
-Default body text seeded into a card of this kind and shown verbatim in the blueprint body region (it falls back to `Write <kind> body here.` when absent). Has no effect when `body.enabled` is false.
+Guide text for this kind's body, shown verbatim in the blueprint body region (it falls back to `Write <kind> body here.` when absent). An editor may show it as the empty body's placeholder. Seeding never commits it: starter text a card should carry goes in a template document's body, or in the kind's `$seed` `$body`. Has no effect when `body.enabled` is false.
 
 ```yaml
 card_kinds:

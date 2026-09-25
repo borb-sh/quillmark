@@ -19,8 +19,13 @@ pub fn memo() -> (&'static Quillmark, &'static Quill) {
     (&ENGINE, &MEMO)
 }
 
-/// [`memo`] plus the quill's seed document: one card per declared kind, each
-/// blank.
+/// [`memo`] plus the quill's seed document, one card per declared kind with
+/// every field blank, and an authored main body: a numbered paragraph and a
+/// lettered bullet.
 pub fn seeded_memo() -> (&'static Quillmark, &'static Quill, Document) {
-    (&ENGINE, &MEMO, MEMO.seed_document())
+    let mut doc = MEMO.seed_document();
+    doc.main_mut()
+        .revise_body("The first paragraph.\n\n- A nested bullet.")
+        .expect("a paragraph and a bullet import");
+    (&ENGINE, &MEMO, doc)
 }
