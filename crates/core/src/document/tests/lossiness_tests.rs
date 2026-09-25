@@ -403,13 +403,8 @@ fn orphan_inline_after_remove_degrades_to_own_line() {
 
     let emitted = doc.to_markdown();
     assert!(
-        emitted.contains("# tail"),
-        "orphan comment text must be preserved\nGot:\n{}",
-        emitted
-    );
-    assert!(
-        !emitted.contains("\" # tail"),
-        "orphan comment must not appear inline on another line\nGot:\n{}",
+        emitted.lines().any(|line| line == "# tail"),
+        "orphan comment must stand on its own line\nGot:\n{}",
         emitted
     );
 

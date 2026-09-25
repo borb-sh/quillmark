@@ -254,10 +254,13 @@ impl Payload {
     }
 
     /// Remove and return the first item matching `pred`, with the comments
-    /// nested inside it.
+    /// nested inside it. Its inline trailer stays, as an own-line comment.
     fn take_item(&mut self, pred: impl Fn(&PayloadItem) -> bool) -> Option<PayloadItem> {
         let pos = self.items.iter().position(pred)?;
         let item = self.items.remove(pos);
+        if let Some(PayloadItem::Comment { inline, .. }) = self.items.get_mut(pos) {
+            *inline = false;
+        }
         if let Some(key) = item.nested_owner_key() {
             let key = key.to_string();
             self.prune_nested(&key);
@@ -486,8 +489,9 @@ impl Payload {
         Ok(None)
     }
 
-    /// Remove a user field by key, returning its value. Comments and `$`
-    /// entries are untouched.
+    /// Remove a user field by key, returning its value. Its inline trailer
+    /// stays as an own-line comment; other comments and `$` entries are
+    /// untouched.
     pub(crate) fn remove(&mut self, key: &str) -> Option<QuillValue> {
         match self.take_item(|item| matches!(item, PayloadItem::Field { key: k, .. } if k == key))? {
             PayloadItem::Field { value, .. } => Some(value),
