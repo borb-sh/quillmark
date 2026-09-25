@@ -139,6 +139,16 @@ carries one of the seven tags this page names, and the reader set is complete. I
 is pre-unification: a separate `sentinel` beside a `frontmatter` item list. It
 carries neither `$id` nor `$ext`, so its hop to V0_82_0 is lossless.
 
+A composable card naming no `$kind`, which 0.115 parsed as a card and stored,
+folds on load, under any tag, into the body above it: its fields and comments
+as an untagged backtick code block, whose text is admitted as a body import
+admits it, then its own body. Its `$ext` drops, since `$ext` reaches no render
+and the body does. What the fold lands is new content: an island id the body
+above already holds is minted anew, the next `isl-{n}` past the highest in
+either body (§ Island-id determinism), and an anchor whose id it already holds
+drops whole, since the engine mints no anchor id (§ Anchor-id identity). Every
+later card moves up one index.
+
 ## Byte-stability
 
 Serialization is **byte-deterministic** within a given schema version:
@@ -451,7 +461,7 @@ follow from that.
 
 |                     | Island `id`                                        | Anchor `id`                                        |
 | ------------------- | -------------------------------------------------- | -------------------------------------------------- |
-| Minted by           | the engine at import, the caller on an insert op   | the caller                                         |
+| Minted by           | the engine at import or fold, the caller on insert | the caller                                         |
 | Because             | content determines it: the nth island minted      | the referent is external; no content determines it |
 | Unique across       | the `Content`'s islands                            | the `Content`'s prose marks                        |
 | Required            | yes: `insert` rejects the empty id                 | yes: the empty id is rejected                     |
