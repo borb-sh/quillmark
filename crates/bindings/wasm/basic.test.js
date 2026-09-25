@@ -765,9 +765,11 @@ Card two.
     expect(field(repushed, 'foo')).toBe('bar')
   })
 
-  it('a stale { kind, fields } object is a loud error, not a silent empty card', () => {
+  it('a stale card or item shape is a loud error, not a silent drop', () => {
     const doc = Document.fromMarkdown(TEST_MARKDOWN)
     expect(() => doc.insertCard({ kind: 'note', fields: { x: 1 } })).toThrow()
+    const stale = { type: 'field', key: 'x', value: 'Example', fill: true }
+    expect(() => doc.insertCard({ kind: 'note', payloadItems: [stale] })).toThrow(/fill/)
   })
 
   it('a card the wire refuses carries the code its addressed mutator mints', () => {

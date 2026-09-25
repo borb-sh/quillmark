@@ -25,8 +25,10 @@ use quillmark_content::model::Normalized;
 
 /// One entry in a [`CardWire`]'s `payload_items`: a user field or a comment.
 /// The `$` system entries are hoisted onto [`CardWire`] itself, never here.
+/// `deny_unknown_fields` refuses a stale `fill` rather than commit the
+/// placeholder beside it as an answer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
 pub enum PayloadItemWire {
     /// A user-defined field.
     Field { key: String, value: JsonValue },
@@ -350,6 +352,17 @@ mod tests {
             err.to_diagnostic().hint.is_some(),
             "every door that parses a `$quill` reference carries the grammar"
         );
+    }
+
+    #[test]
+    fn card_wire_refuses_an_unknown_item_key() {
+        let decode = |item: JsonValue| {
+            serde_json::from_value::<CardWire>(json!({ "kind": "note", "payloadItems": [item] }))
+        };
+        let mut item = json!({ "type": "field", "key": "subject", "value": "Example" });
+        assert!(decode(item.clone()).is_ok());
+        item["fill"] = json!(true);
+        assert!(decode(item).is_err());
     }
 
     #[test]

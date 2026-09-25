@@ -2299,10 +2299,11 @@ fn card_to_js(card: &quillmark_core::document::Card) -> Result<JsValue, JsValue>
 }
 
 fn js_to_card(value: &JsValue) -> Result<quillmark_core::document::Card, JsValue> {
-    // `serde_wasm_bindgen` does not honor `#[serde(deny_unknown_fields)]` (it
-    // looks up known fields rather than visiting every key), so enforce it here:
-    // a flat `{ kind, fields }` object fails loudly instead of yielding a
-    // silently-empty card.
+    // `serde_wasm_bindgen` does not honor `#[serde(deny_unknown_fields)]` on a
+    // struct (it looks up known fields rather than visiting every key), so
+    // enforce it here: a flat `{ kind, fields }` object fails loudly instead of
+    // yielding a silently-empty card. A payload item is an internally tagged
+    // enum, read through `deserialize_any` over every key, so its deny holds.
     if let Some(obj) = value.dyn_ref::<js_sys::Object>() {
         const ALLOWED: &[&str] = &[
             "kind",

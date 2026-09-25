@@ -54,8 +54,7 @@ fn arb_json() -> impl Strategy<Value = Value> {
 /// generated value reaches the payload checks behind it.
 fn arb_payload_item() -> impl Strategy<Value = Value> {
     prop_oneof![
-        (arb_key(), arb_json(), any::<bool>())
-            .prop_map(|(k, v, f)| json!({ "type": "field", "key": k, "value": v, "fill": f })),
+        (arb_key(), arb_json()).prop_map(|(k, v)| json!({ "type": "field", "key": k, "value": v })),
         (arb_key(), any::<bool>())
             .prop_map(|(t, i)| json!({ "type": "comment", "text": t, "inline": i })),
         arb_json(),
