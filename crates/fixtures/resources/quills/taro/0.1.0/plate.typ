@@ -19,8 +19,6 @@
 
 // Present each sub-document programatically
 #for card in data.at("$cards") {
-  // `$kind` is document-defined: a card block with no `$kind:` line carries
-  // none, so read it with a default rather than a bare `.at`.
   if card.at("$kind", default: none) == "quotes" [
     *#card.author*: _#card.at("$body") _
   ]

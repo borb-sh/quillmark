@@ -31,7 +31,7 @@ A present `type: date` / `type: datetime` field is a native `datetime`; a blank 
 #if data.issued != none { .. }                                        // presence
 ```
 
-`datetime.today()` returns the render date the host supplied, the same date a `today` field renders as. The engine reads no clock.
+`datetime.today()` returns the render date the host supplied, the same date a `today` field renders as. The engine reads no clock, and the host owns the time zone, so an `offset:` is ignored: `datetime.today(offset: 0)` is the host's date, not UTC's.
 
 Everything except the last two is ordinary Typst, because the value is an ordinary `datetime`. `display(field, ..args)` takes the field's *schema address*, or a dictionary and the date's key within it, rather than its value, and prints the date as `datetime.display` would with the same patterns; an unknown address fails the render, and a blank date gives `none`. Reach for `data.<field>` whenever you want the value itself: math, comparison, components, or handing it to a package. The two print the same ink and differ only in [editor previews](editor-regions.md#dates-display-and-data), where `display` keeps the printed date clickable.
 
@@ -42,7 +42,7 @@ A key's *declaration* decides whether it can be absent, and that decides the acc
 | Key | Accessor | Why |
 |---|---|---|
 | A field declared in `Quill.yaml` | `data.subtitle` | Always present: compilation blank-fills every declared field with its authored value, else the schema `default:`, else the field's [blank](#blank-values). |
-| A `$`-sigiled key (`$kind`, `$body`, `$cards`, `$path`) | `data.at("$body", default: "")` | Typst identifiers exclude `$`, *and* `$`-metadata is present only where it is defined: `$kind` only on a card that authors one, `$body` only where the kind enables a body. |
+| A `$`-sigiled key (`$kind`, `$body`, `$cards`, `$path`) | `data.at("$body", default: "")` | Typst identifiers exclude `$`, *and* `$`-metadata is present only where it is defined: `$kind` on every card, `$body` only where the kind enables a body. |
 | An undeclared key, or any field of a card whose `$kind` is unknown | `data.at("logo", default: none)` | No schema fills it, so absence is real. `quill.validate(doc)` warns on it (`validation::unknown_field`, `validation::unknown_card`), so a key the plate reads belongs in `Quill.yaml`. |
 
 So a `default:` on a declared field is dead code, and an `#if "field" in data` guard on one is always true. When a declared field may be left blank, guard its *value*, not its presence:

@@ -23,7 +23,7 @@ projection, never a stored row: persist with `to_stored`.
     const doc2 = Document.fromStored(blob);   // storageVersionOf(blob) first to test without throwing
     ```
 
-Every blob carries a `schema` tag (`quillmark/document@<version>`). Readers dispatch on it, accept every still-supported past version by migrating forward on read, and **reject an unknown version** rather than guessing. The current tag is `quillmark/document@0.115.0`.
+Every blob carries a `schema` tag (`quillmark/document@<version>`). Readers dispatch on it, accept every still-supported past version by migrating forward on read, and **reject an unknown version** rather than guessing. The current tag is `quillmark/document@0.116.0`.
 
 ## Byte-stability
 

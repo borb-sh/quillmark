@@ -309,9 +309,9 @@ export interface FieldRegion {
 	/**
 	 * The field's canonical `DocPath` address (`parseDocPath`-routable), not a
 	 * backend widget name: `main.signature_block`,
-	 * `cards.<kind>[<i>].signature_block` (`cards[<i>].…` when the card's kind is
-	 * unknown), an array element bracketed and a key dotted. The same spelling
-	 * `Diagnostic.path` uses, so the two join on string equality.
+	 * `cards.<kind>[<i>].signature_block`, an array element bracketed and a key
+	 * dotted. The same spelling `Diagnostic.path` uses, so the two join on
+	 * string equality.
 	 */
 	field: string;
 	/** 0-based page index. */
@@ -486,15 +486,17 @@ export declare class LiveSession {
 	 * The schema field whose content is under a point on `page`: the canonical
 	 * `DocPath` address to focus in the editor, or `undefined` off any field's
 	 * ink. `x`/`y` are PDF points with a **bottom-left** origin, the same space as
-	 * {@link FieldRegion.rect}, so from a canvas click invert the overlay
-	 * transform documented there: `x = clickPx.x / scale`,
-	 * `y = pageHeightPt - clickPx.y / scale`. Unlike {@link regions},
+	 * {@link FieldRegion.rect}. A pointer event reports CSS pixels, so divide by
+	 * the CSS px per point the page is shown at,
+	 * `k = canvas.clientWidth / pageWidthPt`, not by {@link paint}'s `scale`,
+	 * which carries `devicePixelRatio`: `x = e.offsetX / k`,
+	 * `y = pageHeightPt - e.offsetY / k`. Unlike {@link regions},
 	 * *every* placement answers, not just the first.
 	 *
 	 * `tolPt` is how far off the ink a click still counts, in the same points,
 	 * and defaults to `0` — exact. It is pointer slack, so derive it from the
-	 * scale the page was drawn at (`slackPx / scale`) rather than fixing a
-	 * value in points, which shrinks under the cursor as the page zooms out. The
+	 * same `k` (`slackPx / k`) rather than fixing a value in points, which
+	 * shrinks under the cursor as the page zooms out. The
 	 * nearest placement answers and containment is distance zero, so raising
 	 * `tolPt` only ever fills a miss.
 	 */
@@ -722,7 +724,7 @@ export declare class DocumentReader {
 	 * The resolved-value view: for every declared field, the value the render
 	 * projection would use and the rung it came from (`authored` / `default` /
 	 * `blank`). The one read that blank-fills and coerces; {@link get} reports
-	 * what the document carries. Value and provenance only; completeness stays
+	 * what the document carries. Value and provenance only; diagnostics stay
 	 * `quill.validate`'s. `today` reads as on {@link Engine.open}; an editor
 	 * pairing it with a session passes the session's opening date.
 	 */

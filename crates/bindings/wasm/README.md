@@ -174,9 +174,9 @@ const doc = Document.storageVersionOf(content)
   : Document.fromMarkdown(content);
 ```
 
-The `schema` value (`quillmark/document@0.115.0`) is the **model version**,
+The `schema` value (`quillmark/document@0.116.0`) is the **model version**,
 not the running crate version. It is a hand-set constant, bumped only when
-the `Document` model itself changes, so every `0.115.x` patch release reads
+the `Document` model itself changes, so every `0.116.x` patch release reads
 and writes that same value.
 
 - **Upgrading is safe.** A newer build reads documents an older build's
@@ -189,7 +189,10 @@ and writes that same value.
   mark `type` or island `type` outside the vocabulary. Those are refused from
   0.113 on; see that release's migration guide. An island `loss` is not one of
   them: 0.115 drops the key, so a row spelling one opens whatever the class and
-  comes back without it.
+  comes back without it. A value a row flags as a `!must_fill` placeholder
+  (`fill: true`, or a `nested_fills` path) opens as null from 0.116 on, even an
+  answer typed over the placeholder. That release's migration guide shows how
+  to list them before a row's first 0.116 save.
 - **Downgrading is not.** `fromStored` rejects an *unknown* (i.e. newer)
   `schema` version rather than guessing at a format it predates. Don't feed
   documents written by a newer build back into an older one.
@@ -360,7 +363,7 @@ render as. A session keeps the date it opened with, so a preview left open past
 midnight renders yesterday's until it is reopened.
 
 A document that compiles to zero pages still produces a valid session
-(`pageCount === 0`); `paint(ctx, 0)` and `pageSize(0)` then throw. Branch on
+(`pageCount === 0`); `paint(ctx, 0, scale)` and `pageSize(0)` then throw. Branch on
 `pageCount === 0` to render a "no pages to preview" UI rather than relying on
 the throw.
 
@@ -385,10 +388,16 @@ needs nothing back from the paint:
 ```ts
 canvas.style.width = "100%";                 // the box sets the display size
 const cssPxPerPt = canvas.clientWidth / session.pageSize(0).widthPt;
-session.paint(canvas.getContext("2d"), 0, cssPxPerPt * window.devicePixelRatio);
+if (cssPxPerPt > 0) {                        // 0 while the canvas has no layout box
+  session.paint(canvas.getContext("2d"), 0, cssPxPerPt * window.devicePixelRatio);
+}
 ```
 
 - Fold `devicePixelRatio`, in-app zoom, and `visualViewport.scale` into `scale`.
+- A canvas with no layout box (`display: none` on it or an ancestor, detached,
+  in a zero-width container) has `clientWidth` 0, and a 0 scale throws
+  `backend::invalid_raster_scale`: skip the paint, and paint when a
+  `ResizeObserver` reports a width.
 - `paint` writes the whole backing store with `putImageData`, which ignores the
   2D context transform, `globalAlpha`, and clip. Give each visible page its own
   `<canvas>`: no compositing, sub-rect, or transform reaches through `paint`.
@@ -400,9 +409,10 @@ session.paint(canvas.getContext("2d"), 0, cssPxPerPt * window.devicePixelRatio);
   cache them between committed `update`s only. After one, the count is
   `ChangeSet.pageCount`, and every page in `ChangeSet.dirtyPages` needs its
   `pageSize` re-read.
-- In a Worker, pass an `OffscreenCanvasRenderingContext2D`; the layout
-  dimensions are informational there. Loading the WASM module inside the Worker
-  is the host's responsibility.
+- In a Worker, pass an `OffscreenCanvasRenderingContext2D`. An
+  `OffscreenCanvas` has no layout box to measure, so the main thread posts the
+  scale. Loading the WASM module inside the Worker is the host's
+  responsibility.
 - `paint` / `pageSize` throw on a page the compile does not have, a zero-page
   compile included, naming the index and the `pageCount` that excludes it. That
   throw is the whole contract: open the session and handle it.
@@ -508,7 +518,7 @@ in a browser that hasn't shipped it:
 const session = await engine.open(quill, doc);
 try {
   for (let p = 0; p < session.pageCount; p++) {
-    session.paint(ctx, p);
+    session.paint(canvases[p].getContext("2d"), p, scale);
   }
 } finally {
   session.free();

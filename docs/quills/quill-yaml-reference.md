@@ -300,8 +300,8 @@ badly; absent one, consumers supply their own conventional label.
 If you arrive from **web forms**, your prior transfers: this is HTML's
 placeholder `<option value="">`, Django's `("", "---------")`, Rails'
 `include_blank:`. One caveat — the affordance carries over, the enforcement does
-not. There is no `required:`; an unanswered field is a warning plus consumer
-policy, never a load or render failure. If you arrive from **protobuf**, your
+not. There is no `required:`; an unanswered field draws no diagnostic and
+renders, so enforcing an answer is consumer policy. If you arrive from **protobuf**, your
 prior is a near-miss: proto3 reserves slot 0 *inside* the enum
 (`FOO_UNSPECIFIED = 0`), whereas here the sentinel lives outside the domain and
 your `values:` list stays clean.

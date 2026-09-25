@@ -568,8 +568,8 @@ that section.
 The consumer-side `Document`-payload × schema join is a **non-goal**:
 [`resolve()`](#the-resolved-value-view-resolve) supersedes it. The
 editor reads value and source rung from one engine call rather than re-cutting
-the ladder in consumer code. Completeness and errors stay `Quill::validate`'s
-(a consumer merges it with its own diagnostic producers regardless), and schema
+the ladder in consumer code. Diagnostics stay `Quill::validate`'s
+(a consumer merges them with its own diagnostic producers regardless), and schema
 guidance (`example:`, labels, groups) reads from `Quill::schema`.
 
 One seam is deliberate, not uniform: `blank` is a property of the field
@@ -603,8 +603,8 @@ at load rather than the schema literal; and an **absent** container, which
 resolves to its container-level `default:` whole, with no property-level fill
 inside it. Neither has a caller.
 
-Value and provenance only. The view carries no diagnostics: completeness and
-errors stay `Quill::validate`'s, which a consumer merges with its own producers
+Value and provenance only. The view carries no diagnostics: those stay
+`Quill::validate`'s, which a consumer merges with its own producers
 (session warnings, render errors) regardless, so bucketing here would delete no
 consumer code. Schema guidance (`example:`, labels, groups) reads from
 `Quill::schema`. Python is out of scope until a Python consumer names a call
@@ -768,6 +768,8 @@ for every `update`.
   written date pins it.
 - **The host owns the time zone.** The CLI, the WASM runtime and the Python
   binding supply the local date unless given one ([BINDINGS.md](BINDINGS.md)).
+  A Typst plate's `datetime.today(offset: ..)` returns that date whatever the
+  offset.
 
 ## What blocks a render
 
