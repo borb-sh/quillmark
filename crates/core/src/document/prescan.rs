@@ -7,13 +7,12 @@
 //! themselves stay in the cleaned YAML, where they are comments to serde_saphyr
 //! too.
 //!
-//! A custom tag is dropped with a `parse::unsupported_yaml_tag` warning, value
-//! kept. The retired `!must_fill` placeholder tag is the exception: its path is
-//! recorded so the assembler drops the value under it too.
+//! A tag on a block key's value is recorded at the key's path, for the
+//! assembler to warn on; the YAML parser drops it and keeps the value. The
+//! retired `!must_fill` tag is lifted off here instead, so the assembler drops
+//! the value too. A tag anywhere else the parser drops unrecorded.
 
 use crate::value::PathSegment;
-use crate::error::Diagnostic;
-use crate::error::Severity;
 
 /// One ordered hint extracted from the fence body. `Field` captures only the
 /// key; the value comes from serde_saphyr. An inline `Comment` immediately
@@ -53,7 +52,8 @@ pub(crate) struct PreScan {
     /// Paths of the nodes tagged `!must_fill`, relative to the fence root (the
     /// first segment is the owning top-level key).
     pub retired_fills: Vec<Vec<PathSegment>>,
-    pub warnings: Vec<Diagnostic>,
+    /// Paths of the nodes carrying any other tag, relative to the fence root.
+    pub unsupported_tags: Vec<Vec<PathSegment>>,
 }
 
 #[derive(Debug)]
@@ -189,13 +189,10 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             } else if let Some((key, source_key, after_colon)) =
                 split_nested_key(after_dash_trimmed)
             {
-                let (fill, value_without_tag, had_non_fill_tag) =
-                    record_fill_and_tags(&mut out, &after_colon, &key);
                 let mut key_path = item_path.clone();
                 key_path.push(PathSegment::Key(key));
-                if fill {
-                    out.retired_fills.push(key_path.clone());
-                }
+                let (fill, value_without_tag, had_non_fill_tag) =
+                    record_fill_and_tags(&mut out, &after_colon, &key_path);
                 if fill || had_non_fill_tag {
                     dash_body_clean = Some(format!("{}:{}", source_key, value_without_tag));
                 }
@@ -256,17 +253,14 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             if let Some((key, after_colon)) = split_key(line) {
                 let (value_part, trailing_comment) = split_trailing_comment(&after_colon);
 
-                let (fill, value_without_tag, _) =
-                    record_fill_and_tags(&mut out, &value_part, &key);
+                let key_path = vec![PathSegment::Key(key.clone())];
+                let (_, value_without_tag, _) =
+                    record_fill_and_tags(&mut out, &value_part, &key_path);
 
                 out.items.push(PreItem::Field { key: key.clone() });
 
                 let root = &mut stack[0];
                 root.child_count += 1;
-                let key_path = vec![PathSegment::Key(key.clone())];
-                if fill {
-                    out.retired_fills.push(key_path.clone());
-                }
 
                 while stack.len() > 1 {
                     stack.pop();
@@ -317,10 +311,8 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
 
             let (value_part, trailing_comment) = split_trailing_comment(&after_colon);
 
-            let (fill, value_without_tag, _) = record_fill_and_tags(&mut out, &value_part, &key);
-            if fill {
-                out.retired_fills.push(key_path.clone());
-            }
+            let (fill, value_without_tag, _) =
+                record_fill_and_tags(&mut out, &value_part, &key_path);
 
             if trailing_comment.is_some() || fill {
                 if let Some(c) = trailing_comment {
@@ -738,10 +730,14 @@ fn strip_fill_tag(trimmed: &str) -> Option<&str> {
     (rest.starts_with(' ') || rest.starts_with('\t')).then_some(rest)
 }
 
-/// Inspect a field value for the `!must_fill` tag and other custom tags,
-/// warning onto `out` for a custom tag. Returns
+/// Inspect the value of the key at `path` for the `!must_fill` tag and other
+/// custom tags, recording the path onto `out` for either. Returns
 /// `(fill, value_without_tag, had_other_tag)`.
-fn record_fill_and_tags(out: &mut PreScan, value: &str, key: &str) -> (bool, String, bool) {
+fn record_fill_and_tags(
+    out: &mut PreScan,
+    value: &str,
+    path: &[PathSegment],
+) -> (bool, String, bool) {
     let trimmed = value.trim_start();
     let leading_ws_len = value.len() - trimmed.len();
 
@@ -750,6 +746,7 @@ fn record_fill_and_tags(out: &mut PreScan, value: &str, key: &str) -> (bool, Str
     }
 
     if let Some(rest) = strip_fill_tag(trimmed) {
+        out.retired_fills.push(path.to_vec());
         let rest_trim = rest.trim_start();
         let reconstructed = if rest_trim.is_empty() {
             value[..leading_ws_len].to_string()
@@ -760,16 +757,7 @@ fn record_fill_and_tags(out: &mut PreScan, value: &str, key: &str) -> (bool, Str
     }
 
     if trimmed.starts_with('!') {
-        out.warnings.push(
-            Diagnostic::new(
-                Severity::Warning,
-                format!(
-                    "YAML tag on key `{}` is not supported; the tag has been dropped and the value kept",
-                    key
-                ),
-            )
-            .with_code("parse::unsupported_yaml_tag".to_string()),
-        );
+        out.unsupported_tags.push(path.to_vec());
         return (false, value.to_string(), true);
     }
 
@@ -836,12 +824,8 @@ mod tests {
                 key: "dept".to_string(),
             }]
         );
-        assert!(
-            out.warnings
-                .iter()
-                .any(|w| w.code.as_deref() == Some("parse::unsupported_yaml_tag")),
-            "`!fill` must warn as an unsupported tag"
-        );
+        assert_eq!(out.unsupported_tags, vec![vec![PathSegment::Key("dept".to_string())]]);
+        assert!(out.retired_fills.is_empty());
     }
 
     #[test]
@@ -897,7 +881,7 @@ mod tests {
                 },
             ]
         );
-        assert!(out.warnings.is_empty(), "got: {:?}", out.warnings);
+        assert!(out.unsupported_tags.is_empty(), "got: {:?}", out.unsupported_tags);
         assert!(!out.cleaned_yaml.contains('\r'));
     }
 
@@ -910,18 +894,6 @@ mod tests {
             vec![PreItem::Field {
                 key: "x".to_string(),
             }]
-        );
-    }
-
-    #[test]
-    fn unknown_tag_warns() {
-        let input = "x: !custom value\n";
-        let out = prescan_fence_content(input);
-        assert!(
-            out.warnings
-                .iter()
-                .any(|w| w.code.as_deref() == Some("parse::unsupported_yaml_tag")),
-            "expected unsupported_yaml_tag warning"
         );
     }
 
@@ -951,12 +923,6 @@ mod tests {
                     inline: false,
                 },
             ]
-        );
-        assert!(
-            !out.warnings
-                .iter()
-                .any(|w| w.code.as_deref() == Some("parse::comments_in_nested_yaml_dropped")),
-            "nested comments are preserved, so no dropped-comment warning is emitted"
         );
     }
 
@@ -1082,7 +1048,7 @@ mod tests {
             ]
         );
         assert!(!out.cleaned_yaml.contains("!must_fill"), "{}", out.cleaned_yaml);
-        assert!(out.warnings.is_empty(), "got: {:?}", out.warnings);
+        assert!(out.unsupported_tags.is_empty(), "got: {:?}", out.unsupported_tags);
     }
 
     #[test]

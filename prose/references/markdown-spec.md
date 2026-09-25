@@ -231,15 +231,17 @@ data payload.
 - **Custom tags.** A custom YAML tag (`!include`, `!env`, `!fill`, …) on a
   block-style key's value (a top-level key, a nested mapping key, or the first
   key of a `- ` sequence line) is dropped with a `parse::unsupported_yaml_tag`
-  warning; the value is kept, and the tag does not round-trip. Inside a flow
-  collection, on one line or several, or on a bare sequence element, the YAML
-  parser drops any tag silently and keeps the value.
+  warning; the value is kept, and the tag does not round-trip. The warning
+  carries the node's rooted `path` (`main.addr.street`), or none under a `$`
+  key, whose value has no document address. Inside a flow collection, on one
+  line or several, or on a bare sequence element, the YAML parser drops any tag
+  silently and keeps the value.
 - **The `!must_fill` tag.** Its handling depends on position:
   - Block style under a data field (a top-level key, a nested mapping key, or
     the first key of a `- ` sequence line): the tagged node reads as null,
     dropping any value under it (a following block sequence or a flow
-    collection included), and a `parse::unsupported_yaml_tag` warning names its
-    path (e.g. `addr.street`).
+    collection included), and a `parse::must_fill_dropped` warning carries its
+    rooted `path` (e.g. `main.addr.street`, `cards.note[0].subject`).
   - On a `$` key or inside its value (`$ext`, `$seed`): the tag drops and the
     value is kept, as any custom tag's.
   - Inside a flow collection or on a bare sequence element: an unsupported tag

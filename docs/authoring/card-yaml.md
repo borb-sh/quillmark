@@ -183,9 +183,10 @@ warning and its value kept. Inside a flow collection or on a bare `- ` element,
 the YAML parser drops the tag silently and keeps the value.
 
 `!must_fill` in block style on a data field drops together with the value under
-it: the field or nested property reads as null, and the warning names its path.
-Inside `$ext` or `$seed`, a flow collection, or a bare `- ` element it drops
-like any other tag there, keeping the value.
+it: the field or nested property reads as null, and a `parse::must_fill_dropped`
+warning carries its `path` (`main.addr.street`). Inside `$ext` or `$seed`, a
+flow collection, or a bare `- ` element it drops like any other tag there,
+keeping the value.
 
 ```yaml
 subject: !must_fill Example   # reads as `subject:` (unanswered)

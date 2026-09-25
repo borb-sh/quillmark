@@ -6,6 +6,7 @@
 //! regardless of which side of the `$` boundary that is.
 
 use crate::error::ParseError;
+use crate::path::DocPath;
 use crate::value::{PathSegment, QuillValue};
 use crate::error::{Diagnostic, Severity};
 
@@ -122,8 +123,10 @@ pub(super) struct MetadataBlock {
     pub(super) pre_items: Vec<PreItem>,
     /// Pre-scan nested comments (with structural paths).
     pub(super) pre_nested_comments: Vec<NestedComment>,
-    /// Pre-scan warnings (unknown-tag strips, ...).
-    pub(super) pre_warnings: Vec<Diagnostic>,
+    /// Fence-relative pre-scan paths of the retired `!must_fill` tags.
+    pub(super) retired_fills: Vec<Vec<PathSegment>>,
+    /// Fence-relative pre-scan paths of every other tag.
+    pub(super) unsupported_tags: Vec<Vec<PathSegment>>,
 }
 
 /// The document-absolute, 1-indexed position of a YAML parse failure.
@@ -179,7 +182,7 @@ pub(super) fn build_block(
         });
     }
 
-    let mut pre = prescan_fence_content(raw_content);
+    let pre = prescan_fence_content(raw_content);
 
     let content = pre.cleaned_yaml.trim().to_string();
     let (meta_items, yaml_value) = if content.is_empty() {
@@ -206,7 +209,7 @@ pub(super) fn build_block(
             }
         };
         let meta = extract_meta_items(&mut parsed)?;
-        drop_retired_fills(&mut parsed, &pre.retired_fills, &mut pre.warnings);
+        drop_retired_fills(&mut parsed, &pre.retired_fills);
         (meta, Some(parsed))
     };
 
@@ -228,7 +231,8 @@ pub(super) fn build_block(
         meta_items,
         pre_items: pre.items,
         pre_nested_comments: pre.nested_comments,
-        pre_warnings: pre.warnings,
+        retired_fills: pre.retired_fills,
+        unsupported_tags: pre.unsupported_tags,
     })
 }
 
@@ -311,9 +315,7 @@ pub(super) fn decompose_with_warnings(
         main_payload.set_kind("main");
     }
     let mut warnings = warnings;
-    for w in &blocks[0].pre_warnings {
-        warnings.push(w.clone());
-    }
+    warnings.extend(tag_warnings(&DocPath::main(), &blocks[0]));
 
     let global_body = body_after(markdown, &blocks, 0);
 
@@ -386,9 +388,8 @@ pub(super) fn decompose_with_warnings(
             }
             other => other,
         })?;
-        for w in &blocks[idx].pre_warnings {
-            warnings.push(w.clone());
-        }
+        let base = DocPath::card(card_payload.kind(), cards.len());
+        warnings.extend(tag_warnings(&base, &blocks[idx]));
 
         let card_body = body_after(markdown, &blocks, idx);
 
@@ -509,37 +510,53 @@ fn build_payload(
 /// `parsed`, which the `$` keys have already left. The value under the tag was
 /// a placeholder, so the field reads as unanswered. A tag inside `$` metadata
 /// is dropped and its value kept, as any other custom tag's.
-fn drop_retired_fills(
-    parsed: &mut serde_json::Value,
-    paths: &[Vec<PathSegment>],
-    warnings: &mut Vec<Diagnostic>,
-) {
-    for path in paths {
-        let in_meta = matches!(path.first(), Some(PathSegment::Key(k)) if k.starts_with('$'));
-        let message = if in_meta {
-            format!(
-                "YAML tag on `{}` is not supported; the tag has been dropped and the value kept",
-                render_path(path)
-            )
-        } else {
-            crate::value::null_at(parsed, path);
-            format!(
-                "`!must_fill` on `{}` is retired; the placeholder and any value under it \
-                 have been dropped, leaving the field unanswered",
-                render_path(path)
-            )
-        };
-        warnings.push(
-            Diagnostic::new(Severity::Warning, message)
-                .with_code("parse::unsupported_yaml_tag".to_string()),
-        );
+fn drop_retired_fills(parsed: &mut serde_json::Value, paths: &[Vec<PathSegment>]) {
+    for path in paths.iter().filter(|path| !in_meta(path)) {
+        crate::value::null_at(parsed, path);
     }
 }
 
-/// Render a structural path as a dotted/bracketed string for diagnostics,
-/// e.g. `addr.street` or `recipients[0].name`.
-fn render_path(path: &[PathSegment]) -> String {
-    path.iter()
-        .fold(crate::path::DocPath::new(), |p, seg| p.segment(seg))
-        .to_string()
+/// `true` for a fence-relative path under a `$` key.
+fn in_meta(path: &[PathSegment]) -> bool {
+    matches!(path.first(), Some(PathSegment::Key(k)) if k.starts_with('$'))
+}
+
+/// The warnings `block`'s tags raise, a user field's anchored at its path under
+/// `base`, the block's card root. `$ext` and `$seed` are opaque, with no
+/// document address, so a tag under a `$` key names its path in the message
+/// alone.
+fn tag_warnings<'a>(
+    base: &'a DocPath,
+    block: &'a MetadataBlock,
+) -> impl Iterator<Item = Diagnostic> + 'a {
+    let tags = block.unsupported_tags.iter().map(|path| (path, false));
+    let fills = block.retired_fills.iter().map(|path| (path, true));
+    tags.chain(fills).map(move |(path, fill)| {
+        let meta = in_meta(path);
+        let root = if meta { DocPath::new() } else { base.clone() };
+        let at = path.iter().fold(root, |p, seg| p.segment(seg)).to_string();
+        let diag = if fill && !meta {
+            Diagnostic::new(
+                Severity::Warning,
+                format!(
+                    "`!must_fill` on `{at}` is retired; the placeholder and any value under it \
+                     have been dropped, leaving the field unanswered"
+                ),
+            )
+            .with_code("parse::must_fill_dropped".to_string())
+        } else {
+            Diagnostic::new(
+                Severity::Warning,
+                format!(
+                    "YAML tag on `{at}` is not supported; the tag has been dropped and the value kept"
+                ),
+            )
+            .with_code("parse::unsupported_yaml_tag".to_string())
+        };
+        if meta {
+            diag
+        } else {
+            diag.with_path(at)
+        }
+    })
 }

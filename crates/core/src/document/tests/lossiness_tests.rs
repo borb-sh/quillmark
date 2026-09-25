@@ -1,4 +1,12 @@
-use crate::document::Document;
+use crate::document::{Document, Parsed};
+
+/// Each warning's `(code, path)`.
+fn anchors(out: &Parsed) -> Vec<(&str, Option<&str>)> {
+    out.warnings
+        .iter()
+        .map(|w| (w.code.as_deref().unwrap_or(""), w.path.as_deref()))
+        .collect()
+}
 
 /// Prescan must not record `#`-leading lines inside a literal block as YAML
 /// comments: they are the scalar's own text.
@@ -65,12 +73,9 @@ fn block_scalar_on_a_dash_line_key_holds_its_markdown() {
 fn unknown_tag_warns_and_is_not_emitted() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\nmemo_from: !include value.txt\n~~~\n";
     let out = Document::parse(src).unwrap();
-    assert!(
-        out.warnings
-            .iter()
-            .any(|w| w.code.as_deref() == Some("parse::unsupported_yaml_tag")),
-        "expected unsupported_yaml_tag warning; got: {:?}",
-        out.warnings
+    assert_eq!(
+        anchors(&out),
+        [("parse::unsupported_yaml_tag", Some("main.memo_from"))]
     );
     assert_eq!(
         out.document.main().payload().get("memo_from").and_then(|v| v.as_str()),
@@ -81,7 +86,8 @@ fn unknown_tag_warns_and_is_not_emitted() {
 }
 
 /// A retired `!must_fill` tag held a placeholder, not an answer: the value
-/// under it drops wherever it sits, and each one warns at its path.
+/// under a block-style one drops wherever it sits, and each warns at its path,
+/// a card's rooted at the card's index among all cards.
 #[test]
 fn a_retired_fill_marker_nulls_what_it_tags() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\n\
@@ -89,7 +95,9 @@ fn a_retired_fill_marker_nulls_what_it_tags() {
                recipient: !must_fill # array<string>\n  - Mr. John Doe\n\
                addr:\n  street: !must_fill Main\n  city: Springfield\n\
                x: !must_fill {a: 1}\n\
-               to:\n  - name: !must_fill Jane\n    rank: Capt\n~~~\n";
+               to:\n  - name: !must_fill Jane\n    rank: Capt\n~~~\n\n\
+               ~~~card-yaml\n$kind: intro\n~~~\n\n\
+               ~~~card-yaml\n$kind: note\nsubject: !must_fill Example\n~~~\n";
     let out = Document::parse(src).unwrap();
     let get = |k: &str| out.document.main().payload().get(k).unwrap().as_json().clone();
     assert_eq!(get("subject"), serde_json::Value::Null);
@@ -98,15 +106,22 @@ fn a_retired_fill_marker_nulls_what_it_tags() {
     assert_eq!(get("x"), serde_json::Value::Null);
     assert_eq!(get("to"), serde_json::json!([{"name": null, "rank": "Capt"}]));
 
-    let warned: Vec<&str> = out
-        .warnings
-        .iter()
-        .filter(|w| w.code.as_deref() == Some("parse::unsupported_yaml_tag"))
-        .map(|w| w.message.as_str())
-        .collect();
-    for path in ["`subject`", "`recipient`", "`addr.street`", "`x`", "`to[0].name`"] {
-        assert!(warned.iter().any(|m| m.contains(path)), "{path}: {warned:?}");
-    }
+    assert_eq!(
+        out.document.cards()[1].payload().get("subject").unwrap().as_json(),
+        &serde_json::Value::Null
+    );
+    let dropped = [
+        "main.subject",
+        "main.recipient",
+        "main.addr.street",
+        "main.x",
+        "main.to[0].name",
+        "cards.note[1].subject",
+    ];
+    assert_eq!(
+        anchors(&out),
+        dropped.map(|path| ("parse::must_fill_dropped", Some(path)))
+    );
 
     let md = out.document.to_markdown();
     assert!(!md.contains("!must_fill"), "{md}");
@@ -123,12 +138,7 @@ fn a_retired_fill_marker_inside_meta_keeps_its_value() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\n$ext:\n  ns:\n    to: !must_fill X\n~~~\n";
     let out = Document::parse(src).unwrap();
     assert_eq!(out.document.main().ext().unwrap()["ns"]["to"], "X");
-    assert!(
-        out.warnings.iter().any(|w| w.code.as_deref() == Some("parse::unsupported_yaml_tag")
-            && w.message.contains("$ext.ns.to")),
-        "{:?}",
-        out.warnings
-    );
+    assert_eq!(anchors(&out), [("parse::unsupported_yaml_tag", None)]);
 }
 
 /// A line continuing a flow collection, opened on its key's line or the line
@@ -152,8 +162,7 @@ fn a_tag_inside_a_multi_line_flow_collection_stays_on_its_value() {
     );
     assert_eq!(get("tags"), serde_json::json!(["a # [", "b"]));
     assert_eq!(get("c"), serde_json::Value::Null);
-    let warned: Vec<&str> = out.warnings.iter().map(|w| w.message.as_str()).collect();
-    assert!(warned.len() == 1 && warned[0].contains("`c`"), "{warned:?}");
+    assert_eq!(anchors(&out), [("parse::must_fill_dropped", Some("main.c"))]);
 }
 
 /// The prescan splits on `\n`, so CRLF input reaches it with a trailing `\r` on
