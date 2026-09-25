@@ -5,7 +5,7 @@
 //! by construction: what saphyr quotes on emit it reads back as a string, and
 //! the YAML 1.1 edge cases ad-hoc quoting misses (`on`/`yes`/`off`, leading-zero
 //! integers) are handled there. A multi-line string is a `|` literal block
-//! scalar wherever one reads back as the same string ([`literal_block`]), and a
+//! scalar wherever one reads back as the same string (`literal_block`), and a
 //! double-quoted scalar elsewhere; saphyr never emits a block form.
 //!
 //! This module owns the surrounding structure: fences, `$` metadata lines, field
