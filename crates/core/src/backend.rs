@@ -51,9 +51,6 @@ pub const DECLINED_CONSTRUCT: &str = "backend::declined_construct";
 /// `backend`. One diagnostic per (field, construct), so a producer that sees
 /// every occurrence at once collapses them into `count`. Non-fatal: the content
 /// stores and round-trips, and it is the page that will not carry it.
-///
-/// The observed twin of quill-declared
-/// [`plate::unsupported_construct`](crate::quill::UNSUPPORTED_CONSTRUCT).
 pub fn declined_construct(
     backend: &str,
     construct: crate::quill::BlockConstruct,
@@ -69,12 +66,32 @@ pub fn declined_construct(
         format!(
             "the {backend} backend does not typeset {}: {count} in this field \
              will not reach the page",
-            crate::quill::support::plural(construct, count)
+            plural(construct, count)
         ),
     )
     .with_code(DECLINED_CONSTRUCT.to_string())
     .with_path(path.to_string())
     .with_args(args)
+}
+
+/// English enough for the engine's own sentence; a consumer wording this
+/// itself reads `construct` and `count` off `args` instead.
+fn plural(construct: crate::quill::BlockConstruct, count: usize) -> String {
+    use crate::quill::BlockConstruct;
+    let name = match construct {
+        BlockConstruct::Heading => "heading",
+        BlockConstruct::Rule => "horizontal rule",
+        BlockConstruct::Code => "code block",
+        BlockConstruct::List => "list",
+        BlockConstruct::Quote => "block quote",
+        BlockConstruct::Table => "table",
+        BlockConstruct::Image => "image",
+    };
+    if count == 1 {
+        format!("a {name}")
+    } else {
+        format!("{name}s")
+    }
 }
 
 /// The pixel ceiling on either side of one rasterized page, shared by every

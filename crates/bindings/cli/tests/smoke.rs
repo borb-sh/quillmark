@@ -46,12 +46,12 @@ fn read_commands_print_the_quill() {
     ok(&["validate", quill.to_str().unwrap()]);
 }
 
-/// A document `usaf_memo` renders with a warning: it declines a `***`.
-fn rule_doc(dir: &tempfile::TempDir) -> PathBuf {
-    let doc = dir.path().join("rule.md");
+/// A document `usaf_memo` renders with a warning: a key it does not declare.
+fn warning_doc(dir: &tempfile::TempDir) -> PathBuf {
+    let doc = dir.path().join("warning.md");
     std::fs::write(
         &doc,
-        "~~~card-yaml\n$quill: usaf_memo\n$kind: main\n~~~\n\none\n\n***\n\ntwo\n",
+        "~~~card-yaml\n$quill: usaf_memo\n$kind: main\nstray: x\n~~~\n\none\n",
     )
     .expect("write the input document");
     doc
@@ -211,12 +211,11 @@ fn render_writes_a_pdf_creating_parent_directories() {
 }
 
 /// A warning line on stdout does not garble a message, it corrupts the PDF the
-/// caller is redirecting. `render` parses through the bound door, so the
-/// construct the plate declines warns rather than vanishing.
+/// caller is redirecting.
 #[test]
 fn chatter_does_not_contaminate_the_stdout_artifact() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let doc = rule_doc(&dir);
+    let doc = warning_doc(&dir);
     let memo = quillmark_fixtures::quills_path("usaf_memo");
     let out = run(&[
         "render",
@@ -237,7 +236,7 @@ fn chatter_does_not_contaminate_the_stdout_artifact() {
         "stdout has trailing bytes after the PDF trailer"
     );
     assert!(
-        stderr.contains("plate::unsupported_construct"),
+        stderr.contains("validation::unknown_field"),
         "the warning went somewhere other than stderr: {stderr}"
     );
 }
@@ -456,7 +455,7 @@ fn format_casing_does_not_reach_the_output_filename() {
 #[test]
 fn quiet_silences_the_warning_and_the_destination_line() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let doc = rule_doc(&dir);
+    let doc = warning_doc(&dir);
     let out_path = dir.path().join("out.pdf");
     let memo = quillmark_fixtures::quills_path("usaf_memo");
 

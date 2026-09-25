@@ -11,10 +11,6 @@ main:
   ui:
     groups: [addressing, letterhead, classification, additional]
   body:
-    # An AFH 33-337 memo has no dividers, so `render-body` typesets no
-    # horizontal rule at any depth. Everything else the content model carries
-    # reaches the page: a heading runs into the block it opens, as bold.
-    unsupported: [rule]
     example: |
       The first paragraph. Top-level paragraphs are auto-numbered; do not add manual numbering.
 

@@ -402,8 +402,8 @@ export declare class Engine {
 	 * soon as this call returns.
 	 *
 	 * This is the surface that merges the two warning halves:
-	 * {@link RenderResult.warnings} carries `doc.warnings` (parse, `conform::*`,
-	 * `plate::unsupported_construct`) ahead of the compile's own. A
+	 * {@link RenderResult.warnings} carries `doc.warnings` (parse and
+	 * `conform::*`) ahead of the compile's own. A
 	 * {@link LiveSession} outlives the document it opened from, so
 	 * {@link LiveSession.render} carries the compile half alone.
 	 *

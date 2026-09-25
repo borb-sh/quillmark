@@ -44,9 +44,9 @@ pub struct UiFieldSchema {
 }
 
 /// A block construct a body can hold, and the vocabulary
-/// [`BodyCardSchema::unsupported`] declines one in: the block kinds the content
-/// model distinguishes, minus the paragraph, which is the floor and cannot be
-/// declined.
+/// [`backend::declined_construct`](crate::backend::declined_construct) names one
+/// in: the block kinds the content model distinguishes, minus the paragraph,
+/// which is the floor and cannot be declined.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BlockConstruct {
@@ -60,8 +60,7 @@ pub enum BlockConstruct {
 }
 
 impl BlockConstruct {
-    /// The name this construct declares under, and the value that rides
-    /// `plate::unsupported_construct`'s `construct` arg.
+    /// The value that rides `backend::declined_construct`'s `construct` arg.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Heading => "heading",
@@ -83,7 +82,7 @@ impl std::fmt::Display for BlockConstruct {
 
 /// The keys [`BodyCardSchema`] deserializes, for the hint on a rejected
 /// `body:` section. `example_content` is `#[serde(skip)]` and unauthorable.
-pub(crate) const BODY_CARD_SCHEMA_KEYS: &[&str] = &["enabled", "example", "unsupported"];
+pub(crate) const BODY_CARD_SCHEMA_KEYS: &[&str] = &["enabled", "example"];
 
 /// Body namespace configuration for a card kind
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -102,13 +101,6 @@ pub struct BodyCardSchema {
     /// importing `example`.
     #[serde(skip)]
     pub example_content: Option<QuillValue>,
-    /// The block constructs this quill's plate does not typeset in this body.
-    /// An editor reads it off the schema and declines the gesture before the
-    /// author makes it; content arriving by another door draws
-    /// `plate::unsupported_construct` on the pre-render walk. A claim about the
-    /// plate that nothing verifies (`ERROR.md`).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub unsupported: Vec<BlockConstruct>,
 }
 
 /// The keys [`UiCardSchema`] deserializes, for the hint on a rejected `ui:`

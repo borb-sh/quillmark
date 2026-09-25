@@ -863,24 +863,6 @@ card_kinds:
         type: string
 ```
 
-#### `body.unsupported`
-
-The block constructs your plate does not typeset in this body. Empty by default: declare nothing and nothing changes.
-
-A plate is free to reinterpret a construct — absorb it into a neighbour, move its text, typeset nothing at all — and only you know it did. Declaring it here says so once, as data, and buys two things: an editor reads it off the schema and can decline the gesture before the author makes it, and a body holding the construct anyway (from an import, a repack, the CLI) draws a `plate::unsupported_construct` warning on the pre-render walk. The warning is non-fatal and carries the body's path, the construct name, and how many the body holds.
-
-```yaml
-main:
-  body:
-    # This template has no dividers, at any depth.
-    unsupported: [rule]
-  fields: {}
-```
-
-Valid names: `heading`, `rule`, `code`, `list`, `quote`, `table`, `image`. The set is closed, so a misspelling is a load error rather than a declaration that quietly matches nothing. There is no paragraph name: a paragraph is the floor and cannot be declined, and there are no context-qualified forms (a heading is declined everywhere or nowhere).
-
-Nothing verifies a declaration against what your plate actually does. It is documentation with a diagnostic attached: declaring `rule` does not make rules disappear, and omitting a construct your plate drops keeps that drop as silent as before.
-
 ### Using Cards in Markdown
 
 Card kinds defined here are authored as `~~~` blocks (with a `$kind: <kind>` line) in the document body. See [card-yaml Blocks](../authoring/card-yaml.md#card-blocks) for the markdown syntax.
