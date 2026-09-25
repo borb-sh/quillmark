@@ -49,6 +49,7 @@ interleaves is a property of documents and the plate, and nothing in
 ```rust
 pub struct CardSchema {
     pub name: String,
+    pub title: Option<String>,
     pub description: Option<String>,
     pub fields: IndexMap<String, FieldSchema>,
     pub ui: Option<UiCardSchema>,
@@ -56,7 +57,7 @@ pub struct CardSchema {
 }
 ```
 
-The static display label for a card kind lives on `UiCardSchema::title`, not on `CardSchema` directly; see `ui.title` below. Body behavior (whether body content is permitted and optional guide text) lives under `body`; see `body.enabled` and `body.example` below.
+The display label for a card kind is `CardSchema::title`; see `title` below. Body behavior (whether body content is permitted and optional guide text) lives under `body`; see `body.enabled` and `body.example` below.
 
 `QuillConfig` exposes the entry-point card as `main: CardSchema` and the additional named card-kinds as `card_kinds: Vec<CardSchema>`. Look up a named card-kind by name via `card_kind(name)`.
 
@@ -69,9 +70,8 @@ main:
 
 card_kinds:
   indorsement:
+    title: Routing Endorsement
     description: Chain of routing endorsements for multi-level correspondence.
-    ui:
-      title: Routing Endorsement
     fields:
       from:
         type: string
@@ -88,16 +88,15 @@ card_kinds:
         description: Name, grade, and duty title.
 ```
 
-`ui.title` is the display label for UI consumers (section headers, chips, picker entries, per-instance list titles). It may be a literal string or a template containing `{field_name}` tokens that consumers interpolate with live field values (e.g. `"{from} → {for}"`). It's decoupled from the snake_case map key (`indorsement`), which is the on-the-wire `$kind` discriminator, so authors can rename the label without breaking stored documents.
+`title` is the kind's display label (section headers, chips, picker entries), decoupled from the snake_case map key (`indorsement`), which is the on-the-wire `$kind` discriminator, so authors can rename the label without breaking stored documents. It is a literal naming the kind: a `{field}` token is a load error (`quill::title_template`). A consumer labels an instance from its own values, so field order decides which value leads. It sits at the top level rather than under `ui` because `ui` keys never reach the blueprint, and the blueprint prints it on the `$kind` line ([BLUEPRINT.md](BLUEPRINT.md) § "Inline annotation").
 
 ## Public Schema YAML Output
 
 ```yaml
 card_kinds:
   indorsement:
+    title: Routing Endorsement
     description: Chain of routing endorsements for multi-level correspondence.
-    ui:
-      title: Routing Endorsement
     fields:
       from:
         type: string
@@ -161,7 +160,7 @@ collisions when more than one tool carries state on the same card. See
 
 `$ext.editor.title` is the canonical slot for a per-card display name:
 the label an editing surface shows when a user renames one card
-instance. It overrides the per-*kind* `ui.title` and, being editor
+instance. It overrides the per-*kind* `title` and, being editor
 state, never reaches the backend.
 
 ## Per-kind Seed Overlays (`$seed`)

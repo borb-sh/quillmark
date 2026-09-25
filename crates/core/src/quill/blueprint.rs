@@ -38,7 +38,7 @@ impl QuillConfig {
         let main = build_main_card(
             &self.main,
             &format!("{}@{}", self.name, self.version),
-            main_desc,
+            label_line(self.main.title.as_deref(), main_desc.as_deref()),
         );
         let cards = self.card_kinds.iter().map(build_card).collect();
 
@@ -51,6 +51,15 @@ impl QuillConfig {
 fn collapse_opt(text: Option<&str>) -> Option<String> {
     text.map(|t| t.split_whitespace().collect::<Vec<_>>().join(" "))
         .filter(|clean| !clean.is_empty())
+}
+
+/// The comment naming a field or card: `<title> — <description>`, or
+/// whichever of the two is declared.
+fn label_line(title: Option<&str>, description: Option<&str>) -> Option<String> {
+    match (collapse_opt(title), collapse_opt(description)) {
+        (Some(title), Some(desc)) => Some(format!("{title} — {desc}")),
+        (title, desc) => title.or(desc),
+    }
 }
 
 /// The text after `# ` for a body region (`Write … here.` placeholder or the
@@ -104,9 +113,9 @@ impl CardItems {
 }
 
 /// Build the root card: `$quill` (with the `# keep verbatim` inline reminder),
-/// `$kind: main` carrying the optional description inline, then the fields.
-/// Inline, the description cannot read as the first field's.
-fn build_main_card(card: &CardSchema, quill_ref: &str, description: Option<String>) -> Card {
+/// `$kind: main` carrying the optional [`label_line`] inline, then the fields.
+/// Inline, the label cannot read as the first field's.
+fn build_main_card(card: &CardSchema, quill_ref: &str, label: Option<String>) -> Card {
     let reference = quill_ref
         .parse()
         .expect("quill name@version is always a valid QuillReference");
@@ -116,8 +125,8 @@ fn build_main_card(card: &CardSchema, quill_ref: &str, description: Option<Strin
     items.push(PayloadItem::Kind {
         value: "main".into(),
     });
-    if let Some(desc) = description {
-        items.push(PayloadItem::comment_inline(desc));
+    if let Some(label) = label {
+        items.push(PayloadItem::comment_inline(label));
     }
     append_fields(&mut items, card);
     Card::from_parts(
@@ -129,16 +138,16 @@ fn build_main_card(card: &CardSchema, quill_ref: &str, description: Option<Strin
     )
 }
 
-/// Build a composable card: `$kind: <kind>` carrying the optional description
-/// inline, the `composable (0..N)` role comment, a comment naming it a
-/// deletable sample, then the fields.
+/// Build a composable card: `$kind: <kind>` carrying the optional
+/// [`label_line`] inline, the `composable (0..N)` role comment, a comment
+/// naming it a deletable sample, then the fields.
 fn build_card(card: &CardSchema) -> Card {
     let mut items = CardItems::default();
     items.push(PayloadItem::Kind {
         value: card.name.clone(),
     });
-    if let Some(desc) = collapse_opt(card.description.as_deref()) {
-        items.push(PayloadItem::comment_inline(desc));
+    if let Some(label) = label_line(card.title.as_deref(), card.description.as_deref()) {
+        items.push(PayloadItem::comment_inline(label));
     }
     items.push(PayloadItem::comment("composable (0..N)"));
     items.push(PayloadItem::comment("sample card; delete if not needed"));
@@ -295,11 +304,11 @@ fn typed_table_props(field: &FieldSchema) -> Option<&IndexMap<String, Box<FieldS
     }
 }
 
-/// Push the leading prose comments for a *top-level* field: the description,
-/// the cap, then the `# e.g.` hint.
+/// Push the leading prose comments for a *top-level* field: the
+/// [`label_line`], the cap, then the `# e.g.` hint.
 fn push_leading(items: &mut CardItems, field: &FieldSchema) {
-    if let Some(desc) = collapse_opt(field.description.as_deref()) {
-        items.push(PayloadItem::comment(desc));
+    if let Some(label) = label_line(field.title.as_deref(), field.description.as_deref()) {
+        items.push(PayloadItem::comment(label));
     }
     if let Some(cap) = cap_hint(field) {
         items.push(PayloadItem::comment(cap));
@@ -345,7 +354,7 @@ fn append_scalar(items: &mut CardItems, field: &FieldSchema) {
 
 /// Build the per-property body of a defaultless typed container into `map`:
 /// each property at its own cell in declaration order, plus the nested comments
-/// (description + `# e.g.` + inline type annotation, addressed by
+/// ([`label_line`] + `# e.g.` + inline type annotation, addressed by
 /// `container_path`/slot). `prefix` is the container
 /// path of the mapping relative to the field value (`[]` for a typed dict,
 /// `[Index(0)]` for a typed table's synthetic row).
@@ -361,11 +370,11 @@ fn build_property_mapping(
     let mut nested = Vec::new();
     for prop in props.values().map(|b| b.as_ref()) {
         let slot = map.len();
-        if let Some(desc) = collapse_opt(prop.description.as_deref()) {
+        if let Some(label) = label_line(prop.title.as_deref(), prop.description.as_deref()) {
             nested.push(NestedComment {
                 container_path: prefix.to_vec(),
                 position: slot,
-                text: desc,
+                text: label,
                 inline: false,
             });
         }
@@ -943,6 +952,38 @@ card_kinds:
         assert!(t.contains(
             "~~~\n$kind: note # A short note appended to the document.\n# composable (0..N)\n# sample card; delete if not needed\nauthor: # string\n"
         ));
+    }
+
+    #[test]
+    fn a_title_leads_the_comment_naming_its_field_or_card() {
+        let t = cfg(r#"
+quill: { name: x, version: 1.0.0, backend: typst, description: x }
+main:
+  title: Memorandum
+  fields:
+    contact: { type: string, title: Point of contact, description: Who answers questions. }
+    office: { type: string, title: Office symbol }
+    address:
+      type: object
+      properties:
+        city: { type: string, title: City }
+card_kinds:
+  note:
+    title: Marginal note
+    description: A short note.
+    fields:
+      text: { type: string }
+"#)
+        .blueprint();
+        for line in [
+            "$kind: main # Memorandum — x\n",
+            "# Point of contact — Who answers questions.\ncontact: # string\n",
+            "# Office symbol\noffice: # string\n",
+            "  # City\n  city: # string\n",
+            "$kind: note # Marginal note — A short note.\n",
+        ] {
+            assert!(t.contains(line), "missing {line:?}:\n{t}");
+        }
     }
 
     #[test]

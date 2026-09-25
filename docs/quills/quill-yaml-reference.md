@@ -10,10 +10,11 @@ A `Quill.yaml` has these top-level sections:
 quill:        # Required: format metadata
   ...
 
-main:         # Optional, main entry-point card: field schemas and optional ui/body
+main:         # Optional, main entry-point card: field schemas and optional title/ui/body
+  title:      # optional label for the card
   fields:
     ...
-  ui:         # optional UI hints (e.g. title)
+  ui:         # optional UI hints (e.g. groups)
   body:       # optional body-region config (e.g. enabled, example)
 
 card_kinds:   # Optional: additional composable card kinds
@@ -64,7 +65,7 @@ typst:
 
 ## `main` Section
 
-The main document card holds **root-block field schemas** under `main.fields`. Optional `main.description` describes the schema itself (independent of `quill.description`, which describes the quill package). Optional `main.ui` sets container-level UI for that card. `quill.ui` is a fallback for `main.ui`, not a merge: any `main.ui` (even an empty `ui: {}`) wins wholesale, and `quill.ui` applies only when `main.ui` is absent.
+The main document card holds **root-block field schemas** under `main.fields`. Optional `main.description` describes the schema itself (independent of `quill.description`, which describes the quill package), and optional `main.title` labels the card as a [card kind's `title`](#title_1) does. Optional `main.ui` sets container-level UI for that card. `quill.ui` is a fallback for `main.ui`, not a merge: any `main.ui` (even an empty `ui: {}`) wins wholesale, and `quill.ui` applies only when `main.ui` is absent.
 
 Field order under `main.fields` **is** display order in UIs: the declaration order of the keys is carried structurally through parsing and schema emission, so consumers walk the fields in key order. There is no `ui.order` knob: to reorder fields, reorder them in `Quill.yaml`.
 
@@ -85,6 +86,7 @@ main:
 | Property      | Type              | Required | Description |
 |---------------|-------------------|----------|-------------|
 | `type`        | string            | yes      | Data type (see [Field Types](#field-types)); a trailing `?` makes the field [optional](#optional-fields-t) |
+| `title`       | string            | no       | The field's label, a literal (see [`title`](#title)) |
 | `description` | string            | no       | Detailed help text |
 | `default`     | matches `type`    | no       | The value the **majority of authors want**. When the cell is omitted, the default is filled in — at any depth, whether or not the container above it was authored — and the blueprint renders that concrete value with a type-only annotation, shippable as-is (see [`default` and `example`](#default-and-example)). Declared on a **cell**: a leaf or an `array`. On an `object` it is a load error (`quill::default_on_namespace`), since its properties hold their own. |
 | `example`     | matches `type`    | no       | A value matching the **type and shape** of what the author wants, but **not** the value desired most of the time. Documents shape only: it never takes a cell, is never committed to a document, and never renders. The blueprint shows it on a `# e.g.` line above the field. Declared on a **cell**, as `default` is (`quill::example_on_namespace`). |
@@ -93,6 +95,31 @@ main:
 | `items`       | object            | for `array` | Element schema for an `array` field (a nested field schema). Required on every array. |
 | `properties`  | object            | for `object` | Nested field schemas for an `object` typed dictionary (or an array's `object`-typed `items`). Required on every `object` field. |
 | `inline`      | boolean           | no       | For `richtext` and `plaintext` only: constrain the content to a single paragraph/line (a one-line editor surface). |
+
+### `title`
+
+The label an editor shows beside the input, and the name a person uses for the
+field ("set the point of contact"). Absent, consumers humanize the key
+(`memo_for` → "Memo For"), so declare it only where that reads wrong:
+
+```yaml
+main:
+  fields:
+    memo_for:
+      type: array
+      title: To       # "Memo For" would confuse users unfamiliar with memo conventions
+      items:
+        type: string
+```
+
+The blueprint prints it ahead of the description on the field's leading line,
+`# <title> — <description>`, or `# <title>` alone, so an agent reading the
+blueprint knows the field by the name a person says. A title restating the key
+is printed as well, where it reads as the waste it is.
+
+It is a literal. A `{field}` token in it is a load error
+(`quill::title_template`): nothing interpolates it. An array's `items` takes
+none (`quill::title_on_items`): the array's own title names the list.
 
 ### `default` and `example`
 
@@ -541,20 +568,9 @@ Full model: [SCHEMAS.md](https://github.com/borb-sh/quillmark/blob/main/prose/ca
 
 The `ui` property on fields controls how form builders and wizards render the field. These are UI hints, not validation constraints.
 
-### `title`
-
-Overrides the display label shown next to the input. Form builders derive a label automatically from the snake_case field key (`memo_for` → "Memo For"), so `ui.title` is only needed when that automatic label is wrong or misleading:
-
-```yaml
-main:
-  fields:
-    memo_for:
-      type: array
-      items:
-        type: string
-      ui:
-        title: To       # "Memo For" would confuse users unfamiliar with memo conventions
-```
+`ui` keys never reach the blueprint, so a fact a writer needs belongs in
+`description`, `example` or `title`. A field's label is its [`title`](#title);
+`ui` holds none, and `ui: { title: … }` is a load error whose hint names it.
 
 ### `group` and the group registry
 
@@ -681,8 +697,6 @@ main:
         layout: table       # a grid: one row per element, one column per property
       items:
         type: object
-        ui:
-          title: "{unit}"   # the collapsed row's summary line
         properties:
           unit:     { type: string, default: "" }
           duration: { type: integer, default: 0 }
@@ -707,19 +721,17 @@ all; the contract settled that at load. Nothing else reads the key: the plate,
 document validation and the blueprint are all deliberately inert on it, and `schema()`
 echoes it verbatim for the editor to find.
 
-### `title` on `items`
+### A row's label
 
-A row's `items.ui.title` is the summary line a collapsed row shows, the same
-`{property}` template a card kind's [`ui.title`](#title_1) takes, interpolated
-with that row's live values. It is the row-level counterpart of a card's title,
-so a list of rows reads as a list of things rather than a list of "Item 1, Item
-2".
+A consumer labels a collapsed row from its own values, the first property
+leading, so a list of rows reads as a list of things rather than "Item 1, Item
+2". Declare first the property that names the row. `items` takes no `title`.
 
 ---
 
 ## `card_kinds` Section
 
-`card_kinds` define composable, repeatable content blocks (the *kinds*: a document can then carry zero or more *instances* of each kind, interleaved with body content). Each entry is shaped exactly like `main:` (`fields`, optional `description`, `ui`, `body`); think of `main:` as the single mandatory card-kind for the document body, and `card_kinds:` as the library of additional kinds that may attach to it.
+`card_kinds` define composable, repeatable content blocks (the *kinds*: a document can then carry zero or more *instances* of each kind, interleaved with body content). Each entry is shaped exactly like `main:` (`fields`, optional `title`, `description`, `ui`, `body`); think of `main:` as the single mandatory card-kind for the document body, and `card_kinds:` as the library of additional kinds that may attach to it.
 
 Card-kind names (the keys under `card_kinds`) must match `[a-z_][a-z0-9_]*` (leading underscore is allowed).
 
@@ -771,6 +783,7 @@ scalar, which is fine for a few lines and wrong for a memo's worth.
 
 | Property      | Type   | Required | Description |
 |---------------|--------|----------|-------------|
+| `title`       | string | no       | The kind's label, a literal (see [`title`](#title_1)) |
 | `description` | string | no       | Help text describing the card's purpose |
 | `fields`      | object | no       | Field schemas (same structure as top-level fields) |
 | `ui`          | object | no       | Container-level UI hints (see [Card-level `ui`](#card-level-ui)) |
@@ -780,7 +793,7 @@ scalar, which is fine for a few lines and wrong for a memo's worth.
 
 | Property | Type   | Description |
 |----------|--------|-------------|
-| `title`  | string | Display label for the card kind. Literal string or `{field}` template |
+| `groups` | list or object | The card's group registry (see [`group` and the group registry](#group-and-the-group-registry)) |
 
 ### Card-level `body`
 
@@ -791,47 +804,28 @@ scalar, which is fine for a few lines and wrong for a memo's worth.
 
 #### `title`
 
-A human-readable display label for the card kind. UI consumers should prefer it over the snake_case map key when rendering section headers, chips, picker entries, or per-instance titles in a list.
-
-The label is decoupled from the map key (e.g. `indorsement`), which is the on-the-wire `$kind` discriminator. Authors can rename the label freely without invalidating stored documents.
-
-**Two flavors:**
-
-A literal string serves as a static type label:
+The kind's label: what a picker, an add-card menu or a section header shows.
+Absent, consumers humanize the kind name. The map key (e.g. `indorsement`) is
+the `$kind` a document stores, so a title renames freely without invalidating
+stored documents.
 
 ```yaml
 card_kinds:
   indorsement:
-    ui:
-      title: Routing Endorsement
+    title: Routing indorsement
+    description: Chain of routing endorsements.
     fields:
       from:
         type: string
 ```
 
-A template containing `{field_name}` tokens lets UI consumers produce a per-instance title by interpolating live field values:
+The blueprint prints it on the kind's `$kind` line, ahead of the description:
+`$kind: indorsement # Routing indorsement — Chain of routing endorsements.`
 
-```yaml
-card_kinds:
-  endorsement:
-    ui:
-      title: "{from} → {for}"
-    fields:
-      from:
-        type: string
-      for:
-        type: string
-```
-
-With the template form, a UI rendering a list of cards can title each instance (e.g. `"ORG1/SYM → ORG2/SYM"`) instead of falling back to a generic `"Card (2)"`.
-
-**Interpolation rules (for UI consumers):**
-- `{field_name}` is replaced with the current value of that field.
-- A title with no `{}` tokens is rendered verbatim: it's just a literal label.
-- If a referenced field is absent or empty, the token resolves to an empty string.
-- UI consumers are responsible for trimming degenerate separators (e.g. `": "` with one empty side).
-
-When omitted, UI consumers fall back to the prettified map key.
+It is a literal, naming the kind and never one instance: a `{field}` token is a
+load error (`quill::title_template`). A consumer labels an instance from its own
+values, so field order decides which value leads: declare first the field that
+names the instance.
 
 #### `body.enabled`
 

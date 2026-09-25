@@ -143,6 +143,7 @@ impl QuillConfig {
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CardSchemaDef {
+    pub title: Option<String>,
     pub description: Option<String>,
     pub fields: Option<serde_json::Map<String, serde_json::Value>>,
     pub ui: Option<serde_json::Value>,
@@ -1138,6 +1139,16 @@ impl QuillConfig {
                         ),
                     );
                 };
+                if items.title.is_some() {
+                    return err(
+                        "quill::title_on_items",
+                        format!(
+                            "Field '{owner}[]' declares a title. The array's own title \
+                             names the list, and a consumer labels each element from its \
+                             own values; drop the key, or move it to '{owner}'."
+                        ),
+                    );
+                }
                 Self::validate_field_schema_shape(items, &format!("{owner}[]"), FieldPosition::Item)
             }
             FieldType::Matrix { .. } => {
@@ -1215,6 +1226,26 @@ impl QuillConfig {
         }
     }
 
+    /// Reject a `{field}` token in a `title`: a label is a literal, and nothing
+    /// interpolates it.
+    fn validate_title_literal(title: Option<&str>, owner_label: &str, errors: &mut Vec<Diagnostic>) {
+        let Some(token) = title.and_then(template_token) else {
+            return;
+        };
+        errors.push(
+            Diagnostic::new(
+                Severity::Error,
+                format!("{owner_label}: `title` is a literal label; `{token}` is not interpolated."),
+            )
+            .with_code("quill::title_template".to_string())
+            .with_hint(
+                "Write the label a picker shows, or drop `title`: a consumer labels an \
+                 instance from its own values, the first field leading."
+                    .to_string(),
+            ),
+        );
+    }
+
     /// Reject `>`, `;`, `|` in enum literals (reserved by the blueprint inline
     /// annotation grammar — `<format>` close, role separator, enum value
     /// separator — with no escape syntax), and reject `""`, which is the
@@ -1270,6 +1301,7 @@ impl QuillConfig {
         errors: &mut Vec<Diagnostic>,
     ) {
         Self::validate_description_singleline(schema.description.as_deref(), owner_label, errors);
+        Self::validate_title_literal(schema.title.as_deref(), owner_label, errors);
         Self::validate_enum_literals(schema, owner_label, errors);
         Self::validate_optional(schema, owner_label, errors);
         if schema.example.is_some() {
@@ -1817,14 +1849,11 @@ impl QuillConfig {
     }
 
     fn field_parse_hint(field_value: &serde_json::Value) -> Option<String> {
-        if let Some(obj) = field_value.as_object() {
-            if obj.contains_key("title") {
-                return Some(
-                    "'title' is not a valid field key; use 'description' instead.".to_string(),
-                );
-            }
-        }
-        None
+        spells_ui_title(field_value).then(|| {
+            "A field's label is its own `title:`, beside `description:`; `ui` holds no \
+             `title`."
+                .to_string()
+        })
     }
 
     fn is_snake_case_identifier(name: &str) -> bool {
@@ -2058,10 +2087,6 @@ impl QuillConfig {
             .map(|s| s.to_string())
             .unwrap_or_else(|| "Unknown".to_string());
 
-        let ui_hint = format!(
-            "Valid keys under 'ui' are: {}.",
-            UI_CARD_SCHEMA_KEYS.join(", ")
-        );
         let body_hint = format!(
             "Valid keys under 'body' are: {}.",
             BODY_CARD_SCHEMA_KEYS.join(", ")
@@ -2071,7 +2096,7 @@ impl QuillConfig {
             quill_section.get("ui"),
             "quill.ui",
             "quill::invalid_ui",
-            &ui_hint,
+            &card_ui_hint(quill_section.get("ui"), "main"),
             &mut errors,
         );
 
@@ -2137,7 +2162,7 @@ impl QuillConfig {
             main_def.ui.as_ref(),
             "main.ui",
             "quill::invalid_ui",
-            &ui_hint,
+            &card_ui_hint(main_def.ui.as_ref(), "main"),
             &mut errors,
         );
 
@@ -2154,6 +2179,7 @@ impl QuillConfig {
 
         let mut main = CardSchema {
             name: "main".to_string(),
+            title: main_def.title,
             description: main_description,
             fields,
             ui: main_ui.or(ui_section),
@@ -2209,7 +2235,7 @@ impl QuillConfig {
                             card_def.ui.as_ref(),
                             &format!("{}.ui", label),
                             "quill::invalid_ui",
-                            &ui_hint,
+                            &card_ui_hint(card_def.ui.as_ref(), &label),
                             &mut errors,
                         );
 
@@ -2228,6 +2254,7 @@ impl QuillConfig {
                         );
                         card_kinds.push(CardSchema {
                             name: card_name.clone(),
+                            title: card_def.title,
                             description: card_def.description,
                             fields: card_fields,
                             ui: card_ui,
@@ -2307,6 +2334,10 @@ impl QuillConfig {
         }
 
         for (label, card) in &labeled {
+            Self::validate_title_literal(card.title.as_deref(), label, &mut errors);
+        }
+
+        for (label, card) in &labeled {
             Self::validate_card_field_count(label, card, &mut errors);
         }
 
@@ -2371,6 +2402,49 @@ impl QuillConfig {
             warnings,
         ))
     }
+}
+
+/// The hint on a rejected `ui:` block of `card`: where the card's label lives
+/// when the block spells `title`, else the keys it admits.
+fn card_ui_hint(ui: Option<&serde_json::Value>, card: &str) -> String {
+    if ui.and_then(|u| u.get("title")).is_some() {
+        format!("A card's label is `{card}.title`, beside `{card}.description`; `ui` holds no `title`.")
+    } else {
+        format!("Valid keys under 'ui' are: {}.", UI_CARD_SCHEMA_KEYS.join(", "))
+    }
+}
+
+/// Whether a raw field schema spells `ui.title` on itself or on any field
+/// schema nested in it.
+fn spells_ui_title(field: &serde_json::Value) -> bool {
+    let schemas = |key: &str| {
+        field
+            .get(key)
+            .and_then(|v| v.as_object())
+            .into_iter()
+            .flat_map(|m| m.values())
+    };
+    field.get("ui").and_then(|ui| ui.get("title")).is_some()
+        || field.get("items").is_some_and(spells_ui_title)
+        || schemas("properties").any(spells_ui_title)
+        || schemas("variants")
+            .filter_map(|world| world.as_object())
+            .flat_map(|world| world.values())
+            .any(spells_ui_title)
+}
+
+/// The first `{field}` token in `text`, braces included: a `{`, a snake_case
+/// identifier, a `}`.
+fn template_token(text: &str) -> Option<&str> {
+    let mut from = 0;
+    while let Some(open) = text[from..].find('{').map(|i| from + i) {
+        let close = open + 1 + text[open + 1..].find('}')?;
+        if QuillConfig::is_snake_case_identifier(&text[open + 1..close]) {
+            return Some(&text[open..=close]);
+        }
+        from = open + 1;
+    }
+    None
 }
 
 /// Returns true if any line in `text` would be parsed as a card-yaml block
