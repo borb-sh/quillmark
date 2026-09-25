@@ -74,9 +74,39 @@ fn file_id(spec: Option<PackageSpec>, vpath: VirtualPath) -> FileId {
     FileId::new(RootedPath::new(root, vpath))
 }
 
-static FALLBACK_REGULAR: &[u8] = include_bytes!("fonts/Figtree-Regular.ttf");
-static FALLBACK_BOLD: &[u8] = include_bytes!("fonts/Figtree-Bold.ttf");
-static FALLBACK_ITALIC: &[u8] = include_bytes!("fonts/Figtree-Italic.ttf");
+/// The faces a quill shipping no fonts renders in, by file name.
+pub(crate) static FALLBACK_FONTS: [(&str, &[u8]); 3] = [
+    (
+        "Figtree-Regular.ttf",
+        include_bytes!("fonts/Figtree-Regular.ttf"),
+    ),
+    ("Figtree-Bold.ttf", include_bytes!("fonts/Figtree-Bold.ttf")),
+    (
+        "Figtree-Italic.ttf",
+        include_bytes!("fonts/Figtree-Italic.ttf"),
+    ),
+];
+
+/// Every `.ttf` and `.otf` the quill ships, asset fonts first: `QuillWorld`
+/// gives them priority over package fonts of the same family, and `Vec` order
+/// is that priority.
+pub(crate) fn quill_fonts(source: &Quill) -> Vec<(std::path::PathBuf, &[u8])> {
+    let mut fonts = Vec::new();
+    for glob in ["assets/fonts/*", "packages/**"] {
+        for font_path in source.files().find_files(glob) {
+            let Some(ext) = font_path.extension() else {
+                continue;
+            };
+            if !matches!(ext.to_string_lossy().to_lowercase().as_str(), "ttf" | "otf") {
+                continue;
+            }
+            if let Some(contents) = source.files().get_file(&font_path) {
+                fonts.push((font_path, contents));
+            }
+        }
+    }
+    fonts
+}
 
 /// Typst `World` implementation for quill-based compilation. Packages load from
 /// `{quill}/packages/` and assets from `{quill}/assets/`.
@@ -108,9 +138,8 @@ impl QuillWorld {
         let mut book = FontBook::new();
         let mut fonts = Vec::new();
 
-        let font_data_list = Self::load_fonts_from_quill(source)?;
-        for font_data in font_data_list {
-            let font_bytes = Bytes::new(font_data);
+        for (_, font_data) in quill_fonts(source) {
+            let font_bytes = Bytes::new(font_data.to_vec());
             for font in Font::iter(font_bytes) {
                 book.push(font.info().clone());
                 fonts.push(font);
@@ -119,7 +148,7 @@ impl QuillWorld {
 
         // Fall back to the embedded Figtree faces when the quill ships no fonts.
         if fonts.is_empty() {
-            for data in [FALLBACK_REGULAR, FALLBACK_BOLD, FALLBACK_ITALIC] {
+            for (_, data) in FALLBACK_FONTS {
                 let font_bytes = Bytes::new(data.to_vec());
                 for font in Font::iter(font_bytes) {
                     book.push(font.info().clone());
@@ -263,30 +292,6 @@ impl QuillWorld {
             })
             .collect();
         Ok((windows, declined))
-    }
-
-    fn load_fonts_from_quill(
-        source: &Quill,
-    ) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
-        let mut font_data = Vec::new();
-
-        // Asset fonts first: `QuillWorld` gives them priority over package
-        // fonts of the same family, and `Vec` order is that priority.
-        for glob in ["assets/fonts/*", "packages/**"] {
-            for font_path in source.files().find_files(glob) {
-                let Some(ext) = font_path.extension() else {
-                    continue;
-                };
-                if !matches!(ext.to_string_lossy().to_lowercase().as_str(), "ttf" | "otf") {
-                    continue;
-                }
-                if let Some(contents) = source.files().get_file(&font_path) {
-                    font_data.push(contents.to_vec());
-                }
-            }
-        }
-
-        Ok(font_data)
     }
 
     /// Project root only: an asset is the plate's to reach, and nothing
@@ -512,14 +517,14 @@ impl World for QuillWorld {
 }
 
 #[derive(Debug, Clone)]
-struct PackageInfo {
-    namespace: String,
-    name: String,
-    version: String,
-    entrypoint: String,
+pub(crate) struct PackageInfo {
+    pub(crate) namespace: String,
+    pub(crate) name: String,
+    pub(crate) version: String,
+    pub(crate) entrypoint: String,
 }
 
-fn parse_package_toml(
+pub(crate) fn parse_package_toml(
     content: &str,
 ) -> Result<PackageInfo, Box<dyn std::error::Error + Send + Sync>> {
     let value: toml::Value = toml::from_str(content)?;

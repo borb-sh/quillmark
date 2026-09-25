@@ -184,6 +184,42 @@ quillmark info <QUILL_PATH>
 quillmark info ./my-quill
 ```
 
+### workspace
+
+Write the files Typst's own tooling needs to compile a Typst quill's plate: the
+`@local/quillmark-helper` package generated from one document, every vendored
+package at the path Typst's package resolution reads, and the fonts the backend
+renders in. It then prints the `typst watch` command that compiles the plate
+from the quill directory, so an edit to the plate or a module shows on the next
+save. The helper holds that one document's data: rerun `workspace` after the
+document changes.
+
+```bash
+quillmark workspace [OPTIONS] <QUILL_PATH> [MARKDOWN_FILE]
+```
+
+**Arguments:**
+
+- `<QUILL_PATH>`: Path to a quill whose `backend` is `typst`; any other backend refuses with `typst::wrong_backend`
+- `[MARKDOWN_FILE]`: Path to markdown file with a root card-yaml block (optional, when omitted, the quill's seeded document)
+
+**Options:**
+
+- `-o <DIR>` / `--output <DIR>`: Workspace directory (default: `quillmark-workspace`)
+- `--today <YYYY-MM-DD>`: What a `today` date field renders as (default: the local date). A plate's `datetime.today()` is Typst's to supply.
+- `--quiet`: Suppress warnings and the command line; errors still print
+
+**Examples:**
+
+```bash
+quillmark workspace ./my-quill input.md -o ws
+# Workspace written to: ws
+# typst watch --root ./my-quill --package-path ws/packages --font-path ws/fonts --ignore-system-fonts --ignore-embedded-fonts ./my-quill/plate.typ
+```
+
+Tinymist takes the same flags through its `tinymist.typstExtraArgs` setting,
+which gives an editor completion on `data.` fields and a live preview.
+
 ## Exit Codes
 
 - `0`: success, `--help`, and `--version`
