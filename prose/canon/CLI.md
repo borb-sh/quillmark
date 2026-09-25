@@ -8,8 +8,8 @@
 `quillmark-cli` is a `clap` surface over the engine holding no logic of its own:
 `render` turns a quill + markdown into PDF/SVG/PNG, `check` reads documents
 against a quill's schema, `validate` reads a quill's configuration and compiles
-its plate, and `schema`/`blueprint`/`info` introspect a quill without rendering
-it.
+its plate, `schema`/`blueprint`/`info` introspect a quill without rendering
+it, and `workspace` exports what Typst's own tooling needs to compile a plate.
 Commands, options, and examples are the
 [CLI reference](../../docs/cli/reference.md); this page is the contract behind
 them.
@@ -43,13 +43,21 @@ them.
   `--no-render`. A backend that does not resolve is `cli::backend_unresolved`,
   and a configuration the read already refused is not compiled: each document
   would fail for the reason already named.
-- **The render date is the local date.** `render` and `validate` supply it
+- **The render date is the local date.** `render`, `validate` and `workspace` supply it
   to the engine, which reads no clock; `render --today YYYY-MM-DD` pins it for
   a reproducible render. The local offset unreadable, the date is UTC's.
-- **Seeded fallback.** `render` with no `MARKDOWN_FILE` renders the quill's
+- **`workspace` hands the plate to Typst's tooling.** It writes
+  `quillmark_typst::workspace`'s files under `-o` and prints the `typst watch`
+  command over them: the quill as `--root`, the generated helper and vendored
+  packages as `--package-path`, the backend's fonts as `--font-path` with
+  system and embedded fonts ignored, and the PDF written under `-o`. The helper
+  is one document's data, so the plate recompiles live and the document does
+  not. An `-o` inside the quill is refused, since the quill would load it as its
+  own files.
+- **Seeded fallback.** `render` or `workspace` with no `MARKDOWN_FILE` reads the quill's
   seeded document: one card per kind, bodies from `body.example`, every field at
-  its `default:`/blank, so a quill renders with no input file. Output defaults to
-  `example.{format}`.
+  its `default:`/blank, so a quill renders with no input file. `render`'s output
+  defaults to `example.{format}`.
 - **Parsing is not relaxed for the CLI.** A `MARKDOWN_FILE` needs a root `~~~`
   block (the opener's info string is ignored) carrying a `$quill` line,
   exactly as every other surface requires.

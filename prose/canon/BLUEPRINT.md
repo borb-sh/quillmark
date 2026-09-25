@@ -18,8 +18,7 @@ empty cells; the structure, `$` metadata, and body markers come for free.
 ````
 ~~~
 $quill: <name>@<version> # keep verbatim
-$kind: main
-# <description>
+$kind: main # <description>
 # <field description>
 # e.g. <example>
 field: # <type>
@@ -29,10 +28,9 @@ settled: value # <type>[<format>]
 Write main body here.
 
 ~~~
-$kind: <card_kind>
+$kind: <card_kind> # <card description>
 # composable (0..N)
 # sample card; delete if not needed
-# <card description>
 ...fields...
 ~~~
 
@@ -78,9 +76,10 @@ part of a type expression rides the leading slot as prose (`# up to <N>`, the on
 such line). No annotation is colon-separated `key: value`, so no annotation
 collides with YAML key/value parsing.
 
-One own-line form is not an annotation: a dormant variant world, which is cells
-with a `# ` in front under a `# when <MEMBER>:` header (see "Enum variants").
-The colons in it are the cells' own.
+Two own-line forms are not annotations: a dormant variant world, which is cells
+with a `# ` in front under a `# when <MEMBER>:` header (see "Enum variants"),
+and a dormant row under a typed table's `[]` (see "Typed tables"). The colons
+in them are the cells' own.
 
 ### Leading lines: order
 
@@ -165,11 +164,13 @@ The root block's `$quill` line is emitted verbatim and carries an inline
 entirely and the document fails to bind to a quill. The reminder rides only
 on `$quill`: it is the one line whose omission is a hard error. `$kind: main`
 carries no reminder: an omitted root `$kind` is synthesised at parse time,
-so dropping it is not an error, and a `# …` line in that slot would only
-read as a leading annotation for the field below it. A composable card's kind is carried in its
+so dropping it is not an error. The card's description rides the `$kind`
+line's inline slot, for every card: an own-line `# …` there would read as a
+leading annotation for the field below it, and an inline comment belongs to
+its own line. A composable card's kind is carried in its
 `$kind: <card_kind>` metadata line. Its `composable (0..N)` role is
 emitted as an own-line `# composable (0..N)` comment directly under the
-`$kind` line, ahead of the card description: that comment carries the
+`$kind` line: that comment carries the
 card's cardinality, which is structural information rather than a
 redundant instruction. A second own-line comment, `# sample card; delete if
 not needed`, follows directly under it: the card's fields and body are one
@@ -322,12 +323,22 @@ a **cell**, so it keeps its own literal and the cascade is the uniform one:
 
 - A non-empty `default:` renders as actual rows (no per-property
   annotations on each row). The outer key carries `# array<object>`.
-- `default: []` renders inline as `[]` with `# array<object>`:
-  shippable empty. Inline row shape is not surfaced under an empty
-  default; use `example:` to document row shape.
+- `default: []` renders inline as `[]` with `# array<object>`: shippable
+  empty. The synthetic row of the next case follows it as a **dormant row**,
+  commented out at the row's indent the way a dormant variant world is (see
+  "Enum variants"). A reader adds a row by deleting the `[]` and the `# ` in
+  front of the row's lines. A `max: 0` table holds no row, so it has none.
 - Without a `default:`, one synthetic row is emitted with each property
   carrying its own description, `# e.g.` line, inline annotation, and cell —
   its `default:`, else empty. The outer key carries `# array<object>`.
+
+```
+attendees: [] # array<object>
+  # -
+  #   # Full name.
+  #   name: # string
+  #   voting: false # boolean
+```
 
 The row schema is a namespace, so it declares no `default:` / `example:` of its
 own (`quill::default_on_namespace`). The array's literal is where element values

@@ -11,7 +11,9 @@ use super::{
     CardSchema, FieldSchema, FieldType, QuillConfig, VariantFields, MATRIX_HELD_KEY,
     VARIANT_DISCRIMINANT_KEY,
 };
-use crate::document::emit::{emit_mapping_lines, saphyr_emit_flow, saphyr_emit_scalar};
+use crate::document::emit::{
+    emit_mapping_lines, emit_sequence_lines, saphyr_emit_flow, saphyr_emit_scalar,
+};
 use crate::document::prescan::NestedComment;
 use crate::document::{Card, Document, Payload, PayloadItem};
 use crate::value::{PathSegment, QuillValue};
@@ -102,7 +104,8 @@ impl CardItems {
 }
 
 /// Build the root card: `$quill` (with the `# keep verbatim` inline reminder),
-/// `$kind: main`, the optional description own-line comment, then the fields.
+/// `$kind: main` carrying the optional description inline, then the fields.
+/// Inline, the description cannot read as the first field's.
 fn build_main_card(card: &CardSchema, quill_ref: &str, description: Option<String>) -> Card {
     let reference = quill_ref
         .parse()
@@ -114,7 +117,7 @@ fn build_main_card(card: &CardSchema, quill_ref: &str, description: Option<Strin
         value: "main".into(),
     });
     if let Some(desc) = description {
-        items.push(PayloadItem::comment(desc));
+        items.push(PayloadItem::comment_inline(desc));
     }
     append_fields(&mut items, card);
     Card::from_parts(
@@ -126,19 +129,19 @@ fn build_main_card(card: &CardSchema, quill_ref: &str, description: Option<Strin
     )
 }
 
-/// Build a composable card: `$kind: <kind>`, the `composable (0..N)` role
-/// comment, a comment naming it a deletable sample, the optional description,
-/// then the fields.
+/// Build a composable card: `$kind: <kind>` carrying the optional description
+/// inline, the `composable (0..N)` role comment, a comment naming it a
+/// deletable sample, then the fields.
 fn build_card(card: &CardSchema) -> Card {
     let mut items = CardItems::default();
     items.push(PayloadItem::Kind {
         value: card.name.clone(),
     });
+    if let Some(desc) = collapse_opt(card.description.as_deref()) {
+        items.push(PayloadItem::comment_inline(desc));
+    }
     items.push(PayloadItem::comment("composable (0..N)"));
     items.push(PayloadItem::comment("sample card; delete if not needed"));
-    if let Some(desc) = collapse_opt(card.description.as_deref()) {
-        items.push(PayloadItem::comment(desc));
-    }
     append_fields(&mut items, card);
     Card::from_parts(
         items.into_payload(),
@@ -416,8 +419,9 @@ fn property_cell(prop: &FieldSchema, path: &[PathSegment]) -> (JsonValue, Vec<Ne
 /// A container's value plus the nested comments its subtree carries, at `path`
 /// relative to the field value (`[]` at card level).
 ///
-/// An **array** `default:` is shippable as-is, so it renders verbatim and its
-/// subtree carries no annotation. A **typed dictionary** holds no literal
+/// An **array** `default:` is shippable as-is, so it renders verbatim. Under
+/// `default: []` the synthetic row follows as a dormant template, the shape
+/// the empty cell would otherwise hide. A **typed dictionary** holds no literal
 /// (`quill::default_on_namespace`), so it always expands per property.
 fn container_cell(field: &FieldSchema, path: &[PathSegment]) -> (JsonValue, Vec<NestedComment>) {
     if let Some(props) = typed_dict_props(field) {
@@ -429,15 +433,15 @@ fn container_cell(field: &FieldSchema, path: &[PathSegment]) -> (JsonValue, Vec<
     let row_props = typed_table_props(field).unwrap_or_else(|| {
         unreachable!("container_cell is reached only for a typed dictionary or a typed table")
     });
+    // A row type declaring no properties is schema-invalid in practice, and a
+    // `max: 0` table holds no row at all: neither has a row to show.
+    let rowless = row_props.is_empty() || field.max == Some(0);
     match field.default.as_ref().map(|d| d.as_json()) {
-        // `[]` included: an array default stays inline rather than expanding.
-        Some(default) => (default.clone(), Vec::new()),
-        // A row type declaring no properties is schema-invalid in practice, and
-        // a `max: 0` table holds no row at all: emit a type-valid empty array
-        // rather than a null synthetic row, or one the quill's own cap refuses.
-        None if row_props.is_empty() || field.max == Some(0) => {
-            (JsonValue::Array(Vec::new()), Vec::new())
+        Some(JsonValue::Array(rows)) if rows.is_empty() && !rowless => {
+            (JsonValue::Array(Vec::new()), dormant_row(row_props, path))
         }
+        Some(default) => (default.clone(), Vec::new()),
+        None if rowless => (JsonValue::Array(Vec::new()), Vec::new()),
         None => {
             let mut row_path = path.to_vec();
             row_path.push(PathSegment::Index(0));
@@ -446,6 +450,21 @@ fn container_cell(field: &FieldSchema, path: &[PathSegment]) -> (JsonValue, Vec<
             (JsonValue::Array(vec![JsonValue::Object(row)]), nested)
         }
     }
+}
+
+/// The synthetic row as own-line comments inside the empty table at `path`,
+/// rendered as [`dormant_world`] renders a world: uncommented, each line is the
+/// one the live row would show.
+fn dormant_row(
+    row_props: &IndexMap<String, Box<FieldSchema>>,
+    path: &[PathSegment],
+) -> Vec<NestedComment> {
+    let mut row = JsonMap::new();
+    let nested = build_property_mapping(&mut row, row_props, &[PathSegment::Index(0)]);
+    emit_sequence_lines(&[JsonValue::Object(row)], &nested)
+        .lines()
+        .map(|line| world_comment(path, 0, line))
+        .collect()
 }
 
 /// Append a variant-bearing enum: the container, its discriminant cell, then
@@ -880,7 +899,9 @@ main:
     flavor: { type: string, default: taro }
 "#)
         .blueprint();
-        assert!(t.starts_with("~~~\n$quill: taro@0.1.0 # keep verbatim\n$kind: main\n# x\n"));
+        assert!(t.starts_with(
+            "~~~\n$quill: taro@0.1.0 # keep verbatim\n$kind: main # x\nflavor: taro # string\n"
+        ));
         assert!(t.contains("\nWrite main body here.\n"));
     }
 
@@ -898,7 +919,7 @@ main:
         .blueprint();
         assert!(
             t.starts_with(
-                "~~~\n$quill: taro@0.1.0 # keep verbatim\n$kind: main\n# A taro order form.\n"
+                "~~~\n$quill: taro@0.1.0 # keep verbatim\n$kind: main # A taro order form.\n"
             ),
             "{t}"
         );
@@ -920,7 +941,7 @@ card_kinds:
 "#)
         .blueprint();
         assert!(t.contains(
-            "~~~\n$kind: note\n# composable (0..N)\n# sample card; delete if not needed\n# A short note appended to the document.\n"
+            "~~~\n$kind: note # A short note appended to the document.\n# composable (0..N)\n# sample card; delete if not needed\nauthor: # string\n"
         ));
     }
 
@@ -1059,9 +1080,44 @@ main:
         assert!(!t.contains("refs: # array<object>\n  -\n"));
     }
 
+    /// The empty cell stays shippable, and the row it hides follows as a
+    /// dormant template: the synthetic row's lines, commented out.
     #[test]
-    fn typed_table_with_empty_default_renders_inline() {
+    fn typed_table_with_empty_default_carries_a_dormant_row() {
         let t = cfg(r#"
+quill: { name: x, version: 1.0.0, backend: typst, description: x }
+main:
+  fields:
+    attendees:
+      type: array
+      default: []
+      items:
+        type: object
+        properties:
+          name: { type: string, description: Full name. }
+          voting: { type: boolean, default: false }
+          tags: { type: array, default: [], items: { type: object, properties: { label: { type: string } } } }
+    next: { type: string }
+"#)
+        .blueprint();
+        assert!(
+            t.contains(concat!(
+                "attendees: [] # array<object>\n",
+                "  # -\n",
+                "  #   # Full name.\n",
+                "  #   name: # string\n",
+                "  #   voting: false # boolean\n",
+                "  #   tags: [] # array<object>\n",
+                "  #     # - label: # string\n",
+                "next: # string\n",
+            )),
+            "{t}"
+        );
+    }
+
+    #[test]
+    fn a_dormant_row_round_trips_inside_its_table() {
+        let bp = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
   fields:
@@ -1071,13 +1127,35 @@ main:
       items:
         type: object
         properties:
+          org: { type: string, description: Citing organization. }
+    next: { type: string }
+"#)
+        .blueprint();
+        let doc = Document::parse(&bp).expect("blueprint must parse").document;
+        assert_eq!(doc.to_markdown(), bp);
+        assert!(doc.main().payload().items().iter().all(|item| !matches!(
+            item,
+            crate::document::PayloadItem::Comment { text, .. } if text.contains("org")
+        )));
+    }
+
+    #[test]
+    fn a_capped_out_table_with_empty_default_has_no_dormant_row() {
+        let t = cfg(r#"
+quill: { name: x, version: 1.0.0, backend: typst, description: x }
+main:
+  fields:
+    refs:
+      type: array
+      default: []
+      max: 0
+      items:
+        type: object
+        properties:
           org: { type: string }
 "#)
         .blueprint();
-        assert!(
-            t.contains("refs: [] # array<object>\n"),
-            "wrong rendering: {t}"
-        );
+        assert!(t.contains("refs: [] # array<object>\n~~~"), "{t}");
     }
 
     #[test]

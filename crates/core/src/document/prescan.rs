@@ -173,10 +173,10 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             {
                 let (fill, value_without_tag, had_non_fill_tag) =
                     record_fill_and_tags(&mut out, &after_colon, &key);
+                let mut key_path = item_path.clone();
+                key_path.push(PathSegment::Key(key));
                 if fill {
-                    let mut key_path = item_path.clone();
-                    key_path.push(PathSegment::Key(key.clone()));
-                    out.retired_fills.push(key_path);
+                    out.retired_fills.push(key_path.clone());
                 }
                 if fill || had_non_fill_tag {
                     dash_body_clean = Some(format!("{}:{}", source_key, value_without_tag));
@@ -187,6 +187,13 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                     path: item_path,
                     child_count: 1,
                 });
+                if opens_nested_block(&value_without_tag) {
+                    stack.push(Frame {
+                        indent: inline_indent_offset + 2,
+                        path: key_path,
+                        child_count: 0,
+                    });
+                }
             }
 
             if let Some(c) = &trailing_comment {
@@ -242,7 +249,7 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                     stack.pop();
                 }
 
-                if has_empty_inline_value(&value_without_tag) {
+                if opens_nested_block(&value_without_tag) {
                     stack.push(Frame {
                         indent: 2,
                         path: key_path,
@@ -305,7 +312,7 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                 cleaned.push(line.to_string());
             }
 
-            if has_empty_inline_value(&value_without_tag) {
+            if opens_nested_block(&value_without_tag) {
                 stack.push(Frame {
                     indent: indent + 2,
                     path: key_path,
@@ -363,11 +370,12 @@ fn is_block_scalar_header(value: &str) -> bool {
     t.starts_with('|') || t.starts_with('>')
 }
 
-/// `true` when the value portion of a `key:` line is empty: real value is on
-/// subsequent indented lines.
-fn has_empty_inline_value(after_colon: &str) -> bool {
+/// `true` when the indented lines under a `key:` line belong to its value: the
+/// value is on those lines, or it is an empty flow collection (`[]`, `{}`)
+/// whose own comments sit under it.
+fn opens_nested_block(after_colon: &str) -> bool {
     let (v, _) = split_trailing_comment(after_colon);
-    v.trim().is_empty()
+    matches!(v.trim(), "" | "[]" | "{}")
 }
 
 /// Byte index of the `:` closing `line`'s leading key, or `None` when `line`
@@ -838,6 +846,32 @@ mod tests {
                 text: "comment".to_string(),
                 inline: false,
             }]
+        );
+    }
+
+    /// An empty flow collection's comments sit under it, whether its key opens
+    /// its own line or a sequence item's.
+    #[test]
+    fn a_comment_under_an_empty_flow_collection_is_inside_it() {
+        let input = "rows: []\n  # - a\nrow:\n  - key: {}\n      # b\n    next: 1\n";
+        let out = prescan_fence_content(input);
+        let key = |k: &str| PathSegment::Key(k.to_string());
+        assert_eq!(
+            out.nested_comments,
+            vec![
+                NestedComment {
+                    container_path: vec![key("rows")],
+                    position: 0,
+                    text: "- a".to_string(),
+                    inline: false,
+                },
+                NestedComment {
+                    container_path: vec![key("row"), PathSegment::Index(0), key("key")],
+                    position: 0,
+                    text: "b".to_string(),
+                    inline: false,
+                },
+            ]
         );
     }
 
