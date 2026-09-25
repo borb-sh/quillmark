@@ -74,11 +74,42 @@ fn file_id(spec: Option<PackageSpec>, vpath: VirtualPath) -> FileId {
     FileId::new(RootedPath::new(root, vpath))
 }
 
-static FALLBACK_REGULAR: &[u8] = include_bytes!("fonts/Figtree-Regular.ttf");
-static FALLBACK_BOLD: &[u8] = include_bytes!("fonts/Figtree-Bold.ttf");
-static FALLBACK_ITALIC: &[u8] = include_bytes!("fonts/Figtree-Italic.ttf");
+/// The faces a quill shipping no fonts renders in, by file name.
+pub(crate) static FALLBACK_FONTS: [(&str, &[u8]); 3] = [
+    (
+        "Figtree-Regular.ttf",
+        include_bytes!("fonts/Figtree-Regular.ttf"),
+    ),
+    ("Figtree-Bold.ttf", include_bytes!("fonts/Figtree-Bold.ttf")),
+    (
+        "Figtree-Italic.ttf",
+        include_bytes!("fonts/Figtree-Italic.ttf"),
+    ),
+];
 
-/// Typst `World` implementation for quill-based compilation. Packages load from
+/// Every `.ttf` and `.otf` the quill ships, asset fonts first: `QuillWorld`
+/// gives them priority over package fonts of the same family, and `Vec` order
+/// is that priority.
+pub(crate) fn quill_fonts(source: &Quill) -> Vec<(std::path::PathBuf, &[u8])> {
+    let mut fonts = Vec::new();
+    for glob in ["assets/fonts/*", "packages/**"] {
+        for font_path in source.files().find_files(glob) {
+            let Some(ext) = font_path.extension() else {
+                continue;
+            };
+            if !matches!(ext.to_string_lossy().to_lowercase().as_str(), "ttf" | "otf") {
+                continue;
+            }
+            if let Some(contents) = source.files().get_file(&font_path) {
+                fonts.push((font_path, contents));
+            }
+        }
+    }
+    fonts
+}
+
+/// Typst `World` implementation for quill-based compilation, rooted at the
+/// quill: `.typ` sources load at their quill paths, packages from
 /// `{quill}/packages/` and assets from `{quill}/assets/`.
 pub(crate) struct QuillWorld {
     library: LazyHash<Library>,
@@ -108,9 +139,8 @@ impl QuillWorld {
         let mut book = FontBook::new();
         let mut fonts = Vec::new();
 
-        let font_data_list = Self::load_fonts_from_quill(source)?;
-        for font_data in font_data_list {
-            let font_bytes = Bytes::new(font_data);
+        for (_, font_data) in quill_fonts(source) {
+            let font_bytes = Bytes::new(font_data.to_vec());
             for font in Font::iter(font_bytes) {
                 book.push(font.info().clone());
                 fonts.push(font);
@@ -119,7 +149,7 @@ impl QuillWorld {
 
         // Fall back to the embedded Figtree faces when the quill ships no fonts.
         if fonts.is_empty() {
-            for data in [FALLBACK_REGULAR, FALLBACK_BOLD, FALLBACK_ITALIC] {
+            for (_, data) in FALLBACK_FONTS {
                 let font_bytes = Bytes::new(data.to_vec());
                 for font in Font::iter(font_bytes) {
                     book.push(font.info().clone());
@@ -140,17 +170,16 @@ impl QuillWorld {
             Bytes::new(helper::generate_typst_toml().into_bytes()),
         );
 
-        // At the project root whatever directory `plate_file` names: the plate
-        // reaches `assets/...` by its path from the quill root.
         let main_vpath = plate
             .file
             .as_deref()
-            .and_then(|f| Path::new(f).file_name()?.to_str())
-            .and_then(|name| VirtualPath::new(name).ok())
+            .and_then(|f| VirtualPath::new(f).ok())
             .unwrap_or_else(|| {
                 VirtualPath::new("main.typ").expect("\"main.typ\" is a valid virtual path")
             });
-        let source = Source::new(file_id(None, main_vpath), plate.text.clone());
+        let main_id = file_id(None, main_vpath);
+        Self::load_project_sources(source, main_id, &mut sources, &mut load_warnings);
+        let source = Source::new(main_id, plate.text.clone());
 
         Ok(Self {
             library: LazyHash::new(<Library as typst::LibraryExt>::default()),
@@ -265,30 +294,6 @@ impl QuillWorld {
         Ok((windows, declined))
     }
 
-    fn load_fonts_from_quill(
-        source: &Quill,
-    ) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error + Send + Sync>> {
-        let mut font_data = Vec::new();
-
-        // Asset fonts first: `QuillWorld` gives them priority over package
-        // fonts of the same family, and `Vec` order is that priority.
-        for glob in ["assets/fonts/*", "packages/**"] {
-            for font_path in source.files().find_files(glob) {
-                let Some(ext) = font_path.extension() else {
-                    continue;
-                };
-                if !matches!(ext.to_string_lossy().to_lowercase().as_str(), "ttf" | "otf") {
-                    continue;
-                }
-                if let Some(contents) = source.files().get_file(&font_path) {
-                    font_data.push(contents.to_vec());
-                }
-            }
-        }
-
-        Ok(font_data)
-    }
-
     /// Project root only: an asset is the plate's to reach, and nothing
     /// generated names one.
     fn load_assets_from_quill(
@@ -313,6 +318,48 @@ impl QuillWorld {
         }
 
         Ok(())
+    }
+
+    /// Every `.typ` file outside `packages/` at its path from the quill root, so
+    /// the plate and its modules import one another as Typst resolves paths:
+    /// relative to the importing file, or to the quill root under a leading `/`.
+    fn load_project_sources(
+        source: &Quill,
+        main: FileId,
+        sources: &mut HashMap<FileId, Source>,
+        warnings: &mut Vec<Diagnostic>,
+    ) {
+        for path in source.files().find_files("**/*.typ") {
+            if path.starts_with("packages") {
+                continue;
+            }
+            let Some(contents) = source.files().get_file(&path) else {
+                continue;
+            };
+            let id = match VirtualPath::new(path.to_string_lossy().as_ref()) {
+                Ok(vpath) => file_id(None, vpath),
+                Err(e) => {
+                    warnings.push(skipped_path(&path, e));
+                    continue;
+                }
+            };
+            if id != main {
+                let text = String::from_utf8_lossy(contents).into_owned();
+                sources.insert(id, Source::new(id, text));
+            }
+        }
+    }
+
+    /// The plate, then every other project source in path order: the files
+    /// whose `data` reads the region scan windows.
+    pub(crate) fn project_sources(&self) -> Vec<&Source> {
+        let mut modules: Vec<&Source> = self
+            .sources
+            .values()
+            .filter(|s| matches!(s.id().root(), VirtualRoot::Project))
+            .collect();
+        modules.sort_by_key(|s| s.id().vpath().get_without_slash().to_string());
+        std::iter::once(&self.source).chain(modules).collect()
     }
 
     fn load_packages_from_quill(
@@ -512,14 +559,14 @@ impl World for QuillWorld {
 }
 
 #[derive(Debug, Clone)]
-struct PackageInfo {
-    namespace: String,
-    name: String,
-    version: String,
-    entrypoint: String,
+pub(crate) struct PackageInfo {
+    pub(crate) namespace: String,
+    pub(crate) name: String,
+    pub(crate) version: String,
+    pub(crate) entrypoint: String,
 }
 
-fn parse_package_toml(
+pub(crate) fn parse_package_toml(
     content: &str,
 ) -> Result<PackageInfo, Box<dyn std::error::Error + Send + Sync>> {
     let value: toml::Value = toml::from_str(content)?;
