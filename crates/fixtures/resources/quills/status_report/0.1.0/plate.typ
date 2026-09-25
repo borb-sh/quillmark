@@ -35,10 +35,10 @@
   if card.at("$kind", default: none) == "milestone" {
     // Every iteration reads through one loop variable, so a print of
     // `card.title` names no card. Its ink is the card's own: compute with
-    // `card`, print with `ink(card)`.
+    // `card`, print with `ink(card)`, and format a date with `display(card, ..)`.
     heading(level: 2, ink(card).title)
     if card.due != none {
-      [Due #display(ink(card).due, "[year]-[month]-[day]")]
+      [Due #display(card, "due", "[month repr:long] [day padding:none], [year]")]
       parbreak()
     }
     card.at("$body", default: "")

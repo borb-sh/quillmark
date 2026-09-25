@@ -38,7 +38,7 @@ One rule governs the lowering, at every depth: **a declared type means the same 
   `card.at("$kind", default: none)`, `card.at("$body", default: "")`: never a
   bare `card.$body`
 - A card whose `$kind` the quill does not declare keeps its place in `$cards`, fields verbatim and uncoerced, so a plate's `$cards` loop falls through on a kind it does not know ([SCHEMAS.md](SCHEMAS.md#what-blocks-a-render))
-- `data`, each card, and each typed dictionary carry `$ink`, the [ink twin](#the-ink-twin) of their fields, wherever at least one field has ink. A data key spelling `$ink` is dropped
+- `data`, each card, and each typed dictionary carry `$ink`, the [ink twin](#the-ink-twin) of their fields, wherever at least one field has ink, and with it `$path`, their address prefix (`""` on `data`, `refs.0.` on a row). A data key spelling `$ink` or `$path` is dropped
 - User payload fields sit flat at the root next to the `$` keys; field names match `[a-z_][a-z0-9_]*` and therefore never collide with `$` metadata
 
 #### A `matrix` field
@@ -135,8 +135,8 @@ Helper contents (generated in `backends/typst/helper.rs` from `lib.typ.template`
   `_qm-display` binds one `#let _qm_dN = (..args) => text(datetime(..).display(..args))`
   closure per present date, keyed by schema address (`issued`, `stamps.2`,
   `contact.reply_by`, `$cards.<kind>.<n>.<field>`; compose a card address from
-  the card's `$path`), and `display` calls it. It also takes the closure itself,
-  which is a date's ink (`display(ink(row).due, ..)`), and `none`. The address is validated like any
+  the card's `$path`), and `display` calls it. `display(dict, key, ..)` spells
+  the address from the dictionary's `$path`. The address is validated like any
   other (below), so a typo is a compile error rather than ink that quietly goes
   missing; `none` comes back for a known address carrying no date — a blank one,
   or a field that is not a date — so a `== none` fallback still fires. Formatting
@@ -161,13 +161,15 @@ each dictionary it closes gathers its fields' ink under a leading `$ink` key:
 |---|---|
 | string, number, boolean | `[#<literal>]` inline, its window the block: it prints what `#<value>` prints |
 | content | the `_qm_cN` binding the data cell holds |
-| date | the `_qm_dN` closure `display` calls |
+| date | `_qm_dN()`: the closure `display` calls, called with no pattern |
 | array of those | the array of their ink |
 | any of those at `none` | `none` |
 | typed dictionary, and an array of them | none: each carries its own `$ink` |
 
 Only declared fields have ink, so `$quill`, `$kind` and undeclared keys have
-none. The twin rides on the dictionary rather than on `data` alone because rows
+none. A date's is its default display, so every ink prints as `#ink(x).f`; a
+pattern goes through `display(x, "f", ..)`, which finds the closure by the
+dictionary's `$path`. The twin rides on the dictionary rather than on `data` alone because rows
 are what plates filter, sort and hand to functions: a twin kept apart loses the
 pairing at the first `filter`. The cost is one visible key, which dictionary
 equality, `keys()` and spreading see.

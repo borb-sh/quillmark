@@ -197,24 +197,23 @@ impl<'m> Codegen<'m> {
         id
     }
 
-    /// The native cell and its ink: the constructor and its `_qm_dN` closure.
-    /// Blank ⇒ `none` for both, so a plate's `!= none` guard is untouched. A
-    /// non-blank value that will not parse raises `backend::invalid_date` from
-    /// here, the one site that parses, which is what makes the check total over
-    /// depth.
-    fn date_field(&mut self, path: &str, s: &str, kind: DateKind) -> (String, String) {
+    /// The native cell and its `_qm_dN` closure. Blank ⇒ `none` and no
+    /// closure, so a plate's `!= none` guard is untouched. A non-blank value
+    /// that will not parse raises `backend::invalid_date` from here, the one
+    /// site that parses, which is what makes the check total over depth.
+    fn date_field(&mut self, path: &str, s: &str, kind: DateKind) -> (String, Option<String>) {
         match datetime_constructor(s, kind) {
             Some(constructor) => {
                 let closure = self.display_block(path, &constructor);
-                (constructor, closure)
+                (constructor, Some(closure))
             }
-            None if s.is_empty() => ("none".to_string(), "none".to_string()),
+            None if s.is_empty() => ("none".to_string(), None),
             None => {
                 self.emit_error.get_or_insert(EmitError::InvalidDate {
                     field: path.to_string(),
                     value: s.to_string(),
                 });
-                ("none".to_string(), "none".to_string())
+                ("none".to_string(), None)
             }
         }
     }
@@ -254,7 +253,7 @@ impl<'m> Codegen<'m> {
             let node = self.meta.field_node(key);
             dict.push(key, self.emit_value(key, node, value));
         }
-        dict.finish()
+        dict.finish(Some(""))
     }
 
     /// A card with no string `$kind` passes through as a value literal, assigned
@@ -293,15 +292,12 @@ impl<'m> Codegen<'m> {
         let mut dict = Container::default();
         // The canonical address prefix, so plates compose schema-field addresses
         // without reimplementing the kind+ordinal grammar.
-        dict.items.push(Frag::from(format!("\"$path\": \"{}\"", escape_string(prefix))));
+        dict.items.push(Frag::from(format!("\"{PATH_KEY}\": \"{}\"", escape_string(prefix))));
         for (key, value) in sorted(obj) {
-            if key == "$path" {
-                continue;
-            }
             let node = props.and_then(|p| p.get(key));
             dict.push(key, self.emit_value(&format!("{prefix}{key}"), node, value));
         }
-        dict.finish()
+        dict.finish(None)
     }
 
     /// Lower one value against the schema node that declares it, recursing on
@@ -324,8 +320,11 @@ impl<'m> Codegen<'m> {
                 (Frag::from(expr.clone()), Some(Frag::from(expr)))
             }
             (Lower::Date(kind), serde_json::Value::String(s)) => {
+                // Called with no pattern, the closure places the date's default
+                // display; `display(dict, key, ..)` calls it with the plate's.
                 let (expr, closure) = self.date_field(path, s, kind);
-                (Frag::from(expr), Some(Frag::from(closure)))
+                let ink = closure.map_or_else(|| "none".to_string(), |c| format!("{c}()"));
+                (Frag::from(expr), Some(Frag::from(ink)))
             }
             (Lower::Array(items), serde_json::Value::Array(elems)) => {
                 let (exprs, elem_inks): (Vec<Frag>, Vec<Option<Frag>>) = elems
@@ -350,7 +349,7 @@ impl<'m> Codegen<'m> {
                     let lowered = self.emit_value(&format!("{path}.{key}"), props.get(key), elem);
                     dict.push(key, lowered);
                 }
-                (dict.finish(), None)
+                (dict.finish(Some(&format!("{path}."))), None)
             }
             (
                 Lower::Native,
@@ -459,7 +458,8 @@ fn entry(key: &str, value: Frag) -> Frag {
 }
 
 /// A dictionary under construction, with the `$ink` twin of its fields. A data
-/// key spelling `$ink` is dropped, so the twin is the only one.
+/// key spelling `$ink` or `$path` is dropped, so the generated one is the only
+/// one.
 #[derive(Default)]
 struct Container {
     items: Vec<Frag>,
@@ -468,7 +468,7 @@ struct Container {
 
 impl Container {
     fn push(&mut self, key: &str, (expr, ink): (Frag, Option<Frag>)) {
-        if key == INK_KEY {
+        if key == INK_KEY || key == PATH_KEY {
             return;
         }
         self.items.push(entry(key, expr));
@@ -477,15 +477,23 @@ impl Container {
         }
     }
 
-    /// `$ink` leads, and only where a field has ink, so a dictionary of
+    /// `$ink` leads, then `path` as `$path` for `display(dict, key, ..)` to
+    /// address a date by; both only where a field has ink, so a dictionary of
     /// containers (a `matrix`) keeps exactly its members as keys. The `{..}`
     /// code block is a unit Typst's incremental reparser swaps alone: an edit
     /// touches a field and its ink, and the block holding both is one row, not
     /// the whole literal.
-    fn finish(mut self) -> Frag {
+    fn finish(mut self, path: Option<&str>) -> Frag {
         if !self.ink.is_empty() {
             let ink = Frag::wrap(self.ink, "(:)");
-            self.items.insert(0, entry(INK_KEY, ink));
+            let mut head = vec![entry(INK_KEY, ink)];
+            if let Some(path) = path {
+                head.push(Frag::from(format!(
+                    "\"{PATH_KEY}\": \"{}\"",
+                    escape_string(path)
+                )));
+            }
+            self.items.splice(0..0, head);
         }
         let mut out = Frag::from("{");
         out.append(Frag::wrap(self.items, "(:)"));
@@ -495,6 +503,7 @@ impl Container {
 }
 
 const INK_KEY: &str = "$ink";
+const PATH_KEY: &str = "$path";
 
 /// What a schema node lowers to: the codegen walk's whole dispatch. Why only
 /// the content types lower to content and a date does not:
@@ -992,15 +1001,17 @@ mod tests {
         );
     }
 
-    /// Each printable field's ink sits beside it under `$ink`, a blank's is
-    /// `none`, a dictionary of dictionaries carries none of its own, and every
-    /// scalar ink block is windowed on the address it prints.
+    /// Each printable field's ink sits beside it under `$ink` with the
+    /// dictionary's `$path`, a blank's is `none`, a date's calls its closure, a
+    /// dictionary of dictionaries carries neither, and every scalar ink block
+    /// is windowed on the address it prints.
     #[test]
     fn ink_twins_each_printable_field_and_windows_its_scalars() {
         let meta = meta_from(serde_json::json!({ "properties": {
             "subject": { "type": "string" },
             "count": { "type": "integer" },
             "due": { "type": ["string", "null"], "format": "date" },
+            "on": { "type": "string", "format": "date" },
             "tags": { "type": "array", "items": { "type": "string" } },
             "rows": { "type": "array", "items": { "type": "object", "properties": {
                 "org": { "type": "string" },
@@ -1013,24 +1024,25 @@ mod tests {
             "subject": "Widgets",
             "count": 3,
             "due": null,
+            "on": "2026-01-02",
             "tags": [],
-            "rows": [{ "org": "AFRL", "$ink": "spoofed" }],
+            "rows": [{ "org": "AFRL", "$ink": "spoofed", "$path": "spoofed" }],
             "grid": { "a": { "x": "1" } },
         });
         let (lib, windows) = generate_lib_typ(&data, &meta).unwrap();
 
         assert!(
             lib.contains(
-                r#"#let data = {("$ink": ("count": [#3], "due": none, "subject": [#"Widgets"], "tags": (),), "count": 3,"#
+                r#"#let data = {("$ink": ("count": [#3], "due": none, "on": _qm_d0(), "subject": [#"Widgets"], "tags": (),), "$path": "", "count": 3,"#
             ),
             "{lib}"
         );
         assert!(
-            lib.contains(r#""rows": ({("$ink": ("org": [#"AFRL"],), "org": "AFRL",)},)"#),
-            "a row carries its own ink, and a data key spelling `$ink` is dropped: {lib}"
+            lib.contains(r#""rows": ({("$ink": ("org": [#"AFRL"],), "$path": "rows.0.", "org": "AFRL",)},)"#),
+            "a row carries its own ink and path, and data keys spelling them are dropped: {lib}"
         );
         assert!(
-            lib.contains(r#""grid": {("a": {("$ink": ("x": [#"1"],), "x": "1",)},)}"#),
+            lib.contains(r#""grid": {("a": {("$ink": ("x": [#"1"],), "$path": "grid.a.", "x": "1",)},)}"#),
             "{lib}"
         );
 

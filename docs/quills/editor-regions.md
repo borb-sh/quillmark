@@ -6,12 +6,12 @@ Quillmark attributes ink on its own for a `richtext` or `plaintext` field, for a
 
 ## Print with `ink`
 
-`data`, each card, and each typed dictionary or table row carry a printable twin of their fields, read with `ink`:
+`data`, each card, and each typed dictionary or table row carry a printable copy of their fields, read with `ink`:
 
 ```typst
 #import "@local/quillmark-helper:0.1.0": data, display, ink
 
-#let action(item) = [#ink(item).owner, due #display(ink(item).due, "[month]/[day]")]
+#let action(item) = [#ink(item).owner, due #display(item, "due", "[month]/[day]")]
 
 #for item in data.actions.filter(a => a.status == "open") {
   action(item)
@@ -24,21 +24,27 @@ Each value's ink is born in generated code, so it keeps its field's address howe
 |---|---|
 | `string`, `enum`, `integer`, `number`, `boolean` | content printing what `#x.<field>` prints |
 | `richtext`, `plaintext` | the content `x.<field>` already is |
-| `date`, `datetime` | its `display` closure: print it with `display(ink(x).<field>, ..)` |
+| `date`, `datetime` | its default display (`2026-03-04`); for a pattern, `display(x, "<field>", ..)` |
 | an array of those | the array of their ink |
 | any of those whose value is `none` (a blank date, an unanswered `type: t?`) | `none` |
 | a typed dictionary or a table | nothing: each dictionary carries its own, so `ink(x.address).city`, `ink(row).org` |
 
-Ink is content, so styling that wraps it keeps the address: `upper`, `text(..)`, `strong`, `align`, a `box`. Computing a string needs the value, and what it prints is composed ink: `calc.round`, `str(n, base: 16)`, `.slice(..)`, `+` with a string. Claim that with [`field-region`](#tying-composed-content-to-a-field).
+Ink is content, so styling that wraps it keeps the address: `upper`, `text(..)`, `strong`, `align`, a `box`. Computing a string needs the value, and what it prints is composed ink: `calc.round`, `str(n, base: 16)`, `.slice(..)`, `+` with a string. Claim that with [`field-region`](#tying-composed-content-to-a-field), addressed through the dictionary's `$path`:
 
-The twin lives under a `$ink` key, which `ink` reads. A plate that walks a typed dictionary's keys, compares one whole, or spreads a row into a call (`f(..row)`) sees it: skip `$`-prefixed keys there, as a card's `$path` already requires.
+```typst
+#for row in data.expenses {
+  field-region(row.at("$path") + "amount")[#calc.round(row.amount, digits: 2)]
+}
+```
+
+The copy lives under a `$ink` key, which `ink` reads, beside the dictionary's address prefix as `$path`, the one a card already carries. A plate that walks a typed dictionary's keys, compares one whole, or spreads a row into a call (`f(..row)`) sees both: skip `$`-prefixed keys there.
 
 ## Dates: `display` and `data`
 
-- **`display(field, ..args)` renders and is clickable.** It takes the date's ink (`ink(row).due`) or its *schema address* (`"issued"`), never its value, and returns Typst *content* whose glyphs carry a region keyed on that address: the atomic, picker-editable click-to-edit target. It accepts the same patterns `datetime.display` does, and a `date`-only field inherits Typst's native error on a `[hour]` pattern. The address is checked against the schema at compile time, the same check `form-field(field:)` and `field-region` apply, so a typo fails the render instead of dropping the date from it. `none` for a blank date, so a `== none` fallback still fires.
+- **`display(field, ..args)` renders and is clickable.** It takes the date's *schema address* (`"issued"`), or a dictionary and the date's key within it (`row, "due"`), never its value, and returns Typst *content* whose glyphs carry a region keyed on that address: the atomic, picker-editable click-to-edit target. It accepts the same patterns `datetime.display` does, and a `date`-only field inherits Typst's native error on a `[hour]` pattern. The address is checked against the schema at compile time, the same check `form-field(field:)` and `field-region` apply, so a typo fails the render instead of dropping the date from it. `none` for a blank date, so a `== none` fallback still fires.
 - **`data.<field>` is the value.** Reach for it whenever you want a `datetime` — math, comparison, components, handing it to a package. A direct plate reference (`#data.issued.display("…")` written in the plate itself) still regions, the same way any scalar reference site does.
 
-One rule: **want a value → `data.<field>`; want clickable ink → `display(ink(x).<field>, ..)`**, or `display("<field>", ..)` where you hold an address rather than its dictionary. The difference matters exactly when a *package* does the inking: a `datetime` handed to a package draws its glyphs wherever the package places them, so nothing ties them to your schema field, while `display`'s ink is born in generated code and keeps its address however deep it travels.
+One rule: **want a value → `data.<field>`; want clickable ink → `ink(x).<field>` for the default format, `display(x, "<field>", ..)` for a pattern**, or `display("<field>", ..)` where you hold an address rather than its dictionary. The difference matters exactly when a *package* does the inking: a `datetime` handed to a package draws its glyphs wherever the package places them, so nothing ties them to your schema field, while `display`'s ink is born in generated code and keeps its address however deep it travels.
 
 ## Which Reads Get Regions
 

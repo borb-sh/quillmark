@@ -15,7 +15,7 @@ Plates are plain Typst code. Document metadata reaches the plate as a Typst dict
 
 Every field arrives at its **native** Typst type — a `date` as a `datetime`, a number as an int or float, an `object` as a dict — with one exception: `richtext` and `plaintext` arrive as Typst content, their text already lowered to markup, because the authored text *is* their rendering. This holds at every depth: a `date` declared inside an `object` or an `array` row is the same `datetime` a top-level one is.
 
-`data`, each card, and each typed dictionary or table row also carry their fields' printable twin under `$ink`, read with `ink(..)`: `#ink(data).title`, `#ink(row).org`. It prints what the field prints and keeps the field's click target in an [editor preview](editor-regions.md#print-with-ink) however the plate passes it around.
+`data`, each card, and each typed dictionary or table row also carry a printable copy of their fields under `$ink`, read with `ink(..)`: `#ink(data).title`, `#ink(row).org`. It prints what the field prints and keeps the field's click target in an [editor preview](editor-regions.md#print-with-ink) however the plate passes it around.
 
 ### Dates
 
@@ -27,12 +27,13 @@ A present `type: date` / `type: datetime` field is a native `datetime`; a blank 
 #data.issued < data.due                                               // comparison, arithmetic
 #some-package(date: data.issued)                                      // any datetime-consuming package
 #display("issued", "[day padding:none] [month repr:long] [year]")     // rendered, click-to-edit
+#display(row, "due", "[year]")                                        // the same, for a row or card in hand
 #if data.issued != none { .. }                                        // presence
 ```
 
 `datetime.today()` returns the render date the host supplied, the same date a `today` field renders as. The engine reads no clock: a render given no date fails at `datetime.today()`, where a `today` field renders blank.
 
-Everything except the last two is ordinary Typst, because the value is an ordinary `datetime`. `display(field, ..args)` takes the field's *schema address* rather than its value, and prints the date as `datetime.display` would with the same patterns; an unknown address fails the render, and a blank date gives `none`. Reach for `data.<field>` whenever you want the value itself: math, comparison, components, or handing it to a package. The two print the same ink and differ only in [editor previews](editor-regions.md#dates-display-and-data), where `display` keeps the printed date clickable.
+Everything except the last two is ordinary Typst, because the value is an ordinary `datetime`. `display(field, ..args)` takes the field's *schema address*, or a dictionary and the date's key within it, rather than its value, and prints the date as `datetime.display` would with the same patterns; an unknown address fails the render, and a blank date gives `none`. Reach for `data.<field>` whenever you want the value itself: math, comparison, components, or handing it to a package. The two print the same ink and differ only in [editor previews](editor-regions.md#dates-display-and-data), where `display` keeps the printed date clickable.
 
 ### Which accessor to reach for
 

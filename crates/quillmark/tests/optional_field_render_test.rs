@@ -68,7 +68,7 @@ fn an_unanswered_optional_cell_is_none() {
   assert.eq(ink(data).at(key), none)
 }
 #assert.eq(ink(data.tally).votes_for, none)
-#assert.eq(display(ink(data).adjourned, "[year]"), none)
+#assert.eq(display(data, "adjourned", "[year]"), none)
 "#;
     render(plate, "").expect("the plate saw every unanswered cell as none");
 }
