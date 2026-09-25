@@ -520,8 +520,9 @@ impl Quillmark {
         })
     }
 
-    /// Render `doc` against `quill` in one shot. Convenience over `open` +
-    /// `LiveSession.render`: an unset `output_format` falls back to the
+    /// Render `doc` against `quill` in one shot: `open` + `LiveSession.render`,
+    /// with `doc.warnings`, then every `quill.validate` warning, ahead of the
+    /// compile's in `warnings`. An unset `output_format` falls back to the
     /// backend's first supported format. `today` reads as on `open`.
     #[wasm_bindgen(js_name = render)]
     pub fn render(

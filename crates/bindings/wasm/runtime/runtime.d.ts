@@ -401,11 +401,11 @@ export declare class Engine {
 	 * synchronously before the first await, so the caller may `free()` them as
 	 * soon as this call returns.
 	 *
-	 * This is the surface that merges the two warning halves:
-	 * {@link RenderResult.warnings} carries `doc.warnings` (parse and
-	 * `conform::*`) ahead of the compile's own. A
-	 * {@link LiveSession} outlives the document it opened from, so
-	 * {@link LiveSession.render} carries the compile half alone.
+	 * {@link RenderResult.warnings} carries the whole pipeline's, in order:
+	 * `doc.warnings` (parse and `conform::*`), every `quill.validate(doc)`
+	 * warning, then the compile's own. A {@link LiveSession} outlives the
+	 * document it opened from, so {@link LiveSession.render} carries the
+	 * compile's alone: read `doc.warnings` and `quill.validate(doc)` beside it.
 	 *
 	 * `today` reads as on {@link open}.
 	 */

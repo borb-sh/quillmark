@@ -2,7 +2,7 @@ use crate::commands::{load_quill, read_document, render_date};
 use crate::errors::{CliError, Result};
 use crate::output::{derive_output_path, page_output_path, write_file, write_stdout};
 use clap::Parser;
-use quillmark::{CalendarDate, OutputFormat, Quillmark, RenderOptions, Severity};
+use quillmark::{CalendarDate, OutputFormat, Quillmark, RenderOptions};
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -79,16 +79,7 @@ pub fn execute(args: RenderArgs) -> Result<()> {
         today,
         &RenderOptions::default().with_output_format(output_format),
     )?;
-
-    // `validate`'s warnings name input the page leaves out
-    // (`prose/canon/SCHEMAS.md` § "What blocks a render").
-    let unclaimed = quill
-        .validate(&parsed)
-        .into_iter()
-        .filter(|d| d.severity == Severity::Warning);
-    result
-        .warnings
-        .splice(0..0, parse_warnings.into_iter().chain(unclaimed));
+    result.warnings.splice(0..0, parse_warnings);
 
     if !args.quiet {
         crate::errors::print_warnings(&result.warnings);

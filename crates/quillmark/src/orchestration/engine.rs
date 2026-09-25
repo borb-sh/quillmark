@@ -87,9 +87,11 @@ impl Quillmark {
         backend.open(quill, &json_data, today)
     }
 
-    /// Render `doc` against `quill` in one shot. Convenience over
-    /// [`open`](Self::open) + [`LiveSession::render`]: an unset
-    /// `output_format` falls back to the backend's first supported format.
+    /// Render `doc` against `quill` in one shot: [`open`](Self::open) +
+    /// [`LiveSession::render`], with every [`Quill::validate`] warning ahead of
+    /// the compile's in the result's `warnings`. A session's warnings are the
+    /// compile's alone. An unset `output_format` falls back to the backend's
+    /// first supported format.
     pub fn render(
         &self,
         quill: &Quill,
@@ -103,7 +105,13 @@ impl Quillmark {
         // default; only `output_format` gets the backend-default fallback.
         let mut resolved = opts.clone();
         resolved.output_format = opts.output_format.or(default_format);
-        session.render(&resolved)
+        let mut result = session.render(&resolved)?;
+        let unclaimed = quill
+            .validate(doc)
+            .into_iter()
+            .filter(|d| d.severity == Severity::Warning);
+        result.warnings.splice(0..0, unclaimed);
+        Ok(result)
     }
 
     /// The output formats `quill`'s backend can emit; compiles nothing.

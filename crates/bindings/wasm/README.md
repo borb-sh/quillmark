@@ -365,10 +365,10 @@ A document that compiles to zero pages still produces a valid session
 the throw.
 
 Their `warnings` differ in reach. `engine.render` returns one list for the
-whole pipeline: `doc.warnings` (parse and `conform::*`) ahead of the
-compile's own. A session outlives
+whole pipeline: `doc.warnings` (parse and `conform::*`), then every
+`quill.validate(doc)` warning, then the compile's own. A session outlives
 the document it opened from, so `session.render` and `session.warnings` carry
-the compile half alone — read `doc.warnings` beside them.
+the compile's alone — read `doc.warnings` and `quill.validate(doc)` beside them.
 
 ### Canvas Preview
 

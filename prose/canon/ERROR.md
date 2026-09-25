@@ -120,12 +120,12 @@ families:
   overreach — the loader sees a correlate, not the fact.
 - **Parse warnings**: the `warnings` on the `Parsed` that `Document::parse`
   returns (e.g. a `~~~` opener missing its blank line). The CLI render and the
-  WASM one-shot render splice the whole `Parsed.warnings` carrier — this family
-  plus the `conform::*` set that `Quill::parse` appends to it — into
-  `RenderResult.warnings` ahead of any compile warnings. In WASM the surface
-  that merges is the runtime `Engine.render`, reading the carrier off the
-  caller's `doc.warnings`: the backend-memory clone it renders is built by
-  `Document.fromStored`, which carries none. A tag warning
+  WASM and Python one-shot renders splice the whole `Parsed.warnings` carrier —
+  this family plus the `conform::*` set that `Quill::parse` appends to it —
+  into `RenderResult.warnings` ahead of the validation and compile warnings.
+  In WASM the surface that merges is the runtime `Engine.render`, reading the
+  carrier off the caller's `doc.warnings`: the backend-memory clone it renders
+  is built by `Document.fromStored`, which carries none. A tag warning
   (`parse::must_fill_dropped`, `parse::unsupported_yaml_tag`) anchors at the
   tagged node's `path`, a card's under its stored `$kind` as `pathFor` mints
   it. One under `$ext` or `$seed`, which have no document address, carries
@@ -150,9 +150,11 @@ families:
   `cardinality`, `out_of_variant`, `unknown_card`, `body_disabled`,
   `unknown_field`, and the `$seed` checks, which warn
   whatever their class because no render reads `$seed`.
-  This is the editor-facing surface: the render gate consults only the fatal
-  set, and carries none of the warnings into `RenderResult.warnings`. The CLI's
-  `render` prints the unclaimed ones itself ([CLI.md](CLI.md)). Values
+  The render gate consults only the fatal set. A one-shot render
+  (`Quillmark::render`) carries every one of these warnings on
+  `RenderResult.warnings`, ahead of the compile's. A session carries none: its
+  warnings are its current compile's, so its editor reads `Quill::validate`
+  beside it. The CLI's `render` prints them ([CLI.md](CLI.md)). Values
   are judged in the form the render floor builds from them
   ([SCHEMAS.md](SCHEMAS.md) § "Type coercion").
 - **`backend::declined_construct`: declined-construct warnings.** A backend
@@ -173,7 +175,8 @@ families:
   `open` → `render` path.
 
 Ordering in a merged `RenderResult.warnings` is pipeline order: parse
-warnings first, then compile warnings, with no dedup across families.
+warnings first, then validation warnings, then compile warnings, with no dedup
+across families.
 `backend::declined_construct` dedups within itself, per field: its producer
 sees every occurrence at once, so the occurrences collapse into `count`.
 

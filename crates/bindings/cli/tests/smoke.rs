@@ -321,7 +321,7 @@ fn check_lists_every_diagnostic_and_strict_fails_on_a_warning() {
     );
 }
 
-/// `render` prints the input its page leaves out.
+/// `render` prints the input its page leaves out, once.
 #[test]
 fn render_warns_on_unclaimed_input() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -337,9 +337,10 @@ fn render_warns_on_unclaimed_input() {
     ]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(out.status.success(), "render exited nonzero: {stderr}");
-    assert!(
-        stderr.contains("validation::unknown_field"),
-        "the undeclared key raised no warning: {stderr}"
+    assert_eq!(
+        stderr.matches("validation::unknown_field").count(),
+        1,
+        "the undeclared key should warn once: {stderr}"
     );
 }
 
