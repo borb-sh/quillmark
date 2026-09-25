@@ -235,6 +235,7 @@ main:
       - Nested bullets are automatically lettered.
 card_kinds:
   indorsement:
+    title: Routing indorsement
     description: >-
       Chain of routing endorsements. Each endorsement block adds an official response
       or forwarding action to the original memo.
@@ -297,7 +298,6 @@ card_kinds:
           group: additional
           compact: true
     ui:
-      title: Routing indorsement
       groups:
         addressing: {}
         additional: {}

@@ -21,9 +21,9 @@ department: "" # string
 Write main body here.
 ```
 
-Two annotation slots, disjoint by purpose: **leading `# …` lines** carry prose (a description, an `# e.g.` example) plus an `array`'s `# up to <N>` cap; the **inline `# …`** at the end of a value line carries structure, the field's `# <type>[<format>]`. A closed vocabulary shows its whole roster there — `# matrix<flight_cc | dodin_ops>` — so a reader can tick a member without looking the schema up, and cannot invent one. A matrix with columns adds an `# e.g.` line spelling one held member, `{flight_cc: {held: true, detail: …}}`, which names every column; the member it picks is only an illustration.
+Two annotation slots, disjoint by purpose: **leading `# …` lines** carry prose (the field's `title` and description as `# <title> — <description>`, an `# e.g.` example) plus an `array`'s `# up to <N>` cap; the **inline `# …`** at the end of a value line carries structure, the field's `# <type>[<format>]`. A closed vocabulary shows its whole roster there — `# matrix<flight_cc | dodin_ops>` — so a reader can tick a member without looking the schema up, and cannot invent one. A matrix with columns adds an `# e.g.` line spelling one held member, `{flight_cc: {held: true, detail: …}}`, which names every column; the member it picks is only an illustration.
 
-A card's own description rides its `$kind` line's inline slot, so it never reads as the first field's.
+A card's own title and description ride its `$kind` line's inline slot, `$kind: note # <title> — <description>`, so neither reads as the first field's.
 
 Two things in the own-line slot are not annotations. An `enum` declaring `variants:` shows the cells of the world its discriminant names live, and every other world's cells commented out under a `# when <MEMBER>:` header — the same cells, with a `# ` in front, at the column they would sit at. Choose that member and delete the `# `. A typed table whose `default:` is `[]` does the same with its row: the `[]` stays, and the row's cells follow it commented out. Delete the `[]` and the `# ` to add a row.
 
@@ -31,7 +31,7 @@ The reader's one rule: an empty cell (`title: # string`) awaits a value; a concr
 
 ## Seeding: the starter document
 
-Seeding materializes a real `Document` rather than an annotated string: the main card plus one card per composable kind, each body taken from `body.example`, and every field left absent so the render floor fills `default:`, else the field's blank. No `example:` is committed. Hand it to an editor as a "new document" starter, or render it directly.
+Seeding materializes a real `Document` rather than an annotated string: the main card plus one card per composable kind, each body empty, and every field left absent so the render floor fills `default:`, else the field's blank. No `example:` is committed (a field's or `body.example`). Hand it to an editor as a "new document" starter, or render it directly.
 
 | Projection | Intent | Output |
 |---|---|---|

@@ -850,24 +850,26 @@ cells in the table marked absent do not cross.
 
 **Seeding** builds a starter `Document` from the schema for editor consumers
 ("new document"): the main card and one card per composable kind, each carrying
-its body and **no field**. A body is `body.example` where the kind enables
-bodies and declares one, else empty. Every field is left absent and is
+an empty body and **no field**. Every field is left absent and is
 interpolated at the compilation layer by
 [blank-filled render](#blank-filled-render) (`default:`, else the field's
 blank), exactly as for any authored document.
 
-No field `example:` is committed. An `example:` documents shape, not an answer:
-committed, it would render a value nobody chose and read as authored content.
-It surfaces in the blueprint's `# e.g.` line instead. Persisting a `default` would
-be redundant (the floor interpolates it anyway) and would *freeze* it against a
+No `example:` is committed (a field's or `body.example`). An example documents
+shape, not an answer: committed, it would render a value nobody chose and read
+as authored content. A field's surfaces in the blueprint's `# e.g.` line
+instead, and `body.example` in the blueprint's body region, where an editor may
+also show it as the empty body's placeholder. Starter content someone chose
+lives in a template document's own body, or, for a card `seed_card` adds, in
+the main card's `$seed.<kind>.$body`. Persisting a `default` would be
+redundant (the floor interpolates it anyway) and would *freeze* it against a
 later schema change; persisting a blank is forbidden
 ([Non-persist invariant](#blank-filled-render)). So a fresh seed renders exactly
-as the empty document does, plus its bodies and cards, and a split-screen
-editor/preview stays consistent: absent fields resolve identically in both
-panes.
+as the empty document does, plus its cards, and a split-screen editor/preview
+stays consistent: absent fields resolve identically in both panes.
 
 **Seed-commits-rest.** A seeded content value — a `$seed` overlay's content
-field, and the body — commits its codec's resting form (a richtext field and
+field, and its `$body` — commits its codec's resting form (a richtext field and
 the body the canonical content, a plaintext field its literal string), so a
 seeded document is at rest from birth: `conform` of a seed is a byte no-op, and
 a seed → store → load → conform cycle cannot move a hash on a document nobody
@@ -876,11 +878,10 @@ uses, which is what makes the seeder and the bound door agree rather than
 merely coincide.
 
 Content literals are imported once at quill load into a `#[serde(skip)]`
-companion cache on the schema (`FieldSchema::default_content`,
-`BodyCardSchema::example_content`), a pure function of the `Quill.yaml` bytes;
-the render floor and seeding read that cache rather than re-importing markdown
-per document. The render floor injects `default_content` into the plate
-uncoerced. The authored markdown literal is retained untouched: it is the source
+companion cache on the schema (`FieldSchema::default_content`), a pure function
+of the `Quill.yaml` bytes; the render floor reads that cache rather than
+re-importing markdown per document. The render floor injects `default_content`
+into the plate uncoerced. The authored markdown literal is retained untouched: it is the source
 of truth the schema emits and the blueprint prints; the content is a derived
 projection of it.
 
@@ -896,7 +897,8 @@ silently. The cache is also the gate: a content-bearing tree with no companion
 blank-fills rather than falling through to the raw literal, which would cross as
 unimported markdown. Importing is also checking, so a nested `richtext(inline)`
 violation is a load error there, in a `default:` or an `example:`. An
-`example:` is imported for that check alone and cached nowhere.
+`example:` or `body.example` is imported for that check alone and cached
+nowhere.
 
 - **Composable cards** are seeded one instance per declared kind.
 - **The main card** carries `$quill` and `$kind: main`, so a seed round-trips
@@ -920,7 +922,7 @@ Seeding a *new card into an existing document*: `Quill::seed_card(kind,
 overlay)`, adds one rung: a curated, per-document **overlay** read from the
 main card's `$seed` map. Per field the precedence is **`$seed` overlay ›
 absent**, committed in field declaration order, each overlay value taken whole;
-the body is **overlay `$body` › `body.example` › empty**. `default` / the blank
+the body is **overlay `$body` › empty**. `default` / the blank
 stay deferred to the render floor exactly as everywhere else, so the "never
 persist a `default`" invariant holds. The overlay is *sparse*: fields it omits
 stay absent and track an evolving quill's `default:` rather than freezing a
@@ -935,7 +937,8 @@ Overlays" for the `$seed` mechanics. The document seeding above is the
 `QuillConfig::schema()` returns the structural schema as `serde_json::Value`. It includes:
 
 - Field types, constraints, and `enum`/`default`/`example` annotations
-- `ui` hints on fields (`group`, `compact`, `multiline`, `title`, `blank_title`, `layout`) and on cards (`title`, plus the `groups` registry that `group` references). Field display order is not a hint: it is the key order of the emitted `fields`/`properties` maps (declaration order)
+- `title` on fields and cards: a literal label, which the blueprint prints wherever it prints the description, and which no `ui` key carries, since `ui` never reaches the blueprint
+- `ui` hints on fields (`group`, `compact`, `multiline`, `blank_title`, `layout`) and on cards (the `groups` registry that `group` references). Field display order is not a hint: it is the key order of the emitted `fields`/`properties` maps (declaration order)
 - `body` blocks on cards (`enabled`, `example`)
 
 The schema describes only the user-fillable fields. The quill reference
@@ -949,9 +952,9 @@ For LLM/MCP authoring, see [BLUEPRINT.md](BLUEPRINT.md): `blueprint()` emits a d
 
 Top-level schema keys: `main`, optional `card_kinds` (map keyed by card name).
 `main` and each entry in `card_kinds` share the same `CardSchema` shape:
-`fields` (map keyed by field name), optional `description`, optional `ui`,
-optional `body`. Each `FieldSchema` includes `type`, optional
-`description`/`default`/`example`/`enum`/`values`/`members`/`variants`/`inline`/`properties`/`items`/`max`/`ui`.
+`fields` (map keyed by field name), optional `title`, optional `description`,
+optional `ui`, optional `body`. Each `FieldSchema` includes `type`, optional
+`title`/`description`/`default`/`example`/`enum`/`values`/`members`/`variants`/`inline`/`properties`/`items`/`max`/`ui`.
 The type-gated keys:
 
 - `inline`: valid only on the prose types (`richtext`, `plaintext`).
@@ -981,7 +984,8 @@ The type-gated keys:
   authored, keyed by member; the transform schema instead projects the container,
   flattening every world's fields under `properties` with no member scoping.
 - `items`: the element schema, itself a `FieldSchema`; required on `array`
-  fields and rejected elsewhere.
+  fields and rejected elsewhere. It takes no `title`
+  (`quill::title_on_items`): the array's own names the list.
 - `properties`: used by `object` fields, and by an array's `object`-typed
   `items`.
 

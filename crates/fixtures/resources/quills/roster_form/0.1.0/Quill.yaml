@@ -46,8 +46,6 @@ main:
         layout: table
       items:
         type: object
-        ui:
-          title: "{unit}"
         properties:
           unit:
             type: string

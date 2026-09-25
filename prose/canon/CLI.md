@@ -55,7 +55,7 @@ them.
   not. An `-o` inside the quill is refused, since the quill would load it as its
   own files.
 - **Seeded fallback.** `render` or `workspace` with no `MARKDOWN_FILE` reads the quill's
-  seeded document: one card per kind, bodies from `body.example`, every field at
+  seeded document: one card per kind, bodies empty, every field at
   its `default:`/blank, so a quill renders with no input file. `render`'s output
   defaults to `example.{format}`.
 - **Parsing is not relaxed for the CLI.** A `MARKDOWN_FILE` needs a root `~~~`

@@ -18,8 +18,8 @@ empty cells; the structure, `$` metadata, and body markers come for free.
 ````
 ~~~
 $quill: <name>@<version> # keep verbatim
-$kind: main # <description>
-# <field description>
+$kind: main # <title> — <description>
+# <field title> — <field description>
 # e.g. <example>
 field: # <type>
 settled: value # <type>[<format>]
@@ -28,7 +28,7 @@ settled: value # <type>[<format>]
 Write main body here.
 
 ~~~
-$kind: <card_kind> # <card description>
+$kind: <card_kind> # <card title> — <card description>
 # composable (0..N)
 # sample card; delete if not needed
 ...fields...
@@ -67,7 +67,7 @@ follow:
 
 | Slot | Form | Carries |
 |---|---|---|
-| **Leading `# …` lines** above a field | `# <prose>`, `# up to <N>` or `# e.g. <value>` | description (single-line prose), an `array`'s element cap, and an illustrative example |
+| **Leading `# …` lines** above a field | `# <prose>`, `# up to <N>` or `# e.g. <value>` | label (single-line prose), an `array`'s element cap, and an illustrative example |
 | **Inline `# …`** at end of the value line | `# <type>[<format>]` | structural metadata: the field's type and an optional format refinement |
 
 The two slots divide by *grammar*, not by subject: the inline slot is the fixed
@@ -85,9 +85,12 @@ in them are the cells' own.
 
 Per field, in order:
 
-1. `# <description>`: `description:` from `Quill.yaml`,
-   whitespace-collapsed. **Single line only**; multi-line descriptions are
-   rejected at `Quill.yaml` parse time.
+1. `# <title> — <description>`: `title:` and `description:` from
+   `Quill.yaml`, each whitespace-collapsed, or whichever one is declared.
+   **Single line only**; multi-line descriptions are rejected at `Quill.yaml`
+   parse time. The title is the name a person uses for the field, which an
+   agent otherwise sees only as the key; it prints only where declared, so a
+   title restating the key is visible waste rather than a default.
 2. `# up to <N>`: emitted where a field or an `object` property declares an
    `array`'s `max:` — the two positions the leading slot exists at. The cap is page
    geometry — the count past which the surplus leaves the page — and the author
@@ -164,10 +167,12 @@ The root block's `$quill` line is emitted verbatim and carries an inline
 entirely and the document fails to bind to a quill. The reminder rides only
 on `$quill`: it is the one line whose omission is a hard error. `$kind: main`
 carries no reminder: an omitted root `$kind` is synthesised at parse time,
-so dropping it is not an error. The card's description rides the `$kind`
-line's inline slot, for every card: an own-line `# …` there would read as a
-leading annotation for the field below it, and an inline comment belongs to
-its own line. A composable card's kind is carried in its
+so dropping it is not an error. The card's label rides the `$kind`
+line's inline slot, for every card, in the field's form:
+`$kind: <kind> # <title> — <description>`, or whichever one is declared. An
+own-line `# …` there would read as a leading annotation for the field below
+it, and an inline comment belongs to its own line. The root falls back to
+`quill.description` where `main.description` is absent. A composable card's kind is carried in its
 `$kind: <card_kind>` metadata line. Its `composable (0..N)` role is
 emitted as an own-line `# composable (0..N)` comment directly under the
 `$kind` line: that comment carries the
@@ -408,8 +413,9 @@ declares. A freeform `type: object` without a `properties` map is rejected at
 Field declaration order controls field ordering within the document:
 carried structurally by the schema's ordered field maps, not a `ui`
 key. The `ui:` keys (`ui.group`, `ui.compact`, `ui.multiline`,
-`ui.title`, `ui.blank_title`, `ui.layout`) are presentation-only and do not affect blueprint
-output. In particular, `ui.group` emits no banner lines; fields within the same
+`ui.blank_title`, `ui.layout`) are presentation-only and do not affect blueprint
+output, so none may hold a fact a writer needs: a label is `title`, which the
+blueprint prints. In particular, `ui.group` emits no banner lines; fields within the same
 `ui.group` cluster together while preserving declaration order, and
 `ui.layout: table` names a control an editor draws, which a text blueprint has
 no second shape for.
@@ -438,8 +444,7 @@ blueprint's document structure.
 ```
 ~~~
 $quill: cmu_letter@0.1.0 # keep verbatim
-$kind: main
-# Typeset letters that comply with Carnegie Mellon University letterhead standards.
+$kind: main # Typeset letters that comply with Carnegie Mellon University letterhead standards.
 # The recipient's name and full mailing address.
 # e.g. [Mr. John Doe, 123 Main St, "Anytown, USA"]
 recipient: # array<string>
@@ -534,7 +539,7 @@ second annotated string.
 
 The **blueprint** column is this doc's contract (above). The **seeding**
 column is owned by [SCHEMAS.md](SCHEMAS.md) § "Document seeding": every field
-absent, bodies from `body.example`, so a seeded document renders each field at
+absent, bodies empty, so a seeded document renders each field at
 the render floor's `default: → blank` ([SCHEMAS.md](SCHEMAS.md)
 § "Blank-filled render").
 

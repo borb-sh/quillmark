@@ -39,9 +39,8 @@ main:
 
 card_kinds:
   milestone:
+    title: Milestones
     description: One milestone and what is left on it.
-    ui:
-      title: Milestones
     body:
       example: Sign-off pending from the data owners.
     fields:

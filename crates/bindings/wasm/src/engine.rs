@@ -15,7 +15,6 @@ const METADATA_TS: &'static str = r#"
 /** UI layout hints for a single field. Display order is not a hint: key order
  * in the schema's `fields`/`properties` objects is the ordering contract. */
 export interface QuillFieldUi {
-    title?: string;
     group?: string;
     compact?: boolean;
     multiline?: boolean;
@@ -39,7 +38,6 @@ export interface QuillGroupUi {
 
 /** UI layout hints for a card (main or named card kind). */
 export interface QuillCardUi {
-    title?: string;
     /** The groups a field's `ui.group` may reference, keyed by group id. Key
      * order is the display-order contract, as with `fields`. Absent when the
      * card declares no groups. */
@@ -66,6 +64,9 @@ export interface QuillFieldSchema {
      *  rather than its type's blank, and it never carries a `default`. A
      *  consumer offers a way back to unanswered (`removeField`) on such a cell. */
     type: QuillFieldType | `${Exclude<QuillFieldType, "object" | "matrix">}?`;
+    /** The field's label, a literal. Absent, the consumer humanizes the key
+     *  (`memo_for` → "Memo For"). Never present on an array's `items`. */
+    title?: string;
     description?: string;
     default?: unknown;
     example?: unknown;
@@ -97,6 +98,9 @@ export interface QuillFieldSchema {
 
 /** Schema entry for the main card or a named card kind. */
 export interface QuillCardSchema {
+    /** The kind's label, a literal. Absent, the consumer humanizes the kind
+     *  name. An instance takes its label from its own values. */
+    title?: string;
     description?: string;
     fields: Record<string, QuillFieldSchema>;
     ui?: QuillCardUi;
@@ -718,9 +722,9 @@ impl Quill {
     }
 
     /// Seed a starter `Document` from the schema: the main card plus one instance
-    /// of each composable card kind, each committing its fields' `example:`
-    /// values and leaving every other field absent (interpolated at render as
-    /// `default:`, else the field's blank). A field with both renders its example.
+    /// of each composable card kind, each body empty and every field absent
+    /// (interpolated at render as `default:`, else the field's blank). No
+    /// `example:` is committed (a field's or `body.example`).
     #[wasm_bindgen(js_name = seedDocument)]
     pub fn seed_document(&self) -> Document {
         Document {
@@ -737,9 +741,9 @@ impl Quill {
     }
 
     /// Seed a starter composable `Card` of the given kind (carries `$kind`),
-    /// layering an optional per-kind seed `overlay` over the schema-example base
-    /// (`overlay › example › absent`). `undefined` when `cardKind` is not
-    /// declared in this quill's schema.
+    /// committing an optional per-kind seed `overlay`'s fields and `$body`
+    /// (`overlay › absent`, body `overlay › empty`). `undefined` when
+    /// `cardKind` is not declared in this quill's schema.
     ///
     /// Pass `document.seedOverlay(cardKind)` as `overlay` so a card added to a
     /// template-derived document inherits its curated starting values; omit it

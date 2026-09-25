@@ -720,51 +720,68 @@ fn test_config_coerce_cards_item_wise() {
 }
 
 #[test]
-fn test_card_ui_title_parses_literal_and_template_forms() {
-    let yaml_content = &with_header(r#"main:
-  ui:
-    title: Memorandum
+fn a_title_rides_its_field_or_card_kind_into_the_schema() {
+    let config = config_with_sections(
+        r#"main:
+  title: Memorandum
   fields:
-    subject:
-      type: string
-      ui:
-        title: Status Label
-
+    contact: { type: string, title: Point of contact }
+    budget: { type: number, title: "Budget {FY26}" }
 card_kinds:
-  indorsement:
-    ui:
-      title: "{from} → {for}"
+  note:
+    title: Marginal note
     fields:
-      from:
-        type: string
-      for:
-        type: string
-"#);
-
-    let config = QuillConfig::from_yaml(yaml_content).unwrap();
-
-    assert_eq!(
-        config.main.ui.as_ref().unwrap().title.as_deref(),
-        Some("Memorandum"),
-        "literal main.ui.title"
-    );
-    let indorsement = config.card_kind("indorsement").unwrap();
-    assert_eq!(
-        indorsement.ui.as_ref().unwrap().title.as_deref(),
-        Some("{from} → {for}"),
-        "template card ui.title carried verbatim"
-    );
+      text: { type: string }
+"#,
+    )
+    .unwrap();
 
     let schema = config.schema();
-    assert_eq!(schema["main"]["ui"]["title"].as_str(), Some("Memorandum"));
-    assert_eq!(
-        schema["card_kinds"]["indorsement"]["ui"]["title"].as_str(),
-        Some("{from} → {for}")
-    );
-    assert_eq!(
-        schema["main"]["fields"]["subject"]["ui"]["title"].as_str(),
-        Some("Status Label")
-    );
+    assert_eq!(schema["main"]["title"], "Memorandum");
+    assert_eq!(schema["main"]["fields"]["contact"]["title"], "Point of contact");
+    assert_eq!(schema["main"]["fields"]["budget"]["title"], "Budget {FY26}");
+    assert_eq!(schema["card_kinds"]["note"]["title"], "Marginal note");
+    assert!(schema["card_kinds"]["note"].get("ui").is_none());
+}
+
+#[test]
+fn a_title_that_is_not_a_literal_label_is_refused_by_code() {
+    for (sections, code) in [
+        (
+            "main:\n  fields:\n    s: { type: string, ui: { title: Subject } }\n",
+            "quill::field_parse_error",
+        ),
+        (
+            "main:\n  fields:\n    a:\n      type: object\n      properties:\n        s: { type: string, ui: { title: Street } }\n",
+            "quill::field_parse_error",
+        ),
+        (
+            "card_kinds:\n  note:\n    ui: { title: Note, groups: [a] }\n    fields:\n      s: { type: string, ui: { group: a } }\n",
+            "quill::invalid_ui",
+        ),
+        (
+            "card_kinds:\n  section:\n    title: \"{heading}\"\n    fields:\n      heading: { type: string }\n",
+            "quill::title_template",
+        ),
+        (
+            "main:\n  fields:\n    s: { type: string, title: \"{Re} {s}\" }\n",
+            "quill::title_template",
+        ),
+        (
+            "main:\n  fields:\n    rows:\n      type: array\n      items:\n        type: object\n        title: Row\n        properties:\n          unit: { type: string }\n",
+            "quill::title_on_items",
+        ),
+    ] {
+        let err = config_with_sections(sections).expect_err(code);
+        let [diag] = err.as_slice() else {
+            panic!("{code}: one error expected, got {err:?}");
+        };
+        assert_eq!(diag.code.as_deref(), Some(code));
+        if sections.contains("ui: { title") {
+            let hint = diag.hint.as_deref().unwrap_or_default();
+            assert!(hint.contains("title"), "{code}: hint omits title: {hint}");
+        }
+    }
 }
 
 #[test]
@@ -826,7 +843,7 @@ main:
     BadFieldName:
       type: string
     legit:
-      title: Bad legacy key
+      description: Declares no type
 "#;
 
     let err = QuillConfig::from_yaml_with_warnings(yaml_content).unwrap_err();
@@ -848,7 +865,7 @@ fn main_refuses_every_shape_a_card_kind_refuses() {
             "misspelled fields",
             "main:\n  feilds:\n    title:\n      type: string",
         ),
-        ("unknown key", "main:\n  title: Memo"),
+        ("unknown key", "main:\n  label: Memo"),
         ("list-shaped fields", "main:\n  fields: [title, author]"),
         ("non-mapping main", "main: [x]"),
         ("scalar main", "main: 5"),

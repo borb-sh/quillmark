@@ -312,9 +312,9 @@ impl Quill {
     }
 
     /// Seed a starter [`Document`]: the main card plus one instance of each
-    /// declared composable card kind, each committing its `body.example` and
-    /// leaving every field absent (interpolated at render: `default` → the
-    /// field's blank). See the `seed` module.
+    /// declared composable card kind, each with an empty body and every field
+    /// absent (interpolated at render: `default` → the field's blank). See the
+    /// `seed` module.
     pub fn seed_document(&self) -> Document {
         seed::seed_document(self)
     }
@@ -326,8 +326,8 @@ impl Quill {
     }
 
     /// Seed a starter composable [`Card`] of the given kind (carries `$kind`),
-    /// committing an optional per-kind [`SeedOverlay`]'s fields and body over
-    /// the schema seed; `None` if the kind is not declared.
+    /// committing an optional per-kind [`SeedOverlay`]'s fields and body;
+    /// `None` if the kind is not declared.
     /// Use to add a new card to a document: pass the document's `$seed` entry
     /// for the kind (`doc.main().seed().and_then(|m| m.get(card_kind)).and_then(SeedOverlay::from_json)`)
     /// so a card spawned into a template-derived document inherits its curated
