@@ -24,6 +24,8 @@ Placement decides where a mutation verb lives, in one sentence:
 
 `Document` holds everything quill-free: the opaque `store*` primitive (verbatim, coercion deferred to render) and the addressed content lane: `overwrite` / `revise` / `applyChange` plus the `importMarkdown` / `exportMarkdown` / `rebase` / `mapPos` / `mapMarks` codec: which navigate by `Addr` and return `Delta` receipts but never consult a schema. **Transport** reads (`getStored` / `getExt`) return the stored value verbatim, need no schema, and sit on `Document` too.
 
+The `isInline` / `isPlain` predicates sit beside the codec: `Content::is_inline` / `is_plain`, the `inline` and `plaintext` constraints, over any `Content`. A constraint the schema declares reports through `validation::not_inline` / `not_plain`; one an editor imposes on its own, such as a one-paragraph surface over an `array<richtext>` element, has no diagnostic, so the editor asks the predicate before the leaf commits.
+
 The **interpreting** reads (reading a field by its type) are schema-shaped questions ("this field's richtext, as markdown"), so they gain a schema-bound home: `quill.reader(doc)`, the read twin of `quill.writer(doc)` (mirroring core's `quill.reader(&doc)`).
 
 `reader.get(addr)` reads each field in the values form: every content leaf in its type tree to its codec's text (a `richtext` leaf to markdown, a `plaintext` leaf to its literal text, marks verbatim), everything else as stored, a present-null as `null`: with schema authority, so a name the schema does not declare throws `UnknownField` instead of reading back `undefined`, and a content leaf holding an undecodable value throws `FieldDecode`.

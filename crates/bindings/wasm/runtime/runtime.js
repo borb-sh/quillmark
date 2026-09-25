@@ -20,6 +20,7 @@ import initCore, { Quill, Document } from '../core/wasm.js';
 // Resolution-time, so `node:fs` never enters a browser graph.
 import { toModuleSource } from '#quillmark-env';
 import { importMarkdown, exportMarkdown, rebase, mapPos, mapMarks } from '../core/wasm.js';
+import { isInline, isPlain } from '../core/wasm.js';
 import { parseDocPath, formatDocPath, formatDiagnostic } from '../core/wasm.js';
 
 // A `--target web` build exports its classes synchronously but carries no wasm
@@ -49,6 +50,8 @@ const CORE_SURFACE = Object.freeze({
 	rebase,
 	mapPos,
 	mapMarks,
+	isInline,
+	isPlain,
 	parseDocPath,
 	formatDocPath,
 	formatDiagnostic

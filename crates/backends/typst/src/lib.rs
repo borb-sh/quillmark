@@ -14,6 +14,7 @@ mod error_mapping;
 mod helper;
 mod overlay;
 mod world;
+pub mod workspace;
 
 use std::collections::BTreeMap;
 
@@ -41,8 +42,9 @@ struct TypstSession {
     /// Built once at `open`: the schema never changes for a session's lifetime,
     /// and codegen plus date validation read only these tables.
     schema_meta: SchemaMeta,
-    /// The plate is static for a session's lifetime, so these are computed once
-    /// at `open` and re-appended into the compile's windows per update.
+    /// Project sources are static for a session's lifetime, so these are
+    /// computed once at `open` and re-appended into the compile's windows per
+    /// update.
     scalar_windows: Vec<overlay::FieldWindow>,
     /// Swapped whole, and only once [`recompile`] has succeeded, so on `Err`
     /// every read keeps serving the last-good compile.
@@ -58,7 +60,7 @@ struct Compiled {
     field_specs: Vec<quillmark_pdf::FieldSpec>,
     widget_regions: Vec<RenderedRegion>,
     /// The span scan's classification table: generated content-block windows
-    /// then the plate's scalar reference-site windows.
+    /// then the project sources' scalar reference-site windows.
     windows: Vec<overlay::FieldWindow>,
     /// Span resolution goes through this snapshot, not the world: a failed
     /// `update` leaves the *next* injection's text in the world while every read
@@ -443,23 +445,22 @@ impl Backend for TypstBackend {
             )
         })?;
         world.set_today(today);
-        // The plate is static for the session: window its scalar sites once.
-        let scalar_windows: Vec<overlay::FieldWindow> = {
-            use typst::World as _;
-            let main_id = world.main();
-            let plate = world
-                .source(main_id)
-                .expect("QuillWorld::source serves main by identity");
-            overlay::scalar_windows(&plate, &schema_meta.root)
-                .into_iter()
-                .map(|(path, range)| overlay::FieldWindow {
-                    path,
-                    file: main_id,
-                    range,
-                    segments: Vec::new(),
-                })
-                .collect()
-        };
+        // Project sources are static for the session: window their scalar
+        // sites once.
+        let scalar_windows: Vec<overlay::FieldWindow> = world
+            .project_sources()
+            .into_iter()
+            .flat_map(|source| {
+                overlay::scalar_windows(source, &schema_meta.root)
+                    .into_iter()
+                    .map(|(path, range)| overlay::FieldWindow {
+                        path,
+                        file: source.id(),
+                        range,
+                        segments: Vec::new(),
+                    })
+            })
+            .collect();
         let live = recompile(&mut world, json_data, &schema_meta, &scalar_windows)?;
         let session = TypstSession {
             world,

@@ -65,11 +65,10 @@ Consequences:
 
 - Fence code with backticks. A longer tilde run or a language tag does not
   escape.
-- Tilde-fenced code in a body is parsed as YAML, so the parse fails unless the
-  code happens to read as a card's fields.
-- Code that reads as a YAML string or list fails as
-  `parse::payload_not_mapping`, at the fence's line, with the backtick fence to
-  write instead in its hint.
+- Tilde-fenced code in a body is parsed as a card, so the parse fails at the
+  fence's line, with the backtick fence to write instead in its hint. Code that
+  reads as a YAML string or list fails as `parse::payload_not_mapping`; code
+  that reads as a mapping names no `$kind`, and fails as `parse::missing_kind`.
 - A `~~~` indented by one to three spaces, or with no blank line above it, stays
   a CommonMark code block.
 

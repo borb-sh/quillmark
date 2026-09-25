@@ -364,6 +364,16 @@ pub(super) fn decompose_with_warnings(
 
         let block = &mut blocks[idx];
         let card_mapping = payload_mapping(markdown, block)?;
+        if !block
+            .meta_items
+            .iter()
+            .any(|m| matches!(m, PayloadItem::Kind { .. }))
+        {
+            return Err(ParseError::MissingKind {
+                line: line_of(markdown, block.start),
+                info: opener_info(markdown, block.start).map(str::to_string),
+            });
+        }
         let card_payload = build_payload(
             std::mem::take(&mut block.meta_items),
             std::mem::take(&mut block.pre_items),
@@ -371,23 +381,9 @@ pub(super) fn decompose_with_warnings(
             card_mapping,
         )
         .map_err(|e| match e {
-            // Code with a `: ` in it reads as a mapping and fails here instead
-            // of as `PayloadNotMapping`, so a fence tagged with a language
-            // carries the same hint. `yaml` and `card-yaml` tag real cards.
-            ParseError::InvalidStructure(msg) => match opener_info(markdown, block.start)
-                .filter(|info| !matches!(*info, "yaml" | "card-yaml"))
-            {
-                Some(info) => ParseError::InvalidStructure(format!(
-                    "Invalid YAML in the `~~~{}` card block at line {}: {}. {}",
-                    info,
-                    line_of(markdown, block.start),
-                    msg,
-                    crate::error::tilde_code_hint(Some(info))
-                )),
-                None => {
-                    ParseError::InvalidStructure(format!("Invalid YAML in card block: {}", msg))
-                }
-            },
+            ParseError::InvalidStructure(msg) => {
+                ParseError::InvalidStructure(format!("Invalid YAML in card block: {}", msg))
+            }
             other => other,
         })?;
         for w in &blocks[idx].pre_warnings {

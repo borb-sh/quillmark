@@ -211,6 +211,41 @@ fn scalar_reference_sites_each_surface_a_region() {
     }
 }
 
+/// A module the plate imports is scanned like the plate: its `data` read keeps
+/// its click target when the plate draws it through the module's function.
+#[test]
+fn a_scalar_read_in_an_imported_module_surfaces_a_region() {
+    let q = common::quill(
+        &yaml("main:\n  fields:\n    subject: { type: string }\n"),
+        &[
+            (
+                "plate.typ",
+                b"#import \"lib.typ\": heading-line\n\
+                  #set page(width: 612pt, height: 792pt, margin: 72pt)\n\
+                  #heading-line()\n",
+            ),
+            (
+                "lib.typ",
+                b"#import \"@local/quillmark-helper:0.1.0\": data\n\
+                  #let heading-line() = [*#data.subject*]\n",
+            ),
+        ],
+    );
+    let session = TypstBackend
+        .open(&q, &serde_json::json!({ "subject": "Request for Quarters" }), None)
+        .expect("open");
+    let regions = session.regions();
+    let subject = regions
+        .iter()
+        .find(|r| r.field == "subject")
+        .unwrap_or_else(|| panic!("the module's read surfaces a region: {regions:?}"));
+    let (cx, cy) = centre(subject.rect);
+    assert_eq!(
+        session.field_at(subject.page, cx, cy, 0.0).as_deref(),
+        Some("subject")
+    );
+}
+
 #[test]
 fn content_survives_a_rebuilding_show_rule() {
     const PLATE: &str = r#"

@@ -21,6 +21,8 @@ import type {
 	rebase,
 	mapPos,
 	mapMarks,
+	isInline,
+	isPlain,
 	parseDocPath,
 	formatDocPath,
 	formatDiagnostic
@@ -41,6 +43,8 @@ export interface CoreSurface {
 	rebase: typeof rebase;
 	mapPos: typeof mapPos;
 	mapMarks: typeof mapMarks;
+	isInline: typeof isInline;
+	isPlain: typeof isPlain;
 	parseDocPath: typeof parseDocPath;
 	formatDocPath: typeof formatDocPath;
 	formatDiagnostic: typeof formatDiagnostic;
@@ -636,8 +640,8 @@ export declare class CardWriter {
 	/** The bound card index. */
 	readonly index: number;
 	/**
-	 * The bound card's `$kind`, empty string when it carries none. Throws
-	 * `IndexOutOfRange` for a bad bound index.
+	 * The bound card's `$kind`. Throws `IndexOutOfRange` for a bad bound
+	 * index.
 	 */
 	readonly kind: string;
 	set(name: string, value: unknown): void;
@@ -742,8 +746,8 @@ export declare class CardReader {
 	/** The bound card index. */
 	readonly index: number;
 	/**
-	 * The bound card's `$kind` (empty string when it carries none). Throws
-	 * `IndexOutOfRange` if the bound index is out of range.
+	 * The bound card's `$kind`. Throws `IndexOutOfRange` if the bound index is
+	 * out of range.
 	 */
 	readonly kind: string;
 	/**
