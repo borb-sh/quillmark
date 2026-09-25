@@ -47,8 +47,9 @@ rendered instead, so a quill previews without any authored input.
 - `--output-data <DATA_FILE>` — also write the compiled JSON data handed to the backend
 - `--quiet` — suppress warnings and the output-destination line
 
-Warnings go to stderr: input the page leaves out, such as an undeclared key,
-prints in full, and fields the document has yet to answer print as one count.
+Warnings go to stderr, including one for each undeclared key or other input the
+page leaves out. A render that fails still prints the parse and validation
+warnings ahead of its error.
 
 ### `quillmark check [--strict] <QUILL_PATH> <MARKDOWN_FILE>...`
 

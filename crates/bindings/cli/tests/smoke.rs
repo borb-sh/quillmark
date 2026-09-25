@@ -344,6 +344,57 @@ fn render_warns_on_unclaimed_input() {
     );
 }
 
+/// A plate that reads every card as its one declared kind fails on a misspelled
+/// `$kind`, and the warning naming the card prints ahead of the plate's error.
+#[test]
+fn a_failed_render_still_names_unclaimed_input() {
+    let dir = quill_with_config(
+        r#"quill:
+  name: tasks
+  version: 0.1.0
+  backend: typst
+  description: A plate that reads every card as a task
+typst:
+  plate_file: plate.typ
+card_kinds:
+  task:
+    description: A task
+    fields:
+      title:
+        description: what the task delivers
+        type: string
+"#,
+    );
+    std::fs::write(
+        dir.path().join("plate.typ"),
+        "#import \"@local/quillmark-helper:0.1.0\": data, ink\n\
+         #for card in data.at(\"$cards\") [#ink(card).title]\n",
+    )
+    .expect("write plate.typ");
+    let doc = dir.path().join("typo.md");
+    std::fs::write(
+        &doc,
+        "~~~card-yaml\n$quill: tasks\n~~~\n\n~~~\n$kind: tsk\ntitle: Ship\n~~~\n",
+    )
+    .expect("write the input document");
+
+    let out = run(&[
+        "render",
+        dir.path().to_str().unwrap(),
+        doc.to_str().unwrap(),
+        "-o",
+        dir.path().join("typo.pdf").to_str().unwrap(),
+    ]);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "the plate did not fail: {stderr}");
+    let warning = stderr.find("validation::unknown_card");
+    let error = stderr.find("typst::");
+    assert!(
+        warning.is_some() && error.is_some() && warning < error,
+        "the warning should print ahead of the plate's error: {stderr}"
+    );
+}
+
 /// Exit 2 rather than 1: a script reading the status can tell an invocation
 /// `clap` rejected from a command that ran and refused.
 #[test]
