@@ -721,9 +721,10 @@ The two projections differ deliberately: `Quill::schema` is the *declaration*
 view and emits `values:` verbatim (injecting the blank would emit a schema that
 fails to load), while the transform schema is the *wire* contract and emits
 `enum: ["", …values]`, so a standard JSON-Schema validator accepts what the
-engine accepts. A consumer's picker offers the blank as a real, re-selectable
-option labelled by `ui.blank_title` — never a vanishing placeholder, because
-returning to it is how a human clears a cell back to unset.
+engine accepts. A consumer's picker keeps unset a real, re-selectable option,
+never a vanishing placeholder. Unset is `removeField`, the one unset verb; a
+stored `""` is an [answer](#optional-cells) and outranks a `default:`.
+`ui.blank_title` labels the blank wherever a consumer draws it.
 
 **At `integer`, `number` and `boolean` the blank reads as an answer**, and so
 does any `object` or `array` over them, since their blank is the recursive one:
