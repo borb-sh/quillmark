@@ -194,7 +194,7 @@ $seed:
 
 `Quill::seed_card(kind, overlay)` commits the overlay into the new card, per
 field `overlay › absent`, in field declaration order, and its body as
-`overlay $body › body.example › empty` (see [SCHEMAS.md](SCHEMAS.md) "Document
+`overlay $body › empty` (see [SCHEMAS.md](SCHEMAS.md) "Document
 seeding"). The overlay is *sparse*: fields it omits stay absent and resolve from
 the live quill at render, so it tracks the quill rather than freezing a
 snapshot. The overlay is read off the main

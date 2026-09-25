@@ -850,24 +850,26 @@ cells in the table marked absent do not cross.
 
 **Seeding** builds a starter `Document` from the schema for editor consumers
 ("new document"): the main card and one card per composable kind, each carrying
-its body and **no field**. A body is `body.example` where the kind enables
-bodies and declares one, else empty. Every field is left absent and is
+an empty body and **no field**. Every field is left absent and is
 interpolated at the compilation layer by
 [blank-filled render](#blank-filled-render) (`default:`, else the field's
 blank), exactly as for any authored document.
 
-No field `example:` is committed. An `example:` documents shape, not an answer:
-committed, it would render a value nobody chose and read as authored content.
-It surfaces in the blueprint's `# e.g.` line instead. Persisting a `default` would
-be redundant (the floor interpolates it anyway) and would *freeze* it against a
+No `example:` is committed (a field's or `body.example`). An example documents
+shape, not an answer: committed, it would render a value nobody chose and read
+as authored content. A field's surfaces in the blueprint's `# e.g.` line
+instead, and `body.example` in the blueprint's body region, where an editor may
+also show it as the empty body's placeholder. Starter content someone chose
+lives in a template document's own body, or, for a card `seed_card` adds, in
+the main card's `$seed.<kind>.$body`. Persisting a `default` would be
+redundant (the floor interpolates it anyway) and would *freeze* it against a
 later schema change; persisting a blank is forbidden
 ([Non-persist invariant](#blank-filled-render)). So a fresh seed renders exactly
-as the empty document does, plus its bodies and cards, and a split-screen
-editor/preview stays consistent: absent fields resolve identically in both
-panes.
+as the empty document does, plus its cards, and a split-screen editor/preview
+stays consistent: absent fields resolve identically in both panes.
 
 **Seed-commits-rest.** A seeded content value — a `$seed` overlay's content
-field, and the body — commits its codec's resting form (a richtext field and
+field, and its `$body` — commits its codec's resting form (a richtext field and
 the body the canonical content, a plaintext field its literal string), so a
 seeded document is at rest from birth: `conform` of a seed is a byte no-op, and
 a seed → store → load → conform cycle cannot move a hash on a document nobody
@@ -876,11 +878,10 @@ uses, which is what makes the seeder and the bound door agree rather than
 merely coincide.
 
 Content literals are imported once at quill load into a `#[serde(skip)]`
-companion cache on the schema (`FieldSchema::default_content`,
-`BodyCardSchema::example_content`), a pure function of the `Quill.yaml` bytes;
-the render floor and seeding read that cache rather than re-importing markdown
-per document. The render floor injects `default_content` into the plate
-uncoerced. The authored markdown literal is retained untouched: it is the source
+companion cache on the schema (`FieldSchema::default_content`), a pure function
+of the `Quill.yaml` bytes; the render floor reads that cache rather than
+re-importing markdown per document. The render floor injects `default_content`
+into the plate uncoerced. The authored markdown literal is retained untouched: it is the source
 of truth the schema emits and the blueprint prints; the content is a derived
 projection of it.
 
@@ -896,7 +897,8 @@ silently. The cache is also the gate: a content-bearing tree with no companion
 blank-fills rather than falling through to the raw literal, which would cross as
 unimported markdown. Importing is also checking, so a nested `richtext(inline)`
 violation is a load error there, in a `default:` or an `example:`. An
-`example:` is imported for that check alone and cached nowhere.
+`example:` or `body.example` is imported for that check alone and cached
+nowhere.
 
 - **Composable cards** are seeded one instance per declared kind.
 - **The main card** carries `$quill` and `$kind: main`, so a seed round-trips
@@ -920,7 +922,7 @@ Seeding a *new card into an existing document*: `Quill::seed_card(kind,
 overlay)`, adds one rung: a curated, per-document **overlay** read from the
 main card's `$seed` map. Per field the precedence is **`$seed` overlay ›
 absent**, committed in field declaration order, each overlay value taken whole;
-the body is **overlay `$body` › `body.example` › empty**. `default` / the blank
+the body is **overlay `$body` › empty**. `default` / the blank
 stay deferred to the render floor exactly as everywhere else, so the "never
 persist a `default`" invariant holds. The overlay is *sparse*: fields it omits
 stay absent and track an evolving quill's `default:` rather than freezing a

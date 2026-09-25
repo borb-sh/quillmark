@@ -9,7 +9,7 @@
 //! subsumes another. An empty document is the type-minimal valid input, so a
 //! template that renders it degrades gracefully on any valid input. The
 //! blueprint commits every `default:` and leaves every defaultless cell empty.
-//! The seed carries one card per declared kind and each kind's `body.example`.
+//! The seed carries one card per declared kind, each body empty.
 
 #![cfg(feature = "typst")]
 

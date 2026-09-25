@@ -322,8 +322,7 @@ impl Card {
 /// A parsed, per-kind **seed overlay**: the sparse fields (and optional body) a
 /// newly-added card of a given kind starts with. Built from a `$seed[<kind>]`
 /// entry of the main card's [`Card::seed`] map via [`SeedOverlay::from_json`],
-/// and layered over the quill's schema-example seed by
-/// [`crate::quill::Quill::seed_card`] (overlay › example › absent). The
+/// and committed by [`crate::quill::Quill::seed_card`] (overlay › absent). The
 /// reserved inner key `$body` carries the body override; every other user field
 /// becomes an entry, while any other `$`-prefixed key is reserved and dropped.
 #[derive(Debug, Clone, PartialEq, Default)]

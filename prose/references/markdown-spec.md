@@ -183,8 +183,8 @@ author wrote the line.
   card-kind**, present on the **root block only**; a composable block carrying
   `$seed` is a parse error, exactly like `$quill`. Each entry is a *sparse
   overlay*: the user fields (plus an optional reserved `$body` string) that a
-  newly-added card of that kind starts with, layered over the quill's
-  schema-`example:` seed (`overlay › example › absent`). Required to be a YAML
+  newly-added card of that kind starts with (`overlay › absent`, the body
+  `overlay › empty`). Required to be a YAML
   mapping; scalars and sequences are rejected. Like `$ext` it carries verbatim
   through Markdown and storage DTO round-trips and **never** appears in the
   plate JSON consumed by backends; unlike `$ext` the seeding layer interprets

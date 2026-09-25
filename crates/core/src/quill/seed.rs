@@ -1,7 +1,6 @@
-//! Document seeding from a quill schema: one card per kind, each committing
-//! its `body.example` and, on a card added to a document, the document's
-//! `$seed` overlay for its kind. Every other field stays absent, so the render
-//! layer supplies `default`/blank.
+//! Document seeding from a quill schema: one card per kind, every field absent
+//! and the body empty, so the render layer supplies `default`/blank. A card
+//! added to a document commits the document's `$seed` overlay for its kind.
 
 use quillmark_content::model::Normalized;
 
@@ -16,8 +15,9 @@ use crate::{
 
 /// Build the seeded `(payload, body)` for one card schema under an optional
 /// [`SeedOverlay`]. A field commits the overlay's value, in declaration order;
-/// an overlay key naming no schema field is never reached. Body:
-/// `overlay › body.example › empty`, honored only when the kind enables bodies.
+/// an overlay key naming no schema field is never reached. Body: `overlay ›
+/// empty`, honored only when the kind enables bodies; `body.example` is guide
+/// text and never committed.
 /// The `$quill` / `$kind` system metadata is attached by the caller.
 ///
 /// Every seeded content field commits through [`seeded_rest`], the same strict
@@ -36,20 +36,11 @@ fn seed_parts(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> (Payload, N
         })
         .collect();
 
-    let body = if schema.body_enabled() {
-        if let Some(overlay_body) = overlay.and_then(|o| o.body.clone()) {
-            crate::document::import_body(&overlay_body).unwrap_or_else(|_| Normalized::empty())
-        } else if let Some(content) = schema.body.as_ref().and_then(|b| b.example_content.as_ref()) {
-            quillmark_content::serial::from_canonical_value(content.as_json())
-                .unwrap_or_else(|_| Normalized::empty())
-        } else if let Some(example) = schema.body.as_ref().and_then(|b| b.example.as_ref()) {
-            // Fallback for a schema built outside the loader (no cached content).
-            crate::document::import_body(example).unwrap_or_else(|_| Normalized::empty())
-        } else {
-            Normalized::empty()
+    let body = match overlay.and_then(|o| o.body.as_ref()) {
+        Some(overlay_body) if schema.body_enabled() => {
+            crate::document::import_body(overlay_body).unwrap_or_else(|_| Normalized::empty())
         }
-    } else {
-        Normalized::empty()
+        _ => Normalized::empty(),
     };
 
     debug_assert!(

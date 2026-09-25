@@ -7,7 +7,7 @@ Markdown authoring, the [blueprint](../quills/blueprint.md) (for LLMs), and thes
 ## Blank canvas vs seeded starter
 
 - **`Document(quill_ref)`** is the blank canvas: a main card carrying only `$quill`, an empty body, no cards. Absent fields resolve at render time (schema `default:`, else the field's blank), so nothing you did not set reaches the output. Start here when the data is authoritative.
-- **`quill.seed_document()`** is the starter: one card per declared kind, bodies from `body.example`, every field absent. Hand it to a human or an editor to fill in; see [Blueprint & Seeding](../quills/blueprint.md).
+- **`quill.seed_document()`** is the starter: one card per declared kind, bodies empty, every field absent. Hand it to a human or an editor to fill in; see [Blueprint & Seeding](../quills/blueprint.md).
 
 ## The typed writer
 
