@@ -167,9 +167,11 @@ four queries, two coarse and two fine:
 - `locate(field, pos)` answers *content position → caret rect*: the reverse of
   `positionAt`, the box to draw a caret at.
 
-Four producers: **content fields** (a `richtext` or `plaintext` value —
-a body, a card's field, a scalar or an `[]` element) are tracked by the
-spans their glyphs carry: the
+Four producers: **generated ink** (a `richtext` or `plaintext` value —
+a body, a card's field, a scalar or an `[]` element — a date's `display`
+closure, and any field's `$ink` twin,
+[PLATE_DATA.md](PLATE_DATA.md#the-ink-twin)) is tracked by the
+spans its glyphs carry: the
 backend evaluates each value at its own generated call site and records the
 site's byte window, so the rendered ink resolves back to its field through
 *any* placement context, including a package that rebuilds the content (a
@@ -199,7 +201,7 @@ Not tracked: expressions mixing several fields (`data.from + ", " + rank` has
 no single owner), a value laundered past what the alias pass follows (a
 function parameter, a destructured binding), and card scalars read from the
 per-card loop variable (one shared expression site carries no per-instance
-identity: bind a widget or wrap a claim for those).
+identity: print the card's `$ink` twin for those).
 **Marker claims** cover the ink a plate *composes* rather than reads off a
 field: a banner keyed on `data.classification`, a package-built address block, a
 computed table. The helper's `field-region(field, body)` brackets `body` with

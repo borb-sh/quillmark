@@ -62,15 +62,16 @@ pub fn generate_lib_typ(
     // in already-substituted output, so document data spelling a placeholder
     // cannot hijack a splice point.
     let mut out = String::with_capacity(
-        LIB_TYP_TEMPLATE.len() + cg.blocks.len() + data_literal.len() + display_literal.len(),
+        LIB_TYP_TEMPLATE.len() + cg.blocks.len() + data_literal.src.len() + display_literal.len(),
     );
     let mut cursor = 0usize;
     let mut blocks_at = 0usize;
+    let mut data_at = 0usize;
     for (slot, value) in [
         ("{version}", HELPER_VERSION),
         ("{meta_literal}", meta.meta_literal()),
         ("{content_blocks}", cg.blocks.as_str()),
-        ("{data_literal}", data_literal.as_str()),
+        ("{data_literal}", data_literal.src.as_str()),
         ("{display_literal}", display_literal.as_str()),
     ] {
         let rel = LIB_TYP_TEMPLATE[cursor..]
@@ -78,17 +79,18 @@ pub fn generate_lib_typ(
             .unwrap_or_else(|| panic!("lib.typ.template carries the {slot} slot in order"));
         let at = cursor + rel;
         out.push_str(&LIB_TYP_TEMPLATE[cursor..at]);
-        if slot == "{content_blocks}" {
-            blocks_at = out.len();
+        match slot {
+            "{content_blocks}" => blocks_at = out.len(),
+            "{data_literal}" => data_at = out.len(),
+            _ => {}
         }
         out.push_str(value);
         cursor = at + slot.len();
     }
     out.push_str(&LIB_TYP_TEMPLATE[cursor..]);
 
-    // Rebase every recorded window from block-section-relative to
-    // `lib.typ`-relative.
-    let windows = cg
+    // Rebase every recorded window from section-relative to `lib.typ`-relative.
+    let mut windows: Vec<ContentMap> = cg
         .windows
         .into_iter()
         .map(|(path, block, segments, declined_images)| ContentMap {
@@ -101,6 +103,12 @@ pub fn generate_lib_typ(
             declined_images,
         })
         .collect();
+    windows.extend(data_literal.windows.into_iter().map(|(path, block)| ContentMap {
+        path,
+        block: (block.start + data_at)..(block.end + data_at),
+        segments: Vec::new(),
+        declined_images: 0,
+    }));
     Ok((out, windows))
 }
 
@@ -170,7 +178,7 @@ impl<'m> Codegen<'m> {
     /// whose `text(..)` body is where the glyphs are born, so they carry this
     /// generated span wherever the plate finally calls it, which is what
     /// `display(addr, ..)` survives laundering on.
-    fn display_block(&mut self, path: &str, constructor: &str) {
+    fn display_block(&mut self, path: &str, constructor: &str) -> String {
         let id = format!("_qm_d{}", self.display.len());
         self.blocks.push_str("#let ");
         self.blocks.push_str(&id);
@@ -185,25 +193,28 @@ impl<'m> Codegen<'m> {
         self.blocks.push('\n');
         self.windows
             .push((path.to_string(), text_start..text_end, Vec::new(), 0));
-        self.display.push((path.to_string(), id));
+        self.display.push((path.to_string(), id.clone()));
+        id
     }
 
-    /// Blank ⇒ `none`, so a plate's `!= none` guard is untouched. A non-blank
-    /// value that will not parse raises `backend::invalid_date` from here, the
-    /// one site that parses, which is what makes the check total over depth.
-    fn date_field(&mut self, path: &str, s: &str, kind: DateKind) -> String {
+    /// The native cell and its ink: the constructor and its `_qm_dN` closure.
+    /// Blank ⇒ `none` for both, so a plate's `!= none` guard is untouched. A
+    /// non-blank value that will not parse raises `backend::invalid_date` from
+    /// here, the one site that parses, which is what makes the check total over
+    /// depth.
+    fn date_field(&mut self, path: &str, s: &str, kind: DateKind) -> (String, String) {
         match datetime_constructor(s, kind) {
             Some(constructor) => {
-                self.display_block(path, &constructor);
-                constructor
+                let closure = self.display_block(path, &constructor);
+                (constructor, closure)
             }
-            None if s.is_empty() => "none".to_string(),
+            None if s.is_empty() => ("none".to_string(), "none".to_string()),
             None => {
                 self.emit_error.get_or_insert(EmitError::InvalidDate {
                     field: path.to_string(),
                     value: s.to_string(),
                 });
-                "none".to_string()
+                ("none".to_string(), "none".to_string())
             }
         }
     }
@@ -231,32 +242,31 @@ impl<'m> Codegen<'m> {
         }
     }
 
-    fn emit_data(&mut self, obj: &serde_json::Map<String, serde_json::Value>) -> String {
-        let mut items = Vec::with_capacity(obj.len());
+    fn emit_data(&mut self, obj: &serde_json::Map<String, serde_json::Value>) -> Frag {
+        let mut dict = Container::default();
         for (key, value) in sorted(obj) {
             if key == "$cards" {
                 if let Some(cards) = value.as_array() {
-                    items.push(format!("\"$cards\": {}", self.emit_cards(cards)));
+                    dict.items.push(entry(key, self.emit_cards(cards)));
                     continue;
                 }
             }
             let node = self.meta.field_node(key);
-            let expr = self.emit_value(key, node, value);
-            items.push(format!("\"{}\": {}", escape_string(key), expr));
+            dict.push(key, self.emit_value(key, node, value));
         }
-        wrap_dict(items)
+        dict.finish()
     }
 
     /// A card with no string `$kind` passes through as a value literal, assigned
     /// no ordinal or `$path`.
-    fn emit_cards(&mut self, cards: &[serde_json::Value]) -> String {
+    fn emit_cards(&mut self, cards: &[serde_json::Value]) -> Frag {
         let mut ordinals: HashMap<String, usize> = HashMap::new();
         let mut out = Vec::with_capacity(cards.len());
         for card in cards {
             let obj = match card.as_object() {
                 Some(o) => o,
                 None => {
-                    out.push(lit(card));
+                    out.push(Frag::from(lit(card)));
                     continue;
                 }
             };
@@ -267,10 +277,10 @@ impl<'m> Codegen<'m> {
                     *n += 1;
                     out.push(self.emit_card(obj, kind, &prefix));
                 }
-                None => out.push(lit(card)),
+                None => out.push(Frag::from(lit(card))),
             }
         }
-        wrap_array(out)
+        Frag::wrap(out, "()")
     }
 
     fn emit_card(
@@ -278,62 +288,213 @@ impl<'m> Codegen<'m> {
         obj: &serde_json::Map<String, serde_json::Value>,
         kind: &str,
         prefix: &str,
-    ) -> String {
+    ) -> Frag {
         let props = self.meta.card_props(kind);
-        let mut items = Vec::with_capacity(obj.len() + 1);
+        let mut dict = Container::default();
         // The canonical address prefix, so plates compose schema-field addresses
         // without reimplementing the kind+ordinal grammar.
-        items.push(format!("\"$path\": \"{}\"", escape_string(prefix)));
+        dict.items.push(Frag::from(format!("\"$path\": \"{}\"", escape_string(prefix))));
         for (key, value) in sorted(obj) {
             if key == "$path" {
                 continue;
             }
             let node = props.and_then(|p| p.get(key));
-            let expr = self.emit_value(&format!("{prefix}{key}"), node, value);
-            items.push(format!("\"{}\": {}", escape_string(key), expr));
+            dict.push(key, self.emit_value(&format!("{prefix}{key}"), node, value));
         }
-        wrap_dict(items)
+        dict.finish()
     }
 
     /// Lower one value against the schema node that declares it, recursing on
-    /// shape. `path` is the value's schema address, so every generated
+    /// shape, into its data expression and, where [`inks`] holds for the node,
+    /// its ink. `path` is the value's schema address, so every generated
     /// projection keys on an address the recursion produced rather than one
     /// reassembled.
     ///
     /// A value whose shape contradicts its declaration reaches here through a
-    /// direct `update`, never the seam, and falls to its literal.
+    /// direct `update`, never the seam, and falls to its literal with `none` ink.
     fn emit_value(
         &mut self,
         path: &str,
         node: Option<&serde_json::Value>,
         value: &serde_json::Value,
-    ) -> String {
-        match (lowering(node), value) {
+    ) -> (Frag, Option<Frag>) {
+        let (expr, ink) = match (lowering(node), value) {
             (Lower::Content { inline }, serde_json::Value::Object(_)) => {
-                self.content_field(path, value, inline)
+                let expr = self.content_field(path, value, inline);
+                (Frag::from(expr.clone()), Some(Frag::from(expr)))
             }
-            (Lower::Date(kind), serde_json::Value::String(s)) => self.date_field(path, s, kind),
-            (Lower::Array(items), serde_json::Value::Array(elems)) => wrap_array(
-                elems
+            (Lower::Date(kind), serde_json::Value::String(s)) => {
+                let (expr, closure) = self.date_field(path, s, kind);
+                (Frag::from(expr), Some(Frag::from(closure)))
+            }
+            (Lower::Array(items), serde_json::Value::Array(elems)) => {
+                let (exprs, elem_inks): (Vec<Frag>, Vec<Option<Frag>>) = elems
                     .iter()
                     .enumerate()
                     .map(|(i, elem)| self.emit_value(&format!("{path}.{i}"), items, elem))
-                    .collect(),
-            ),
-            (Lower::Object(props, order), serde_json::Value::Object(obj)) => wrap_dict(
-                ordered(obj, &order)
-                    .into_iter()
-                    .map(|(key, elem)| {
-                        let expr =
-                            self.emit_value(&format!("{path}.{key}"), props.get(key), elem);
-                        format!("\"{}\": {}", escape_string(key), expr)
-                    })
-                    .collect(),
-            ),
-            _ => lit(value),
+                    .unzip();
+                let ink = inks(items).then(|| {
+                    Frag::wrap(
+                        elem_inks
+                            .into_iter()
+                            .map(|i| i.unwrap_or_else(|| Frag::from("none")))
+                            .collect(),
+                        "()",
+                    )
+                });
+                (Frag::wrap(exprs, "()"), ink)
+            }
+            (Lower::Object(props, order), serde_json::Value::Object(obj)) => {
+                let mut dict = Container::default();
+                for (key, elem) in ordered(obj, &order) {
+                    let lowered = self.emit_value(&format!("{path}.{key}"), props.get(key), elem);
+                    dict.push(key, lowered);
+                }
+                (dict.finish(), None)
+            }
+            (
+                Lower::Native,
+                serde_json::Value::String(_)
+                | serde_json::Value::Number(_)
+                | serde_json::Value::Bool(_),
+            ) if node.is_some() => {
+                let expr = lit(value);
+                let ink = Frag::window(path, format!("[#{expr}]"));
+                (Frag::from(expr), Some(ink))
+            }
+            _ => (Frag::from(lit(value)), None),
+        };
+        let ink = ink.or_else(|| inks(node).then(|| Frag::from("none")));
+        (expr, ink)
+    }
+}
+
+/// Whether a field declared by `node` has ink: every declared type a plate
+/// prints, and an array of them. A container does not; it carries `$ink` of
+/// its own.
+fn inks(node: Option<&serde_json::Value>) -> bool {
+    let Some(n) = node else {
+        return false;
+    };
+    match lowering(node) {
+        Lower::Content { .. } | Lower::Date(_) => true,
+        Lower::Array(items) => inks(items),
+        Lower::Object(..) => false,
+        Lower::Native => node_type(n) != Some("object"),
+    }
+}
+
+/// A span of generated source and the scalar ink windows inside it, as
+/// `(schema address, byte range)` relative to the fragment's start. Composing
+/// fragments shifts their windows, so the data literal knows where each of its
+/// inline ink blocks lands without a second pass over the text.
+#[derive(Default)]
+struct Frag {
+    src: String,
+    windows: Vec<(String, Range<usize>)>,
+}
+
+impl From<String> for Frag {
+    fn from(src: String) -> Self {
+        Self {
+            src,
+            windows: Vec::new(),
         }
     }
 }
+
+impl From<&str> for Frag {
+    fn from(src: &str) -> Self {
+        Self::from(src.to_string())
+    }
+}
+
+impl Frag {
+    /// One ink block whose glyphs are born inside `src`, windowed whole.
+    fn window(path: &str, src: String) -> Self {
+        Self {
+            windows: vec![(path.to_string(), 0..src.len())],
+            src,
+        }
+    }
+
+    fn push_str(&mut self, s: &str) {
+        self.src.push_str(s);
+    }
+
+    fn append(&mut self, other: Frag) {
+        let shift = self.src.len();
+        self.src.push_str(&other.src);
+        self.windows.extend(
+            other
+                .windows
+                .into_iter()
+                .map(|(path, r)| (path, (r.start + shift)..(r.end + shift))),
+        );
+    }
+
+    /// [`wrap_array`] / [`wrap_dict`] over fragments; `empty` is the literal for
+    /// no items.
+    fn wrap(items: Vec<Frag>, empty: &str) -> Frag {
+        if items.is_empty() {
+            return Frag::from(empty);
+        }
+        let mut out = Frag::from("(");
+        for (i, item) in items.into_iter().enumerate() {
+            if i > 0 {
+                out.push_str(", ");
+            }
+            out.append(item);
+        }
+        out.push_str(",)");
+        out
+    }
+}
+
+/// `"key": value` as a dictionary item.
+fn entry(key: &str, value: Frag) -> Frag {
+    let mut out = Frag::from(format!("\"{}\": ", escape_string(key)));
+    out.append(value);
+    out
+}
+
+/// A dictionary under construction, with the `$ink` twin of its fields. A data
+/// key spelling `$ink` is dropped, so the twin is the only one.
+#[derive(Default)]
+struct Container {
+    items: Vec<Frag>,
+    ink: Vec<Frag>,
+}
+
+impl Container {
+    fn push(&mut self, key: &str, (expr, ink): (Frag, Option<Frag>)) {
+        if key == INK_KEY {
+            return;
+        }
+        self.items.push(entry(key, expr));
+        if let Some(ink) = ink {
+            self.ink.push(entry(key, ink));
+        }
+    }
+
+    /// `$ink` leads, and only where a field has ink, so a dictionary of
+    /// containers (a `matrix`) keeps exactly its members as keys. The `{..}`
+    /// code block is a unit Typst's incremental reparser swaps alone: an edit
+    /// touches a field and its ink, and the block holding both is one row, not
+    /// the whole literal.
+    fn finish(mut self) -> Frag {
+        if !self.ink.is_empty() {
+            let ink = Frag::wrap(self.ink, "(:)");
+            self.items.insert(0, entry(INK_KEY, ink));
+        }
+        let mut out = Frag::from("{");
+        out.append(Frag::wrap(self.items, "(:)"));
+        out.push_str("}");
+        out
+    }
+}
+
+const INK_KEY: &str = "$ink";
 
 /// What a schema node lowers to: the codegen walk's whole dispatch. Why only
 /// the content types lower to content and a date does not:
@@ -829,6 +990,62 @@ mod tests {
             lib.contains(r#"("$cards.note.0.on": _qm_d0,)"#),
             "a card date's display projection keys on its per-instance address: {lib}"
         );
+    }
+
+    /// Each printable field's ink sits beside it under `$ink`, a blank's is
+    /// `none`, a dictionary of dictionaries carries none of its own, and every
+    /// scalar ink block is windowed on the address it prints.
+    #[test]
+    fn ink_twins_each_printable_field_and_windows_its_scalars() {
+        let meta = meta_from(serde_json::json!({ "properties": {
+            "subject": { "type": "string" },
+            "count": { "type": "integer" },
+            "due": { "type": ["string", "null"], "format": "date" },
+            "tags": { "type": "array", "items": { "type": "string" } },
+            "rows": { "type": "array", "items": { "type": "object", "properties": {
+                "org": { "type": "string" },
+            }}},
+            "grid": { "type": "object", "properties": {
+                "a": { "type": "object", "properties": { "x": { "type": "string" } } },
+            }},
+        }}));
+        let data = serde_json::json!({
+            "subject": "Widgets",
+            "count": 3,
+            "due": null,
+            "tags": [],
+            "rows": [{ "org": "AFRL", "$ink": "spoofed" }],
+            "grid": { "a": { "x": "1" } },
+        });
+        let (lib, windows) = generate_lib_typ(&data, &meta).unwrap();
+
+        assert!(
+            lib.contains(
+                r#"#let data = {("$ink": ("count": [#3], "due": none, "subject": [#"Widgets"], "tags": (),), "count": 3,"#
+            ),
+            "{lib}"
+        );
+        assert!(
+            lib.contains(r#""rows": ({("$ink": ("org": [#"AFRL"],), "org": "AFRL",)},)"#),
+            "a row carries its own ink, and a data key spelling `$ink` is dropped: {lib}"
+        );
+        assert!(
+            lib.contains(r#""grid": {("a": {("$ink": ("x": [#"1"],), "x": "1",)},)}"#),
+            "{lib}"
+        );
+
+        let scalars: Vec<(&str, &str)> = windows
+            .iter()
+            .map(|w| (w.path.as_str(), &lib[w.block.clone()]))
+            .collect();
+        for expected in [
+            ("count", "[#3]"),
+            ("subject", r#"[#"Widgets"]"#),
+            ("rows.0.org", r#"[#"AFRL"]"#),
+            ("grid.a.x", r#"[#"1"]"#),
+        ] {
+            assert!(scalars.contains(&expected), "{expected:?} in {scalars:?}");
+        }
     }
 
     #[test]

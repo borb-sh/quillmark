@@ -120,12 +120,13 @@ Its `plate.typ`:
 --8<-- "crates/fixtures/resources/quills/status_report/0.1.0/plate.typ"
 ```
 
-Five constructs to lift from it:
+Six constructs to lift from it:
 
 - **A date that prints.** `display("issued", ..)` takes the field's *address* and returns content, so the printed date stays the click-to-edit target for that field. `data.issued` is the `datetime` behind it: reach for that to compare, to take components, or to hand a package a date it formats itself. See [Dates](typst-backend.md#dates).
 - **An enum left unanswered.** The blank is a value no `values:` list holds, so `data.state != ""` guards it and an `else` on a branch over the declared values would render a state nobody picked. See [the blank](quill-yaml-reference.md#the-blank-values-is-for-choices-not-for-the-absence-of-one).
 - **A card loop.** `$kind` is document-defined, so `card.at("$kind", default: none)` reads it and every other kind falls through. A field declared on the kind arrives filled, which is why `card.title` is a plain read. See [Body, arrays, and cards](typst-backend.md#body-arrays-and-cards).
-- **A claim on composed ink.** The banner's glyphs are drawn by the plate rather than by the field, so `field-region("state")` is what makes a click on them resolve to `state`. A card's scalar reads are the same case from the other side — one call site shared by every iteration — and `card.at("$path") + "due"` is the address that tells the iterations apart. See [Tying Composed Content to a Field](editor-regions.md#tying-composed-content-to-a-field) and [Which Reads Get Regions](editor-regions.md#which-reads-get-regions).
+- **Printing through `ink`.** Every iteration of the card loop reads through one loop variable, so `card.title` printed there names no card. `ink(card).title` is the same text born in generated code, keyed on that card's own field, and `display(ink(card).due, ..)` is the date's. Compute with `card`, print with `ink(card)`. See [Print with `ink`](editor-regions.md#print-with-ink).
+- **A claim on composed ink.** The banner's glyphs are drawn by the plate rather than by the field, so `field-region("state")` is what makes a click on them resolve to `state`. See [Tying Composed Content to a Field](editor-regions.md#tying-composed-content-to-a-field).
 - **`#set`.** Page and text defaults are ordinary Typst. See [Typesetting](typst-backend.md#typesetting).
 
 Both listings are included from `crates/fixtures/resources/quills/status_report/0.1.0/`, which the repository's quiver sweep renders.

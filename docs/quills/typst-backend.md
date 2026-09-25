@@ -15,6 +15,8 @@ Plates are plain Typst code. Document metadata reaches the plate as a Typst dict
 
 Every field arrives at its **native** Typst type — a `date` as a `datetime`, a number as an int or float, an `object` as a dict — with one exception: `richtext` and `plaintext` arrive as Typst content, their text already lowered to markup, because the authored text *is* their rendering. This holds at every depth: a `date` declared inside an `object` or an `array` row is the same `datetime` a top-level one is.
 
+`data`, each card, and each typed dictionary or table row also carry their fields' printable twin under `$ink`, read with `ink(..)`: `#ink(data).title`, `#ink(row).org`. It prints what the field prints and keeps the field's click target in an [editor preview](editor-regions.md#print-with-ink) however the plate passes it around.
+
 ### Dates
 
 A present `type: date` / `type: datetime` field is a native `datetime`; a blank date is `none` (so `#if data.field != none` guards are unchanged):

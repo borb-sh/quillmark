@@ -61,8 +61,14 @@ fn an_unanswered_optional_cell_is_none() {
 #assert.eq(data.attendees, none)
 #assert.eq(data.adjourned, none)
 #assert.eq(data.minutes, none)
-#assert.eq(data.tally, (votes_against: 0, votes_for: none))
+#assert.eq((data.tally.votes_against, data.tally.votes_for), (0, none))
 #assert.eq("n" + data.quorum, "n")
+#import "@local/quillmark-helper:0.1.0": display, ink
+#for key in ("quorum", "attendees", "adjourned", "minutes") {
+  assert.eq(ink(data).at(key), none)
+}
+#assert.eq(ink(data.tally).votes_for, none)
+#assert.eq(display(ink(data).adjourned, "[year]"), none)
 "#;
     render(plate, "").expect("the plate saw every unanswered cell as none");
 }
@@ -73,6 +79,8 @@ fn an_authored_zero_is_an_answer() {
 #assert.eq(data.quorum, 0)
 #assert.eq(data.attendees, ())
 #assert.eq(data.adjourned.year(), 2026)
+#import "@local/quillmark-helper:0.1.0": ink
+#assert.eq(ink(data).attendees, ())
 "#;
     render(plate, "quorum: 0\nattendees: []\nadjourned: 2026-09-24\n")
         .expect("the plate saw each authored value as written");

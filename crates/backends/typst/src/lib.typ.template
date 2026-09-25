@@ -168,7 +168,26 @@
 /// dictionary a dict — save the content types, whose authored text is a
 /// canonical rendering and so reference their `_qm_cN` markup block. The rule
 /// holds at every depth. `$cards` carry their per-kind-ordinal `$path` prefix.
+/// Every dictionary with a field that has ink carries it under `$ink`: read it
+/// with `ink`.
 #let data = {data_literal}
+
+/// The printable twin of a dictionary's fields: `ink(data).subject`,
+/// `ink(card).topic`, `ink(row).org`. Each value's glyphs are born in this
+/// generated file, so they keep their schema address through a function
+/// parameter, a loop variable, a destructuring or a package, where a plate's
+/// own `#row.org` keeps it only as a direct read.
+///
+/// A string, number or boolean is the content `#<value>` prints; a content
+/// field is its markup block; a date is its `display` closure; an array is its
+/// elements' ink; a field at `none` has `none`. A field that is itself a
+/// dictionary has no ink: it carries its own. Compute with the dictionary,
+/// print its ink.
+#let ink(fields) = {
+  assert(std.type(fields) == dictionary,
+    message: "ink: expected data, a card or a typed dictionary, got " + repr(std.type(fields)))
+  fields.at("$ink", default: (:))
+}
 
 /// Backend-generated content projection for every **present** `date`/`datetime`
 /// field, keyed by schema address. Each value is a `_qm_dN` closure block, so
@@ -178,19 +197,21 @@
 /// A date field's **content** projection, formatted with Typst's own
 /// `datetime.display` patterns. Where `data.<field>` carries the native
 /// `datetime` (arithmetic, comparison, `.year()`, a package that wants a real
-/// date), this places rendered ink whose glyphs carry a region keyed on `field`,
-/// so a date formatted through a `#let` binding, a loop variable, or a vendored
-/// package stays click-to-edit. Use `data.<field>.display(..)` where a plain
-/// `str` is wanted and no region is.
+/// date), this places rendered ink whose glyphs carry a region keyed on the
+/// field, so a date formatted through a `#let` binding, a loop variable, or a
+/// vendored package stays click-to-edit. Use `data.<field>.display(..)` where a
+/// plain `str` is wanted and no region is.
 ///
-/// `field` is the schema address (compose a card field from the card's `$path`:
+/// `field` is the date's ink (`display(ink(row).due, "[year]")`) or its schema
+/// address (compose a card field from the card's `$path`:
 /// `display(card.at("$path") + "on", "[year]")`). An address the schema does not
-/// have is a compile error; a known address carrying no date — a blank one, or a
-/// field that is not a date — returns `none`, so a `== none` fallback still
-/// fires.
+/// have is a compile error; a blank date, or a known address carrying no date,
+/// returns `none`, so a `== none` fallback still fires.
 #let display(field, ..args) = {
+  if field == none { return none }
+  if std.type(field) == function { return field(..args) }
   assert(std.type(field) == str,
-    message: "display: field must be a string, got " + repr(std.type(field)))
+    message: "display: field must be a date's ink or a schema address string, got " + repr(std.type(field)))
   assert(_qm-known-path(field),
     message: "display: " + repr(field) + " is not a schema field address; expected a field name, an array element like \"refs.2\", a container property like \"classification.poc\", or a card path composed from the card's $path prefix")
   let render = _qm-display.at(field, default: none)
