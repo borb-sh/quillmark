@@ -165,6 +165,37 @@ fn a_tag_inside_a_multi_line_flow_collection_stays_on_its_value() {
     assert_eq!(anchors(&out), [("parse::must_fill_dropped", Some("main.c"))]);
 }
 
+/// A comment trailing a line that continues a flow collection or a quoted
+/// scalar is the trailer of the key or item the value belongs to, or, when that
+/// has one already, a comment on its own line after it.
+#[test]
+fn a_comment_on_a_continuation_line_stays_with_its_value() {
+    let cases = [
+        (
+            "recipient:\n  addr: {street: Main St,\n    city: Anytown}  # verified\n  name: Jo\n",
+            "  addr: # verified\n",
+        ),
+        ("rows:\n  - {a: 1,\n     b: 2}  # c\n", "  - a: 1 # c\n"),
+        ("$ext:\n  og: {title: T,\n    url: http://x}  # c\n", "  og: # c\n"),
+        (
+            "memo:\n  note: \"Reply by Friday,\n    see: attached\"  # from Jo\n",
+            "  note: \"Reply by Friday, see: attached\" # from Jo\n",
+        ),
+        ("x: [1,\n  2]  # c\n", "x: # c\n"),
+        (
+            "m:\n  x: {a: 1, # first\n    b: 2} # second\n  y: 4\n",
+            "  x: # first\n    a: 1\n    b: 2\n  # second\n",
+        ),
+    ];
+    for (fields, emitted) in cases {
+        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
+        let doc = Document::parse(&src).unwrap().document;
+        let md = doc.to_markdown();
+        assert!(md.contains(emitted), "Source:\n{src}\nGot:\n{md}");
+        assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
+    }
+}
+
 /// A tag or anchor ahead of `|` or `>` leaves the block's lines its text: no
 /// key, comment or marker among them reaches the mapping around it.
 #[test]

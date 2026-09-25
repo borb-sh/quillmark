@@ -63,6 +63,17 @@ struct Frame {
     child_count: usize,
 }
 
+/// The slot a key or dash line fills, where a comment trailing its value's
+/// lines attaches.
+#[derive(Debug, Clone)]
+enum Host {
+    Field,
+    Child {
+        container_path: Vec<PathSegment>,
+        position: usize,
+    },
+}
+
 pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
     let mut out = PreScan::default();
 
@@ -81,6 +92,8 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
     let mut open: Option<FlowScan> = None;
     // The last `key:` or `-` left its node to a later line.
     let mut node_below = false;
+    // The slot of the last `key:` or `-`, which owns `open`.
+    let mut host = Host::Field;
 
     for raw_line in &lines {
         // The split is on `\n`, so a CRLF line ends in `\r`. Dropped once here:
@@ -106,8 +119,8 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
         }
 
         // Inside a quoted scalar a `#` line is text too.
-        if open.as_ref().is_some_and(|scan| scan.quote.is_some()) {
-            open = open.take().and_then(|scan| scan.continued(trimmed));
+        if let Some(scan) = open.take_if(|scan| scan.quote.is_some()) {
+            open = continue_value(&mut out, scan, trimmed, &host);
             cleaned.push(line.to_string());
             continue;
         }
@@ -145,8 +158,8 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             continue;
         }
 
-        if open.is_some() {
-            open = open.take().and_then(|scan| scan.continued(trimmed));
+        if let Some(scan) = open.take() {
+            open = continue_value(&mut out, scan, trimmed, &host);
             cleaned.push(line.to_string());
             continue;
         }
@@ -166,6 +179,10 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             while stack.len() > frame_idx + 1 {
                 stack.pop();
             }
+            host = Host::Child {
+                container_path: parent_path.clone(),
+                position: item_index,
+            };
 
             // `strip_prefix` rather than a byte range: user content follows,
             // and a byte index could land inside a multi-byte codepoint.
@@ -258,6 +275,7 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                     record_fill_and_tags(&mut out, &value_part, &key_path);
 
                 out.items.push(PreItem::Field { key: key.clone() });
+                host = Host::Field;
 
                 let root = &mut stack[0];
                 root.child_count += 1;
@@ -308,6 +326,10 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             while stack.len() > frame_idx + 1 {
                 stack.pop();
             }
+            host = Host::Child {
+                container_path: parent_path.clone(),
+                position: key_index,
+            };
 
             let (value_part, trailing_comment) = split_trailing_comment(&after_colon);
 
@@ -372,6 +394,41 @@ fn ensure_frame_at_indent(stack: &mut Vec<Frame>, indent: usize) -> usize {
         child_count: 0,
     });
     stack.len() - 1
+}
+
+/// `scan` past one more line of its value, while the value stays open. The
+/// line's trailing comment attaches to `host`: as its inline trailer, or, when
+/// it has one already, as an own-line comment right after it.
+fn continue_value(
+    out: &mut PreScan,
+    mut scan: FlowScan,
+    text: &str,
+    host: &Host,
+) -> Option<FlowScan> {
+    if let Some(i) = scan.line(text) {
+        let text = strip_comment_marker(&text[i..]).to_string();
+        match host {
+            Host::Field => {
+                let inline = matches!(out.items.last(), Some(PreItem::Field { .. }));
+                out.items.push(PreItem::Comment { text, inline });
+            }
+            Host::Child {
+                container_path,
+                position,
+            } => {
+                let trailed = out.nested_comments.iter().any(|c| {
+                    c.inline && c.position == *position && c.container_path == *container_path
+                });
+                out.nested_comments.push(NestedComment {
+                    container_path: container_path.clone(),
+                    position: position + usize::from(trailed),
+                    text,
+                    inline: !trailed,
+                });
+            }
+        }
+    }
+    scan.is_open().then_some(scan)
 }
 
 fn strip_comment_marker(raw: &str) -> &str {
