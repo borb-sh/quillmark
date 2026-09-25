@@ -461,6 +461,13 @@ survive the round-trip.
 sequence as `key: []`, at every nesting level and under `$ext` / `$seed`
 alike. Neither collapses to a bare `key:`, which reads back as null.
 
+**Multi-line strings.** A string spanning lines emits as a `|` literal block
+scalar, `|-` when it ends without a newline, its lines indented past the key,
+at every nesting level. It emits double-quoted with `\n` escapes where a block
+would not read back as the same string or would not survive an editor: a first
+line opening on whitespace, whitespace ending a line, more than one trailing
+newline, or a `\r`, control character, U+2028, U+2029 or U+FEFF.
+
 Programmatically constructed metadata that does not have a source-order
 emits in the canonical key order `$quill`, `$kind`, `$ext`, `$seed`: the
 typed mutators (`set_quill` / `set_kind` / `set_ext` / `set_seed`)

@@ -850,7 +850,7 @@ main:
     }
 
     #[test]
-    fn endorsed_markdown_default_inlines_quoted() {
+    fn endorsed_markdown_default_is_a_literal_block() {
         let t = cfg(r###"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -860,8 +860,15 @@ main:
       default: "## About me\n\nHello."
 "###)
         .blueprint();
-        assert!(t.contains("bio: \"## About me\\n\\nHello.\" # richtext<markdown>\n"));
-        assert!(!t.contains("|-"));
+        assert!(
+            t.contains("bio: |- # richtext<markdown>\n  ## About me\n\n  Hello.\n"),
+            "{t}"
+        );
+        let doc = Document::parse(&t).expect("the blueprint parses").document;
+        assert_eq!(
+            doc.main().payload().get("bio").and_then(|v| v.as_str()),
+            Some("## About me\n\nHello.")
+        );
     }
 
     #[test]

@@ -4,8 +4,9 @@
 //! `serde-saphyr`, the library the parser uses, so emit and parse are symmetric
 //! by construction: what saphyr quotes on emit it reads back as a string, and
 //! the YAML 1.1 edge cases ad-hoc quoting misses (`on`/`yes`/`off`, leading-zero
-//! integers) are handled there. `prefer_block_scalars: false` keeps multi-line
-//! strings inline as double-quoted scalars, so no `|` / `>` forms are emitted.
+//! integers) are handled there. A multi-line string is a `|` literal block
+//! scalar wherever one reads back as the same string ([`literal_block`]), and a
+//! double-quoted scalar elsewhere; saphyr never emits a block form.
 //!
 //! This module owns the surrounding structure: fences, `$` metadata lines, field
 //! ordering, indentation, and comment interleaving.
@@ -170,6 +171,8 @@ impl KeyPos {
         }
     }
 
+    /// The column past the key's own: a child mapping's keys, a literal block's
+    /// lines.
     fn map_indent(self) -> usize {
         match self {
             KeyPos::Line(i) => i + 2,
@@ -389,9 +392,7 @@ fn emit_field_at(
         }
         _ => {
             out.push_str(": ");
-            emit_scalar(out, value);
-            push_trailer(out, inline_trailer);
-            out.push('\n');
+            emit_scalar_line(out, value, inline_trailer, pos.map_indent());
         }
     }
 }
@@ -544,16 +545,78 @@ fn emit_sequence_item(
         _ => {
             push_indent(out, base_indent);
             out.push_str("- ");
-            emit_scalar(out, value);
-            push_trailer(out, inline_trailer);
-            out.push('\n');
+            emit_scalar_line(out, value, inline_trailer, base_indent + 2);
         }
     }
 }
 
-fn emit_scalar(out: &mut String, value: &JsonValue) {
-    let s = saphyr_emit_scalar(value);
-    out.push_str(&s);
+/// Finish a line holding a scalar value: the scalar, the trailer, the newline,
+/// and a literal block's content lines at `block_indent`.
+fn emit_scalar_line(
+    out: &mut String,
+    value: &JsonValue,
+    trailer: Option<&str>,
+    block_indent: usize,
+) {
+    let block = match value {
+        JsonValue::String(s) => literal_block(s),
+        _ => None,
+    };
+    let Some((header, lines)) = block else {
+        out.push_str(&saphyr_emit_scalar(value));
+        push_trailer(out, trailer);
+        out.push('\n');
+        return;
+    };
+    out.push_str(header);
+    push_trailer(out, trailer);
+    out.push('\n');
+    for line in lines {
+        if !line.is_empty() {
+            push_indent(out, block_indent);
+            out.push_str(line);
+        }
+        out.push('\n');
+    }
+}
+
+/// `s` as a literal block scalar's header and content lines, when it spans
+/// lines and every line reads back unchanged. Refused, for the double-quoted
+/// form: a character a block cannot hold verbatim, a first line opening on
+/// whitespace (it would set the indentation), whitespace ending a line, which a
+/// block keeps but an editor strips, and a second trailing newline, which a
+/// `|+` block keeps but a payload's trailing blank lines do not.
+fn literal_block(s: &str) -> Option<(&'static str, Vec<&str>)> {
+    let text = s.trim_end_matches('\n');
+    if !text.contains('\n') || text.starts_with(char::is_whitespace) {
+        return None;
+    }
+    let header = match s.len() - text.len() {
+        0 => "|-",
+        1 => "|",
+        _ => return None,
+    };
+    let lines: Vec<&str> = s.strip_suffix('\n').unwrap_or(s).split('\n').collect();
+    if lines.iter().any(|line| line.ends_with(char::is_whitespace)) {
+        return None;
+    }
+    if s.chars().any(|c| {
+        c != '\n' && c != '\t' && (c.is_control() || matches!(c, '\u{2028}' | '\u{2029}' | '\u{FEFF}'))
+    }) {
+        return None;
+    }
+    let mut probe = format!("{header}\n");
+    for line in &lines {
+        if !line.is_empty() {
+            probe.push_str("  ");
+            probe.push_str(line);
+        }
+        probe.push('\n');
+    }
+    match serde_saphyr::from_str::<JsonValue>(&probe) {
+        Ok(JsonValue::String(back)) if back == s => Some((header, lines)),
+        _ => None,
+    }
 }
 
 /// Emit a *nested* mapping key through the same scalar path as values. Nested
