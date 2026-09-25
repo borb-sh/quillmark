@@ -642,9 +642,9 @@ fn literal_block(s: &str) -> Option<(&'static str, Vec<&str>)> {
 }
 
 /// Emit a *nested* mapping key through the same scalar path as values. Nested
-/// keys are arbitrary user data, never name-validated, so one containing `:`/`#`,
-/// a leading YAML indicator, edge whitespace, or a type-ambiguous form must be
-/// quoted or the document re-parses to a different key.
+/// keys are arbitrary user data, never name-validated: one whose plain spelling
+/// would read back as something else (`a: b`, `a #b`, edge whitespace, `true`)
+/// is quoted, and one that reads back as written (`og:title`, `-x`) stays plain.
 fn emit_key(out: &mut String, key: &str) {
     out.push_str(&saphyr_emit_scalar(&JsonValue::String(key.to_string())));
 }

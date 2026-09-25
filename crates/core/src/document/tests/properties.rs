@@ -208,25 +208,44 @@ fn arb_lines() -> impl Strategy<Value = String> {
     .prop_map(|parts| parts.concat())
 }
 
+/// A nested key built from what decides whether a plain key opens and where it
+/// ends: an inner `:`, a leading `-`, `?` or `$`, a space, a `#`.
+fn arb_nested_key() -> impl Strategy<Value = String> {
+    prop::collection::vec(
+        prop::sample::select(&["a", "og", ":", "-", "?", "$", " ", "#", "/"][..]),
+        1..6,
+    )
+    .prop_map(|parts| parts.concat())
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(500))]
 
     /// Every position a scalar is written at: a top-level field, a nested key,
-    /// a sequence item, a sequence item's dash-line key and its next key, and
-    /// the containers under those two.
+    /// a sequence item, a sequence item's dash-line key and its next key, the
+    /// containers under those two, and `$ext`. `k`, a generated key, fills each
+    /// nested key position.
     #[test]
-    fn a_multi_line_string_round_trips_at_every_depth(text in arb_lines()) {
+    fn a_multi_line_string_round_trips_at_every_depth(
+        text in arb_lines(),
+        k in arb_nested_key()
+    ) {
         let mut doc = parse_or_skip("~~~\n$quill: q\n$kind: main\n~~~\n").expect("a root");
         let fields = [
             ("top", json!(text)),
-            ("map", json!({ "inner": text })),
+            ("map", json!({ k.clone(): text })),
             ("seq", json!([text])),
-            ("rows", json!([{ "first": text, "next": text }])),
-            ("nest", json!([{ "first": { "inner": text }, "next": [text] }])),
+            (
+                "rows",
+                json!([{ k.clone(): text, "next": text }, { "first": text, k.clone(): text }]),
+            ),
+            ("nest", json!([{ "first": { k.clone(): text }, k.clone(): [text] }])),
         ];
         for (key, value) in fields {
             doc.main_mut().store_field(key, QuillValue::from_json(value)).expect("stored");
         }
+        let ext = json!({ "meta": { k.clone(): text } });
+        doc.main_mut().payload_mut().set_ext(ext.as_object().unwrap().clone());
 
         let emitted = doc.to_markdown();
         let back = Document::parse(&emitted)

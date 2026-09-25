@@ -411,14 +411,11 @@ fn split_key(line: &str) -> Option<(String, String)> {
 
 /// Byte index of the `:` closing a *nested* key.
 ///
-/// [`key_end`]'s bare form plus the two spellings `emit_key` also writes at
-/// depth, nested keys being arbitrary user data: a quoted scalar, and a plain
-/// scalar carrying characters the bare form excludes (`a b`). A plain key ends
-/// at the first `: `, or at a `:` closing the line — YAML's own boundary.
+/// Nested keys are arbitrary user data, so this reads YAML's implicit-key
+/// grammar rather than [`key_end`]'s field names: a quoted scalar, or a plain
+/// scalar ending at the first `:` followed by whitespace or the line's end.
+/// `og:title: x` is the key `og:title`.
 fn nested_key_end(line: &str) -> Option<usize> {
-    if let Some(i) = key_end(line) {
-        return Some(i);
-    }
     let bytes = line.as_bytes();
     let first = *bytes.first()?;
     if first == b'"' || first == b'\'' {
@@ -441,22 +438,25 @@ fn nested_key_end(line: &str) -> Option<usize> {
         }
         return None;
     }
-    if PLAIN_SCALAR_EXCLUDED_FIRST.contains(&first) {
+    let opens_plain = !PLAIN_SCALAR_EXCLUDED_FIRST.contains(&first)
+        || (matches!(first, b'-' | b'?' | b':')
+            && bytes.get(1).is_some_and(|b| !matches!(b, b' ' | b'\t')));
+    if !opens_plain {
         return None;
     }
     for i in 1..bytes.len() {
-        if bytes[i] == b'#' && bytes[i - 1] == b' ' {
+        if bytes[i] == b'#' && matches!(bytes[i - 1], b' ' | b'\t') {
             return None;
         }
-        if bytes[i] == b':' && matches!(bytes.get(i + 1), None | Some(b' ')) {
+        if bytes[i] == b':' && matches!(bytes.get(i + 1), None | Some(b' ' | b'\t')) {
             return Some(i);
         }
     }
     None
 }
 
-/// The YAML indicators a plain scalar cannot open with. A key needing one is
-/// emitted quoted, as is one carrying a ` #`, so neither is read as a plain key.
+/// The YAML indicators a plain scalar cannot open with, except that `-`, `?`
+/// and `:` open one when a non-space follows (`-x`).
 const PLAIN_SCALAR_EXCLUDED_FIRST: &[u8] = b"-?:,[]{}#&*!|>'\"%@`";
 
 /// Split a nested key line into `(key, source spelling, rest_after_colon)`.
