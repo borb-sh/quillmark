@@ -789,19 +789,6 @@ scalar, which is fine for a few lines and wrong for a memo's worth.
 | `ui`          | object | no       | Container-level UI hints (see [Card-level `ui`](#card-level-ui)) |
 | `body`        | object | no       | Body-region config (see [Card-level `body`](#card-level-body)) |
 
-### Card-level `ui`
-
-| Property | Type   | Description |
-|----------|--------|-------------|
-| `groups` | list or object | The card's group registry (see [`group` and the group registry](#group-and-the-group-registry)) |
-
-### Card-level `body`
-
-| Property  | Type   | Description |
-|-----------|--------|-------------|
-| `enabled`     | bool   | Whether the body editor is enabled (default: true). When false, consumers must not accept or store body content for this card kind. |
-| `example`     | string | Default body text used when seeding a card of this kind and shown in the blueprint body region; falls back to `Write <kind> body here.` when absent. |
-
 #### `title`
 
 The kind's label: what a picker, an add-card menu or a section header shows.
@@ -826,6 +813,19 @@ It is a literal, naming the kind and never one instance: a `{field}` token is a
 load error (`quill::title_template`). A consumer labels an instance from its own
 values, so field order decides which value leads: declare first the field that
 names the instance.
+
+### Card-level `ui`
+
+| Property | Type   | Description |
+|----------|--------|-------------|
+| `groups` | list or object | The card's group registry (see [`group` and the group registry](#group-and-the-group-registry)) |
+
+### Card-level `body`
+
+| Property  | Type   | Description |
+|-----------|--------|-------------|
+| `enabled`     | bool   | Whether the body editor is enabled (default: true). When false, consumers must not accept or store body content for this card kind. |
+| `example`     | string | Default body text used when seeding a card of this kind and shown in the blueprint body region; falls back to `Write <kind> body here.` when absent. |
 
 #### `body.enabled`
 

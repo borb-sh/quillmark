@@ -745,8 +745,6 @@ card_kinds:
     assert!(schema["card_kinds"]["note"].get("ui").is_none());
 }
 
-/// A `ui.title` fails on the block's own code, and its hint names where the
-/// label lives.
 #[test]
 fn a_title_that_is_not_a_literal_label_is_refused_by_code() {
     for (sections, code) in [
@@ -758,7 +756,10 @@ fn a_title_that_is_not_a_literal_label_is_refused_by_code() {
             "main:\n  fields:\n    a:\n      type: object\n      properties:\n        s: { type: string, ui: { title: Street } }\n",
             "quill::field_parse_error",
         ),
-        ("card_kinds:\n  note:\n    ui: { title: Note }\n", "quill::invalid_ui"),
+        (
+            "card_kinds:\n  note:\n    ui: { title: Note, groups: [a] }\n    fields:\n      s: { type: string, ui: { group: a } }\n",
+            "quill::invalid_ui",
+        ),
         (
             "card_kinds:\n  section:\n    title: \"{heading}\"\n    fields:\n      heading: { type: string }\n",
             "quill::title_template",
@@ -773,10 +774,10 @@ fn a_title_that_is_not_a_literal_label_is_refused_by_code() {
         ),
     ] {
         let err = config_with_sections(sections).expect_err(code);
-        let diag = err
-            .iter()
-            .find(|d| d.code.as_deref() == Some(code))
-            .unwrap_or_else(|| panic!("{code}: {err:?}"));
+        let [diag] = err.as_slice() else {
+            panic!("{code}: one error expected, got {err:?}");
+        };
+        assert_eq!(diag.code.as_deref(), Some(code));
         if sections.contains("ui: { title") {
             let hint = diag.hint.as_deref().unwrap_or_default();
             assert!(hint.contains("title"), "{code}: hint omits title: {hint}");

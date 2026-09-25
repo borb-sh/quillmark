@@ -1143,9 +1143,9 @@ impl QuillConfig {
                     return err(
                         "quill::title_on_items",
                         format!(
-                            "Field '{owner}[]' declares a title. The array's own title \
-                             names the list, and a consumer labels each element from its \
-                             own values; drop the key, or move it to '{owner}'."
+                            "Field '{owner}[]' declares a title. An element takes none: \
+                             the array's own title names the list, and a consumer labels \
+                             each element from its own values."
                         ),
                     );
                 }
@@ -1239,8 +1239,8 @@ impl QuillConfig {
             )
             .with_code("quill::title_template".to_string())
             .with_hint(
-                "Write the label a picker shows, or drop `title`: a consumer labels an \
-                 instance from its own values, the first field leading."
+                "Spell the label literally, or drop `title`. A consumer labels a card or \
+                 row instance from its own values, in field order."
                     .to_string(),
             ),
         );
@@ -1753,6 +1753,38 @@ impl QuillConfig {
         }
     }
 
+    /// Parse a card's `ui:` block, `label` naming it and `card` the card whose
+    /// `title` a `ui.title` belongs on. The `title` is reported and set aside,
+    /// so the `groups` beside it still load and the fields referencing them
+    /// draw no second error.
+    fn parse_card_ui(
+        ui: Option<&serde_json::Value>,
+        label: &str,
+        card: &str,
+        errors: &mut Vec<Diagnostic>,
+    ) -> Option<UiCardSchema> {
+        let mut ui = ui?.clone();
+        if ui.as_object_mut().and_then(|o| o.remove("title")).is_some() {
+            errors.push(
+                Diagnostic::new(
+                    Severity::Error,
+                    format!("Invalid '{label}' block: `ui` holds no `title`."),
+                )
+                .with_code("quill::invalid_ui".to_string())
+                .with_hint(format!(
+                    "A card's label is `{card}.title`, beside `{card}.description`."
+                )),
+            );
+        }
+        Self::parse_section(
+            Some(&ui),
+            label,
+            "quill::invalid_ui",
+            &format!("Valid keys under 'ui' are: {}.", UI_CARD_SCHEMA_KEYS.join(", ")),
+            errors,
+        )
+    }
+
     /// Parse one card-schema block (`main:` or a `card_kinds.<name>:` entry).
     /// `None` plus a diagnostic when the block is not a mapping or carries an
     /// unknown key, so a typo is reported rather than loading as an empty card.
@@ -2092,13 +2124,7 @@ impl QuillConfig {
             BODY_CARD_SCHEMA_KEYS.join(", ")
         );
 
-        let ui_section: Option<UiCardSchema> = Self::parse_section(
-            quill_section.get("ui"),
-            "quill.ui",
-            "quill::invalid_ui",
-            &card_ui_hint(quill_section.get("ui"), "main"),
-            &mut errors,
-        );
+        let ui_section = Self::parse_card_ui(quill_section.get("ui"), "quill.ui", "main", &mut errors);
 
         let mut backend_config = HashMap::new();
         if !backend.is_empty() {
@@ -2158,13 +2184,7 @@ impl QuillConfig {
             None => IndexMap::new(),
         };
 
-        let main_ui: Option<UiCardSchema> = Self::parse_section(
-            main_def.ui.as_ref(),
-            "main.ui",
-            "quill::invalid_ui",
-            &card_ui_hint(main_def.ui.as_ref(), "main"),
-            &mut errors,
-        );
+        let main_ui = Self::parse_card_ui(main_def.ui.as_ref(), "main.ui", "main", &mut errors);
 
         let main_body: Option<BodyCardSchema> = Self::parse_section(
             main_def.body.as_ref(),
@@ -2231,11 +2251,10 @@ impl QuillConfig {
                             None => IndexMap::new(),
                         };
 
-                        let card_ui: Option<UiCardSchema> = Self::parse_section(
+                        let card_ui = Self::parse_card_ui(
                             card_def.ui.as_ref(),
                             &format!("{}.ui", label),
-                            "quill::invalid_ui",
-                            &card_ui_hint(card_def.ui.as_ref(), &label),
+                            &label,
                             &mut errors,
                         );
 
@@ -2401,16 +2420,6 @@ impl QuillConfig {
             },
             warnings,
         ))
-    }
-}
-
-/// The hint on a rejected `ui:` block of `card`: where the card's label lives
-/// when the block spells `title`, else the keys it admits.
-fn card_ui_hint(ui: Option<&serde_json::Value>, card: &str) -> String {
-    if ui.and_then(|u| u.get("title")).is_some() {
-        format!("A card's label is `{card}.title`, beside `{card}.description`; `ui` holds no `title`.")
-    } else {
-        format!("Valid keys under 'ui' are: {}.", UI_CARD_SCHEMA_KEYS.join(", "))
     }
 }
 
