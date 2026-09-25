@@ -23,9 +23,6 @@ pub enum FieldLayout {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UiFieldSchema {
-    /// Display label for the field: decoupled from the snake_case wire key.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -107,15 +104,11 @@ pub struct BodyCardSchema {
 
 /// The keys [`UiCardSchema`] deserializes, for the hint on a rejected `ui:`
 /// section.
-pub(crate) const UI_CARD_SCHEMA_KEYS: &[&str] = &["title", "groups"];
+pub(crate) const UI_CARD_SCHEMA_KEYS: &[&str] = &["groups"];
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UiCardSchema {
-    /// Display label for the card kind: literal string or `{field_name}`
-    /// template. See `docs/quills/quill-yaml-reference.md`.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub title: Option<String>,
     /// The card's group registry: the visible table of contents that names
     /// every group a field may reference and fixes their display order. A
     /// field's `ui.group` is a *reference* into this registry, validated at
@@ -125,7 +118,7 @@ pub struct UiCardSchema {
 }
 
 /// One entry in a card's [`GroupRegistry`]. The `id` decouples identity from
-/// label as a field's snake_case key decouples from its `ui.title`: renaming
+/// label as a field's snake_case key decouples from its `title`: renaming
 /// the label breaks no `ui.group` reference and no persisted per-group state.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupSchema {
@@ -228,6 +221,10 @@ pub struct CardSchema {
     /// The map key carries this on the wire; skipped during serialization to avoid duplication.
     #[serde(skip_serializing)]
     pub name: String,
+    /// The kind's label, a literal. Absent, a consumer humanizes
+    /// [`name`](Self::name).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// Declaration order is display order: the map preserves Quill.yaml key
@@ -242,11 +239,12 @@ pub struct CardSchema {
 }
 
 impl CardSchema {
-    /// A card kind's name and its ordered field map. `description`, `ui`, and
-    /// `body` start absent.
+    /// A card kind's name and its ordered field map. `title`, `description`,
+    /// `ui`, and `body` start absent.
     pub fn new(name: String, fields: IndexMap<String, FieldSchema>) -> Self {
         Self {
             name,
+            title: None,
             description: None,
             fields,
             ui: None,
@@ -470,6 +468,10 @@ pub struct FieldSchema {
     /// (`quill::optional_default`), and refused on a namespace
     /// (`quill::optional_namespace`).
     pub optional: bool,
+    /// The field's label, a literal. Absent, a consumer humanizes
+    /// [`name`](Self::name). Refused on an array's element
+    /// (`quill::title_on_items`).
+    pub title: Option<String>,
     pub description: Option<String>,
     /// The value most authors want; interpolated when the field is omitted.
     pub default: Option<QuillValue>,
@@ -520,6 +522,7 @@ pub struct FieldSchema {
 #[serde(deny_unknown_fields)]
 struct FieldSchemaDef {
     pub r#type: TypeToken,
+    pub title: Option<String>,
     pub description: Option<String>,
     pub default: Option<QuillValue>,
     pub example: Option<QuillValue>,
@@ -548,6 +551,7 @@ impl FieldSchema {
             name,
             r#type,
             optional: false,
+            title: None,
             description,
             default: None,
             example: None,
@@ -635,6 +639,7 @@ impl FieldSchema {
             name: key.clone(),
             r#type,
             optional,
+            title: def.title,
             description: def.description,
             default: def.default,
             example: def.example,
@@ -853,6 +858,7 @@ impl Serialize for FieldSchema {
         };
         let len = 1
             + inline.is_some() as usize
+            + self.title.is_some() as usize
             + self.description.is_some() as usize
             + self.default.is_some() as usize
             + self.example.is_some() as usize
@@ -871,6 +877,9 @@ impl Serialize for FieldSchema {
             map.serialize_entry("type", &format!("{}?", self.r#type.as_str()))?;
         } else {
             map.serialize_entry("type", &self.r#type)?;
+        }
+        if let Some(v) = &self.title {
+            map.serialize_entry("title", v)?;
         }
         if let Some(v) = &self.description {
             map.serialize_entry("description", v)?;

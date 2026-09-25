@@ -15,7 +15,6 @@ const METADATA_TS: &'static str = r#"
 /** UI layout hints for a single field. Display order is not a hint: key order
  * in the schema's `fields`/`properties` objects is the ordering contract. */
 export interface QuillFieldUi {
-    title?: string;
     group?: string;
     compact?: boolean;
     multiline?: boolean;
@@ -39,7 +38,6 @@ export interface QuillGroupUi {
 
 /** UI layout hints for a card (main or named card kind). */
 export interface QuillCardUi {
-    title?: string;
     /** The groups a field's `ui.group` may reference, keyed by group id. Key
      * order is the display-order contract, as with `fields`. Absent when the
      * card declares no groups. */
@@ -82,6 +80,9 @@ export interface QuillFieldSchema {
      *  rather than its type's blank, and it never carries a `default`. A
      *  consumer offers a way back to unanswered (`removeField`) on such a cell. */
     type: QuillFieldType | `${Exclude<QuillFieldType, "object" | "matrix">}?`;
+    /** The field's label, a literal. Absent, the consumer humanizes the key
+     *  (`memo_for` → "Memo For"). Never present on an array's `items`. */
+    title?: string;
     description?: string;
     default?: unknown;
     example?: unknown;
@@ -113,6 +114,9 @@ export interface QuillFieldSchema {
 
 /** Schema entry for the main card or a named card kind. */
 export interface QuillCardSchema {
+    /** The kind's label, a literal. Absent, the consumer humanizes the kind
+     *  name. An instance takes its label from its own values. */
+    title?: string;
     description?: string;
     fields: Record<string, QuillFieldSchema>;
     ui?: QuillCardUi;

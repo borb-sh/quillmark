@@ -937,7 +937,8 @@ Overlays" for the `$seed` mechanics. The document seeding above is the
 `QuillConfig::schema()` returns the structural schema as `serde_json::Value`. It includes:
 
 - Field types, constraints, and `enum`/`default`/`example` annotations
-- `ui` hints on fields (`group`, `compact`, `multiline`, `title`, `blank_title`, `layout`) and on cards (`title`, plus the `groups` registry that `group` references). Field display order is not a hint: it is the key order of the emitted `fields`/`properties` maps (declaration order)
+- `title` on fields and cards: a literal label, which the blueprint prints wherever it prints the description, and which no `ui` key carries, since `ui` never reaches the blueprint
+- `ui` hints on fields (`group`, `compact`, `multiline`, `blank_title`, `layout`) and on cards (the `groups` registry that `group` references). Field display order is not a hint: it is the key order of the emitted `fields`/`properties` maps (declaration order)
 - `body` blocks on cards (`enabled`, `example`)
 
 The schema describes only the user-fillable fields. The quill reference
@@ -951,9 +952,9 @@ For LLM/MCP authoring, see [BLUEPRINT.md](BLUEPRINT.md): `blueprint()` emits a d
 
 Top-level schema keys: `main`, optional `card_kinds` (map keyed by card name).
 `main` and each entry in `card_kinds` share the same `CardSchema` shape:
-`fields` (map keyed by field name), optional `description`, optional `ui`,
-optional `body`. Each `FieldSchema` includes `type`, optional
-`description`/`default`/`example`/`enum`/`values`/`members`/`variants`/`inline`/`properties`/`items`/`max`/`ui`.
+`fields` (map keyed by field name), optional `title`, optional `description`,
+optional `ui`, optional `body`. Each `FieldSchema` includes `type`, optional
+`title`/`description`/`default`/`example`/`enum`/`values`/`members`/`variants`/`inline`/`properties`/`items`/`max`/`ui`.
 The type-gated keys:
 
 - `inline`: valid only on the prose types (`richtext`, `plaintext`).
@@ -983,7 +984,8 @@ The type-gated keys:
   authored, keyed by member; the transform schema instead projects the container,
   flattening every world's fields under `properties` with no member scoping.
 - `items`: the element schema, itself a `FieldSchema`; required on `array`
-  fields and rejected elsewhere.
+  fields and rejected elsewhere. It takes no `title`
+  (`quill::title_on_items`): the array's own names the list.
 - `properties`: used by `object` fields, and by an array's `object`-typed
   `items`.
 
