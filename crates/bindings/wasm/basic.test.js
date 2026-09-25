@@ -14,6 +14,8 @@ import {
   rebase,
   mapPos,
   mapMarks,
+  isInline,
+  isPlain,
   parseDocPath,
   formatDocPath,
   formatDiagnostic,
@@ -451,6 +453,18 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
     // A caret at the end of "hello " stays; one after "world" shifts past "brave ".
     expect(mapPos(delta, 6, 'before')).toBe(6)
     expect(mapPos(delta, 11, 'after')).toBe(17)
+  })
+})
+
+describe('Content predicates: isInline / isPlain', () => {
+  it('judge the inline and plaintext constraints on a Content, throwing on a non-content', () => {
+    expect(isInline(importMarkdown('One **bold** line.'))).toBe(true)
+    expect(isInline(importMarkdown('One.\n\nTwo.'))).toBe(false)
+    expect(isInline(importMarkdown('- item'))).toBe(false)
+    expect(isPlain(importMarkdown('One.\n\nTwo.'))).toBe(true)
+    expect(isPlain(importMarkdown('One **bold** line.'))).toBe(false)
+    expect(() => isInline('One.')).toThrow()
+    expect(() => isPlain({ not: 'a content' })).toThrow()
   })
 })
 
