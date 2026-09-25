@@ -26,6 +26,9 @@ main:
     subject:
       type: string
       description: a scalar, which offers no step at all
+    balance:
+      type: integer
+      description: a negative number, which a bare `#` embed will not lex
     address:
       type: object
       description: a typed dictionary
@@ -69,6 +72,7 @@ main:
 fn data() -> serde_json::Value {
     serde_json::json!({
         "subject": "Widgets",
+        "balance": -12,
         "address": { "city": "Dayton", "street": "1864 Fourth St" },
         "classification": {
             "value": "CUI",
@@ -168,6 +172,7 @@ fn ink_keeps_the_address_through_functions_loops_and_patterns() {
          #set page(width: 400pt, height: 200pt, margin: 40pt)\n\
          #let shout(c) = upper(c)\n\
          #shout(ink(data).subject)\n\
+         #ink(data).balance\n\
          #for r in data.refs.filter(r => r.org != \"\") [#ink(r).org / \
            #field-region(r.at(\"$path\") + \"num\")[No. #r.num.len()]]\n\
          #let (poc, ..rest) = ink(data.classification)\n\
@@ -179,6 +184,7 @@ fn ink_keeps_the_address_through_functions_loops_and_patterns() {
     let regions = session.regions();
     for field in [
         "subject",
+        "balance",
         "refs.0.org",
         "refs.0.num",
         "classification.poc",

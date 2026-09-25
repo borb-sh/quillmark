@@ -357,8 +357,9 @@ impl<'m> Codegen<'m> {
                 | serde_json::Value::Number(_)
                 | serde_json::Value::Bool(_),
             ) if node.is_some() => {
+                // Parenthesized: a bare `#` embed will not lex a unary minus.
                 let expr = lit(value);
-                let ink = Frag::window(path, format!("[#{expr}]"));
+                let ink = Frag::window(path, format!("[#({expr})]"));
                 (Frag::from(expr), Some(ink))
             }
             _ => (Frag::from(lit(value)), None),
@@ -481,8 +482,8 @@ impl Container {
     /// address a date by; both only where a field has ink, so a dictionary of
     /// containers (a `matrix`) keeps exactly its members as keys. The `{..}`
     /// code block is a unit Typst's incremental reparser swaps alone: an edit
-    /// touches a field and its ink, and the block holding both is one row, not
-    /// the whole literal.
+    /// touches a field and its ink, and inside a card or a row the block
+    /// holding both is that card or row, not the whole literal.
     fn finish(mut self, path: Option<&str>) -> Frag {
         if !self.ink.is_empty() {
             let ink = Frag::wrap(self.ink, "(:)");
@@ -1033,16 +1034,16 @@ mod tests {
 
         assert!(
             lib.contains(
-                r#"#let data = {("$ink": ("count": [#3], "due": none, "on": _qm_d0(), "subject": [#"Widgets"], "tags": (),), "$path": "", "count": 3,"#
+                r#"#let data = {("$ink": ("count": [#(3)], "due": none, "on": _qm_d0(), "subject": [#("Widgets")], "tags": (),), "$path": "", "count": 3,"#
             ),
             "{lib}"
         );
         assert!(
-            lib.contains(r#""rows": ({("$ink": ("org": [#"AFRL"],), "$path": "rows.0.", "org": "AFRL",)},)"#),
+            lib.contains(r#""rows": ({("$ink": ("org": [#("AFRL")],), "$path": "rows.0.", "org": "AFRL",)},)"#),
             "a row carries its own ink and path, and data keys spelling them are dropped: {lib}"
         );
         assert!(
-            lib.contains(r#""grid": {("a": {("$ink": ("x": [#"1"],), "$path": "grid.a.", "x": "1",)},)}"#),
+            lib.contains(r#""grid": {("a": {("$ink": ("x": [#("1")],), "$path": "grid.a.", "x": "1",)},)}"#),
             "{lib}"
         );
 
@@ -1051,10 +1052,10 @@ mod tests {
             .map(|w| (w.path.as_str(), &lib[w.block.clone()]))
             .collect();
         for expected in [
-            ("count", "[#3]"),
-            ("subject", r#"[#"Widgets"]"#),
-            ("rows.0.org", r#"[#"AFRL"]"#),
-            ("grid.a.x", r#"[#"1"]"#),
+            ("count", "[#(3)]"),
+            ("subject", r#"[#("Widgets")]"#),
+            ("rows.0.org", r#"[#("AFRL")]"#),
+            ("grid.a.x", r#"[#("1")]"#),
         ] {
             assert!(scalars.contains(&expected), "{expected:?} in {scalars:?}");
         }

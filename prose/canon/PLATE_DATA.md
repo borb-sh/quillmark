@@ -38,7 +38,7 @@ One rule governs the lowering, at every depth: **a declared type means the same 
   `card.at("$kind", default: none)`, `card.at("$body", default: "")`: never a
   bare `card.$body`
 - A card whose `$kind` the quill does not declare keeps its place in `$cards`, fields verbatim and uncoerced, so a plate's `$cards` loop falls through on a kind it does not know ([SCHEMAS.md](SCHEMAS.md#what-blocks-a-render))
-- `data`, each card, and each typed dictionary carry `$ink`, the [ink twin](#the-ink-twin) of their fields, wherever at least one field has ink, and with it `$path`, their address prefix (`""` on `data`, `refs.0.` on a row). A data key spelling `$ink` or `$path` is dropped
+- `data`, each card, and each typed dictionary carry `$ink`, the [ink twin](#the-ink-twin) of their fields, wherever at least one field has ink, and with it `$path`, their address prefix (`""` on `data`, `refs.0.` on a row). A data key spelling `$ink` or `$path` in any of them is dropped; a dictionary the schema does not type passes through verbatim, keys included
 - User payload fields sit flat at the root next to the `$` keys; field names match `[a-z_][a-z0-9_]*` and therefore never collide with `$` metadata
 
 #### A `matrix` field
@@ -171,14 +171,17 @@ none. A date's is its default display, so every ink prints as `#ink(x).f`; a
 pattern goes through `display(x, "f", ..)`, which finds the closure by the
 dictionary's `$path`. The twin rides on the dictionary rather than on `data` alone because rows
 are what plates filter, sort and hand to functions: a twin kept apart loses the
-pairing at the first `filter`. The cost is one visible key, which dictionary
-equality, `keys()` and spreading see.
+pairing at the first `filter`. The cost is two visible keys, `$ink` and
+`$path`, which dictionary equality (and so `contains` and `dedup`), `keys()` and
+spreading see.
 
 A scalar's ink window has no segments, so its whole first placement is one
-region, as a plate scalar site's is ([PREVIEW.md](PREVIEW.md)). Every emitted
-dictionary is wrapped in a `{..}` code block: Typst's incremental reparser swaps
-such a block alone, so an edit, which changes a field and its ink, reparses one
-row rather than the whole `data` literal.
+region, as a plate scalar site's is ([PREVIEW.md](PREVIEW.md)). `data`, each
+card and each typed dictionary is wrapped in a `{..}` code block: Typst's
+incremental reparser swaps such a block alone, and an edit changes a field and
+its ink, so an edit inside a card or a row reparses that block. A top-level
+field's edit spans `data`'s own `$ink` and the field, with `$cards` between
+them, and reparses the whole literal.
 
 ### Schema addresses
 

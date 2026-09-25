@@ -38,7 +38,7 @@
     // `card`, print with `ink(card)`, and format a date with `display(card, ..)`.
     heading(level: 2, ink(card).title)
     if card.due != none {
-      [Due #display(card, "due", "[month repr:long] [day padding:none], [year]")]
+      [Due #display(card, "due", "[year]-[month]-[day]")]
       parbreak()
     }
     card.at("$body", default: "")

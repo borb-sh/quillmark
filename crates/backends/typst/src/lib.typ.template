@@ -211,7 +211,7 @@
 #let display(field, ..args) = {
   if std.type(field) == dictionary {
     assert("$path" in field,
-      message: "display: this dictionary has no date; pass data, a card, or a typed dictionary declaring one")
+      message: "display: this dictionary carries no $path; pass data, a card, or the typed dictionary that declares the date")
     let pos = args.pos()
     assert(pos.len() > 0 and std.type(pos.at(0)) == str,
       message: "display: a dictionary is followed by the date's key, as in display(row, \"due\", \"[year]\")")
