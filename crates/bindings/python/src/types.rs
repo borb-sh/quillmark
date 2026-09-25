@@ -393,10 +393,10 @@ impl PyDocument {
         quillmark_core::document::STORAGE_V0_116_0
     }
 
-    /// Canonical card-yaml authoring rules.
+    /// The Quillmark Markdown rules.
     #[staticmethod]
-    fn format_rules() -> &'static str {
-        quillmark_core::document::FORMAT_RULES
+    fn markdown_rules() -> &'static str {
+        quillmark_core::document::MARKDOWN_RULES
     }
 
     /// The instruction to fill in the blueprint of `quill_name`. Carries no tool name:

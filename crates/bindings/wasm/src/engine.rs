@@ -48,7 +48,7 @@ export interface QuillCardUi {
 export interface QuillCardBody {
     /** When false, consumers must not accept or store body content for this card kind. Defaults to true. */
     enabled?: boolean;
-    /** Example body content embedded verbatim in the blueprint body region. Fallback is "Write <card> body here." */
+    /** Example body content, shown on the blueprint's `# e.g.` line above the body. */
     example?: string;
 }
 
@@ -832,11 +832,11 @@ impl Document {
         quillmark_core::document::STORAGE_V0_116_0.to_string()
     }
 
-    /// Authoring-format rules for the card-yaml markdown surface, re-exposed from
-    /// core. Constant across calls; read once and cache.
-    #[wasm_bindgen(js_name = formatRules)]
-    pub fn format_rules() -> String {
-        quillmark_core::document::FORMAT_RULES.to_string()
+    /// The Quillmark Markdown rules, re-exposed from core. Constant across
+    /// calls; read once and cache.
+    #[wasm_bindgen(js_name = markdownRules)]
+    pub fn markdown_rules() -> String {
+        quillmark_core::document::MARKDOWN_RULES.to_string()
     }
 
     /// The instruction to fill in the blueprint of `quillName`, re-exposed from

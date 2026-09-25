@@ -403,7 +403,8 @@ fn emit_field_at(
 
 /// Render a mapping's children — cells and the comments among them — as
 /// standalone lines at column 0, outside any document. The blueprint renders a
-/// dormant variant world through this to comment it out.
+/// dormant variant world, and a table's dormant row, through this to comment
+/// it out.
 pub(crate) fn emit_mapping_lines(
     map: &serde_json::Map<String, JsonValue>,
     nested: &[NestedComment],
@@ -412,24 +413,6 @@ pub(crate) fn emit_mapping_lines(
     emit_mapping_children(
         &mut out,
         map,
-        0,
-        EmitCtx {
-            path: &[],
-            nested,
-            project_content: true,
-        },
-    );
-    out
-}
-
-/// Render a sequence's items as standalone lines at column 0, the
-/// [`emit_mapping_lines`] of a sequence. The blueprint renders a typed table's
-/// row template through this to comment it out.
-pub(crate) fn emit_sequence_lines(items: &[JsonValue], nested: &[NestedComment]) -> String {
-    let mut out = String::new();
-    emit_sequence_children(
-        &mut out,
-        items,
         0,
         EmitCtx {
             path: &[],

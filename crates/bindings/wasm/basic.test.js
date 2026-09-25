@@ -163,7 +163,7 @@ describe('Document JSON DTO: toStored / fromStored', () => {
 
 describe('Document authoring text', () => {
   it('each static carries core text through', () => {
-    expect(Document.formatRules().length).toBeGreaterThan(0)
+    expect(Document.markdownRules().length).toBeGreaterThan(0)
     expect(Document.quillRefHint().length).toBeGreaterThan(0)
     expect(Document.blueprintInstruction('usaf_memo')).toContain('usaf_memo')
   })

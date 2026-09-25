@@ -110,8 +110,8 @@ fn card_yaml_opener_run(line: &str) -> Option<usize> {
     }
 }
 
-/// Used by the `Quill.yaml` `body.example` guard, so the blueprint-corruption
-/// check stays in lock-step with the parser.
+/// Used by the `Quill.yaml` `body.example` guard, so the check stays in
+/// lock-step with the parser.
 pub(crate) fn is_card_yaml_opener_line(line: &str) -> bool {
     card_yaml_opener_run(line).is_some()
 }

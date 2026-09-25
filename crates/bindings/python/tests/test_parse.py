@@ -104,7 +104,7 @@ def test_diagnostic_str_and_repr():
 
 
 def test_document_authoring_text_helpers():
-    rules = Document.format_rules()
+    rules = Document.markdown_rules()
     assert isinstance(rules, str) and rules.strip() != ""
 
     hint = Document.quill_ref_hint()
