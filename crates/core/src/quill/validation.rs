@@ -46,6 +46,10 @@ pub enum ValidationError {
     /// [`EditError::FieldNotInline`](crate::document::EditError::FieldNotInline).
     NotInline {
         path: String,
+        /// The content is one line plus the empty line a trailing `\n` opens,
+        /// as a clip-chomped YAML `|` scalar yields under `plaintext`, whose
+        /// verbatim codec keeps that newline.
+        trailing_newline: bool,
     },
 
     /// A `plaintext` field whose content carries marks, islands, or block
@@ -96,12 +100,15 @@ impl std::fmt::Display for ValidationError {
                     "field `{path}` does not match expected format `{format}`"
                 )
             }
-            ValidationError::NotInline { path } => {
+            ValidationError::NotInline {
+                path,
+                trailing_newline,
+            } => {
                 write!(
                     f,
                     "field `{path}` declares `inline` but its content is not a single \
                      line: {hint}",
-                    hint = not_inline_hint(),
+                    hint = not_inline_hint(*trailing_newline),
                 )
             }
             ValidationError::NotPlain { path } => {
@@ -131,10 +138,16 @@ fn type_mismatch_hint(expected: &str, actual: &str, default: Option<&str>) -> St
 }
 
 /// Actionable exit clause for a `NotInline` error, codec-neutral because both
-/// prose types declare `inline`.
-fn not_inline_hint() -> &'static str {
-    "keep the value to a single line (no blank lines, headings, lists, \
-     quotes, or tables), or drop `inline: true` from the schema"
+/// prose types declare `inline`, but for the trailing newline only the verbatim
+/// `plaintext` codec keeps.
+pub(crate) fn not_inline_hint(trailing_newline: bool) -> &'static str {
+    if trailing_newline {
+        "the value ends in a newline, which `plaintext` keeps as a second line: \
+         write it as a `|-` block or a plain scalar"
+    } else {
+        "keep the value to a single line (no blank lines, headings, lists, \
+         quotes, or tables), or drop `inline: true` from the schema"
+    }
 }
 
 /// Actionable exit clause for a `NotPlain` error.
@@ -173,14 +186,15 @@ impl ValidationError {
     /// [`Diagnostic::args`](crate::error::Diagnostic::args).
     ///
     /// `path` stays out: it is the diagnostic's anchor, and an anchor
-    /// reachable by two routes acquires two spellings. `NotInline` and
-    /// `NotPlain` carry nothing else, so their sentence follows from the code
-    /// and the anchor alone.
+    /// reachable by two routes acquires two spellings. `NotPlain` carries
+    /// nothing else, so its sentence follows from the code and the anchor
+    /// alone.
     ///
     /// `default` is present only when the schema declares one, the same
     /// condition `type_mismatch_hint` branches on, so a consumer picks its
     /// own exit clause from the key's presence instead of re-deriving the
     /// branch. Emitting `null` instead would read as a default spelled `null`.
+    /// `trailingNewline` follows the same rule for `not_inline_hint`.
     pub fn args(&self) -> BTreeMap<String, serde_json::Value> {
         match self {
             ValidationError::TypeMismatch {
@@ -211,7 +225,16 @@ impl ValidationError {
             ValidationError::FormatViolation { path: _, format } => diag_args! {
                 "format" => format,
             },
-            ValidationError::NotInline { path: _ } => diag_args! {},
+            ValidationError::NotInline {
+                path: _,
+                trailing_newline,
+            } => {
+                if *trailing_newline {
+                    diag_args! { "trailingNewline" => true }
+                } else {
+                    diag_args! {}
+                }
+            }
             ValidationError::NotPlain { path: _ } => diag_args! {},
         }
     }
@@ -227,7 +250,9 @@ impl ValidationError {
                 default,
                 ..
             } => Some(type_mismatch_hint(expected, actual, default.as_deref())),
-            ValidationError::NotInline { .. } => Some(not_inline_hint().to_string()),
+            ValidationError::NotInline {
+                trailing_newline, ..
+            } => Some(not_inline_hint(*trailing_newline).to_string()),
             ValidationError::NotPlain { .. } => Some(not_plain_hint().to_string()),
             ValidationError::EnumViolation { .. } | ValidationError::FormatViolation { .. } => None,
         }
@@ -531,6 +556,7 @@ fn validate_value(
                     if !rt.is_inline() {
                         errors.push(ValidationError::NotInline {
                             path: path.to_string(),
+                            trailing_newline: false,
                         });
                     }
                 }
@@ -549,6 +575,7 @@ fn validate_value(
                     } else if inline && !rt.is_inline() {
                         errors.push(ValidationError::NotInline {
                             path: path.to_string(),
+                            trailing_newline: crate::document::is_line_with_trailing_newline(&rt),
                         });
                     }
                 }
@@ -1001,8 +1028,31 @@ main:
         let errors = validate_typed_document(&config, &doc).unwrap_err();
         assert!(has_error(&errors, |e| matches!(
             e,
-            ValidationError::NotInline { path } if path == "main.tag"
+            ValidationError::NotInline { path, .. } if path == "main.tag"
         )));
+    }
+
+    #[test]
+    fn plaintext_inline_names_the_kept_newline_of_a_clip_chomped_block() {
+        let config = config_with("    pti:\n      type: plaintext\n      inline: true", "");
+        let validate = |yaml_value: &str| {
+            let md = format!("~~~\n$quill: native_validation@1.0.0\npti: {yaml_value}~~~\n");
+            let doc = Document::parse(&md).expect("parses").document;
+            let errors = validate_typed_document(&config, &doc).unwrap_err();
+            assert_eq!(errors.len(), 1, "{errors:?}");
+            errors[0].to_diagnostic()
+        };
+
+        let kept = validate("|\n  one line\n");
+        assert_eq!(kept.code.as_deref(), Some("validation::not_inline"));
+        assert_eq!(kept.args.get("trailingNewline"), Some(&json!(true)));
+        let hint = kept.hint.as_deref().unwrap();
+        assert!(hint.contains("`|-`") && kept.message.ends_with(hint), "{kept:?}");
+
+        let two_lines = validate("|\n  one\n  two\n");
+        assert_eq!(two_lines.code.as_deref(), Some("validation::not_inline"));
+        assert!(two_lines.args.is_empty(), "{two_lines:?}");
+        assert!(!two_lines.hint.unwrap().contains("`|-`"));
     }
 
     #[test]

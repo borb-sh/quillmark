@@ -1265,6 +1265,23 @@ fn a_nested_inline_richtext_default_over_one_para_is_a_load_error() {
 }
 
 #[test]
+fn an_inline_plaintext_literal_ending_in_a_newline_names_the_fix() {
+    let err = quill_with_field(concat!(
+        "    pti:\n",
+        "      type: plaintext\n",
+        "      inline: true\n",
+        "      example: |\n",
+        "        one line\n",
+    ))
+    .unwrap_err();
+    let diag = err
+        .iter()
+        .find(|d| d.code.as_deref() == Some("validation::not_inline"))
+        .unwrap_or_else(|| panic!("{err:?}"));
+    assert!(diag.hint.as_deref().unwrap().contains("`|-`"), "{diag:?}");
+}
+
+#[test]
 fn array_of_inline_richtext_caches_each_element() {
     let config = quill_with_field(
         "    refs:\n      type: array\n      items:\n        type: richtext\n        inline: true\n      default:\n        - \"first *ref*\"\n        - \"second ref\"\n",
