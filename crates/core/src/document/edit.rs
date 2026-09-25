@@ -958,7 +958,7 @@ impl Card {
             .filter(|(k, _)| **k != namespace)
             .map(|(_, v)| v);
         check_meta_depth(surviving.chain(std::iter::once(&value)))?;
-        let mut map = self.payload_mut().take_meta(key).unwrap_or_default();
+        let mut map = self.payload().meta(key).cloned().unwrap_or_default();
         map.insert(namespace, value);
         self.payload_mut().set_meta(key, map);
         Ok(())
@@ -970,12 +970,14 @@ impl Card {
         key: MetaKey,
         namespace: &str,
     ) -> Option<serde_json::Value> {
-        let mut map = self.payload_mut().take_meta(key)?;
-        let removed = map.remove(namespace);
-        if !map.is_empty() {
+        let mut map = self.payload().meta(key)?.clone();
+        let removed = map.remove(namespace)?;
+        if map.is_empty() {
+            self.payload_mut().take_meta(key);
+        } else {
             self.payload_mut().set_meta(key, map);
         }
-        removed
+        Some(removed)
     }
 
     /// The raw `$seed` map (keyed by card-kind), or `None`. For a parsed,

@@ -109,6 +109,28 @@ $kind: main
     assert!(card.seed().is_none());
 }
 
+/// An overlay edit rewrites `$seed` where it stands, its line's trailer kept,
+/// and removing a kind the map lacks changes nothing.
+#[test]
+fn seed_overlay_edits_keep_the_seed_line_trailer() {
+    let mut doc = parse(
+        "~~~\n$quill: q@1.0\n$kind: main # A letter.\n$seed: {note: {x: 1}} # seed note\ntitle: t\n~~~\n",
+    );
+    let untouched = doc.clone();
+    assert_eq!(doc.main_mut().remove_seed_overlay("absent"), None);
+    assert_eq!(doc, untouched);
+
+    doc.main_mut()
+        .store_seed_overlay("attachment", json!({ "y": 2 }))
+        .unwrap();
+    doc.main_mut().remove_seed_overlay("note").unwrap();
+    let md = doc.to_markdown();
+    assert!(
+        md.contains("$kind: main # A letter.\n$seed: # seed note\n  attachment:\n"),
+        "{md}"
+    );
+}
+
 #[test]
 fn store_seed_overlay_rejects_invalid_and_reserved_kinds() {
     // `$seed` is keyed by composable card-kind, so the writer must reject
