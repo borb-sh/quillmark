@@ -691,14 +691,9 @@ impl QuillConfig {
 
                 // Both types store verbatim; only the grammar differs, and
                 // neither truncates (`formats`).
-                let (valid, reason) = match field_schema.r#type {
-                    FieldType::Date => {
-                        (super::formats::is_valid_date(&text), "invalid date format")
-                    }
-                    _ => (
-                        super::formats::is_valid_datetime(&text),
-                        "invalid datetime format",
-                    ),
+                let (valid, format) = match field_schema.r#type {
+                    FieldType::Date => (super::formats::is_valid_date(&text), "date"),
+                    _ => (super::formats::is_valid_datetime(&text), "datetime"),
                 };
                 if valid {
                     Ok(QuillValue::from_json(serde_json::Value::String(text)))
@@ -707,7 +702,7 @@ impl QuillConfig {
                         path,
                         text,
                         field_schema.r#type.as_str(),
-                        reason,
+                        format!("expected {}", super::formats::format_grammar(format)),
                     ))
                 }
             }
@@ -1711,7 +1706,7 @@ impl QuillConfig {
                     format!("{path} {slot} has an invalid {format} format."),
                 )
                 .with_code(format!("quill::{slot}_format_violation"))
-                .with_hint(format!("Provide a valid {format} value for the {slot}.")),
+                .with_hint(super::validation::format_hint(&format)),
                 // NotInline and NotPlain can arise on a literal, and
                 // `literal_content` reports them at load.
                 _ => continue,

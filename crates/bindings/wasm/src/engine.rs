@@ -2255,7 +2255,9 @@ where
 /// local date.
 fn render_date(today: Option<String>) -> Result<quillmark_core::quill::CalendarDate, JsValue> {
     match today {
-        Some(s) => s.parse().map_err(|e: String| WasmError::from(e).to_js_value()),
+        Some(s) => s
+            .parse::<quillmark_core::quill::CalendarDate>()
+            .map_err(|e| WasmError::from(e.to_string()).to_js_value()),
         None => {
             let now = js_sys::Date::new_0();
             quillmark_core::quill::CalendarDate::new(

@@ -59,19 +59,60 @@ impl CalendarDate {
 }
 
 impl std::str::FromStr for CalendarDate {
-    type Err = String;
+    type Err = ParseDateError;
 
     /// The `type: date` grammar, [`parse_date`]; `today` is not a date.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         parse_date(s)
             .and_then(|(year, month, day)| Self::new(year, month, day))
-            .ok_or_else(|| format!("expected a date `YYYY-MM-DD`, got {s:?}"))
+            .ok_or_else(|| ParseDateError {
+                input: s.to_string(),
+                date_shaped: is_date_shaped(s),
+            })
     }
+}
+
+/// A string that is not a [`CalendarDate`]: malformed, or `YYYY-MM-DD` naming a
+/// day the calendar lacks (`2026-02-30`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParseDateError {
+    input: String,
+    date_shaped: bool,
+}
+
+impl std::fmt::Display for ParseDateError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.date_shaped {
+            write!(f, "{:?} is not a day of the calendar", self.input)
+        } else {
+            write!(f, "expected a date `YYYY-MM-DD`, got {:?}", self.input)
+        }
+    }
+}
+
+impl std::error::Error for ParseDateError {}
+
+/// `dddd-dd-dd`. `time`'s parse error cannot tell `2026-13-01` from `2026-1-3`.
+fn is_date_shaped(s: &str) -> bool {
+    s.len() == 10
+        && s.bytes().enumerate().all(|(i, b)| match i {
+            4 | 7 => b == b'-',
+            _ => b.is_ascii_digit(),
+        })
 }
 
 impl std::fmt::Display for CalendarDate {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:04}-{:02}-{:02}", self.year, self.month, self.day)
+    }
+}
+
+/// The grammar of a `format` (`date` or `datetime`) value, as a diagnostic
+/// names it.
+pub(crate) fn format_grammar(format: &str) -> &'static str {
+    match format {
+        "date" => "`YYYY-MM-DD` or `today`",
+        _ => "`YYYY-MM-DDThh:mm[:ss]`, with no offset",
     }
 }
 

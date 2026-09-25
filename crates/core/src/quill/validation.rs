@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use crate::document::{Document, Payload};
 use crate::error::{Diagnostic, Severity, diag_args};
 use crate::path::DocPath;
-use crate::quill::formats::{is_valid_date, is_valid_datetime};
+use crate::quill::formats::{format_grammar, is_valid_date, is_valid_datetime};
 use crate::quill::{CardSchema, FieldSchema, FieldType, QuillConfig, VARIANT_DISCRIMINANT_KEY};
 use crate::value::QuillValue;
 
@@ -97,7 +97,8 @@ impl std::fmt::Display for ValidationError {
             ValidationError::FormatViolation { path, format } => {
                 write!(
                     f,
-                    "field `{path}` does not match expected format `{format}`"
+                    "field `{path}` does not match expected format `{format}`. {hint}",
+                    hint = format_hint(format),
                 )
             }
             ValidationError::NotInline {
@@ -135,6 +136,12 @@ fn type_mismatch_hint(expected: &str, actual: &str, default: Option<&str>) -> St
             "Either provide a value of type `{expected}` or change the schema's `type:` to `{actual}`."
         )
     }
+}
+
+/// Actionable exit clause for a `FormatViolation`, and for its load-time twin
+/// on a `default:` or `example:`.
+pub(crate) fn format_hint(format: &str) -> String {
+    format!("A {format} is {}.", format_grammar(format))
 }
 
 /// Actionable exit clause for a `NotInline` error, codec-neutral because both
@@ -254,7 +261,8 @@ impl ValidationError {
                 trailing_newline, ..
             } => Some(not_inline_hint(*trailing_newline).to_string()),
             ValidationError::NotPlain { .. } => Some(not_plain_hint().to_string()),
-            ValidationError::EnumViolation { .. } | ValidationError::FormatViolation { .. } => None,
+            ValidationError::FormatViolation { format, .. } => Some(format_hint(format)),
+            ValidationError::EnumViolation { .. } => None,
         }
     }
 
