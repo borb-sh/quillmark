@@ -554,3 +554,31 @@ fn workspace_writes_the_helper_and_prints_the_typst_command() {
         "{command}"
     );
 }
+
+/// A workspace inside the quill would load as quill files on the next read, so
+/// `workspace` refuses one and writes nothing.
+#[test]
+fn workspace_refuses_a_directory_inside_the_quill() {
+    let dir = quill_with_config(
+        "quill:\n  name: w\n  version: 0.1.0\n  backend: typst\n  description: w\n\
+         typst:\n  plate_file: plate.typ\n",
+    );
+    std::fs::write(dir.path().join("plate.typ"), "hi\n").expect("write plate.typ");
+    let quill = dir.path().to_str().unwrap();
+    let inside = dir.path().join("sub/../ws");
+    let out = run(&["workspace", quill, "-o", inside.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(!dir.path().join("ws").exists());
+}
+
+/// A path the shell would split is quoted in the printed command.
+#[test]
+fn workspace_quotes_a_path_with_a_space() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out = dir.path().join("my ws");
+    let stdout = ok(&["workspace", taro().to_str().unwrap(), "-o", out.to_str().unwrap()]);
+    assert!(
+        stdout.contains(&format!("--package-path '{}'", out.join("packages").display())),
+        "{stdout}"
+    );
+}

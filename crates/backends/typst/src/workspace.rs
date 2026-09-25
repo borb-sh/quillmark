@@ -7,7 +7,10 @@ use quillmark_core::{
     quill::{build_transform_schema, Quill},
 };
 
-use crate::{helper, world, SchemaMeta};
+use typst::syntax::package::PackageSpec;
+
+use crate::helper::{self, HELPER_NAME, HELPER_NAMESPACE, HELPER_VERSION};
+use crate::{world, SchemaMeta};
 
 /// The workspace directory `--package-path` names.
 pub const PACKAGES_DIR: &str = "packages";
@@ -20,7 +23,7 @@ pub const FONTS_DIR: &str = "fonts";
 /// `--ignore-embedded-fonts`, compiles the plate as Quillmark does, against one
 /// document's data.
 pub struct Workspace {
-    /// Paths relative to the workspace directory.
+    /// Paths relative to the workspace directory, every component a plain name.
     pub files: Vec<(PathBuf, Vec<u8>)>,
     /// `typst.plate_file`, relative to the quill root.
     pub plate_file: String,
@@ -33,7 +36,7 @@ pub struct Workspace {
 /// package, at the `{namespace}/{name}/{version}` path Typst's package
 /// resolution reads. `fonts/` holds the faces the backend loads: the quill's
 /// own, or the embedded fallback when it ships none. A vendored package whose
-/// manifest the backend skips is skipped here too.
+/// manifest names no valid package spec, or names the helper's, is skipped.
 pub fn workspace(source: &Quill, json_data: &serde_json::Value) -> Result<Workspace, RenderError> {
     if source.backend_id() != "typst" {
         return Err(RenderError::coded(
@@ -56,9 +59,9 @@ pub fn workspace(source: &Quill, json_data: &serde_json::Value) -> Result<Worksp
     let (lib_typ, _) = helper::generate_lib_typ(json_data, &meta)
         .map_err(|e| RenderError::coded(e.code(), e.to_string()))?;
     let helper_dir = PathBuf::from(PACKAGES_DIR)
-        .join(helper::HELPER_NAMESPACE)
-        .join(helper::HELPER_NAME)
-        .join(helper::HELPER_VERSION);
+        .join(HELPER_NAMESPACE)
+        .join(HELPER_NAME)
+        .join(HELPER_VERSION);
     let mut files = vec![
         (helper_dir.join("lib.typ"), lib_typ.into_bytes()),
         (
@@ -67,18 +70,25 @@ pub fn workspace(source: &Quill, json_data: &serde_json::Value) -> Result<Worksp
         ),
     ];
 
+    let helper_spec = format!("@{HELPER_NAMESPACE}/{HELPER_NAME}:{HELPER_VERSION}");
     for package_dir in source.files().list_directories("packages") {
-        let Some(info) = source
+        let Some(spec) = source
             .files()
             .get_file(package_dir.join("typst.toml"))
             .and_then(|toml| world::parse_package_toml(&String::from_utf8_lossy(toml)).ok())
+            .and_then(|info| {
+                format!("@{}/{}:{}", info.namespace, info.name, info.version)
+                    .parse::<PackageSpec>()
+                    .ok()
+            })
+            .filter(|spec| spec.to_string() != helper_spec)
         else {
             continue;
         };
         let target = PathBuf::from(PACKAGES_DIR)
-            .join(&info.namespace)
-            .join(&info.name)
-            .join(&info.version);
+            .join(spec.namespace.as_str())
+            .join(spec.name.as_str())
+            .join(spec.version.to_string());
         let pattern = format!("{}/*", package_dir.to_string_lossy());
         for path in source.files().find_files(&pattern) {
             let (Ok(relative), Some(contents)) = (
@@ -102,5 +112,9 @@ pub fn workspace(source: &Quill, json_data: &serde_json::Value) -> Result<Worksp
         }
     }
 
+    files.retain(|(path, _)| {
+        path.components()
+            .all(|c| matches!(c, std::path::Component::Normal(_)))
+    });
     Ok(Workspace { files, plate_file })
 }

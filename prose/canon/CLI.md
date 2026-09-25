@@ -50,8 +50,10 @@ them.
   `quillmark_typst::workspace`'s files under `-o` and prints the `typst watch`
   command over them: the quill as `--root`, the generated helper and vendored
   packages as `--package-path`, the backend's fonts as `--font-path` with
-  system and embedded fonts ignored. The helper is one document's data, so the plate
-  recompiles live and the document does not.
+  system and embedded fonts ignored, and the PDF written under `-o`. The helper
+  is one document's data, so the plate recompiles live and the document does
+  not. An `-o` inside the quill is refused, since the quill would load it as its
+  own files.
 - **Seeded fallback.** `render` or `workspace` with no `MARKDOWN_FILE` reads the quill's
   seeded document: one card per kind, bodies from `body.example`, every field at
   its `default:`/blank, so a quill renders with no input file. `render`'s output

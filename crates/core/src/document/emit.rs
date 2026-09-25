@@ -346,8 +346,8 @@ fn push_trailer(out: &mut String, trailer: Option<&str>) {
 /// Emit a `key: <value>\n` pair with the key placed per `pos`.
 ///
 /// Empty objects emit `key: {}\n`, empty arrays `key: []\n`, null a bare
-/// `key:\n`. An empty collection's own comments follow it at its children's
-/// indent, where the parser reads them back.
+/// `key:\n`. The comments inside an empty collection or a null follow it at
+/// its children's indent, where the parser reads them back.
 fn emit_field_at(
     out: &mut String,
     key: &str,
@@ -389,6 +389,7 @@ fn emit_field_at(
             out.push(':');
             push_trailer(out, inline_trailer);
             out.push('\n');
+            emit_own_line_pending(out, ctx, 0, pos.map_indent());
         }
         _ => {
             out.push_str(": ");
@@ -784,6 +785,20 @@ mod tests {
             doc.main().payload().get("rows").expect("rows").as_json()[0],
             serde_json::json!({"key": {"a": 1}, "next": 1})
         );
+    }
+
+    /// A comment indented under a null key belongs to that key, and survives.
+    #[test]
+    fn a_comment_under_a_null_key_round_trips() {
+        let src = concat!(
+            "~~~\n$quill: q\n$kind: main\n",
+            "a:\n  # under a\n",
+            "rows:\n",
+            "  - key:\n      # under key\n    next: 1\n",
+            "~~~\n",
+        );
+        let doc = crate::document::Document::parse(src).expect("parse src").document;
+        assert_eq!(doc.to_markdown(), src);
     }
 
     #[test]

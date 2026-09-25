@@ -70,3 +70,48 @@ fn a_quill_of_another_backend_has_no_workspace() {
         Some("typst::wrong_backend")
     );
 }
+
+/// A manifest is untrusted input: one naming no valid spec, or the helper's, is
+/// not exported, so no file lands outside the workspace or over the helper.
+#[test]
+fn a_manifest_cannot_escape_the_workspace_or_replace_the_helper() {
+    let manifest = |ns: &str, name: &str, version: &str| {
+        format!(
+            "[package]\nnamespace = \"{ns}\"\nname = \"{name}\"\nversion = \"{version}\"\n\
+             entrypoint = \"lib.typ\"\n"
+        )
+    };
+    let absolute = manifest("/tmp/escaped", "p", "0.1.0");
+    let parent = manifest("preview", "../../escaped", "0.1.0");
+    let version = manifest("preview", "p", "../../escaped");
+    let helper = manifest("local", "quillmark-helper", "0.1.0");
+    let q = quill(
+        "quill:\n  name: t\n  version: 0.1.0\n  backend: typst\n  description: t\n\
+         typst:\n  plate_file: plate.typ\n",
+        &[
+            ("plate.typ", b"hi\n"),
+            ("packages/a/typst.toml", absolute.as_bytes()),
+            ("packages/a/lib.typ", b"#let x = 1\n"),
+            ("packages/b/typst.toml", parent.as_bytes()),
+            ("packages/b/lib.typ", b"#let x = 1\n"),
+            ("packages/c/typst.toml", version.as_bytes()),
+            ("packages/c/lib.typ", b"#let x = 1\n"),
+            ("packages/d/typst.toml", helper.as_bytes()),
+            ("packages/d/lib.typ", b"#let data = none\n"),
+        ],
+    );
+    let ws = workspace(&q, &serde_json::json!({})).expect("workspace");
+    let packages: Vec<_> = ws
+        .files
+        .iter()
+        .map(|(p, _)| p)
+        .filter(|p| p.starts_with("packages"))
+        .collect();
+    assert_eq!(
+        packages,
+        [
+            std::path::Path::new("packages/local/quillmark-helper/0.1.0/lib.typ"),
+            std::path::Path::new("packages/local/quillmark-helper/0.1.0/typst.toml"),
+        ],
+    );
+}

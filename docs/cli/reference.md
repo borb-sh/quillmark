@@ -205,7 +205,7 @@ quillmark workspace [OPTIONS] <QUILL_PATH> [MARKDOWN_FILE]
 
 **Options:**
 
-- `-o <DIR>` / `--output <DIR>`: Workspace directory (default: `quillmark-workspace`)
+- `-o <DIR>` / `--output <DIR>`: Workspace directory (default: `quillmark-workspace`). A directory inside the quill is refused: the quill would load it as its own files
 - `--today <YYYY-MM-DD>`: What a `today` date field renders as (default: the local date). A plate's `datetime.today()` is Typst's to supply.
 - `--quiet`: Suppress warnings and the command line; errors still print
 
@@ -214,7 +214,7 @@ quillmark workspace [OPTIONS] <QUILL_PATH> [MARKDOWN_FILE]
 ```bash
 quillmark workspace ./my-quill input.md -o ws
 # Workspace written to: ws
-# typst watch --root ./my-quill --package-path ws/packages --font-path ws/fonts --ignore-system-fonts --ignore-embedded-fonts ./my-quill/plate.typ
+# typst watch --root ./my-quill --package-path ws/packages --font-path ws/fonts --ignore-system-fonts --ignore-embedded-fonts ./my-quill/plate.typ ws/plate.pdf
 ```
 
 Tinymist takes the same flags through its `tinymist.typstExtraArgs` setting,
