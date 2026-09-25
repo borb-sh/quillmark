@@ -33,6 +33,9 @@ enum Commands {
 
     /// Display a quill's identity and schema counts
     Info(commands::info::InfoArgs),
+
+    /// Write the files Typst's own tooling needs to compile a quill's plate
+    Workspace(commands::workspace::WorkspaceArgs),
 }
 
 fn main() {
@@ -45,6 +48,7 @@ fn main() {
         Commands::Blueprint(args) => commands::blueprint::execute(args),
         Commands::Validate(args) => commands::validate::execute(args),
         Commands::Info(args) => commands::info::execute(args),
+        Commands::Workspace(args) => commands::workspace::execute(args),
     };
 
     if let Err(e) = result {

@@ -26,6 +26,9 @@ main:
     subject:
       type: string
       description: a scalar, which offers no step at all
+    balance:
+      type: integer
+      description: a negative number, which a bare `#` embed will not lex
     address:
       type: object
       description: a typed dictionary
@@ -69,6 +72,7 @@ main:
 fn data() -> serde_json::Value {
     serde_json::json!({
         "subject": "Widgets",
+        "balance": -12,
         "address": { "city": "Dayton", "street": "1864 Fourth St" },
         "classification": {
             "value": "CUI",
@@ -108,7 +112,7 @@ fn every_read_regions_and_routes_on_the_address_it_names() {
         ),
         ("#data.refs.at(0).org", &["refs.0.org"], &["refs"]),
         (
-            "#data.classification.value\n#repr(data.address)",
+            "#data.classification.value\n#data.address.len()",
             &["classification.value", "address"],
             &[],
         ),
@@ -155,6 +159,62 @@ fn every_read_regions_and_routes_on_the_address_it_names() {
             );
         }
     }
+}
+
+/// A field printed through its dictionary's `ink` keeps its address past each
+/// shape a direct read loses it to: a function parameter, a loop variable over
+/// filtered rows, a destructuring, and a date printed or formatted inside a
+/// helper. A row's `$path` addresses the ink it composes.
+#[test]
+fn ink_keeps_the_address_through_functions_loops_and_patterns() {
+    let session = open(
+        "#import \"@local/quillmark-helper:0.1.0\": data, display, field-region, ink\n\
+         #set page(width: 400pt, height: 200pt, margin: 40pt)\n\
+         #let shout(c) = upper(c)\n\
+         #shout(ink(data).subject)\n\
+         #ink(data).balance\n\
+         #for r in data.refs.filter(r => r.org != \"\") [#ink(r).org / \
+           #field-region(r.at(\"$path\") + \"num\")[No. #r.num.len()]]\n\
+         #let (poc, ..rest) = ink(data.classification)\n\
+         #poc\n\
+         #let due(c) = display(c, \"reply_by\", \"[year]\")\n\
+         #due(data.classification)\n\
+         #ink(data).tags.join(\", \")\n",
+    );
+    let regions = session.regions();
+    for field in [
+        "subject",
+        "balance",
+        "refs.0.org",
+        "refs.0.num",
+        "classification.poc",
+        "classification.reply_by",
+        "tags.0",
+    ] {
+        let r = regions
+            .iter()
+            .find(|r| r.field == field)
+            .unwrap_or_else(|| panic!("{field:?} regions through its ink: {regions:?}"));
+        let (cx, cy) = ((r.rect[0] + r.rect[2]) / 2.0, (r.rect[1] + r.rect[3]) / 2.0);
+        assert_eq!(session.field_at(r.page, cx, cy, 0.0).as_deref(), Some(field));
+    }
+
+    // A date's ink prints its default display, laundered like any other.
+    let session = open(
+        "#import \"@local/quillmark-helper:0.1.0\": data, ink\n\
+         #let stamp(c) = ink(c).reply_by\n\
+         #stamp(data.classification)\n",
+    );
+    let regions = session.regions();
+    let r = regions
+        .iter()
+        .find(|r| r.field == "classification.reply_by")
+        .unwrap_or_else(|| panic!("a date's ink regions: {regions:?}"));
+    let (cx, cy) = ((r.rect[0] + r.rect[2]) / 2.0, (r.rect[1] + r.rect[3]) / 2.0);
+    assert_eq!(
+        session.field_at(r.page, cx, cy, 0.0).as_deref(),
+        Some("classification.reply_by")
+    );
 }
 
 /// A card's container fields ride the same table, keyed through the card's

@@ -168,7 +168,26 @@
 /// dictionary a dict — save the content types, whose authored text is a
 /// canonical rendering and so reference their `_qm_cN` markup block. The rule
 /// holds at every depth. `$cards` carry their per-kind-ordinal `$path` prefix.
+/// Every dictionary with a field that has ink carries it under `$ink`, read
+/// with `ink`, beside its address prefix as `$path`.
 #let data = {data_literal}
+
+/// The printable twin of a dictionary's fields: `ink(data).subject`,
+/// `ink(card).topic`, `ink(row).org`. Each value's glyphs are born in this
+/// generated file, so they keep their schema address through a function
+/// parameter, a loop variable, a destructuring or a package, where a plate's
+/// own `#row.org` keeps it only as a direct read.
+///
+/// A string, number or boolean is the content `#<value>` prints; a content
+/// field is its markup block; a date is its default `display`, and
+/// `display(dict, "due", ..)` formats it; an array is its elements' ink; a
+/// field at `none` has `none`. A field that is itself a dictionary has no ink:
+/// it carries its own. Compute with the dictionary, print its ink.
+#let ink(fields) = {
+  assert(std.type(fields) == dictionary,
+    message: "ink: expected data, a card or a typed dictionary, got " + repr(std.type(fields)))
+  fields.at("$ink", default: (:))
+}
 
 /// Backend-generated content projection for every **present** `date`/`datetime`
 /// field, keyed by schema address. Each value is a `_qm_dN` closure block, so
@@ -178,19 +197,28 @@
 /// A date field's **content** projection, formatted with Typst's own
 /// `datetime.display` patterns. Where `data.<field>` carries the native
 /// `datetime` (arithmetic, comparison, `.year()`, a package that wants a real
-/// date), this places rendered ink whose glyphs carry a region keyed on `field`,
-/// so a date formatted through a `#let` binding, a loop variable, or a vendored
-/// package stays click-to-edit. Use `data.<field>.display(..)` where a plain
-/// `str` is wanted and no region is.
+/// date), this places rendered ink whose glyphs carry a region keyed on the
+/// field, so a date formatted through a `#let` binding, a loop variable, or a
+/// vendored package stays click-to-edit. Use `data.<field>.display(..)` where a
+/// plain `str` is wanted and no region is.
 ///
-/// `field` is the schema address (compose a card field from the card's `$path`:
-/// `display(card.at("$path") + "on", "[year]")`). An address the schema does not
-/// have is a compile error; a known address carrying no date — a blank one, or a
-/// field that is not a date — returns `none`, so a `== none` fallback still
-/// fires.
+/// `field` is the date's schema address (compose a card field from the card's
+/// `$path`: `display(card.at("$path") + "on", "[year]")`), or a dictionary
+/// followed by the date's key within it: `display(row, "due", "[year]")`, the
+/// form for a row or card reached through a loop or a function. An address the
+/// schema does not have is a compile error; a blank date, or a known address
+/// carrying no date, returns `none`, so a `== none` fallback still fires.
 #let display(field, ..args) = {
+  if std.type(field) == dictionary {
+    assert("$path" in field,
+      message: "display: this dictionary carries no $path; pass data, a card, or the typed dictionary that declares the date")
+    let pos = args.pos()
+    assert(pos.len() > 0 and std.type(pos.at(0)) == str,
+      message: "display: a dictionary is followed by the date's key, as in display(row, \"due\", \"[year]\")")
+    return display(field.at("$path") + pos.at(0), ..pos.slice(1), ..args.named())
+  }
   assert(std.type(field) == str,
-    message: "display: field must be a string, got " + repr(std.type(field)))
+    message: "display: field must be a schema address string or a dictionary, got " + repr(std.type(field)))
   assert(_qm-known-path(field),
     message: "display: " + repr(field) + " is not a schema field address; expected a field name, an array element like \"refs.2\", a container property like \"classification.poc\", or a card path composed from the card's $path prefix")
   let render = _qm-display.at(field, default: none)

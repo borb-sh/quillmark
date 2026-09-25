@@ -15,6 +15,8 @@ Plates are plain Typst code. Document metadata reaches the plate as a Typst dict
 
 Every field arrives at its **native** Typst type — a `date` as a `datetime`, a number as an int or float, an `object` as a dict — with one exception: `richtext` and `plaintext` arrive as Typst content, their text already lowered to markup, because the authored text *is* their rendering. This holds at every depth: a `date` declared inside an `object` or an `array` row is the same `datetime` a top-level one is.
 
+`data`, each card, and each typed dictionary or table row also carry a printable copy of their fields under `$ink`, read with `ink(..)`: `#ink(data).title`, `#ink(row).org`. It prints what the field prints and keeps the field's click target in an [editor preview](editor-regions.md#print-with-ink) however the plate passes it around.
+
 ### Dates
 
 A present `type: date` / `type: datetime` field is a native `datetime`; a blank date is `none` (so `#if data.field != none` guards are unchanged):
@@ -25,12 +27,13 @@ A present `type: date` / `type: datetime` field is a native `datetime`; a blank 
 #data.issued < data.due                                               // comparison, arithmetic
 #some-package(date: data.issued)                                      // any datetime-consuming package
 #display("issued", "[day padding:none] [month repr:long] [year]")     // rendered, click-to-edit
+#display(row, "due", "[year]")                                        // the same, for a row or card in hand
 #if data.issued != none { .. }                                        // presence
 ```
 
 `datetime.today()` returns the render date the host supplied, the same date a `today` field renders as. The engine reads no clock: a render given no date fails at `datetime.today()`, where a `today` field renders blank.
 
-Everything except the last two is ordinary Typst, because the value is an ordinary `datetime`. `display(field, ..args)` takes the field's *schema address* rather than its value, and prints the date as `datetime.display` would with the same patterns; an unknown address fails the render, and a blank date gives `none`. Reach for `data.<field>` whenever you want the value itself: math, comparison, components, or handing it to a package. The two print the same ink and differ only in [editor previews](editor-regions.md#dates-display-and-data), where `display` keeps the printed date clickable.
+Everything except the last two is ordinary Typst, because the value is an ordinary `datetime`. `display(field, ..args)` takes the field's *schema address*, or a dictionary and the date's key within it, rather than its value, and prints the date as `datetime.display` would with the same patterns; an unknown address fails the render, and a blank date gives `none`. Reach for `data.<field>` whenever you want the value itself: math, comparison, components, or handing it to a package. The two print the same ink and differ only in [editor previews](editor-regions.md#dates-display-and-data), where `display` keeps the printed date clickable.
 
 ### Which accessor to reach for
 
@@ -105,7 +108,24 @@ The document body is exposed under the `$body` key, accessed via `data.at("$body
 }
 ```
 
-A card block with no `$kind:` line is a *kindless* card: it reaches the plate carrying its authored fields verbatim and no `$kind`, so a bare `card.at("$kind")` panics on it. A card whose `$kind` the quill does not declare reaches the plate the same way, carrying the `$kind` it names. Neither carries `$body`, and the render does not fail on either: `quill.validate(doc)` warns instead. Read the discriminator with a default and let unrecognized kinds fall through.
+A card whose `$kind` the quill does not declare reaches the plate carrying the `$kind` it names and its authored fields verbatim, with no `$body`. The render does not fail on it: `quill.validate(doc)` warns instead. Branch on the kinds the plate knows and let the rest fall through.
+
+## Modules
+
+A plate imports the Quill's other `.typ` files by the paths Typst resolves: a
+bare path from the importing file, a `/`-rooted one from the Quill root.
+`packages/` is the exception; its files load under their package spec.
+
+```
+my-quill/
+├── plate.typ          #import "parts/header.typ": header
+├── theme.typ
+└── parts/
+    └── header.typ     #import "/theme.typ": accent
+```
+
+A module reads `data` by importing the helper itself. Its reads keep their
+click targets under the rules a plate's do ([Editor Regions](editor-regions.md)).
 
 ## Typst Packages
 
@@ -171,10 +191,12 @@ Then reference them by family name (`#set text(font: "CustomFont")`).
 
 ## Images
 
-A plate draws a file under `assets/` by its path from the Quill root:
+A plate draws a file under `assets/` by its path, which resolves like an
+import's: `"assets/logo.svg"` from a plate at the Quill root, `"/assets/logo.svg"`
+from any file.
 
 ```typst
-#image("assets/logo.svg", width: 2cm)
+#image("/assets/logo.svg", width: 2cm)
 ```
 
 **A markdown image in a `richtext` field draws nothing.** `![logo](assets/logo.svg)` in document content reaches no page, and the render warns under `backend::declined_construct`, naming the field and how many images it holds.
@@ -342,6 +364,23 @@ PNG resolution is set via the `ppi` option (default **144**, 2× at 72pt/inch, s
 | 192 | High-DPI screen display |
 | 300 | Standard print quality |
 | 600 | High-quality print / archival |
+
+## Iterating on a Plate
+
+The plate imports a helper Quillmark generates per render, so Typst's own tools
+cannot compile it from the quill alone. `quillmark workspace` writes that helper
+for one document, beside the quill's packages and fonts, and prints the
+`typst watch` command that compiles the plate from them:
+
+```bash
+quillmark workspace ./my-quill input.md -o ws
+typst watch --root ./my-quill --package-path ws/packages --font-path ws/fonts --ignore-system-fonts --ignore-embedded-fonts ./my-quill/plate.typ ws/plate.pdf
+```
+
+Edits to the plate recompile on save. The helper holds `input.md`'s data, so
+rerun `workspace` after changing the document. Tinymist takes the same flags
+through `tinymist.typstExtraArgs`, for completion on `data.` fields and a live
+preview. See the [CLI reference](../cli/reference.md#workspace).
 
 ## Resources
 

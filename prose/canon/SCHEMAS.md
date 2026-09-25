@@ -452,7 +452,7 @@ Validation is implemented by a native walker over `QuillConfig` in `quill/valida
 - Collects all errors (does not short-circuit)
 - Emits path-aware errors for top-level fields and card fields
 - Judges a card's fields only when its `$kind` names a declared kind. A card
-  with no `$kind` or an undeclared one is unclaimed input, and so are body
+  of an undeclared kind is unclaimed input, and so are body
   prose under `body.enabled: false` (a whitespace-only body is empty) and a
   key the schema does not declare.
   `Quill::validate` warns on each, and neither gates render
@@ -803,7 +803,11 @@ its content. A `~~~` line with no blank line above is not an opener, so it reads
 as a code block and warns (`parse::card_fence_missing_blank`). A `~~~` block
 whose payload is not a mapping is a card that cannot be read, and fails, as does
 a `$` key outside the closed set: an unknown `$` key may change what a document
-means, so ignoring one is a guess.
+means, so ignoring one is a guess. A block after the root whose payload names
+no `$kind` fails for the same reason (`parse::missing_kind`): it is a card
+missing its kind line or code fenced with tildes, and reading it as either is a
+guess. An undeclared kind is different: the block says it is a card, and only
+the schema does not know the name.
 
 **Unclaimed renders because it displaces nothing.** Every declared cell still
 resolves from its own ladder, so the page asserts nothing the author did not
@@ -813,7 +817,6 @@ read it.
 
 | Unclaimed input | Code | On the plate |
 |---|---|---|
-| a card with no `$kind` | `validation::kindless_card` | in `$cards`, fields verbatim, no `$kind`, no `$body` |
 | a card whose `$kind` the quill does not declare | `validation::unknown_card` | in `$cards`, fields verbatim, `$kind` as authored, no `$body` |
 | body prose under `body.enabled: false` | `validation::body_disabled` | absent |
 | a variant cell outside the selected world | `validation::out_of_variant` | absent ([Enum variants](#enum-variants)) |

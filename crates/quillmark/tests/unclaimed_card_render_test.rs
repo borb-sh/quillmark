@@ -13,14 +13,12 @@ fn unclaimed_cards_render_and_warn(quill_name: &str) {
         .unwrap_or_else(|e| panic!("{quill_name} should load: {e:?}"));
     let seeded = quill.seed_document().to_markdown();
     let markdown = format!(
-        "{seeded}\n~~~\n$kind: ghost\nnote: unknown\n~~~\n\nGhost body.\n\n\
-         ~~~\nnote: kindless\n~~~\n\nKindless body.\n"
+        "{seeded}\n~~~\n$kind: ghost\nnote: unknown\n~~~\n\nGhost body.\n"
     );
     let doc = Document::parse(&markdown)
         .unwrap_or_else(|e| panic!("document failed to parse: {e:?}\n---\n{markdown}"))
         .document;
-    let kindless = doc.cards().len() - 1;
-    let ghost = kindless - 1;
+    let ghost = doc.cards().len() - 1;
 
     engine
         .render(
@@ -41,7 +39,6 @@ fn unclaimed_cards_render_and_warn(quill_name: &str) {
         d.path.clone()
     };
     assert_eq!(at("validation::unknown_card"), Some(format!("cards[{ghost}]")));
-    assert_eq!(at("validation::kindless_card"), Some(format!("cards[{kindless}]")));
 }
 
 #[test]

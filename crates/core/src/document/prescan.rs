@@ -153,7 +153,7 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             // `strip_prefix` rather than a byte range: user content follows,
             // and a byte index could land inside a multi-byte codepoint.
             let after_dash_full = trimmed.strip_prefix("- ").unwrap_or("");
-            let (after_dash, trailing_comment) = split_trailing_comment(after_dash_full);
+            let (after_dash, trailing_comment) = split_dash_trailing_comment(after_dash_full);
             let after_dash_trimmed = after_dash.trim_start();
             let inline_indent_offset = indent + 2 + (after_dash.len() - after_dash_trimmed.len());
 
@@ -161,6 +161,7 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             // case 4 never sees it. `dash_body_clean`, when set, is the
             // tag-stripped `key:value` rewritten onto the dash line.
             let mut dash_body_clean: Option<String> = None;
+            let mut dash_key_block_scalar = false;
             if after_dash_trimmed.is_empty() {
                 stack.push(Frame {
                     indent: indent + 2,
@@ -172,19 +173,27 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             {
                 let (fill, value_without_tag, had_non_fill_tag) =
                     record_fill_and_tags(&mut out, &after_colon, &key);
+                let mut key_path = item_path.clone();
+                key_path.push(PathSegment::Key(key));
                 if fill {
-                    let mut key_path = item_path.clone();
-                    key_path.push(PathSegment::Key(key.clone()));
-                    out.retired_fills.push(key_path);
+                    out.retired_fills.push(key_path.clone());
                 }
                 if fill || had_non_fill_tag {
                     dash_body_clean = Some(format!("{}:{}", source_key, value_without_tag));
                 }
+                dash_key_block_scalar = is_block_scalar_header(&value_without_tag);
                 stack.push(Frame {
                     indent: inline_indent_offset,
                     path: item_path,
                     child_count: 1,
                 });
+                if opens_nested_block(&value_without_tag) {
+                    stack.push(Frame {
+                        indent: inline_indent_offset + 2,
+                        path: key_path,
+                        child_count: 0,
+                    });
+                }
             }
 
             if let Some(c) = &trailing_comment {
@@ -208,9 +217,12 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             }
 
             // For a `- |-` item the content is indented past the dash, so the
-            // dash line's indent is the block-scalar boundary.
+            // dash line's indent is the block-scalar boundary; for `- key: |` it
+            // is the key's column, where the item's next key sits.
             if is_block_scalar_header(after_dash_trimmed) {
                 block_scalar_indent = Some(indent);
+            } else if dash_key_block_scalar {
+                block_scalar_indent = Some(inline_indent_offset);
             }
             continue;
         }
@@ -237,7 +249,7 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                     stack.pop();
                 }
 
-                if has_empty_inline_value(&value_without_tag) {
+                if opens_nested_block(&value_without_tag) {
                     stack.push(Frame {
                         indent: 2,
                         path: key_path,
@@ -300,7 +312,7 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                 cleaned.push(line.to_string());
             }
 
-            if has_empty_inline_value(&value_without_tag) {
+            if opens_nested_block(&value_without_tag) {
                 stack.push(Frame {
                     indent: indent + 2,
                     path: key_path,
@@ -358,11 +370,12 @@ fn is_block_scalar_header(value: &str) -> bool {
     t.starts_with('|') || t.starts_with('>')
 }
 
-/// `true` when the value portion of a `key:` line is empty: real value is on
-/// subsequent indented lines.
-fn has_empty_inline_value(after_colon: &str) -> bool {
+/// `true` when the indented lines under a `key:` line belong to its value: the
+/// value is on those lines, or it is an empty flow collection (`[]`, `{}`)
+/// whose own comments sit under it.
+fn opens_nested_block(after_colon: &str) -> bool {
     let (v, _) = split_trailing_comment(after_colon);
-    v.trim().is_empty()
+    matches!(v.trim(), "" | "[]" | "{}")
 }
 
 /// Byte index of the `:` closing `line`'s leading key, or `None` when `line`
@@ -488,6 +501,21 @@ fn split_trailing_comment(value: &str) -> (String, Option<String>) {
         // characters; only the whitespace-then-`#` rule applies.
         _ => find_comment_from(value, 0),
     }
+}
+
+/// [`split_trailing_comment`] for a sequence item's text after its `- `. When the
+/// item opens a mapping with its first `key:`, the value after the colon is
+/// what may open a quoted scalar.
+fn split_dash_trailing_comment(after_dash: &str) -> (String, Option<String>) {
+    let trimmed = after_dash.trim_start();
+    if !trimmed.starts_with('#') {
+        if let Some((_, _, after_colon)) = split_nested_key(trimmed) {
+            let head = &after_dash[..after_dash.len() - after_colon.len()];
+            let (value, comment) = split_trailing_comment(&after_colon);
+            return (format!("{head}{value}"), comment);
+        }
+    }
+    split_trailing_comment(after_dash)
 }
 
 /// Byte index of the closing quote of the quoted scalar opening at `start`,
@@ -818,6 +846,32 @@ mod tests {
                 text: "comment".to_string(),
                 inline: false,
             }]
+        );
+    }
+
+    /// An empty flow collection's comments sit under it, whether its key opens
+    /// its own line or a sequence item's.
+    #[test]
+    fn a_comment_under_an_empty_flow_collection_is_inside_it() {
+        let input = "rows: []\n  # - a\nrow:\n  - key: {}\n      # b\n    next: 1\n";
+        let out = prescan_fence_content(input);
+        let key = |k: &str| PathSegment::Key(k.to_string());
+        assert_eq!(
+            out.nested_comments,
+            vec![
+                NestedComment {
+                    container_path: vec![key("rows")],
+                    position: 0,
+                    text: "- a".to_string(),
+                    inline: false,
+                },
+                NestedComment {
+                    container_path: vec![key("row"), PathSegment::Index(0), key("key")],
+                    position: 0,
+                    text: "b".to_string(),
+                    inline: false,
+                },
+            ]
         );
     }
 

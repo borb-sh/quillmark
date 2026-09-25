@@ -1842,6 +1842,28 @@ pub fn rebase(
     serialize_or_throw(&out, "rebase")
 }
 
+/// Whether `content` satisfies the `inline` constraint of `richtext` and
+/// `plaintext`: one `Para` line, in no container, with no islands. Judged on
+/// the normalized content, which is what a write stores. Throws if `content` is
+/// not canonical content.
+#[wasm_bindgen(js_name = isInline)]
+pub fn is_inline(
+    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
+) -> Result<bool, JsValue> {
+    Ok(js_to_content(content, "isInline")?.is_inline())
+}
+
+/// Whether `content` satisfies the `plaintext` constraint: no marks, no
+/// islands, every line a `Para` in no container. Judged on the normalized
+/// content, which is what a write stores. Throws if `content` is not canonical
+/// content.
+#[wasm_bindgen(js_name = isPlain)]
+pub fn is_plain(
+    #[wasm_bindgen(unchecked_param_type = "Content")] content: JsValue,
+) -> Result<bool, JsValue> {
+    Ok(js_to_content(content, "isPlain")?.is_plain())
+}
+
 #[wasm_bindgen(typescript_custom_section)]
 const DOCPATH_TS: &'static str = r#"
 /**
@@ -1892,11 +1914,11 @@ export interface ResolvedMain {
 
 /**
  * One composable card's resolved rows in declaration order, with its authored
- * `kind` (`null` for an unknown-kind card), its document-array `index`, and its
+ * `kind` (an undeclared one included), its document-array `index`, and its
  * body row: `null` when the kind enables no body.
  */
 export interface ResolvedCard {
-    kind: string | null;
+    kind: string;
     index: number;
     fields: ResolvedField[];
     body: ResolvedField | null;

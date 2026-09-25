@@ -12,6 +12,7 @@ use proptest::prelude::*;
 use serde_json::{json, Value};
 
 use crate::document::{Card, CardWire, Document};
+use crate::value::QuillValue;
 
 /// The keys the decoders dispatch on, so generated objects reach past the first
 /// branch; the noise arm keeps the rest of the space.
@@ -176,5 +177,62 @@ proptest! {
 
         prop_assert_eq!(&doc_a, &doc_b);
         prop_assert_eq!(&emit1, &doc_b.to_markdown());
+    }
+}
+
+/// Multi-line text built from what a literal block must refuse or hold verbatim:
+/// edge and line-end whitespace, YAML indicators, a fence, a comment-shaped
+/// line, and the line breaks YAML reads that `\n` does not.
+fn arb_lines() -> impl Strategy<Value = String> {
+    prop::collection::vec(
+        prop_oneof![
+            Just("a"),
+            Just("# h"),
+            Just("- "),
+            Just("k: v"),
+            Just("~~~"),
+            Just("|"),
+            Just("\""),
+            Just("\\"),
+            Just(" "),
+            Just("\t"),
+            Just("\n"),
+            Just("\n\n"),
+            Just("\r"),
+            Just("\u{85}"),
+            Just("\u{2028}"),
+            Just("\u{FEFF}"),
+        ],
+        0..14,
+    )
+    .prop_map(|parts| parts.concat())
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(500))]
+
+    /// Every position a scalar is written at: a top-level field, a nested key,
+    /// a sequence item, a sequence item's dash-line key and its next key, and
+    /// the containers under those two.
+    #[test]
+    fn a_multi_line_string_round_trips_at_every_depth(text in arb_lines()) {
+        let mut doc = parse_or_skip("~~~\n$quill: q\n$kind: main\n~~~\n").expect("a root");
+        let fields = [
+            ("top", json!(text)),
+            ("map", json!({ "inner": text })),
+            ("seq", json!([text])),
+            ("rows", json!([{ "first": text, "next": text }])),
+            ("nest", json!([{ "first": { "inner": text }, "next": [text] }])),
+        ];
+        for (key, value) in fields {
+            doc.main_mut().store_field(key, QuillValue::from_json(value)).expect("stored");
+        }
+
+        let emitted = doc.to_markdown();
+        let back = Document::parse(&emitted)
+            .unwrap_or_else(|e| panic!("re-parse failed: {e}\nEmitted:\n{emitted}"))
+            .document;
+        prop_assert_eq!(&doc, &back, "Emitted:\n{}", emitted);
+        prop_assert_eq!(&emitted, &back.to_markdown(), "emit not idempotent");
     }
 }

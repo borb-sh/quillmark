@@ -14,6 +14,8 @@ import {
   rebase,
   mapPos,
   mapMarks,
+  isInline,
+  isPlain,
   parseDocPath,
   formatDocPath,
   formatDiagnostic,
@@ -454,6 +456,18 @@ describe('Content codec: importMarkdown / exportMarkdown / rebase / mapPos', () 
   })
 })
 
+describe('Content predicates: isInline / isPlain', () => {
+  it('judge the inline and plaintext constraints on a Content, throwing on a non-content', () => {
+    expect(isInline(importMarkdown('One **bold** line.'))).toBe(true)
+    expect(isInline(importMarkdown('One.\n\nTwo.'))).toBe(false)
+    expect(isInline(importMarkdown('- item'))).toBe(false)
+    expect(isPlain(importMarkdown('One.\n\nTwo.'))).toBe(true)
+    expect(isPlain(importMarkdown('One **bold** line.'))).toBe(false)
+    expect(() => isInline('One.')).toThrow()
+    expect(() => isPlain({ not: 'a content' })).toThrow()
+  })
+})
+
 describe('Document-model path: parseDocPath / formatDocPath', () => {
   // Every emitted shape routes on tagged segments, not on a regex.
   const cases = [
@@ -544,7 +558,6 @@ describe('formatDiagnostic', () => {
 })
 
 describe('Document-model path: pathFor / cardPath', () => {
-  // Card 0 carries a `$kind`, card 1 does not: the two card roots.
   const MD = `~~~card-yaml
 $quill: test_quill
 $kind: main
@@ -558,12 +571,6 @@ from: x
 ~~~
 
 Kinded card.
-
-~~~card-yaml
-from: y
-~~~
-
-Kindless card.
 `
 
   it('mints every address the Addr surface can name', () => {
@@ -575,14 +582,10 @@ Kindless card.
       [doc.pathFor({}), 'main.body'],
       [doc.pathFor('intro'), 'main.intro'],
       [doc.pathFor({ field: 'intro' }), 'main.intro'],
-      // A card root is kind-qualified off the live card's stored `$kind`…
+      // A card root is kind-qualified off the live card's stored `$kind`.
       [doc.pathFor({ card: 0 }), 'cards.note[0].body'],
       [doc.pathFor({ card: 0, field: 'from' }), 'cards.note[0].from'],
       [doc.cardPath(0), 'cards.note[0]'],
-      // …and unknown-kind when the card carries none.
-      [doc.pathFor({ card: 1 }), 'cards[1].body'],
-      [doc.pathFor({ card: 1, field: 'from' }), 'cards[1].from'],
-      [doc.cardPath(1), 'cards[1]'],
     ]
     for (const [minted, expected] of rows) {
       expect(minted).toBe(expected)

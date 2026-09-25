@@ -6,7 +6,7 @@
 
 Plates get document data through a backend-injected virtual Typst package, not a template engine. Data flows in two stages: `Quill::compile_data()` produces validated, blank-filled JSON in which content fields are canonical `Content` objects; `Backend::open()` generates the helper's `lib.typ`, walking each value beside its transform-schema node to lower it, no per-field markdown re-parse.
 
-One rule governs the lowering, at every depth: **a declared type means the same thing wherever it is declared, and every type lowers to its native Typst value unless it has a canonical rendering.** Only the content types have one — the authored text — so only they lower to content; a date lowers to a native `datetime`, because every rendering of `2026-01-02` is a typographic decision the plate owns. Backend-generated *ink* is reached by address instead (`display(addr, ..)`), which is also what makes it laundering-proof.
+One rule governs the lowering, at every depth: **a declared type means the same thing wherever it is declared, and every type lowers to its native Typst value unless it has a canonical rendering.** Only the content types have one — the authored text — so only they lower to content; a date lowers to a native `datetime`, because every rendering of `2026-01-02` is a typographic decision the plate owns. Backend-generated *ink* rides beside the value instead, under each dictionary's `$ink` (`ink(row).org`), or is reached by address (`display(addr, ..)`); either way it is born in generated source, which is what makes it laundering-proof.
 
 ## Overview
 
@@ -25,11 +25,11 @@ One rule governs the lowering, at every depth: **a declared type means the same 
 ### Data Shape
 
 - Document-level metadata uses `$`-prefixed keys: `$quill` (quill ref string), `$body` (root prose body, a canonical `Content` object, present when the main enables a body), `$cards` (array of card objects)
-- Each card object carries its user fields flat, a `$kind` discriminator when the card authors one, and a `$body` (card prose body, a content object) when the card's kind enables a body
+- Each card object carries its user fields flat, its `$kind` discriminator, and a `$body` (card prose body, a content object) when the card's kind enables a body
 - **`$`-metadata is present exactly where the schema defines it** ("absent on
   undefined"). Which definition gates the key splits the rule:
-  - `$kind` is *document-defined*: present iff the card authors one, absent for
-    a kindless card.
+  - `$kind` is *document-defined*: every card authors one, whether or not the
+    quill declares it.
   - `$body` is *schema-defined*: present iff a declared kind enables a body,
     absent for a body-disabled or unknown kind. A present `$body` is always a
     content object, never a raw object needing a type check.
@@ -37,7 +37,8 @@ One rule governs the lowering, at every depth: **a declared type means the same 
   Absence is the signal. Read `$`-metadata with a total accessor:
   `card.at("$kind", default: none)`, `card.at("$body", default: "")`: never a
   bare `card.$body`
-- A card no declared kind claims (its `$kind` missing or undeclared) keeps its place in `$cards`, fields verbatim and uncoerced, so a plate's `$cards` loop falls through on a kind it does not know ([SCHEMAS.md](SCHEMAS.md#what-blocks-a-render))
+- A card whose `$kind` the quill does not declare keeps its place in `$cards`, fields verbatim and uncoerced, so a plate's `$cards` loop falls through on a kind it does not know ([SCHEMAS.md](SCHEMAS.md#what-blocks-a-render))
+- `data`, each card, and each typed dictionary carry `$ink`, the [ink twin](#the-ink-twin) of their fields, wherever at least one field has ink, and with it `$path`, their address prefix (`""` on `data`, `refs.0.` on a row). A data key spelling `$ink` or `$path` in any of them is dropped; a dictionary the schema does not type passes through verbatim, keys included
 - User payload fields sit flat at the root next to the `$` keys; field names match `[a-z_][a-z0-9_]*` and therefore never collide with `$` metadata
 
 #### A `matrix` field
@@ -67,7 +68,8 @@ byte-equal source.
   and never prints a stranded answer.
 
 Member cells are ordinary addresses: `qualifications.flight_cc.held` regions and
-binds like any leaf. `title` is written by the projection rather than held as a
+binds like any leaf. Each member carries its own `$ink`; the matrix, holding only
+members, carries none, so its keys are exactly its roster. `title` is written by the projection rather than held as a
 cell, so it carries none.
 
 ## Typst Helper Package
@@ -78,6 +80,7 @@ The Typst backend injects a virtual package `@local/quillmark-helper:<version>` 
 #import "@local/quillmark-helper:0.1.0": data
 
 #data.title                  // plain field access
+#ink(data).title             // the same text, keeping its click target anywhere
 #data.at("$body")            // root $body: a content object when the main enables a body
 #data.date.year()            // date/datetime fields are native datetimes
 #display("date", "…")        // …and `display` places the click-to-edit rendering
@@ -126,11 +129,14 @@ Helper contents (generated in `backends/typst/helper.rs` from `lib.typ.template`
   A non-blank date the shared parsers reject is a `backend::invalid_date` render
   error raised from the walk, at the site that parses it, which is what makes the
   check total over depth.
+- **`ink(dict)`** → the dictionary's `$ink` twin, `(:)` where it has none. See
+  [The ink twin](#the-ink-twin).
 - **`display(field, ..args)`** → content, the one address-keyed projection.
   `_qm-display` binds one `#let _qm_dN = (..args) => text(datetime(..).display(..args))`
   closure per present date, keyed by schema address (`issued`, `stamps.2`,
   `contact.reply_by`, `$cards.<kind>.<n>.<field>`; compose a card address from
-  the card's `$path`), and `display` calls it. The address is validated like any
+  the card's `$path`), and `display` calls it. `display(dict, key, ..)` spells
+  the address from the dictionary's `$path`. The address is validated like any
   other (below), so a typo is a compile error rather than ink that quietly goes
   missing; `none` comes back for a known address carrying no date — a blank one,
   or a field that is not a date — so a `== none` fallback still fires. Formatting
@@ -144,6 +150,38 @@ Helper contents (generated in `backends/typst/helper.rs` from `lib.typ.template`
   per cell gives a card's date the per-instance identity a shared `card.<field>`
   loop variable lacks. A native `datetime` handed to a package cannot do that:
   the ink is born wherever the package places it.
+
+### The ink twin
+
+A value in `data` is native, for computing; its ink is content born in
+`lib.typ`, for printing. `Codegen::emit_value` returns both from one walk, and
+each dictionary it closes gathers its fields' ink under a leading `$ink` key:
+
+| field | its ink |
+|---|---|
+| string, number, boolean | `[#<literal>]` inline, its window the block: it prints what `#<value>` prints |
+| content | the `_qm_cN` binding the data cell holds |
+| date | `_qm_dN()`: the closure `display` calls, called with no pattern |
+| array of those | the array of their ink |
+| any of those at `none` | `none` |
+| typed dictionary, and an array of them | none: each carries its own `$ink` |
+
+Only declared fields have ink, so `$quill`, `$kind` and undeclared keys have
+none. A date's is its default display, so every ink prints as `#ink(x).f`; a
+pattern goes through `display(x, "f", ..)`, which finds the closure by the
+dictionary's `$path`. The twin rides on the dictionary rather than on `data` alone because rows
+are what plates filter, sort and hand to functions: a twin kept apart loses the
+pairing at the first `filter`. The cost is two visible keys, `$ink` and
+`$path`, which dictionary equality (and so `contains` and `dedup`), `keys()` and
+spreading see.
+
+A scalar's ink window has no segments, so its whole first placement is one
+region, as a plate scalar site's is ([PREVIEW.md](PREVIEW.md)). `data`, each
+card and each typed dictionary is wrapped in a `{..}` code block: Typst's
+incremental reparser swaps such a block alone, and an edit changes a field and
+its ink, so an edit inside a card or a row reparses that block. A top-level
+field's edit spans `data`'s own `$ink` and the field, with `$cards` between
+them, and reparses the whole literal.
 
 ### Schema addresses
 

@@ -291,15 +291,39 @@ struct Classifier<'a> {
     world: &'a QuillWorld,
     helper: &'a Source,
     windows: &'a [FieldWindow],
+    by_file: HashMap<FileId, FileWindows>,
+    /// Built on the first helper span resolved: see [`node_ranges`].
+    helper_nodes: Option<Vec<(u64, Range<usize>)>>,
     memo: HashMap<Span, Option<(FileId, Range<usize>)>>,
+}
+
+/// One file's windows, as indices in table order. The helper's are disjoint and
+/// ascending, one per declared scalar in the data, so a glyph finds its window
+/// by binary search rather than a scan of the whole table.
+struct FileWindows {
+    order: Vec<usize>,
+    disjoint: bool,
 }
 
 impl<'a> Classifier<'a> {
     fn new(world: &'a QuillWorld, helper: &'a Source, windows: &'a [FieldWindow]) -> Self {
+        let mut by_file: HashMap<FileId, FileWindows> = HashMap::new();
+        for (i, w) in windows.iter().enumerate() {
+            let fw = by_file.entry(w.file).or_insert(FileWindows {
+                order: Vec::new(),
+                disjoint: true,
+            });
+            if let Some(&last) = fw.order.last() {
+                fw.disjoint &= windows[last].range.end <= w.range.start;
+            }
+            fw.order.push(i);
+        }
         Self {
             world,
             helper,
             windows,
+            by_file,
+            helper_nodes: None,
             memo: HashMap::new(),
         }
     }
@@ -314,7 +338,16 @@ impl<'a> Classifier<'a> {
             DiagSpanKind::Detached => None,
             DiagSpanKind::Number { id, num, sub_range } => {
                 let range = if id == self.helper.id() {
-                    self.helper.range(num, sub_range)
+                    let helper = self.helper;
+                    let nodes = self.helper_nodes.get_or_insert_with(|| node_ranges(helper));
+                    let raw = span.into_raw().get();
+                    nodes
+                        .binary_search_by_key(&raw, |(k, _)| *k)
+                        .ok()
+                        .map(|i| {
+                            let overall = nodes[i].1.clone();
+                            sub_range.map_or(overall.clone(), |s| s.to_absolute(overall.start))
+                        })
                 } else {
                     self.world
                         .source(id)
@@ -331,14 +364,25 @@ impl<'a> Classifier<'a> {
 
     /// Resolves to the innermost segment whose `generated` range contains the
     /// span, or `None` for inter-segment / segment-less ink.
+    ///
+    /// The first window in table order containing the span: on a disjoint file
+    /// the only candidate is the last one starting at or before it.
     fn classify_seg(&mut self, span: Span) -> Option<(usize, Option<usize>)> {
         let (file, range) = self.range_of(span)?;
-        self.windows
-            .iter()
-            .position(|win| {
-                win.file == file && win.range.start <= range.start && range.end <= win.range.end
-            })
-            .map(|i| (i, self.seg_of(i, &range)))
+        let fw = self.by_file.get(&file)?;
+        let contains = |i: usize| {
+            let win = &self.windows[i].range;
+            win.start <= range.start && range.end <= win.end
+        };
+        let window = if fw.disjoint {
+            let k = fw
+                .order
+                .partition_point(|&i| self.windows[i].range.start <= range.start);
+            k.checked_sub(1).map(|k| fw.order[k]).filter(|&i| contains(i))
+        } else {
+            fw.order.iter().copied().find(|&i| contains(i))
+        };
+        window.map(|i| (i, self.seg_of(i, &range)))
     }
 
     /// Segments are `generated`-ordered and disjoint, so the sole candidate is
@@ -348,6 +392,30 @@ impl<'a> Classifier<'a> {
         let i = segs.partition_point(|s| s.generated.start <= range.start);
         (i > 0 && segs[i - 1].generated.end >= range.end).then(|| i - 1)
     }
+}
+
+/// Every node of `source` as `(raw span, byte range)`, sorted by span. A file's
+/// numbered spans ascend in pre-order, so the walk emits them sorted; this is
+/// `Source::range` found by binary search, where `Source::range` walks each
+/// level's siblings in turn and a data literal's thousand-row array makes that
+/// walk quadratic over a query's glyphs.
+fn node_ranges(source: &Source) -> Vec<(u64, Range<usize>)> {
+    fn walk(node: &typst::syntax::SyntaxNode, at: usize, out: &mut Vec<(u64, Range<usize>)>) {
+        if !node.span().is_detached() {
+            out.push((node.span().into_raw().get(), at..at + node.len()));
+        }
+        let mut child_at = at;
+        for child in node.children() {
+            walk(child, child_at, out);
+            child_at += child.len();
+        }
+    }
+    let mut out = Vec::new();
+    walk(source.root(), 0, &mut out);
+    if !out.is_sorted_by_key(|(k, _)| *k) {
+        out.sort_by_key(|(k, _)| *k);
+    }
+    out
 }
 
 /// Records `page`'s ink against the marker stack, which pages before it may
