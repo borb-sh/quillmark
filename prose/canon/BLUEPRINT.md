@@ -58,8 +58,10 @@ follow:
   construction**: the emitter that produced it is the same one round-trip uses.
 - The blueprint inherits `to_markdown`'s representation choices: a **one-space**
   ` # ` inline-comment gap, **block-style** sequences at every level (no inline
-  flow), and **inline double-quoted** multi-line strings (no `|`/`>` block
-  scalars). The sections below reflect those choices.
+  flow), and multi-line strings as **`|` literal blocks** where one reads back
+  as the same string, double-quoted elsewhere
+  ([markdown-spec.md](../references/markdown-spec.md) §9).
+  The sections below reflect those choices.
 
 ## Annotation grammar
 
@@ -277,12 +279,14 @@ bio: # richtext<markdown>
 The LLM writes its markdown content into the cell (a quoted scalar or a block
 scalar, the consumer's choice).
 
-When a `default:` is configured, the field renders its
-default as an **inline double-quoted scalar** with `\n` escapes: the canonical
-`to_markdown` string form (no `|`/`>` block scalars):
+When a `default:` is configured, the field renders its default in the
+canonical `to_markdown` string form, a multi-line one as a literal block:
 
 ```
-bio: "## About me\n\n<body>" # richtext<markdown>
+bio: |- # richtext<markdown>
+  ## About me
+
+  <body>
 ```
 
 If the default is empty (`default: ""`), the cell is the inline empty string
