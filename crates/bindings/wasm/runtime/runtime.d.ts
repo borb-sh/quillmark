@@ -21,6 +21,8 @@ import type {
 	rebase,
 	mapPos,
 	mapMarks,
+	isInline,
+	isPlain,
 	parseDocPath,
 	formatDocPath,
 	formatDiagnostic
@@ -41,6 +43,8 @@ export interface CoreSurface {
 	rebase: typeof rebase;
 	mapPos: typeof mapPos;
 	mapMarks: typeof mapMarks;
+	isInline: typeof isInline;
+	isPlain: typeof isPlain;
 	parseDocPath: typeof parseDocPath;
 	formatDocPath: typeof formatDocPath;
 	formatDiagnostic: typeof formatDiagnostic;
