@@ -46,12 +46,13 @@ fn read_commands_print_the_quill() {
     ok(&["validate", quill.to_str().unwrap()]);
 }
 
-/// A document `usaf_memo` renders with a warning: a key it does not declare.
+/// A document `usaf_memo` renders with a warning: a number where its
+/// `references` hold richtext, which conform leaves as authored.
 fn warning_doc(dir: &tempfile::TempDir) -> PathBuf {
     let doc = dir.path().join("warning.md");
     std::fs::write(
         &doc,
-        "~~~card-yaml\n$quill: usaf_memo\n$kind: main\nstray: x\n~~~\n\none\n",
+        "~~~card-yaml\n$quill: usaf_memo\n$kind: main\nreferences: [42]\n~~~\n\none\n",
     )
     .expect("write the input document");
     doc
@@ -211,7 +212,8 @@ fn render_writes_a_pdf_creating_parent_directories() {
 }
 
 /// A warning line on stdout does not garble a message, it corrupts the PDF the
-/// caller is redirecting.
+/// caller is redirecting. `render` parses through the bound door, so the value
+/// conform cannot rest warns.
 #[test]
 fn chatter_does_not_contaminate_the_stdout_artifact() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -236,7 +238,7 @@ fn chatter_does_not_contaminate_the_stdout_artifact() {
         "stdout has trailing bytes after the PDF trailer"
     );
     assert!(
-        stderr.contains("validation::unknown_field"),
+        stderr.contains("conform::field_decode"),
         "the warning went somewhere other than stderr: {stderr}"
     );
 }
