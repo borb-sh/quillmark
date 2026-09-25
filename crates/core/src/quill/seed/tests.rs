@@ -57,7 +57,7 @@ fn empty_document_equals_the_hand_written_two_line_document() {
 }
 
 #[test]
-fn seed_main_commits_the_body_example_and_no_field() {
+fn seed_main_commits_neither_an_example_nor_a_field() {
     let quill = quill_from_yaml(QUILL);
     let card = quill.seed_main();
 
@@ -74,7 +74,11 @@ fn seed_main_commits_the_body_example_and_no_field() {
         "main card must carry $kind: main"
     );
 
-    assert_eq!(card.body_markdown(), "Main body text.");
+    assert_eq!(
+        card.body_markdown(),
+        "",
+        "`body.example` is guide text, never a seeded body"
+    );
 }
 
 #[test]
@@ -174,7 +178,8 @@ card_kinds:
 "#,
     );
 
-    let card = quill.seed_card("data", None).expect("known kind");
+    let ov = overlay(json!({ "$body": "Overlay body." }));
+    let card = quill.seed_card("data", Some(&ov)).expect("known kind");
     assert_eq!(
         card.body_markdown(),
         "",

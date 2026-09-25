@@ -281,9 +281,9 @@ impl PyQuill {
     }
 
     /// Seed a starter `Document` from the schema: the main card plus one instance
-    /// of each composable card kind, each committing its fields' `example` values
-    /// and leaving every other field absent (interpolated at render). A field
-    /// with both an `example` and a `default` renders its example.
+    /// of each composable card kind, each body empty and every field absent
+    /// (interpolated at render as `default`, else the field's blank). No
+    /// `example` is committed (a field's or `body.example`).
     fn seed_document(&self) -> PyDocument {
         PyDocument {
             inner: self.inner.seed_document(),
@@ -298,8 +298,9 @@ impl PyQuill {
     }
 
     /// Seed a starter composable card of the given kind (carries `$kind`),
-    /// layering an optional per-kind seed `overlay` over the schema-example base
-    /// (`overlay › example › absent`); `None` if `card_kind` is not declared.
+    /// committing an optional per-kind seed `overlay`'s fields and `$body`
+    /// (`overlay › absent`, body `overlay › empty`); `None` if `card_kind` is
+    /// not declared.
     /// Pass `document.seed_overlay(card_kind)` as `overlay` so a card added to a
     /// template-derived document inherits its curated starting values.
     #[pyo3(signature = (card_kind, overlay=None))]

@@ -66,7 +66,7 @@ doc     = quill.parse(markdown)           # the bound door: parse + conform, the
 diags   = quill.conform(doc)              # the same walk in place on a transported document ([] = at rest)
 diags   = quill.validate(parsed)          # list of validation::* diagnostic dicts ([] = valid)
 empty   = quill.empty_document()          # the empty Document: $quill + $kind: main, nothing committed
-seed    = quill.seed_document()           # starter Document: one card per kind, bodies from `body.example`
+seed    = quill.seed_document()           # starter Document: one card per kind, bodies empty
 main    = quill.seed_main()               # just the $kind: main card (dict, like doc.main)
 card    = quill.seed_card("note")         # one starter composable card (dict), None if kind undeclared
 

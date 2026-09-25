@@ -534,7 +534,7 @@ second annotated string.
 
 The **blueprint** column is this doc's contract (above). The **seeding**
 column is owned by [SCHEMAS.md](SCHEMAS.md) § "Document seeding": every field
-absent, bodies from `body.example`, so a seeded document renders each field at
+absent, bodies empty, so a seeded document renders each field at
 the render floor's `default: → blank` ([SCHEMAS.md](SCHEMAS.md)
 § "Blank-filled render").
 

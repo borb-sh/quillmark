@@ -24,7 +24,7 @@ const LONGEST_DATE_PT: f32 = 96.32;
 const DEFAULT_FONT_SIZE_PT: f32 = 12.0;
 
 fn seeded_memo_pdf() -> Vec<u8> {
-    // One card per declared kind, each blank: both dates are unset, which is
+    // One card per declared kind, each field blank: both dates are unset, which is
     // the case the widgets exist for.
     let (engine, quill, parsed) = common::seeded_memo();
     let result = engine

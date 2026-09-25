@@ -82,7 +82,7 @@ impl std::fmt::Display for BlockConstruct {
 }
 
 /// The keys [`BodyCardSchema`] deserializes, for the hint on a rejected
-/// `body:` section. `example_content` is `#[serde(skip)]` and unauthorable.
+/// `body:` section.
 pub(crate) const BODY_CARD_SCHEMA_KEYS: &[&str] = &["enabled", "example", "unsupported"];
 
 /// Body namespace configuration for a card kind
@@ -96,12 +96,6 @@ pub struct BodyCardSchema {
     /// Has no effect when `enabled` is false.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub example: Option<String>,
-    /// Canonical-content form of [`example`](Self::example), imported once at
-    /// quill load and cached here. `None` when there is no example or the schema
-    /// was built outside the loader, in which case consumers fall back to
-    /// importing `example`.
-    #[serde(skip)]
-    pub example_content: Option<QuillValue>,
     /// The block constructs this quill's plate does not typeset in this body.
     /// An editor reads it off the schema and declines the gesture before the
     /// author makes it; content arriving by another door draws

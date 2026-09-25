@@ -257,12 +257,16 @@ fn conform_is_a_no_op_on_seeds() {
     assert!(diags.is_empty(), "{diags:?}");
     assert_eq!(bytes(&doc), before, "seed_document is already at rest");
 
-    let overlay = SeedOverlay::from_json(&json!({ "caption": "overlaid *text*" })).unwrap();
+    let overlay = SeedOverlay::from_json(
+        &json!({ "caption": "overlaid *text*", "$body": "overlaid **body**" }),
+    )
+    .unwrap();
     let card = quill.seed_card("entry", Some(&overlay)).expect("kind exists");
     assert_eq!(
         card.payload().get("caption").unwrap().as_json(),
         &json!("overlaid *text*")
     );
+    assert_eq!(card.body_markdown(), "overlaid **body**");
     let mut doc2 = quill.seed_document();
     doc2.push_card(card).unwrap();
     let before2 = bytes(&doc2);

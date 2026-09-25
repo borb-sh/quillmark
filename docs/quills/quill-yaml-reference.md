@@ -787,7 +787,7 @@ scalar, which is fine for a few lines and wrong for a memo's worth.
 | Property  | Type   | Description |
 |-----------|--------|-------------|
 | `enabled`     | bool   | Whether the body editor is enabled (default: true). When false, consumers must not accept or store body content for this card kind. |
-| `example`     | string | Default body text used when seeding a card of this kind and shown in the blueprint body region; falls back to `Write <kind> body here.` when absent. |
+| `example`     | string | Guide text shown in the blueprint body region, and an editor may show it as the empty body's placeholder; never seeded. Falls back to `Write <kind> body here.` when absent. |
 
 #### `title`
 
@@ -851,7 +851,7 @@ Loading this draws `quill::bodiless_card_kind`, which asks whether the kind is a
 
 #### `body.example`
 
-Default body text seeded into a card of this kind and shown verbatim in the blueprint body region (it falls back to `Write <kind> body here.` when absent). Has no effect when `body.enabled` is false.
+Guide text for this kind's body, shown verbatim in the blueprint body region (it falls back to `Write <kind> body here.` when absent). An editor may show it as the empty body's placeholder. Seeding never commits it: starter text goes in a template document's own body, or, for a card added by `seed_card`, in the main card's `$seed.<kind>.$body`. Has no effect when `body.enabled` is false.
 
 ```yaml
 card_kinds:
