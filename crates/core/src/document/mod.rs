@@ -164,6 +164,13 @@ pub(crate) fn canonical_richtext_value(
     Ok(quillmark_content::serial::to_canonical_value(&content))
 }
 
+/// Whether an `inline` refusal of plain content is one line plus the empty line
+/// a trailing `\n` opens: the value a clip-chomped YAML `|` scalar yields, fixed
+/// by `|-` or a plain scalar.
+pub(crate) fn is_line_with_trailing_newline(content: &quillmark_content::model::Content) -> bool {
+    content.lines.len() == 2 && content.text.ends_with('\n')
+}
+
 pub mod assemble;
 pub mod dto;
 pub mod edit;

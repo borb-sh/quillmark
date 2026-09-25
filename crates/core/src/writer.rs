@@ -542,6 +542,26 @@ card_kinds:
     }
 
     #[test]
+    fn set_names_the_trailing_newline_a_plaintext_inline_value_keeps() {
+        let config = QuillConfig::from_yaml(&QUILL_YAML.replace(
+            "    qty:\n",
+            "    pti:\n      type: plaintext\n      inline: true\n    qty:\n",
+        ))
+        .unwrap();
+        let mut doc = blank_doc();
+        let mut ed = TypedWriter::new(&config, &mut doc);
+
+        let err = ed.set("pti", QuillValue::from("x\n")).unwrap_err();
+        assert_eq!(err.code(), "edit::field_not_inline");
+        assert_eq!(err.args().get("trailingNewline"), Some(&serde_json::json!(true)));
+        assert!(err.to_string().contains("`|-`"), "{err}");
+
+        let err = ed.set("pti", QuillValue::from("x\ny")).unwrap_err();
+        assert_eq!(err.code(), "edit::field_not_inline");
+        assert!(!err.args().contains_key("trailingNewline"));
+    }
+
+    #[test]
     fn card_writer_revise_field_resolves_card_schema() {
         let config = config();
         let mut doc = blank_doc();

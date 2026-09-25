@@ -35,6 +35,17 @@ fn render_at(field: &str, at: &[PathSegment]) -> String {
         .to_string()
 }
 
+fn not_inline_reason(codec: &str, trailing_newline: bool) -> String {
+    if trailing_newline {
+        format!(
+            "the value ends in a newline, which {codec} keeps as a second line; drop it \
+             (in YAML, write the value as a `|-` block or a plain scalar)"
+        )
+    } else {
+        format!("{codec}(inline) requires a single line with no container or island")
+    }
+}
+
 /// `true` if `name` matches `[A-Za-z_][A-Za-z0-9_]*`, tested on `name`'s own
 /// characters: the parser reads a key's raw bytes, so a name that merely
 /// normalises to ASCII (`U+212A KELVIN SIGN`) is not a top-level key.
@@ -148,12 +159,15 @@ pub enum EditError {
     /// A content field written under an `inline: true` schema decoded to a
     /// multi-line content. Both prose codecs declare `inline`, so one code
     /// covers both and `codec` says which lane raised it.
-    #[error("{codec} field '{field}' is not inline: {codec}(inline) requires a single line with no container or island")]
+    #[error("{codec} field '{field}' is not inline: {}", not_inline_reason(.codec, *.trailing_newline))]
     FieldNotInline {
         field: String,
         /// The codec whose inline constraint was violated: [`CODEC_RICHTEXT`]
         /// or [`CODEC_PLAINTEXT`].
         codec: String,
+        /// The value is one line plus the empty line a trailing `\n` opens,
+        /// which only the verbatim `plaintext` codec keeps.
+        trailing_newline: bool,
     },
 
     /// A typed write could not coerce the value to the field's schema type: the
@@ -251,10 +265,20 @@ impl EditError {
                 "field" => field,
                 "declared" => declared,
             },
-            EditError::FieldNotInline { field, codec } => diag_args! {
-                "field" => field,
-                "codec" => codec,
-            },
+            EditError::FieldNotInline {
+                field,
+                codec,
+                trailing_newline,
+            } => {
+                let mut args = diag_args! {
+                    "field" => field,
+                    "codec" => codec,
+                };
+                if *trailing_newline {
+                    args.insert("trailingNewline".to_string(), serde_json::json!(true));
+                }
+                args
+            }
             EditError::FieldCoercionFailed {
                 field,
                 target,
@@ -508,10 +532,12 @@ fn conform_error_to_edit(name: &str, err: CoercionError) -> EditError {
         "richtext(inline)" => EditError::FieldNotInline {
             field,
             codec: CODEC_RICHTEXT.to_string(),
+            trailing_newline: false,
         },
         "plaintext(inline)" => EditError::FieldNotInline {
             field,
             codec: CODEC_PLAINTEXT.to_string(),
+            trailing_newline: reason == crate::quill::PLAINTEXT_TRAILING_NEWLINE,
         },
         CODEC_RICHTEXT | CODEC_PLAINTEXT => EditError::FieldDecode {
             field,

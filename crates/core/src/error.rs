@@ -729,6 +729,7 @@ mod args_canon {
             },
             ValidationError::NotInline {
                 path: "main.title".into(),
+                trailing_newline: true,
             },
             ValidationError::NotPlain {
                 path: "main.title".into(),
@@ -765,6 +766,7 @@ mod args_canon {
             EditError::FieldNotInline {
                 field: "body".into(),
                 codec: crate::document::edit::CODEC_PLAINTEXT.into(),
+                trailing_newline: true,
             },
             EditError::FieldCoercionFailed {
                 field: "n".into(),
@@ -789,6 +791,7 @@ mod args_canon {
             EditError::FieldNotInline {
                 field: "body".into(),
                 codec: crate::document::edit::CODEC_RICHTEXT.into(),
+                trailing_newline: true,
             },
             EditError::FieldDecode {
                 field: "body".into(),

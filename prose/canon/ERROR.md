@@ -328,7 +328,7 @@ Values keep their JSON shape (`allowed` arrives as a list, `len` as a number) be
 
 **Falling back is wholesale.** A formatter whose template needs a key that is absent renders `message`, never a sentence with a hole in it. It takes `hint` from the engine in the same breath: the hint is the same English as the message tail (`ValidationError`'s `Display` appends it verbatim), so translating one and passing the other through ships a two-language diagnostic. Localize a code and you own both sentences; fall back and you take both.
 
-**`hint` needs no code of its own.** It is a function of `code` and `args`. Most hints are per-code constants. `type_mismatch_hint` branches only on whether a default exists, which is why `default` is present as a key exactly when the schema declares one, rather than present-and-null; the two card-kind hints branch only on whether `allowed` is empty. Any datum a hint branches on is message-relevant by definition and belongs in `args`; a parallel `hint_code` would be derived state on the wire, free to drift.
+**`hint` needs no code of its own.** It is a function of `code` and `args`. Most hints are per-code constants. `type_mismatch_hint` branches only on whether a default exists, which is why `default` is present as a key exactly when the schema declares one, rather than present-and-null; the two card-kind hints branch only on whether `allowed` is empty; the `not_inline` sentences branch only on `trailingNewline`, present exactly when a `plaintext` value is one line plus the newline a clip-chomped `|` keeps. Any datum a hint branches on is message-relevant by definition and belongs in `args`; a parallel `hint_code` would be derived state on the wire, free to drift.
 
 **Anchors do not travel twice.** `path` is never an arg. `field` and `kind` are, even though `doc_path` also folds them into the anchor; the rule bars the assembled path string, and recovering a name from one is unsound anyway, since `DocPath` renders field segments unescaped and parses on `.` and `[`, so exactly the malformed names `edit::invalid_field_name` reports can round-trip into different segments. `CoercionError`'s `path` stays out for the separate reason below in § "Three grammars": it is a schema-space anchor and does not cross.
 
@@ -360,14 +360,14 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `validation::seed_unknown_kind` | — | code-determined |
 | `validation::seed_overlay_shape` | — | code-determined |
 | `validation::seed_unknown_field` | — | code-determined |
-| `validation::not_inline` | — | code-determined |
+| `validation::not_inline` | `trailingNewline`? | structured |
 | `validation::not_plain` | — | code-determined |
 | `edit::invalid_field_name` | `field` | structured |
 | `edit::unknown_field` | `field` | structured |
 | `edit::invalid_kind_name` | `kind` | structured |
 | `edit::index_out_of_range` | `index`, `len` | structured |
 | `edit::value_too_deep` | `max` | structured |
-| `edit::field_not_inline` | `field`, `codec` | structured |
+| `edit::field_not_inline` | `field`, `codec`, `trailingNewline`? | structured |
 | `edit::field_not_content` | `field`, `declared` | structured |
 | `edit::field_coercion_failed` | `field`, `target` | structured, coarser |
 | `edit::field_decode` | `field`, `codec` | structured, coarser |
@@ -378,7 +378,7 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `edit::invalid_payload` | — | fallback |
 | `conform::invalid_field_name` | `field` | structured |
 | `conform::value_too_deep` | `max` | structured |
-| `conform::field_not_inline` | `field`, `codec` | structured |
+| `conform::field_not_inline` | `field`, `codec`, `trailingNewline`? | structured |
 | `conform::field_coercion_failed` | `field`, `target` | structured, coarser |
 | `conform::field_decode` | `field`, `codec` | structured, coarser |
 | `parse::input_too_large` | `size`, `max` | structured |

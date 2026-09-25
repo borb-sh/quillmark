@@ -199,6 +199,11 @@ impl CoercionError {
     }
 }
 
+/// The `plaintext(inline)` refusal's reason when the value is one line plus a
+/// trailing newline, the case `EditError::FieldNotInline` names apart.
+pub(crate) const PLAINTEXT_TRAILING_NEWLINE: &str =
+    "plaintext(inline) requires a single line, and the trailing newline is a second";
+
 /// The leniency [`QuillConfig::conform_value`] coerces under.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Leniency {
@@ -512,11 +517,16 @@ impl QuillConfig {
                             ));
                         }
                         if inline && !rt.is_inline() {
+                            let reason = if crate::document::is_line_with_trailing_newline(rt) {
+                                PLAINTEXT_TRAILING_NEWLINE
+                            } else {
+                                "plaintext(inline) requires a single line"
+                            };
                             return Err(CoercionError::uncoercible(
                                 path,
                                 "<plaintext>",
                                 "plaintext(inline)",
-                                "plaintext(inline) requires a single line",
+                                reason,
                             ));
                         }
                         Ok(())
@@ -2666,7 +2676,11 @@ fn literal_content(
                 ));
             }
             if *inline && !rt.is_inline() {
-                return Err(richtext_inline_error(label));
+                let mut diag = richtext_inline_error(label);
+                if crate::document::is_line_with_trailing_newline(&rt) {
+                    diag.hint = Some(super::validation::not_inline_hint(true).to_string());
+                }
+                return Err(diag);
             }
             Ok(Some(QuillValue::from_json(
                 quillmark_content::serial::to_canonical_value(&rt),
