@@ -43,7 +43,7 @@ hand, which is the form the quill authoring contract names
 declared kind, each body empty, every field absent
 ([SCHEMAS.md](SCHEMAS.md) § "Document seeding"). Hand it to a human or an editor
 as something to edit; start from the blank canvas when the data is
-authoritative and sample cards and body prose would pollute it.
+authoritative and sample cards would pollute it.
 
 ## The flow
 

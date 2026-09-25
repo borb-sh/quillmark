@@ -283,7 +283,7 @@ impl PyQuill {
     /// Seed a starter `Document` from the schema: the main card plus one instance
     /// of each composable card kind, each body empty and every field absent
     /// (interpolated at render as `default`, else the field's blank). No
-    /// `example` is committed, a field's or `body.example`.
+    /// `example` is committed (a field's or `body.example`).
     fn seed_document(&self) -> PyDocument {
         PyDocument {
             inner: self.inner.seed_document(),

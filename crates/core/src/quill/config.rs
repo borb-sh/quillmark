@@ -2341,12 +2341,12 @@ impl QuillConfig {
             }
         }
 
-        // Import every richtext `default` / `example` / `body.example` literal
-        // once into its canonical-content companion cache: a pure function of the
-        // Quill.yaml bytes, never serialized. This is where `richtext(inline)`
-        // violations and malformed richtext literals surface as load errors, and
-        // where seeding and the render floor later read a pre-validated content
-        // instead of re-importing the markdown per document.
+        // Import every richtext `default` / `example` / `body.example` literal:
+        // this is where `richtext(inline)` violations and malformed richtext
+        // literals surface as load errors. A `default` is cached as its
+        // canonical-content companion, a pure function of the Quill.yaml bytes
+        // and never serialized, which the render floor reads instead of
+        // re-importing the markdown per document.
         populate_card_content(&mut main, "main", &mut errors);
         for card in &mut card_kinds {
             let label = format!("card_kinds.{}", card.name);

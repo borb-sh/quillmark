@@ -111,7 +111,7 @@ fn preview_regions_spell_through_the_facade() {
     let region: &RenderedRegion = regions
         .iter()
         .find(|r| r.span.is_some())
-        .expect("the memo places its body");
+        .expect("the memo places a content field");
 
     let boxes: Vec<RenderedRegion> = session.field_boxes(&region.field);
     assert!(!boxes.is_empty(), "a content field unions to at least one box");

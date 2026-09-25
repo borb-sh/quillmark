@@ -855,18 +855,18 @@ interpolated at the compilation layer by
 [blank-filled render](#blank-filled-render) (`default:`, else the field's
 blank), exactly as for any authored document.
 
-No `example:` is committed, a field's or `body.example`. An example documents
+No `example:` is committed (a field's or `body.example`). An example documents
 shape, not an answer: committed, it would render a value nobody chose and read
 as authored content. A field's surfaces in the blueprint's `# e.g.` line
 instead, and `body.example` in the blueprint's body region, where an editor may
 also show it as the empty body's placeholder. Starter content someone chose
-lives in a template document's body, or in a card kind's `$seed` `$body`.
-Persisting a `default` would be redundant (the floor interpolates it anyway)
-and would *freeze* it against a later schema change; persisting a blank is forbidden
+lives in a template document's own body, or, for a card `seed_card` adds, in
+the main card's `$seed.<kind>.$body`. Persisting a `default` would be
+redundant (the floor interpolates it anyway) and would *freeze* it against a
+later schema change; persisting a blank is forbidden
 ([Non-persist invariant](#blank-filled-render)). So a fresh seed renders exactly
-as the empty document does, plus its cards, and a split-screen
-editor/preview stays consistent: absent fields resolve identically in both
-panes.
+as the empty document does, plus its cards, and a split-screen editor/preview
+stays consistent: absent fields resolve identically in both panes.
 
 **Seed-commits-rest.** A seeded content value — a `$seed` overlay's content
 field, and its `$body` — commits its codec's resting form (a richtext field and
