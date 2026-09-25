@@ -9,7 +9,7 @@ A quill's schema yields two ready-made documents: a **blueprint** (an annotated 
 ```
 ~~~
 $quill: cmu_letter@0.1.0 # keep verbatim
-$kind: main
+$kind: main # A letter on CMU letterhead.
 # The recipient's name and full mailing address.
 # e.g. [Mr. John Doe, 123 Main St]
 recipient: # array<string>
@@ -23,7 +23,9 @@ Write main body here.
 
 Two annotation slots, disjoint by purpose: **leading `# …` lines** carry prose (a description, an `# e.g.` example) plus an `array`'s `# up to <N>` cap; the **inline `# …`** at the end of a value line carries structure, the field's `# <type>[<format>]`. A closed vocabulary shows its whole roster there — `# matrix<flight_cc | dodin_ops>` — so a reader can tick a member without looking the schema up, and cannot invent one. A matrix with columns adds an `# e.g.` line spelling one held member, `{flight_cc: {held: true, detail: …}}`, which names every column; the member it picks is only an illustration.
 
-One thing in the own-line slot is not an annotation. An `enum` declaring `variants:` shows the cells of the world its discriminant names live, and every other world's cells commented out under a `# when <MEMBER>:` header — the same cells, with a `# ` in front, at the column they would sit at. Choose that member and delete the `# `.
+A card's own description rides its `$kind` line's inline slot, so it never reads as the first field's.
+
+Two things in the own-line slot are not annotations. An `enum` declaring `variants:` shows the cells of the world its discriminant names live, and every other world's cells commented out under a `# when <MEMBER>:` header — the same cells, with a `# ` in front, at the column they would sit at. Choose that member and delete the `# `. A typed table whose `default:` is `[]` does the same with its row: the `[]` stays, and the row's cells follow it commented out. Delete the `[]` and the `# ` to add a row.
 
 The reader's one rule: an empty cell (`title: # string`) awaits a value; a concrete value is the field's `default:`, shippable as-is. An `example:` never takes a cell: it always rides a `# e.g.` line above the field, as a one-line flow collection for an array or object, and is the schema's illustration rather than real data. An empty cell renders at the field's blank, and nothing warns about it.
 

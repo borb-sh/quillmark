@@ -1,9 +1,8 @@
-use crate::commands::{load_quill, render_date};
+use crate::commands::{load_quill, read_document, render_date};
 use crate::errors::{CliError, Result};
 use crate::output::{derive_output_path, page_output_path, write_file, write_stdout};
 use clap::Parser;
 use quillmark::{CalendarDate, OutputFormat, Quillmark, RenderOptions, Severity};
-use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -45,22 +44,8 @@ pub fn execute(args: RenderArgs) -> Result<()> {
     let today = Some(render_date(args.today));
     let quill = load_quill(&args.quill)?;
 
-    let (parsed, parse_warnings, markdown_path_for_output) =
-        if let Some(ref markdown_path) = args.markdown_file {
-            if !markdown_path.exists() {
-                return Err(CliError::InvalidArgument(format!(
-                    "Markdown file not found: {}",
-                    markdown_path.display()
-                )));
-            }
-
-            let markdown = fs::read_to_string(markdown_path)?;
-            let output = quill.parse(&markdown)?;
-
-            (output.document, output.warnings, Some(markdown_path.clone()))
-        } else {
-            (quill.seed_document(), Vec::new(), None)
-        };
+    let (parsed, parse_warnings) = read_document(&quill, args.markdown_file.as_deref())?;
+    let markdown_path_for_output = args.markdown_file.clone();
 
     let output_format = resolve_format(
         args.format.as_deref(),

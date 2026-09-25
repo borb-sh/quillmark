@@ -532,3 +532,53 @@ main:
     ok(&["validate", quill]);
     assert_eq!(run(&["render", quill, "--today", "today"]).status.code(), Some(2));
 }
+
+/// `workspace` writes the helper package where the printed `--package-path`
+/// points, and the command names the quill's plate.
+#[test]
+fn workspace_writes_the_helper_and_prints_the_typst_command() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out = dir.path().join("ws");
+    let quill = taro();
+    let stdout = ok(&["workspace", quill.to_str().unwrap(), "-o", out.to_str().unwrap()]);
+    assert!(out
+        .join("packages/local/quillmark-helper/0.1.0/lib.typ")
+        .is_file());
+    let command = stdout
+        .lines()
+        .find(|l| l.starts_with("typst watch"))
+        .unwrap_or_else(|| panic!("no typst command: {stdout}"));
+    assert!(
+        command.contains(&format!("--package-path {}", out.join("packages").display()))
+            && command.contains(&quill.join("plate.typ").display().to_string()),
+        "{command}"
+    );
+}
+
+/// A workspace inside the quill would load as quill files on the next read, so
+/// `workspace` refuses one and writes nothing.
+#[test]
+fn workspace_refuses_a_directory_inside_the_quill() {
+    let dir = quill_with_config(
+        "quill:\n  name: w\n  version: 0.1.0\n  backend: typst\n  description: w\n\
+         typst:\n  plate_file: plate.typ\n",
+    );
+    std::fs::write(dir.path().join("plate.typ"), "hi\n").expect("write plate.typ");
+    let quill = dir.path().to_str().unwrap();
+    let inside = dir.path().join("sub/../ws");
+    let out = run(&["workspace", quill, "-o", inside.to_str().unwrap()]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(!dir.path().join("ws").exists());
+}
+
+/// A path the shell would split is quoted in the printed command.
+#[test]
+fn workspace_quotes_a_path_with_a_space() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out = dir.path().join("my ws");
+    let stdout = ok(&["workspace", taro().to_str().unwrap(), "-o", out.to_str().unwrap()]);
+    assert!(
+        stdout.contains(&format!("--package-path '{}'", out.join("packages").display())),
+        "{stdout}"
+    );
+}

@@ -110,6 +110,23 @@ The document body is exposed under the `$body` key, accessed via `data.at("$body
 
 A card whose `$kind` the quill does not declare reaches the plate carrying the `$kind` it names and its authored fields verbatim, with no `$body`. The render does not fail on it: `quill.validate(doc)` warns instead. Branch on the kinds the plate knows and let the rest fall through.
 
+## Modules
+
+A plate imports the Quill's other `.typ` files by the paths Typst resolves: a
+bare path from the importing file, a `/`-rooted one from the Quill root.
+`packages/` is the exception; its files load under their package spec.
+
+```
+my-quill/
+├── plate.typ          #import "parts/header.typ": header
+├── theme.typ
+└── parts/
+    └── header.typ     #import "/theme.typ": accent
+```
+
+A module reads `data` by importing the helper itself. Its reads keep their
+click targets under the rules a plate's do ([Editor Regions](editor-regions.md)).
+
 ## Typst Packages
 
 Quillmark never downloads a package. A plate imports only packages the quill
@@ -174,10 +191,12 @@ Then reference them by family name (`#set text(font: "CustomFont")`).
 
 ## Images
 
-A plate draws a file under `assets/` by its path from the Quill root:
+A plate draws a file under `assets/` by its path, which resolves like an
+import's: `"assets/logo.svg"` from a plate at the Quill root, `"/assets/logo.svg"`
+from any file.
 
 ```typst
-#image("assets/logo.svg", width: 2cm)
+#image("/assets/logo.svg", width: 2cm)
 ```
 
 **A markdown image in a `richtext` field draws nothing.** `![logo](assets/logo.svg)` in document content reaches no page, and the render warns under `backend::declined_construct`, naming the field and how many images it holds.
@@ -345,6 +364,23 @@ PNG resolution is set via the `ppi` option (default **144**, 2× at 72pt/inch, s
 | 192 | High-DPI screen display |
 | 300 | Standard print quality |
 | 600 | High-quality print / archival |
+
+## Iterating on a Plate
+
+The plate imports a helper Quillmark generates per render, so Typst's own tools
+cannot compile it from the quill alone. `quillmark workspace` writes that helper
+for one document, beside the quill's packages and fonts, and prints the
+`typst watch` command that compiles the plate from them:
+
+```bash
+quillmark workspace ./my-quill input.md -o ws
+typst watch --root ./my-quill --package-path ws/packages --font-path ws/fonts --ignore-system-fonts --ignore-embedded-fonts ./my-quill/plate.typ ws/plate.pdf
+```
+
+Edits to the plate recompile on save. The helper holds `input.md`'s data, so
+rerun `workspace` after changing the document. Tinymist takes the same flags
+through `tinymist.typstExtraArgs`, for completion on `data.` fields and a live
+preview. See the [CLI reference](../cli/reference.md#workspace).
 
 ## Resources
 

@@ -2,7 +2,7 @@
 
 A live preview maps a click on the page back to the schema field that produced the ink under it, through the geometry sidecar (`session.regions()`) and `session.fieldAt(...)`. This page is for plates whose quill will be edited that way. A quill rendered only to files can skip it: nothing here changes the output.
 
-Quillmark attributes ink on its own for a `richtext` or `plaintext` field, for any field printed through [`ink`](#print-with-ink), for a date placed with `display`, and for a scalar read written in the plate (`#data.subject`). A [form-field widget](typst-backend.md#binding-to-a-schema-field) opts in with `field:`. Everything else is unattributed until a `field-region` claims it.
+Quillmark attributes ink on its own for a `richtext` or `plaintext` field, for any field printed through [`ink`](#print-with-ink), for a date placed with `display`, and for a scalar read written in the plate or a module it imports (`#data.subject`). A [form-field widget](typst-backend.md#binding-to-a-schema-field) opts in with `field:`. Everything else is unattributed until a `field-region` claims it.
 
 ## Print with `ink`
 
@@ -65,7 +65,7 @@ then the row property, the addresses `form-field(field:)` takes.
 #row.org                     // regions as `refs.0.org` too
 ```
 
-Rebind that name anywhere in the plate — a second `let`, a closure parameter, a loop pattern, an assignment — and it stops being followed, because a read can no longer be tied to one value. Three shapes are past what the tracker follows at all:
+Rebind that name anywhere in its file — a second `let`, a closure parameter, a loop pattern, an assignment — and it stops being followed, because a read can no longer be tied to one value. Three shapes are past what the tracker follows at all:
 
 | Shape | Why |
 |---|---|
