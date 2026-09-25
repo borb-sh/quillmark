@@ -78,7 +78,8 @@ static FALLBACK_REGULAR: &[u8] = include_bytes!("fonts/Figtree-Regular.ttf");
 static FALLBACK_BOLD: &[u8] = include_bytes!("fonts/Figtree-Bold.ttf");
 static FALLBACK_ITALIC: &[u8] = include_bytes!("fonts/Figtree-Italic.ttf");
 
-/// Typst `World` implementation for quill-based compilation. Packages load from
+/// Typst `World` implementation for quill-based compilation, rooted at the
+/// quill: `.typ` sources load at their quill paths, packages from
 /// `{quill}/packages/` and assets from `{quill}/assets/`.
 pub(crate) struct QuillWorld {
     library: LazyHash<Library>,
@@ -140,17 +141,16 @@ impl QuillWorld {
             Bytes::new(helper::generate_typst_toml().into_bytes()),
         );
 
-        // At the project root whatever directory `plate_file` names: the plate
-        // reaches `assets/...` by its path from the quill root.
         let main_vpath = plate
             .file
             .as_deref()
-            .and_then(|f| Path::new(f).file_name()?.to_str())
-            .and_then(|name| VirtualPath::new(name).ok())
+            .and_then(|f| VirtualPath::new(f).ok())
             .unwrap_or_else(|| {
                 VirtualPath::new("main.typ").expect("\"main.typ\" is a valid virtual path")
             });
-        let source = Source::new(file_id(None, main_vpath), plate.text.clone());
+        let main_id = file_id(None, main_vpath);
+        Self::load_project_sources(source, main_id, &mut sources, &mut load_warnings);
+        let source = Source::new(main_id, plate.text.clone());
 
         Ok(Self {
             library: LazyHash::new(<Library as typst::LibraryExt>::default()),
@@ -313,6 +313,48 @@ impl QuillWorld {
         }
 
         Ok(())
+    }
+
+    /// Every `.typ` file outside `packages/` at its path from the quill root, so
+    /// the plate and its modules import one another as Typst resolves paths:
+    /// relative to the importing file, or to the quill root under a leading `/`.
+    fn load_project_sources(
+        source: &Quill,
+        main: FileId,
+        sources: &mut HashMap<FileId, Source>,
+        warnings: &mut Vec<Diagnostic>,
+    ) {
+        for path in source.files().find_files("**/*.typ") {
+            if path.starts_with("packages") {
+                continue;
+            }
+            let Some(contents) = source.files().get_file(&path) else {
+                continue;
+            };
+            let id = match VirtualPath::new(path.to_string_lossy().as_ref()) {
+                Ok(vpath) => file_id(None, vpath),
+                Err(e) => {
+                    warnings.push(skipped_path(&path, e));
+                    continue;
+                }
+            };
+            if id != main {
+                let text = String::from_utf8_lossy(contents).into_owned();
+                sources.insert(id, Source::new(id, text));
+            }
+        }
+    }
+
+    /// The plate, then every other project source in path order: the files
+    /// whose `data` reads the region scan windows.
+    pub(crate) fn project_sources(&self) -> Vec<&Source> {
+        let mut modules: Vec<&Source> = self
+            .sources
+            .values()
+            .filter(|s| matches!(s.id().root(), VirtualRoot::Project))
+            .collect();
+        modules.sort_by_key(|s| s.id().vpath().get_without_slash().to_string());
+        std::iter::once(&self.source).chain(modules).collect()
     }
 
     fn load_packages_from_quill(

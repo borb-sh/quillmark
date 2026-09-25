@@ -27,50 +27,37 @@ fn missing_plate_file_errors_at_open_not_load() {
     );
 }
 
+/// `tpl/layout.typ` reaches a sibling by a bare path, a module up a level by
+/// `..`, and a module and an asset by a `/`-rooted path.
 #[test]
-fn a_nested_plate_resolves_assets_from_the_root_and_diagnoses_under_its_own_path() {
-    use quillmark_core::quill::{FileTreeNode, Quill};
-    use std::collections::HashMap;
-
-    let mut root = FileTreeNode::Directory {
-        files: HashMap::new(),
-    };
-    let files: [(&str, &[u8]); 3] = [
+fn project_sources_import_as_typst_resolves_paths() {
+    let diags = open_err(&[
         (
             "Quill.yaml",
-            b"quill:\n  name: t\n  version: \"1.0\"\n  backend: typst\n  description: d\n\n\
-              typst:\n  plate_file: tpl/layout.typ\n",
+            "quill:\n  name: t\n  version: \"1.0\"\n  backend: typst\n  description: d\n\n\
+             typst:\n  plate_file: tpl/layout.typ\n",
         ),
         (
             "tpl/layout.typ",
-            b"#set page(width: 100pt, height: 100pt)\n#image(\"assets/dot.svg\")\n\
-              #let d = (a: 1)\n#d.presentr\n",
+            "#import \"parts.typ\": greet\n#import \"/shared/lib.typ\": word\n\
+             #set page(width: 100pt, height: 100pt)\n#image(\"/assets/dot.svg\")\n\
+             #greet #word\n#let d = (a: 1)\n#d.presentr\n",
         ),
         (
-            "assets/dot.svg",
-            b"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"/>",
+            "tpl/parts.typ",
+            "#import \"../shared/lib.typ\": word\n#let greet = [hi #word]\n",
         ),
-    ];
-    for (path, contents) in files {
-        root.insert(
-            path,
-            FileTreeNode::File {
-                contents: contents.to_vec(),
-            },
-        )
-        .expect("insert");
-    }
-    let q = Quill::from_tree(root).expect("load quill");
-
-    let diags = match TypstBackend.open(&q, &serde_json::json!({}), None) {
-        Ok(_) => panic!("the missing key must fail the compile"),
-        Err(e) => e.into_diagnostics(),
-    };
+        ("shared/lib.typ", "#let word = \"there\"\n"),
+        (
+            "assets/dot.svg",
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"/>",
+        ),
+    ]);
     assert!(
         !diags
             .iter()
             .any(|d| d.code.as_deref() == Some("typst::file_not_found")),
-        "assets/ resolves from the quill root: {diags:?}"
+        "every path resolves: {diags:?}"
     );
     let location = diags
         .iter()
@@ -79,6 +66,51 @@ fn a_nested_plate_resolves_assets_from_the_root_and_diagnoses_under_its_own_path
         .expect("the missing-key error carries a location");
     assert_eq!(
         (location.file.as_str(), location.line, location.column),
-        ("tpl/layout.typ", 4, 4)
+        ("tpl/layout.typ", 7, 4)
     );
+}
+
+/// A vendored package loads under its spec alone: its files are not project
+/// sources a path import reaches.
+#[test]
+fn a_package_file_is_not_importable_by_path() {
+    let diags = open_err(&[
+        ("Quill.yaml", YAML),
+        (
+            "packages/p/typst.toml",
+            "[package]\nname = \"p\"\nversion = \"0.1.0\"\nentrypoint = \"lib.typ\"\n",
+        ),
+        ("packages/p/lib.typ", "#let x = 1\n"),
+        ("plate.typ", "#import \"packages/p/lib.typ\": x\n#x\n"),
+    ]);
+    assert!(
+        diags
+            .iter()
+            .any(|d| d.code.as_deref() == Some("typst::file_not_found")),
+        "{diags:?}"
+    );
+}
+
+/// `files` are inserted under their `/`-joined tree paths.
+fn open_err(files: &[(&str, &str)]) -> Vec<quillmark_core::error::Diagnostic> {
+    use quillmark_core::quill::{FileTreeNode, Quill};
+    use std::collections::HashMap;
+
+    let mut root = FileTreeNode::Directory {
+        files: HashMap::new(),
+    };
+    for (path, contents) in files {
+        root.insert(
+            path,
+            FileTreeNode::File {
+                contents: contents.as_bytes().to_vec(),
+            },
+        )
+        .expect("insert");
+    }
+    let q = Quill::from_tree(root).expect("load quill");
+    match TypstBackend.open(&q, &serde_json::json!({}), None) {
+        Ok(_) => panic!("the compile must fail"),
+        Err(e) => e.into_diagnostics(),
+    }
 }
