@@ -389,7 +389,7 @@ needs nothing back from the paint:
 canvas.style.width = "100%";                 // the box sets the display size
 const cssPxPerPt = canvas.clientWidth / session.pageSize(0).widthPt;
 if (cssPxPerPt > 0) {                        // 0 while the canvas has no layout box
-  session.paint(canvas.getContext("2d"), 0, cssPxPerPt * window.devicePixelRatio);
+  session.paint(canvas.getContext("2d")!, 0, cssPxPerPt * window.devicePixelRatio);
 }
 ```
 
@@ -518,7 +518,7 @@ in a browser that hasn't shipped it:
 const session = await engine.open(quill, doc);
 try {
   for (let p = 0; p < session.pageCount; p++) {
-    session.paint(canvases[p].getContext("2d"), p, scale);
+    session.paint(canvases[p].getContext("2d")!, p, scale);
   }
 } finally {
   session.free();
