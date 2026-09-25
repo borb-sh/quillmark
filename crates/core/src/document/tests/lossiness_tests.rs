@@ -131,6 +131,31 @@ fn a_retired_fill_marker_inside_meta_keeps_its_value() {
     );
 }
 
+/// A line continuing a flow collection, opened on its key's line or the line
+/// below, is the collection's, never a key of the mapping around it, so a tag
+/// there stays on its own value.
+#[test]
+fn a_tag_inside_a_multi_line_flow_collection_stays_on_its_value() {
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\n\
+               b: kept\n\
+               x: {a: it's,\n  b: !must_fill 2}\n\
+               addr:\n  b: kept\n  y:\n    [Why? 'cause,\n   b: !must_fill 2]\n\
+               tags: [!t \"a # [\", b]\n\
+               c: !must_fill C\n~~~\n";
+    let out = Document::parse(src).unwrap();
+    let get = |k: &str| out.document.main().payload().get(k).unwrap().as_json().clone();
+    assert_eq!(get("b"), "kept");
+    assert_eq!(get("x"), serde_json::json!({"a": "it's", "b": 2}));
+    assert_eq!(
+        get("addr"),
+        serde_json::json!({"b": "kept", "y": ["Why? 'cause", {"b": 2}]})
+    );
+    assert_eq!(get("tags"), serde_json::json!(["a # [", "b"]));
+    assert_eq!(get("c"), serde_json::Value::Null);
+    let warned: Vec<&str> = out.warnings.iter().map(|w| w.message.as_str()).collect();
+    assert!(warned.len() == 1 && warned[0].contains("`c`"), "{warned:?}");
+}
+
 /// The prescan splits on `\n`, so CRLF input reaches it with a trailing `\r` on
 /// every line.
 #[test]
@@ -163,6 +188,14 @@ fn fill_marker_text_inside_a_scalar_is_text() {
         ),
         (
             "~~~card-yaml\n$quill: q\n$kind: main\nnote: \"see key: !must_fill here\"\n~~~\n",
+            "see key: !must_fill here",
+        ),
+        (
+            "~~~card-yaml\n$quill: q\n$kind: main\nnote: \"see\n  key: !must_fill here\"\n~~~\n",
+            "see key: !must_fill here",
+        ),
+        (
+            "~~~card-yaml\n$quill: q\n$kind: main\nnote:\n  \"see\n  key: !must_fill here\"\n~~~\n",
             "see key: !must_fill here",
         ),
     ];

@@ -77,6 +77,10 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
 
     // Indent of the `key:` line that opened the current block scalar, if any.
     let mut block_scalar_indent: Option<usize> = None;
+    // A value spanning lines, whose later lines are its text, never a key.
+    let mut open: Option<FlowScan> = None;
+    // The last `key:` or `-` left its node to a later line.
+    let mut node_below = false;
 
     for raw_line in &lines {
         // The split is on `\n`, so a CRLF line ends in `\r`. Dropped once here:
@@ -99,6 +103,13 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                 continue;
             }
             block_scalar_indent = None;
+        }
+
+        // Inside a quoted scalar a `#` line is text too.
+        if open.as_ref().is_some_and(|scan| scan.quote.is_some()) {
+            open = open.take().and_then(|scan| scan.continued(trimmed));
+            cleaned.push(line.to_string());
+            continue;
         }
 
         while let Some(frame) = stack.last() {
@@ -134,6 +145,12 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             continue;
         }
 
+        if open.is_some() {
+            open = open.take().and_then(|scan| scan.continued(trimmed));
+            cleaned.push(line.to_string());
+            continue;
+        }
+
         // Case 2: sequence item line (`- ...`).
         if trimmed == "-" || trimmed.starts_with("- ") {
             let frame_idx = ensure_frame_at_indent(&mut stack, indent);
@@ -163,6 +180,7 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             let mut dash_body_clean: Option<String> = None;
             let mut dash_key_block_scalar = false;
             if after_dash_trimmed.is_empty() {
+                node_below = true;
                 stack.push(Frame {
                     indent: indent + 2,
                     path: item_path,
@@ -182,6 +200,8 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                     dash_body_clean = Some(format!("{}:{}", source_key, value_without_tag));
                 }
                 dash_key_block_scalar = is_block_scalar_header(&value_without_tag);
+                open = opens_past_line(&value_without_tag);
+                node_below = node_text(&value_without_tag).is_empty();
                 stack.push(Frame {
                     indent: inline_indent_offset,
                     path: item_path,
@@ -194,6 +214,9 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                         child_count: 0,
                     });
                 }
+            } else {
+                open = opens_past_line(after_dash_trimmed);
+                node_below = node_text(after_dash_trimmed).is_empty();
             }
 
             if let Some(c) = &trailing_comment {
@@ -258,6 +281,8 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                 }
 
                 cleaned.push(format!("{}:{}", key, value_without_tag));
+                open = opens_past_line(&value_without_tag);
+                node_below = node_text(&value_without_tag).is_empty();
 
                 if let Some(c) = trailing_comment {
                     out.items.push(PreItem::Comment {
@@ -323,9 +348,14 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             if is_block_scalar_header(&value_without_tag) {
                 block_scalar_indent = Some(indent);
             }
+            open = opens_past_line(&value_without_tag);
+            node_below = node_text(&value_without_tag).is_empty();
             continue;
         }
 
+        if std::mem::take(&mut node_below) {
+            open = opens_past_line(trimmed);
+        }
         cleaned.push(line.to_string());
     }
 
@@ -478,9 +508,9 @@ fn split_nested_key(line: &str) -> Option<(String, String, String)> {
 /// Split `value` into `(value_without_comment, trailing_comment)` following
 /// YAML's rules. A `#` preceded by whitespace (or at value start) begins a
 /// comment, except inside a quoted scalar, and a quote opens a quoted
-/// scalar only when it is the *first* character of the scalar, or appears
-/// inside a flow collection (`[`/`{`). Inside a plain scalar, `'` and `"`
-/// are ordinary characters: `x: it's fine # note` carries a comment.
+/// scalar only as a node's first character: the value's, or a node's inside
+/// a flow collection (`[`/`{`). Inside a plain scalar, `'` and `"` are
+/// ordinary characters: `x: it's fine # note` carries a comment.
 fn split_trailing_comment(value: &str) -> (String, Option<String>) {
     let bytes = value.as_bytes();
     let Some(first) = bytes.iter().position(|b| !matches!(b, b' ' | b'\t')) else {
@@ -494,7 +524,7 @@ fn split_trailing_comment(value: &str) -> (String, Option<String>) {
             Some(end) => find_comment_from(value, end + 1),
             None => (value.to_string(), None),
         },
-        // Flow collection: quotes open quoted scalars anywhere inside, so
+        // Flow collection: a quoted scalar opens at any node inside, so
         // track quote state across the whole value.
         b'[' | b'{' => split_flow_trailing_comment(value),
         // Plain scalar (or block-scalar header): quotes are ordinary
@@ -558,44 +588,140 @@ fn find_comment_from(value: &str, from: usize) -> (String, Option<String>) {
     (value.to_string(), None)
 }
 
-/// Comment split for flow-collection values (`[…]` / `{…}`), where quoted
-/// scalars can open anywhere: track quote state across the value and split
-/// at the first whitespace-preceded `#` outside quotes.
+/// Comment split for flow-collection values (`[…]` / `{…}`): split at the
+/// first whitespace-preceded `#` outside a quoted scalar.
 fn split_flow_trailing_comment(value: &str) -> (String, Option<String>) {
-    let bytes = value.as_bytes();
-    let mut i = 0;
-    let mut prev_was_ws = true;
-    let mut in_dq = false;
-    let mut in_sq = false;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if in_dq {
-            if b == b'\\' && i + 1 < bytes.len() {
-                i += 2;
+    match FlowScan::default().line(value) {
+        Some(i) => (value[..i].trim_end().to_string(), Some(value[i..].to_string())),
+        None => (value.to_string(), None),
+    }
+}
+
+/// `value` past its leading whitespace and any tag or anchor ahead of the node.
+fn node_text(value: &str) -> &str {
+    let mut node = value.trim_start();
+    while node.starts_with(['!', '&']) {
+        let end = node.find([' ', '\t']).unwrap_or(node.len());
+        node = node[end..].trim_start();
+    }
+    node
+}
+
+/// The scan a node leaves open past its line: a flow collection whose
+/// brackets, or a quoted scalar whose quote, the line does not close.
+fn opens_past_line(value: &str) -> Option<FlowScan> {
+    let node = node_text(value);
+    if !node.starts_with(['[', '{', '"', '\'']) {
+        return None;
+    }
+    FlowScan::default().continued(node)
+}
+
+/// Where a [`FlowScan`] stands. A quote opens a quoted scalar only where a
+/// node may start; anywhere else it is a plain scalar's own character.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum FlowAt {
+    /// At the value's start, or after `[`, `{`, `,`, a `:` / `?` indicator, or
+    /// a tag or anchor.
+    #[default]
+    NodeStart,
+    Plain,
+    /// Past a quoted scalar or a closing bracket, where an adjacent `:` is an
+    /// indicator (`{"a":1}`).
+    NodeEnd,
+}
+
+/// The scan of a value that can span lines: a flow collection with the quoted
+/// scalars inside it, or a quoted scalar alone. Its state carries from line to
+/// line.
+#[derive(Debug, Default)]
+struct FlowScan {
+    depth: usize,
+    quote: Option<u8>,
+    at: FlowAt,
+}
+
+impl FlowScan {
+    fn is_open(&self) -> bool {
+        self.depth > 0 || self.quote.is_some()
+    }
+
+    /// The scan past one more line, while the value stays open.
+    fn continued(mut self, text: &str) -> Option<Self> {
+        self.line(text);
+        self.is_open().then_some(self)
+    }
+
+    /// Advance over one line of the value, returning the byte index of the `#`
+    /// opening its trailing comment.
+    fn line(&mut self, text: &str) -> Option<usize> {
+        let bytes = text.as_bytes();
+        let mut after_ws = true;
+        let mut i = 0;
+        while i < bytes.len() {
+            let b = bytes[i];
+            if let Some(quote) = self.quote {
+                if quote == b'"' && b == b'\\' {
+                    i += 2;
+                    continue;
+                }
+                if b == quote {
+                    // `''` inside a single-quoted scalar is one escaped quote.
+                    if quote == b'\'' && bytes.get(i + 1) == Some(&b'\'') {
+                        i += 2;
+                        continue;
+                    }
+                    self.quote = None;
+                    self.at = FlowAt::NodeEnd;
+                    after_ws = false;
+                }
+                i += 1;
                 continue;
             }
-            if b == b'"' {
-                in_dq = false;
+            match b {
+                b' ' | b'\t' => {
+                    after_ws = true;
+                    i += 1;
+                    continue;
+                }
+                b'#' if after_ws => return Some(i),
+                b'!' | b'&' if self.at == FlowAt::NodeStart => {
+                    while i < bytes.len() && !FLOW_PROPERTY_END.contains(&bytes[i]) {
+                        i += 1;
+                    }
+                    after_ws = false;
+                    continue;
+                }
+                b'"' | b'\'' if self.at == FlowAt::NodeStart => self.quote = Some(b),
+                b'[' | b'{' => {
+                    self.depth += 1;
+                    self.at = FlowAt::NodeStart;
+                }
+                b']' | b'}' => {
+                    self.depth = self.depth.saturating_sub(1);
+                    self.at = FlowAt::NodeEnd;
+                }
+                b',' => self.at = FlowAt::NodeStart,
+                b':' if self.at == FlowAt::NodeEnd || space_follows(bytes, i) => {
+                    self.at = FlowAt::NodeStart
+                }
+                // `? ` is an indicator only where a node starts: `Why? 'cause` is text.
+                b'?' if self.at == FlowAt::NodeStart && space_follows(bytes, i) => {}
+                _ => self.at = FlowAt::Plain,
             }
-        } else if in_sq {
-            if b == b'\'' {
-                in_sq = false;
-            }
-        } else {
-            if b == b'"' {
-                in_dq = true;
-            } else if b == b'\'' {
-                in_sq = true;
-            } else if b == b'#' && prev_was_ws {
-                let v = value[..i].trim_end().to_string();
-                let c = value[i..].to_string();
-                return (v, Some(c));
-            }
+            after_ws = false;
+            i += 1;
         }
-        prev_was_ws = matches!(b, b' ' | b'\t');
-        i += 1;
+        None
     }
-    (value.to_string(), None)
+}
+
+/// The bytes ending a tag or an anchor inside a flow collection.
+const FLOW_PROPERTY_END: &[u8] = b" \t,[]{}";
+
+/// `true` when whitespace or the line's end follows the byte at `i`.
+fn space_follows(bytes: &[u8], i: usize) -> bool {
+    matches!(bytes.get(i + 1), None | Some(b' ' | b'\t'))
 }
 
 /// The retired placeholder tag.

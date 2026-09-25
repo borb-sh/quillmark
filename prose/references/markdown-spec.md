@@ -228,9 +228,12 @@ data payload.
   comment with a structural path and the emitter re-injects it at the
   matching position. That includes an empty value: a comment indented under
   `key: []`, `key: {}` or a bare `key:` is inside that value.
-- **Custom tags.** A custom YAML tag (`!include`, `!env`, `!fill`, …) is
-  dropped with a `parse::unsupported_yaml_tag` warning; the value is kept, and
-  the tag does not round-trip.
+- **Custom tags.** A custom YAML tag (`!include`, `!env`, `!fill`, …) on a
+  block-style key's value (a top-level key, a nested mapping key, or the first
+  key of a `- ` sequence line) is dropped with a `parse::unsupported_yaml_tag`
+  warning; the value is kept, and the tag does not round-trip. Inside a flow
+  collection, on one line or several, or on a bare sequence element, the YAML
+  parser drops any tag silently and keeps the value.
 - **The `!must_fill` tag.** Its handling depends on position:
   - Block style under a data field (a top-level key, a nested mapping key, or
     the first key of a `- ` sequence line): the tagged node reads as null,
