@@ -88,7 +88,7 @@ pub struct BodyCardSchema {
     /// When false, consumers must not accept or store body content for instances of this card kind.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
-    /// Shown on the blueprint's `# e.g.` line above the body.
+    /// Shown on the blueprint's `# body e.g.` line above the body.
     /// Has no effect when `enabled` is false.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub example: Option<String>,

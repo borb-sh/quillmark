@@ -23,7 +23,7 @@ $kind: main # <title> — <description>
 # e.g. <example>
 field: # <type>
 settled: value # <type>[<format>]
-# e.g. <body example>
+# body e.g. <body example>
 ~~~
 
 ~~~
@@ -421,9 +421,10 @@ no second shape for.
 ## Bodies
 
 Every body is empty, as a seeded one is: a body is a cell, and an example never
-takes a cell. A `body.example` rides a `# e.g.` line closing the payload,
+takes a cell. A `body.example` rides a `# body e.g.` line closing the payload,
 directly above the body it shows, as one quoted YAML scalar (`\n` for its line
-breaks). A card under `body.enabled: false` has no line.
+breaks). `body` names its target: below the last field, a bare `# e.g.` would
+read as that field's. A card under `body.enabled: false` has no line.
 
 A composable card's emitted block — its `$kind` line, the `composable
 (0..N)` / sample-card comments, its fields, and its body — is one sample

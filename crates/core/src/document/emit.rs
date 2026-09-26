@@ -403,8 +403,8 @@ fn emit_field_at(
 
 /// Render a mapping's children — cells and the comments among them — as
 /// standalone lines at column 0, outside any document. The blueprint renders a
-/// dormant variant world, and a table's dormant row, through this to comment
-/// it out.
+/// dormant variant world, and a `default: []` table's field holding its row,
+/// through this to comment it out.
 pub(crate) fn emit_mapping_lines(
     map: &serde_json::Map<String, JsonValue>,
     nested: &[NestedComment],

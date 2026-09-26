@@ -14,8 +14,8 @@ use super::{
 use crate::document::emit::{emit_mapping_lines, saphyr_emit_flow, saphyr_emit_scalar};
 use crate::document::prescan::NestedComment;
 use crate::document::{Card, Document, Payload, PayloadItem};
-use quillmark_content::model::Normalized;
 use crate::value::{PathSegment, QuillValue};
+use quillmark_content::model::Normalized;
 use serde_json::{Map as JsonMap, Value as JsonValue};
 
 impl QuillConfig {
@@ -61,15 +61,15 @@ fn label_line(title: Option<&str>, description: Option<&str>) -> Option<String> 
     }
 }
 
-/// A body's `body.example`, as the `# e.g.` line closing the payload above
-/// it. The body itself is left empty, as a field's cell is.
+/// A body's `body.example`, as the `# body e.g.` line closing the payload
+/// above it. The body itself is left empty, as a field's cell is.
 fn push_body_example(items: &mut CardItems, card: &CardSchema) {
     if !card.body_enabled() {
         return;
     }
     if let Some(example) = card.body.as_ref().and_then(|b| b.example.as_deref()) {
         let example = JsonValue::String(example.trim_end().to_string());
-        items.push(PayloadItem::comment(format!("e.g. {}", saphyr_emit_scalar(&example))));
+        items.push(PayloadItem::comment(format!("body e.g. {}", saphyr_emit_scalar(&example))));
     }
 }
 
@@ -255,7 +255,7 @@ fn column_hint(col: &FieldSchema) -> String {
         return flow_hint_mapping(props);
     }
     if let Some(row) = typed_table_props(col) {
-        if row.is_empty() || col.max == Some(0) {
+        if rowless(col, row) {
             return "[]".into();
         }
         return format!("[{}]", flow_hint_mapping(row));
@@ -434,12 +434,9 @@ fn container_cell(field: &FieldSchema, path: &[PathSegment]) -> (JsonValue, Vec<
     let row_props = typed_table_props(field).unwrap_or_else(|| {
         unreachable!("container_cell is reached only for a typed dictionary or a typed table")
     });
-    // A row type declaring no properties is schema-invalid in practice, and a
-    // `max: 0` table holds no row at all: neither has a row to show.
-    let rowless = row_props.is_empty() || field.max == Some(0);
     match field.default.as_ref().map(|d| d.as_json()) {
         Some(default) => (default.clone(), Vec::new()),
-        None if rowless => (JsonValue::Array(Vec::new()), Vec::new()),
+        None if rowless(field, row_props) => (JsonValue::Array(Vec::new()), Vec::new()),
         None => {
             let mut row_path = path.to_vec();
             row_path.push(PathSegment::Index(0));
@@ -448,6 +445,12 @@ fn container_cell(field: &FieldSchema, path: &[PathSegment]) -> (JsonValue, Vec<
             (JsonValue::Array(vec![JsonValue::Object(row)]), nested)
         }
     }
+}
+
+/// A row type declaring no properties is schema-invalid in practice, and a
+/// `max: 0` table holds no row at all: neither has a row to show.
+fn rowless(field: &FieldSchema, row_props: &IndexMap<String, Box<FieldSchema>>) -> bool {
+    row_props.is_empty() || field.max == Some(0)
 }
 
 /// The lines of a `default: []` table's field holding its synthetic row, to
@@ -461,7 +464,7 @@ fn dormant_table(field: &FieldSchema) -> Vec<String> {
         field.default.as_ref().map(|d| d.as_json()),
         Some(JsonValue::Array(rows)) if rows.is_empty()
     );
-    if !empty_default || row_props.is_empty() || field.max == Some(0) {
+    if !empty_default || rowless(field, row_props) {
         return Vec::new();
     }
     let row_path = [PathSegment::Key(field.name.clone()), PathSegment::Index(0)];
@@ -981,8 +984,9 @@ card_kinds:
         }
     }
 
-    /// A body is a cell: it stays empty, and its example rides the `# e.g.`
-    /// line closing the payload above it, as a field's does.
+    /// A body is a cell: it stays empty, and its example rides the `# body
+    /// e.g.` line closing the payload above it, named so it cannot read as the
+    /// last field's.
     #[test]
     fn a_body_example_rides_an_eg_line_over_an_empty_body() {
         let t = cfg(r#"
@@ -1003,7 +1007,7 @@ card_kinds:
 "#)
         .blueprint();
         assert!(
-            t.contains("to: # string\n# e.g. \"Dear Sir or Madam,\\n\\nI am writing to...\"\n~~~\n\n~~~\n"),
+            t.contains("to: # string\n# body e.g. \"Dear Sir or Madam,\\n\\nI am writing to...\"\n~~~\n\n~~~\n"),
             "{t}"
         );
         assert!(t.contains("author: # string\n~~~\n\n~~~\n"), "{t}");

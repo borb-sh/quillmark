@@ -48,7 +48,7 @@ export interface QuillCardUi {
 export interface QuillCardBody {
     /** When false, consumers must not accept or store body content for this card kind. Defaults to true. */
     enabled?: boolean;
-    /** Example body content, shown on the blueprint's `# e.g.` line above the body. */
+    /** Example body content, shown on the blueprint's `# body e.g.` line above the body. */
     example?: string;
 }
 

@@ -213,7 +213,7 @@ pub const MARKDOWN_RULES: &str = "Quillmark Markdown rules:
 /// Names no tool and asserts no layout: the consumer that composes this owns
 /// where it sits and what it directs the model to call next.
 const BLUEPRINT_INSTRUCTION_TEMPLATE: &str =
-    "Fill in the `{quill}` blueprint: answer each empty field and edit the body prose.";
+    "Fill in the `{quill}` blueprint: answer each empty field and write each body.";
 
 /// Render the blueprint instruction with `quill_name` substituted in.
 pub fn blueprint_instruction(quill_name: &str) -> String {
