@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.116.0 - 2026-09-26
 
 Upgrade path: [0.115 → 0.116](docs/migrations/0.115-to-0.116.md).
 
@@ -203,6 +203,7 @@ Upgrade path: [0.115 → 0.116](docs/migrations/0.115-to-0.116.md).
 - fix(cli): `validate -v` reports a backend load warning once, where each of
   the three canonical renders repeated it.
 - fix(quillmark): the facade re-exports `ParseDateError`.
+
 
 ## v0.115.0 - 2026-09-22
 
