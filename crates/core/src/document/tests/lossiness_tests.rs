@@ -218,6 +218,28 @@ fn a_comment_on_a_continuation_line_stays_with_its_value() {
     }
 }
 
+/// A plain scalar on the lines below its key holds no comment: one under it,
+/// or between the key and it, sits after the key's value.
+#[test]
+fn a_comment_under_a_scalar_below_its_key_follows_the_value() {
+    let cases = [
+        "k:\n  some text\n  # c\nn: 1\n",
+        "k: !t\n  some text\n  # c\nn: 1\n",
+        "k: &a\n  some text\n  # c\nn: 1\n",
+        "k: !t\n  # c\n  some text\nn: 1\n",
+        "m:\n  k: !t\n    some text\n    # c\n  n: 1\n",
+        "m:\n  k: !t\n    # c\n    some text\n  n: 1\n",
+        "rows:\n  -\n    some text\n    # c\n  - b\n",
+    ];
+    for fields in cases {
+        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
+        let doc = Document::parse(&src).unwrap().document;
+        let md = doc.to_markdown();
+        assert!(md.contains("# c\n"), "Source:\n{src}\nGot:\n{md}");
+        assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
+    }
+}
+
 /// A tag or anchor ahead of `|` or `>` leaves the block's lines its text: no
 /// key, comment or tag among them reaches the mapping around it.
 #[test]

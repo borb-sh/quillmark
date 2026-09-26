@@ -385,6 +385,11 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
 
         if std::mem::take(&mut node_below) {
             open = opens_past_line(trimmed);
+            // A scalar holds no children, so the frame opened for it goes.
+            if stack.len() > 1 && stack.last().is_some_and(|f| f.child_count == 0) {
+                let frame = stack.pop().expect("more than the root frame");
+                rehome_comments(&mut out, &frame.path, &host);
+            }
         }
         cleaned.push(line.to_string());
     }
@@ -446,6 +451,28 @@ fn continue_value(
         }
     }
     scan.is_open().then_some(scan)
+}
+
+/// Move the comments recorded inside `path`, a frame opened for a value that
+/// turned out a scalar, to the own-line slot after `host`.
+fn rehome_comments(out: &mut PreScan, path: &[PathSegment], host: &Host) {
+    let (moved, kept) = std::mem::take(&mut out.nested_comments)
+        .into_iter()
+        .partition(|c| c.container_path == path);
+    out.nested_comments = kept;
+    for c in moved {
+        match host {
+            Host::Field => out.items.push(PreItem::Comment {
+                text: c.text,
+                inline: false,
+            }),
+            Host::Child { after, .. } => out.nested_comments.push(NestedComment {
+                container_path: after.container_path.clone(),
+                position: after.position,
+                ..c
+            }),
+        }
+    }
 }
 
 fn strip_comment_marker(raw: &str) -> &str {
@@ -865,7 +892,7 @@ mod tests {
 
     #[test]
     fn crlf_lines_carry_no_carriage_return_into_the_scan() {
-        let input = "dept: Sales\r\n# note\r\ntitle: x # trailing\r\n";
+        let input = "dept: !t\r\n# note\r\ntitle: x # trailing\r\n";
         let out = prescan_fence_content(input);
         assert_eq!(
             out.items,
@@ -886,7 +913,7 @@ mod tests {
                 },
             ]
         );
-        assert!(out.unsupported_tags.is_empty(), "got: {:?}", out.unsupported_tags);
+        assert_eq!(out.unsupported_tags, vec![vec![PathSegment::Key("dept".to_string())]]);
         assert!(!out.cleaned_yaml.contains('\r'));
     }
 
