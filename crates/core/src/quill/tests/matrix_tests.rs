@@ -121,12 +121,19 @@ fn an_unheld_member_keeps_its_detail_in_the_document_and_blanks_it_on_the_wire()
 
 /// Total at the plate, in declaration order, carrying the labels the roster
 /// holds: a plate prints the whole vocabulary without a second copy of it, and
-/// an authored `title` is overwritten rather than carried.
+/// an authored `title` is overwritten rather than carried, and warned at.
 #[test]
 fn the_projection_is_total_and_carries_the_roster() {
-    let wire = plate(&doc(
-        "qualifications:\n  cyber_200: true\n  flight_cc: { held: true, title: Forged }\n",
-    ));
+    let document =
+        doc("qualifications:\n  cyber_200: true\n  flight_cc: { held: true, title: Forged }\n");
+    assert_eq!(
+        codes(&document),
+        [(
+            "validation::unknown_field".to_string(),
+            "main.qualifications.flight_cc.title".to_string()
+        )]
+    );
+    let wire = plate(&document);
     let members = wire.as_object().expect("a matrix projects as a mapping");
 
     assert_eq!(
