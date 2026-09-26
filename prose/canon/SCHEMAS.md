@@ -503,14 +503,15 @@ what follows for literals and for absence.
 `example:` is no rung: nothing persists it and nothing renders it. It is
 schema guidance, which the blueprint shows as a `# e.g.` line.
 
-A `default` is never written back into a document: it lives in `Quill.yaml`,
+The engine never writes a `default` into a document: it lives in `Quill.yaml`,
 the render path interpolates it into the plate-JSON projection only, and seeding
 deliberately omits it (persisting it would be redundant and would freeze it
-against a schema change). The lone way a default's *value* becomes document
-content is indirect: `blueprint()` emits it as literal text in its reference
-*string* (the concrete default value, shippable as-is), and if a consumer authors from it and saves
-it, that value is now ordinary **authored** content: the consumer committed
-it, not the engine.
+against a schema change). A default's *value* becomes document content only
+when a consumer writes it from where it is shown: `blueprint()` emits it as
+literal text in its reference *string* (the concrete default value, shippable
+as-is), and an editor may show it as an unset field's value until an edit
+commits it. What a consumer writes is ordinary **authored** content: the
+consumer committed it, not the engine.
 
 No surface owns a precedence *policy*; each **projection cuts the same ladder**
 at a different rung, and the per-rung producers are shared (`blank` for the
