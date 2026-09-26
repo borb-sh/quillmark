@@ -26,9 +26,9 @@ A matrix with columns adds an `# e.g.` line spelling one held member, `{flight_c
 
 A card's own title and description ride its `$kind` line's inline slot, `$kind: note # <title> — <description>`, so neither reads as the first field's.
 
-Two things in the own-line slot are not annotations. An `enum` declaring `variants:` shows the cells of the world its discriminant names live, and every other world's cells commented out under a `# when <MEMBER>:` header — the same cells, with a `# ` in front, at the column they would sit at. Choose that member and delete the `# `. A typed table whose `default:` is `[]` is followed by the whole field commented out, holding a row. Delete the live line and uncomment the rest to add a row.
+Two things in the own-line slot are not annotations. An `enum` declaring `variants:` shows the cells of the world its discriminant names live, and every other world's cells commented out under a `# when <MEMBER>:` header — the same cells, with a `# ` in front, at the column they would sit at. Choose that member and delete the `# `. A typed table whose `default:` is `[]` is led by the whole field commented out, holding a row. Delete the live line and uncomment the block to add a row.
 
-The reader's one rule: an empty cell (`title: # string`) awaits a value; a concrete value is the field's `default:`, shippable as-is. An `example:` never takes a cell: it always rides a `# e.g.` line above the field, as a one-line flow collection for an array or object, and is the schema's illustration rather than real data. An empty cell renders at the field's blank, and nothing warns about it. Every body is empty too: a `body.example` rides a `# body e.g.` line closing the card's payload, above the body.
+The reader's one rule: an empty cell (`title: # string`) awaits a value; a concrete value is the field's `default:`, shippable as-is. An `example:` never takes a cell: it always rides a `# e.g.` line above the field, as a one-line flow collection for an array or object, and is the schema's illustration rather than real data. An empty cell renders at the field's blank, and nothing warns about it. Every body is empty too: a `body.example` rides a `# body e.g.` line closing the card's payload, above the body, and a kind taking no body closes with `# no body`.
 
 ## Seeding: the starter document
 

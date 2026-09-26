@@ -65,6 +65,7 @@ follow:
 |---|---|---|
 | **Leading `# …` lines** above a field | `# <prose>`, `# up to <N>` or `# e.g. <value>` | label (single-line prose), an `array`'s element cap, and an illustrative example |
 | **Inline `# …`** at end of the value line | `# <type>[<format>]` | structural metadata: the field's type and an optional format refinement |
+| **Body line** closing a card's payload | `# body e.g. <value>` or `# no body` | the body's example, or that the kind takes no body (see "Bodies") |
 
 The two slots divide by *grammar*, not by subject: the inline slot is the fixed
 `<type>[<format>]` expression and takes nothing else, so a constraint that is not
@@ -74,7 +75,7 @@ collides with YAML key/value parsing.
 
 Two own-line forms are not annotations: a dormant variant world, which is cells
 with a `# ` in front under a `# when <MEMBER>:` header (see "Enum variants"),
-and a typed table's field commented out under its live `[]` (see "Typed
+and a typed table's field commented out above its live `[]` (see "Typed
 tables"). The colons in them are the cells' own.
 
 ### Leading lines: order
@@ -107,9 +108,9 @@ Per field, in order:
    The member is the roster's first and is illustrative only; the line exists
    to name the columns and the `held: true` a mapping needs to tick. Each
    column shows its `example:`, else its `default:`, else its container shape,
-   else its inline annotation's `<type>[<format>]`, which fails validation if
-   pasted unanswered. A checklist (no columns) has no line: the bare tick is its
-   whole spelling.
+   else its inline annotation's `<type>[<format>]`: a type, not a value, quoted
+   where flow syntax would split it. A checklist (no columns) has no line: the
+   bare tick is its whole spelling.
 
 That's it. There is no leading `# required`, `# enum:`, `# default:`, or
 `# type:`: those collapse into the inline.
@@ -197,6 +198,8 @@ Examples:
 | `qualifications: {} # matrix<flight_cc \| dodin_ops>` | a matrix: the whole vocabulary in the annotation, nothing ticked; a leading `# e.g.` names its columns, if it has any |
 | `$quill: cmu_letter@0.1.0 # keep verbatim` | quill binding metadata, emitted verbatim; the inline reminder guards against dropping the line |
 | `$kind: skill` followed by `# composable (0..N)` and `# sample card; delete if not needed` | repeat the entire `~~~` … `~~~` block per instance, or delete it if none are needed |
+| `# body e.g. "Dear Sir or Madam,\n\nI am writing to..."` above a closing `~~~` | the body's example: the body after the fence is empty, awaiting prose |
+| `# no body` above a closing `~~~` | the kind takes no body: write nothing after the fence |
 
 ## Cell values
 
@@ -326,21 +329,21 @@ a **cell**, so it keeps its own literal and the cascade is the uniform one:
 - A non-empty `default:` renders as actual rows (no per-property
   annotations on each row). The outer key carries `# array<object>`.
 - `default: []` renders inline as `[]` with `# array<object>`: shippable
-  empty. The field follows again, commented out and holding the synthetic row
+  empty. The field leads it again, commented out and holding the synthetic row
   of the next case: the config-file spelling of an alternative. A reader adds a
-  row by deleting the live line and uncommenting the rest; leaving both live is
-  a duplicate key. A `max: 0` table holds no row, so it has none.
+  row by deleting the live line and uncommenting the block; leaving both live
+  is a duplicate key. A `max: 0` table holds no row, so it has none.
 - Without a `default:`, one synthetic row is emitted with each property
   carrying its own description, `# e.g.` line, inline annotation, and cell —
   its `default:`, else empty. The outer key carries `# array<object>`.
 
 ```
-attendees: [] # array<object>
 # attendees:
 #   -
 #     # Full name.
 #     name: # string
 #     voting: false # boolean
+attendees: [] # array<object>
 ```
 
 The row schema is a namespace, so it declares no `default:` / `example:` of its
@@ -421,10 +424,15 @@ no second shape for.
 ## Bodies
 
 Every body is empty, as a seeded one is: a body is a cell, and an example never
-takes a cell. A `body.example` rides a `# body e.g.` line closing the payload,
-directly above the body it shows, as one quoted YAML scalar (`\n` for its line
-breaks). `body` names its target: below the last field, a bare `# e.g.` would
-read as that field's. A card under `body.enabled: false` has no line.
+takes a cell. One line closing the payload, directly above the body, speaks for
+it:
+
+- `# body e.g. <value>`: a `body.example`, as one YAML scalar, quoted where it
+  holds line breaks or would not read back plain. `body` names its target:
+  below the last field, a bare `# e.g.` would read as that field's.
+- `# no body`: a kind under `body.enabled: false`, whose empty body would
+  otherwise read as one awaiting prose.
+- Nothing: a kind taking a body with no example (or a blank one).
 
 A composable card's emitted block — its `$kind` line, the `composable
 (0..N)` / sample-card comments, its fields, and its body — is one sample

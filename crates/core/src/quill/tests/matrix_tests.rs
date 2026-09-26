@@ -257,10 +257,11 @@ fn the_blueprint_hint_spells_a_held_member_with_every_column() {
         "detail: { type: plaintext, inline: true, default: \"\" }",
         "detail: { type: plaintext, inline: true, default: \"\", example: \"333 TRS/DO, 2024\" }\n        \
          unit: { type: string, default: HQ }\n        \
-         earned: { type: date }",
+         earned: { type: date }\n        \
+         logged: { type: datetime }",
     );
     let bp = QuillConfig::from_yaml(&yaml).expect("loads").blueprint();
-    let hint = "{sq_cc_candidate: {held: true, detail: \"333 TRS/DO, 2024\", unit: HQ, earned: date<YYYY-MM-DD | today>}}";
+    let hint = "{sq_cc_candidate: {held: true, detail: \"333 TRS/DO, 2024\", unit: HQ, earned: date<YYYY-MM-DD | today>, logged: \"datetime<YYYY-MM-DDThh:mm[:ss]>\"}}";
     assert!(
         bp.contains(&format!(
             "# e.g. {hint}\nqualifications: {{}} # matrix<sq_cc_candidate | flight_cc | dodin_ops | cyber_200>\n"
@@ -276,7 +277,11 @@ fn the_blueprint_hint_spells_a_held_member_with_every_column() {
     };
     assert!(!quill.validate(&paste(hint)).is_empty());
 
-    let answered = paste(&hint.replace("date<YYYY-MM-DD | today>", "2024-05-01"));
+    let answered = paste(
+        &hint
+            .replace("date<YYYY-MM-DD | today>", "2024-05-01")
+            .replace("\"datetime<YYYY-MM-DDThh:mm[:ss]>\"", "2024-05-01T09:30"),
+    );
     let wire = quill.compile_data(&answered, test_date()).expect("compiles")["qualifications"]
         ["sq_cc_candidate"]
         .clone();

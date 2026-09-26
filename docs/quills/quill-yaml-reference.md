@@ -828,7 +828,7 @@ names the instance.
 
 #### `body.enabled`
 
-When `false`, the card kind has no body/content area, and an editor should offer none. A document that provides body content for such a card anyway still renders without it: the plate receives no `$body`, and `quill.validate(doc)` warns with `validation::body_disabled`.
+When `false`, the card kind has no body/content area, and an editor should offer none. The blueprint closes the card's payload with `# no body`. A document that provides body content for such a card anyway still renders without it: the plate receives no `$body`, and `quill.validate(doc)` warns with `validation::body_disabled`.
 
 ```yaml
 card_kinds:

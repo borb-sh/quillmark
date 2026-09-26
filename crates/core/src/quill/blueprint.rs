@@ -61,14 +61,17 @@ fn label_line(title: Option<&str>, description: Option<&str>) -> Option<String> 
     }
 }
 
-/// A body's `body.example`, as the `# body e.g.` line closing the payload
-/// above it. The body itself is left empty, as a field's cell is.
-fn push_body_example(items: &mut CardItems, card: &CardSchema) {
+/// The line closing the payload that speaks for the body, which is left empty
+/// as a field's cell is: `# no body` for a kind taking none, else a
+/// `body.example` as `# body e.g.`.
+fn push_body_line(items: &mut CardItems, card: &CardSchema) {
     if !card.body_enabled() {
+        items.push(PayloadItem::comment("no body"));
         return;
     }
-    if let Some(example) = card.body.as_ref().and_then(|b| b.example.as_deref()) {
-        let example = JsonValue::String(example.trim_end().to_string());
+    let example = card.body.as_ref().and_then(|b| b.example.as_deref());
+    if let Some(example) = example.map(str::trim_end).filter(|e| !e.is_empty()) {
+        let example = JsonValue::String(example.to_string());
         items.push(PayloadItem::comment(format!("body e.g. {}", saphyr_emit_scalar(&example))));
     }
 }
@@ -107,8 +110,7 @@ impl CardItems {
 
 /// Build the root card: `$quill` (with the `# keep verbatim` inline reminder),
 /// `$kind: main` carrying the optional [`label_line`] inline, the fields, then
-/// the body's example.
-/// Inline, the label cannot read as the first field's.
+/// the [`push_body_line`]. Inline, the label cannot read as the first field's.
 fn build_main_card(card: &CardSchema, quill_ref: &str, label: Option<String>) -> Card {
     let reference = quill_ref
         .parse()
@@ -123,13 +125,13 @@ fn build_main_card(card: &CardSchema, quill_ref: &str, label: Option<String>) ->
         items.push(PayloadItem::comment_inline(label));
     }
     append_fields(&mut items, card);
-    push_body_example(&mut items, card);
+    push_body_line(&mut items, card);
     Card::from_parts(items.into_payload(), Normalized::empty())
 }
 
 /// Build a composable card: `$kind: <kind>` carrying the optional
 /// [`label_line`] inline, the `composable (0..N)` role comment, a comment
-/// naming it a deletable sample, the fields, then the body's example.
+/// naming it a deletable sample, the fields, then the [`push_body_line`].
 fn build_card(card: &CardSchema) -> Card {
     let mut items = CardItems::default();
     items.push(PayloadItem::Kind {
@@ -141,7 +143,7 @@ fn build_card(card: &CardSchema) -> Card {
     items.push(PayloadItem::comment("composable (0..N)"));
     items.push(PayloadItem::comment("sample card; delete if not needed"));
     append_fields(&mut items, card);
-    push_body_example(&mut items, card);
+    push_body_line(&mut items, card);
     Card::from_parts(items.into_payload(), Normalized::empty())
 }
 
@@ -205,11 +207,11 @@ fn append_field(items: &mut CardItems, field: &FieldSchema) {
 
     if typed_dict_props(field).is_some() || typed_table_props(field).is_some() {
         push_leading(items, field);
-        let (value, nested) = container_cell(field, &[]);
-        push_container_field(items, &field.name, value, nested, field);
         for line in dormant_table(field) {
             items.push(PayloadItem::comment(line));
         }
+        let (value, nested) = container_cell(field, &[]);
+        push_container_field(items, &field.name, value, nested, field);
         return;
     }
 
@@ -243,7 +245,8 @@ fn matrix_eg(field: &FieldSchema) -> Option<String> {
 }
 
 /// One column's value in a matrix hint: `example:` › `default:` › its
-/// container shape › its inline annotation's `<type>[<format>]`.
+/// container shape › its inline annotation's `<type>[<format>]`, quoted where
+/// flow syntax would split it.
 fn column_hint(col: &FieldSchema) -> String {
     if let Some(value) = col.example.as_ref().or(col.default.as_ref()) {
         return saphyr_emit_flow(value.as_json());
@@ -260,7 +263,7 @@ fn column_hint(col: &FieldSchema) -> String {
         }
         return format!("[{}]", flow_hint_mapping(row));
     }
-    type_expression(col)
+    flow_scalar(&type_expression(col))
 }
 
 fn flow_hint_mapping(props: &IndexMap<String, Box<FieldSchema>>) -> String {
@@ -342,9 +345,9 @@ fn append_scalar(items: &mut CardItems, field: &FieldSchema) {
 
 /// Build the per-property body of a defaultless typed container into `map`:
 /// each property at its own cell in declaration order, plus the nested comments
-/// ([`label_line`] + `# e.g.` + inline type annotation, addressed by
-/// `container_path`/slot). `prefix` is the container
-/// path of the mapping relative to the field value (`[]` for a typed dict,
+/// ([`label_line`] + `# e.g.` + [`dormant_table`] + inline type annotation,
+/// addressed by `container_path`/slot). `prefix` is the container path of the
+/// mapping relative to the value it is rendered in (`[]` for a typed dict,
 /// `[Index(0)]` for a typed table's synthetic row).
 ///
 /// A property's slot is where it lands in `map`, so a caller seating its own
@@ -382,6 +385,11 @@ fn build_property_mapping(
                 inline: false,
             });
         }
+        nested.extend(
+            dormant_table(prop)
+                .into_iter()
+                .map(|line| world_comment(prefix, slot, line)),
+        );
         let mut path = prefix.to_vec();
         path.push(PathSegment::Key(prop.name.clone()));
         let (json, sub_nested) = property_cell(prop, &path);
@@ -393,11 +401,6 @@ fn build_property_mapping(
             text: type_expression(prop),
             inline: true,
         });
-        nested.extend(
-            dormant_table(prop)
-                .into_iter()
-                .map(|line| world_comment(prefix, slot + 1, line)),
-        );
     }
     nested
 }
@@ -454,7 +457,7 @@ fn rowless(field: &FieldSchema, row_props: &IndexMap<String, Box<FieldSchema>>) 
 }
 
 /// The lines of a `default: []` table's field holding its synthetic row, to
-/// follow the live `[]` commented out: the config-file spelling of an
+/// lead the live `[]` commented out: the config-file spelling of an
 /// alternative, taken by deleting the live line and uncommenting these.
 fn dormant_table(field: &FieldSchema) -> Vec<String> {
     let Some(row_props) = typed_table_props(field) else {
@@ -984,11 +987,11 @@ card_kinds:
         }
     }
 
-    /// A body is a cell: it stays empty, and its example rides the `# body
-    /// e.g.` line closing the payload above it, named so it cannot read as the
-    /// last field's.
+    /// A body is a cell: it stays empty, and one line closing the payload
+    /// speaks for it: its example, named so it cannot read as the last field's,
+    /// or `# no body` for a kind taking none.
     #[test]
-    fn a_body_example_rides_an_eg_line_over_an_empty_body() {
+    fn a_body_line_closes_the_payload_over_an_empty_body() {
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
@@ -1000,6 +1003,10 @@ card_kinds:
   note:
     fields:
       author: { type: string }
+  blank:
+    body: { example: "\n\n" }
+    fields:
+      tag: { type: string }
   skills:
     body: { enabled: false, example: unused }
     fields:
@@ -1011,7 +1018,8 @@ card_kinds:
             "{t}"
         );
         assert!(t.contains("author: # string\n~~~\n\n~~~\n"), "{t}");
-        assert!(t.ends_with("items: # array<string>\n~~~\n"), "{t}");
+        assert!(t.contains("tag: # string\n~~~\n\n~~~\n"), "{t}");
+        assert!(t.ends_with("items: # array<string>\n# no body\n~~~\n"), "{t}");
         let doc = Document::parse(&t).expect("blueprint must parse").document;
         assert!(doc.main().body().is_blank());
         assert!(doc.cards().iter().all(|c| c.body().is_blank()));
@@ -1103,9 +1111,33 @@ main:
         assert!(!t.contains("refs: # array<object>\n  -\n"));
     }
 
+    /// Takes a dormant table: deletes the live `key: []` line and uncomments
+    /// the field's block above it, from its `# key:` line down.
+    fn swap_in(text: &str, live: &str) -> String {
+        let lines: Vec<&str> = text.lines().collect();
+        let at = lines.iter().position(|l| *l == live).expect("live line");
+        let indent = &live[..live.len() - live.trim_start().len()];
+        let key = live.trim_start().split(':').next().unwrap();
+        let prefix = format!("{indent}# ");
+        let head = format!("{prefix}{key}:");
+        let start = (0..at).rev().find(|&i| lines[i] == head).expect("dormant head");
+        let mut out: Vec<String> = Vec::new();
+        for (i, line) in lines.iter().enumerate() {
+            if i == at {
+                continue;
+            }
+            if (start..at).contains(&i) {
+                out.push(format!("{indent}{}", &line[prefix.len()..]));
+            } else {
+                out.push(line.to_string());
+            }
+        }
+        out.join("\n") + "\n"
+    }
+
     /// The empty cell stays shippable, and the field holding the row it hides
-    /// follows commented out: deleting the live line and uncommenting the
-    /// rest adds the row, at every depth.
+    /// leads it commented out: deleting the live line and uncommenting the
+    /// block adds the row, at every depth and as a row's first cell.
     #[test]
     fn a_dormant_table_swaps_in_for_its_live_line() {
         let bp = cfg(r#"
@@ -1114,6 +1146,7 @@ main:
   fields:
     attendees:
       type: array
+      description: Who attended.
       default: []
       items:
         type: object
@@ -1121,41 +1154,49 @@ main:
           name: { type: string, description: Full name. }
           voting: { type: boolean, default: false }
           tags: { type: array, default: [], items: { type: object, properties: { label: { type: string } } } }
-    next: { type: string }
+    outer:
+      type: array
+      items:
+        type: object
+        properties:
+          inner: { type: array, default: [], items: { type: object, properties: { v: { type: string } } } }
+          z: { type: string }
 "#)
         .blueprint();
-        let dormant = concat!(
-            "attendees: [] # array<object>\n",
-            "# attendees:\n",
-            "#   -\n",
-            "#     # Full name.\n",
-            "#     name: # string\n",
-            "#     voting: false # boolean\n",
-            "#     tags: [] # array<object>\n",
-            "#     # tags:\n",
-            "#     #   - label: # string\n",
-            "next: # string\n",
+        assert!(
+            bp.contains(concat!(
+                "# Who attended.\n",
+                "# attendees:\n",
+                "#   -\n",
+                "#     # Full name.\n",
+                "#     name: # string\n",
+                "#     voting: false # boolean\n",
+                "#     # tags:\n",
+                "#     #   - label: # string\n",
+                "#     tags: [] # array<object>\n",
+                "attendees: [] # array<object>\n",
+                "outer: # array<object>\n",
+                "  -\n",
+                "    # inner:\n",
+                "    #   - v: # string\n",
+                "    inner: [] # array<object>\n",
+                "    z: # string\n",
+            )),
+            "{bp}"
         );
-        assert!(bp.contains(dormant), "{bp}");
         let doc = Document::parse(&bp).expect("blueprint must parse").document;
         assert_eq!(doc.to_markdown(), bp);
 
-        let swapped = bp.replace(
-            dormant,
-            concat!(
-                "attendees:\n",
-                "  -\n",
-                "    # Full name.\n",
-                "    name: # string\n",
-                "    voting: false # boolean\n",
-                "    tags:\n",
-                "      - label: # string\n",
-                "next: # string\n",
-            ),
-        );
-        let doc = Document::parse(&swapped).expect("swapped table must parse").document;
-        let rows = doc.main().payload().get("attendees").expect("attendees");
-        assert!(rows.as_json()[0]["tags"][0].get("label").is_some(), "{swapped}");
+        let swapped = swap_in(&bp, "attendees: [] # array<object>");
+        let swapped = swap_in(&swapped, "    tags: [] # array<object>");
+        let swapped = swap_in(&swapped, "    inner: [] # array<object>");
+        let doc = Document::parse(&swapped).expect("swapped tables must parse").document;
+        let payload = doc.main().payload();
+        let attendees = payload.get("attendees").expect("attendees").as_json();
+        assert!(attendees[0]["tags"][0].get("label").is_some(), "{swapped}");
+        let outer = payload.get("outer").expect("outer").as_json();
+        assert!(outer[0]["inner"][0].get("v").is_some(), "{swapped}");
+        assert!(outer[0].get("z").is_some(), "{swapped}");
     }
 
     #[test]
