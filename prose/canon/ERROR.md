@@ -40,7 +40,7 @@ Two surfaces return one directly (`QuillValue::from_yaml_str`, `QuillConfig::sch
 
 Its `line`/`column` are document coordinates, not block-relative ones:
 
-- The engine reports a position inside the string it parsed: the fence content, line-for-line (prescan strips custom tags but leaves every line standing, comment lines included), minus the whitespace `trim` takes off the front. The assembler translates that position onto the document.
+- The engine reports a position inside the string it parsed: the fence content, line-for-line (prescan strips only a block key's `!must_fill`, leaving any other tag for the engine to drop, and leaves every line standing, comment lines included), minus the whitespace `trim` takes off the front. The assembler translates that position onto the document.
 - `to_diagnostic()` renders it as a `Location` against `DOCUMENT_FILE` (`input.md`). Markdown reaches the engine as a string, so the anchor names the input rather than a path on disk.
 - The message names the block instead of repeating a number (`YAML error in the root card-yaml block: …`, `… in card-yaml block 2: …`). The engine's own snippet inside it stays block-relative, as the engine rendered it.
 
@@ -120,12 +120,16 @@ families:
   overreach — the loader sees a correlate, not the fact.
 - **Parse warnings**: the `warnings` on the `Parsed` that `Document::parse`
   returns (e.g. a `~~~` opener missing its blank line). The CLI render and the
-  WASM one-shot render splice the whole `Parsed.warnings` carrier — this family
-  plus the `conform::*` set that `Quill::parse` appends to it — into
-  `RenderResult.warnings` ahead of any compile warnings. In WASM the surface
-  that merges is the runtime `Engine.render`, reading the carrier off the
-  caller's `doc.warnings`: the backend-memory clone it renders is built by
-  `Document.fromStored`, which carries none.
+  WASM and Python one-shot renders splice the whole `Parsed.warnings` carrier —
+  this family plus the `conform::*` set that `Quill::parse` appends to it —
+  into `RenderResult.warnings` ahead of the validation and compile warnings.
+  In WASM the surface that merges is the runtime `Engine.render`, reading the
+  carrier off the caller's `doc.warnings`: the backend-memory clone it renders
+  is built by `Document.fromStored`, which carries none. A tag warning
+  (`parse::must_fill_dropped`, `parse::unsupported_yaml_tag`) anchors at the
+  tagged node's `path`, a card's under its stored `$kind` as `pathFor` mints
+  it. One on a `$` key or inside `$ext` or `$seed`, which have no document
+  address, carries none.
 - **`conform::*`: resting-form warnings.** `Quill::conform` returns one per
   declared content field whose value the strict write refuses, and
   `Quill::parse` appends them to the `Parsed.warnings` the parse produced. Each
@@ -146,9 +150,11 @@ families:
   `cardinality`, `out_of_variant`, `unknown_card`, `body_disabled`,
   `unknown_field`, and the `$seed` checks, which warn
   whatever their class because no render reads `$seed`.
-  This is the editor-facing surface: the render gate consults only the fatal
-  set, and carries none of the warnings into `RenderResult.warnings`. The CLI's
-  `render` prints the unclaimed ones itself ([CLI.md](CLI.md)). Values
+  The render gate consults only the fatal set. A one-shot render
+  (`Quillmark::render`) carries every one of these warnings on
+  `RenderResult.warnings`, ahead of the compile's. A session carries none: its
+  warnings are its current compile's, so its editor reads `Quill::validate`
+  beside it. The CLI's `render` prints them ([CLI.md](CLI.md)). Values
   are judged in the form the render floor builds from them
   ([SCHEMAS.md](SCHEMAS.md) § "Type coercion").
 - **`backend::declined_construct`: declined-construct warnings.** A backend
@@ -169,7 +175,8 @@ families:
   `open` → `render` path.
 
 Ordering in a merged `RenderResult.warnings` is pipeline order: parse
-warnings first, then compile warnings, with no dedup across families.
+warnings first, then validation warnings, then compile warnings, with no dedup
+across families.
 `backend::declined_construct` dedups within itself, per field: its producer
 sees every occurrence at once, so the occurrences collapse into `count`.
 
@@ -248,8 +255,8 @@ Either quote the value (`build_number: "42"`) or change the schema's
 
 A present-null value (`subtitle:`, `subtitle: null`, `subtitle: ~`) is treated
 exactly like an omitted field: null ≡ absent, it coerces and validates clean,
-and it blank-fills at render (authored › `default:` › blank). An incomplete
-document therefore produces no field-level diagnostic at all.
+and it blank-fills at render (authored › `default:` › blank). A document that
+answers nothing therefore produces no field-level diagnostic at all.
 
 Implementation: `crates/core/src/quill/validation.rs` (the `ValidationError`
 `Display` impl).
@@ -270,12 +277,12 @@ anchor.
 | Typed card (whole) | `cards.indorsement[0]` |
 | Field on a typed card | `cards.indorsement[0].signature_block` |
 | Body on a typed card | `cards.indorsement[0].body` |
-| Card no declared kind claims (unknown or missing `$kind`) | `cards[0]` |
+| Card of a kind the quill does not declare | `cards[0]` |
 
 Every path is **rooted**: a main field at `main.<field>`, a card field
 kind-qualified at `cards.<kind>[<index>].<field>` (kind and document-array index
-fused so a consumer gets both without a second lookup). A card no declared kind
-claims has no kind to qualify with, so `cards[<index>]`, and every field path
+fused so a consumer gets both without a second lookup). A card of an undeclared
+kind has no declared kind to qualify with, so `cards[<index>]`, and every field path
 under it, is the only bare-index form. Rooting keeps the
 grammar total against a field named for a root (`main.cards`, `main.main`); only
 a field literally named `body` still collides with the body terminal. Field
@@ -389,6 +396,8 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `parse::payload_not_mapping` | `actual`, `info`? | structured |
 | `parse::missing_kind` | `info`? | structured |
 | `parse::empty_input` | — | code-determined |
+| `parse::must_fill_dropped` | — | code-determined |
+| `parse::unsupported_yaml_tag` | — | code-determined |
 | `parse::invalid_structure` | — | fallback |
 | `parse::missing_quill` | — | fallback |
 | `parse::body_import` | — | fallback |

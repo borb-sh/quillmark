@@ -17,7 +17,7 @@ use std::str::FromStr;
 use serde::{Deserialize, Serialize};
 
 use quillmark_content::import::ImportError;
-use quillmark_content::model::{Container, Content, Mark, MarkKind, Normalized};
+use quillmark_content::model::{Container, Content, MarkKind, Normalized};
 
 use super::meta::validate_composable_kind;
 use super::payload::{MetaKey, Payload, PayloadItem};
@@ -568,10 +568,11 @@ impl TryFrom<DocumentV0_116_0> for Document {
     }
 }
 
-/// Fold each card naming no `$kind` into the body above it: its payload as a
-/// code block, then its own body. A composable card names its kind, so this is
-/// the one reading of such a stored card that keeps its text. Every
-/// other card loads untouched.
+/// Fold each card naming no `$kind` into the body above it: its fields and
+/// comments as a code block, then its own body. A composable card names its
+/// kind, so this is the one reading of such a stored card that keeps its text.
+/// Its `$ext` drops, since `$ext` never reaches a render and the body does.
+/// Every other card loads untouched.
 fn fold_kindless(mut main: Card, cards: Vec<Card>) -> Result<Document, StorageError> {
     let malformed = |e: &dyn std::fmt::Debug| {
         StorageError::Malformed(format!("folding a card with no $kind: {e:?}"))
@@ -586,8 +587,10 @@ fn fold_kindless(mut main: Card, cards: Vec<Card>) -> Result<Document, StorageEr
             Some(card) => card,
             None => &mut main,
         };
+        let mut payload = card.payload().clone();
+        payload.take_ext();
         let mut yaml = String::new();
-        super::emit::emit_payload_items(&mut yaml, card.payload());
+        super::emit::emit_payload_items(&mut yaml, &payload);
         let code = code_block(&yaml).map_err(|e| malformed(&e))?;
         let body = append_block(target.body().clone().into_content(), code);
         let body = append_block(body, card.body().clone().into_content()).into_normalized();
@@ -611,8 +614,9 @@ fn code_block(yaml: &str) -> Result<Content, ImportError> {
 }
 
 /// `src` as the blocks following `dst`'s, each its own block: its top-level
-/// containers never continue `dst`'s last run, and an island or anchor id
-/// `dst` already holds is renamed, since both are unique per content.
+/// containers never continue `dst`'s last run. `src` lands as new content, so
+/// an island id `dst` already holds is minted anew past the highest `isl-{n}`
+/// either holds, and an anchor whose id `dst` already holds drops whole.
 fn append_block(mut dst: Content, mut src: Content) -> Content {
     let void = |c: &Content| c.text.is_empty() && c.marks.is_empty() && c.islands.is_empty();
     if void(&src) {
@@ -623,38 +627,42 @@ fn append_block(mut dst: Content, mut src: Content) -> Content {
     }
     let offset = dst.len_usv() + 1;
 
-    let mut taken: HashSet<String> = dst.islands.iter().map(|i| i.id.clone()).collect();
-    taken.extend(src.islands.iter().map(|i| i.id.clone()));
-    let mut next = 0usize;
+    let held: HashSet<&str> = dst.islands.iter().map(|i| i.id.as_str()).collect();
+    let taken: HashSet<String> = dst
+        .islands
+        .iter()
+        .chain(&src.islands)
+        .map(|i| i.id.clone())
+        .collect();
+    // `u128` counts past `isl-{u64::MAX}`; `taken` steps over an id past that,
+    // which the count does not parse.
+    let mut next = dst
+        .islands
+        .iter()
+        .chain(&src.islands)
+        .filter_map(|i| i.id.strip_prefix("isl-")?.parse::<u64>().ok())
+        .max()
+        .map_or(0, |n| u128::from(n) + 1);
     for island in &mut src.islands {
-        if dst.islands.iter().any(|i| i.id == island.id) {
+        if held.contains(island.id.as_str()) {
             while taken.contains(&format!("isl-{next}")) {
                 next += 1;
             }
             island.id = format!("isl-{next}");
-            taken.insert(island.id.clone());
+            next += 1;
         }
     }
 
-    let anchor_id = |m: &Mark| match &m.kind {
-        MarkKind::Anchor { id } => Some(id.clone()),
-        _ => None,
-    };
-    let held: HashSet<String> = dst.marks.iter().filter_map(anchor_id).collect();
-    let mut taken: HashSet<String> = held.clone();
-    taken.extend(src.marks.iter().filter_map(anchor_id));
-    for mark in &mut src.marks {
-        if let MarkKind::Anchor { id } = &mut mark.kind
-            && held.contains(id.as_str())
-        {
-            let mut n = 1usize;
-            while taken.contains(&format!("{id}-{n}")) {
-                n += 1;
-            }
-            *id = format!("{id}-{n}");
-            taken.insert(id.clone());
-        }
-    }
+    let held: HashSet<&str> = dst
+        .marks
+        .iter()
+        .filter_map(|m| match &m.kind {
+            MarkKind::Anchor { id } => Some(id.as_str()),
+            _ => None,
+        })
+        .collect();
+    src.marks
+        .retain(|m| !matches!(&m.kind, MarkKind::Anchor { id } if held.contains(id.as_str())));
 
     // A run opens where the stored `instance` changes, so lifting every
     // top-level instance past `dst`'s keeps `src`'s runs its own.
@@ -1831,20 +1839,27 @@ title: Hi
         assert!(err.to_string().contains("reserved (root only)"));
     }
 
-    /// A stored card with no `$kind` folds into the body above it: its payload
-    /// as a code block, then its body, whose marks shift with it.
+    /// A stored card with no `$kind` folds into the body above it: its fields
+    /// and comments as a code block, then its body, whose marks shift with it.
     #[test]
     fn a_stored_kindless_card_folds_into_the_body_above() {
         let parsed = Document::parse(
-            "~~~\n$quill: q@1.0\n~~~\n\nIntro.\n\n~~~\n$kind: note\n~~~\n\nNote.\n",
+            "~~~\n$quill: q@1.0\n~~~\n\nIntro. ![a](a.png)\n\n~~~\n$kind: note\n~~~\n\nNote.\n",
         )
         .unwrap()
         .document;
-        let kindless = Payload::from_items(vec![PayloadItem::Field {
-            key: "name".to_string(),
-            value: QuillValue::from_json(serde_json::json!("server")),
-        }]);
-        let kindless = Card::from_parts(kindless, super::super::import_body("Conclusion.").unwrap());
+        let mut ext = serde_json::Map::new();
+        ext.insert("editor".into(), serde_json::json!({"title": "Secret draft name"}));
+        let kindless = Payload::from_items(vec![
+            PayloadItem::Meta { key: MetaKey::Ext, value: ext },
+            PayloadItem::comment("note"),
+            PayloadItem::Field {
+                key: "name".to_string(),
+                value: QuillValue::from_json(serde_json::json!("server")),
+            },
+        ]);
+        let body = super::super::import_body("Conclusion. ![c](c.png)").unwrap();
+        let kindless = Card::from_parts(kindless, body);
         let stored = Document {
             main: parsed.main().clone(),
             cards: vec![kindless, parsed.cards()[0].clone()],
@@ -1854,16 +1869,22 @@ title: Hi
         let anchor = serde_json::json!([{"type": "anchor", "id": "c1", "start": 0, "end": 5}]);
         json["main"]["body"]["marks"] = anchor.clone();
         json["cards"][1]["body"]["marks"] = anchor;
-        json["cards"][0]["body"]["marks"] =
-            serde_json::json!([{"type": "anchor", "id": "c1", "start": 0, "end": 10}]);
+        json["cards"][0]["body"]["marks"] = serde_json::json!([
+            {"type": "anchor", "id": "c1", "start": 0, "end": 10},
+            {"type": "anchor", "id": "c2", "start": 0, "end": 10}
+        ]);
+        json["main"]["body"]["islands"][0]["id"] = "isl-1".into();
+        json["cards"][0]["body"]["islands"][0]["id"] = "isl-1".into();
         let restored: Document = serde_json::from_value(json).unwrap();
         assert_eq!(restored.cards().len(), 1);
         assert_eq!(restored.cards()[0].kind(), Some("note"));
         assert_eq!(
             restored.main().body_markdown(),
-            "Intro.\n\n```\nname: server\n```\n\nConclusion."
+            "Intro. ![a](a.png)\n\n```\n# note\nname: server\n```\n\nConclusion. ![c](c.png)"
         );
         let main = restored.main().body();
+        let islands: Vec<&str> = main.islands.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(islands, ["isl-1", "isl-2"]);
         let anchors: Vec<(String, String)> = main
             .marks
             .iter()
@@ -1875,9 +1896,32 @@ title: Hi
                 other => panic!("{other:?}"),
             })
             .collect();
-        let expected = [("c1", "Intro"), ("c1-1", "Conclusion")];
+        let expected = [("c1", "Intro"), ("c2", "Conclusion")];
         assert_eq!(anchors, expected.map(|(i, t)| (i.to_string(), t.to_string())));
         assert_eq!(restored.cards()[0].body().marks.len(), 1);
+    }
+
+    /// The id past `isl-{u64::MAX}` is `isl-{u64::MAX + 1}`, and one either body
+    /// holds is stepped over.
+    #[test]
+    fn a_folded_island_id_past_u64_max_is_fresh() {
+        let body = |ids: &[&str]| {
+            let md = vec!["![a](a.png)"; ids.len()].join("\n\n");
+            let mut content = super::super::import_body(&md).unwrap().into_content();
+            for (island, id) in content.islands.iter_mut().zip(ids) {
+                island.id = id.to_string();
+            }
+            content
+        };
+        let isl = |n: u128| format!("isl-{n}");
+        let max = u128::from(u64::MAX);
+        let folded = append_block(
+            body(&[&isl(max)]),
+            body(&[&isl(max), &isl(max + 1)]),
+        );
+        let ids: Vec<&str> = folded.islands.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, [isl(max), isl(max + 2), isl(max + 1)]);
+        folded.validate().unwrap();
     }
 
     /// A fold loads whatever the stored card holds, keeps the blocks on either

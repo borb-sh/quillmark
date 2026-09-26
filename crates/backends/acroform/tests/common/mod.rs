@@ -4,6 +4,7 @@
 #![allow(dead_code)]
 
 use lopdf::Document as PdfDoc;
+use quillmark_core::quill::CalendarDate;
 
 /// UTF-16BE when the string carries a BOM (pdf-writer picks that for characters
 /// outside the literal-safe set), else Latin-1.
@@ -32,4 +33,9 @@ pub fn widget<'a>(doc: &'a PdfDoc, af: &lopdf::Dictionary, name: &str) -> &'a lo
         }
     }
     panic!("no field named {name}");
+}
+
+/// The render date the tests open sessions with.
+pub fn test_date() -> CalendarDate {
+    CalendarDate::new(2026, 3, 14).expect("a calendar day")
 }

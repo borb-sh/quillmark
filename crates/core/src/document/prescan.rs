@@ -7,13 +7,12 @@
 //! themselves stay in the cleaned YAML, where they are comments to serde_saphyr
 //! too.
 //!
-//! A custom tag is dropped with a `parse::unsupported_yaml_tag` warning, value
-//! kept. The retired `!must_fill` placeholder tag is the exception: its path is
-//! recorded so the assembler drops the value under it too.
+//! A tag on a block key's value is recorded at the key's path, for the
+//! assembler to warn on; the YAML parser drops it and keeps the value. The
+//! retired `!must_fill` tag is lifted off here instead, so the assembler drops
+//! the value too. A tag anywhere else the parser drops unrecorded.
 
 use crate::value::PathSegment;
-use crate::error::Diagnostic;
-use crate::error::Severity;
 
 /// One ordered hint extracted from the fence body. `Field` captures only the
 /// key; the value comes from serde_saphyr. An inline `Comment` immediately
@@ -53,7 +52,8 @@ pub(crate) struct PreScan {
     /// Paths of the nodes tagged `!must_fill`, relative to the fence root (the
     /// first segment is the owning top-level key).
     pub retired_fills: Vec<Vec<PathSegment>>,
-    pub warnings: Vec<Diagnostic>,
+    /// Paths of the nodes carrying any other tag, relative to the fence root.
+    pub unsupported_tags: Vec<Vec<PathSegment>>,
 }
 
 #[derive(Debug)]
@@ -61,6 +61,26 @@ struct Frame {
     indent: usize,
     path: Vec<PathSegment>,
     child_count: usize,
+}
+
+/// The slot a key or dash line fills, where a comment trailing its value's
+/// lines attaches.
+#[derive(Debug, Clone)]
+enum Host {
+    Field,
+    /// The line's own trailer slot, the own-line slot right after its value,
+    /// and the count of nested comments recorded ahead of the line.
+    Child {
+        trailer: Slot,
+        after: Slot,
+        recorded: usize,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct Slot {
+    container_path: Vec<PathSegment>,
+    position: usize,
 }
 
 pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
@@ -77,6 +97,12 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
 
     // Indent of the `key:` line that opened the current block scalar, if any.
     let mut block_scalar_indent: Option<usize> = None;
+    // A value spanning lines, whose later lines are its text, never a key.
+    let mut open: Option<FlowScan> = None;
+    // The last `key:` or `-` left its node to a later line.
+    let mut node_below = false;
+    // The slot of the last `key:` or `-`, which owns `open`.
+    let mut host = Host::Field;
 
     for raw_line in &lines {
         // The split is on `\n`, so a CRLF line ends in `\r`. Dropped once here:
@@ -99,6 +125,13 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                 continue;
             }
             block_scalar_indent = None;
+        }
+
+        // Inside a quoted scalar a `#` line is text too.
+        if let Some(scan) = open.take_if(|scan| scan.quote.is_some()) {
+            open = continue_value(&mut out, scan, trimmed, &host);
+            cleaned.push(line.to_string());
+            continue;
         }
 
         while let Some(frame) = stack.last() {
@@ -134,6 +167,12 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             continue;
         }
 
+        if let Some(scan) = open.take() {
+            open = continue_value(&mut out, scan, trimmed, &host);
+            cleaned.push(line.to_string());
+            continue;
+        }
+
         // Case 2: sequence item line (`- ...`).
         if trimmed == "-" || trimmed.starts_with("- ") {
             let frame_idx = ensure_frame_at_indent(&mut stack, indent);
@@ -149,6 +188,10 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             while stack.len() > frame_idx + 1 {
                 stack.pop();
             }
+            let mut after = Slot {
+                container_path: parent_path.clone(),
+                position: item_index + 1,
+            };
 
             // `strip_prefix` rather than a byte range: user content follows,
             // and a byte index could land inside a multi-byte codepoint.
@@ -163,6 +206,7 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             let mut dash_body_clean: Option<String> = None;
             let mut dash_key_block_scalar = false;
             if after_dash_trimmed.is_empty() {
+                node_below = true;
                 stack.push(Frame {
                     indent: indent + 2,
                     path: item_path,
@@ -171,17 +215,21 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             } else if let Some((key, source_key, after_colon)) =
                 split_nested_key(after_dash_trimmed)
             {
-                let (fill, value_without_tag, had_non_fill_tag) =
-                    record_fill_and_tags(&mut out, &after_colon, &key);
                 let mut key_path = item_path.clone();
                 key_path.push(PathSegment::Key(key));
-                if fill {
-                    out.retired_fills.push(key_path.clone());
-                }
+                let (fill, value_without_tag, had_non_fill_tag) =
+                    record_fill_and_tags(&mut out, &after_colon, &key_path);
                 if fill || had_non_fill_tag {
                     dash_body_clean = Some(format!("{}:{}", source_key, value_without_tag));
                 }
                 dash_key_block_scalar = is_block_scalar_header(&value_without_tag);
+                open = opens_past_line(&value_without_tag);
+                node_below = node_text(&value_without_tag).is_empty();
+                // Past the first key's value, ahead of the item's next key.
+                after = Slot {
+                    container_path: item_path.clone(),
+                    position: 1,
+                };
                 stack.push(Frame {
                     indent: inline_indent_offset,
                     path: item_path,
@@ -194,7 +242,18 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                         child_count: 0,
                     });
                 }
+            } else {
+                open = opens_past_line(after_dash_trimmed);
+                node_below = node_text(after_dash_trimmed).is_empty();
             }
+            host = Host::Child {
+                trailer: Slot {
+                    container_path: parent_path.clone(),
+                    position: item_index,
+                },
+                after,
+                recorded: out.nested_comments.len(),
+            };
 
             if let Some(c) = &trailing_comment {
                 out.nested_comments.push(NestedComment {
@@ -233,17 +292,15 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             if let Some((key, after_colon)) = split_key(line) {
                 let (value_part, trailing_comment) = split_trailing_comment(&after_colon);
 
-                let (fill, value_without_tag, _) =
-                    record_fill_and_tags(&mut out, &value_part, &key);
+                let key_path = vec![PathSegment::Key(key.clone())];
+                let (_, value_without_tag, _) =
+                    record_fill_and_tags(&mut out, &value_part, &key_path);
 
                 out.items.push(PreItem::Field { key: key.clone() });
+                host = Host::Field;
 
                 let root = &mut stack[0];
                 root.child_count += 1;
-                let key_path = vec![PathSegment::Key(key.clone())];
-                if fill {
-                    out.retired_fills.push(key_path.clone());
-                }
 
                 while stack.len() > 1 {
                     stack.pop();
@@ -258,6 +315,8 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
                 }
 
                 cleaned.push(format!("{}:{}", key, value_without_tag));
+                open = opens_past_line(&value_without_tag);
+                node_below = node_text(&value_without_tag).is_empty();
 
                 if let Some(c) = trailing_comment {
                     out.items.push(PreItem::Comment {
@@ -289,13 +348,22 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             while stack.len() > frame_idx + 1 {
                 stack.pop();
             }
+            host = Host::Child {
+                trailer: Slot {
+                    container_path: parent_path.clone(),
+                    position: key_index,
+                },
+                after: Slot {
+                    container_path: parent_path.clone(),
+                    position: key_index + 1,
+                },
+                recorded: out.nested_comments.len(),
+            };
 
             let (value_part, trailing_comment) = split_trailing_comment(&after_colon);
 
-            let (fill, value_without_tag, _) = record_fill_and_tags(&mut out, &value_part, &key);
-            if fill {
-                out.retired_fills.push(key_path.clone());
-            }
+            let (fill, value_without_tag, _) =
+                record_fill_and_tags(&mut out, &value_part, &key_path);
 
             if trailing_comment.is_some() || fill {
                 if let Some(c) = trailing_comment {
@@ -323,9 +391,14 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
             if is_block_scalar_header(&value_without_tag) {
                 block_scalar_indent = Some(indent);
             }
+            open = opens_past_line(&value_without_tag);
+            node_below = node_text(&value_without_tag).is_empty();
             continue;
         }
 
+        if std::mem::take(&mut node_below) {
+            open = opens_past_line(trimmed);
+        }
         cleaned.push(line.to_string());
     }
 
@@ -352,6 +425,42 @@ fn ensure_frame_at_indent(stack: &mut Vec<Frame>, indent: usize) -> usize {
     stack.len() - 1
 }
 
+/// `scan` past one more line of its value, while the value stays open. The
+/// line's trailing comment attaches to `host`: as its inline trailer, or, when
+/// a comment already sits on the host's line or inside the value, as an
+/// own-line comment right after the value.
+fn continue_value(
+    out: &mut PreScan,
+    mut scan: FlowScan,
+    text: &str,
+    host: &Host,
+) -> Option<FlowScan> {
+    if let Some(i) = scan.line(text) {
+        let text = strip_comment_marker(&text[i..]).to_string();
+        match host {
+            Host::Field => {
+                let inline = matches!(out.items.last(), Some(PreItem::Field { .. }));
+                out.items.push(PreItem::Comment { text, inline });
+            }
+            Host::Child {
+                trailer,
+                after,
+                recorded,
+            } => {
+                let trailed = out.nested_comments.len() > *recorded;
+                let slot = if trailed { after } else { trailer };
+                out.nested_comments.push(NestedComment {
+                    container_path: slot.container_path.clone(),
+                    position: slot.position,
+                    text,
+                    inline: !trailed,
+                });
+            }
+        }
+    }
+    scan.is_open().then_some(scan)
+}
+
 fn strip_comment_marker(raw: &str) -> &str {
     let after = raw.trim_start_matches('#');
     after.strip_prefix(' ').unwrap_or(after)
@@ -362,12 +471,12 @@ fn leading_space_count(line: &str) -> usize {
 }
 
 /// `true` when a field value is a YAML block-scalar header (`|` or `>`, with
-/// optional chomping/indent indicators). Unquoted plain scalars cannot begin
-/// with these characters, so a leading `|`/`>` unambiguously opens a literal/
-/// folded block whose following content lines are text, not YAML structure.
+/// optional chomping/indent indicators), past any tag or anchor. Unquoted
+/// plain scalars cannot begin with these characters, so a leading `|`/`>`
+/// unambiguously opens a literal/folded block whose following content lines
+/// are text, not YAML structure.
 fn is_block_scalar_header(value: &str) -> bool {
-    let t = value.trim_start();
-    t.starts_with('|') || t.starts_with('>')
+    node_text(value).starts_with(['|', '>'])
 }
 
 /// `true` when the indented lines under a `key:` line belong to its value: the
@@ -411,14 +520,11 @@ fn split_key(line: &str) -> Option<(String, String)> {
 
 /// Byte index of the `:` closing a *nested* key.
 ///
-/// [`key_end`]'s bare form plus the two spellings `emit_key` also writes at
-/// depth, nested keys being arbitrary user data: a quoted scalar, and a plain
-/// scalar carrying characters the bare form excludes (`a b`). A plain key ends
-/// at the first `: `, or at a `:` closing the line — YAML's own boundary.
+/// Nested keys are arbitrary user data, so this reads YAML's implicit-key
+/// grammar rather than [`key_end`]'s field names: a quoted scalar, or a plain
+/// scalar ending at the first `:` followed by whitespace or the line's end.
+/// `og:title: x` is the key `og:title`.
 fn nested_key_end(line: &str) -> Option<usize> {
-    if let Some(i) = key_end(line) {
-        return Some(i);
-    }
     let bytes = line.as_bytes();
     let first = *bytes.first()?;
     if first == b'"' || first == b'\'' {
@@ -441,22 +547,25 @@ fn nested_key_end(line: &str) -> Option<usize> {
         }
         return None;
     }
-    if PLAIN_SCALAR_EXCLUDED_FIRST.contains(&first) {
+    let opens_plain = !PLAIN_SCALAR_EXCLUDED_FIRST.contains(&first)
+        || (matches!(first, b'-' | b'?' | b':')
+            && bytes.get(1).is_some_and(|b| !matches!(b, b' ' | b'\t')));
+    if !opens_plain {
         return None;
     }
     for i in 1..bytes.len() {
-        if bytes[i] == b'#' && bytes[i - 1] == b' ' {
+        if bytes[i] == b'#' && matches!(bytes[i - 1], b' ' | b'\t') {
             return None;
         }
-        if bytes[i] == b':' && matches!(bytes.get(i + 1), None | Some(b' ')) {
+        if bytes[i] == b':' && matches!(bytes.get(i + 1), None | Some(b' ' | b'\t')) {
             return Some(i);
         }
     }
     None
 }
 
-/// The YAML indicators a plain scalar cannot open with. A key needing one is
-/// emitted quoted, as is one carrying a ` #`, so neither is read as a plain key.
+/// The YAML indicators a plain scalar cannot open with, except that `-`, `?`
+/// and `:` open one when a non-space follows (`-x`).
 const PLAIN_SCALAR_EXCLUDED_FIRST: &[u8] = b"-?:,[]{}#&*!|>'\"%@`";
 
 /// Split a nested key line into `(key, source spelling, rest_after_colon)`.
@@ -478,9 +587,9 @@ fn split_nested_key(line: &str) -> Option<(String, String, String)> {
 /// Split `value` into `(value_without_comment, trailing_comment)` following
 /// YAML's rules. A `#` preceded by whitespace (or at value start) begins a
 /// comment, except inside a quoted scalar, and a quote opens a quoted
-/// scalar only when it is the *first* character of the scalar, or appears
-/// inside a flow collection (`[`/`{`). Inside a plain scalar, `'` and `"`
-/// are ordinary characters: `x: it's fine # note` carries a comment.
+/// scalar only as a node's first character: the value's, or a node's inside
+/// a flow collection (`[`/`{`). Inside a plain scalar, `'` and `"` are
+/// ordinary characters: `x: it's fine # note` carries a comment.
 fn split_trailing_comment(value: &str) -> (String, Option<String>) {
     let bytes = value.as_bytes();
     let Some(first) = bytes.iter().position(|b| !matches!(b, b' ' | b'\t')) else {
@@ -494,7 +603,7 @@ fn split_trailing_comment(value: &str) -> (String, Option<String>) {
             Some(end) => find_comment_from(value, end + 1),
             None => (value.to_string(), None),
         },
-        // Flow collection: quotes open quoted scalars anywhere inside, so
+        // Flow collection: a quoted scalar opens at any node inside, so
         // track quote state across the whole value.
         b'[' | b'{' => split_flow_trailing_comment(value),
         // Plain scalar (or block-scalar header): quotes are ordinary
@@ -558,44 +667,140 @@ fn find_comment_from(value: &str, from: usize) -> (String, Option<String>) {
     (value.to_string(), None)
 }
 
-/// Comment split for flow-collection values (`[…]` / `{…}`), where quoted
-/// scalars can open anywhere: track quote state across the value and split
-/// at the first whitespace-preceded `#` outside quotes.
+/// Comment split for flow-collection values (`[…]` / `{…}`): split at the
+/// first whitespace-preceded `#` outside a quoted scalar.
 fn split_flow_trailing_comment(value: &str) -> (String, Option<String>) {
-    let bytes = value.as_bytes();
-    let mut i = 0;
-    let mut prev_was_ws = true;
-    let mut in_dq = false;
-    let mut in_sq = false;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if in_dq {
-            if b == b'\\' && i + 1 < bytes.len() {
-                i += 2;
+    match FlowScan::default().line(value) {
+        Some(i) => (value[..i].trim_end().to_string(), Some(value[i..].to_string())),
+        None => (value.to_string(), None),
+    }
+}
+
+/// `value` past its leading whitespace and any tag or anchor ahead of the node.
+fn node_text(value: &str) -> &str {
+    let mut node = value.trim_start();
+    while node.starts_with(['!', '&']) {
+        let end = node.find([' ', '\t']).unwrap_or(node.len());
+        node = node[end..].trim_start();
+    }
+    node
+}
+
+/// The scan a node leaves open past its line: a flow collection whose
+/// brackets, or a quoted scalar whose quote, the line does not close.
+fn opens_past_line(value: &str) -> Option<FlowScan> {
+    let node = node_text(value);
+    if !node.starts_with(['[', '{', '"', '\'']) {
+        return None;
+    }
+    FlowScan::default().continued(node)
+}
+
+/// Where a [`FlowScan`] stands. A quote opens a quoted scalar only where a
+/// node may start; anywhere else it is a plain scalar's own character.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum FlowAt {
+    /// At the value's start, or after `[`, `{`, `,`, a `:` / `?` indicator, or
+    /// a tag or anchor.
+    #[default]
+    NodeStart,
+    Plain,
+    /// Past a quoted scalar or a closing bracket, where an adjacent `:` is an
+    /// indicator (`{"a":1}`).
+    NodeEnd,
+}
+
+/// The scan of a value that can span lines: a flow collection with the quoted
+/// scalars inside it, or a quoted scalar alone. Its state carries from line to
+/// line.
+#[derive(Debug, Default)]
+struct FlowScan {
+    depth: usize,
+    quote: Option<u8>,
+    at: FlowAt,
+}
+
+impl FlowScan {
+    fn is_open(&self) -> bool {
+        self.depth > 0 || self.quote.is_some()
+    }
+
+    /// The scan past one more line, while the value stays open.
+    fn continued(mut self, text: &str) -> Option<Self> {
+        self.line(text);
+        self.is_open().then_some(self)
+    }
+
+    /// Advance over one line of the value, returning the byte index of the `#`
+    /// opening its trailing comment.
+    fn line(&mut self, text: &str) -> Option<usize> {
+        let bytes = text.as_bytes();
+        let mut after_ws = true;
+        let mut i = 0;
+        while i < bytes.len() {
+            let b = bytes[i];
+            if let Some(quote) = self.quote {
+                if quote == b'"' && b == b'\\' {
+                    i += 2;
+                    continue;
+                }
+                if b == quote {
+                    // `''` inside a single-quoted scalar is one escaped quote.
+                    if quote == b'\'' && bytes.get(i + 1) == Some(&b'\'') {
+                        i += 2;
+                        continue;
+                    }
+                    self.quote = None;
+                    self.at = FlowAt::NodeEnd;
+                    after_ws = false;
+                }
+                i += 1;
                 continue;
             }
-            if b == b'"' {
-                in_dq = false;
+            match b {
+                b' ' | b'\t' => {
+                    after_ws = true;
+                    i += 1;
+                    continue;
+                }
+                b'#' if after_ws => return Some(i),
+                b'!' | b'&' if self.at == FlowAt::NodeStart => {
+                    while i < bytes.len() && !FLOW_PROPERTY_END.contains(&bytes[i]) {
+                        i += 1;
+                    }
+                    after_ws = false;
+                    continue;
+                }
+                b'"' | b'\'' if self.at == FlowAt::NodeStart => self.quote = Some(b),
+                b'[' | b'{' => {
+                    self.depth += 1;
+                    self.at = FlowAt::NodeStart;
+                }
+                b']' | b'}' => {
+                    self.depth = self.depth.saturating_sub(1);
+                    self.at = FlowAt::NodeEnd;
+                }
+                b',' => self.at = FlowAt::NodeStart,
+                b':' if self.at == FlowAt::NodeEnd || space_follows(bytes, i) => {
+                    self.at = FlowAt::NodeStart
+                }
+                // `? ` is an indicator only where a node starts: `Why? 'cause` is text.
+                b'?' if self.at == FlowAt::NodeStart && space_follows(bytes, i) => {}
+                _ => self.at = FlowAt::Plain,
             }
-        } else if in_sq {
-            if b == b'\'' {
-                in_sq = false;
-            }
-        } else {
-            if b == b'"' {
-                in_dq = true;
-            } else if b == b'\'' {
-                in_sq = true;
-            } else if b == b'#' && prev_was_ws {
-                let v = value[..i].trim_end().to_string();
-                let c = value[i..].to_string();
-                return (v, Some(c));
-            }
+            after_ws = false;
+            i += 1;
         }
-        prev_was_ws = matches!(b, b' ' | b'\t');
-        i += 1;
+        None
     }
-    (value.to_string(), None)
+}
+
+/// The bytes ending a tag or an anchor inside a flow collection.
+const FLOW_PROPERTY_END: &[u8] = b" \t,[]{}";
+
+/// `true` when whitespace or the line's end follows the byte at `i`.
+fn space_follows(bytes: &[u8], i: usize) -> bool {
+    matches!(bytes.get(i + 1), None | Some(b' ' | b'\t'))
 }
 
 /// The retired placeholder tag.
@@ -612,10 +817,14 @@ fn strip_fill_tag(trimmed: &str) -> Option<&str> {
     (rest.starts_with(' ') || rest.starts_with('\t')).then_some(rest)
 }
 
-/// Inspect a field value for the `!must_fill` tag and other custom tags,
-/// warning onto `out` for a custom tag. Returns
+/// Inspect the value of the key at `path` for the `!must_fill` tag and other
+/// custom tags, recording the path onto `out` for either. Returns
 /// `(fill, value_without_tag, had_other_tag)`.
-fn record_fill_and_tags(out: &mut PreScan, value: &str, key: &str) -> (bool, String, bool) {
+fn record_fill_and_tags(
+    out: &mut PreScan,
+    value: &str,
+    path: &[PathSegment],
+) -> (bool, String, bool) {
     let trimmed = value.trim_start();
     let leading_ws_len = value.len() - trimmed.len();
 
@@ -624,6 +833,7 @@ fn record_fill_and_tags(out: &mut PreScan, value: &str, key: &str) -> (bool, Str
     }
 
     if let Some(rest) = strip_fill_tag(trimmed) {
+        out.retired_fills.push(path.to_vec());
         let rest_trim = rest.trim_start();
         let reconstructed = if rest_trim.is_empty() {
             value[..leading_ws_len].to_string()
@@ -634,16 +844,7 @@ fn record_fill_and_tags(out: &mut PreScan, value: &str, key: &str) -> (bool, Str
     }
 
     if trimmed.starts_with('!') {
-        out.warnings.push(
-            Diagnostic::new(
-                Severity::Warning,
-                format!(
-                    "YAML tag on key `{}` is not supported; the tag has been dropped and the value kept",
-                    key
-                ),
-            )
-            .with_code("parse::unsupported_yaml_tag".to_string()),
-        );
+        out.unsupported_tags.push(path.to_vec());
         return (false, value.to_string(), true);
     }
 
@@ -710,12 +911,8 @@ mod tests {
                 key: "dept".to_string(),
             }]
         );
-        assert!(
-            out.warnings
-                .iter()
-                .any(|w| w.code.as_deref() == Some("parse::unsupported_yaml_tag")),
-            "`!fill` must warn as an unsupported tag"
-        );
+        assert_eq!(out.unsupported_tags, vec![vec![PathSegment::Key("dept".to_string())]]);
+        assert!(out.retired_fills.is_empty());
     }
 
     #[test]
@@ -771,7 +968,7 @@ mod tests {
                 },
             ]
         );
-        assert!(out.warnings.is_empty(), "got: {:?}", out.warnings);
+        assert!(out.unsupported_tags.is_empty(), "got: {:?}", out.unsupported_tags);
         assert!(!out.cleaned_yaml.contains('\r'));
     }
 
@@ -784,18 +981,6 @@ mod tests {
             vec![PreItem::Field {
                 key: "x".to_string(),
             }]
-        );
-    }
-
-    #[test]
-    fn unknown_tag_warns() {
-        let input = "x: !custom value\n";
-        let out = prescan_fence_content(input);
-        assert!(
-            out.warnings
-                .iter()
-                .any(|w| w.code.as_deref() == Some("parse::unsupported_yaml_tag")),
-            "expected unsupported_yaml_tag warning"
         );
     }
 
@@ -825,12 +1010,6 @@ mod tests {
                     inline: false,
                 },
             ]
-        );
-        assert!(
-            !out.warnings
-                .iter()
-                .any(|w| w.code.as_deref() == Some("parse::comments_in_nested_yaml_dropped")),
-            "nested comments are preserved, so no dropped-comment warning is emitted"
         );
     }
 
@@ -956,7 +1135,7 @@ mod tests {
             ]
         );
         assert!(!out.cleaned_yaml.contains("!must_fill"), "{}", out.cleaned_yaml);
-        assert!(out.warnings.is_empty(), "got: {:?}", out.warnings);
+        assert!(out.unsupported_tags.is_empty(), "got: {:?}", out.unsupported_tags);
     }
 
     #[test]

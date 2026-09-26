@@ -34,7 +34,7 @@ The file must open with a `~~~` block containing a `$quill:` key identifying the
 - `--quiet`: Suppress warnings and the output-destination line; errors still print
 - `--stdout`: Write the artifact to stdout instead of a file (and ignore `-o`); refused when the render produces more than one page
 
-**Warnings:** `render` prints the parse warnings, then each warning for input the page leaves out — an undeclared key (`validation::unknown_field`), a card no kind claims, a body under `body.enabled: false`, a stranded variant cell, elements past `max:` — then the backend's.
+**Warnings:** `render` prints the parse warnings, then each warning for input the page leaves out — an undeclared key (`validation::unknown_field`), a card no kind claims, a body under `body.enabled: false`, a stranded variant cell, elements past `max:` — then the backend's. A render that fails still prints the first two ahead of its error.
 
 **Streams:** under `--stdout` the artifact owns stdout, and warnings and errors go to stderr, so `quillmark render ./my-quill input.md --stdout > out.pdf` writes a valid PDF. Without `--stdout`, the one stdout line is `Output written to: <path>`, which `--quiet` suppresses.
 
@@ -84,7 +84,7 @@ Without `--strict`, `check` exits `1` only on an error: a parse error, a value t
 # Every diagnostic for one document
 quillmark check ./my-quill input.md
 
-# CI gate: fail on anything unfinished or unread
+# CI gate: fail on anything unread (an undeclared key, a card no kind claims)
 quillmark check --strict ./my-quill documents/*.md
 ```
 

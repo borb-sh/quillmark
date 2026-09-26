@@ -2,7 +2,7 @@ use pyo3::conversion::IntoPyObjectExt;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::pycell::{PyRef, PyRefMut};
-use pyo3::types::{PyBytes, PyDict, PyList, PyString};
+use pyo3::types::{PyBytes, PyDate, PyDict, PyList, PyString};
 use pyo3::Bound;
 
 use quillmark::{
@@ -56,9 +56,9 @@ impl PyQuillmark {
         ppi: Option<f32>,
         pages: Option<Vec<isize>>,
         regions: bool,
-        today: Option<Bound<'_, PyAny>>,
+        today: Option<Bound<'_, PyDate>>,
     ) -> PyResult<PyRenderResult> {
-        let today = Some(render_date(doc.py(), today)?);
+        let today = render_date(doc.py(), today.map(Bound::into_any))?;
         let mut opts = quillmark_core::types::RenderOptions::default();
         opts.output_format = format.map(OutputFormat::from);
         opts.ppi = ppi;

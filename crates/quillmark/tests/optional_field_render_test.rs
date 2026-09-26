@@ -8,6 +8,8 @@ use quillmark::{Document, OutputFormat, Quillmark, RenderOptions};
 use std::fs;
 use tempfile::TempDir;
 
+mod common;
+
 const QUILL_YAML: &str = r#"quill:
   name: optional_quill
   version: "1.0"
@@ -46,7 +48,7 @@ fn render(plate: &str, fields: &str) -> Result<(), String> {
     let md = format!("~~~card-yaml\n$quill: optional_quill\n$kind: main\n{fields}~~~\n");
     let parsed = Document::parse(&md).expect("parse").document;
     Quillmark::new()
-        .open(&quill, &parsed, None)
+        .open(&quill, &parsed, common::test_date())
         .and_then(|session| {
             session.render(&RenderOptions::default().with_output_format(OutputFormat::Svg))
         })

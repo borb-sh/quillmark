@@ -1,4 +1,12 @@
-use crate::document::Document;
+use crate::document::{Document, Parsed};
+
+/// Each warning's `(code, path)`.
+fn anchors(out: &Parsed) -> Vec<(&str, Option<&str>)> {
+    out.warnings
+        .iter()
+        .map(|w| (w.code.as_deref().unwrap_or(""), w.path.as_deref()))
+        .collect()
+}
 
 /// Prescan must not record `#`-leading lines inside a literal block as YAML
 /// comments: they are the scalar's own text.
@@ -65,12 +73,9 @@ fn block_scalar_on_a_dash_line_key_holds_its_markdown() {
 fn unknown_tag_warns_and_is_not_emitted() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\nmemo_from: !include value.txt\n~~~\n";
     let out = Document::parse(src).unwrap();
-    assert!(
-        out.warnings
-            .iter()
-            .any(|w| w.code.as_deref() == Some("parse::unsupported_yaml_tag")),
-        "expected unsupported_yaml_tag warning; got: {:?}",
-        out.warnings
+    assert_eq!(
+        anchors(&out),
+        [("parse::unsupported_yaml_tag", Some("main.memo_from"))]
     );
     assert_eq!(
         out.document.main().payload().get("memo_from").and_then(|v| v.as_str()),
@@ -81,7 +86,8 @@ fn unknown_tag_warns_and_is_not_emitted() {
 }
 
 /// A retired `!must_fill` tag held a placeholder, not an answer: the value
-/// under it drops wherever it sits, and each one warns at its path.
+/// under a block-style one drops wherever it sits, and each warns at its path,
+/// a card's rooted at the card's index among all cards.
 #[test]
 fn a_retired_fill_marker_nulls_what_it_tags() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\n\
@@ -89,7 +95,9 @@ fn a_retired_fill_marker_nulls_what_it_tags() {
                recipient: !must_fill # array<string>\n  - Mr. John Doe\n\
                addr:\n  street: !must_fill Main\n  city: Springfield\n\
                x: !must_fill {a: 1}\n\
-               to:\n  - name: !must_fill Jane\n    rank: Capt\n~~~\n";
+               to:\n  - name: !must_fill Jane\n    rank: Capt\n~~~\n\n\
+               ~~~card-yaml\n$kind: intro\n~~~\n\n\
+               ~~~card-yaml\n$kind: note\nsubject: !must_fill Example\n~~~\n";
     let out = Document::parse(src).unwrap();
     let get = |k: &str| out.document.main().payload().get(k).unwrap().as_json().clone();
     assert_eq!(get("subject"), serde_json::Value::Null);
@@ -98,15 +106,22 @@ fn a_retired_fill_marker_nulls_what_it_tags() {
     assert_eq!(get("x"), serde_json::Value::Null);
     assert_eq!(get("to"), serde_json::json!([{"name": null, "rank": "Capt"}]));
 
-    let warned: Vec<&str> = out
-        .warnings
-        .iter()
-        .filter(|w| w.code.as_deref() == Some("parse::unsupported_yaml_tag"))
-        .map(|w| w.message.as_str())
-        .collect();
-    for path in ["`subject`", "`recipient`", "`addr.street`", "`x`", "`to[0].name`"] {
-        assert!(warned.iter().any(|m| m.contains(path)), "{path}: {warned:?}");
-    }
+    assert_eq!(
+        out.document.cards()[1].payload().get("subject").unwrap().as_json(),
+        &serde_json::Value::Null
+    );
+    let dropped = [
+        "main.subject",
+        "main.recipient",
+        "main.addr.street",
+        "main.x",
+        "main.to[0].name",
+        "cards.note[1].subject",
+    ];
+    assert_eq!(
+        anchors(&out),
+        dropped.map(|path| ("parse::must_fill_dropped", Some(path)))
+    );
 
     let md = out.document.to_markdown();
     assert!(!md.contains("!must_fill"), "{md}");
@@ -123,12 +138,103 @@ fn a_retired_fill_marker_inside_meta_keeps_its_value() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\n$ext:\n  ns:\n    to: !must_fill X\n~~~\n";
     let out = Document::parse(src).unwrap();
     assert_eq!(out.document.main().ext().unwrap()["ns"]["to"], "X");
-    assert!(
-        out.warnings.iter().any(|w| w.code.as_deref() == Some("parse::unsupported_yaml_tag")
-            && w.message.contains("$ext.ns.to")),
-        "{:?}",
-        out.warnings
+    assert_eq!(anchors(&out), [("parse::unsupported_yaml_tag", None)]);
+}
+
+/// A line continuing a flow collection, opened on its key's line or the line
+/// below, is the collection's, never a key of the mapping around it, so a tag
+/// there stays on its own value.
+#[test]
+fn a_tag_inside_a_multi_line_flow_collection_stays_on_its_value() {
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\n\
+               b: kept\n\
+               x: {a: it's,\n  b: !must_fill 2}\n\
+               addr:\n  b: kept\n  y:\n    [Why? 'cause,\n   b: !must_fill 2]\n\
+               tags: [!t \"a # [\", b]\n\
+               c: !must_fill C\n~~~\n";
+    let out = Document::parse(src).unwrap();
+    let get = |k: &str| out.document.main().payload().get(k).unwrap().as_json().clone();
+    assert_eq!(get("b"), "kept");
+    assert_eq!(get("x"), serde_json::json!({"a": "it's", "b": 2}));
+    assert_eq!(
+        get("addr"),
+        serde_json::json!({"b": "kept", "y": ["Why? 'cause", {"b": 2}]})
     );
+    assert_eq!(get("tags"), serde_json::json!(["a # [", "b"]));
+    assert_eq!(get("c"), serde_json::Value::Null);
+    assert_eq!(anchors(&out), [("parse::must_fill_dropped", Some("main.c"))]);
+}
+
+/// A comment trailing a line that continues a flow collection or a quoted
+/// scalar is the trailer of the key or item the value belongs to, or, when a
+/// comment already sits on that line or inside the value, a comment on its own
+/// line after the value.
+#[test]
+fn a_comment_on_a_continuation_line_stays_with_its_value() {
+    let cases = [
+        (
+            "recipient:\n  addr: {street: Main St,\n    city: Anytown}  # verified\n  name: Jo\n",
+            "  addr: # verified\n",
+        ),
+        ("rows:\n  - {a: 1,\n     b: 2}  # c\n", "  - a: 1 # c\n"),
+        ("$ext:\n  og: {title: T,\n    url: http://x}  # c\n", "  og: # c\n"),
+        (
+            "memo:\n  note: \"Reply by Friday,\n    see: attached\"  # from Jo\n",
+            "  note: \"Reply by Friday, see: attached\" # from Jo\n",
+        ),
+        ("x: [1,\n  2]  # c\n", "x: # c\n"),
+        (
+            "m:\n  x: {a: 1, # first\n    b: 2} # second\n  y: 4\n",
+            "  x: # first\n    a: 1\n    b: 2\n  # second\n",
+        ),
+        (
+            "rows:\n  - k0: [1, # a\n      2] # b\n    k1: x\n  - k2: z\n",
+            "  - k0: # a\n      - 1\n      - 2\n    # b\n    k1: x\n",
+        ),
+        (
+            "rows:\n  - k0: # a\n      [1,\n      2] # b\n    k1: x\n  - k2: z\n",
+            "  - k0: # a\n      - 1\n      - 2\n    # b\n    k1: x\n",
+        ),
+        (
+            "rows:\n  - k0: [1, # a\n      2] # b\n  - k2: z\n",
+            "      - 2\n    # b\n  - k2: z\n",
+        ),
+        (
+            "m:\n  x: [1,\n    # mid\n    2] # c\n  y: 4\n",
+            "  x:\n    - 1\n    - 2\n  # mid\n  # c\n",
+        ),
+        (
+            "rows:\n  - [1,\n    # mid\n    2] # c\n  - 3\n",
+            "  -\n    - 1\n    - 2\n  # mid\n  # c\n  - 3\n",
+        ),
+    ];
+    for (fields, emitted) in cases {
+        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
+        let doc = Document::parse(&src).unwrap().document;
+        let md = doc.to_markdown();
+        assert!(md.contains(emitted), "Source:\n{src}\nGot:\n{md}");
+        assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
+    }
+}
+
+/// A tag or anchor ahead of `|` or `>` leaves the block's lines its text: no
+/// key, comment or marker among them reaches the mapping around it.
+#[test]
+fn a_block_scalar_behind_a_tag_or_anchor_is_text() {
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\n\
+               memo:\n  body: &a |\n    # Summary\n    subject: !must_fill TBD\n  subject: Final\n\
+               notes:\n  - !!str >\n    # kept\n~~~\n";
+    let out = Document::parse(src).unwrap();
+    let get = |k: &str| out.document.main().payload().get(k).unwrap().as_json().clone();
+    assert_eq!(
+        get("memo"),
+        serde_json::json!({"body": "# Summary\nsubject: !must_fill TBD\n", "subject": "Final"})
+    );
+    assert_eq!(get("notes"), serde_json::json!(["# kept\n"]));
+    assert!(out.warnings.is_empty(), "{:?}", out.warnings);
+    let md = out.document.to_markdown();
+    assert_eq!(md.matches("# Summary").count(), 1, "{md}");
+    assert_eq!(md.matches("# kept").count(), 1, "{md}");
 }
 
 /// The prescan splits on `\n`, so CRLF input reaches it with a trailing `\r` on
@@ -163,6 +269,14 @@ fn fill_marker_text_inside_a_scalar_is_text() {
         ),
         (
             "~~~card-yaml\n$quill: q\n$kind: main\nnote: \"see key: !must_fill here\"\n~~~\n",
+            "see key: !must_fill here",
+        ),
+        (
+            "~~~card-yaml\n$quill: q\n$kind: main\nnote: \"see\n  key: !must_fill here\"\n~~~\n",
+            "see key: !must_fill here",
+        ),
+        (
+            "~~~card-yaml\n$quill: q\n$kind: main\nnote:\n  \"see\n  key: !must_fill here\"\n~~~\n",
             "see key: !must_fill here",
         ),
     ];
@@ -361,13 +475,8 @@ fn orphan_inline_after_remove_degrades_to_own_line() {
 
     let emitted = doc.to_markdown();
     assert!(
-        emitted.contains("# tail"),
-        "orphan comment text must be preserved\nGot:\n{}",
-        emitted
-    );
-    assert!(
-        !emitted.contains("\" # tail"),
-        "orphan comment must not appear inline on another line\nGot:\n{}",
+        emitted.lines().any(|line| line == "# tail"),
+        "orphan comment must stand on its own line\nGot:\n{}",
         emitted
     );
 

@@ -32,7 +32,9 @@ them.
 - **`render` prints what the page leaves out.** Its warnings are the parse
   carrier, then every `Quill::validate` warning, each naming unclaimed input
   ([SCHEMAS.md](SCHEMAS.md#what-blocks-a-render)), then the compile's
-  ([ERROR.md](ERROR.md#warning-flow)).
+  ([ERROR.md](ERROR.md#warning-flow)). The engine's one-shot render carries
+  the last two; the CLI adds the parse carrier. A render that fails returns no
+  warnings, so the CLI prints the first two itself, ahead of the error.
 - **`validate` compiles the plate.** It renders the three canonical documents —
   the empty document, the blueprint, the seed — through the quill's backend at
   the backend's first declared format, and reports each failure as a

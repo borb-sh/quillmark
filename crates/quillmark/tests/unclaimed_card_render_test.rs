@@ -1,11 +1,14 @@
 //! A card no declared kind claims renders: it reaches the plate in `$cards` and
 //! the plate's `$kind` dispatch falls through on it. The signal is a
-//! `validation::*` warning at the card's bare index.
+//! `validation::*` warning at the card's bare index, on the render's own
+//! `warnings` ahead of the compile's.
 
 #![cfg(feature = "typst")]
 
-use quillmark::{Document, OutputFormat, Quillmark, RenderOptions, Severity};
+use quillmark::{Diagnostic, Document, OutputFormat, Quillmark, RenderOptions, Severity};
 use quillmark_fixtures::quills_path;
+
+mod common;
 
 fn unclaimed_cards_render_and_warn(quill_name: &str) {
     let engine = Quillmark::new();
@@ -20,16 +23,16 @@ fn unclaimed_cards_render_and_warn(quill_name: &str) {
         .document;
     let ghost = doc.cards().len() - 1;
 
-    engine
+    let diags = engine
         .render(
             &quill,
             &doc,
-            None,
+            common::test_date(),
             &RenderOptions::default().with_output_format(OutputFormat::Svg),
         )
-        .unwrap_or_else(|e| panic!("{quill_name}: unclaimed cards must render: {e:?}"));
+        .unwrap_or_else(|e| panic!("{quill_name}: unclaimed cards must render: {e:?}"))
+        .warnings;
 
-    let diags = quill.validate(&doc);
     let at = |code: &str| {
         let d = diags
             .iter()
@@ -39,6 +42,16 @@ fn unclaimed_cards_render_and_warn(quill_name: &str) {
         d.path.clone()
     };
     assert_eq!(at("validation::unknown_card"), Some(format!("cards[{ghost}]")));
+
+    let validation = |d: &Diagnostic| {
+        d.code
+            .as_deref()
+            .is_some_and(|c| c.starts_with("validation::"))
+    };
+    assert!(
+        diags.iter().skip_while(|d| validation(d)).all(|d| !validation(d)),
+        "{quill_name}: validate's warnings lead the compile's: {diags:?}"
+    );
 }
 
 #[test]

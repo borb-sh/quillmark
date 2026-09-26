@@ -22,7 +22,7 @@ pub use conform::BoundParseError;
 pub use resolved::{FieldSource, Resolved, ResolvedCard, ResolvedField, ResolvedMain};
 pub(crate) use resolved::resolve_document;
 pub use fill::blank;
-pub use formats::{parse_date, parse_datetime, CalendarDate, TODAY};
+pub use formats::{parse_date, parse_datetime, CalendarDate, ParseDateError, TODAY};
 pub use ignore::QuillIgnore;
 pub use schema::{
     build_transform_schema, CONTENT_MEDIA_TYPE, QUILLMARK_INLINE_KEY, QUILLMARK_ORDER_KEY,
@@ -128,4 +128,10 @@ pub(crate) fn quill_from_yaml(yaml: &str) -> Quill {
         },
     );
     Quill::from_tree(FileTreeNode::Directory { files }).expect("quill_from_yaml: from_tree failed")
+}
+
+/// The render date core's tests compile with.
+#[cfg(test)]
+pub(crate) fn test_date() -> CalendarDate {
+    CalendarDate::new(2026, 3, 14).expect("a calendar day")
 }

@@ -12,6 +12,8 @@
 use quillmark::{Document, FileTreeNode, Quill, Quillmark};
 use quillmark_pdf::testkit::BasePdf;
 
+mod common;
+
 const FILLED: &str = "~~~\n\
 $quill: sample_form\n\
 $kind: main\n\
@@ -32,7 +34,7 @@ fn open_markdown(markdown: &str) -> quillmark_core::session::LiveSession {
         .expect("load sample_form quill");
     let engine = Quillmark::new();
     let doc = Document::parse(markdown).expect("parse markdown").document;
-    engine.open(&quill, &doc, None).expect("open session")
+    engine.open(&quill, &doc, common::test_date()).expect("open session")
 }
 
 #[test]
@@ -216,7 +218,7 @@ fn geometry_lands_on_the_ink(form_pdf: Vec<u8>) {
 
     let quill = Quill::from_tree(tree).expect("load patched quill");
     let doc = Document::parse(FILLED).expect("parse markdown").document;
-    let session = Quillmark::new().open(&quill, &doc, None).expect("open session");
+    let session = Quillmark::new().open(&quill, &doc, common::test_date()).expect("open session");
 
     let scale: f32 = 2.0;
     let (width_pt, height_pt) = session.page_size_pt(0).expect("page 0 size");

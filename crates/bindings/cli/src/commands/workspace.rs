@@ -39,7 +39,7 @@ pub fn execute(args: WorkspaceArgs) -> Result<()> {
         )));
     }
     let (document, parse_warnings) = read_document(&quill, args.markdown_file.as_deref())?;
-    let json_data = quill.compile_checked(&document, Some(render_date(args.today)))?;
+    let json_data = quill.compile_checked(&document, render_date(args.today))?;
     let workspace = workspace(&quill, &json_data)?;
 
     for (path, contents) in &workspace.files {

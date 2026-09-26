@@ -98,11 +98,15 @@ mod tests {
     use crate::TypstBackend;
     use quillmark_core::{
         backend::Backend,
-        quill::{FileTreeNode, Quill},
+        quill::{CalendarDate, FileTreeNode, Quill},
         types::{OutputFormat, RenderOptions},
     };
     use typst::diag::SourceDiagnostic;
     use typst::syntax::Span;
+
+    fn test_date() -> CalendarDate {
+        CalendarDate::new(2026, 3, 14).expect("a calendar day")
+    }
 
     /// `None` when the fixture is absent (a stripped checkout).
     fn walk_fixture() -> Option<FileTreeNode> {
@@ -210,7 +214,7 @@ mod tests {
             return;
         };
 
-        let diags = match TypstBackend.open(&source, &serde_json::json!({}), None) {
+        let diags = match TypstBackend.open(&source, &serde_json::json!({}), test_date()) {
             Ok(session) => session
                 .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
                 .expect_err("a missing image should fail to compile")
@@ -241,7 +245,7 @@ mod tests {
         };
 
         // Compilation happens during `open`, so the error may surface there.
-        let diags = match TypstBackend.open(&source, &serde_json::json!({}), None) {
+        let diags = match TypstBackend.open(&source, &serde_json::json!({}), test_date()) {
             Ok(session) => session
                 .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))
                 .expect_err("eval of `#general` should fail to compile")

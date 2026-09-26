@@ -228,19 +228,27 @@ data payload.
   comment with a structural path and the emitter re-injects it at the
   matching position. That includes an empty value: a comment indented under
   `key: []`, `key: {}` or a bare `key:` is inside that value.
-- **Custom tags.** A custom YAML tag (`!include`, `!env`, `!fill`, …) is
-  dropped with a `parse::unsupported_yaml_tag` warning; the value is kept, and
-  the tag does not round-trip.
+- **Custom tags.** A custom YAML tag (`!include`, `!env`, `!fill`, …) opening a
+  block-style key's value on the key's own line (a top-level key, a nested
+  mapping key, or the first key of a `- ` sequence line) is dropped with a
+  `parse::unsupported_yaml_tag` warning; the value is kept, and the tag does
+  not round-trip. The warning carries the node's rooted `path`
+  (`main.addr.street`), or none under a `$` key, whose value has no document
+  address. Anywhere else the YAML parser drops any tag silently and keeps the
+  value: inside a flow collection, on one line or several, on a bare sequence
+  element, after an anchor (`key: &a !env x`), or on the line below its key.
 - **The `!must_fill` tag.** Its handling depends on position:
-  - Block style under a data field (a top-level key, a nested mapping key, or
-    the first key of a `- ` sequence line): the tagged node reads as null,
-    dropping any value under it (a following block sequence or a flow
-    collection included), and a `parse::unsupported_yaml_tag` warning names its
-    path (e.g. `addr.street`).
+  - Block style under a data field (opening the value on the line of a
+    top-level key, a nested mapping key, or the first key of a `- ` sequence
+    line): the tagged node reads as null, dropping any value under it (a
+    following block sequence or a flow collection included), and a
+    `parse::must_fill_dropped` warning carries its rooted `path` (e.g.
+    `main.addr.street`, `cards.note[0].subject`).
   - On a `$` key or inside its value (`$ext`, `$seed`): the tag drops and the
     value is kept, as any custom tag's.
-  - Inside a flow collection or on a bare sequence element: an unsupported tag
-    the YAML parser drops, keeping the value.
+  - Inside a flow collection, on a bare sequence element, after an anchor, or
+    on the line below its key: an unsupported tag the YAML parser drops
+    silently, keeping the value.
   - Inside a quoted or block scalar: the text is that scalar's content.
 
 ### 3.5 Version Selectors

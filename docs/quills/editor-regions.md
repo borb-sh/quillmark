@@ -111,9 +111,13 @@ Each **call** claims independently, so `field` need not be a literal and a wrapp
 
 ```typst
 #for card in data.at("$cards", default: ()) {
-  field-region(card.at("$path") + "$body", render-card(card))
+  if card.at("$kind", default: none) == "note" {
+    field-region(card.at("$path") + "$body", render-card(card))
+  }
 }
 ```
+
+The branch names a kind with a body: a card of a kind the quill does not declare, or of one under `body.enabled: false`, has no `$body` address, and `field-region` asserts on it.
 
 A card's own fields need no claim: print them through `ink(card)`.
 

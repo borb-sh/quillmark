@@ -101,13 +101,13 @@ impl Quill {
     /// For every declared field, the value [`compile_data`] emits into the plate:
     /// the two cut the *same* sourced ladder (`ladder_sourced`) over equal
     /// coerced input, so the value is the plate's by construction: tagged with
-    /// the [`FieldSource`] rung it came from. Completeness and errors stay
-    /// [`Quill::validate`]'s; this view carries no diagnostics.
+    /// the [`FieldSource`] rung it came from. Diagnostics stay
+    /// [`Quill::validate`]'s; this view carries none.
     ///
     /// `today` is the render date, as [`compile_data`] takes it.
     ///
     /// [`compile_data`]: Quill::compile_data
-    pub fn resolve(&self, doc: &Document, today: Option<CalendarDate>) -> Resolved {
+    pub fn resolve(&self, doc: &Document, today: CalendarDate) -> Resolved {
         resolve_document(self.config(), doc, today)
     }
 }
@@ -117,7 +117,7 @@ impl Quill {
 pub(crate) fn resolve_document(
     config: &QuillConfig,
     doc: &Document,
-    today: Option<CalendarDate>,
+    today: CalendarDate,
 ) -> Resolved {
     let (fields, body) = resolve_card_fields(&config.main, doc.main(), today);
     let main = ResolvedMain { fields, body };
@@ -142,7 +142,7 @@ pub(crate) fn resolve_document(
 fn resolve_card_fields(
     schema: &CardSchema,
     card: &Card,
-    today: Option<CalendarDate>,
+    today: CalendarDate,
 ) -> (Vec<ResolvedField>, Option<ResolvedField>) {
     let sourced: IndexMap<String, (QuillValue, FieldSource)> =
         resolve_card_sourced(schema, card, today);
@@ -185,7 +185,7 @@ fn card_states(
     config: &QuillConfig,
     card: &Card,
     index: usize,
-    today: Option<CalendarDate>,
+    today: CalendarDate,
 ) -> ResolvedCard {
     // The raw authored kind rides the entry even when it names no schema: the
     // card reports what it *claimed* to be.
@@ -243,7 +243,7 @@ fn body_state(card: &Card) -> ResolvedField {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::quill::quill_from_yaml;
+    use crate::quill::{quill_from_yaml, test_date};
     use crate::document::{Card, Document, Payload};
 
     fn parse(md: &str) -> Document {
@@ -304,7 +304,7 @@ card_kinds:
         let quill = quill_from_yaml(QUILL);
         // title authored; status absent (has a default); notes absent (no default).
         let doc = parse("~~~card-yaml\n$quill: fs_test@1.0\n$kind: main\ntitle: Hello\n~~~\n");
-        let states = quill.resolve(&doc, None);
+        let states = quill.resolve(&doc, test_date());
         let f = &states.main.fields;
 
         assert_eq!(row(f, "title").source, FieldSource::Authored);
@@ -322,12 +322,12 @@ card_kinds:
         let quill = quill_from_yaml(QUILL);
         // intro absent → its richtext `default:` (committed as content).
         let doc = parse("~~~card-yaml\n$quill: fs_test@1.0\n$kind: main\ntitle: T\n~~~\n");
-        let states = quill.resolve(&doc, None);
+        let states = quill.resolve(&doc, test_date());
         let intro = row(&states.main.fields, "intro");
 
         assert_eq!(intro.source, FieldSource::Default);
         // The value is the content form of the default, byte-equal to the plate.
-        let plate = quill.compile_data(&doc, None).expect("compile");
+        let plate = quill.compile_data(&doc, test_date()).expect("compile");
         assert_eq!(intro.value.as_json(), &plate["intro"]);
         // And it is content, not the raw markdown string.
         assert!(intro.value.as_json().is_object());
@@ -338,7 +338,7 @@ card_kinds:
         let quill = quill_from_yaml(QUILL);
         // `status:` is a present-null → treated as absent → default rung.
         let doc = parse("~~~card-yaml\n$quill: fs_test@1.0\n$kind: main\ntitle: T\nstatus:\n~~~\n");
-        let states = quill.resolve(&doc, None);
+        let states = quill.resolve(&doc, test_date());
         let status = row(&states.main.fields, "status");
         assert_eq!(status.source, FieldSource::Default);
         assert_eq!(status.value.as_json(), &serde_json::json!("draft"));
@@ -374,12 +374,12 @@ main:
 
         // `abc` conforms to no `integer[]`, so it reaches the ladder raw. The row
         // is the document's own text under the document's own label, not `[]`.
-        let raw = quill.resolve(&shape_doc("counts: abc\n"), None);
+        let raw = quill.resolve(&shape_doc("counts: abc\n"), test_date());
         let r = row(&raw.main.fields, "counts");
         assert_eq!(r.source, FieldSource::Authored);
         assert_eq!(r.value.as_json(), &serde_json::json!("abc"));
 
-        let absent = quill.resolve(&shape_doc(""), None);
+        let absent = quill.resolve(&shape_doc(""), test_date());
         let r = row(&absent.main.fields, "counts");
         assert_eq!(r.source, FieldSource::Blank);
         assert_eq!(r.value.as_json(), &serde_json::json!([]));
@@ -389,12 +389,12 @@ main:
     fn a_typed_dict_blanks_only_where_the_document_left_it_out() {
         let quill = quill_from_yaml(CONTAINERS);
 
-        let raw = quill.resolve(&shape_doc("address: 5\n"), None);
+        let raw = quill.resolve(&shape_doc("address: 5\n"), test_date());
         let r = row(&raw.main.fields, "address");
         assert_eq!(r.source, FieldSource::Authored);
         assert_eq!(r.value.as_json(), &serde_json::json!(5));
 
-        let absent = quill.resolve(&shape_doc(""), None);
+        let absent = quill.resolve(&shape_doc(""), test_date());
         let r = row(&absent.main.fields, "address");
         assert_eq!(r.source, FieldSource::Blank);
         assert_eq!(r.value.as_json(), &serde_json::json!({ "street": "" }));
@@ -414,8 +414,8 @@ main:
                   Body prose here.\n\n\
                   ~~~card-yaml\n$kind: note\nauthor: Zed\n~~~\nNote body.\n";
         let doc = parse(md);
-        let states = quill.resolve(&doc, None);
-        let plate = quill.compile_data(&doc, None).expect("compile");
+        let states = quill.resolve(&doc, test_date());
+        let plate = quill.compile_data(&doc, test_date()).expect("compile");
 
         // Every declared main row equals its plate field; the body equals plate `$body`.
         for name in ["title", "status", "notes", "intro", "recipients"] {
@@ -465,7 +465,7 @@ main:
         payload.set_kind("main");
         let main = Card::from_parts(payload, quillmark_content::model::Normalized::empty());
         let doc = Document::from_main_and_cards(main, Vec::new());
-        let states = quill.resolve(&doc, None);
+        let states = quill.resolve(&doc, test_date());
 
         assert!(!has_row(&states.main.fields, "cafe\u{301}"));
         let r = row(&states.main.fields, "caf\u{e9}");
@@ -481,12 +481,12 @@ main:
         let authored =
             parse("~~~card-yaml\n$quill: fs_test@1.0\n$kind: main\ntitle: T\n~~~\n\nHello body.\n");
         assert_eq!(
-            quill.resolve(&authored, None).main.body.unwrap().source,
+            quill.resolve(&authored, test_date()).main.body.unwrap().source,
             FieldSource::Authored
         );
 
         let blank = parse("~~~card-yaml\n$quill: fs_test@1.0\n$kind: main\ntitle: T\n~~~\n");
-        let states = quill.resolve(&blank, None);
+        let states = quill.resolve(&blank, test_date());
         let body = states.main.body.as_ref().unwrap();
         assert_eq!(body.source, FieldSource::Blank);
         assert!(body.value.as_json().is_object(), "blank body is empty content");
@@ -518,7 +518,7 @@ card_kinds:
             "~~~card-yaml\n$quill: bd_test@1.0\n$kind: main\ntitle: T\n~~~\n\n\
              ~~~card-yaml\n$kind: stamp\nlabel: L\n~~~\nStray prose.\n",
         );
-        let states = quill.resolve(&doc, None);
+        let states = quill.resolve(&doc, test_date());
         let card = &states.cards[0];
         assert!(card.body.is_none(), "a body-disabled kind has no body row");
         assert!(has_row(&card.fields, "label"), "declared rows still present");
@@ -532,7 +532,7 @@ card_kinds:
             "~~~card-yaml\n$quill: fs_test@1.0\n$kind: main\ntitle: T\n~~~\n\n\
              ~~~card-yaml\n$kind: mystery\nfoo: bar\n~~~\nUnread body.\n",
         );
-        let states = quill.resolve(&doc, None);
+        let states = quill.resolve(&doc, test_date());
         let card = &states.cards[0];
 
         assert_eq!(card.kind, "mystery");
@@ -550,7 +550,7 @@ card_kinds:
         let doc = parse(
             "~~~card-yaml\n$quill: fs_test@1.0\n$kind: main\ntitle: T\nextra: whatever\n~~~\n",
         );
-        let states = quill.resolve(&doc, None);
+        let states = quill.resolve(&doc, test_date());
         let r = row(&states.main.fields, "extra");
         assert_eq!(r.source, FieldSource::Authored);
         assert_eq!(r.value.as_json(), &serde_json::json!("whatever"));

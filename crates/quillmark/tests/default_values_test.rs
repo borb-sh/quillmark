@@ -7,6 +7,8 @@ use quillmark::Document;
 use std::fs;
 use tempfile::TempDir;
 
+mod common;
+
 fn create_test_quill(temp_dir: &TempDir, quill_yaml: &str) -> std::path::PathBuf {
     let quill_path = temp_dir.path().join("test_quill");
     fs::create_dir_all(&quill_path).unwrap();
@@ -48,7 +50,7 @@ main:
               tags:\n  - alpha\n  - null\n  - gamma\n~~~\n\nbody\n";
     let parsed = Document::parse(md).expect("parse failed").document;
     let data = quill
-        .compile_data(&parsed, None)
+        .compile_data(&parsed, common::test_date())
         .expect("compile_data should succeed");
 
     let addr = data

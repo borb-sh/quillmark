@@ -13,7 +13,7 @@ const YAML: &str = "quill:\n  name: t\n  version: \"1.0\"\n  backend: typst\n  \
 #[test]
 fn missing_plate_file_errors_at_open_not_load() {
     let q = quill(YAML, &[]);
-    let err = match TypstBackend.open(&q, &serde_json::json!({}), None) {
+    let err = match TypstBackend.open(&q, &serde_json::json!({}), common::test_date()) {
         Ok(_) => panic!("a missing plate file must fail at open"),
         Err(e) => e,
     };
@@ -109,7 +109,7 @@ fn open_err(files: &[(&str, &str)]) -> Vec<quillmark_core::error::Diagnostic> {
         .expect("insert");
     }
     let q = Quill::from_tree(root).expect("load quill");
-    match TypstBackend.open(&q, &serde_json::json!({}), None) {
+    match TypstBackend.open(&q, &serde_json::json!({}), common::test_date()) {
         Ok(_) => panic!("the compile must fail"),
         Err(e) => e.into_diagnostics(),
     }

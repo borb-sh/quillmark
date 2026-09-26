@@ -131,8 +131,6 @@
 
 // Indorsements - iterate through CARDS array and filter by CARD tag
 #for (i, card) in data.at("$cards").enumerate() {
-  // `$kind` is document-defined: a card block with no `$kind:` line carries
-  // none, so read it with a default rather than a bare `.at`.
   if card.at("$kind", default: none) == "indorsement" {
     // The quillmark helper leaves an unset/whitespace-only markdown body as
     // the empty string `""`; only non-empty bodies are eval'd into content.

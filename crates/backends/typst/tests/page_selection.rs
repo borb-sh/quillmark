@@ -22,7 +22,7 @@ fn session() -> LiveSession {
         .open(
             &common::quill_with_plate(yaml, PLATE),
             &json!({ "msg": "first" }),
-            None,
+            common::test_date(),
         )
         .expect("open")
 }

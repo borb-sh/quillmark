@@ -122,7 +122,7 @@ impl<'a> TypedReader<'a> {
     /// blank-fills and coerces; see
     /// [`Quill::resolve`](crate::quill::Quill::resolve), which takes `today` as
     /// this does.
-    pub fn resolve(&self, today: Option<CalendarDate>) -> Resolved {
+    pub fn resolve(&self, today: CalendarDate) -> Resolved {
         resolve_document(self.config, self.doc, today)
     }
 

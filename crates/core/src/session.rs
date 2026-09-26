@@ -167,7 +167,7 @@ pub struct LiveSession {
     config: QuillConfig,
     /// The render date the session was opened with, which every
     /// [`update`](Self::update) compiles against.
-    today: Option<CalendarDate>,
+    today: CalendarDate,
     /// The current compile's geometry, rebuilt by the backend at most once per
     /// compile: invariant between commits, so the commit points clear it.
     regions: OnceLock<Vec<RenderedRegion>>,
@@ -184,7 +184,7 @@ impl LiveSession {
     pub fn new(
         inner: Box<dyn SessionHandle>,
         config: QuillConfig,
-        today: Option<CalendarDate>,
+        today: CalendarDate,
     ) -> Self {
         Self {
             inner,
@@ -330,6 +330,7 @@ impl LiveSession {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::quill::test_date;
     use crate::version::QuillReference;
     use crate::error::Severity;
     use std::str::FromStr;
@@ -420,7 +421,7 @@ main:
                 applies: 0,
             }),
             config(),
-            None,
+            test_date(),
         );
         assert_eq!(session.warnings()[0].message, "open-time");
 
@@ -503,7 +504,7 @@ main:
 
     #[test]
     fn field_at_tie_takes_the_later_region() {
-        let session = LiveSession::new(Box::new(TiedRegionHandle), config(), None);
+        let session = LiveSession::new(Box::new(TiedRegionHandle), config(), test_date());
         assert_eq!(session.field_at(0, 5.0, 5.0, 0.0).as_deref(), Some("over"));
         // Outside both rects by the same gap: the tolerant path ties too.
         assert_eq!(session.field_at(0, 14.0, 5.0, 8.0).as_deref(), Some("over"));
@@ -511,7 +512,7 @@ main:
 
     #[test]
     fn field_boxes_derives_off_regions() {
-        let session = LiveSession::new(Box::new(RegionHandle), config(), None);
+        let session = LiveSession::new(Box::new(RegionHandle), config(), test_date());
         let boxes = session.field_boxes("subject");
         assert_eq!(boxes.len(), 1, "one span-bearing region → one box");
         assert_eq!(boxes[0].field, "subject");

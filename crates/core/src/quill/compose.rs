@@ -26,7 +26,7 @@ impl Quill {
     pub fn compile_data(
         &self,
         doc: &Document,
-        today: Option<CalendarDate>,
+        today: CalendarDate,
     ) -> Result<serde_json::Value, RenderError> {
         self.config().compile_data(doc, today)
     }
@@ -35,7 +35,7 @@ impl Quill {
     pub fn compile_checked(
         &self,
         doc: &Document,
-        today: Option<CalendarDate>,
+        today: CalendarDate,
     ) -> Result<serde_json::Value, RenderError> {
         self.config().compile_checked(doc, today)
     }
@@ -59,15 +59,14 @@ impl Quill {
 impl QuillConfig {
     /// Coercion, validation, normalization and blank-filled render into the
     /// plate-JSON projection (`prose/canon/SCHEMAS.md` § "Blank-filled render").
-    /// An *incomplete* document compiles fine; only a *malformed* one — a value
-    /// that will not coerce or validate — errors.
+    /// An unanswered cell compiles fine; only a *malformed* value — one that
+    /// will not coerce or validate — errors.
     ///
-    /// `today` is the render date a [`TODAY`] date renders as; without one it
-    /// renders at the date's blank.
+    /// `today` is the render date a [`TODAY`] date renders as.
     pub fn compile_data(
         &self,
         doc: &Document,
-        today: Option<CalendarDate>,
+        today: CalendarDate,
     ) -> Result<serde_json::Value, RenderError> {
         // The one coercion pass. The ladder below consumes its coerced,
         // NFC-normalized output rather than re-conforming, so the plate is the
@@ -123,7 +122,7 @@ impl QuillConfig {
     pub fn compile_checked(
         &self,
         doc: &Document,
-        today: Option<CalendarDate>,
+        today: CalendarDate,
     ) -> Result<serde_json::Value, RenderError> {
         self.check_quill_reference(doc)?;
         self.compile_data(doc, today)
@@ -383,7 +382,7 @@ fn coercion_error(e: CoercionError) -> RenderError {
 pub(crate) fn resolve_card_sourced(
     schema: &CardSchema,
     card: &Card,
-    today: Option<CalendarDate>,
+    today: CalendarDate,
 ) -> IndexMap<String, (QuillValue, FieldSource)> {
     ladder_sourced(schema, &conform_card_render(schema, card), today)
 }
@@ -425,7 +424,7 @@ fn conform_card_render(schema: &CardSchema, card: &Card) -> IndexMap<String, Qui
 pub(crate) fn ladder_sourced(
     schema: &CardSchema,
     coerced: &IndexMap<String, QuillValue>,
-    today: Option<CalendarDate>,
+    today: CalendarDate,
 ) -> IndexMap<String, (QuillValue, FieldSource)> {
     // Insert on an existing key preserves its authored position, which is what
     // makes the order authored-first with declared-but-absent appended.
@@ -460,7 +459,7 @@ fn plate_fields(
 fn resolve_value(
     value: Option<&QuillValue>,
     field: &FieldSchema,
-    today: Option<CalendarDate>,
+    today: CalendarDate,
 ) -> QuillValue {
     resolve_value_sourced(value, field, today).0
 }
@@ -480,7 +479,7 @@ fn resolve_value(
 pub(crate) fn resolve_value_sourced(
     value: Option<&QuillValue>,
     field: &FieldSchema,
-    today: Option<CalendarDate>,
+    today: CalendarDate,
 ) -> (QuillValue, FieldSource) {
     if field.is_variant_bearing() {
         return resolve_variant_sourced(value, field, today);
@@ -540,7 +539,7 @@ fn compose(
     seed: Option<&QuillValue>,
     field: &FieldSchema,
     seed_rung: FieldSource,
-    today: Option<CalendarDate>,
+    today: CalendarDate,
 ) -> (QuillValue, FieldSource) {
     if seed.is_none() && field.optional {
         return (blank(field), FieldSource::Blank);
@@ -580,10 +579,7 @@ fn compose(
         }
         _ => match seed {
             Some(v) if is_today(v, field) => (
-                today.map_or_else(
-                    || blank(field),
-                    |date| QuillValue::from_json(serde_json::Value::String(date.to_string())),
-                ),
+                QuillValue::from_json(serde_json::Value::String(today.to_string())),
                 FieldSource::Blank,
             ),
             Some(v) => (v.clone(), FieldSource::Blank),
@@ -688,7 +684,7 @@ fn compose_members(
     seed: Option<&serde_json::Map<String, serde_json::Value>>,
     members: &IndexMap<String, Box<FieldSchema>>,
     seed_rung: FieldSource,
-    today: Option<CalendarDate>,
+    today: CalendarDate,
     out: &mut serde_json::Map<String, serde_json::Value>,
 ) -> FieldSource {
     let ceiling = match seed_rung {
@@ -720,7 +716,7 @@ fn compose_members(
 fn resolve_variant_sourced(
     value: Option<&QuillValue>,
     field: &FieldSchema,
-    today: Option<CalendarDate>,
+    today: CalendarDate,
 ) -> (QuillValue, FieldSource) {
     let present = value.filter(|v| !v.as_json().is_null());
     // A present seed that is neither the container nor a bare member name is
@@ -1306,6 +1302,7 @@ pub(crate) fn cardinality_warning(path: &DocPath, max: u32, actual: usize) -> Di
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::quill::test_date;
     use serde_json::json;
 
     fn field(yaml: &str) -> FieldSchema {
@@ -1325,7 +1322,7 @@ properties:
         );
         let input = QuillValue::from_json(json!({ "street": "1 Infinite Loop", "note": "extra" }));
 
-        let resolved = resolve_value(Some(&input), &schema, None).into_json();
+        let resolved = resolve_value(Some(&input), &schema, test_date()).into_json();
 
         assert_eq!(
             resolved,
@@ -1358,7 +1355,7 @@ card_kinds:
                   ~~~\n$kind: ghost\nnote: g\n~~~\n\nGhost prose.\n";
         let doc = Document::parse(md).expect("parse").document;
 
-        let plate = config.compile_data(&doc, None).expect("unclaimed input renders");
+        let plate = config.compile_data(&doc, test_date()).expect("unclaimed input renders");
         let cards = plate["$cards"].as_array().unwrap();
         assert_eq!(cards.len(), 3, "every card rides `$cards` in document order");
         assert_eq!(cards[2]["$kind"], "ghost");
@@ -1426,7 +1423,7 @@ card_kinds:
                   ~~~\n$kind: item\npresentr: Alan Turing\n~~~\n";
         let doc = Document::parse(md).expect("parse").document;
 
-        assert!(config.compile_data(&doc, None).is_ok(), "an undeclared key renders");
+        assert!(config.compile_data(&doc, test_date()).is_ok(), "an undeclared key renders");
         assert!(config.validate_document(&doc).is_ok(), "nothing here is fatal");
 
         let warned: Vec<(String, Option<String>, Option<String>)> =
@@ -1461,7 +1458,7 @@ card_kinds:
     fn plate_of(yaml: &str, md: &str) -> serde_json::Value {
         let config = QuillConfig::from_yaml(yaml).expect("valid quill");
         let doc = Document::parse(md).expect("parse").document;
-        config.compile_data(&doc, None).expect("compile")
+        config.compile_data(&doc, test_date()).expect("compile")
     }
 
     #[test]
@@ -1716,7 +1713,7 @@ properties:
 "#,
         );
         assert_eq!(
-            resolve_value_sourced(None, &defaulted, None).1,
+            resolve_value_sourced(None, &defaulted, test_date()).1,
             FieldSource::Default,
             "a cell below took its `default:`, so the container is not at the floor"
         );
@@ -1729,14 +1726,14 @@ properties:
 "#,
         );
         assert_eq!(
-            resolve_value_sourced(None, &floored, None).1,
+            resolve_value_sourced(None, &floored, test_date()).1,
             FieldSource::Blank,
             "nothing below the floor contributed, so the container reports it"
         );
 
         let authored = QuillValue::from_json(json!({}));
         assert_eq!(
-            resolve_value_sourced(Some(&authored), &floored, None).1,
+            resolve_value_sourced(Some(&authored), &floored, test_date()).1,
             FieldSource::Authored,
             "a container the document wrote is authored, however little it holds"
         );

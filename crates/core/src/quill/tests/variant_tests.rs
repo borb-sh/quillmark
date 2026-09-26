@@ -6,7 +6,9 @@
 //! the same reading of the same schema.
 
 use crate::document::Document;
-use crate::quill::{blank, build_transform_schema, quill_from_yaml, FieldSchema, Quill, QuillConfig};
+use crate::quill::{
+    blank, build_transform_schema, quill_from_yaml, test_date, FieldSchema, Quill, QuillConfig,
+};
 use crate::value::QuillValue;
 use serde_json::json;
 
@@ -57,7 +59,7 @@ fn doc(fields: &str) -> Document {
 
 fn plate(document: &Document) -> serde_json::Value {
     config()
-        .compile_data(document, None)
+        .compile_data(document, test_date())
         .expect("compile_data succeeds")["classification"]
         .clone()
 }
@@ -221,7 +223,8 @@ classification:
         quill_from_yaml(YAML).validate(&document)
     );
 
-    let plate = config.compile_data(&document, None).expect("compiles")["classification"].clone();
+    let plate =
+        config.compile_data(&document, test_date()).expect("compiles")["classification"].clone();
     // Coercion imported the markdown to canonical content, so the cell reaches
     // the plate as the content object a card-level richtext would.
     assert_eq!(plate["value"], json!("CUI"));
@@ -241,7 +244,8 @@ classification:
     ))
     .expect("parses")
     .document;
-    let blank_plate = config.compile_data(&blank_doc, None).expect("compiles")["classification"].clone();
+    let blank_plate =
+        config.compile_data(&blank_doc, test_date()).expect("compiles")["classification"].clone();
     assert_eq!(blank_plate, json!({ "value": "" }));
 }
 
@@ -259,7 +263,7 @@ fn a_name_two_worlds_declare_identically_loads() {
     )
     .expect("parses")
     .document;
-    let data = config.compile_data(&doc, None).expect("compile_data succeeds");
+    let data = config.compile_data(&doc, test_date()).expect("compile_data succeeds");
     assert_eq!(data["classification"]["controlled_by"], json!("SAF/AA"));
 }
 
@@ -374,7 +378,7 @@ fn the_plate_carries_exactly_the_live_world() {
 #[test]
 fn the_discriminant_falls_to_the_default_and_carries_its_world() {
     let yaml = quill_yaml().replace("      default: \"\"\n      variants:", "      default: CUI\n      variants:");
-    let data = QuillConfig::from_yaml(&yaml).unwrap().compile_data(&doc(""), None).unwrap();
+    let data = QuillConfig::from_yaml(&yaml).unwrap().compile_data(&doc(""), test_date()).unwrap();
     assert_eq!(
         data["classification"],
         json!({ "value": "CUI", "controlled_by": "", "category": "" })
@@ -383,7 +387,7 @@ fn the_discriminant_falls_to_the_default_and_carries_its_world() {
 
 fn classification_row(quill: &Quill, document: &Document) -> crate::quill::resolved::ResolvedField {
     quill
-        .resolve(document, None)
+        .resolve(document, test_date())
         .main
         .fields
         .into_iter()
@@ -720,7 +724,7 @@ fn nested_doc(fields: &str) -> Document {
 fn nested_header(document: &Document) -> serde_json::Value {
     QuillConfig::from_yaml(NESTED_YAML)
         .expect("loads")
-        .compile_data(document, None)
+        .compile_data(document, test_date())
         .expect("compile_data succeeds")["header"]
         .clone()
 }

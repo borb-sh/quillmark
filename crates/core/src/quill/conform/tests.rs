@@ -4,7 +4,7 @@ mod properties;
 use serde_json::json;
 
 use crate::document::StoredDocument;
-use crate::quill::quill_from_yaml;
+use crate::quill::{quill_from_yaml, test_date};
 use crate::{document::{Document, SeedOverlay}, quill::Quill, value::QuillValue};
 
 const QUILL: &str = r#"
@@ -225,7 +225,7 @@ fn non_conforming_value_rests_authored_with_a_diagnostic() {
         &json!(42),
         "the value stays authored: no silent retype"
     );
-    quill.compile_data(&doc, None).expect("still renders");
+    quill.compile_data(&doc, test_date()).expect("still renders");
     assert!(
         !quill
             .validate(&doc)
@@ -340,7 +340,7 @@ fn the_plate_shape_for_plaintext_is_unchanged() {
             let mut w = quill.writer(&mut doc);
             w.set("note", value).unwrap();
         }
-        let plate = quill.compile_data(&doc, None).expect("compiles");
+        let plate = quill.compile_data(&doc, test_date()).expect("compiles");
         plate["note"].clone()
     };
 

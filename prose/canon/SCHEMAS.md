@@ -477,8 +477,8 @@ Validation is implemented by a native walker over `QuillConfig` in `quill/valida
 - **Absence semantics**: a missing (or present-null) field with a `default:`
   accepts the default; without a `default:` it blank-fills. Either way it
   coerces and validates clean, and draws no diagnostic: absence is never
-  *malformed*, and no code names it. `Quill::validate` on an incomplete
-  document is clean.
+  *malformed*, and no code names it. `Quill::validate` on a document that
+  answers nothing is clean.
 
 Field-level type errors render under a uniform shape:
 field path, verbatim source token, schema declaration, and both exits
@@ -568,8 +568,8 @@ that section.
 The consumer-side `Document`-payload × schema join is a **non-goal**:
 [`resolve()`](#the-resolved-value-view-resolve) supersedes it. The
 editor reads value and source rung from one engine call rather than re-cutting
-the ladder in consumer code. Completeness and errors stay `Quill::validate`'s
-(a consumer merges it with its own diagnostic producers regardless), and schema
+the ladder in consumer code. Diagnostics stay `Quill::validate`'s
+(a consumer merges them with its own diagnostic producers regardless), and schema
 guidance (`example:`, labels, groups) reads from `Quill::schema`.
 
 One seam is deliberate, not uniform: `blank` is a property of the field
@@ -603,8 +603,8 @@ at load rather than the schema literal; and an **absent** container, which
 resolves to its container-level `default:` whole, with no property-level fill
 inside it. Neither has a caller.
 
-Value and provenance only. The view carries no diagnostics: completeness and
-errors stay `Quill::validate`'s, which a consumer merges with its own producers
+Value and provenance only. The view carries no diagnostics: those stay
+`Quill::validate`'s, which a consumer merges with its own producers
 (session warnings, render errors) regardless, so bucketing here would delete no
 consumer code. Schema guidance (`example:`, labels, groups) reads from
 `Quill::schema`. Python is out of scope until a Python consumer names a call
@@ -662,13 +662,14 @@ survives every write through this lane.
 
 ## Blank-filled render
 
-**A document need not be complete to render**: render success is not a
-completeness signal. Shippability is the author's judgment; the engine's only
-hard requirement is that the document be *well-formed*
-([What blocks a render](#what-blocks-a-render)). An absent or present-null cell
-renders and draws no diagnostic (see [Native validation](#native-validation)).
+**A document that renders is complete.** The engine's one requirement is that
+it be *well-formed* ([What blocks a render](#what-blocks-a-render)); an absent or
+present-null cell renders and draws no diagnostic (see
+[Native validation](#native-validation)). No field is required and no verdict
+sits beside the render: what an unanswered cell shows is the quill's
+`default:`, blank or `?`.
 
-Rendering and the *completeness verdict* are orthogonal. The render path
+The render path
 (`QuillConfig::compile_data` and the ladder it cuts, `ladder_sourced`, both in
 core's `quill::compose`; the engine calls it) uses **blank-filled render**:
 every absent schema **cell** is resolved by precedence: an authored value, else
@@ -752,16 +753,12 @@ something: the branch is what makes the world's fields readable without a guard
 wherever a `date` value is: authored, as a `default:` or an `example:`, at any
 depth. It is not a `datetime` value.
 
-The engine reads no clock. The date is an input to the compile, supplied by
-the host at every door that turns a document into plate data:
+The engine reads no clock. The date is a required input to the compile,
+supplied by the host at every door that turns a document into plate data:
 `compile_data` / `compile_checked`, `Quill::resolve` / `reader.resolve`, and
-`Quillmark::open` / `Quillmark::render`. A session keeps the date it was opened
-with for every `update`.
-
-| Compile given | A `today` cell renders | A Typst plate's `datetime.today()` |
-|---|---|---|
-| a date | that date | that date |
-| none | the date's blank (`none`) | fails the render |
+`Quillmark::open` / `Quillmark::render`. A `today` cell and a Typst plate's
+`datetime.today()` both render it. A session keeps the date it was opened with
+for every `update`.
 
 - **It stores as written.** `reader.get()`, storage and the blueprint carry
   `today`; a document never holds the day it was rendered.
@@ -772,19 +769,18 @@ with for every `update`.
   written date pins it.
 - **The host owns the time zone.** The CLI, the WASM runtime and the Python
   binding supply the local date unless given one ([BINDINGS.md](BINDINGS.md)).
-
-A field without a date renders blank because a field has a floor to render at;
-`datetime.today()` has none, so it fails rather than print a date nobody chose.
+  A Typst plate's `datetime.today(offset: ..)` returns that date whatever the
+  offset.
 
 ## What blocks a render
 
 **A render fails only where the engine would have to invent what the author
 wrote.** Everything else renders, and input no declaration claims warns. Input
-short of a complete, well-formed answer falls in one of three classes:
+other than a well-formed answer falls in one of three classes:
 
 | Class | Input | Render | Signal |
 |---|---|---|---|
-| Incomplete | a declared cell left absent or present-null | blank-fills it | none |
+| Unanswered | a declared cell left absent or present-null | blank-fills it | none |
 | Malformed | markup the grammar cannot read, or a value that will not read as its declared cell's type | fails | `parse::*` errors; `validation::type_mismatch`, `enum_violation`, `format_violation`, `coercion_failed`, `not_inline`, `not_plain` |
 | Unclaimed | input no declaration reads | renders; no declared cell reads it | a warning naming the input |
 

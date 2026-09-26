@@ -177,18 +177,27 @@ identically to comments on data fields.
 
 ## YAML Tags
 
-Custom YAML tags (`!include`, `!env`, `!fill`, …) are not supported: each is
-dropped with a `parse::unsupported_yaml_tag` warning and its value kept.
+Custom YAML tags (`!include`, `!env`, `!fill`, …) are not supported. A tag
+opening a block-style key's value on the key's own line is dropped with a
+`parse::unsupported_yaml_tag` warning and its value kept. Anywhere else the
+YAML parser drops the tag silently and keeps the value: inside a flow
+collection, on a bare `- ` element, after an anchor (`key: &a !env x`), or on
+the line below its key.
 
-`!must_fill` in block style on a data field drops together with the value under
-it: the field or nested property reads as null, and the warning names its path.
-Inside `$ext` or `$seed` it drops like any other tag, keeping the value.
+`!must_fill` in that block-style position on a data field drops together with
+the value under it: the field or nested property reads as null, and a
+`parse::must_fill_dropped` warning carries its `path` (`main.addr.street`).
+Inside `$ext` or `$seed`, and wherever a tag drops silently, it drops like any
+other tag there, keeping the value.
 
 ```yaml
 subject: !must_fill Example   # reads as `subject:` (unanswered)
 addr:
   street: !must_fill Main     # reads as `street:`; `city` is kept
   city: Anytown
+tags: [a, !must_fill b]       # reads as [a, b], no warning
+note:
+  !must_fill Draft            # reads as `Draft`, no warning
 ```
 
 A field awaiting input is written empty (`subject:`) or left out.

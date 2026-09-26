@@ -638,9 +638,10 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
   })
 
   // ERROR.md § "Warning flow": `RenderResult.warnings` is pipeline order, the
-  // load half ahead of the compile's. Only the runtime layer can merge them —
-  // the document clone it renders comes through `fromStored`, which carries no
-  // warnings, so the backend build's own merge has nothing to prepend.
+  // load's ahead of the backend render's. Only the runtime layer can merge
+  // them — the document clone it renders comes through `fromStored`, which
+  // carries no warnings, so the backend build's own merge has nothing to
+  // prepend.
   it('render fronts RenderResult.warnings with the load warnings, leaving doc.warnings intact', async () => {
     const quill = makeRuntimeQuill()
     const doc = quill.parse(TEST_MARKDOWN.replace('title: ', 'title: !shout '))

@@ -99,6 +99,7 @@
 
     function renderPage(canvas, page, userZoom = 1) {
       canvas.style.width = "100%";                     // the box sets display size
+      if (canvas.clientWidth === 0) return;            // no layout box yet
       const cssPxPerPt = canvas.clientWidth / session.pageSize(page).widthPt;
       const scale = cssPxPerPt * (window.devicePixelRatio || 1) * userZoom;
       session.paint(canvas.getContext("2d"), page, scale);
@@ -113,6 +114,9 @@
 
     - `scale` is backing-store pixels per point: the CSS px per point the
       page is shown at, times `devicePixelRatio` and any in-app zoom.
+    - A canvas with no layout box (`display: none`, detached) has
+      `clientWidth` 0, and `paint` throws `backend::invalid_raster_scale` on
+      a 0 scale: skip it, and paint once a `ResizeObserver` reports a width.
     - The painter owns `canvas.width` / `canvas.height` and rewrites them on
       every call (so each `paint` is a full repaint: no `clearRect` needed),
       reducing `scale` where it must so neither exceeds 16384 px. The consumer

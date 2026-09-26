@@ -78,6 +78,10 @@ validating, and rendering as they did. Removing or renaming an enum member fails
 that test; a `values:` reorder passes it, since a field's blank is `""` rather
 than `values[0]` (see [SCHEMAS.md](SCHEMAS.md) § "Blank-filled render"). An
 edit that changes what an existing document *renders* is a version bump's job.
+The fixture quiver (`crates/fixtures/resources/quills`, `publish = false`) is
+the exception: it ships in no package, so its quills are edited in place at
+their declared version as the engine moves, and a change to what one renders
+is named in that release's migration guide.
 
 The one real hazard is a long-lived process holding a cached Quill across a
 deploy that rewrote the ref; a restart resolves it.

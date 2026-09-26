@@ -5,8 +5,8 @@
 use std::collections::HashMap;
 
 use quillmark::{
-    CardReader, Delta, Document, EditError, FileTreeNode, ImportError, Normalized, Parsed, Quill,
-    QuillReference, QuillValue, TypedReader, TypedWriter,
+    CalendarDate, CardReader, Delta, Document, EditError, FileTreeNode, ImportError, Normalized,
+    ParseDateError, Parsed, Quill, QuillReference, QuillValue, TypedReader, TypedWriter,
 };
 
 const QUILL: &str = r#"
@@ -91,6 +91,12 @@ fn content_lane_spells_through_the_facade() {
     assert!(depth > max, "the refusal names the depth that passed the limit");
 }
 
+#[test]
+fn a_render_date_refusal_spells_through_the_facade() {
+    let refused: Result<CalendarDate, ParseDateError> = "2026-02-30".parse();
+    assert!(refused.is_err(), "February has no 30th");
+}
+
 #[cfg(feature = "typst")]
 #[test]
 fn preview_regions_spell_through_the_facade() {
@@ -103,7 +109,8 @@ fn preview_regions_spell_through_the_facade() {
     doc.main_mut()
         .revise_body("The first paragraph.")
         .expect("a plain paragraph imports");
-    let session: LiveSession = engine.open(&quill, &doc, None).expect("open a session");
+    let today: CalendarDate = "2026-03-14".parse().expect("a date");
+    let session: LiveSession = engine.open(&quill, &doc, today).expect("open a session");
 
     let regions: Vec<RenderedRegion> = session.regions();
     // `field_boxes` and `position_at` are content-only, so the query needs a

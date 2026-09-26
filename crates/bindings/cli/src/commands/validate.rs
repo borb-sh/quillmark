@@ -172,7 +172,7 @@ fn validate_canonical_renders(quill: &Quill, result: &mut ValidationResult, verb
     ];
 
     let options = RenderOptions::default().with_output_format(format);
-    let today = Some(super::render_date(None));
+    let today = super::render_date(None);
     for (label, document) in documents {
         let document = match document {
             Ok(document) => document,

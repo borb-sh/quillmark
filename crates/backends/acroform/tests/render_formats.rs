@@ -5,6 +5,8 @@
 use quillmark::{Document, OutputFormat, Quill, Quillmark, RenderOptions};
 use quillmark_core::error::RenderError;
 
+mod common;
+
 const FILLED: &str = "~~~\n\
 $quill: sample_form\n\
 $kind: main\n\
@@ -22,7 +24,7 @@ fn sample_form() -> Quill {
 
 fn render(opts: &RenderOptions) -> Result<quillmark::RenderResult, RenderError> {
     let doc = Document::parse(FILLED).expect("parse markdown").document;
-    Quillmark::new().render(&sample_form(), &doc, None, opts)
+    Quillmark::new().render(&sample_form(), &doc, common::test_date(), opts)
 }
 
 fn refusal_code(opts: &RenderOptions) -> String {

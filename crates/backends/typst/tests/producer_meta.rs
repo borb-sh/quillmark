@@ -13,7 +13,7 @@ const PLATE: &str = "#set page(width: 400pt, height: 300pt)\n= Hello\n";
 fn render_pdf(plate: &str) -> Vec<u8> {
     let source = source_with_plate(plate);
     let session = TypstBackend
-        .open(&source, &serde_json::json!({}), None)
+        .open(&source, &serde_json::json!({}), common::test_date())
         .expect("open session");
     let result = session
         .render(&RenderOptions::default().with_output_format(OutputFormat::Pdf))

@@ -129,8 +129,9 @@ fn nested_map_keys_with_structural_chars_emit_valid_yaml() {
     assert_eq!(cfg["needs # comment"], serde_json::json!(4));
 }
 
-/// A comment's position is its index among its mapping's children, and a key the
-/// emitter quotes or spaces is one of those children.
+/// A comment's position is its index among its mapping's children, and a key of
+/// any spelling (quoted, spaced, with an inner `:` or a leading `-`, a tab after
+/// its `:`) is one of those children.
 #[test]
 fn a_comment_after_a_quoted_nested_key_holds_its_position() {
     let src = "\
@@ -146,6 +147,13 @@ config:
   spaced key : 3
   # a third note
   zip: 12345
+  og:meta:
+    og:title: Home
+    # a fourth note
+    og:type: site
+  -x:\t4
+  # a fifth note
+  end: 5
 ~~~
 
 Body.
@@ -164,6 +172,14 @@ Body.
     assert!(
         md.contains("spaced key: 3\n  # a third note\n  zip: 12345\n"),
         "the third comment moved: {md}"
+    );
+    assert!(
+        md.contains("  og:meta:\n    og:title: Home\n    # a fourth note\n    og:type: site\n"),
+        "the fourth comment moved: {md}"
+    );
+    assert!(
+        md.contains("  -x: 4\n  # a fifth note\n  end: 5\n"),
+        "the fifth comment moved: {md}"
     );
     let reparsed = Document::parse(&md).expect("the emitted document re-parses").document;
     assert_eq!(doc, reparsed, "emit is not a fixed point: {md}");

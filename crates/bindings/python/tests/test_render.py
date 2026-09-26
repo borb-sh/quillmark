@@ -143,6 +143,8 @@ def test_render_dates_a_today_field(engine, tmp_path):
 
     pinned = dated_quill("pinned", "data.issued == datetime(year: 2026, month: 3, day: 14)")
     engine.render(pinned, doc, OutputFormat.SVG, today=datetime.date(2026, 3, 14))
+    with pytest.raises(TypeError):
+        engine.render(pinned, doc, OutputFormat.SVG, today="2026-03-14")
 
     local = dated_quill("local", "data.issued != none")
     engine.render(local, doc, OutputFormat.SVG)

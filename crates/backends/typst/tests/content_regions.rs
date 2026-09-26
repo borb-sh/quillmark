@@ -12,7 +12,7 @@ use common::{content, quill_with_plate as quill, yaml};
 
 fn open(schema: &str, plate: &str, data: serde_json::Value) -> LiveSession {
     TypstBackend
-        .open(&quill(&yaml(schema), plate), &data, None)
+        .open(&quill(&yaml(schema), plate), &data, common::test_date())
         .expect("open")
 }
 
@@ -232,7 +232,7 @@ fn a_scalar_read_in_an_imported_module_surfaces_a_region() {
         ],
     );
     let session = TypstBackend
-        .open(&q, &serde_json::json!({ "subject": "Request for Quarters" }), None)
+        .open(&q, &serde_json::json!({ "subject": "Request for Quarters" }), common::test_date())
         .expect("open");
     let regions = session.regions();
     let subject = regions
@@ -529,7 +529,7 @@ fn form_field_path_rejected_when_address_tables_are_empty() {
         .open(
             &quill(&yaml("main:\n  body:\n    enabled: false\n"), PLATE),
             &serde_json::json!({}),
-            None,
+            common::test_date(),
         )
         .err()
         .expect("an address must still fail when the tables are empty, not absent");
@@ -574,7 +574,7 @@ fn adversarial_codegen_inputs_still_compile() {
                 "overlap": quillmark_content::serial::to_canonical_value(&overlap.into_normalized()),
                 "n": i64::MIN,
             }),
-            None,
+            common::test_date(),
         )
         .expect("adversarial data must still compile");
 }
