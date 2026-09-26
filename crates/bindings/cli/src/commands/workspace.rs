@@ -2,7 +2,7 @@ use crate::commands::{load_quill, read_document, render_date};
 use crate::errors::{CliError, Result};
 use crate::output::write_file;
 use clap::Parser;
-use quillmark::typst_workspace::{workspace, FONTS_DIR, PACKAGES_DIR};
+use quillmark::typst_workspace::{workspace, FONTS_DIR, HELPER_DIR, PACKAGES_DIR};
 use quillmark::{CalendarDate, Severity};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -42,6 +42,7 @@ pub fn execute(args: WorkspaceArgs) -> Result<()> {
     let json_data = quill.compile_checked(&document, render_date(args.today))?;
     let workspace = workspace(&quill, &json_data)?;
 
+    clear_previous_export(&args.output)?;
     for (path, contents) in &workspace.files {
         write_file(&args.output.join(path), contents, false)?;
     }
@@ -66,6 +67,29 @@ pub fn execute(args: WorkspaceArgs) -> Result<()> {
             plate = shell_word(&plate),
             pdf = shell_word(&pdf),
         );
+    }
+    Ok(())
+}
+
+/// Empty `packages/` and `fonts/` of an earlier export into `out`, so Typst
+/// loads no package or face this quill does not ship. A directory holding
+/// either without the helper package is not an export, and is refused.
+fn clear_previous_export(out: &Path) -> Result<()> {
+    let owned = [out.join(PACKAGES_DIR), out.join(FONTS_DIR)];
+    if !owned.iter().any(|dir| dir.exists()) {
+        return Ok(());
+    }
+    if !out.join(PACKAGES_DIR).join(HELPER_DIR).is_dir() {
+        return Err(CliError::InvalidArgument(format!(
+            "Workspace directory {} holds a {PACKAGES_DIR}/ or {FONTS_DIR}/ directory \
+             no earlier export wrote; name an empty or new directory",
+            out.display()
+        )));
+    }
+    for dir in owned {
+        if dir.exists() {
+            fs::remove_dir_all(dir)?;
+        }
     }
     Ok(())
 }

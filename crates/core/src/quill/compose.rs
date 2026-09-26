@@ -274,10 +274,23 @@ impl Quill {
                 continue;
             };
             for (field, value) in obj {
+                let field_path = DocPath::new().field("$seed").field(kind).field(field);
                 if field == "$body" {
+                    if !card_schema.body_enabled() {
+                        diags.push(
+                            Diagnostic::new(
+                                Severity::Warning,
+                                format!(
+                                    "`$seed.{kind}.$body` seeds no body: card kind `{kind}` \
+                                     declares `body.enabled: false`"
+                                ),
+                            )
+                            .with_code("validation::seed_unknown_field".to_string())
+                            .with_path(field_path.to_string()),
+                        );
+                    }
                     continue;
                 }
-                let field_path = DocPath::new().field("$seed").field(kind).field(field);
                 let Some(field_schema) = card_schema.fields.get(field) else {
                     diags.push(
                         Diagnostic::new(

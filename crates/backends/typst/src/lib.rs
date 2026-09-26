@@ -159,7 +159,7 @@ fn declined_image_warnings(
             );
             Some(diag.with_hint(
                 "what a content image's url names is undecided; a plate draws a \
-                 quill asset with `#image(\"assets/…\")`"
+                 quill asset with `#image(\"/assets/…\")`"
                     .to_string(),
             ))
         })

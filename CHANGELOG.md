@@ -1,5 +1,209 @@
 # Changelog
 
+## Unreleased
+
+Upgrade path: [0.115 → 0.116](docs/migrations/0.115-to-0.116.md).
+
+### What blocks a render
+
+- feat(core)!: **a card no kind claims, and a body under `body.enabled: false`,
+  render and warn.** A render fails only where the engine would have to invent
+  what the author wrote: a value that will not read as its declared cell's
+  type, or markup the grammar cannot read. Input no declaration claims
+  displaces nothing, so it renders and warns; SCHEMAS.md § "What blocks a
+  render" sorts every validation code into incomplete, malformed and
+  unclaimed. `validation::unknown_card` and `validation::body_disabled` are
+  `Severity::Warning` from `Quill::validate`, `unknown_card` carries
+  `allowed`, and an unclaimed card keeps its place in `$cards` with its
+  fields verbatim. `ValidationError::UnknownCard` and `BodyDisabled` are
+  deleted. This is the release's silent break: a pipeline that relied on the
+  render failing catches nothing. (#1877)
+- feat(core)!: **an undeclared key warns `validation::unknown_field`**, at
+  every depth of a claimed card: a card field, a typed dictionary's property,
+  an array element's, a matrix member's column, and a cell inside a variant
+  container no world declares. `args` carry `suggestion`, the closest declared
+  field the document leaves unwritten, or `container` and `variant` for a
+  variant cell written beside its discriminant rather than under it. (#1871)
+- feat(quillmark,cli)!: **a one-shot render carries validate's warnings.**
+  `Quillmark::render`, WASM `engine.render` and Python `render` put every
+  `Quill::validate` warning on the result's `warnings` ahead of the compile's,
+  so the unclaimed input the page left out is on the result a pipeline reads.
+  A session's warnings stay its current compile's. (#1931)
+- feat(core)!: **a card-yaml block with no `$kind` fails the parse** as
+  `parse::missing_kind`, located at its opener, with a hint naming both fixes:
+  a `$kind:` line, or a backtick fence. Such a block was a card missing its
+  kind line or tilde-fenced code, and reading it as either was a guess. Every
+  card now carries `$kind`: `ResolvedCard.kind` is `String` (`string` in
+  TypeScript), and a stored card with no `$kind` folds into the body above it
+  on load, its payload as a code block, then its body. (#1905)
+- feat(core)!: **a card-yaml payload that is not a mapping fails at its
+  fence** as `parse::payload_not_mapping`, located at the opener, with `actual`
+  and `info` args and a hint naming the backtick fence, where it was an
+  unlocated `parse::invalid_structure` on a card and `parse::missing_quill` on
+  the root. (#1873)
+
+### `!must_fill` is removed
+
+- refactor(core)!: **`!must_fill` and `validation::must_fill` are gone.** The
+  marker said a cell held a placeholder rather than an answer, and the schema
+  half of the warning read `default:`'s absence as an obligation. `default:`
+  is the value an unanswered cell renders, `?` moves the render floor, and
+  null ≡ absent holds on every surface. A value under the marker keeps its
+  value: in markdown the tag drops as any unknown tag does, warned
+  `parse::unsupported_yaml_tag` at the tagged node's rooted path (which that
+  code now carries), and a stored row of any earlier tag is read past its
+  `fill` keys. Deleted: `store_fill`,
+  `is_fill`, the `QuillValue` fill set, `FieldSchema::{must_fill,
+  example_content}`, `edit::fill_on_mapping`,
+  `parse::fill_marker_unsupported_position`, WASM `storeFill` / `isFill`, and
+  the card wire's `fill` / `nestedFills`. (#1906, #1933)
+- refactor(core)!: **the storage tag is `quillmark/document@0.116.0`.** A
+  field item carries no `fill` or `nested_fills`, and a row carrying either,
+  or any key its type does not name at the document, card, payload or item
+  level, fails the load, as does a nested comment spanning lines, which
+  `to_markdown` would have written as bare YAML. Every earlier tag still
+  reads. A row's bytes move on its next save, so content hashes
+  recompute and a 0.115 build refuses the row from then on.
+- feat(core,wasm,python)!: **a card-wire payload item refuses an unknown
+  key.** A 0.115 integration still sending `{value, fill: true}` committed the
+  placeholder as an answer, and an item typo vanished; `insertCard` throws and
+  `insert_card` raises `ValueError` instead. (#1933)
+- feat(core): **a `?` on a cell's type renders it `none` when unanswered**,
+  so a plate can tell "0 votes against" from "nobody entered a tally". `?` and
+  `default:` are exclusive (`quill::optional_default`), a namespace takes no
+  `?` (`quill::optional_namespace`), and the transform schema projects
+  `type: [t, "null"]`. (#1880)
+
+### The blueprint and the seed
+
+- feat(core)!: **seeding commits no `example:`.** An example documents a
+  cell's shape rather than answering it, and `body.example` is guide text
+  quills write as instructions. `seed_document`, `seed_main` and `seed_card`
+  commit the `$seed` overlay alone; every other body is empty and every other
+  field absent. (#1923)
+- feat(core,wasm,python)!: **the blueprint answers nothing on the author's
+  behalf.** A defaultless cell is empty (`title: # string`) with its
+  `example:` on a `# e.g.` line above it; every body is empty, a
+  `body.example` riding a `# body e.g.` line that closes the payload and a
+  kind under `body.enabled: false` closing with `# no body`; a card's
+  description rides its `$kind` line; a `default: []` table is led by the
+  whole field commented out holding its row; and a matrix names its columns
+  in an `# e.g.` line, a column with no example showing its
+  `<type>[<format>]`. (#1874, #1942)
+- feat(core,wasm,python)!: **`FORMAT_RULES` is `MARKDOWN_RULES`**, headed
+  `Quillmark Markdown rules:` (`markdownRules` / `markdown_rules`), and keeps
+  only what departs from plain Markdown and YAML. `blueprint_instruction` is
+  deleted in every binding: a prompt is the consumer's to write. (#1942)
+- feat(core)!: **`to_markdown` writes a multi-line string as a `|` literal
+  block** (`|-` without a trailing newline), at every depth, where it wrote
+  one double-quoted line. A string a block would not hold verbatim stays
+  quoted. The value round-trips unchanged; the markdown bytes move. (#1883)
+
+### The quill authoring contract
+
+- feat(core)!: **a field's and a card kind's label is a top-level `title`**,
+  beside `description`, which `schema()` emits and the blueprint prints as
+  `# <title> — <description>`. `ui.title` fails the load, a `{field}` token
+  in a `title` is `quill::title_template`, and a `title` on an array's `items`
+  is `quill::title_on_items`. (#1922)
+- refactor(core,wasm)!: **`body.unsupported` is removed**, with
+  `plate::unsupported_construct`, `Quill::unsupported_constructs` and the WASM
+  `QuillBlockConstruct`. Nothing verified a declaration against the plate and
+  no editor read it; a `Quill.yaml` still declaring it fails
+  `quill::invalid_body`.
+- fix(core)!: **an unquoted `quill.version` reads as written**: `version:
+  1.10` is `1.10`, where it loaded as `1.1`, and `1.1e1` fails
+  `quill::invalid_version`.
+- feat(core)!: **a `plaintext(inline)` value ending in a newline names `|-`
+  as the fix.** `validation::not_inline`, `edit::field_not_inline` and
+  `conform::field_not_inline` carry `trailingNewline: true`, and
+  `ValidationError::NotInline` / `EditError::FieldNotInline` gain
+  `trailing_newline`. (#1918)
+- fix(core): `quill::invalid_name` suggests a name the loader accepts.
+
+### The render date
+
+- feat(core)!: **the host supplies the render date; a `date` field may hold
+  `today`.** The engine reads no clock. `Quillmark::open` / `render`,
+  `Quill::compile_data` / `compile_checked` / `resolve`,
+  `QuillConfig::compile_data` / `compile_checked`, `TypedReader::resolve` and
+  `Backend::open` take a required `today: CalendarDate`; a plate's
+  `datetime.today()` returns it whatever its `offset:`. The CLI (`--today`)
+  and the WASM and Python bindings default to the local date. A `date` value
+  is `YYYY-MM-DD` or `today`, and the blueprint annotates `date<YYYY-MM-DD |
+  today>`. `CalendarDate`'s parse fails with `ParseDateError`, which tells a
+  day the calendar lacks from a string that is no date. (#1900, #1930)
+- feat(fixtures)!: `usaf_memo`'s blank `date` renders a fill-in field where it
+  rendered today's date.
+
+### Plates and the Typst backend
+
+- feat(typst)!: **a dictionary carries the `$ink` twin its fields print
+  through.** A scalar printed off `data` kept its click target only as a
+  direct read in the plate. `data`, each card, and each typed dictionary or
+  table row carry `$ink` and `$path` wherever a field has ink: compute with the
+  dictionary, print its ink (`ink(row).org`). A date's ink prints its default
+  display, and `display(row, "due", "[year]")` formats one by dictionary and
+  key. The keys are visible to `keys()`, `pairs()`, `len()`, `==` and a
+  spread. (#1868)
+- feat(typst)!: **a plate imports the quill's `.typ` files by Typst's path
+  rules.** The plate loads at its `plate_file` path and every `.typ` file
+  outside `packages/` beside it, so a bare path resolves from the importing
+  file and a `/`-rooted one from the quill root. Plate diagnostics name the
+  declared `plate_file`, where they named `main.typ`, and a vendored package's
+  file under its spec (`@local/p:0.1.0/lib.typ`), apart from a quill module
+  of the same path. (#1869)
+- feat(typst): **a `typst:` key the backend does not read warns
+  `typst::unknown_key`**, `typst.packages` included; a package is vendored
+  under `packages/`, never fetched. A package manifest without `version` or
+  `entrypoint` is skipped at load.
+- refactor(typst): the `when` / `value-or` plate helpers are dropped; a plate
+  reads an optional cell with `!= none`.
+- fix(typst): a negative scalar's ink lexes, and region queries stay linear.
+
+### Rendering, the CLI and the bindings
+
+- feat(core)!: **one raster ceiling, 16384 px a side**, `MAX_RASTER_SIDE`,
+  owned by core, where core refused past 16384² px of area and the WASM
+  painter clamped by side on its own. A PNG export long on one axis that fit
+  by area now fails `backend::invalid_raster_scale`.
+- feat(wasm)!: **`paint(ctx, page, scale)` takes one scale and returns
+  nothing**; `PaintOptions` and `PaintResult` are deleted, and a missing or
+  non-finite scale throws `backend::invalid_raster_scale`.
+- feat(cli): **`quillmark workspace` exports a plate for Typst's own
+  tooling**: the generated helper for one document, every vendored package
+  and the backend's fonts, with the `typst watch` command over them. A rerun
+  replaces the `packages/` and `fonts/` an earlier export wrote. The facade
+  re-exports it as `quillmark::typst_workspace`. (#1869)
+- feat(cli): **`quillmark check` prints a document's every diagnostic**, and
+  `--strict` exits `1` on a warning, for a CI gate over a repository of
+  documents; `render` prints the warnings for what the page leaves out.
+  (#1872)
+- fix(cli)!: `render` takes its format from an `-o` extension naming one, and
+  a `-f` the extension contradicts exits `1` before writing.
+- feat(core,wasm,python): `Quill.emptyDocument()` / `Quill.empty_document()`
+  reach the bindings, and WASM `isInline` / `isPlain` export the content
+  predicates. (#1919)
+
+### Fixes
+
+- fix(core): the YAML prescan keeps comments, tags and anchors with the value
+  they sit on across continuation lines, dash lines, block scalars, multi-line
+  flow collections, a value below its key, nested keys with an inner `:` or a
+  leading `-`/`?`, and a removed item's trailing comment; a `$seed` overlay edit keeps the comment on
+  its `$seed` line.
+- fix(core): `to_markdown` projects a content object at every depth of a
+  field's value, and a container under a sequence item's first key
+  round-trips.
+- fix(core): a folded island past `isl-{u64::MAX}` mints a fresh id, and a
+  folded card's `$ext` stays out of the body.
+- fix(core): the unknown-key walk stays linear in a mapping's keys.
+- fix(core): a `$seed.<kind>.$body` for a kind under `body.enabled: false`
+  warns `validation::seed_unknown_field`, where the seed dropped it silently.
+- fix(cli): `validate -v` reports a backend load warning once, where each of
+  the three canonical renders repeated it.
+- fix(quillmark): the facade re-exports `ParseDateError`.
+
 ## v0.115.0 - 2026-09-22
 
 Upgrade path: [0.114 → 0.115](docs/migrations/0.114-to-0.115.md).

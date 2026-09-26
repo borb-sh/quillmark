@@ -55,7 +55,8 @@ them.
   system and embedded fonts ignored, and the PDF written under `-o`. The helper
   is one document's data, so the plate recompiles live and the document does
   not. An `-o` inside the quill is refused, since the quill would load it as its
-  own files.
+  own files. A rerun replaces the `packages/` and `fonts/` an earlier export
+  wrote, and refuses an `-o` holding either without the helper package.
 - **Seeded fallback.** `render` or `workspace` with no `MARKDOWN_FILE` reads the quill's
   seeded document: one card per kind, bodies empty, every field at
   its `default:`/blank, so a quill renders with no input file. `render`'s output

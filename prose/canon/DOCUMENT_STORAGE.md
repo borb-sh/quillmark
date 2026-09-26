@@ -559,8 +559,9 @@ markdown string (see Byte-stability). `0.112.0` leaves the tree unchanged in
 turn and moves every built-in's payload into `attrs` inside that content.
 `0.115.0` leaves it unchanged again, drops an island's `loss` and spells a
 block island's line `para`. `0.116.0` writes a field item as
-`{type: field, key, value}` and refuses a payload item carrying a key its type
-does not name, where every earlier tag reads past one.
+`{type: field, key, value}` and refuses a document, card, payload or payload
+item carrying a key its type does not name, where every earlier tag reads past
+one.
 
 The V0_92_0 hop cold-imports the stored markdown `body` string through the same
 Markdown → richtext path `Document::parse` uses, so a pathologically

@@ -331,7 +331,7 @@ beside it.
 
 One origin serves the whole canvas surface: `pageSize`, `regions`, the point
 queries, and the raster all measure from the **page's lower-left corner as
-drawn**, so `(0, 0)` is the raster's first pixel and `pageSize × renderScale`
+drawn**, so `(0, 0)` is the raster's first pixel and `pageSize × scale`
 (`paint`'s `scale`, after the clamp) is its extent. A Typst page starts there already. An acroform background's page need
 not. The file's own numbers are in PDF user space, and the page a viewer shows
 is the **canvas box**, `/CropBox` ∩ `/MediaBox`, which `pdfcrop` leaves
@@ -416,11 +416,11 @@ The wasm `render` feature pulls in `web-sys`, the generic canvas *painter*
   `/AP` stream a rasterizer draws). Regions are an overlay sidecar, not a
   compositing input: the painter stays a dumb blit.
 - **No session raster cache: re-rasterize per `paint`.** Caching the last
-  raster per `(page, renderScale)` and blitting on scroll-back would skip
+  raster per `(page, scale)` and blitting on scroll-back would skip
   re-rasterizing unchanged pages (`ChangeSet` already names dirty pages to
   invalidate), but it stays unbuilt: the surface ships ahead of its first
   consumer, the megabyte-scale per-page buffers reintroduce the unbounded
-  memory the viewport-bounded design set out to avoid, and any `renderScale`
+  memory the viewport-bounded design set out to avoid, and any `scale`
   change (DPR / zoom) rotates the key and voids the cache. Consumer-side canvas
   liveness (keep the visible page's canvas alive rather than pooling) covers the
   common scroll case without that trade-off; a real consumer's profile is what

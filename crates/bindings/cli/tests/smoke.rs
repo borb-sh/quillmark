@@ -169,6 +169,20 @@ card_kinds:
     ok(&["validate", path, "--no-render"]);
 }
 
+/// A backend load warning each canonical render repeats is reported once.
+#[test]
+fn validate_reports_a_load_warning_once() {
+    let dir = quill_with_config(
+        "quill:\n  name: w\n  version: 0.1.0\n  backend: typst\n  description: w\n\
+         typst:\n  plate_file: plate.typ\n  packages: []\n",
+    );
+    std::fs::write(dir.path().join("plate.typ"), "hi\n").expect("write plate.typ");
+    let out = run(&["validate", dir.path().to_str().unwrap(), "-v"]);
+    let text = String::from_utf8_lossy(&out.stdout).to_string()
+        + &String::from_utf8_lossy(&out.stderr);
+    assert_eq!(text.matches("typst::unknown_key").count(), 1, "{text}");
+}
+
 /// A config that will not load is a quill failure, and reads as one.
 #[test]
 fn an_unloadable_quill_is_not_an_invalid_argument() {
@@ -622,6 +636,27 @@ fn workspace_refuses_a_directory_inside_the_quill() {
     let out = run(&["workspace", quill, "-o", inside.to_str().unwrap()]);
     assert_eq!(out.status.code(), Some(1));
     assert!(!dir.path().join("ws").exists());
+}
+
+/// A second export into the same directory leaves nothing of the first, and a
+/// directory holding `fonts/` no export wrote is refused untouched.
+#[test]
+fn workspace_replaces_an_earlier_export_and_refuses_a_foreign_one() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let out = dir.path().join("ws");
+    let (quill, out_arg) = (taro(), out.to_str().unwrap());
+    ok(&["workspace", quill.to_str().unwrap(), "-o", out_arg]);
+    let stale = out.join("fonts/stale.ttf");
+    std::fs::write(&stale, b"x").expect("write stale font");
+    ok(&["workspace", quill.to_str().unwrap(), "-o", out_arg]);
+    assert!(!stale.exists());
+
+    let foreign = dir.path().join("home");
+    std::fs::create_dir_all(foreign.join("fonts")).expect("mkdir");
+    std::fs::write(foreign.join("fonts/mine.ttf"), b"x").expect("write font");
+    let refused = run(&["workspace", quill.to_str().unwrap(), "-o", foreign.to_str().unwrap()]);
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(foreign.join("fonts/mine.ttf").exists());
 }
 
 /// A path the shell would split is quoted in the printed command.

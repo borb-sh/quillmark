@@ -196,7 +196,11 @@ fn validate_canonical_renders(quill: &Quill, result: &mut ValidationResult, verb
                 if verbose {
                     println!("    {label}: ok");
                 }
-                result.issues.extend(rendered.warnings);
+                for warning in rendered.warnings {
+                    if !result.issues.contains(&warning) {
+                        result.issues.push(warning);
+                    }
+                }
             }
             Err(e) => {
                 result.add(

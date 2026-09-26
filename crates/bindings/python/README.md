@@ -47,7 +47,8 @@ parse, storage, structure, `$ext` / `$seed`, and `remove_field`. Names follow
 ```python
 engine = Quillmark()
 engine.registered_backends()              # ['typst', 'acroform'] (order not guaranteed)
-engine.render(quill, parsed, OutputFormat.PDF)   # ppi=, pages= optional
+engine.render(quill, parsed, OutputFormat.PDF)   # ppi=, pages=, regions= optional
+                                          # today=datetime.date, default the local date
 engine.supported_formats(quill)           # [OutputFormat.PDF, ...] (raises if backend unregistered)
 ```
 
@@ -115,7 +116,7 @@ doc.card(0)["kind"]                       # the composable card's $kind
 
 ```python
 result.artifacts            # [Artifact, ...]
-result.warnings             # [Diagnostic, ...]
+result.warnings             # [Diagnostic, ...]: parse, then quill.validate, then compile
 result.format               # OutputFormat
 
 artifact.format             # OutputFormat

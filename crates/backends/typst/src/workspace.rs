@@ -16,12 +16,16 @@ use crate::{world, SchemaMeta};
 pub const PACKAGES_DIR: &str = "packages";
 /// The workspace directory `--font-path` names.
 pub const FONTS_DIR: &str = "fonts";
+/// The generated helper package's directory, under [`PACKAGES_DIR`]: present in
+/// every workspace.
+pub const HELPER_DIR: &str = "local/quillmark-helper";
 
 /// A directory from which `typst compile` or `typst watch`, run with
 /// `--root <quill>`, `--package-path <dir>/packages`,
 /// `--font-path <dir>/fonts`, `--ignore-system-fonts` and
 /// `--ignore-embedded-fonts`, compiles the plate as Quillmark does, against one
 /// document's data.
+#[non_exhaustive]
 pub struct Workspace {
     /// Paths relative to the workspace directory, every component a plain name.
     pub files: Vec<(PathBuf, Vec<u8>)>,
@@ -59,8 +63,7 @@ pub fn workspace(source: &Quill, json_data: &serde_json::Value) -> Result<Worksp
     let (lib_typ, _) = helper::generate_lib_typ(json_data, &meta)
         .map_err(|e| RenderError::coded(e.code(), e.to_string()))?;
     let helper_dir = PathBuf::from(PACKAGES_DIR)
-        .join(HELPER_NAMESPACE)
-        .join(HELPER_NAME)
+        .join(HELPER_DIR)
         .join(HELPER_VERSION);
     let mut files = vec![
         (helper_dir.join("lib.typ"), lib_typ.into_bytes()),

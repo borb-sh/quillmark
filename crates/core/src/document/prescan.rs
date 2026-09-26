@@ -384,7 +384,7 @@ pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
         }
 
         if std::mem::take(&mut node_below) {
-            open = opens_past_line(trimmed);
+            open = continue_value(&mut out, FlowScan::default(), trimmed, &host);
             // A scalar holds no children, so the frame opened for it goes.
             if stack.len() > 1 && stack.last().is_some_and(|f| f.child_count == 0) {
                 let frame = stack.pop().expect("more than the root frame");

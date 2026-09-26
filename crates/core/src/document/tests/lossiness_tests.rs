@@ -230,6 +230,11 @@ fn a_comment_under_a_scalar_below_its_key_follows_the_value() {
         "m:\n  k: !t\n    some text\n    # c\n  n: 1\n",
         "m:\n  k: !t\n    # c\n    some text\n  n: 1\n",
         "rows:\n  -\n    some text\n    # c\n  - b\n",
+        "k:\n  some text # c\nn: 1\n",
+        "k:\n  [1, # c\n  2]\nn: 1\n",
+        "m:\n  k:\n    some text # c\n  n: 1\n",
+        "rows:\n  -\n    some text # c\n  - b\n",
+        "rows:\n  - k:\n      some text # c\n  - b\n",
     ];
     for fields in cases {
         let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");

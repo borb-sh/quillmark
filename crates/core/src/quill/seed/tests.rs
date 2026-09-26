@@ -185,6 +185,18 @@ card_kinds:
         "",
         "body must be empty when body.enabled is false"
     );
+
+    let doc = Document::parse(
+        "~~~\n$quill: bodyless@1.0\n$kind: main\n$seed:\n  data:\n    $body: Overlay body.\n~~~\n",
+    )
+    .expect("doc should parse")
+    .document;
+    let diags = quill.validate(&doc);
+    assert!(
+        diags.iter().any(|d| d.path.as_deref() == Some("$seed.data.$body")
+            && d.code.as_deref() == Some("validation::seed_unknown_field")),
+        "{diags:?}"
+    );
 }
 
 fn doc_with_seed(seed_block: &str) -> Document {
