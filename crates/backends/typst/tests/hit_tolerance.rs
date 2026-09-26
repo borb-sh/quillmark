@@ -220,7 +220,7 @@ fn a_point_past_the_tolerance_is_still_a_miss() {
 /// A point that is not finite is outside every box, so both queries answer
 /// nothing at any tolerance, an infinite one included: the gap is absent rather
 /// than large. The documented click transform yields both at once, an infinite
-/// `tolPt` and a non-finite point, whenever `renderScale` is zero.
+/// `tolPt` and a non-finite point, whenever the canvas's `clientWidth` is zero.
 #[test]
 fn a_non_finite_point_resolves_to_nothing() {
     let session = open();

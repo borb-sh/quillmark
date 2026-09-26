@@ -16,7 +16,7 @@ One rule governs the lowering, at every depth: **a declared type means the same 
    authored value, else the schema `default:`, else the field's blank.
    Content fields cross as canonical `Content` objects (coercion imports an
    authored markdown string to the `Content` and re-canonicalizes an
-   editor-supplied one). An incomplete document still renders: an absent or
+   editor-supplied one). An unanswered field renders: an absent or
    present-null field blank-fills. Only a malformed value: one that won't coerce or
    validate to its type: errors. A `today` date renders as the render date the
    host supplied ([SCHEMAS.md](SCHEMAS.md#the-render-date-today)).
@@ -86,8 +86,8 @@ The Typst backend injects a virtual package `@local/quillmark-helper:<version>` 
 #display("date", "…")        // …and `display` places the click-to-edit rendering
 #for card in data.at("$cards") {
   if card.at("$kind", default: none) == "indorsement" {
-    // per-kind handling; $kind/$body are present only where the schema
-    // defines them, so read them totally: card.<field>, card.at("$body", default: "")
+    // per-kind handling; $body is present only where the kind enables one,
+    // so read it totally: card.<field>, card.at("$body", default: "")
   }
 }
 ```
@@ -159,7 +159,7 @@ each dictionary it closes gathers its fields' ink under a leading `$ink` key:
 
 | field | its ink |
 |---|---|
-| string, number, boolean | `[#<literal>]` inline, its window the block: it prints what `#<value>` prints |
+| string, number, boolean | `[#(<literal>)]` inline, parenthesized so a negative number lexes, its window the block: it prints what `#<value>` prints |
 | content | the `_qm_cN` binding the data cell holds |
 | date | `_qm_dN()`: the closure `display` calls, called with no pattern |
 | array of those | the array of their ink |

@@ -360,7 +360,7 @@ fn validate_fields_for_card(
     for field_name in field_names {
         let schema = &card.fields[field_name];
         let path = base.field(field_name);
-        // Absence is a completeness concern, not a well-formedness one.
+        // Absence is never malformed.
         if let Some(value) = fields.get(field_name) {
             errors.extend(validate_field(schema, value, &path));
         }
@@ -533,7 +533,7 @@ fn validate_value(
                     for property_name in property_names {
                         let property_schema = &properties[property_name];
                         let property_path = path.field(property_name);
-                        // Absent: completeness, not well-formedness.
+                        // Absence is never malformed.
                         if let Some(property_value) = object.get(property_name) {
                             errors.extend(validate_value(
                                 property_schema,

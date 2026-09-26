@@ -165,6 +165,78 @@ fn a_tag_inside_a_multi_line_flow_collection_stays_on_its_value() {
     assert_eq!(anchors(&out), [("parse::must_fill_dropped", Some("main.c"))]);
 }
 
+/// A comment trailing a line that continues a flow collection or a quoted
+/// scalar is the trailer of the key or item the value belongs to, or, when a
+/// comment already sits on that line or inside the value, a comment on its own
+/// line after the value.
+#[test]
+fn a_comment_on_a_continuation_line_stays_with_its_value() {
+    let cases = [
+        (
+            "recipient:\n  addr: {street: Main St,\n    city: Anytown}  # verified\n  name: Jo\n",
+            "  addr: # verified\n",
+        ),
+        ("rows:\n  - {a: 1,\n     b: 2}  # c\n", "  - a: 1 # c\n"),
+        ("$ext:\n  og: {title: T,\n    url: http://x}  # c\n", "  og: # c\n"),
+        (
+            "memo:\n  note: \"Reply by Friday,\n    see: attached\"  # from Jo\n",
+            "  note: \"Reply by Friday, see: attached\" # from Jo\n",
+        ),
+        ("x: [1,\n  2]  # c\n", "x: # c\n"),
+        (
+            "m:\n  x: {a: 1, # first\n    b: 2} # second\n  y: 4\n",
+            "  x: # first\n    a: 1\n    b: 2\n  # second\n",
+        ),
+        (
+            "rows:\n  - k0: [1, # a\n      2] # b\n    k1: x\n  - k2: z\n",
+            "  - k0: # a\n      - 1\n      - 2\n    # b\n    k1: x\n",
+        ),
+        (
+            "rows:\n  - k0: # a\n      [1,\n      2] # b\n    k1: x\n  - k2: z\n",
+            "  - k0: # a\n      - 1\n      - 2\n    # b\n    k1: x\n",
+        ),
+        (
+            "rows:\n  - k0: [1, # a\n      2] # b\n  - k2: z\n",
+            "      - 2\n    # b\n  - k2: z\n",
+        ),
+        (
+            "m:\n  x: [1,\n    # mid\n    2] # c\n  y: 4\n",
+            "  x:\n    - 1\n    - 2\n  # mid\n  # c\n",
+        ),
+        (
+            "rows:\n  - [1,\n    # mid\n    2] # c\n  - 3\n",
+            "  -\n    - 1\n    - 2\n  # mid\n  # c\n  - 3\n",
+        ),
+    ];
+    for (fields, emitted) in cases {
+        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
+        let doc = Document::parse(&src).unwrap().document;
+        let md = doc.to_markdown();
+        assert!(md.contains(emitted), "Source:\n{src}\nGot:\n{md}");
+        assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
+    }
+}
+
+/// A tag or anchor ahead of `|` or `>` leaves the block's lines its text: no
+/// key, comment or marker among them reaches the mapping around it.
+#[test]
+fn a_block_scalar_behind_a_tag_or_anchor_is_text() {
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\n\
+               memo:\n  body: &a |\n    # Summary\n    subject: !must_fill TBD\n  subject: Final\n\
+               notes:\n  - !!str >\n    # kept\n~~~\n";
+    let out = Document::parse(src).unwrap();
+    let get = |k: &str| out.document.main().payload().get(k).unwrap().as_json().clone();
+    assert_eq!(
+        get("memo"),
+        serde_json::json!({"body": "# Summary\nsubject: !must_fill TBD\n", "subject": "Final"})
+    );
+    assert_eq!(get("notes"), serde_json::json!(["# kept\n"]));
+    assert!(out.warnings.is_empty(), "{:?}", out.warnings);
+    let md = out.document.to_markdown();
+    assert_eq!(md.matches("# Summary").count(), 1, "{md}");
+    assert_eq!(md.matches("# kept").count(), 1, "{md}");
+}
+
 /// The prescan splits on `\n`, so CRLF input reaches it with a trailing `\r` on
 /// every line.
 #[test]

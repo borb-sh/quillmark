@@ -101,8 +101,8 @@ impl Quill {
     /// For every declared field, the value [`compile_data`] emits into the plate:
     /// the two cut the *same* sourced ladder (`ladder_sourced`) over equal
     /// coerced input, so the value is the plate's by construction: tagged with
-    /// the [`FieldSource`] rung it came from. Completeness and errors stay
-    /// [`Quill::validate`]'s; this view carries no diagnostics.
+    /// the [`FieldSource`] rung it came from. Diagnostics stay
+    /// [`Quill::validate`]'s; this view carries none.
     ///
     /// `today` is the render date, as [`compile_data`] takes it.
     ///

@@ -52,13 +52,13 @@ export interface QuillCardBody {
     example?: string;
 }
 
+export type QuillFieldType = "string" | "number" | "integer" | "boolean" | "array" | "object" | "date" | "datetime" | "richtext" | "plaintext" | "enum" | "matrix";
+
 /** Schema entry for a single field declared in a quill's `Quill.yaml`.
  *
  * `default` is the value an unanswered cell renders; `example` documents shape
  * and never renders. An absent field without a `default` blank-fills.
  */
-export type QuillFieldType = "string" | "number" | "integer" | "boolean" | "array" | "object" | "date" | "datetime" | "richtext" | "plaintext" | "enum" | "matrix";
-
 export interface QuillFieldSchema {
     /** A trailing `?` marks the cell optional: unanswered, it renders `none`
      *  rather than its type's blank, and it never carries a `default`. A
@@ -155,9 +155,9 @@ export type PayloadItem =
  * A single card block, as read back from a document. Every `Card` is a valid
  * `CardInput`, so a card read from one document pushes straight into another.
  *
- * `$` system entries are hoisted to named fields: `kind` (the `$kind`, empty
- * string when none), `quill` (`$quill` `name@version`, main card only), `ext`
- * (`$ext`), and `seed` (the `$seed` per-kind overlay map, main card only).
+ * `$` system entries are hoisted to named fields: `kind` (the `$kind`),
+ * `quill` (`$quill` `name@version`, main card only), `ext` (`$ext`), and
+ * `seed` (the `$seed` per-kind overlay map, main card only).
  * `payloadItems` carries user fields and comments in order.
  */
 export interface Card {
@@ -702,7 +702,7 @@ impl Quill {
     /// `FieldSource` rung it came from (`"authored" | "default" | "blank"`). The
     /// card body is a `body` sibling on its card, never a row in `fields`, and
     /// `null` when the kind enables no body. Value and provenance only;
-    /// completeness stays `validate`'s. `today` reads as on `Quillmark.open`.
+    /// diagnostics stay `validate`'s. `today` reads as on `Quillmark.open`.
     #[wasm_bindgen(js_name = _resolve, skip_typescript, unchecked_return_type = "Resolved")]
     pub fn resolve(&self, doc: &Document, today: Option<String>) -> Result<JsValue, JsValue> {
         let states = self.inner.resolve(&doc.inner, render_date(today)?);
@@ -1915,7 +1915,7 @@ export interface ResolvedCard {
 
 /**
  * The resolved-value view (`Quill.resolve`): the main card and every composable
- * card. Value and provenance only; completeness stays `Quill.validate`'s.
+ * card. Value and provenance only; diagnostics stay `Quill.validate`'s.
  */
 export interface Resolved {
     main: ResolvedMain;
@@ -2559,15 +2559,17 @@ impl LiveSession {
     /// The schema field whose content is under a point on `page`: the `DocPath`
     /// address to focus in the editor, or `undefined` off any field's ink.
     /// `x`/`y` are PDF points with a **bottom-left** origin, the same space as
-    /// `FieldRegion.rect`, so from a canvas click use
-    /// `x = clickPx.x / renderScale`, `y = pageHeightPt - clickPx.y / renderScale`.
+    /// `FieldRegion.rect`. A pointer event reports CSS pixels, so divide by the
+    /// CSS px per point the page is shown at, `k = canvas.clientWidth /
+    /// pageWidthPt`, not by `paint`'s `scale`, which carries `devicePixelRatio`:
+    /// `x = e.offsetX / k`, `y = pageHeightPt - e.offsetY / k`.
     /// Unlike `regions()`, *every* placement answers, not just the first.
     ///
     /// `tolPt` is how far off the ink a click still counts, in the same points,
     /// and defaults to `0` — exact. Convert the pointer slack a surface wants
-    /// from CSS pixels at the scale it drew the page (`slackPx / renderScale`),
-    /// so it stays the same size under the cursor as the page zooms. The
-    /// nearest placement answers, so raising it only fills a miss.
+    /// from CSS pixels by the same `k` (`slackPx / k`), so it stays the same
+    /// size under the cursor as the page zooms. The nearest placement answers,
+    /// so raising it only fills a miss.
     #[wasm_bindgen(js_name = fieldAt)]
     pub fn field_at(&self, page: usize, x: f32, y: f32, tol_pt: Option<f32>) -> Option<String> {
         self.inner

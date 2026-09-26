@@ -84,7 +84,7 @@ Without `--strict`, `check` exits `1` only on an error: a parse error, a value t
 # Every diagnostic for one document
 quillmark check ./my-quill input.md
 
-# CI gate: fail on anything unfinished or unread
+# CI gate: fail on anything unread (an undeclared key, a card no kind claims)
 quillmark check --strict ./my-quill documents/*.md
 ```
 

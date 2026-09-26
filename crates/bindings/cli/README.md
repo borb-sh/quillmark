@@ -45,6 +45,7 @@ rendered instead, so a quill previews without any authored input.
 - `-f, --format <FORMAT>` — `pdf`, `svg`, or `png`; defaults to the `-o` extension when it names one, else `pdf`, and refuses one that disagrees with it
 - `--stdout` — write the artifact to stdout; all chatter moves to stderr
 - `--output-data <DATA_FILE>` — also write the compiled JSON data handed to the backend
+- `--today <YYYY-MM-DD>` — the render date: what a `today` date and a plate's `datetime.today()` render as (default: the local date)
 - `--quiet` — suppress warnings and the output-destination line
 
 Warnings go to stderr, including one for each undeclared key or other input the
@@ -72,14 +73,25 @@ value is expected, and each `example:` on a `# e.g.` line above its field.
 Loads the quill — `Quill.yaml` parse errors, `example:`/`default:` literals
 against their declared types — checks referenced files, and renders the three
 canonical documents (the empty document, the blueprint, the seed) through the
-plate. `-v` adds advisory warnings such as missing field descriptions;
-`--no-render` skips the render. Exits 1 where the configuration is invalid or a
+plate. `-v` prints each warning, such as a missing field description, where
+a plain run only counts them; `--no-render` skips the render. Exits 1 where the configuration is invalid or a
 canonical document does not render.
 
 ### `quillmark info <QUILL_PATH>`
 
 Prints the quill's identity — name, version, author, backend — and its field,
 card and defaults counts.
+
+### `quillmark workspace [OPTIONS] <QUILL_PATH> [MARKDOWN_FILE]`
+
+Writes what Typst's own tooling needs to compile a Typst quill's plate against
+one document (the generated helper package, the vendored packages, the fonts),
+then prints the `typst watch` command that compiles it. The helper holds that
+document's data: rerun `workspace` after the document changes.
+
+- `-o, --output <DIR>` — workspace directory (default: `quillmark-workspace`)
+- `--today <YYYY-MM-DD>` — what a `today` date renders as (default: the local date); a plate's `datetime.today()` is Typst's to supply
+- `--quiet` — suppress warnings and the command line
 
 ## Exit codes
 

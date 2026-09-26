@@ -40,7 +40,7 @@ Two surfaces return one directly (`QuillValue::from_yaml_str`, `QuillConfig::sch
 
 Its `line`/`column` are document coordinates, not block-relative ones:
 
-- The engine reports a position inside the string it parsed: the fence content, line-for-line (prescan strips custom tags but leaves every line standing, comment lines included), minus the whitespace `trim` takes off the front. The assembler translates that position onto the document.
+- The engine reports a position inside the string it parsed: the fence content, line-for-line (prescan strips only a block key's `!must_fill`, leaving any other tag for the engine to drop, and leaves every line standing, comment lines included), minus the whitespace `trim` takes off the front. The assembler translates that position onto the document.
 - `to_diagnostic()` renders it as a `Location` against `DOCUMENT_FILE` (`input.md`). Markdown reaches the engine as a string, so the anchor names the input rather than a path on disk.
 - The message names the block instead of repeating a number (`YAML error in the root card-yaml block: …`, `… in card-yaml block 2: …`). The engine's own snippet inside it stays block-relative, as the engine rendered it.
 
@@ -128,8 +128,8 @@ families:
   is built by `Document.fromStored`, which carries none. A tag warning
   (`parse::must_fill_dropped`, `parse::unsupported_yaml_tag`) anchors at the
   tagged node's `path`, a card's under its stored `$kind` as `pathFor` mints
-  it. One under `$ext` or `$seed`, which have no document address, carries
-  none.
+  it. One on a `$` key or inside `$ext` or `$seed`, which have no document
+  address, carries none.
 - **`conform::*`: resting-form warnings.** `Quill::conform` returns one per
   declared content field whose value the strict write refuses, and
   `Quill::parse` appends them to the `Parsed.warnings` the parse produced. Each
@@ -255,8 +255,8 @@ Either quote the value (`build_number: "42"`) or change the schema's
 
 A present-null value (`subtitle:`, `subtitle: null`, `subtitle: ~`) is treated
 exactly like an omitted field: null ≡ absent, it coerces and validates clean,
-and it blank-fills at render (authored › `default:` › blank). An incomplete
-document therefore produces no field-level diagnostic at all.
+and it blank-fills at render (authored › `default:` › blank). A document that
+answers nothing therefore produces no field-level diagnostic at all.
 
 Implementation: `crates/core/src/quill/validation.rs` (the `ValidationError`
 `Display` impl).
@@ -277,12 +277,12 @@ anchor.
 | Typed card (whole) | `cards.indorsement[0]` |
 | Field on a typed card | `cards.indorsement[0].signature_block` |
 | Body on a typed card | `cards.indorsement[0].body` |
-| Card no declared kind claims (unknown or missing `$kind`) | `cards[0]` |
+| Card of a kind the quill does not declare | `cards[0]` |
 
 Every path is **rooted**: a main field at `main.<field>`, a card field
 kind-qualified at `cards.<kind>[<index>].<field>` (kind and document-array index
-fused so a consumer gets both without a second lookup). A card no declared kind
-claims has no kind to qualify with, so `cards[<index>]`, and every field path
+fused so a consumer gets both without a second lookup). A card of an undeclared
+kind has no declared kind to qualify with, so `cards[<index>]`, and every field path
 under it, is the only bare-index form. Rooting keeps the
 grammar total against a field named for a root (`main.cards`, `main.main`); only
 a field literally named `body` still collides with the body terminal. Field

@@ -665,7 +665,7 @@ export class LiveSession {
 	/**
 	 * @param {CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D} ctx
 	 * @param {number} page
-	 * @param {object} [options]
+	 * @param {number} scale
 	 */
 	paint(ctx, page, scale) {
 		this.#inner.paint(ctx, page, scale);

@@ -628,17 +628,28 @@ fn append_block(mut dst: Content, mut src: Content) -> Content {
     let offset = dst.len_usv() + 1;
 
     let held: HashSet<&str> = dst.islands.iter().map(|i| i.id.as_str()).collect();
+    let taken: HashSet<String> = dst
+        .islands
+        .iter()
+        .chain(&src.islands)
+        .map(|i| i.id.clone())
+        .collect();
+    // `u128` counts past `isl-{u64::MAX}`; `taken` steps over an id past that,
+    // which the count does not parse.
     let mut next = dst
         .islands
         .iter()
         .chain(&src.islands)
         .filter_map(|i| i.id.strip_prefix("isl-")?.parse::<u64>().ok())
         .max()
-        .map_or(0, |n| n.saturating_add(1));
+        .map_or(0, |n| u128::from(n) + 1);
     for island in &mut src.islands {
         if held.contains(island.id.as_str()) {
+            while taken.contains(&format!("isl-{next}")) {
+                next += 1;
+            }
             island.id = format!("isl-{next}");
-            next = next.saturating_add(1);
+            next += 1;
         }
     }
 
@@ -1888,6 +1899,29 @@ title: Hi
         let expected = [("c1", "Intro"), ("c2", "Conclusion")];
         assert_eq!(anchors, expected.map(|(i, t)| (i.to_string(), t.to_string())));
         assert_eq!(restored.cards()[0].body().marks.len(), 1);
+    }
+
+    /// The id past `isl-{u64::MAX}` is `isl-{u64::MAX + 1}`, and one either body
+    /// holds is stepped over.
+    #[test]
+    fn a_folded_island_id_past_u64_max_is_fresh() {
+        let body = |ids: &[&str]| {
+            let md = vec!["![a](a.png)"; ids.len()].join("\n\n");
+            let mut content = super::super::import_body(&md).unwrap().into_content();
+            for (island, id) in content.islands.iter_mut().zip(ids) {
+                island.id = id.to_string();
+            }
+            content
+        };
+        let isl = |n: u128| format!("isl-{n}");
+        let max = u128::from(u64::MAX);
+        let folded = append_block(
+            body(&[&isl(max)]),
+            body(&[&isl(max), &isl(max + 1)]),
+        );
+        let ids: Vec<&str> = folded.islands.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, [isl(max), isl(max + 2), isl(max + 1)]);
+        folded.validate().unwrap();
     }
 
     /// A fold loads whatever the stored card holds, keeps the blocks on either

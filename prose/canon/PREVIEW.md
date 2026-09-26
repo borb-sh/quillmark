@@ -303,8 +303,9 @@ tolerance: the nearest ink within `tolPt` answers, `0` being exact containment.
 Slack is a screen quantity — what a finger or a hand-held mouse
 misses by — so a tolerance fixed in points shrinks under the cursor as the page
 is drawn smaller, which is where the target is already hardest to hit. A
-consumer converts its own slack at the scale it drew the page and passes the
-result; the engine holds no default because it cannot see that scale.
+consumer converts its own slack at the scale it displays the page, CSS px per
+point, and passes the result; the engine holds no default because it cannot
+see that scale.
 
 **Nearest, not a grown box.** The nearest placement within `tolPt` answers,
 which keeps the tolerance a pure widening: containment is distance zero, so no
