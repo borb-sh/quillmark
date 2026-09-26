@@ -23,27 +23,6 @@ pub enum PathSegment {
     Index(usize),
 }
 
-/// Replace the node at `path` with null. `false`, changing nothing, when the
-/// path addresses no node.
-pub(crate) fn null_at(value: &mut JsonValue, path: &[PathSegment]) -> bool {
-    let mut cur = value;
-    for seg in path {
-        cur = match (cur, seg) {
-            (JsonValue::Object(map), PathSegment::Key(k)) => match map.get_mut(k) {
-                Some(v) => v,
-                None => return false,
-            },
-            (JsonValue::Array(items), PathSegment::Index(i)) => match items.get_mut(*i) {
-                Some(v) => v,
-                None => return false,
-            },
-            _ => return false,
-        };
-    }
-    *cur = JsonValue::Null;
-    true
-}
-
 /// `true` when a value nests deeper than `max_depth` container levels: the
 /// content crate's guard, re-exported so this crate's boundaries and the content
 /// model reject the identical shape.

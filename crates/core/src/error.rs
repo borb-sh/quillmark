@@ -905,20 +905,17 @@ card_kinds:
                 .unwrap_or_else(|| panic!("no `{code}` sample from the seed probe"));
             add(code, sample.args.clone());
         }
-        // The tag warnings are minted at assembly, so the sample is a document
-        // carrying both.
-        let tagged = crate::document::Document::parse(
-            "~~~\n$quill: q\n$kind: main\nsubject: !must_fill X\nother: !env Y\n~~~\n",
-        )
-        .expect("tag probe parses");
-        for code in ["parse::must_fill_dropped", "parse::unsupported_yaml_tag"] {
-            let sample = tagged
-                .warnings
-                .iter()
-                .find(|d| d.code.as_deref() == Some(code))
-                .unwrap_or_else(|| panic!("no `{code}` sample from the tag probe"));
-            add(code, sample.args.clone());
-        }
+        // The tag warning is minted at assembly, so the sample is a document
+        // carrying a tag.
+        let tagged =
+            crate::document::Document::parse("~~~\n$quill: q\n$kind: main\nother: !env Y\n~~~\n")
+                .expect("tag probe parses");
+        let sample = tagged
+            .warnings
+            .iter()
+            .find(|d| d.code.as_deref() == Some("parse::unsupported_yaml_tag"))
+            .expect("no `parse::unsupported_yaml_tag` sample from the tag probe");
+        add("parse::unsupported_yaml_tag", sample.args.clone());
         add(
             "backend::declined_construct",
             crate::backend::declined_construct(

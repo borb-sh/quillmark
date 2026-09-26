@@ -85,17 +85,9 @@ the DTO alike.
 ### Legacy schemas (V0_115_0, V0_112_0, V0_93_0, V0_92_0, V0_82_0, V0_81_0)
 
 Documents written under `"schema": "quillmark/document@0.115.0"` carry the
-current tree over a field item that also holds a `fill` flag and a
-`nested_fills` list: the positions of the `!must_fill` placeholder, at the
-field's root and nested inside its value. The hop decodes the `body` and drops
-each placeholder together with the value it held:
-
-- A field with `fill: true` reads as null.
-- Each `nested_fills` path's node reads as null; a path addressing nothing is
-  ignored.
-
-Either way the field is left unanswered. Every older tag's field item carries
-`fill` (and, from V0_92_0, `nested_fills`), and its chain reaches the same drop.
+current tree, and the hop decodes the `body`. A field item under it or any
+older tag may also carry `fill` and, from V0_92_0, `nested_fills`; the read
+passes over both and keeps the `value`.
 
 Documents written under `"schema": "quillmark/document@0.112.0"` carry the
 V0_115_0 tree, over the content form that carried a `loss` class on
@@ -123,7 +115,7 @@ shape. The one hop that can reject is the body cold-import (see
 Byte-stability).
 
 `"schema": "quillmark/document@0.82.0"` is the V0_92_0 item list without
-`nested_fills` or `$seed`, plus `$id`. Its tag names a shape **union**
+`$seed`, plus `$id`. Its tag names a shape **union**
 rather than one frozen format: `$ext` entered under it unchanged, and many
 release versions stamped it. The reader accepts the union, which is what
 lets a row from any of those writers load.
@@ -559,17 +551,16 @@ untouched, dropped an island's `loss` key and retired the `island` line kind
 different bytes for the same document — every document holding an island.
 
 `0.92.0` is a unified payload-item list (typed `$` entries living alongside
-user fields and comments in a single `Vec<PayloadItem>`), a per-field
-`nested_fills` list recording the `!must_fill` markers nested inside a field
-value (the JSON `value` itself is marker-free), and
-the `seed` payload-item variant (the `$seed` per-card-kind overlay map).
+user fields and comments in a single `Vec<PayloadItem>`) and the `seed`
+payload-item variant (the `$seed` per-card-kind overlay map).
 `0.93.0` leaves the payload model unchanged and instead embeds the card
 `body` as the **canonical content**: structurally, as a nested object, not a
 markdown string (see Byte-stability). `0.112.0` leaves the tree unchanged in
 turn and moves every built-in's payload into `attrs` inside that content.
 `0.115.0` leaves it unchanged again, drops an island's `loss` and spells a
-block island's line `para`. `0.116.0` drops the field item's `fill` flag and
-`nested_fills` list, leaving `{type: field, key, value}`.
+block island's line `para`. `0.116.0` writes a field item as
+`{type: field, key, value}` and refuses a payload item carrying a key its type
+does not name, where every earlier tag reads past one.
 
 The V0_92_0 hop cold-imports the stored markdown `body` string through the same
 Markdown → richtext path `Document::parse` uses, so a pathologically
@@ -577,8 +568,7 @@ over-nested legacy body is rejected (`StorageError::Malformed`) rather than
 silently truncated. The V0_115_0 → V0_116_0 hop decodes its raw `body`, and
 can reject for the same reason a load can; the V0_93_0 → V0_112_0 and
 V0_112_0 → V0_115_0 hops are retags, every tree up to V0_115_0 spelling `body`
-raw and that one decode answering for each spelling. The payload half of every
-chain is the placeholder drop (see "Legacy schemas").
+raw and that one decode answering for each spelling.
 
 `0.81.0` is the oldest tag read, and migrations chain
 (`V0_81_0 → V0_82_0 → V0_92_0 → V0_116_0`, with

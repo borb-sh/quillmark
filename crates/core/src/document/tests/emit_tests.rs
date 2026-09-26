@@ -184,23 +184,25 @@ Body.
     let reparsed = Document::parse(&md).expect("the emitted document re-parses").document;
     assert_eq!(doc, reparsed, "emit is not a fixed point: {md}");
 
-    // And a retired `!must_fill` under a quoted key nulls the node it tags.
-    let filled = "\
+    // And a tag under a quoted key keeps its value and warns at that key.
+    let tagged = "\
 ~~~card-yaml
 $quill: test@1.0
 $kind: main
 config:
-  \"a b\": !must_fill Example
+  \"a b\": !custom Example
   city: Anytown
 ~~~
 
 Body.
 ";
-    let doc = Document::parse(filled).expect("parses").document;
+    let out = Document::parse(tagged).expect("parses");
     assert_eq!(
-        doc.main().payload().get("config").unwrap().as_json(),
-        &serde_json::json!({"a b": null, "city": "Anytown"})
+        out.document.main().payload().get("config").unwrap().as_json(),
+        &serde_json::json!({"a b": "Example", "city": "Anytown"})
     );
+    let paths: Vec<_> = out.warnings.iter().map(|w| w.path.as_deref()).collect();
+    assert_eq!(paths, [Some("main.config.a b")]);
 }
 
 /// Emit projects a canonical content object through the markdown exporter, so an
