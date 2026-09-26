@@ -732,7 +732,7 @@ leading, so a list of rows reads as a list of things rather than "Item 1, Item
 
 `card_kinds` define composable, repeatable content blocks (the *kinds*: a document can then carry zero or more *instances* of each kind, interleaved with body content). Each entry is shaped exactly like `main:` (`fields`, optional `title`, `description`, `ui`, `body`); think of `main:` as the single mandatory card-kind for the document body, and `card_kinds:` as the library of additional kinds that may attach to it.
 
-Card-kind names (the keys under `card_kinds`) must match `[a-z_][a-z0-9_]*` (leading underscore is allowed).
+Card-kind names (the keys under `card_kinds`) must match `[a-z_][a-z0-9_]*` (leading underscore is allowed). `main` is reserved for the document root.
 
 ```yaml
 card_kinds:
