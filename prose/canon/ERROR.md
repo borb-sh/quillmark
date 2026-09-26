@@ -255,8 +255,8 @@ Either quote the value (`build_number: "42"`) or change the schema's
 
 A present-null value (`subtitle:`, `subtitle: null`, `subtitle: ~`) is treated
 exactly like an omitted field: null ≡ absent, it coerces and validates clean,
-and it blank-fills at render (authored › `default:` › blank). An incomplete
-document therefore produces no field-level diagnostic at all.
+and it blank-fills at render (authored › `default:` › blank). A document that
+answers nothing therefore produces no field-level diagnostic at all.
 
 Implementation: `crates/core/src/quill/validation.rs` (the `ValidationError`
 `Display` impl).

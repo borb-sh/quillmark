@@ -153,9 +153,8 @@ An unanswered field renders its `default:`, else its
 answers: it is the schema's illustration, shown on the blueprint's `# e.g.`
 line and nowhere else.
 
-Nothing is required. There is no `required:` key, `Quill::validate` reports
-nothing about an unanswered field, and an unanswered field renders. A consumer
-wanting "can't submit until answered" layers that policy on top.
+Nothing is required. There is no `required:` key: an unanswered field renders,
+and `Quill::validate` reports nothing about it.
 
 ### Field Types
 
@@ -301,7 +300,7 @@ If you arrive from **web forms**, your prior transfers: this is HTML's
 placeholder `<option value="">`, Django's `("", "---------")`, Rails'
 `include_blank:`. One caveat — the affordance carries over, the enforcement does
 not. There is no `required:`; an unanswered field draws no diagnostic and
-renders, so enforcing an answer is consumer policy. If you arrive from **protobuf**, your
+renders. If you arrive from **protobuf**, your
 prior is a near-miss: proto3 reserves slot 0 *inside* the enum
 (`FOO_UNSPECIFIED = 0`), whereas here the sentinel lives outside the domain and
 your `values:` list stays clean.

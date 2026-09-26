@@ -59,8 +59,8 @@ impl Quill {
 impl QuillConfig {
     /// Coercion, validation, normalization and blank-filled render into the
     /// plate-JSON projection (`prose/canon/SCHEMAS.md` § "Blank-filled render").
-    /// An *incomplete* document compiles fine; only a *malformed* one — a value
-    /// that will not coerce or validate — errors.
+    /// An unanswered cell compiles fine; only a *malformed* value — one that
+    /// will not coerce or validate — errors.
     ///
     /// `today` is the render date a [`TODAY`] date renders as.
     pub fn compile_data(

@@ -16,7 +16,7 @@ One rule governs the lowering, at every depth: **a declared type means the same 
    authored value, else the schema `default:`, else the field's blank.
    Content fields cross as canonical `Content` objects (coercion imports an
    authored markdown string to the `Content` and re-canonicalizes an
-   editor-supplied one). An incomplete document still renders: an absent or
+   editor-supplied one). An unanswered field renders: an absent or
    present-null field blank-fills. Only a malformed value: one that won't coerce or
    validate to its type: errors. A `today` date renders as the render date the
    host supplied ([SCHEMAS.md](SCHEMAS.md#the-render-date-today)).
