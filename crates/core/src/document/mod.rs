@@ -195,31 +195,17 @@ pub use payload::{MetaKey, Payload, PayloadItem};
 pub use prescan::NestedComment;
 pub use wire::{CardWire, PayloadItemWire, WireError};
 
-/// Authoring-format rules for the `~~~` card-yaml markdown surface, surfaced
-/// verbatim to LLM/MCP consumers and to the CLI / Python bindings. The single
+/// Where Quillmark Markdown departs from plain Markdown and YAML, as rules
+/// surfaced verbatim to LLM/MCP consumers and to the bindings. The single
 /// source of truth: bindings call in rather than re-stating the rules.
-pub const FORMAT_RULES: &str = "Document format rules:
+pub const MARKDOWN_RULES: &str = "Quillmark Markdown rules:
 \u{2022} Block opener and closer are EXACTLY `~~~` (three tildes). The opener's info string is ignored \u{2014} `~~~card-yaml` is accepted and re-emits as a bare `~~~`.
 \u{2022} A blank line must precede every `~~~` block opener (unless it is line 1), and the opener must be at column zero (no leading spaces). An indented `~~~` is an ordinary code block, not a card.
-\u{2022} The first block is the root and MUST contain `$quill: <name>@<version>`. Its `$kind` is `main` by position \u{2014} an explicit `$kind: main` is accepted but not required. Every later block is a composable card and MUST declare `$kind: <card_kind>`.
+\u{2022} The first block is the root and MUST contain `$quill: <name>` or `$quill: <name>@<selector>`. Its `$kind` is `main` by position \u{2014} an explicit `$kind: main` is accepted but not required. Every later block is a composable card and MUST declare `$kind: <card_kind>`.
 \u{2022} Reserved `$`-keys: `$quill`, `$kind`, `$ext`, `$seed`. User fields use lowercase snake_case.
 \u{2022} Prose body is the text after a block's closing `~~~`, up to the next opener or EOF. To include a literal fenced code block in prose, use a backtick fence (```); any column-zero `~~~` block is parsed as card metadata.
-\u{2022} A field that already shows a concrete value carries a default and is shippable as-is \u{2014} keep the line, override the value, or delete it to fall back to the default. A blank or null value (`field:`, `field: null`, `field: ~`) is treated the same as omitting the field: it falls back to the default, or to the field's blank. An explicit `field: \"\"` is different \u{2014} it is kept as-is, not folded into the blank/null fallback, so write it on purpose when you want the field empty rather than defaulted.
-\u{2022} A field with no value (`field: # string`) awaits your input. A `# e.g.` comment above a field shows the schema's own example of its shape, not real data: write the real value into the field.
-\u{2022} Numbers and booleans MUST be unquoted (`year: 2025`, `pinned: true`); quoting turns them into strings and fails validation.
+\u{2022} A blank or null value (`field:`, `field: null`, `field: ~`) is the same as omitting the field: it falls back to the field's default, else its blank. `field: \"\"` is kept as written, an explicit empty value.
 \u{2022} Plain-scalar values cannot start with `*` or `&` (YAML alias/anchor markers) and cannot contain `: ` (colon-space). For markdown emphasis, embedded colons, or other special prefixes, quote the value: `field: '**bold**'` or `field: \"Name: subtitle\"`. Multi-line values use `|-`, not multi-line quoted scalars.";
-
-/// Directs a consumer to fill in the blueprint of the quill it targets; `{quill}` is
-/// substituted with the quill name. [`FORMAT_RULES`] covers the field-level
-/// semantics. Names no tool and asserts no layout: the consumer that composes
-/// this owns where it sits and what it directs the model to call next.
-const BLUEPRINT_INSTRUCTION_TEMPLATE: &str =
-    "Fill in the `{quill}` blueprint: answer each empty field and edit the body prose.";
-
-/// Render the blueprint instruction with `quill_name` substituted in.
-pub fn blueprint_instruction(quill_name: &str) -> String {
-    BLUEPRINT_INSTRUCTION_TEMPLATE.replace("{quill}", quill_name)
-}
 
 #[cfg(test)]
 mod tests;

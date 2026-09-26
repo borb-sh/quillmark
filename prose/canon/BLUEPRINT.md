@@ -11,7 +11,7 @@ LLM and MCP consumers; [SCHEMAS.md](SCHEMAS.md) covers the validation/form
 surface.
 
 A blueprint is the document, not a description of the document. Answer the
-empty cells; the structure, `$` metadata, and body markers come for free.
+empty cells and write the bodies; the structure and `$` metadata come for free.
 
 ## Output shape
 
@@ -23,9 +23,8 @@ $kind: main # <title> — <description>
 # e.g. <example>
 field: # <type>
 settled: value # <type>[<format>]
+# body e.g. <body example>
 ~~~
-
-Write main body here.
 
 ~~~
 $kind: <card_kind> # <card title> — <card description>
@@ -33,8 +32,6 @@ $kind: <card_kind> # <card title> — <card description>
 # sample card; delete if not needed
 ...fields...
 ~~~
-
-Write <card_kind> body here.
 ````
 
 Every block is a bare `~~~` block (the canonical card-yaml fence; the opener's
@@ -43,8 +40,7 @@ info string is ignored; see
 the `$quill` system-metadata line; each composable card carries a
 `$kind: <card_kind>` metadata line.
 
-When `body.example` is set, its text replaces the body marker entirely.
-When `body.enabled` is false the marker is omitted entirely.
+Every body is empty; see "Bodies".
 
 ## One emitter, by construction
 
@@ -69,6 +65,7 @@ follow:
 |---|---|---|
 | **Leading `# …` lines** above a field | `# <prose>`, `# up to <N>` or `# e.g. <value>` | label (single-line prose), an `array`'s element cap, and an illustrative example |
 | **Inline `# …`** at end of the value line | `# <type>[<format>]` | structural metadata: the field's type and an optional format refinement |
+| **Body line** closing a card's payload | `# body e.g. <value>` or `# no body` | the body's example, or that the kind takes no body (see "Bodies") |
 
 The two slots divide by *grammar*, not by subject: the inline slot is the fixed
 `<type>[<format>]` expression and takes nothing else, so a constraint that is not
@@ -78,8 +75,8 @@ collides with YAML key/value parsing.
 
 Two own-line forms are not annotations: a dormant variant world, which is cells
 with a `# ` in front under a `# when <MEMBER>:` header (see "Enum variants"),
-and a dormant row under a typed table's `[]` (see "Typed tables"). The colons
-in them are the cells' own.
+and a typed table's field commented out above its live `[]` (see "Typed
+tables"). The colons in them are the cells' own.
 
 ### Leading lines: order
 
@@ -107,12 +104,13 @@ Per field, in order:
 
    A `matrix` declaring columns fills the slot its refused `example:` leaves
    empty with one held member:
-   `# e.g. {flight_cc: {held: true, detail: 333 TRS/DO, earned: null}}`.
+   `# e.g. {flight_cc: {held: true, detail: 333 TRS/DO, earned: date<YYYY-MM-DD | today>}}`.
    The member is the roster's first and is illustrative only; the line exists
    to name the columns and the `held: true` a mapping needs to tick. Each
    column shows its `example:`, else its `default:`, else its container shape,
-   else `null`, where a type name would read as a string. A checklist (no
-   columns) has no line: the bare tick is its whole spelling.
+   else its inline annotation's `<type>[<format>]`: a type, not a value, quoted
+   where flow syntax would split it. A checklist (no columns) has no line: the
+   bare tick is its whole spelling.
 
 That's it. There is no leading `# required`, `# enum:`, `# default:`, or
 `# type:`: those collapse into the inline.
@@ -200,6 +198,8 @@ Examples:
 | `qualifications: {} # matrix<flight_cc \| dodin_ops>` | a matrix: the whole vocabulary in the annotation, nothing ticked; a leading `# e.g.` names its columns, if it has any |
 | `$quill: cmu_letter@0.1.0 # keep verbatim` | quill binding metadata, emitted verbatim; the inline reminder guards against dropping the line |
 | `$kind: skill` followed by `# composable (0..N)` and `# sample card; delete if not needed` | repeat the entire `~~~` … `~~~` block per instance, or delete it if none are needed |
+| `# body e.g. "Dear Sir or Madam,\n\nI am writing to..."` above a closing `~~~` | the body's example: the body after the fence is empty, awaiting prose |
+| `# no body` above a closing `~~~` | the kind takes no body: write nothing after the fence |
 
 ## Cell values
 
@@ -329,20 +329,21 @@ a **cell**, so it keeps its own literal and the cascade is the uniform one:
 - A non-empty `default:` renders as actual rows (no per-property
   annotations on each row). The outer key carries `# array<object>`.
 - `default: []` renders inline as `[]` with `# array<object>`: shippable
-  empty. The synthetic row of the next case follows it as a **dormant row**,
-  commented out at the row's indent the way a dormant variant world is (see
-  "Enum variants"). A reader adds a row by deleting the `[]` and the `# ` in
-  front of the row's lines. A `max: 0` table holds no row, so it has none.
+  empty. The field leads it again, commented out and holding the synthetic row
+  of the next case: the config-file spelling of an alternative. A reader adds a
+  row by deleting the live line and uncommenting the block; leaving both live
+  is a duplicate key. A `max: 0` table holds no row, so it has none.
 - Without a `default:`, one synthetic row is emitted with each property
   carrying its own description, `# e.g.` line, inline annotation, and cell —
   its `default:`, else empty. The outer key carries `# array<object>`.
 
 ```
+# attendees:
+#   -
+#     # Full name.
+#     name: # string
+#     voting: false # boolean
 attendees: [] # array<object>
-  # -
-  #   # Full name.
-  #   name: # string
-  #   voting: false # boolean
 ```
 
 The row schema is a namespace, so it declares no `default:` / `example:` of its
@@ -420,24 +421,27 @@ blueprint prints. In particular, `ui.group` emits no banner lines; fields within
 `ui.layout: table` names a control an editor draws, which a text blueprint has
 no second shape for.
 
-## Body markers
+## Bodies
 
-- `Write main body here.` after the root block's closing `~~~`
-- `Write <card_kind> body here.` after each card block's closing `~~~`
-- When `body.example` is set, its text replaces the marker verbatim.
+Every body is empty, as a seeded one is: a body is a cell, and an example never
+takes a cell. One line closing the payload, directly above the body, speaks for
+it:
 
-`body.enabled: false` suppresses the marker entirely for body-less cards
-(e.g., a `skills` card whose data is purely structured).
+- `# body e.g. <value>`: a `body.example`, as one YAML scalar, quoted where it
+  holds line breaks or would not read back plain. `body` names its target:
+  below the last field, a bare `# e.g.` would read as that field's.
+- `# no body`: a kind under `body.enabled: false`, whose empty body would
+  otherwise read as one awaiting prose.
+- Nothing: a kind taking a body with no example (or a blank one).
 
 A composable card's emitted block — its `$kind` line, the `composable
-(0..N)` / sample-card comments, its fields, and its placeholder body — is
-one sample instance of that kind, not a required one. Delete the whole block
-when the document needs none of that kind.
+(0..N)` / sample-card comments, its fields, and its body — is one sample
+instance of that kind, not a required one. Delete the whole block when the
+document needs none of that kind.
 
-A `body.example` whose text contains a line that would parse as a
-card-yaml opener (any column-zero `~~~`) is rejected at `Quill.yaml` parse
-time (`quill::body_example_contains_fence`) to prevent corrupting the
-blueprint's document structure.
+A `body.example` containing a line that would parse as a card-yaml opener (any
+column-zero `~~~`) is rejected at `Quill.yaml` parse time
+(`quill::body_example_contains_fence`): written into a body, it opens a card.
 
 ## Worked example
 
@@ -463,8 +467,6 @@ url: "" # string
 # The date to appear on the letter.
 date: # date<YYYY-MM-DD | today>
 ~~~
-
-Write main body here.
 ```
 
 ## Guarantees

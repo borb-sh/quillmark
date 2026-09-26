@@ -2378,7 +2378,7 @@ impl QuillConfig {
                     Diagnostic::new(
                         Severity::Error,
                         format!(
-                            "`{label}.body.example` contains a line that would be parsed as a `~~~` card-yaml block opener; this would corrupt the blueprint"
+                            "`{label}.body.example` contains a line that would be parsed as a `~~~` card-yaml block opener; written into a body, it opens a card"
                         ),
                     )
                     .with_code("quill::body_example_contains_fence".to_string())
@@ -2462,8 +2462,8 @@ fn template_token(text: &str) -> Option<&str> {
 }
 
 /// Returns true if any line in `text` would be parsed as a card-yaml block
-/// opener by the document parser, which would corrupt the blueprint's document
-/// structure when the example is embedded verbatim as body content.
+/// opener by the document parser, which opens a card when the example is
+/// written into a body.
 ///
 /// Delegates to the parser's own opener predicate
 /// ([`crate::document::fences::is_card_yaml_opener_line`]) so the guard stays

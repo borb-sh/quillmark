@@ -248,18 +248,20 @@ fn the_blueprint_shows_the_vocabulary_in_the_annotation_and_ticks_nothing() {
 }
 
 /// A matrix declaring columns names them in its `# e.g.` line, spelled as a
-/// held member so the tick a mapping needs is on the page. Pasted into the
-/// cell, the hint is a member the schema accepts.
+/// held member so the tick a mapping needs is on the page, and a column with
+/// nothing to show carrying its type. Pasted into the cell, the hint is a
+/// member the schema accepts once that column is answered.
 #[test]
 fn the_blueprint_hint_spells_a_held_member_with_every_column() {
     let yaml = quill_yaml().replace(
         "detail: { type: plaintext, inline: true, default: \"\" }",
         "detail: { type: plaintext, inline: true, default: \"\", example: \"333 TRS/DO, 2024\" }\n        \
          unit: { type: string, default: HQ }\n        \
-         earned: { type: date }",
+         earned: { type: date }\n        \
+         logged: { type: datetime }",
     );
     let bp = QuillConfig::from_yaml(&yaml).expect("loads").blueprint();
-    let hint = "{sq_cc_candidate: {held: true, detail: \"333 TRS/DO, 2024\", unit: HQ, earned: null}}";
+    let hint = "{sq_cc_candidate: {held: true, detail: \"333 TRS/DO, 2024\", unit: HQ, earned: date<YYYY-MM-DD | today>, logged: \"datetime<YYYY-MM-DDThh:mm[:ss]>\"}}";
     assert!(
         bp.contains(&format!(
             "# e.g. {hint}\nqualifications: {{}} # matrix<sq_cc_candidate | flight_cc | dodin_ops | cyber_200>\n"
@@ -268,15 +270,24 @@ fn the_blueprint_hint_spells_a_held_member_with_every_column() {
     );
 
     let quill = quill_from_yaml(&yaml);
-    let markdown =
-        format!("~~~\n$quill: matrix_probe@0.1.0\n$kind: main\nqualifications: {hint}\n~~~\n");
-    let pasted = Document::parse(&markdown).expect("the hint parses").document;
-    let wire = quill.compile_data(&pasted, test_date()).expect("compiles")["qualifications"]
+    let paste = |hint: &str| {
+        let markdown =
+            format!("~~~\n$quill: matrix_probe@0.1.0\n$kind: main\nqualifications: {hint}\n~~~\n");
+        Document::parse(&markdown).expect("the hint parses").document
+    };
+    assert!(!quill.validate(&paste(hint)).is_empty());
+
+    let answered = paste(
+        &hint
+            .replace("date<YYYY-MM-DD | today>", "2024-05-01")
+            .replace("\"datetime<YYYY-MM-DDThh:mm[:ss]>\"", "2024-05-01T09:30"),
+    );
+    let wire = quill.compile_data(&answered, test_date()).expect("compiles")["qualifications"]
         ["sq_cc_candidate"]
         .clone();
     assert_eq!(wire["held"], json!(true));
     assert_eq!(wire["detail"]["text"], json!("333 TRS/DO, 2024"));
-    assert!(quill.validate(&pasted).is_empty());
+    assert!(quill.validate(&answered).is_empty());
 }
 
 /// A matrix below a typed dictionary or a table row carries the same hint at

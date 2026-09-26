@@ -854,8 +854,8 @@ blank), exactly as for any authored document.
 No `example:` is committed (a field's or `body.example`). An example documents
 shape, not an answer: committed, it would render a value nobody chose and read
 as authored content. A field's surfaces in the blueprint's `# e.g.` line
-instead, and `body.example` in the blueprint's body region, where an editor may
-also show it as the empty body's placeholder. Starter content someone chose
+instead, and `body.example` in its `# body e.g.` line; an editor may also show
+that one as the empty body's placeholder. Starter content someone chose
 lives in a template document's own body, or, for a card `seed_card` adds, in
 the main card's `$seed.<kind>.$body`. Persisting a `default` would be
 redundant (the floor interpolates it anyway) and would *freeze* it against a

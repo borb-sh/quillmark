@@ -104,14 +104,11 @@ def test_diagnostic_str_and_repr():
 
 
 def test_document_authoring_text_helpers():
-    rules = Document.format_rules()
+    rules = Document.markdown_rules()
     assert isinstance(rules, str) and rules.strip() != ""
 
     hint = Document.quill_ref_hint()
     assert isinstance(hint, str) and hint.strip() != ""
-
-    instr = Document.blueprint_instruction("taro")
-    assert isinstance(instr, str) and "taro" in instr
 
 
 def _nest(levels, leaf):
