@@ -91,6 +91,30 @@ fn a_package_file_is_not_importable_by_path() {
     );
 }
 
+/// An error inside a vendored package names the file under the package's spec,
+/// apart from a quill module of the same path.
+#[test]
+fn a_package_file_is_located_under_its_spec() {
+    let diags = open_err(&[
+        ("Quill.yaml", YAML),
+        (
+            "packages/p/typst.toml",
+            "[package]\nname = \"p\"\nversion = \"0.1.0\"\nentrypoint = \"lib.typ\"\n",
+        ),
+        ("packages/p/lib.typ", "#let b = 1 + \"x\"\n"),
+        ("lib.typ", "#let a = 1\n"),
+        (
+            "plate.typ",
+            "#import \"lib.typ\": a\n#import \"@local/p:0.1.0\": b\n#a #b\n",
+        ),
+    ]);
+    let files: Vec<_> = diags
+        .iter()
+        .filter_map(|d| d.location.as_ref().map(|l| l.file.as_str()))
+        .collect();
+    assert_eq!(files, ["@local/p:0.1.0/lib.typ"], "{diags:?}");
+}
+
 /// `files` are inserted under their `/`-joined tree paths.
 fn open_err(files: &[(&str, &str)]) -> Vec<quillmark_core::error::Diagnostic> {
     use quillmark_core::quill::{FileTreeNode, Quill};

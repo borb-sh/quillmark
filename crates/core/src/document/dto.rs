@@ -116,6 +116,7 @@ impl std::error::Error for StorageError {}
 /// Frozen `0.116.0` representation of a [`Document`]: the V0_115_0 tree over a
 /// payload whose fields carry no placeholder marker.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DocumentV0_116_0 {
     pub main: CardV0_116_0,
     #[serde(default)]
@@ -125,6 +126,7 @@ pub struct DocumentV0_116_0 {
 /// Frozen `0.116.0` representation of a [`Card`]. The `body` is the canonical
 /// content embedded structurally (see [`CanonicalContent`]).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CardV0_116_0 {
     pub payload: PayloadV0_116_0,
     pub body: CanonicalContent,
@@ -132,6 +134,7 @@ pub struct CardV0_116_0 {
 
 /// Frozen `0.116.0` representation of a [`Payload`].
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PayloadV0_116_0 {
     #[serde(default)]
     pub items: Vec<PayloadItemV0_116_0>,
@@ -1352,25 +1355,65 @@ This body and the metadata above are an indorsement card.
         assert!(!rewritten.contains("fill"), "{rewritten}");
     }
 
-    #[test]
-    fn a_0_116_0_item_with_an_unknown_key_fails_the_load() {
-        let row = serde_json::json!({
+    fn row_0_116_0(
+        item: serde_json::Value,
+        nested: serde_json::Value,
+    ) -> serde_json::Map<String, serde_json::Value> {
+        let serde_json::Value::Object(row) = serde_json::json!({
             "schema": "quillmark/document@0.116.0",
             "main": {
                 "payload": { "items": [
                     { "type": "quill", "value": "q@1.0" },
                     { "type": "kind", "value": "main" },
-                    { "type": "field", "key": "subject", "value": "Example", "fill": true },
-                ], "nested_comments": [] },
+                    item,
+                ], "nested_comments": nested },
                 "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}],
                          "marks": [], "text": ""},
             },
             "cards": [],
-        })
-        .to_string();
+        }) else {
+            unreachable!()
+        };
+        row
+    }
 
-        let err = serde_json::from_str::<Document>(&row).unwrap_err();
-        assert!(err.to_string().contains("unknown field `fill`"), "{err}");
+    #[test]
+    fn a_0_116_0_row_with_an_unknown_key_fails_the_load() {
+        let field = serde_json::json!({ "type": "field", "key": "a", "value": [1] });
+        let with_fill = row_0_116_0(
+            serde_json::json!({ "type": "field", "key": "a", "value": 1, "fill": true }),
+            serde_json::json!([]),
+        );
+        let mut at_root = row_0_116_0(field.clone(), serde_json::json!([]));
+        at_root.insert("extra".into(), serde_json::json!(1));
+        let mut at_card = row_0_116_0(field.clone(), serde_json::json!([]));
+        at_card["main"]["extra"] = serde_json::json!(1);
+        let mut at_payload = row_0_116_0(field, serde_json::json!([]));
+        at_payload["main"]["payload"]["extra"] = serde_json::json!(1);
+
+        for (row, key) in [
+            (with_fill, "fill"),
+            (at_root, "extra"),
+            (at_card, "extra"),
+            (at_payload, "extra"),
+        ] {
+            let err = serde_json::from_value::<Document>(row.into()).unwrap_err();
+            assert!(err.to_string().contains(&format!("unknown field `{key}`")), "{err}");
+        }
+    }
+
+    #[test]
+    fn a_stored_nested_comment_spanning_lines_fails_the_load() {
+        let row = row_0_116_0(
+            serde_json::json!({ "type": "field", "key": "a", "value": [1] }),
+            serde_json::json!([{
+                "container_path": [{"Key": "a"}],
+                "position": 0,
+                "text": "x\n~~~\n\n~~~\n$kind: evil",
+                "inline": false,
+            }]),
+        );
+        assert!(serde_json::from_value::<Document>(row.into()).is_err());
     }
 
     #[test]

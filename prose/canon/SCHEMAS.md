@@ -818,7 +818,7 @@ read it.
 | body prose under `body.enabled: false` | `validation::body_disabled` | absent |
 | a variant cell outside the selected world | `validation::out_of_variant` | absent ([Enum variants](#enum-variants)) |
 | elements past an array's `max:` | `validation::cardinality` | verbatim; the plate's own rule leaves the surplus off the page ([Cardinality](#cardinality)) |
-| a `$seed` overlay naming no declared kind or field | `validation::seed_unknown_kind`, `seed_unknown_field` | absent, as `$seed` always is |
+| a `$seed` overlay naming no declared kind or field, or a `$body` its kind disables | `validation::seed_unknown_kind`, `seed_unknown_field` | absent, as `$seed` always is |
 | a key the schema does not declare at its position, at any depth of a claimed card | `validation::unknown_field` | verbatim; absent inside a variant container |
 
 `validation::unknown_field` names the likeliest fix. A key one world of a

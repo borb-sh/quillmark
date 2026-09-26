@@ -64,7 +64,7 @@ follow:
 | Slot | Form | Carries |
 |---|---|---|
 | **Leading `# …` lines** above a field | `# <prose>`, `# up to <N>` or `# e.g. <value>` | label (single-line prose), an `array`'s element cap, and an illustrative example |
-| **Inline `# …`** at end of the value line | `# <type>[<format>]` | structural metadata: the field's type and an optional format refinement |
+| **Inline `# …`** at end of the value line | `# <type>[<format>][?]` | structural metadata: the field's type, an optional format refinement, and the optional-cell marker |
 | **Body line** closing a card's payload | `# body e.g. <value>` or `# no body` | the body's example, or that the kind takes no body (see "Bodies") |
 
 The two slots divide by *grammar*, not by subject: the inline slot is the fixed
@@ -117,7 +117,7 @@ That's it. There is no leading `# required`, `# enum:`, `# default:`, or
 
 ### Inline annotation
 
-Form: **`# <type>[<format>]`**
+Form: **`# <type>[<format>][?]`**
 
 - **Type slot** (mandatory, first): one of
   `string`, `integer`, `number`, `boolean`, `array`, `object`,
@@ -146,6 +146,10 @@ Form: **`# <type>[<format>]`**
     columns ride the leading `# e.g.` line
   - omitted for `string`, `integer`, `number`, `boolean`, `object`
     (nothing meaningful to refine).
+- **Optional marker** (optional, last): a trailing `?` on an
+  [optional cell](SCHEMAS.md#optional-cells)'s expression, as its `Quill.yaml`
+  `type:` spells it (`string?`, `enum<a | b>?`, `date<YYYY-MM-DD | today>?`),
+  and on an element type the same way (`array<string?>`).
 
 The inline annotation is **purely structural**: it carries the type (and
 optional format), nothing else. What a reader must *do* is carried by the cell:

@@ -373,8 +373,7 @@ impl Document {
     /// body, and no composable cards. The programmatic blank canvas: every
     /// schema field is absent and resolves at render time (`default`, else
     /// the field's blank), so nothing the caller did not set reaches the
-    /// output. For an example-filled starter shaped like the blueprint, use
-    /// `Quill::seed_document`.
+    /// output. For one card per declared kind, use `Quill::seed_document`.
     pub fn new(quill: QuillReference) -> Self {
         let mut payload = Payload::new();
         payload.set_quill(quill);

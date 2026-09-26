@@ -203,11 +203,14 @@ impl QuillWorld {
     }
 
     /// The file a diagnostic names for `id`: the plate by its declared
-    /// `plate_file`, anything else by its virtual path.
+    /// `plate_file`, a package's file under its spec
+    /// (`@local/p:0.1.0/lib.typ`), anything else by its virtual path.
     pub(crate) fn display_path(&self, id: FileId) -> String {
-        match &self.plate_file {
-            Some(file) if id == self.source.id() => file.clone(),
-            _ => id.vpath().get_without_slash().to_string(),
+        let path = id.vpath().get_without_slash();
+        match (&self.plate_file, id.root()) {
+            (Some(file), _) if id == self.source.id() => file.clone(),
+            (_, VirtualRoot::Package(spec)) => format!("{spec}/{path}"),
+            _ => path.to_string(),
         }
     }
 

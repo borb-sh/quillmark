@@ -512,6 +512,13 @@ pub fn validate_payload(payload: &Payload) -> Result<(), PayloadViolation> {
             }
         }
     }
+    if payload
+        .nested_comments()
+        .iter()
+        .any(|nc| nc.text.contains(['\n', '\r']))
+    {
+        return Err(PayloadViolation::MultiLineComment);
+    }
     Ok(())
 }
 
