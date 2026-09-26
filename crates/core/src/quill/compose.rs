@@ -929,12 +929,16 @@ fn collect_unknown_in(
     if let (FieldType::Matrix { .. }, Some(members)) = (&field.r#type, field.namespace_props()) {
         let Some(object) = json.as_object() else { return };
         for (id, cell) in object {
-            let (Some(member), Some(spelled)) =
+            let (Some(member), Some(mut spelled)) =
                 (members.get(id), super::config::matrix_member_spelling(cell))
             else {
                 continue;
             };
-            collect_unknown_in(member, &serde_json::Value::Object(spelled), &path.field(id), out);
+            let member_path = path.field(id);
+            if spelled.remove(MATRIX_TITLE_KEY).is_some() {
+                out.push(matrix_title_warning(&member_path.field(MATRIX_TITLE_KEY)));
+            }
+            collect_unknown_in(member, &serde_json::Value::Object(spelled), &member_path, out);
         }
         return;
     }
@@ -1054,6 +1058,21 @@ pub(crate) fn unknown_field_warning(
             .with_arg("variant", variant.into());
     }
     diag
+}
+
+fn matrix_title_warning(path: &DocPath) -> Diagnostic {
+    let path = path.to_string();
+    Diagnostic::new(
+        Severity::Warning,
+        format!(
+            "Field `{path}` is not declared by this quill: `{MATRIX_TITLE_KEY}` is the roster's \
+             label, and the plate reads the member's declared title in place of this value."
+        ),
+    )
+    .with_code("validation::unknown_field".to_string())
+    .with_path(path)
+    .with_arg("field", MATRIX_TITLE_KEY.into())
+    .with_hint("Remove the key: the member's title is the quill's to set.".to_string())
 }
 
 fn quoted_kinds(kinds: &[&str]) -> String {

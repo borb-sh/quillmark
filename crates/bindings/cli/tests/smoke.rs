@@ -293,8 +293,8 @@ fn multi_page_svg_writes_one_file_per_page_and_refuses_stdout() {
 const TYPO_DOC: &str = "~~~card-yaml\n$quill: taro\ntitel: Hello\n~~~\n\nBody.\n";
 
 /// A warning passes and `--strict` fails it; an error fails either way, and a
-/// document that fails to read or parse does not stop the ones after it being
-/// checked.
+/// document that is missing or fails to read or parse does not stop the ones
+/// after it being checked.
 #[test]
 fn check_lists_every_diagnostic_and_strict_fails_on_a_warning() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -305,12 +305,14 @@ fn check_lists_every_diagnostic_and_strict_fails_on_a_warning() {
         .expect("write the malformed document");
     let binary = dir.path().join("binary.md");
     std::fs::write(&binary, b"\xff\xfe").expect("write the non-UTF-8 document");
+    let missing = dir.path().join("missing.md");
     let quill = taro();
-    let (quill, typo, bad, binary) = (
+    let (quill, typo, bad, binary, missing) = (
         quill.to_str().unwrap(),
         typo.to_str().unwrap(),
         bad.to_str().unwrap(),
         binary.to_str().unwrap(),
+        missing.to_str().unwrap(),
     );
 
     let out = run(&["check", quill, typo]);
@@ -324,7 +326,7 @@ fn check_lists_every_diagnostic_and_strict_fails_on_a_warning() {
     let out = run(&["check", "--strict", quill, typo]);
     assert_eq!(out.status.code(), Some(1), "--strict passed a warning");
 
-    let out = run(&["check", quill, binary, bad, typo]);
+    let out = run(&["check", quill, missing, binary, bad, typo]);
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(1), "a parse error passed check: {stderr}");
     assert!(

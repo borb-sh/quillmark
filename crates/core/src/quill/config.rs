@@ -2074,36 +2074,46 @@ impl QuillConfig {
 
         let version = match quill_section.get("version") {
             Some(version_val) => {
+                // A tagged number (`!!float 1.10`) has no source-text reading,
+                // and its parsed value has already lost the text.
                 let raw = if let Some(s) = version_val.as_str() {
-                    s.to_string()
+                    Some(s.to_string())
                 } else if version_val.is_number() {
                     Self::version_source_text(yaml_content)
-                        .unwrap_or_else(|| version_val.to_string())
                 } else {
-                    errors.push(
-                        Diagnostic::new(
-                            Severity::Error,
-                            "Invalid 'version' field format".to_string(),
-                        )
-                        .with_code("quill::invalid_version".to_string())
-                        .with_hint("Use semver format: '1.0' or '1.0.0'.".to_string()),
-                    );
-                    String::new()
+                    None
                 };
-                if !raw.is_empty() {
-                    use std::str::FromStr;
-                    if let Err(e) = crate::version::Version::from_str(&raw) {
+                match raw {
+                    Some(raw) => {
+                        use std::str::FromStr;
+                        if let Err(e) = crate::version::Version::from_str(&raw) {
+                            errors.push(
+                                Diagnostic::new(
+                                    Severity::Error,
+                                    format!("Invalid version '{}': {}", raw, e),
+                                )
+                                .with_code("quill::invalid_version".to_string())
+                                .with_hint("Use semver format: '1.0' or '1.0.0'.".to_string()),
+                            );
+                        }
+                        raw
+                    }
+                    None => {
                         errors.push(
                             Diagnostic::new(
                                 Severity::Error,
-                                format!("Invalid version '{}': {}", raw, e),
+                                "Invalid 'version' field format".to_string(),
                             )
                             .with_code("quill::invalid_version".to_string())
-                            .with_hint("Use semver format: '1.0' or '1.0.0'.".to_string()),
+                            .with_hint(
+                                "Write the version as untagged text in semver format: '1.0' \
+                                 or '1.0.0'."
+                                    .to_string(),
+                            ),
                         );
+                        String::new()
                     }
                 }
-                raw
             }
             None => {
                 errors.push(
@@ -2236,6 +2246,23 @@ impl QuillConfig {
                                     ),
                                 )
                                 .with_code("quill::invalid_card_name".to_string()),
+                            );
+                            continue;
+                        }
+                        if card_name == "main" {
+                            errors.push(
+                                Diagnostic::new(
+                                    Severity::Error,
+                                    "Invalid card-kind name 'main': `main` is reserved for the \
+                                     document root, so no card can declare `$kind: main`."
+                                        .to_string(),
+                                )
+                                .with_code("quill::invalid_card_name".to_string())
+                                .with_hint(
+                                    "Rename the card kind, or declare its fields under the \
+                                     top-level `main:` section."
+                                        .to_string(),
+                                ),
                             );
                             continue;
                         }

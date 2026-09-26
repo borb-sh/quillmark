@@ -248,8 +248,15 @@ fn an_unquoted_numeric_version_reads_as_written() {
     for version in ["1.0", "1.10"] {
         assert_eq!(load(version).expect(version).0.version, version);
     }
-    let errors = load("1.1e1").expect_err("an exponent is not a version");
-    assert!(errors.iter().any(|d| d.code.as_deref() == Some("quill::invalid_version")));
+    // An empty version would skip the document's pin; a tagged number has
+    // already lost its source text.
+    for version in ["1.1e1", "\"\"", "!!float 1.10"] {
+        let errors = load(version).expect_err(version);
+        assert!(
+            errors.iter().any(|d| d.code.as_deref() == Some("quill::invalid_version")),
+            "{version}: {errors:?}"
+        );
+    }
 }
 
 /// The header is the one section the loader reads before anything else, so its
@@ -284,6 +291,11 @@ fn test_quill_config_rejects_non_snake_case_identifiers() {
         ),
         (
             with_header("card_kinds:\n  BadCard:\n    fields:\n      title: { type: string }\n"),
+            "quill::invalid_card_name",
+        ),
+        // `$kind: main` never parses, so a `main` kind could hold no card.
+        (
+            with_header("card_kinds:\n  main:\n    fields:\n      title: { type: string }\n"),
             "quill::invalid_card_name",
         ),
         (

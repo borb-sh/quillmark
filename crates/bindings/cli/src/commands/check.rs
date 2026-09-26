@@ -21,12 +21,6 @@ pub struct CheckArgs {
 }
 
 pub fn execute(args: CheckArgs) -> Result<()> {
-    if let Some(missing) = args.markdown_files.iter().find(|p| !p.is_file()) {
-        return Err(CliError::InvalidArgument(format!(
-            "Markdown file not found: {}",
-            missing.display()
-        )));
-    }
     let quill = load_quill(&args.quill)?;
 
     let (mut errors, mut warnings) = (0, 0);
