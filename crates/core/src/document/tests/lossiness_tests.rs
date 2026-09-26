@@ -85,34 +85,35 @@ fn unknown_tag_warns_and_is_not_emitted() {
     assert!(!emitted.contains("!include"), "{emitted}");
 }
 
-/// A retired `!must_fill` tag held a placeholder, not an answer: the value
-/// under a block-style one drops wherever it sits, and each warns at its path,
-/// a card's rooted at the card's index among all cards.
+/// A tag keeps its value wherever it sits, and each on a block key warns at its
+/// path, a card's rooted at the card's index among all cards.
 #[test]
-fn a_retired_fill_marker_nulls_what_it_tags() {
+fn a_tag_keeps_its_value_and_warns_at_its_path() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\n\
-               subject: !must_fill Example # string\n\
-               recipient: !must_fill # array<string>\n  - Mr. John Doe\n\
-               addr:\n  street: !must_fill Main\n  city: Springfield\n\
-               x: !must_fill {a: 1}\n\
-               to:\n  - name: !must_fill Jane\n    rank: Capt\n~~~\n\n\
+               subject: !custom Example # string\n\
+               recipient: !custom # array<string>\n  - Mr. John Doe\n\
+               bare: !custom\n\
+               addr:\n  street: !custom Main\n  city: Springfield\n\
+               x: !custom {a: 1}\n\
+               to:\n  - name: !custom Jane\n    rank: Capt\n~~~\n\n\
                ~~~card-yaml\n$kind: intro\n~~~\n\n\
-               ~~~card-yaml\n$kind: note\nsubject: !must_fill Example\n~~~\n";
+               ~~~card-yaml\n$kind: note\nsubject: !custom Example\n~~~\n";
     let out = Document::parse(src).unwrap();
     let get = |k: &str| out.document.main().payload().get(k).unwrap().as_json().clone();
-    assert_eq!(get("subject"), serde_json::Value::Null);
-    assert_eq!(get("recipient"), serde_json::Value::Null);
-    assert_eq!(get("addr"), serde_json::json!({"street": null, "city": "Springfield"}));
-    assert_eq!(get("x"), serde_json::Value::Null);
-    assert_eq!(get("to"), serde_json::json!([{"name": null, "rank": "Capt"}]));
-
+    assert_eq!(get("subject"), "Example");
+    assert_eq!(get("recipient"), serde_json::json!(["Mr. John Doe"]));
+    assert_eq!(get("bare"), serde_json::Value::Null);
+    assert_eq!(get("addr"), serde_json::json!({"street": "Main", "city": "Springfield"}));
+    assert_eq!(get("x"), serde_json::json!({"a": 1}));
+    assert_eq!(get("to"), serde_json::json!([{"name": "Jane", "rank": "Capt"}]));
     assert_eq!(
         out.document.cards()[1].payload().get("subject").unwrap().as_json(),
-        &serde_json::Value::Null
+        "Example"
     );
-    let dropped = [
+    let tagged = [
         "main.subject",
         "main.recipient",
+        "main.bare",
         "main.addr.street",
         "main.x",
         "main.to[0].name",
@@ -120,22 +121,22 @@ fn a_retired_fill_marker_nulls_what_it_tags() {
     ];
     assert_eq!(
         anchors(&out),
-        dropped.map(|path| ("parse::must_fill_dropped", Some(path)))
+        tagged.map(|path| ("parse::unsupported_yaml_tag", Some(path)))
     );
 
     let md = out.document.to_markdown();
-    assert!(!md.contains("!must_fill"), "{md}");
-    assert!(md.contains("subject: # string\n"), "{md}");
+    assert!(!md.contains("!custom"), "{md}");
+    assert!(md.contains("subject: Example # string\n"), "{md}");
     let again = Document::parse(&md).unwrap();
     assert!(again.warnings.is_empty(), "{:?}", again.warnings);
     assert_eq!(again.document, out.document, "{md}");
 }
 
-/// A `$seed` / `$ext` value is opaque, so a retired marker inside one drops
-/// its tag and keeps its value, as any other tag does.
+/// A `$seed` / `$ext` value is opaque, with no document address, so a tag
+/// inside one warns without a `path`.
 #[test]
-fn a_retired_fill_marker_inside_meta_keeps_its_value() {
-    let src = "~~~card-yaml\n$quill: q\n$kind: main\n$ext:\n  ns:\n    to: !must_fill X\n~~~\n";
+fn a_tag_inside_meta_keeps_its_value_and_warns_without_a_path() {
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\n$ext:\n  ns:\n    to: !custom X\n~~~\n";
     let out = Document::parse(src).unwrap();
     assert_eq!(out.document.main().ext().unwrap()["ns"]["to"], "X");
     assert_eq!(anchors(&out), [("parse::unsupported_yaml_tag", None)]);
@@ -148,10 +149,10 @@ fn a_retired_fill_marker_inside_meta_keeps_its_value() {
 fn a_tag_inside_a_multi_line_flow_collection_stays_on_its_value() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\n\
                b: kept\n\
-               x: {a: it's,\n  b: !must_fill 2}\n\
-               addr:\n  b: kept\n  y:\n    [Why? 'cause,\n   b: !must_fill 2]\n\
+               x: {a: it's,\n  b: !t 2}\n\
+               addr:\n  b: kept\n  y:\n    [Why? 'cause,\n   b: !t 2]\n\
                tags: [!t \"a # [\", b]\n\
-               c: !must_fill C\n~~~\n";
+               c: !t C\n~~~\n";
     let out = Document::parse(src).unwrap();
     let get = |k: &str| out.document.main().payload().get(k).unwrap().as_json().clone();
     assert_eq!(get("b"), "kept");
@@ -161,8 +162,8 @@ fn a_tag_inside_a_multi_line_flow_collection_stays_on_its_value() {
         serde_json::json!({"b": "kept", "y": ["Why? 'cause", {"b": 2}]})
     );
     assert_eq!(get("tags"), serde_json::json!(["a # [", "b"]));
-    assert_eq!(get("c"), serde_json::Value::Null);
-    assert_eq!(anchors(&out), [("parse::must_fill_dropped", Some("main.c"))]);
+    assert_eq!(get("c"), "C");
+    assert_eq!(anchors(&out), [("parse::unsupported_yaml_tag", Some("main.c"))]);
 }
 
 /// A comment trailing a line that continues a flow collection or a quoted
@@ -217,18 +218,62 @@ fn a_comment_on_a_continuation_line_stays_with_its_value() {
     }
 }
 
+/// A plain scalar on the lines below its key holds no comment: one under it,
+/// or between the key and it, sits after the key's value.
+#[test]
+fn a_comment_under_a_scalar_below_its_key_follows_the_value() {
+    let cases = [
+        "k:\n  some text\n  # c\nn: 1\n",
+        "k: !t\n  some text\n  # c\nn: 1\n",
+        "k: &a\n  some text\n  # c\nn: 1\n",
+        "k: !t\n  # c\n  some text\nn: 1\n",
+        "m:\n  k: !t\n    some text\n    # c\n  n: 1\n",
+        "m:\n  k: !t\n    # c\n    some text\n  n: 1\n",
+        "rows:\n  -\n    some text\n    # c\n  - b\n",
+    ];
+    for fields in cases {
+        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
+        let doc = Document::parse(&src).unwrap().document;
+        let md = doc.to_markdown();
+        assert!(md.contains("# c\n"), "Source:\n{src}\nGot:\n{md}");
+        assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
+    }
+}
+
+/// A tag or anchor ahead of a quoted scalar or flow collection leaves a ` #`
+/// inside it text, and a comment after it a comment.
+#[test]
+fn a_hash_inside_a_quoted_value_behind_a_tag_or_anchor_is_text() {
+    let cases: [(&str, &str, serde_json::Value); 6] = [
+        ("k: !t \"a # b\" # c\n", "k", serde_json::json!("a # b")),
+        ("k: &a 'a # b' # c\n", "k", serde_json::json!("a # b")),
+        ("m:\n  k: !t 'a # b' # c\n", "m", serde_json::json!({"k": "a # b"})),
+        ("k: !t [\"a # b\", c] # c\n", "k", serde_json::json!(["a # b", "c"])),
+        ("rows:\n  - k: !t \"a # b\" # c\n", "rows", serde_json::json!([{"k": "a # b"}])),
+        ("rows:\n  - !t \"a # b\" # c\n", "rows", serde_json::json!(["a # b"])),
+    ];
+    for (fields, key, value) in cases {
+        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
+        let doc = Document::parse(&src).unwrap_or_else(|e| panic!("{src}\n{e}")).document;
+        assert_eq!(doc.main().payload().get(key).unwrap().as_json(), &value, "{src}");
+        let md = doc.to_markdown();
+        assert!(md.contains("# c\n"), "Source:\n{src}\nGot:\n{md}");
+        assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
+    }
+}
+
 /// A tag or anchor ahead of `|` or `>` leaves the block's lines its text: no
-/// key, comment or marker among them reaches the mapping around it.
+/// key, comment or tag among them reaches the mapping around it.
 #[test]
 fn a_block_scalar_behind_a_tag_or_anchor_is_text() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\n\
-               memo:\n  body: &a |\n    # Summary\n    subject: !must_fill TBD\n  subject: Final\n\
+               memo:\n  body: &a |\n    # Summary\n    subject: !t TBD\n  subject: Final\n\
                notes:\n  - !!str >\n    # kept\n~~~\n";
     let out = Document::parse(src).unwrap();
     let get = |k: &str| out.document.main().payload().get(k).unwrap().as_json().clone();
     assert_eq!(
         get("memo"),
-        serde_json::json!({"body": "# Summary\nsubject: !must_fill TBD\n", "subject": "Final"})
+        serde_json::json!({"body": "# Summary\nsubject: !t TBD\n", "subject": "Final"})
     );
     assert_eq!(get("notes"), serde_json::json!(["# kept\n"]));
     assert!(out.warnings.is_empty(), "{:?}", out.warnings);
@@ -258,26 +303,26 @@ fn crlf_input_parses_as_its_lf_twin() {
     );
 }
 
-/// `key: !must_fill` inside a block or quoted scalar is that scalar's text,
-/// kept verbatim.
+/// `key: !t` inside a block or quoted scalar is that scalar's text, kept
+/// verbatim.
 #[test]
-fn fill_marker_text_inside_a_scalar_is_text() {
+fn tag_text_inside_a_scalar_is_text() {
     let cases = [
         (
-            "~~~card-yaml\n$quill: q\n$kind: main\nnote: |\n  see key: !must_fill here\n~~~\n",
-            "see key: !must_fill here\n",
+            "~~~card-yaml\n$quill: q\n$kind: main\nnote: |\n  see key: !t here\n~~~\n",
+            "see key: !t here\n",
         ),
         (
-            "~~~card-yaml\n$quill: q\n$kind: main\nnote: \"see key: !must_fill here\"\n~~~\n",
-            "see key: !must_fill here",
+            "~~~card-yaml\n$quill: q\n$kind: main\nnote: \"see key: !t here\"\n~~~\n",
+            "see key: !t here",
         ),
         (
-            "~~~card-yaml\n$quill: q\n$kind: main\nnote: \"see\n  key: !must_fill here\"\n~~~\n",
-            "see key: !must_fill here",
+            "~~~card-yaml\n$quill: q\n$kind: main\nnote: \"see\n  key: !t here\"\n~~~\n",
+            "see key: !t here",
         ),
         (
-            "~~~card-yaml\n$quill: q\n$kind: main\nnote:\n  \"see\n  key: !must_fill here\"\n~~~\n",
-            "see key: !must_fill here",
+            "~~~card-yaml\n$quill: q\n$kind: main\nnote:\n  \"see\n  key: !t here\"\n~~~\n",
+            "see key: !t here",
         ),
     ];
 
@@ -285,7 +330,7 @@ fn fill_marker_text_inside_a_scalar_is_text() {
         let out = Document::parse(src).unwrap();
         assert!(
             out.warnings.is_empty(),
-            "marker text inside a scalar must not warn\nSource:\n{}\nGot: {:?}",
+            "tag text inside a scalar must not warn\nSource:\n{}\nGot: {:?}",
             src,
             out.warnings
         );
@@ -296,7 +341,7 @@ fn fill_marker_text_inside_a_scalar_is_text() {
                 .get("note")
                 .and_then(|v| v.as_str()),
             Some(value),
-            "scalar must keep the marker text verbatim\nSource:\n{}",
+            "scalar must keep the tag text verbatim\nSource:\n{}",
             src
         );
     }

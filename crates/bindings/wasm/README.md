@@ -189,10 +189,7 @@ and writes that same value.
   mark `type` or island `type` outside the vocabulary. Those are refused from
   0.113 on; see that release's migration guide. An island `loss` is not one of
   them: 0.115 drops the key, so a row spelling one opens whatever the class and
-  comes back without it. A value a row flags as a `!must_fill` placeholder
-  (`fill: true`, or a `nested_fills` path) opens as null from 0.116 on, even an
-  answer typed over the placeholder. That release's migration guide shows how
-  to list them before a row's first 0.116 save.
+  comes back without it.
 - **Downgrading is not.** `fromStored` rejects an *unknown* (i.e. newer)
   `schema` version rather than guessing at a format it predates. Don't feed
   documents written by a newer build back into an older one.
