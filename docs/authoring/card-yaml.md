@@ -184,6 +184,9 @@ YAML parser drops the tag silently and keeps the value: inside a flow
 collection, on a bare `- ` element, after an anchor (`key: &a !env x`), or on
 the line below its key.
 
+A core tag (`!!str 5`) takes effect as the value is read, so `k: !!str 5` keeps
+`"5"`, a string; the tag itself drops and warns the same way.
+
 ## Card Blocks
 
 Every block after the root is a *card*: a composable, repeatable record. A card

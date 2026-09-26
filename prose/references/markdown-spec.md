@@ -237,6 +237,7 @@ data payload.
   address. Anywhere else the YAML parser drops any tag silently and keeps the
   value: inside a flow collection, on one line or several, on a bare sequence
   element, after an anchor (`key: &a !env x`), or on the line below its key.
+  A core tag (`!!str 5`) takes effect as the value is read before it drops.
 
 ### 3.5 Version Selectors
 

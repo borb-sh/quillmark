@@ -240,6 +240,28 @@ fn a_comment_under_a_scalar_below_its_key_follows_the_value() {
     }
 }
 
+/// A tag or anchor ahead of a quoted scalar or flow collection leaves a ` #`
+/// inside it text, and a comment after it a comment.
+#[test]
+fn a_hash_inside_a_quoted_value_behind_a_tag_or_anchor_is_text() {
+    let cases: [(&str, &str, serde_json::Value); 6] = [
+        ("k: !t \"a # b\" # c\n", "k", serde_json::json!("a # b")),
+        ("k: &a 'a # b' # c\n", "k", serde_json::json!("a # b")),
+        ("m:\n  k: !t 'a # b' # c\n", "m", serde_json::json!({"k": "a # b"})),
+        ("k: !t [\"a # b\", c] # c\n", "k", serde_json::json!(["a # b", "c"])),
+        ("rows:\n  - k: !t \"a # b\" # c\n", "rows", serde_json::json!([{"k": "a # b"}])),
+        ("rows:\n  - !t \"a # b\" # c\n", "rows", serde_json::json!(["a # b"])),
+    ];
+    for (fields, key, value) in cases {
+        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
+        let doc = Document::parse(&src).unwrap_or_else(|e| panic!("{src}\n{e}")).document;
+        assert_eq!(doc.main().payload().get(key).unwrap().as_json(), &value, "{src}");
+        let md = doc.to_markdown();
+        assert!(md.contains("# c\n"), "Source:\n{src}\nGot:\n{md}");
+        assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
+    }
+}
+
 /// A tag or anchor ahead of `|` or `>` leaves the block's lines its text: no
 /// key, comment or tag among them reaches the mapping around it.
 #[test]

@@ -8,8 +8,8 @@
 //! too.
 //!
 //! A tag on a block key's value is recorded at the key's path, for the
-//! assembler to warn on; the YAML parser drops it and keeps the value. A tag
-//! anywhere else the parser drops unrecorded.
+//! assembler to warn on; the YAML parser applies a core `!!` tag, ignores any
+//! other, and keeps no tag. A tag anywhere else the parser drops unrecorded.
 
 use crate::value::PathSegment;
 
@@ -601,25 +601,24 @@ fn split_nested_key(line: &str) -> Option<(String, String, String)> {
 /// Split `value` into `(value_without_comment, trailing_comment)` following
 /// YAML's rules. A `#` preceded by whitespace (or at value start) begins a
 /// comment, except inside a quoted scalar, and a quote opens a quoted
-/// scalar only as a node's first character: the value's, or a node's inside
-/// a flow collection (`[`/`{`). Inside a plain scalar, `'` and `"` are
-/// ordinary characters: `x: it's fine # note` carries a comment.
+/// scalar only as a node's first character, past any tag or anchor: the
+/// value's, or a node's inside a flow collection (`[`/`{`). Inside a plain
+/// scalar, `'` and `"` are ordinary characters: `x: it's fine # note` carries
+/// a comment.
 fn split_trailing_comment(value: &str) -> (String, Option<String>) {
     let bytes = value.as_bytes();
-    let Some(first) = bytes.iter().position(|b| !matches!(b, b' ' | b'\t')) else {
-        return (value.to_string(), None);
-    };
-    match bytes[first] {
+    let first = value.len() - node_text(value).len();
+    match bytes.get(first) {
         // Quoted scalar: skip the quoted body, then scan for a comment. An
         // unterminated quote means the scalar continues on the next line:
         // no comment on this one.
-        b'"' | b'\'' => match find_quote_end(bytes, first) {
+        Some(b'"' | b'\'') => match find_quote_end(bytes, first) {
             Some(end) => find_comment_from(value, end + 1),
             None => (value.to_string(), None),
         },
         // Flow collection: a quoted scalar opens at any node inside, so
         // track quote state across the whole value.
-        b'[' | b'{' => split_flow_trailing_comment(value),
+        Some(b'[' | b'{') => split_flow_trailing_comment(value),
         // Plain scalar (or block-scalar header): quotes are ordinary
         // characters; only the whitespace-then-`#` rule applies.
         _ => find_comment_from(value, 0),

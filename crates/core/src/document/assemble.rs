@@ -521,7 +521,7 @@ fn tag_warnings<'a>(
         let at = path.iter().fold(root, |p, seg| p.segment(seg)).to_string();
         let diag = Diagnostic::new(
             Severity::Warning,
-            format!("YAML tag on `{at}` is not supported; the tag has been dropped and the value kept"),
+            format!("YAML tag on `{at}` is not supported; the tag has been dropped and the value kept as read"),
         )
         .with_code("parse::unsupported_yaml_tag".to_string());
         if meta {
