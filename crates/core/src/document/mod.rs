@@ -208,18 +208,6 @@ pub const MARKDOWN_RULES: &str = "Quillmark Markdown rules:
 \u{2022} Numbers and booleans MUST be unquoted (`year: 2025`, `pinned: true`); quoting turns them into strings and fails validation.
 \u{2022} Plain-scalar values cannot start with `*` or `&` (YAML alias/anchor markers) and cannot contain `: ` (colon-space). For markdown emphasis, embedded colons, or other special prefixes, quote the value: `field: '**bold**'` or `field: \"Name: subtitle\"`. Multi-line values use `|-`, not multi-line quoted scalars.";
 
-/// Directs a consumer to fill in the blueprint of the quill it targets; `{quill}` is
-/// substituted with the quill name. [`MARKDOWN_RULES`] covers the syntax.
-/// Names no tool and asserts no layout: the consumer that composes this owns
-/// where it sits and what it directs the model to call next.
-const BLUEPRINT_INSTRUCTION_TEMPLATE: &str =
-    "Fill in the `{quill}` blueprint: answer each empty field and write each body.";
-
-/// Render the blueprint instruction with `quill_name` substituted in.
-pub fn blueprint_instruction(quill_name: &str) -> String {
-    BLUEPRINT_INSTRUCTION_TEMPLATE.replace("{quill}", quill_name)
-}
-
 #[cfg(test)]
 mod tests;
 

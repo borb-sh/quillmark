@@ -839,13 +839,6 @@ impl Document {
         quillmark_core::document::MARKDOWN_RULES.to_string()
     }
 
-    /// The instruction to fill in the blueprint of `quillName`, re-exposed from
-    /// core. Carries no tool name: pair it with your own next-step directive.
-    #[wasm_bindgen(js_name = blueprintInstruction)]
-    pub fn blueprint_instruction(quill_name: &str) -> String {
-        quillmark_core::document::blueprint_instruction(quill_name)
-    }
-
     /// The canonical `$quill` reference grammar as author-facing text: the same
     /// text the `parse::invalid_quill_reference` hint carries. Drive validation
     /// messages from this instead of re-stating the rule.

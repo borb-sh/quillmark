@@ -139,7 +139,6 @@ Document.current_storage_version()               # what this build writes
 
 Document.markdown_rules()                        # Quillmark Markdown rules (static text)
 Document.quill_ref_hint()                        # $quill reference grammar (static text)
-Document.blueprint_instruction("taro")           # the instruction to fill in a quill's blueprint (no tool name)
 
 doc.clone()
 doc.equals(other)

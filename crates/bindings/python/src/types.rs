@@ -399,13 +399,6 @@ impl PyDocument {
         quillmark_core::document::MARKDOWN_RULES
     }
 
-    /// The instruction to fill in the blueprint of `quill_name`. Carries no tool name:
-    /// pair it with your own next-step directive.
-    #[staticmethod]
-    fn blueprint_instruction(quill_name: &str) -> String {
-        quillmark_core::document::blueprint_instruction(quill_name)
-    }
-
     /// The canonical `$quill` reference grammar as author-facing text: the same
     /// text the `parse::invalid_quill_reference` hint carries.
     #[staticmethod]

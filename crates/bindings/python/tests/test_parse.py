@@ -110,9 +110,6 @@ def test_document_authoring_text_helpers():
     hint = Document.quill_ref_hint()
     assert isinstance(hint, str) and hint.strip() != ""
 
-    instr = Document.blueprint_instruction("taro")
-    assert isinstance(instr, str) and "taro" in instr
-
 
 def _nest(levels, leaf):
     """Wrap `leaf` in `levels` nested {"a": …} objects, built iteratively."""
