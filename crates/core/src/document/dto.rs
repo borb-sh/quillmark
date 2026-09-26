@@ -139,9 +139,10 @@ pub struct PayloadV0_116_0 {
     pub nested_comments: Vec<NestedCommentV0_92_0>,
 }
 
-/// Frozen `0.116.0` representation of a unified payload item.
+/// Frozen `0.116.0` representation of a unified payload item. An item carrying
+/// a key its variant does not name fails the load.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
 pub enum PayloadItemV0_116_0 {
     /// `$quill` system metadata: the quill reference string.
     Quill { value: String },
@@ -307,8 +308,7 @@ pub struct PayloadV0_92_0 {
 }
 
 /// Frozen `0.92.0` representation of a unified payload item. Carries the `Seed`
-/// variant and a per-`Field` `nested_fills` list: the paths of the retired
-/// `!must_fill` markers nested inside the field value.
+/// variant.
 ///
 /// A shipped schema version never changes, so a new item kind is a new schema
 /// version.
@@ -333,10 +333,6 @@ pub enum PayloadItemV0_92_0 {
     Field {
         key: String,
         value: serde_json::Value,
-        #[serde(default)]
-        fill: bool,
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        nested_fills: Vec<Vec<CommentPathSegmentV0_92_0>>,
     },
     /// A YAML comment.
     Comment {
@@ -355,8 +351,8 @@ pub struct NestedCommentV0_92_0 {
     pub inline: bool,
 }
 
-/// Frozen `0.92.0` representation of a [`PathSegment`]. Also used for
-/// `nested_fills` path segments, and by every later tree.
+/// Frozen `0.92.0` representation of a [`PathSegment`]. Also used by every
+/// later tree.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum CommentPathSegmentV0_92_0 {
     Key(String),
@@ -821,9 +817,6 @@ impl TryFrom<CardV0_92_0> for CardV0_116_0 {
     }
 }
 
-/// Drop the retired placeholder markers: a value the `!must_fill` tag held, at
-/// the field's root or nested inside it, was a placeholder rather than an
-/// answer, so it reads as null — the field unanswered.
 impl From<PayloadV0_92_0> for PayloadV0_116_0 {
     fn from(p: PayloadV0_92_0) -> Self {
         PayloadV0_116_0 {
@@ -835,20 +828,7 @@ impl From<PayloadV0_92_0> for PayloadV0_116_0 {
                     PayloadItemV0_92_0::Kind { value } => PayloadItemV0_116_0::Kind { value },
                     PayloadItemV0_92_0::Ext { value } => PayloadItemV0_116_0::Ext { value },
                     PayloadItemV0_92_0::Seed { value } => PayloadItemV0_116_0::Seed { value },
-                    PayloadItemV0_92_0::Field {
-                        key,
-                        mut value,
-                        fill,
-                        nested_fills,
-                    } => {
-                        if fill {
-                            value = serde_json::Value::Null;
-                        }
-                        for path in nested_fills {
-                            let path: Vec<PathSegment> =
-                                path.into_iter().map(PathSegment::from).collect();
-                            crate::value::null_at(&mut value, &path);
-                        }
+                    PayloadItemV0_92_0::Field { key, value } => {
                         PayloadItemV0_116_0::Field { key, value }
                     }
                     PayloadItemV0_92_0::Comment { text, inline } => {
@@ -992,8 +972,6 @@ pub enum FrontmatterItemV0_81_0 {
     Field {
         key: String,
         value: serde_json::Value,
-        #[serde(default)]
-        fill: bool,
     },
     Comment {
         text: String,
@@ -1052,8 +1030,8 @@ impl From<CardV0_81_0> for CardV0_82_0 {
         // tracks no `$`-line comments to interleave them with.
         for item in c.frontmatter.items {
             items.push(match item {
-                FrontmatterItemV0_81_0::Field { key, value, fill } => {
-                    PayloadItemV0_82_0::Field { key, value, fill }
+                FrontmatterItemV0_81_0::Field { key, value } => {
+                    PayloadItemV0_82_0::Field { key, value }
                 }
                 FrontmatterItemV0_81_0::Comment { text, inline } => {
                     PayloadItemV0_82_0::Comment { text, inline }
@@ -1145,8 +1123,6 @@ pub enum PayloadItemV0_82_0 {
     Field {
         key: String,
         value: serde_json::Value,
-        #[serde(default)]
-        fill: bool,
     },
     /// A YAML comment.
     Comment {
@@ -1217,12 +1193,7 @@ impl PayloadItemV0_92_0 {
             PayloadItemV0_82_0::Quill { value } => PayloadItemV0_92_0::Quill { value },
             PayloadItemV0_82_0::Kind { value } => PayloadItemV0_92_0::Kind { value },
             PayloadItemV0_82_0::Ext { value } => PayloadItemV0_92_0::Ext { value },
-            PayloadItemV0_82_0::Field { key, value, fill } => PayloadItemV0_92_0::Field {
-                key,
-                value,
-                fill,
-                nested_fills: Vec::new(),
-            },
+            PayloadItemV0_82_0::Field { key, value } => PayloadItemV0_92_0::Field { key, value },
             PayloadItemV0_82_0::Comment { text, inline } => {
                 PayloadItemV0_92_0::Comment { text, inline }
             }
@@ -1348,10 +1319,8 @@ This body and the metadata above are an indorsement card.
         );
     }
 
-    /// The `@0.116.0` hop's payload half: a value the retired `!must_fill`
-    /// marker held was a placeholder, so it reads as null wherever it sat.
     #[test]
-    fn a_0_115_0_row_drops_its_placeholders() {
+    fn a_0_115_0_row_loads_its_values_past_keys_the_item_does_not_name() {
         let legacy = serde_json::json!({
             "schema": "quillmark/document@0.115.0",
             "main": {
@@ -1362,10 +1331,6 @@ This body and the metadata above are an indorsement card.
                     { "type": "field", "key": "addr", "fill": false,
                       "value": {"street": "1 Main", "city": "Anytown"},
                       "nested_fills": [[{"Key": "street"}]] },
-                    { "type": "field", "key": "to", "fill": false,
-                      "value": [{"name": "Jane"}, {"name": "Real"}],
-                      "nested_fills": [[{"Index": 0}, {"Key": "name"}], [{"Key": "gone"}]] },
-                    { "type": "field", "key": "title", "value": "Kept", "fill": false },
                 ], "nested_comments": [] },
                 "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}],
                          "marks": [], "text": ""},
@@ -1376,10 +1341,8 @@ This body and the metadata above are an indorsement card.
 
         let doc: Document = serde_json::from_str(&legacy).expect("a 0.115.0 blob still loads");
         let get = |k: &str| doc.main().payload().get(k).unwrap().as_json().clone();
-        assert_eq!(get("subject"), serde_json::Value::Null);
-        assert_eq!(get("addr"), serde_json::json!({"street": null, "city": "Anytown"}));
-        assert_eq!(get("to"), serde_json::json!([{"name": null}, {"name": "Real"}]));
-        assert_eq!(get("title"), serde_json::json!("Kept"));
+        assert_eq!(get("subject"), serde_json::json!("Example"));
+        assert_eq!(get("addr"), serde_json::json!({"street": "1 Main", "city": "Anytown"}));
 
         let rewritten = serde_json::to_string(&doc).unwrap();
         assert_eq!(
@@ -1387,6 +1350,27 @@ This body and the metadata above are an indorsement card.
             Some(STORAGE_V0_116_0)
         );
         assert!(!rewritten.contains("fill"), "{rewritten}");
+    }
+
+    #[test]
+    fn a_0_116_0_item_with_an_unknown_key_fails_the_load() {
+        let row = serde_json::json!({
+            "schema": "quillmark/document@0.116.0",
+            "main": {
+                "payload": { "items": [
+                    { "type": "quill", "value": "q@1.0" },
+                    { "type": "kind", "value": "main" },
+                    { "type": "field", "key": "subject", "value": "Example", "fill": true },
+                ], "nested_comments": [] },
+                "body": {"islands": [], "lines": [{"containers": [], "kind": "para"}],
+                         "marks": [], "text": ""},
+            },
+            "cards": [],
+        })
+        .to_string();
+
+        let err = serde_json::from_str::<Document>(&row).unwrap_err();
+        assert!(err.to_string().contains("unknown field `fill`"), "{err}");
     }
 
     #[test]
@@ -1732,7 +1716,7 @@ title: Hi
     }
 
     #[test]
-    fn v0_81_0_comments_survive_and_a_placeholder_drops() {
+    fn v0_81_0_comments_survive_the_hops() {
         // The two the sentinel split could drop: comment order against the `$`
         // prelude, and nested-comment paths, whose absolute payload-level form
         // V0_81_0 and V0_92_0 share.
@@ -1762,7 +1746,7 @@ title: Hi
         let doc: Document = serde_json::from_str(json).unwrap();
         let md = doc.to_markdown();
         assert!(md.contains("# a top-level comment"), "{md}");
-        assert_eq!(doc.main().payload().get("subject").unwrap().as_json(), &serde_json::Value::Null);
+        assert_eq!(doc.main().payload().get("subject").unwrap().as_json(), "S");
         assert!(md.contains("# inline note"), "{md}");
 
         // The migration invents nothing the parser would not.

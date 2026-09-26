@@ -40,7 +40,7 @@ Two surfaces return one directly (`QuillValue::from_yaml_str`, `QuillConfig::sch
 
 Its `line`/`column` are document coordinates, not block-relative ones:
 
-- The engine reports a position inside the string it parsed: the fence content, line-for-line (prescan strips only a block key's `!must_fill`, leaving any other tag for the engine to drop, and leaves every line standing, comment lines included), minus the whitespace `trim` takes off the front. The assembler translates that position onto the document.
+- The engine reports a position inside the string it parsed: the fence content, line-for-line (prescan cuts only a trailing comment, leaving tags for the engine to drop and every line standing, comment lines included), minus the whitespace `trim` takes off the front. The assembler translates that position onto the document.
 - `to_diagnostic()` renders it as a `Location` against `DOCUMENT_FILE` (`input.md`). Markdown reaches the engine as a string, so the anchor names the input rather than a path on disk.
 - The message names the block instead of repeating a number (`YAML error in the root card-yaml block: …`, `… in card-yaml block 2: …`). The engine's own snippet inside it stays block-relative, as the engine rendered it.
 
@@ -126,10 +126,9 @@ families:
   In WASM the surface that merges is the runtime `Engine.render`, reading the
   carrier off the caller's `doc.warnings`: the backend-memory clone it renders
   is built by `Document.fromStored`, which carries none. A tag warning
-  (`parse::must_fill_dropped`, `parse::unsupported_yaml_tag`) anchors at the
-  tagged node's `path`, a card's under its stored `$kind` as `pathFor` mints
-  it. One on a `$` key or inside `$ext` or `$seed`, which have no document
-  address, carries none.
+  (`parse::unsupported_yaml_tag`) anchors at the tagged node's `path`, a
+  card's under its stored `$kind` as `pathFor` mints it. One on a `$` key or
+  inside `$ext` or `$seed`, which have no document address, carries none.
 - **`conform::*`: resting-form warnings.** `Quill::conform` returns one per
   declared content field whose value the strict write refuses, and
   `Quill::parse` appends them to the `Parsed.warnings` the parse produced. Each
@@ -396,7 +395,6 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | `parse::payload_not_mapping` | `actual`, `info`? | structured |
 | `parse::missing_kind` | `info`? | structured |
 | `parse::empty_input` | — | code-determined |
-| `parse::must_fill_dropped` | — | code-determined |
 | `parse::unsupported_yaml_tag` | — | code-determined |
 | `parse::invalid_structure` | — | fallback |
 | `parse::missing_quill` | — | fallback |

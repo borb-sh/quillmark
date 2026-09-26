@@ -123,9 +123,7 @@ pub(super) struct MetadataBlock {
     pub(super) pre_items: Vec<PreItem>,
     /// Pre-scan nested comments (with structural paths).
     pub(super) pre_nested_comments: Vec<NestedComment>,
-    /// Fence-relative pre-scan paths of the retired `!must_fill` tags.
-    pub(super) retired_fills: Vec<Vec<PathSegment>>,
-    /// Fence-relative pre-scan paths of every other tag.
+    /// Fence-relative pre-scan paths of the tagged nodes.
     pub(super) unsupported_tags: Vec<Vec<PathSegment>>,
 }
 
@@ -209,7 +207,6 @@ pub(super) fn build_block(
             }
         };
         let meta = extract_meta_items(&mut parsed)?;
-        drop_retired_fills(&mut parsed, &pre.retired_fills);
         (meta, Some(parsed))
     };
 
@@ -231,7 +228,6 @@ pub(super) fn build_block(
         meta_items,
         pre_items: pre.items,
         pre_nested_comments: pre.nested_comments,
-        retired_fills: pre.retired_fills,
         unsupported_tags: pre.unsupported_tags,
     })
 }
@@ -506,16 +502,6 @@ fn build_payload(
     Ok(Payload::from_items_with_nested(items, pre_nested_comments))
 }
 
-/// Null each node the retired `!must_fill` tag marked in the user fields of
-/// `parsed`, which the `$` keys have already left. The value under the tag was
-/// a placeholder, so the field reads as unanswered. A tag inside `$` metadata
-/// is dropped and its value kept, as any other custom tag's.
-fn drop_retired_fills(parsed: &mut serde_json::Value, paths: &[Vec<PathSegment>]) {
-    for path in paths.iter().filter(|path| !in_meta(path)) {
-        crate::value::null_at(parsed, path);
-    }
-}
-
 /// `true` for a fence-relative path under a `$` key.
 fn in_meta(path: &[PathSegment]) -> bool {
     matches!(path.first(), Some(PathSegment::Key(k)) if k.starts_with('$'))
@@ -529,30 +515,15 @@ fn tag_warnings<'a>(
     base: &'a DocPath,
     block: &'a MetadataBlock,
 ) -> impl Iterator<Item = Diagnostic> + 'a {
-    let tags = block.unsupported_tags.iter().map(|path| (path, false));
-    let fills = block.retired_fills.iter().map(|path| (path, true));
-    tags.chain(fills).map(move |(path, fill)| {
+    block.unsupported_tags.iter().map(move |path| {
         let meta = in_meta(path);
         let root = if meta { DocPath::new() } else { base.clone() };
         let at = path.iter().fold(root, |p, seg| p.segment(seg)).to_string();
-        let diag = if fill && !meta {
-            Diagnostic::new(
-                Severity::Warning,
-                format!(
-                    "`!must_fill` on `{at}` is retired; the placeholder and any value under it \
-                     have been dropped, leaving the field unanswered"
-                ),
-            )
-            .with_code("parse::must_fill_dropped".to_string())
-        } else {
-            Diagnostic::new(
-                Severity::Warning,
-                format!(
-                    "YAML tag on `{at}` is not supported; the tag has been dropped and the value kept"
-                ),
-            )
-            .with_code("parse::unsupported_yaml_tag".to_string())
-        };
+        let diag = Diagnostic::new(
+            Severity::Warning,
+            format!("YAML tag on `{at}` is not supported; the tag has been dropped and the value kept"),
+        )
+        .with_code("parse::unsupported_yaml_tag".to_string());
         if meta {
             diag
         } else {
