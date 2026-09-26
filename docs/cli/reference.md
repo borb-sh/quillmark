@@ -70,7 +70,7 @@ quillmark check [OPTIONS] <QUILL_PATH> <MARKDOWN_FILE>...
 **Arguments:**
 
 - `<QUILL_PATH>`: Path to quill directory
-- `<MARKDOWN_FILE>...`: One or more documents to check. Each document's diagnostics print under its path, and a document that fails to read or parse does not stop the rest.
+- `<MARKDOWN_FILE>...`: One or more documents to check. Each document's diagnostics print under its path. A document that is missing or unreadable draws `cli::unreadable_document`, one that fails to parse draws its parse error, and neither stops the rest.
 
 **Options:**
 

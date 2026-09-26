@@ -26,7 +26,8 @@ them.
   parse warnings and every `Quill::validate` diagnostic, under the file's path.
   It compiles nothing, so a plate failure or a `backend::declined_construct` is
   `render`'s to find. A document that fails to read or parse draws that one
-  error and does not stop the rest. An
+  error (`cli::unreadable_document` for a path that is missing or not UTF-8)
+  and does not stop the rest. An
   `Error` exits `1`; `--strict` exits `1` on a `Warning` too, for a CI gate over
   a repository of documents.
 - **`render` prints what the page leaves out.** Its warnings are the parse
