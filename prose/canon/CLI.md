@@ -23,7 +23,8 @@ them.
   --no-render` is the config-read-only validate.
 - **`check` is the document's verdict, `validate` the quill's.** `check` parses
   each `MARKDOWN_FILE` through the bound door (`Quill::parse`) and prints the
-  parse warnings and every `Quill::validate` diagnostic, under the file's path.
+  parse warnings and every `Quill::validate` diagnostic, under the file's path
+  and located in that file.
   It compiles nothing, so a plate failure or a `backend::declined_construct` is
   `render`'s to find. A document that fails to read or parse draws that one
   error (`cli::unreadable_document` for a path that is missing or not UTF-8)

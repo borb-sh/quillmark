@@ -335,6 +335,10 @@ fn check_lists_every_diagnostic_and_strict_fails_on_a_warning() {
             && stderr.contains("validation::unknown_field"),
         "check stopped at a failing document: {stderr}"
     );
+    assert!(
+        stderr.contains(&format!("--> {bad}:")) && !stderr.contains("input.md"),
+        "a location does not name its own document: {stderr}"
+    );
 }
 
 /// `render` prints the input its page leaves out, once.

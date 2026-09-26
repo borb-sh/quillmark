@@ -1,7 +1,7 @@
 use crate::commands::load_quill;
 use crate::errors::{CliError, Result};
 use clap::Parser;
-use quillmark::{Diagnostic, Quill, Severity};
+use quillmark::{Diagnostic, Quill, Severity, DOCUMENT_FILE};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -64,12 +64,18 @@ fn check_document(quill: &Quill, path: &Path) -> Vec<Diagnostic> {
             .with_code("cli::unreadable_document".to_string())]
         }
     };
-    match quill.parse(&markdown) {
+    let mut diagnostics = match quill.parse(&markdown) {
         Ok(parsed) => {
             let mut diagnostics = parsed.warnings;
             diagnostics.extend(quill.validate(&parsed.document));
             diagnostics
         }
         Err(e) => e.to_diagnostics(),
+    };
+    for location in diagnostics.iter_mut().filter_map(|d| d.location.as_mut()) {
+        if location.file == DOCUMENT_FILE {
+            location.file = path.display().to_string();
+        }
     }
+    diagnostics
 }
