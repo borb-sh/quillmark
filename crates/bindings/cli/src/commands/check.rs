@@ -1,7 +1,7 @@
 use crate::commands::load_quill;
 use crate::errors::{CliError, Result};
 use clap::Parser;
-use quillmark::{Diagnostic, Quill, Severity};
+use quillmark::{Diagnostic, Quill, Severity, DOCUMENT_FILE};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -52,7 +52,8 @@ pub fn execute(args: CheckArgs) -> Result<()> {
 
 /// Every diagnostic one document draws against `quill`: the bound parse's
 /// warnings, then `Quill::validate`'s. A document that does not read or parse
-/// draws only that failure, there being no document to validate.
+/// draws only that failure, there being no document to validate. A location
+/// in the document names `path`.
 fn check_document(quill: &Quill, path: &Path) -> Vec<Diagnostic> {
     let markdown = match fs::read_to_string(path) {
         Ok(markdown) => markdown,
@@ -64,12 +65,19 @@ fn check_document(quill: &Quill, path: &Path) -> Vec<Diagnostic> {
             .with_code("cli::unreadable_document".to_string())]
         }
     };
-    match quill.parse(&markdown) {
+    let mut diagnostics = match quill.parse(&markdown) {
         Ok(parsed) => {
             let mut diagnostics = parsed.warnings;
             diagnostics.extend(quill.validate(&parsed.document));
             diagnostics
         }
         Err(e) => e.to_diagnostics(),
+    };
+    let file = path.display().to_string();
+    for loc in diagnostics.iter_mut().filter_map(|d| d.location.as_mut()) {
+        if loc.file == DOCUMENT_FILE {
+            loc.file = file.clone();
+        }
     }
+    diagnostics
 }
