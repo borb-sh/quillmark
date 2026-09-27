@@ -37,7 +37,9 @@
 pub use quillmark_core::{
     backend::Backend,
     document::{Card, Document, EditError, ImportError, Parsed},
-    error::{Diagnostic, Location, ParseError, RenderError, RenderResult, Severity},
+    error::{
+        Diagnostic, Location, ParseError, RenderError, RenderResult, Severity, DOCUMENT_FILE,
+    },
     quill::{
         BoundParseError, CalendarDate, CardSchema, FieldSchema, FieldType, FileTreeNode,
         ParseDateError, Quill, QuillConfig, QuillIgnore, ValidationError,

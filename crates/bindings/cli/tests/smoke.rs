@@ -294,7 +294,7 @@ const TYPO_DOC: &str = "~~~card-yaml\n$quill: taro\ntitel: Hello\n~~~\n\nBody.\n
 
 /// A warning passes and `--strict` fails it; an error fails either way, and a
 /// document that is missing or fails to read or parse does not stop the ones
-/// after it being checked.
+/// after it being checked, and a location names the file it is in.
 #[test]
 fn check_lists_every_diagnostic_and_strict_fails_on_a_warning() {
     let dir = tempfile::tempdir().expect("tempdir");
@@ -334,6 +334,10 @@ fn check_lists_every_diagnostic_and_strict_fails_on_a_warning() {
             && stderr.contains("parse::")
             && stderr.contains("validation::unknown_field"),
         "check stopped at a failing document: {stderr}"
+    );
+    assert!(
+        stderr.contains(&format!("{bad}:")) && !stderr.contains("input.md"),
+        "a location does not name its file: {stderr}"
     );
 }
 
