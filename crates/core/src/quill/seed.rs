@@ -10,7 +10,7 @@ use crate::document::PayloadItem;
 use crate::{
     document::{Card, Document, Payload, SeedOverlay},
     value::QuillValue,
-    version::QuillReference,
+    version::{QuillReference, VersionSelector},
 };
 
 /// Build the seeded `(payload, body)` for one card schema under an optional
@@ -69,7 +69,7 @@ fn main_reference(quill: &Quill) -> QuillReference {
     let config = quill.config();
     format!("{}@{}", config.name, config.version)
         .parse()
-        .unwrap_or_else(|_| QuillReference::latest(config.name.clone()))
+        .unwrap_or_else(|_| QuillReference::new(config.name.clone(), VersionSelector::Any))
 }
 
 pub(crate) fn seed_main(quill: &Quill) -> Card {

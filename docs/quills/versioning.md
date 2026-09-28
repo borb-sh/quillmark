@@ -46,11 +46,13 @@ Supported selectors:
 
 | Selector | Meaning |
 |---|---|
-| `my_quill` | Latest available version |
-| `my_quill@latest` | Latest available version (explicit) |
-| `my_quill@1` | Latest 1.x.x |
-| `my_quill@1.2` | Latest 1.2.x |
+| `my_quill` | Any version |
+| `my_quill@1` | Any 1.x.x |
+| `my_quill@1.2` | Any 1.2.x |
 | `my_quill@1.2.0` | Exact version |
+
+A selector is digits only. There is no `@latest`: `my_quill@latest` fails to
+parse; the bare name matches any version.
 
 ## Compatibility Checks
 
@@ -61,8 +63,8 @@ checks that Quill against the reference and rejects a mismatch —
 the names agree and the version falls outside the selector.
 
 Fix either by rendering with the Quill the document targets, or by amending the
-`$quill` line: correct the name, or widen the selector (`@3`, `@latest`). A bare
-name or `@latest` matches any version, so a document that targets its Quill
+`$quill` line: correct the name, or widen the selector (`@3`, or drop it). A bare
+name matches any version, so a document that targets its Quill
 correctly never trips these checks.
 
 ## Practical Guidelines

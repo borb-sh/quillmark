@@ -36,16 +36,17 @@ The version selector rides on the root block's `$quill` system-metadata line (se
 $quill: my_format@2.1.0    # exact
 $quill: my_format@2.1      # 2.1.x
 $quill: my_format@2        # 2.x.x
-$quill: my_format@latest   # latest (explicit)
-$quill: my_format          # latest (default)
+$quill: my_format          # any version
 ```
+
+A selector is `MAJOR`, `MAJOR.MINOR` or `MAJOR.MINOR.PATCH`, each segment plain digits. A reference with no selector omits the `@`; there is no `@latest`.
 
 No registry consumes the selector: there is no collection of installed versions to pick from, so it is a pin, not a resolver. *Resolution* (matching `name@selector` against a set of installed versions) belongs to a higher layer; the engine loads one Quill and *enforces* the reference against it. Detection needs no registry (the engine has the loaded Quill's name and version and the document's reference) so `render` and `dry_run` both reject a mismatch with a single-diagnostic [`RenderError`](ERROR.md). They check in order:
 
 - **`quill::name_mismatch`**: the reference *name* differs from the loaded Quill. The name is the prerequisite (a selector belongs to a *named* Quill), so a name mismatch short-circuits and the version is left unevaluated.
-- **`quill::version_mismatch`**: names agree but the Quill's `version` falls outside the selector (e.g. `name@2` against `3.0.0`). `VersionSelector::matches` decides: `Exact` the identical version, `Minor` any patch in the `MAJOR.MINOR` series, `Major` any version in the `MAJOR` series, `Latest` (the default) anything.
+- **`quill::version_mismatch`**: names agree but the Quill's `version` falls outside the selector (e.g. `name@2` against `3.0.0`). `VersionSelector::matches` decides: `Exact` the identical version, `Minor` any patch in the `MAJOR.MINOR` series, `Major` any version in the `MAJOR` series, `Any` (no selector) anything.
 
-A quill mismatch is distinct from a validation failure (a malformed document): here the document is well-formed but paired with the wrong Quill, so the remedy is to render with the referenced Quill or amend `$quill`. A bare name or `@latest` matches any version, so correctly-targeted documents never trip either check.
+A quill mismatch is distinct from a validation failure (a malformed document): here the document is well-formed but paired with the wrong Quill, so the remedy is to render with the referenced Quill or amend `$quill`. A bare name matches any version, so correctly-targeted documents never trip either check.
 
 `$quill` is a **pairing assertion**, not a render target or a schema declaration. The caller chooses which Quill renders; the reference only confirms the document was authored against it.
 

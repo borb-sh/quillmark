@@ -98,9 +98,10 @@ title: Document Title
 ~~~
 ```
 
-A bare name selects the latest version; `@latest`, `@2`, `@2.1`, and `@2.1.0`
-pin progressively tighter. The [Quill Versioning](../quills/versioning.md#how-authors-select-versions)
-page owns the full selector semantics.
+A bare name matches any version; `@2`, `@2.1`, and `@2.1.0` pin
+progressively tighter. There is no `@latest`: write the bare name. The
+[Quill Versioning](../quills/versioning.md#how-authors-select-versions) page
+owns the full selector semantics.
 
 Quill names are lowercase letters, digits, and underscores. `Quill.yaml`
 requires a leading letter (`[a-z][a-z0-9_]*`); the `$quill` line also parses a

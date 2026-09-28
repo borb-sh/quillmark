@@ -74,12 +74,12 @@ impl fmt::Display for Version {
 pub enum VersionSelector {
     /// Match exactly this version (e.g., "@2.1.0")
     Exact(Version),
-    /// Match latest patch version in this minor series (e.g., "@2.1")
+    /// Match any patch in this minor series (e.g., "@2.1")
     Minor(u32, u32),
-    /// Match latest minor/patch version in this major series (e.g., "@2")
+    /// Match any version in this major series (e.g., "@2")
     Major(u32),
-    /// Match the highest version available (e.g., "@latest" or unspecified)
-    Latest,
+    /// Match any version: the bare name, with no selector written
+    Any,
 }
 
 impl VersionSelector {
@@ -90,21 +90,24 @@ impl VersionSelector {
             VersionSelector::Exact(want) => *want == v,
             VersionSelector::Minor(major, minor) => v.major == *major && v.minor == *minor,
             VersionSelector::Major(major) => v.major == *major,
-            VersionSelector::Latest => true,
+            VersionSelector::Any => true,
         }
     }
 
-    /// The selector as written after `@`, unprefixed: `2`, `2.1`, `2.1.0` or
-    /// `latest`. Empty is the typo `name@`, not a spelling of latest.
+    /// The selector as written after `@`, unprefixed: `2`, `2.1` or `2.1.0`.
+    /// Empty is the typo `name@`, not a spelling of the bare name.
     pub(crate) fn from_token(token: &str) -> Result<Self, String> {
         if token.is_empty() {
             return Err(
-                "Invalid version selector '@': `@` carries no selector; omit it for the latest version, or write one"
+                "Invalid version selector '@': `@` carries no selector; omit it to match any version, or write one"
                     .to_string(),
             );
         }
         if token == "latest" {
-            return Ok(VersionSelector::Latest);
+            return Err(
+                "Invalid version selector '@latest': omit the selector to match any version"
+                    .to_string(),
+            );
         }
 
         let parts: Vec<&str> = token.split('.').collect();
@@ -121,14 +124,14 @@ impl VersionSelector {
             1 => {
                 let major = parse_segment(token, "major").map_err(|_| {
                     format!(
-                        "Invalid version selector '{}': expected number, MAJOR.MINOR, MAJOR.MINOR.PATCH, or 'latest'",
+                        "Invalid version selector '{}': expected MAJOR, MAJOR.MINOR, or MAJOR.MINOR.PATCH",
                         token
                     )
                 })?;
                 Ok(VersionSelector::Major(major))
             }
             _ => Err(format!(
-                "Invalid version selector '{}': expected number, MAJOR.MINOR, MAJOR.MINOR.PATCH, or 'latest'",
+                "Invalid version selector '{}': expected MAJOR, MAJOR.MINOR, or MAJOR.MINOR.PATCH",
                 token
             )),
         }
@@ -139,11 +142,11 @@ impl FromStr for VersionSelector {
     type Err = String;
 
     /// The written selector, `@` and all. An empty string is an absent
-    /// selector, which is latest.
+    /// selector, which is [`VersionSelector::Any`].
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.strip_prefix('@') {
             Some(token) => Self::from_token(token),
-            None if s.is_empty() => Ok(VersionSelector::Latest),
+            None if s.is_empty() => Ok(VersionSelector::Any),
             None => Self::from_token(s),
         }
     }
@@ -155,7 +158,7 @@ impl fmt::Display for VersionSelector {
             VersionSelector::Exact(v) => write!(f, "@{}", v),
             VersionSelector::Minor(major, minor) => write!(f, "@{}.{}", major, minor),
             VersionSelector::Major(m) => write!(f, "@{}", m),
-            VersionSelector::Latest => write!(f, "@latest"),
+            VersionSelector::Any => Ok(()),
         }
     }
 }
@@ -164,8 +167,9 @@ impl fmt::Display for VersionSelector {
 const QUILL_REF_HINT: &str = "A $quill reference is `<name>` or `<name>@<selector>`. \
 The name must match `[a-z_][a-z0-9_]*` (start with a lowercase letter or underscore, then \
 lowercase letters, digits, or underscores). The optional version selector is \
-`@MAJOR.MINOR.PATCH` (exact), `@MAJOR.MINOR` (latest patch in that minor series), `@MAJOR` \
-(latest in that major series), or `@latest`; omitting the selector means latest.";
+`@MAJOR.MINOR.PATCH` (exactly that version), `@MAJOR.MINOR` (any patch in that minor series), \
+or `@MAJOR` (any version in that major series), each segment plain digits. The bare `<name>` \
+matches any version; there is no `@latest`.";
 
 /// Single source of truth for the grammar [`QuillReference::from_str`] enforces:
 /// bindings surface it and it rides as the `hint` on the
@@ -177,7 +181,7 @@ pub fn quill_ref_hint() -> &'static str {
 
 /// Complete reference to a Quill template with name and version selector.
 ///
-/// Name charset: `[a-z_][a-z0-9_]*`. Selector defaults to `Latest` when omitted.
+/// Name charset: `[a-z_][a-z0-9_]*`. Selector defaults to `Any` when omitted.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct QuillReference {
     pub name: String,
@@ -187,13 +191,6 @@ pub struct QuillReference {
 impl QuillReference {
     pub fn new(name: String, selector: VersionSelector) -> Self {
         Self { name, selector }
-    }
-
-    pub fn latest(name: String) -> Self {
-        Self {
-            name,
-            selector: VersionSelector::Latest,
-        }
     }
 }
 
@@ -226,7 +223,7 @@ impl FromStr for QuillReference {
 
         let selector = match version_part_opt {
             Some(token) => VersionSelector::from_token(token)?,
-            None => VersionSelector::Latest,
+            None => VersionSelector::Any,
         };
 
         Ok(QuillReference { name, selector })
@@ -235,10 +232,7 @@ impl FromStr for QuillReference {
 
 impl fmt::Display for QuillReference {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &self.selector {
-            VersionSelector::Latest => write!(f, "{}", self.name),
-            _ => write!(f, "{}{}", self.name, self.selector),
-        }
+        write!(f, "{}{}", self.name, self.selector)
     }
 }
 
@@ -285,16 +279,11 @@ mod tests {
     }
 
     /// `memo@` is a typo for `memo`, not a spelling of it: an absent selector
-    /// means latest, a written one has to say something.
+    /// matches any version, a written one has to say something.
     #[test]
     fn a_trailing_at_is_not_a_selector() {
         assert!(QuillReference::from_str("memo@").is_err());
         assert!(VersionSelector::from_str("@").is_err());
-        assert_eq!(
-            VersionSelector::from_str("").unwrap(),
-            VersionSelector::Latest,
-            "no selector at all is still latest"
-        );
     }
 
     #[test]
@@ -310,24 +299,6 @@ mod tests {
         assert!(v1_1_0 < v2_0_0);
         assert!(v2_0_0 < v2_1_0);
         assert_eq!(v1_0_0, v1_0_0);
-    }
-
-    #[test]
-    fn test_version_selector_parsing() {
-        let exact = VersionSelector::from_str("@2.1.0").unwrap();
-        assert_eq!(exact, VersionSelector::Exact(Version::new(2, 1, 0)));
-
-        let minor = VersionSelector::from_str("@2.1").unwrap();
-        assert_eq!(minor, VersionSelector::Minor(2, 1));
-
-        let major = VersionSelector::from_str("@2").unwrap();
-        assert_eq!(major, VersionSelector::Major(2));
-
-        let latest1 = VersionSelector::from_str("@latest").unwrap();
-        assert_eq!(latest1, VersionSelector::Latest);
-
-        let latest2 = VersionSelector::from_str("").unwrap();
-        assert_eq!(latest2, VersionSelector::Latest);
     }
 
     #[test]
@@ -365,20 +336,33 @@ mod tests {
         assert!(major.matches(v2_2_0));
         assert!(!major.matches(v3_0_0));
 
-        let latest = VersionSelector::Latest;
-        assert!(latest.matches(v2_1_0));
-        assert!(latest.matches(v3_0_0));
+        let any = VersionSelector::Any;
+        assert!(any.matches(v2_1_0));
+        assert!(any.matches(v3_0_0));
     }
 
+    /// Every selector prints the one spelling that parses back to it; `Any`
+    /// has no spelling, so it prints nothing.
     #[test]
-    fn test_version_selector_display() {
-        assert_eq!(
-            VersionSelector::Exact(Version::new(2, 1, 0)).to_string(),
-            "@2.1.0"
-        );
-        assert_eq!(VersionSelector::Minor(2, 1).to_string(), "@2.1");
-        assert_eq!(VersionSelector::Major(2).to_string(), "@2");
-        assert_eq!(VersionSelector::Latest.to_string(), "@latest");
+    fn test_version_selector_display_round_trips() {
+        for (selector, written) in [
+            (VersionSelector::Exact(Version::new(2, 1, 0)), "@2.1.0"),
+            (VersionSelector::Minor(2, 1), "@2.1"),
+            (VersionSelector::Major(2), "@2"),
+            (VersionSelector::Any, ""),
+        ] {
+            assert_eq!(selector.to_string(), written);
+            assert_eq!(VersionSelector::from_str(written).unwrap(), selector);
+        }
+    }
+
+    /// The bare name is the only way to match any version: `@latest` is
+    /// refused, so no second spelling of `Any` exists to be erased by a round
+    /// trip.
+    #[test]
+    fn at_latest_is_not_a_selector() {
+        assert!(QuillReference::from_str("memo@latest").is_err());
+        assert!(VersionSelector::from_str("@latest").is_err());
     }
 
     #[test]
@@ -393,12 +377,9 @@ mod tests {
         let ref2 = QuillReference::from_str("resume_template@2").unwrap();
         assert_eq!(ref2.selector, VersionSelector::Major(2));
 
-        let ref3 = QuillReference::from_str("resume_template@latest").unwrap();
-        assert_eq!(ref3.selector, VersionSelector::Latest);
-
         let ref4 = QuillReference::from_str("resume_template").unwrap();
         assert_eq!(ref4.name, "resume_template");
-        assert_eq!(ref4.selector, VersionSelector::Latest);
+        assert_eq!(ref4.selector, VersionSelector::Any);
     }
 
     #[test]
@@ -426,7 +407,7 @@ mod tests {
         let ref2 = QuillReference::new("resume".to_string(), VersionSelector::Major(2));
         assert_eq!(ref2.to_string(), "resume@2");
 
-        let ref3 = QuillReference::new("resume".to_string(), VersionSelector::Latest);
+        let ref3 = QuillReference::new("resume".to_string(), VersionSelector::Any);
         assert_eq!(ref3.to_string(), "resume");
     }
 }
