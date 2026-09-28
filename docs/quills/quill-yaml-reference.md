@@ -61,14 +61,20 @@ typst:
   plate_file: plate.typ
 ```
 
----
+### Example document
 
-## Example document
+A file named `example.md` at the quill root, beside `Quill.yaml`, is the quill's
+example: a document that shows the quill filled in, with values that agree with
+each other, nested rows and matrix cells with something in them, and bodies with
+text. Its values are made up and nobody keeps them. Starter content people keep
+is a template, not an example. `Quill.yaml` declares nothing about it.
 
-`example.md` at the quill root, beside `Quill.yaml`, shows the quill filled in:
-values that agree with each other, nested rows and matrix cells with something
-in them, bodies with text. Its values are made up and nobody keeps them. Starter
-content people keep is a template, not an example.
+```
+status_report/0.1.0/
+├── Quill.yaml
+├── plate.typ
+└── example.md
+```
 
 ```markdown
 ~~~
@@ -80,17 +86,14 @@ state: at risk
 The cutover rehearsal slipped a week while the data owners review the mapping.
 ```
 
-- It is optional, and found by name: `Quill.yaml` declares nothing. Only the
-  root `example.md` counts, spelled exactly; one in a subdirectory is an
-  ordinary file.
 - It is written like any document for the quill. A field it leaves out renders
   its default.
 - Its `$quill` is the quill's bare name, with no `@` version. The quill pins it
-  to its own `name@version` when it hands it out (`example_document()`).
-- Loading the quill never reads it. `quillmark validate` renders it beside the
-  empty document, the blueprint and the seed, and any diagnostic on it fails
-  the quill, a warning included. `quillmark validate --verbose` names whether
-  it found one.
+  to its own `name@version` when it hands it out (`Quill.example_document()`).
+- Only `example.md` at the root counts, spelled exactly. Loading the quill never
+  reads it, and a quill without one has no example. `quillmark validate`
+  renders it beside the empty document, the blueprint and the seed, and any
+  diagnostic on it fails the quill, a warning included.
 
 ---
 

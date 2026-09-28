@@ -2,6 +2,7 @@ use crate::errors::{CliError, Result};
 use clap::Parser;
 use quillmark::{
     CardSchema, Diagnostic, Document, FieldSchema, Quill, Quillmark, RenderOptions, Severity,
+    EXAMPLE_FILE,
 };
 use indexmap::IndexMap;
 use std::path::{Path, PathBuf};
@@ -87,8 +88,8 @@ pub fn execute(args: ValidateArgs) -> Result<()> {
     let mut example = read_example(&quill);
     if args.verbose {
         match example {
-            Some(_) => println!("  Example: {}", Quill::EXAMPLE_FILE),
-            None => println!("  Example: none (no file {} at the quill root)", Quill::EXAMPLE_FILE),
+            Some(_) => println!("  Example: {EXAMPLE_FILE}"),
+            None => println!("  Example: none (no {EXAMPLE_FILE} at the quill root)"),
         }
     }
     if render {
@@ -174,8 +175,7 @@ fn report_example(example: Example, result: &mut ValidationResult) {
     result.add(
         Severity::Error,
         format!(
-            "the example document '{}' carries {} diagnostic(s)",
-            Quill::EXAMPLE_FILE,
+            "the example document '{EXAMPLE_FILE}' carries {} diagnostic(s)",
             example.diagnostics.len()
         ),
         "cli::example_not_clean",

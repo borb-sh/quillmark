@@ -93,11 +93,11 @@ Identity resolution:
 
 ## The example document
 
-The example is the file `example.md` at the quill root, found by name as
-`Quill.yaml` is (`Quill::EXAMPLE_FILE`): a filled-in page for judging the
-quill. Its values are made up and nobody keeps them; starter content someone
-keeps is a template. Only the root file counts, its name matched exactly; one
-in a subdirectory is an ordinary file. `Quill.yaml` declares nothing about it.
+The quill's example is the file `example.md` at its root, found by name as
+`Quill.yaml` is; `Quill.yaml` declares nothing about it. It is a filled-in page
+for judging the quill. Its values are made up and nobody keeps them; starter
+content someone keeps is a template. Only the root file, name matched exactly,
+is the example; an `example.md` in a subdirectory is an ordinary file.
 
 - **A document like any other.** It holds cards, bodies, nested rows and matrix
   cells. A partial one is valid, and a field it leaves out renders its default.
@@ -107,10 +107,10 @@ in a subdirectory is an ordinary file. `Quill.yaml` declares nothing about it.
 - **Pinned when handed out.** `Quill::example_document` parses it, refuses a
   `$quill` that is not the bare name (`quill::example_reference`), pins
   `$quill` to `name@version` as the seed does, and conforms it as
-  `Quill::parse` does. A diagnostic located in the document names the
-  example's path as its file. `None` means the quill has no example.
-- **Judged by `quillmark validate`, not at load.** The load never reads it, so
-  the example never refuses one, present or absent. `validate` fails the quill
+  `Quill::parse` does. A diagnostic located in the document names
+  `example.md` as its file. `None` means the quill has no `example.md`.
+- **Judged by `quillmark validate`, not at load.** The load never reads the
+  example, present or absent, so it never refuses one. `validate` fails the quill
   on any diagnostic the example carries, a warning included ([CLI.md](CLI.md)).
 
 A consumer takes the example from the `Quill` it holds, never by resolving the

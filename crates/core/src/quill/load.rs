@@ -16,7 +16,8 @@ impl Quill {
     /// Returns a non-empty `Vec<Diagnostic>` describing every problem found.
     /// When `Quill.yaml` itself contains multiple errors they are all
     /// reported together. Backend-specific assets (e.g. a Typst plate) are
-    /// not read here: a backend resolves its own inputs at render time.
+    /// not read here: a backend resolves its own inputs at render time, and
+    /// neither is the example document.
     ///
     /// Advisory diagnostics ride the quill, readable at any time from
     /// [`warnings`](Self::warnings).

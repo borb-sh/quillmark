@@ -1,13 +1,15 @@
+//! `example.md` at the quill root: `example_document` parses, pairs, pins, and
+//! conforms it, and the load never reads it.
 use super::*;
 
 const MANIFEST: &str = "quill:\n  name: memo\n  version: \"1.2.0\"\n  backend: typst\n  \
                         description: memo\nmain:\n  fields:\n    subject:\n      type: string\n";
 
-fn load(markdown: &str) -> Result<Quill, Vec<Diagnostic>> {
-    Quill::from_tree(tree(&[
+fn load(markdown: &str) -> Quill {
+    quill_from(&[
         ("Quill.yaml", MANIFEST.as_bytes()),
-        ("example.md", markdown.as_bytes()),
-    ]))
+        (EXAMPLE_FILE, markdown.as_bytes()),
+    ])
 }
 
 fn codes(diags: &[Diagnostic]) -> Vec<&str> {
@@ -16,8 +18,7 @@ fn codes(diags: &[Diagnostic]) -> Vec<&str> {
 
 #[test]
 fn the_example_is_handed_out_pinned_to_its_quill_version() {
-    let quill = load("~~~\n$quill: memo\nsubject: Budget review\n~~~\n\nFilled-in prose.\n")
-        .expect("loads");
+    let quill = load("~~~\n$quill: memo\nsubject: Budget review\n~~~\n\nFilled-in prose.\n");
 
     let parsed = quill.example_document().expect("present").expect("parses");
 
@@ -29,27 +30,29 @@ fn the_example_is_handed_out_pinned_to_its_quill_version() {
     );
 }
 
+/// Only the root `example.md` is the example, and the load reads none of it.
 #[test]
-fn only_the_root_example_md_is_the_example() {
-    let example = "~~~\n$quill: memo\n~~~\n".as_bytes();
-    for elsewhere in ["examples/example.md", "Example.md"] {
-        let quill = Quill::from_tree(tree(&[
-            ("Quill.yaml", MANIFEST.as_bytes()),
-            (elsewhere, example),
-        ]))
-        .expect("loads");
-        assert!(quill.example_document().is_none(), "{elsewhere}");
+fn the_example_is_the_root_file_by_name_and_never_refuses_a_load() {
+    let body = b"~~~\n$quill: memo\n~~~\n";
+    for entries in [
+        &[("Quill.yaml", MANIFEST.as_bytes())][..],
+        &[("Quill.yaml", MANIFEST.as_bytes()), ("examples/example.md", body)],
+        &[("Quill.yaml", MANIFEST.as_bytes()), ("Example.md", body)],
+    ] {
+        assert!(quill_from(entries).example_document().is_none());
     }
-}
 
-#[test]
-fn the_load_never_reads_the_example() {
-    let broken =
-        load("~~~\n$quill: memo\nsubject: [unclosed\n~~~\n").expect("content never refuses a load");
+    let refused = QuillConfig::from_yaml_with_warnings(
+        &MANIFEST.replace("description: memo\n", "description: memo\n  example: example.md\n"),
+    )
+    .expect_err("`quill.example` is no key");
+    assert_eq!(codes(&refused), ["quill::unknown_key"]);
+
+    let broken = load("~~~\n$quill: memo\nsubject: [unclosed\n~~~\n");
     let errors = broken.example_document().expect("present").expect_err("does not parse");
     assert_eq!(
         errors[0].location.as_ref().map(|l| l.file.as_str()),
-        Some("example.md"),
+        Some(EXAMPLE_FILE),
         "{errors:?}"
     );
 }
@@ -57,8 +60,7 @@ fn the_load_never_reads_the_example() {
 #[test]
 fn the_example_names_its_quill_with_no_selector() {
     for reference in ["memo@1", "memo@1.2.0", "letter"] {
-        let quill = load(&format!("~~~\n$quill: {reference}\n~~~\n")).expect("loads");
-        let errors = quill
+        let errors = load(&format!("~~~\n$quill: {reference}\n~~~\n"))
             .example_document()
             .expect("present")
             .expect_err(reference);
