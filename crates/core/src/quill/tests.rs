@@ -923,15 +923,24 @@ fn a_malformed_ui_or_body_block_reports_its_own_code_on_main_and_card_kinds() {
 /// depth, or on a body is an unknown key.
 #[test]
 fn an_example_key_is_refused_on_a_field_and_a_body() {
-    let err = quill_with_field(
+    for field in [
+        "    f: { type: string, example: x }\n",
         "    f:\n      type: object\n      properties:\n        g: { type: string, example: x }\n",
-    )
-    .unwrap_err();
-    let diag = err
-        .iter()
-        .find(|d| d.code.as_deref() == Some("quill::field_parse_error"))
-        .unwrap_or_else(|| panic!("{err:?}"));
-    assert!(diag.hint.as_deref().is_some_and(|h| h.contains("description:")), "{diag:?}");
+        "    f:\n      type: array\n      items: { type: string, example: x }\n",
+        "    f:\n      type: enum\n      values: [a]\n      variants:\n        a:\n          g: { type: string, example: x }\n",
+        // The hint answers the key refused, not another mistake beside it.
+        "    f:\n      type: object\n      example: {}\n      properties:\n        g: { type: string, ui: { title: G } }\n",
+    ] {
+        let err = quill_with_field(field).unwrap_err();
+        let diag = err
+            .iter()
+            .find(|d| d.code.as_deref() == Some("quill::field_parse_error"))
+            .unwrap_or_else(|| panic!("{field}: {err:?}"));
+        assert!(
+            diag.hint.as_deref().is_some_and(|h| h.contains("`default:`")),
+            "{field}: {diag:?}"
+        );
+    }
 
     let err = QuillConfig::from_yaml_with_warnings(
         "quill: { name: x, version: 1.0.0, backend: typst, description: x }\n\

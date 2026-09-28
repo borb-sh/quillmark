@@ -1853,7 +1853,7 @@ impl QuillConfig {
                     fields.insert(field_name.clone(), schema);
                 }
                 Err(e) => {
-                    let hint = Self::field_parse_hint(field_value);
+                    let hint = Self::field_parse_hint(field_value, &e);
                     let mut diag = Diagnostic::new(
                         Severity::Error,
                         format!("Failed to parse {} '{}': {}", context, field_name, e),
@@ -1870,19 +1870,18 @@ impl QuillConfig {
         fields
     }
 
-    fn field_parse_hint(field_value: &serde_json::Value) -> Option<String> {
-        let spells_ui_title =
-            |f: &serde_json::Value| f.get("ui").and_then(|ui| ui.get("title")).is_some();
-        if any_field_schema(field_value, &spells_ui_title) {
+    /// The hint for the key `error` rejected.
+    fn field_parse_hint(field_value: &serde_json::Value, error: &str) -> Option<String> {
+        if error.contains("unknown field `example`") {
             return Some(
-                "A field's label is its own `title:`, beside `description:`; `ui` holds no \
-                 `title`."
+                "A field declares one value, its `default:`. A format hint is `description:` \
+                 text, e.g. `description: Rank and full name, as in Capt Jane Doe`."
                     .to_string(),
             );
         }
-        any_field_schema(field_value, &|f| f.get("example").is_some()).then(|| {
-            "A field declares one value, its `default:`. A format hint is `description:` \
-             text, as in `description: Rank and full name, as in Capt Jane Doe`."
+        spells_ui_title(field_value).then(|| {
+            "A field's label is its own `title:`, beside `description:`; `ui` holds no \
+             `title`."
                 .to_string()
         })
     }
@@ -2396,9 +2395,9 @@ impl QuillConfig {
     }
 }
 
-/// Whether `hit` holds for a raw field schema or for any field schema nested
-/// in it.
-fn any_field_schema(field: &serde_json::Value, hit: &dyn Fn(&serde_json::Value) -> bool) -> bool {
+/// Whether a raw field schema spells `ui.title` on itself or on any field
+/// schema nested in it.
+fn spells_ui_title(field: &serde_json::Value) -> bool {
     let schemas = |key: &str| {
         field
             .get(key)
@@ -2406,14 +2405,13 @@ fn any_field_schema(field: &serde_json::Value, hit: &dyn Fn(&serde_json::Value) 
             .into_iter()
             .flat_map(|m| m.values())
     };
-    let nested = |f: &serde_json::Value| any_field_schema(f, hit);
-    hit(field)
-        || field.get("items").is_some_and(nested)
-        || schemas("properties").any(nested)
+    field.get("ui").and_then(|ui| ui.get("title")).is_some()
+        || field.get("items").is_some_and(spells_ui_title)
+        || schemas("properties").any(spells_ui_title)
         || schemas("variants")
             .filter_map(|world| world.as_object())
             .flat_map(|world| world.values())
-            .any(nested)
+            .any(spells_ui_title)
 }
 
 /// The first `{field}` token in `text`, braces included: a `{`, a snake_case

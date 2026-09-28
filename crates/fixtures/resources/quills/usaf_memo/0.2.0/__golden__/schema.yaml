@@ -1,4 +1,7 @@
 main:
+  description: >-
+    U.S. Air Force and Space Force Official Memorandum. Top-level body paragraphs
+    are auto-numbered and nested bullets auto-lettered, so add no manual numbering.
   fields:
     memo_for:
       type: array

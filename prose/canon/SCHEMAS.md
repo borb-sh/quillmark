@@ -743,7 +743,8 @@ something: the branch is what makes the world's fields readable without a guard
 ### The render date (`today`)
 
 `today` is a `date` value standing for the day of the render. It is valid
-wherever a `date` value is: authored or as a `default:`, at any depth. It is not a `datetime` value.
+wherever a `date` value is, authored or declared as a `default:`, at any depth.
+It is not a `datetime` value.
 
 The engine reads no clock. The date is a required input to the compile,
 supplied by the host at every door that turns a document into plate data:
@@ -843,10 +844,10 @@ interpolated at the compilation layer by
 [blank-filled render](#blank-filled-render) (`default:`, else the field's
 blank), exactly as for any authored document.
 
-Starter content someone chose lives in a template document's own body, or, for a card `seed_card` adds, in
-the main card's `$seed.<kind>.$body`. Persisting a `default` would be
-redundant (the floor interpolates it anyway) and would *freeze* it against a
-later schema change; persisting a blank is forbidden
+Starter content someone chose lives in a template document's own body, or, for
+a card `seed_card` adds, in the main card's `$seed.<kind>.$body`. Persisting a
+`default` would be redundant (the floor interpolates it anyway) and would
+*freeze* it against a later schema change; persisting a blank is forbidden
 ([Non-persist invariant](#blank-filled-render)). So a fresh seed renders exactly
 as the empty document does, plus its cards, and a split-screen editor/preview
 stays consistent: absent fields resolve identically in both panes.
@@ -982,7 +983,7 @@ defaults (`default: ""`, `[]`, `false`, `0`) are the canonical way to mark a
 one, since the container holds no literal
 ([Cells and namespaces](#cells-and-namespaces)).
 
-Everything else a slot declares is text, not a value: `title` labels it and
+A slot's `title` and `description` are text, not values: `title` labels it and
 `description` guides it, a format hint included (`description: Name as signed,
 as in FIRST M. LAST, Capt, USAF.`). No key holds a sample value.
 
