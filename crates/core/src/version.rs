@@ -152,17 +152,6 @@ impl FromStr for VersionSelector {
     }
 }
 
-impl fmt::Display for VersionSelector {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            VersionSelector::Exact(v) => write!(f, "@{}", v),
-            VersionSelector::Minor(major, minor) => write!(f, "@{}.{}", major, minor),
-            VersionSelector::Major(m) => write!(f, "@{}", m),
-            VersionSelector::Any => Ok(()),
-        }
-    }
-}
-
 /// Canonical, author-facing `$quill` reference grammar.
 const QUILL_REF_HINT: &str = "A $quill reference is `<name>` or `<name>@<selector>`. \
 The name must match `[a-z_][a-z0-9_]*` (start with a lowercase letter or underscore, then \
@@ -230,9 +219,17 @@ impl FromStr for QuillReference {
     }
 }
 
+/// `VersionSelector` has no `Display`: `Any` is written as an absence, which
+/// reads as nothing outside a reference.
 impl fmt::Display for QuillReference {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}{}", self.name, self.selector)
+        f.write_str(&self.name)?;
+        match self.selector {
+            VersionSelector::Exact(v) => write!(f, "@{}", v),
+            VersionSelector::Minor(major, minor) => write!(f, "@{}.{}", major, minor),
+            VersionSelector::Major(m) => write!(f, "@{}", m),
+            VersionSelector::Any => Ok(()),
+        }
     }
 }
 
@@ -341,20 +338,6 @@ mod tests {
         assert!(any.matches(v3_0_0));
     }
 
-    /// Every selector prints the one spelling that parses back to it; `Any`
-    /// has no spelling, so it prints nothing.
-    #[test]
-    fn test_version_selector_display_round_trips() {
-        for (selector, written) in [
-            (VersionSelector::Exact(Version::new(2, 1, 0)), "@2.1.0"),
-            (VersionSelector::Minor(2, 1), "@2.1"),
-            (VersionSelector::Major(2), "@2"),
-            (VersionSelector::Any, ""),
-        ] {
-            assert_eq!(selector.to_string(), written);
-            assert_eq!(VersionSelector::from_str(written).unwrap(), selector);
-        }
-    }
 
     /// The bare name is the only way to match any version: `@latest` is
     /// refused, so no second spelling of `Any` exists to be erased by a round
@@ -393,21 +376,19 @@ mod tests {
         assert!(QuillReference::from_str("template2@2.1.0").is_ok());
     }
 
+    /// Every reference prints the one spelling that parses back to it; `Any`
+    /// is the bare name.
     #[test]
-    fn test_quill_reference_display() {
-        let ref1 = QuillReference::new(
-            "resume".to_string(),
-            VersionSelector::Exact(Version::new(2, 1, 0)),
-        );
-        assert_eq!(ref1.to_string(), "resume@2.1.0");
-
-        let ref1b = QuillReference::new("resume".to_string(), VersionSelector::Minor(2, 1));
-        assert_eq!(ref1b.to_string(), "resume@2.1");
-
-        let ref2 = QuillReference::new("resume".to_string(), VersionSelector::Major(2));
-        assert_eq!(ref2.to_string(), "resume@2");
-
-        let ref3 = QuillReference::new("resume".to_string(), VersionSelector::Any);
-        assert_eq!(ref3.to_string(), "resume");
+    fn test_quill_reference_display_round_trips() {
+        for (selector, written) in [
+            (VersionSelector::Exact(Version::new(2, 1, 0)), "resume@2.1.0"),
+            (VersionSelector::Minor(2, 1), "resume@2.1"),
+            (VersionSelector::Major(2), "resume@2"),
+            (VersionSelector::Any, "resume"),
+        ] {
+            let reference = QuillReference::new("resume".to_string(), selector);
+            assert_eq!(reference.to_string(), written);
+            assert_eq!(QuillReference::from_str(written).unwrap(), reference);
+        }
     }
 }
