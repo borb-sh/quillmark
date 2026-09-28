@@ -46,14 +46,15 @@ them.
   `--no-render`. A backend that does not resolve is `cli::backend_unresolved`,
   and a configuration the read already refused is not compiled: each document
   would fail for the reason already named.
-- **`validate` holds the example to no diagnostic.** A quill declaring
-  `quill.example` has its example read through `Quill::example_document`,
+- **`validate` holds the example to no diagnostic.** A quill with a root
+  `example.md` has its example read through `Quill::example_document`,
   checked by `Quill::validate`, and, unless `--no-render`, rendered after the
   canonical documents. Any diagnostic on it fails the quill, a warning
   included: one `cli::example_not_clean` error names the file and the count,
   and each diagnostic follows at `Error` severity. A render warning a canonical
   document raised too is the plate's, and does not count against the example.
-  A render that fails adds `cli::example_render_failed`.
+  A render that fails adds `cli::example_render_failed`. `--verbose` names
+  whether the quill has an example, so a misspelled one reads as none.
 - **The render date is the local date.** `render`, `validate` and `workspace` supply it
   to the engine, which reads no clock; `render --today YYYY-MM-DD` pins it for
   a reproducible render. The local offset unreadable, the date is UTC's.

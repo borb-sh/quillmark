@@ -3,7 +3,6 @@ quill:
   version: 0.1.0
   backend: typst
   description: A project status report — a date, a state enum, and one card per milestone
-  example: example.md
 
 typst:
   plate_file: plate.typ

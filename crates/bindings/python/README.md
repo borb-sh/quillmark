@@ -68,7 +68,7 @@ diags   = quill.conform(doc)              # the same walk in place on a transpor
 diags   = quill.validate(parsed)          # list of validation::* diagnostic dicts ([] = valid)
 empty   = quill.empty_document()          # the empty Document: $quill + $kind: main, nothing committed
 seed    = quill.seed_document()           # starter Document: one card per kind, bodies empty
-example = quill.example_document()        # the quill's made-up filled-in page, pinned; None if it declares none
+example = quill.example_document()        # the quill's made-up filled-in page, pinned; None without example.md
 main    = quill.seed_main()               # just the $kind: main card (dict, like doc.main)
 card    = quill.seed_card("note")         # one starter composable card (dict), None if kind undeclared
 

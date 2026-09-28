@@ -43,7 +43,6 @@ Every Quill.yaml must have a `quill` section with format metadata.
 | `description`    | string | yes      | Human-readable description of the quill itself (non-empty). Independent of `main.description`, which is the optional schema description authored under `main:`. |
 | `version`        | string | yes      | Semantic version (`MAJOR.MINOR` or `MAJOR.MINOR.PATCH`) |
 | `author`         | string | no       | Creator of the Quill (defaults to `"Unknown"`) |
-| `example`        | string | no       | Path (relative to the quill root) to the quill's [example document](#example-document) |
 | `ui`             | object | no       | Document-level UI metadata |
 
 A backend's own settings live under its backend-named section, not in `quill:`.
@@ -64,19 +63,10 @@ typst:
 
 ### Example document
 
-`quill.example` names a Markdown document that shows the quill filled in: values
-that agree with each other, nested rows and matrix cells with something in them,
-bodies with text. Its values are made up and nobody keeps them. Starter content
-people keep is a template, not an example.
-
-```yaml
-quill:
-  name: status_report
-  version: 0.1.0
-  backend: typst
-  description: A project status report
-  example: example.md
-```
+`example.md` at the quill root, beside `Quill.yaml`, shows the quill filled in:
+values that agree with each other, nested rows and matrix cells with something
+in them, bodies with text. Its values are made up and nobody keeps them. Starter
+content people keep is a template, not an example.
 
 ```markdown
 ~~~
@@ -88,13 +78,17 @@ state: at risk
 The cutover rehearsal slipped a week while the data owners review the mapping.
 ```
 
+- It is optional, and found by name: `Quill.yaml` declares nothing. Only the
+  root `example.md` counts, spelled exactly; one in a subdirectory is an
+  ordinary file.
 - It is written like any document for the quill. A field it leaves out renders
   its default.
 - Its `$quill` is the quill's bare name, with no `@` version. The quill pins it
   to its own `name@version` when it hands it out (`Quill.example_document()`).
-- Loading the quill checks only that the file exists. `quillmark validate`
-  renders it beside the empty document, the blueprint and the seed, and any
-  diagnostic on it fails the quill, a warning included.
+- Loading the quill never reads it. `quillmark validate` renders it beside the
+  empty document, the blueprint and the seed, and any diagnostic on it fails
+  the quill, a warning included. `quillmark validate --verbose` names whether
+  it found one.
 
 ---
 

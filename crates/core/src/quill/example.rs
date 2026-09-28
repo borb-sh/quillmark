@@ -1,4 +1,4 @@
-//! The quill's example document (`quill.example`).
+//! The quill's example document, `example.md` at its root.
 use crate::document::{Document, Parsed};
 use crate::error::{Diagnostic, Severity, DOCUMENT_FILE};
 use crate::version::VersionSelector;
@@ -6,10 +6,14 @@ use crate::version::VersionSelector;
 use super::Quill;
 
 impl Quill {
-    /// The quill's example document, `None` when `Quill.yaml` declares no
-    /// `quill.example`: a filled-in page whose values are made up to show what
-    /// the quill looks like in use. Nobody keeps it; starter content someone
-    /// keeps is a template.
+    /// The path of the example document: the root file of this name, matched
+    /// exactly. One in a subdirectory is an ordinary file.
+    pub const EXAMPLE_FILE: &'static str = "example.md";
+
+    /// The quill's example document, `None` when the quill has no
+    /// [`EXAMPLE_FILE`](Self::EXAMPLE_FILE): a filled-in page whose values are
+    /// made up to show what the quill looks like in use. Nobody keeps it;
+    /// starter content someone keeps is a template.
     ///
     /// The file's `$quill` names this quill with no version selector. The
     /// document comes back pinned to this quill's `name@version`, as
@@ -24,25 +28,22 @@ impl Quill {
     /// (`parse::*`), or its `$quill` names another quill or carries a version
     /// selector (`quill::example_reference`).
     pub fn example_document(&self) -> Option<Result<Parsed, Vec<Diagnostic>>> {
-        let path = self.config.example.as_deref()?;
-        let mut example = self.read_example(path);
+        let bytes = self.files.get_file(Self::EXAMPLE_FILE)?;
+        let mut example = self.read_example(bytes);
         let diagnostics = match &mut example {
             Ok(parsed) => &mut parsed.warnings,
             Err(errors) => errors,
         };
         for location in diagnostics.iter_mut().filter_map(|d| d.location.as_mut()) {
             if location.file == DOCUMENT_FILE {
-                location.file = path.to_string();
+                location.file = Self::EXAMPLE_FILE.to_string();
             }
         }
         Some(example)
     }
 
-    fn read_example(&self, path: &str) -> Result<Parsed, Vec<Diagnostic>> {
-        let bytes = self
-            .files
-            .get_file(path)
-            .ok_or_else(|| vec![super::load::example_missing(path)])?;
+    fn read_example(&self, bytes: &[u8]) -> Result<Parsed, Vec<Diagnostic>> {
+        let path = Self::EXAMPLE_FILE;
         let markdown = std::str::from_utf8(bytes).map_err(|e| {
             vec![Diagnostic::new(
                 Severity::Error,

@@ -169,22 +169,32 @@ card_kinds:
 }
 
 /// A warning on the example fails the quill, which it fails on no canonical
-/// document, and a config-only validate reads the example too.
+/// document, and a config-only validate reads the example too. `-v` names
+/// whether there is one.
 #[test]
 fn validate_fails_a_quill_whose_example_warns() {
     let dir = quill_with_config(
-        "quill:\n  name: w\n  version: 0.1.0\n  backend: typst\n  description: w\n  \
-         example: example.md\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    \
+        "quill:\n  name: w\n  version: 0.1.0\n  backend: typst\n  description: w\n\
+         typst:\n  plate_file: plate.typ\nmain:\n  fields:\n    \
          title:\n      description: title of document\n      type: string\n",
     );
     std::fs::write(dir.path().join("plate.typ"), "hi\n").expect("write plate.typ");
+    let path = dir.path().to_str().unwrap();
+    let verbose = |expected: &str| {
+        let out = run(&["validate", path, "--no-render", "-v"]);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains(expected), "{stdout}");
+    };
+
+    verbose("Example: none (no example.md at the quill root)");
+
     std::fs::write(
         dir.path().join("example.md"),
         "~~~\n$quill: w\ntitel: A made-up title\n~~~\n",
     )
     .expect("write example.md");
-    let path = dir.path().to_str().unwrap();
 
+    verbose("Example: example.md");
     for args in [&["validate", path][..], &["validate", path, "--no-render"]] {
         let out = run(args);
         assert_eq!(out.status.code(), Some(1), "{args:?} exited {:?}", out.status.code());

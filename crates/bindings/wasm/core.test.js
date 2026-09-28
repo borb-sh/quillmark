@@ -79,8 +79,6 @@ describe('@quillmark/wasm/core surface', () => {
 
     const withExample = (markdown) => {
       const tree = makeCoreQuill()
-      const yaml = new TextDecoder().decode(tree.get('Quill.yaml'))
-      tree.set('Quill.yaml', enc.encode(yaml.replace('main:', '  example: example.md\nmain:')))
       tree.set('example.md', enc.encode(markdown))
       return Quill.fromTree(tree)
     }
