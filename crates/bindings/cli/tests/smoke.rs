@@ -173,8 +173,8 @@ card_kinds:
 #[test]
 fn validate_fails_a_quill_whose_example_warns() {
     let dir = quill_with_config(
-        "quill:\n  name: w\n  version: 0.1.0\n  backend: typst\n  description: w\n  \
-         example: example.md\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    \
+        "quill:\n  name: w\n  version: 0.1.0\n  backend: typst\n  description: w\n\
+         typst:\n  plate_file: plate.typ\nmain:\n  fields:\n    \
          title:\n      description: title of document\n      type: string\n",
     );
     std::fs::write(dir.path().join("plate.typ"), "hi\n").expect("write plate.typ");

@@ -280,8 +280,8 @@ impl PyQuill {
         }
     }
 
-    /// The quill's example document, `None` when `Quill.yaml` declares no
-    /// `quill.example`: a filled-in page whose values are made up to show the
+    /// The quill's example document, `None` when the quill has no
+    /// `example.md` at its root: a filled-in page whose values are made up to show the
     /// quill in use, never kept. It comes back pinned to this quill's
     /// `name@version` and conformed as `parse` conforms, its parse and
     /// `conform::*` warnings on `doc.warnings`. Raises `QuillmarkError` when

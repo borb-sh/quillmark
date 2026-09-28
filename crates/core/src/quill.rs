@@ -20,6 +20,7 @@ pub(crate) mod validation;
 pub use config::{CoercionError, QuillConfig};
 pub(crate) use config::{Leniency, PLAINTEXT_TRAILING_NEWLINE};
 pub use conform::BoundParseError;
+pub use example::EXAMPLE_FILE;
 pub use resolved::{FieldSource, Resolved, ResolvedCard, ResolvedField, ResolvedMain};
 pub(crate) use resolved::resolve_document;
 pub use fill::blank;

@@ -46,8 +46,8 @@ them.
   `--no-render`. A backend that does not resolve is `cli::backend_unresolved`,
   and a configuration the read already refused is not compiled: each document
   would fail for the reason already named.
-- **`validate` holds the example to no diagnostic.** A quill declaring
-  `quill.example` has its example read through `Quill::example_document`,
+- **`validate` holds the example to no diagnostic.** A quill with an
+  `example.md` at its root has it read through `Quill::example_document`,
   checked by `Quill::validate`, and, unless `--no-render`, rendered after the
   canonical documents. Any diagnostic on it fails the quill, a warning
   included: one `cli::example_not_clean` error names the file and the count,

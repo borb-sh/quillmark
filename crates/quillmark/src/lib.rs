@@ -42,7 +42,7 @@ pub use quillmark_core::{
     },
     quill::{
         BoundParseError, CalendarDate, CardSchema, FieldSchema, FieldType, FileTreeNode,
-        ParseDateError, Quill, QuillConfig, QuillIgnore, ValidationError,
+        ParseDateError, Quill, QuillConfig, QuillIgnore, ValidationError, EXAMPLE_FILE,
     },
     reader::{CardReader, TypedReader},
     region::{ContentHit, HitGranularity, RenderedRegion},

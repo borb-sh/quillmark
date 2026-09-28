@@ -139,10 +139,12 @@ three canonical documents: the empty document, the blueprint, and the seed. A
 plate that renders its seed and not the empty document fails here, which is the
 quill authoring contract every plate is bound by.
 
-A quill that declares `quill.example` has its example document read, validated,
-and rendered too. Any diagnostic on it fails the quill, a warning included
-(`cli::example_not_clean`): the example's values are the author's own, so a
-warning there is a mistake to fix. `--no-render` still reads and validates it.
+A quill with an `example.md` at its root has that example document read,
+validated, and rendered too. Any diagnostic on it fails the quill, a warning
+included (`cli::example_not_clean`): the example's values are the author's own,
+so a warning there is a mistake to fix. `--no-render` still reads and validates
+it. `--verbose` names the example it found, or says there is none, so a
+misspelled `examples.md` shows.
 
 ```bash
 quillmark validate [OPTIONS] <QUILL_PATH>
