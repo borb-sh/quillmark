@@ -74,6 +74,30 @@ describe('@quillmark/wasm/core surface', () => {
     expect(empty.cards.length).toBe(0)
   })
 
+  it('exampleDocument hands out the pinned example, undefined without one, and throws coded', () => {
+    expect(Quill.fromTree(makeCoreQuill()).exampleDocument()).toBeUndefined()
+
+    const withExample = (markdown) => {
+      const tree = makeCoreQuill()
+      const yaml = new TextDecoder().decode(tree.get('Quill.yaml'))
+      tree.set('Quill.yaml', enc.encode(yaml.replace('main:', '  example: example.md\nmain:')))
+      tree.set('example.md', enc.encode(markdown))
+      return Quill.fromTree(tree)
+    }
+
+    const doc = withExample('~~~\n$quill: core_test\ntitle: A made-up title\n~~~\n').exampleDocument()
+    expect(doc.quillRef).toBe('core_test@1.0.0')
+    expect(field(doc.main, 'title')).toBe('A made-up title')
+    expect(doc.warnings).toEqual([])
+
+    try {
+      withExample('~~~\n$quill: core_test@1\n~~~\n').exampleDocument()
+      expect.unreachable('a pinned example throws')
+    } catch (err) {
+      expect(err.diagnostics[0].code).toBe('quill::example_reference')
+    }
+  })
+
   it('seedCard commits a $seed overlay, and no field without one', () => {
     const yaml = `quill:
   name: seed_core

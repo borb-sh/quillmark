@@ -719,6 +719,26 @@ impl Quill {
         }
     }
 
+    /// The quill's example document, `undefined` when `Quill.yaml` declares no
+    /// `quill.example`: a filled-in page whose values are made up to show the
+    /// quill in use, never kept. It comes back pinned to this quill's
+    /// `name@version` and conformed as `parse` conforms, its parse and
+    /// `conform::*` warnings on `doc.warnings`. Throws when the file does not
+    /// parse or its `$quill` is not this quill's bare name.
+    #[wasm_bindgen(js_name = exampleDocument)]
+    pub fn example_document(&self) -> Result<Option<Document>, JsValue> {
+        self.inner
+            .example_document()
+            .map(|example| {
+                let parsed = example.map_err(|e| WasmError::from(e).to_js_value())?;
+                Ok(Document {
+                    inner: parsed.document,
+                    parse_warnings: parsed.warnings,
+                })
+            })
+            .transpose()
+    }
+
     /// Seed a starter `Document` from the schema: the main card plus one instance
     /// of each composable card kind, each body empty and every field absent
     /// (interpolated at render as `default:`, else the field's blank).

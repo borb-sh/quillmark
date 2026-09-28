@@ -3,6 +3,7 @@ quill:
   version: 0.2.0
   backend: typst
   description: U.S. Air Force and Space Force Official Memorandum
+  example: example.md
 
 typst:
   plate_file: plate.typ

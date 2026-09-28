@@ -197,3 +197,28 @@ def test_the_wrong_quill_raises_before_any_mutation(tmp_path):
     with pytest.raises(QuillmarkError):
         quill.conform(doc)
     assert doc.to_stored() == before
+
+
+def test_example_document_is_pinned_none_without_one_and_raises_coded(tmp_path):
+    from quillmark import QuillmarkError
+
+    assert make_quill(tmp_path).example_document() is None
+
+    def with_example(markdown, name):
+        quill_dir = tmp_path / name
+        quill_dir.mkdir()
+        yaml = QUILL_YAML_CONTENT.replace("\nmain:", "  example: example.md\n\nmain:", 1)
+        (quill_dir / "Quill.yaml").write_text(yaml)
+        (quill_dir / "example.md").write_text(markdown)
+        return Quill.from_path(quill_dir)
+
+    doc = with_example(
+        "~~~\n$quill: py_validate_smoke\ntitle: A made-up title\n~~~\n", "clean"
+    ).example_document()
+    assert doc.quill_ref == "py_validate_smoke@1.0"
+    assert field(doc.main, "title") == "A made-up title"
+    assert doc.warnings == []
+
+    with pytest.raises(QuillmarkError) as excinfo:
+        with_example("~~~\n$quill: py_validate_smoke@1\n~~~\n", "pinned").example_document()
+    assert excinfo.value.diagnostics[0].code == "quill::example_reference"

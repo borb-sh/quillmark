@@ -65,7 +65,7 @@ fn seeded_rest(name: &str, value: &QuillValue, field: &crate::quill::FieldSchema
 /// `$quill` reference for the main card, as `name@version`. Falls back to a
 /// versionless reference if the configured version is unparseable (it is
 /// validated at quill load, so the fallback is defensive only).
-fn main_reference(quill: &Quill) -> QuillReference {
+pub(crate) fn main_reference(quill: &Quill) -> QuillReference {
     let config = quill.config();
     format!("{}@{}", config.name, config.version)
         .parse()
