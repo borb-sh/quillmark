@@ -110,9 +110,6 @@ pub struct QuillConfig {
     /// selector a document's `$quill` carries.
     pub version: String,
     pub author: String,
-    /// `quill.example`: the path, relative to the quill root, of the quill's
-    /// example document. See [`Quill::example_document`](crate::quill::Quill::example_document).
-    pub example: Option<String>,
     /// The top-level YAML section whose key matches `backend`.
     #[serde(default)]
     pub backend_config: HashMap<String, QuillValue>,
@@ -135,7 +132,6 @@ impl QuillConfig {
             backend,
             version,
             author: String::new(),
-            example: None,
             backend_config: HashMap::new(),
         }
     }
@@ -1967,7 +1963,7 @@ impl QuillConfig {
         };
 
         const KNOWN_QUILL_KEYS: &[&str] =
-            &["name", "backend", "description", "version", "author", "example", "ui"];
+            &["name", "backend", "description", "version", "author", "ui"];
         if let Some(quill_obj) = quill_section.as_object() {
             for key in quill_obj.keys() {
                 if !KNOWN_QUILL_KEYS.contains(&key.as_str()) {
@@ -2122,28 +2118,6 @@ impl QuillConfig {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .unwrap_or_else(|| "Unknown".to_string());
-
-        let example = match quill_section.get("example") {
-            None | Some(serde_json::Value::Null) => None,
-            Some(serde_json::Value::String(path)) if !path.trim().is_empty() => {
-                Some(path.clone())
-            }
-            Some(_) => {
-                errors.push(
-                    Diagnostic::new(
-                        Severity::Error,
-                        "'example' in 'quill' section must name a file in the quill".to_string(),
-                    )
-                    .with_code("quill::invalid_example".to_string())
-                    .with_hint(
-                        "Write the path of a Markdown document relative to the quill root, \
-                         e.g. 'example: example.md'."
-                            .to_string(),
-                    ),
-                );
-                None
-            }
-        };
 
         let body_hint = format!(
             "Valid keys under 'body' are: {}.",
@@ -2406,7 +2380,6 @@ impl QuillConfig {
                 backend,
                 version,
                 author,
-                example,
                 backend_config,
             },
             warnings,

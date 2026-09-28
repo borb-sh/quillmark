@@ -63,8 +63,6 @@ Validation rules:
 1. Root MUST be a directory node
 2. `Quill.yaml` MUST exist and be valid YAML
 3. File paths use `/` separators and are resolved relative to root
-4. A declared `quill.example` MUST name a file in the tree
-   (`quill::example_missing`); its content is not read
 
 Core reads no backend-specific assets at load time. A backend resolves its own
 inputs from the file bundle when it opens a session (the Typst backend reads its
@@ -87,7 +85,7 @@ Field names must be `snake_case` (match `[a-z][a-z0-9_]*`). Capitalized or `$`-p
 Identity resolution:
 - `name`, `description`, `backend`, `version`, `author` are direct struct fields on `QuillConfig`. `description` (required, non-empty in the `quill:` section) describes the quill itself; it is independent of `QuillConfig.main.description`, which is the optional schema description authored under `main:` like any other card kind.
 - The `quill:` section accepts only `name`, `backend`, `description`, `version`,
-  `author`, `example`, and `ui`; an unknown key is a `quill::unknown_key` error. A
+  `author`, and `ui`; an unknown key is a `quill::unknown_key` error. A
   backend's own settings (e.g. the Typst plate) live under the backend-named
   section, never in `quill:`, and reach a backend as
   `QuillConfig::backend_config`.
@@ -95,9 +93,11 @@ Identity resolution:
 
 ## The example document
 
-`quill.example` names one optional Markdown document, by its path relative to
-the quill root: a filled-in page for judging the quill. Its values are made up
-and nobody keeps them; starter content someone keeps is a template.
+The quill's example is the file `example.md` at its root, found by name as
+`Quill.yaml` is; `Quill.yaml` declares nothing about it. It is a filled-in page
+for judging the quill. Its values are made up and nobody keeps them; starter
+content someone keeps is a template. Only the root file, name matched exactly,
+is the example; an `example.md` in a subdirectory is an ordinary file.
 
 - **A document like any other.** It holds cards, bodies, nested rows and matrix
   cells. A partial one is valid, and a field it leaves out renders its default.
@@ -107,10 +107,10 @@ and nobody keeps them; starter content someone keeps is a template.
 - **Pinned when handed out.** `Quill::example_document` parses it, refuses a
   `$quill` that is not the bare name (`quill::example_reference`), pins
   `$quill` to `name@version` as the seed does, and conforms it as
-  `Quill::parse` does. A diagnostic located in the document names the
-  example's path as its file. `None` means the quill declares no example.
-- **Judged by `quillmark validate`, not at load.** The load checks only that
-  the file exists, so the example never refuses one. `validate` fails the quill
+  `Quill::parse` does. A diagnostic located in the document names
+  `example.md` as its file. `None` means the quill has no `example.md`.
+- **Judged by `quillmark validate`, not at load.** The load never reads the
+  example, present or absent, so it never refuses one. `validate` fails the quill
   on any diagnostic the example carries, a warning included ([CLI.md](CLI.md)).
 
 A consumer takes the example from the `Quill` it holds, never by resolving the
@@ -128,7 +128,6 @@ example's `$quill`.
 - `object` fields without a `properties` map error with `quill::object_missing_properties`; an empty `properties` map errors with `quill::object_empty_properties`.
 - Malformed `quill.ui` / `main.ui` / `card_kinds.<name>.ui` blocks error with `quill::invalid_ui` rather than being silently discarded; one spelling `title` is hinted to the card's own `title:`.
 - A `ui.layout: table` column that is not a leaf errors with `quill::table_column_not_flat`, naming the column: declaring the key contracts the shape the control needs, leaving an editor only the capability decline ([SCHEMAS.md](SCHEMAS.md#schema-emission)).
-- A `quill.example` that is not a non-empty string errors with `quill::invalid_example`.
 - Malformed `main.body` / `card_kinds.<name>.body` blocks, `enabled` being the one key, error with `quill::invalid_body`.
 - A card declaring more than `MAX_FIELD_COUNT` (1000) fields errors with `quill::too_many_fields`: seeding and the blueprint build one card-yaml block per card schema, so the block's cap is the schema's to meet. Counted per card over declared fields alone — nested `properties`, array `items`, and `variants:` cells ride inside the field declaring them.
 
