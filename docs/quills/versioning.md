@@ -46,13 +46,13 @@ Supported selectors:
 
 | Selector | Meaning |
 |---|---|
-| `my_quill` | Latest available version |
-| `my_quill@1` | Latest 1.x.x |
-| `my_quill@1.2` | Latest 1.2.x |
+| `my_quill` | Any version |
+| `my_quill@1` | Any 1.x.x |
+| `my_quill@1.2` | Any 1.2.x |
 | `my_quill@1.2.0` | Exact version |
 
 A selector is digits only. There is no `@latest`: `my_quill@latest` fails to
-parse, and the bare name is the way to ask for the latest version.
+parse; the bare name matches any version.
 
 ## Compatibility Checks
 

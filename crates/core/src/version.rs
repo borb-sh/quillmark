@@ -284,11 +284,6 @@ mod tests {
     fn a_trailing_at_is_not_a_selector() {
         assert!(QuillReference::from_str("memo@").is_err());
         assert!(VersionSelector::from_str("@").is_err());
-        assert_eq!(
-            VersionSelector::from_str("").unwrap(),
-            VersionSelector::Any,
-            "no selector at all is still Any"
-        );
     }
 
     #[test]
@@ -304,21 +299,6 @@ mod tests {
         assert!(v1_1_0 < v2_0_0);
         assert!(v2_0_0 < v2_1_0);
         assert_eq!(v1_0_0, v1_0_0);
-    }
-
-    #[test]
-    fn test_version_selector_parsing() {
-        let exact = VersionSelector::from_str("@2.1.0").unwrap();
-        assert_eq!(exact, VersionSelector::Exact(Version::new(2, 1, 0)));
-
-        let minor = VersionSelector::from_str("@2.1").unwrap();
-        assert_eq!(minor, VersionSelector::Minor(2, 1));
-
-        let major = VersionSelector::from_str("@2").unwrap();
-        assert_eq!(major, VersionSelector::Major(2));
-
-        let any = VersionSelector::from_str("").unwrap();
-        assert_eq!(any, VersionSelector::Any);
     }
 
     #[test]

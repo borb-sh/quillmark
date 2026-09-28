@@ -39,7 +39,7 @@ $quill: my_format@2        # 2.x.x
 $quill: my_format          # any version
 ```
 
-A selector is `MAJOR`, `MAJOR.MINOR` or `MAJOR.MINOR.PATCH`, each segment plain digits. A reference with no selector omits the `@`, and there is no `@latest`: one value has one spelling, so a `$quill` line survives a round trip unchanged and any registry sharing the digit grammar accepts it.
+A selector is `MAJOR`, `MAJOR.MINOR` or `MAJOR.MINOR.PATCH`, each segment plain digits. A reference with no selector omits the `@`; there is no `@latest`.
 
 No registry consumes the selector: there is no collection of installed versions to pick from, so it is a pin, not a resolver. *Resolution* (matching `name@selector` against a set of installed versions) belongs to a higher layer; the engine loads one Quill and *enforces* the reference against it. Detection needs no registry (the engine has the loaded Quill's name and version and the document's reference) so `render` and `dry_run` both reject a mismatch with a single-diagnostic [`RenderError`](ERROR.md). They check in order:
 
