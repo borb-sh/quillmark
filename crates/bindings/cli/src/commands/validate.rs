@@ -2,6 +2,7 @@ use crate::errors::{CliError, Result};
 use clap::Parser;
 use quillmark::{
     CardSchema, Diagnostic, Document, FieldSchema, Quill, Quillmark, RenderOptions, Severity,
+    EXAMPLE_FILE,
 };
 use indexmap::IndexMap;
 use std::path::{Path, PathBuf};
@@ -85,6 +86,12 @@ pub fn execute(args: ValidateArgs) -> Result<()> {
     let render = !args.no_render && !result.has_errors();
 
     let mut example = read_example(&quill);
+    if args.verbose {
+        match example {
+            Some(_) => println!("  Example: {EXAMPLE_FILE}"),
+            None => println!("  Example: none (no {EXAMPLE_FILE} at the quill root)"),
+        }
+    }
     if render {
         validate_renders(&quill, example.as_mut(), &mut result, args.verbose);
     }
@@ -135,28 +142,24 @@ fn validate_file_references(quill: &Quill, result: &mut ValidationResult) {
 }
 
 /// The quill's example document, parsed and validated.
-struct Example<'q> {
-    path: &'q str,
+struct Example {
     /// Absent when it already carries an error, which a render would repeat.
     document: Option<Document>,
     diagnostics: Vec<Diagnostic>,
 }
 
-fn read_example(quill: &Quill) -> Option<Example<'_>> {
-    let path = quill.config().example.as_deref()?;
+fn read_example(quill: &Quill) -> Option<Example> {
     Some(match quill.example_document()? {
         Ok(parsed) => {
             let mut diagnostics = parsed.warnings;
             diagnostics.extend(quill.validate(&parsed.document));
             let fails = diagnostics.iter().any(|d| d.severity == Severity::Error);
             Example {
-                path,
                 document: (!fails).then_some(parsed.document),
                 diagnostics,
             }
         }
         Err(diagnostics) => Example {
-            path,
             document: None,
             diagnostics,
         },
@@ -172,8 +175,7 @@ fn report_example(example: Example, result: &mut ValidationResult) {
     result.add(
         Severity::Error,
         format!(
-            "the example document '{}' carries {} diagnostic(s)",
-            example.path,
+            "the example document '{EXAMPLE_FILE}' carries {} diagnostic(s)",
             example.diagnostics.len()
         ),
         "cli::example_not_clean",

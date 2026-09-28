@@ -207,8 +207,7 @@ def test_example_document_is_pinned_none_without_one_and_raises_coded(tmp_path):
     def with_example(markdown, name):
         quill_dir = tmp_path / name
         quill_dir.mkdir()
-        yaml = QUILL_YAML_CONTENT.replace("\nmain:", "  example: example.md\n\nmain:", 1)
-        (quill_dir / "Quill.yaml").write_text(yaml)
+        (quill_dir / "Quill.yaml").write_text(QUILL_YAML_CONTENT)
         (quill_dir / "example.md").write_text(markdown)
         return Quill.from_path(quill_dir)
 
