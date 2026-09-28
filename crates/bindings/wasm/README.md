@@ -220,7 +220,7 @@ values from the `Document` payload: there is no separate form-view projection.
 `quill.validate(doc)` scores it without invoking the backend.
 
 `quill.seedDocument()` returns a starter document: one card per kind, each body
-empty, every field absent (no `example:` is committed);
+empty, every field absent;
 `quill.seedMain()` and `quill.seedCard(kind)` seed one card. All
 return the read `Card` shape of `doc.main` / `doc.cards`, which `doc.insertCard`
 accepts directly:
@@ -422,10 +422,6 @@ A field declares no `required` key: nothing is required.
 renders that value under a type-only `# <type>` annotation and the render path
 uses it when the document omits the field. Without one, the blueprint leaves the
 cell empty and an absent field blank-fills.
-
-**`example:`** — the schema's illustration of the field's shape.
-`quill.blueprint` shows it on a `# e.g.` line above the field; it never takes a
-cell and never renders.
 
 An unanswered field draws no diagnostic. Partial documents are accepted, and
 `engine.render(quill, doc)` throws only for malformed input.
