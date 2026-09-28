@@ -91,7 +91,7 @@ fn round_trip_value_shapes() {
 
 #[test]
 fn round_trip_quill_version_selectors() {
-    for qref in &["q", "q@1", "q@1.2", "q@1.2.3", "q@latest"] {
+    for qref in &["q", "q@1", "q@1.2", "q@1.2.3"] {
         let src = format!(
             "~~~card-yaml\n$quill: {}\n$kind: main\ntitle: t\n~~~\n",
             qref

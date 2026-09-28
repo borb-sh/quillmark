@@ -241,16 +241,18 @@ data payload.
 
 ### 3.5 Version Selectors
 
-The `$quill` value is `<name>@<version>`, where `<version>` is one
+The `$quill` value is `<name>` or `<name>@<version>`, where `<version>` is one
 of:
 
 | Form | Meaning |
 |---|---|
 | `name@2.1.0` | exact version |
-| `name@2.1` | latest `2.1.x` |
-| `name@2` | latest `2.x.x` |
-| `name@latest` | latest overall (explicit) |
-| `name` | latest overall (default: `@version` omitted) |
+| `name@2.1` | any `2.1.x` |
+| `name@2` | any `2.x.x` |
+| `name` | any version (`@version` omitted) |
+
+Each version segment is ASCII digits. `name@latest` and `name@` fail as
+`parse::invalid_quill_reference`: a reference with no selector omits the `@`.
 
 Quill names match `/^[a-z_][a-z0-9_]*$/`. The selector is a pin, not a
 resolver: this spec fixes the surface syntax accepted on the `$quill` line,
