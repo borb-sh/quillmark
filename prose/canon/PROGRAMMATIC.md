@@ -45,6 +45,10 @@ declared kind, each body empty, every field absent
 as something to edit; start from the blank canvas when the data is
 authoritative and sample cards would pollute it.
 
+`Quill::example_document()` is neither: a filled-in page whose values are made
+up, for judging the quill ([QUILL.md](QUILL.md) § "The example document").
+Show it; do not hand it out as a starting point.
+
 ## The flow
 
 Python shown; Rust and WASM mirror it method-for-method:
