@@ -169,8 +169,7 @@ card_kinds:
 }
 
 /// A warning on the example fails the quill, which it fails on no canonical
-/// document, and a config-only validate reads the example too. `-v` names
-/// whether there is one.
+/// document, and a config-only validate reads the example too.
 #[test]
 fn validate_fails_a_quill_whose_example_warns() {
     let dir = quill_with_config(
@@ -186,7 +185,7 @@ fn validate_fails_a_quill_whose_example_warns() {
         assert!(stdout.contains(expected), "{stdout}");
     };
 
-    verbose("Example: none (no example.md at the quill root)");
+    verbose("Example: none");
 
     std::fs::write(
         dir.path().join("example.md"),

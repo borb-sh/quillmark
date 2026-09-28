@@ -61,7 +61,9 @@ typst:
   plate_file: plate.typ
 ```
 
-### Example document
+---
+
+## Example document
 
 `example.md` at the quill root, beside `Quill.yaml`, shows the quill filled in:
 values that agree with each other, nested rows and matrix cells with something
@@ -84,7 +86,7 @@ The cutover rehearsal slipped a week while the data owners review the mapping.
 - It is written like any document for the quill. A field it leaves out renders
   its default.
 - Its `$quill` is the quill's bare name, with no `@` version. The quill pins it
-  to its own `name@version` when it hands it out (`Quill.example_document()`).
+  to its own `name@version` when it hands it out (`example_document()`).
 - Loading the quill never reads it. `quillmark validate` renders it beside the
   empty document, the blueprint and the seed, and any diagnostic on it fails
   the quill, a warning included. `quillmark validate --verbose` names whether

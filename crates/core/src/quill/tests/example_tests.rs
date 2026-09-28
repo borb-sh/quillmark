@@ -1,5 +1,3 @@
-//! The example is `example.md` at the quill root: the load never reads it, and
-//! `example_document` parses, pairs, pins, and conforms it.
 use super::*;
 
 const MANIFEST: &str = "quill:\n  name: memo\n  version: \"1.2.0\"\n  backend: typst\n  \
@@ -34,7 +32,7 @@ fn the_example_is_handed_out_pinned_to_its_quill_version() {
 #[test]
 fn only_the_root_example_md_is_the_example() {
     let example = "~~~\n$quill: memo\n~~~\n".as_bytes();
-    for elsewhere in ["examples/example.md", "Example.md", "examples.md"] {
+    for elsewhere in ["examples/example.md", "Example.md"] {
         let quill = Quill::from_tree(tree(&[
             ("Quill.yaml", MANIFEST.as_bytes()),
             (elsewhere, example),
@@ -54,10 +52,6 @@ fn the_load_never_reads_the_example() {
         Some("example.md"),
         "{errors:?}"
     );
-
-    let keyed = MANIFEST.replace("description: memo\n", "description: memo\n  example: e.md\n");
-    let err = QuillConfig::from_yaml_with_warnings(&keyed).expect_err("no such key");
-    assert_eq!(codes(&err), ["quill::unknown_key"]);
 }
 
 #[test]

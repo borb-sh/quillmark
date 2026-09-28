@@ -11,7 +11,7 @@
 //! blueprint commits every `default:` and leaves every defaultless cell empty.
 //! The seed carries one card per declared kind, each body empty.
 //!
-//! A quill's example, where it declares one, is the one document with values
+//! A quill's example, where it has one, is the one document with values
 //! in it, and renders without a diagnostic.
 
 #![cfg(feature = "typst")]

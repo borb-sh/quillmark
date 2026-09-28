@@ -6,8 +6,7 @@ use crate::version::VersionSelector;
 use super::Quill;
 
 impl Quill {
-    /// The path of the example document: the root file of this name, matched
-    /// exactly. One in a subdirectory is an ordinary file.
+    /// The example document's path, relative to the quill root.
     pub const EXAMPLE_FILE: &'static str = "example.md";
 
     /// The quill's example document, `None` when the quill has no

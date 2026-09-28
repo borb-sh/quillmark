@@ -88,7 +88,7 @@ pub fn execute(args: ValidateArgs) -> Result<()> {
     if args.verbose {
         match example {
             Some(_) => println!("  Example: {}", Quill::EXAMPLE_FILE),
-            None => println!("  Example: none (no {} at the quill root)", Quill::EXAMPLE_FILE),
+            None => println!("  Example: none (no file {} at the quill root)", Quill::EXAMPLE_FILE),
         }
     }
     if render {
@@ -197,7 +197,7 @@ struct RenderFailure {
 /// The quill authoring contract, which no config read reaches: each of the
 /// three canonical documents — the empty document, the blueprint, the seed —
 /// compiles through the quill's own plate (`BLUEPRINT.md` §Guarantees). The
-/// example, when the quill declares one, compiles after them. The backend's
+/// example, when the quill has one, compiles after them. The backend's
 /// first declared format is the one rendered: a plate that compiles carries
 /// every format its backend serves.
 fn validate_renders(

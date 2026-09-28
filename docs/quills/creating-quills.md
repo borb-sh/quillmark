@@ -11,7 +11,8 @@ Start with this layout:
 ```
 my-quill/
 ├── Quill.yaml
-└── plate.typ
+├── plate.typ
+└── example.md    # optional: the quill filled in with made-up values
 ```
 
 ## 2. Write `Quill.yaml`
