@@ -110,6 +110,9 @@ pub struct QuillConfig {
     /// selector a document's `$quill` carries.
     pub version: String,
     pub author: String,
+    /// `quill.example`: the path, relative to the quill root, of the quill's
+    /// example document. See [`Quill::example_document`](crate::quill::Quill::example_document).
+    pub example: Option<String>,
     /// The top-level YAML section whose key matches `backend`.
     #[serde(default)]
     pub backend_config: HashMap<String, QuillValue>,
@@ -132,6 +135,7 @@ impl QuillConfig {
             backend,
             version,
             author: String::new(),
+            example: None,
             backend_config: HashMap::new(),
         }
     }
@@ -1853,7 +1857,7 @@ impl QuillConfig {
                     fields.insert(field_name.clone(), schema);
                 }
                 Err(e) => {
-                    let hint = Self::field_parse_hint(field_value, &e);
+                    let hint = Self::field_parse_hint(field_value);
                     let mut diag = Diagnostic::new(
                         Severity::Error,
                         format!("Failed to parse {} '{}': {}", context, field_name, e),
@@ -1870,15 +1874,7 @@ impl QuillConfig {
         fields
     }
 
-    /// The hint for the key `error` rejected.
-    fn field_parse_hint(field_value: &serde_json::Value, error: &str) -> Option<String> {
-        if error.contains("unknown field `example`") {
-            return Some(
-                "A field declares one value, its `default:`. A format hint is `description:` \
-                 text, e.g. `description: Rank and full name, as in Capt Jane Doe`."
-                    .to_string(),
-            );
-        }
+    fn field_parse_hint(field_value: &serde_json::Value) -> Option<String> {
         spells_ui_title(field_value).then(|| {
             "A field's label is its own `title:`, beside `description:`; `ui` holds no \
              `title`."
@@ -1971,7 +1967,7 @@ impl QuillConfig {
         };
 
         const KNOWN_QUILL_KEYS: &[&str] =
-            &["name", "backend", "description", "version", "author", "ui"];
+            &["name", "backend", "description", "version", "author", "example", "ui"];
         if let Some(quill_obj) = quill_section.as_object() {
             for key in quill_obj.keys() {
                 if !KNOWN_QUILL_KEYS.contains(&key.as_str()) {
@@ -2126,6 +2122,28 @@ impl QuillConfig {
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
             .unwrap_or_else(|| "Unknown".to_string());
+
+        let example = match quill_section.get("example") {
+            None | Some(serde_json::Value::Null) => None,
+            Some(serde_json::Value::String(path)) if !path.trim().is_empty() => {
+                Some(path.clone())
+            }
+            Some(_) => {
+                errors.push(
+                    Diagnostic::new(
+                        Severity::Error,
+                        "'example' in 'quill' section must name a file in the quill".to_string(),
+                    )
+                    .with_code("quill::invalid_example".to_string())
+                    .with_hint(
+                        "Write the path of a Markdown document relative to the quill root, \
+                         e.g. 'example: example.md'."
+                            .to_string(),
+                    ),
+                );
+                None
+            }
+        };
 
         let body_hint = format!(
             "Valid keys under 'body' are: {}.",
@@ -2388,6 +2406,7 @@ impl QuillConfig {
                 backend,
                 version,
                 author,
+                example,
                 backend_config,
             },
             warnings,

@@ -4,6 +4,7 @@ mod blueprint;
 pub(crate) mod compose;
 mod config;
 pub(crate) mod conform;
+mod example;
 mod resolved;
 mod fill;
 mod formats;

@@ -280,6 +280,28 @@ impl PyQuill {
         }
     }
 
+    /// The quill's example document, `None` when `Quill.yaml` declares no
+    /// `quill.example`: a filled-in page whose values are made up to show the
+    /// quill in use, never kept. It comes back pinned to this quill's
+    /// `name@version` and conformed as `parse` conforms, its parse and
+    /// `conform::*` warnings on `doc.warnings`. Raises `QuillmarkError` when
+    /// the file does not parse or its `$quill` is not this quill's bare name.
+    fn example_document(&self) -> PyResult<Option<PyDocument>> {
+        self.inner
+            .example_document()
+            .map(|example| {
+                let parsed = example.map_err(|diags| {
+                    let message = quillmark_core::error::RenderError::summary_message(&diags);
+                    raise_with_diagnostics(diags, message)
+                })?;
+                Ok(PyDocument {
+                    inner: parsed.document,
+                    parse_warnings: parsed.warnings,
+                })
+            })
+            .transpose()
+    }
+
     /// Seed a starter `Document` from the schema: the main card plus one instance
     /// of each composable card kind, each body empty and every field absent
     /// (interpolated at render as `default`, else the field's blank).

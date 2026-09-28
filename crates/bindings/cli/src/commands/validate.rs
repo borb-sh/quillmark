@@ -82,8 +82,14 @@ pub fn execute(args: ValidateArgs) -> Result<()> {
 
     // A config already refused is not compiled: every canonical document would
     // fail for the reason already named, three times over.
-    if !args.no_render && !result.has_errors() {
-        validate_canonical_renders(&quill, &mut result, args.verbose);
+    let render = !args.no_render && !result.has_errors();
+
+    let mut example = read_example(&quill);
+    if render {
+        validate_renders(&quill, example.as_mut(), &mut result, args.verbose);
+    }
+    if let Some(example) = example {
+        report_example(example, &mut result);
     }
 
     print_validation_result(&result, args.verbose);
@@ -128,12 +134,76 @@ fn validate_file_references(quill: &Quill, result: &mut ValidationResult) {
     }
 }
 
+/// The quill's example document, parsed and validated.
+struct Example<'q> {
+    path: &'q str,
+    /// Absent when it already carries an error, which a render would repeat.
+    document: Option<Document>,
+    diagnostics: Vec<Diagnostic>,
+}
+
+fn read_example(quill: &Quill) -> Option<Example<'_>> {
+    let path = quill.config().example.as_deref()?;
+    Some(match quill.example_document()? {
+        Ok(parsed) => {
+            let mut diagnostics = parsed.warnings;
+            diagnostics.extend(quill.validate(&parsed.document));
+            let fails = diagnostics.iter().any(|d| d.severity == Severity::Error);
+            Example {
+                path,
+                document: (!fails).then_some(parsed.document),
+                diagnostics,
+            }
+        }
+        Err(diagnostics) => Example {
+            path,
+            document: None,
+            diagnostics,
+        },
+    })
+}
+
+/// Any diagnostic on the example fails the quill, a warning included: every
+/// value in it is the quill author's own, so each one is theirs to fix.
+fn report_example(example: Example, result: &mut ValidationResult) {
+    if example.diagnostics.is_empty() {
+        return;
+    }
+    result.add(
+        Severity::Error,
+        format!(
+            "the example document '{}' carries {} diagnostic(s)",
+            example.path,
+            example.diagnostics.len()
+        ),
+        "cli::example_not_clean",
+    );
+    result
+        .issues
+        .extend(example.diagnostics.into_iter().map(|mut d| {
+            d.severity = Severity::Error;
+            d
+        }));
+}
+
+/// A render that failed: what went wrong, then the backend's own diagnostics.
+struct RenderFailure {
+    what: String,
+    diagnostics: Vec<Diagnostic>,
+}
+
 /// The quill authoring contract, which no config read reaches: each of the
 /// three canonical documents — the empty document, the blueprint, the seed —
 /// compiles through the quill's own plate (`BLUEPRINT.md` §Guarantees). The
-/// backend's first declared format is the one rendered: a plate that compiles
-/// carries every format its backend serves.
-fn validate_canonical_renders(quill: &Quill, result: &mut ValidationResult, verbose: bool) {
+/// example, when the quill declares one, compiles after them. The backend's
+/// first declared format is the one rendered: a plate that compiles carries
+/// every format its backend serves.
+fn validate_renders(
+    quill: &Quill,
+    example: Option<&mut Example>,
+    result: &mut ValidationResult,
+    verbose: bool,
+) {
     let engine = Quillmark::new();
 
     let format = match engine.supported_formats(quill) {
@@ -158,7 +228,7 @@ fn validate_canonical_renders(quill: &Quill, result: &mut ValidationResult, verb
     };
 
     if verbose {
-        println!("  Rendering the three canonical documents to {}", format);
+        println!("  Rendering the canonical documents to {}", format);
     }
 
     let blueprint = quill.config().blueprint();
@@ -173,6 +243,22 @@ fn validate_canonical_renders(quill: &Quill, result: &mut ValidationResult, verb
 
     let options = RenderOptions::default().with_output_format(format);
     let today = super::render_date(None);
+    let render = |document: &Document| -> std::result::Result<Vec<Diagnostic>, RenderFailure> {
+        match engine.render(quill, document, today, &options) {
+            Ok(rendered) if rendered.artifacts.iter().all(|a| a.bytes.is_empty()) => {
+                Err(RenderFailure {
+                    what: format!("rendered no {format} bytes"),
+                    diagnostics: Vec::new(),
+                })
+            }
+            Ok(rendered) => Ok(rendered.warnings),
+            Err(e) => Err(RenderFailure {
+                what: "does not render through the quill's plate".to_string(),
+                diagnostics: e.into_diagnostics(),
+            }),
+        }
+    };
+
     for (label, document) in documents {
         let document = match document {
             Ok(document) => document,
@@ -186,30 +272,52 @@ fn validate_canonical_renders(quill: &Quill, result: &mut ValidationResult, verb
             }
         };
 
-        match engine.render(quill, &document, today, &options) {
-            Ok(rendered) if rendered.artifacts.iter().all(|a| a.bytes.is_empty()) => result.add(
-                Severity::Error,
-                format!("the {label} document rendered no {format} bytes"),
-                "cli::canonical_document_failed",
-            ),
-            Ok(rendered) => {
+        match render(&document) {
+            Ok(warnings) => {
                 if verbose {
                     println!("    {label}: ok");
                 }
-                for warning in rendered.warnings {
+                for warning in warnings {
                     if !result.issues.contains(&warning) {
                         result.issues.push(warning);
                     }
                 }
             }
-            Err(e) => {
+            Err(failure) => {
                 result.add(
                     Severity::Error,
-                    format!("the {label} document does not render through the quill's plate"),
+                    format!("the {label} document {}", failure.what),
                     "cli::canonical_document_failed",
                 );
-                result.issues.extend(e.into_diagnostics());
+                result.issues.extend(failure.diagnostics);
             }
+        }
+    }
+
+    let Some(example) = example else { return };
+    let Some(document) = &example.document else { return };
+    match render(document) {
+        // A warning a canonical document raised too is the plate's, not the
+        // example's; one `validate` already raised is counted once.
+        Ok(warnings) => {
+            let fresh: Vec<Diagnostic> = warnings
+                .into_iter()
+                .filter(|w| !result.issues.contains(w) && !example.diagnostics.contains(w))
+                .collect();
+            if verbose && fresh.is_empty() {
+                println!("    example: ok");
+            }
+            example.diagnostics.extend(fresh);
+        }
+        Err(failure) => {
+            example.diagnostics.push(
+                Diagnostic::new(
+                    Severity::Error,
+                    format!("the example document {}", failure.what),
+                )
+                .with_code("cli::example_render_failed".to_string()),
+            );
+            example.diagnostics.extend(failure.diagnostics);
         }
     }
 }

@@ -10,6 +10,9 @@
 //! template that renders it degrades gracefully on any valid input. The
 //! blueprint commits every `default:` and leaves every defaultless cell empty.
 //! The seed carries one card per declared kind, each body empty.
+//!
+//! A quill's example, where it declares one, is the one document with values
+//! in it, and renders without a diagnostic.
 
 #![cfg(feature = "typst")]
 
@@ -126,5 +129,27 @@ fn every_quill_declares_every_key_its_canonical_documents_write() {
                 .collect();
             assert!(unknown.is_empty(), "{name}: {unknown:?}\n---\n{}", doc.to_markdown());
         }
+    }
+}
+
+#[test]
+fn every_quill_example_renders_clean() {
+    for (name, quill) in QUIVER.iter() {
+        let Some(example) = quill.example_document() else {
+            continue;
+        };
+        let parsed = example.unwrap_or_else(|e| panic!("{name}'s example fails to read: {e:?}"));
+        let mut diagnostics = parsed.warnings;
+        diagnostics.extend(quill.validate(&parsed.document));
+        let rendered = ENGINE
+            .render(
+                quill,
+                &parsed.document,
+                common::test_date(),
+                &RenderOptions::default().with_output_format(OutputFormat::Pdf),
+            )
+            .unwrap_or_else(|e| panic!("{name}'s example failed to render: {e:?}"));
+        diagnostics.extend(rendered.warnings);
+        assert!(diagnostics.is_empty(), "{name}'s example: {diagnostics:?}");
     }
 }

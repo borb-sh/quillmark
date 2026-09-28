@@ -168,6 +168,35 @@ card_kinds:
     ok(&["validate", path, "--no-render"]);
 }
 
+/// A warning on the example fails the quill, which it fails on no canonical
+/// document, and a config-only validate reads the example too.
+#[test]
+fn validate_fails_a_quill_whose_example_warns() {
+    let dir = quill_with_config(
+        "quill:\n  name: w\n  version: 0.1.0\n  backend: typst\n  description: w\n  \
+         example: example.md\ntypst:\n  plate_file: plate.typ\nmain:\n  fields:\n    \
+         title:\n      description: title of document\n      type: string\n",
+    );
+    std::fs::write(dir.path().join("plate.typ"), "hi\n").expect("write plate.typ");
+    std::fs::write(
+        dir.path().join("example.md"),
+        "~~~\n$quill: w\ntitel: A made-up title\n~~~\n",
+    )
+    .expect("write example.md");
+    let path = dir.path().to_str().unwrap();
+
+    for args in [&["validate", path][..], &["validate", path, "--no-render"]] {
+        let out = run(args);
+        assert_eq!(out.status.code(), Some(1), "{args:?} exited {:?}", out.status.code());
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("cli::example_not_clean")
+                && stderr.contains("validation::unknown_field"),
+            "{args:?}: {stderr}"
+        );
+    }
+}
+
 /// A backend load warning each canonical render repeats is reported once.
 #[test]
 fn validate_reports_a_load_warning_once() {
