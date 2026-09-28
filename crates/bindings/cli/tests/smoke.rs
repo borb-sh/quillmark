@@ -178,13 +178,22 @@ fn validate_fails_a_quill_whose_example_warns() {
          title:\n      description: title of document\n      type: string\n",
     );
     std::fs::write(dir.path().join("plate.typ"), "hi\n").expect("write plate.typ");
+    let path = dir.path().to_str().unwrap();
+    let verbose = |expected: &str| {
+        let out = run(&["validate", path, "--no-render", "-v"]);
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(stdout.contains(expected), "{stdout}");
+    };
+
+    verbose("Example: none");
+
     std::fs::write(
         dir.path().join("example.md"),
         "~~~\n$quill: w\ntitel: A made-up title\n~~~\n",
     )
     .expect("write example.md");
-    let path = dir.path().to_str().unwrap();
 
+    verbose("Example: example.md");
     for args in [&["validate", path][..], &["validate", path, "--no-render"]] {
         let out = run(args);
         assert_eq!(out.status.code(), Some(1), "{args:?} exited {:?}", out.status.code());
