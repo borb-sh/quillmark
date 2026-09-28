@@ -112,7 +112,7 @@ quillmark schema ./my-quill > schema.yaml
 
 ### blueprint
 
-Print a quill's Markdown blueprint: an annotated document showing the quill's fields, constraints, and examples, itself a valid document an author can fill in.
+Print a quill's Markdown blueprint: an annotated document showing the quill's fields, their descriptions, and their constraints, itself a valid document an author can fill in.
 
 ```bash
 quillmark blueprint <QUILL_PATH>

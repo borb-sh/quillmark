@@ -41,7 +41,6 @@ main:
     full_name:
       type: string
       default: ""
-      example: Ada Lovelace
       description: Full legal name of the applicant. Binds the FullName text field.
 
     comments:

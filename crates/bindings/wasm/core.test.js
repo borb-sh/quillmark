@@ -29,7 +29,6 @@ main:
     title:
       type: string
       description: Document title
-      example: Hello
 `
   return new Map([['Quill.yaml', enc.encode(yaml)]])
 }
@@ -75,7 +74,7 @@ describe('@quillmark/wasm/core surface', () => {
     expect(empty.cards.length).toBe(0)
   })
 
-  it('seedCard commits a $seed overlay, and no schema example', () => {
+  it('seedCard commits a $seed overlay, and no field without one', () => {
     const yaml = `quill:
   name: seed_core
   version: "1.0.0"
@@ -85,13 +84,11 @@ main:
   fields:
     title:
       type: string
-      example: T
 card_kinds:
   note:
     fields:
       author:
         type: string
-        example: A. Author
 `
     const quill = Quill.fromTree(new Map([['Quill.yaml', enc.encode(yaml)]]))
 
@@ -104,7 +101,7 @@ card_kinds:
     expect(overlay.author).toBe('Custom Author')
     expect(doc.main.seed?.missing).toBeUndefined()
 
-    // seedCard commits the overlay; omitting it leaves the example uncommitted.
+    // seedCard commits the overlay; omitting it commits no field.
     expect(field(quill.seedCard('note', overlay), 'author')).toBe('Custom Author')
     expect(quill.seedCard('note').payloadItems).toEqual([])
     // Total over the kind axis: an undeclared kind is undefined, not a throw.

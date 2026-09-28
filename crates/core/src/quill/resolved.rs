@@ -269,8 +269,6 @@ quill:
   backend: typst
   description: Field-state tests
 main:
-  body:
-    example: "Example body prose."
   fields:
     title:
       type: string
@@ -293,7 +291,6 @@ card_kinds:
     fields:
       author:
         type: string
-        example: A. Author
       tag:
         type: string
 "#;

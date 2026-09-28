@@ -469,8 +469,6 @@ describe('@quillmark/wasm: reader.resolve (the resolved-value view)', () => {
   description: Resolved-field view coverage
 
 main:
-  body:
-    example: "Example body prose."
   fields:
     title:
       type: string
@@ -483,7 +481,6 @@ main:
       type: integer
     author:
       type: string
-      example: A. Author
 
 card_kinds:
   note:
@@ -898,7 +895,6 @@ main:
   fields:
     title:
       type: string
-      example: x
 `
     const quill = Quill.fromTree(new Map([['Quill.yaml', new TextEncoder().encode(yaml)]]))
     const doc = quill.seedDocument()

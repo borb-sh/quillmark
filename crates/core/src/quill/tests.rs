@@ -105,7 +105,6 @@ card_kinds:
   skills:
     body:
       enabled: false
-      example: This example is unused
     fields:
       items: { type: array, items: { type: string } }
 "#,
@@ -117,7 +116,7 @@ card_kinds:
             .iter()
             .filter_map(|d| d.code.as_deref())
             .collect::<Vec<_>>(),
-        ["quill::body_example_unused", "quill::bodiless_card_kind"]
+        ["quill::bodiless_card_kind"]
     );
 }
 
@@ -398,7 +397,7 @@ fn a_card_declaring_more_fields_than_a_block_carries_is_refused_at_load() {
     let max = crate::error::MAX_FIELD_COUNT;
     let yaml = |count: usize| {
         let fields: String = (0..count)
-            .map(|i| format!("      f{i}: {{ type: string, example: v }}\n"))
+            .map(|i| format!("      f{i}: {{ type: string }}\n"))
             .collect();
         format!(
             "quill: {{ name: wide, version: \"1.0\", backend: typst, description: x }}\n\
@@ -916,63 +915,39 @@ fn a_malformed_ui_or_body_block_reports_its_own_code_on_main_and_card_kinds() {
             .find(|d| d.code.as_deref() == Some("quill::invalid_body"))
             .and_then(|d| d.hint.clone())
             .expect("a malformed body carries a hint");
-        for key in ["enabled", "example"] {
-            assert!(hint.contains(key), "{prefix}: hint omits {key}: {hint}");
-        }
+        assert!(hint.contains("enabled"), "{prefix}: hint omits enabled: {hint}");
     }
 }
 
+/// A slot declares one value, its `default:`: an `example:` on a field, at any
+/// depth, or on a body is an unknown key.
 #[test]
-fn body_example_fence_line_is_an_error_on_main_and_card_kinds() {
-    let yaml = r#"
-quill: { name: x, version: 1.0.0, backend: typst, description: x }
-main:
-  body:
-    example: "Opening paragraph.\n\n~~~card-yaml\n$kind: note\n~~~\n\nClosing paragraph."
-  fields:
-    title: { type: string }
-card_kinds:
-  note:
-    body:
-      example: "See below:\n~~~card-yaml\n$kind: other\n~~~\nEnd."
-    fields:
-      author: { type: string }
-"#;
-    let errors = QuillConfig::from_yaml_with_warnings(yaml).unwrap_err();
-    let fence_labels: Vec<&str> = errors
-        .iter()
-        .filter(|d| d.code.as_deref() == Some("quill::body_example_contains_fence"))
-        .map(|d| d.message.as_str())
-        .collect();
-    assert_eq!(
-        fence_labels.len(),
-        2,
-        "both body-example sites are guarded, got: {errors:?}"
-    );
-    assert!(
-        fence_labels.iter().any(|m| m.contains("`main.body.example`"))
-            && fence_labels
-                .iter()
-                .any(|m| m.contains("`card_kinds.note.body.example`")),
-        "each error names its own site, got: {fence_labels:?}"
-    );
-}
+fn an_example_key_is_refused_on_a_field_and_a_body() {
+    for field in [
+        "    f: { type: string, example: x }\n",
+        "    f:\n      type: object\n      properties:\n        g: { type: string, example: x }\n",
+        "    f:\n      type: array\n      items: { type: string, example: x }\n",
+        "    f:\n      type: enum\n      values: [a]\n      variants:\n        a:\n          g: { type: string, example: x }\n",
+        // The hint answers the key refused, not another mistake beside it.
+        "    f:\n      type: object\n      example: {}\n      properties:\n        g: { type: string, ui: { title: G } }\n",
+    ] {
+        let err = quill_with_field(field).unwrap_err();
+        let diag = err
+            .iter()
+            .find(|d| d.code.as_deref() == Some("quill::field_parse_error"))
+            .unwrap_or_else(|| panic!("{field}: {err:?}"));
+        assert!(
+            diag.hint.as_deref().is_some_and(|h| h.contains("`default:`")),
+            "{field}: {diag:?}"
+        );
+    }
 
-#[test]
-fn body_example_without_a_card_opener_is_accepted() {
-    let yaml = "
-quill: { name: x, version: 1.0.0, backend: typst, description: x }
-main:
-  body:
-    example: \"See code:\\n\\n```rust\\nlet x = 1;\\n```\\n\\nEnd.\"
-  fields:
-    title: { type: string }
-";
-    let result = QuillConfig::from_yaml_with_warnings(yaml);
-    assert!(
-        result.is_ok(),
-        "a backtick code fence must not trigger a card-fence error: {result:?}"
-    );
+    let err = QuillConfig::from_yaml_with_warnings(
+        "quill: { name: x, version: 1.0.0, backend: typst, description: x }\n\
+         main:\n  body: { example: Dear Sir }\n  fields:\n    t: { type: string }\n",
+    )
+    .unwrap_err();
+    assert!(err.iter().any(|d| d.code.as_deref() == Some("quill::invalid_body")), "{err:?}");
 }
 
 /// An authored literal is judged against its declaration: the type at its own
@@ -980,37 +955,36 @@ main:
 #[test]
 fn a_literal_outside_its_declaration_is_refused_by_code() {
     for (field, code) in [
-        ("    f:\n      type: integer\n      example: 20.04\n", "quill::example_type_mismatch"),
-        ("    f:\n      type: boolean\n      example: \"true\"\n", "quill::example_type_mismatch"),
-        ("    f:\n      type: datetime\n      example: 42\n", "quill::example_type_mismatch"),
+        ("    f:\n      type: integer\n      default: 20.04\n", "quill::default_type_mismatch"),
+        ("    f:\n      type: boolean\n      default: \"true\"\n", "quill::default_type_mismatch"),
+        ("    f:\n      type: datetime\n      default: 42\n", "quill::default_type_mismatch"),
         (
-            "    f:\n      type: array\n      items: { type: string }\n      example: foo\n",
-            "quill::example_type_mismatch",
+            "    f:\n      type: array\n      items: { type: string }\n      default: foo\n",
+            "quill::default_type_mismatch",
         ),
         (
-            "    f:\n      type: array\n      items: { type: string }\n      example: [1]\n",
-            "quill::example_type_mismatch",
+            "    f:\n      type: array\n      items: { type: string }\n      default: [1]\n",
+            "quill::default_type_mismatch",
         ),
-        ("    f:\n      type: string\n      example: [one, two]\n", "quill::example_type_mismatch"),
-        ("    f:\n      type: string\n      default: 20.04\n", "quill::default_type_mismatch"),
+        ("    f:\n      type: string\n      default: [one, two]\n", "quill::default_type_mismatch"),
         (
-            "    f:\n      type: enum\n      values: [a, b]\n      example: c\n",
-            "quill::example_not_in_enum",
+            "    f:\n      type: enum\n      values: [a, b]\n      default: c\n",
+            "quill::default_not_in_enum",
         ),
     ] {
         let err = quill_with_field(field).expect_err(code);
         assert!(err.iter().any(|d| d.code.as_deref() == Some(code)), "{field}: {err:?}");
     }
 
-    let err = quill_with_field("    f:\n      type: string\n      example: 20.04\n").unwrap_err();
+    let err = quill_with_field("    f:\n      type: string\n      default: 20.04\n").unwrap_err();
     assert!(
         err.iter().any(|d| d.hint.as_deref().is_some_and(|h| h.contains("\"20.04\""))),
         "an unquoted decimal under a string is hinted to its quoted form: {err:?}"
     );
 
     for field in [
-        "    f:\n      type: string\n      example: \"20.04\"\n",
-        "    f:\n      type: enum\n      values: [a, b]\n      example: a\n",
+        "    f:\n      type: string\n      default: \"20.04\"\n",
+        "    f:\n      type: enum\n      values: [a, b]\n      default: a\n",
     ] {
         quill_with_field(field).expect(field);
     }
@@ -1096,15 +1070,15 @@ fn a_declaration_outside_the_field_grammar_is_a_field_parse_error() {
     }
 }
 #[test]
-fn inline_richtext_example_over_one_para_is_a_load_error() {
+fn inline_richtext_default_over_one_para_is_a_load_error() {
     let err = quill_with_field(
-        "    tag:\n      type: richtext\n      inline: true\n      example: \"one\\n\\ntwo\"\n",
+        "    tag:\n      type: richtext\n      inline: true\n      default: \"one\\n\\ntwo\"\n",
     )
     .unwrap_err();
     assert!(
         err.iter()
             .any(|d| d.code.as_deref() == Some("validation::not_inline")),
-        "a two-paragraph inline example should fail load with validation::not_inline, got: {err:?}"
+        "a two-paragraph inline default should fail load with validation::not_inline, got: {err:?}"
     );
 }
 
@@ -1112,10 +1086,10 @@ fn inline_richtext_example_over_one_para_is_a_load_error() {
 /// a bare scalar is neither, and loading refuses rather than importing the
 /// scalar's text.
 #[test]
-fn a_bare_scalar_richtext_example_is_a_load_error() {
-    let err = quill_with_field("    tag:\n      type: richtext\n      example: 47\n").unwrap_err();
+fn a_bare_scalar_richtext_default_is_a_load_error() {
+    let err = quill_with_field("    tag:\n      type: richtext\n      default: 47\n").unwrap_err();
     assert!(
-        err.iter().any(|d| d.code.as_deref() == Some("quill::richtext_example_import")),
+        err.iter().any(|d| d.code.as_deref() == Some("quill::richtext_default_import")),
         "{err:?}"
     );
 }
@@ -1282,7 +1256,7 @@ fn an_inline_plaintext_literal_ending_in_a_newline_names_the_fix() {
         "    pti:\n",
         "      type: plaintext\n",
         "      inline: true\n",
-        "      example: |\n",
+        "      default: |\n",
         "        one line\n",
     ))
     .unwrap_err();
@@ -1616,18 +1590,15 @@ fn max_loads_on_an_array_and_is_refused_elsewhere() {
 /// authored, so the literal is held to the same count the document is.
 #[test]
 fn a_literal_longer_than_max_is_a_load_error() {
-    for slot in ["default", "example"] {
-        let err = quill_with_field(&format!(
-            "    rows:\n      type: array\n      max: 2\n      {slot}: [a, b, c]\n      \
-             items: {{ type: string }}\n"
-        ))
-        .expect_err("a literal over the cap");
-        assert!(
-            err.iter()
-                .any(|d| d.code.as_deref() == Some(&format!("quill::{slot}_over_max")[..])),
-            "expected quill::{slot}_over_max, got {err:?}"
-        );
-    }
+    let err = quill_with_field(
+        "    rows:\n      type: array\n      max: 2\n      default: [a, b, c]\n      \
+         items: { type: string }\n",
+    )
+    .expect_err("a literal over the cap");
+    assert!(
+        err.iter().any(|d| d.code.as_deref() == Some("quill::default_over_max")),
+        "{err:?}"
+    );
 
     quill_with_field(
         "    rows:\n      type: array\n      max: 2\n      default: [a, b]\n      \
@@ -1718,8 +1689,8 @@ fn a_capped_table_blueprints_within_its_own_cap() {
 
 /// The blueprint is the surface the MCP author reads, so a cap it does not show
 /// is a cap learned from prose. The line holds the own-line position
-/// `# composable (0..N)` takes — under the description, above the `# e.g.` hint
-/// — at both depths a cap loads at.
+/// `# composable (0..N)` takes — under the description — at both depths a cap
+/// loads at.
 #[test]
 fn a_cap_rides_its_own_leading_line_under_the_description() {
     let bp = config_with_sections(
@@ -1730,7 +1701,6 @@ fn a_cap_rides_its_own_leading_line_under_the_description() {
       max: 2
       description: The units that fit the page.
       default: [a]
-      example: [a, b]
       items: { type: string }
     box:
       type: object
@@ -1740,7 +1710,6 @@ fn a_cap_rides_its_own_leading_line_under_the_description() {
           max: 1
           description: Tags for the box.
           default: [t]
-          example: [u]
           items: { type: string }
 "#,
     )
@@ -1748,11 +1717,11 @@ fn a_cap_rides_its_own_leading_line_under_the_description() {
     .blueprint();
 
     assert!(
-        bp.contains("# The units that fit the page.\n# up to 2\n# e.g. [a, b]\nrows:"),
+        bp.contains("# The units that fit the page.\n# up to 2\nrows:"),
         "{bp}"
     );
     assert!(
-        bp.contains("  # Tags for the box.\n  # up to 1\n  # e.g. [u]\n  tags:"),
+        bp.contains("  # Tags for the box.\n  # up to 1\n  tags:"),
         "{bp}"
     );
 

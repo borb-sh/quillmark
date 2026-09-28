@@ -98,13 +98,12 @@ Identity resolution:
 - Unknown keys in the `quill:` section error with `quill::unknown_key` (typos like `platefile` are not silently captured).
 - Unknown top-level sections error with `quill::unknown_section` (typos like `card_kind:` are not silently ignored). Root-level `fields:` gets a targeted hint pointing to `main.fields:`.
 - `main:` and each `card_kinds.<name>:` entry parse under one card-schema shape, which accepts `title`, `description`, `fields`, `ui`, and `body` only: a section that is not a mapping, an unknown key (`feilds:`), or a `fields:` that is not a mapping errors with `quill::invalid_card_schema` rather than loading as a card with no fields. A `card_kinds:` that is not a mapping errors with `quill::invalid_card_kinds`.
-- Field schemas that fail to parse (e.g. a missing `type:`, or `ui.title`, whose hint names the top-level `title:`) error with `quill::field_parse_error` and an actionable hint where applicable, rather than being dropped from the schema.
+- Field schemas that fail to parse (e.g. a missing `type:`; `ui.title`, whose hint names the top-level `title:`; or `example:`, whose hint names `description:` as a format hint's place) error with `quill::field_parse_error` and an actionable hint where applicable, rather than being dropped from the schema.
 - A `title` is a literal: a `{field}` token in one errors with `quill::title_template`, and a `title` on an array's `items` with `quill::title_on_items`.
 - `object` fields without a `properties` map error with `quill::object_missing_properties`; an empty `properties` map errors with `quill::object_empty_properties`.
 - Malformed `quill.ui` / `main.ui` / `card_kinds.<name>.ui` blocks error with `quill::invalid_ui` rather than being silently discarded; one spelling `title` is hinted to the card's own `title:`.
 - A `ui.layout: table` column that is not a leaf errors with `quill::table_column_not_flat`, naming the column: declaring the key contracts the shape the control needs, leaving an editor only the capability decline ([SCHEMAS.md](SCHEMAS.md#schema-emission)).
-- Malformed `main.body` / `card_kinds.<name>.body` blocks error with `quill::invalid_body`.
-- A `body.example` set together with `body.enabled: false` warns with `quill::body_example_unused` (the example has no effect).
+- Malformed `main.body` / `card_kinds.<name>.body` blocks, `enabled` being the one key, error with `quill::invalid_body`.
 - A card declaring more than `MAX_FIELD_COUNT` (1000) fields errors with `quill::too_many_fields`: seeding and the blueprint build one card-yaml block per card schema, so the block's cap is the schema's to meet. Counted per card over declared fields alone — nested `properties`, array `items`, and `variants:` cells ride inside the field declaring them.
 
 Errors flow through `RenderError` (a non-empty `Vec<Diagnostic>`) and surface to bindings as a structured array (`err.diagnostics` in WASM, `.diagnostics` attribute in Python).

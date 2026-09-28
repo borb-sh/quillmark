@@ -645,43 +645,38 @@ fn the_declaration_schema_round_trips_through_a_reload() {
     assert_eq!(variants["SECRET"]["declassify_on"]["type"], json!("string"));
 }
 
-/// A container-shaped schema literal is refused at load, in either slot, and the
-/// diagnostic names the discriminant spelling that works.
+/// A container-shaped `default:` is refused at load, and the diagnostic names
+/// the discriminant spelling that works.
 #[test]
 fn a_container_shaped_schema_literal_is_a_load_error() {
-    for slot in ["default", "example"] {
-        let yaml = format!(
-            concat!(
-                "quill:\n",
-                "  name: variant_literal\n",
-                "  version: \"0.1.0\"\n",
-                "  backend: typst\n",
-                "  description: probe\n",
-                "main:\n",
-                "  fields:\n",
-                "    classification:\n",
-                "      type: enum\n",
-                "      values: [UNCLASSIFIED, CUI]\n",
-                "      {slot}: {{ value: CUI, note: \"A **bold** note\" }}\n",
-                "      variants:\n",
-                "        CUI:\n",
-                "          note: {{ type: richtext }}\n",
-            ),
-            slot = slot,
-        );
-        let err = QuillConfig::from_yaml_with_warnings(&yaml).unwrap_err();
-        let diag = err
-            .iter()
-            .find(|d| d.code.as_deref() == Some(&format!("quill::{slot}_type_mismatch")))
-            .unwrap_or_else(|| panic!("a container-shaped `{slot}:` is a load error, got: {err:?}"));
-        assert!(
-            diag.hint
-                .as_deref()
-                .is_some_and(|h| h.contains(&format!("{slot}: UNCLASSIFIED"))),
-            "the hint names the discriminant spelling, got: {:?}",
-            diag.hint
-        );
-    }
+    let yaml = concat!(
+        "quill:\n",
+        "  name: variant_literal\n",
+        "  version: \"0.1.0\"\n",
+        "  backend: typst\n",
+        "  description: probe\n",
+        "main:\n",
+        "  fields:\n",
+        "    classification:\n",
+        "      type: enum\n",
+        "      values: [UNCLASSIFIED, CUI]\n",
+        "      default: { value: CUI, note: \"A **bold** note\" }\n",
+        "      variants:\n",
+        "        CUI:\n",
+        "          note: { type: richtext }\n",
+    );
+    let err = QuillConfig::from_yaml_with_warnings(yaml).unwrap_err();
+    let diag = err
+        .iter()
+        .find(|d| d.code.as_deref() == Some("quill::default_type_mismatch"))
+        .unwrap_or_else(|| panic!("a container-shaped `default:` is a load error, got: {err:?}"));
+    assert!(
+        diag.hint
+            .as_deref()
+            .is_some_and(|h| h.contains("default: UNCLASSIFIED")),
+        "the hint names the discriminant spelling, got: {:?}",
+        diag.hint
+    );
 }
 
 /// A world inside a typed dictionary. The dictionary's own shape is the

@@ -27,7 +27,6 @@ main:
       type: integer
     byline:
       type: string
-      example: FIRST LAST
 
 card_kinds:
   note:
@@ -37,7 +36,6 @@ card_kinds:
         default: TBD
       tag:
         type: string
-        example: NOTE TAG
 """
 
 
@@ -84,11 +82,10 @@ def test_empty_document_is_the_blank_document_under_the_quill_reference(tmp_path
 
 
 def test_seed_document_commits_no_field(tmp_path):
-    """seed_document leaves every field absent, `example:` and `default:`
-    alike; the schema reports the declared default."""
+    """seed_document leaves every field absent, a defaulted one included; the
+    schema reports the declared default."""
     quill = make_quill(tmp_path)
     md = quill.seed_document().to_markdown()
-    assert "FIRST LAST" not in md
     assert "TBD" not in md
     assert quill.schema["card_kinds"]["note"]["fields"]["body"]["default"] == "TBD"
     assert "default" not in quill.schema["main"]["fields"]["title"]

@@ -6,7 +6,7 @@
 
 `blueprint()` produces an annotated Markdown document: the same shape an
 author would write, each cell holding its `default:` or left empty, with
-examples and constraint hints as comments. It is the **authoring surface** for
+labels and constraint hints as comments. It is the **authoring surface** for
 LLM and MCP consumers; [SCHEMAS.md](SCHEMAS.md) covers the validation/form
 surface.
 
@@ -20,10 +20,8 @@ empty cells and write the bodies; the structure and `$` metadata come for free.
 $quill: <name>@<version> # keep verbatim
 $kind: main # <title> — <description>
 # <field title> — <field description>
-# e.g. <example>
 field: # <type>
 settled: value # <type>[<format>]
-# body e.g. <body example>
 ~~~
 
 ~~~
@@ -63,9 +61,9 @@ follow:
 
 | Slot | Form | Carries |
 |---|---|---|
-| **Leading `# …` lines** above a field | `# <prose>`, `# up to <N>` or `# e.g. <value>` | label (single-line prose), an `array`'s element cap, and an illustrative example |
+| **Leading `# …` lines** above a field | `# <prose>`, `# up to <N>` or `# e.g. <member>` | label (single-line prose), an `array`'s element cap, and a matrix's held-member hint |
 | **Inline `# …`** at end of the value line | `# <type>[<format>][?]` | structural metadata: the field's type, an optional format refinement, and the optional-cell marker |
-| **Body line** closing a card's payload | `# body e.g. <value>` or `# no body` | the body's example, or that the kind takes no body (see "Bodies") |
+| **Body line** closing a card's payload | `# no body` | that the kind takes no body (see "Bodies") |
 
 The two slots divide by *grammar*, not by subject: the inline slot is the fixed
 `<type>[<format>]` expression and takes nothing else, so a constraint that is not
@@ -98,19 +96,17 @@ Per field, in order:
    `description:` prose. It rides the own-line slot in the form
    `# composable (0..N)` already takes for a card kind's cardinality, which
    leaves the `<type>[<format>]` grammar untouched.
-3. `# e.g. <value>`: emitted whenever `example:` is configured, for every
-   type and at every depth. An `example:` never takes a cell, so this line is
-   the one place it appears (see "Example hints").
-
-   A `matrix` declaring columns fills the slot its refused `example:` leaves
-   empty with one held member:
-   `# e.g. {flight_cc: {held: true, detail: 333 TRS/DO, earned: date<YYYY-MM-DD | today>}}`.
+3. `# e.g. <member>`: emitted for a `matrix` declaring columns, whose empty
+   `{}` cell shows neither the columns nor the tick a member needs. It holds
+   one member:
+   `# e.g. {flight_cc: {held: true, detail: "", earned: date<YYYY-MM-DD | today>}}`.
    The member is the roster's first and is illustrative only; the line exists
    to name the columns and the `held: true` a mapping needs to tick. Each
-   column shows its `example:`, else its `default:`, else its container shape,
-   else its inline annotation's `<type>[<format>]`: a type, not a value, quoted
-   where flow syntax would split it. A checklist (no columns) has no line: the
-   bare tick is its whole spelling.
+   column shows its `default:`, else its container shape, else its inline
+   annotation's `<type>[<format>]`: a type, not a value, quoted where flow
+   syntax would split it. A checklist (no columns) has no line: the bare tick
+   is its whole spelling. The line is a comment, so it takes the one-line flow
+   form the emitter never writes for a value.
 
 That's it. There is no leading `# required`, `# enum:`, `# default:`, or
 `# type:`: those collapse into the inline.
@@ -189,28 +185,24 @@ Examples:
 | Line | Reading |
 |---|---|
 | `name: # string` | defaultless string: an empty cell awaiting a value |
-| `name: # string` under a leading `# e.g. Jane Doe` | defaultless string with an `example`: the cell stays empty, the example rides the hint |
 | `title: "Curriculum Vitae" # string` | defaulted string: concrete value, shippable as-is (keep or override) |
 | `count: 0 # integer` | defaulted integer (type-empty default, shippable as-is) |
 | `active: false # boolean` | defaulted boolean (type-empty default, shippable as-is) |
 | `notes: "" # string` | defaulted empty string (the "skippable" cell) |
 | `bio: # richtext<markdown>` | defaultless richtext (see "Richtext fields") |
-| `recipient: # array<string>` under a leading `# e.g. [Mr. John Doe, 123 Main St]` | defaultless array of strings: the example is one flow line |
+| `recipient: # array<string>` | defaultless array of strings |
 | `date: # date<YYYY-MM-DD \| today>` | defaultless date |
 | `severity: # enum<low \| medium \| high>` | defaultless enum |
 | `endorsements: # array<string>` under a leading `# up to 3` | a capped array: the cap is the leading line, the type the inline |
 | `qualifications: {} # matrix<flight_cc \| dodin_ops>` | a matrix: the whole vocabulary in the annotation, nothing ticked; a leading `# e.g.` names its columns, if it has any |
 | `$quill: cmu_letter@0.1.0 # keep verbatim` | quill binding metadata, emitted verbatim; the inline reminder guards against dropping the line |
 | `$kind: skill` followed by `# composable (0..N)` and `# sample card; delete if not needed` | repeat the entire `~~~` … `~~~` block per instance, or delete it if none are needed |
-| `# body e.g. "Dear Sir or Madam,\n\nI am writing to..."` above a closing `~~~` | the body's example: the body after the fence is empty, awaiting prose |
 | `# no body` above a closing `~~~` | the kind takes no body: write nothing after the fence |
 
 ## Cell values
 
 A cell's value is **`default:` › empty**. An empty cell is null, emitted as a
-bare `key:` with its annotation after it (`title: # string`). An `example:`
-never takes a cell: it rides the `# e.g.` leading line, at every depth and for
-every type.
+bare `key:` with its annotation after it (`title: # string`).
 
 Every cell of the live world renders as **live YAML**; a dormant variant world's
 cells are commented out, and only they are. The `# when <MEMBER>:` header says
@@ -218,9 +210,6 @@ which, and says they are disabled until that member is chosen. Every live cell
 on the page keeps one rule: **an empty cell awaits a value; a concrete value is
 shippable as-is**. An empty cell still renders: null ≡ absent, so it blank-fills
 like an omitted field (see "Guarantees").
-
-A `# e.g.` line shows the schema's own `example:`: illustrative, not real data.
-Copying it into the cell ships the schema's example as if it were the answer.
 
 An author's `field: ""` and a blank/null `field:` (or `field: null`) are
 different answers once the document is parsed: `""` is the field's own explicit
@@ -247,7 +236,6 @@ classification: # enum<UNCLASSIFIED | CUI | CONFIDENTIAL | SECRET | TOP SECRET>
   value: ""
   # when CUI:
   # # Office or organization that designated this information as CUI.
-  # # e.g. SAF/AA
   # controlled_by: # string
   # # CUI category from the DoD CUI Registry. Leave blank to omit.
   # category: "" # string
@@ -257,7 +245,7 @@ One builder and one emitter serve both, so a dormant world is rendered exactly
 as a live one and then handed over as own-line comments. `to_markdown` writes
 the `# `, so a commented line is byte-for-byte the live line, and a comment
 *inside* the world arrives double-prefixed (`# # …`) by the same rule. A cell's
-position, type, description and example all cross.
+position, type and description all cross.
 
 `Document::parse` reads the block back as the comments it is, so a dormant cell
 reaches neither the validator nor the render floor. Uncommenting one without
@@ -277,11 +265,9 @@ A richtext field's value cell is markdown: the surface projection of the
 content model, which `to_markdown` re-emits: carried under a `# richtext<markdown>`
 annotation.
 
-A defaultless `richtext` field renders an empty cell, no block scalar, and its
-`example:` rides the `# e.g.` line as any field's does:
+A defaultless `richtext` field renders an empty cell, no block scalar:
 
 ```
-# e.g. Hello world
 bio: # richtext<markdown>
 ```
 
@@ -300,20 +286,6 @@ bio: |- # richtext<markdown>
 
 If the default is empty (`default: ""`), the cell is the inline empty string
 `bio: "" # richtext<markdown>`: the "skippable" richtext cell.
-
-### Example hints
-
-A `# e.g.` line is one line whatever the example's shape: a scalar as its YAML
-scalar, an array or object as a flow collection.
-
-```
-# e.g. [Mr. John Doe, 123 Main St, "Anytown, USA"]
-recipient: # array<string>
-```
-
-The line is a comment, not a value, so it takes the one-line flow form the
-emitter never writes for a value. Items are quoted only when their plain form
-would re-parse differently, and in flow context a comma forces quoting.
 
 ### Reserved characters in format and enum literals
 
@@ -338,7 +310,7 @@ a **cell**, so it keeps its own literal and the cascade is the uniform one:
   row by deleting the live line and uncommenting the block; leaving both live
   is a duplicate key. A `max: 0` table holds no row, so it has none.
 - Without a `default:`, one synthetic row is emitted with each property
-  carrying its own description, `# e.g.` line, inline annotation, and cell —
+  carrying its own description, inline annotation, and cell —
   its `default:`, else empty. The outer key carries `# array<object>`.
 
 ```
@@ -350,23 +322,19 @@ a **cell**, so it keeps its own literal and the cascade is the uniform one:
 attendees: [] # array<object>
 ```
 
-The row schema is a namespace, so it declares no `default:` / `example:` of its
-own (`quill::default_on_namespace`). The array's literal is where element values
+The row schema is a namespace, so it declares no `default:` of its own
+(`quill::default_on_namespace`). The array's literal is where element values
 go, and each element it supplies is completed against `items:`.
-
-An `example:` never renders as rows. Like every other field type, it
-surfaces only in the `# e.g.` leading line: as a one-line flow
-sequence, e.g. `# e.g. [{org: ACME, year: 2020}]`.
 
 ## Typed dictionaries
 
 A field of `type: object` with a `properties` map carries **no cell of its own**:
-it is a namespace, and a `default:`/`example:` on it is a load error
+it is a namespace, and a `default:` on it is a load error
 ([SCHEMAS.md](SCHEMAS.md) § "Cells and namespaces"). So it always expands, and
 there is no container-level cascade to choose between:
 
-- Each property is emitted with its own description, `# e.g.` line, inline
-  annotation, and cell — `default:` › empty — exactly as a card-level field of
+- Each property is emitted with its own description, inline annotation, and
+  cell — `default:` › empty — exactly as a card-level field of
   that type. A property carrying a `default:` therefore renders that concrete
   value, and a wholly skippable dictionary is spelled by each property carrying
   a type-empty one.
@@ -379,10 +347,6 @@ render, which is what the "shippable as-is" affordance promises.
 An `array` differs because it is a cell: its own `default:` renders, and
 `default: []` stays inline `[]`.
 
-A property's `example:` behaves as a card-level field's does: it rides the
-`# e.g.` line above the property. The container declares none
-(`quill::example_on_namespace`).
-
 ```
 # The sender's mailing address.
 address: # object
@@ -394,7 +358,7 @@ address: # object
   zip: "" # string
 ```
 
-With a `default:` on the first two properties and an `example:` on the third:
+With a `default:` on the first two properties:
 
 ```
 # The sender's mailing address.
@@ -404,7 +368,6 @@ address: # object
   # City name.
   city: Pittsburgh # string
   # ZIP or postal code.
-  # e.g. "15213"
   zip: # string
 ```
 
@@ -427,25 +390,15 @@ no second shape for.
 
 ## Bodies
 
-Every body is empty, as a seeded one is: a body is a cell, and an example never
-takes a cell. One line closing the payload, directly above the body, speaks for
-it:
-
-- `# body e.g. <value>`: a `body.example`, as one YAML scalar, quoted where it
-  holds line breaks or would not read back plain. `body` names its target:
-  below the last field, a bare `# e.g.` would read as that field's.
-- `# no body`: a kind under `body.enabled: false`, whose empty body would
-  otherwise read as one awaiting prose.
-- Nothing: a kind taking a body with no example (or a blank one).
+Every body is empty, as a seeded one is: a body is a cell. A kind under
+`body.enabled: false` closes its payload with `# no body`, directly above the
+body, whose emptiness would otherwise read as awaiting prose; a kind taking a
+body has no body line.
 
 A composable card's emitted block — its `$kind` line, the `composable
 (0..N)` / sample-card comments, its fields, and its body — is one sample
 instance of that kind, not a required one. Delete the whole block when the
 document needs none of that kind.
-
-A `body.example` containing a line that would parse as a card-yaml opener (any
-column-zero `~~~`) is rejected at `Quill.yaml` parse time
-(`quill::body_example_contains_fence`): written into a body, it opens a card.
 
 ## Worked example
 
@@ -454,19 +407,14 @@ column-zero `~~~`) is rejected at `Quill.yaml` parse time
 $quill: cmu_letter@0.1.0 # keep verbatim
 $kind: main # Typeset letters that comply with Carnegie Mellon University letterhead standards.
 # The recipient's name and full mailing address.
-# e.g. [Mr. John Doe, 123 Main St, "Anytown, USA"]
 recipient: # array<string>
-# The signer's information. Line 1: Name. Line 2: Title.
-# e.g. [First M. Last, Title]
+# The signer's information. Line 1: Name, as in First M. Last. Line 2: Title.
 signature_block: # array<string>
 # The department or organizational unit name for the letterhead.
-# e.g. Department of Electrical and Computer Engineering
 department: "" # string
 # The sender's institutional mailing address.
-# e.g. [5000 Forbes Avenue, "Pittsburgh, PA 15213-3890"]
 address: # array<string>
-# The department or university website URL.
-# e.g. www.ece.cmu.edu
+# The department or university website URL, as in www.ece.cmu.edu.
 url: "" # string
 # The date to appear on the letter.
 date: # date<YYYY-MM-DD | today>
@@ -540,7 +488,7 @@ second annotated string.
 
 | Projection | Intent | Field values | Output | Annotated? |
 |---|---|---|---|---|
-| `blueprint` | *"give me the form to fill"* | `default:` › empty; `example:` as `# e.g.` | annotated string | yes |
+| `blueprint` | *"give me the form to fill"* | `default:` › empty | annotated string | yes |
 | seeding | *"give me a starter document"* | absent | committed `Document` | no |
 
 The **blueprint** column is this doc's contract (above). The **seeding**

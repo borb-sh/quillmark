@@ -43,7 +43,7 @@ main:
 
 `name`, `backend`, `version`, and `description` are all required. `name` must be `snake_case`. Define your document's expected root-block fields under `main.fields`. Each field has a `type`, optional `default`, `description`, and validation constraints. Use `integer` for whole numbers only and `number` for values that may include decimals. For the full list of field types, UI hints, typed arrays, and enum constraints, see the [Quill.yaml Reference](quill-yaml-reference.md).
 
-Use `default` for the value most authors will accept as-is (filled in when the field is omitted); the type's blank (`""`, `[]`, `0`, `false`) is how you declare "nothing" as that value. Use `example` to document the expected shape without supplying a default: the blueprint shows it on a `# e.g.` line above the field and never puts it in the cell. A field with no `default` renders as an empty cell in the blueprint (`title: # string`), and left unanswered it renders its blank. See the [Quill.yaml Reference](quill-yaml-reference.md#default-and-example) for details.
+Use `default` for the value most authors will accept as-is (filled in when the field is omitted); the type's blank (`""`, `[]`, `0`, `false`) is how you declare "nothing" as that value. `default` is the only value a field declares; a format hint goes in its `description`. A field with no `default` renders as an empty cell in the blueprint (`title: # string`), and left unanswered it renders its blank. See the [Quill.yaml Reference](quill-yaml-reference.md#default) for details.
 
 ### Picking a text type
 

@@ -53,8 +53,7 @@ render floor and nothing else.
 | `type: t?` | `none` | a `t` or `none` |
 
 - **Exclusive with `default:`** (`quill::optional_default`). A default answers
-  for an unanswered cell, so the cell would never render `none`. `example:`
-  illustrates without answering.
+  for an unanswered cell, so the cell would never render `none`.
 - **A cell only.** `object`, `matrix` and a variant-bearing `enum` are
   namespaces with no rung of their own (`quill::optional_namespace`); their cells
   take the `?` instead.
@@ -208,8 +207,7 @@ qualifications:
 ```
 
 **A namespace.** The roster fixes the keys, so the matrix carries no literal of
-its own: `default:` / `example:` on it is
-`quill::{default,example}_on_namespace`, the [Cells and
+its own: `default:` on it is `quill::default_on_namespace`, the [Cells and
 namespaces](#cells-and-namespaces) rule with no exception. Every member is an
 `object` of a synthesized `held: {type: boolean, default: false}` beside the
 declared columns, so a matrix is skippable by construction and an absent one
@@ -279,9 +277,8 @@ expanding every member.
 
 `max:` on an `array` is the element count past which the surplus leaves the page
 the field is laid out on: page geometry, not style. A non-negative integer, and
-a `default:` / `example:` longer than it is `quill::{default,example}_over_max`:
-a default past the cap overflows the page of a document nobody authored, and an
-example past it teaches the overflow.
+a `default:` longer than it is `quill::default_over_max`: a default past the cap
+overflows the page of a document nobody authored.
 
 `Quill::validate` warns `validation::cardinality` at the field's own path, args
 `{max, actual}`, at every depth: an array nested in a typed dictionary, a matrix
@@ -293,7 +290,7 @@ document over the limit renders with the plate's own rule for the surplus.
 
 There is no `min:`. `min: 1` is `required:` by another name, and no cell is
 required: an unanswered one renders its `default:` or its blank
-([`default` and `example`](#default-and-example)). It would also contradict a
+([`default`](#default)). It would also contradict a
 sibling `default: []`.
 
 ### Content fields rest per codec
@@ -384,7 +381,7 @@ the value the floor built. A scalar the floor stringifies into an enum field is
 therefore domain-checked on that string: `grade: 5` is `enum_violation`, not
 `type_mismatch`.
 
-Schema literals (`example:`, `default:`) are judged as written, uncoerced: the
+A schema literal (`default:`) is judged as written, uncoerced: the
 blueprint would otherwise emit a spelling it then teaches authors to write.
 
 Coercion rules per type:
@@ -404,7 +401,7 @@ Coercion rules per type:
   blank-filled inline field passes. The constraint is checked in three places:
   coercion (`CoercionError` for a document value), validation
   (`validation::not_inline`, the `TypeMismatch` fatality class, as a backstop for a
-  content that bypassed coercion), and load-time example import (a schema literal
+  content that bypassed coercion), and load-time default import (a schema literal
   that violates it is a load error). Blueprint still annotates inline fields as
   `richtext(inline)<markdown>`; `build_transform_schema` emits
   `quillmark:inline: true`
@@ -420,8 +417,7 @@ Coercion rules per type:
   coercion (`CoercionError`); validation (`validation::not_plain`, the
   `TypeMismatch` fatality class); load-time literal import. An `inline: true`
   plaintext field additionally requires a single line. The load-time content
-  cache (`default_content`), the load-time `example:` import, and the
-  render-floor blank (the empty content) cover `plaintext` exactly as
+  cache (`default_content`) and the render-floor blank (the empty content) cover `plaintext` exactly as
   `richtext`: both are content leaves (`field_contains_content`)
 - **`enum` domain validation.** An `enum` field coerces as a string; domain membership is a *value* check (`validation::enum_violation`), not a type check, so an out-of-domain string is well-typed but invalid. `type: enum` requires a non-empty `values:` list; `values:` on any other type is a load error (`quill::field_parse_error`), as is `enum:` on any type
 - **The domain rides the type token.** It is the `FieldType::Enum` payload, so a consumer that has matched the token holds it: the render floor, the acroform widget kind, the blueprint annotation, and the transform-schema projection to `{type: string, enum: […]}`. A variant-bearing branch enters through `variants:` with no token in hand and reads it through `FieldSchema::domain()`. A domain admits its members and the blank, so an empty one admits only the blank
@@ -436,10 +432,10 @@ Coercion rules per type:
   text (null and collections are excluded); a `richtext` field then imports that
   token as its markdown source. The leniency is scoped to
   *document* payloads via the shared `scalar_as_string` predicate; a quill
-  author's own `default:`/`example:` literals stay strict, so the blueprint
+  author's own `default:` literals stay strict, so the blueprint
   keeps quoting ambiguous string literals. The same strictness rejects a
   container-shaped literal on a variant-bearing enum
-  (`quill::{default,example}_type_mismatch`): the container is a *document*
+  (`quill::default_type_mismatch`): the container is a *document*
   spelling, and a schema literal names the discriminant alone; the cells inside
   a world carry their literals on their own declarations
 
@@ -500,9 +496,6 @@ what follows for literals and for absence.
 | | `default:` | **never** by the engine: lives in the schema, interpolated only into the ephemeral render projection | yes: the fidelity value |
 | floor | the field's `blank` (`blank`) | never ([Non-persist invariant](#blank-filled-render)) | last resort |
 
-`example:` is no rung: nothing persists it and nothing renders it. It is
-schema guidance, which the blueprint shows as a `# e.g.` line.
-
 The engine never writes a `default` into a document: it lives in `Quill.yaml`,
 the render path interpolates it into the plate-JSON projection only, and seeding
 deliberately omits it (persisting it would be redundant and would freeze it
@@ -544,11 +537,10 @@ declared and how absence travels:
 
 Two rules follow, and between them the plate is total at every depth:
 
-- **A literal is declared where its cell is.** A `default:` / `example:` on a
-  typed dictionary is a load error (`quill::{default,example}_on_namespace`)
-  naming the properties that hold it, as a container-shaped literal on a
-  variant-bearing enum already is
-  (`quill::{default,example}_type_mismatch`). The container spelling is a
+- **A literal is declared where its cell is.** A `default:` on a typed
+  dictionary is a load error (`quill::default_on_namespace`) naming the
+  properties that hold it, as a container-shaped literal on a variant-bearing
+  enum already is (`quill::default_type_mismatch`). The container spelling is a
   *second* declaration of a fact the cells already carry, free to disagree with
   a property's own `default:`. Schema literals are
   strict where document payloads are lenient ([Type coercion](#type-coercion)),
@@ -571,7 +563,7 @@ The consumer-side `Document`-payload × schema join is a **non-goal**:
 editor reads value and source rung from one engine call rather than re-cutting
 the ladder in consumer code. Diagnostics stay `Quill::validate`'s
 (a consumer merges them with its own diagnostic producers regardless), and schema
-guidance (`example:`, labels, groups) reads from `Quill::schema`.
+guidance (labels, descriptions, groups) reads from `Quill::schema`.
 
 One seam is deliberate, not uniform: `blank` is a property of the field
 rather than a member of the type's domain — an `enum`'s blank is `""`, outside
@@ -607,7 +599,7 @@ inside it. Neither has a caller.
 Value and provenance only. The view carries no diagnostics: those stay
 `Quill::validate`'s, which a consumer merges with its own producers
 (session warnings, render errors) regardless, so bucketing here would delete no
-consumer code. Schema guidance (`example:`, labels, groups) reads from
+consumer code. Schema guidance (labels, descriptions, groups) reads from
 `Quill::schema`. Python is out of scope until a Python consumer names a call
 site (the Tier-1 cut, [BINDINGS.md](BINDINGS.md)).
 
@@ -654,7 +646,7 @@ What a read does not carry, and what a write does to it:
 | identity anchors, content-only marks | lost on the written cell, which is a cold import |
 | nested YAML comments | cleared on the written cell, as every write path clears them |
 | the author's exact markdown | export canonicalizes: mark nesting, escaping, trailing whitespace. The *document* round-trips, not the string a consumer sent |
-| `default:` rungs, blanks, `example:` | never read (sparse) |
+| `default:` rungs, blanks | never read (sparse) |
 
 `$ext` is the consumer's own card key ([PROGRAMMATIC.md](PROGRAMMATIC.md)
 § "Addressing cards for re-render") and no field write reaches it: it has its
@@ -751,8 +743,8 @@ something: the branch is what makes the world's fields readable without a guard
 ### The render date (`today`)
 
 `today` is a `date` value standing for the day of the render. It is valid
-wherever a `date` value is: authored, as a `default:` or an `example:`, at any
-depth. It is not a `datetime` value.
+wherever a `date` value is, authored or declared as a `default:`, at any depth.
+It is not a `datetime` value.
 
 The engine reads no clock. The date is a required input to the compile,
 supplied by the host at every door that turns a document into plate data:
@@ -852,15 +844,10 @@ interpolated at the compilation layer by
 [blank-filled render](#blank-filled-render) (`default:`, else the field's
 blank), exactly as for any authored document.
 
-No `example:` is committed (a field's or `body.example`). An example documents
-shape, not an answer: committed, it would render a value nobody chose and read
-as authored content. A field's surfaces in the blueprint's `# e.g.` line
-instead, and `body.example` in its `# body e.g.` line; an editor may also show
-that one as the empty body's placeholder. Starter content someone chose
-lives in a template document's own body, or, for a card `seed_card` adds, in
-the main card's `$seed.<kind>.$body`. Persisting a `default` would be
-redundant (the floor interpolates it anyway) and would *freeze* it against a
-later schema change; persisting a blank is forbidden
+Starter content someone chose lives in a template document's own body, or, for
+a card `seed_card` adds, in the main card's `$seed.<kind>.$body`. Persisting a
+`default` would be redundant (the floor interpolates it anyway) and would
+*freeze* it against a later schema change; persisting a blank is forbidden
 ([Non-persist invariant](#blank-filled-render)). So a fresh seed renders exactly
 as the empty document does, plus its cards, and a split-screen editor/preview
 stays consistent: absent fields resolve identically in both panes.
@@ -893,9 +880,7 @@ rather than "not reached"; a gap blank-fills and drops the author's `default:`
 silently. The cache is also the gate: a content-bearing tree with no companion
 blank-fills rather than falling through to the raw literal, which would cross as
 unimported markdown. Importing is also checking, so a nested `richtext(inline)`
-violation is a load error there, in a `default:` or an `example:`. An
-`example:` or `body.example` is imported for that check alone and cached
-nowhere.
+violation in a `default:` is a load error there.
 
 - **Composable cards** are seeded one instance per declared kind.
 - **The main card** carries `$quill` and `$kind: main`, so a seed round-trips
@@ -933,10 +918,10 @@ Overlays" for the `$seed` mechanics. The document seeding above is the
 
 `QuillConfig::schema()` returns the structural schema as `serde_json::Value`. It includes:
 
-- Field types, constraints, and `enum`/`default`/`example` annotations
+- Field types, constraints, and `enum`/`default` annotations
 - `title` on fields and cards: a literal label, which the blueprint prints wherever it prints the description, and which no `ui` key carries, since `ui` never reaches the blueprint
 - `ui` hints on fields (`group`, `compact`, `multiline`, `blank_title`, `layout`) and on cards (the `groups` registry that `group` references). Field display order is not a hint: it is the key order of the emitted `fields`/`properties` maps (declaration order)
-- `body` blocks on cards (`enabled`, `example`)
+- `body` blocks on cards (`enabled`)
 
 The schema describes only the user-fillable fields. The quill reference
 (`name@version`, available from quill metadata) and card-kind
@@ -951,7 +936,7 @@ Top-level schema keys: `main`, optional `card_kinds` (map keyed by card name).
 `main` and each entry in `card_kinds` share the same `CardSchema` shape:
 `fields` (map keyed by field name), optional `title`, optional `description`,
 optional `ui`, optional `body`. Each `FieldSchema` includes `type`, optional
-`title`/`description`/`default`/`example`/`enum`/`values`/`members`/`variants`/`inline`/`properties`/`items`/`max`/`ui`.
+`title`/`description`/`default`/`enum`/`values`/`members`/`variants`/`inline`/`properties`/`items`/`max`/`ui`.
 The type-gated keys:
 
 - `inline`: valid only on the prose types (`richtext`, `plaintext`).
@@ -986,24 +971,21 @@ The type-gated keys:
 - `properties`: used by `object` fields, and by an array's `object`-typed
   `items`.
 
-### `default` and `example`
+### `default`
 
-`default` and `example` are both type- and shape-valid values, but they
-encode opposite author intents:
+A slot declares one value, its `default`: the value the *majority* of authors
+want. Because most authors want it, the field can be omitted entirely: at
+render time the default fills any field the document leaves out (an authored
+value always wins: `ladder_sourced` in core's `quill::compose`). The blueprint
+renders that concrete default value with a type-only annotation. Type-empty
+defaults (`default: ""`, `[]`, `false`, `0`) are the canonical way to mark a
+"skippable" cell; a *dictionary* is skippable by its properties each carrying
+one, since the container holds no literal
+([Cells and namespaces](#cells-and-namespaces)).
 
-- **`default`** is the value the *majority* of authors want. Because most
-  authors want it, the field can be omitted entirely: at render time the
-  default fills any field the document leaves out (an
-  authored value always wins: `ladder_sourced` in core's
-  `quill::compose`). The blueprint renders that concrete default value with a
-  type-only annotation. Type-empty defaults (`default: ""`, `[]`, `false`, `0`)
-  are the canonical way to mark a "skippable" cell; a *dictionary* is skippable
-  by its properties each carrying one, since the container holds no literal
-  ([Cells and namespaces](#cells-and-namespaces)).
-- **`example`** matches the semantic and type *shape* of the desired
-  value but is *not* the value most authors want. It documents shape, not
-  the choice: it never takes a cell, is never committed, and never renders. The
-  blueprint shows it as a `# e.g.` line above the field.
+A slot's `title` and `description` are text, not values: `title` labels it and
+`description` guides it, a format hint included (`description: Name as signed,
+as in FIRST M. LAST, Capt, USAF.`). No key holds a sample value.
 
 `default:` means only the value an unanswered cell renders; a `?` on the type
 moves that floor to `none` ([Optional cells](#optional-cells)). The schema asks
@@ -1011,8 +993,7 @@ nothing further of a cell: no declaration makes one required, and no diagnostic
 names an unanswered one. Null ≡ absent holds on every surface. There is no
 `required:` key; an unknown key is a load error (`quill::field_parse_error`).
 
-See [BLUEPRINT.md](BLUEPRINT.md) for how `default` and `example` render into
-cells.
+See [BLUEPRINT.md](BLUEPRINT.md) for how `default` renders into cells.
 
 Identity fields (`name`, `version`, `backend`, `author`, `description`) live on the parent metadata object (Wasm: `Quill.metadata` getter; Python: `Quill.metadata`). Both bindings also expose `backend_id`/`backendId` directly; Python additionally exposes `quill_ref`, a derived `name@version` string.
 

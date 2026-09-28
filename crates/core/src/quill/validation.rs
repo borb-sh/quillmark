@@ -139,7 +139,7 @@ fn type_mismatch_hint(expected: &str, actual: &str, default: Option<&str>) -> St
 }
 
 /// Actionable exit clause for a `FormatViolation`, and for its load-time twin
-/// on a `default:` or `example:`.
+/// on a `default:`.
 pub(crate) fn format_hint(format: &str) -> String {
     format!("A {format} is {}.", format_grammar(format))
 }
@@ -377,7 +377,7 @@ enum ValueContext {
     /// A value parsed from an authored document. Treats present-null as absent
     /// and reports the field's `default:` token alongside a type mismatch.
     Document,
-    /// An `example:` or `default:` literal declared in Quill.yaml. Partial
+    /// A `default:` literal declared in Quill.yaml. Partial
     /// objects are allowed (absent properties are not errors) and the
     /// document-only null/default semantics do not apply.
     SchemaLiteral,
@@ -439,7 +439,7 @@ fn validate_value(
         // below.
         FieldType::String | FieldType::Enum { .. } => value.as_str().is_some(),
         // A conformed value is a canonical content object; an authored
-        // `default`/`example` is the codec's string. The shape pass below
+        // `default` is the codec's string. The shape pass below
         // checks `inline` and `plain`.
         FieldType::RichText { .. } | FieldType::PlainText { .. } => {
             value.as_json().is_object() || value.as_str().is_some()
@@ -776,13 +776,13 @@ pub(crate) fn validate_field(
     validate_value(field, value, path, ValueContext::Document)
 }
 
-/// Validate a schema literal value (an `example:` or `default:` declared in
-/// Quill.yaml) against a field schema.
+/// Validate a schema literal value (a `default:` declared in Quill.yaml)
+/// against a field schema.
 ///
 /// Shares the type/enum/format/recursion core with [`validate_field`] (see
 /// [`validate_value`]) but omits the document-authoring concerns: it does not
 /// apply null≡absent leniency, and never attaches a `default:` token to a type
-/// mismatch (partial examples/defaults are intentional and valid).
+/// mismatch (partial defaults are intentional and valid).
 pub(crate) fn validate_schema_literal(
     schema: &FieldSchema,
     value: &QuillValue,

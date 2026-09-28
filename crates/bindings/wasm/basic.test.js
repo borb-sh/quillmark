@@ -1001,7 +1001,6 @@ card_kinds:
   skills:
     body:
       enabled: false
-      example: This example is unused
     fields:
       items:
         type: array
@@ -1012,11 +1011,8 @@ card_kinds:
       makeQuill({ name: 'warn_quill', plate: TEST_PLATE, quillYaml: WARNING_QUILL_YAML }),
     )
 
-    expect(quill.warnings.map((d) => d.code)).toEqual([
-      'quill::body_example_unused',
-      'quill::bodiless_card_kind',
-    ])
-    expect(formatDiagnostic(quill.warnings[0])).toContain('(quill::body_example_unused)')
+    expect(quill.warnings.map((d) => d.code)).toEqual(['quill::bodiless_card_kind'])
+    expect(formatDiagnostic(quill.warnings[0])).toContain('(quill::bodiless_card_kind)')
   })
 })
 

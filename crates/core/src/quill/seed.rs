@@ -16,8 +16,7 @@ use crate::{
 /// Build the seeded `(payload, body)` for one card schema under an optional
 /// [`SeedOverlay`]. A field commits the overlay's value, in declaration order;
 /// an overlay key naming no schema field is never reached. Body: `overlay ›
-/// empty`, honored only when the kind enables bodies; `body.example` is guide
-/// text and never committed.
+/// empty`, honored only when the kind enables bodies.
 /// The `$quill` / `$kind` system metadata is attached by the caller.
 ///
 /// Every seeded content field commits through [`seeded_rest`], the same strict
