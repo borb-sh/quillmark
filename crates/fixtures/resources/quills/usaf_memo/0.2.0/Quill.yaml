@@ -8,21 +8,14 @@ typst:
   plate_file: plate.typ
 
 main:
+  description: U.S. Air Force and Space Force Official Memorandum. Top-level body paragraphs are auto-numbered and nested bullets auto-lettered, so add no manual numbering.
   ui:
     groups: [addressing, letterhead, classification, additional]
-  body:
-    example: |
-      The first paragraph. Top-level paragraphs are auto-numbered; do not add manual numbering.
-
-      - Nested bullets are automatically lettered.
   fields:
     memo_for:
       type: array
       items:
         type: string
-      example:
-        - ORG1/SYMBOL
-        - ORG2/SYMBOL
       ui:
         group: addressing
       description: "Organization/office symbol in UPPERCASE. To address a specific person, add their rank and name in parentheses (e.g., 'ORG/SYMBOL (LT COL JANE DOE)'). For many recipients, enter 'SEE DISTRIBUTION' and list them in the Distribution field."
@@ -32,11 +25,6 @@ main:
       items:
         type: string
       default: []
-      example:
-        - ORG/SYMBOL
-        - Organization Name
-        - 123 Street Ave
-        - City ST 12345-6789
       ui:
         group: addressing
       description: "If recipients are on the same installation, use only the office symbol. For recipients on other installations, include the full mailing address to enable return correspondence. Omit entirely to produce a Memorandum for Record (no MEMO FROM line)."
@@ -44,7 +32,6 @@ main:
     subject:
       type: richtext
       inline: true
-      example: Subject of the Memorandum
       ui:
         group: addressing
       description: Be brief and clear. Capitalize the first letter of each word except articles, prepositions, and conjunctions. Include suspense dates in parentheses if applicable.
@@ -53,12 +40,9 @@ main:
       type: array
       items:
         type: string
-      example:
-        - "FIRST M. LAST, Rank, USAF"
-        - Duty Title
       ui:
         group: addressing
-      description: "Line 1: Name in UPPERCASE as signed, grade, and service. Line 2: Duty title."
+      description: "Line 1: Name in UPPERCASE as signed, grade, and service, as in FIRST M. LAST, Capt, USAF. Line 2: Duty title."
 
     letterhead_title:
       type: string
@@ -71,11 +55,9 @@ main:
       type: array
       items:
         type: string
-      example:
-        - HEADQUARTERS [UNIT NAME]
       ui:
         group: letterhead
-      description: The full organization name of your unit.
+      description: The full organization name of your unit, as in HEADQUARTERS 123D EXAMPLE WING.
 
     letterhead_seal:
       type: enum
@@ -122,12 +104,10 @@ main:
         CUI:
           controlled_by:
             type: string
-            example: SAF/AA
             description: "Office or organization that designated this information as CUI. Required by DoDM 5200.48."
           poc:
             type: string
-            example: "Capt J. Smith, DSN 555-1234, john.smith@us.af.mil"
-            description: "Point of contact for CUI questions. Required by DoDM 5200.48."
+            description: "Point of contact for CUI questions, as in Capt J. Smith, DSN 555-1234, john.smith@us.af.mil. Required by DoDM 5200.48."
           category:
             type: string
             default: ""
@@ -151,9 +131,6 @@ main:
         type: richtext
         inline: true
       default: []
-      example:
-        - "AFMAN 33-326, 25 November 2011, *Preparing Official Communications*"
-        - "AFI 33-360, *Publications and Forms Management*"
       ui:
         group: additional
       description: "References, auto-lettered (a), (b), (c) per AFH 33-337. Cite each by organization, type, date, and title; italicize publication titles with *asterisks* (standard Markdown emphasis)."
@@ -163,8 +140,6 @@ main:
       items:
         type: string
       default: []
-      example:
-        - Rank and Name, ORG/SYMBOL
       ui:
         group: additional
       description: List office symbols of recipients to receive copies.
@@ -174,9 +149,6 @@ main:
       items:
         type: string
       default: []
-      example:
-        - ORG1/SYMBOL
-        - ORG2/SYMBOL
       ui:
         group: additional
       description: Complete list of recipients if 'SEE DISTRIBUTION' is used in the 'Memo For' field.
@@ -186,8 +158,6 @@ main:
       items:
         type: string
       default: []
-      example:
-        - Attachment description, YYYY MMM DD
       ui:
         group: additional
       description: List attachments in the order they are mentioned in the memo. Briefly describe each; do not use 'as stated' or abbreviations.
@@ -228,13 +198,11 @@ card_kinds:
     fields:
       from:
         type: string
-        example: ORG/SYMBOL
         ui:
           group: addressing
         description: Office symbol or Rank Name of the endorsing official.
       for:
         type: string
-        example: ORG/SYMBOL
         ui:
           group: addressing
         description: Office symbol or organization receiving the endorsed memo.
@@ -242,12 +210,9 @@ card_kinds:
         type: array
         items:
           type: string
-        example:
-          - "FIRST M. LAST, Rank, USAF"
-          - Duty Title
         ui:
           group: addressing
-        description: "Line 1: Name in UPPERCASE as signed, grade, and service. Line 2: Duty title."
+        description: "Line 1: Name in UPPERCASE as signed, grade, and service, as in FIRST M. LAST, Capt, USAF. Line 2: Duty title."
       format:
         type: enum
         values:

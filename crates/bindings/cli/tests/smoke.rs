@@ -140,7 +140,6 @@ card_kinds:
       author:
         description: who wrote it
         type: string
-        example: A. Author
 "#,
     );
     std::fs::write(

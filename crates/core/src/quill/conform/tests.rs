@@ -18,10 +18,8 @@ main:
     subject:
       type: richtext
       inline: true
-      example: "Q3 **results**"
     note:
       type: plaintext
-      example: "a *literal* line"
     qty:
       type: integer
     tags:
@@ -49,7 +47,6 @@ card_kinds:
         type: richtext
       caption:
         type: plaintext
-        example: "raw *text*"
 "#;
 
 fn quill() -> Quill {

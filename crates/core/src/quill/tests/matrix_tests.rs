@@ -181,7 +181,6 @@ fn an_absent_matrix_blank_fills_to_every_member_unheld() {
 fn a_malformed_matrix_declaration_is_refused_by_code() {
     for (fields, code) in [
         ("    m:\n      type: matrix\n      default: {}\n      members: { a: A }\n", "quill::default_on_namespace"),
-        ("    m:\n      type: matrix\n      example: {}\n      members: { a: A }\n", "quill::example_on_namespace"),
         (
             "    m:\n      type: matrix\n      members: { \"DO / Det CC\": Label }\n",
             "quill::invalid_matrix_member",
@@ -201,15 +200,10 @@ fn a_malformed_matrix_declaration_is_refused_by_code() {
     }
 }
 
-/// A namespace holds no literal, and a column's `example:` documents one cell's
-/// shape rather than which members a fresh document ticks.
+/// A namespace holds no literal, so a fresh document ticks no member.
 #[test]
 fn a_matrix_seeds_empty() {
-    let yaml = quill_yaml().replace(
-        "detail: { type: plaintext, inline: true, default: \"\" }",
-        "detail: { type: plaintext, inline: true, default: \"\", example: Earned 2024 }",
-    );
-    let seeded = quill_from_yaml(&yaml).seed_document();
+    let seeded = quill_from_yaml(&quill_yaml()).seed_document();
     assert!(
         seeded.main().payload().get("qualifications").is_none(),
         "a seeded document ticks nothing"
@@ -262,7 +256,7 @@ fn the_blueprint_shows_the_vocabulary_in_the_annotation_and_ticks_nothing() {
 fn the_blueprint_hint_spells_a_held_member_with_every_column() {
     let yaml = quill_yaml().replace(
         "detail: { type: plaintext, inline: true, default: \"\" }",
-        "detail: { type: plaintext, inline: true, default: \"\", example: \"333 TRS/DO, 2024\" }\n        \
+        "detail: { type: plaintext, inline: true, default: \"333 TRS/DO, 2024\" }\n        \
          unit: { type: string, default: HQ }\n        \
          earned: { type: date }\n        \
          logged: { type: datetime }",
@@ -312,7 +306,7 @@ main:
           type: matrix
           members: { flight_cc: Flight CC }
           properties:
-            detail: { type: string, example: Ops }
+            detail: { type: string, default: Ops }
     rows:
       type: array
       items:
@@ -322,7 +316,7 @@ main:
             type: matrix
             members: { flight_cc: Flight CC }
             properties:
-              detail: { type: string, example: Cyber }
+              detail: { type: string, default: Cyber }
 "#;
     let bp = QuillConfig::from_yaml(yaml).expect("loads").blueprint();
     assert!(

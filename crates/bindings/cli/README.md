@@ -66,12 +66,12 @@ Prints the quill's field schema as YAML.
 
 Prints an annotated Markdown blueprint: a starting document with every declared
 field, each holding its `default:` or left empty (`title: # string`) where a
-value is expected, and each `example:` on a `# e.g.` line above its field.
+value is expected.
 
 ### `quillmark validate <QUILL_PATH> [-v] [--no-render]`
 
-Loads the quill — `Quill.yaml` parse errors, `example:`/`default:` literals
-against their declared types — checks referenced files, and renders the three
+Loads the quill — `Quill.yaml` parse errors, `default:` literals against
+their declared types — checks referenced files, and renders the three
 canonical documents (the empty document, the blueprint, the seed) through the
 plate. `-v` prints each warning, such as a missing field description, where
 a plain run only counts them; `--no-render` skips the render. Exits 1 where the configuration is invalid or a

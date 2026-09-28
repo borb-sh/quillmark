@@ -15,12 +15,9 @@ quill:
   backend: typst
   description: Seed test
 main:
-  body:
-    example: "Main body text."
   fields:
     title:
       type: string
-      example: FIRSTNAME LASTNAME
     status:
       type: string
       default: draft
@@ -31,7 +28,6 @@ card_kinds:
     fields:
       author:
         type: string
-        example: A. Author
       tag:
         type: string
 "#;
@@ -57,13 +53,13 @@ fn empty_document_equals_the_hand_written_two_line_document() {
 }
 
 #[test]
-fn seed_main_commits_neither_an_example_nor_a_field() {
+fn seed_main_commits_no_field_and_an_empty_body() {
     let quill = quill_from_yaml(QUILL);
     let card = quill.seed_main();
 
     assert!(
         card.payload().is_empty(),
-        "an `example:` never answers a field, and a `default:` is interpolated at render"
+        "a `default:` is interpolated at render, never seeded"
     );
 
     let reference = card.quill().expect("main card must carry $quill");
@@ -74,11 +70,7 @@ fn seed_main_commits_neither_an_example_nor_a_field() {
         "main card must carry $kind: main"
     );
 
-    assert_eq!(
-        card.body_markdown(),
-        "",
-        "`body.example` is guide text, never a seeded body"
-    );
+    assert_eq!(card.body_markdown(), "");
 }
 
 #[test]
@@ -133,7 +125,6 @@ card_kinds:
         type: string
       beta:
         type: string
-        example: B
 "#,
     );
     let ov = overlay(json!({ "beta": "B", "alpha": "A" }));
@@ -166,7 +157,6 @@ main:
   fields:
     title:
       type: string
-      example: T
 card_kinds:
   data:
     body:
@@ -174,7 +164,6 @@ card_kinds:
     fields:
       value:
         type: string
-        example: V
 "#,
     );
 

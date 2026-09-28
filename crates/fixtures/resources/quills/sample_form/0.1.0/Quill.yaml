@@ -11,7 +11,6 @@ main:
     full_name:
       type: string
       default: ""
-      example: Ada Lovelace
       description: Full legal name of the applicant. Binds the FullName text field.
 
     comments:
@@ -19,9 +18,6 @@ main:
       items:
         type: string
       default: []
-      example:
-        - First comment line.
-        - Second comment line.
       ui:
         multiline: true
       description: "Free-form comments; each element becomes one line of the Comments field."
@@ -44,13 +40,11 @@ main:
       type: richtext
       inline: true
       default: ""
-      example: "The **headline**"
       description: "Inline richtext bound to the single-line Headline text field; lowered to plaintext."
 
     bio:
       type: richtext
       default: ""
-      example: "A **bold** claim and _emphasis_, plus a second line."
       ui:
         multiline: true
       description: "Block richtext bound to the multiline Bio field; lowered to plaintext (markup dropped, islands stripped)."

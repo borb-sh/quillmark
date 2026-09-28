@@ -214,8 +214,8 @@ fn validate_canonical_renders(quill: &Quill, result: &mut ValidationResult, verb
     }
 }
 
-/// The one advisory check config parsing does not already make: `example:` and
-/// `default:` literal errors are caught authoritatively at load time.
+/// The one advisory check config parsing does not already make: `default:`
+/// literal errors are caught authoritatively at load time.
 fn validate_field_schemas(
     fields: &IndexMap<String, FieldSchema>,
     result: &mut ValidationResult,

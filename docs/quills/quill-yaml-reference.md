@@ -15,7 +15,7 @@ main:         # Optional, main entry-point card: field schemas and optional titl
   fields:
     ...
   ui:         # optional UI hints (e.g. groups)
-  body:       # optional body-region config (e.g. enabled, example)
+  body:       # optional body-region config (enabled)
 
 card_kinds:   # Optional: additional composable card kinds
   ...
@@ -88,8 +88,7 @@ main:
 | `type`        | string            | yes      | Data type (see [Field Types](#field-types)); a trailing `?` makes the field [optional](#optional-fields-t) |
 | `title`       | string            | no       | The field's label, a literal (see [`title`](#title)) |
 | `description` | string            | no       | Detailed help text |
-| `default`     | matches `type`    | no       | The value the **majority of authors want**. When the cell is omitted, the default is filled in — at any depth, whether or not the container above it was authored — and the blueprint renders that concrete value with a type-only annotation, shippable as-is (see [`default` and `example`](#default-and-example)). Declared on a **cell**: a leaf or an `array`. On an `object` it is a load error (`quill::default_on_namespace`), since its properties hold their own. |
-| `example`     | matches `type`    | no       | A value matching the **type and shape** of what the author wants, but **not** the value desired most of the time. Documents shape only: it never takes a cell, is never committed to a document, and never renders. The blueprint shows it on a `# e.g.` line above the field. Declared on a **cell**, as `default` is (`quill::example_on_namespace`). |
+| `default`     | matches `type`    | no       | The value the **majority of authors want**. When the cell is omitted, the default is filled in — at any depth, whether or not the container above it was authored — and the blueprint renders that concrete value with a type-only annotation, shippable as-is (see [`default`](#default)). Declared on a **cell**: a leaf or an `array`. On an `object` it is a load error (`quill::default_on_namespace`), since its properties hold their own. |
 | `values`      | array of strings  | for `enum` | The closed set of allowed string values: the **choices**. Required on every `enum` field. Declaring `""` is a load error — every enum also accepts its [blank](#the-blank-values-is-for-choices-not-for-the-absence-of-one), which the engine supplies. |
 | `ui`          | object            | no       | UI rendering hints (see [UI Properties](#ui-properties)) |
 | `items`       | object            | for `array` | Element schema for an `array` field (a nested field schema). Required on every array. |
@@ -121,10 +120,10 @@ It is a literal. A `{field}` token in it is a load error
 (`quill::title_template`): nothing interpolates it. An array's `items` takes
 none (`quill::title_on_items`): the array's own title names the list.
 
-### `default` and `example`
+### `default`
 
 One question per field: **does it have a value when nobody types anything?**
-`default` is the answer.
+`default` is the answer, and the only value a field declares.
 
 ```yaml
 # Nothing to suggest: the type's blank is the answer "nothing".
@@ -136,22 +135,27 @@ internal_note:
 classification:
   type: enum
   values: [UNCLASSIFIED, CUI]
-  example: UNCLASSIFIED
 ```
 
 The blueprint renders them as:
 
 ```
 internal_note: "" # string
-# e.g. UNCLASSIFIED
 classification: # enum<UNCLASSIFIED | CUI>
 ```
 
 An unanswered field renders its `default:`, else its
 [blank](#the-blank-values-is-for-choices-not-for-the-absence-of-one), else
-`none` where the type is [optional](#optional-fields-t). `example:` never
-answers: it is the schema's illustration, shown on the blueprint's `# e.g.`
-line and nowhere else.
+`none` where the type is [optional](#optional-fields-t).
+
+A sample value has no schema slot, and an `example:` key is a load error
+(`quill::field_parse_error`). A format hint is `description` text:
+
+```yaml
+signer:
+  type: string
+  description: Name as signed, as in FIRST M. LAST, Capt, USAF.
+```
 
 Nothing is required. There is no `required:` key: an unanswered field renders,
 and `Quill::validate` reports nothing about it.
@@ -204,7 +208,7 @@ confidential:
 | `type: t?` | `none` | a `t` or `none` |
 
 - Any cell takes the `?`: every scalar type, `richtext`, `plaintext`, `date`, `enum`, and `array`. An `object`, a `matrix`, and an `enum` with `variants:` do not (`quill::optional_namespace`); mark the fields inside them instead.
-- `?` and `default:` are exclusive (`quill::optional_default`): a default answers for the author, so the field would never be `none`. Use `example:` to suggest a value.
+- `?` and `default:` are exclusive (`quill::optional_default`): a default answers for the author, so the field would never be `none`.
 - An authored value is kept as written: `0`, `false`, `""`, and `[]` are answers. On an `enum?`, `""` is the blank and reads `none`.
 
 Reading an optional field in a plate: [Blank values](typst-backend.md#blank-values).
@@ -343,9 +347,9 @@ written beside the field instead of under it (`poc:` at card level next to
 `classification: CUI`) is an undeclared key that no declared field reads, and
 `quill.validate(doc)` warns `validation::unknown_field` with a hint to nest it.
 
-The container is a *document* shape. The schema's own `default:` and `example:`
-name the discriminant alone (`default: ""`, `example: CUI`); a container-shaped
-one is a load error, because each cell in a world carries its literal on its own
+The container is a *document* shape. The schema's own `default:` names the
+discriminant alone (`default: ""`, `default: CUI`); a container-shaped one is a
+load error, because each cell in a world carries its literal on its own
 declaration.
 
 Two things follow, and they are the reason to reach for this over a
@@ -444,7 +448,7 @@ main:
 
 Containers nest freely: a property or an element is an ordinary field, so it carries whatever type a card-level field carries, itself included. `object<array<string>>`, `array<array<integer>>` and a typed table whose row holds a typed dictionary are all declarable, and each leaf is addressable by the schema address its path spells (`contact.address.city`, `grid.0.0` — see [PLATE_DATA.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PLATE_DATA.md#schema-addresses)).
 
-**A dictionary holds no `default:` or `example:` of its own** — its properties do:
+**A dictionary holds no `default:` of its own** — its properties do:
 
 ```yaml
 address:
@@ -460,7 +464,7 @@ already holds, free to disagree with it. Each property's `default:` is reached w
 above it, so writing `address: {}` changes nothing — which also makes a whole
 dictionary skippable by giving each property a type-empty default.
 
-An `array` **does** keep its own `default:` / `example:`: `items:` fixes the
+An `array` **does** keep its own `default:`: `items:` fixes the
 element type but never the arity, so `default: []` and `default: [{…}]` say
 something no property declaration can. Each element it supplies is completed
 against `items` exactly as an authored element is.
@@ -482,8 +486,8 @@ experience:
       duty: { type: string, default: "" }
 ```
 
-`max:` is a non-negative integer, valid only on an `array`, and a `default:` or
-`example:` longer than it fails to load. A document holding more elements draws
+`max:` is a non-negative integer, valid only on an `array`, and a `default:`
+longer than it fails to load. A document holding more elements draws
 a **warning**, `validation::cardinality`, at the field's path with `max` and
 `actual` in its args — never an error: the document still renders, and the plate
 decides what happens to the surplus. Each declaration carries its own cap, so a
@@ -493,7 +497,7 @@ The blueprint shows the cap as an own-line `# up to 37` under the field's
 description, which is where an MCP author reads it before writing.
 
 There is no `min:`. `min: 1` would be `required:` under another name, and no
-field is required ([`default` and `example`](#default-and-example)); it would
+field is required ([`default`](#default)); it would
 also contradict a sibling `default: []`.
 
 ### Matrix: a vocabulary the author ticks
@@ -551,7 +555,7 @@ arrives on every render:
 
 Three things to author against. Declare a `default:` on each column to say
 what a ticked member's unanswered column renders; without one it renders the
-column's blank. The matrix itself takes no `default:` or `example:`, so a fresh
+column's blank. The matrix itself takes no `default:`, so a fresh
 document ticks nothing and the blueprint shows the vocabulary in the field's annotation,
 `# matrix<sq_cc_candidate | flight_cc | dodin_ops>`, and its columns in a
 leading `# e.g.` line that ticks the first member. And each cell is an
@@ -568,7 +572,7 @@ Full model: [SCHEMAS.md](https://github.com/borb-sh/quillmark/blob/main/prose/ca
 The `ui` property on fields controls how form builders and wizards render the field. These are UI hints, not validation constraints.
 
 `ui` keys never reach the blueprint, so a fact a writer needs belongs in
-`description`, `example` or `title`. A field's label is its [`title`](#title);
+`description` or `title`. A field's label is its [`title`](#title);
 `ui` holds none, and `ui: { title: … }` is a load error whose hint names it.
 
 ### `group` and the group registry
@@ -824,7 +828,6 @@ names the instance.
 | Property  | Type   | Description |
 |-----------|--------|-------------|
 | `enabled`     | bool   | Whether the body editor is enabled (default: true). When false, consumers must not accept or store body content for this card kind. |
-| `example`     | string | Guide text shown on the blueprint's `# body e.g.` line above the body, and an editor may show it as the empty body's placeholder; never seeded. |
 
 #### `body.enabled`
 
@@ -842,19 +845,7 @@ card_kinds:
 
 Loading this draws `quill::bodiless_card_kind`, which asks whether the kind is a card at all: a repeated record with no prose is a row (see [When not to declare one](#when-not-to-declare-one)). The example above stands because a page break exists for its position in the stream, which no row can occupy. `main` is never warned.
 
-#### `body.example`
-
-Guide text for this kind's body, shown on the blueprint's `# body e.g.` line closing the card's payload, directly above the body, which the blueprint leaves empty. An editor may show it as the empty body's placeholder. Seeding never commits it: starter text goes in a template document's own body, or, for a card added by `seed_card`, in the main card's `$seed.<kind>.$body`. Has no effect when `body.enabled` is false.
-
-```yaml
-card_kinds:
-  experience:
-    body:
-      example: Describe your role, responsibilities, and key achievements.
-    fields:
-      company:
-        type: string
-```
+`enabled` is the only key under `body`; any other is a load error (`quill::invalid_body`). A body declares no value and no guide text: starter text goes in a template document's own body, or, for a card added by `seed_card`, in the main card's `$seed.<kind>.$body`.
 
 ### Using Cards in Markdown
 

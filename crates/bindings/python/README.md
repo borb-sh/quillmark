@@ -178,10 +178,6 @@ renders that value under a type-only `# <type>` annotation and the render path
 uses it when the document omits the field. Without one, the blueprint leaves the
 cell empty and an absent field blank-fills.
 
-**`example:`** — the schema's illustration of the field's shape. The blueprint
-shows it on a `# e.g.` line above the field; it never takes a cell and never
-renders.
-
 An unanswered field draws no diagnostic. Partial documents are accepted, and
 `engine.render(quill, doc)` raises only for malformed input.
 

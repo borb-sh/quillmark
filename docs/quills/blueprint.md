@@ -4,35 +4,32 @@ A quill's schema yields two ready-made documents: a **blueprint** (an annotated 
 
 ## Blueprint: the authoring surface
 
-`blueprint()` emits an annotated Markdown document, the same shape an author writes: each cell holds its `default:` or is left empty, with examples and type hints as comments. It is the authoring surface for LLM and MCP consumers: answer the empty cells, write the bodies, and the structure and `$` metadata come for free. The emitted document is itself valid: it parses, round-trips, and renders.
+`blueprint()` emits an annotated Markdown document, the same shape an author writes: each cell holds its `default:` or is left empty, with descriptions and type hints as comments. It is the authoring surface for LLM and MCP consumers: answer the empty cells, write the bodies, and the structure and `$` metadata come for free. The emitted document is itself valid: it parses, round-trips, and renders.
 
 ```
 ~~~
 $quill: cmu_letter@0.1.0 # keep verbatim
 $kind: main # A letter on CMU letterhead.
 # The recipient's name and full mailing address.
-# e.g. [Mr. John Doe, 123 Main St]
 recipient: # array<string>
 # The department name for the letterhead.
-# e.g. Department of Electrical and Computer Engineering
 department: "" # string
-# body e.g. "Dear Dr. Smith,\n\nI am writing to..."
 ~~~
 ```
 
-Two annotation slots, disjoint by purpose: **leading `# …` lines** carry prose (the field's `title` and description as `# <title> — <description>`, an `# e.g.` example) plus an `array`'s `# up to <N>` cap; the **inline `# …`** at the end of a value line carries structure, the field's `# <type>[<format>]`. A closed vocabulary shows its whole roster there — `# matrix<flight_cc | dodin_ops>` — so a reader can tick a member without looking the schema up, and cannot invent one.
+Two annotation slots, disjoint by purpose: **leading `# …` lines** carry prose (the field's `title` and description as `# <title> — <description>`) plus an `array`'s `# up to <N>` cap; the **inline `# …`** at the end of a value line carries structure, the field's `# <type>[<format>]`. A closed vocabulary shows its whole roster there — `# matrix<flight_cc | dodin_ops>` — so a reader can tick a member without looking the schema up, and cannot invent one.
 
-A matrix with columns adds an `# e.g.` line spelling one held member, `{flight_cc: {held: true, detail: …}}`, which names every column; a column with nothing to show carries its `<type>[<format>]`. The member it picks is only an illustration.
+A matrix with columns adds an `# e.g.` line spelling one held member, `{flight_cc: {held: true, detail: …}}`, which names every column. Each column shows its `default:`, else its container shape, else its `<type>[<format>]`. The member it picks is only an illustration, and this is the only `# e.g.` line a blueprint emits.
 
 A card's own title and description ride its `$kind` line's inline slot, `$kind: note # <title> — <description>`, so neither reads as the first field's.
 
 Two things in the own-line slot are not annotations. An `enum` declaring `variants:` shows the cells of the world its discriminant names live, and every other world's cells commented out under a `# when <MEMBER>:` header — the same cells, with a `# ` in front, at the column they would sit at. Choose that member and delete the `# `. A typed table whose `default:` is `[]` is led by the whole field commented out, holding a row. Delete the live line and uncomment the block to add a row.
 
-The reader's one rule: an empty cell (`title: # string`) awaits a value; a concrete value is the field's `default:`, shippable as-is. An `example:` never takes a cell: it always rides a `# e.g.` line above the field, as a one-line flow collection for an array or object, and is the schema's illustration rather than real data. An empty cell renders at the field's blank, and nothing warns about it. Every body is empty too: a `body.example` rides a `# body e.g.` line closing the card's payload, above the body, and a kind taking no body closes with `# no body`.
+The reader's one rule: an empty cell (`title: # string`) awaits a value; a concrete value is the field's `default:`, shippable as-is. An empty cell renders at the field's blank, and nothing warns about it. Every body is empty too, and a kind taking no body closes its payload with `# no body`.
 
 ## Seeding: the starter document
 
-Seeding materializes a real `Document` rather than an annotated string: the main card plus one card per composable kind, each body empty, and every field left absent so the render floor fills `default:`, else the field's blank. No `example:` is committed (a field's or `body.example`). Hand it to an editor as a "new document" starter, or render it directly.
+Seeding materializes a real `Document` rather than an annotated string: the main card plus one card per composable kind, each body empty, and every field left absent so the render floor fills `default:`, else the field's blank. Hand it to an editor as a "new document" starter, or render it directly.
 
 | Projection | Intent | Output |
 |---|---|---|

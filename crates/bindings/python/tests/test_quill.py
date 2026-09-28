@@ -69,12 +69,8 @@ def test_warnings_carry_the_loads_advisories(taro_quill_dir, tmp_path):
         'quill:\n  name: "warn"\n  version: "1.0"\n  backend: "typst"\n  description: "W"\n'
         "main:\n  fields:\n    title: { type: string }\n"
         "card_kinds:\n  skills:\n    body:\n      enabled: false\n"
-        "      example: This example is unused\n"
         "    fields:\n      items: { type: array, items: { type: string } }\n"
     )
 
     quill = Quill.from_path(str(quill_dir))
-    assert [d.code for d in quill.warnings] == [
-        "quill::body_example_unused",
-        "quill::bodiless_card_kind",
-    ]
+    assert [d.code for d in quill.warnings] == ["quill::bodiless_card_kind"]
