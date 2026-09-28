@@ -6,9 +6,6 @@ main:
         Organization/office symbol in UPPERCASE. To address a specific person, add
         their rank and name in parentheses (e.g., 'ORG/SYMBOL (LT COL JANE DOE)'). For many
         recipients, enter 'SEE DISTRIBUTION' and list them in the Distribution field.
-      example:
-      - ORG1/SYMBOL
-      - ORG2/SYMBOL
       ui:
         group: addressing
       items:
@@ -21,11 +18,6 @@ main:
         correspondence. Omit entirely to produce a Memorandum for Record (no MEMO FROM
         line).
       default: []
-      example:
-      - ORG/SYMBOL
-      - Organization Name
-      - 123 Street Ave
-      - City ST 12345-6789
       ui:
         group: addressing
       items:
@@ -36,16 +28,12 @@ main:
         Be brief and clear. Capitalize the first letter of each word except articles,
         prepositions, and conjunctions. Include suspense dates in parentheses if
         applicable.
-      example: Subject of the Memorandum
       ui:
         group: addressing
       inline: true
     signature_block:
       type: array
-      description: "Line 1: Name in UPPERCASE as signed, grade, and service. Line 2: Duty title."
-      example:
-      - FIRST M. LAST, Rank, USAF
-      - Duty Title
+      description: "Line 1: Name in UPPERCASE as signed, grade, and service, as in FIRST M. LAST, Capt, USAF. Line 2: Duty title."
       ui:
         group: addressing
       items:
@@ -58,9 +46,7 @@ main:
         group: letterhead
     letterhead_caption:
       type: array
-      description: The full organization name of your unit.
-      example:
-      - HEADQUARTERS [UNIT NAME]
+      description: The full organization name of your unit, as in HEADQUARTERS 123D EXAMPLE WING.
       ui:
         group: letterhead
       items:
@@ -118,11 +104,11 @@ main:
             description: >-
               Office or organization that designated this information as CUI. Required by
               DoDM 5200.48.
-            example: SAF/AA
           poc:
             type: string
-            description: Point of contact for CUI questions. Required by DoDM 5200.48.
-            example: Capt J. Smith, DSN 555-1234, john.smith@us.af.mil
+            description: >-
+              Point of contact for CUI questions, as in Capt J. Smith, DSN 555-1234,
+              john.smith@us.af.mil. Required by DoDM 5200.48.
           category:
             type: string
             description: >-
@@ -151,9 +137,6 @@ main:
         organization, type, date, and title; italicize publication titles with *asterisks*
         (standard Markdown emphasis).
       default: []
-      example:
-      - AFMAN 33-326, 25 November 2011, *Preparing Official Communications*
-      - AFI 33-360, *Publications and Forms Management*
       ui:
         group: additional
       items:
@@ -163,8 +146,6 @@ main:
       type: array
       description: List office symbols of recipients to receive copies.
       default: []
-      example:
-      - Rank and Name, ORG/SYMBOL
       ui:
         group: additional
       items:
@@ -175,9 +156,6 @@ main:
         Complete list of recipients if 'SEE DISTRIBUTION' is used in the 'Memo For'
         field.
       default: []
-      example:
-      - ORG1/SYMBOL
-      - ORG2/SYMBOL
       ui:
         group: additional
       items:
@@ -188,8 +166,6 @@ main:
         List attachments in the order they are mentioned in the memo. Briefly describe
         each; do not use 'as stated' or abbreviations.
       default: []
-      example:
-      - Attachment description, YYYY MMM DD
       ui:
         group: additional
       items:
@@ -228,11 +204,6 @@ main:
       letterhead: {}
       classification: {}
       additional: {}
-  body:
-    example: |
-      The first paragraph. Top-level paragraphs are auto-numbered; do not add manual numbering.
-      
-      - Nested bullets are automatically lettered.
 card_kinds:
   indorsement:
     title: Routing indorsement
@@ -243,21 +214,16 @@ card_kinds:
       from:
         type: string
         description: Office symbol or Rank Name of the endorsing official.
-        example: ORG/SYMBOL
         ui:
           group: addressing
       for:
         type: string
         description: Office symbol or organization receiving the endorsed memo.
-        example: ORG/SYMBOL
         ui:
           group: addressing
       signature_block:
         type: array
-        description: "Line 1: Name in UPPERCASE as signed, grade, and service. Line 2: Duty title."
-        example:
-        - FIRST M. LAST, Rank, USAF
-        - Duty Title
+        description: "Line 1: Name in UPPERCASE as signed, grade, and service, as in FIRST M. LAST, Capt, USAF. Line 2: Duty title."
         ui:
           group: addressing
         items:

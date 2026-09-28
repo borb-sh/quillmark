@@ -11,7 +11,7 @@ use super::{
     CardSchema, FieldSchema, FieldType, QuillConfig, VariantFields, MATRIX_HELD_KEY,
     VARIANT_DISCRIMINANT_KEY,
 };
-use crate::document::emit::{emit_mapping_lines, saphyr_emit_flow, saphyr_emit_scalar};
+use crate::document::emit::{emit_mapping_lines, saphyr_emit_flow};
 use crate::document::prescan::NestedComment;
 use crate::document::{Card, Document, Payload, PayloadItem};
 use crate::value::{PathSegment, QuillValue};
@@ -61,18 +61,11 @@ fn label_line(title: Option<&str>, description: Option<&str>) -> Option<String> 
     }
 }
 
-/// The line closing the payload that speaks for the body, which is left empty
-/// as a field's cell is: `# no body` for a kind taking none, else a
-/// `body.example` as `# body e.g.`.
+/// The line closing the payload of a kind taking no body: `# no body`. A body
+/// is left empty as a field's cell is.
 fn push_body_line(items: &mut CardItems, card: &CardSchema) {
     if !card.body_enabled() {
         items.push(PayloadItem::comment("no body"));
-        return;
-    }
-    let example = card.body.as_ref().and_then(|b| b.example.as_deref());
-    if let Some(example) = example.map(str::trim_end).filter(|e| !e.is_empty()) {
-        let example = JsonValue::String(example.to_string());
-        items.push(PayloadItem::comment(format!("body e.g. {}", saphyr_emit_scalar(&example))));
     }
 }
 
@@ -227,9 +220,8 @@ fn matrix_cell() -> JsonValue {
 }
 
 /// The `# e.g.` text for a matrix declaring columns: its first member held,
-/// each column at [`column_hint`]. A matrix holds no `example:` of its own, so
-/// the slot is free; a checklist has no line, the bare tick being its whole
-/// spelling.
+/// each column at [`column_hint`]. A checklist has no line, the bare tick being
+/// its whole spelling.
 fn matrix_eg(field: &FieldSchema) -> Option<String> {
     let columns = field.matrix_columns();
     if columns.is_empty() {
@@ -244,11 +236,11 @@ fn matrix_eg(field: &FieldSchema) -> Option<String> {
     Some(format!("{{{}: {{{}}}}}", flow_scalar(first), cells.join(", ")))
 }
 
-/// One column's value in a matrix hint: `example:` › `default:` › its
-/// container shape › its inline annotation's `<type>[<format>]`, quoted where
-/// flow syntax would split it.
+/// One column's value in a matrix hint: `default:` › its container shape ›
+/// its inline annotation's `<type>[<format>]`, quoted where flow syntax would
+/// split it.
 fn column_hint(col: &FieldSchema) -> String {
-    if let Some(value) = col.example.as_ref().or(col.default.as_ref()) {
+    if let Some(value) = col.default.as_ref() {
         return saphyr_emit_flow(value.as_json());
     }
     if matches!(col.r#type, FieldType::Matrix { .. }) {
@@ -296,7 +288,7 @@ fn typed_table_props(field: &FieldSchema) -> Option<&IndexMap<String, Box<FieldS
 }
 
 /// Push the leading prose comments for a *top-level* field: the
-/// [`label_line`], the cap, then the `# e.g.` hint.
+/// [`label_line`], the cap, then a matrix's `# e.g.` hint.
 fn push_leading(items: &mut CardItems, field: &FieldSchema) {
     if let Some(label) = label_line(field.title.as_deref(), field.description.as_deref()) {
         items.push(PayloadItem::comment(label));
@@ -304,15 +296,9 @@ fn push_leading(items: &mut CardItems, field: &FieldSchema) {
     if let Some(cap) = cap_hint(field) {
         items.push(PayloadItem::comment(cap));
     }
-    if let Some(eg) = eg_text(field) {
+    if let Some(eg) = matrix_eg(field) {
         items.push(PayloadItem::comment(format!("e.g. {eg}")));
     }
-}
-
-/// The text after `# e.g. ` for a field: its `example:`, else a matrix's
-/// member hint.
-fn eg_text(field: &FieldSchema) -> Option<String> {
-    field.example.as_ref().map(eg_hint).or_else(|| matrix_eg(field))
 }
 
 /// The `# up to <N>` leading line for a capped array, in the own-line form
@@ -323,8 +309,7 @@ fn cap_hint(field: &FieldSchema) -> Option<String> {
     field.max.map(|max| format!("up to {max}"))
 }
 
-/// A leaf's cell: its `default:`, else empty. An `example:` never answers a
-/// cell; it rides the `# e.g.` hint.
+/// A leaf's cell: its `default:`, else empty.
 fn scalar_value(field: &FieldSchema) -> JsonValue {
     field
         .default
@@ -345,7 +330,7 @@ fn append_scalar(items: &mut CardItems, field: &FieldSchema) {
 
 /// Build the per-property body of a defaultless typed container into `map`:
 /// each property at its own cell in declaration order, plus the nested comments
-/// ([`label_line`] + `# e.g.` + [`dormant_table`] + inline type annotation,
+/// ([`label_line`] + a matrix's `# e.g.` + [`dormant_table`] + inline type annotation,
 /// addressed by `container_path`/slot). `prefix` is the container path of the
 /// mapping relative to the value it is rendered in (`[]` for a typed dict,
 /// `[Index(0)]` for a typed table's synthetic row).
@@ -377,7 +362,7 @@ fn build_property_mapping(
                 inline: false,
             });
         }
-        if let Some(eg) = eg_text(prop) {
+        if let Some(eg) = matrix_eg(prop) {
             nested.push(NestedComment {
                 container_path: prefix.to_vec(),
                 position: slot,
@@ -620,17 +605,6 @@ fn declared_type_expression(field: &FieldSchema) -> String {
     }
 }
 
-/// Format an example value as a compact one-line hint. Arrays and objects
-/// render as YAML flow collections (`[a, b, c]`, `{k: v}`) so multi-element
-/// shape information is preserved without expanding into multiple comment
-/// lines.
-fn eg_hint(example: &QuillValue) -> String {
-    match example.as_json() {
-        v @ (serde_json::Value::Array(_) | serde_json::Value::Object(_)) => saphyr_emit_flow(v),
-        val => saphyr_emit_scalar(val),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::quill::QuillConfig;
@@ -722,35 +696,6 @@ main:
     }
 
     #[test]
-    fn a_markdown_example_surfaces_as_eg_hint_not_inline_value() {
-        let t = cfg(r#"
-quill: { name: x, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    bio: { type: richtext, example: "Hello world" }
-"#)
-        .blueprint();
-        assert!(t.contains("# e.g. Hello world\nbio: # richtext<markdown>\n"));
-    }
-
-    /// An example documents shape, never an answer: the cell no `default:`
-    /// holds stays empty and the example rides the hint.
-    #[test]
-    fn an_example_never_takes_the_cell() {
-        let t = cfg(r#"
-quill: { name: x, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    classification: { type: enum, values: [UNCLASSIFIED, CUI], example: UNCLASSIFIED }
-"#)
-        .blueprint();
-        assert!(
-            t.contains("# e.g. UNCLASSIFIED\nclassification: # enum<UNCLASSIFIED | CUI>\n"),
-            "{t}"
-        );
-    }
-
-    #[test]
     fn a_blank_default_emits_a_blank_cell() {
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
@@ -763,41 +708,6 @@ main:
 
         let doc = Document::parse(&t).expect("the blank cell parses").document;
         assert_eq!(doc, Document::parse(&doc.to_markdown()).expect("re-emit").document);
-    }
-
-    #[test]
-    fn endorsed_field_with_example_does_not_use_example_as_value() {
-        let t = cfg(r#"
-quill: { name: x, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    status: { type: string, default: draft, example: final }
-"#)
-        .blueprint();
-        assert!(t.contains("# e.g. final\nstatus: draft # string\n"));
-    }
-
-    #[test]
-    fn an_array_example_renders_as_a_flow_hint_with_context_quoting() {
-        let t = cfg(r#"
-quill: { name: x, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    recipient:
-      type: array
-      items: { type: string }
-      example:
-        - Mr. John Doe
-        - 123 Main St
-        - "Anytown, USA"
-"#)
-        .blueprint();
-        assert!(
-            t.contains(
-                "# e.g. [Mr. John Doe, 123 Main St, \"Anytown, USA\"]\nrecipient: # array<string>\n"
-            ),
-            "{t}"
-        );
     }
 
     #[test]
@@ -987,38 +897,27 @@ card_kinds:
         }
     }
 
-    /// A body is a cell: it stays empty, and one line closing the payload
-    /// speaks for it: its example, named so it cannot read as the last field's,
-    /// or `# no body` for a kind taking none.
+    /// A body is a cell: it stays empty, and a kind taking none closes its
+    /// payload with `# no body`.
     #[test]
     fn a_body_line_closes_the_payload_over_an_empty_body() {
         let t = cfg(r#"
 quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
-  body:
-    example: "Dear Sir or Madam,\n\nI am writing to...\n"
   fields:
     to: { type: string }
 card_kinds:
   note:
     fields:
       author: { type: string }
-  blank:
-    body: { example: "\n\n" }
-    fields:
-      tag: { type: string }
   skills:
-    body: { enabled: false, example: unused }
+    body: { enabled: false }
     fields:
       items: { type: array, items: { type: string } }
 "#)
         .blueprint();
-        assert!(
-            t.contains("to: # string\n# body e.g. \"Dear Sir or Madam,\\n\\nI am writing to...\"\n~~~\n\n~~~\n"),
-            "{t}"
-        );
+        assert!(t.contains("to: # string\n~~~\n\n~~~\n"), "{t}");
         assert!(t.contains("author: # string\n~~~\n\n~~~\n"), "{t}");
-        assert!(t.contains("tag: # string\n~~~\n\n~~~\n"), "{t}");
         assert!(t.ends_with("items: # array<string>\n# no body\n~~~\n"), "{t}");
         let doc = Document::parse(&t).expect("blueprint must parse").document;
         assert!(doc.main().body().is_blank());
@@ -1067,28 +966,6 @@ main:
             "# Cited works.\nreferences: # array<object>\n  -\n    # Citing organization.\n    org: # string\n"
         ));
         assert!(t.contains("    # Publication year.\n    year: 0 # integer\n"));
-    }
-
-    #[test]
-    fn typed_table_with_example_keeps_eg_line_and_synthetic_row() {
-        let t = cfg(r#"
-quill: { name: x, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    refs:
-      type: array
-      example:
-        - { org: ACME, year: 2020 }
-      items:
-        type: object
-        properties:
-          org: { type: string }
-          year: { type: integer, default: 0 }
-"#)
-        .blueprint();
-        assert!(t.contains("# e.g. [{org: ACME, year: 2020}]\n"));
-        assert!(t.contains("refs: # array<object>\n  - org: # string\n"));
-        assert!(t.contains("    year: 0 # integer\n"));
     }
 
     #[test]
@@ -1282,103 +1159,29 @@ main:
         assert!(t.contains("  city: Pittsburgh # string\n"));
     }
 
-    #[test]
-    fn typed_dict_property_example_keeps_its_own_eg_line() {
-        let t = cfg(r#"
-quill: { name: x, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    address:
-      type: object
-      properties:
-        street: { type: string }
-        city:   { type: string, default: "", example: Cupertino }
-"#)
-        .blueprint();
-        assert!(t.contains("address: # object\n"));
-        assert!(t.contains("# e.g. Cupertino\n"), "{t}");
-        assert!(t.contains("  street: # string\n"));
-        assert!(t.contains("  city: \"\" # string\n"));
-    }
-
-    /// The `# e.g.` hint lands at every depth a property is declared.
-    #[test]
-    fn a_richtext_example_surfaces_as_an_eg_hint_at_every_depth() {
-        let t = cfg(r#"
-quill: { name: x, version: 1.0.0, backend: typst, description: x }
-main:
-  fields:
-    bio: { type: richtext, example: Top hello }
-    contact:
-      type: object
-      properties:
-        bio: { type: richtext, example: Nested hello }
-    rows:
-      type: array
-      items:
-        type: object
-        properties:
-          bio: { type: richtext, example: Row hello }
-"#)
-        .blueprint();
-
-        assert!(
-            t.contains("# e.g. Top hello\nbio: # richtext<markdown>\n"),
-            "{t}"
-        );
-        assert!(
-            t.contains(concat!(
-                "contact: # object\n",
-                "  # e.g. Nested hello\n",
-                "  bio: # richtext<markdown>\n",
-            )),
-            "{t}"
-        );
-        assert!(
-            t.contains(concat!(
-                "rows: # array<object>\n",
-                "  -\n",
-                "    # e.g. Row hello\n",
-                "    bio: # richtext<markdown>\n",
-            )),
-            "{t}"
-        );
-
-        let doc1 = Document::parse(&t).expect("blueprint must parse").document;
-        let doc2 = Document::parse(&doc1.to_markdown())
-            .expect("re-emit must parse")
-            .document;
-        assert_eq!(doc1, doc2, "the hinted blueprint must round-trip");
-    }
-
     /// A typed dictionary is a namespace, not a cell: a literal on the
     /// container is refused at load, naming the properties that hold it.
     #[test]
     fn a_literal_on_a_typed_dictionary_is_a_load_error() {
-        for (slot, code) in [
-            ("default", "quill::default_on_namespace"),
-            ("example", "quill::example_on_namespace"),
-        ] {
-            let yaml = format!(
-                r#"
-quill: {{ name: x, version: 1.0.0, backend: typst, description: x }}
+        let err = QuillConfig::from_yaml(
+            r#"
+quill: { name: x, version: 1.0.0, backend: typst, description: x }
 main:
   fields:
     address:
       type: object
-      {slot}: {{ street: "5000 Forbes Ave" }}
+      default: { street: "5000 Forbes Ave" }
       properties:
-        street: {{ type: string }}
-        city:   {{ type: string }}
-"#
-            );
-            let err = QuillConfig::from_yaml(&yaml).expect_err("must refuse");
-            assert!(err.contains(code), "expected {code}; got {err}");
-            assert!(
-                err.contains("street") && err.contains("city"),
-                "the hint names the properties that hold the {slot}: {err}"
-            );
-        }
+        street: { type: string }
+        city:   { type: string }
+"#,
+        )
+        .expect_err("must refuse");
+        assert!(err.contains("quill::default_on_namespace"), "{err}");
+        assert!(
+            err.contains("street") && err.contains("city"),
+            "the hint names the properties that hold the default: {err}"
+        );
     }
 
     const LETTER_QUILL: &str = r#"
@@ -1400,8 +1203,6 @@ main:
       type: array
       items: { type: string }
       default: []
-      example:
-        - report.pdf
 card_kinds:
   enclosure:
     description: An enclosure attached to the letter.

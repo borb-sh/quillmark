@@ -57,7 +57,7 @@ pub struct CardSchema {
 }
 ```
 
-The display label for a card kind is `CardSchema::title`; see `title` below. Body behavior (whether body content is permitted and optional guide text) lives under `body`; see `body.enabled` and `body.example` below.
+The display label for a card kind is `CardSchema::title`; see `title` below. Whether a card kind takes body content is `body.enabled`.
 
 `QuillConfig` exposes the entry-point card as `main: CardSchema` and the additional named card-kinds as `card_kinds: Vec<CardSchema>`. Look up a named card-kind by name via `card_kind(name)`.
 

@@ -48,16 +48,14 @@ export interface QuillCardUi {
 export interface QuillCardBody {
     /** When false, consumers must not accept or store body content for this card kind. Defaults to true. */
     enabled?: boolean;
-    /** Example body content, shown on the blueprint's `# body e.g.` line above the body. */
-    example?: string;
 }
 
 export type QuillFieldType = "string" | "number" | "integer" | "boolean" | "array" | "object" | "date" | "datetime" | "richtext" | "plaintext" | "enum" | "matrix";
 
 /** Schema entry for a single field declared in a quill's `Quill.yaml`.
  *
- * `default` is the value an unanswered cell renders; `example` documents shape
- * and never renders. An absent field without a `default` blank-fills.
+ * `default` is the value an unanswered cell renders. An absent field without a
+ * `default` blank-fills.
  */
 export interface QuillFieldSchema {
     /** A trailing `?` marks the cell optional: unanswered, it renders `none`
@@ -69,7 +67,6 @@ export interface QuillFieldSchema {
     title?: string;
     description?: string;
     default?: unknown;
-    example?: unknown;
     /** The closed set of allowed values. Required on `type: "enum"`, and valid
      *  nowhere else. */
     values?: string[];
@@ -724,8 +721,7 @@ impl Quill {
 
     /// Seed a starter `Document` from the schema: the main card plus one instance
     /// of each composable card kind, each body empty and every field absent
-    /// (interpolated at render as `default:`, else the field's blank). No
-    /// `example:` is committed (a field's or `body.example`).
+    /// (interpolated at render as `default:`, else the field's blank).
     #[wasm_bindgen(js_name = seedDocument)]
     pub fn seed_document(&self) -> Document {
         Document {

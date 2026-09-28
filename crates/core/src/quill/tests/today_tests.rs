@@ -71,7 +71,7 @@ fn today_is_a_date_value_only() {
              main:\n  fields:\n    f: {field}\n"
         ))
     };
-    assert!(with_default("{ type: date, example: today }").is_ok());
+    assert!(with_default("{ type: date, default: today }").is_ok());
     assert!(with_default("{ type: datetime, default: today }").is_err());
     assert!(with_default("{ type: string, default: today }").is_ok());
 

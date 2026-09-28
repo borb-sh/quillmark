@@ -1309,20 +1309,11 @@ impl QuillConfig {
         Self::validate_title_literal(schema.title.as_deref(), owner_label, errors);
         Self::validate_enum_literals(schema, owner_label, errors);
         Self::validate_optional(schema, owner_label, errors);
-        if schema.example.is_some() {
-            Self::reject_namespace_literal("example", schema, owner_label, errors);
-        }
-        if schema.default.is_some() {
-            Self::reject_namespace_literal("default", schema, owner_label, errors);
-        }
-        if let Some(v) = &schema.example {
-            Self::validate_schema_slot("example", v, schema, owner_label, errors);
-        }
         if let Some(v) = &schema.default {
-            Self::validate_schema_slot("default", v, schema, owner_label, errors);
+            Self::reject_namespace_default(schema, owner_label, errors);
+            Self::validate_default(v, schema, owner_label, errors);
         }
-        Self::reject_over_max_literal("example", schema, owner_label, errors);
-        Self::reject_over_max_literal("default", schema, owner_label, errors);
+        Self::reject_over_max_default(schema, owner_label, errors);
         if let Some(props) = &schema.properties {
             for (name, prop) in props {
                 let nested = format!("{}.{}", owner_label, name);
@@ -1499,21 +1490,20 @@ impl QuillConfig {
                 )
                 .with_code("quill::optional_default".to_string())
                 .with_hint(
-                    "Drop the `?` to always render a value, or move the value to `example:` \
-                     to suggest it without answering for the author."
+                    "Drop the `?` to always render the default, or drop the default to \
+                     render `none`."
                         .to_string(),
                 ),
             );
         }
     }
 
-    /// Refuse a `default:` / `example:` declared on a **namespace** rather than
-    /// a cell (`SCHEMAS.md` §"Cells and namespaces"): a typed dictionary, or a
-    /// matrix, whose keys the roster fixes. The variant container refuses the
-    /// same shape under `quill::{default,example}_type_mismatch`; an `array`
-    /// keeps its literal, `items:` fixing the element type but never the arity.
-    fn reject_namespace_literal(
-        slot: &str,
+    /// Refuse a `default:` declared on a **namespace** rather than a cell
+    /// (`SCHEMAS.md` §"Cells and namespaces"): a typed dictionary, or a matrix,
+    /// whose keys the roster fixes. The variant container refuses the same
+    /// shape under `quill::default_type_mismatch`; an `array` keeps its
+    /// literal, `items:` fixing the element type but never the arity.
+    fn reject_namespace_default(
         schema: &FieldSchema,
         owner_label: &str,
         errors: &mut Vec<Diagnostic>,
@@ -1525,16 +1515,16 @@ impl QuillConfig {
             let columns: Vec<&str> = schema.matrix_columns().keys().map(String::as_str).collect();
             (
                 format!(
-                    "{owner_label} declares type 'matrix' but carries a {slot}. A matrix is a \
+                    "{owner_label} declares type 'matrix' but carries a default. A matrix is a \
                      namespace, not a cell: the roster fixes its keys, and every member is \
                      unheld until a document ticks it."
                 ),
                 if columns.is_empty() {
-                    format!("Remove the {slot}.")
+                    "Remove the default.".to_string()
                 } else {
                     format!(
                         "Move each value onto the column that holds it ({}), and remove the \
-                         matrix's {slot}.",
+                         matrix's default.",
                         columns.join(", ")
                     )
                 },
@@ -1543,38 +1533,35 @@ impl QuillConfig {
             let names: Vec<&str> = props.keys().map(String::as_str).collect();
             (
                 format!(
-                    "{owner_label} declares type 'object' but carries a {slot}. A typed \
-                     dictionary is a namespace, not a cell: each property holds its own {slot}."
+                    "{owner_label} declares type 'object' but carries a default. A typed \
+                     dictionary is a namespace, not a cell: each property holds its own default."
                 ),
                 format!(
                     "Move each value onto the property that holds it ({}), and remove the \
-                     container's {slot}.",
+                     container's default.",
                     names.join(", ")
                 ),
             )
         };
         errors.push(
             Diagnostic::new(Severity::Error, message)
-                .with_code(format!("quill::{slot}_on_namespace"))
+                .with_code("quill::default_on_namespace".to_string())
                 .with_hint(hint),
         );
     }
 
-    /// Refuse a `default:` / `example:` array literal longer than the field's
-    /// own `max:`. A quill seeding a document past the cap it declares would
-    /// warn (`validation::cardinality`) on a document nobody authored.
-    fn reject_over_max_literal(
-        slot: &str,
+    /// Refuse a `default:` array literal longer than the field's own `max:`.
+    /// A quill rendering an unanswered cell past the cap it declares would warn
+    /// (`validation::cardinality`) on a document nobody authored.
+    fn reject_over_max_default(
         schema: &FieldSchema,
         owner_label: &str,
         errors: &mut Vec<Diagnostic>,
     ) {
         let Some(max) = schema.max else { return };
-        let literal = match slot {
-            "default" => schema.default.as_ref(),
-            _ => schema.example.as_ref(),
-        };
-        let Some(actual) = literal
+        let Some(actual) = schema
+            .default
+            .as_ref()
             .and_then(|v| v.as_json().as_array())
             .map(Vec::len)
             .filter(|len| *len > max as usize)
@@ -1585,28 +1572,26 @@ impl QuillConfig {
             Diagnostic::new(
                 Severity::Error,
                 format!(
-                    "{owner_label} carries a {slot} of {actual} elements but declares \
+                    "{owner_label} carries a default of {actual} elements but declares \
                      `max: {max}`."
                 ),
             )
-            .with_code(format!("quill::{slot}_over_max"))
+            .with_code("quill::default_over_max".to_string())
             .with_hint(format!(
-                "Shorten the {slot} to {max} elements, or raise `max:` to the count the \
+                "Shorten the default to {max} elements, or raise `max:` to the count the \
                  page holds."
             )),
         );
     }
 
-    /// Validate a single `example:` or `default:` literal against the declared
-    /// schema, pushing `quill::*`-namespaced [`Diagnostic`]s for any violations.
+    /// Validate a `default:` literal against the declared schema, pushing
+    /// `quill::default_*` [`Diagnostic`]s for any violations.
     ///
     /// Delegates type/enum/format/recursion checking to
     /// [`super::validation::validate_schema_literal`] (the shared conformance
     /// primitive) then converts each [`ValidationError`] into a Quill.yaml
-    /// load-time diagnostic with the appropriate `quill::{slot}_*` error code
-    /// and author-friendly hint.
-    fn validate_schema_slot(
-        slot: &str,
+    /// load-time diagnostic with an author-friendly hint.
+    fn validate_default(
         value: &QuillValue,
         schema: &FieldSchema,
         owner_label: &str,
@@ -1650,8 +1635,8 @@ impl QuillConfig {
                             .map(String::as_str)
                             .unwrap_or("<member>");
                         format!(
-                            "Write the {slot} as the discriminant alone ({slot}: {member}); \
-                             a variant's own field carries its {slot} on that field."
+                            "Write the default as the discriminant alone (default: {member}); \
+                             a variant's own field carries its default on that field."
                         )
                     } else if actual == "number" || actual == "integer" {
                         let schema_type = if actual == "integer" {
@@ -1660,26 +1645,26 @@ impl QuillConfig {
                             "number"
                         };
                         format!(
-                            "Quote the {slot} as \"{raw}\" if the value is intentionally a \
+                            "Quote the default as \"{raw}\" if the value is intentionally a \
                              string, or change the field type to '{schema_type}'.",
                             raw = source_token.trim_matches('"'),
                         )
                     } else if actual == "string" {
                         format!(
-                            "Remove the quotes around the {slot} value to keep it a {declared}."
+                            "Remove the quotes around the default value to keep it a {declared}."
                         )
                     } else {
                         format!(
-                            "Make the {slot} value a {declared}, or change the field type to match."
+                            "Make the default value a {declared}, or change the field type to match."
                         )
                     };
                     Diagnostic::new(
                         Severity::Error,
                         format!(
-                            "{owner_label} declares type '{declared}' but {slot} is {display_actual} ({preview})."
+                            "{owner_label} declares type '{declared}' but default is {display_actual} ({preview})."
                         ),
                     )
-                    .with_code(format!("quill::{slot}_type_mismatch"))
+                    .with_code("quill::default_type_mismatch".to_string())
                     .with_hint(hint)
                 }
                 ValidationError::EnumViolation {
@@ -1695,17 +1680,17 @@ impl QuillConfig {
                     Diagnostic::new(
                         Severity::Error,
                         format!(
-                            "{path} {slot} \"{val}\" is not one of the declared enum values [{values_str}]."
+                            "{path} default \"{val}\" is not one of the declared enum values [{values_str}]."
                         ),
                     )
-                    .with_code(format!("quill::{slot}_not_in_enum"))
-                    .with_hint(format!("Set the {slot} to one of: {values_str}."))
+                    .with_code("quill::default_not_in_enum".to_string())
+                    .with_hint(format!("Set the default to one of: {values_str}."))
                 }
                 ValidationError::FormatViolation { path, format } => Diagnostic::new(
                     Severity::Error,
-                    format!("{path} {slot} has an invalid {format} format."),
+                    format!("{path} default has an invalid {format} format."),
                 )
-                .with_code(format!("quill::{slot}_format_violation"))
+                .with_code("quill::default_format_violation".to_string())
                 .with_hint(super::validation::format_hint(&format)),
                 // NotInline and NotPlain can arise on a literal, and
                 // `literal_content` reports them at load.
@@ -1886,9 +1871,18 @@ impl QuillConfig {
     }
 
     fn field_parse_hint(field_value: &serde_json::Value) -> Option<String> {
-        spells_ui_title(field_value).then(|| {
-            "A field's label is its own `title:`, beside `description:`; `ui` holds no \
-             `title`."
+        let spells_ui_title =
+            |f: &serde_json::Value| f.get("ui").and_then(|ui| ui.get("title")).is_some();
+        if any_field_schema(field_value, &spells_ui_title) {
+            return Some(
+                "A field's label is its own `title:`, beside `description:`; `ui` holds no \
+                 `title`."
+                    .to_string(),
+            );
+        }
+        any_field_schema(field_value, &|f| f.get("example").is_some()).then(|| {
+            "A field declares one value, its `default:`. A format hint is `description:` \
+             text, as in `description: Rank and full name, as in Capt Jane Doe`."
                 .to_string()
         })
     }
@@ -2316,26 +2310,6 @@ impl QuillConfig {
             }
         }
 
-        let warn_example_unused = |label: &str, card: &CardSchema| -> Option<Diagnostic> {
-            let body = card.body.as_ref()?;
-            if !card.body_enabled() && body.example.is_some() {
-                Some(
-                    Diagnostic::new(
-                        Severity::Warning,
-                        format!(
-                            "`{label}.body.example` is set but `{label}.body.enabled` is false; the example will have no effect"
-                        ),
-                    )
-                    .with_code("quill::body_example_unused".to_string())
-                    .with_hint(
-                        "Set `body.enabled: true` to surface the example, or remove `body.example`."
-                            .to_string(),
-                    ),
-                )
-            } else {
-                None
-            }
-        };
         // Every card the read-only checks below walk, under the label each names
         // it by. The checks stay one loop apiece: a diagnostic's position in the
         // vector is check-major, not card-major.
@@ -2346,12 +2320,6 @@ impl QuillConfig {
                     .map(|card| (format!("card_kinds.{}", card.name), card)),
             )
             .collect();
-
-        for (label, card) in &labeled {
-            if let Some(d) = warn_example_unused(label, card) {
-                warnings.push(d);
-            }
-        }
 
         // A card is a part someone writes; a bodiless kind is the loader's one
         // view of a row in card costume (`prose/canon/CARDS.md` § "Card, row,
@@ -2396,39 +2364,12 @@ impl QuillConfig {
             Self::validate_card_groups(label, card, &mut errors);
         }
 
-        let err_example_contains_fence = |label: &str,
-                                          body: &Option<BodyCardSchema>|
-         -> Option<Diagnostic> {
-            let example = body.as_ref()?.example.as_deref()?;
-            if example_contains_fence_line(example) {
-                Some(
-                    Diagnostic::new(
-                        Severity::Error,
-                        format!(
-                            "`{label}.body.example` contains a line that would be parsed as a `~~~` card-yaml block opener; written into a body, it opens a card"
-                        ),
-                    )
-                    .with_code("quill::body_example_contains_fence".to_string())
-                    .with_hint(
-                        "Remove or reword any column-zero line that opens a card-yaml block (`~~~`, a longer tilde run, or `~~~card-yaml`). For a literal fenced code block, use a backtick fence (```).".to_string(),
-                    ),
-                )
-            } else {
-                None
-            }
-        };
-        for (label, card) in &labeled {
-            if let Some(d) = err_example_contains_fence(label, &card.body) {
-                errors.push(d);
-            }
-        }
-
-        // Import every richtext `default` / `example` / `body.example` literal:
-        // this is where `richtext(inline)` violations and malformed richtext
-        // literals surface as load errors. A `default` is cached as its
-        // canonical-content companion, a pure function of the Quill.yaml bytes
-        // and never serialized, which the render floor reads instead of
-        // re-importing the markdown per document.
+        // Import every richtext `default` literal: this is where
+        // `richtext(inline)` violations and malformed richtext literals surface
+        // as load errors. A `default` is cached as its canonical-content
+        // companion, a pure function of the Quill.yaml bytes and never
+        // serialized, which the render floor reads instead of re-importing the
+        // markdown per document.
         populate_card_content(&mut main, "main", &mut errors);
         for card in &mut card_kinds {
             let label = format!("card_kinds.{}", card.name);
@@ -2455,9 +2396,9 @@ impl QuillConfig {
     }
 }
 
-/// Whether a raw field schema spells `ui.title` on itself or on any field
-/// schema nested in it.
-fn spells_ui_title(field: &serde_json::Value) -> bool {
+/// Whether `hit` holds for a raw field schema or for any field schema nested
+/// in it.
+fn any_field_schema(field: &serde_json::Value, hit: &dyn Fn(&serde_json::Value) -> bool) -> bool {
     let schemas = |key: &str| {
         field
             .get(key)
@@ -2465,13 +2406,14 @@ fn spells_ui_title(field: &serde_json::Value) -> bool {
             .into_iter()
             .flat_map(|m| m.values())
     };
-    field.get("ui").and_then(|ui| ui.get("title")).is_some()
-        || field.get("items").is_some_and(spells_ui_title)
-        || schemas("properties").any(spells_ui_title)
+    let nested = |f: &serde_json::Value| any_field_schema(f, hit);
+    hit(field)
+        || field.get("items").is_some_and(nested)
+        || schemas("properties").any(nested)
         || schemas("variants")
             .filter_map(|world| world.as_object())
             .flat_map(|world| world.values())
-            .any(spells_ui_title)
+            .any(nested)
 }
 
 /// The first `{field}` token in `text`, braces included: a `{`, a snake_case
@@ -2486,22 +2428,6 @@ fn template_token(text: &str) -> Option<&str> {
         from = open + 1;
     }
     None
-}
-
-/// Returns true if any line in `text` would be parsed as a card-yaml block
-/// opener by the document parser, which opens a card when the example is
-/// written into a body.
-///
-/// Delegates to the parser's own opener predicate
-/// ([`crate::document::fences::is_card_yaml_opener_line`]) so the guard stays
-/// in lock-step with fence detection: any column-zero tilde fence (three or
-/// more tildes), whatever its info string. Backtick fences and indented fences
-/// are ordinary code blocks and are not flagged.
-fn example_contains_fence_line(text: &str) -> bool {
-    text.lines().any(|line| {
-        let line = line.strip_suffix('\r').unwrap_or(line);
-        crate::document::fences::is_card_yaml_opener_line(line)
-    })
 }
 
 /// The member object a stored matrix spelling means, before coercion: a bare
@@ -2561,9 +2487,8 @@ pub(crate) fn field_contains_content(field: &FieldSchema) -> bool {
 }
 
 /// Populate a field's `default_content` companion cache from its markdown
-/// literal, and every nested declaration's from its own, checking each
-/// `example:` by the same import. No-op where the type tree bears no content
-/// leaf, since nothing below it does either; a failed import or a
+/// literal, and every nested declaration's from its own. No-op where the type
+/// tree bears no content leaf, since nothing below it does either; a failed import or a
 /// `richtext(inline)` violation is appended to `errors` as a load diagnostic. The walk covers every declaration position, for the reason
 /// `SCHEMAS.md` §"Document seeding" gives.
 ///
@@ -2585,11 +2510,6 @@ fn populate_field_content(
         match literal_content(&default, field, &format!("{owner} `default`")) {
             Ok(content) => field.default_content = content,
             Err(d) => errors.push(d),
-        }
-    }
-    if let Some(example) = field.example.clone() {
-        if let Err(d) = literal_content(&example, field, &format!("{owner} `example`")) {
-            errors.push(d);
         }
     }
     if let Some(props) = field.properties.as_mut() {
@@ -2616,30 +2536,15 @@ fn populate_field_content(
 }
 
 /// Populate every content companion on a card: each field's `default` and each
-/// nested declaration's. The card's `body.example` is imported as a check and
-/// cached nowhere (block richtext, no inline constraint; skipped when the body
-/// is disabled, since its example is inert).
+/// nested declaration's.
 fn populate_card_content(card: &mut CardSchema, label: &str, errors: &mut Vec<Diagnostic>) {
     for (name, field) in card.fields.iter_mut() {
         populate_field_content(field, label, name, errors);
     }
-    if card.body_enabled() {
-        if let Some(example) = card.body.as_ref().and_then(|b| b.example.as_deref()) {
-            if let Err(e) = crate::document::import_body(example) {
-                errors.push(
-                    Diagnostic::new(
-                        Severity::Error,
-                        format!("Failed to import {label} `body.example`: {e}"),
-                    )
-                    .with_code("quill::richtext_example_import".to_string()),
-                );
-            }
-        }
-    }
 }
 
-/// Compute the canonical-content form of a richtext-bearing schema literal
-/// (`default` / `example`), importing every markdown leaf once and enforcing
+/// Compute the canonical-content form of a richtext-bearing `default`,
+/// importing every markdown leaf once and enforcing
 /// `richtext(inline)`. Recurses through `array` / `object` shapes, converting
 /// only their richtext leaves and passing other elements through unchanged.
 /// `Ok(None)` when the literal carries no importable richtext (a null value, or
@@ -2758,7 +2663,7 @@ fn richtext_literal_error(label: &str, reason: &str) -> Diagnostic {
         Severity::Error,
         format!("Failed to import richtext {label}: {reason}"),
     )
-    .with_code("quill::richtext_example_import".to_string())
+    .with_code("quill::richtext_default_import".to_string())
 }
 
 /// A load diagnostic for a `richtext(inline)` schema literal whose content spans
