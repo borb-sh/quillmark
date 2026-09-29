@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.117.0 - 2026-09-29
+
+- fix(typst)!: a quill shipping no fonts renders in Roboto
+- docs: a root `example.md` leads the 0.117 guide as a CLI break
+- feat(core,cli,wasm,python)!: a quill's example is `example.md` at its root
+- refactor(core)!: `VersionSelector` has no `Display`
+- docs(migrations)!: record the quill-header breaks and the example document
+- refactor(core,cli,wasm,python)!: a quill's example is its root `example.md`
+- docs: the quill's example document
+- feat(core,cli,wasm,python)!: a quill carries an example document
+- docs: a bare `$quill` name matches any version
+- refactor(core)!: `@latest` is not a `$quill` selector
+- fix(core): a field parse hint answers the key serde refused
+- docs: `example:` leaves the quill schema; the 0.116 → 0.117 guide
+- feat(core,wasm,python)!: remove `example:` from the quill schema
+- fix(cli): `check` locates a diagnostic in the file it came from (#1995)
+- fix: refuse degenerate quill headers, word the matrix `title` warning, and keep `check` going past a missing path (#1994)
+- docs(canon): a default a consumer writes is authored content
+
+
 ## v0.116.0 - 2026-09-26
 
 Upgrade path: [0.115 → 0.116](docs/migrations/0.115-to-0.116.md).
