@@ -2,23 +2,82 @@
 
 ## v0.117.0 - 2026-09-29
 
-- fix(typst)!: a quill shipping no fonts renders in Roboto
-- docs: a root `example.md` leads the 0.117 guide as a CLI break
-- feat(core,cli,wasm,python)!: a quill's example is `example.md` at its root
-- refactor(core)!: `VersionSelector` has no `Display`
-- docs(migrations)!: record the quill-header breaks and the example document
-- refactor(core,cli,wasm,python)!: a quill's example is its root `example.md`
-- docs: the quill's example document
-- feat(core,cli,wasm,python)!: a quill carries an example document
-- docs: a bare `$quill` name matches any version
-- refactor(core)!: `@latest` is not a `$quill` selector
-- fix(core): a field parse hint answers the key serde refused
-- docs: `example:` leaves the quill schema; the 0.116 → 0.117 guide
-- feat(core,wasm,python)!: remove `example:` from the quill schema
-- fix(cli): `check` locates a diagnostic in the file it came from (#1995)
-- fix: refuse degenerate quill headers, word the matrix `title` warning, and keep `check` going past a missing path (#1994)
-- docs(canon): a default a consumer writes is authored content
+Upgrade path: [0.116 → 0.117](docs/migrations/0.116-to-0.117.md).
 
+### `example:` leaves the quill schema
+
+- feat(core,wasm,python)!: **a `Quill.yaml` declaring `example:` fails to
+  load.** A slot declares one value, its `default:`. `example:` on a field at
+  any depth fails `quill::field_parse_error`, hinted to `description:`, and
+  `body.example` fails `quill::invalid_body`. The `quill::example_*` checks
+  and `quill::body_example_*` codes are deleted, and
+  `quill::richtext_example_import` is `quill::richtext_default_import`. The
+  blueprint drops its `# e.g.` and `# body e.g.` lines but a matrix's member
+  hint, `schema()` carries no `example`, and `FieldSchema::example`,
+  `BodyCardSchema::example`, WASM `QuillFieldSchema.example` and
+  `QuillCardBody.example` are deleted. (#1999)
+
+### The example document
+
+- feat(core,cli,wasm,python)!: **`example.md` at the quill root is the
+  quill's example**, a filled-in page whose values are made up.
+  `Quill.yaml` declares nothing about it and the load never reads it.
+  `Quill::example_document()`, WASM `Quill.exampleDocument()` and Python
+  `Quill.example_document()` hand it out pinned to the quill's
+  `name@version`, or `None` without one; a `$quill` other than the quill's
+  bare name fails `quill::example_reference`. `quillmark` re-exports
+  `EXAMPLE_FILE`. `quillmark validate` reads, validates and renders it, and
+  fails the quill on any diagnostic it carries, a warning included
+  (`cli::example_not_clean`, `cli::example_render_failed`): a quill keeping a
+  root `example.md` for another purpose renames it. `status_report` and
+  `usaf_memo` ship one. (#2002, #2007, #2009)
+
+### Quill references
+
+- refactor(core)!: **`$quill: name@latest` fails as
+  `parse::invalid_quill_reference`.** It was a second spelling of the bare
+  `name`, which matches the same versions. A selector is `MAJOR`,
+  `MAJOR.MINOR` or `MAJOR.MINOR.PATCH`, digits only, the grammar
+  `@quillmark/quiver`'s `parseQuillRef` enforces. `VersionSelector::Latest`
+  is `VersionSelector::Any`, and `QuillReference::latest` is deleted.
+  (#2000)
+- refactor(core)!: `VersionSelector` has no `Display`: `Any` has no written
+  form outside a reference. `QuillReference`'s `Display` still writes `name`
+  or `name@selector`. (#2008)
+
+### Quill headers the load refuses
+
+- fix(core)!: **`version: ""`, a tagged version such as `!!float 1.10`, and
+  a card kind named `main` fail to load**, as `quill::invalid_version` and
+  `quill::invalid_card_name`. None could hold what it seemed to. (#1994)
+- fix(core)!: a `title` key on a matrix member in a document warns
+  `validation::unknown_field` at `<field>.<member>.title`: the member's title
+  is the quill's, and `quillmark check --strict` fails such a document.
+  (#1994)
+
+### Rendering
+
+- fix(typst)!: **a quill shipping no fonts renders in Roboto**, where it
+  rendered in Figtree, which has no prime: a `"` or `'` after a digit in
+  richtext rendered as an empty box. The faces are variable Roboto, upright
+  and italic, weights 100 to 900. A font-less quill's text reflows, a plate
+  naming an unshipped `"Figtree"` warns `unknown font family`, and
+  `quillmark workspace` exports `fonts/Roboto.ttf` and
+  `fonts/Roboto-Italic.ttf`. (#2010)
+
+### The CLI
+
+- fix(cli): `quillmark check` locates a diagnostic in the file it came from,
+  where every location read `input.md`; `quillmark` re-exports
+  `DOCUMENT_FILE`. (#1995)
+- fix(cli): a missing path given to `quillmark check` draws
+  `cli::unreadable_document`, as an unreadable one does, where it stopped
+  the run; the remaining paths are still checked. (#1994)
+
+### Fixes
+
+- fix(core): a field parse hint answers the key serde refused, at every
+  depth. (#1999)
 
 ## v0.116.0 - 2026-09-26
 
