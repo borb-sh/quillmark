@@ -175,7 +175,7 @@ Either way, the plate's `#import` for it then fails as an unresolved file.
 
 ## Fonts
 
-A Quill carries its own fonts. The backend loads every `.ttf` and `.otf` under `assets/fonts/` and inside vendored `packages/`, an asset font winning a family a package also ships. A Quill bundling none renders in the embedded Figtree faces. The host's installed fonts are not among them, so `#set text(font: "Arial")` names a family the compile cannot find.
+A Quill carries its own fonts. The backend loads every `.ttf` and `.otf` under `assets/fonts/` and inside vendored `packages/`, an asset font winning a family a package also ships. A Quill bundling none renders in the embedded Roboto, upright and italic, at any weight from 100 to 900. The host's installed fonts are not among them, so `#set text(font: "Arial")` names a family the compile cannot find.
 
 To bundle fonts with the Quill, drop them in `assets/fonts/`:
 

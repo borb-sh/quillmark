@@ -8,7 +8,7 @@
 use quillmark_core::quill::{CalendarDate, FileTreeNode, Quill};
 use std::collections::HashMap;
 
-/// No fonts dir is needed (the backend's embedded Figtree faces render text)
+/// No fonts dir is needed (the backend's embedded Roboto faces render text)
 /// and the backend injects the helper package.
 pub fn quill(yaml: &str, files: &[(&str, &[u8])]) -> Quill {
     let mut map = HashMap::new();
