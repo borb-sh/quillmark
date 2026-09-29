@@ -74,17 +74,11 @@ fn file_id(spec: Option<PackageSpec>, vpath: VirtualPath) -> FileId {
     FileId::new(RootedPath::new(root, vpath))
 }
 
-/// The faces a quill shipping no fonts renders in, by file name.
-pub(crate) static FALLBACK_FONTS: [(&str, &[u8]); 3] = [
-    (
-        "Figtree-Regular.ttf",
-        include_bytes!("fonts/Figtree-Regular.ttf"),
-    ),
-    ("Figtree-Bold.ttf", include_bytes!("fonts/Figtree-Bold.ttf")),
-    (
-        "Figtree-Italic.ttf",
-        include_bytes!("fonts/Figtree-Italic.ttf"),
-    ),
+/// The faces a quill shipping no fonts renders in, by file name, as
+/// `scripts/fallback-fonts.py` writes them.
+pub(crate) static FALLBACK_FONTS: [(&str, &[u8]); 2] = [
+    ("Roboto.ttf", include_bytes!("fonts/Roboto.ttf")),
+    ("Roboto-Italic.ttf", include_bytes!("fonts/Roboto-Italic.ttf")),
 ];
 
 /// Every `.ttf` and `.otf` the quill ships, asset fonts first: `QuillWorld`
@@ -147,7 +141,7 @@ impl QuillWorld {
             }
         }
 
-        // Fall back to the embedded Figtree faces when the quill ships no fonts.
+        // Fall back to the embedded Roboto faces when the quill ships no fonts.
         if fonts.is_empty() {
             for (_, data) in FALLBACK_FONTS {
                 let font_bytes = Bytes::new(data.to_vec());
@@ -602,6 +596,20 @@ pub(crate) fn parse_package_toml(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Richtext passes `'` and `"` through to Typst's smart quotes, which draw
+    /// these for Latin-script languages: primes after a digit (`3/8"`).
+    #[test]
+    fn every_fallback_face_draws_what_smart_quotes_produce() {
+        for (name, data) in FALLBACK_FONTS {
+            let font = Font::new(Bytes::new(data.to_vec()), 0).expect(name);
+            let missing: String = "'\"‘’“”‚„‹›«»′″"
+                .chars()
+                .filter(|&c| !font.info().coverage.contains(c as u32))
+                .collect();
+            assert!(missing.is_empty(), "{name} has no glyph for {missing}");
+        }
+    }
 
     #[test]
     fn a_manifest_defaults_only_its_namespace() {

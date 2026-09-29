@@ -53,7 +53,7 @@ fn a_workspace_lays_out_packages_by_spec_and_carries_the_fallback_fonts() {
     file("packages/local/quillmark-helper/0.1.0/typst.toml");
     file("packages/preview/p/1.2.0/typst.toml");
     file("packages/preview/p/1.2.0/src/lib.typ");
-    file("fonts/Figtree-Regular.ttf");
+    file("fonts/Roboto.ttf");
 }
 
 #[test]
