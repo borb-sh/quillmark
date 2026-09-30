@@ -195,7 +195,7 @@ struct RenderFailure {
 }
 
 /// The quill authoring contract, which no config read reaches: each of the
-/// three canonical documents — the empty document, the blueprint, the seed —
+/// three canonical documents — the empty document, the blueprint, the seeded document —
 /// compiles through the quill's own plate (`BLUEPRINT.md` §Guarantees). The
 /// example, when the quill has one, compiles after them. The backend's
 /// first declared format is the one rendered: a plate that compiles carries
@@ -240,7 +240,7 @@ fn validate_renders(
             "blueprint",
             Document::parse(&blueprint).map(|parsed| parsed.document),
         ),
-        ("seed", Ok(quill.seed_document())),
+        ("seeded", Ok(quill.seed_document())),
     ];
 
     let options = RenderOptions::default().with_output_format(format);

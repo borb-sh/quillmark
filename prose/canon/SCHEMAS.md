@@ -549,9 +549,9 @@ Two rules follow, and between them the plate is total at every depth:
   below it absent, and each cell then cuts its own ladder — so a property's
   `default:` is reached whether or not the document authored the container above
   it, at any depth. Resolution is therefore a **descent**: the rung supplies a
-  *seed*, and the same composition runs over it whichever rung it came from. A
-  partial element inside an `array` `default:` is completed against `items`
-  exactly as an authored element is, and writing `contact: {}` is a no-op rather
+  cell's *entry*, and the same composition runs over it whichever rung it came
+  from. A partial element inside an `array` `default:` is completed against
+  `items` exactly as an authored element is, and writing `contact: {}` is a no-op rather
   than an edit that changes the render.
 
 A namespace has no rung of its own, so what
@@ -676,7 +676,7 @@ address directly rather than through a guarded accessor
 a value, or on how much of a container the document authored: absence is
 inherited and each cell cuts its own ladder
 ([Cells and namespaces](#cells-and-namespaces)), so a declared address is present
-whether its container was written, left out, or seeded from an `array`
+whether its container was written, left out, or filled from an `array`
 `default:`.
 
 - **Non-persist invariant.** The blank-fill lives only in the ephemeral
@@ -848,15 +848,15 @@ Starter content someone chose lives in a template document's own body, or, for
 a card `seed_card` adds, in the main card's `$seed.<kind>.$body`. Persisting a
 `default` would be redundant (the floor interpolates it anyway) and would
 *freeze* it against a later schema change; persisting a blank is forbidden
-([Non-persist invariant](#blank-filled-render)). So a fresh seed renders exactly
+([Non-persist invariant](#blank-filled-render)). So a fresh seeded document renders exactly
 as the empty document does, plus its cards, and a split-screen editor/preview
 stays consistent: absent fields resolve identically in both panes.
 
 **Seed-commits-rest.** A seeded content value — a `$seed` overlay's content
 field, and its `$body` — commits its codec's resting form (a richtext field and
 the body the canonical content, a plaintext field its literal string), so a
-seeded document is at rest from birth: `conform` of a seed is a byte no-op, and
-a seed → store → load → conform cycle cannot move a hash on a document nobody
+seeded document is at rest from birth: `conform` of one is a byte no-op, and a
+seed → store → load → conform cycle cannot move a hash on a document nobody
 edited. An overlay field commits through the same strict write the typed writer
 uses, which is what makes the seeder and the bound door agree rather than
 merely coincide.
@@ -883,7 +883,7 @@ unimported markdown. Importing is also checking, so a nested `richtext(inline)`
 violation in a `default:` is a load error there.
 
 - **Composable cards** are seeded one instance per declared kind.
-- **The main card** carries `$quill` and `$kind: main`, so a seed round-trips
+- **The main card** carries `$quill` and `$kind: main`, so a seeded document round-trips
   through Markdown like an authored document.
 - **Provenance is untracked in the persisted document.** A seeded overlay
   value is committed as ordinary authored content, indistinguishable from
@@ -895,7 +895,7 @@ violation in a `default:` is a load error there.
   `authored`, being document content.
 
 The blueprint is the annotated form to fill ([BLUEPRINT.md](BLUEPRINT.md)); the
-seed is a committed `Document` to edit. Implemented by `Quill::seed_document`
+seeded document is a committed `Document` to edit. Implemented by `Quill::seed_document`
 (with `seed_main` / `seed_card`) in `quillmark-core`.
 
 ### Per-document seed overlays (`$seed`)

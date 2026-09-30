@@ -106,7 +106,7 @@ is the example; an `example.md` in a subdirectory is an ordinary file.
   directory carries no stale pin.
 - **Pinned when handed out.** `Quill::example_document` parses it, refuses a
   `$quill` that is not the bare name (`quill::example_reference`), pins
-  `$quill` to `name@version` as the seed does, and conforms it as
+  `$quill` to `name@version` as the seeded document does, and conforms it as
   `Quill::parse` does. A diagnostic located in the document names
   `example.md` as its file. `None` means the quill has no `example.md`.
 - **Judged by `quillmark validate`, not at load.** The load never reads the

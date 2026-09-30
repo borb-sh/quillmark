@@ -135,7 +135,7 @@ quillmark blueprint ./my-quill > blueprint.md
 ### validate
 
 Validate quill configuration and structure, and compile the plate against the
-three canonical documents: the empty document, the blueprint, and the seed. A
+three canonical documents: the empty document, the blueprint, and the seeded document. A
 plate that renders its seed and not the empty document fails here, which is the
 quill authoring contract every plate is bound by.
 
