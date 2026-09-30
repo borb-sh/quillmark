@@ -1817,13 +1817,15 @@ impl QuillConfig {
     /// error here.
     ///
     /// A seed that renders as the unanswered field does is refused as well
-    /// (`quill::seed_redundant`): a null, an empty `$body`, or a value whose
-    /// resting form is the field's `default:`, else its blank. It changes no
-    /// render and only freezes the floor into every new card.
+    /// (`quill::seed_redundant`): an empty block, a `$body` importing empty, or
+    /// a value the render floor resolves as it resolves the absent field, on
+    /// any render date. It changes no render and only freezes the floor into
+    /// every new card. Runs once the content defaults are cached, since the
+    /// floor reads them.
     fn parse_card_seed(
         seed: &serde_json::Value,
         card: &CardSchema,
-        unparsed: &[&String],
+        unparsed: &[String],
         errors: &mut Vec<Diagnostic>,
     ) -> Option<crate::document::SeedOverlay> {
         let at = crate::path::DocPath::new()
@@ -1832,7 +1834,7 @@ impl QuillConfig {
             .field("seed");
         let mut seed = seed.clone();
         if let Some(obj) = seed.as_object_mut() {
-            obj.retain(|key, _| !unparsed.contains(&key));
+            obj.retain(|key, _| !unparsed.contains(key));
         }
         let before = errors.len();
         for diag in super::compose::seed_overlay_diagnostics(card, &seed, &at) {
@@ -1846,26 +1848,37 @@ impl QuillConfig {
             }
             errors.push(error);
         }
-        for (name, value) in seed.as_object().into_iter().flatten() {
+        let obj = seed.as_object();
+        if obj.is_some_and(serde_json::Map::is_empty) {
+            errors.push(
+                Diagnostic::new(Severity::Error, format!("`{at}` seeds nothing."))
+                    .with_code("quill::seed_redundant".to_string())
+                    .with_hint("Remove it: a kind without `seed:` seeds nothing.".to_string()),
+            );
+        }
+        let dates = [(2000, 1, 1), (2000, 1, 2)].map(|(y, m, d)| {
+            super::CalendarDate::new(y, m, d).expect("a calendar day")
+        });
+        for (name, value) in obj.into_iter().flatten() {
             let redundant = if name == "$body" {
-                value.is_null() || value.as_str() == Some("")
-            } else {
-                match card.fields.get(name) {
-                    Some(_) if value.is_null() => true,
-                    Some(field) => {
-                        let rest = |v: &QuillValue| {
-                            Self::conform_value(v, field, name, Leniency::Write).ok()
-                        };
-                        let floor = field.default.clone().unwrap_or_else(|| super::blank(field));
-                        match (rest(&QuillValue::from_json(value.clone())), rest(&floor)) {
-                            (Some(seeded), Some(floor)) => {
-                                same_value(seeded.as_json(), floor.as_json())
-                            }
-                            _ => false,
-                        }
-                    }
-                    None => false,
+                match value {
+                    serde_json::Value::Null => true,
+                    serde_json::Value::String(md) => crate::document::import_body(md)
+                        .is_ok_and(|body| body == quillmark_content::model::Normalized::empty()),
+                    _ => false,
                 }
+            } else {
+                card.fields.get(name).is_some_and(|field| {
+                    Self::conform_value(&QuillValue::from_json(value.clone()), field, name, Leniency::Write)
+                        .is_ok_and(|seeded| {
+                            dates.iter().all(|&today| {
+                                let resolve = |v: Option<&QuillValue>| {
+                                    super::compose::resolve_value_sourced(v, field, today).0
+                                };
+                                same_value(resolve(Some(&seeded)).as_json(), resolve(None).as_json())
+                            })
+                        })
+                })
             };
             if redundant {
                 errors.push(
@@ -2306,6 +2319,7 @@ impl QuillConfig {
         };
 
         let mut card_kinds: Vec<CardSchema> = Vec::new();
+        let mut kind_seeds = Vec::new();
         if let Some(card_kinds_val) = quill_yaml_val.get("card_kinds") {
             match card_kinds_val.as_object() {
                 None => {
@@ -2387,7 +2401,7 @@ impl QuillConfig {
                             &format!("card_kind '{}'", card_name),
                             &mut errors,
                         );
-                        let mut card = CardSchema {
+                        let card = CardSchema {
                             name: card_name.clone(),
                             title: card_def.title,
                             description: card_def.description,
@@ -2396,15 +2410,15 @@ impl QuillConfig {
                             body: card_body,
                             seed: None,
                         };
-                        if let Some(seed) = &card_def.seed {
-                            let unparsed: Vec<&String> = card_def
+                        if let Some(seed) = card_def.seed {
+                            let unparsed: Vec<String> = card_def
                                 .fields
                                 .iter()
                                 .flat_map(|raw| raw.keys())
                                 .filter(|key| !card.fields.contains_key(*key))
+                                .cloned()
                                 .collect();
-                            card.seed =
-                                Self::parse_card_seed(seed, &card, &unparsed, &mut errors);
+                            kind_seeds.push((card_kinds.len(), seed, unparsed));
                         }
                         card_kinds.push(card);
                     }
@@ -2476,6 +2490,11 @@ impl QuillConfig {
         for card in &mut card_kinds {
             let label = format!("card_kinds.{}", card.name);
             populate_card_content(card, &label, &mut errors);
+        }
+
+        for (index, seed, unparsed) in kind_seeds {
+            let seed = Self::parse_card_seed(&seed, &card_kinds[index], &unparsed, &mut errors);
+            card_kinds[index].seed = seed;
         }
 
         if !errors.is_empty() {

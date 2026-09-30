@@ -947,10 +947,11 @@ A document's `$seed` warns under `validation::seed_*` and the field codes, and
 never gates render. A kind's `seed:` fails the load, each code raised to
 `quill::seed_<code>` (`quill::seed_unknown_field`, `quill::seed_type_mismatch`,
 `quill::seed_out_of_variant`, `quill::seed_cardinality`, …), plus
-`quill::seed_redundant`: a null, an empty `$body`, or a value whose resting
-form is the field's `default:`, else its blank. A document may pin a value
-equal to the `default:`, freezing it against a later quill; the quill owns both
-keys and has no such reason. `main` declares no `seed:`
+`quill::seed_redundant`: an empty block, a `$body` that imports empty, or a
+value the render floor resolves as it resolves the absent field on every render
+date, member `default:`s included, so `office: {}` counts. A document may pin a
+value equal to the `default:`, freezing it against a later quill; the quill
+owns both keys and has no such reason. `main` declares no `seed:`
 (`quill::invalid_card_schema`).
 
 `seed_card` is the only reader. Render, the blueprint, `validate`'s card checks,

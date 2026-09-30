@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+Upgrade path: [0.117 → 0.118](docs/migrations/0.117-to-0.118.md).
+
+### Kind seeds
+
+- feat(core,wasm,python)!: **a card kind declares `seed:`**, what
+  `seed_card` writes into a new card of that kind: the `$seed.<kind>` shape,
+  fields plus an optional `$body`. `seed_document()` carries each kind's seed,
+  and `schema()` emits it (WASM `QuillCardSchema.seed`). `CardSchema` gains a
+  public `seed` field. A document's `$seed.<kind>` replaces the kind's seed
+  whole, `$body` included, and `$seed.<kind>: {}` seeds nothing. A kind's
+  seed is checked as the card it makes and fails the load under
+  `quill::seed_*`, plus `quill::seed_redundant` for a seed that renders as the
+  unanswered field does; `main` declares none (`quill::invalid_card_schema`).
+  (#2016)
+
+### Document `$seed`
+
+- feat(core)!: **a document's `$seed` warns wherever the card it seeds
+  would**: an undeclared key below a seeded field
+  (`validation::unknown_field`), a cell outside its variant world
+  (`validation::out_of_variant`), a `$body` that is not a markdown string or
+  does not import (`validation::seed_overlay_shape`), and a seeded array past
+  its `max:` (`validation::cardinality`). `quillmark validate` fails a quill
+  whose `example.md` carries one. A `null` in `$seed.<kind>` commits nothing,
+  where the new card carried `field:`. (#2016)
+- refactor(cli): `quillmark validate` names `seed_document`'s output
+  `seeded` in its render report, where it said `seed`. (#2014)
+
 ## v0.117.0 - 2026-09-29
 
 Upgrade path: [0.116 → 0.117](docs/migrations/0.116-to-0.117.md).
