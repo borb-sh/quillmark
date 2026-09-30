@@ -15,7 +15,7 @@ pub enum FieldLayout {
     /// A typed table drawn as a grid, one row per element and one column per
     /// property. Valid only on an `array` whose `items` is an `object`
     /// (`quill::invalid_ui`), and a contract that every column is a
-    /// [`FieldType::is_leaf`] type (`quill::table_column_not_flat`).
+    /// [`FieldType::is_leaf`] type (`quill::table_column_not_leaf`).
     Table,
     /// A typed dictionary drawn without a frame of its own: its properties stand
     /// at the depth of the field list around it. Valid only on an `object` that is

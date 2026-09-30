@@ -988,7 +988,7 @@ impl QuillConfig {
                 .find(|(_, column)| !column.r#type.is_leaf())
             {
                 return err(
-                    "quill::table_column_not_flat",
+                    "quill::table_column_not_leaf",
                     format!(
                         "Field '{owner}[].{name}' is type: {column_type} and cannot be a \
                          table column: a column holds one cell, and a container addresses \

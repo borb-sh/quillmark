@@ -1550,7 +1550,7 @@ fn a_table_column_is_a_leaf_and_a_container_column_is_refused() {
         .expect_err(label);
         let diag = err
             .iter()
-            .find(|d| d.code.as_deref() == Some("quill::table_column_not_flat"))
+            .find(|d| d.code.as_deref() == Some("quill::table_column_not_leaf"))
             .unwrap_or_else(|| panic!("{label}: expected the column refusal, got {err:?}"));
         assert!(
             diag.message.contains("appendices[].entries"),
