@@ -80,9 +80,16 @@ export interface QuillFieldSchema {
     variants?: Record<string, Record<string, QuillFieldSchema>>;
     /** The roster of a `type: "matrix"` field, required there and valid
      *  nowhere else: member id to display title, key order the display order.
-     *  Each member is an object of `held` plus the field's `properties`
-     *  (the columns), addressed as `<field>.<member id>.held`. */
+     *  A member is held by being present in the document, as a mapping of the
+     *  field's `properties` (the columns) or a bare `true`; unticking removes
+     *  it. Its own address `<field>.<member id>` is the tick, and each column
+     *  addresses one step further down. */
     members?: Record<string, string>;
+    /** `true` on a `type: "matrix"` field admitting items a document adds
+     *  beside the roster: each keyed by a snake_case id and carrying a
+     *  `title` string beside the columns, held by being present. Valid only
+     *  on a matrix. */
+    open?: boolean;
     ui?: QuillFieldUi;
     properties?: Record<string, QuillFieldSchema>;
     items?: QuillFieldSchema;

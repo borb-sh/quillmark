@@ -32,7 +32,7 @@ Supported field types:
 | `integer` | Integer-only numeric value |
 | `boolean` | `true` / `false` |
 | `array` | Ordered list; requires an `items:` element schema (e.g. `items: { type: string }` for `string[]`, `items: { type: object, properties: … }` for a typed table). Optional `max:`, the element count past which the surplus leaves the page ([Cardinality](#cardinality)) |
-| `matrix` | A closed vocabulary someone ticks; requires a `members:` roster. A namespace whose keys the roster fixes, each member an object of a synthesized `held` plus the field's `properties:` (the columns). See [Matrix](#matrix) |
+| `matrix` | A vocabulary someone ticks; requires a `members:` roster, and `open: true` admits items a document adds. A cell whose value is the set of held items: each held id maps to an object of the field's `properties:` (the columns), and an unheld member is absent. See [Matrix](#matrix) |
 | `object` | Structured map; requires `properties:` |
 | `date` | A strict calendar date `YYYY-MM-DD`, or the keyword `today` ([The render date](#the-render-date-today)). Rejects any time component (a time-bearing string is a `datetime`, not a truncated date). The common case in a document engine, so it is the unmarked date type. Stored verbatim; lowers to a native Typst `datetime(year:, month:, day:)`, with `display(<addr>, ..)` for a click-to-edit rendering (see `PLATE_DATA.md`) |
 | `datetime` | A strict offset-less wall-clock datetime `YYYY-MM-DDThh:mm[:ss]`, seconds optional (zero-filled). Rejects timezone offsets (`Z`, `±HH:MM`), the space separator, fractional seconds, and a bare date (which is a `date`). An offset is **rejected, never dropped**: the engine does no zone math, keeping wall-clock semantics end to end. Stored verbatim; lowers the same way over the six-component `datetime(year:, .., second:)` |
@@ -54,9 +54,9 @@ render floor and nothing else.
 
 - **Exclusive with `default:`** (`quill::optional_default`). A default answers
   for an unanswered cell, so the cell would never render `none`.
-- **A cell only.** `object`, `matrix` and a variant-bearing `enum` are
-  namespaces with no rung of their own (`quill::optional_namespace`); their cells
-  take the `?` instead.
+- **A cell only.** `object` and a variant-bearing `enum` are namespaces with no
+  rung of their own (`quill::optional_namespace`); their cells take the `?`
+  instead. A `matrix` is a cell, so `matrix?` renders an unanswered one `none`.
 - **An authored value is an answer**, `0`, `false`, `""` and `[]` included. An
   `enum?`'s `""` is the exception: it is the blank's own spelling, so it renders
   `none`.
@@ -191,8 +191,8 @@ application/quillmark-content+json`); `plaintext` additionally carries
 
 ### Matrix
 
-A `matrix` is a closed vocabulary the page prints in full, where the author
-ticks what they hold and may annotate a tick:
+A `matrix` is a vocabulary the page prints in full, where the author ticks what
+they hold and may annotate a tick:
 
 ```yaml
 qualifications:
@@ -202,76 +202,99 @@ qualifications:
     flight_cc: Flight CC
     dodin_ops: DODIN Ops
     dco: DCO (Defensive)
+  open: true                      # a document may add items; false by default
   properties:                     # the columns; empty is a checklist
     detail: { type: plaintext, inline: true, default: "" }
 ```
 
-**A namespace.** The roster fixes the keys, so the matrix carries no literal of
-its own: `default:` on it is `quill::default_on_namespace`, the [Cells and
-namespaces](#cells-and-namespaces) rule with no exception. Every member is an
-`object` of a synthesized `held: {type: boolean, default: false}` beside the
-declared columns, so a matrix is skippable by construction and an absent one
-blank-fills to every member unheld, columns at their blanks.
+**A cell holding the held set.** Which members are held is the document's
+answer, as an array's length is, so the matrix is a
+[cell](#cells-and-namespaces). Its value maps each held id to an `object` of
+the columns, and an unheld member is absent. Its blank is `{}`, nothing held;
+a `default:` is the set an unanswered document holds, and `matrix?` renders an
+unanswered one `none` ([Optional cells](#optional-cells)). An authored `{}` is
+an answer, so it outranks a default. Each held member is a namespace over the
+columns, whose cells cut the ordinary ladder.
 
 **Members.** Ids are snake_case identifiers
 (`quill::invalid_matrix_member`); titles are display. Ids are what the wire, the
 address and the document speak. The roster is a mapping, so it has one slot per
 id exactly as the stored value does and a duplicate is unspellable on both
-sides. The two keys the matrix writes onto every member itself — `held`,
-`title` — are reserved as column names (`quill::matrix_reserved_column`): a
-column under one of them would load, validate and address, then lose to the
-projection.
+sides. The roster is the matrix's domain, not its shape, as `values:` is an
+enum's: which ids a value may hold, and what the page prints for each. No column
+may be named `held` or `title` (`quill::matrix_reserved_column`): a member
+stores no `held`, and `title` is an added item's label.
 
-**Document.** A mapping keyed by member id, sparse. A bare scalar is the tick
-itself, and coercion normalizes it to the member object — the [variant
-precedent](#enum-variants), where the bare `classification: CUI` is the spelling
-of a world carrying no variant answers. A mapping is the member object already,
-so the tick it names no key for takes the ordinary ladder as every other absent
-cell does, to the synthesized `default: false`.
+**Document.** A mapping keyed by member id, sparse. **A member is held by being
+present**: a mapping is held whatever it carries, and a bare scalar is the tick
+itself, read through the boolean coercion.
 
 | Stored | Means |
 |---|---|
-| key absent | not held |
-| `cyber_200: true` | held, columns at whatever the ordinary ladder gives them |
-| `flight_cc: { held: true, detail: X }` | held, with columns |
-| `flight_cc: { detail: X }` | not held; the detail is retained in the document |
-| `flight_cc: { held: false, detail: X }` | not held; the detail is retained in the document |
+| key absent, `null`, `false` | not held |
+| `cyber_200: true`, `cyber_200: {}` | held, columns at whatever the ordinary ladder gives them |
+| `flight_cc: { detail: X }` | held, with columns |
+| `wing_ig: { title: Wing IG, detail: X }` | an added item, held (open only) |
 
-A mapping has one slot per key, so a duplicate is unspellable. An id outside the
-roster is refused as an out-of-domain enum member is
-(`validation::enum_violation`).
+- A mapping storing `held` is malformed (`validation::held_stored`), whichever
+  value it holds: `held: false` under a present member contradicts the presence
+  that holds it, and reading either way is a guess. A `held: null` is absent,
+  as at every type. A quill's own `seed:` or `default:` storing one fails to
+  load (`quill::seed_held_stored`, `quill::default_held_stored`).
+- Unticking removes the member, and its answers with it.
+- The typed write rests an empty mapping as `true`.
+- A key the matrix admits as neither a member nor an added item is refused as
+  an out-of-domain enum member is (`validation::enum_violation`).
+- A roster member's `title` is the roster's, so one a document stores warns
+  (`validation::unknown_field`).
 
-**Plate.** Total, like every container: every member present in declaration
-order, each `{held, title, …columns}`. A held member's columns cut the
-ordinary ladder — the authored value, else the column's `default:`, else its
-blank. `title` is the projection's, written from the roster rather than held as
-a cell, so it carries no address and a document authoring one is overwritten.
-**The wire carries the
-live world only**: an unheld member's columns render at their blanks whatever
-the document retains, the closed shape variants already hold, so a plate reads
-`held` and its columns without a guard and never prints a stranded answer. At
-the plate and under [`resolve()`](#the-resolved-value-view-resolve),
-`held: false` and an absent key are one value, the boolean blank; a retained
-answer is a fact about the stored form alone, which is what makes tick, type,
-untick, retick lossless.
+**Open.** `open: true` admits an **added item**: a key spelled as a member id
+whose mapping carries a `title`. It is held by being present, carries the
+columns a roster member does, and its `title` is a `string` cell. The domain is
+the roster plus those keys, so an untitled key or one no id spells is
+`enum_violation`, whose `open` arg carries the hint toward the added spelling.
 
-**Address.** `qualifications.flight_cc.held` and
-`qualifications.flight_cc.detail` are ordinary cells: a region on the Typst
-backend, a widget on acroform. Writing `held` touches no sibling, an editor
-unticking by writing `held: false` rather than dropping the key.
+- Added ids share the roster's key space, so an id a later roster declares reads
+  as that member, its stored `title` warned as a roster member's is.
+- A title matching a member's is the author's answer and prints: nothing
+  compares titles.
+- An acroform quill refuses `open` at load (`quill::open_matrix_unsupported`):
+  a form has no widget for an item a document adds.
+
+**Plate.** The held set: each held roster member in roster order, then each
+added item in id order, each its columns (and an added item's `title`) cut by
+the ordinary ladder. Document equality ignores a mapping's key order, so equal
+documents compose equal plates only where the order is the ids'. An unheld
+member is absent, as a dormant variant world's fields are, so a plate branches
+on presence where a variant plate branches on its discriminant, and reads a held
+member's columns without a guard. The vocabulary to print, held or not, is the
+roster, which a plate reads through the helper rather than a copy of its own
+([PLATE_DATA.md](PLATE_DATA.md#a-matrix-field)).
+
+**Address.** A member's own address, `qualifications.flight_cc`, is its tick,
+and its columns address one step down, `qualifications.flight_cc.detail`: a
+region on the Typst backend, a widget on acroform, where the member's address
+binds a checkbox its presence checks. An editor ticks by writing the member and
+unticks by removing it. An added item's cells address under its id
+(`qualifications.wing_ig.title`). The member step is judged on the schema
+alone, as an index step is, so an unheld member's address resolves
+([PLATE_DATA.md](PLATE_DATA.md#schema-addresses)).
 
 **Blueprint.** The blueprint shows the vocabulary through its roster
-([BLUEPRINT.md](BLUEPRINT.md#inline-annotation)) and the columns through one
-illustrative held member in the `# e.g.` line; a filled specimen is the quill's
-maximal fixture.
+([BLUEPRINT.md](BLUEPRINT.md#inline-annotation)), the cell as its `default:` or
+`{}`, and, in the `# e.g.` line, the columns through one illustrative held
+member and the added spelling through a placeholder item; a filled specimen is
+the quill's maximal fixture.
 
-**Implementation.** Sugar over a typed dictionary: the loader expands members
-into an `object` whose properties are the member ids, reached through
-`FieldSchema::namespace_props`, so coercion, validation, blank-fill and
-addressing are inherited. Two things are the type's own — `title` written onto
-the wire, and the closed wire for unheld members — and one walk is overridden
-rather than inherited: the blueprint, which emits the sparse cell instead of
-expanding every member.
+**Implementation.** The loader derives two object schemas from the columns: a
+roster member's (`FieldSchema::member`) and an open matrix's added item's, a
+`title` cell besides (`FieldSchema::added_item`). `FieldSchema::matrix_member`
+picks one for a stored key and `FieldSchema::matrix_member_at` for an address
+step; coercion, validation, composition, the unknown-key and cardinality walks,
+and the values-form read each resolve a key through them. The transform schema
+projects the matrix as an `object` whose properties are the roster ids, each
+the member schema, whose `additionalProperties` is the added item, and whose
+`quillmark:roster` carries the ids and titles in declaration order.
 
 ### Cardinality
 
@@ -530,10 +553,10 @@ declared and how absence travels:
 |---|---|---|
 | every leaf | cell | it is the value |
 | `array` | cell | `items` fixes the element type, never the **arity**: `default: []` and `default: [{…}]` say what no element declaration can |
+| `matrix` | cell | the roster fixes the domain, never which members are held: `default: {}` and `default: {dco: true}` say what no column declaration can ([Matrix](#matrix)) |
 | `enum` discriminant | cell | the member is a leaf choice |
 | `object` with `properties` | namespace | the schema fixes the keys, so nothing in the value is absent from its cells |
 | a variant's field set | namespace | same, once the discriminant selects the world |
-| `matrix` | namespace | same: the roster fixes the keys, and every member's `held` fixes its own |
 
 Two rules follow, and between them the plate is total at every depth:
 
@@ -695,6 +718,7 @@ domain.** It is both the render floor and the value a reader recognizes as
 | `enum` | `""` — reserved, and never a member of `values:` |
 | `richtext`, `plaintext` | the empty content |
 | `array` | `[]` |
+| `matrix` | `{}`: nothing held |
 | `object` | every property at its own blank, recursively |
 | `integer`, `number` | `0` |
 | `boolean` | `false` |
@@ -774,7 +798,7 @@ other than a well-formed answer falls in one of three classes:
 | Class | Input | Render | Signal |
 |---|---|---|---|
 | Unanswered | a declared cell left absent or present-null | blank-fills it | none |
-| Malformed | markup the grammar cannot read, or a value that will not read as its declared cell's type | fails | `parse::*` errors; `validation::type_mismatch`, `enum_violation`, `format_violation`, `coercion_failed`, `not_inline`, `not_plain` |
+| Malformed | markup the grammar cannot read, or a value that will not read as its declared cell's type | fails | `parse::*` errors; `validation::type_mismatch`, `enum_violation`, `format_violation`, `coercion_failed`, `not_inline`, `not_plain`, `held_stored` |
 | Unclaimed | input no declaration reads | renders; no declared cell reads it | a warning naming the input |
 
 The `validation::*` severity is the class: an `Error` is malformed, a `Warning`
@@ -820,8 +844,9 @@ sibling variant declares is that world's cell written beside its discriminant
 rather than under it, so the hint says to nest it (args `container`,
 `variant`). Otherwise a declared name the document leaves unwritten, within a
 third of the key's length in edits and ignoring case, is the likely typo
-(`suggestion`). A key another world declares is `out_of_variant`'s, and a
-matrix key naming no member is malformed (`enum_violation`), so neither draws
+(`suggestion`). A key another world declares is `out_of_variant`'s, a matrix key
+the matrix admits as neither a member nor an added item is malformed
+(`enum_violation`), and so is a stored `held` (`held_stored`), so none draws
 it.
 
 **Unclaimed input stays in the document.** It stores and round-trips as
@@ -985,14 +1010,16 @@ Top-level schema keys: `main`, optional `card_kinds` (map keyed by card name).
 `main` and each entry in `card_kinds` share the same `CardSchema` shape:
 `fields` (map keyed by field name), optional `title`, optional `description`,
 optional `ui`, optional `body`. Each `FieldSchema` includes `type`, optional
-`title`/`description`/`default`/`enum`/`values`/`members`/`variants`/`inline`/`properties`/`items`/`max`/`ui`.
+`title`/`description`/`default`/`enum`/`values`/`members`/`open`/`variants`/`inline`/`properties`/`items`/`max`/`ui`.
 The type-gated keys:
 
 - `inline`: valid only on the prose types (`richtext`, `plaintext`).
 - `values`: declares an `enum` field's domain, required there.
-- `members`: declares a `matrix` field's roster, required there. The desugared
-  per-member objects are derived and never emitted: `members` and `properties`
+- `members`: declares a `matrix` field's roster, required there. The member
+  schemas derived from the columns are never emitted: `members` and `properties`
   (the columns) are the authored carriers, so the view round-trips.
+- `open`: admits items a document adds beside a `matrix`'s roster, valid only
+  there and emitted only when `true`.
 - `max`: an `array`'s element cap ([Cardinality](#cardinality)), valid only there.
 - `ui.layout`: the control a field asks an editor to draw where the shape admits
   more than one and the default reads wrong. `table` is valid only on an `array`

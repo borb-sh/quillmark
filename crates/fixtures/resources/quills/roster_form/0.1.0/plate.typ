@@ -1,22 +1,25 @@
-#import "@local/quillmark-helper:0.1.0": data
+#import "@local/quillmark-helper:0.1.0": data, field-region, ink, roster
 
-// The matrix reaches the plate total and in roster order: every member present,
-// carrying its own title. Declaration order is the whole point of the type — a
-// chart prints its vocabulary as the schema lists it — and the backend's dict
-// keys otherwise sort, so the plate asserts it on every render.
-#let ids = data.qualifications.keys()
+// `roster` is the vocabulary the page prints: every member in roster order,
+// held or not, then each item the document adds. Printing the roster as the
+// schema lists it is the type's purpose, so the plate asserts the order on
+// every render.
+#let rows = roster(data, "qualifications")
 #assert.eq(
-  ids,
+  rows.slice(0, 5).map(row => row.id),
   ("sq_cc_candidate", "flight_cc", "dodin_ops", "dco", "cyber_200"),
-  message: "matrix members reached the plate as " + repr(ids),
+  message: "the roster reached the plate as " + repr(rows.map(row => row.id)),
 )
 
 #underline(data.title)
 
-// An unheld member's columns are their blanks, so the tick and the annotation
-// read without a guard.
-#for (id, member) in data.qualifications {
-  [#(if member.held { "[x]" } else { "[ ]" }) #member.title #member.detail]
+// Each row claims its member's address, so an unticked box is clickable too. A
+// held row's columns read without a guard; an added item's title is a cell,
+// so its ink keeps its own address inside the claim.
+#for row in rows {
+  let title = if row.held { ink(row.value).at("title", default: row.title) } else { row.title }
+  field-region(row.path)[#(if row.held { "[x]" } else { "[ ]" }) #title]
+  if row.held [ #ink(row.value).detail]
   linebreak()
 }
 

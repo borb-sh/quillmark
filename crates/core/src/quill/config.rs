@@ -743,46 +743,68 @@ impl QuillConfig {
                         )),
                     };
                 };
-                let members = match &field_schema.members {
-                    Some(members) => members,
-                    None => return Ok(value.clone()),
-                };
                 Ok(QuillValue::from_json(serde_json::Value::Object(
-                    Self::coerce_matrix_members(obj, members, path, mode)?,
+                    Self::coerce_matrix_members(obj, field_schema, path, mode)?,
                 )))
             }
         }
     }
 
-    /// Coerce a matrix's stored mapping to its total member form. A bare scalar
-    /// is the tick itself and becomes `{held: <scalar>}`, the variant precedent
-    /// (`SCHEMAS.md` §"Enum variants"). A key naming no member passes through
-    /// for the domain check (`validation::enum_violation`) to refuse.
+    /// Coerce each member of a matrix's stored mapping in the spelling it was
+    /// stored in: a bare scalar is the tick and coerces as a boolean, a mapping
+    /// keeps its keys and coerces its cells. A key naming no member, and a
+    /// stored [`MATRIX_HELD_KEY`], pass through verbatim for validation to
+    /// refuse (`validation::enum_violation`, `validation::held_stored`).
+    ///
+    /// The strict write lands the rest: an empty mapping rests as `true`.
+    ///
+    /// [`MATRIX_HELD_KEY`]: super::MATRIX_HELD_KEY
     fn coerce_matrix_members(
         obj: &serde_json::Map<String, serde_json::Value>,
-        members: &IndexMap<String, Box<super::FieldSchema>>,
+        field: &FieldSchema,
         parent_path: &str,
         mode: Leniency,
     ) -> Result<serde_json::Map<String, serde_json::Value>, CoercionError> {
         let mut out = serde_json::Map::new();
         for (id, value) in obj {
-            let Some(member) = members.get(id) else {
+            // Null ≡ absent at every type, so it reaches the ladder unheld.
+            let member = field.matrix_member(id, value).filter(|_| !value.is_null());
+            let Some(member) = member else {
                 out.insert(id.clone(), value.clone());
                 continue;
             };
-            // Null ≡ absent at every type, so it reaches the ladder as the
-            // unheld member rather than as a held one with no columns.
-            let Some(spelled) = matrix_member_spelling(value) else {
-                out.insert(id.clone(), value.clone());
-                continue;
+            let path = format!("{parent_path}.{id}");
+            let coerced = match value.as_object() {
+                Some(map) => {
+                    let cells = member.properties.as_ref();
+                    let mut coerced = serde_json::Map::new();
+                    for (key, cell) in map {
+                        let cell = match cells.and_then(|cells| cells.get(key)) {
+                            Some(schema) => Self::conform_value(
+                                &QuillValue::from_json(cell.clone()),
+                                schema,
+                                &format!("{path}.{key}"),
+                                mode,
+                            )?
+                            .into_json(),
+                            None => cell.clone(),
+                        };
+                        coerced.insert(key.clone(), cell);
+                    }
+                    match mode {
+                        Leniency::Write if coerced.is_empty() => serde_json::Value::Bool(true),
+                        _ => serde_json::Value::Object(coerced),
+                    }
+                }
+                None => Self::conform_value(
+                    &QuillValue::from_json(value.clone()),
+                    FieldSchema::matrix_tick(),
+                    &path,
+                    mode,
+                )?
+                .into_json(),
             };
-            let coerced = Self::conform_value(
-                &QuillValue::from_json(serde_json::Value::Object(spelled)),
-                member,
-                &format!("{parent_path}.{id}"),
-                mode,
-            )?;
-            out.insert(id.clone(), coerced.into_json());
+            out.insert(id.clone(), coerced);
         }
         Ok(out)
     }
@@ -1196,10 +1218,9 @@ impl QuillConfig {
                     }
                 }
                 if let Some(props) = &schema.properties {
-                    // `held` is the synthesized tick; `title` is written onto
-                    // every member from the roster. A column under either would
-                    // load, validate and address, then be overwritten where it
-                    // matters.
+                    // A stored `held` is refused, since presence is the tick, and
+                    // `title` is an added item's label. A column under either
+                    // would collide with what a member mapping already means.
                     if let Some(reserved) = super::MATRIX_RESERVED_COLUMNS
                         .iter()
                         .copied()
@@ -1209,8 +1230,9 @@ impl QuillConfig {
                             "quill::matrix_reserved_column",
                             format!(
                                 "Field '{owner}' declares a column named '{reserved}', which a \
-                                 matrix writes onto every member itself: '{held}' is the tick, \
-                                 '{title}' the roster's label. Rename the column.",
+                                 matrix member reserves: a member is held by being present, so \
+                                 it stores no '{held}', and '{title}' is an added item's label. \
+                                 Rename the column.",
                                 held = super::MATRIX_HELD_KEY,
                                 title = super::MATRIX_TITLE_KEY,
                             ),
@@ -1480,9 +1502,7 @@ impl QuillConfig {
             return;
         }
         let token = schema.r#type.as_str();
-        if schema.is_variant_bearing()
-            || matches!(schema.r#type, FieldType::Object | FieldType::Matrix { .. })
-        {
+        if schema.is_variant_bearing() || matches!(schema.r#type, FieldType::Object) {
             errors.push(
                 Diagnostic::new(
                     Severity::Error,
@@ -1524,10 +1544,10 @@ impl QuillConfig {
     }
 
     /// Refuse a `default:` declared on a **namespace** rather than a cell
-    /// (`SCHEMAS.md` §"Cells and namespaces"): a typed dictionary, or a matrix,
-    /// whose keys the roster fixes. The variant container refuses the same
-    /// shape under `quill::default_type_mismatch`; an `array` keeps its
-    /// literal, `items:` fixing the element type but never the arity.
+    /// (`SCHEMAS.md` §"Cells and namespaces"): a typed dictionary. The variant
+    /// container refuses the same shape under `quill::default_type_mismatch`;
+    /// an `array` and a `matrix` keep their literal, the schema fixing neither
+    /// an array's arity nor which members a matrix holds.
     fn reject_namespace_default(
         schema: &FieldSchema,
         owner_label: &str,
@@ -1536,42 +1556,21 @@ impl QuillConfig {
         let Some(props) = schema.namespace_props() else {
             return;
         };
-        let (message, hint) = if matches!(schema.r#type, FieldType::Matrix { .. }) {
-            let columns: Vec<&str> = schema.matrix_columns().keys().map(String::as_str).collect();
-            (
-                format!(
-                    "{owner_label} declares type 'matrix' but carries a default. A matrix is a \
-                     namespace, not a cell: the roster fixes its keys, and every member is \
-                     unheld until a document ticks it."
-                ),
-                if columns.is_empty() {
-                    "Remove the default.".to_string()
-                } else {
-                    format!(
-                        "Move each value onto the column that holds it ({}), and remove the \
-                         matrix's default.",
-                        columns.join(", ")
-                    )
-                },
-            )
-        } else {
-            let names: Vec<&str> = props.keys().map(String::as_str).collect();
-            (
+        let names: Vec<&str> = props.keys().map(String::as_str).collect();
+        errors.push(
+            Diagnostic::new(
+                Severity::Error,
                 format!(
                     "{owner_label} declares type 'object' but carries a default. A typed \
                      dictionary is a namespace, not a cell: each property holds its own default."
                 ),
-                format!(
-                    "Move each value onto the property that holds it ({}), and remove the \
-                     container's default.",
-                    names.join(", ")
-                ),
             )
-        };
-        errors.push(
-            Diagnostic::new(Severity::Error, message)
-                .with_code("quill::default_on_namespace".to_string())
-                .with_hint(hint),
+            .with_code("quill::default_on_namespace".to_string())
+            .with_hint(format!(
+                "Move each value onto the property that holds it ({}), and remove the \
+                 container's default.",
+                names.join(", ")
+            )),
         );
     }
 
@@ -1696,6 +1695,7 @@ impl QuillConfig {
                     path,
                     value: val,
                     allowed,
+                    open: _,
                 } => {
                     let values_str = allowed
                         .iter()
@@ -1717,9 +1717,18 @@ impl QuillConfig {
                 )
                 .with_code("quill::default_format_violation".to_string())
                 .with_hint(super::validation::format_hint(&format)),
+                ValidationError::HeldStored { path } => Diagnostic::new(
+                    Severity::Error,
+                    format!("{path} default stores the tick, which is a matrix member's presence."),
+                )
+                .with_code("quill::default_held_stored".to_string())
+                .with_hint(
+                    "Remove the key; leave the member out of the default to untick it."
+                        .to_string(),
+                ),
                 // NotInline and NotPlain can arise on a literal, and
                 // `literal_content` reports them at load.
-                _ => continue,
+                ValidationError::NotInline { .. } | ValidationError::NotPlain { .. } => continue,
             };
             errors.push(diag);
         }
@@ -1998,7 +2007,10 @@ impl QuillConfig {
         })
     }
 
-    fn is_snake_case_identifier(name: &str) -> bool {
+    /// Whether `name` is a snake_case identifier: a lowercase ASCII letter, then
+    /// lowercase letters, digits and underscores. A field name and a matrix
+    /// member id are spelled this way, an added item's key included.
+    pub fn is_snake_case_identifier(name: &str) -> bool {
         let mut chars = name.chars();
         match chars.next() {
             Some(c) if c.is_ascii_lowercase() => {}
@@ -2496,6 +2508,34 @@ impl QuillConfig {
             Self::validate_title_literal(card.title.as_deref(), label, &mut errors);
         }
 
+        // An acroform quill binds a widget to each address its schema declares,
+        // and an added item's address is the document's.
+        if backend == "acroform" {
+            for (label, card) in &labeled {
+                let found = card
+                    .fields
+                    .iter()
+                    .find_map(|(name, field)| open_matrix_path(field, name));
+                if let Some(owner) = found {
+                    errors.push(
+                        Diagnostic::new(
+                            Severity::Error,
+                            format!(
+                                "Field '{owner}' on '{label}' declares `open: true`, but the \
+                                 acroform backend fills a fixed form and has no widget for an \
+                                 item a document adds."
+                            ),
+                        )
+                        .with_code("quill::open_matrix_unsupported".to_string())
+                        .with_hint(
+                            "Drop `open: true`, or render the quill with the typst backend."
+                                .to_string(),
+                        ),
+                    );
+                }
+            }
+        }
+
         for (label, card) in &labeled {
             Self::validate_card_field_count(label, card, &mut errors);
         }
@@ -2560,6 +2600,23 @@ fn spells_ui_title(field: &serde_json::Value) -> bool {
             .any(spells_ui_title)
 }
 
+/// The field-name path (`rows[].quals`) of the first open matrix in `field`'s
+/// type tree, `owner` naming `field` itself.
+fn open_matrix_path(field: &FieldSchema, owner: &str) -> Option<String> {
+    if field.r#type.is_open_matrix() {
+        return Some(owner.to_string());
+    }
+    let cells = field
+        .properties
+        .iter()
+        .flatten()
+        .chain(field.variants.iter().flat_map(|variants| variants.values()).flatten());
+    cells
+        .map(|(name, child)| (format!("{owner}.{name}"), child))
+        .chain(field.items.iter().map(|items| (format!("{owner}[]"), items)))
+        .find_map(|(path, child)| open_matrix_path(child, &path))
+}
+
 /// The first `{field}` token in `text`, braces included: a `{`, a snake_case
 /// identifier, a `}`.
 fn template_token(text: &str) -> Option<&str> {
@@ -2574,35 +2631,6 @@ fn template_token(text: &str) -> Option<&str> {
     None
 }
 
-/// The member object a stored matrix spelling means, before coercion: a bare
-/// scalar is the tick itself. `None` for a null, which is absent at every type
-/// and so reaches the ladder unheld.
-///
-/// A mapping is the member object already, so its
-/// [`MATRIX_HELD_KEY`](super::MATRIX_HELD_KEY) takes the ordinary ladder as
-/// every other absent cell does: naming none is unheld, the synthesized
-/// `default: false`.
-///
-/// Coercion and validation both read it, so the two cannot disagree on what a
-/// document spelled.
-pub(crate) fn matrix_member_spelling(
-    stored: &serde_json::Value,
-) -> Option<serde_json::Map<String, serde_json::Value>> {
-    use super::MATRIX_HELD_KEY;
-
-    if stored.is_null() {
-        return None;
-    }
-    Some(match stored.as_object() {
-        Some(map) => map.clone(),
-        None => {
-            let mut map = serde_json::Map::new();
-            map.insert(MATRIX_HELD_KEY.to_string(), stored.clone());
-            map
-        }
-    })
-}
-
 /// Whether a field's type tree contains any content leaf: the gate for caching
 /// a content companion. Both `richtext` and its literal-codec sibling `plaintext`
 /// are content leaves; a scalar (`string`, `integer`, `enum`, …) never carries
@@ -2611,8 +2639,8 @@ pub(crate) fn field_contains_content(field: &FieldSchema) -> bool {
     match &field.r#type {
         FieldType::RichText { .. } | FieldType::PlainText { .. } => true,
         FieldType::Array => field.items.as_deref().is_some_and(field_contains_content),
-        // A matrix's columns are its content-bearing cells; `members` is their
-        // per-member copy, so the columns answer for both.
+        // A matrix's columns are its content-bearing cells; its member and added
+        // item schemas copy them, so the columns answer for all three.
         FieldType::Object | FieldType::Matrix { .. } => field
             .properties
             .as_ref()
@@ -2688,8 +2716,9 @@ fn populate_field_content(
     if let Some(items) = field.items.as_mut() {
         populate_field_content(items, card, &format!("{path}[]"), errors);
     }
-    // The members carry copies of the columns, taken before the imports above,
-    // so a matrix re-expands rather than importing each literal once per member.
+    // The member schemas carry copies of the columns, taken before the imports
+    // above, so a matrix re-derives them rather than importing each literal
+    // again.
     if matches!(field.r#type, FieldType::Matrix { .. }) {
         let _ = field.rebuild_matrix_members();
     }
@@ -2810,6 +2839,27 @@ fn literal_content(
                     None => v.clone(),
                 };
                 out.insert(k.clone(), converted);
+            }
+            Ok(Some(QuillValue::from_json(serde_json::Value::Object(out))))
+        }
+        // Each held member's mapping imports as the object its member schema
+        // is; a bare tick carries no content.
+        FieldType::Matrix { .. } => {
+            let Some(obj) = json.as_object() else {
+                return Ok(None);
+            };
+            let mut out = serde_json::Map::new();
+            for (id, member) in obj {
+                let converted = match field.matrix_member(id, member) {
+                    Some(schema) if member.is_object() => {
+                        let mv = QuillValue::from_json(member.clone());
+                        literal_content(&mv, schema, &format!("{label}.{id}"))?
+                            .map(QuillValue::into_json)
+                            .unwrap_or_else(|| member.clone())
+                    }
+                    _ => member.clone(),
+                };
+                out.insert(id.clone(), converted);
             }
             Ok(Some(QuillValue::from_json(serde_json::Value::Object(out))))
         }

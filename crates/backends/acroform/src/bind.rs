@@ -207,6 +207,7 @@ pub fn bind<'a>(
         config.main.fields.get(root).ok_or_else(|| dangling(root))?
     };
 
+    let mut member = false;
     for seg in parts.by_ref() {
         // The discriminant is the container's own enum, so the step selects a
         // value rather than a child schema: the walk stops on it, and the
@@ -214,10 +215,14 @@ pub fn bind<'a>(
         if cur.is_variant_bearing() && seg == VARIANT_DISCRIMINANT_KEY {
             break;
         }
+        member = matches!(cur.r#type, SchemaType::Matrix { .. });
         cur = descend(cur, seg).ok_or_else(|| dangling(seg))?;
     }
     match parts.next() {
         Some(seg) => Err(dangling(seg)),
+        // A matrix member's own address is its tick, the presence a checkbox
+        // shows; its columns bind one step further down.
+        None if member => Ok(FieldSchema::matrix_tick()),
         None => Ok(cur),
     }
 }
@@ -229,12 +234,8 @@ fn descend<'a>(cur: &'a FieldSchema, seg: &str) -> Option<&'a FieldSchema> {
             _ => None,
         },
         Err(_) => match cur.r#type {
-            // A matrix's members are the namespace an address descends, so
-            // `qualifications.flight_cc.held` reaches the tick as any typed
-            // dictionary's leaf is reached.
-            SchemaType::Object | SchemaType::Matrix { .. } => {
-                cur.namespace_props()?.get(seg).map(Box::as_ref)
-            }
+            SchemaType::Object => cur.namespace_props()?.get(seg).map(Box::as_ref),
+            SchemaType::Matrix { .. } => cur.matrix_member_at(seg),
             _ => cur.variant_field(seg),
         },
     }
@@ -274,7 +275,8 @@ pub fn project_kind(
             options: blank_first(values),
         },
         // Neither a typed dictionary nor a matrix has a widget shape: the cells
-        // inside them do, and each binds at its own address.
+        // inside them do, a member's tick among them, and each binds at its own
+        // address.
         SchemaType::Object | SchemaType::Matrix { .. } => return Err(unbindable()),
     })
 }
@@ -387,6 +389,11 @@ main:
         CUI:
           poc: { type: string }
           urgent: { type: boolean }
+    quals:
+      type: matrix
+      members: { flight_cc: Flight CC, dco: DCO }
+      properties:
+        detail: { type: string }
 card_kinds:
   indorsement:
     fields:
@@ -485,11 +492,26 @@ card_kinds:
         );
     }
 
+    /// A matrix member's own address is its tick, bound as a checkbox; its
+    /// columns bind one step further down.
+    #[test]
+    fn a_matrix_member_binds_its_tick_as_a_checkbox() {
+        assert_eq!(kind("quals.flight_cc").unwrap(), WidgetType::Checkbox);
+        assert_eq!(
+            kind("quals.dco.detail").unwrap(),
+            WidgetType::Text { multiline: false }
+        );
+    }
+
     #[test]
     fn object_and_object_array_are_unbindable() {
         // A container is unbindable at every depth: no widget renders one.
         // Its leaves bind, which is what `descend` walks to.
-        for (path, ty) in [("address", "object"), ("refs", "array<object>")] {
+        for (path, ty) in [
+            ("address", "object"),
+            ("refs", "array<object>"),
+            ("quals", "matrix"),
+        ] {
             match kind(path) {
                 Err(e @ BindError::Unbindable { .. }) => {
                     assert_eq!(e.code(), "acroform::unbindable_field");
@@ -510,6 +532,9 @@ card_kinds:
             ("classification.nosuch", "nosuch"),
             // The discriminant is a value, not a schema to descend further.
             ("classification.value.oops", "oops"),
+            ("quals.nosuch", "nosuch"),
+            // Presence is the tick, so a member stores none to bind.
+            ("quals.flight_cc.held", "held"),
         ] {
             let c = config();
             match bind(&c, "W", path) {

@@ -2,7 +2,7 @@ quill:
   name: roster_form
   version: 0.1.0
   backend: typst
-  description: Exercises a matrix vocabulary, a capped array, and a table-layout typed table
+  description: Exercises an open matrix vocabulary, a capped array, and a table-layout typed table
 
 typst:
   plate_file: plate.typ
@@ -17,7 +17,8 @@ main:
 
     qualifications:
       type: matrix
-      description: Tick each qualification held; annotate a tick with the date earned.
+      open: true
+      description: Tick each qualification held; annotate a tick with the date earned, and add one the roster lacks.
       members:
         sq_cc_candidate: Sq/CC Candidate
         flight_cc: Flight CC

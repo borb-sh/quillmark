@@ -75,7 +75,7 @@ What an unanswered field holds when it reaches the plate, and the guard that tes
 | `boolean` | `false` | `data.f` |
 | `array` | `()` | `data.f.len() > 0` |
 | `object` | a dictionary of its properties, each at its own blank | guard the properties |
-| `matrix` | every member, each with `held: false` | `m.held` per member |
+| `matrix` | `(:)`, nothing held | `"flight_cc" in data.f`, or `row.held` per [`roster`](#matrices) row |
 | any optional type (`integer?`, `boolean?`, …) | `none` | `data.f != none` |
 
 `$body` follows the content rule: `data.at("$body", default: "") != ""` is true only when the body has text.
@@ -109,6 +109,21 @@ The document body is exposed under the `$body` key, accessed via `data.at("$body
 ```
 
 A card whose `$kind` the quill does not declare reaches the plate carrying the `$kind` it names and its authored fields verbatim, with no `$body`. The render does not fail on it: `quill.validate(doc)` warns instead. Branch on the kinds the plate knows and let the rest fall through.
+
+### Matrices
+
+A [`matrix`](quill-yaml-reference.md#matrix-a-vocabulary-the-author-ticks) reaches the plate as the members the document ticks, each keyed by id to its columns; a member nobody ticked is absent. `roster(dict, key)` hands the plate the whole vocabulary instead, held or not, so it prints every box without a copy of the roster:
+
+```typst
+#import "@local/quillmark-helper:0.1.0": data, field-region, ink, roster
+
+#for row in roster(data, "qualifications") {
+  field-region(row.path)[#(if row.held [☒] else [☐]) #row.title]
+  if row.held [ — #ink(row.value).detail]
+}
+```
+
+Each row is `(id, title, held, value, path)`, roster members in roster order and then any items an open matrix's document adds. `value` is the member's columns, `none` where unheld, and `path` its address: claiming it with `field-region` makes an unticked box clickable in an editor preview. An added item's `title` is a cell of its own, so `ink(row.value).title` prints it click-to-edit. `dict` is the dictionary that declares the matrix: `data`, a card, or a table row.
 
 ## Modules
 

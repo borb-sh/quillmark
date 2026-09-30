@@ -105,7 +105,6 @@ fn a_question_mark_refuses_a_default_and_a_namespace() {
             "{ type: object?, properties: { a: { type: string } } }",
             "quill::optional_namespace",
         ),
-        ("{ type: matrix?, members: { a: A } }", "quill::optional_namespace"),
         (
             "{ type: enum?, values: [a], variants: { a: { note: { type: string } } } }",
             "quill::optional_namespace",

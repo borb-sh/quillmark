@@ -21,7 +21,10 @@ use std::collections::BTreeMap;
 use quillmark_core::{
     backend::Backend,
     error::{Diagnostic, RenderError, RenderResult, Severity},
-    quill::{build_transform_schema, BlockConstruct, CalendarDate, Quill},
+    quill::{
+        build_transform_schema, BlockConstruct, CalendarDate, Quill, QuillConfig,
+        QUILLMARK_ROSTER_KEY,
+    },
     region::{ContentHit, RenderedRegion},
     session::{ChangeSet, LiveSession, SessionHandle},
     types::{OutputFormat, RenderOptions},
@@ -532,10 +535,17 @@ fn read_plate(source: &Quill) -> Result<Plate, RenderError> {
 /// (`prose/canon/PLATE_DATA.md`), while a richtext field, an `object` declaring
 /// no `properties`, offers no step at all. An array always offers its index
 /// step, whatever its element.
-#[derive(Debug, Default)]
+///
+/// A `matrix` node also carries its `roster`, and on an open matrix an `added`
+/// step: any key spelled as a member id that `props` does not name. Like an
+/// index, the step is not checked against the data, since the grammar asks
+/// about the schema alone.
+#[derive(Debug, Default, Clone)]
 pub(crate) struct AddressNode {
     pub(crate) props: BTreeMap<String, AddressNode>,
     pub(crate) item: Option<Box<AddressNode>>,
+    added: Option<Box<AddressNode>>,
+    roster: Option<serde_json::Value>,
 }
 
 impl AddressNode {
@@ -557,17 +567,31 @@ impl AddressNode {
                     .unwrap_or_default(),
             )
         });
-        Self { props, item }
+        let added = node
+            .get("additionalProperties")
+            .filter(|v| v.is_object())
+            .map(|child| Box::new(Self::from_schema(child)));
+        let roster = node.get(QUILLMARK_ROSTER_KEY).cloned();
+        Self {
+            props,
+            item,
+            added,
+            roster,
+        }
     }
 
     /// The node `path` addresses, or `None` where it takes a step the schema
     /// does not offer. A digit segment is the index step; any other is a
-    /// property step.
+    /// property step, or an open matrix's added step.
     pub(crate) fn resolve(&self, path: &str) -> Option<&Self> {
         path.split('.').try_fold(self, |node, seg| {
             match seg.bytes().all(|b| b.is_ascii_digit()) && !seg.is_empty() {
                 true => node.item.as_deref(),
-                false => node.props.get(seg),
+                false => node.props.get(seg).or_else(|| {
+                    node.added
+                        .as_deref()
+                        .filter(|_| QuillConfig::is_snake_case_identifier(seg))
+                }),
             }
         })
     }
@@ -589,6 +613,12 @@ impl AddressNode {
         }
         if let Some(item) = &self.item {
             out.insert("item".to_string(), item.to_json());
+        }
+        if let Some(added) = &self.added {
+            out.insert("added".to_string(), added.to_json());
+        }
+        if let Some(roster) = &self.roster {
+            out.insert("roster".to_string(), roster.clone());
         }
         serde_json::Value::Object(out)
     }
@@ -642,7 +672,7 @@ impl SchemaMeta {
         meta
     }
 
-    /// The address tables the helper's `_qm-known-path` validates against.
+    /// The address tables the helper's `_qm-node` walks.
     fn address_json(&self) -> serde_json::Value {
         serde_json::json!({
             "fields": self.root.to_json(),

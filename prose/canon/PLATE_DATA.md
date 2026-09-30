@@ -38,39 +38,52 @@ One rule governs the lowering, at every depth: **a declared type means the same 
   `card.at("$kind", default: none)`, `card.at("$body", default: "")`: never a
   bare `card.$body`
 - A card whose `$kind` the quill does not declare keeps its place in `$cards`, fields verbatim and uncoerced, so a plate's `$cards` loop falls through on a kind it does not know ([SCHEMAS.md](SCHEMAS.md#what-blocks-a-render))
-- `data`, each card, and each typed dictionary carry `$ink`, the [ink twin](#the-ink-twin) of their fields, wherever at least one field has ink, and with it `$path`, their address prefix (`""` on `data`, `refs.0.` on a row). A data key spelling `$ink` or `$path` in any of them is dropped; a dictionary the schema does not type passes through verbatim, keys included
+- `data`, each card, and each typed dictionary carry `$ink`, the [ink twin](#the-ink-twin) of their fields, wherever at least one field has ink, and with it `$path`, their address prefix (`""` on `data`, `refs.0.` on a row). One declaring a matrix carries `$path` either way, for [`roster`](#a-matrix-field) to address it by. A data key spelling `$ink` or `$path` in any of them is dropped; a dictionary the schema does not type passes through verbatim, keys included
 - User payload fields sit flat at the root next to the `$` keys; field names match `[a-z_][a-z0-9_]*` and therefore never collide with `$` metadata
 
 #### A `matrix` field
 
-A matrix reaches the plate **total**: an ordered mapping carrying every declared
-member, keyed by member id in roster order, whatever the document ticked. Order
-is the one place a matrix departs from the canonical emission below: dict keys
-otherwise sort, so the transform schema carries the roster as `quillmark:order`
-on the matrix node and the codegen emits those keys in it. The order is a
-property of the schema, never of the data, so equal data still produces
-byte-equal source.
+A matrix reaches the plate as the set it holds: each held member's id mapped to
+its columns, roster members in roster order, then each item an open matrix's
+document adds, sorted by id. An unheld member is absent. Order is the one place
+a matrix departs from the canonical emission below: dict keys otherwise sort,
+so the transform schema carries the roster as `quillmark:roster`, `[id, title]`
+pairs in declaration order, and the codegen emits held roster members in it,
+the added items trailing in the order every other dictionary takes. The order is
+a property of the schema and the ids, never of the document's key order, so
+equal data still produces byte-equal source.
 
 ```json
 "qualifications": {
-  "flight_cc":  { "held": true,  "title": "Flight CC", "detail": {…} },
-  "dodin_ops":  { "held": false, "title": "DODIN Ops", "detail": {…} }
+  "flight_cc": { "detail": {…} },
+  "wing_ig":   { "title": "Wing IG", "detail": {…} }
 }
 ```
 
-- `held` is the tick, a boolean the schema synthesizes on every member.
-- `title` comes from the roster, not from the document, so a plate prints the
-  vocabulary without holding a second copy of it.
-- The remaining keys are the field's declared columns, each at its declared
-  type.
-- **The wire carries the live world only**: an unheld member's columns are their
-  blanks whatever the document retains, so `member.detail` reads without a guard
-  and never prints a stranded answer.
+- A member's keys are the field's declared columns, each at its declared type,
+  and on an added item its `title`, a `string` cell.
+- A plate branches on presence first (`"flight_cc" in data.qualifications`),
+  then reads a held member's columns without a guard.
+- Each member carries its own `$ink`; the matrix, holding only members, carries
+  none, so its keys are exactly the members it holds.
 
-Member cells are ordinary addresses: `qualifications.flight_cc.held` regions and
-binds like any leaf. Each member carries its own `$ink`; the matrix, holding only
-members, carries none, so its keys are exactly its roster. `title` is written by the projection rather than held as a
-cell, so it carries none.
+The vocabulary the page prints, held or not, is the roster, and it reaches the
+plate once, in the generated address tables. **`roster(dict, key)`** reads it:
+every roster member in roster order, then each added item, as rows
+`(id, title, held, value, path)`. `title` is the roster's, or an added item's
+own; `value` is the member's dictionary, `none` where unheld; `path` is the
+member's address. `dict` is the dictionary declaring the matrix, whose `$path`
+the address starts from, as `display(dict, key, ..)`'s does:
+
+```typst
+#for row in roster(data, "qualifications") {
+  field-region(row.path)[#(if row.held [☒] else [☐]) #row.title]
+  if row.held [ — #ink(row.value).detail]
+}
+```
+
+A claim on `row.path` makes an unticked box clickable too. An added item's
+`title` is a cell, so `ink(row.value).title` places it with a region of its own.
 
 ## Typst Helper Package
 
@@ -105,7 +118,7 @@ Helper contents (generated in `backends/typst/helper.rs` from `lib.typ.template`
   | `contentMediaType: application/quillmark-content+json` | a `#let _qm_cN = [ .. ]` markup block the data cell references (blank ⇒ `""`) | — |
   | `format: date` / `date-time` | `datetime(year:, month:, day:)` / the six-component form, authored wall-clock, seconds zero-filled (blank ⇒ `none`) | — |
   | `type: array` | a Typst array | each element against `items`, at `{path}.{i}` |
-  | `type: object` with `properties` | a Typst dict, keys sorted unless the node carries `quillmark:order` | each value against `properties[key]`, at `{path}.{key}` |
+  | `type: object` with `properties` | a Typst dict, keys sorted unless the node carries `quillmark:roster` | each value against `properties[key]`, else `additionalProperties`, at `{path}.{key}` |
   | anything else, and any key the schema does not declare | its value literal | — |
 
   The dispatch is a node test, never a table of names, which is what makes it
@@ -131,6 +144,8 @@ Helper contents (generated in `backends/typst/helper.rs` from `lib.typ.template`
   check total over depth.
 - **`ink(dict)`** → the dictionary's `$ink` twin, `(:)` where it has none. See
   [The ink twin](#the-ink-twin).
+- **`roster(dict, key)`** → a matrix's rows, every member held or not. See
+  [A `matrix` field](#a-matrix-field).
 - **`display(field, ..args)`** → content, the one address-keyed projection.
   `_qm-display` binds one `#let _qm_dN = (..args) => text(datetime(..).display(..args))`
   closure per present date, keyed by schema address (`issued`, `stamps.2`,
@@ -186,8 +201,8 @@ them, and reparses the whole literal.
 ### Schema addresses
 
 `form-field(field:)`, `field-region(field)` and `display(field, ..)` name a
-schema field, and the generated `_qm-meta` address tree (`_qm-known-path`)
-validates that name at compile time rather than leaving it silently unbound:
+schema field, and the generated `_qm-meta` address tree (`_qm-node`) validates
+that name at compile time rather than leaving it silently unbound:
 
 | Address | Admitted by |
 |---|---|
@@ -196,6 +211,8 @@ validates that name at compile time rather than leaving it silently unbound:
 | `refs.2.org` | a typed table's row property, after the element step |
 | `classification.poc` | a container field — the property step |
 | `contact.address.city` | either step again, wherever the schema nests |
+| `qualifications.flight_cc` | a matrix field — the member step, whose own address is the tick |
+| `qualifications.wing_ig.title` | an open matrix — any key spelled as a member id, then the added item's cells |
 | `$cards.<kind>.<n>.<field>` | a card field, `<n>` the per-kind ordinal |
 | `$cards.<kind>.<n>.<field>.<suffix>` | any of those suffixes, on a card field |
 
@@ -211,12 +228,20 @@ does, at whatever depth that is. This is the acroform resolver's grammar
 grammar is written twice, in two languages, and held to one table by
 `quillmark/tests/address_grammar.rs`.
 
-**An address the grammar admits is a key the plate carries.** The blank-fill is
-total at every depth ([SCHEMAS.md](SCHEMAS.md#blank-filled-render)), so a
-declared address resolves however much of its container the document left out:
-`data.contact.address.city` is a direct read, never a guarded one. This is the
-converse of the `$`-metadata rule above — those keys are read with a total
+**An address the grammar admits is a key the plate carries**, past the two
+steps whose keys the value decides: an array's index and a matrix's member. The
+blank-fill is total at every depth ([SCHEMAS.md](SCHEMAS.md#blank-filled-render)),
+so a declared address resolves however much of its container the document left
+out: `data.contact.address.city` is a direct read, never a guarded one. This is
+the converse of the `$`-metadata rule above — those keys are read with a total
 accessor *because* they may be absent, and a declared field may not be.
+
+The two value-decided steps are judged on the schema alone, so the tables are
+the same for every render. `refs.9` is admitted against one ref, a roster
+member's address whether or not the value holds it, and on an open matrix any
+key spelled as a member id, the added item's node (`qualifications.wing_ig`). A
+plate reaches either through its container: a loop over the array, or
+[`roster`](#a-matrix-field) over the matrix.
 
 Cards carry their canonical prefix as `$path`, so a plate composes a card
 address without reimplementing the kind+ordinal grammar:

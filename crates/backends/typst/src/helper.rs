@@ -8,8 +8,8 @@
 //!
 //! Output is **canonical**: dict keys emit in sorted order at every level (via
 //! [`sorted`]), so equal data produces byte-equal source regardless of the
-//! caller's field order. `$cards` array order is semantic and preserved. A node
-//! whose *schema* fixes a key order says so with `quillmark:order` and gets it
+//! caller's field order. `$cards` array order is semantic and preserved. A
+//! `matrix` node fixes its key order with `quillmark:roster` and gets it
 //! ([`ordered`]); that order is a property of the schema, so byte-equality holds
 //! there too.
 
@@ -21,7 +21,7 @@ use crate::emit::{
 };
 use crate::SchemaMeta;
 use quillmark_content::serial::from_canonical_value;
-use quillmark_core::quill::{CONTENT_MEDIA_TYPE, QUILLMARK_INLINE_KEY, QUILLMARK_ORDER_KEY};
+use quillmark_core::quill::{CONTENT_MEDIA_TYPE, QUILLMARK_INLINE_KEY, QUILLMARK_ROSTER_KEY};
 
 pub const HELPER_VERSION: &str = "0.1.0";
 pub const HELPER_NAMESPACE: &str = "local";
@@ -251,6 +251,7 @@ impl<'m> Codegen<'m> {
                 }
             }
             let node = self.meta.field_node(key);
+            dict.anchored |= is_matrix(node);
             dict.push(key, self.emit_value(key, node, value));
         }
         dict.finish(Some(""))
@@ -343,10 +344,12 @@ impl<'m> Codegen<'m> {
                 });
                 (Frag::wrap(exprs, "()"), ink)
             }
-            (Lower::Object(props, order), serde_json::Value::Object(obj)) => {
+            (Lower::Object(props, order, added), serde_json::Value::Object(obj)) => {
                 let mut dict = Container::default();
                 for (key, elem) in ordered(obj, &order) {
-                    let lowered = self.emit_value(&format!("{path}.{key}"), props.get(key), elem);
+                    let node = props.get(key).or(added);
+                    dict.anchored |= is_matrix(node);
+                    let lowered = self.emit_value(&format!("{path}.{key}"), node, elem);
                     dict.push(key, lowered);
                 }
                 (dict.finish(Some(&format!("{path}."))), None)
@@ -465,6 +468,9 @@ fn entry(key: &str, value: Frag) -> Frag {
 struct Container {
     items: Vec<Frag>,
     ink: Vec<Frag>,
+    /// A field is a `matrix`, which `roster(dict, key)` addresses through the
+    /// dictionary's `$path`, so the path rides whether or not a field has ink.
+    anchored: bool,
 }
 
 impl Container {
@@ -478,24 +484,25 @@ impl Container {
         }
     }
 
-    /// `$ink` leads, then `path` as `$path` for `display(dict, key, ..)` to
-    /// address a date by; both only where a field has ink, so a dictionary of
-    /// containers (a `matrix`) keeps exactly its members as keys. The `{..}`
-    /// code block is a unit Typst's incremental reparser swaps alone: an edit
+    /// `$ink` leads where a field has ink, then `path` as `$path` for
+    /// `display(dict, key, ..)` and `roster(dict, key)` to address by, where a
+    /// field has ink or is a matrix. A dictionary of containers (a `matrix`)
+    /// has neither, so it keeps exactly its members as keys. The `{..}` code
+    /// block is a unit Typst's incremental reparser swaps alone: an edit
     /// touches a field and its ink, and inside a card or a row the block
     /// holding both is that card or row, not the whole literal.
     fn finish(mut self, path: Option<&str>) -> Frag {
+        let mut head = Vec::new();
         if !self.ink.is_empty() {
-            let ink = Frag::wrap(self.ink, "(:)");
-            let mut head = vec![entry(INK_KEY, ink)];
-            if let Some(path) = path {
-                head.push(Frag::from(format!(
-                    "\"{PATH_KEY}\": \"{}\"",
-                    escape_string(path)
-                )));
-            }
-            self.items.splice(0..0, head);
+            head.push(entry(INK_KEY, Frag::wrap(self.ink, "(:)")));
         }
+        if let Some(path) = path.filter(|_| !head.is_empty() || self.anchored) {
+            head.push(Frag::from(format!(
+                "\"{PATH_KEY}\": \"{}\"",
+                escape_string(path)
+            )));
+        }
+        self.items.splice(0..0, head);
         let mut out = Frag::from("{");
         out.append(Frag::wrap(self.items, "(:)"));
         out.push_str("}");
@@ -517,9 +524,15 @@ enum Lower<'a> {
     Date(DateKind),
     /// The element node, absent where an array declares no `items`.
     Array(Option<&'a serde_json::Value>),
-    /// The declared members, and the key order the schema fixes for them
-    /// (`quillmark:order`), empty where it fixes none.
-    Object(&'a serde_json::Map<String, serde_json::Value>, Vec<&'a str>),
+    /// The declared members, the key order the schema fixes for them
+    /// (`quillmark:roster`, empty where it fixes none), and the node every key
+    /// they do not name lowers against (`additionalProperties`, an open
+    /// matrix's added item).
+    Object(
+        &'a serde_json::Map<String, serde_json::Value>,
+        Vec<&'a str>,
+        Option<&'a serde_json::Value>,
+    ),
     /// Every other declared type, plus every data key the schema does not
     /// declare and every container declaring no members to recurse on.
     Native,
@@ -545,7 +558,11 @@ fn lowering(node: Option<&serde_json::Value>) -> Lower<'_> {
         // A richtext node is `type: object` too, and the media type claimed it
         // above.
         Some("object") => match node.get("properties").and_then(|v| v.as_object()) {
-            Some(props) => Lower::Object(props, declared_order(node)),
+            Some(props) => Lower::Object(
+                props,
+                declared_order(node),
+                node.get("additionalProperties").filter(|v| v.is_object()),
+            ),
             None => Lower::Native,
         },
         _ => Lower::Native,
@@ -652,17 +669,22 @@ fn sorted(obj: &serde_json::Map<String, serde_json::Value>) -> Vec<(&String, &se
 }
 
 /// The schema's declared key order for a container node, `[]` where it declares
-/// none. A `matrix` declares one: its roster is the order a plate prints the
-/// vocabulary in.
+/// none: a `matrix`'s roster ids, the order a plate prints the vocabulary in.
 fn declared_order(node: &serde_json::Value) -> Vec<&str> {
-    node.get(QUILLMARK_ORDER_KEY)
+    node.get(QUILLMARK_ROSTER_KEY)
         .and_then(|v| v.as_array())
-        .map(|ids| ids.iter().filter_map(|v| v.as_str()).collect())
+        .map(|pairs| pairs.iter().filter_map(|pair| pair.get(0)?.as_str()).collect())
         .unwrap_or_default()
 }
 
+/// Whether `node` declares a `matrix`.
+fn is_matrix(node: Option<&serde_json::Value>) -> bool {
+    node.is_some_and(|n| n.get(QUILLMARK_ROSTER_KEY).is_some())
+}
+
 /// `obj`'s entries in the schema's declared order where it declares one, keys it
-/// does not name trailing in sorted order; [`sorted`] otherwise.
+/// does not name (an open matrix's added items) trailing in sorted order;
+/// [`sorted`] otherwise.
 ///
 /// The order comes from the schema, never from the data, so the generated source
 /// stays a pure function of the data's values and comemo's reuse is untouched.
@@ -1077,6 +1099,66 @@ mod tests {
             lib.contains("\"props\": (\"refs\": (\"item\": (:),), \"subject\": (:),)"),
             "{lib}"
         );
+    }
+
+    /// A matrix's held set lowers its roster members in roster order and its
+    /// added items after them sorted, each against its own node. The dictionary
+    /// declaring it carries `$path` though nothing in it has ink, and the
+    /// address tables are the schema's alone, the added step and the roster
+    /// included, whatever the data holds.
+    #[test]
+    fn a_matrix_lowers_in_roster_order_under_static_tables() {
+        let member = |title: bool| {
+            let mut props = serde_json::json!({ "detail": richtext_field() });
+            if title {
+                props["title"] = serde_json::json!({ "type": "string" });
+            }
+            serde_json::json!({ "type": "object", "properties": props })
+        };
+        let meta = meta_from(serde_json::json!({
+            "properties": {
+                "quals": {
+                    "type": "object",
+                    "quillmark:roster": [["dco", "DCO"], ["cyber", "Cyber"]],
+                    "properties": { "dco": member(false), "cyber": member(false) },
+                    "additionalProperties": member(true),
+                }
+            }
+        }));
+        let data = serde_json::json!({
+            "quals": {
+                "wing_ig": { "title": "Wing IG", "detail": content("81 TRW") },
+                "cyber": { "detail": content("") },
+                "aide": { "title": "Aide", "detail": content("") },
+            }
+        });
+        let (lib, windows) = generate_lib_typ(&data, &meta).unwrap();
+
+        let at = |key: &str| {
+            lib.find(&format!("\"{key}\": {{"))
+                .unwrap_or_else(|| panic!("{key} in {lib}"))
+        };
+        assert!(at("cyber") < at("aide") && at("aide") < at("wing_ig"), "{lib}");
+        let paths: Vec<&str> = windows.iter().map(|w| w.path.as_str()).collect();
+        for path in ["quals.wing_ig.detail", "quals.wing_ig.title"] {
+            assert!(paths.contains(&path), "{path} in {paths:?}");
+        }
+        assert!(lib.contains("#let data = {(\"$path\": \"\", \"quals\": "), "{lib}");
+
+        let tables = |lib: &str| {
+            lib.lines()
+                .find(|l| l.starts_with("#let _qm-meta"))
+                .expect("the address tables")
+                .to_string()
+        };
+        let (bare, _) = generate_lib_typ(&serde_json::json!({}), &meta).unwrap();
+        assert_eq!(tables(&lib), tables(&bare));
+        for piece in [
+            "\"roster\": ((\"dco\", \"DCO\",), (\"cyber\", \"Cyber\",),)",
+            "\"added\": (\"props\": (\"detail\": (:), \"title\": (:),),)",
+        ] {
+            assert!(tables(&lib).contains(piece), "{piece} in {}", tables(&lib));
+        }
     }
 
     /// `array_fields` and `object_fields` are one shape, so one predicate reads

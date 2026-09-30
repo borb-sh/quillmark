@@ -122,7 +122,7 @@ main:
 | `type`        | string            | yes      | Data type (see [Field Types](#field-types)); a trailing `?` makes the field [optional](#optional-fields-t) |
 | `title`       | string            | no       | The field's label, a literal (see [`title`](#title)) |
 | `description` | string            | no       | Detailed help text |
-| `default`     | matches `type`    | no       | The value the **majority of authors want**. When the cell is omitted, the default is filled in — at any depth, whether or not the container above it was authored — and the blueprint renders that concrete value with a type-only annotation, shippable as-is (see [`default`](#default)). Declared on a **cell**: a leaf or an `array`. On an `object` it is a load error (`quill::default_on_namespace`), since its properties hold their own. |
+| `default`     | matches `type`    | no       | The value the **majority of authors want**. When the cell is omitted, the default is filled in — at any depth, whether or not the container above it was authored — and the blueprint renders that concrete value with a type-only annotation, shippable as-is (see [`default`](#default)). Declared on a **cell**: a leaf, an `array` or a `matrix`. On an `object` it is a load error (`quill::default_on_namespace`), since its properties hold their own. |
 | `values`      | array of strings  | for `enum` | The closed set of allowed string values: the **choices**. Required on every `enum` field. Declaring `""` is a load error — every enum also accepts its [blank](#the-blank-values-is-for-choices-not-for-the-absence-of-one), which the engine supplies. |
 | `ui`          | object            | no       | UI rendering hints (see [UI Properties](#ui-properties)) |
 | `items`       | object            | for `array` | Element schema for an `array` field (a nested field schema). Required on every array. |
@@ -209,7 +209,7 @@ and `Quill::validate` reports nothing about it.
 | `datetime` | A strict offset-less wall-clock datetime `YYYY-MM-DDThh:mm[:ss]`; rejects offsets, the space separator, fractional seconds, and bare dates |
 | `richtext` | Rich, **formatted** prose over a canonical content; backends lower it to the target format. Markdown is its import/export projection. Add `inline: true` for the single-paragraph variant |
 | `object`   | Structured map; requires a `properties:` map |
-| `matrix`   | A closed vocabulary the author ticks; requires a `members:` roster. Each member is an object of a synthesized `held` plus the field's `properties:` (see [Matrix](#matrix-a-vocabulary-the-author-ticks)) |
+| `matrix`   | A vocabulary the author ticks; requires a `members:` roster, and `open: true` lets a document add items. Its value is the set of held members, each an object of the field's `properties:` (see [Matrix](#matrix-a-vocabulary-the-author-ticks)) |
 
 #### Dated by the render: `today`
 
@@ -241,7 +241,7 @@ confidential:
 | `type: t` with `default:` | the default | always a `t` |
 | `type: t?` | `none` | a `t` or `none` |
 
-- Any cell takes the `?`: every scalar type, `richtext`, `plaintext`, `date`, `enum`, and `array`. An `object`, a `matrix`, and an `enum` with `variants:` do not (`quill::optional_namespace`); mark the fields inside them instead.
+- Any cell takes the `?`: every scalar type, `richtext`, `plaintext`, `date`, `enum`, `array` and `matrix`. An `object` and an `enum` with `variants:` do not (`quill::optional_namespace`); mark the fields inside them instead.
 - `?` and `default:` are exclusive (`quill::optional_default`): a default answers for the author, so the field would never be `none`.
 - An authored value is kept as written: `0`, `false`, `""`, and `[]` are answers. On an `enum?`, `""` is the blank and reads `none`.
 
@@ -555,47 +555,101 @@ qualifications:
       default: ""
 ```
 
-Every member becomes an object of a synthesized `held` (a boolean, `false` by
-default) plus the declared columns. Member **ids** are snake_case: they are what
-the wire, the address and the document speak, while the **title** is display
-only. The roster is a mapping, so it has one slot per id and a member cannot be
-declared twice. The two keys the matrix writes itself — `held`, `title` —
-cannot be column names.
+Member **ids** are snake_case: they are what the wire, the address and the
+document speak, while the **title** is display only. The roster is a mapping,
+so it has one slot per id and a member cannot be declared twice. `held` and
+`title` cannot be column names.
 
-A document ticks sparsely, and a bare scalar is the tick:
+A document ticks sparsely. A member is held by being present:
 
 ```yaml
 qualifications:
-  flight_cc: true                                 # held; columns take their defaults
-  dodin_ops: { held: true, detail: "2024" }       # held, with columns
-  sq_cc_candidate: { held: false, detail: kept }  # not held; the detail is kept in the file
+  flight_cc: true                  # held; columns take their defaults
+  dodin_ops: { detail: "2024" }    # held, with columns
+  sq_cc_candidate: false           # not held, as if absent
 ```
 
-A mapping is the member object itself, so one naming no `held` is unticked, its
-columns kept in the file as under any other unticked member. Spell the tick
-beside the column to set both.
+A mapping is held whatever it carries, `{}` included, and a bare scalar is the
+tick. The document never stores `held`: a mapping carrying one fails
+validation (`validation::held_stored`), so untick a member by removing it, and
+its answers go with it.
 
 A member the roster does not declare is refused, as an out-of-domain `enum`
 value is. A mapping has one slot per key, so a member cannot be ticked twice.
 
-Your plate writes one loop and no vocabulary of its own, because every member
-arrives on every render:
+The plate receives the held set: each held member's columns, keyed by id, in
+roster order. A member the document does not tick is absent, so print the
+vocabulary through `roster`, which hands your plate every member, held or not,
+without a copy of the roster of its own:
 
 ```typst
-#for (id, m) in data.qualifications {
-  [#(if m.held { "[x]" } else { "[ ]" }) #m.title — #m.detail]
+#import "@local/quillmark-helper:0.1.0": data, field-region, ink, roster
+
+#for row in roster(data, "qualifications") {
+  field-region(row.path)[#(if row.held [☒] else [☐]) #row.title]
+  if row.held [ — #ink(row.value).detail]
 }
 ```
 
+Each row is `(id, title, held, value, path)`: `value` is the member's columns,
+`none` where unheld, and `path` its address. Pass the dictionary that declares
+the matrix and its name: `roster(card, "qualifications")` on a card,
+`roster(row, "quals")` in a table row.
+
 Three things to author against. Declare a `default:` on each column to say
 what a ticked member's unanswered column renders; without one it renders the
-column's blank. The matrix itself takes no `default:`, so a fresh
-document ticks nothing and the blueprint shows the vocabulary in the field's annotation,
+column's blank. The matrix is a cell, so a `default:` on it is the set a
+document that leaves it out holds, and `type: matrix?` renders an unanswered one
+`none`; without either it renders `{}`, nothing ticked. A fresh document ticks
+nothing, and the blueprint shows the vocabulary in the field's annotation,
 `# matrix<sq_cc_candidate | flight_cc | dodin_ops>`, and its columns in a
-leading `# e.g.` line that ticks the first member. And each cell is an
-ordinary address — `qualifications.flight_cc.held` regions on Typst and binds a
-checkbox on acroform — so an editor unticks by writing `held: false` rather than
-by dropping the key, and the detail survives.
+leading `# e.g.` line that ticks the first member. And each member is an
+address — `qualifications.flight_cc` is its tick, a region on Typst and a
+checkbox on acroform checked by its presence, and
+`qualifications.flight_cc.detail` its column.
+
+#### Open rosters: items the author adds
+
+A record rarely fits a fixed vocabulary. `open: true` lets a document add items
+beside the roster, each keyed by a snake_case id of the author's choosing and
+carrying a `title`:
+
+```yaml
+qualifications:
+  type: matrix
+  open: true
+  members: { flight_cc: Flight CC, dodin_ops: DODIN Ops }
+  properties:
+    detail: { type: plaintext, inline: true, default: "" }
+```
+
+```yaml
+qualifications:
+  flight_cc: { detail: UMS Flt/CC }
+  wing_ig: { title: Wing IG, detail: 81 TRW }   # an added item
+```
+
+- An added item is held by being present and takes the same columns a member
+  does. Its `title` is a string, and a key outside the roster with no `title`,
+  or one that is not a snake_case id, is refused (`validation::enum_violation`,
+  hinted toward the added spelling).
+- The plate receives the held roster members in roster order, then each added
+  item sorted by id, `{title, …columns}`, and `roster` returns them in that
+  order. A plate wanting another order sorts the rows itself. An added item's
+  `title` is a cell with an address, so `ink(row.value).title` prints it with
+  its click-to-edit region, where `row.title` prints it plainly.
+- The engine does not compare titles: an added item titled as a roster member
+  prints beside it.
+- The ids in the blueprint's `# matrix<…>` annotation are all a model sees of
+  the roster, so on an open matrix name them as their titles read
+  (`joint_qualified_officer`, not `jqo`), or a model adds a duplicate it could
+  have ticked.
+- An id your roster later declares reads as that member, so an item authors
+  added under it becomes the member with no migration; its stored `title` then
+  warns as `validation::unknown_field` until removed.
+- `open` defaults to `false`, and the acroform backend refuses it at load
+  (`quill::open_matrix_unsupported`): a form has no widget for an item a
+  document adds.
 
 Full model: [SCHEMAS.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/SCHEMAS.md#matrix); the wire shape is [PLATE_DATA.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PLATE_DATA.md#a-matrix-field).
 

@@ -43,8 +43,11 @@ fn resolve_value(field_type: &FieldType, schema_field: Option<&str>, data: &Valu
     let raw = lookup(data, schema_field?)?;
     match field_type {
         FieldType::Text { .. } => coerce_text(raw),
+        // A matrix member binds its presence, and a held member reaches the
+        // plate as its mapping of columns.
         FieldType::Checkbox => {
-            matches!(raw, Value::Bool(true)).then(|| CHECKBOX_ON_STATE.to_string())
+            matches!(raw, Value::Bool(true) | Value::Object(_))
+                .then(|| CHECKBOX_ON_STATE.to_string())
         }
         FieldType::Choice { options } => coerce_choice(raw, options),
         FieldType::Signature => None,
@@ -162,7 +165,8 @@ mod tests {
             "favorite_color": "green",
             "bad_color": "purple",
             "empty": "",
-            "score": 42
+            "score": 42,
+            "quals": { "flight_cc": { "detail": "x" }, "dco": {} }
         })
     }
 
@@ -244,12 +248,21 @@ mod tests {
         );
     }
 
+    /// A matrix member binds its presence: a held member reaches the plate as
+    /// its mapping of columns, an unheld one not at all.
     #[test]
-    fn checkbox_reads_a_bool() {
+    fn checkbox_reads_a_bool_or_a_members_presence() {
         let on = |f| resolve_value(&FieldType::Checkbox, Some(f), &data());
-        assert_eq!(on("agree"), Some(CHECKBOX_ON_STATE.to_string()));
-        assert_eq!(on("decline"), None);
-        assert_eq!(on("missing"), None);
+        for (field, checked) in [
+            ("agree", true),
+            ("decline", false),
+            ("missing", false),
+            ("quals.flight_cc", true),
+            ("quals.dco", true),
+            ("quals.cyber", false),
+        ] {
+            assert_eq!(on(field).is_some(), checked, "{field}");
+        }
     }
 
     #[test]

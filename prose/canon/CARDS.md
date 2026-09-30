@@ -25,8 +25,8 @@ Three shapes, and what each one is for:
 A **card** is ordered among kinds of other sorts, carries a fence-native
 `$body`, is retypable, and seeds per kind. A **row** is typed cells belonging to
 one parent; a `richtext` cell is a row's writing surface, and its prose is a
-quoted YAML scalar rather than a fence. A **matrix** is fixed rows the schema
-declares, sparse data, and a total page.
+quoted YAML scalar rather than a fence. A **matrix** is rows the schema
+declares, plus any an open one's document adds; sparse data; and a total page.
 
 **The test is a disjunction.** A unit that stands in document order among units
 of other kinds, **or** whose substance is flowing prose, is a card; otherwise it

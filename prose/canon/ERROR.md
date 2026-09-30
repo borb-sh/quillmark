@@ -353,7 +353,8 @@ Three outcomes, and the wire tells them apart only with this table in hand, sinc
 | Code | Args | Outcome |
 |---|---|---|
 | `validation::type_mismatch` | `expected`, `actual`, `sourceToken`, `default`? | structured |
-| `validation::enum_violation` | `value`, `allowed` | structured |
+| `validation::enum_violation` | `value`, `allowed`, `open`? | structured |
+| `validation::held_stored` | — | code-determined |
 | `validation::format_violation` | `format` | structured |
 | `validation::unknown_card` | `allowed`, `card` | structured |
 | `validation::body_disabled` | `card` | structured |

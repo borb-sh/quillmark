@@ -61,7 +61,7 @@ follow:
 
 | Slot | Form | Carries |
 |---|---|---|
-| **Leading `# …` lines** above a field | `# <prose>`, `# up to <N>` or `# e.g. <member>` | label (single-line prose), an `array`'s element cap, and a matrix's held-member hint |
+| **Leading `# …` lines** above a field | `# <prose>`, `# up to <N>` or `# e.g. <members>` | label (single-line prose), an `array`'s element cap, and a matrix's member hint |
 | **Inline `# …`** at end of the value line | `# <type>[<format>][?]` | structural metadata: the field's type, an optional format refinement, and the optional-cell marker |
 | **Body line** closing a card's payload | `# no body` | that the kind takes no body (see "Bodies") |
 
@@ -96,17 +96,20 @@ Per field, in order:
    `description:` prose. It rides the own-line slot in the form
    `# composable (0..N)` already takes for a card kind's cardinality, which
    leaves the `<type>[<format>]` grammar untouched.
-3. `# e.g. <member>`: emitted for a `matrix` declaring columns, whose empty
-   `{}` cell shows neither the columns nor the tick a member needs. It holds
-   one member:
-   `# e.g. {flight_cc: {held: true, detail: "", earned: date<YYYY-MM-DD | today>}}`.
+3. `# e.g. <members>`: emitted for a `matrix` declaring columns or `open`,
+   whose empty `{}` cell shows neither the columns nor the spelling of an
+   added item. It holds one member, present and so held:
+   `# e.g. {flight_cc: {detail: "", earned: date<YYYY-MM-DD | today>}}`, and on
+   an open matrix an added item after it, keyed by the placeholder id
+   `new_item`: `# e.g. {flight_cc: {detail: ""}, new_item: {title: string, detail: ""}}`.
    The member is the roster's first and is illustrative only; the line exists
-   to name the columns and the `held: true` a mapping needs to tick. Each
-   column shows its `default:`, else its container shape, else its inline
-   annotation's `<type>[<format>]`: a type, not a value, quoted where flow
-   syntax would split it. A checklist (no columns) has no line: the bare tick
-   is its whole spelling. The line is a comment, so it takes the one-line flow
-   form the emitter never writes for a value.
+   to name the columns and the `title` an added item needs. Each column, and
+   the added item's `title`, shows its `default:`, else its container shape,
+   else its inline annotation's `<type>[<format>]`: a type, not a value, quoted
+   where flow syntax would split it. A closed checklist (no columns) has no
+   line, the bare tick being its whole spelling; an open one's member is that
+   tick, `flight_cc: true`. The line is a comment, so it takes the one-line
+   flow form the emitter never writes for a value.
 
 That's it. There is no leading `# required`, `# enum:`, `# default:`, or
 `# type:`: those collapse into the inline.
@@ -136,10 +139,12 @@ Form: **`# <type>[<format>][?]`**
   - `enum<a | b | c>`
   - `matrix<flight_cc | dodin_ops | cyber_200 | …>`: the roster's member ids in
     declaration order, structurally the `enum` form so no third annotation is
-    minted. The cell carries the sparse spelling only — `{}` on a fresh
-    blueprint, since a matrix seeds empty — so a model sees the whole vocabulary
-    in the annotation, cannot invent a member, and has nothing to delete. The
-    columns ride the leading `# e.g.` line
+    minted. The cell carries the sparse spelling only — the matrix's
+    `default:`, shippable as-is, else `{}` — so a model sees the whole
+    vocabulary in the annotation and has nothing to delete. A closed matrix leaves it no
+    member to invent; on an open one the ids, the annotation carrying no titles,
+    are what steer it to a member rather than an added duplicate. The columns
+    and the added spelling ride the leading `# e.g.` line
   - omitted for `string`, `integer`, `number`, `boolean`, `object`
     (nothing meaningful to refine).
 - **Optional marker** (optional, last): a trailing `?` on an
@@ -194,7 +199,7 @@ Examples:
 | `date: # date<YYYY-MM-DD \| today>` | defaultless date |
 | `severity: # enum<low \| medium \| high>` | defaultless enum |
 | `endorsements: # array<string>` under a leading `# up to 3` | a capped array: the cap is the leading line, the type the inline |
-| `qualifications: {} # matrix<flight_cc \| dodin_ops>` | a matrix: the whole vocabulary in the annotation, nothing ticked; a leading `# e.g.` names its columns, if it has any |
+| `qualifications: {} # matrix<flight_cc \| dodin_ops>` | a matrix: the whole vocabulary in the annotation, nothing ticked; a leading `# e.g.` names its columns and an open matrix's added spelling, where it has either |
 | `$quill: cmu_letter@0.1.0 # keep verbatim` | quill binding metadata, emitted verbatim; the inline reminder guards against dropping the line |
 | `$kind: skill` followed by `# composable (0..N)` and `# sample card; delete if not needed` | repeat the entire `~~~` … `~~~` block per instance, or delete it if none are needed |
 | `# no body` above a closing `~~~` | the kind takes no body: write nothing after the fence |

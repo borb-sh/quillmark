@@ -8,7 +8,7 @@
 use indexmap::IndexMap;
 
 use super::{
-    CardSchema, FieldSchema, FieldType, QuillConfig, VariantFields, MATRIX_HELD_KEY,
+    CardSchema, FieldSchema, FieldType, QuillConfig, VariantFields, MATRIX_TITLE_KEY,
     VARIANT_DISCRIMINANT_KEY,
 };
 use crate::document::emit::{emit_mapping_lines, saphyr_emit_flow};
@@ -194,7 +194,7 @@ fn append_field(items: &mut CardItems, field: &FieldSchema) {
 
     if matches!(field.r#type, FieldType::Matrix { .. }) {
         push_leading(items, field);
-        push_container_field(items, &field.name, matrix_cell(), Vec::new(), field);
+        push_container_field(items, &field.name, matrix_cell(field), Vec::new(), field);
         return;
     }
 
@@ -211,29 +211,61 @@ fn append_field(items: &mut CardItems, field: &FieldSchema) {
     append_scalar(items, field);
 }
 
-/// A matrix's blueprint cell: the empty mapping, which is the sparse spelling
-/// of a vocabulary nobody has ticked. The roster rides the inline annotation, so
-/// expanding every member here would show a model twenty-seven subforms to
-/// delete and filler it must not ship.
-fn matrix_cell() -> JsonValue {
-    JsonValue::Object(JsonMap::new())
+/// A matrix's blueprint cell: its `default:`, shippable as-is as an array's is,
+/// else the empty mapping, the sparse spelling of a vocabulary nobody has
+/// ticked. The roster rides the inline annotation, so expanding every member
+/// here would show a model twenty-seven subforms to delete and filler it must
+/// not ship.
+fn matrix_cell(field: &FieldSchema) -> JsonValue {
+    match field.default.as_ref() {
+        Some(default) => default.as_json().clone(),
+        None => JsonValue::Object(JsonMap::new()),
+    }
 }
 
-/// The `# e.g.` text for a matrix declaring columns: its first member held,
-/// each column at [`column_hint`]. A checklist has no line, the bare tick being
-/// its whole spelling.
+/// The placeholder id an open matrix's `# e.g.` line keys its added item by,
+/// suffixed where the roster declares it.
+const ADDED_ITEM_EG: &str = "new_item";
+
+/// The `# e.g.` text for a matrix declaring columns or open: its first member
+/// held, each column at [`column_hint`], then on an open matrix an added item
+/// keyed [`ADDED_ITEM_EG`] with its `title` beside the columns. A closed
+/// checklist has no line, the bare tick being its whole spelling.
 fn matrix_eg(field: &FieldSchema) -> Option<String> {
     let columns = field.matrix_columns();
-    if columns.is_empty() {
+    let open = field.r#type.is_open_matrix();
+    if columns.is_empty() && !open {
         return None;
     }
     let first = field.r#type.matrix_roster().keys().next()?;
-    let cells: Vec<String> = std::iter::once(format!("{MATRIX_HELD_KEY}: true"))
-        .chain(columns.iter().map(|(name, col)| {
-            format!("{}: {}", flow_scalar(name), column_hint(col))
-        }))
-        .collect();
-    Some(format!("{{{}: {{{}}}}}", flow_scalar(first), cells.join(", ")))
+    let cells = |title: Option<&FieldSchema>| -> Vec<String> {
+        title
+            .map(|t| (MATRIX_TITLE_KEY, t))
+            .into_iter()
+            .chain(columns.iter().map(|(name, col)| (name.as_str(), col.as_ref())))
+            .map(|(name, col)| format!("{}: {}", flow_scalar(name), column_hint(col)))
+            .collect()
+    };
+    let member = cells(None);
+    let held = if member.is_empty() {
+        "true".to_string()
+    } else {
+        format!("{{{}}}", member.join(", "))
+    };
+    let mut members = vec![format!("{}: {held}", flow_scalar(first))];
+    let title = field
+        .added_item
+        .as_deref()
+        .and_then(|item| item.properties.as_ref()?.get(MATRIX_TITLE_KEY));
+    if let Some(title) = title {
+        let roster = field.r#type.matrix_roster();
+        let id = std::iter::once(ADDED_ITEM_EG.to_string())
+            .chain((2..).map(|n| format!("{ADDED_ITEM_EG}_{n}")))
+            .find(|id| !roster.contains_key(id))
+            .expect("a finite roster leaves an id free");
+        members.push(format!("{id}: {{{}}}", cells(Some(title)).join(", ")));
+    }
+    Some(format!("{{{}}}", members.join(", ")))
 }
 
 /// One column's value in a matrix hint: `default:` › its container shape ›
@@ -398,7 +430,7 @@ fn property_cell(prop: &FieldSchema, path: &[PathSegment]) -> (JsonValue, Vec<Ne
         return variant_cell(prop, path);
     }
     if matches!(prop.r#type, FieldType::Matrix { .. }) {
-        return (matrix_cell(), Vec::new());
+        return (matrix_cell(prop), Vec::new());
     }
     if typed_dict_props(prop).is_some() || typed_table_props(prop).is_some() {
         return container_cell(prop, path);
