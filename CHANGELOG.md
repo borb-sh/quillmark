@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.119.0 - 2026-09-30
+
+### `ui.layout: flat`
+
+- feat(core,wasm): **`ui.layout: flat` asks an editor to draw a typed
+  dictionary without a frame of its own**, its properties standing at the
+  depth of the field list around it. It is valid on any `object` but an array's
+  element, and `quill::invalid_ui` anywhere else. The value, its addresses,
+  the plate and the blueprint are unchanged. WASM `QuillFieldUi.layout` is
+  `"table" | "flat"`. (#2019)
+
 ## v0.118.0 - 2026-09-30
 
 Upgrade path: [0.117 → 0.118](docs/migrations/0.117-to-0.118.md).
