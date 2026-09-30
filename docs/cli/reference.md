@@ -135,9 +135,9 @@ quillmark blueprint ./my-quill > blueprint.md
 ### validate
 
 Validate quill configuration and structure, and compile the plate against the
-three canonical documents: the empty document, the blueprint, and the seed. A
-plate that renders its seed and not the empty document fails here, which is the
-quill authoring contract every plate is bound by.
+three canonical documents: the empty document, the blueprint, and the seeded
+document. A plate that renders the seeded document and not the empty one fails
+here, which is the quill authoring contract every plate is bound by.
 
 A quill with an `example.md` at its root has that example document read,
 validated, and rendered too. Any diagnostic on it fails the quill, a warning

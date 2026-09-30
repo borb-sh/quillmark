@@ -476,11 +476,11 @@ generated blueprint (`quiver_test.rs::every_quill_blueprint_round_trips_and_rend
 
 A quill outside that directory is bound by the same contract and reaches it
 through `quillmark validate`, which renders all three canonical documents — the
-empty document, the blueprint, the seed — and reports each failure as a
-`cli::canonical_document_failed` error naming which of the three it is
+empty document, the blueprint, the seeded document — and reports each failure
+as a `cli::canonical_document_failed` error naming which of the three it is
 ([CLI.md](CLI.md)).
 
-## The blueprint and the seed
+## The blueprint and the seeded document
 
 The blueprint is the **one** annotated reference document. Its structured
 counterpart is **seeding**, which materializes a real `Document` rather than a
@@ -501,7 +501,7 @@ the render floor's `default: → blank` ([SCHEMAS.md](SCHEMAS.md)
 
 | Binding | Accessor |
 |---|---|
-| Rust | `QuillConfig::blueprint() -> String`; the seed is `Quill::seed_document() -> Document`; the empty document is `Quill::empty_document() -> Document` |
+| Rust | `QuillConfig::blueprint() -> String`; the seeded document is `Quill::seed_document() -> Document`; the empty document is `Quill::empty_document() -> Document` |
 | Wasm | `Quill.blueprint` getter; `Quill.seedDocument()`; `Quill.emptyDocument()` |
 | Python | `Quill.blueprint` property; `Quill.seed_document()`; `Quill.empty_document()` |
 | CLI | `quillmark blueprint <QUILL_PATH>`; `render` with no input file renders the **seeded** document; `validate` renders all three |

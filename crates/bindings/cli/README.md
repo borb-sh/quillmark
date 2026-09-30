@@ -72,8 +72,8 @@ value is expected.
 
 Loads the quill — `Quill.yaml` parse errors, `default:` literals against
 their declared types — checks referenced files, and renders the three
-canonical documents (the empty document, the blueprint, the seed) through the
-plate. `-v` prints each warning, such as a missing field description, where
+canonical documents (the empty document, the blueprint, the seeded document)
+through the plate. `-v` prints each warning, such as a missing field description, where
 a plain run only counts them; `--no-render` skips the render. Exits 1 where the configuration is invalid or a
 canonical document does not render.
 

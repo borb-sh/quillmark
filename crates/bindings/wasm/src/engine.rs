@@ -764,7 +764,7 @@ impl Quill {
     ///
     /// Pass `document.seedOverlay(cardKind)` as `overlay` so a card added to a
     /// template-derived document inherits its curated starting values; omit it
-    /// for the bare schema seed.
+    /// for a card with no field written.
     #[wasm_bindgen(js_name = seedCard, unchecked_return_type = "Card | undefined")]
     pub fn seed_card(
         &self,

@@ -20,7 +20,7 @@ use crate::{
 /// The `$quill` / `$kind` system metadata is attached by the caller.
 ///
 /// Every seeded content field commits through [`seeded_rest`], the same strict
-/// write the typed writer uses, so a seed is at rest from birth
+/// write the typed writer uses, so a seeded card is at rest from birth
 /// (`SCHEMAS.md` § "Document seeding": seed-commits-rest).
 fn seed_parts(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> (Payload, Normalized) {
     let items: Vec<PayloadItem> = schema

@@ -92,8 +92,8 @@ The cutover rehearsal slipped a week while the data owners review the mapping.
   to its own `name@version` when it hands it out (`Quill.example_document()`).
 - Only `example.md` at the root counts, spelled exactly. Loading the quill never
   reads it, and a quill without one has no example. `quillmark validate`
-  renders it beside the empty document, the blueprint and the seed, and any
-  diagnostic on it fails the quill, a warning included.
+  renders it beside the empty document, the blueprint and the seeded document,
+  and any diagnostic on it fails the quill, a warning included.
 
 ---
 

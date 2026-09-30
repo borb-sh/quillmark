@@ -19,7 +19,7 @@ pub fn memo() -> (&'static Quillmark, &'static Quill) {
     (&ENGINE, &MEMO)
 }
 
-/// [`memo`] plus the quill's seed document, one card per declared kind with
+/// [`memo`] plus the quill's seeded document, one card per declared kind with
 /// every field blank, and an authored main body: a numbered paragraph and a
 /// lettered bullet.
 pub fn seeded_memo() -> (&'static Quillmark, &'static Quill, Document) {

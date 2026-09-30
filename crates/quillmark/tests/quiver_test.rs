@@ -9,7 +9,7 @@
 //! subsumes another. An empty document is the type-minimal valid input, so a
 //! template that renders it degrades gracefully on any valid input. The
 //! blueprint commits every `default:` and leaves every defaultless cell empty.
-//! The seed carries one card per declared kind, each body empty.
+//! The seeded document carries one card per declared kind, each body empty.
 //!
 //! A quill's example, where it has one, is the one document with values
 //! in it, and renders without a diagnostic.
@@ -106,7 +106,7 @@ fn every_quill_renders_its_seed_document() {
                 common::test_date(),
                 &RenderOptions::default().with_output_format(format),
             )
-            .unwrap_or_else(|e| panic!("{name} failed to render its seed to {format:?}: {e:?}"));
+            .unwrap_or_else(|e| panic!("{name} failed to render its seeded document to {format:?}: {e:?}"));
 
         assert!(
             rendered.artifacts.first().is_some_and(|a| !a.bytes.is_empty()),
