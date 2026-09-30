@@ -900,6 +900,7 @@ main:
     const doc = quill.seedDocument()
     for (const [call, verb] of [
       [() => engine.render(quill, doc), 'engine.render'],
+      [() => engine.load(quill), 'engine.load'],
       [() => engine.supportedFormats(quill), 'engine.supportedFormats'],
     ]) {
       const caught = await call().then(
@@ -925,6 +926,43 @@ main:
     // First render triggers exactly one backend load.
     await engine.render(quill, doc, { format: 'svg' })
     expect(loaded()).toBe(1)
+  })
+
+  it('load instantiates the backend once, cloning no quill, and open reuses it', async () => {
+    const { engine, fromTreeCalls } = fromTreeCountingEngine()
+    const quill = makeRuntimeQuill()
+    await Promise.all([engine.load(quill), engine.load(quill)])
+    expect(fromTreeCalls()).toBe(0)
+
+    const { engine: counted, loaded } = countingEngine()
+    await counted.load(quill)
+    expect(loaded()).toBe(1)
+    const session = await counted.open(quill, Document.fromMarkdown(TEST_MARKDOWN))
+    try {
+      expect(session.pageCount).toBeGreaterThan(0)
+      expect(loaded()).toBe(1)
+    } finally {
+      session.free()
+    }
+  })
+
+  it('a failed backend load rejects and the next call retries', async () => {
+    let attempts = 0
+    const engine = new Engine({
+      backends: {
+        typst: {
+          load: () =>
+            ++attempts === 1
+              ? Promise.reject(new Error('transient'))
+              : import('../../../pkg/render/wasm.js'),
+          formats: ['pdf', 'svg', 'png'],
+        },
+      },
+    })
+    const quill = makeRuntimeQuill()
+    await expect(engine.load(quill)).rejects.toThrow('transient')
+    await engine.load(quill)
+    expect(attempts).toBe(2)
   })
 
   it('coalesces concurrent first renders into a single backend load', async () => {
@@ -1203,6 +1241,7 @@ describe('@quillmark/wasm: handles from another copy (duplicate install)', () =>
 
       const engine = new Engine()
       await expectForeignAsync(engine.render(quillA, docB), 'engine.render(quill, doc)')
+      await expectForeignAsync(engine.load(quillB), 'engine.load(quill)')
       await expectForeignAsync(
         engine.supportedFormats(quillB),
         'engine.supportedFormats(quill)'

@@ -555,6 +555,14 @@ export class Engine {
 
 	/**
 	 * @param {Quill} quill
+	 * @returns {Promise<void>}
+	 */
+	async load(quill) {
+		await this.#resolveBackend(this.#backendOf(quill, 'engine.load(quill)'));
+	}
+
+	/**
+	 * @param {Quill} quill
 	 * @returns {Promise<import('./runtime.js').OutputFormat[]>}
 	 */
 	async supportedFormats(quill) {
