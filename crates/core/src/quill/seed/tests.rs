@@ -441,6 +441,7 @@ card_kinds:
         ("", "{ mark: { value: U } }", "quill::seed_redundant"),
         ("", "{ names: [] }", "quill::seed_redundant"),
         ("", "{ names: null }", "quill::seed_redundant"),
+        ("", "{}", "quill::seed_redundant"),
         ("  seed: { title: T }", "{ names: [a] }", "quill::invalid_card_schema"),
     ] {
         let errors = crate::quill::QuillConfig::from_yaml_with_warnings(&quill_yaml(main, seed))
@@ -489,4 +490,49 @@ card_kinds:
     let mut conformed = doc.clone();
     quill.conform(&mut conformed).expect("conforms");
     assert_eq!(conformed, doc);
+}
+
+
+/// `quill::seed_redundant` asks the render floor: a seed is refused only where
+/// it resolves as the absent field does, on every render date.
+#[test]
+fn a_kind_seed_is_redundant_only_where_the_floor_renders_it() {
+    let quill_yaml = |seed: &str| {
+        format!(
+            r#"
+quill: {{ name: floor_seed, version: "1.0", backend: typst, description: x }}
+card_kinds:
+  entry:
+    seed: {seed}
+    fields:
+      office:
+        type: object
+        properties: {{ symbol: {{ type: string, default: 49 FW }}, room: {{ type: string }} }}
+      note: {{ type: richtext, default: "*Handle* with care." }}
+      due: {{ type: date, default: today }}
+"#
+        )
+    };
+    let load = |seed: &str| crate::quill::QuillConfig::from_yaml_with_warnings(&quill_yaml(seed));
+    for seed in [
+        "{ office: {} }",
+        "{ office: { symbol: 49 FW } }",
+        "{ office: { room: \"\" } }",
+        "{ note: \"*Handle* with care.\" }",
+        "{ due: today }",
+        "{ $body: \"  \" }",
+    ] {
+        let errors = load(seed).expect_err(seed);
+        assert!(
+            errors.iter().any(|d| d.code.as_deref() == Some("quill::seed_redundant")),
+            "{seed}: {errors:?}"
+        );
+    }
+    for seed in [
+        "{ office: { symbol: \"\", room: \"\" } }",
+        "{ note: Handle with care. }",
+        "{ due: 2000-01-01 }",
+    ] {
+        assert!(load(seed).is_ok(), "{seed}: {:?}", load(seed).err());
+    }
 }
