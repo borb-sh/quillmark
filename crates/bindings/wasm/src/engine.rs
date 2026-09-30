@@ -102,6 +102,10 @@ export interface QuillCardSchema {
     fields: Record<string, QuillFieldSchema>;
     ui?: QuillCardUi;
     body?: QuillCardBody;
+    /** What `seedCard` writes into a new card of this kind where the
+     *  document's `$seed` names nothing: the `$seed[kind]` shape, fields plus
+     *  an optional `$body`. Never present on `main`. */
+    seed?: Record<string, unknown>;
 }
 
 /**
@@ -740,8 +744,9 @@ impl Quill {
     }
 
     /// Seed a starter `Document` from the schema: the main card plus one instance
-    /// of each composable card kind, each body empty and every field absent
-    /// (interpolated at render as `default:`, else the field's blank).
+    /// of each composable card kind, each carrying its kind's `seed` and every
+    /// other field absent (interpolated at render as `default:`, else the
+    /// field's blank).
     #[wasm_bindgen(js_name = seedDocument)]
     pub fn seed_document(&self) -> Document {
         Document {
@@ -759,12 +764,13 @@ impl Quill {
 
     /// Seed a starter composable `Card` of the given kind (carries `$kind`),
     /// committing an optional per-kind seed `overlay`'s fields and `$body`
-    /// (`overlay › absent`, body `overlay › empty`). `undefined` when
-    /// `cardKind` is not declared in this quill's schema.
+    /// over the kind's own `seed` (`overlay › seed › absent`, body `overlay ›
+    /// seed › empty`, a `null` falling through). `undefined` when `cardKind` is
+    /// not declared in this quill's schema.
     ///
     /// Pass `document.seedOverlay(cardKind)` as `overlay` so a card added to a
     /// template-derived document inherits its curated starting values; omit it
-    /// for a card with no field written.
+    /// for a card carrying the kind's seed alone.
     #[wasm_bindgen(js_name = seedCard, unchecked_return_type = "Card | undefined")]
     pub fn seed_card(
         &self,

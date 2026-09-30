@@ -515,8 +515,8 @@ field maps rather than a sort key):
 |---|---|---|---|
 | render (fidelity) | authored › `default:` › blank | blank | plate JSON: [Blank-filled render](#blank-filled-render) |
 | `blueprint` document | `default:` › empty | empty cell (blank at render) | annotated string, [BLUEPRINT.md](BLUEPRINT.md) |
-| seeding | absent | (deferred to render floor) | committed `Document`: [Document seeding](#document-seeding) |
-| add-card (into a document) | `$seed` overlay › absent | (deferred to render floor) | a new composable `Card`: [Document seeding](#document-seeding) |
+| seeding | kind `seed:` › absent | (deferred to render floor) | committed `Document`: [Document seeding](#document-seeding) |
+| add-card (into a document) | `$seed` overlay › kind `seed:` › absent | (deferred to render floor) | a new composable `Card`: [Document seeding](#document-seeding) |
 | editor (consumer-side) | authored › `default:` › blank, resolved per field and **tagged with its source rung** | blank | the engine's [`resolve()`](#the-resolved-value-view-resolve) resolved-value view: value and source rung per field |
 | values (`reader.get()`) | authored only, as stored: an absent field stays absent, a scalar shorthand stays a shorthand | **none**: an absent field reads absent | the [values form](#the-values-form): the field's value with content leaves as their codec's text |
 
@@ -812,6 +812,7 @@ read it.
 | a variant cell outside the selected world | `validation::out_of_variant` | absent ([Enum variants](#enum-variants)) |
 | elements past an array's `max:` | `validation::cardinality` | verbatim; the plate's own rule leaves the surplus off the page ([Cardinality](#cardinality)) |
 | a `$seed` overlay naming no declared kind or field, or a `$body` its kind disables | `validation::seed_unknown_kind`, `seed_unknown_field` | absent, as `$seed` always is |
+| a `$seed` overlay that is not a mapping, or a `$body` that is not a string | `validation::seed_overlay_shape` | absent |
 | a key the schema does not declare at its position, at any depth of a claimed card | `validation::unknown_field` | verbatim; absent inside a variant container |
 
 `validation::unknown_field` names the likeliest fix. A key one world of a
@@ -839,22 +840,24 @@ cells in the table marked absent do not cross.
 
 **Seeding** builds a starter `Document` from the schema for editor consumers
 ("new document"): the main card and one card per composable kind, each carrying
-an empty body and **no field**. Every field is left absent and is
-interpolated at the compilation layer by
+what its kind's `seed:` names and **no other field**. Every other field is left
+absent and is interpolated at the compilation layer by
 [blank-filled render](#blank-filled-render) (`default:`, else the field's
 blank), exactly as for any authored document.
 
-Starter content someone chose lives in a template document's own body, or, for
-a card `seed_card` adds, in the main card's `$seed.<kind>.$body`. Persisting a
-`default` would be redundant (the floor interpolates it anyway) and would
-*freeze* it against a later schema change; persisting a blank is forbidden
-([Non-persist invariant](#blank-filled-render)). So a fresh seeded document
-renders exactly as the empty document does, plus its cards, and a split-screen
-editor/preview stays consistent: absent fields resolve identically in both
-panes.
+**A `default:` is an answer; a `seed:` is a prompt.** A `default:` is what an
+unanswered field renders as: never persisted, it tracks the quill. A `seed:` is
+starter content written into a new card, a placeholder such as
+`FIRST M. LAST, Rank, USAF` or a value the card should start from: once
+written it is the card's own and stays when the quill changes. A placeholder
+prints until someone replaces it. A seed that renders as the unanswered field
+does, its `default:` or else its blank, only freezes that floor into every new
+card, so the load refuses it (`quill::seed_redundant`); a seeded blank is the
+persisted blank the [Non-persist invariant](#blank-filled-render) forbids.
+Starter content for the document itself lives in a template's own body.
 
-**Seed-commits-rest.** A seeded content value — a `$seed` overlay's content
-field, and its `$body` — commits its codec's resting form (a richtext field and
+**Seed-commits-rest.** A seeded content value — a seed's content field, and
+its `$body` — commits its codec's resting form (a richtext field and
 the body the canonical content, a plaintext field its literal string), so a
 seeded document is at rest from birth: `conform` of one is a byte no-op, and a
 seed → store → load → conform cycle cannot move a hash on a document nobody
@@ -883,7 +886,8 @@ blank-fills rather than falling through to the raw literal, which would cross as
 unimported markdown. Importing is also checking, so a nested `richtext(inline)`
 violation in a `default:` is a load error there.
 
-- **Composable cards** are seeded one instance per declared kind.
+- **Composable cards** are seeded one instance per declared kind, each from
+  its kind's `seed:`.
 - **The main card** carries `$quill` and `$kind: main`, so a seeded document
   round-trips through Markdown like an authored document.
 - **Provenance is untracked in the persisted document.** A seeded overlay
@@ -899,21 +903,66 @@ The blueprint is the annotated form to fill ([BLUEPRINT.md](BLUEPRINT.md)); the
 seeded document is a committed `Document` to edit. Implemented by
 `Quill::seed_document` (with `seed_main` / `seed_card`) in `quillmark-core`.
 
-### Per-document seed overlays (`$seed`)
+### Kind seeds and document overlays
 
-Seeding a *new card into an existing document*: `Quill::seed_card(kind,
-overlay)`, adds one rung: a curated, per-document **overlay** read from the
-main card's `$seed` map. Per field the precedence is **`$seed` overlay ›
-absent**, committed in field declaration order, each overlay value taken whole;
-the body is **overlay `$body` › empty**. `default` / the blank
-stay deferred to the render floor exactly as everywhere else, so the "never
-persist a `default`" invariant holds. The overlay is *sparse*: fields it omits
-stay absent and track an evolving quill's `default:` rather than freezing a
-snapshot. This is how a template author customizes the values new cards spawn
-with; it lives in the document (a template *is* a document), so markdown writers
-and MCP agents see the same source. See [CARDS.md](CARDS.md) "Per-kind Seed
-Overlays" for the `$seed` mechanics. The document seeding above is the
-`overlay = None` case (a fresh document carries no `$seed`).
+A card kind declares `seed:` in `Quill.yaml`, and a document's main card
+carries `$seed.<kind>`. Both are one shape, parsed by `SeedOverlay`: fields of
+the kind plus an optional `$body`. A block copies unchanged between the two.
+
+```yaml
+card_kinds:
+  indorsement:
+    seed:
+      signature_block:
+        - FIRST M. LAST, Rank, USAF
+        - Duty Title
+      $body: Write the indorsement here.
+```
+
+`Quill::seed_card(kind, overlay)` commits a new card, in field declaration
+order:
+
+| Rung | Field | Body |
+|---|---|---|
+| 1 | the document's `$seed.<kind>.<field>` | `$seed.<kind>.$body` |
+| 2 | the kind's `seed.<field>` | `seed.$body` |
+| 3 | absent | empty |
+
+- Each value is taken whole: an object, array or variant container is one
+  value, and nothing merges below the top level.
+- A present-null falls through to the next rung, as null ≡ absent everywhere. A
+  document overrides a kind seed with any value, and removes one only with a
+  blank it can write (`""`, `[]`, `{}`), which an `enum`, `date`, `number` or
+  `boolean` field lacks, as under a `default:`.
+- A `today` seed stores `today` and floats to each render's date, like an
+  authored `today`.
+- Fields neither rung names stay absent and track the quill's `default:`.
+
+Both levels are checked by one walker, as the document values `seed_card`
+commits, so a seeded card draws no diagnostic `validate` would raise on it:
+
+- every key names a field of the kind or is `$body`, at every depth, and no
+  cell sits outside its variant world;
+- `$body` is markdown that imports, and needs the kind's body enabled;
+- each value passes its field's type, enum, content and `max:` checks.
+
+A document's `$seed` warns under `validation::seed_*` and the field codes, and
+never gates render. A kind's `seed:` fails the load, each code raised to
+`quill::seed_<code>` (`quill::seed_unknown_field`, `quill::seed_type_mismatch`,
+`quill::seed_out_of_variant`, `quill::seed_cardinality`, …), plus
+`quill::seed_redundant`: a null, an empty `$body`, or a value whose resting
+form is the field's `default:`, else its blank. A document may pin a value
+equal to the `default:`, freezing it against a later quill; the quill owns both
+keys and has no such reason. `main` declares no `seed:`
+(`quill::invalid_card_schema`).
+
+`seed_card` is the only reader. Render, the blueprint, `validate`'s card checks,
+`conform` and `resolve()` ignore a kind's `seed:`; `schema()` emits it. Retyping
+a card with `set_card_kind` applies no seed. A committed seed is authored
+content: it prints, `resolve()` reports it `authored`, and a later change to the
+kind's `seed:` does not reach cards already made. See [CARDS.md](CARDS.md)
+"Per-kind Seed Overlays" for the `$seed` mechanics. The document seeding above
+is the `overlay = None` case.
 
 ## Schema emission
 
@@ -923,13 +972,14 @@ Overlays" for the `$seed` mechanics. The document seeding above is the
 - `title` on fields and cards: a literal label, which the blueprint prints wherever it prints the description, and which no `ui` key carries, since `ui` never reaches the blueprint
 - `ui` hints on fields (`group`, `compact`, `multiline`, `blank_title`, `layout`) and on cards (the `groups` registry that `group` references). Field display order is not a hint: it is the key order of the emitted `fields`/`properties` maps (declaration order)
 - `body` blocks on cards (`enabled`)
+- `seed` on a card kind that declares one, in the `$seed.<kind>` shape
 
 The schema describes only the user-fillable fields. The quill reference
 (`name@version`, available from quill metadata) and card-kind
 discriminators (the `card_kinds` map keys themselves) are document-level
 metadata, not schema fields, and do not appear in `fields`.
 
-`QuillConfig::schema_yaml()` is a YAML wrapper over the same value. The schema is pinned by serde attributes on `FieldSchema`, `CardSchema`, `UiFieldSchema`, `UiCardSchema`, and `BodyCardSchema`: there is no parallel mirror struct.
+`QuillConfig::schema_yaml()` is a YAML wrapper over the same value. The schema is pinned by serde attributes on `FieldSchema`, `CardSchema`, `UiFieldSchema`, `UiCardSchema`, and `BodyCardSchema`, and by `SeedOverlay`'s `Serialize`: there is no parallel mirror struct.
 
 For LLM/MCP authoring, see [BLUEPRINT.md](BLUEPRINT.md): `blueprint()` emits a document-shaped, pre-filled Markdown reference that's denser than schema for prompt-time use.
 
@@ -986,7 +1036,10 @@ one, since the container holds no literal
 
 A slot's `title` and `description` are text, not values: `title` labels it and
 `description` guides it, a format hint included (`description: Name as signed,
-as in FIRST M. LAST, Capt, USAF.`). No key holds a sample value.
+as in FIRST M. LAST, Capt, USAF.`). No field key holds a sample value. A card
+kind's [`seed:`](#kind-seeds-and-document-overlays) is not the slot's: it is
+content written into each new card, and a placeholder there prints until
+someone replaces it.
 
 `default:` means only the value an unanswered cell renders; a `?` on the type
 moves that floor to `none` ([Optional cells](#optional-cells)). The schema asks

@@ -390,7 +390,7 @@ no second shape for.
 
 ## Bodies
 
-Every body is empty, as a seeded one is: a body is a cell. A kind under
+Every body is empty: a body is a cell. A kind under
 `body.enabled: false` closes its payload with `# no body`, directly above the
 body, whose emptiness would otherwise read as awaiting prose; a kind taking a
 body has no body line.
@@ -489,13 +489,13 @@ second annotated string.
 | Projection | Intent | Field values | Output | Annotated? |
 |---|---|---|---|---|
 | `blueprint` | *"give me the form to fill"* | `default:` › empty | annotated string | yes |
-| seeding | *"give me a starter document"* | absent | committed `Document` | no |
+| seeding | *"give me a starter document"* | kind `seed:` › absent | committed `Document` | no |
 
 The **blueprint** column is this doc's contract (above). The **seeding**
-column is owned by [SCHEMAS.md](SCHEMAS.md) § "Document seeding": every field
-absent, bodies empty, so a seeded document renders each field at
-the render floor's `default: → blank` ([SCHEMAS.md](SCHEMAS.md)
-§ "Blank-filled render").
+column is owned by [SCHEMAS.md](SCHEMAS.md) § "Document seeding": each card
+carries its kind's `seed:` and no other field, so a seeded document renders
+every other field at the render floor's `default: → blank`
+([SCHEMAS.md](SCHEMAS.md) § "Blank-filled render").
 
 ## Bindings surface
 

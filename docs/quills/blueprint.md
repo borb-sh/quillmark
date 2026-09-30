@@ -29,7 +29,7 @@ The reader's one rule: an empty cell (`title: # string`) awaits a value; a concr
 
 ## Seeding: the starter document
 
-Seeding materializes a real `Document` rather than an annotated string: the main card plus one card per composable kind, each body empty, and every field left absent so the render floor fills `default:`, else the field's blank. Hand it to an editor as a "new document" starter, or render it directly.
+Seeding materializes a real `Document` rather than an annotated string: the main card plus one card per composable kind, each carrying its kind's [`seed`](quill-yaml-reference.md#card-level-seed) and every other field left absent so the render floor fills `default:`, else the field's blank. Hand it to an editor as a "new document" starter, or render it directly.
 
 | Projection | Intent | Output |
 |---|---|---|

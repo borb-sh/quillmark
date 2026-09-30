@@ -223,8 +223,8 @@ values from the `Document` payload: there is no separate form-view projection.
 values are made up, pinned to the quill's `name@version`; `undefined` when
 the quill has no `example.md` at its root.
 
-`quill.seedDocument()` returns a starter document: one card per kind, each body
-empty, every field absent;
+`quill.seedDocument()` returns a starter document: one card per kind, each
+carrying the kind's `seed` from `Quill.yaml` and no other field;
 `quill.seedMain()` and `quill.seedCard(kind)` seed one card. All
 return the read `Card` shape of `doc.main` / `doc.cards`, which `doc.insertCard`
 accepts directly:

@@ -138,8 +138,8 @@ impl QuillConfig {
 }
 
 /// One card-schema block: the `main:` section or a `card_kinds.<name>:` entry.
-/// It fixes the key set and each block's outer shape; `fields`, `ui`, and `body`
-/// stay raw so their own parsers can report per-block diagnostics.
+/// It fixes the key set and each block's outer shape; `fields`, `ui`, `body`,
+/// and `seed` stay raw so their own parsers can report per-block diagnostics.
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CardSchemaDef {
@@ -148,6 +148,7 @@ struct CardSchemaDef {
     pub fields: Option<serde_json::Map<String, serde_json::Value>>,
     pub ui: Option<serde_json::Value>,
     pub body: Option<serde_json::Value>,
+    pub seed: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
@@ -1808,6 +1809,88 @@ impl QuillConfig {
         }
     }
 
+    /// Parse a card kind's `seed:`, the `$seed.<kind>` shape a document's
+    /// overlay takes, checked by the walker that checks the overlay
+    /// ([`seed_overlay_diagnostics`](super::compose::seed_overlay_diagnostics)),
+    /// each warning there an error here under `quill::seed_*`. `unparsed`
+    /// names declared fields whose own declaration failed, which draw no second
+    /// error here.
+    ///
+    /// A seed that renders as the unanswered field does is refused as well
+    /// (`quill::seed_redundant`): a null, an empty `$body`, or a value whose
+    /// resting form is the field's `default:`, else its blank. It changes no
+    /// render and only freezes the floor into every new card.
+    fn parse_card_seed(
+        seed: &serde_json::Value,
+        card: &CardSchema,
+        unparsed: &[&String],
+        errors: &mut Vec<Diagnostic>,
+    ) -> Option<crate::document::SeedOverlay> {
+        let at = crate::path::DocPath::new()
+            .field("card_kinds")
+            .field(&card.name)
+            .field("seed");
+        let mut seed = seed.clone();
+        if let Some(obj) = seed.as_object_mut() {
+            obj.retain(|key, _| !unparsed.contains(&key));
+        }
+        let before = errors.len();
+        for diag in super::compose::seed_overlay_diagnostics(card, &seed, &at) {
+            let code = diag.code.as_deref().unwrap_or_default();
+            let class = code.strip_prefix("validation::").unwrap_or(code);
+            let class = class.strip_prefix("seed_").unwrap_or(class);
+            let mut error = Diagnostic::new(Severity::Error, diag.message)
+                .with_code(format!("quill::seed_{class}"));
+            if let Some(hint) = diag.hint {
+                error = error.with_hint(hint);
+            }
+            errors.push(error);
+        }
+        for (name, value) in seed.as_object().into_iter().flatten() {
+            let redundant = if name == "$body" {
+                value.is_null() || value.as_str() == Some("")
+            } else {
+                match card.fields.get(name) {
+                    Some(_) if value.is_null() => true,
+                    Some(field) => {
+                        let rest = |v: &QuillValue| {
+                            Self::conform_value(v, field, name, Leniency::Write).ok()
+                        };
+                        let floor = field.default.clone().unwrap_or_else(|| super::blank(field));
+                        match (rest(&QuillValue::from_json(value.clone())), rest(&floor)) {
+                            (Some(seeded), Some(floor)) => {
+                                same_value(seeded.as_json(), floor.as_json())
+                            }
+                            _ => false,
+                        }
+                    }
+                    None => false,
+                }
+            };
+            if redundant {
+                errors.push(
+                    Diagnostic::new(
+                        Severity::Error,
+                        format!(
+                            "`{}` seeds what the unanswered field already renders.",
+                            at.field(name)
+                        ),
+                    )
+                    .with_code("quill::seed_redundant".to_string())
+                    .with_hint(
+                        "Remove it: an absent field renders its `default:`, else its blank, \
+                         and keeps tracking the quill."
+                            .to_string(),
+                    ),
+                );
+            }
+        }
+        if errors.len() > before {
+            return None;
+        }
+        crate::document::SeedOverlay::from_json(&seed)
+    }
+
     /// Parse fields from a JSON map into `FieldSchema`s (both `main.fields` and
     /// a card kind's `fields`), in declaration order: the source map preserves
     /// key order and the returned `IndexMap` keeps insertion order, so no
@@ -2194,6 +2277,21 @@ impl QuillConfig {
             &mut errors,
         );
 
+        if main_def.seed.is_some() {
+            errors.push(
+                Diagnostic::new(
+                    Severity::Error,
+                    "Invalid 'main' block: `main` declares no `seed`.".to_string(),
+                )
+                .with_code("quill::invalid_card_schema".to_string())
+                .with_hint(
+                    "`seed:` belongs on a card kind; a new document's starter content is its \
+                     template."
+                        .to_string(),
+                ),
+            );
+        }
+
         let main_description = main_def.description;
         Self::validate_description_singleline(main_description.as_deref(), "main", &mut errors);
 
@@ -2204,6 +2302,7 @@ impl QuillConfig {
             fields,
             ui: main_ui.or(ui_section),
             body: main_body,
+            seed: None,
         };
 
         let mut card_kinds: Vec<CardSchema> = Vec::new();
@@ -2288,14 +2387,26 @@ impl QuillConfig {
                             &format!("card_kind '{}'", card_name),
                             &mut errors,
                         );
-                        card_kinds.push(CardSchema {
+                        let mut card = CardSchema {
                             name: card_name.clone(),
                             title: card_def.title,
                             description: card_def.description,
                             fields: card_fields,
                             ui: card_ui,
                             body: card_body,
-                        });
+                            seed: None,
+                        };
+                        if let Some(seed) = &card_def.seed {
+                            let unparsed: Vec<&String> = card_def
+                                .fields
+                                .iter()
+                                .flat_map(|raw| raw.keys())
+                                .filter(|key| !card.fields.contains_key(*key))
+                                .collect();
+                            card.seed =
+                                Self::parse_card_seed(seed, &card, &unparsed, &mut errors);
+                        }
+                        card_kinds.push(card);
                     }
                 }
             }
@@ -2473,6 +2584,22 @@ pub(crate) fn field_contains_content(field: &FieldSchema) -> bool {
                 .any(|f| field_contains_content(f))
         }),
         _ => false,
+    }
+}
+
+/// JSON equality with numbers compared by value, so `1.0` is `1`.
+fn same_value(a: &serde_json::Value, b: &serde_json::Value) -> bool {
+    use serde_json::Value;
+    match (a, b) {
+        (Value::Number(x), Value::Number(y)) => x.as_f64() == y.as_f64(),
+        (Value::Array(x), Value::Array(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(x, y)| same_value(x, y))
+        }
+        (Value::Object(x), Value::Object(y)) => {
+            x.len() == y.len()
+                && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| same_value(v, w)))
+        }
+        _ => a == b,
     }
 }
 
