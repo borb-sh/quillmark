@@ -24,7 +24,7 @@ export interface QuillFieldUi {
     /** The control the field asks for, where the shape admits more than one.
      *  `"table"` is valid only on an `array` whose `items` is an `object`.
      *  Every column is a leaf, a contract refused at load as
-     *  `quill::table_column_not_flat`. `"flat"` is valid only on an `object`
+     *  `quill::table_column_not_leaf`. `"flat"` is valid only on an `object`
      *  that is not an array's element: its properties stand at the depth of the
      *  field list around it, with no frame of their own. Either is a
      *  request: a consumer that cannot draws its own choice for the type. */

@@ -746,7 +746,7 @@ Declaring it says two things.
 
 **A contract: every column is a leaf.** A column holding an `array`, an `object`
 or a `matrix` addresses below itself and is not one cell, so it is a load
-error naming the column — `quill::table_column_not_flat` on
+error naming the column — `quill::table_column_not_leaf` on
 `appendices[].entries`. Prose is a column whatever its `inline`: how tall a cell
 renders is the editor's call, what it contains is not. On any field that is not a
 typed table at all, the key is `quill::invalid_ui`.

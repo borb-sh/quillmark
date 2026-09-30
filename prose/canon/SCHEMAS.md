@@ -999,7 +999,7 @@ The type-gated keys:
   whose `items` is an `object`; `quill::invalid_ui` names the field anywhere
   else. The key carries two halves:
   - A **contract**: every column is a leaf, refused at load as
-    `quill::table_column_not_flat` naming the column (`appendices[].entries`).
+    `quill::table_column_not_leaf` naming the column (`appendices[].entries`).
     The boundary is containment, not height — prose is a column whatever its
     `inline`, since how tall a cell renders is the consumer's judgement and what
     it contains is not. `FieldType::is_leaf` is the one definition, exhaustive
