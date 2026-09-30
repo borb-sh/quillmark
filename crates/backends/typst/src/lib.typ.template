@@ -7,45 +7,55 @@
 
 /// Backend-generated schema address tree (`fields` for the main card, `cards`
 /// keyed by kind): the schema pruned to the steps it offers, each node carrying
-/// `props` and `item` where it admits a property or an index step.
+/// `props` and `item` where it admits a property or an index step, and a
+/// matrix its `roster` and, when open, the `added` step.
 #let _qm-meta = {meta_literal}
 
-/// Whether `path` parses against the schema address tree: a top-level field
-/// (`subject`), an array element (`refs.2`), a container property
-/// (`classification.poc`, `contact.address.city`), or a card address
-/// (`$cards.<kind>.<n>.<field>` with any of those suffixes). Each step is gated
-/// on what the node it steps out of actually offers, so `subject.0` and
-/// `subject.poc` are both rejected on a scalar `subject`. A present-but-empty
-/// tree offers no step and so rejects every address.
-#let _qm-known-path(path) = {
+/// The address tree node `path` reaches, or `none` where it takes a step the
+/// schema does not offer: a top-level field (`subject`), an array element
+/// (`refs.2`), a container property (`classification.poc`,
+/// `contact.address.city`), a matrix member (`qualifications.flight_cc`), or a
+/// card address (`$cards.<kind>.<n>.<field>` with any of those suffixes). Each
+/// step is gated on what the node it steps out of actually offers, so
+/// `subject.0` and `subject.poc` are both rejected on a scalar `subject`. A
+/// present-but-empty tree offers no step and so rejects every address.
+#let _qm-node(path) = {
   let fields = _qm-meta.at("fields", default: (:))
   let cards = _qm-meta.at("cards", default: (:))
   let is-index(s) = s.match(regex("^[0-9]+$")) != none
-  // A digit takes the array element, any other segment a declared property. A
-  // node offering neither ends the walk, so a step past a leaf is rejected.
-  let steps-ok(node, steps) = {
+  let is-id(s) = s.match(regex("^[a-z][a-z0-9_]*$")) != none
+  // A digit takes the array element; any other segment a declared property,
+  // else an open matrix's added item. A node offering none ends the walk, so a
+  // step past a leaf is rejected.
+  let walk(node, steps) = {
     for step in steps {
+      let props = node.at("props", default: (:))
       if is-index(step) {
-        if not ("item" in node) { return false }
+        if not ("item" in node) { return none }
         node = node.at("item")
-      } else {
-        let props = node.at("props", default: (:))
-        if not (step in props) { return false }
+      } else if step in props {
         node = props.at(step)
+      } else if "added" in node and is-id(step) {
+        node = node.at("added")
+      } else {
+        return none
       }
     }
-    true
+    node
   }
   let parts = path.split(".")
   if parts.at(0) == "$cards" {
-    if parts.len() < 4 { return false }
+    if parts.len() < 4 { return none }
     let kind = parts.at(1)
-    if not (kind in cards) { return false }
-    if not is-index(parts.at(2)) { return false }
-    return steps-ok(cards.at(kind), parts.slice(3))
+    if not (kind in cards) { return none }
+    if not is-index(parts.at(2)) { return none }
+    return walk(cards.at(kind), parts.slice(3))
   }
-  steps-ok(fields, parts)
+  walk(fields, parts)
 }
+
+/// Whether `path` is a schema address: one `_qm-node` reaches.
+#let _qm-known-path(path) = _qm-node(path) != none
 
 /// Emit an unsigned form field: a clickable AcroForm widget on PDF output, the
 /// same invisible layout space on SVG/PNG. `value` is forwarded verbatim and
@@ -223,4 +233,40 @@
     message: "display: " + repr(field) + " is not a schema field address; expected a field name, an array element like \"refs.2\", a container property like \"classification.poc\", or a card path composed from the card's $path prefix")
   let render = _qm-display.at(field, default: none)
   if render != none { render(..args) }
+}
+
+/// A matrix's rows, the vocabulary a plate prints: every roster member in
+/// roster order, then each item the value adds, in id order. A row is
+/// `(id, title, held, value, path)`. `held` is the member's presence, `value`
+/// its dictionary of columns (`none` where unheld), and `path` its address,
+/// which `field-region` claims. A roster member's `title` is the roster's; an
+/// added item's is its own cell, whose ink `ink(row.value).title` places.
+///
+/// `dict` is data, a card or the typed dictionary declaring the matrix, and
+/// `key` the matrix's name within it: `roster(data, "qualifications")`,
+/// `roster(card, "qualifications")`, `roster(row, "quals")`. The address comes
+/// from the dictionary's `$path`, which every dictionary declaring a matrix
+/// carries. An optional matrix left unanswered is `none`, and holds nothing.
+#let roster(dict, key) = {
+  assert(std.type(dict) == dictionary,
+    message: "roster: expected data, a card or a typed dictionary, got " + repr(std.type(dict)))
+  assert("$path" in dict,
+    message: "roster: this dictionary carries no $path; pass data, a card, or the typed dictionary that declares the matrix")
+  let path = dict.at("$path") + key
+  let node = _qm-node(path)
+  assert(node != none and "roster" in node,
+    message: "roster: " + repr(path) + " is not a matrix field address")
+  let held = dict.at(key, default: none)
+  if held == none { held = (:) }
+  let ids = node.roster.map(((id, _)) => id)
+  let rows = node.roster.map(((id, title)) => {
+    let value = held.at(id, default: none)
+    (id: id, title: title, held: value != none, value: value, path: path + "." + id)
+  })
+  for (id, value) in held {
+    if id not in ids {
+      rows.push((id: id, title: value.title, held: true, value: value, path: path + "." + id))
+    }
+  }
+  rows
 }

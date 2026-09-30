@@ -1,10 +1,10 @@
 //! `type: matrix`: a vocabulary someone ticks, a member held by being present.
 //!
-//! A matrix is sugar over a typed dictionary, so the risk is not that the
-//! inherited walks break but that what the type *adds* disagrees with them:
-//! presence as the tick, the roster written onto the wire, the wire closed over
-//! an unheld member, and an open matrix's added items. Each test below pins one
-//! surface to the same reading of the same schema.
+//! A matrix is a cell holding the set of ticked items, each composed as a typed
+//! dictionary of the columns. The risk is a walk that reads the set differently
+//! from the plate: presence as the tick, an unheld member absent, an open
+//! matrix's added items, and the cell's own `default:` and `?`. Each test below
+//! pins one surface to the same reading of the same schema.
 
 use crate::document::Document;
 use crate::quill::{
@@ -94,8 +94,8 @@ fn load_error(backend: &str, fields: &str) -> String {
 }
 
 /// The stored-spelling table: a member present in the document is held,
-/// whatever it carries, and one absent, `false` or null is not. An unheld
-/// member's columns reach the wire at their blanks, not their defaults.
+/// whatever it carries, and reaches the plate as its columns, each cutting the
+/// ladder; one absent, `false` or null is not held and reaches no plate.
 #[test]
 fn a_member_is_held_by_being_present() {
     let yaml = quill_yaml().replace("default: \"\" }", "default: TBD }");
@@ -109,19 +109,19 @@ fn a_member_is_held_by_being_present() {
             "  sq_cc_candidate: false\n",
         )),
     );
-    for (id, held, detail) in [
-        ("flight_cc", true, "TBD"),
-        ("dodin_ops", true, "X"),
-        ("cyber_200", true, "TBD"),
-        ("sq_cc_candidate", false, ""),
-    ] {
-        assert_eq!(wire[id]["held"], json!(held), "{id}");
+    let members = wire.as_object().expect("a matrix projects as a mapping");
+    assert_eq!(members.keys().collect::<Vec<_>>(), ["flight_cc", "dodin_ops", "cyber_200"]);
+    for (id, detail) in [("flight_cc", "TBD"), ("dodin_ops", "X"), ("cyber_200", "TBD")] {
+        assert_eq!(
+            wire[id].as_object().unwrap().keys().collect::<Vec<_>>(),
+            ["detail"],
+            "a held member carries its columns alone: {id}"
+        );
         assert_eq!(wire[id]["detail"]["text"], json!(detail), "{id}");
     }
 
     let absent = plate_of(&yaml, &doc("qualifications:\n  flight_cc: null\n"));
-    assert_eq!(absent["flight_cc"]["held"], json!(false));
-    assert_eq!(absent["flight_cc"]["detail"]["text"], json!(""));
+    assert_eq!(absent, json!({}));
 }
 
 /// Presence is the tick, so a mapping storing `held` contradicts or repeats
@@ -231,12 +231,11 @@ fn a_held_member_with_no_answers_rests_as_the_bare_tick() {
     );
 }
 
-/// Total at the plate, in declaration order, carrying the labels the roster
-/// holds: a plate prints the whole vocabulary without a second copy of it, and
-/// an authored `title` on a roster member is overwritten rather than carried,
-/// and warned at.
+/// The plate holds the held set in roster order, whatever order the document
+/// wrote it in. A roster member's label is the roster's, so the plate writes no
+/// `title` onto it, and one a document authors is warned at.
 #[test]
-fn the_projection_is_total_and_carries_the_roster() {
+fn the_plate_holds_the_held_set_in_roster_order() {
     let document = doc("qualifications:\n  cyber_200: true\n  flight_cc: { title: Forged }\n");
     assert_eq!(
         codes(&document),
@@ -248,12 +247,8 @@ fn the_projection_is_total_and_carries_the_roster() {
     let wire = plate(&document);
     let members = wire.as_object().expect("a matrix projects as a mapping");
 
-    assert_eq!(
-        members.keys().collect::<Vec<_>>(),
-        ["sq_cc_candidate", "flight_cc", "dodin_ops", "cyber_200"],
-        "every member present, in declaration order"
-    );
-    assert_eq!(wire["flight_cc"]["title"], json!("Flight CC"));
+    assert_eq!(members.keys().collect::<Vec<_>>(), ["flight_cc", "cyber_200"]);
+    assert!(wire["cyber_200"].get("title").is_none(), "{wire}");
 }
 
 /// The roster is what a document may name, as an enum's `values:` is.
@@ -269,11 +264,11 @@ fn a_member_outside_the_roster_is_refused() {
     );
 }
 
-/// An open matrix prints its roster in roster order, then each item a document
-/// adds in id order, carrying its own title and its columns. Document equality
-/// ignores a mapping's key order, so two documents it calls equal compose one
-/// plate. An added item titled as a roster member is still the author's answer:
-/// it prints and draws nothing.
+/// An open matrix holds its roster members in roster order, then each item a
+/// document adds in id order, carrying its own title and its columns. Document
+/// equality ignores a mapping's key order, so two documents it calls equal
+/// compose one plate. An added item titled as a roster member is still the
+/// author's answer: it prints and draws nothing.
 #[test]
 fn an_open_matrix_prints_added_items_after_the_roster_in_id_order() {
     let yaml = open_yaml();
@@ -287,10 +282,7 @@ fn an_open_matrix_prints_added_items_after_the_roster_in_id_order() {
 
     let wire = plate_of(&yaml, &document);
     let members = wire.as_object().expect("a matrix projects as a mapping");
-    assert_eq!(
-        members.keys().collect::<Vec<_>>(),
-        ["sq_cc_candidate", "flight_cc", "dodin_ops", "cyber_200", "aide", "wing_ig"],
-    );
+    assert_eq!(members.keys().collect::<Vec<_>>(), ["flight_cc", "aide", "wing_ig"]);
     let reordered = doc(concat!(
         "qualifications:\n",
         "  aide: { title: Flight CC }\n",
@@ -303,7 +295,6 @@ fn an_open_matrix_prints_added_items_after_the_roster_in_id_order() {
         rewire.as_object().unwrap().keys().collect::<Vec<_>>(),
         members.keys().collect::<Vec<_>>()
     );
-    assert_eq!(wire["wing_ig"]["held"], json!(true));
     assert_eq!(wire["wing_ig"]["title"], json!("Wing IG"));
     assert_eq!(wire["wing_ig"]["detail"]["text"], json!("81 TRW"));
     assert_eq!(wire["aide"]["title"], json!("Flight CC"));
@@ -343,31 +334,52 @@ fn a_key_outside_an_open_roster_needs_an_id_and_a_title() {
     );
 }
 
-/// An absent matrix blank-fills to every member unheld, so the plate needs no
-/// guard for a document that never mentioned it.
+/// A matrix is a cell: unanswered, it renders its `default:`, else its blank,
+/// the empty set, else under `?` `none`. An authored `{}` is an answer and
+/// outranks the default. A default is a literal like any other: its content
+/// columns import at load, and the blueprint ships it as the cell.
 #[test]
-fn an_absent_matrix_blank_fills_to_every_member_unheld() {
-    let wire = plate(&doc("title: T\n"));
-    for id in ["sq_cc_candidate", "flight_cc", "dodin_ops", "cyber_200"] {
-        assert_eq!(wire[id]["held"], json!(false), "{id} blanks unheld");
-    }
-
+fn a_matrix_is_a_cell_with_a_default_and_a_question_mark() {
+    assert_eq!(plate(&doc("title: T\n")), json!({}));
     let field = &config().main.fields["qualifications"];
-    assert_eq!(
-        blank(field).as_json()["flight_cc"]["held"],
-        json!(false),
-        "the floor agrees with the projection"
+    assert_eq!(blank(field).as_json(), &json!({}), "the floor agrees with the projection");
+
+    let defaulted = quill_yaml().replace(
+        "      properties:\n",
+        "      default: { flight_cc: { detail: \"*Flt* CC\" }, cyber_200: true }\n      properties:\n",
     );
+    let wire = plate_of(&defaulted, &doc("title: T\n"));
+    assert_eq!(wire.as_object().unwrap().keys().collect::<Vec<_>>(), ["flight_cc", "cyber_200"]);
+    assert_eq!(wire["flight_cc"]["detail"]["text"], json!("*Flt* CC"));
+    assert_eq!(wire["cyber_200"]["detail"]["text"], json!(""));
+    assert_eq!(plate_of(&defaulted, &doc("qualifications: {}\n")), json!({}));
+
+    let blueprint = QuillConfig::from_yaml(&defaulted).expect("loads").blueprint();
+    let shipped = Document::parse(&blueprint).expect("the blueprint parses").document;
+    assert_eq!(
+        shipped.main().payload().get("qualifications").unwrap().as_json(),
+        &json!({ "flight_cc": { "detail": "*Flt* CC" }, "cyber_200": true }),
+        "{blueprint}"
+    );
+
+    let optional = quill_yaml().replace("      type: matrix\n", "      type: matrix?\n");
+    assert_eq!(plate_of(&optional, &doc("title: T\n")), serde_json::Value::Null);
+    assert_eq!(plate_of(&optional, &doc("qualifications: {}\n")), json!({}));
 }
 
-/// The schema fixes the keys, so a matrix holds no literal; a member id carries
-/// a field key's discipline; `held` and `title` are the keys the type writes
-/// itself; the roster and the type imply each other, as `open` and the type do;
-/// and a form has no widget for an item a document adds.
+/// A member id carries a field key's discipline; a mapping stores no `held`
+/// and an added item's label is its `title`, so no column takes either name;
+/// the roster and the type imply each other, as `open` and the type do; a
+/// default names members as a document does; and a form has no widget for an
+/// item a document adds.
 #[test]
 fn a_malformed_matrix_declaration_is_refused_by_code() {
     for (backend, fields, code) in [
-        ("typst", "    m:\n      type: matrix\n      default: {}\n      members: { a: A }\n", "quill::default_on_namespace"),
+        (
+            "typst",
+            "    m:\n      type: matrix\n      default: { b: true }\n      members: { a: A }\n",
+            "quill::default_not_in_enum",
+        ),
         (
             "typst",
             "    m:\n      type: matrix\n      members: { \"DO / Det CC\": Label }\n",
@@ -396,7 +408,7 @@ fn a_malformed_matrix_declaration_is_refused_by_code() {
     }
 }
 
-/// A namespace holds no literal, so a fresh document ticks no member.
+/// Seeding writes no default, so a fresh document ticks no member.
 #[test]
 fn a_matrix_seeds_empty() {
     let seeded = quill_from_yaml(quill_yaml()).seed_document();
@@ -407,23 +419,33 @@ fn a_matrix_seeds_empty() {
 }
 
 /// A member's cells are ordinary addresses: a region on the Typst backend, a
-/// widget on acroform. The transform schema is where both resolve one, and
-/// where an open matrix's added item is the node every key past the roster
-/// lowers against, its `title` a cell.
+/// widget on acroform. The transform schema is where both resolve one: each
+/// roster id's node holds the columns alone, the roster rides in declaration
+/// order with its titles for a plate to print, and an open matrix's added item
+/// is the node every key past the roster lowers against, its `title` a cell.
 #[test]
 fn a_members_cells_are_addressable() {
     let schema = build_transform_schema(&config());
     let matrix = &schema.as_json()["properties"]["qualifications"];
     let member = &matrix["properties"]["flight_cc"];
 
-    assert_eq!(member["properties"]["held"]["type"], json!("boolean"));
+    assert_eq!(
+        matrix["quillmark:roster"],
+        json!([
+            ["sq_cc_candidate", "Sq/CC Candidate"],
+            ["flight_cc", "Flight CC"],
+            ["dodin_ops", "DODIN Ops"],
+            ["cyber_200", "Cyber 200"],
+        ])
+    );
+    assert_eq!(
+        member["properties"].as_object().unwrap().keys().collect::<Vec<_>>(),
+        ["detail"],
+        "a member's cells are its columns: {member}"
+    );
     assert!(
         member["properties"]["detail"]["contentMediaType"].is_string(),
         "a column crosses as the content it is: {member}"
-    );
-    assert!(
-        member["properties"].get("title").is_none(),
-        "`title` is written by the projection, not held as a cell, so it carries no address"
     );
     assert!(matrix.get("additionalProperties").is_none(), "a closed matrix admits nothing");
 
@@ -541,7 +563,6 @@ fn the_blueprint_hint_spells_a_held_member_with_every_column() {
         let wire = quill.compile_data(&answered, test_date()).expect("compiles")["qualifications"]
             ["sq_cc_candidate"]
             .clone();
-        assert_eq!(wire["held"], json!(true));
         assert_eq!(wire["detail"]["text"], json!("333 TRS/DO, 2024"));
     }
 }
@@ -613,10 +634,9 @@ fn the_tick_is_judged_by_the_render_floor_not_by_raw_truthiness() {
     let held_at = |fields: &str| -> bool {
         let markdown = format!("~~~\n$quill: matrix_probe@0.1.0\n$kind: main\n{fields}~~~\n");
         let document = Document::parse(&markdown).expect("parses").document;
-        quill.compile_data(&document, test_date()).expect("compiles")["qualifications"]["flight_cc"]
-            ["held"]
-            .as_bool()
-            .expect("the tick is a boolean on the wire")
+        quill.compile_data(&document, test_date()).expect("compiles")["qualifications"]
+            .get("flight_cc")
+            .is_some()
     };
 
     for (spelling, held) in [
@@ -633,10 +653,10 @@ fn the_tick_is_judged_by_the_render_floor_not_by_raw_truthiness() {
     }
 }
 
-/// A member the floor refuses is the member's own failure. The container is not
-/// mis-shaped, and a sibling spelled as the bare tick is not: both would
-/// otherwise report `validation::type_mismatch` at a path the author cannot act
-/// on.
+/// A member the floor refuses is the member's own failure, reported where the
+/// author wrote it. The container is not mis-shaped, and a sibling spelled as
+/// the bare tick is not: both would otherwise report `validation::type_mismatch`
+/// at a path the author cannot act on.
 #[test]
 fn one_members_refusal_does_not_convict_the_matrix_or_its_siblings() {
     let found = codes(&doc(
@@ -650,7 +670,7 @@ fn one_members_refusal_does_not_convict_the_matrix_or_its_siblings() {
 
     assert_eq!(
         mismatches,
-        [&"main.qualifications.dodin_ops.held".to_string()],
+        [&"main.qualifications.dodin_ops".to_string()],
         "only the refused member reports: {found:?}"
     );
 }

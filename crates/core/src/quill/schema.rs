@@ -27,13 +27,15 @@ pub const QUILLMARK_PLAIN_KEY: &str = "quillmark:plain";
 /// conventional label.
 pub const QUILLMARK_BLANK_TITLE_KEY: &str = "quillmark:blank_title";
 
-/// A container node's declared key order, where the *schema* fixes it and a
-/// plate iterates it: a `matrix`'s roster. The backend's dictionary keys sort,
-/// so a reorder-only update rebuilds byte-identical source; this order is a
-/// property of the schema rather than of the data, so honoring it costs that
-/// nothing and is what makes a matrix's declaration order reach the page. The
-/// keys it does not name, an open matrix's added items, trail it sorted.
-pub const QUILLMARK_ORDER_KEY: &str = "quillmark:order";
+/// Transform-schema keyword carrying a `matrix`'s roster, its `[id, title]`
+/// pairs in declaration order: the vocabulary a plate prints, held or not.
+///
+/// It also fixes the key order a held value lowers in. The backend's dictionary
+/// keys sort, so a reorder-only update rebuilds byte-identical source; this
+/// order is a property of the schema rather than of the data, so honoring it
+/// costs that nothing. The keys it does not name, an open matrix's added items,
+/// trail it sorted.
+pub const QUILLMARK_ROSTER_KEY: &str = "quillmark:roster";
 
 /// The `{type: string, enum: ["", …]}` an enum projects to: a plain enum's own
 /// cell, and the discriminant cell of a variant-bearing one. That container is a
@@ -214,30 +216,29 @@ pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
                     schema.insert("properties".to_string(), serde_json::Value::Object(props));
                 }
             }
-            // The desugared members, so `qualifications.flight_cc.held` resolves
-            // as any typed dictionary's leaf does. A roster member's `title` is
-            // written by the projection rather than held as a cell, so it
-            // carries no address and stays out. An open matrix's added items
-            // are `additionalProperties`, where `title` is a cell.
-            FieldType::Matrix { .. } => {
+            // Each roster id's node is the member schema, so
+            // `qualifications.flight_cc.detail` resolves as a typed dictionary's
+            // leaf does; an open matrix's added items are `additionalProperties`,
+            // where `title` is a cell. None is required: a value holds only the
+            // members it ticks.
+            FieldType::Matrix { ref roster, .. } => {
                 schema.insert(
                     "type".to_string(),
                     serde_json::Value::String("object".to_string()),
                 );
-                if let Some(members) = &field.members {
-                    let mut props = serde_json::Map::new();
-                    for (id, member) in members {
-                        props.insert(id.clone(), field_to_schema(member));
-                    }
-                    schema.insert(
-                        QUILLMARK_ORDER_KEY.to_string(),
-                        serde_json::Value::Array(
-                            props
-                                .keys()
-                                .map(|id| serde_json::Value::String(id.clone()))
-                                .collect(),
-                        ),
-                    );
+                schema.insert(
+                    QUILLMARK_ROSTER_KEY.to_string(),
+                    serde_json::Value::Array(
+                        roster
+                            .iter()
+                            .map(|(id, title)| serde_json::json!([id, title]))
+                            .collect(),
+                    ),
+                );
+                if let Some(member) = &field.member {
+                    let node = field_to_schema(member);
+                    let props: serde_json::Map<String, serde_json::Value> =
+                        roster.keys().map(|id| (id.clone(), node.clone())).collect();
                     schema.insert("properties".to_string(), serde_json::Value::Object(props));
                 }
                 if let Some(item) = &field.added_item {

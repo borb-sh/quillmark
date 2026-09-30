@@ -194,7 +194,7 @@ fn append_field(items: &mut CardItems, field: &FieldSchema) {
 
     if matches!(field.r#type, FieldType::Matrix { .. }) {
         push_leading(items, field);
-        push_container_field(items, &field.name, matrix_cell(), Vec::new(), field);
+        push_container_field(items, &field.name, matrix_cell(field), Vec::new(), field);
         return;
     }
 
@@ -211,12 +211,16 @@ fn append_field(items: &mut CardItems, field: &FieldSchema) {
     append_scalar(items, field);
 }
 
-/// A matrix's blueprint cell: the empty mapping, which is the sparse spelling
-/// of a vocabulary nobody has ticked. The roster rides the inline annotation, so
-/// expanding every member here would show a model twenty-seven subforms to
-/// delete and filler it must not ship.
-fn matrix_cell() -> JsonValue {
-    JsonValue::Object(JsonMap::new())
+/// A matrix's blueprint cell: its `default:`, shippable as-is as an array's is,
+/// else the empty mapping, the sparse spelling of a vocabulary nobody has
+/// ticked. The roster rides the inline annotation, so expanding every member
+/// here would show a model twenty-seven subforms to delete and filler it must
+/// not ship.
+fn matrix_cell(field: &FieldSchema) -> JsonValue {
+    match field.default.as_ref() {
+        Some(default) => default.as_json().clone(),
+        None => JsonValue::Object(JsonMap::new()),
+    }
 }
 
 /// The placeholder id an open matrix's `# e.g.` line keys its added item by,
@@ -426,7 +430,7 @@ fn property_cell(prop: &FieldSchema, path: &[PathSegment]) -> (JsonValue, Vec<Ne
         return variant_cell(prop, path);
     }
     if matches!(prop.r#type, FieldType::Matrix { .. }) {
-        return (matrix_cell(), Vec::new());
+        return (matrix_cell(prop), Vec::new());
     }
     if typed_dict_props(prop).is_some() || typed_table_props(prop).is_some() {
         return container_cell(prop, path);

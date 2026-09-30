@@ -304,29 +304,27 @@ pub enum FieldType {
     /// is accepted beside them and is never one of them.
     Enum { values: Vec<String> },
     /// A vocabulary someone ticks: `roster` is member id to display title in
-    /// declaration order, and every member holds a synthesized
-    /// [`MATRIX_HELD_KEY`] beside the field's declared columns. `open` admits
-    /// items a document adds beside the roster. A namespace, not a cell
-    /// (`prose/canon/SCHEMAS.md` §"Cells and namespaces").
+    /// declaration order, the domain of the ids a value holds. `open` admits
+    /// items a document adds beside the roster. A cell whose value is the set of
+    /// held items, each id mapping to its columns (`prose/canon/SCHEMAS.md`
+    /// §"Cells and namespaces").
     Matrix {
         roster: IndexMap<String, String>,
         open: bool,
     },
 }
 
-/// The tick a [`FieldType::Matrix`] synthesizes on every member, beside the
-/// declared columns: the member's presence in the document, which the
-/// projection writes and a document never stores (`validation::held_stored`).
-/// Reserved: a column may not declare it (`quill::matrix_reserved_column`).
+/// The key a matrix member's mapping may not store: presence is the tick, so a
+/// stored one is refused (`validation::held_stored`), and no column may take
+/// the name (`quill::matrix_reserved_column`).
 pub const MATRIX_HELD_KEY: &str = "held";
 
-/// The per-member wire key carrying a member's label. A roster member's is the
-/// projection's, written from the roster with no address, and a document
-/// authoring one is overwritten; an added item's is its own `string` cell.
+/// An added item's label, a `string` cell. A roster member's label is the
+/// roster's, so a document storing one is warned (`validation::unknown_field`),
+/// and no column may take the name (`quill::matrix_reserved_column`).
 pub const MATRIX_TITLE_KEY: &str = "title";
 
-/// The member keys a matrix writes itself, and which a column may therefore not
-/// declare (`quill::matrix_reserved_column`).
+/// The member keys a column may not declare (`quill::matrix_reserved_column`).
 pub const MATRIX_RESERVED_COLUMNS: &[&str] = &[MATRIX_HELD_KEY, MATRIX_TITLE_KEY];
 
 impl FieldType {
@@ -512,14 +510,13 @@ pub struct FieldSchema {
     /// (`validation::cardinality`) rather than gating the render. Valid only on
     /// an `array`.
     pub max: Option<u32>,
-    /// A `matrix`'s members as the object schemas they desugar to, member id to
-    /// `{held, …columns}`, in roster order. Derived at parse from the
-    /// [`FieldType::Matrix`] roster and `properties:` (the columns), which stay
-    /// the authored carriers, so it is not serialized.
-    pub members: Option<IndexMap<String, Box<FieldSchema>>>,
-    /// An open `matrix`'s added item as the object schema it desugars to,
-    /// `{held, title, …columns}`, its `title` a `string` cell. Derived beside
-    /// [`members`](Self::members), and not serialized.
+    /// The object schema every held roster member of a `matrix` composes under:
+    /// its `properties:` (the columns). Derived at parse from those columns,
+    /// which stay the authored carrier, so it is not serialized.
+    pub member: Option<Box<FieldSchema>>,
+    /// An open `matrix`'s added item as the object schema it composes under,
+    /// `{title, …columns}`, its `title` a `string` cell. Derived beside
+    /// [`member`](Self::member), and not serialized.
     pub added_item: Option<Box<FieldSchema>>,
     /// Canonical-content form of [`default`](Self::default) for a
     /// content-bearing field, imported once at quill load and never serialized.
@@ -573,7 +570,7 @@ impl FieldSchema {
             properties: None,
             items: None,
             max: None,
-            members: None,
+            member: None,
             added_item: None,
             default_content: None,
         }
@@ -701,7 +698,7 @@ impl FieldSchema {
                 None
             },
             max,
-            members: None,
+            member: None,
             added_item: None,
             // Filled by the loader's post-pass, which alone imports and
             // validates the literals; a bare `from_quill_value` leaves them empty.
@@ -712,44 +709,38 @@ impl FieldSchema {
         Ok(schema)
     }
 
-    /// Expand a `matrix`'s roster into the per-member object schemas every
-    /// container walk reads: one `object` per member id, carrying
-    /// [`MATRIX_HELD_KEY`] beside the declared columns, and on an open matrix
-    /// the added item, which carries a [`MATRIX_TITLE_KEY`] cell besides.
+    /// Derive a `matrix`'s [`member`](Self::member) schema from its columns,
+    /// and on an open matrix the [`added_item`](Self::added_item), which
+    /// carries a [`MATRIX_TITLE_KEY`] cell besides.
     ///
-    /// The members are copies of the columns, so the loader re-expands once its
-    /// content companions are imported.
+    /// Both hold copies of the columns, so the loader re-derives them once the
+    /// columns' content companions are imported.
     pub(crate) fn rebuild_matrix_members(&mut self) -> Result<(), String> {
-        let ids: Vec<String> = self.r#type.matrix_roster().keys().cloned().collect();
-        if ids.is_empty() {
+        if self.r#type.matrix_roster().is_empty() {
             return Ok(());
         }
         let columns = self.properties.clone().unwrap_or_default();
-        let member = |name: &str, title: bool| {
+        let name = self.name.clone();
+        let member = |title: bool| {
             let mut cells: IndexMap<String, Box<FieldSchema>> = IndexMap::new();
-            let mut held =
-                FieldSchema::new(MATRIX_HELD_KEY.to_string(), FieldType::Boolean, None);
-            held.default = Some(QuillValue::from_json(serde_json::Value::Bool(false)));
-            cells.insert(MATRIX_HELD_KEY.to_string(), Box::new(held));
             if title {
                 let title = FieldSchema::new(MATRIX_TITLE_KEY.to_string(), FieldType::String, None);
                 cells.insert(MATRIX_TITLE_KEY.to_string(), Box::new(title));
             }
             // A column spelling a reserved name is `quill::matrix_reserved_column`
-            // at load; what the matrix writes itself stands whatever else the
-            // shape pass finds.
+            // at load.
             for (name, column) in columns
                 .iter()
                 .filter(|(n, _)| !MATRIX_RESERVED_COLUMNS.contains(&n.as_str()))
             {
                 cells.insert(name.clone(), column.clone());
             }
-            let mut member = FieldSchema::new(name.to_string(), FieldType::Object, None);
+            let mut member = FieldSchema::new(name.clone(), FieldType::Object, None);
             member.properties = Some(cells);
             Box::new(member)
         };
-        self.members = Some(ids.iter().map(|id| (id.clone(), member(id, false))).collect());
-        self.added_item = self.r#type.is_open_matrix().then(|| member(&self.name, true));
+        self.member = Some(member(false));
+        self.added_item = self.r#type.is_open_matrix().then(|| member(true));
         Ok(())
     }
 
@@ -759,31 +750,51 @@ impl FieldSchema {
     /// `None` for a key neither admits, which is outside the matrix's domain
     /// (`validation::enum_violation`), and on every other type.
     pub fn matrix_member(&self, key: &str, stored: &serde_json::Value) -> Option<&FieldSchema> {
-        if let Some(member) = self.members.as_ref().and_then(|m| m.get(key)) {
-            return Some(member);
+        if self.r#type.matrix_roster().contains_key(key) {
+            return self.member.as_deref();
         }
         let titled = stored
             .as_object()
             .and_then(|m| m.get(MATRIX_TITLE_KEY))
             .is_some_and(|title| !title.is_null());
+        self.matrix_member_at(key).filter(|_| titled)
+    }
+
+    /// The member schema a matrix address step reaches, judged on the schema
+    /// alone: the roster member's, else, on an open matrix, the added item's
+    /// for any key spelled as a member id. `None` on every other type.
+    pub fn matrix_member_at(&self, key: &str) -> Option<&FieldSchema> {
+        if self.r#type.matrix_roster().contains_key(key) {
+            return self.member.as_deref();
+        }
         self.added_item
             .as_deref()
-            .filter(|_| titled && super::QuillConfig::is_snake_case_identifier(key))
+            .filter(|_| super::QuillConfig::is_snake_case_identifier(key))
+    }
+
+    /// The tick a matrix member is: a boolean whose `default:` is the untick.
+    /// A bare scalar tick coerces and validates under it, so a refusal hints at
+    /// removing the member, and a member's own address binds it.
+    pub fn matrix_tick() -> &'static FieldSchema {
+        static TICK: std::sync::OnceLock<FieldSchema> = std::sync::OnceLock::new();
+        TICK.get_or_init(|| {
+            let mut tick = FieldSchema::new(MATRIX_HELD_KEY.to_string(), FieldType::Boolean, None);
+            tick.default = Some(QuillValue::from_json(serde_json::Value::Bool(false)));
+            tick
+        })
     }
 
     /// The namespace a container field composes its value from: a typed
-    /// dictionary's `properties`, or a matrix's per-member objects. `None` for
-    /// every cell.
+    /// dictionary's `properties`. `None` for every cell, a matrix included.
     pub fn namespace_props(&self) -> Option<&IndexMap<String, Box<FieldSchema>>> {
         match self.r#type {
             FieldType::Object => self.properties.as_ref(),
-            FieldType::Matrix { .. } => self.members.as_ref(),
             _ => None,
         }
     }
 
-    /// A matrix's declared columns: the cells beside [`MATRIX_HELD_KEY`] on
-    /// every member. Empty for a checklist, and for every other type.
+    /// A matrix's declared columns: the cells every held member carries. Empty
+    /// for a checklist, and for every other type.
     pub fn matrix_columns(&self) -> &IndexMap<String, Box<FieldSchema>> {
         static EMPTY: std::sync::OnceLock<IndexMap<String, Box<FieldSchema>>> =
             std::sync::OnceLock::new();

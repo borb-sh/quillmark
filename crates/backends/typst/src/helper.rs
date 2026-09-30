@@ -8,8 +8,8 @@
 //!
 //! Output is **canonical**: dict keys emit in sorted order at every level (via
 //! [`sorted`]), so equal data produces byte-equal source regardless of the
-//! caller's field order. `$cards` array order is semantic and preserved. A node
-//! whose *schema* fixes a key order says so with `quillmark:order` and gets it
+//! caller's field order. `$cards` array order is semantic and preserved. A
+//! `matrix` node fixes its key order with `quillmark:roster` and gets it
 //! ([`ordered`]); that order is a property of the schema, so byte-equality holds
 //! there too.
 
@@ -21,7 +21,7 @@ use crate::emit::{
 };
 use crate::SchemaMeta;
 use quillmark_content::serial::from_canonical_value;
-use quillmark_core::quill::{CONTENT_MEDIA_TYPE, QUILLMARK_INLINE_KEY, QUILLMARK_ORDER_KEY};
+use quillmark_core::quill::{CONTENT_MEDIA_TYPE, QUILLMARK_INLINE_KEY, QUILLMARK_ROSTER_KEY};
 
 pub const HELPER_VERSION: &str = "0.1.0";
 pub const HELPER_NAMESPACE: &str = "local";
@@ -57,7 +57,6 @@ pub fn generate_lib_typ(
         return Err(e);
     }
     let display_literal = display_literal(&cg.display);
-    let meta_literal = meta.meta_literal(data);
 
     // Placeholders are located in the *raw template* (trusted static text), never
     // in already-substituted output, so document data spelling a placeholder
@@ -70,7 +69,7 @@ pub fn generate_lib_typ(
     let mut data_at = 0usize;
     for (slot, value) in [
         ("{version}", HELPER_VERSION),
-        ("{meta_literal}", &meta_literal),
+        ("{meta_literal}", meta.meta_literal()),
         ("{content_blocks}", cg.blocks.as_str()),
         ("{data_literal}", data_literal.src.as_str()),
         ("{display_literal}", display_literal.as_str()),
@@ -252,6 +251,7 @@ impl<'m> Codegen<'m> {
                 }
             }
             let node = self.meta.field_node(key);
+            dict.anchored |= is_matrix(node);
             dict.push(key, self.emit_value(key, node, value));
         }
         dict.finish(Some(""))
@@ -348,6 +348,7 @@ impl<'m> Codegen<'m> {
                 let mut dict = Container::default();
                 for (key, elem) in ordered(obj, &order) {
                     let node = props.get(key).or(added);
+                    dict.anchored |= is_matrix(node);
                     let lowered = self.emit_value(&format!("{path}.{key}"), node, elem);
                     dict.push(key, lowered);
                 }
@@ -467,6 +468,9 @@ fn entry(key: &str, value: Frag) -> Frag {
 struct Container {
     items: Vec<Frag>,
     ink: Vec<Frag>,
+    /// A field is a `matrix`, which `roster(dict, key)` addresses through the
+    /// dictionary's `$path`, so the path rides whether or not a field has ink.
+    anchored: bool,
 }
 
 impl Container {
@@ -480,24 +484,25 @@ impl Container {
         }
     }
 
-    /// `$ink` leads, then `path` as `$path` for `display(dict, key, ..)` to
-    /// address a date by; both only where a field has ink, so a dictionary of
-    /// containers (a `matrix`) keeps exactly its members as keys. The `{..}`
-    /// code block is a unit Typst's incremental reparser swaps alone: an edit
+    /// `$ink` leads where a field has ink, then `path` as `$path` for
+    /// `display(dict, key, ..)` and `roster(dict, key)` to address by, where a
+    /// field has ink or is a matrix. A dictionary of containers (a `matrix`)
+    /// has neither, so it keeps exactly its members as keys. The `{..}` code
+    /// block is a unit Typst's incremental reparser swaps alone: an edit
     /// touches a field and its ink, and inside a card or a row the block
     /// holding both is that card or row, not the whole literal.
     fn finish(mut self, path: Option<&str>) -> Frag {
+        let mut head = Vec::new();
         if !self.ink.is_empty() {
-            let ink = Frag::wrap(self.ink, "(:)");
-            let mut head = vec![entry(INK_KEY, ink)];
-            if let Some(path) = path {
-                head.push(Frag::from(format!(
-                    "\"{PATH_KEY}\": \"{}\"",
-                    escape_string(path)
-                )));
-            }
-            self.items.splice(0..0, head);
+            head.push(entry(INK_KEY, Frag::wrap(self.ink, "(:)")));
         }
+        if let Some(path) = path.filter(|_| !head.is_empty() || self.anchored) {
+            head.push(Frag::from(format!(
+                "\"{PATH_KEY}\": \"{}\"",
+                escape_string(path)
+            )));
+        }
+        self.items.splice(0..0, head);
         let mut out = Frag::from("{");
         out.append(Frag::wrap(self.items, "(:)"));
         out.push_str("}");
@@ -520,7 +525,7 @@ enum Lower<'a> {
     /// The element node, absent where an array declares no `items`.
     Array(Option<&'a serde_json::Value>),
     /// The declared members, the key order the schema fixes for them
-    /// (`quillmark:order`, empty where it fixes none), and the node every key
+    /// (`quillmark:roster`, empty where it fixes none), and the node every key
     /// they do not name lowers against (`additionalProperties`, an open
     /// matrix's added item).
     Object(
@@ -664,13 +669,17 @@ fn sorted(obj: &serde_json::Map<String, serde_json::Value>) -> Vec<(&String, &se
 }
 
 /// The schema's declared key order for a container node, `[]` where it declares
-/// none. A `matrix` declares one: its roster is the order a plate prints the
-/// vocabulary in.
+/// none: a `matrix`'s roster ids, the order a plate prints the vocabulary in.
 fn declared_order(node: &serde_json::Value) -> Vec<&str> {
-    node.get(QUILLMARK_ORDER_KEY)
+    node.get(QUILLMARK_ROSTER_KEY)
         .and_then(|v| v.as_array())
-        .map(|ids| ids.iter().filter_map(|v| v.as_str()).collect())
+        .map(|pairs| pairs.iter().filter_map(|pair| pair.get(0)?.as_str()).collect())
         .unwrap_or_default()
+}
+
+/// Whether `node` declares a `matrix`.
+fn is_matrix(node: Option<&serde_json::Value>) -> bool {
+    node.is_some_and(|n| n.get(QUILLMARK_ROSTER_KEY).is_some())
 }
 
 /// `obj`'s entries in the schema's declared order where it declares one, keys it
@@ -1092,16 +1101,15 @@ mod tests {
         );
     }
 
-    /// An open matrix's added items lower against `additionalProperties`, trail
-    /// the roster sorted, and join this render's address tables as the property
-    /// steps they are.
+    /// A matrix's held set lowers its roster members in roster order and its
+    /// added items after them sorted, each against its own node. The dictionary
+    /// declaring it carries `$path` though nothing in it has ink, and the
+    /// address tables are the schema's alone, the added step and the roster
+    /// included, whatever the data holds.
     #[test]
-    fn an_open_matrix_lowers_and_admits_its_added_items() {
+    fn a_matrix_lowers_in_roster_order_under_static_tables() {
         let member = |title: bool| {
-            let mut props = serde_json::json!({
-                "held": { "type": "boolean" },
-                "detail": richtext_field(),
-            });
+            let mut props = serde_json::json!({ "detail": richtext_field() });
             if title {
                 props["title"] = serde_json::json!({ "type": "string" });
             }
@@ -1111,7 +1119,7 @@ mod tests {
             "properties": {
                 "quals": {
                     "type": "object",
-                    "quillmark:order": ["dco", "cyber"],
+                    "quillmark:roster": [["dco", "DCO"], ["cyber", "Cyber"]],
                     "properties": { "dco": member(false), "cyber": member(false) },
                     "additionalProperties": member(true),
                 }
@@ -1119,10 +1127,9 @@ mod tests {
         }));
         let data = serde_json::json!({
             "quals": {
-                "dco": { "held": true, "title": "DCO", "detail": content("") },
-                "cyber": { "held": false, "title": "Cyber", "detail": content("") },
-                "wing_ig": { "held": true, "title": "Wing IG", "detail": content("81 TRW") },
-                "aide": { "held": true, "title": "Aide", "detail": content("") },
+                "wing_ig": { "title": "Wing IG", "detail": content("81 TRW") },
+                "cyber": { "detail": content("") },
+                "aide": { "title": "Aide", "detail": content("") },
             }
         });
         let (lib, windows) = generate_lib_typ(&data, &meta).unwrap();
@@ -1131,14 +1138,12 @@ mod tests {
             lib.find(&format!("\"{key}\": {{"))
                 .unwrap_or_else(|| panic!("{key} in {lib}"))
         };
-        assert!(
-            at("dco") < at("cyber") && at("cyber") < at("aide") && at("aide") < at("wing_ig"),
-            "{lib}"
-        );
+        assert!(at("cyber") < at("aide") && at("aide") < at("wing_ig"), "{lib}");
         let paths: Vec<&str> = windows.iter().map(|w| w.path.as_str()).collect();
         for path in ["quals.wing_ig.detail", "quals.wing_ig.title"] {
             assert!(paths.contains(&path), "{path} in {paths:?}");
         }
+        assert!(lib.contains("#let data = {(\"$path\": \"\", \"quals\": "), "{lib}");
 
         let tables = |lib: &str| {
             lib.lines()
@@ -1146,34 +1151,13 @@ mod tests {
                 .expect("the address tables")
                 .to_string()
         };
-        assert!(tables(&lib).contains("\"wing_ig\": (\"props\": ("), "{}", tables(&lib));
         let (bare, _) = generate_lib_typ(&serde_json::json!({}), &meta).unwrap();
-        assert!(!tables(&bare).contains("wing_ig"), "{}", tables(&bare));
-
-        // Below a table row and on a card, the tree the ids join is the row's
-        // element node and the kind's card node.
-        let meta = meta_from(serde_json::json!({
-            "properties": {
-                "rows": { "type": "array", "items": { "type": "object", "properties": {
-                    "quals": { "type": "object", "properties": {}, "additionalProperties": member(true) },
-                }}},
-            },
-            "$defs": { "entry_card": { "properties": {
-                "quals": { "type": "object", "properties": {}, "additionalProperties": member(true) },
-            }}},
-        }));
-        let item = |title: &str| serde_json::json!({ "held": true, "title": title, "detail": content("") });
-        let data = serde_json::json!({
-            "rows": [ { "quals": { "row_item": item("R") } } ],
-            "$cards": [ { "$kind": "entry", "quals": { "card_item": item("C") } } ],
-        });
-        let (lib, _) = generate_lib_typ(&data, &meta).unwrap();
-        let tables = tables(&lib);
-        for admitted in [
-            "\"rows\": (\"item\": (\"props\": (\"quals\": (\"props\": (\"row_item\": (",
-            "\"entry\": (\"props\": (\"quals\": (\"props\": (\"card_item\": (",
+        assert_eq!(tables(&lib), tables(&bare));
+        for piece in [
+            "\"roster\": ((\"dco\", \"DCO\",), (\"cyber\", \"Cyber\",),)",
+            "\"added\": (\"props\": (\"detail\": (:), \"title\": (:),),)",
         ] {
-            assert!(tables.contains(admitted), "{admitted} in {tables}");
+            assert!(tables(&lib).contains(piece), "{piece} in {}", tables(&lib));
         }
     }
 

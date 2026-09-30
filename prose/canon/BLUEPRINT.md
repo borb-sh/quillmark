@@ -139,9 +139,9 @@ Form: **`# <type>[<format>][?]`**
   - `enum<a | b | c>`
   - `matrix<flight_cc | dodin_ops | cyber_200 | …>`: the roster's member ids in
     declaration order, structurally the `enum` form so no third annotation is
-    minted. The cell carries the sparse spelling only — `{}` on a fresh
-    blueprint, since a matrix seeds empty — so a model sees the whole vocabulary
-    in the annotation and has nothing to delete. A closed matrix leaves it no
+    minted. The cell carries the sparse spelling only — the matrix's
+    `default:`, shippable as-is, else `{}` — so a model sees the whole
+    vocabulary in the annotation and has nothing to delete. A closed matrix leaves it no
     member to invent; on an open one the ids, the annotation carrying no titles,
     are what steer it to a member rather than an added duplicate. The columns
     and the added spelling ride the leading `# e.g.` line

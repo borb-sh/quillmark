@@ -16,13 +16,15 @@ mod overlay;
 mod world;
 pub mod workspace;
 
-use std::borrow::Cow;
 use std::collections::BTreeMap;
 
 use quillmark_core::{
     backend::Backend,
     error::{Diagnostic, RenderError, RenderResult, Severity},
-    quill::{build_transform_schema, BlockConstruct, CalendarDate, Quill},
+    quill::{
+        build_transform_schema, BlockConstruct, CalendarDate, Quill, QuillConfig,
+        QUILLMARK_ROSTER_KEY,
+    },
     region::{ContentHit, RenderedRegion},
     session::{ChangeSet, LiveSession, SessionHandle},
     types::{OutputFormat, RenderOptions},
@@ -534,14 +536,16 @@ fn read_plate(source: &Quill) -> Result<Plate, RenderError> {
 /// no `properties`, offers no step at all. An array always offers its index
 /// step, whatever its element.
 ///
-/// An open matrix's added item (`additionalProperties`) is no step of its own:
-/// its id is the document's, so [`admit`](Self::admit) adds each one a render
-/// carries as the property step it is.
+/// A `matrix` node also carries its `roster`, and on an open matrix an `added`
+/// step: any key spelled as a member id that `props` does not name. Like an
+/// index, the step is not checked against the data, since the grammar asks
+/// about the schema alone.
 #[derive(Debug, Default, Clone)]
 pub(crate) struct AddressNode {
     pub(crate) props: BTreeMap<String, AddressNode>,
     pub(crate) item: Option<Box<AddressNode>>,
     added: Option<Box<AddressNode>>,
+    roster: Option<serde_json::Value>,
 }
 
 impl AddressNode {
@@ -567,53 +571,27 @@ impl AddressNode {
             .get("additionalProperties")
             .filter(|v| v.is_object())
             .map(|child| Box::new(Self::from_schema(child)));
-        Self { props, item, added }
-    }
-
-    /// Whether any node below admits added items.
-    fn opens(&self) -> bool {
-        self.added.is_some()
-            || self.props.values().any(Self::opens)
-            || self.item.as_deref().is_some_and(Self::opens)
-    }
-
-    /// Admit, at every depth, each added item `data` carries under an open
-    /// matrix as a property step.
-    fn admit(&mut self, data: &serde_json::Value) {
-        match data {
-            serde_json::Value::Object(map) => {
-                if let Some(added) = &self.added {
-                    for (key, value) in map {
-                        if value.is_object() && !self.props.contains_key(key) {
-                            self.props.insert(key.clone(), (**added).clone());
-                        }
-                    }
-                }
-                for (key, child) in &mut self.props {
-                    if let Some(value) = map.get(key) {
-                        child.admit(value);
-                    }
-                }
-            }
-            serde_json::Value::Array(elements) => {
-                if let Some(item) = &mut self.item {
-                    for element in elements {
-                        item.admit(element);
-                    }
-                }
-            }
-            _ => {}
+        let roster = node.get(QUILLMARK_ROSTER_KEY).cloned();
+        Self {
+            props,
+            item,
+            added,
+            roster,
         }
     }
 
     /// The node `path` addresses, or `None` where it takes a step the schema
     /// does not offer. A digit segment is the index step; any other is a
-    /// property step.
+    /// property step, or an open matrix's added step.
     pub(crate) fn resolve(&self, path: &str) -> Option<&Self> {
         path.split('.').try_fold(self, |node, seg| {
             match seg.bytes().all(|b| b.is_ascii_digit()) && !seg.is_empty() {
                 true => node.item.as_deref(),
-                false => node.props.get(seg),
+                false => node.props.get(seg).or_else(|| {
+                    node.added
+                        .as_deref()
+                        .filter(|_| QuillConfig::is_snake_case_identifier(seg))
+                }),
             }
         })
     }
@@ -636,6 +614,12 @@ impl AddressNode {
         if let Some(item) = &self.item {
             out.insert("item".to_string(), item.to_json());
         }
+        if let Some(added) = &self.added {
+            out.insert("added".to_string(), added.to_json());
+        }
+        if let Some(roster) = &self.roster {
+            out.insert("roster".to_string(), roster.clone());
+        }
         serde_json::Value::Object(out)
     }
 }
@@ -653,10 +637,8 @@ pub(crate) struct SchemaMeta {
     pub(crate) root: AddressNode,
     pub(crate) cards: BTreeMap<String, AddressNode>,
     /// Serialized once: the schema is fixed for a session's lifetime, and every
-    /// update splices this same literal into the generated `lib.typ` unless the
-    /// schema declares an open matrix, whose added items are each render's own.
+    /// update splices this same literal into the generated `lib.typ`.
     meta_literal: String,
-    opens: bool,
 }
 
 impl Default for SchemaMeta {
@@ -680,39 +662,33 @@ impl SchemaMeta {
             }
         }
 
-        let root = AddressNode::from_schema(schema_json);
-        let opens = root.opens() || cards.values().any(AddressNode::opens);
-        let meta_literal = helper::lit(&address_json(&root, &cards));
-        Self {
-            root,
+        let mut meta = Self {
+            root: AddressNode::from_schema(schema_json),
             cards,
             schema: schema_json.clone(),
-            meta_literal,
-            opens,
-        }
+            meta_literal: String::new(),
+        };
+        meta.meta_literal = helper::lit(&meta.address_json());
+        meta
     }
 
-    /// The address tables the helper's `_qm-known-path` validates against, as
-    /// the Typst literal codegen splices into `_qm-meta`: the schema's, with each
-    /// added item `data` carries admitted where the schema declares an open
-    /// matrix.
-    pub(crate) fn meta_literal(&self, data: &serde_json::Value) -> Cow<'_, str> {
-        if !self.opens {
-            return Cow::Borrowed(&self.meta_literal);
-        }
-        let mut root = self.root.clone();
-        root.admit(data);
-        let mut cards = self.cards.clone();
-        for card in data.get("$cards").and_then(|v| v.as_array()).into_iter().flatten() {
-            let node = card
-                .get("$kind")
-                .and_then(|v| v.as_str())
-                .and_then(|kind| cards.get_mut(kind));
-            if let Some(node) = node {
-                node.admit(card);
-            }
-        }
-        Cow::Owned(helper::lit(&address_json(&root, &cards)))
+    /// The address tables the helper's `_qm-node` walks.
+    fn address_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "fields": self.root.to_json(),
+            "cards": serde_json::Value::Object(
+                self.cards
+                    .iter()
+                    .map(|(kind, node)| (kind.clone(), node.to_json()))
+                    .collect(),
+            ),
+        })
+    }
+
+    /// [`address_json`](Self::address_json) as the Typst literal codegen
+    /// splices into `_qm-meta`.
+    pub(crate) fn meta_literal(&self) -> &str {
+        &self.meta_literal
     }
 
     /// The schema node declaring a top-level field.
@@ -730,19 +706,6 @@ impl SchemaMeta {
             .get("properties")?
             .as_object()
     }
-}
-
-/// The helper's address tables over a root tree and the per-kind card trees.
-fn address_json(root: &AddressNode, cards: &BTreeMap<String, AddressNode>) -> serde_json::Value {
-    serde_json::json!({
-        "fields": root.to_json(),
-        "cards": serde_json::Value::Object(
-            cards
-                .iter()
-                .map(|(kind, node)| (kind.clone(), node.to_json()))
-                .collect(),
-        ),
-    })
 }
 
 #[cfg(test)]

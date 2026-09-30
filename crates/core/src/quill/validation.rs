@@ -539,8 +539,8 @@ fn validate_value(
         // A matrix's keys are its domain, so a key it admits as neither a member
         // nor an added item is the closed-domain violation an out-of-domain enum
         // member is. A mapping is held by being present, so it recurses as the
-        // member object minus the tick, which it may not store; a bare scalar is
-        // the tick itself.
+        // member object, less the tick it may not store; a bare scalar is the
+        // tick itself.
         FieldType::Matrix { .. } => match value.as_object() {
             Some(object) => {
                 for (id, member_value) in object {
@@ -554,13 +554,12 @@ fn validate_value(
                         });
                         continue;
                     };
-                    let held_path = member_path.field(MATRIX_HELD_KEY);
                     match member_value {
                         serde_json::Value::Null => {}
                         serde_json::Value::Object(cells) => {
                             if cells.get(MATRIX_HELD_KEY).is_some_and(|v| !v.is_null()) {
                                 errors.push(ValidationError::HeldStored {
-                                    path: held_path.to_string(),
+                                    path: member_path.field(MATRIX_HELD_KEY).to_string(),
                                 });
                             }
                             let mut cells = cells.clone();
@@ -572,20 +571,12 @@ fn validate_value(
                                 ctx,
                             ));
                         }
-                        tick => {
-                            if let Some(held) = member_schema
-                                .properties
-                                .as_ref()
-                                .and_then(|cells| cells.get(MATRIX_HELD_KEY))
-                            {
-                                errors.extend(validate_value(
-                                    held,
-                                    &QuillValue::from_json(tick.clone()),
-                                    &held_path,
-                                    ctx,
-                                ));
-                            }
-                        }
+                        tick => errors.extend(validate_value(
+                            FieldSchema::matrix_tick(),
+                            &QuillValue::from_json(tick.clone()),
+                            &member_path,
+                            ctx,
+                        )),
                     }
                 }
                 true

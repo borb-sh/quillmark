@@ -79,6 +79,15 @@ main:
               type: object
               properties:
                 when: { type: string }
+    quals:
+      type: matrix
+      members: { flight_cc: Flight CC }
+      properties:
+        detail: { type: string }
+    extra:
+      type: matrix
+      open: true
+      members: { flight_cc: Flight CC }
 card_kinds:
   endorsement:
     fields:
@@ -116,7 +125,9 @@ card_kinds:
 /// Every address both backends must resolve, and every one both must refuse.
 ///
 /// An index is not bounds-checked: `refs.9` resolves against a document carrying
-/// one ref, because the grammar asks about the schema alone.
+/// one ref, because the grammar asks about the schema alone. An open matrix's
+/// added step is not checked against the data either: `extra.wing_ig` resolves
+/// against a document adding no item.
 const GRAMMAR: &[(&str, bool)] = &[
     ("subject", true),
     ("deadline", true),
@@ -154,6 +165,12 @@ const GRAMMAR: &[(&str, bool)] = &[
     ("$cards.endorsement.0.level", true),
     ("$cards.endorsement.0.level.value", true),
     ("$cards.endorsement.0.level.endorser", true),
+    ("quals", true),
+    ("quals.flight_cc", true),
+    ("quals.flight_cc.detail", true),
+    ("extra.flight_cc", true),
+    ("extra.wing_ig", true),
+    ("extra.wing_ig.title", true),
     ("nonesuch", false),
     ("subject.0", false),
     ("deadline.0", false),
@@ -187,6 +204,13 @@ const GRAMMAR: &[(&str, bool)] = &[
     ("$cards.endorsement.0.tags.0.org", false),
     ("$cards.endorsement.0.origin.office.0", false),
     ("$cards.endorsement.0.origin.geo.lon", false),
+    ("quals.0", false),
+    ("quals.nosuch", false),
+    ("quals.flight_cc.held", false),
+    ("quals.flight_cc.title", false),
+    ("extra.Wing", false),
+    ("extra.flight_cc.title", false),
+    ("extra.wing_ig.detail", false),
 ];
 
 const PREAMBLE: &str = r#"#import "@local/quillmark-helper:0.1.0": field-region
