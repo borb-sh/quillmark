@@ -1,5 +1,59 @@
 # Changelog
 
+## v0.121.0 - 2026-09-30
+
+Upgrade path: [0.120 → 0.121](docs/migrations/0.120-to-0.121.md).
+
+### Matrix presence
+
+- feat(core,typst,wasm)!: **a matrix member is held by being present in the
+  document**: a mapping is held whatever it carries, `{}` included, and a bare
+  scalar is the tick. A mapping naming no `held` flips from unticked to ticked,
+  with nothing reporting it. `held` is never stored: a member mapping storing
+  it fails validation as `validation::held_stored`, and the render with it, and
+  a `Quill.yaml` `seed:` or `default:` storing it fails to load as
+  `quill::seed_held_stored` / `quill::default_held_stored`. A `held: null` is
+  absent. The strict write rests a held member with no answers as `true`, and
+  the blueprint's `# e.g.` line drops `held: true`. (#2023)
+
+### Matrix plate
+
+- feat(core,typst,acroform)!: **a matrix reaches the plate as the members it
+  holds**, each its columns keyed by id: no member carries `held` or a roster
+  `title`, and an unheld member is absent, so a plate reading `m.held` or
+  `m.title` fails to compile. `roster(dict, key)` in the Typst helper prints the
+  whole vocabulary as `(id, title, held, value, path)` rows, and the dictionary
+  declaring a matrix carries `$path` for it. A member's tick is its own address,
+  `<field>.<member>`: a claim on `<field>.<member>.held` fails the compile, an
+  acroform binding on it fails to load as `acroform::dangling_binding`, and a
+  bare tick the boolean coercion refuses is `validation::type_mismatch` at the
+  member's path. `resolve()` reports the members a matrix holds. A matrix takes
+  a `default:` and `type: matrix?`. The transform schema carries the roster as
+  `quillmark:roster` `[id, title]` pairs, and Rust `QUILLMARK_ORDER_KEY` is
+  `QUILLMARK_ROSTER_KEY`; `FieldSchema::members` is `FieldSchema::member`,
+  beside `added_item`, and `namespace_props` answers `None` for a matrix.
+  (#2023)
+
+### Open matrix
+
+- feat(core,typst,wasm): **`open: true` on a matrix admits items a document
+  adds**, each keyed by a snake_case id and carrying a `title`, taking the
+  roster's columns. The plate and `roster` carry them after the held roster
+  members, sorted by id, and an added item's `title` is a cell with an address.
+  Any other key outside the roster is `validation::enum_violation`, which gains
+  an `open` arg. The transform schema declares the added item as
+  `additionalProperties`, `schema()` emits `open: true` (WASM
+  `QuillFieldSchema.open`), and an acroform quill declaring one fails to load as
+  `quill::open_matrix_unsupported`. `FieldType::Matrix` carries `open: bool`.
+  (#2023)
+
+### Release
+
+- ci(release): **crate publishing retries past a crates.io index backlog**,
+  excluding the crates crates.io already holds at the release version, so a
+  re-run resumes a partial upload. (#2029)
+
+
 ## v0.120.0 - 2026-09-30
 
 Upgrade path: [0.119 → 0.120](docs/migrations/0.119-to-0.120.md).
