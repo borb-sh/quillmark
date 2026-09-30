@@ -236,17 +236,57 @@ jobs:
       - name: Publish workspace crates
         # --workspace: bare `cargo publish` operates on default-members, which
         # exclude crates/content, the leaf every published crate depends on.
-        # publish = false members (fixtures, bindings) are skipped; cargo
-        # orders the rest by dependency and skips versions already on the
-        # registry, so a re-run resumes a partially-uploaded release.
+        # publish = false members (fixtures, bindings) are skipped, and cargo
+        # orders the rest by dependency.
+        #
+        # Cargo refuses a version already on the registry, so every attempt
+        # excludes the crates crates.io already holds at this version; that is
+        # what lets a later attempt, or a re-run, resume a partial upload. Cargo
+        # waits 60 seconds for each upload to reach the index before publishing
+        # its dependents (the setting that raises it is nightly-only), and a
+        # crates.io backlog outlasts that, so a failed attempt is retried after
+        # a pause.
         #
         # Each published crate needs its own crates.io Trusted Publisher (this
         # repo + this workflow + the Publish environment). A crate missing one
         # 403s ("access token is not valid for crate <name>") when the ordered
         # publish reaches it, add the config on crates.io, then re-run.
-        run: cargo publish --workspace --locked --no-verify
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.crates-auth.outputs.token }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -uo pipefail
+          crates=$(cargo metadata --format-version=1 --no-deps --locked \
+            | jq -r '.packages[] | select(.publish != []) | .name')
+          [ -n "$crates" ] || exit 1
+
+          for attempt in 1 2 3 4 5 6; do
+            exclude=()
+            pending=()
+            for crate in $crates; do
+              if curl -sf -o /dev/null \
+                  -A "quillmark-release (https://github.com/${GITHUB_REPOSITORY})" \
+                  "https://crates.io/api/v1/crates/${crate}/${VERSION}"; then
+                exclude+=(--exclude "$crate")
+              else
+                pending+=("$crate")
+              fi
+            done
+
+            if [ ${#pending[@]} -eq 0 ]; then
+              echo "Every crate is on crates.io at ${VERSION}."
+              exit 0
+            fi
+
+            echo "Attempt ${attempt}: publishing ${pending[*]}"
+            if cargo publish --workspace --locked --no-verify "${exclude[@]}"; then
+              exit 0
+            fi
+            sleep 60
+          done
+
+          echo "::error::crates still unpublished after ${attempt} attempts: ${pending[*]}"
+          exit 1
 
   # ──────────────────────────────────────────────
   # Publish: WASM → npm
