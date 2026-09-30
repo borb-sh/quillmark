@@ -476,8 +476,8 @@ generated blueprint (`quiver_test.rs::every_quill_blueprint_round_trips_and_rend
 
 A quill outside that directory is bound by the same contract and reaches it
 through `quillmark validate`, which renders all three canonical documents — the
-empty document, the blueprint, the seeded document — and reports each failure as a
-`cli::canonical_document_failed` error naming which of the three it is
+empty document, the blueprint, the seeded document — and reports each failure
+as a `cli::canonical_document_failed` error naming which of the three it is
 ([CLI.md](CLI.md)).
 
 ## The blueprint and the seeded document

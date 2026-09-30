@@ -124,8 +124,9 @@ fn usaf_memo_date_region_rides_the_vendored_display() {
     let (engine, quill, parsed) = common::seeded_memo();
     let mut session = engine.open(quill, &parsed, common::test_date()).expect("open a session");
 
-    // The seed leaves the date blank, which regions through its fill-in widget
-    // rather than the vendored display, so commit a real date first.
+    // The seeded document leaves the date blank, which regions through its
+    // fill-in widget rather than the vendored display, so commit a real date
+    // first.
     let mut edited = parsed.clone();
     quillmark::TypedWriter::new(quill.config(), &mut edited)
         .set("date", "2026-01-02")
@@ -156,7 +157,7 @@ fn usaf_memo_date_region_rides_the_vendored_display() {
 /// memo leaves for its signer is the one field a preview cannot route a click to.
 #[test]
 fn a_blank_date_regions_through_its_fill_in_widget() {
-    // The seed leaves the memo date and the indorsement date blank.
+    // The seeded document leaves the memo date and the indorsement date blank.
     let (engine, quill, parsed) = common::seeded_memo();
     let session = engine.open(quill, &parsed, common::test_date()).expect("open a session");
 

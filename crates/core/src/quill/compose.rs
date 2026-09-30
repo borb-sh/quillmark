@@ -343,7 +343,7 @@ impl Quill {
     /// Use to add a new card to a document: pass the document's `$seed` entry
     /// for the kind (`doc.main().seed().and_then(|m| m.get(card_kind)).and_then(SeedOverlay::from_json)`)
     /// so a card spawned into a template-derived document inherits its curated
-    /// starting values, and `None` for the bare schema seed.
+    /// starting values, and `None` for a card with no field written.
     pub fn seed_card(&self, card_kind: &str, overlay: Option<&SeedOverlay>) -> Option<Card> {
         seed::seed_card_for_kind(self, card_kind, overlay)
     }
@@ -504,6 +504,10 @@ pub(crate) fn resolve_value_sourced(
             None => (None, FieldSource::Blank),
         },
     };
+    debug_assert!(
+        source != FieldSource::Default || field.namespace_props().is_none(),
+        "a loaded quill refuses a namespace `default:` (`quill::default_on_namespace`)"
+    );
     let (resolved, composed) = compose(entry.as_ref(), field, today);
     (resolved, source.join(composed))
 }
@@ -688,9 +692,8 @@ fn composes_as(entry: Option<&QuillValue>, shape: fn(&serde_json::Value) -> bool
 /// namespaces a schema can spell — a typed dictionary's `properties` and the
 /// live world of a variant container — compose identically.
 ///
-/// A namespace carries no `default:` (`quill::default_on_namespace`), so its
-/// entry is authored or absent, and a member reports `authored` only for a value
-/// the document wrote.
+/// A namespace's entry is never a schema literal, so it is authored or absent,
+/// and a member reports `authored` only for a value the document wrote.
 fn compose_members(
     entry: Option<&serde_json::Map<String, serde_json::Value>>,
     members: &IndexMap<String, Box<FieldSchema>>,

@@ -551,8 +551,8 @@ Two rules follow, and between them the plate is total at every depth:
   it, at any depth. Resolution is therefore a **descent**: the rung supplies a
   cell's *entry*, and the same composition runs over it whichever rung it came
   from. A partial element inside an `array` `default:` is completed against
-  `items` exactly as an authored element is, and writing `contact: {}` is a no-op rather
-  than an edit that changes the render.
+  `items` exactly as an authored element is, and writing `contact: {}` is a
+  no-op rather than an edit that changes the render.
 
 A namespace has no rung of its own, so what
 [`resolve()`](#the-resolved-value-view-resolve) reports for one is derived: see
@@ -848,9 +848,10 @@ Starter content someone chose lives in a template document's own body, or, for
 a card `seed_card` adds, in the main card's `$seed.<kind>.$body`. Persisting a
 `default` would be redundant (the floor interpolates it anyway) and would
 *freeze* it against a later schema change; persisting a blank is forbidden
-([Non-persist invariant](#blank-filled-render)). So a fresh seeded document renders exactly
-as the empty document does, plus its cards, and a split-screen editor/preview
-stays consistent: absent fields resolve identically in both panes.
+([Non-persist invariant](#blank-filled-render)). So a fresh seeded document
+renders exactly as the empty document does, plus its cards, and a split-screen
+editor/preview stays consistent: absent fields resolve identically in both
+panes.
 
 **Seed-commits-rest.** A seeded content value — a `$seed` overlay's content
 field, and its `$body` — commits its codec's resting form (a richtext field and
@@ -883,8 +884,8 @@ unimported markdown. Importing is also checking, so a nested `richtext(inline)`
 violation in a `default:` is a load error there.
 
 - **Composable cards** are seeded one instance per declared kind.
-- **The main card** carries `$quill` and `$kind: main`, so a seeded document round-trips
-  through Markdown like an authored document.
+- **The main card** carries `$quill` and `$kind: main`, so a seeded document
+  round-trips through Markdown like an authored document.
 - **Provenance is untracked in the persisted document.** A seeded overlay
   value is committed as ordinary authored content, indistinguishable from
   hand-authored input; whether it came from seeding or later authoring is not
@@ -895,8 +896,8 @@ violation in a `default:` is a load error there.
   `authored`, being document content.
 
 The blueprint is the annotated form to fill ([BLUEPRINT.md](BLUEPRINT.md)); the
-seeded document is a committed `Document` to edit. Implemented by `Quill::seed_document`
-(with `seed_main` / `seed_card`) in `quillmark-core`.
+seeded document is a committed `Document` to edit. Implemented by
+`Quill::seed_document` (with `seed_main` / `seed_card`) in `quillmark-core`.
 
 ### Per-document seed overlays (`$seed`)
 

@@ -116,10 +116,11 @@ main:
 }
 
 /// The quill authoring contract, which only a render reaches: this plate indexes
-/// a card the seeded document carries and the empty document does not, so `render` and
-/// `validate --no-render` both pass it and the default check does not.
+/// a card the seeded document carries and the empty document does not, so
+/// `render` and `validate --no-render` both pass it and the default check does
+/// not.
 #[test]
-fn validate_renders_the_empty_document_a_seed_render_would_miss() {
+fn validate_renders_the_empty_document_a_seeded_render_would_miss() {
     let dir = quill_with_config(
         r#"quill:
   name: brittle

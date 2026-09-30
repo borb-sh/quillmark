@@ -37,8 +37,8 @@ them.
   the last two; the CLI adds the parse carrier. A render that fails returns no
   warnings, so the CLI prints the first two itself, ahead of the error.
 - **`validate` compiles the plate.** It renders the three canonical documents —
-  the empty document, the blueprint, the seeded document — through the quill's backend at
-  the backend's first declared format, and reports each failure as a
+  the empty document, the blueprint, the seeded document — through the quill's
+  backend at the backend's first declared format, and reports each failure as a
   `cli::canonical_document_failed` error naming which of the three it is,
   followed by the backend's own diagnostics. This is where the quill authoring
   contract reaches a quill outside the fixtures quiver
