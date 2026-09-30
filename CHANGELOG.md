@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.118.0 - 2026-09-30
 
 Upgrade path: [0.117 → 0.118](docs/migrations/0.117-to-0.118.md).
 
@@ -29,6 +29,7 @@ Upgrade path: [0.117 → 0.118](docs/migrations/0.117-to-0.118.md).
   where the new card carried `field:`. (#2016)
 - refactor(cli): `quillmark validate` names `seed_document`'s output
   `seeded` in its render report, where it said `seed`. (#2014)
+
 
 ## v0.117.0 - 2026-09-29
 
