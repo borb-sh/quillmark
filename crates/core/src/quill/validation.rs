@@ -4,7 +4,9 @@ use crate::document::{Document, Payload};
 use crate::error::{Diagnostic, Severity, diag_args};
 use crate::path::DocPath;
 use crate::quill::formats::{format_grammar, is_valid_date, is_valid_datetime};
-use crate::quill::{CardSchema, FieldSchema, FieldType, QuillConfig, VARIANT_DISCRIMINANT_KEY};
+use crate::quill::{
+    CardSchema, FieldSchema, FieldType, QuillConfig, MATRIX_HELD_KEY, VARIANT_DISCRIMINANT_KEY,
+};
 use crate::value::QuillValue;
 
 /// Validation error with a structured field path. A variant carries enough for
@@ -33,6 +35,14 @@ pub enum ValidationError {
         path: String,
         value: String,
         allowed: Vec<String>,
+        /// The domain is an open matrix's: its roster, and any key spelled as a
+        /// member id whose mapping carries a `title`.
+        open: bool,
+    },
+
+    /// A matrix member's mapping storing `held`, the tick its presence is.
+    HeldStored {
+        path: String,
     },
 
     FormatViolation {
@@ -88,10 +98,22 @@ impl std::fmt::Display for ValidationError {
                 path,
                 value,
                 allowed,
+                open,
             } => {
                 write!(
                     f,
                     "field `{path}` value `{value}` not in allowed set {allowed:?}"
+                )?;
+                if *open {
+                    write!(f, ". {}", open_matrix_hint())?;
+                }
+                Ok(())
+            }
+            ValidationError::HeldStored { path } => {
+                write!(
+                    f,
+                    "field `{path}` stores the tick, which is its member's presence: {hint}",
+                    hint = held_stored_hint(),
                 )
             }
             ValidationError::FormatViolation { path, format } => {
@@ -163,6 +185,17 @@ fn not_plain_hint() -> &'static str {
      change the schema's `type:` to `richtext`"
 }
 
+/// Actionable exit clause for an open matrix's `EnumViolation`.
+fn open_matrix_hint() -> &'static str {
+    "Rename the key to a member, or add the item beside the roster: key it by a \
+     snake_case id and give it a `title`."
+}
+
+/// Actionable exit clause for a `HeldStored` error.
+fn held_stored_hint() -> &'static str {
+    "remove the key; removing the member unticks it"
+}
+
 impl ValidationError {
     /// Document-model path anchor for this error.
     ///
@@ -171,6 +204,7 @@ impl ValidationError {
         match self {
             ValidationError::TypeMismatch { path, .. }
             | ValidationError::EnumViolation { path, .. }
+            | ValidationError::HeldStored { path }
             | ValidationError::FormatViolation { path, .. }
             | ValidationError::NotInline { path, .. }
             | ValidationError::NotPlain { path, .. } => path,
@@ -183,6 +217,7 @@ impl ValidationError {
         match self {
             ValidationError::TypeMismatch { .. } => "validation::type_mismatch",
             ValidationError::EnumViolation { .. } => "validation::enum_violation",
+            ValidationError::HeldStored { .. } => "validation::held_stored",
             ValidationError::FormatViolation { .. } => "validation::format_violation",
             ValidationError::NotInline { .. } => "validation::not_inline",
             ValidationError::NotPlain { .. } => "validation::not_plain",
@@ -201,7 +236,8 @@ impl ValidationError {
     /// condition `type_mismatch_hint` branches on, so a consumer picks its
     /// own exit clause from the key's presence instead of re-deriving the
     /// branch. Emitting `null` instead would read as a default spelled `null`.
-    /// `trailingNewline` follows the same rule for `not_inline_hint`.
+    /// `trailingNewline` follows the same rule for `not_inline_hint`, and
+    /// `open` for `open_matrix_hint`.
     pub fn args(&self) -> BTreeMap<String, serde_json::Value> {
         match self {
             ValidationError::TypeMismatch {
@@ -225,10 +261,18 @@ impl ValidationError {
                 path: _,
                 value,
                 allowed,
-            } => diag_args! {
-                "value" => value,
-                "allowed" => allowed,
-            },
+                open,
+            } => {
+                let mut args = diag_args! {
+                    "value" => value,
+                    "allowed" => allowed,
+                };
+                if *open {
+                    args.insert("open".to_string(), serde_json::json!(true));
+                }
+                args
+            }
+            ValidationError::HeldStored { path: _ } => diag_args! {},
             ValidationError::FormatViolation { path: _, format } => diag_args! {
                 "format" => format,
             },
@@ -262,7 +306,10 @@ impl ValidationError {
             } => Some(not_inline_hint(*trailing_newline).to_string()),
             ValidationError::NotPlain { .. } => Some(not_plain_hint().to_string()),
             ValidationError::FormatViolation { format, .. } => Some(format_hint(format)),
-            ValidationError::EnumViolation { .. } => None,
+            ValidationError::EnumViolation { open, .. } => {
+                open.then(|| open_matrix_hint().to_string())
+            }
+            ValidationError::HeldStored { .. } => Some(held_stored_hint().to_string()),
         }
     }
 
@@ -489,37 +536,57 @@ fn validate_value(
             }
             None => false,
         },
-        // A matrix's keys are its domain, so a key naming no member is the
-        // closed-domain violation an out-of-domain enum member is. The members
-        // themselves recurse as the objects they desugar to.
+        // A matrix's keys are its domain, so a key it admits as neither a member
+        // nor an added item is the closed-domain violation an out-of-domain enum
+        // member is. A mapping is held by being present, so it recurses as the
+        // member object minus the tick, which it may not store; a bare scalar is
+        // the tick itself.
         FieldType::Matrix { .. } => match value.as_object() {
             Some(object) => {
-                let members = field.members.as_ref();
                 for (id, member_value) in object {
-                    let Some(member_schema) = members.and_then(|m| m.get(id)) else {
+                    let member_path = path.field(id);
+                    let Some(member_schema) = field.matrix_member(id, member_value) else {
                         errors.push(ValidationError::EnumViolation {
-                            path: path.field(id).to_string(),
+                            path: member_path.to_string(),
                             value: id.clone(),
-                            allowed: members
-                                .map(|m| m.keys().cloned().collect())
-                                .unwrap_or_default(),
+                            allowed: field.r#type.matrix_roster().keys().cloned().collect(),
+                            open: field.r#type.is_open_matrix(),
                         });
                         continue;
                     };
-                    // Through the spelling coercion reads, so the bare scalar a
-                    // sibling's refusal left un-normalized is judged as the
-                    // member object it means rather than as a mis-shaped one.
-                    let Some(spelled) =
-                        super::config::matrix_member_spelling(member_value)
-                    else {
-                        continue;
-                    };
-                    errors.extend(validate_value(
-                        member_schema,
-                        &QuillValue::from_json(serde_json::Value::Object(spelled)),
-                        &path.field(id),
-                        ctx,
-                    ));
+                    let held_path = member_path.field(MATRIX_HELD_KEY);
+                    match member_value {
+                        serde_json::Value::Null => {}
+                        serde_json::Value::Object(cells) => {
+                            if cells.contains_key(MATRIX_HELD_KEY) {
+                                errors.push(ValidationError::HeldStored {
+                                    path: held_path.to_string(),
+                                });
+                            }
+                            let mut cells = cells.clone();
+                            cells.remove(MATRIX_HELD_KEY);
+                            errors.extend(validate_value(
+                                member_schema,
+                                &QuillValue::from_json(serde_json::Value::Object(cells)),
+                                &member_path,
+                                ctx,
+                            ));
+                        }
+                        tick => {
+                            if let Some(held) = member_schema
+                                .properties
+                                .as_ref()
+                                .and_then(|cells| cells.get(MATRIX_HELD_KEY))
+                            {
+                                errors.extend(validate_value(
+                                    held,
+                                    &QuillValue::from_json(tick.clone()),
+                                    &held_path,
+                                    ctx,
+                                ));
+                            }
+                        }
+                    }
                 }
                 true
             }
@@ -633,6 +700,7 @@ fn validate_value(
                     path: path.to_string(),
                     value: actual.to_string(),
                     allowed: values.clone(),
+                    open: false,
                 });
             }
         }
@@ -668,6 +736,7 @@ fn validate_variant(
                 path: at.to_string(),
                 value: member.to_string(),
                 allowed: allowed.to_vec(),
+                open: false,
             });
         }
     };

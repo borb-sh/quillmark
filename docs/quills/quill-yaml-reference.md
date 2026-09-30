@@ -209,7 +209,7 @@ and `Quill::validate` reports nothing about it.
 | `datetime` | A strict offset-less wall-clock datetime `YYYY-MM-DDThh:mm[:ss]`; rejects offsets, the space separator, fractional seconds, and bare dates |
 | `richtext` | Rich, **formatted** prose over a canonical content; backends lower it to the target format. Markdown is its import/export projection. Add `inline: true` for the single-paragraph variant |
 | `object`   | Structured map; requires a `properties:` map |
-| `matrix`   | A closed vocabulary the author ticks; requires a `members:` roster. Each member is an object of a synthesized `held` plus the field's `properties:` (see [Matrix](#matrix-a-vocabulary-the-author-ticks)) |
+| `matrix`   | A vocabulary the author ticks; requires a `members:` roster, and `open: true` lets a document add items. Each member is an object of a synthesized `held` plus the field's `properties:` (see [Matrix](#matrix-a-vocabulary-the-author-ticks)) |
 
 #### Dated by the render: `today`
 
@@ -562,18 +562,19 @@ only. The roster is a mapping, so it has one slot per id and a member cannot be
 declared twice. The two keys the matrix writes itself — `held`, `title` —
 cannot be column names.
 
-A document ticks sparsely, and a bare scalar is the tick:
+A document ticks sparsely. A member is held by being present:
 
 ```yaml
 qualifications:
-  flight_cc: true                                 # held; columns take their defaults
-  dodin_ops: { held: true, detail: "2024" }       # held, with columns
-  sq_cc_candidate: { held: false, detail: kept }  # not held; the detail is kept in the file
+  flight_cc: true                  # held; columns take their defaults
+  dodin_ops: { detail: "2024" }    # held, with columns
+  sq_cc_candidate: false           # not held, as if absent
 ```
 
-A mapping is the member object itself, so one naming no `held` is unticked, its
-columns kept in the file as under any other unticked member. Spell the tick
-beside the column to set both.
+A mapping is held whatever it carries, `{}` included, and a bare scalar is the
+tick. The document never stores `held`: a mapping carrying one fails
+validation (`validation::held_stored`), so untick a member by removing it, and
+its answers go with it.
 
 A member the roster does not declare is refused, as an out-of-domain `enum`
 value is. A mapping has one slot per key, so a member cannot be ticked twice.
@@ -594,8 +595,50 @@ document ticks nothing and the blueprint shows the vocabulary in the field's ann
 `# matrix<sq_cc_candidate | flight_cc | dodin_ops>`, and its columns in a
 leading `# e.g.` line that ticks the first member. And each cell is an
 ordinary address — `qualifications.flight_cc.held` regions on Typst and binds a
-checkbox on acroform — so an editor unticks by writing `held: false` rather than
-by dropping the key, and the detail survives.
+checkbox on acroform.
+
+#### Open rosters: items the author adds
+
+A record rarely fits a fixed vocabulary. `open: true` lets a document add items
+beside the roster, each keyed by a snake_case id of the author's choosing and
+carrying a `title`:
+
+```yaml
+qualifications:
+  type: matrix
+  open: true
+  members: { flight_cc: Flight CC, dodin_ops: DODIN Ops }
+  properties:
+    detail: { type: plaintext, inline: true, default: "" }
+```
+
+```yaml
+qualifications:
+  flight_cc: { detail: UMS Flt/CC }
+  wing_ig: { title: Wing IG, detail: 81 TRW }   # an added item
+```
+
+- An added item is held by being present and takes the same columns a member
+  does. Its `title` is a string, and a key outside the roster with no `title`,
+  or one that is not a snake_case id, is refused (`validation::enum_violation`,
+  hinted toward the added spelling).
+- The plate receives every roster member in roster order, then each added item
+  in document order, `{held: true, title, …columns}`. The loop above prints
+  both. An added item's `title` is a cell with an address, so
+  `ink(m).at("title", default: m.title)` prints it with its click-to-edit
+  region, where `m.title` prints every member's label plainly.
+- The engine does not compare titles: an added item titled as a roster member
+  prints beside it.
+- The ids in the blueprint's `# matrix<…>` annotation are all a model sees of
+  the roster, so on an open matrix name them as their titles read
+  (`joint_qualified_officer`, not `jqo`), or a model adds a duplicate it could
+  have ticked.
+- An id your roster later declares reads as that member, so an item authors
+  added under it becomes the member with no migration; its stored `title` then
+  warns as `validation::unknown_field` until removed.
+- `open` defaults to `false`, and the acroform backend refuses it at load
+  (`quill::open_matrix_unsupported`): a form has no widget for an item a
+  document adds.
 
 Full model: [SCHEMAS.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/SCHEMAS.md#matrix); the wire shape is [PLATE_DATA.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PLATE_DATA.md#a-matrix-field).
 

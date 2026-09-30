@@ -588,7 +588,12 @@ fn compose(
         return (blank(field), FieldSource::Blank);
     }
     match (&field.r#type, field.namespace_props(), &field.items) {
-        (FieldType::Object | FieldType::Matrix { .. }, Some(props), _)
+        (FieldType::Matrix { .. }, Some(members), _)
+            if composes_as(entry, serde_json::Value::is_object) =>
+        {
+            compose_matrix(entry.and_then(|v| v.as_json().as_object()), field, members, today)
+        }
+        (FieldType::Object, Some(props), _)
             if composes_as(entry, serde_json::Value::is_object) =>
         {
             let obj = entry.and_then(|v| v.as_json().as_object());
@@ -604,7 +609,6 @@ fn compose(
                     }
                 }
             }
-            close_matrix_wire(field, &mut out);
             (QuillValue::from_json(serde_json::Value::Object(out)), rung)
         }
         (FieldType::Array, _, Some(items)) if composes_as(entry, serde_json::Value::is_array) => {
@@ -635,11 +639,54 @@ fn is_today(value: &QuillValue, field: &FieldSchema) -> bool {
     matches!(field.r#type, FieldType::Date) && value.as_str() == Some(TODAY)
 }
 
+/// A matrix's plate value: every roster member in roster order, then each added
+/// item in document order. Each composes from its stored spelling read under
+/// presence (`matrix_member_spelling`), so a member present in the document is
+/// held; a key the matrix admits as neither passes verbatim.
+fn compose_matrix(
+    stored: Option<&serde_json::Map<String, serde_json::Value>>,
+    field: &FieldSchema,
+    members: &IndexMap<String, Box<FieldSchema>>,
+    today: CalendarDate,
+) -> (QuillValue, FieldSource) {
+    let spelled: Option<serde_json::Map<String, serde_json::Value>> = stored.map(|stored| {
+        stored
+            .iter()
+            .map(|(key, value)| {
+                let member = super::config::matrix_member_spelling(value)
+                    .map_or_else(|| value.clone(), serde_json::Value::Object);
+                (key.clone(), member)
+            })
+            .collect()
+    });
+    let mut out = serde_json::Map::new();
+    let mut rung = compose_members(spelled.as_ref(), members, today, &mut out);
+    for (key, value) in stored.into_iter().flatten() {
+        if members.contains_key(key) {
+            continue;
+        }
+        let composed = match field.matrix_member(key, value) {
+            Some(item) => {
+                let entry = spelled
+                    .as_ref()
+                    .and_then(|spelled| spelled.get(key))
+                    .map(|v| QuillValue::from_json(v.clone()));
+                let (composed, source) = resolve_value_sourced(entry.as_ref(), item, today);
+                rung = rung.join(source);
+                composed.into_json()
+            }
+            None => value.clone(),
+        };
+        out.insert(key.clone(), composed);
+    }
+    close_matrix_wire(field, &mut out);
+    (QuillValue::from_json(serde_json::Value::Object(out)), rung)
+}
+
 /// Whether a stored matrix member reads as ticked, judged as the ladder judges
-/// it: the spelling coercion reads (`matrix_member_spelling`), with the tick
-/// itself put through the render floor's own boolean coercion. Reading the raw
-/// scalar instead would call `held: "false"` ticked where the plate calls it
-/// unticked.
+/// it: the spelling presence reads (`matrix_member_spelling`), with a bare tick
+/// put through the render floor's own boolean coercion. Reading the raw scalar
+/// instead would call `"false"` ticked where the plate calls it unticked.
 fn is_held(member: &FieldSchema, stored: &serde_json::Value) -> bool {
     let Some(spelled) = super::config::matrix_member_spelling(stored) else {
         return false;
@@ -664,16 +711,15 @@ fn is_held(member: &FieldSchema, stored: &serde_json::Value) -> bool {
     .unwrap_or(false)
 }
 
-/// Write a matrix's roster onto the composed members, and close the wire over
-/// the unheld ones.
+/// Write a matrix's roster onto its roster members, and close the wire over the
+/// unheld ones.
 ///
-/// `title` is the projection's, not the document's: a matrix carries it on every
-/// member whatever the document holds, so a plate reads a label it never has to
-/// look up. An unheld member's columns render at their blanks for the reason a
-/// variant's unselected world does not render at all — the wire carries the live
-/// world only, so a plate reads `held` and its columns without a guard and never
-/// prints a stranded answer. What the document retains under an unticked member
-/// is a fact about the stored form alone.
+/// A roster member's `title` is the projection's, not the document's, so a plate
+/// reads a label it never has to look up. An added item carries its own and is
+/// held by being present, so neither half touches one. An unheld member's
+/// columns render at their blanks, never their defaults, for the reason a
+/// variant's unselected world does not render at all: the wire carries the live
+/// world only, so a plate reads `held` and its columns without a guard.
 ///
 /// A no-op for every other type.
 fn close_matrix_wire(field: &FieldSchema, out: &mut serde_json::Map<String, serde_json::Value>) {
@@ -916,9 +962,11 @@ fn collect_unknown_keys(
 }
 
 /// The unknown-key walk below one declared field, over the namespaces its value
-/// opens: a typed dictionary, a matrix member, an array's elements, the live
-/// world of a variant container. A key some other world declares is
-/// `out_of_variant`'s, and a matrix key naming no member `enum_violation`'s.
+/// opens: a typed dictionary, a matrix member or added item, an array's
+/// elements, the live world of a variant container. A key some other world
+/// declares is `out_of_variant`'s, a matrix key the matrix admits as neither a
+/// member nor an added item `enum_violation`'s, and a stored `held`
+/// `held_stored`'s.
 fn collect_unknown_in(
     field: &FieldSchema,
     json: &serde_json::Value,
@@ -944,16 +992,18 @@ fn collect_unknown_in(
         collect_unknown_keys(&declared, &authored, path, out);
         return;
     }
-    if let (FieldType::Matrix { .. }, Some(members)) = (&field.r#type, field.namespace_props()) {
+    if matches!(field.r#type, FieldType::Matrix { .. }) {
         let Some(object) = json.as_object() else { return };
+        let roster = field.r#type.matrix_roster();
         for (id, cell) in object {
-            let (Some(member), Some(mut spelled)) =
-                (members.get(id), super::config::matrix_member_spelling(cell))
-            else {
+            let (Some(member), Some(mut spelled)) = (
+                field.matrix_member(id, cell),
+                super::config::matrix_member_spelling(cell),
+            ) else {
                 continue;
             };
             let member_path = path.field(id);
-            if spelled.remove(MATRIX_TITLE_KEY).is_some() {
+            if roster.contains_key(id) && spelled.remove(MATRIX_TITLE_KEY).is_some() {
                 out.push(matrix_title_warning(&member_path.field(MATRIX_TITLE_KEY)));
             }
             collect_unknown_in(member, &serde_json::Value::Object(spelled), &member_path, out);
@@ -1282,27 +1332,28 @@ fn collect_cardinality_diags(
         return;
     }
 
-    if let Some(props) = field.namespace_props() {
+    if matches!(field.r#type, FieldType::Matrix { .. }) {
         let Some(object) = json.as_object() else { return };
         // An unticked matrix member reaches the page at its blanks, so nothing
         // it stores can overflow one.
-        let matrix = matches!(field.r#type, FieldType::Matrix { .. });
+        for (key, cell) in object {
+            let Some(member) = field.matrix_member(key, cell).filter(|m| is_held(m, cell)) else {
+                continue;
+            };
+            let Some(spelled) = super::config::matrix_member_spelling(cell) else {
+                continue;
+            };
+            let spelled = QuillValue::from_json(serde_json::Value::Object(spelled));
+            collect_cardinality_diags(member, Some(&spelled), &path.field(key), out);
+        }
+        return;
+    }
+
+    if let Some(props) = field.namespace_props() {
+        let Some(object) = json.as_object() else { return };
         for (name, prop) in props {
             let Some(cell) = object.get(name) else { continue };
-            let cell = match matrix {
-                false => QuillValue::from_json(cell.clone()),
-                true => {
-                    if !is_held(prop, cell) {
-                        continue;
-                    }
-                    match super::config::matrix_member_spelling(cell) {
-                        Some(spelled) => {
-                            QuillValue::from_json(serde_json::Value::Object(spelled))
-                        }
-                        None => continue,
-                    }
-                }
-            };
+            let cell = QuillValue::from_json(cell.clone());
             collect_cardinality_diags(prop, Some(&cell), &path.field(name), out);
         }
         return;
@@ -1469,7 +1520,7 @@ card_kinds:
         let md = "~~~\n$quill: uk@1.0.0\n$kind: main\nsecretery: Grace Hopper\n\
                   outcome: { value: motion, presenter: P, extra: Z }\nmoved_by: Ada\n\
                   address: { stret: Main }\nrows:\n  - { nme: A }\n\
-                  quals:\n  flight_cc: { held: true, detial: x }\n~~~\n\n\
+                  quals:\n  flight_cc: { detial: x }\n~~~\n\n\
                   ~~~\n$kind: item\npresentr: Alan Turing\n~~~\n";
         let doc = Document::parse(md).expect("parse").document;
 

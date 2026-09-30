@@ -8,7 +8,7 @@
 use indexmap::IndexMap;
 
 use super::{
-    CardSchema, FieldSchema, FieldType, QuillConfig, VariantFields, MATRIX_HELD_KEY,
+    CardSchema, FieldSchema, FieldType, QuillConfig, VariantFields, MATRIX_TITLE_KEY,
     VARIANT_DISCRIMINANT_KEY,
 };
 use crate::document::emit::{emit_mapping_lines, saphyr_emit_flow};
@@ -219,21 +219,43 @@ fn matrix_cell() -> JsonValue {
     JsonValue::Object(JsonMap::new())
 }
 
-/// The `# e.g.` text for a matrix declaring columns: its first member held,
-/// each column at [`column_hint`]. A checklist has no line, the bare tick being
-/// its whole spelling.
+/// The placeholder id an open matrix's `# e.g.` line keys its added item by.
+const ADDED_ITEM_EG: &str = "new_item";
+
+/// The `# e.g.` text for a matrix declaring columns or open: its first member
+/// held, each column at [`column_hint`], then on an open matrix an added item
+/// keyed [`ADDED_ITEM_EG`] with its `title` beside the columns. A closed
+/// checklist has no line, the bare tick being its whole spelling.
 fn matrix_eg(field: &FieldSchema) -> Option<String> {
     let columns = field.matrix_columns();
-    if columns.is_empty() {
+    let open = field.r#type.is_open_matrix();
+    if columns.is_empty() && !open {
         return None;
     }
     let first = field.r#type.matrix_roster().keys().next()?;
-    let cells: Vec<String> = std::iter::once(format!("{MATRIX_HELD_KEY}: true"))
-        .chain(columns.iter().map(|(name, col)| {
-            format!("{}: {}", flow_scalar(name), column_hint(col))
-        }))
-        .collect();
-    Some(format!("{{{}: {{{}}}}}", flow_scalar(first), cells.join(", ")))
+    let cells = |title: Option<&FieldSchema>| -> Vec<String> {
+        title
+            .map(|t| (MATRIX_TITLE_KEY, t))
+            .into_iter()
+            .chain(columns.iter().map(|(name, col)| (name.as_str(), col.as_ref())))
+            .map(|(name, col)| format!("{}: {}", flow_scalar(name), column_hint(col)))
+            .collect()
+    };
+    let member = cells(None);
+    let held = if member.is_empty() {
+        "true".to_string()
+    } else {
+        format!("{{{}}}", member.join(", "))
+    };
+    let mut members = vec![format!("{}: {held}", flow_scalar(first))];
+    let title = field
+        .added_item
+        .as_deref()
+        .and_then(|item| item.properties.as_ref()?.get(MATRIX_TITLE_KEY));
+    if let Some(title) = title {
+        members.push(format!("{ADDED_ITEM_EG}: {{{}}}", cells(Some(title)).join(", ")));
+    }
+    Some(format!("{{{}}}", members.join(", ")))
 }
 
 /// One column's value in a matrix hint: `default:` › its container shape ›

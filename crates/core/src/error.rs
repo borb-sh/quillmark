@@ -722,6 +722,10 @@ mod args_canon {
                 path: "main.tone".into(),
                 value: "loud".into(),
                 allowed: vec!["quiet".into()],
+                open: true,
+            },
+            ValidationError::HeldStored {
+                path: "main.quals.dco.held".into(),
             },
             ValidationError::FormatViolation {
                 path: "main.when".into(),

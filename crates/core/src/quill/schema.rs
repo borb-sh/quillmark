@@ -31,7 +31,9 @@ pub const QUILLMARK_BLANK_TITLE_KEY: &str = "quillmark:blank_title";
 /// plate iterates it: a `matrix`'s roster. The backend's dictionary keys sort,
 /// so a reorder-only update rebuilds byte-identical source; this order is a
 /// property of the schema rather than of the data, so honoring it costs that
-/// nothing and is what makes a matrix's declaration order reach the page.
+/// nothing and is what makes a matrix's declaration order reach the page. The
+/// keys it does not name, an open matrix's added items, trail in document
+/// order, which is theirs to carry.
 pub const QUILLMARK_ORDER_KEY: &str = "quillmark:order";
 
 /// The `{type: string, enum: ["", …]}` an enum projects to: a plain enum's own
@@ -214,9 +216,10 @@ pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
                 }
             }
             // The desugared members, so `qualifications.flight_cc.held` resolves
-            // as any typed dictionary's leaf does. `title` is written by the
-            // projection rather than held as a cell, so it carries no address
-            // and stays out.
+            // as any typed dictionary's leaf does. A roster member's `title` is
+            // written by the projection rather than held as a cell, so it
+            // carries no address and stays out. An open matrix's added items
+            // are `additionalProperties`, where `title` is a cell.
             FieldType::Matrix { .. } => {
                 schema.insert(
                     "type".to_string(),
@@ -237,6 +240,9 @@ pub fn build_transform_schema(config: &QuillConfig) -> QuillValue {
                         ),
                     );
                     schema.insert("properties".to_string(), serde_json::Value::Object(props));
+                }
+                if let Some(item) = &field.added_item {
+                    schema.insert("additionalProperties".to_string(), field_to_schema(item));
                 }
             }
             // Distinct markers for the two date types drive the Typst backend's

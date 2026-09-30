@@ -17,9 +17,9 @@ department: "" # string
 ~~~
 ```
 
-Two annotation slots, disjoint by purpose: **leading `# …` lines** carry prose (the field's `title` and description as `# <title> — <description>`) plus an `array`'s `# up to <N>` cap; the **inline `# …`** at the end of a value line carries structure, the field's `# <type>[<format>]`. A closed vocabulary shows its whole roster there — `# matrix<flight_cc | dodin_ops>` — so a reader can tick a member without looking the schema up, and cannot invent one.
+Two annotation slots, disjoint by purpose: **leading `# …` lines** carry prose (the field's `title` and description as `# <title> — <description>`) plus an `array`'s `# up to <N>` cap; the **inline `# …`** at the end of a value line carries structure, the field's `# <type>[<format>]`. A matrix shows its whole roster there — `# matrix<flight_cc | dodin_ops>` — so a reader can tick a member without looking the schema up.
 
-A matrix with columns adds an `# e.g.` line spelling one held member, `{flight_cc: {held: true, detail: …}}`, which names every column. Each column shows its `default:`, else its container shape, else its `<type>[<format>]`. The member it picks is only an illustration, and this is the only `# e.g.` line a blueprint emits.
+A matrix with columns adds an `# e.g.` line spelling one present member, `{flight_cc: {detail: …}}`, which names every column; an open matrix adds an item after it, `new_item: {title: string, …}`, the spelling of one a document adds. Each column shows its `default:`, else its container shape, else its `<type>[<format>]`. The members it shows are only an illustration, and this is the only `# e.g.` line a blueprint emits.
 
 A card's own title and description ride its `$kind` line's inline slot, `$kind: note # <title> — <description>`, so neither reads as the first field's.
 

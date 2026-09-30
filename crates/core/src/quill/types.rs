@@ -303,21 +303,26 @@ pub enum FieldType {
     /// A closed string domain, `values` in declaration order. The blank (`""`)
     /// is accepted beside them and is never one of them.
     Enum { values: Vec<String> },
-    /// A closed vocabulary someone ticks: `roster` is member id to display
-    /// title in declaration order, and every member holds a synthesized
-    /// [`MATRIX_HELD_KEY`] beside the field's declared columns. A namespace,
-    /// not a cell (`prose/canon/SCHEMAS.md` §"Cells and namespaces").
-    Matrix { roster: IndexMap<String, String> },
+    /// A vocabulary someone ticks: `roster` is member id to display title in
+    /// declaration order, and every member holds a synthesized
+    /// [`MATRIX_HELD_KEY`] beside the field's declared columns. `open` admits
+    /// items a document adds beside the roster. A namespace, not a cell
+    /// (`prose/canon/SCHEMAS.md` §"Cells and namespaces").
+    Matrix {
+        roster: IndexMap<String, String>,
+        open: bool,
+    },
 }
 
 /// The tick a [`FieldType::Matrix`] synthesizes on every member, beside the
-/// declared columns. Reserved: a column may not declare it
-/// (`quill::matrix_reserved_column`).
+/// declared columns: the member's presence in the document, which the
+/// projection writes and a document never stores (`validation::held_stored`).
+/// Reserved: a column may not declare it (`quill::matrix_reserved_column`).
 pub const MATRIX_HELD_KEY: &str = "held";
 
-/// The per-member wire key a matrix projection writes from its roster. Not a
-/// cell: it carries no address, takes no literal, and a document authoring one
-/// is overwritten at the projection.
+/// The per-member wire key carrying a member's label. A roster member's is the
+/// projection's, written from the roster with no address, and a document
+/// authoring one is overwritten; an added item's is its own `string` cell.
 pub const MATRIX_TITLE_KEY: &str = "title";
 
 /// The member keys a matrix writes itself, and which a column may therefore not
@@ -344,6 +349,7 @@ impl FieldType {
             "enum" => Some(FieldType::Enum { values: Vec::new() }),
             "matrix" => Some(FieldType::Matrix {
                 roster: IndexMap::new(),
+                open: false,
             }),
             _ => None,
         }
@@ -396,9 +402,15 @@ impl FieldType {
     pub fn matrix_roster(&self) -> &IndexMap<String, String> {
         static EMPTY: std::sync::OnceLock<IndexMap<String, String>> = std::sync::OnceLock::new();
         match self {
-            FieldType::Matrix { roster } => roster,
+            FieldType::Matrix { roster, .. } => roster,
             _ => EMPTY.get_or_init(IndexMap::new),
         }
+    }
+
+    /// Whether this is a matrix admitting items a document adds beside its
+    /// roster.
+    pub fn is_open_matrix(&self) -> bool {
+        matches!(self, FieldType::Matrix { open: true, .. })
     }
 }
 
@@ -505,6 +517,10 @@ pub struct FieldSchema {
     /// [`FieldType::Matrix`] roster and `properties:` (the columns), which stay
     /// the authored carriers, so it is not serialized.
     pub members: Option<IndexMap<String, Box<FieldSchema>>>,
+    /// An open `matrix`'s added item as the object schema it desugars to,
+    /// `{held, title, …columns}`, its `title` a `string` cell. Derived beside
+    /// [`members`](Self::members), and not serialized.
+    pub added_item: Option<Box<FieldSchema>>,
     /// Canonical-content form of [`default`](Self::default) for a
     /// content-bearing field, imported once at quill load and never serialized.
     /// The render floor commits it uncoerced, so a content default crosses the
@@ -538,6 +554,9 @@ struct FieldSchemaDef {
     /// The roster of a `type: matrix` field, and the only spelling of one.
     /// Lands in the [`FieldType::Matrix`] payload.
     pub members: Option<IndexMap<String, String>>,
+    /// Whether a `type: matrix` field admits items a document adds. Lands in
+    /// the [`FieldType::Matrix`] payload.
+    pub open: Option<bool>,
 }
 
 impl FieldSchema {
@@ -555,6 +574,7 @@ impl FieldSchema {
             items: None,
             max: None,
             members: None,
+            added_item: None,
             default_content: None,
         }
     }
@@ -627,7 +647,7 @@ impl FieldSchema {
         let optional = def.r#type.optional;
         let r#type = Self::resolve_prose_inline(def.r#type.r#type, def.inline)?;
         let r#type = Self::resolve_enum_domain(r#type, def.values)?;
-        let r#type = Self::resolve_matrix_roster(r#type, def.members)?;
+        let r#type = Self::resolve_matrix_roster(r#type, def.members, def.open)?;
         let max = Self::resolve_array_max(&r#type, def.max)?;
         let schema = Self {
             name: key.clone(),
@@ -682,6 +702,7 @@ impl FieldSchema {
             },
             max,
             members: None,
+            added_item: None,
             // Filled by the loader's post-pass, which alone imports and
             // validates the literals; a bare `from_quill_value` leaves them empty.
             default_content: None,
@@ -693,7 +714,8 @@ impl FieldSchema {
 
     /// Expand a `matrix`'s roster into the per-member object schemas every
     /// container walk reads: one `object` per member id, carrying
-    /// [`MATRIX_HELD_KEY`] beside the declared columns.
+    /// [`MATRIX_HELD_KEY`] beside the declared columns, and on an open matrix
+    /// the added item, which carries a [`MATRIX_TITLE_KEY`] cell besides.
     ///
     /// The members are copies of the columns, so the loader re-expands once its
     /// content companions are imported.
@@ -703,13 +725,16 @@ impl FieldSchema {
             return Ok(());
         }
         let columns = self.properties.clone().unwrap_or_default();
-        let mut members = IndexMap::new();
-        for id in ids {
+        let member = |name: &str, title: bool| {
             let mut cells: IndexMap<String, Box<FieldSchema>> = IndexMap::new();
             let mut held =
                 FieldSchema::new(MATRIX_HELD_KEY.to_string(), FieldType::Boolean, None);
             held.default = Some(QuillValue::from_json(serde_json::Value::Bool(false)));
             cells.insert(MATRIX_HELD_KEY.to_string(), Box::new(held));
+            if title {
+                let title = FieldSchema::new(MATRIX_TITLE_KEY.to_string(), FieldType::String, None);
+                cells.insert(MATRIX_TITLE_KEY.to_string(), Box::new(title));
+            }
             // A column spelling a reserved name is `quill::matrix_reserved_column`
             // at load; what the matrix writes itself stands whatever else the
             // shape pass finds.
@@ -719,12 +744,31 @@ impl FieldSchema {
             {
                 cells.insert(name.clone(), column.clone());
             }
-            let mut member = FieldSchema::new(id.clone(), FieldType::Object, None);
+            let mut member = FieldSchema::new(name.to_string(), FieldType::Object, None);
             member.properties = Some(cells);
-            members.insert(id, Box::new(member));
-        }
-        self.members = Some(members);
+            Box::new(member)
+        };
+        self.members = Some(ids.iter().map(|id| (id.clone(), member(id, false))).collect());
+        self.added_item = self.r#type.is_open_matrix().then(|| member(&self.name, true));
         Ok(())
+    }
+
+    /// The member schema a matrix key composes under, judged on its stored
+    /// value: the roster member's, else, on an open matrix, the added item's
+    /// for a key spelled as a member id whose mapping carries a `title`.
+    /// `None` for a key neither admits, which is outside the matrix's domain
+    /// (`validation::enum_violation`), and on every other type.
+    pub fn matrix_member(&self, key: &str, stored: &serde_json::Value) -> Option<&FieldSchema> {
+        if let Some(member) = self.members.as_ref().and_then(|m| m.get(key)) {
+            return Some(member);
+        }
+        let titled = stored
+            .as_object()
+            .and_then(|m| m.get(MATRIX_TITLE_KEY))
+            .is_some_and(|title| !title.is_null());
+        self.added_item
+            .as_deref()
+            .filter(|_| titled && super::QuillConfig::is_snake_case_identifier(key))
     }
 
     /// The namespace a container field composes its value from: a typed
@@ -796,25 +840,35 @@ impl FieldSchema {
         }
     }
 
-    /// Fold the sibling `members:` key into the [`FieldType::Matrix`] payload:
-    /// `type: matrix` requires a roster naming at least one member, and
-    /// `members:` elsewhere is an error.
+    /// Fold the sibling `members:` and `open:` keys into the
+    /// [`FieldType::Matrix`] payload: `type: matrix` requires a roster naming at
+    /// least one member, and either key elsewhere is an error.
     fn resolve_matrix_roster(
         r#type: FieldType,
         members: Option<IndexMap<String, String>>,
+        open: Option<bool>,
     ) -> Result<FieldType, String> {
         match (r#type, members) {
             (FieldType::Matrix { .. }, Some(roster)) if !roster.is_empty() => {
-                Ok(FieldType::Matrix { roster })
+                Ok(FieldType::Matrix {
+                    roster,
+                    open: open.unwrap_or(false),
+                })
             }
             (FieldType::Matrix { .. }, _) => Err(
                 "type: matrix requires a members: roster naming at least one member".to_string(),
             ),
-            (other, Some(_)) => Err(format!(
-                "members: is only valid on type: matrix, not on type: {}",
-                other.as_str()
-            )),
-            (other, None) => Ok(other),
+            (other, members) => match (members, open) {
+                (None, None) => Ok(other),
+                (Some(_), _) => Err(format!(
+                    "members: is only valid on type: matrix, not on type: {}",
+                    other.as_str()
+                )),
+                (None, Some(_)) => Err(format!(
+                    "open: is only valid on type: matrix, not on type: {}",
+                    other.as_str()
+                )),
+            },
         }
     }
 
@@ -846,9 +900,10 @@ impl Serialize for FieldSchema {
             _ => None,
         };
         let roster = match &self.r#type {
-            FieldType::Matrix { roster } => Some(roster),
+            FieldType::Matrix { roster, .. } => Some(roster),
             _ => None,
         };
+        let open = self.r#type.is_open_matrix().then_some(true);
         let len = 1
             + inline.is_some() as usize
             + self.title.is_some() as usize
@@ -857,6 +912,7 @@ impl Serialize for FieldSchema {
             + self.ui.is_some() as usize
             + values.is_some() as usize
             + roster.is_some() as usize
+            + open.is_some() as usize
             + self.variants.is_some() as usize
             + self.properties.is_some() as usize
             + self.items.is_some() as usize
@@ -887,6 +943,9 @@ impl Serialize for FieldSchema {
         }
         if let Some(v) = roster {
             map.serialize_entry("members", v)?;
+        }
+        if let Some(v) = open {
+            map.serialize_entry("open", &v)?;
         }
         if let Some(v) = &self.variants {
             map.serialize_entry("variants", v)?;

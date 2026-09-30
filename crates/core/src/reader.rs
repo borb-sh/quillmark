@@ -275,10 +275,15 @@ fn project_value(
             }
             Ok(serde_json::Value::Array(out))
         }
-        (FieldType::Object | FieldType::Matrix { .. }, serde_json::Value::Object(map)) => {
+        (FieldType::Object, serde_json::Value::Object(map)) => {
             let props = schema.namespace_props();
             project_map(name, map, at, |key| {
                 props.and_then(|p| p.get(key)).map(|s| &**s)
+            })
+        }
+        (FieldType::Matrix { .. }, serde_json::Value::Object(map)) => {
+            project_map(name, map, at, |key| {
+                map.get(key).and_then(|stored| schema.matrix_member(key, stored))
             })
         }
         // Which world is live is a value-time fact, so the walk unions the
@@ -349,16 +354,22 @@ fn schema_at<'a>(
         };
         cursor = match (&cursor.r#type, seg) {
             (FieldType::Array, PathSegment::Index(_)) => cursor.items.as_deref().ok_or(blocked)?,
+            // An open matrix's key past its roster is an added item's, whose
+            // stored value this schema walk does not read.
             (FieldType::Object | FieldType::Matrix { .. }, PathSegment::Key(key)) => match cursor
                 .namespace_props()
             {
                 None => return Err(blocked),
-                Some(props) => props.get(key).ok_or_else(|| EditError::UnknownField {
-                    field: name.to_string(),
-                    // Through the failed step, not up to it: the anchor names the
-                    // undeclared property, not the object holding it.
-                    at: at[..=depth].to_vec(),
-                })?,
+                Some(props) => props
+                    .get(key)
+                    .map(Box::as_ref)
+                    .or(cursor.added_item.as_deref())
+                    .ok_or_else(|| EditError::UnknownField {
+                        field: name.to_string(),
+                        // Through the failed step, not up to it: the anchor names
+                        // the undeclared property, not the object holding it.
+                        at: at[..=depth].to_vec(),
+                    })?,
             },
             // Which world is live is a value-time fact, so the walk unions the
             // worlds: a dormant cell resolves here and reads absent at

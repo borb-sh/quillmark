@@ -44,33 +44,42 @@ One rule governs the lowering, at every depth: **a declared type means the same 
 #### A `matrix` field
 
 A matrix reaches the plate **total**: an ordered mapping carrying every declared
-member, keyed by member id in roster order, whatever the document ticked. Order
-is the one place a matrix departs from the canonical emission below: dict keys
-otherwise sort, so the transform schema carries the roster as `quillmark:order`
-on the matrix node and the codegen emits those keys in it. The order is a
-property of the schema, never of the data, so equal data still produces
-byte-equal source.
+member, keyed by member id in roster order, whatever the document ticked, then
+each item an open matrix's document adds, in document order. Order is the one
+place a matrix departs from the canonical emission below: dict keys otherwise
+sort, so the transform schema carries the roster as `quillmark:order` on the
+matrix node and the codegen emits those keys in it. The roster's order is a
+property of the schema, so equal data produces byte-equal source; the added
+items' order is the document's, as `$cards` order is.
 
 ```json
 "qualifications": {
   "flight_cc":  { "held": true,  "title": "Flight CC", "detail": {…} },
-  "dodin_ops":  { "held": false, "title": "DODIN Ops", "detail": {…} }
+  "dodin_ops":  { "held": false, "title": "DODIN Ops", "detail": {…} },
+  "wing_ig":    { "held": true,  "title": "Wing IG",   "detail": {…} }
 }
 ```
 
-- `held` is the tick, a boolean the schema synthesizes on every member.
-- `title` comes from the roster, not from the document, so a plate prints the
-  vocabulary without holding a second copy of it.
+- `held` is the tick, a boolean the schema synthesizes on every member: its
+  presence in the document.
+- A roster member's `title` comes from the roster, not from the document, so a
+  plate prints the vocabulary without holding a second copy of it. An added
+  item's is its own `string` cell.
 - The remaining keys are the field's declared columns, each at its declared
   type.
-- **The wire carries the live world only**: an unheld member's columns are their
-  blanks whatever the document retains, so `member.detail` reads without a guard
-  and never prints a stranded answer.
+- **The wire carries the live world only**: an unheld member's columns are
+  their blanks, so `member.detail` reads without a guard.
 
 Member cells are ordinary addresses: `qualifications.flight_cc.held` regions and
-binds like any leaf. Each member carries its own `$ink`; the matrix, holding only
-members, carries none, so its keys are exactly its roster. `title` is written by the projection rather than held as a
-cell, so it carries none.
+binds like any leaf. Each member carries its own `$ink`; the matrix, holding
+only members, carries none, so its keys are exactly its roster and its added
+items. A roster member's `title` is written by the projection rather than held
+as a cell, so it carries none, where an added item's does: `ink(m).title`
+exists on an added item alone, and a plate printing every member's label reads
+`m.title`, or `ink(m).at("title", default: m.title)` for the added item's
+region. The transform schema declares the added item as the matrix node's
+`additionalProperties`, which the lowering walk reads for every key the roster
+does not name.
 
 ## Typst Helper Package
 
@@ -105,7 +114,7 @@ Helper contents (generated in `backends/typst/helper.rs` from `lib.typ.template`
   | `contentMediaType: application/quillmark-content+json` | a `#let _qm_cN = [ .. ]` markup block the data cell references (blank ⇒ `""`) | — |
   | `format: date` / `date-time` | `datetime(year:, month:, day:)` / the six-component form, authored wall-clock, seconds zero-filled (blank ⇒ `none`) | — |
   | `type: array` | a Typst array | each element against `items`, at `{path}.{i}` |
-  | `type: object` with `properties` | a Typst dict, keys sorted unless the node carries `quillmark:order` | each value against `properties[key]`, at `{path}.{key}` |
+  | `type: object` with `properties` | a Typst dict, keys sorted unless the node carries `quillmark:order` | each value against `properties[key]`, else `additionalProperties`, at `{path}.{key}` |
   | anything else, and any key the schema does not declare | its value literal | — |
 
   The dispatch is a node test, never a table of names, which is what makes it
@@ -217,6 +226,11 @@ declared address resolves however much of its container the document left out:
 `data.contact.address.city` is a direct read, never a guarded one. This is the
 converse of the `$`-metadata rule above — those keys are read with a total
 accessor *because* they may be absent, and a declared field may not be.
+
+An open matrix's added item is a key the document declares, not the schema, so
+each render's address tree admits the ids that render carries
+(`qualifications.wing_ig.title`) as the property steps they are, and no other.
+The grammar is unchanged, and so is the rule.
 
 Cards carry their canonical prefix as `$path`, so a plate composes a card
 address without reimplementing the kind+ordinal grammar:

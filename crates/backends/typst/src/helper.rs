@@ -11,7 +11,8 @@
 //! caller's field order. `$cards` array order is semantic and preserved. A node
 //! whose *schema* fixes a key order says so with `quillmark:order` and gets it
 //! ([`ordered`]); that order is a property of the schema, so byte-equality holds
-//! there too.
+//! there too. An open matrix's added items trail it in document order, which is
+//! semantic as `$cards`' is.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -57,6 +58,7 @@ pub fn generate_lib_typ(
         return Err(e);
     }
     let display_literal = display_literal(&cg.display);
+    let meta_literal = meta.meta_literal(data);
 
     // Placeholders are located in the *raw template* (trusted static text), never
     // in already-substituted output, so document data spelling a placeholder
@@ -69,7 +71,7 @@ pub fn generate_lib_typ(
     let mut data_at = 0usize;
     for (slot, value) in [
         ("{version}", HELPER_VERSION),
-        ("{meta_literal}", meta.meta_literal()),
+        ("{meta_literal}", &meta_literal),
         ("{content_blocks}", cg.blocks.as_str()),
         ("{data_literal}", data_literal.src.as_str()),
         ("{display_literal}", display_literal.as_str()),
@@ -343,10 +345,11 @@ impl<'m> Codegen<'m> {
                 });
                 (Frag::wrap(exprs, "()"), ink)
             }
-            (Lower::Object(props, order), serde_json::Value::Object(obj)) => {
+            (Lower::Object(props, order, added), serde_json::Value::Object(obj)) => {
                 let mut dict = Container::default();
                 for (key, elem) in ordered(obj, &order) {
-                    let lowered = self.emit_value(&format!("{path}.{key}"), props.get(key), elem);
+                    let node = props.get(key).or(added);
+                    let lowered = self.emit_value(&format!("{path}.{key}"), node, elem);
                     dict.push(key, lowered);
                 }
                 (dict.finish(Some(&format!("{path}."))), None)
@@ -517,9 +520,15 @@ enum Lower<'a> {
     Date(DateKind),
     /// The element node, absent where an array declares no `items`.
     Array(Option<&'a serde_json::Value>),
-    /// The declared members, and the key order the schema fixes for them
-    /// (`quillmark:order`), empty where it fixes none.
-    Object(&'a serde_json::Map<String, serde_json::Value>, Vec<&'a str>),
+    /// The declared members, the key order the schema fixes for them
+    /// (`quillmark:order`, empty where it fixes none), and the node every key
+    /// they do not name lowers against (`additionalProperties`, an open
+    /// matrix's added item).
+    Object(
+        &'a serde_json::Map<String, serde_json::Value>,
+        Vec<&'a str>,
+        Option<&'a serde_json::Value>,
+    ),
     /// Every other declared type, plus every data key the schema does not
     /// declare and every container declaring no members to recurse on.
     Native,
@@ -545,7 +554,11 @@ fn lowering(node: Option<&serde_json::Value>) -> Lower<'_> {
         // A richtext node is `type: object` too, and the media type claimed it
         // above.
         Some("object") => match node.get("properties").and_then(|v| v.as_object()) {
-            Some(props) => Lower::Object(props, declared_order(node)),
+            Some(props) => Lower::Object(
+                props,
+                declared_order(node),
+                node.get("additionalProperties").filter(|v| v.is_object()),
+            ),
             None => Lower::Native,
         },
         _ => Lower::Native,
@@ -662,10 +675,11 @@ fn declared_order(node: &serde_json::Value) -> Vec<&str> {
 }
 
 /// `obj`'s entries in the schema's declared order where it declares one, keys it
-/// does not name trailing in sorted order; [`sorted`] otherwise.
+/// does not name trailing in the data's own order; [`sorted`] otherwise.
 ///
-/// The order comes from the schema, never from the data, so the generated source
-/// stays a pure function of the data's values and comemo's reuse is untouched.
+/// The declared order comes from the schema, so a reorder-only update leaves the
+/// source byte-equal. The trailing keys are an open matrix's added items, whose
+/// document order is the order a plate prints them in.
 fn ordered<'a>(
     obj: &'a serde_json::Map<String, serde_json::Value>,
     order: &[&str],
@@ -677,7 +691,7 @@ fn ordered<'a>(
         .iter()
         .filter_map(|id| obj.get_key_value(*id))
         .collect();
-    entries.extend(sorted(obj).into_iter().filter(|(k, _)| !order.contains(&k.as_str())));
+    entries.extend(obj.iter().filter(|(k, _)| !order.contains(&k.as_str())));
     entries
 }
 
@@ -1077,6 +1091,65 @@ mod tests {
             lib.contains("\"props\": (\"refs\": (\"item\": (:),), \"subject\": (:),)"),
             "{lib}"
         );
+    }
+
+    /// An open matrix's added items lower against `additionalProperties`, trail
+    /// the roster in document order, and join this render's address tables as
+    /// the property steps they are.
+    #[test]
+    fn an_open_matrix_lowers_and_admits_its_added_items() {
+        let member = |title: bool| {
+            let mut props = serde_json::json!({
+                "held": { "type": "boolean" },
+                "detail": richtext_field(),
+            });
+            if title {
+                props["title"] = serde_json::json!({ "type": "string" });
+            }
+            serde_json::json!({ "type": "object", "properties": props })
+        };
+        let meta = meta_from(serde_json::json!({
+            "properties": {
+                "quals": {
+                    "type": "object",
+                    "quillmark:order": ["dco", "cyber"],
+                    "properties": { "dco": member(false), "cyber": member(false) },
+                    "additionalProperties": member(true),
+                }
+            }
+        }));
+        let data = serde_json::json!({
+            "quals": {
+                "dco": { "held": true, "title": "DCO", "detail": content("") },
+                "cyber": { "held": false, "title": "Cyber", "detail": content("") },
+                "wing_ig": { "held": true, "title": "Wing IG", "detail": content("81 TRW") },
+                "aide": { "held": true, "title": "Aide", "detail": content("") },
+            }
+        });
+        let (lib, windows) = generate_lib_typ(&data, &meta).unwrap();
+
+        let at = |key: &str| {
+            lib.find(&format!("\"{key}\": {{"))
+                .unwrap_or_else(|| panic!("{key} in {lib}"))
+        };
+        assert!(
+            at("dco") < at("cyber") && at("cyber") < at("wing_ig") && at("wing_ig") < at("aide"),
+            "{lib}"
+        );
+        let paths: Vec<&str> = windows.iter().map(|w| w.path.as_str()).collect();
+        for path in ["quals.wing_ig.detail", "quals.wing_ig.title"] {
+            assert!(paths.contains(&path), "{path} in {paths:?}");
+        }
+
+        let tables = |lib: &str| {
+            lib.lines()
+                .find(|l| l.starts_with("#let _qm-meta"))
+                .expect("the address tables")
+                .to_string()
+        };
+        assert!(tables(&lib).contains("\"wing_ig\": (\"props\": ("), "{}", tables(&lib));
+        let (bare, _) = generate_lib_typ(&serde_json::json!({}), &meta).unwrap();
+        assert!(!tables(&bare).contains("wing_ig"), "{}", tables(&bare));
     }
 
     /// `array_fields` and `object_fields` are one shape, so one predicate reads
