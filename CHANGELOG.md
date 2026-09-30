@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.121.0 - 2026-09-30
+
+- docs(migrations): the matrix breaks ship in 0.121
+- feat(core,typst,acroform)!: a matrix reaches the plate as the members it holds, and `roster` prints its vocabulary
+- ci(release): retry crate publishing past a crates.io index backlog
+- fix(core,typst): an open matrix's added items print in id order, and a quill literal storing `held` fails to load
+- feat(core,typst,wasm)!: a matrix member is held by being present, and `open: true` admits added items
+
+
 ## v0.120.0 - 2026-09-30
 
 Upgrade path: [0.119 → 0.120](docs/migrations/0.119-to-0.120.md).
