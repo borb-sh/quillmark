@@ -385,7 +385,7 @@ key. The `ui:` keys (`ui.group`, `ui.compact`, `ui.multiline`,
 output, so none may hold a fact a writer needs: a label is `title`, which the
 blueprint prints. In particular, `ui.group` emits no banner lines; fields within the same
 `ui.group` cluster together while preserving declaration order, and
-`ui.layout: table` names a control an editor draws, which a text blueprint has
+`ui.layout` names a control an editor draws, which a text blueprint has
 no second shape for.
 
 ## Bodies

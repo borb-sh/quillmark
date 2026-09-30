@@ -1482,6 +1482,47 @@ fn ui_layout_table_loads_on_a_typed_table_and_is_refused_elsewhere() {
     }
 }
 
+/// Flat hands a typed dictionary's properties to the field list it stands in,
+/// so it loads on an `object` wherever one stands in a list and is refused on
+/// an array's element, whose row has none around it.
+#[test]
+fn ui_layout_flat_loads_on_a_typed_dictionary_and_is_refused_elsewhere() {
+    let config = quill_with_field(
+        "    quals:\n      type: object\n      ui:\n        layout: flat\n      \
+         properties:\n        home:\n          type: object\n          ui: { layout: flat }\n          \
+         properties:\n            city: { type: string }\n",
+    )
+    .expect("a card field and a property may each go flat");
+    assert_eq!(
+        config.schema()["main"]["fields"]["quals"]["ui"]["layout"],
+        serde_json::json!("flat")
+    );
+
+    for (label, field) in [
+        (
+            "an array's element",
+            "    rows:\n      type: array\n      items:\n        type: object\n        \
+             ui: { layout: flat }\n        properties:\n          city: { type: string }\n",
+        ),
+        (
+            "an array",
+            "    rows:\n      type: array\n      ui:\n        layout: flat\n      \
+             items: { type: string }\n",
+        ),
+        (
+            "a scalar",
+            "    title:\n      type: string\n      ui:\n        layout: flat\n",
+        ),
+    ] {
+        let err = quill_with_field(field).expect_err(label);
+        assert!(
+            err.iter().any(|d| d.code.as_deref() == Some("quill::invalid_ui")
+                && d.message.contains("ui.layout: flat")),
+            "{label}: expected the flat refusal, got {err:?}"
+        );
+    }
+}
+
 /// Declaring the key contracts that every column is a leaf, so the only decline
 /// left to a consumer is the capability one it alone can answer. The boundary is
 /// containment, not height: prose is a column whatever its `inline`.
