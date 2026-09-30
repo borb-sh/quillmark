@@ -1010,6 +1010,14 @@ The type-gated keys:
     that will not hold the columns, a cell renderer that will not take a block —
     falls back to its own choice for the type. Shape is not among its reasons:
     the contract already settled it.
+
+  `flat` is valid only on an `object`, and not on an array's element, whose row
+  has no field list around it; `quill::invalid_ui` names the field anywhere
+  else. It asks that the typed dictionary draw no frame of its own: its
+  properties stand at the depth of the field list around it rather than a rung
+  inside it. It is presentation alone, so the value, its addresses and the
+  blueprint keep the dictionary. A lone field of its group goes flat to make the
+  group's section its frame, and what names it there is the consumer's.
 - `variants`: per-member field sets on an `enum` field, valid only there and only
   where a world may open (see [Enum variants](#enum-variants)). `schema()` emits it as
   authored, keyed by member; the transform schema instead projects the container,

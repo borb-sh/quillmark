@@ -9,7 +9,9 @@ use crate::error::{Diagnostic, Severity, diag_args};
 use crate::value::QuillValue;
 
 use super::types::{BODY_CARD_SCHEMA_KEYS, UI_CARD_SCHEMA_KEYS, VARIANT_DISCRIMINANT_KEY};
-use super::{BodyCardSchema, CardSchema, FieldSchema, FieldType, GroupRegistry, UiCardSchema};
+use super::{
+    BodyCardSchema, CardSchema, FieldLayout, FieldSchema, FieldType, GroupRegistry, UiCardSchema,
+};
 
 /// Where a field sits in the type tree. Every type nests at every depth; this
 /// gates the two keys that do not — `ui.group`, which clusters card-level fields
@@ -951,7 +953,19 @@ impl QuillConfig {
         // A table draws one row per element and one column per property. The key
         // is a request to draw a grid and a contract that every column is a leaf:
         // the shape is refused here, so a consumer declines on capability alone.
-        if schema.ui.as_ref().and_then(|u| u.layout).is_some() {
+        if schema.ui.as_ref().and_then(|u| u.layout) == Some(FieldLayout::Flat)
+            && schema.r#type != FieldType::Object
+        {
+            return err(
+                "quill::invalid_ui",
+                format!(
+                    "Field '{owner}' sets ui.layout: flat but is not type: object. Flat \
+                     hands a typed dictionary's properties to the field list around it, \
+                     so declare type: object with properties: …, or drop the key."
+                ),
+            );
+        }
+        if schema.ui.as_ref().and_then(|u| u.layout) == Some(FieldLayout::Table) {
             let row = matches!(schema.r#type, FieldType::Array)
                 .then(|| schema.items.as_deref())
                 .flatten()
@@ -1152,6 +1166,16 @@ impl QuillConfig {
                             "Field '{owner}[]' declares a title. An element takes none: \
                              the array's own title names the list, and a consumer labels \
                              each element from its own values."
+                        ),
+                    );
+                }
+                if items.ui.as_ref().and_then(|u| u.layout) == Some(FieldLayout::Flat) {
+                    return err(
+                        "quill::invalid_ui",
+                        format!(
+                            "Field '{owner}[]' sets ui.layout: flat on an array's element. \
+                             An element is a row of its own, with no field list around it \
+                             for its properties to join: drop the key."
                         ),
                     );
                 }

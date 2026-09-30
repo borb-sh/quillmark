@@ -722,8 +722,8 @@ Meaningful on `string` and `richtext` fields; ignored on other types.
 ### `layout`
 
 Names the control a field asks an editor to draw, where the shape admits more
-than one and the default reads wrong. `table` is the only value, and it is valid
-only on a **typed table** — an `array` whose `items` is an `object`:
+than one and the default reads wrong. `table` is valid only on a **typed
+table** — an `array` whose `items` is an `object`:
 
 ```yaml
 main:
@@ -757,6 +757,35 @@ fall back to the record list. What it will not meet is a shape it cannot draw at
 all; the contract settled that at load. Nothing else reads the key: the plate,
 document validation and the blueprint are all deliberately inert on it, and `schema()`
 echoes it verbatim for the editor to find.
+
+`flat` is valid only on an `object`, and not on an array's element. It asks the
+editor to draw the object without a frame of its own: its properties stand at
+the depth of the fields around it rather than one step in.
+
+```yaml
+main:
+  ui:
+    groups:
+      qualifications: { title: "Qualifications & experience" }
+  fields:
+    qualifications:
+      type: object
+      description: Tick what you hold.
+      ui:
+        group: qualifications
+        layout: flat        # the group's section is the frame
+      properties:
+        command:    { type: matrix, members: { flight_cc: Flight CC } }
+        operations: { type: matrix, members: { dco: DCO } }
+```
+
+An object alone in its group reads best flat: the section is already its frame,
+and one drawn inside the section would frame it twice. The editor then lets the
+section header name it and carry its `description`. Among other fields, a flat
+object keeps its label. The value, its addresses and the blueprint are
+unchanged: `qualifications.command.flight_cc` is still where the tick lives. An element of an array is a row of its own with
+nothing around it to join, so `flat` there, or on anything but an `object`, is
+`quill::invalid_ui`.
 
 ### A row's label
 
