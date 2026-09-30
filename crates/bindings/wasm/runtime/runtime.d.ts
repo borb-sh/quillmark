@@ -424,6 +424,19 @@ export declare class Engine {
 	open(quill: Quill, doc: Document, today?: string): Promise<LiveSession>;
 
 	/**
+	 * Load and instantiate `quill`'s backend build, reading no document and
+	 * cloning no quill. It is the memoized load `render` and `open` await, so a
+	 * host can start the fetch before it has a document to open. Only
+	 * `quill.backendId` is read, before the first await. A failed load rejects
+	 * (`runtime::backend_load_failed` for the built-ins) and the next call
+	 * retries.
+	 *
+	 * `open` snapshots its document before awaiting this load: await `load`
+	 * first, and the session's first compile is of the current document.
+	 */
+	load(quill: Quill): Promise<void>;
+
+	/**
 	 * Output formats `quill`'s backend can emit. An always-free pre-render probe:
 	 * it answers from the descriptor's `formats` manifest without loading the
 	 * backend binary or cloning the quill. Async for API stability.
