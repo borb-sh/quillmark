@@ -119,8 +119,8 @@ A load failure surfaces as `runtime::init_failed`, whose hint names that line.
 Create the render dispatcher. Routes each quill to its backend by
 `quill.backendId`, lazily loads that backend binary, and renders: cloning the
 quill/document into the backend's memory and freeing the clones internally.
-`render`, `open`, and `supportedFormats` are **async** (the first call may load
-a backend). Pass `{ backends }` to register or override backend descriptors.
+`render`, `open`, `load`, and `supportedFormats` are **async** (the first call
+may load a backend). Pass `{ backends }` to register or override backend descriptors.
 Each entry is a descriptor (`{ [backendId]: { load, formats } }`) where `load`
 is the lazy thunk returning the backend module and `formats` is the
 **required** static capability manifest. A malformed descriptor throws at
@@ -130,6 +130,21 @@ is the lazy thunk returning the backend module and `formats` is the
 `quill.backendId`, and answers from the descriptor's required `formats`
 manifest: never loading the multi-MB backend binary and never cloning the
 quill. Use it as a non-failing pre-render probe.
+
+**An editor does not wait on the render build.** `open` reads the document
+before it awaits the backend load, so a session opened while the build loads
+compiles the document as it stood at the call. Mount the editor on core, start
+the load, and open once it lands:
+
+```js
+void engine.load(quill);          // start the fetch as soon as the quill resolves
+mountEditor(quill, doc);          // core alone
+await engine.load(quill);         // memoized: the same load
+const session = await engine.open(quill, doc); // one compile, current document
+```
+
+`load` reads only `quill.backendId` and clones nothing. A failed load rejects
+with `runtime::backend_load_failed`, and the next call retries.
 
 ### The two doors: `Document.fromMarkdown` vs `quill.parse` / `quill.conform`
 
@@ -451,7 +466,7 @@ try {
 
 **Delivery follows the function, not the failure.** A synchronous method throws;
 a promise-returning one rejects. The promise-returning surface is `init` and the
-three `Engine` verbs (`render`, `open`, `supportedFormats`), so a programming
+four `Engine` verbs (`render`, `open`, `load`, `supportedFormats`), so a programming
 error reached through one of them (a foreign handle, an unregistered backend)
 rejects like any other failure. Nothing here both returns
 a promise and throws, so a `.catch` on a promise-returning call is a whole
