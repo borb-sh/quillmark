@@ -314,10 +314,14 @@ impl Card {
 
 /// A parsed, per-kind **seed overlay**: the sparse fields (and optional body) a
 /// newly-added card of a given kind starts with. Built from a `$seed[<kind>]`
-/// entry of the main card's [`Card::seed`] map via [`SeedOverlay::from_json`],
-/// and committed by [`crate::quill::Quill::seed_card`] (overlay › absent). The
-/// reserved inner key `$body` carries the body override; every other user field
-/// becomes an entry, while any other `$`-prefixed key is reserved and dropped.
+/// entry of the main card's [`Card::seed`] map, or a kind's `seed:` in
+/// `Quill.yaml`, via [`SeedOverlay::from_json`], and committed by
+/// [`crate::quill::Quill::seed_card`], a document's overlay replacing its
+/// kind's seed whole.
+/// The reserved inner key `$body` carries the body override; every other user
+/// field becomes an entry, while any other `$`-prefixed key is reserved and
+/// dropped. A present-null entry is kept, and `seed_card` reads it as absent.
+/// Serializes back to the `$seed[<kind>]` shape, `$body` last.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct SeedOverlay {
     /// Field-value overrides, keyed by field name.
@@ -353,6 +357,21 @@ impl SeedOverlay {
             }
         }
         SeedOverlay { fields, body }
+    }
+}
+
+impl Serialize for SeedOverlay {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let len = self.fields.len() + usize::from(self.body.is_some());
+        let mut map = serializer.serialize_map(Some(len))?;
+        for (key, value) in &self.fields {
+            map.serialize_entry(key, value.as_json())?;
+        }
+        if let Some(body) = &self.body {
+            map.serialize_entry("$body", body)?;
+        }
+        map.end()
     }
 }
 

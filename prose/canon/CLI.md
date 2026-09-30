@@ -68,8 +68,8 @@ them.
   own files. A rerun replaces the `packages/` and `fonts/` an earlier export
   wrote, and refuses an `-o` holding either without the helper package.
 - **Seeded fallback.** `render` or `workspace` with no `MARKDOWN_FILE` reads the quill's
-  seeded document: one card per kind, bodies empty, every field at
-  its `default:`/blank, so a quill renders with no input file. `render`'s output
+  seeded document: one card per kind carrying its kind's `seed:`, every
+  other field at its `default:`/blank, so a quill renders with no input file. `render`'s output
   defaults to `example.{format}`.
 - **Parsing is not relaxed for the CLI.** A `MARKDOWN_FILE` needs a root `~~~`
   block (the opener's info string is ignored) carrying a `$quill` line,

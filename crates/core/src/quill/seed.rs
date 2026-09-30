@@ -1,6 +1,7 @@
-//! Document seeding from a quill schema: one card per kind, every field absent
-//! and the body empty, so the render layer supplies `default`/blank. A card
-//! added to a document commits the document's `$seed` overlay for its kind.
+//! Document seeding from a quill schema: one card per kind, carrying what the
+//! kind's `seed:` names and nothing else, so the render layer supplies
+//! `default`/blank. A card added to a document commits the document's `$seed`
+//! overlay for its kind in place of the kind's own `seed:`.
 
 use quillmark_content::model::Normalized;
 
@@ -14,20 +15,22 @@ use crate::{
 };
 
 /// Build the seeded `(payload, body)` for one card schema under an optional
-/// [`SeedOverlay`]. A field commits the overlay's value, in declaration order;
-/// an overlay key naming no schema field is never reached. Body: `overlay ›
-/// empty`, honored only when the kind enables bodies.
+/// document [`SeedOverlay`], which replaces the kind's `seed:` whole. A field
+/// commits that seed's value in declaration order, a present-null reading as
+/// absent; the body commits its `$body`, honored only when the kind enables
+/// bodies. A key naming no schema field is never reached.
 /// The `$quill` / `$kind` system metadata is attached by the caller.
 ///
 /// Every seeded content field commits through [`seeded_rest`], the same strict
 /// write the typed writer uses, so a seeded card is at rest from birth
 /// (`SCHEMAS.md` § "Document seeding": seed-commits-rest).
 fn seed_parts(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> (Payload, Normalized) {
+    let seed = overlay.or(schema.seed.as_ref());
     let items: Vec<PayloadItem> = schema
         .fields
         .iter()
         .filter_map(|(name, field)| {
-            let value = overlay?.fields.get(name)?;
+            let value = seed?.fields.get(name).filter(|v| !v.as_json().is_null())?;
             Some(PayloadItem::Field {
                 key: name.clone(),
                 value: seeded_rest(name, value, field),
@@ -35,9 +38,9 @@ fn seed_parts(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> (Payload, N
         })
         .collect();
 
-    let body = match overlay.and_then(|o| o.body.as_ref()) {
-        Some(overlay_body) if schema.body_enabled() => {
-            crate::document::import_body(overlay_body).unwrap_or_else(|_| Normalized::empty())
+    let body = match seed.and_then(|seed| seed.body.as_ref()) {
+        Some(seeded_body) if schema.body_enabled() => {
+            crate::document::import_body(seeded_body).unwrap_or_else(|_| Normalized::empty())
         }
         _ => Normalized::empty(),
     };
@@ -73,8 +76,8 @@ pub(crate) fn main_reference(quill: &Quill) -> QuillReference {
 }
 
 pub(crate) fn seed_main(quill: &Quill) -> Card {
-    // The main card is never seeded from an overlay: `$seed` keys range over
-    // composable `card_kinds`, and `main` is not one of them.
+    // The main card is never seeded: `$seed` keys range over composable
+    // `card_kinds`, `main` is not one of them, and it declares no `seed:`.
     let (mut payload, body) = seed_parts(&quill.config().main, None);
     payload.set_quill(main_reference(quill));
     // The root block carries `$kind: main` alongside `$quill` (see the
@@ -109,7 +112,7 @@ pub(crate) fn empty_document(quill: &Quill) -> Document {
 }
 
 pub(crate) fn seed_document(quill: &Quill) -> Document {
-    // A fresh document carries no `$seed`, so every kind seeds bare.
+    // A fresh document carries no `$seed`, so every kind seeds from its own.
     let main = seed_main(quill);
     let cards = quill
         .config()

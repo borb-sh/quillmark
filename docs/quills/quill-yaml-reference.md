@@ -825,6 +825,7 @@ scalar, which is fine for a few lines and wrong for a memo's worth.
 | `fields`      | object | no       | Field schemas (same structure as top-level fields) |
 | `ui`          | object | no       | Container-level UI hints (see [Card-level `ui`](#card-level-ui)) |
 | `body`        | object | no       | Body-region config (see [Card-level `body`](#card-level-body)) |
+| `seed`        | object | no       | What a new card of this kind starts with (see [Card-level `seed`](#card-level-seed)) |
 
 #### `title`
 
@@ -879,7 +880,31 @@ card_kinds:
 
 Loading this draws `quill::bodiless_card_kind`, which asks whether the kind is a card at all: a repeated record with no prose is a row (see [When not to declare one](#when-not-to-declare-one)). The example above stands because a page break exists for its position in the stream, which no row can occupy. `main` is never warned.
 
-`enabled` is the only key under `body`; any other is a load error (`quill::invalid_body`). A body declares no value and no guide text: starter text goes in a template document's own body, or, for a card added by `seed_card`, in the main card's `$seed.<kind>.$body`.
+`enabled` is the only key under `body`; any other is a load error (`quill::invalid_body`). A body declares no value and no guide text: starter text for a new card goes in its kind's [`seed`](#card-level-seed), and for the document in a template's own body.
+
+### Card-level `seed`
+
+`seed` is what `seed_card` writes into a new card of the kind: fields of the kind, plus an optional `$body`. It is the shape a document's `$seed.<kind>` takes, and a block copies unchanged between the two.
+
+```yaml
+card_kinds:
+  indorsement:
+    seed:
+      signature_block:
+        - FIRST M. LAST, Rank, USAF
+        - Duty Title
+      $body: Write the indorsement here.
+    fields:
+      signature_block:
+        type: array
+        items: { type: string }
+```
+
+- A document's `$seed.<kind>` replaces it whole, `$body` included: a template keeping part of the kind's seed copies that part, and `$seed.<kind>: {}` seeds nothing.
+- Once written, a seeded value is the card's own content: it prints, and a later change to `seed` does not reach cards already made. What should render when nobody answers is a `default:` instead, which tracks the quill.
+- A placeholder prints until someone replaces it. A format hint belongs in the field's `description:`.
+- Each value must pass its field's checks, `$body` needs the body enabled, and a seed that renders as the unanswered field does (a `null`, an empty `$body`, the field's `default:`, or its blank when it has none) is refused (`quill::seed_redundant`). Each failure is a load error under `quill::seed_*`.
+- `main` declares no `seed`.
 
 ### Using Cards in Markdown
 

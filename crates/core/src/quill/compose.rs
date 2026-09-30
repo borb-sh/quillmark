@@ -234,13 +234,8 @@ impl Quill {
 
     /// Advisory validation of the main card's `$seed` overlays: editor-surface
     /// only, never gating render, so every diagnostic is a **warning** rooted at
-    /// `$seed.<kind>[.<field>]`.
-    ///
-    /// An overlaid field is checked as the **document** value it is — an overlay
-    /// cell is what `seed_card` commits into a new card — so the variant
-    /// container is a spelling it accepts, a present-null cell reads as absent,
-    /// and an omitted field raises nothing. The reserved `$body` key is the body
-    /// override, not a field.
+    /// `$seed.<kind>[.<field>]`, each overlay judged by
+    /// [`seed_overlay_diagnostics`].
     fn validate_seed(&self, doc: &Document) -> Vec<Diagnostic> {
         let Some(seed_map) = doc.main().payload().seed() else {
             return Vec::new();
@@ -262,51 +257,11 @@ impl Quill {
                 );
                 continue;
             };
-            let Some(obj) = overlay.as_object() else {
-                diags.push(
-                    Diagnostic::new(
-                        Severity::Warning,
-                        format!("`$seed.{kind}` must be a mapping of field overrides"),
-                    )
-                    .with_code("validation::seed_overlay_shape".to_string())
-                    .with_path(DocPath::new().field("$seed").field(kind).to_string()),
-                );
-                continue;
-            };
-            for (field, value) in obj {
-                let field_path = DocPath::new().field("$seed").field(kind).field(field);
-                if field == "$body" {
-                    if !card_schema.body_enabled() {
-                        diags.push(
-                            Diagnostic::new(
-                                Severity::Warning,
-                                format!(
-                                    "`$seed.{kind}.$body` seeds no body: card kind `{kind}` \
-                                     declares `body.enabled: false`"
-                                ),
-                            )
-                            .with_code("validation::seed_unknown_field".to_string())
-                            .with_path(field_path.to_string()),
-                        );
-                    }
-                    continue;
-                }
-                let Some(field_schema) = card_schema.fields.get(field) else {
-                    diags.push(
-                        Diagnostic::new(
-                            Severity::Warning,
-                            format!("`$seed.{kind}.{field}` is not a field of card kind `{kind}`"),
-                        )
-                        .with_code("validation::seed_unknown_field".to_string())
-                        .with_path(field_path.to_string()),
-                    );
-                    continue;
-                };
-                let qv = QuillValue::from_json(value.clone());
-                for violation in super::validation::validate_field(field_schema, &qv, &field_path) {
-                    diags.push(seed_violation_diagnostic(&violation));
-                }
-            }
+            diags.extend(seed_overlay_diagnostics(
+                card_schema,
+                overlay,
+                &DocPath::new().field("$seed").field(kind),
+            ));
         }
         diags
     }
@@ -324,9 +279,9 @@ impl Quill {
     }
 
     /// Seed a starter [`Document`]: the main card plus one instance of each
-    /// declared composable card kind, each with an empty body and every field
-    /// absent (interpolated at render: `default` → the field's blank). See the
-    /// `seed` module.
+    /// declared composable card kind, each carrying its kind's `seed:` and every
+    /// other field absent (interpolated at render: `default` → the field's
+    /// blank). See the `seed` module.
     pub fn seed_document(&self) -> Document {
         seed::seed_document(self)
     }
@@ -338,12 +293,13 @@ impl Quill {
     }
 
     /// Seed a starter composable [`Card`] of the given kind (carries `$kind`),
-    /// committing an optional per-kind [`SeedOverlay`]'s fields and body;
-    /// `None` if the kind is not declared.
+    /// committing an optional per-kind [`SeedOverlay`]'s fields and body in
+    /// place of the kind's own `seed:`, else that seed's; `None` if the kind is
+    /// not declared.
     /// Use to add a new card to a document: pass the document's `$seed` entry
     /// for the kind (`doc.main().seed().and_then(|m| m.get(card_kind)).and_then(SeedOverlay::from_json)`)
     /// so a card spawned into a template-derived document inherits its curated
-    /// starting values, and `None` for a card with no field written.
+    /// starting values, and `None` for a card carrying the kind's seed alone.
     pub fn seed_card(&self, card_kind: &str, overlay: Option<&SeedOverlay>) -> Option<Card> {
         seed::seed_card_for_kind(self, card_kind, overlay)
     }
@@ -359,9 +315,81 @@ fn quill_mismatch(message: String, code: &str, hint: &str) -> RenderError {
     )
 }
 
+/// Check one seed overlay against its card kind, as warnings under the
+/// document's `validation::*` codes rooted at `at`: a document's
+/// `$seed.<kind>` and a kind's own `seed:` in `Quill.yaml` are one shape, and
+/// the quill load raises these to errors. Each cell is judged as the document
+/// value `seed_card` commits, so a present-null reads as absent.
+pub(crate) fn seed_overlay_diagnostics(
+    card_schema: &CardSchema,
+    overlay: &serde_json::Value,
+    at: &DocPath,
+) -> Vec<Diagnostic> {
+    let kind = &card_schema.name;
+    let Some(obj) = overlay.as_object() else {
+        return vec![Diagnostic::new(
+            Severity::Warning,
+            format!("`{at}` must be a mapping of field overrides"),
+        )
+        .with_code("validation::seed_overlay_shape".to_string())
+        .with_path(at.to_string())];
+    };
+    let mut diags = Vec::new();
+    for (field, value) in obj {
+        let field_path = at.field(field);
+        if field == "$body" {
+            if !card_schema.body_enabled() {
+                diags.push(
+                    Diagnostic::new(
+                        Severity::Warning,
+                        format!(
+                            "`{field_path}` seeds no body: card kind `{kind}` declares \
+                             `body.enabled: false`"
+                        ),
+                    )
+                    .with_code("validation::seed_unknown_field".to_string())
+                    .with_path(field_path.to_string()),
+                );
+            } else if let Some(problem) = match value {
+                serde_json::Value::Null => None,
+                serde_json::Value::String(md) => crate::document::import_body(md)
+                    .err()
+                    .map(|e| format!("does not import: {e}")),
+                _ => Some("must be a string of markdown".to_string()),
+            } {
+                diags.push(
+                    Diagnostic::new(Severity::Warning, format!("`{field_path}` {problem}"))
+                        .with_code("validation::seed_overlay_shape".to_string())
+                        .with_path(field_path.to_string()),
+                );
+            }
+            continue;
+        }
+        let Some(field_schema) = card_schema.fields.get(field) else {
+            diags.push(
+                Diagnostic::new(
+                    Severity::Warning,
+                    format!("`{field_path}` is not a field of card kind `{kind}`"),
+                )
+                .with_code("validation::seed_unknown_field".to_string())
+                .with_path(field_path.to_string()),
+            );
+            continue;
+        };
+        let qv = QuillValue::from_json(value.clone());
+        for violation in super::validation::validate_field(field_schema, &qv, &field_path) {
+            diags.push(seed_violation_diagnostic(&violation));
+        }
+        collect_unknown_in(field_schema, value, &field_path, &mut diags);
+        collect_stranded(field_schema, value, &field_path, &mut diags);
+        collect_cardinality_diags(field_schema, Some(&qv), &field_path, &mut diags);
+    }
+    diags
+}
+
 /// Render a seed-overlay validation error as a **warning**-severity diagnostic:
 /// seed overlays are advisory and never gate render. The error's `path` is
-/// already rooted at `$seed.<kind>.<field>` by the caller.
+/// already rooted at the overlay by the caller.
 fn seed_violation_diagnostic(v: &super::validation::ValidationError) -> Diagnostic {
     let mut diag = Diagnostic::new(Severity::Warning, v.to_string())
         .with_code(v.code().to_string())

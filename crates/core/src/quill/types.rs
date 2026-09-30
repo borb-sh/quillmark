@@ -224,11 +224,16 @@ pub struct CardSchema {
     /// Controls whether a body editor is shown and provides optional guide text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body: Option<BodyCardSchema>,
+    /// What [`Quill::seed_card`](crate::quill::Quill::seed_card) writes into a
+    /// new card of this kind where the document carries no `$seed.<kind>`.
+    /// Always absent on `main`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<crate::document::SeedOverlay>,
 }
 
 impl CardSchema {
     /// A card kind's name and its ordered field map. `title`, `description`,
-    /// `ui`, and `body` start absent.
+    /// `ui`, `body`, and `seed` start absent.
     pub fn new(name: String, fields: IndexMap<String, FieldSchema>) -> Self {
         Self {
             name,
@@ -237,6 +242,7 @@ impl CardSchema {
             fields,
             ui: None,
             body: None,
+            seed: None,
         }
     }
 }
