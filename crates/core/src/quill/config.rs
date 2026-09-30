@@ -759,8 +759,7 @@ impl QuillConfig {
     /// through verbatim, as a key naming no member does, for validation to
     /// refuse (`validation::held_stored`, `validation::enum_violation`).
     ///
-    /// The strict write lands the rest: a held member with no answers rests as
-    /// `true`, however it arrived.
+    /// The strict write lands the rest: an empty mapping rests as `true`.
     ///
     /// [`MATRIX_HELD_KEY`]: super::MATRIX_HELD_KEY
     fn coerce_matrix_members(
@@ -1752,9 +1751,18 @@ impl QuillConfig {
                 )
                 .with_code("quill::default_format_violation".to_string())
                 .with_hint(super::validation::format_hint(&format)),
+                ValidationError::HeldStored { path } => Diagnostic::new(
+                    Severity::Error,
+                    format!("{path} default stores the tick, which is a matrix member's presence."),
+                )
+                .with_code("quill::default_held_stored".to_string())
+                .with_hint(
+                    "Remove the key; leave the member out of the default to untick it."
+                        .to_string(),
+                ),
                 // NotInline and NotPlain can arise on a literal, and
                 // `literal_content` reports them at load.
-                _ => continue,
+                ValidationError::NotInline { .. } | ValidationError::NotPlain { .. } => continue,
             };
             errors.push(diag);
         }

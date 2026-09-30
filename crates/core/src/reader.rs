@@ -354,8 +354,8 @@ fn schema_at<'a>(
         };
         cursor = match (&cursor.r#type, seg) {
             (FieldType::Array, PathSegment::Index(_)) => cursor.items.as_deref().ok_or(blocked)?,
-            // An open matrix's key past its roster is an added item's, whose
-            // stored value this schema walk does not read.
+            // An open matrix's id past its roster is an added item's, whose
+            // stored `title` this schema walk does not read.
             (FieldType::Object | FieldType::Matrix { .. }, PathSegment::Key(key)) => match cursor
                 .namespace_props()
             {
@@ -363,7 +363,10 @@ fn schema_at<'a>(
                 Some(props) => props
                     .get(key)
                     .map(Box::as_ref)
-                    .or(cursor.added_item.as_deref())
+                    .or(cursor
+                        .added_item
+                        .as_deref()
+                        .filter(|_| QuillConfig::is_snake_case_identifier(key)))
                     .ok_or_else(|| EditError::UnknownField {
                         field: name.to_string(),
                         // Through the failed step, not up to it: the anchor names

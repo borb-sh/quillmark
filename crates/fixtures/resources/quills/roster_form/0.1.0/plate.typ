@@ -17,10 +17,10 @@
 
 // An unheld member's columns are their blanks, so the tick and the annotation
 // read without a guard. An added item's title is a cell with an address, which
-// the region claims.
+// the region claims around the content its body places.
 #for (id, member) in data.qualifications {
   let title = if id in roster { member.title } else {
-    field-region(member.at("$path") + "title", member.title)
+    field-region(member.at("$path") + "title")[#member.title]
   }
   [#(if member.held { "[x]" } else { "[ ]" }) #title #member.detail]
   linebreak()

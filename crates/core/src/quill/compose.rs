@@ -640,9 +640,13 @@ fn is_today(value: &QuillValue, field: &FieldSchema) -> bool {
 }
 
 /// A matrix's plate value: every roster member in roster order, then each added
-/// item in document order. Each composes from its stored spelling read under
-/// presence (`matrix_member_spelling`), so a member present in the document is
-/// held; a key the matrix admits as neither passes verbatim.
+/// item in id order. Each composes from its stored spelling read under presence
+/// (`matrix_member_spelling`), so a member present in the document is held; a
+/// key the matrix admits as neither passes verbatim.
+///
+/// Id order, not document order: document equality ignores a mapping's key
+/// order, so equal documents compose equal plates only where the order is the
+/// ids'.
 fn compose_matrix(
     stored: Option<&serde_json::Map<String, serde_json::Value>>,
     field: &FieldSchema,
@@ -661,10 +665,13 @@ fn compose_matrix(
     });
     let mut out = serde_json::Map::new();
     let mut rung = compose_members(spelled.as_ref(), members, today, &mut out);
-    for (key, value) in stored.into_iter().flatten() {
-        if members.contains_key(key) {
-            continue;
-        }
+    let mut added: Vec<(&String, &serde_json::Value)> = stored
+        .into_iter()
+        .flatten()
+        .filter(|(key, _)| !members.contains_key(*key))
+        .collect();
+    added.sort_by(|a, b| a.0.cmp(b.0));
+    for (key, value) in added {
         let composed = match field.matrix_member(key, value) {
             Some(item) => {
                 let entry = spelled

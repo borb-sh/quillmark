@@ -623,7 +623,8 @@ qualifications:
   or one that is not a snake_case id, is refused (`validation::enum_violation`,
   hinted toward the added spelling).
 - The plate receives every roster member in roster order, then each added item
-  in document order, `{held: true, title, …columns}`. The loop above prints
+  sorted by id, `{held: true, title, …columns}`. A plate wanting another order
+  sorts the members itself. The loop above prints
   both. An added item's `title` is a cell with an address, so
   `ink(m).at("title", default: m.title)` prints it with its click-to-edit
   region, where `m.title` prints every member's label plainly.

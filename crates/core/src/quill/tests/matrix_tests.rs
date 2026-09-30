@@ -10,6 +10,7 @@ use crate::document::Document;
 use crate::quill::{
     blank, build_transform_schema, quill_from_yaml, test_date, Quill, QuillConfig,
 };
+use crate::value::QuillValue;
 use serde_json::json;
 
 /// A four-member roster with one column.
@@ -124,7 +125,8 @@ fn a_member_is_held_by_being_present() {
 }
 
 /// Presence is the tick, so a mapping storing `held` contradicts or repeats
-/// it. Either value is refused, and the refusal gates the render.
+/// it. Either value is refused, and the refusal gates the render; a null is
+/// absent, as at every type.
 #[test]
 fn a_stored_tick_is_refused() {
     for spelling in ["{ held: true, detail: X }", "{ held: false }"] {
@@ -139,6 +141,64 @@ fn a_stored_tick_is_refused() {
         );
         assert!(config().compile_data(&document, test_date()).is_err(), "{spelling}");
     }
+    assert!(codes(&doc("qualifications:\n  flight_cc: { held: null }\n")).is_empty());
+}
+
+/// The refusal holds wherever a matrix nests, and a quill's own literals are
+/// refused at load under the literal's code family.
+#[test]
+fn a_stored_tick_is_refused_at_every_depth() {
+    let yaml = r#"
+quill: { name: deep, version: 1.0.0, backend: typst, description: x }
+main:
+  fields:
+    rows:
+      type: array
+      items:
+        type: object
+        properties:
+          quals: { type: matrix, members: { flight_cc: Flight CC } }
+card_kinds:
+  entry:
+    fields:
+      quals: { type: matrix, members: { flight_cc: Flight CC } }
+"#;
+    let quill = quill_from_yaml(yaml);
+    let markdown = concat!(
+        "~~~\n$quill: deep@1.0.0\n$kind: main\n",
+        "rows:\n  - quals: { flight_cc: { held: true } }\n~~~\n\n",
+        "~~~\n$kind: entry\nquals: { flight_cc: { held: false } }\n~~~\n",
+    );
+    let document = Document::parse(markdown).expect("parses").document;
+    let found = codes_of(&quill, &document);
+    for path in ["main.rows[0].quals.flight_cc.held", "cards.entry[0].quals.flight_cc.held"] {
+        assert!(
+            found.contains(&("validation::held_stored".to_string(), path.to_string())),
+            "{path} in {found:?}"
+        );
+    }
+    assert!(quill.compile_data(&document, test_date()).is_err());
+
+    for (literal, code) in [
+        (
+            "      default: [ { quals: { flight_cc: { held: false } } } ]\n",
+            "quill::default_held_stored",
+        ),
+        ("", "quill::seed_held_stored"),
+    ] {
+        let bad = yaml
+            .replace("      type: array\n", &format!("      type: array\n{literal}"))
+            .replace(
+                "  entry:\n",
+                if literal.is_empty() {
+                    "  entry:\n    seed:\n      quals: { flight_cc: { held: true } }\n"
+                } else {
+                    "  entry:\n"
+                },
+            );
+        let error = format!("{:?}", QuillConfig::from_yaml(&bad).expect_err("refused at load"));
+        assert!(error.contains(code), "{code}: {error}");
+    }
 }
 
 /// The typed write lands one spelling for a held member with nothing else
@@ -150,11 +210,24 @@ fn a_held_member_with_no_answers_rests_as_the_bare_tick() {
         "qualifications:\n  flight_cc: {}\n  dodin_ops: { detail: X }\n  cyber_200: false\n",
         "~~~\n",
     );
-    let parsed = quill().parse(markdown).expect("parses and conforms");
+    let quill = quill();
+    let mut parsed = quill.parse(markdown).expect("parses and conforms");
     assert!(parsed.warnings.is_empty(), "{:?}", parsed.warnings);
     assert_eq!(
         parsed.document.main().payload().get("qualifications").unwrap().as_json(),
         &json!({ "flight_cc": true, "dodin_ops": { "detail": "X" }, "cyber_200": false })
+    );
+
+    quill
+        .writer(&mut parsed.document)
+        .set(
+            "qualifications",
+            QuillValue::from_json(json!({ "sq_cc_candidate": {}, "flight_cc": "true" })),
+        )
+        .expect("the typed write lands");
+    assert_eq!(
+        parsed.document.main().payload().get("qualifications").unwrap().as_json(),
+        &json!({ "sq_cc_candidate": true, "flight_cc": true })
     );
 }
 
@@ -197,11 +270,12 @@ fn a_member_outside_the_roster_is_refused() {
 }
 
 /// An open matrix prints its roster in roster order, then each item a document
-/// adds in document order, carrying its own title and its columns. An added
-/// item titled as a roster member is still the author's answer: it prints and
-/// draws nothing.
+/// adds in id order, carrying its own title and its columns. Document equality
+/// ignores a mapping's key order, so two documents it calls equal compose one
+/// plate. An added item titled as a roster member is still the author's answer:
+/// it prints and draws nothing.
 #[test]
-fn an_open_matrix_prints_added_items_after_the_roster_in_document_order() {
+fn an_open_matrix_prints_added_items_after_the_roster_in_id_order() {
     let yaml = open_yaml();
     let document = doc(concat!(
         "qualifications:\n",
@@ -215,7 +289,19 @@ fn an_open_matrix_prints_added_items_after_the_roster_in_document_order() {
     let members = wire.as_object().expect("a matrix projects as a mapping");
     assert_eq!(
         members.keys().collect::<Vec<_>>(),
-        ["sq_cc_candidate", "flight_cc", "dodin_ops", "cyber_200", "wing_ig", "aide"],
+        ["sq_cc_candidate", "flight_cc", "dodin_ops", "cyber_200", "aide", "wing_ig"],
+    );
+    let reordered = doc(concat!(
+        "qualifications:\n",
+        "  aide: { title: Flight CC }\n",
+        "  flight_cc: true\n",
+        "  wing_ig: { title: Wing IG, detail: 81 TRW }\n",
+    ));
+    assert_eq!(reordered, document);
+    let rewire = plate_of(&yaml, &reordered);
+    assert_eq!(
+        rewire.as_object().unwrap().keys().collect::<Vec<_>>(),
+        members.keys().collect::<Vec<_>>()
     );
     assert_eq!(wire["wing_ig"]["held"], json!(true));
     assert_eq!(wire["wing_ig"]["title"], json!("Wing IG"));
@@ -376,6 +462,41 @@ fn the_blueprint_shows_the_vocabulary_in_the_annotation_and_ticks_nothing() {
             "qualifications: {} # matrix<sq_cc_candidate | flight_cc | dodin_ops | cyber_200>\n",
         )),
         "{bp}"
+    );
+
+    // The placeholder never names a member, which the pasted hint would tick.
+    let taken = open.replace("        dodin_ops: DODIN Ops\n", "        new_item: New Item\n");
+    let bp = QuillConfig::from_yaml(&taken).expect("loads").blueprint();
+    assert!(
+        bp.contains("# e.g. {sq_cc_candidate: true, new_item_2: {title: string}}\n"),
+        "{bp}"
+    );
+}
+
+/// A column's cap reaches every member the page prints, roster or added, and
+/// no member it does not.
+#[test]
+fn an_overfull_column_warns_under_every_held_member() {
+    let yaml = open_yaml().replace(
+        "detail: { type: plaintext, inline: true, default: \"\" }",
+        "units: { type: array, max: 1, items: { type: string } }",
+    );
+    let quill = quill_from_yaml(&yaml);
+    let found = codes_of(
+        &quill,
+        &doc(concat!(
+            "qualifications:\n",
+            "  flight_cc: { units: [a, b] }\n",
+            "  wing_ig: { title: Wing IG, units: [a, b] }\n",
+            "  dodin_ops: false\n",
+        )),
+    );
+    assert_eq!(
+        found,
+        [
+            ("validation::cardinality".to_string(), "main.qualifications.flight_cc.units".to_string()),
+            ("validation::cardinality".to_string(), "main.qualifications.wing_ig.units".to_string()),
+        ]
     );
 }
 

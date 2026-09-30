@@ -45,12 +45,13 @@ One rule governs the lowering, at every depth: **a declared type means the same 
 
 A matrix reaches the plate **total**: an ordered mapping carrying every declared
 member, keyed by member id in roster order, whatever the document ticked, then
-each item an open matrix's document adds, in document order. Order is the one
-place a matrix departs from the canonical emission below: dict keys otherwise
-sort, so the transform schema carries the roster as `quillmark:order` on the
-matrix node and the codegen emits those keys in it. The roster's order is a
-property of the schema, so equal data produces byte-equal source; the added
-items' order is the document's, as `$cards` order is.
+each item an open matrix's document adds, sorted by id. Order is the one place a
+matrix departs from the canonical emission below: dict keys otherwise sort, so
+the transform schema carries the roster as `quillmark:order` on the matrix node
+and the codegen emits those keys in it, the added items trailing in the order
+every other dictionary takes. The order is a property of the schema and the
+ids, never of the document's key order, so equal data still produces byte-equal
+source.
 
 ```json
 "qualifications": {
@@ -229,8 +230,10 @@ accessor *because* they may be absent, and a declared field may not be.
 
 An open matrix's added item is a key the document declares, not the schema, so
 each render's address tree admits the ids that render carries
-(`qualifications.wing_ig.title`) as the property steps they are, and no other.
-The grammar is unchanged, and so is the rule.
+(`qualifications.wing_ig.title`) as the property steps they are. The tree keeps
+its shape: an array's rows share one element node and a kind's cards one card
+node, so an id one row or card carries is admitted at every index, as an index
+past the array's length is.
 
 Cards carry their canonical prefix as `$path`, so a plate composes a card
 address without reimplementing the kind+ordinal grammar:

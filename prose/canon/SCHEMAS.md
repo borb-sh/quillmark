@@ -237,12 +237,15 @@ itself, read through the boolean coercion.
 
 - `held` is the projection's and never stored. A mapping storing it is
   malformed (`validation::held_stored`): `held: false` under a present member
-  contradicts the presence that holds it, and reading either way is a guess.
+  contradicts the presence that holds it, and reading either way is a guess. A
+  `held: null` is absent, as at every type. A quill's own `seed:` or `default:`
+  storing it fails to load (`quill::seed_held_stored`,
+  `quill::default_held_stored`).
 - A member is the one namespace whose empty mapping is an answer: `flight_cc: {}`
   ticks, where a typed dictionary's `{}` changes nothing.
 - Unticking removes the member, and its answers with it: the document keeps
   nothing for an unheld member.
-- The typed write rests a held member with no answers as `true`.
+- The typed write rests an empty mapping as `true`.
 - A key the matrix admits as neither a member nor an added item is refused as an
   out-of-domain enum member is (`validation::enum_violation`).
 
@@ -260,8 +263,9 @@ the roster plus those keys, so an untitled key or one no id spells is
   a form has no widget for an item a document adds.
 
 **Plate.** Total, like every container: every roster member present in
-declaration order, each `{held, title, …columns}`, then each added item in
-document order. A held member's columns cut the ordinary ladder — the authored
+declaration order, each `{held, title, …columns}`, then each added item in id
+order: document equality ignores a mapping's key order, so equal documents
+compose equal plates only where the order is the ids'. A held member's columns cut the ordinary ladder — the authored
 value, else the column's `default:`, else its blank. A roster member's `title`
 is the projection's, written from the roster rather than held as a cell, so it
 carries no address and a document authoring one is overwritten and warned. An
@@ -283,16 +287,18 @@ the Typst backend admits for the render that carries it
 columns through one illustrative held member and the added spelling through a
 placeholder item; a filled specimen is the quill's maximal fixture.
 
-**Implementation.** Sugar over a typed dictionary: the loader expands members
-into an `object` whose properties are the member ids, reached through
-`FieldSchema::namespace_props`, so coercion, validation, blank-fill and
-addressing are inherited. `FieldSchema::matrix_member` resolves a stored key to
-its member, or on an open matrix to `FieldSchema::added_item`, which the
-transform schema projects as `additionalProperties`. The type's own: presence
-read as the tick, `title` written onto roster members, the closed wire for
-unheld members, and added items trailing in document order. One walk is
-overridden rather than inherited: the blueprint, which emits the sparse cell
-instead of expanding every member.
+**Implementation.** The loader desugars each member to an `object` schema of
+`held` beside the columns (`FieldSchema::members`, reached through
+`FieldSchema::namespace_props`), and an open matrix's added item to one with a
+`title` cell besides (`FieldSchema::added_item`). Blank-fill, addressing and the
+transform schema read those schemas as a typed dictionary's, the transform
+schema projecting the matrix as an `object` whose properties are the member ids
+and whose `additionalProperties` is the added item. Every walk over a stored
+value is the type's own, since presence is the tick: coercion, validation,
+composition, the unknown-key and cardinality walks, and the values-form read
+each resolve a key through `FieldSchema::matrix_member` and read its spelling
+through presence. The blueprint emits the sparse cell instead of expanding
+every member.
 
 ### Cardinality
 

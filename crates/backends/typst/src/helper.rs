@@ -11,8 +11,7 @@
 //! caller's field order. `$cards` array order is semantic and preserved. A node
 //! whose *schema* fixes a key order says so with `quillmark:order` and gets it
 //! ([`ordered`]); that order is a property of the schema, so byte-equality holds
-//! there too. An open matrix's added items trail it in document order, which is
-//! semantic as `$cards`' is.
+//! there too.
 
 use std::collections::HashMap;
 use std::ops::Range;
@@ -675,11 +674,11 @@ fn declared_order(node: &serde_json::Value) -> Vec<&str> {
 }
 
 /// `obj`'s entries in the schema's declared order where it declares one, keys it
-/// does not name trailing in the data's own order; [`sorted`] otherwise.
+/// does not name (an open matrix's added items) trailing in sorted order;
+/// [`sorted`] otherwise.
 ///
-/// The declared order comes from the schema, so a reorder-only update leaves the
-/// source byte-equal. The trailing keys are an open matrix's added items, whose
-/// document order is the order a plate prints them in.
+/// The order comes from the schema, never from the data, so the generated source
+/// stays a pure function of the data's values and comemo's reuse is untouched.
 fn ordered<'a>(
     obj: &'a serde_json::Map<String, serde_json::Value>,
     order: &[&str],
@@ -691,7 +690,7 @@ fn ordered<'a>(
         .iter()
         .filter_map(|id| obj.get_key_value(*id))
         .collect();
-    entries.extend(obj.iter().filter(|(k, _)| !order.contains(&k.as_str())));
+    entries.extend(sorted(obj).into_iter().filter(|(k, _)| !order.contains(&k.as_str())));
     entries
 }
 
@@ -1094,8 +1093,8 @@ mod tests {
     }
 
     /// An open matrix's added items lower against `additionalProperties`, trail
-    /// the roster in document order, and join this render's address tables as
-    /// the property steps they are.
+    /// the roster sorted, and join this render's address tables as the property
+    /// steps they are.
     #[test]
     fn an_open_matrix_lowers_and_admits_its_added_items() {
         let member = |title: bool| {
@@ -1133,7 +1132,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("{key} in {lib}"))
         };
         assert!(
-            at("dco") < at("cyber") && at("cyber") < at("wing_ig") && at("wing_ig") < at("aide"),
+            at("dco") < at("cyber") && at("cyber") < at("aide") && at("aide") < at("wing_ig"),
             "{lib}"
         );
         let paths: Vec<&str> = windows.iter().map(|w| w.path.as_str()).collect();
@@ -1150,6 +1149,32 @@ mod tests {
         assert!(tables(&lib).contains("\"wing_ig\": (\"props\": ("), "{}", tables(&lib));
         let (bare, _) = generate_lib_typ(&serde_json::json!({}), &meta).unwrap();
         assert!(!tables(&bare).contains("wing_ig"), "{}", tables(&bare));
+
+        // Below a table row and on a card, the tree the ids join is the row's
+        // element node and the kind's card node.
+        let meta = meta_from(serde_json::json!({
+            "properties": {
+                "rows": { "type": "array", "items": { "type": "object", "properties": {
+                    "quals": { "type": "object", "properties": {}, "additionalProperties": member(true) },
+                }}},
+            },
+            "$defs": { "entry_card": { "properties": {
+                "quals": { "type": "object", "properties": {}, "additionalProperties": member(true) },
+            }}},
+        }));
+        let item = |title: &str| serde_json::json!({ "held": true, "title": title, "detail": content("") });
+        let data = serde_json::json!({
+            "rows": [ { "quals": { "row_item": item("R") } } ],
+            "$cards": [ { "$kind": "entry", "quals": { "card_item": item("C") } } ],
+        });
+        let (lib, _) = generate_lib_typ(&data, &meta).unwrap();
+        let tables = tables(&lib);
+        for admitted in [
+            "\"rows\": (\"item\": (\"props\": (\"quals\": (\"props\": (\"row_item\": (",
+            "\"entry\": (\"props\": (\"quals\": (\"props\": (\"card_item\": (",
+        ] {
+            assert!(tables.contains(admitted), "{admitted} in {tables}");
+        }
     }
 
     /// `array_fields` and `object_fields` are one shape, so one predicate reads

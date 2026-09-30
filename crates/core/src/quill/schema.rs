@@ -32,8 +32,7 @@ pub const QUILLMARK_BLANK_TITLE_KEY: &str = "quillmark:blank_title";
 /// so a reorder-only update rebuilds byte-identical source; this order is a
 /// property of the schema rather than of the data, so honoring it costs that
 /// nothing and is what makes a matrix's declaration order reach the page. The
-/// keys it does not name, an open matrix's added items, trail in document
-/// order, which is theirs to carry.
+/// keys it does not name, an open matrix's added items, trail it sorted.
 pub const QUILLMARK_ORDER_KEY: &str = "quillmark:order";
 
 /// The `{type: string, enum: ["", …]}` an enum projects to: a plain enum's own

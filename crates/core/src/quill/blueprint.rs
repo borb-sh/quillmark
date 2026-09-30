@@ -219,7 +219,8 @@ fn matrix_cell() -> JsonValue {
     JsonValue::Object(JsonMap::new())
 }
 
-/// The placeholder id an open matrix's `# e.g.` line keys its added item by.
+/// The placeholder id an open matrix's `# e.g.` line keys its added item by,
+/// suffixed where the roster declares it.
 const ADDED_ITEM_EG: &str = "new_item";
 
 /// The `# e.g.` text for a matrix declaring columns or open: its first member
@@ -253,7 +254,12 @@ fn matrix_eg(field: &FieldSchema) -> Option<String> {
         .as_deref()
         .and_then(|item| item.properties.as_ref()?.get(MATRIX_TITLE_KEY));
     if let Some(title) = title {
-        members.push(format!("{ADDED_ITEM_EG}: {{{}}}", cells(Some(title)).join(", ")));
+        let roster = field.r#type.matrix_roster();
+        let id = std::iter::once(ADDED_ITEM_EG.to_string())
+            .chain((2..).map(|n| format!("{ADDED_ITEM_EG}_{n}")))
+            .find(|id| !roster.contains_key(id))
+            .expect("a finite roster leaves an id free");
+        members.push(format!("{id}: {{{}}}", cells(Some(title)).join(", ")));
     }
     Some(format!("{{{}}}", members.join(", ")))
 }

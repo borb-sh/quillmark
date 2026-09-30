@@ -558,7 +558,7 @@ fn validate_value(
                     match member_value {
                         serde_json::Value::Null => {}
                         serde_json::Value::Object(cells) => {
-                            if cells.contains_key(MATRIX_HELD_KEY) {
+                            if cells.get(MATRIX_HELD_KEY).is_some_and(|v| !v.is_null()) {
                                 errors.push(ValidationError::HeldStored {
                                     path: held_path.to_string(),
                                 });
