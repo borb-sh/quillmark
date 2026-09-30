@@ -293,8 +293,9 @@ impl Quill {
     }
 
     /// Seed a starter composable [`Card`] of the given kind (carries `$kind`),
-    /// committing an optional per-kind [`SeedOverlay`]'s fields and body over
-    /// the kind's own `seed:`; `None` if the kind is not declared.
+    /// committing an optional per-kind [`SeedOverlay`]'s fields and body in
+    /// place of the kind's own `seed:`, else that seed's; `None` if the kind is
+    /// not declared.
     /// Use to add a new card to a document: pass the document's `$seed` entry
     /// for the kind (`doc.main().seed().and_then(|m| m.get(card_kind)).and_then(SeedOverlay::from_json)`)
     /// so a card spawned into a template-derived document inherits its curated

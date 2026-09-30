@@ -349,27 +349,42 @@ card_kinds:
         type: integer
 "#;
 
-/// Per field `document overlay › kind seed › absent`, each value whole, a null
-/// falling through and a blank overriding; the body likewise.
+/// A document's overlay replaces the kind's seed whole, `$body` included, a
+/// null in it reading as absent; the kind's seed applies where the document
+/// carries no overlay, and an empty overlay seeds nothing.
 #[test]
-fn a_kind_seed_sits_under_the_document_overlay() {
+fn a_document_overlay_replaces_the_kind_seed_whole() {
     let quill = quill_from_yaml(KIND_SEED_QUILL);
+    let field = |card: &crate::document::Card, name: &str| card.payload().get(name).cloned();
 
     let bare = quill.seed_card("note", None).expect("known kind");
-    assert_eq!(bare.payload().get("author").and_then(|v| v.as_str()), Some("Kind Author"));
-    assert!(bare.payload().get("level").is_none());
+    assert_eq!(field(&bare, "author").as_ref().and_then(|v| v.as_str()), Some("Kind Author"));
+    assert_eq!(field(&bare, "tag").as_ref().and_then(|v| v.as_str()), Some("kind"));
+    assert!(field(&bare, "level").is_none());
     assert_eq!(bare.body_markdown(), "Kind body.");
 
     let ov = overlay(json!({ "author": "Doc Author", "tag": null, "level": 2 }));
     let card = quill.seed_card("note", Some(&ov)).expect("known kind");
-    assert_eq!(card.payload().get("author").and_then(|v| v.as_str()), Some("Doc Author"));
-    assert_eq!(card.payload().get("tag").and_then(|v| v.as_str()), Some("kind"));
-    assert_eq!(card.payload().get("level").and_then(|v| v.as_json().as_i64()), Some(2));
-    assert_eq!(card.body_markdown(), "Kind body.");
+    assert_eq!(field(&card, "author").as_ref().and_then(|v| v.as_str()), Some("Doc Author"));
+    assert!(field(&card, "tag").is_none());
+    assert_eq!(field(&card, "level").as_ref().and_then(|v| v.as_json().as_i64()), Some(2));
+    assert_eq!(card.body_markdown(), "");
 
-    let ov = overlay(json!({ "tag": "", "$body": "" }));
-    let card = quill.seed_card("note", Some(&ov)).expect("known kind");
-    assert_eq!(card.payload().get("tag").and_then(|v| v.as_str()), Some(""));
+    let doc = Document::parse(
+        "~~~\n$quill: kind_seed@1.0\n$kind: main\n$seed:\n  note: {}\n~~~\n",
+    )
+    .expect("doc should parse")
+    .document;
+    let empty = doc
+        .main()
+        .seed()
+        .and_then(|seed| seed.get("note"))
+        .and_then(SeedOverlay::from_json)
+        .expect("an empty overlay is an overlay");
+    let card = quill.seed_card("note", Some(&empty)).expect("known kind");
+    for name in ["author", "tag", "level"] {
+        assert!(field(&card, name).is_none(), "{name}");
+    }
     assert_eq!(card.body_markdown(), "");
 
     let doc = quill.seed_document();

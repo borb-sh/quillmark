@@ -320,9 +320,9 @@ impl PyQuill {
     }
 
     /// Seed a starter composable card of the given kind (carries `$kind`),
-    /// committing an optional per-kind seed `overlay`'s fields and `$body` over
-    /// the kind's own `seed` (`overlay › seed › absent`, body `overlay › seed ›
-    /// empty`, a `None` falling through); `None` if `card_kind` is not declared.
+    /// committing an optional per-kind seed `overlay`'s fields and `$body` in
+    /// place of the kind's own `seed`, else that seed's; `None` if `card_kind`
+    /// is not declared.
     /// Pass `document.seed_overlay(card_kind)` as `overlay` so a card added to a
     /// template-derived document inherits its curated starting values.
     #[pyo3(signature = (card_kind, overlay=None))]

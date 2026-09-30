@@ -900,7 +900,7 @@ card_kinds:
         items: { type: string }
 ```
 
-- A document's `$seed.<kind>` overrides it field by field, each value whole; a `null` there falls through to the kind's seed.
+- A document's `$seed.<kind>` replaces it whole, `$body` included: a template keeping part of the kind's seed copies that part, and `$seed.<kind>: {}` seeds nothing.
 - Once written, a seeded value is the card's own content: it prints, and a later change to `seed` does not reach cards already made. What should render when nobody answers is a `default:` instead, which tracks the quill.
 - A placeholder prints until someone replaces it. A format hint belongs in the field's `description:`.
 - Each value must pass its field's checks, `$body` needs the body enabled, and a seed that renders as the unanswered field does (a `null`, an empty `$body`, the field's `default:`, or its blank when it has none) is refused (`quill::seed_redundant`). Each failure is a load error under `quill::seed_*`.

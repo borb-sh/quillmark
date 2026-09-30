@@ -225,7 +225,7 @@ pub struct CardSchema {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body: Option<BodyCardSchema>,
     /// What [`Quill::seed_card`](crate::quill::Quill::seed_card) writes into a
-    /// new card of this kind where the document's `$seed.<kind>` names nothing.
+    /// new card of this kind where the document carries no `$seed.<kind>`.
     /// Always absent on `main`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<crate::document::SeedOverlay>,

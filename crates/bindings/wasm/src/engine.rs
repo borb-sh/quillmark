@@ -103,7 +103,7 @@ export interface QuillCardSchema {
     ui?: QuillCardUi;
     body?: QuillCardBody;
     /** What `seedCard` writes into a new card of this kind where the
-     *  document's `$seed` names nothing: the `$seed[kind]` shape, fields plus
+     *  document's `$seed` carries no entry for it: the `$seed[kind]` shape, fields plus
      *  an optional `$body`. Never present on `main`. */
     seed?: Record<string, unknown>;
 }
@@ -763,9 +763,8 @@ impl Quill {
     }
 
     /// Seed a starter composable `Card` of the given kind (carries `$kind`),
-    /// committing an optional per-kind seed `overlay`'s fields and `$body`
-    /// over the kind's own `seed` (`overlay › seed › absent`, body `overlay ›
-    /// seed › empty`, a `null` falling through). `undefined` when `cardKind` is
+    /// committing an optional per-kind seed `overlay`'s fields and `$body` in
+    /// place of the kind's own `seed`, else that seed's. `undefined` when `cardKind` is
     /// not declared in this quill's schema.
     ///
     /// Pass `document.seedOverlay(cardKind)` as `overlay` so a card added to a

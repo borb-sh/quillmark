@@ -316,7 +316,8 @@ impl Card {
 /// newly-added card of a given kind starts with. Built from a `$seed[<kind>]`
 /// entry of the main card's [`Card::seed`] map, or a kind's `seed:` in
 /// `Quill.yaml`, via [`SeedOverlay::from_json`], and committed by
-/// [`crate::quill::Quill::seed_card`] (document overlay › kind seed › absent).
+/// [`crate::quill::Quill::seed_card`], a document's overlay replacing its
+/// kind's seed whole.
 /// The reserved inner key `$body` carries the body override; every other user
 /// field becomes an entry, while any other `$`-prefixed key is reserved and
 /// dropped. A present-null entry is kept, and `seed_card` reads it as absent.

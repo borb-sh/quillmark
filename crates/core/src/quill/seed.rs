@@ -1,7 +1,7 @@
 //! Document seeding from a quill schema: one card per kind, carrying what the
 //! kind's `seed:` names and nothing else, so the render layer supplies
 //! `default`/blank. A card added to a document commits the document's `$seed`
-//! overlay for its kind over the kind's own `seed:`.
+//! overlay for its kind in place of the kind's own `seed:`.
 
 use quillmark_content::model::Normalized;
 
@@ -15,27 +15,22 @@ use crate::{
 };
 
 /// Build the seeded `(payload, body)` for one card schema under an optional
-/// document [`SeedOverlay`]. A field commits, in declaration order, the
-/// overlay's value, else the kind's `seed:` value, else nothing, each taken
-/// whole; a present-null reads as absent at either rung. Body: `overlay › seed
-/// › empty`, honored only when the kind enables bodies. An overlay key naming no
-/// schema field is never reached.
+/// document [`SeedOverlay`], which replaces the kind's `seed:` whole. A field
+/// commits that seed's value in declaration order, a present-null reading as
+/// absent; the body commits its `$body`, honored only when the kind enables
+/// bodies. A key naming no schema field is never reached.
 /// The `$quill` / `$kind` system metadata is attached by the caller.
 ///
 /// Every seeded content field commits through [`seeded_rest`], the same strict
 /// write the typed writer uses, so a seeded card is at rest from birth
 /// (`SCHEMAS.md` § "Document seeding": seed-commits-rest).
 fn seed_parts(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> (Payload, Normalized) {
-    let rungs = [overlay, schema.seed.as_ref()];
+    let seed = overlay.or(schema.seed.as_ref());
     let items: Vec<PayloadItem> = schema
         .fields
         .iter()
         .filter_map(|(name, field)| {
-            let value = rungs
-                .iter()
-                .flatten()
-                .filter_map(|rung| rung.fields.get(name))
-                .find(|value| !value.as_json().is_null())?;
+            let value = seed?.fields.get(name).filter(|v| !v.as_json().is_null())?;
             Some(PayloadItem::Field {
                 key: name.clone(),
                 value: seeded_rest(name, value, field),
@@ -43,7 +38,7 @@ fn seed_parts(schema: &CardSchema, overlay: Option<&SeedOverlay>) -> (Payload, N
         })
         .collect();
 
-    let body = match rungs.iter().flatten().find_map(|rung| rung.body.as_ref()) {
+    let body = match seed.and_then(|seed| seed.body.as_ref()) {
         Some(seeded_body) if schema.body_enabled() => {
             crate::document::import_body(seeded_body).unwrap_or_else(|_| Normalized::empty())
         }

@@ -516,7 +516,7 @@ field maps rather than a sort key):
 | render (fidelity) | authored › `default:` › blank | blank | plate JSON: [Blank-filled render](#blank-filled-render) |
 | `blueprint` document | `default:` › empty | empty cell (blank at render) | annotated string, [BLUEPRINT.md](BLUEPRINT.md) |
 | seeding | kind `seed:` › absent | (deferred to render floor) | committed `Document`: [Document seeding](#document-seeding) |
-| add-card (into a document) | `$seed` overlay › kind `seed:` › absent | (deferred to render floor) | a new composable `Card`: [Document seeding](#document-seeding) |
+| add-card (into a document) | the `$seed` overlay's block, else the kind's `seed:` block › absent | (deferred to render floor) | a new composable `Card`: [Document seeding](#document-seeding) |
 | editor (consumer-side) | authored › `default:` › blank, resolved per field and **tagged with its source rung** | blank | the engine's [`resolve()`](#the-resolved-value-view-resolve) resolved-value view: value and source rung per field |
 | values (`reader.get()`) | authored only, as stored: an absent field stays absent, a scalar shorthand stays a shorthand | **none**: an absent field reads absent | the [values form](#the-values-form): the field's value with content leaves as their codec's text |
 
@@ -919,24 +919,21 @@ card_kinds:
       $body: Write the indorsement here.
 ```
 
-`Quill::seed_card(kind, overlay)` commits a new card, in field declaration
-order:
+`Quill::seed_card(kind, overlay)` commits one block into a new card, in
+field declaration order: the document's `$seed.<kind>` when the document
+carries one, else the kind's `seed:`, else nothing.
 
-| Rung | Field | Body |
-|---|---|---|
-| 1 | the document's `$seed.<kind>.<field>` | `$seed.<kind>.$body` |
-| 2 | the kind's `seed.<field>` | `seed.$body` |
-| 3 | absent | empty |
-
-- Each value is taken whole: an object, array or variant container is one
-  value, and nothing merges below the top level.
-- A present-null falls through to the next rung, as null ≡ absent everywhere. A
-  document overrides a kind seed with any value, and removes one only with a
-  blank it can write (`""`, `[]`, `{}`), which an `enum`, `date`, `number` or
-  `boolean` field lacks, as under a `default:`.
+- The block is taken whole. A document's `$seed.<kind>` replaces the kind's
+  `seed:`, `$body` included, and nothing merges below it: a template keeping
+  part of the kind's seed copies that part, and `$seed.<kind>: {}` seeds
+  nothing.
+- A present-null field in the block is absent, as null ≡ absent everywhere.
 - A `today` seed stores `today` and floats to each render's date, like an
   authored `today`.
-- Fields neither rung names stay absent and track the quill's `default:`.
+- Fields the block does not name stay absent and track the quill's `default:`.
+
+A template reads alone: its block is what its new cards hold, and a later
+change to the kind's `seed:` does not reach a kind the template seeds.
 
 Both levels are checked by one walker, as the document values `seed_card`
 commits, so a seeded card draws no diagnostic `validate` would raise on it:
