@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.120.0 - 2026-09-30
+
+Upgrade path: [0.119 → 0.120](docs/migrations/0.119-to-0.120.md).
+
+### `Engine.load`
+
+- feat(wasm): **`engine.load(quill)` loads and instantiates a quill's backend
+  build without a document**, cloning no quill. It is the memoized load
+  `render` and `open` await, so a host can start the render build's fetch once
+  the quill resolves and mount its editor on core meanwhile. Awaiting it before
+  `open` makes the session's first compile read the current document. A failed
+  load rejects, `runtime::backend_load_failed` for the built-ins, and the next
+  call retries. (#2027)
+
+### `quill::table_column_not_leaf`
+
+- refactor(core)!: **a `ui.layout: table` column that is not a leaf fails to
+  load as `quill::table_column_not_leaf`**, where it was
+  `quill::table_column_not_flat`. Its trigger and message are unchanged.
+  (#2021)
+
 ## v0.119.0 - 2026-09-30
 
 ### `ui.layout: flat`
