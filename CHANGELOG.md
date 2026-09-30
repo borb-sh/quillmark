@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.120.0 - 2026-09-30
+
+- feat(wasm): engine.load(quill) loads a backend without a document
+- refactor(core)!: a table's container column is `quill::table_column_not_leaf`
+
+
 ## v0.119.0 - 2026-09-30
 
 ### `ui.layout: flat`
