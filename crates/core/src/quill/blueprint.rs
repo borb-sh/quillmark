@@ -214,7 +214,7 @@ fn append_field(items: &mut CardItems, field: &FieldSchema) {
 /// A matrix's blueprint cell: the empty mapping, which is the sparse spelling
 /// of a vocabulary nobody has ticked. The roster rides the inline annotation, so
 /// expanding every member here would show a model twenty-seven subforms to
-/// delete and a seed it must not ship.
+/// delete and filler it must not ship.
 fn matrix_cell() -> JsonValue {
     JsonValue::Object(JsonMap::new())
 }

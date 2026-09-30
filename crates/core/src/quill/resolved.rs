@@ -27,8 +27,8 @@ pub enum FieldSource {
 
 impl FieldSource {
     /// Height on the ladder: how strongly the value claims to be the real
-    /// answer. Private, so the two operations below are the ladder's only
-    /// order — a consumer reads a rung, it never compares two.
+    /// answer. Private, so [`join`](Self::join) is the ladder's only order — a
+    /// consumer reads a rung, it never compares two.
     fn commitment(self) -> u8 {
         match self {
             Self::Blank => 0,
@@ -42,15 +42,6 @@ impl FieldSource {
     pub(crate) fn join(self, other: Self) -> Self {
         if other.commitment() > self.commitment() {
             other
-        } else {
-            self
-        }
-    }
-
-    /// This rung, held down to `ceiling`.
-    pub(crate) fn capped_at(self, ceiling: Self) -> Self {
-        if self.commitment() > ceiling.commitment() {
-            ceiling
         } else {
             self
         }

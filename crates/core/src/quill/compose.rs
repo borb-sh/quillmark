@@ -468,7 +468,7 @@ fn plate_fields(
 /// The value half of [`resolve_value_sourced`], discarding the rung tag: the
 /// nested cut for a typed array's elements, whose rungs no projection surfaces —
 /// an `array` is a cell, since arity is a fact no leaf carries, so its own rung
-/// is the one its seed supplied.
+/// is the one its entry came from.
 fn resolve_value(
     value: Option<&QuillValue>,
     field: &FieldSchema,
@@ -482,12 +482,12 @@ fn resolve_value(
 /// absent recursively so no bare null reaches the plate.
 ///
 /// Resolution is a descent, not a return (`prose/canon/SCHEMAS.md` § "Cells and
-/// namespaces"): this picks a **seed** — the authored value, else the schema
-/// `default:` — and hands it to [`compose`], which rebuilds a container from its
-/// declared members whichever rung the seed came from and floors a leaf at its
-/// [`blank`].
+/// namespaces"): this picks the cell's **entry** — the authored value, else the
+/// schema `default:` — and hands it to [`compose`], which rebuilds a container
+/// from its declared members whichever rung the entry came from and floors a
+/// leaf at its [`blank`].
 ///
-/// The rung is the seed's, joined with what the descent found
+/// The rung is the entry's, joined with what the descent found
 /// ([`FieldSource::join`]), computed by that same walk.
 pub(crate) fn resolve_value_sourced(
     value: Option<&QuillValue>,
@@ -497,14 +497,14 @@ pub(crate) fn resolve_value_sourced(
     if field.is_variant_bearing() {
         return resolve_variant_sourced(value, field, today);
     }
-    let (seed, source) = match value.filter(|v| !is_unanswered(v, field)) {
+    let (entry, source) = match value.filter(|v| !is_unanswered(v, field)) {
         Some(v) => (Some(v.clone()), FieldSource::Authored),
-        None => match seed_default(field) {
+        None => match entry_default(field) {
             Some(default) => (Some(default), FieldSource::Default),
             None => (None, FieldSource::Blank),
         },
     };
-    let (resolved, composed) = compose(seed.as_ref(), field, source, today);
+    let (resolved, composed) = compose(entry.as_ref(), field, today);
     (resolved, source.join(composed))
 }
 
@@ -526,9 +526,9 @@ fn is_unanswered(value: &QuillValue, field: &FieldSchema) -> bool {
 /// tree bears a content leaf. The ladder injects a default without re-coercing
 /// it, so the cache is the only safe source: a raw `default` would cross as
 /// unimported markdown. A content-bearing tree whose companion is absent
-/// therefore has *no* seed — the gate `populate_field_content` is written
+/// therefore has *no* entry — the gate `populate_field_content` is written
 /// against.
-fn seed_default(field: &FieldSchema) -> Option<QuillValue> {
+fn entry_default(field: &FieldSchema) -> Option<QuillValue> {
     if let Some(content) = field.default_content.clone() {
         return Some(content);
     }
@@ -538,32 +538,30 @@ fn seed_default(field: &FieldSchema) -> Option<QuillValue> {
     field.default.clone()
 }
 
-/// Build `field`'s value from `seed`, the value its own rung supplied (`None`
+/// Build `field`'s value from `entry`, the value its own rung supplied (`None`
 /// where no rung above the floor had one), and report the strongest rung any
 /// cell below contributed. Terminates because each recursion descends strictly
 /// into the schema tree.
 ///
 /// A typed dictionary's cells each cut their own ladder over their slice of the
-/// seed, so an absent property resolves to *its* `default:` before its blank,
-/// and an undeclared seed key passes through verbatim as
-/// `config::coerce_object_props` passes it. `seed_rung` ceilings the cells'
-/// ([`compose_members`]).
+/// entry, so an absent property resolves to *its* `default:` before its blank,
+/// and an undeclared entry key passes through verbatim as
+/// `config::coerce_object_props` passes it.
 fn compose(
-    seed: Option<&QuillValue>,
+    entry: Option<&QuillValue>,
     field: &FieldSchema,
-    seed_rung: FieldSource,
     today: CalendarDate,
 ) -> (QuillValue, FieldSource) {
-    if seed.is_none() && field.optional {
+    if entry.is_none() && field.optional {
         return (blank(field), FieldSource::Blank);
     }
     match (&field.r#type, field.namespace_props(), &field.items) {
         (FieldType::Object | FieldType::Matrix { .. }, Some(props), _)
-            if composes_as(seed, serde_json::Value::is_object) =>
+            if composes_as(entry, serde_json::Value::is_object) =>
         {
-            let obj = seed.and_then(|v| v.as_json().as_object());
+            let obj = entry.and_then(|v| v.as_json().as_object());
             let mut out = serde_json::Map::new();
-            let rung = compose_members(obj, props, seed_rung, today, &mut out);
+            let rung = compose_members(obj, props, today, &mut out);
             // Preserve undeclared keys verbatim; only rebuild the ones the
             // schema names. Skips keys already emitted above so a declared
             // property keeps its resolved (blank-filled) value.
@@ -577,8 +575,8 @@ fn compose(
             close_matrix_wire(field, &mut out);
             (QuillValue::from_json(serde_json::Value::Object(out)), rung)
         }
-        (FieldType::Array, _, Some(items)) if composes_as(seed, serde_json::Value::is_array) => {
-            let arr = seed
+        (FieldType::Array, _, Some(items)) if composes_as(entry, serde_json::Value::is_array) => {
+            let arr = entry
                 .and_then(|v| v.as_json().as_array().cloned())
                 .unwrap_or_default();
             let out: Vec<serde_json::Value> = arr
@@ -590,7 +588,7 @@ fn compose(
                 FieldSource::Blank,
             )
         }
-        _ => match seed {
+        _ => match entry {
             Some(v) if is_today(v, field) => (
                 QuillValue::from_json(serde_json::Value::String(today.to_string())),
                 FieldSource::Blank,
@@ -672,45 +670,40 @@ fn close_matrix_wire(field: &FieldSchema, out: &mut serde_json::Map<String, serd
     }
 }
 
-/// Whether `seed` composes as the container: absent, so the blank container is
+/// Whether `entry` composes as the container: absent, so the blank container is
 /// the whole answer, or already of `shape`.
 ///
-/// A present seed of another shape (`rows: abc` on an `array`, `addr: 5` on a
+/// A present entry of another shape (`rows: abc` on an `array`, `addr: 5` on a
 /// typed dictionary) is kept raw by the scalar arm instead, as
-/// [`conform_card_render`] keeps it: [`resolve_value_sourced`] reports the seed's
-/// own rung, so a rebuilt container would carry the document's label over content
-/// the document never wrote. The gate refuses the shape
+/// [`conform_card_render`] keeps it: [`resolve_value_sourced`] reports the
+/// entry's own rung, so a rebuilt container would carry the document's label over
+/// content the document never wrote. The gate refuses the shape
 /// (`validation::type_mismatch`), so only the ungated views meet it.
-fn composes_as(seed: Option<&QuillValue>, shape: fn(&serde_json::Value) -> bool) -> bool {
-    seed.is_none_or(|v| shape(v.as_json()))
+fn composes_as(entry: Option<&QuillValue>, shape: fn(&serde_json::Value) -> bool) -> bool {
+    entry.is_none_or(|v| shape(v.as_json()))
 }
 
-/// Resolve every declared member of a namespace over its slice of `seed` into
+/// Resolve every declared member of a namespace over its slice of `entry` into
 /// `out`, reporting the strongest rung any of them contributed. The two
 /// namespaces a schema can spell — a typed dictionary's `properties` and the
 /// live world of a variant container — compose identically.
 ///
-/// `seed_rung` **ceilings** its members': [`resolve_value_sourced`] cannot tell
-/// a seeded value from a written one, so without the ceiling a cell fed from a
-/// container `default:` would report itself authored.
+/// A namespace carries no `default:` (`quill::default_on_namespace`), so its
+/// entry is authored or absent, and a member reports `authored` only for a value
+/// the document wrote.
 fn compose_members(
-    seed: Option<&serde_json::Map<String, serde_json::Value>>,
+    entry: Option<&serde_json::Map<String, serde_json::Value>>,
     members: &IndexMap<String, Box<FieldSchema>>,
-    seed_rung: FieldSource,
     today: CalendarDate,
     out: &mut serde_json::Map<String, serde_json::Value>,
 ) -> FieldSource {
-    let ceiling = match seed_rung {
-        FieldSource::Authored => FieldSource::Authored,
-        _ => FieldSource::Default,
-    };
     let mut rung = FieldSource::Blank;
     for (name, schema) in members {
-        let cell = seed
+        let cell = entry
             .and_then(|o| o.get(name))
             .map(|j| QuillValue::from_json(j.clone()));
         let (value, source) = resolve_value_sourced(cell.as_ref(), schema, today);
-        rung = rung.join(source.capped_at(ceiling));
+        rung = rung.join(source);
         out.insert(name.clone(), value.into_json());
     }
     rung
@@ -732,7 +725,7 @@ fn resolve_variant_sourced(
     today: CalendarDate,
 ) -> (QuillValue, FieldSource) {
     let present = value.filter(|v| !v.as_json().is_null());
-    // A present seed that is neither the container nor a bare member name is
+    // A present entry that is neither the container nor a bare member name is
     // kept raw, as any mis-shaped container is ([`composes_as`]): the rung is
     // the document's, and a blank world under it would read as an answer the
     // document gave.
@@ -765,19 +758,13 @@ fn resolve_variant_sourced(
         VARIANT_DISCRIMINANT_KEY.to_string(),
         serde_json::Value::String(member.clone()),
     );
-    // The cells are seeded from the authored container, never from the
-    // discriminant's `default:` — a member the schema chose brings no values
-    // with it — so their ceiling is whether the document wrote the container,
-    // not which rung supplied the tag.
-    let seed_rung = match present {
-        Some(_) => FieldSource::Authored,
-        None => FieldSource::Blank,
-    };
+    // The cells enter from the authored container, never from the
+    // discriminant's `default:`: a member the schema chose brings no values
+    // with it.
     let cells = match field.variant_fields(&member) {
         Some(fields) => compose_members(
             authored.and_then(|j| j.as_object()),
             fields,
-            seed_rung,
             today,
             &mut out,
         ),
