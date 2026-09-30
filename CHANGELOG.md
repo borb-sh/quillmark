@@ -1,5 +1,10 @@
 # Changelog
 
+## v0.119.0 - 2026-09-30
+
+- feat(core,wasm): `ui.layout: flat` draws a typed dictionary without a frame
+
+
 ## v0.118.0 - 2026-09-30
 
 Upgrade path: [0.117 → 0.118](docs/migrations/0.117-to-0.118.md).
