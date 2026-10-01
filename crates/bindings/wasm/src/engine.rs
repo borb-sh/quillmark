@@ -2301,10 +2301,39 @@ fn render_options_or_throw(
     opts: Option<Ts<RenderOptions>>,
 ) -> Result<quillmark_core::types::RenderOptions, JsValue> {
     let opts = match opts {
-        Some(ts) => from_ts_or_throw(&ts)?,
+        Some(ts) => {
+            reject_unknown_render_options(&ts.js_value())?;
+            from_ts_or_throw(&ts)?
+        }
         None => RenderOptions::default(),
     };
     Ok(opts.into())
+}
+
+/// `serde_wasm_bindgen` does not honor `deny_unknown_fields`, so a mistyped
+/// option, or a `today` passed among the options, would otherwise be dropped.
+#[cfg(feature = "render")]
+fn reject_unknown_render_options(value: &JsValue) -> Result<(), JsValue> {
+    const ALLOWED: &[&str] = &["format", "ppi", "pages", "regions"];
+    let Some(obj) = value.dyn_ref::<js_sys::Object>() else {
+        return Ok(());
+    };
+    for key in js_sys::Object::keys(obj).iter() {
+        let Some(k) = key.as_string() else { continue };
+        if ALLOWED.contains(&k.as_str()) {
+            continue;
+        }
+        let hint = if k == "today" {
+            "the render date is the argument after the options: \
+             `render(quill, doc, options, '2026-03-14')`"
+                .to_string()
+        } else {
+            format!("render options take only {}", ALLOWED.join(", "))
+        };
+        return Err(WasmError::from(format!("render options have unknown key `{k}`; {hint}"))
+            .to_js_value());
+    }
+    Ok(())
 }
 
 fn json_value_to_js(value: Option<serde_json::Value>) -> Result<JsValue, JsValue> {

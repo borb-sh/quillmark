@@ -1306,4 +1306,14 @@ main:
 
     await expect(engine.open(quill(), doc(), 'today')).rejects.toThrow('YYYY-MM-DD')
   })
+
+  it('refuses `today`, or any unknown key, among the render options', async () => {
+    const engine = new Engine()
+    const opts = { format: 'svg', today: '2026-03-14' }
+    await expect(engine.render(quill(), doc(), opts)).rejects.toThrow('unknown key `today`')
+
+    const session = await engine.open(quill(), doc(), '2026-03-14')
+    expect(() => session.render({ fromat: 'svg' })).toThrow('unknown key `fromat`')
+    session.free()
+  })
 })
