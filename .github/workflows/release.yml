@@ -332,7 +332,7 @@ jobs:
           registry-url: 'https://registry.npmjs.org'
 
       - name: Install wasm-bindgen-cli
-        uses: taiki-e/install-action@v2.87.17
+        uses: taiki-e/install-action@v2.87.21
         with:
           tool: wasm-bindgen-cli@0.2.128
 
