@@ -123,8 +123,30 @@ pub fn raster_scale(ppi: f32) -> Result<f32, RenderError> {
 /// before the rasterizer allocates: under `backend::invalid_raster_scale` unless
 /// `scale` (device pixels per point, as [`raster_scale`] returns) is finite and
 /// positive and neither side of the `width_pt` × `height_pt` page passes
-/// [`MAX_RASTER_SIDE`].
+/// [`MAX_RASTER_SIDE`]. The refusal names `scale` as a canvas scale; a PNG
+/// export takes [`check_raster_ppi`].
 pub fn check_raster(scale: f32, width_pt: f32, height_pt: f32) -> Result<(), RenderError> {
+    check_raster_as(scale, width_pt, height_pt, RasterUnit::CanvasScale)
+}
+
+/// [`check_raster`] for a PNG export at `ppi`, its refusal naming the ppi
+/// passed and the largest that fits.
+pub fn check_raster_ppi(ppi: f32, width_pt: f32, height_pt: f32) -> Result<(), RenderError> {
+    check_raster_as(raster_scale(ppi)?, width_pt, height_pt, RasterUnit::Ppi(ppi))
+}
+
+#[derive(Clone, Copy)]
+enum RasterUnit {
+    CanvasScale,
+    Ppi(f32),
+}
+
+fn check_raster_as(
+    scale: f32,
+    width_pt: f32,
+    height_pt: f32,
+    unit: RasterUnit,
+) -> Result<(), RenderError> {
     if !scale.is_finite() || scale <= 0.0 {
         return Err(invalid_raster_scale(
             format!("raster scale {scale} is not a finite positive number of device pixels per point"),
@@ -135,15 +157,34 @@ pub fn check_raster(scale: f32, width_pt: f32, height_pt: f32) -> Result<(), Ren
     // pixel the rasterizers floor it at.
     let px = |pt: f32| (f64::from(scale) * f64::from(pt)).round().max(1.0);
     let (w, h) = (px(width_pt), px(height_pt));
-    if w.max(h) > f64::from(MAX_RASTER_SIDE) {
-        return Err(invalid_raster_scale(
-            format!(
-                "a {width_pt}x{height_pt} pt page at {scale} device pixels per point is {w}x{h} px, past the {MAX_RASTER_SIDE} px ceiling on a side"
-            ),
-            "Rasterize fewer pixels: lower the ppi (the default is 144) or the canvas scale.",
-        ));
+    if w.max(h) <= f64::from(MAX_RASTER_SIDE) {
+        return Ok(());
     }
-    Ok(())
+    let fit_scale = f64::from(MAX_RASTER_SIDE) / f64::from(width_pt.max(height_pt));
+    let (asked, hint) = match unit {
+        RasterUnit::CanvasScale => (
+            format!("canvas scale {scale}"),
+            format!(
+                "Paint at a canvas scale of at most {:.3}.",
+                (fit_scale * 1000.0).floor() / 1000.0
+            ),
+        ),
+        RasterUnit::Ppi(ppi) => {
+            let fit_ppi = (fit_scale * 72.0).floor();
+            let hint = if fit_ppi >= 1.0 {
+                format!("Export at {fit_ppi} ppi or less, or as PDF or SVG, which have no ceiling.")
+            } else {
+                "Export as PDF or SVG, which have no ceiling.".to_string()
+            };
+            (format!("{ppi} ppi"), hint)
+        }
+    };
+    Err(invalid_raster_scale(
+        format!(
+            "a {width_pt}x{height_pt} pt page at {asked} is {w}x{h} px, past the {MAX_RASTER_SIDE} px ceiling on a side"
+        ),
+        &hint,
+    ))
 }
 
 /// `scale` reduced, where it must be, to the largest at which neither side of
@@ -238,6 +279,15 @@ mod tests {
             code(check_raster(f32::INFINITY, w, h).expect_err("an infinite scale")),
             "backend::invalid_raster_scale"
         );
+    }
+
+    #[test]
+    fn a_ppi_refusal_names_the_largest_ppi_that_fits() {
+        let err = check_raster_ppi(144.0, 612.0, 9000.0).expect_err("18000 px tall");
+        let diag = &err.diagnostics()[0];
+        assert!(diag.message.contains("144 ppi"), "{}", diag.message);
+        assert!(diag.hint.as_deref().is_some_and(|h| h.contains("131 ppi")), "{diag:?}");
+        assert!(check_raster_ppi(131.0, 612.0, 9000.0).is_ok());
     }
 
     #[test]

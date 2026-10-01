@@ -30,6 +30,7 @@ The file must open with a `~~~` block containing a `$quill:` key identifying the
 - `-o <PATH>` / `--output <PATH>`: Output file path (default: input filename with format extension, e.g. `input.pdf`; `example.<format>` when no markdown file is given)
 - `-f <FORMAT>` / `--format <FORMAT>`: Output format: `pdf`, `svg`, `png` (default: the `-o` extension when it names one of these, else `pdf`). A `-f` that disagrees with such an extension is refused (`-f png -o out.pdf`); an `-o` extension naming no format is written as given.
 - `--output-data <DATA_FILE>`: Write the compiled, blank-filled JSON data to a file. This is the data before the backend lowers it: a `richtext` value appears as a content object (`{text, lines, marks, islands}`) and a date as its string, where a Typst plate receives content and a `datetime`.
+- `--ppi <PPI>`: Pixels per inch for PNG output (default: 144). A page side past 16384 px at this ppi is refused; the refusal names the largest ppi that fits.
 - `--today <YYYY-MM-DD>`: The render date: what a `today` date field and a plate's `datetime.today()` render as (default: the local date)
 - `--quiet`: Suppress warnings and the output-destination line; errors still print
 - `--stdout`: Write the artifact to stdout instead of a file (and ignore `-o`); refused when the render produces more than one page
