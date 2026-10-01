@@ -7,11 +7,14 @@
 // a click on them to `state` until `field-region` claims them.
 #let banner(level) = box(fill: luma(230), inset: 6pt, radius: 2pt)[*#upper(level)*]
 
+// A stored enum value is an id; the words it prints are the plate's.
+#let state-text = (on_track: "on track", at_risk: "at risk", blocked: "blocked")
+
 // An enum's blank is a value no `values:` list holds: here, nobody has said
 // where the project stands. Guarding on it is what keeps an `else` over the
 // three declared states from rendering one nobody picked.
 #if data.state != "" {
-  field-region("state")[#banner(data.state)]
+  field-region("state")[#banner(state-text.at(data.state))]
 }
 
 = #data.project

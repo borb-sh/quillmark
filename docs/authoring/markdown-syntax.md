@@ -42,7 +42,8 @@ Why: Typst (the rendering backend) has no HTML renderer, and arbitrary HTML pass
 Consequences:
 
 - `<br>`, `<br/>`, `<br />` produce no output. Use a CommonMark hard break instead: two trailing spaces before a newline, or a trailing `\` before a newline.
-- HTML entities and embedded SVG are dropped.
+- HTML entities decode as CommonMark specifies: `Fish &amp; chips, &#65;BC` reads `Fish & chips, ABC`.
+- Embedded SVG is dropped.
 - HTML comments do not appear in output.
 
 ### A column-zero `~~~` always opens a card-yaml block

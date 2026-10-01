@@ -53,7 +53,7 @@ Four types hold text, and two questions pick one:
 1. **Does the author write prose here, or does the plate compute with the value?** A name, URL, path, or reference key is data. A bio, an abstract, or a cover letter is content.
 2. Then, for data: **is the set of allowed values closed?** (`enum` over `string`.) For content: **should `*text*` render as emphasis, or stay literal?** (`richtext` over `plaintext`.)
 
-The letter above needs no content field: its prose is the document body, which is already rich text. `plaintext` and `richtext` are for prose in a *named* field — an abstract, a summary. Such a field carries navigation, regions, and click-to-edit in editor consumers; `string` and `enum` carry none of that.
+The letter above needs no content field: its prose is the document body, which is already rich text. `plaintext` and `richtext` are for prose in a *named* field — an abstract, a summary. Every field the plate prints gets a region and click-to-edit in editor consumers; a content field adds navigation inside its value, which `string` and `enum` lack.
 
 Pick before a corpus exists. Changing a declared type reinterprets every value already stored in that field, and data → content is lossy: see [Choosing among `string`, `enum`, `plaintext`, and `richtext`](quill-yaml-reference.md#choosing-among-string-enum-plaintext-and-richtext).
 
@@ -121,12 +121,13 @@ Its `plate.typ`:
 --8<-- "crates/fixtures/resources/quills/status_report/0.1.0/plate.typ"
 ```
 
-Six constructs to lift from it:
+Seven constructs to lift from it:
 
 - **A date that prints.** `display("issued", ..)` takes the field's *address* and returns content, so the printed date stays the click-to-edit target for that field. `data.issued` is the `datetime` behind it: reach for that to compare, to take components, or to hand a package a date it formats itself. See [Dates](typst-backend.md#dates).
 - **An enum left unanswered.** The blank is a value no `values:` list holds, so `data.state != ""` guards it and an `else` on a branch over the declared values would render a state nobody picked. See [the blank](quill-yaml-reference.md#the-blank-values-is-for-choices-not-for-the-absence-of-one).
 - **A card loop.** `$kind` is document-defined, so `card.at("$kind", default: none)` reads it and every other kind falls through. A field declared on the kind arrives filled, which is why `card.title` is a plain read. See [Body, arrays, and cards](typst-backend.md#body-arrays-and-cards).
 - **Printing through `ink`.** Every iteration of the card loop reads through one loop variable, so `card.title` printed there names no card. `ink(card).title` is the same text born in generated code, keyed on that card's own field, and `display(card, "due", ..)` formats the date the same way. Compute with `card`, print with `ink(card)`. See [Print with `ink`](editor-regions.md#print-with-ink).
+- **An enum's ids, printed as words.** A stored value is an id (`at_risk`), so `state-text` maps each to the text the page prints. See [Enum Constraints](quill-yaml-reference.md#enum-constraints).
 - **A claim on composed ink.** The banner's glyphs are drawn by the plate rather than by the field, so `field-region("state")` is what makes a click on them resolve to `state`. See [Tying Composed Content to a Field](editor-regions.md#tying-composed-content-to-a-field).
 - **`#set`.** Page and text defaults are ordinary Typst. See [Typesetting](typst-backend.md#typesetting).
 

@@ -80,7 +80,7 @@ status_report/0.1.0/
 ~~~
 $quill: status_report
 project: Harbor Migration
-state: at risk
+state: at_risk
 ~~~
 
 The cutover rehearsal slipped a week while the data owners review the mapping.
@@ -199,7 +199,7 @@ and `Quill::validate` reports nothing about it.
 | Type       | Notes |
 |------------|-------|
 | `string`   | Open scalar UTF-8 text: a value the template computes with (a URL, path, identifier, or reference key), not prose it lays out |
-| `enum`     | A closed set of string values; requires a `values:` list. Also accepts its [blank](#the-blank-values-is-for-choices-not-for-the-absence-of-one) (`""`), which is not a declared member. Projects to JSON-Schema `{type: string, enum: ["", …]}` |
+| `enum`     | A closed set of string values; requires a `values:` list. Also accepts its [blank](#the-blank-values-is-for-choices-not-for-the-absence-of-one) (`""`), which is not a declared member: `schema()` lists the declared members alone, and the blank stays a valid value of every enum |
 | `plaintext`| Navigable, **unformatted** prose over the canonical content: the same nav/regions as `richtext`, but a literal codec (delimiters stay literal, no markup). Add `inline: true` for the single-line variant |
 | `number`   | Numeric scalar (integers and decimals) |
 | `integer`  | Integer-only numeric scalar, sized as an `i64`; a literal past that range takes `number` |
@@ -237,8 +237,8 @@ confidential:
 
 | Declaration | Renders when unanswered | The plate reads |
 |---|---|---|
-| `type: t` | the type's blank | always a `t` |
-| `type: t` with `default:` | the default | always a `t` |
+| `type: t` | the type's blank | a `t`, but for the blanks the [Blank values](typst-backend.md#blank-values) table names: `none` for a `date` or `datetime`, `""` for `richtext` or `plaintext` |
+| `type: t` with `default:` | the default | a `t` |
 | `type: t?` | `none` | a `t` or `none` |
 
 - Any cell takes the `?`: every scalar type, `richtext`, `plaintext`, `date`, `enum`, `array` and `matrix`. An `object` and an `enum` with `variants:` do not (`quill::optional_namespace`); mark the fields inside them instead.
@@ -259,7 +259,7 @@ The four text-ish types form a 2×2 of **data vs content** × **open/plain vs cl
 | **open / literal** | `string` | `plaintext`: `*text*` stays literal |
 | **closed / formatted** | `enum`: a `values:` domain | `richtext`: `*text*` becomes emphasis |
 
-A content field rides the canonical content model, so it carries navigation, regions, and click-to-edit in editor consumers; `string` and `enum` carry none of that. `plaintext` and `richtext` share that entire stack and the same backend lowering, so they are indistinguishable in an editor and diverge only at emit, where the codec decides whether a delimiter is markup or a character.
+Every field the plate prints gets a region and click-to-edit in editor consumers. A content field rides the canonical content model, so it adds navigation inside the value; `string` and `enum` carry none of that. `plaintext` and `richtext` share that entire stack and the same backend lowering, so they are indistinguishable in an editor and diverge only at emit, where the codec decides whether a delimiter is markup or a character.
 
 Changing a declared type reinterprets every stored value in that field at the next bound load, with no diagnostic, and data → content is the lossy direction: the stored string enters the codec's import and its delimiters are consumed as structure, leaving the literal characters unrecoverable. A declared type change is a new quill version ([Quill Versioning](versioning.md)); audit the corpus before publishing one, as under [Date and Datetime Grammars](#date-and-datetime-grammars).
 
@@ -301,6 +301,12 @@ main:
 
 `values:` on any other type is a load error, as is the retired `enum:`
 modifier on any type.
+
+A value is an id, not display text: documents store it, so renaming one strands
+every document that stored the old spelling. Spell ids as stable keys
+(`on_track`, not `on track`) and print the text from the plate. Where the text is
+itself the standard, such as a marking like `TOP SECRET`, the id may be the
+text.
 
 #### The blank: `values:` is for choices, not for the absence of one
 
@@ -431,7 +437,7 @@ since the name is one cell of the container whichever world brings it into play
 
 ### Primitive Arrays, Typed Tables, and Typed Dictionaries
 
-Every array declares its element type under `items:`. For a **primitive list**, give `items` a scalar type, coercion and validation then apply element-wise (e.g. each element of an `integer[]` is coerced to an integer, and a bad element fails at its indexed path like `counts[1]`):
+Every array declares its element type under `items:`. For a **primitive list**, give `items` a scalar type, coercion and validation then apply element-wise (e.g. each element of an `integer[]` is coerced to an integer, and a bad element fails at its indexed path like `counts[1]`). A bare scalar given for an array is a one-element array: `tags: one` reaches the plate as `("one",)`, and nothing warns. The text types are lenient the other way: a number or boolean given for a `string`, `plaintext` or `richtext` field becomes its text, and a one-element list of text unwraps to its element.
 
 ```yaml
 main:

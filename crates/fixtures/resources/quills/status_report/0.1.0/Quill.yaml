@@ -20,8 +20,8 @@ main:
     state:
       type: enum
       values:
-        - on track
-        - at risk
+        - on_track
+        - at_risk
         - blocked
       default: ""
       description: Where the project stands. Leave blank for no banner.

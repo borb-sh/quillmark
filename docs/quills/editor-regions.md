@@ -89,7 +89,7 @@ A live preview routes a click back to the schema field that produced the ink und
 #field-region("classification")[#banner(data.classification)]
 ```
 
-The banner now appears in `session.regions()` under `classification` and a click on it resolves through `session.fieldAt(...)`, exactly as if the field had drawn it.
+The banner now appears in `session.regions()` under `main.classification`, the document path of the field `field-region` names, and a click on it resolves through `session.fieldAt(...)`, exactly as if the field had drawn it.
 
 `body` is returned untouched, bracketed by two invisible `metadata` markers, so the wrapper changes nothing about layout or output bytes. Unlike a `form-field` widget it reserves no space and draws no click target of its own: it claims the ink that is already there.
 

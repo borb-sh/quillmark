@@ -112,6 +112,17 @@ leading underscore, but no loadable quill carries one.
 The data payload (everything in the YAML mapping except the `$`-prefixed
 metadata keys) is standard YAML.
 
+YAML types an unquoted value before the field's type applies, and a `string`
+field takes the retyped value's text. Nothing warns, so quote a value YAML would
+read as something else (`zip: "02134"`):
+
+| Authored | The field holds |
+|---|---|
+| `zip: 02134` | `2134.0`: a number, its leading zero gone |
+| `country: NO` | `false`: `yes`, `no`, `on`, `off`, `y` and `n`, in any case, are booleans |
+| `ver: 1.10` | `1.1` |
+| `text: Approve Item #12` | `Approve Item`: a space before `#` opens a comment |
+
 **Strings:**
 ```yaml
 title: Simple String

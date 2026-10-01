@@ -24,7 +24,7 @@ A present `type: date` / `type: datetime` field is a native `datetime`; a blank 
 ```typst
 #data.issued.display("[day padding:none] [month repr:long] [year]")  // native string
 #data.issued.year()                                                   // components: int
-#data.issued < data.due                                               // comparison, arithmetic
+#(data.issued < data.due)                                             // comparison, arithmetic
 #some-package(date: data.issued)                                      // any datetime-consuming package
 #display("issued", "[day padding:none] [month repr:long] [year]")     // rendered, click-to-edit
 #display(row, "due", "[year]")                                        // the same, for a row or card in hand
@@ -224,9 +224,11 @@ Plate authors style output with Typst's standard `#set` directives:
 
 ```typst
 #set page(paper: "us-letter", margin: 1in, numbering: "1")
-#set text(font: "Linux Libertine", size: 11pt, lang: "en")
+#set text(font: "Source Serif 4", size: 11pt, lang: "en")
 #set par(justify: true, leading: 0.65em)
 ```
+
+A family the text names must be bundled under `assets/fonts/` ([Fonts](#fonts)); the host's fonts are unavailable, and an unknown family warns and falls back.
 
 See the [Typst tutorial](https://typst.app/docs/tutorial/) for the full styling vocabulary. For a worked plate that combines data access with real layout, read [A second plate](creating-quills.md#6-a-second-plate); for larger ones, the `plate.typ` of the `usaf_memo` and `taro` quills in `crates/fixtures/resources/quills/`.
 
@@ -252,13 +254,15 @@ Witness:
 
 ### Positioning
 
-A widget is ordinary Typst inline content sized `width × height`. It participates in layout the same way `#rect(width: 200pt, height: 50pt)` would: content after it gets pushed by the box's dimensions. Two modes:
+A widget is ordinary Typst inline content sized `width × height`. It participates in layout the same way `#box(width: 200pt, height: 50pt)` would: it sits on the current line, and the text around it flows past its dimensions. Two modes:
 
-**In-flow (reserves layout space).** Drop the call where you want to claim that block of space and let the rest of the document flow around it:
+**In-flow (reserves layout space).** Drop the call where you want to claim that space. Inline, the widget sits beside the text on its line; a blank line on each side gives it a line of its own:
 
 ```typst
 Sign here:
+
 #signature-field("approver")  // reserves 200×50pt below the label
+
 The above signature acknowledges receipt.
 ```
 
