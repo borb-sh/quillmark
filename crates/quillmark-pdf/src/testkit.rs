@@ -27,6 +27,7 @@ pub struct BasePdf {
     info_title: Option<String>,
     inline_annot: bool,
     acroform: bool,
+    null_acroform: bool,
     pretty: bool,
 }
 
@@ -40,6 +41,7 @@ impl BasePdf {
             info_title: None,
             inline_annot: false,
             acroform: false,
+            null_acroform: false,
             pretty: true,
         }
     }
@@ -86,6 +88,12 @@ impl BasePdf {
         self
     }
 
+    /// A catalog `/AcroForm null`, which the spec reads as absent.
+    pub fn null_acroform(mut self) -> Self {
+        self.null_acroform = true;
+        self
+    }
+
     /// pdf-writer's compact mode, which hex-encodes a non-ASCII string.
     pub fn compact(mut self) -> Self {
         self.pretty = false;
@@ -129,6 +137,8 @@ impl BasePdf {
             catalog.pages(page_tree_id);
             if let Some(id) = acroform_id {
                 catalog.pair(Name(b"AcroForm"), id);
+            } else if self.null_acroform {
+                catalog.pair(Name(b"AcroForm"), pdf_writer::Null);
             }
         }
         pdf.pages(page_tree_id)

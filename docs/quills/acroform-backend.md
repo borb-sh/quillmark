@@ -18,7 +18,7 @@ my-form/
 - **`form.pdf`**, the *stripped background*: the normalized form with its `/AcroForm`, widget annotations, and page `/Annots` removed (pure pages, rules, boxes, and labels).
 - **`form.json`**, the value-free **placement + binding** layer: where each widget sits (`page`, `rect`) and which schema field it binds (`schema_field`). Everything intrinsic (widget kind, choice options, multiline, tooltip) is *derived* from the quill schema, not restated here.
 
-At load the backend binds each field's value from your document data and writes the AcroForm **fresh** from `form.json` onto the background. It never reads or reconciles a form already in `form.pdf`: a background that still carries one is refused (`pdf::existing_acroform`), since a second `/AcroForm` on the catalog is a dict the spec does not define and the old widgets would stay live in the page `/Annots`.
+At load the backend binds each field's value from your document data and writes the AcroForm **fresh** from `form.json` onto the background. It never reads or reconciles a form already in `form.pdf`: a background that still carries one is refused (`pdf::existing_acroform`; an `/AcroForm null` entry counts as none), since a second `/AcroForm` on the catalog is a dict the spec does not define and the old widgets would stay live in the page `/Annots`.
 
 !!! note "Where the assets come from"
     Producing a clean `form.pdf` + `form.json` from a raw source PDF (decrypt, strip, extract, verify) is the job of a separate *qualification* layer and is out of scope for the engine; the engine checks the result of the stripping, not how it was reached. V1 quills hand-author both assets; the `sample_form` fixture in `crates/fixtures/resources/quills/sample_form/` is a worked example.

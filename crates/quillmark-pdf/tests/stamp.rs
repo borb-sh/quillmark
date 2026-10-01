@@ -347,6 +347,19 @@ fn an_out_of_contract_input_is_refused_under_its_code() {
     }
 }
 
+/// `/AcroForm null` is an absent key, so the stamp writes its form under that
+/// key rather than refusing or spelling the key twice.
+#[test]
+fn a_null_acroform_is_absent() {
+    let base = BasePdf::letter(1).null_acroform().build();
+    let fields = [text_field("a", "a", 0, [72.0, 72.0, 200.0, 90.0], "x")];
+    let out = stamp(base.clone(), &fields, &StampOptions::default()).expect("stamp ok");
+    let update = &out[base.len()..];
+    assert_eq!(update.windows(9).filter(|w| w == b"/AcroForm").count(), 1);
+    let (_, af, _) = stamped_on(base, &fields);
+    assert_eq!(af.get(b"Fields").unwrap().as_array().unwrap().len(), 1);
+}
+
 #[test]
 fn nonzero_mediabox_origin_flows_through() {
     let base = BasePdf::letter(1)

@@ -17,7 +17,9 @@ use quillmark_core::region::RenderedRegion;
 
 use crate::appearance;
 use crate::error::PdfError;
-use crate::reader::{err, find_dict_value, parse_indirect_ref, ObjectIndex, UpdatedObject};
+use crate::reader::{
+    err, find_dict_value, parse_indirect_ref, splice_dict_value, ObjectIndex, UpdatedObject,
+};
 use crate::update::PdfUpdate;
 use crate::writer::{alloc_id, append_refs_to_array_key, dict_object, to_ref, type1_font_object};
 use crate::{FieldSpec, FieldType, FormFont, TextAlign};
@@ -152,8 +154,10 @@ pub fn stamp(
     if !fields.is_empty() {
         // Before any allocation: a second `/AcroForm` on the catalog is a dict
         // the spec does not define, and the base's own widgets stay live in the
-        // page `/Annots` this update preserves.
-        if find_dict_value(idx.dict(up.catalog_id, CODE_PARSE, "catalog")?, "AcroForm").is_some() {
+        // page `/Annots` this update preserves. A `null` value is an absent key
+        // (ISO 32000-1 §7.3.9), which the catalog rewrite below replaces.
+        let catalog = idx.dict(up.catalog_id, CODE_PARSE, "catalog")?;
+        if find_dict_value(catalog, "AcroForm").is_some_and(|v| v.trim_ascii() != b"null") {
             return Err(err(
                 CODE_EXISTING_ACROFORM,
                 "base PDF already carries an /AcroForm; strip its form before stamping",
@@ -232,8 +236,11 @@ pub fn stamp(
         // A widget is fillable only if reachable both ways: the catalog's
         // `/AcroForm /Fields` (added here) and the page's `/Annots` (below).
         let cat_dict = idx.dict(up.catalog_id, CODE_PARSE, "catalog")?;
-        let mut cat_inner = cat_dict.to_vec();
-        cat_inner.extend_from_slice(format!(" /AcroForm {acroform_id} 0 R").as_bytes());
+        let acroform_ref = format!("{acroform_id} 0 R");
+        let cat_inner = match find_dict_value(cat_dict, "AcroForm") {
+            Some(null) => splice_dict_value(cat_dict, b"/AcroForm", null, acroform_ref.as_bytes()),
+            None => [cat_dict, format!(" /AcroForm {acroform_ref}").as_bytes()].concat(),
+        };
         up.objects.push(dict_object(up.catalog_id, &cat_inner));
 
         for (page_idx, widget_refs) in widgets_by_page.iter().enumerate() {
