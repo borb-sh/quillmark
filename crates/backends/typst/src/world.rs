@@ -164,13 +164,7 @@ impl QuillWorld {
             Bytes::new(helper::generate_typst_toml().into_bytes()),
         );
 
-        let main_vpath = plate
-            .file
-            .as_deref()
-            .and_then(|f| VirtualPath::new(f).ok())
-            .unwrap_or_else(|| {
-                VirtualPath::new("main.typ").expect("\"main.typ\" is a valid virtual path")
-            });
+        let main_vpath = VirtualPath::new(plate.file.as_deref().unwrap_or("main.typ"))?;
         let main_id = file_id(None, main_vpath);
         Self::load_project_sources(source, main_id, &mut sources, &mut load_warnings);
         let source = Source::new(main_id, plate.text.clone());
@@ -190,6 +184,15 @@ impl QuillWorld {
 
     pub(crate) fn set_today(&mut self, today: CalendarDate) {
         self.today = Some(today);
+    }
+
+    /// Whether the quill tree holds a file Typst can load at `path`, relative
+    /// to the quill root.
+    pub(crate) fn has_project_file(&self, path: &str) -> bool {
+        VirtualPath::new(path).is_ok_and(|vpath| {
+            let id = file_id(None, vpath);
+            id == self.source.id() || self.sources.contains_key(&id) || self.binaries.contains_key(&id)
+        })
     }
 
     pub(crate) fn load_warnings(&self) -> &[Diagnostic] {

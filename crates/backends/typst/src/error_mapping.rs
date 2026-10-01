@@ -20,13 +20,42 @@ fn map_single_diagnostic(error: &SourceDiagnostic, world: &QuillWorld) -> Diagno
 
     let location = resolve_span_to_location(error.span, world);
 
-    let hint = error.hints.first().map(|h| h.v.to_string());
+    let code = classify(&error.message);
+    let hint = error.hints.first().map(|h| h.v.to_string()).or_else(|| {
+        (code == "typst::file_not_found")
+            .then(|| rooted_path_hint(error, world))
+            .flatten()
+    });
 
     let mut diag = Diagnostic::new(severity, error.message.to_string());
-    diag.code = Some(classify(&error.message).to_string());
+    diag.code = Some(code.to_string());
     diag.location = location;
     diag.hint = hint;
     diag
+}
+
+/// A bare path resolves from the importing file's directory. When the file it
+/// missed sits at the same path from the quill root, the author meant that one.
+fn rooted_path_hint(error: &SourceDiagnostic, world: &QuillWorld) -> Option<String> {
+    use typst::World;
+    use typst::syntax::VirtualRoot;
+
+    let searched = error
+        .message
+        .strip_prefix("file not found (searched at ")?
+        .strip_suffix(')')?;
+    let id = error.span.id().unwrap_or_else(|| world.main());
+    if !matches!(id.root(), VirtualRoot::Project) {
+        return None;
+    }
+    let dir = id.vpath().get_without_slash().rsplit_once('/')?.0.to_string();
+    let rest = searched.strip_prefix(&dir)?.strip_prefix('/')?;
+    world.has_project_file(rest).then(|| {
+        format!(
+            "A bare path resolves from `{dir}/`. To reach the quill root's `{rest}`, \
+             write `/{rest}`."
+        )
+    })
 }
 
 /// Typst renders a type mismatch two ways: the cast machinery's

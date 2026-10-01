@@ -515,6 +515,14 @@ fn read_plate(source: &Quill) -> Result<Plate, RenderError> {
         )
     })?;
 
+    if let Err(e) = typst::syntax::VirtualPath::new(plate_file) {
+        return Err(RenderError::coded_hint(
+            "typst::plate_path_invalid",
+            format!("plate file '{plate_file}' has a path Typst cannot load ({e})"),
+            "Rename it to a plain relative path.",
+        ));
+    }
+
     let text = String::from_utf8(bytes.to_vec()).map_err(|e| {
         RenderError::coded(
             "typst::invalid_utf8",

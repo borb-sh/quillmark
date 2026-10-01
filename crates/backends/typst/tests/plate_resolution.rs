@@ -27,6 +27,25 @@ fn missing_plate_file_errors_at_open_not_load() {
     );
 }
 
+/// A plate Typst cannot address fails at open, so no other name stands in for
+/// it and the quill's own `main.typ` stays its own.
+#[test]
+fn a_plate_path_typst_refuses_errors_at_open() {
+    let yaml = "quill:\n  name: t\n  version: \"1.0\"\n  backend: typst\n  \
+                description: d\n\ntypst:\n  plate_file: \"a\\\\b.typ\"\n";
+    let q = quill(yaml, &[("a\\b.typ", b"hi"), ("main.typ", b"#let x = 1")]);
+    let err = match TypstBackend.open(&q, &serde_json::json!({}), common::test_date()) {
+        Ok(_) => panic!("a plate path Typst refuses must fail at open"),
+        Err(e) => e,
+    };
+    let codes: Vec<_> = err
+        .into_diagnostics()
+        .into_iter()
+        .filter_map(|d| d.code)
+        .collect();
+    assert_eq!(codes, ["typst::plate_path_invalid"]);
+}
+
 /// `tpl/layout.typ` reaches a sibling by a bare path, a module up a level by
 /// `..`, and a module and an asset by a `/`-rooted path.
 #[test]
@@ -67,6 +86,33 @@ fn project_sources_import_as_typst_resolves_paths() {
     assert_eq!(
         (location.file.as_str(), location.line, location.column),
         ("tpl/layout.typ", 7, 4)
+    );
+}
+
+#[test]
+fn a_bare_path_missing_beside_the_plate_hints_the_rooted_one() {
+    let diags = open_err(&[
+        (
+            "Quill.yaml",
+            "quill:\n  name: t\n  version: \"1.0\"\n  backend: typst\n  description: d\n\n\
+             typst:\n  plate_file: tpl/layout.typ\n",
+        ),
+        ("tpl/layout.typ", "#image(\"assets/dot.svg\")\n"),
+        (
+            "assets/dot.svg",
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"10\" height=\"10\"/>",
+        ),
+    ]);
+    let missing = diags
+        .iter()
+        .find(|d| d.code.as_deref() == Some("typst::file_not_found"))
+        .expect("the bare path misses");
+    assert!(
+        missing
+            .hint
+            .as_deref()
+            .is_some_and(|h| h.contains("`/assets/dot.svg`")),
+        "{missing:?}"
     );
 }
 
