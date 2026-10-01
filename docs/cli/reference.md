@@ -228,6 +228,21 @@ quillmark workspace ./my-quill input.md -o ws
 Tinymist takes the same flags through its `tinymist.typstExtraArgs` setting,
 which gives an editor completion on `data.` fields and a live preview.
 
+The printed command compiles more than Quillmark's render does, so a plate that
+compiles under it can still fail to render:
+
+- Typst reads any file under `--root`. Quillmark loads the `.typ` files outside
+  `packages/` and the files under `assets/`, so a `read("local.csv")` that
+  compiles under Typst fails `typst::file_not_found` in Quillmark.
+- Typst reaches a vendored package's files by path (`/packages/x/lib.typ`) and
+  downloads an `@preview` package the quill does not vendor. Quillmark loads a
+  package under its spec alone and never downloads one.
+
+`-o` is the command's own directory: it empties the `packages/` and `fonts/` an
+earlier export wrote there, and refuses a directory holding either that no
+export wrote. A quill declaring no `typst.plate_file` refuses with
+`typst::plate_missing`.
+
 ## Exit Codes
 
 - `0`: success, `--help`, and `--version`
