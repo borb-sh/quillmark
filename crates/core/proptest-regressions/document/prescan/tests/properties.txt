@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc c5f3d4f31c5a653f19e276adef10b938a11bc98d1618e74ecb90477a632bc1cf # shrinks to entries = [("k", Seq([Map([("k", Absent)]), Word("v")]))], fill = [true]
+cc bcd4e19a8f511ab0052c579b29f96241aec8c4636cc80f0b17dd41c8efad259b # shrinks to entries = [("k", Seq([Seq([Absent, Word("v")])]))], picks = [155, 0, 44, 0, 0, 170, 0, 0, 103, 0, 0, 24, 0, 9]

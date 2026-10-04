@@ -1,20 +1,24 @@
-//! Pre-scan of a card-yaml block's YAML payload to recover what serde_saphyr
-//! discards: comments and tags.
+//! Pre-scan of a card-yaml block's YAML payload to recover what the value parse
+//! discards: comments and tags. One pass over the parser's event stream gives
+//! each comment its container and slot, and each tag its node.
 //!
 //! Top-level comments become [`super::PayloadItem::Comment`]. Comments inside
-//! block mappings/sequences are captured with their structural path and an
-//! ordinal, which the emitter re-injects at (see [`NestedComment`]). The lines
-//! themselves stay in the cleaned YAML, where they are comments to serde_saphyr
-//! too.
+//! block mappings and sequences are captured with their structural path and an
+//! ordinal, which the emitter re-injects at (see [`NestedComment`]). A comment
+//! inside a flow collection or a multi-line scalar belongs to the block entry
+//! holding that value: its trailer, or an own-line comment after it.
 //!
-//! A tag on a block key's value is recorded at the key's path, for the
-//! assembler to warn on; the YAML parser applies a core `!!` tag, ignores any
-//! other, and keeps no tag. A tag anywhere else the parser drops unrecorded.
+//! Every tagged node is recorded at its path, for the assembler to warn on; the
+//! value parse applies a core `!!` tag, ignores any other, and keeps no tag.
+
+use serde_saphyr::granit_parser::{
+    Event, Marker, Parser, Placement, ScalarStyle, Span, StructureStyle,
+};
 
 use crate::value::PathSegment;
 
 /// One ordered hint extracted from the fence body. `Field` captures only the
-/// key; the value comes from serde_saphyr. An inline `Comment` immediately
+/// key; the value comes from the value parse. An inline `Comment` immediately
 /// follows its host `Field` in the item stream.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum PreItem {
@@ -40,1193 +44,1005 @@ pub struct NestedComment {
 /// Output of [`prescan_fence_content`].
 #[derive(Debug, Clone, Default)]
 pub(crate) struct PreScan {
-    /// YAML fed to serde_saphyr, trailing comments cut. Line-for-line with the
-    /// fence content — comment lines pass through, being comments to
-    /// the parser too — so a reported position needs no mapping to travel back
-    /// to a document position.
-    pub cleaned_yaml: String,
     /// Top-level fields and comments in source order.
     pub items: Vec<PreItem>,
+    /// In the order `to_markdown` writes them.
     pub nested_comments: Vec<NestedComment>,
     /// Paths of the tagged nodes, relative to the fence root (the first
     /// segment is the owning top-level key).
     pub unsupported_tags: Vec<Vec<PathSegment>>,
 }
 
+/// The paths a block's comments and tags record outgrew [`budget`].
+#[derive(Debug)]
+pub(crate) struct OverBudget {
+    pub(crate) budget: usize,
+}
+
+/// Bytes of recorded path a block of `len` bytes may hold. Each comment clones
+/// its container's path, so many comments under long keys would otherwise
+/// grow with the square of the input.
+pub(crate) fn budget(len: usize) -> usize {
+    len.saturating_mul(64).saturating_add(64 * 1024)
+}
+
+/// Scan `yaml`, the text the value parse reads. A parser error ends the scan
+/// with what it has read: the value parse is the one that refuses.
+pub(crate) fn prescan_fence_content(yaml: &str) -> Result<PreScan, OverBudget> {
+    let mut walk = Walk::new(yaml);
+    for next in Parser::new_from_str(yaml) {
+        let Ok((event, span)) = next else { break };
+        walk.step(&event, span)?;
+    }
+    walk.finish()
+}
+
+/// What a node event starts, as far as comments care.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Shape {
+    BlockMapping,
+    BlockSequence,
+    Flow,
+    /// A scalar with no source text: a key's or a dash's missing value.
+    Absent,
+    Scalar,
+}
+
+impl Shape {
+    fn of(event: &Event<'_>, span: &Span) -> Self {
+        match event {
+            Event::MappingStart(StructureStyle::Block, ..) => Shape::BlockMapping,
+            Event::SequenceStart(StructureStyle::Block, ..) => Shape::BlockSequence,
+            Event::MappingStart(..) | Event::SequenceStart(..) => Shape::Flow,
+            Event::Scalar(_, ScalarStyle::Plain, ..) if span.start.index() == span.end.index() => {
+                Shape::Absent
+            }
+            _ => Shape::Scalar,
+        }
+    }
+
+    fn is_block(self) -> bool {
+        matches!(self, Shape::BlockMapping | Shape::BlockSequence)
+    }
+}
+
+/// Where a node sits in the collection holding it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Role {
+    Root,
+    Key,
+    Value,
+    Item,
+}
+
+#[derive(Debug)]
+struct Comment {
+    text: String,
+    line: usize,
+    column: usize,
+    offset: usize,
+    /// How many collections were open when it arrived: one closed before it
+    /// cannot hold it.
+    open: usize,
+}
+
 #[derive(Debug)]
 struct Frame {
-    indent: usize,
-    path: Vec<PathSegment>,
-    child_count: usize,
+    sequence: bool,
+    flow: bool,
+    count: usize,
+    /// A mapping whose current key awaits its value.
+    awaiting_value: bool,
+    /// The key column of the mapping entry holding this collection, past which
+    /// a comment is inside it.
+    held_at: Option<usize>,
+    /// For a sequence item's collection, the column of its first key or dash:
+    /// a comment at or past it after the last child is inside it.
+    column: usize,
+    /// Own-line comments sit ahead of its first key.
+    led: bool,
+    /// The child the last node started.
+    entry: Option<Entry>,
+    /// A trailer is recorded for the item the next node starts.
+    next_trailed: bool,
 }
 
-/// The slot a key or dash line fills, where a comment trailing its value's
-/// lines attaches.
-#[derive(Debug, Clone)]
-enum Host {
-    Field,
-    /// The line's own trailer slot, the own-line slot right after its value,
-    /// and the count of nested comments recorded ahead of the line.
-    Child {
-        trailer: Slot,
-        after: Slot,
-        recorded: usize,
-    },
+#[derive(Debug)]
+struct Entry {
+    index: usize,
+    segment: PathSegment,
+    /// The column of a mapping entry's key.
+    column: usize,
+    line: usize,
+    /// A comment trails it or follows it, so the next one follows it.
+    trailed: bool,
+    /// Its value is absent or an empty flow collection, which holds the
+    /// comments indented past its key.
+    empty: bool,
 }
 
-#[derive(Debug, Clone)]
-struct Slot {
-    container_path: Vec<PathSegment>,
-    position: usize,
+/// Where a comment in a run of own-line comments may land, deepest first.
+#[derive(Debug, Clone, Copy)]
+enum Slot {
+    /// Inside the empty value of `frames[.0]`'s current entry, whose key sits
+    /// at column `.1`.
+    Under(usize, usize),
+    /// After the last child of a collection the run closes.
+    Last(usize),
+    /// Ahead of the next child of the collection that continues.
+    Next(usize),
 }
 
-pub(crate) fn prescan_fence_content(content: &str) -> PreScan {
-    let mut out = PreScan::default();
-
-    let lines: Vec<&str> = content.split('\n').collect();
-    let mut cleaned: Vec<String> = Vec::with_capacity(lines.len());
-
-    let mut stack: Vec<Frame> = vec![Frame {
-        indent: 0,
-        path: Vec::new(),
-        child_count: 0,
-    }];
-
-    // Indent of the `key:` line that opened the current block scalar, if any.
-    let mut block_scalar_indent: Option<usize> = None;
-    // A value spanning lines, whose later lines are its text, never a key.
-    let mut open: Option<FlowScan> = None;
-    // The last `key:` or `-` left its node to a later line.
-    let mut node_below = false;
-    // The slot of the last `key:` or `-`, which owns `open`.
-    let mut host = Host::Field;
-
-    for raw_line in &lines {
-        // The split is on `\n`, so a CRLF line ends in `\r`. Dropped once here:
-        // every matcher below, and the cleaned YAML, see `\n`-only lines.
-        let line = raw_line.strip_suffix('\r').unwrap_or(raw_line);
-        let indent = leading_space_count(line);
-        let trimmed = &line[indent..];
-
-        if trimmed.is_empty() {
-            cleaned.push(line.to_string());
-            continue;
-        }
-
-        // Inside a block scalar, deeper-indented lines are literal text: a
-        // heading, a bullet, or a `key: value` line must pass through verbatim.
-        // A line at or below the key's indent ends the scalar.
-        if let Some(key_indent) = block_scalar_indent {
-            if indent > key_indent {
-                cleaned.push(line.to_string());
-                continue;
-            }
-            block_scalar_indent = None;
-        }
-
-        // Inside a quoted scalar a `#` line is text too.
-        if let Some(scan) = open.take_if(|scan| scan.quote.is_some()) {
-            open = continue_value(&mut out, scan, trimmed, &host);
-            cleaned.push(line.to_string());
-            continue;
-        }
-
-        while let Some(frame) = stack.last() {
-            if frame.indent > indent {
-                stack.pop();
-            } else {
-                break;
-            }
-        }
-
-        // Case 1: own-line comment.
-        if trimmed.starts_with('#') {
-            let text = strip_comment_marker(trimmed);
-            let frame = stack.last().expect("root frame always present");
-
-            if frame.path.is_empty() {
-                // Top-level comment: preserve via PreItem::Comment.
-                out.items.push(PreItem::Comment {
-                    text: text.to_string(),
-                    inline: false,
-                });
-            } else {
-                out.nested_comments.push(NestedComment {
-                    container_path: frame.path.clone(),
-                    position: frame.child_count,
-                    text: text.to_string(),
-                    inline: false,
-                });
-            }
-            // Emitted, not dropped: a comment is a comment to the parser too,
-            // and keeping the line keeps the numbering the source's.
-            cleaned.push(line.to_string());
-            continue;
-        }
-
-        if let Some(scan) = open.take() {
-            open = continue_value(&mut out, scan, trimmed, &host);
-            cleaned.push(line.to_string());
-            continue;
-        }
-
-        // Case 2: sequence item line (`- ...`).
-        if trimmed == "-" || trimmed.starts_with("- ") {
-            let frame_idx = ensure_frame_at_indent(&mut stack, indent);
-            let frame = &mut stack[frame_idx];
-            let item_index = frame.child_count;
-            frame.child_count += 1;
-            let parent_path: Vec<PathSegment> = frame.path.clone();
-            let item_path: Vec<PathSegment> = {
-                let mut p = parent_path.clone();
-                p.push(PathSegment::Index(item_index));
-                p
-            };
-            while stack.len() > frame_idx + 1 {
-                stack.pop();
-            }
-            let mut after = Slot {
-                container_path: parent_path.clone(),
-                position: item_index + 1,
-            };
-
-            // `strip_prefix` rather than a byte range: user content follows,
-            // and a byte index could land inside a multi-byte codepoint.
-            let after_dash_full = trimmed.strip_prefix("- ").unwrap_or("");
-            let (after_dash, trailing_comment) = split_dash_trailing_comment(after_dash_full);
-            let after_dash_trimmed = after_dash.trim_start();
-            let inline_indent_offset = indent + 2 + (after_dash.len() - after_dash_trimmed.len());
-
-            // The first key of a sequence-item mapping sits on the dash line, so
-            // case 4 never sees it.
-            let mut dash_key_block_scalar = false;
-            if after_dash_trimmed.is_empty() {
-                node_below = true;
-                stack.push(Frame {
-                    indent: indent + 2,
-                    path: item_path,
-                    child_count: 0,
-                });
-            } else if let Some((key, _, after_colon)) =
-                split_nested_key(after_dash_trimmed)
-            {
-                let mut key_path = item_path.clone();
-                key_path.push(PathSegment::Key(key));
-                record_tag(&mut out, &after_colon, &key_path);
-                dash_key_block_scalar = is_block_scalar_header(&after_colon);
-                open = opens_past_line(&after_colon);
-                node_below = node_text(&after_colon).is_empty();
-                // Past the first key's value, ahead of the item's next key.
-                after = Slot {
-                    container_path: item_path.clone(),
-                    position: 1,
-                };
-                stack.push(Frame {
-                    indent: inline_indent_offset,
-                    path: item_path,
-                    child_count: 1,
-                });
-                if opens_nested_block(&after_colon) {
-                    stack.push(Frame {
-                        indent: inline_indent_offset + 2,
-                        path: key_path,
-                        child_count: 0,
-                    });
-                }
-            } else {
-                open = opens_past_line(after_dash_trimmed);
-                node_below = node_text(after_dash_trimmed).is_empty();
-            }
-            host = Host::Child {
-                trailer: Slot {
-                    container_path: parent_path.clone(),
-                    position: item_index,
-                },
-                after,
-                recorded: out.nested_comments.len(),
-            };
-
-            if let Some(c) = &trailing_comment {
-                out.nested_comments.push(NestedComment {
-                    container_path: parent_path,
-                    position: item_index,
-                    text: strip_comment_marker(c).to_string(),
-                    inline: true,
-                });
-            }
-            if trailing_comment.is_some() {
-                let head = format!("{:width$}", "", width = indent);
-                let body = if after_dash.trim_end().is_empty() {
-                    "-".to_string()
-                } else {
-                    format!("- {}", after_dash.trim_end())
-                };
-                cleaned.push(format!("{}{}", head, body));
-            } else {
-                cleaned.push(line.to_string());
-            }
-
-            // For a `- |-` item the content is indented past the dash, so the
-            // dash line's indent is the block-scalar boundary; for `- key: |` it
-            // is the key's column, where the item's next key sits.
-            if is_block_scalar_header(after_dash_trimmed) {
-                block_scalar_indent = Some(indent);
-            } else if dash_key_block_scalar {
-                block_scalar_indent = Some(inline_indent_offset);
-            }
-            continue;
-        }
-
-        // Case 3: top-level field line.
-        let is_top_level = indent == 0;
-        if is_top_level {
-            if let Some((key, after_colon)) = split_key(line) {
-                let (value_part, trailing_comment) = split_trailing_comment(&after_colon);
-
-                let key_path = vec![PathSegment::Key(key.clone())];
-                record_tag(&mut out, &value_part, &key_path);
-
-                out.items.push(PreItem::Field { key: key.clone() });
-                host = Host::Field;
-
-                let root = &mut stack[0];
-                root.child_count += 1;
-
-                while stack.len() > 1 {
-                    stack.pop();
-                }
-
-                if opens_nested_block(&value_part) {
-                    stack.push(Frame {
-                        indent: 2,
-                        path: key_path,
-                        child_count: 0,
-                    });
-                }
-
-                cleaned.push(format!("{}:{}", key, value_part));
-                open = opens_past_line(&value_part);
-                node_below = node_text(&value_part).is_empty();
-
-                if let Some(c) = trailing_comment {
-                    out.items.push(PreItem::Comment {
-                        text: strip_comment_marker(&c).to_string(),
-                        inline: true,
-                    });
-                }
-
-                if is_block_scalar_header(&value_part) {
-                    block_scalar_indent = Some(indent);
-                }
-
-                continue;
-            }
-        }
-
-        // Case 4: nested key line inside a block mapping.
-        if let Some((key, source_key, after_colon)) = split_nested_key(trimmed) {
-            let frame_idx = ensure_frame_at_indent(&mut stack, indent);
-            let frame = &mut stack[frame_idx];
-            let key_index = frame.child_count;
-            frame.child_count += 1;
-            let parent_path: Vec<PathSegment> = frame.path.clone();
-            let key_path: Vec<PathSegment> = {
-                let mut p = parent_path.clone();
-                p.push(PathSegment::Key(key.clone()));
-                p
-            };
-            while stack.len() > frame_idx + 1 {
-                stack.pop();
-            }
-            host = Host::Child {
-                trailer: Slot {
-                    container_path: parent_path.clone(),
-                    position: key_index,
-                },
-                after: Slot {
-                    container_path: parent_path.clone(),
-                    position: key_index + 1,
-                },
-                recorded: out.nested_comments.len(),
-            };
-
-            let (value_part, trailing_comment) = split_trailing_comment(&after_colon);
-
-            record_tag(&mut out, &value_part, &key_path);
-
-            if let Some(c) = trailing_comment {
-                out.nested_comments.push(NestedComment {
-                    container_path: parent_path,
-                    position: key_index,
-                    text: strip_comment_marker(&c).to_string(),
-                    inline: true,
-                });
-                let head = format!("{:width$}", "", width = indent);
-                cleaned.push(format!("{}{}:{}", head, source_key, value_part));
-            } else {
-                cleaned.push(line.to_string());
-            }
-
-            if opens_nested_block(&value_part) {
-                stack.push(Frame {
-                    indent: indent + 2,
-                    path: key_path,
-                    child_count: 0,
-                });
-            }
-
-            if is_block_scalar_header(&value_part) {
-                block_scalar_indent = Some(indent);
-            }
-            open = opens_past_line(&value_part);
-            node_below = node_text(&value_part).is_empty();
-            continue;
-        }
-
-        if std::mem::take(&mut node_below) {
-            open = continue_value(&mut out, FlowScan::default(), trimmed, &host);
-            // A scalar holds no children, so the frame opened for it goes.
-            if stack.len() > 1 && stack.last().is_some_and(|f| f.child_count == 0) {
-                let frame = stack.pop().expect("more than the root frame");
-                rehome_comments(&mut out, &frame.path, &host);
-            }
-        }
-        cleaned.push(line.to_string());
-    }
-
-    out.cleaned_yaml = cleaned.join("\n");
-    out
+struct Walk<'a> {
+    src: &'a str,
+    budget: usize,
+    left: usize,
+    items: Vec<PreItem>,
+    /// Each comment beside its place in emit order.
+    nested: Vec<(Vec<usize>, NestedComment)>,
+    tags: Vec<Vec<PathSegment>>,
+    /// Open collections, outermost first, then the ones a run of own-line
+    /// comments closed before it found its slots.
+    frames: Vec<Frame>,
+    live: usize,
+    pending: Vec<Comment>,
+    /// A trailing comment on a line whose syntax has no event yet: the first
+    /// dash of a sequence at its key's column.
+    held: Option<Comment>,
+    last_line: usize,
+    /// A block scalar's header trailer arrives after the scalar, from before
+    /// its start.
+    last_start: usize,
+    last_end: usize,
+    /// Byte ranges of the comments since the last event holding source text.
+    gap: Vec<(usize, usize)>,
 }
 
-/// The deepest frame at `indent`, pushing a new one if the current top is
-/// shallower.
-fn ensure_frame_at_indent(stack: &mut Vec<Frame>, indent: usize) -> usize {
-    let top_idx = stack.len() - 1;
-    let top = &stack[top_idx];
-
-    if top.indent == indent {
-        return top_idx;
-    }
-
-    let parent_path = top.path.clone();
-    stack.push(Frame {
-        indent,
-        path: parent_path,
-        child_count: 0,
-    });
-    stack.len() - 1
+fn byte(marker: Marker) -> usize {
+    marker.byte_offset().unwrap_or(0)
 }
 
-/// `scan` past one more line of its value, while the value stays open. The
-/// line's trailing comment attaches to `host`: as its inline trailer, or, when
-/// a comment already sits on the host's line or inside the value, as an
-/// own-line comment right after the value.
-fn continue_value(
-    out: &mut PreScan,
-    mut scan: FlowScan,
-    text: &str,
-    host: &Host,
-) -> Option<FlowScan> {
-    if let Some(i) = scan.line(text) {
-        let text = strip_comment_marker(&text[i..]).to_string();
-        match host {
-            Host::Field => {
-                let inline = matches!(out.items.last(), Some(PreItem::Field { .. }));
-                out.items.push(PreItem::Comment { text, inline });
-            }
-            Host::Child {
-                trailer,
-                after,
-                recorded,
-            } => {
-                let trailed = out.nested_comments.len() > *recorded;
-                let slot = if trailed { after } else { trailer };
-                out.nested_comments.push(NestedComment {
-                    container_path: slot.container_path.clone(),
-                    position: slot.position,
-                    text,
-                    inline: !trailed,
-                });
-            }
-        }
-    }
-    scan.is_open().then_some(scan)
-}
-
-/// Move the comments recorded inside `path`, a frame opened for a value that
-/// turned out a scalar, to the own-line slot after `host`.
-fn rehome_comments(out: &mut PreScan, path: &[PathSegment], host: &Host) {
-    let (moved, kept) = std::mem::take(&mut out.nested_comments)
-        .into_iter()
-        .partition(|c| c.container_path == path);
-    out.nested_comments = kept;
-    for c in moved {
-        match host {
-            Host::Field => out.items.push(PreItem::Comment {
-                text: c.text,
-                inline: false,
-            }),
-            Host::Child { after, .. } => out.nested_comments.push(NestedComment {
-                container_path: after.container_path.clone(),
-                position: after.position,
-                ..c
-            }),
-        }
-    }
-}
-
-fn strip_comment_marker(raw: &str) -> &str {
+/// The text after `#`, less any further `#` and one space.
+fn comment_text(raw: &str) -> String {
     let after = raw.trim_start_matches('#');
-    after.strip_prefix(' ').unwrap_or(after)
+    after.strip_prefix(' ').unwrap_or(after).to_string()
 }
 
-fn leading_space_count(line: &str) -> usize {
-    line.bytes().take_while(|b| *b == b' ').count()
-}
-
-/// `true` when a field value is a YAML block-scalar header (`|` or `>`, with
-/// optional chomping/indent indicators), past any tag or anchor. Unquoted
-/// plain scalars cannot begin with these characters, so a leading `|`/`>`
-/// unambiguously opens a literal/folded block whose following content lines
-/// are text, not YAML structure.
-fn is_block_scalar_header(value: &str) -> bool {
-    node_text(value).starts_with(['|', '>'])
-}
-
-/// `true` when the indented lines under a `key:` line belong to its value: the
-/// value is on those lines, or it is an empty flow collection (`[]`, `{}`)
-/// whose own comments sit under it.
-fn opens_nested_block(after_colon: &str) -> bool {
-    let (v, _) = split_trailing_comment(after_colon);
-    matches!(node_text(&v).trim_end(), "" | "[]" | "{}")
-}
-
-/// Byte index of the `:` closing `line`'s leading key, or `None` when `line`
-/// does not open with one. A key is `[a-zA-Z_][a-zA-Z0-9_]*`, optionally
-/// `$`-prefixed for system keys.
-pub(super) fn key_end(line: &str) -> Option<usize> {
-    let bytes = line.as_bytes();
-    if bytes.is_empty() {
-        return None;
+impl<'a> Walk<'a> {
+    fn new(src: &'a str) -> Self {
+        let budget = budget(src.len());
+        Self {
+            src,
+            budget,
+            left: budget,
+            items: Vec::new(),
+            nested: Vec::new(),
+            tags: Vec::new(),
+            frames: Vec::new(),
+            live: 0,
+            pending: Vec::new(),
+            held: None,
+            last_line: 0,
+            last_start: 0,
+            last_end: 0,
+            gap: Vec::new(),
+        }
     }
-    let mut i;
-    if bytes[0] == b'$' {
-        if bytes.len() < 2 || !(bytes[1].is_ascii_alphabetic() || bytes[1] == b'_') {
+
+    fn step(&mut self, event: &Event<'_>, span: Span) -> Result<(), OverBudget> {
+        match event {
+            Event::Comment(text, placement) => self.comment(text, *placement, span),
+            Event::Scalar(..)
+            | Event::Alias(..)
+            | Event::SequenceStart(..)
+            | Event::MappingStart(..) => self.node(event, span),
+            Event::SequenceEnd | Event::MappingEnd => self.end(span),
+            _ => Ok(()),
+        }
+    }
+
+    fn finish(mut self) -> Result<PreScan, OverBudget> {
+        self.pending.extend(self.held.take());
+        let run = std::mem::take(&mut self.pending);
+        if self.live == 0 {
+            for c in run {
+                self.record(0, 0, c.text, false)?;
+            }
+        } else {
+            self.place_run(run)?;
+        }
+        self.nested.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(PreScan {
+            items: self.items,
+            nested_comments: self.nested.into_iter().map(|(_, c)| c).collect(),
+            unsupported_tags: self.tags,
+        })
+    }
+
+    /// Note the last event holding source text. A block scalar's span ends on
+    /// the line after its text, and no trailer shares its lines.
+    fn content(&mut self, span: Span, block_scalar: bool) {
+        self.last_line = if block_scalar { 0 } else { span.end.line() };
+        self.last_start = byte(span.start);
+        let end = byte(span.end);
+        // A key's absent value sits on the key's `:`.
+        let on_colon = span.start.index() == span.end.index()
+            && self.src.as_bytes().get(end) == Some(&b':');
+        self.last_end = end + usize::from(on_colon);
+        self.gap.clear();
+    }
+
+    fn comment(&mut self, text: &str, placement: Placement, span: Span) -> Result<(), OverBudget> {
+        self.gap.push((byte(span.start), byte(span.end)));
+        let c = Comment {
+            text: comment_text(text),
+            line: span.start.line(),
+            column: span.start.col(),
+            offset: byte(span.start),
+            open: self.live,
+        };
+        if placement == Placement::Right {
+            self.trailing(c)
+        } else if let Some(host) = self.flow_host() {
+            self.after(host, c.text)
+        } else {
+            self.pending.push(c);
+            Ok(())
+        }
+    }
+
+    /// The innermost block collection under the open flow collection a comment
+    /// sits in: its current entry holds that flow value.
+    fn flow_host(&self) -> Option<usize> {
+        let top = self.live.checked_sub(1)?;
+        if !self.frames[top].flow {
             return None;
         }
-        i = 2;
-    } else if bytes[0].is_ascii_alphabetic() || bytes[0] == b'_' {
-        i = 1;
-    } else {
-        return None;
+        (0..top).rev().find(|&f| !self.frames[f].flow)
     }
-    while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
-        i += 1;
+
+    fn trailing(&mut self, c: Comment) -> Result<(), OverBudget> {
+        if let Some(host) = self.flow_host() {
+            return self.trail(host, c.text);
+        }
+        let Some(top) = self.live.checked_sub(1) else {
+            self.pending.push(c);
+            return Ok(());
+        };
+        let frame = &self.frames[top];
+        let on_entry = frame.entry.as_ref().is_some_and(|e| {
+            e.line == c.line || self.last_line == c.line || c.offset < self.last_start
+        });
+        if on_entry {
+            self.trail(top, c.text)
+        } else if frame.sequence {
+            let position = frame.count;
+            self.frames[top].next_trailed = true;
+            self.record(top, position, c.text, true)
+        } else if frame.awaiting_value {
+            self.pending.extend(self.held.replace(c));
+            Ok(())
+        } else {
+            self.pending.push(c);
+            Ok(())
+        }
     }
-    (i < bytes.len() && bytes[i] == b':').then_some(i)
-}
 
-/// Split a line into `(key, rest_after_colon)`, or `None` for non-key lines.
-fn split_key(line: &str) -> Option<(String, String)> {
-    let i = key_end(line)?;
-    Some((line[..i].to_string(), line[i + 1..].to_string()))
-}
+    /// `text` as the trailer of `frames[f]`'s current entry, or after it when
+    /// one already trails it. The first key of a sequence item's mapping lends
+    /// its trailer to the item when nothing else would keep the key on a line
+    /// below the dash: `to_markdown` writes that key on the dash line, where a
+    /// trailer is the item's.
+    fn trail(&mut self, f: usize, text: String) -> Result<(), OverBudget> {
+        let lends = self.is_item_mapping(f) && !self.frames[f].led;
+        let Some(entry) = self.frames[f].entry.as_mut() else {
+            return Ok(());
+        };
+        if entry.trailed {
+            let position = entry.index + 1;
+            return self.record(f, position, text, false);
+        }
+        entry.trailed = true;
+        let index = entry.index;
+        if index == 0
+            && lends
+            && let Some(item) = self.frames[f - 1].entry.as_mut().filter(|i| !i.trailed)
+        {
+            item.trailed = true;
+            let position = item.index;
+            return self.record(f - 1, position, text, true);
+        }
+        self.record(f, index, text, true)
+    }
 
-/// Byte index of the `:` closing a *nested* key.
-///
-/// Nested keys are arbitrary user data, so this reads YAML's implicit-key
-/// grammar rather than [`key_end`]'s field names: a quoted scalar, or a plain
-/// scalar ending at the first `:` followed by whitespace or the line's end.
-/// `og:title: x` is the key `og:title`.
-fn nested_key_end(line: &str) -> Option<usize> {
-    let bytes = line.as_bytes();
-    let first = *bytes.first()?;
-    if first == b'"' || first == b'\'' {
-        let quote = first;
-        let mut i = 1;
-        while i < bytes.len() {
-            if bytes[i] == b'\\' && quote == b'"' {
-                i += 2;
-                continue;
+    fn is_item_mapping(&self, f: usize) -> bool {
+        let frame = &self.frames[f];
+        f > 0
+            && !frame.sequence
+            && !frame.flow
+            && frame.held_at.is_none()
+            && self.frames[f - 1].sequence
+            && !self.frames[f - 1].flow
+    }
+
+    /// `text` as an own-line comment after `frames[f]`'s current entry.
+    fn after(&mut self, f: usize, text: String) -> Result<(), OverBudget> {
+        let Some(entry) = self.frames[f].entry.as_mut() else {
+            return Ok(());
+        };
+        entry.trailed = true;
+        let position = entry.index + 1;
+        self.record(f, position, text, false)
+    }
+
+    fn node(&mut self, event: &Event<'_>, span: Span) -> Result<(), OverBudget> {
+        let shape = Shape::of(event, &span);
+        let top = self.live.checked_sub(1);
+        let awaiting = top.is_some_and(|t| self.frames[t].awaiting_value);
+        let dash_trailer = match self.held.take() {
+            Some(c) if shape == Shape::BlockSequence && awaiting => Some(c),
+            other => {
+                self.pending.extend(other);
+                None
             }
-            if bytes[i] == quote {
-                // `''` inside a single-quoted scalar is one escaped quote.
-                if quote == b'\'' && bytes.get(i + 1) == Some(&b'\'') {
-                    i += 2;
+        };
+        let bound = self.settle(byte(span.start))?;
+        self.frames.truncate(self.live);
+
+        let role = match top {
+            None => Role::Root,
+            Some(t) => self.place(t, event, &span, shape),
+        };
+        let depth = top.map_or(0, |t| t + 1);
+        if event.tag().is_some() {
+            let path = self.path(depth);
+            self.charge_path(&path, 0)?;
+            self.tags.push(path);
+        }
+        let led = self.bind(bound, top, shape, role)?;
+
+        if let Event::MappingStart(..) | Event::SequenceStart(..) = event {
+            let held_at = match (role, top) {
+                (Role::Value, Some(t)) => self.frames[t].entry.as_ref().map(|e| e.column),
+                _ => None,
+            };
+            self.frames.push(Frame {
+                sequence: matches!(event, Event::SequenceStart(..)),
+                flow: shape == Shape::Flow && top.is_some(),
+                count: 0,
+                awaiting_value: false,
+                held_at,
+                column: span.start.col(),
+                led,
+                entry: None,
+                next_trailed: false,
+            });
+            self.live = self.frames.len();
+            if let Some(c) = dash_trailer {
+                let f = self.live - 1;
+                self.frames[f].next_trailed = true;
+                self.record(f, 0, c.text, true)?;
+            }
+        }
+        let block_scalar = matches!(
+            event,
+            Event::Scalar(_, ScalarStyle::Literal | ScalarStyle::Folded, ..)
+        );
+        self.content(span, block_scalar);
+        Ok(())
+    }
+
+    /// Start the child of `frames[top]` the node at `span` begins.
+    fn place(&mut self, top: usize, event: &Event<'_>, span: &Span, shape: Shape) -> Role {
+        let line = span.start.line();
+        let frame = &mut self.frames[top];
+        if frame.sequence {
+            let index = frame.count;
+            frame.count += 1;
+            frame.entry = Some(Entry {
+                index,
+                segment: PathSegment::Index(index),
+                column: span.start.col(),
+                line,
+                trailed: std::mem::take(&mut frame.next_trailed),
+                empty: false,
+            });
+            return Role::Item;
+        }
+        if frame.awaiting_value {
+            frame.awaiting_value = false;
+            if let Some(entry) = frame.entry.as_mut() {
+                entry.empty = shape == Shape::Absent;
+            }
+            return Role::Value;
+        }
+        let key = match event {
+            Event::Scalar(text, ..) => Some(text.to_string()),
+            _ => None,
+        };
+        let column = span.indent.unwrap_or(span.start.col());
+        if frame.count == 0 {
+            frame.column = column;
+        }
+        let index = frame.count;
+        frame.count += 1;
+        frame.awaiting_value = true;
+        frame.entry = Some(Entry {
+            index,
+            segment: PathSegment::Key(key.clone().unwrap_or_default()),
+            column,
+            line,
+            trailed: false,
+            empty: false,
+        });
+        if let (0, Some(key)) = (top, key) {
+            self.items.push(PreItem::Field { key });
+        }
+        Role::Key
+    }
+
+    /// Place the own-line comments waiting on a node starting at byte `start`,
+    /// returning those that sit between the node and the key or dash it
+    /// belongs to.
+    fn settle(&mut self, start: usize) -> Result<Vec<Comment>, OverBudget> {
+        if self.pending.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut run = std::mem::take(&mut self.pending);
+        let Some(top) = self.live.checked_sub(1) else {
+            return Ok(run);
+        };
+        let frame = &self.frames[top];
+        if frame.awaiting_value {
+            return Ok(run);
+        }
+        let bound = if frame.sequence {
+            let dash = self.dash(start);
+            let split = run.partition_point(|c| dash.is_some_and(|d| c.offset < d));
+            run.split_off(split)
+        } else {
+            Vec::new()
+        };
+        self.place_run(run)?;
+        Ok(bound)
+    }
+
+    /// The byte offset of the dash between the last event holding source text
+    /// and `start`, past whitespace and comments: the only other thing a block
+    /// sequence puts there.
+    fn dash(&self, start: usize) -> Option<usize> {
+        let bytes = self.src.as_bytes();
+        let end = start.min(bytes.len());
+        let mut at = self.last_end;
+        let mut comments = self.gap.iter().copied().peekable();
+        while at < end {
+            if let Some(&(from, to)) = comments.peek() {
+                if at >= to {
+                    comments.next();
                     continue;
                 }
-                return (bytes.get(i + 1) == Some(&b':')).then_some(i + 1);
-            }
-            i += 1;
-        }
-        return None;
-    }
-    let opens_plain = !PLAIN_SCALAR_EXCLUDED_FIRST.contains(&first)
-        || (matches!(first, b'-' | b'?' | b':')
-            && bytes.get(1).is_some_and(|b| !matches!(b, b' ' | b'\t')));
-    if !opens_plain {
-        return None;
-    }
-    for i in 1..bytes.len() {
-        if bytes[i] == b'#' && matches!(bytes[i - 1], b' ' | b'\t') {
-            return None;
-        }
-        if bytes[i] == b':' && matches!(bytes.get(i + 1), None | Some(b' ' | b'\t')) {
-            return Some(i);
-        }
-    }
-    None
-}
-
-/// The YAML indicators a plain scalar cannot open with, except that `-`, `?`
-/// and `:` open one when a non-space follows (`-x`).
-const PLAIN_SCALAR_EXCLUDED_FIRST: &[u8] = b"-?:,[]{}#&*!|>'\"%@`";
-
-/// Split a nested key line into `(key, source spelling, rest_after_colon)`.
-///
-/// The two forms differ wherever the source spells the key with anything the
-/// parser drops — quotes, whitespace before the `:`: paths carry the key the
-/// YAML parser sees, the cleaned line keeps what was written. A quoted key that
-/// does not decode is not a key.
-fn split_nested_key(line: &str) -> Option<(String, String, String)> {
-    let i = nested_key_end(line)?;
-    let source = &line[..i];
-    let key = match source.as_bytes().first() {
-        Some(b'"') | Some(b'\'') => serde_saphyr::from_str::<String>(source).ok()?,
-        _ => source.trim_end().to_string(),
-    };
-    Some((key, source.to_string(), line[i + 1..].to_string()))
-}
-
-/// Split `value` into `(value_without_comment, trailing_comment)` following
-/// YAML's rules. A `#` preceded by whitespace (or at value start) begins a
-/// comment, except inside a quoted scalar, and a quote opens a quoted
-/// scalar only as a node's first character, past any tag or anchor: the
-/// value's, or a node's inside a flow collection (`[`/`{`). Inside a plain
-/// scalar, `'` and `"` are ordinary characters: `x: it's fine # note` carries
-/// a comment.
-fn split_trailing_comment(value: &str) -> (String, Option<String>) {
-    let bytes = value.as_bytes();
-    let first = value.len() - node_text(value).len();
-    match bytes.get(first) {
-        // Quoted scalar: skip the quoted body, then scan for a comment. An
-        // unterminated quote means the scalar continues on the next line:
-        // no comment on this one.
-        Some(b'"' | b'\'') => match find_quote_end(bytes, first) {
-            Some(end) => find_comment_from(value, end + 1),
-            None => (value.to_string(), None),
-        },
-        // Flow collection: a quoted scalar opens at any node inside, so
-        // track quote state across the whole value.
-        Some(b'[' | b'{') => split_flow_trailing_comment(value),
-        // Plain scalar (or block-scalar header): quotes are ordinary
-        // characters; only the whitespace-then-`#` rule applies.
-        _ => find_comment_from(value, 0),
-    }
-}
-
-/// [`split_trailing_comment`] for a sequence item's text after its `- `. When the
-/// item opens a mapping with its first `key:`, the value after the colon is
-/// what may open a quoted scalar.
-fn split_dash_trailing_comment(after_dash: &str) -> (String, Option<String>) {
-    let trimmed = after_dash.trim_start();
-    if !trimmed.starts_with('#') {
-        if let Some((_, _, after_colon)) = split_nested_key(trimmed) {
-            let head = &after_dash[..after_dash.len() - after_colon.len()];
-            let (value, comment) = split_trailing_comment(&after_colon);
-            return (format!("{head}{value}"), comment);
-        }
-    }
-    split_trailing_comment(after_dash)
-}
-
-/// Byte index of the closing quote of the quoted scalar opening at `start`,
-/// honouring `\"` escapes in double quotes and `''` escapes in single quotes.
-fn find_quote_end(bytes: &[u8], start: usize) -> Option<usize> {
-    let quote = bytes[start];
-    let mut i = start + 1;
-    while i < bytes.len() {
-        let b = bytes[i];
-        if quote == b'"' && b == b'\\' {
-            i += 2;
-            continue;
-        }
-        if b == quote {
-            if quote == b'\'' && bytes.get(i + 1) == Some(&b'\'') {
-                i += 2; // '' is an escaped quote, not the closer
-                continue;
-            }
-            return Some(i);
-        }
-        i += 1;
-    }
-    None
-}
-
-/// Scan `value` from byte `from` for a `#` preceded by whitespace (or at the
-/// scan start) and split there. Quote characters are not interpreted.
-fn find_comment_from(value: &str, from: usize) -> (String, Option<String>) {
-    let bytes = value.as_bytes();
-    let mut prev_was_ws = true;
-    for i in from..bytes.len() {
-        let b = bytes[i];
-        if b == b'#' && prev_was_ws {
-            let v = value[..i].trim_end().to_string();
-            let c = value[i..].to_string();
-            return (v, Some(c));
-        }
-        prev_was_ws = matches!(b, b' ' | b'\t');
-    }
-    (value.to_string(), None)
-}
-
-/// Comment split for flow-collection values (`[…]` / `{…}`): split at the
-/// first whitespace-preceded `#` outside a quoted scalar.
-fn split_flow_trailing_comment(value: &str) -> (String, Option<String>) {
-    match FlowScan::default().line(value) {
-        Some(i) => (value[..i].trim_end().to_string(), Some(value[i..].to_string())),
-        None => (value.to_string(), None),
-    }
-}
-
-/// `value` past its leading whitespace and any tag or anchor ahead of the node.
-fn node_text(value: &str) -> &str {
-    let mut node = value.trim_start();
-    while node.starts_with(['!', '&']) {
-        let end = node.find([' ', '\t']).unwrap_or(node.len());
-        node = node[end..].trim_start();
-    }
-    node
-}
-
-/// The scan a node leaves open past its line: a flow collection whose
-/// brackets, or a quoted scalar whose quote, the line does not close.
-fn opens_past_line(value: &str) -> Option<FlowScan> {
-    let node = node_text(value);
-    if !node.starts_with(['[', '{', '"', '\'']) {
-        return None;
-    }
-    FlowScan::default().continued(node)
-}
-
-/// Where a [`FlowScan`] stands. A quote opens a quoted scalar only where a
-/// node may start; anywhere else it is a plain scalar's own character.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-enum FlowAt {
-    /// At the value's start, or after `[`, `{`, `,`, a `:` / `?` indicator, or
-    /// a tag or anchor.
-    #[default]
-    NodeStart,
-    Plain,
-    /// Past a quoted scalar or a closing bracket, where an adjacent `:` is an
-    /// indicator (`{"a":1}`).
-    NodeEnd,
-}
-
-/// The scan of a value that can span lines: a flow collection with the quoted
-/// scalars inside it, or a quoted scalar alone. Its state carries from line to
-/// line.
-#[derive(Debug, Default)]
-struct FlowScan {
-    depth: usize,
-    quote: Option<u8>,
-    at: FlowAt,
-}
-
-impl FlowScan {
-    fn is_open(&self) -> bool {
-        self.depth > 0 || self.quote.is_some()
-    }
-
-    /// The scan past one more line, while the value stays open.
-    fn continued(mut self, text: &str) -> Option<Self> {
-        self.line(text);
-        self.is_open().then_some(self)
-    }
-
-    /// Advance over one line of the value, returning the byte index of the `#`
-    /// opening its trailing comment.
-    fn line(&mut self, text: &str) -> Option<usize> {
-        let bytes = text.as_bytes();
-        let mut after_ws = true;
-        let mut i = 0;
-        while i < bytes.len() {
-            let b = bytes[i];
-            if let Some(quote) = self.quote {
-                if quote == b'"' && b == b'\\' {
-                    i += 2;
+                if at >= from {
+                    at = to;
+                    comments.next();
                     continue;
                 }
-                if b == quote {
-                    // `''` inside a single-quoted scalar is one escaped quote.
-                    if quote == b'\'' && bytes.get(i + 1) == Some(&b'\'') {
-                        i += 2;
-                        continue;
-                    }
-                    self.quote = None;
-                    self.at = FlowAt::NodeEnd;
-                    after_ws = false;
-                }
-                i += 1;
-                continue;
             }
-            match b {
-                b' ' | b'\t' => {
-                    after_ws = true;
-                    i += 1;
-                    continue;
-                }
-                b'#' if after_ws => return Some(i),
-                b'!' | b'&' if self.at == FlowAt::NodeStart => {
-                    while i < bytes.len() && !FLOW_PROPERTY_END.contains(&bytes[i]) {
-                        i += 1;
-                    }
-                    after_ws = false;
-                    continue;
-                }
-                b'"' | b'\'' if self.at == FlowAt::NodeStart => self.quote = Some(b),
-                b'[' | b'{' => {
-                    self.depth += 1;
-                    self.at = FlowAt::NodeStart;
-                }
-                b']' | b'}' => {
-                    self.depth = self.depth.saturating_sub(1);
-                    self.at = FlowAt::NodeEnd;
-                }
-                b',' => self.at = FlowAt::NodeStart,
-                b':' if self.at == FlowAt::NodeEnd || space_follows(bytes, i) => {
-                    self.at = FlowAt::NodeStart
-                }
-                // `? ` is an indicator only where a node starts: `Why? 'cause` is text.
-                b'?' if self.at == FlowAt::NodeStart && space_follows(bytes, i) => {}
-                _ => self.at = FlowAt::Plain,
+            match bytes[at] {
+                b' ' | b'\t' | b'\n' | b'\r' => at += 1,
+                b'-' => return Some(at),
+                _ => return None,
             }
-            after_ws = false;
-            i += 1;
         }
         None
     }
-}
 
-/// The bytes ending a tag or an anchor inside a flow collection.
-const FLOW_PROPERTY_END: &[u8] = b" \t,[]{}";
+    /// Place a run of own-line comments that ends at the next child of the
+    /// innermost open collection, or at the end of the input. Each lands in the
+    /// deepest slot it is indented into: an empty value, a collection the run
+    /// closes, or ahead of that next child; and never deeper than the comment
+    /// before it.
+    fn place_run(&mut self, run: Vec<Comment>) -> Result<(), OverBudget> {
+        let Some(top) = self.live.checked_sub(1) else {
+            for c in run {
+                self.record(0, 0, c.text, false)?;
+            }
+            return Ok(());
+        };
+        let deepest = self.frames.len() - 1;
+        let mut slots = Vec::new();
+        let last = &self.frames[deepest];
+        if let Some(entry) = last.entry.as_ref()
+            && !last.sequence
+            && !last.awaiting_value
+            && entry.empty
+        {
+            slots.push(Slot::Under(deepest, entry.column));
+        }
+        slots.extend((self.live..self.frames.len()).rev().map(Slot::Last));
+        slots.push(Slot::Next(top));
 
-/// `true` when whitespace or the line's end follows the byte at `i`.
-fn space_follows(bytes: &[u8], i: usize) -> bool {
-    matches!(bytes.get(i + 1), None | Some(b' ' | b'\t'))
-}
+        let mut floor = 0;
+        for c in run {
+            let from = slots
+                .iter()
+                .position(|slot| match *slot {
+                    Slot::Under(f, _) | Slot::Last(f) => f < c.open,
+                    Slot::Next(_) => true,
+                })
+                .unwrap_or(slots.len() - 1)
+                .max(floor);
+            let pick = (from..slots.len())
+                .find(|&i| self.holds(slots[i], c.column))
+                .unwrap_or(slots.len() - 1);
+            floor = pick;
+            match slots[pick] {
+                Slot::Under(f, _) => self.record(f + 1, 0, c.text, false)?,
+                Slot::Last(f) | Slot::Next(f) => {
+                    let position = self.frames[f].count;
+                    self.record(f, position, c.text, false)?;
+                }
+            }
+        }
+        Ok(())
+    }
 
-/// Record `path` onto `out` when `value`, the text after its key's `:`, opens
-/// with a tag.
-fn record_tag(out: &mut PreScan, value: &str, path: &[PathSegment]) {
-    if value.trim_start().starts_with('!') {
-        out.unsupported_tags.push(path.to_vec());
+    fn holds(&self, slot: Slot, column: usize) -> bool {
+        match slot {
+            Slot::Under(_, key) => column > key,
+            Slot::Last(f) => match self.frames[f].held_at {
+                Some(key) => column > key,
+                None => column >= self.frames[f].column,
+            },
+            Slot::Next(_) => true,
+        }
+    }
+
+    /// Place the comments between a node and the key or dash it belongs to:
+    /// inside it when it is a block collection or a key's absent value they are
+    /// indented past, otherwise after its entry. Answers whether any landed
+    /// inside.
+    fn bind(
+        &mut self,
+        comments: Vec<Comment>,
+        top: Option<usize>,
+        shape: Shape,
+        role: Role,
+    ) -> Result<bool, OverBudget> {
+        let Some(top) = top else {
+            for c in comments {
+                self.record(0, 0, c.text, false)?;
+            }
+            return Ok(false);
+        };
+        let key = self.frames[top].entry.as_ref().map_or(0, |e| e.column);
+        let mut inside = shape.is_block() || (shape == Shape::Absent && role == Role::Value);
+        let mut led = false;
+        for c in comments {
+            inside &= shape.is_block() || c.column > key;
+            led |= inside;
+            if inside {
+                self.record(top + 1, 0, c.text, false)?;
+            } else {
+                self.after(top, c.text)?;
+            }
+        }
+        Ok(led)
+    }
+
+    fn end(&mut self, span: Span) -> Result<(), OverBudget> {
+        let Some(top) = self.live.checked_sub(1) else {
+            return Ok(());
+        };
+        if self.frames[top].flow {
+            self.frames.truncate(top + 1);
+            let frame = self.frames.pop().expect("the top frame is present");
+            self.live = top;
+            if frame.count == 0
+                && frame.held_at.is_some()
+                && let Some(entry) = self.frames[top - 1].entry.as_mut()
+            {
+                entry.empty = true;
+            }
+            self.content(span, false);
+            return Ok(());
+        }
+        if top == 0 {
+            self.pending.extend(self.held.take());
+            let run = std::mem::take(&mut self.pending);
+            self.place_run(run)?;
+            self.frames.clear();
+            self.live = 0;
+            return Ok(());
+        }
+        self.live = top;
+        if self.pending.is_empty() && self.held.is_none() {
+            self.frames.truncate(top);
+        }
+        Ok(())
+    }
+
+    /// The path of the collection at `depth`: the root at 0, and past it the
+    /// value of `frames[depth - 1]`'s current entry.
+    fn path(&self, depth: usize) -> Vec<PathSegment> {
+        self.frames[..depth]
+            .iter()
+            .filter_map(|f| f.entry.as_ref().map(|e| e.segment.clone()))
+            .collect()
+    }
+
+    fn charge_path(&mut self, path: &[PathSegment], extra: usize) -> Result<(), OverBudget> {
+        let cost = path
+            .iter()
+            .map(|s| {
+                std::mem::size_of::<PathSegment>()
+                    + match s {
+                        PathSegment::Key(k) => k.len(),
+                        PathSegment::Index(_) => 0,
+                    }
+            })
+            .sum::<usize>()
+            + extra;
+        self.left = self.left.checked_sub(cost).ok_or(OverBudget {
+            budget: self.budget,
+        })?;
+        Ok(())
+    }
+
+    /// Record `text` at `position` in the collection at `depth`.
+    fn record(
+        &mut self,
+        depth: usize,
+        position: usize,
+        text: String,
+        inline: bool,
+    ) -> Result<(), OverBudget> {
+        if depth == 0 {
+            self.items.push(PreItem::Comment { text, inline });
+            return Ok(());
+        }
+        let container_path = self.path(depth);
+        // At each slot: own-line comments (`0`), the trailer (`1`), then the
+        // comments inside the child there (`2`).
+        let mut order: Vec<usize> = self.frames[..depth]
+            .iter()
+            .flat_map(|f| [f.entry.as_ref().map_or(0, |e| e.index), 2])
+            .collect();
+        order.extend([position, usize::from(inline)]);
+        self.charge_path(&container_path, order.len() * std::mem::size_of::<usize>())?;
+        self.nested.push((
+            order,
+            NestedComment {
+                container_path,
+                position,
+                text,
+                inline,
+            },
+        ));
+        Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
+    mod properties;
+
     use super::*;
+
+    fn scan(yaml: &str) -> PreScan {
+        prescan_fence_content(yaml).expect("within budget")
+    }
+
+    fn key(k: &str) -> PathSegment {
+        PathSegment::Key(k.to_string())
+    }
+
+    fn nested(path: Vec<PathSegment>, position: usize, text: &str, inline: bool) -> NestedComment {
+        NestedComment {
+            container_path: path,
+            position,
+            text: text.to_string(),
+            inline,
+        }
+    }
+
+    fn field(k: &str) -> PreItem {
+        PreItem::Field { key: k.to_string() }
+    }
+
+    fn comment(text: &str, inline: bool) -> PreItem {
+        PreItem::Comment {
+            text: text.to_string(),
+            inline,
+        }
+    }
 
     #[test]
     fn extracts_own_line_comments() {
-        let input = "# top\ntitle: foo\n# mid\nauthor: bar\n";
-        let out = prescan_fence_content(input);
+        let out = scan("# top\ntitle: foo\n# mid\nauthor: bar\n");
         assert_eq!(
             out.items,
-            vec![
-                PreItem::Comment {
-                    text: "top".to_string(),
-                    inline: false,
-                },
-                PreItem::Field {
-                    key: "title".to_string(),
-                },
-                PreItem::Comment {
-                    text: "mid".to_string(),
-                    inline: false,
-                },
-                PreItem::Field {
-                    key: "author".to_string(),
-                },
-            ]
+            vec![comment("top", false), field("title"), comment("mid", false), field("author")]
         );
         assert!(out.nested_comments.is_empty());
     }
 
     #[test]
     fn splits_trailing_comments() {
-        let input = "title: foo # inline\n";
-        let out = prescan_fence_content(input);
-        assert_eq!(
-            out.items,
-            vec![
-                PreItem::Field {
-                    key: "title".to_string(),
-                },
-                PreItem::Comment {
-                    text: "inline".to_string(),
-                    inline: true,
-                },
-            ]
-        );
-        assert!(out.cleaned_yaml.contains("title: foo"));
-        assert!(!out.cleaned_yaml.contains("inline"));
+        let out = scan("title: foo # inline\n");
+        assert_eq!(out.items, vec![field("title"), comment("inline", true)]);
     }
 
     #[test]
-    fn a_tag_is_recorded_and_left_for_the_parser() {
+    fn a_tag_is_recorded_at_its_key() {
         for input in ["dept: !custom Department\n", "dept: !custom\n"] {
-            let out = prescan_fence_content(input);
-            assert_eq!(
-                out.items,
-                vec![PreItem::Field {
-                    key: "dept".to_string(),
-                }]
-            );
-            assert_eq!(out.unsupported_tags, vec![vec![PathSegment::Key("dept".to_string())]]);
-            assert_eq!(out.cleaned_yaml, input);
+            let out = scan(input);
+            assert_eq!(out.items, vec![field("dept")]);
+            assert_eq!(out.unsupported_tags, vec![vec![key("dept")]]);
         }
     }
 
     #[test]
-    fn crlf_lines_carry_no_carriage_return_into_the_scan() {
-        let input = "dept: !t\r\n# note\r\ntitle: x # trailing\r\n";
-        let out = prescan_fence_content(input);
+    fn crlf_line_ends_reach_no_comment_text() {
+        let out = scan("dept: !t\r\n# note\r\ntitle: x # trailing\r\n");
         assert_eq!(
             out.items,
             vec![
-                PreItem::Field {
-                    key: "dept".to_string(),
-                },
-                PreItem::Comment {
-                    text: "note".to_string(),
-                    inline: false,
-                },
-                PreItem::Field {
-                    key: "title".to_string(),
-                },
-                PreItem::Comment {
-                    text: "trailing".to_string(),
-                    inline: true,
-                },
+                field("dept"),
+                comment("note", false),
+                field("title"),
+                comment("trailing", true),
             ]
         );
-        assert_eq!(out.unsupported_tags, vec![vec![PathSegment::Key("dept".to_string())]]);
-        assert!(!out.cleaned_yaml.contains('\r'));
+        assert_eq!(out.unsupported_tags, vec![vec![key("dept")]]);
     }
 
     #[test]
     fn nested_comment_in_sequence_captured() {
-        let input = "arr:\n  # before-first\n  - a\n  # between\n  - b\n  # after-last\n";
-        let out = prescan_fence_content(input);
+        let out = scan("arr:\n  # before-first\n  - a\n  # between\n  - b\n  # after-last\n");
         assert_eq!(
             out.nested_comments,
             vec![
-                NestedComment {
-                    container_path: vec![PathSegment::Key("arr".to_string())],
-                    position: 0,
-                    text: "before-first".to_string(),
-                    inline: false,
-                },
-                NestedComment {
-                    container_path: vec![PathSegment::Key("arr".to_string())],
-                    position: 1,
-                    text: "between".to_string(),
-                    inline: false,
-                },
-                NestedComment {
-                    container_path: vec![PathSegment::Key("arr".to_string())],
-                    position: 2,
-                    text: "after-last".to_string(),
-                    inline: false,
-                },
+                nested(vec![key("arr")], 0, "before-first", false),
+                nested(vec![key("arr")], 1, "between", false),
+                nested(vec![key("arr")], 2, "after-last", false),
             ]
         );
     }
 
     #[test]
     fn nested_comment_in_mapping_captured() {
-        let input = "outer:\n  # comment\n  inner: 1\n";
-        let out = prescan_fence_content(input);
-        assert_eq!(
-            out.nested_comments,
-            vec![NestedComment {
-                container_path: vec![PathSegment::Key("outer".to_string())],
-                position: 0,
-                text: "comment".to_string(),
-                inline: false,
-            }]
-        );
+        let out = scan("outer:\n  # comment\n  inner: 1\n");
+        assert_eq!(out.nested_comments, vec![nested(vec![key("outer")], 0, "comment", false)]);
     }
 
     /// An empty flow collection's comments sit under it, whether its key opens
     /// its own line or a sequence item's.
     #[test]
     fn a_comment_under_an_empty_flow_collection_is_inside_it() {
-        let input = "rows: []\n  # - a\nrow:\n  - key: {}\n      # b\n    next: 1\n";
-        let out = prescan_fence_content(input);
-        let key = |k: &str| PathSegment::Key(k.to_string());
+        let out = scan("rows: []\n  # - a\nrow:\n  - key: {}\n      # b\n    next: 1\n");
         assert_eq!(
             out.nested_comments,
             vec![
-                NestedComment {
-                    container_path: vec![key("rows")],
-                    position: 0,
-                    text: "- a".to_string(),
-                    inline: false,
-                },
-                NestedComment {
-                    container_path: vec![key("row"), PathSegment::Index(0), key("key")],
-                    position: 0,
-                    text: "b".to_string(),
-                    inline: false,
-                },
+                nested(vec![key("rows")], 0, "- a", false),
+                nested(vec![key("row"), PathSegment::Index(0), key("key")], 0, "b", false),
             ]
         );
     }
 
     #[test]
     fn deep_nested_comment_path() {
-        let input = "outer:\n  inner:\n    # deep\n    leaf: 1\n";
-        let out = prescan_fence_content(input);
+        let out = scan("outer:\n  inner:\n    # deep\n    leaf: 1\n");
         assert_eq!(
             out.nested_comments,
-            vec![NestedComment {
-                container_path: vec![
-                    PathSegment::Key("outer".to_string()),
-                    PathSegment::Key("inner".to_string()),
-                ],
-                position: 0,
-                text: "deep".to_string(),
-                inline: false,
-            }]
+            vec![nested(vec![key("outer"), key("inner")], 0, "deep", false)]
         );
     }
 
     #[test]
     fn comment_inside_seq_of_maps() {
-        let input = "items:\n  - name: a\n    # inside-first\n    val: 1\n  - name: b\n";
-        let out = prescan_fence_content(input);
+        let out = scan("items:\n  - name: a\n    # inside-first\n    val: 1\n  - name: b\n");
         assert_eq!(
             out.nested_comments,
-            vec![NestedComment {
-                container_path: vec![
-                    PathSegment::Key("items".to_string()),
-                    PathSegment::Index(0),
-                ],
-                position: 1,
-                text: "inside-first".to_string(),
-                inline: false,
-            }]
+            vec![nested(vec![key("items"), PathSegment::Index(0)], 1, "inside-first", false)]
         );
     }
 
     #[test]
     fn nested_inline_on_sequence_item() {
-        let input = "arr:\n  - a # tail\n  - b\n";
-        let out = prescan_fence_content(input);
-        assert_eq!(
-            out.nested_comments,
-            vec![NestedComment {
-                container_path: vec![PathSegment::Key("arr".to_string())],
-                position: 0,
-                text: "tail".to_string(),
-                inline: true,
-            }]
-        );
-        assert!(out.cleaned_yaml.contains("- a\n"));
-        assert!(!out.cleaned_yaml.contains("tail"));
+        let out = scan("arr:\n  - a # tail\n  - b\n");
+        assert_eq!(out.nested_comments, vec![nested(vec![key("arr")], 0, "tail", true)]);
     }
 
     #[test]
     fn nested_inline_on_mapping_field() {
-        let input = "outer:\n  inner: 1 # tail\n";
-        let out = prescan_fence_content(input);
-        assert_eq!(
-            out.nested_comments,
-            vec![NestedComment {
-                container_path: vec![PathSegment::Key("outer".to_string())],
-                position: 0,
-                text: "tail".to_string(),
-                inline: true,
-            }]
-        );
+        let out = scan("outer:\n  inner: 1 # tail\n");
+        assert_eq!(out.nested_comments, vec![nested(vec![key("outer")], 0, "tail", true)]);
     }
 
     #[test]
-    fn a_tag_on_a_nested_key_and_a_dash_line_records_its_path() {
-        let input = "addr:\n  street: !custom Main\nto:\n  - name: !custom\n";
-        let out = prescan_fence_content(input);
-        let key = |k: &str| PathSegment::Key(k.to_string());
+    fn a_tag_records_its_node_path_at_any_depth() {
+        let out = scan(
+            "addr:\n  street: !custom Main\nto:\n  - name: !custom\nl:\n- !t a\n- [!t b]\nk: !t\n  x: 1\n",
+        );
         assert_eq!(
             out.unsupported_tags,
             vec![
                 vec![key("addr"), key("street")],
                 vec![key("to"), PathSegment::Index(0), key("name")],
+                vec![key("l"), PathSegment::Index(0)],
+                vec![key("l"), PathSegment::Index(1), PathSegment::Index(0)],
+                vec![key("k")],
             ]
         );
-        assert_eq!(out.cleaned_yaml, input);
     }
 
     #[test]
-    fn sequence_with_multibyte_after_dash_does_not_panic() {
-        // Multi-byte characters immediately after `- `. A byte-range slice here
-        // panics with "byte index 2 is not a char boundary".
-        let inputs = [
-            "arr:\n  - – en-dash\n  - — em-dash\n",
-            "arr:\n  - \u{2013}line\n  - \u{2014}line\n",
-            "arr:\n  - \u{201C}smart-quoted\u{201D}\n",
-            "arr:\n  - \u{1F600} emoji\n",
-            "bullets: |\n  - (U) **A:** text\n  – (U) **B:** text\n",
-        ];
-        for input in inputs {
-            let out = prescan_fence_content(input);
-            assert_eq!(out.cleaned_yaml.lines().count(), input.lines().count());
-        }
-    }
-
-    #[test]
-    fn cleaned_yaml_is_line_for_line_with_its_source() {
-        // A parse position is a source position only while this holds; comment
-        // lines and block-scalar content that looks like structure both have to
-        // leave the numbering alone.
-        let input = "# lead\ntitle: Doc\n\n# note\nrole: x\nbio: |\n  # not a comment\nend: x\n";
-        let out = prescan_fence_content(input);
-
-        let cleaned: Vec<&str> = out.cleaned_yaml.split('\n').collect();
-        assert_eq!(cleaned.len(), input.split('\n').count());
-        let line_of = |needle: &str| {
-            cleaned
-                .iter()
-                .position(|l| l.contains(needle))
-                .expect("cleaned line present")
-        };
-        assert_eq!(line_of("title:"), 1);
-        assert_eq!(line_of("role:"), 4);
-        assert_eq!(line_of("# not a comment"), 6);
-        assert_eq!(line_of("end:"), 7);
+    fn multibyte_text_around_a_comment_keeps_its_offsets() {
+        let out = scan("arr:\n  - – en-dash # c\n  -\n    # d\n    \u{1F600} emoji\n  - \u{201C}q\u{201D}\n");
+        assert_eq!(
+            out.nested_comments,
+            vec![
+                nested(vec![key("arr")], 0, "c", true),
+                nested(vec![key("arr")], 2, "d", false),
+            ]
+        );
     }
 
     #[test]
     fn block_scalar_content_is_not_parsed_as_structure() {
-        let input =
-            "bio: |-\n  ## About me\n\n  - point one\n  role: engineer\n  Done.\nname: jane\n";
-        let out = prescan_fence_content(input);
-
-        assert!(
-            out.cleaned_yaml.contains("## About me"),
-            "block-scalar heading must survive: {:?}",
-            out.cleaned_yaml
+        let out = scan(
+            "bio: |-\n  ## About me\n\n  - point one\n  role: engineer\n  Done.\nname: jane\nitems:\n  - |-\n    ## Heading\n    role: x\n  - second\n",
         );
-        assert!(out.cleaned_yaml.contains("- point one"));
-        assert!(out.cleaned_yaml.contains("role: engineer"));
+        assert_eq!(out.items, vec![field("bio"), field("name"), field("items")]);
+        assert!(out.nested_comments.is_empty());
+    }
 
-        assert!(
-            !out.items.iter().any(|i| matches!(
-                i,
-                PreItem::Comment { text, .. } if text.contains("About")
-            )),
-            "block-scalar `#` line must not become a comment"
+    /// A `#` opens a comment only after whitespace and outside a quoted scalar,
+    /// which a tag or anchor may precede and a flow collection may hold.
+    #[test]
+    fn a_hash_is_a_comment_only_where_yaml_reads_one() {
+        let cases = [
+            ("k: it's a test # note\n", Some("note")),
+            ("k: 'a # b'\n", None),
+            ("k: \"a # b\"\n", None),
+            ("k: 'a # b' # real\n", Some("real")),
+            ("k: 'it''s # x' # real\n", Some("real")),
+            ("k: \"a \\\" # b\" # real\n", Some("real")),
+            ("k: [a, \"b # c\"] # real\n", Some("real")),
+            ("k: [a, \"b # c\"]\n", None),
+            ("k: !t \"a # b\" # real\n", Some("real")),
+            ("k: a#b\n", None),
+        ];
+        for (input, trailer) in cases {
+            let want = match trailer {
+                Some(t) => vec![field("k"), comment(t, true)],
+                None => vec![field("k")],
+            };
+            assert_eq!(scan(input).items, want, "{input}");
+        }
+    }
+
+    /// A sequence at its key's column holds the comments between its items,
+    /// and one at that column after its last item is the next key's.
+    #[test]
+    fn a_sequence_at_its_key_column_holds_its_comments() {
+        let out = scan("to:\n# lead\n- name: a # c1\n  # inner\n  rank: 1\n- b\n # last\n# next\nn: 1\n");
+        let to = || vec![key("to")];
+        assert_eq!(
+            out.nested_comments,
+            vec![
+                nested(to(), 0, "lead", false),
+                nested(to(), 0, "c1", true),
+                nested(vec![key("to"), PathSegment::Index(0)], 1, "inner", false),
+                nested(to(), 2, "last", false),
+            ]
         );
-        assert!(
-            !out.items
-                .iter()
-                .any(|i| matches!(i, PreItem::Field { key, .. } if key == "role")),
-            "block-scalar `key:` line must not become a field"
+        assert_eq!(out.items, vec![field("to"), comment("next", false), field("n")]);
+    }
+
+    /// A run of own-line comments that closes collections lands each comment in
+    /// the deepest one it is indented into, never deeper than the one before.
+    #[test]
+    fn a_closing_run_lands_by_column() {
+        let out = scan("a:\n  b:\n    c: 1\n    # x\n  # y\n      # z\n# w\nd: 1\n");
+        assert_eq!(
+            out.nested_comments,
+            vec![
+                nested(vec![key("a"), key("b")], 1, "x", false),
+                nested(vec![key("a")], 1, "y", false),
+                nested(vec![key("a")], 1, "z", false),
+            ]
         );
-
-        let fields: Vec<&str> = out
-            .items
-            .iter()
-            .filter_map(|i| match i {
-                PreItem::Field { key, .. } => Some(key.as_str()),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(fields, vec!["bio", "name"]);
+        assert_eq!(out.items, vec![field("a"), comment("w", false), field("d")]);
     }
 
+    /// A dash line's trailer is the item's, whether the line holds the item's
+    /// first key or a bare dash, and whether the sequence is indented or at its
+    /// key's column. The first key's trailer is the item's too, unless the item
+    /// carries one or a comment leads the key: the spellings `to_markdown`
+    /// writes for each.
     #[test]
-    fn sequence_item_block_scalar_content_is_not_parsed_as_structure() {
-        let input = "items:\n  - |-\n    ## Heading\n    - inner bullet\n    role: x\n  - second\n";
-        let out = prescan_fence_content(input);
-
-        assert!(
-            out.cleaned_yaml.contains("## Heading"),
-            "block-scalar heading inside a sequence item must survive: {:?}",
-            out.cleaned_yaml
+    fn a_dash_line_trailer_is_the_items() {
+        let item = |i| vec![key("l"), PathSegment::Index(i)];
+        for src in [
+            "l:\n  - k: v # a\n  - # b\n    k: v # c\n",
+            "l:\n- k: v # a\n- # b\n  k: v # c\n",
+        ] {
+            assert_eq!(
+                scan(src).nested_comments,
+                vec![
+                    nested(vec![key("l")], 0, "a", true),
+                    nested(vec![key("l")], 1, "b", true),
+                    nested(item(1), 0, "c", true),
+                ],
+                "{src}"
+            );
+        }
+        assert_eq!(
+            scan("l:\n- # b\n  k: v # c\n").nested_comments,
+            vec![nested(vec![key("l")], 0, "b", true), nested(item(0), 0, "c", true)]
         );
-        assert!(out.cleaned_yaml.contains("- inner bullet"));
-        assert!(out.cleaned_yaml.contains("role: x"));
-        assert!(
-            !out.nested_comments
-                .iter()
-                .any(|c| c.text.contains("Heading")),
-            "block-scalar `#` line must not become a nested comment"
+        assert_eq!(
+            scan("l:\n  -\n    k: v # a\n").nested_comments,
+            vec![nested(vec![key("l")], 0, "a", true)]
         );
-        assert!(out.cleaned_yaml.contains("- second"));
+        assert_eq!(
+            scan("l:\n  -\n    # o\n    k: v # a\n").nested_comments,
+            vec![nested(item(0), 0, "o", false), nested(item(0), 0, "a", true)]
+        );
+    }
+
+    /// A block scalar's header trailer is its entry's, though the parser reads
+    /// it after the scalar's text, and the next dash line's is the next item's.
+    #[test]
+    fn a_block_scalar_header_trailer_is_its_entrys() {
+        let out = scan("l:\n  - | # a\n    text\n  - >- # b\n    x\n  - # c\n    k: v\nm: | # d\n  t\n");
+        assert_eq!(
+            out.nested_comments,
+            vec![
+                nested(vec![key("l")], 0, "a", true),
+                nested(vec![key("l")], 1, "b", true),
+                nested(vec![key("l")], 2, "c", true),
+            ]
+        );
+        assert_eq!(out.items, vec![field("l"), field("m"), comment("d", true)]);
     }
 
     #[test]
-    fn comment_after_plain_scalar_with_apostrophe() {
-        // YAML: in a plain scalar, `'` is an ordinary character; the
-        // whitespace-preceded `#` still starts a comment.
-        let (v, c) = split_trailing_comment(" it's a test # note");
-        assert_eq!(v, " it's a test");
-        assert_eq!(c.as_deref(), Some("# note"));
+    fn many_comments_under_long_keys_are_refused() {
+        let long = "k".repeat(1000);
+        let mut yaml = String::new();
+        for depth in 0..8 {
+            yaml.push_str(&" ".repeat(depth * 2));
+            yaml.push_str(&format!("{long}{depth}:\n"));
+        }
+        let indent = " ".repeat(16);
+        yaml.push_str(&format!("{indent}x: 1\n"));
+        for _ in 0..2000 {
+            yaml.push_str(&format!("{indent}#\n"));
+        }
+        let err = prescan_fence_content(&yaml).expect_err("over budget");
+        assert_eq!(err.budget, budget(yaml.len()));
     }
 
+    /// Recorded paths cost no more than a fixed multiple of the input, however
+    /// deep or long the run: the budget never trips on a deep structure with a
+    /// comment at every level and a long run of comments.
     #[test]
-    fn hash_inside_quoted_scalar_is_not_a_comment() {
-        let (v, c) = split_trailing_comment(" 'a # b'");
-        assert_eq!(v, " 'a # b'");
-        assert_eq!(c, None);
-
-        let (v, c) = split_trailing_comment(" \"a # b\"");
-        assert_eq!(v, " \"a # b\"");
-        assert_eq!(c, None);
-    }
-
-    #[test]
-    fn comment_after_quoted_scalar() {
-        let (v, c) = split_trailing_comment(" 'a # b' # real");
-        assert_eq!(v, " 'a # b'");
-        assert_eq!(c.as_deref(), Some("# real"));
-
-        // '' is an escaped quote, not the closer.
-        let (v, c) = split_trailing_comment(" 'it''s # x' # real");
-        assert_eq!(v, " 'it''s # x'");
-        assert_eq!(c.as_deref(), Some("# real"));
-
-        // \" is an escaped quote in double-quoted scalars.
-        let (v, c) = split_trailing_comment(" \"a \\\" # b\" # real");
-        assert_eq!(v, " \"a \\\" # b\"");
-        assert_eq!(c.as_deref(), Some("# real"));
-    }
-
-    #[test]
-    fn unterminated_quote_means_multiline_scalar_no_comment() {
-        let (v, c) = split_trailing_comment(" \"starts here # not a comment");
-        assert_eq!(v, " \"starts here # not a comment");
-        assert_eq!(c, None);
-    }
-
-    #[test]
-    fn flow_collection_tracks_quotes_anywhere() {
-        let (v, c) = split_trailing_comment(" [a, \"b # c\"] # real");
-        assert_eq!(v, " [a, \"b # c\"]");
-        assert_eq!(c.as_deref(), Some("# real"));
-
-        let (v, c) = split_trailing_comment(" [a, \"b # c\"]");
-        assert_eq!(c, None);
-        assert_eq!(v, " [a, \"b # c\"]");
-    }
-
-    #[test]
-    fn hash_without_preceding_whitespace_is_not_a_comment() {
-        let (v, c) = split_trailing_comment(" a#b");
-        assert_eq!(v, " a#b");
-        assert_eq!(c, None);
+    fn deep_nesting_and_long_comment_runs_stay_within_budget() {
+        let mut yaml = String::new();
+        for depth in 0..60 {
+            yaml.push_str(&" ".repeat(depth * 2));
+            yaml.push_str(&format!("k{depth}: # t\n"));
+        }
+        yaml.push_str(&format!("{}x: 1\n", " ".repeat(120)));
+        for _ in 0..5_000 {
+            yaml.push_str(&format!("{}# c\n", " ".repeat(120)));
+        }
+        let compact = format!("l:\n  {}x # c\n", "- ".repeat(60));
+        for input in [yaml, compact] {
+            let out = scan(&input);
+            assert!(!out.nested_comments.is_empty());
+        }
     }
 }

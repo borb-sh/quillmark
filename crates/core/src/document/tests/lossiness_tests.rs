@@ -144,7 +144,7 @@ fn a_tag_inside_meta_keeps_its_value_and_warns_without_a_path() {
 
 /// A line continuing a flow collection, opened on its key's line or the line
 /// below, is the collection's, never a key of the mapping around it, so a tag
-/// there stays on its own value.
+/// there stays on its own value and warns at that value's path.
 #[test]
 fn a_tag_inside_a_multi_line_flow_collection_stays_on_its_value() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\n\
@@ -163,7 +163,11 @@ fn a_tag_inside_a_multi_line_flow_collection_stays_on_its_value() {
     );
     assert_eq!(get("tags"), serde_json::json!(["a # [", "b"]));
     assert_eq!(get("c"), "C");
-    assert_eq!(anchors(&out), [("parse::unsupported_yaml_tag", Some("main.c"))]);
+    assert_eq!(
+        anchors(&out),
+        ["main.x.b", "main.addr.y[1].b", "main.tags[0]", "main.c"]
+            .map(|path| ("parse::unsupported_yaml_tag", Some(path)))
+    );
 }
 
 /// A comment trailing a line that continues a flow collection or a quoted
@@ -264,8 +268,8 @@ fn a_comment_keeps_its_slot_under_any_indentation() {
             "classification:\n  value: CUI\n  # note\n  controlled_by: SAF/AA # tail\n  other: 1\n",
         ),
         (
-            "l:\n  - - x # c1\n    - y # c2\n  - - z # c3\n",
-            "l:\n  -\n    - x # c1\n    - y # c2\n  -\n    - z # c3\n",
+            "l:\n  - - x # c1\n    - w # c2\n  - - z # c3\n",
+            "l:\n  -\n    - x # c1\n    - w # c2\n  -\n    - z # c3\n",
         ),
         ("note: first\n  key:value # z\n", "note: first key:value # z\n"),
         (
@@ -340,7 +344,8 @@ fn a_hash_inside_a_quoted_value_behind_a_tag_or_anchor_is_text() {
 }
 
 /// A tag or anchor ahead of `|` or `>` leaves the block's lines its text: no
-/// key, comment or tag among them reaches the mapping around it.
+/// key, comment or tag among them reaches the mapping around it. The tag on
+/// the block itself warns at the block's path.
 #[test]
 fn a_block_scalar_behind_a_tag_or_anchor_is_text() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\n\
@@ -353,7 +358,7 @@ fn a_block_scalar_behind_a_tag_or_anchor_is_text() {
         serde_json::json!({"body": "# Summary\nsubject: !t TBD\n", "subject": "Final"})
     );
     assert_eq!(get("notes"), serde_json::json!(["# kept\n"]));
-    assert!(out.warnings.is_empty(), "{:?}", out.warnings);
+    assert_eq!(anchors(&out), [("parse::unsupported_yaml_tag", Some("main.notes[0]"))]);
     let md = out.document.to_markdown();
     assert_eq!(md.matches("# Summary").count(), 1, "{md}");
     assert_eq!(md.matches("# kept").count(), 1, "{md}");

@@ -40,7 +40,7 @@ Two surfaces return one directly (`QuillValue::from_yaml_str`, `QuillConfig::sch
 
 Its `line`/`column` are document coordinates, not block-relative ones:
 
-- The engine reports a position inside the string it parsed: the fence content, line-for-line (prescan cuts only a trailing comment, leaving tags for the engine to drop and every line standing, comment lines included), minus the whitespace `trim` takes off the front. The assembler translates that position onto the document.
+- The engine reports a position inside the string it parsed: the fence content with its CRLF line ends read as LF, line-for-line, minus the whitespace `trim` takes off the front. The assembler translates that position onto the document.
 - `to_diagnostic()` renders it as a `Location` against `DOCUMENT_FILE` (`input.md`). Markdown reaches the engine as a string, so the anchor names the input rather than a path on disk.
 - The message names the block instead of repeating a number (`YAML error in the root card-yaml block: …`, `… in card-yaml block 2: …`). The engine's own snippet inside it stays block-relative, as the engine rendered it.
 

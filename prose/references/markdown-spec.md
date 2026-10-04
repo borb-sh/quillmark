@@ -224,20 +224,28 @@ data payload.
 - **YAML comments.** Both own-line comments (`# …` on their own line) and
   inline comments (`field: value  # note`) are supported on data fields and
   round-trip through `toMarkdown`. Comments inside nested YAML values
-  (arrays, maps) are also preserved: the pre-scan captures each nested
-  comment with a structural path and the emitter re-injects it at the
-  matching position. That includes an empty value: a comment indented under
-  `key: []`, `key: {}` or a bare `key:` is inside that value.
-- **Custom tags.** A custom YAML tag (`!include`, `!env`, …) opening a
-  block-style key's value on the key's own line (a top-level key, a nested
-  mapping key, or the first key of a `- ` sequence line) is dropped with a
-  `parse::unsupported_yaml_tag` warning; the value is kept, and the tag does
-  not round-trip. The warning carries the node's rooted `path`
-  (`main.addr.street`), or none under a `$` key, whose value has no document
-  address. Anywhere else the YAML parser drops any tag silently and keeps the
-  value: inside a flow collection, on one line or several, on a bare sequence
-  element, after an anchor (`key: &a !env x`), or on the line below its key.
-  A core tag (`!!str 5`) takes effect as the value is read before it drops.
+  (arrays, maps) are also preserved: the pre-scan reads each nested comment's
+  container and slot from the YAML parser's event stream, and the emitter
+  re-injects it there. The YAML's structure places a comment, whatever its
+  indentation: a sequence written at its key's column, or a comment indented
+  less than the block it sits in, keeps its slot.
+  - Indentation decides only where the structure leaves a choice. After a
+    collection's last child, a comment indented past the key holding the
+    collection is inside it, and so is one at or past the first key or dash of
+    a sequence item's collection; any other belongs to the collection around
+    it. A comment indented under `key: []`, `key: {}` or a bare `key:` is
+    inside that empty value.
+  - A comment inside a flow collection or on a multi-line scalar's line is the
+    trailer of the entry holding the value, or follows it when one already
+    trails it. A trailer on a sequence item's dash line is the item's, though
+    the line holds the item's first key.
+- **Tags.** A YAML tag on any node (`!include`, `!env`, a core `!!str`) is
+  dropped with a `parse::unsupported_yaml_tag` warning: on a block value, a
+  sequence element, a key, or a node inside a flow collection. The value is
+  kept, and the tag does not round-trip. The warning carries the node's rooted
+  `path` (`main.addr.street`, `main.to[0]`), or none under a `$` key, whose
+  value has no document address. A core tag (`!!str 5`) takes effect as the
+  value is read before it drops.
 
 ### 3.5 Version Selectors
 
