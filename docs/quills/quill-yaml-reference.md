@@ -259,7 +259,7 @@ The four text-ish types form a 2×2 of **data vs content** × **open/plain vs cl
 | **open / literal** | `string` | `plaintext`: `*text*` stays literal |
 | **closed / formatted** | `enum`: a `values:` domain | `richtext`: `*text*` becomes emphasis |
 
-A content field rides the canonical content model, so it carries navigation, regions, and click-to-edit in editor consumers; `string` and `enum` carry none of that. `plaintext` and `richtext` share that entire stack and the same backend lowering, so they are indistinguishable in an editor and diverge only at emit, where the codec decides whether a delimiter is markup or a character.
+Any field the plate prints, `string` and `enum` included, gets a region and click-to-edit in editor consumers ([Which Reads Get Regions](editor-regions.md#which-reads-get-regions)). A content field rides the canonical content model and adds navigation inside its value: a click lands a caret in the text. `plaintext` and `richtext` share that entire stack and the same backend lowering, so they are indistinguishable in an editor and diverge only at emit, where the codec decides whether a delimiter is markup or a character.
 
 Changing a declared type reinterprets every stored value in that field at the next bound load, with no diagnostic, and data → content is the lossy direction: the stored string enters the codec's import and its delimiters are consumed as structure, leaving the literal characters unrecoverable. A declared type change is a new quill version ([Quill Versioning](versioning.md)); audit the corpus before publishing one, as under [Date and Datetime Grammars](#date-and-datetime-grammars).
 

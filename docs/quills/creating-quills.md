@@ -53,7 +53,7 @@ Four types hold text, and two questions pick one:
 1. **Does the author write prose here, or does the plate compute with the value?** A name, URL, path, or reference key is data. A bio, an abstract, or a cover letter is content.
 2. Then, for data: **is the set of allowed values closed?** (`enum` over `string`.) For content: **should `*text*` render as emphasis, or stay literal?** (`richtext` over `plaintext`.)
 
-The letter above needs no content field: its prose is the document body, which is already rich text. `plaintext` and `richtext` are for prose in a *named* field — an abstract, a summary. Such a field carries navigation, regions, and click-to-edit in editor consumers; `string` and `enum` carry none of that.
+The letter above needs no content field: its prose is the document body, which is already rich text. `plaintext` and `richtext` are for prose in a *named* field — an abstract, a summary. Any field the plate prints is click-to-edit in an editor preview, `string` and `enum` included; a content field adds navigation inside its value, where a click lands a caret in the text. A name or a reference key stays a `string`.
 
 Pick before a corpus exists. Changing a declared type reinterprets every value already stored in that field, and data → content is lossy: see [Choosing among `string`, `enum`, `plaintext`, and `richtext`](quill-yaml-reference.md#choosing-among-string-enum-plaintext-and-richtext).
 
