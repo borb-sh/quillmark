@@ -1008,23 +1008,6 @@ mod tests {
         assert_eq!(out.items, vec![field("l"), field("m"), comment("d", true)]);
     }
 
-    #[test]
-    fn many_comments_under_long_keys_are_refused() {
-        let long = "k".repeat(1000);
-        let mut yaml = String::new();
-        for depth in 0..8 {
-            yaml.push_str(&" ".repeat(depth * 2));
-            yaml.push_str(&format!("{long}{depth}:\n"));
-        }
-        let indent = " ".repeat(16);
-        yaml.push_str(&format!("{indent}x: 1\n"));
-        for _ in 0..2000 {
-            yaml.push_str(&format!("{indent}#\n"));
-        }
-        let err = prescan_fence_content(&yaml).expect_err("over budget");
-        assert_eq!(err.budget, budget(yaml.len()));
-    }
-
     /// Recorded paths cost no more than a fixed multiple of the input, however
     /// deep or long the run: the budget never trips on a deep structure with a
     /// comment at every level and a long run of comments.
