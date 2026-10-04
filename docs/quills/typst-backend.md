@@ -389,14 +389,20 @@ for one document, beside the quill's packages and fonts, and prints the
 `typst watch` command that compiles the plate from them:
 
 ```bash
-quillmark workspace ./my-quill input.md -o ws
-typst watch --root ./my-quill --package-path ws/packages --font-path ws/fonts --ignore-system-fonts --ignore-embedded-fonts ./my-quill/plate.typ ws/plate.pdf
+quillmark workspace ./my-quill input.md -o ws --today 2026-03-14
+typst watch --root ./my-quill --package-path ws/packages --font-path ws/fonts --ignore-system-fonts --ignore-embedded-fonts --creation-timestamp 1773489600 ./my-quill/plate.typ ws/plate.pdf
 ```
 
 Edits to the plate recompile on save. The helper holds `input.md`'s data, so
-rerun `workspace` after changing the document. Tinymist takes the same flags
-through `tinymist.typstExtraArgs`, for completion on `data.` fields and a live
-preview. See the [CLI reference](../cli/reference.md#workspace).
+rerun `workspace` after changing the document. `--creation-timestamp` carries
+the render date, so `datetime.today()` agrees with the render's. Tinymist takes
+the same flags through `tinymist.typstExtraArgs`, for completion on `data.`
+fields and a live preview.
+
+Typst reads more of the quill than a render does: any file under `--root`, a
+vendored package's files by their paths, and a package the quill does not
+vendor. A plate that compiles here can still fail to render; the
+[CLI reference](../cli/reference.md#workspace) lists what each one loads.
 
 ## Resources
 

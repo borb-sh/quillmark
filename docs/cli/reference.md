@@ -201,6 +201,12 @@ from the quill directory, so an edit to the plate or a module shows on the next
 save. The helper holds that one document's data: rerun `workspace` after the
 document changes.
 
+Before the command, `workspace` prints the parse warnings, each warning for
+input the page leaves out, and the warnings a render raises loading the quill
+(`typst::package_manifest`, `typst::package_entrypoint_missing`,
+`typst::path_skipped`, `typst::unknown_key`). It compiles nothing, so the
+plate's own warnings and errors are the printed command's to report.
+
 ```bash
 quillmark workspace [OPTIONS] <QUILL_PATH> [MARKDOWN_FILE]
 ```
@@ -213,19 +219,37 @@ quillmark workspace [OPTIONS] <QUILL_PATH> [MARKDOWN_FILE]
 **Options:**
 
 - `-o <DIR>` / `--output <DIR>`: Workspace directory (default: `quillmark-workspace`). A directory inside the quill is refused: the quill would load it as its own files
-- `--today <YYYY-MM-DD>`: What a `today` date field renders as (default: the local date). A plate's `datetime.today()` is Typst's to supply.
+- `--today <YYYY-MM-DD>`: The render date (default: the local date). A `today` date field renders as it, and the printed command passes it as `--creation-timestamp`, noon UTC of that date, so the plate's `datetime.today()` returns it too.
 - `--quiet`: Suppress warnings and the command line; errors still print
+
+**Failures:** besides `typst::wrong_backend`, the command refuses each plate a render refuses, before writing anything: `typst::plate_missing` when `typst.plate_file` names no file in the quill, `typst::plate_path_invalid` when it names one at a path Typst cannot load, and `typst::invalid_utf8` when the plate is not UTF-8. A quill declaring no `typst.plate_file`, which a render compiles as an empty plate, has no plate to export and fails as `typst::plate_missing`.
 
 **Examples:**
 
 ```bash
-quillmark workspace ./my-quill input.md -o ws
+quillmark workspace ./my-quill input.md -o ws --today 2026-03-14
 # Workspace written to: ws
-# typst watch --root ./my-quill --package-path ws/packages --font-path ws/fonts --ignore-system-fonts --ignore-embedded-fonts ./my-quill/plate.typ ws/plate.pdf
+# typst watch --root ./my-quill --package-path ws/packages --font-path ws/fonts --ignore-system-fonts --ignore-embedded-fonts --creation-timestamp 1773489600 ./my-quill/plate.typ ws/plate.pdf
 ```
 
 Tinymist takes the same flags through its `tinymist.typstExtraArgs` setting,
 which gives an editor completion on `data.` fields and a live preview.
+
+**What the printed command reads that a render does not:** Typst serves the
+plate any file under `--root` and any package it can reach, where a render
+loads only part of the quill. A plate that compiles under the command can
+still fail to render, as `typst::file_not_found`:
+
+| The plate reaches | A render | The printed command |
+|---|---|---|
+| A `.typ` module outside `packages/` | Loads it | Loads it |
+| A file under `assets/`, for `image`, `read`, `json` and the like | Loads it | Loads it |
+| Any other file in the quill: `read("data.csv")` beside the plate, or a vendored package's `/packages/<dir>/lib.typ` by its path | Refuses it | Loads it |
+| A file the quill's load skips: a symlink, or anything under the quill's own `.git/`, `target/` or `node_modules/` | Refuses it | Loads it |
+| A package the quill does not vendor | Refuses it: Quillmark never downloads a package | Loads it from Typst's package cache, downloading an `@preview` package the cache lacks |
+
+Render the quill with `quillmark render` before trusting a plate that
+compiles here.
 
 ## Exit Codes
 

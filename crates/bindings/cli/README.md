@@ -88,10 +88,12 @@ card and defaults counts.
 Writes what Typst's own tooling needs to compile a Typst quill's plate against
 one document (the generated helper package, the vendored packages, the fonts),
 then prints the `typst watch` command that compiles it. The helper holds that
-document's data: rerun `workspace` after the document changes.
+document's data: rerun `workspace` after the document changes. Typst reads files
+and packages a render refuses, so a plate compiling there can still fail to
+render; the [CLI reference](../../../docs/cli/reference.md#workspace) lists them.
 
 - `-o, --output <DIR>` — workspace directory (default: `quillmark-workspace`)
-- `--today <YYYY-MM-DD>` — what a `today` date renders as (default: the local date); a plate's `datetime.today()` is Typst's to supply
+- `--today <YYYY-MM-DD>` — the render date: what a `today` date and, through the printed command's `--creation-timestamp`, a plate's `datetime.today()` render as (default: the local date)
 - `--quiet` — suppress warnings and the command line
 
 ## Exit codes

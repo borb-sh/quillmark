@@ -648,13 +648,21 @@ main:
 }
 
 /// `workspace` writes the helper package where the printed `--package-path`
-/// points, and the command names the quill's plate.
+/// points, and the command names the quill's plate and dates the compile at
+/// noon UTC of the render date.
 #[test]
 fn workspace_writes_the_helper_and_prints_the_typst_command() {
     let dir = tempfile::tempdir().expect("tempdir");
     let out = dir.path().join("ws");
     let quill = taro();
-    let stdout = ok(&["workspace", quill.to_str().unwrap(), "-o", out.to_str().unwrap()]);
+    let stdout = ok(&[
+        "workspace",
+        quill.to_str().unwrap(),
+        "-o",
+        out.to_str().unwrap(),
+        "--today",
+        "2026-03-14",
+    ]);
     assert!(out
         .join("packages/local/quillmark-helper/0.1.0/lib.typ")
         .is_file());
@@ -664,15 +672,17 @@ fn workspace_writes_the_helper_and_prints_the_typst_command() {
         .unwrap_or_else(|| panic!("no typst command: {stdout}"));
     assert!(
         command.contains(&format!("--package-path {}", out.join("packages").display()))
-            && command.contains(&quill.join("plate.typ").display().to_string()),
+            && command.contains(&quill.join("plate.typ").display().to_string())
+            && command.contains("--creation-timestamp 1773489600 "),
         "{command}"
     );
 }
 
 /// A package the load skips for its manifest fails a render as a missing
-/// file, and the load's warning prints with the others ahead of that error.
+/// file. The load's warning prints with the others ahead of that error, and
+/// `workspace`, which compiles nothing, prints it too.
 #[test]
-fn a_skipped_package_warns_on_a_failed_render() {
+fn a_skipped_package_warns_on_a_failed_render_and_on_workspace() {
     let dir = quill_with_config(
         "quill:\n  name: pkg\n  version: 0.1.0\n  backend: typst\n  description: d\n\
          typst:\n  plate_file: plate.typ\n",
@@ -700,6 +710,14 @@ fn a_skipped_package_warns_on_a_failed_render() {
     assert!(
         at("typst::package_manifest") < at("typst::file_not_found"),
         "{stderr}"
+    );
+
+    let out = run(&["workspace", quill, "-o", &path("ws")]);
+    assert!(out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("typst::package_manifest"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
     );
 }
 

@@ -58,17 +58,27 @@ them.
   A render that fails adds `cli::example_render_failed`. `--verbose` names
   whether the quill has an example, so a misspelled one reads as none.
 - **The render date is the local date.** `render`, `validate` and `workspace` supply it
-  to the engine, which reads no clock; `render --today YYYY-MM-DD` pins it for
-  a reproducible render. The local offset unreadable, the date is UTC's.
+  to the engine, which reads no clock; `--today YYYY-MM-DD` on `render` or
+  `workspace` pins it for a reproducible render. The local offset unreadable,
+  the date is UTC's.
 - **`workspace` hands the plate to Typst's tooling.** It writes
   `quillmark_typst::workspace`'s files under `-o` and prints the `typst watch`
   command over them: the quill as `--root`, the generated helper and vendored
   packages as `--package-path`, the backend's fonts as `--font-path` with
-  system and embedded fonts ignored, and the PDF written under `-o`. The helper
-  is one document's data, so the plate recompiles live and the document does
-  not. An `-o` inside the quill is refused, since the quill would load it as its
-  own files. A rerun replaces the `packages/` and `fonts/` an earlier export
-  wrote, and refuses an `-o` holding either without the helper package.
+  system and embedded fonts ignored, the render date as
+  `--creation-timestamp`, and the PDF written under `-o`. The timestamp is
+  noon UTC, since Typst reads a fixed timestamp's UTC date for
+  `datetime.today()`. The helper is one document's data, so the plate
+  recompiles live and the document does not. An `-o` inside the quill is
+  refused, since the quill would load it as its own files. A rerun replaces the
+  `packages/` and `fonts/` an earlier export wrote, and refuses an `-o` holding
+  either without the helper package.
+- **The export does not vouch for a render.** `workspace` prints the warnings
+  a render raises before it compiles: the parse carrier, every
+  `Quill::validate` warning, and the backend's load warnings `Workspace`
+  carries. Typst serves the plate any file under the root and fetches a
+  package the quill does not vendor, both of which a render refuses; the
+  [CLI reference](../../docs/cli/reference.md#workspace) tabulates the two.
 - **Seeded fallback.** `render` or `workspace` with no `MARKDOWN_FILE` reads the quill's
   seeded document: one card per kind carrying its kind's `seed:`, every
   other field at its `default:`/blank, so a quill renders with no input file. `render`'s output
