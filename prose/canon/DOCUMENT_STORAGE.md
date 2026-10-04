@@ -120,9 +120,9 @@ rather than one frozen format: `$ext` entered under it unchanged, and many
 release versions stamped it. The reader accepts the union, which is what
 lets a row from any of those writers load.
 
-That hop is **lossy**: `$id` is dropped. The live model
-has no counterpart for it, so the alternative is refusing the row; `$id`
-reached no backend, which is what makes dropping it the cheaper loss.
+That hop is **lossy**: `$id` is dropped, with the inline comment trailing it.
+The live model has no counterpart for it, so the alternative is refusing the
+row; `$id` reached no backend, which is what makes dropping it the cheaper loss.
 
 `"schema": "quillmark/document@0.81.0"` is the oldest tag that exists, not
 just the oldest one read: `0.81.0` is where `Document` serialization begins, and
