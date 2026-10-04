@@ -709,6 +709,30 @@ describe('@quillmark/wasm: Engine (hidden core→backend crossing)', () => {
     ).toThrow(/mybackend/)
   })
 
+  it('every options object refuses a key it does not read', async () => {
+    const refused = (err, key) => {
+      expect(isQuillmarkError(err), String(err)).toBe(true)
+      expect(err.diagnostics[0].message).toContain(`unknown key \`${key}\``)
+    }
+    refused(caughtFrom(() => new Engine({ backend: {} })), 'backend')
+
+    const engine = new Engine()
+    const quill = makeRuntimeQuill()
+    const doc = Document.fromMarkdown(TEST_MARKDOWN)
+    refused(await engine.render(quill, doc, { fromat: 'svg' }).catch((e) => e), 'fromat')
+
+    const session = await engine.open(quill, doc)
+    try {
+      refused(caughtFrom(() => session.render({ format: 'svg', dpi: 300 })), 'dpi')
+      const bare = Object.assign(Object.create(null), { format: 'svg', dpi: 300 })
+      refused(caughtFrom(() => session.render(bare)), 'dpi')
+      const every = { format: 'svg', ppi: 72, pages: [0], regions: true }
+      expect(session.render(every).outputFormat).toBe('svg')
+    } finally {
+      session.free()
+    }
+  })
+
   // A loader that wraps the real backend module so `Quill.fromTree` calls are
   // counted (and still delegate to the real implementation). Used to prove the
   // per-Engine quill-clone cache materializes the backend quill once per
@@ -1270,6 +1294,9 @@ describe('@quillmark/wasm: today (the render date a host supplies)', () => {
   backend: typst
   description: A field dated by the day it renders
 
+typst:
+  plate_file: plate.typ
+
 main:
   fields:
     issued: { type: date, default: today }
@@ -1305,5 +1332,12 @@ main:
     session.free()
 
     await expect(engine.open(quill(), doc(), 'today')).rejects.toThrow('YYYY-MM-DD')
+  })
+
+  it('refuses `today` among the render options rather than rendering the local date', async () => {
+    const options = { format: 'svg', today: '2026-03-14' }
+    await expect(new Engine().render(quill(), doc(), options)).rejects.toThrow(
+      'unknown key `today`'
+    )
   })
 })
