@@ -1673,6 +1673,8 @@ impl QuillConfig {
                              string, or change the field type to '{schema_type}'.",
                             raw = source_token.trim_matches('"'),
                         )
+                    } else if actual == "string" && declared == "boolean" {
+                        "Write the default as a bare `true` or `false`.".to_string()
                     } else if actual == "string" {
                         format!(
                             "Remove the quotes around the default value to keep it a {declared}."
@@ -2048,7 +2050,7 @@ impl QuillConfig {
         struct Root {
             quill: Header,
         }
-        serde_saphyr::from_str::<Root>(yaml_content)
+        crate::value::parse_yaml::<Root>(yaml_content)
             .ok()?
             .quill
             .version
@@ -2067,7 +2069,7 @@ impl QuillConfig {
 
         // Declaration order survives this only under serde_json's
         // `preserve_order`, which the ordering contract rides end to end.
-        let quill_yaml_val: serde_json::Value = match serde_saphyr::from_str(yaml_content) {
+        let quill_yaml_val: serde_json::Value = match crate::value::parse_yaml(yaml_content) {
             Ok(v) => v,
             Err(e) => {
                 // Through `YamlError` so this shares the one saphyr adapter:

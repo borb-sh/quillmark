@@ -413,7 +413,7 @@ Coercion rules per type:
 | Type | Rule |
 |---|---|
 | `array` | array wrapping plus element-wise coercion against the `items` schema; a bad element fails at its indexed path, e.g. `counts[1]` |
-| `boolean` | from string, int, or float |
+| `boolean` | from the strings `true` / `false` in any letter case, int, or float. Any other string is refused, `yes` and `off` included |
 | `number` / `integer` | from string, or from boolean (`true→1`, `false→0`). An `integer` is an `i64`; a literal past that range is refused, and only `number` carries it |
 | `string` | unwraps a length-1 string array into the bare string; identity otherwise |
 | `richtext` | commits the canonical content form (the model): an authored markdown string imports via `quillmark-content::import`, an editor-supplied content object revalidates and re-canonicalizes. The length-1-array-unwrap and bare-scalar-stringify leniencies feed the import |
