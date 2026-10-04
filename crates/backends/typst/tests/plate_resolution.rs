@@ -27,6 +27,23 @@ fn missing_plate_file_errors_at_open_not_load() {
     );
 }
 
+/// A plate the quill holds at a path Typst refuses has no name the world can
+/// load it at: taking `main.typ` would shadow the quill's own `main.typ`.
+#[test]
+fn a_plate_file_typst_cannot_address_fails_at_open() {
+    let diags = open_err(&[
+        (
+            "Quill.yaml",
+            "quill:\n  name: t\n  version: \"1.0\"\n  backend: typst\n  description: d\n\n\
+             typst:\n  plate_file: lay\\out.typ\n",
+        ),
+        ("lay\\out.typ", "#import \"main.typ\": word\n#word\n"),
+        ("main.typ", "#let word = \"real\"\n"),
+    ]);
+    let codes: Vec<_> = diags.iter().map(|d| d.code.as_deref()).collect();
+    assert_eq!(codes, [Some("typst::plate_path_invalid")], "{diags:?}");
+}
+
 /// `tpl/layout.typ` reaches a sibling by a bare path, a module up a level by
 /// `..`, and a module and an asset by a `/`-rooted path.
 #[test]

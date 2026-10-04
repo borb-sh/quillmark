@@ -226,6 +226,13 @@ reads: core stores that section verbatim, so nothing else would report it. They 
 `QuillWorld` holds them and the session serves them ahead of every compile's
 own: an `update` swaps the compile half and keeps these.
 
+**Plate refusals** fail `open` and `workspace` before a world exists:
+`typst::plate_missing` (`typst.plate_file` names no file in the quill),
+`typst::plate_path_invalid` (it names one at a path Typst's `VirtualPath`
+refuses, such as one holding a `\`), and `typst::invalid_utf8`. The plate is
+the one file a refused path cannot merely skip: the world loads it at its
+declared path, and any stand-in name may belong to a file the quill holds.
+
 ## Validation message contract
 
 Field-level validation diagnostics (`validation::type_mismatch`) emit a single
