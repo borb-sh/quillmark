@@ -406,6 +406,15 @@ impl TypstSession {
     }
 }
 
+fn quill_world(source: &Quill, plate: &Plate) -> Result<world::QuillWorld, RenderError> {
+    world::QuillWorld::new(source, plate).map_err(|e| {
+        RenderError::coded(
+            "typst::world_creation",
+            format!("Failed to create Typst compilation environment: {e}"),
+        )
+    })
+}
+
 /// Snapshotted right after a successful compile: the text the served document's
 /// spans resolve against.
 fn helper_source(world: &world::QuillWorld) -> Result<typst::syntax::Source, RenderError> {
@@ -442,12 +451,7 @@ impl Backend for TypstBackend {
         // Built in two steps rather than through `new_with_data` so codegen's own
         // diagnostic code survives: boxing it into the world-creation error would
         // relabel a bad date `typst::world_creation`.
-        let mut world = world::QuillWorld::new(source, &plate).map_err(|e| {
-            RenderError::coded(
-                "typst::world_creation",
-                format!("Failed to create Typst compilation environment: {e}"),
-            )
-        })?;
+        let mut world = quill_world(source, &plate)?;
         world.set_today(today);
         // Project sources are static for the session: window their scalar
         // sites once.
@@ -465,7 +469,13 @@ impl Backend for TypstBackend {
                     })
             })
             .collect();
-        let live = recompile(&mut world, json_data, &schema_meta, &scalar_windows)?;
+        // No session survives to serve the load warnings, and a package they
+        // name as skipped otherwise fails only as an unresolved import.
+        let live = recompile(&mut world, json_data, &schema_meta, &scalar_windows).map_err(|e| {
+            let mut diags = e.into_diagnostics();
+            diags.extend(world.load_warnings().iter().cloned());
+            RenderError::new(diags)
+        })?;
         let session = TypstSession {
             world,
             schema_meta,

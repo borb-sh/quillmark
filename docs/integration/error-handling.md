@@ -45,7 +45,7 @@ One thing never reaches a diagnostic: an argument the binding cannot convert at 
     }
     ```
 
-A multi-problem stage (validation, quill config, backend compile) reports **every** problem in one pass, so `diagnostics` may carry several entries; `diagnostics[0]` is the primary. The error's `message` follows a count-based rule: the primary message for one diagnostic, `"<N> error(s): <first message>"` for more.
+A multi-problem stage (validation, quill config, backend compile) reports **every** problem in one pass, so `diagnostics` may carry several entries; `diagnostics[0]` is the primary, and an error. A `Warning` after the errors is one raised before the failure that can explain it ([below](#warnings-vs-errors)). The error's `message` follows a count-based rule: the primary message for one error, `"<N> error(s): <first message>"` for more, warnings not counted.
 
 ## Codes, not types
 
@@ -76,6 +76,7 @@ Fatality is a two-value ladder: `Error` blocks the stage that emits it; `Warning
 
     On the CLI, `quillmark render` and `quillmark check` both print every validation warning ([CLI Reference](../cli/reference.md#check)).
 - **Compile warnings**: a backend's non-fatal diagnostics (font fallback, overfull pages), carried on `result.warnings`.
+- **Load warnings**: what the Typst backend skipped loading the quill (`typst::package_manifest`, `typst::package_entrypoint_missing`, `typst::path_skipped`) and a `typst:` key it does not read (`typst::unknown_key`), carried ahead of the compile warnings. A render or session `open` whose compile fails carries them too, in the error's `diagnostics` after its errors: an `#import` of a package skipped for its manifest fails as `typst::file_not_found`, and only the warning says why.
 - **`backend::declined_construct`**: a construct the backend typesets nothing for, one per content field, carrying `backend`, `construct` and `count` in `args` and the field's path. The Typst backend declines `image`: a markdown image in a `richtext` field reaches no page, because what its url names is undecided.
 
 A successful render returns artifacts **and** a `warnings` list, so inspect it even on success.

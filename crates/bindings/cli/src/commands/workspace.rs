@@ -21,7 +21,7 @@ pub struct WorkspaceArgs {
     #[arg(short, long, value_name = "DIR", default_value = "quillmark-workspace")]
     output: PathBuf,
 
-    /// The render date a `today` date renders as (default: the local date)
+    /// The render date: what a `today` date and the printed command's `datetime.today()` render as (default: the local date)
     #[arg(long, value_name = "YYYY-MM-DD")]
     today: Option<CalendarDate>,
 
@@ -39,7 +39,8 @@ pub fn execute(args: WorkspaceArgs) -> Result<()> {
         )));
     }
     let (document, parse_warnings) = read_document(&quill, args.markdown_file.as_deref())?;
-    let json_data = quill.compile_checked(&document, render_date(args.today))?;
+    let today = render_date(args.today);
+    let json_data = quill.compile_checked(&document, today)?;
     let workspace = workspace(&quill, &json_data)?;
 
     clear_previous_export(&args.output)?;
@@ -52,7 +53,11 @@ pub fn execute(args: WorkspaceArgs) -> Result<()> {
             .validate(&document)
             .into_iter()
             .filter(|d| d.severity == Severity::Warning);
-        let warnings: Vec<_> = parse_warnings.into_iter().chain(unclaimed).collect();
+        let warnings: Vec<_> = parse_warnings
+            .into_iter()
+            .chain(unclaimed)
+            .chain(workspace.warnings.iter().cloned())
+            .collect();
         crate::errors::print_warnings(&warnings);
         println!("Workspace written to: {}", args.output.display());
         let plate = args.quill.join(&workspace.plate_file);
@@ -60,15 +65,29 @@ pub fn execute(args: WorkspaceArgs) -> Result<()> {
         let pdf = args.output.join(pdf_name.file_name().unwrap_or_default());
         println!(
             "typst watch --root {quill} --package-path {packages} --font-path {fonts} \
-             --ignore-system-fonts --ignore-embedded-fonts {plate} {pdf}",
+             --ignore-system-fonts --ignore-embedded-fonts --creation-timestamp {timestamp} \
+             {plate} {pdf}",
             quill = shell_word(&args.quill),
             packages = shell_word(&args.output.join(PACKAGES_DIR)),
             fonts = shell_word(&args.output.join(FONTS_DIR)),
+            timestamp = creation_timestamp(today),
             plate = shell_word(&plate),
             pdf = shell_word(&pdf),
         );
     }
     Ok(())
+}
+
+/// `today` at noon UTC, in seconds since the Unix epoch. Typst dates a fixed
+/// timestamp in UTC, and noon keeps `datetime.today(offset: ..)`, whose offset
+/// Quillmark ignores, on the same day for any offset under twelve hours.
+fn creation_timestamp(today: CalendarDate) -> i64 {
+    let month = time::Month::try_from(today.month()).expect("a calendar month");
+    time::Date::from_calendar_date(today.year(), month, today.day())
+        .and_then(|date| date.with_hms(12, 0, 0))
+        .expect("a calendar date has a noon")
+        .assume_utc()
+        .unix_timestamp()
 }
 
 /// Empty `packages/` and `fonts/` of an earlier export into `out`, so Typst

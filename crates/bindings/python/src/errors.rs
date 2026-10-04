@@ -103,7 +103,7 @@ fn convert_edit_errors_at(errors: Vec<(quillmark_core::path::DocPath, EditError)
     raise_with_diagnostics(diags, message)
 }
 
-/// The message is the primary diagnostic's for a single diagnostic, an
+/// The message is the primary diagnostic's for a single error, an
 /// `"<N> error(s): <first>"` aggregate for more.
 pub fn convert_render_error(err: RenderError) -> PyErr {
     debug_assert!(
