@@ -3,9 +3,9 @@
 //! Generated documents carry a comment at any or every slot, written with each
 //! block sequence under a key both ways: indented past the key, and at its
 //! column. Both spellings read back into the slots the generator wrote, and
-//! `to_markdown` round-trips the document. Over arbitrary fence bodies the
-//! prescan never panics, and a body the parse accepts settles after one
-//! emission.
+//! `to_markdown` round-trips the document. Written in any layout, with comments
+//! at any column, a document settles after one emission. Over arbitrary fence
+//! bodies neither the prescan nor the parse panics.
 
 use proptest::prelude::*;
 use serde_json::{Map, Value};

@@ -309,6 +309,21 @@ fn a_tag_warns_at_its_node() {
     }
 }
 
+/// Comments under key paths past the prescan's budget refuse the block.
+#[test]
+fn comments_past_the_path_budget_refuse_the_block() {
+    let long = "k".repeat(1000);
+    let mut fields = String::new();
+    for depth in 0..8 {
+        fields.push_str(&format!("{}{long}{depth}:\n", " ".repeat(depth * 2)));
+    }
+    fields.push_str(&format!("{}x: 1\n", " ".repeat(16)));
+    fields.push_str(&format!("{}#\n", " ".repeat(16)).repeat(2000));
+    let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
+    let err = Document::parse(&src).expect_err("over the budget");
+    assert_eq!(err.code(), "parse::invalid_structure");
+}
+
 /// A column-zero key the YAML reads as a key is one, so a `#` inside its
 /// quoted value is text and the refusal names the field.
 #[test]

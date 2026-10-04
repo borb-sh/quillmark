@@ -492,7 +492,8 @@ fn emit_sequence_item(
             out.push('\n');
         }
         JsonValue::Object(map) => {
-            if has_own_line_pending(ctx, 0) || (inline_trailer.is_some() && has_inline(ctx, 0)) {
+            let both_trailers = inline_trailer.is_some() && has_inline(ctx, 0);
+            if has_own_line_pending(ctx, 0) || both_trailers {
                 push_indent(out, base_indent);
                 out.push('-');
                 push_trailer(out, inline_trailer);
