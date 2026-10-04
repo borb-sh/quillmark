@@ -207,18 +207,21 @@ fn validate_fails_a_quill_whose_example_warns() {
     }
 }
 
-/// A backend load warning each canonical render repeats is reported once.
+/// A backend load warning each canonical render repeats is reported once,
+/// whether the renders succeed or fail.
 #[test]
 fn validate_reports_a_load_warning_once() {
-    let dir = quill_with_config(
-        "quill:\n  name: w\n  version: 0.1.0\n  backend: typst\n  description: w\n\
-         typst:\n  plate_file: plate.typ\n  packages: []\n",
-    );
-    std::fs::write(dir.path().join("plate.typ"), "hi\n").expect("write plate.typ");
-    let out = run(&["validate", dir.path().to_str().unwrap(), "-v"]);
-    let text = String::from_utf8_lossy(&out.stdout).to_string()
-        + &String::from_utf8_lossy(&out.stderr);
-    assert_eq!(text.matches("typst::unknown_key").count(), 1, "{text}");
+    for plate in ["hi\n", "#nowhere\n"] {
+        let dir = quill_with_config(
+            "quill:\n  name: w\n  version: 0.1.0\n  backend: typst\n  description: w\n\
+             typst:\n  plate_file: plate.typ\n  packages: []\n",
+        );
+        std::fs::write(dir.path().join("plate.typ"), plate).expect("write plate.typ");
+        let out = run(&["validate", dir.path().to_str().unwrap(), "-v"]);
+        let text = String::from_utf8_lossy(&out.stdout).to_string()
+            + &String::from_utf8_lossy(&out.stderr);
+        assert_eq!(text.matches("typst::unknown_key").count(), 1, "{plate:?}: {text}");
+    }
 }
 
 /// A config that will not load is a quill failure, and reads as one.
@@ -680,13 +683,21 @@ main:
 }
 
 /// `workspace` writes the helper package where the printed `--package-path`
-/// points, and the command names the quill's plate.
+/// points, and the command names the quill's plate and dates the compile at
+/// noon UTC of the render date.
 #[test]
 fn workspace_writes_the_helper_and_prints_the_typst_command() {
     let dir = tempfile::tempdir().expect("tempdir");
     let out = dir.path().join("ws");
     let quill = taro();
-    let stdout = ok(&["workspace", quill.to_str().unwrap(), "-o", out.to_str().unwrap()]);
+    let stdout = ok(&[
+        "workspace",
+        quill.to_str().unwrap(),
+        "-o",
+        out.to_str().unwrap(),
+        "--today",
+        "2026-03-14",
+    ]);
     assert!(out
         .join("packages/local/quillmark-helper/0.1.0/lib.typ")
         .is_file());
@@ -696,8 +707,52 @@ fn workspace_writes_the_helper_and_prints_the_typst_command() {
         .unwrap_or_else(|| panic!("no typst command: {stdout}"));
     assert!(
         command.contains(&format!("--package-path {}", out.join("packages").display()))
-            && command.contains(&quill.join("plate.typ").display().to_string()),
+            && command.contains(&quill.join("plate.typ").display().to_string())
+            && command.contains("--creation-timestamp 1773489600 "),
         "{command}"
+    );
+}
+
+/// A package the load skips for its manifest fails a render as a missing
+/// file. The load's warning prints with the others ahead of that error, and
+/// `workspace`, which compiles nothing, prints it too.
+#[test]
+fn a_skipped_package_warns_on_a_failed_render_and_on_workspace() {
+    let dir = quill_with_config(
+        "quill:\n  name: pkg\n  version: 0.1.0\n  backend: typst\n  description: d\n\
+         typst:\n  plate_file: plate.typ\n",
+    );
+    std::fs::write(
+        dir.path().join("plate.typ"),
+        "#import \"@local/broken:0.1.0\": x\n#x\n",
+    )
+    .expect("write plate.typ");
+    std::fs::create_dir_all(dir.path().join("packages/broken")).expect("mkdir");
+    std::fs::write(dir.path().join("packages/broken/lib.typ"), "#let x = 1\n")
+        .expect("write lib.typ");
+    let quill = dir.path().to_str().unwrap();
+    let elsewhere = tempfile::tempdir().expect("tempdir");
+    let path = |name: &str| elsewhere.path().join(name).to_str().unwrap().to_owned();
+
+    let out = run(&["render", quill, "-o", &path("out.pdf")]);
+    assert_eq!(out.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let at = |code: &str| {
+        stderr
+            .find(code)
+            .unwrap_or_else(|| panic!("no {code}: {stderr}"))
+    };
+    assert!(
+        at("typst::package_manifest") < at("typst::file_not_found"),
+        "{stderr}"
+    );
+
+    let out = run(&["workspace", quill, "-o", &path("ws")]);
+    assert!(out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("typst::package_manifest"),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
     );
 }
 

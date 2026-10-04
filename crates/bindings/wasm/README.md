@@ -488,8 +488,10 @@ throws a real `Error` and attaches the property, so there is no constructor to
 from any build or WASM instance in the page.
 
 `diagnostics` is always non-empty: length 1 for most failures, length N for
-backend compilation errors, and `message` is derived from it. The same shape
-applies to every throw site:
+backend compilation errors, and `message` is derived from it. `diagnostics[0]`
+is an error. A failed Typst `engine.render` or `engine.open` also carries the
+quill's load warnings after its errors, so read each entry's `severity`. The
+same shape applies to every throw site:
 
 - `Document.fromMarkdown`: parse errors (missing root `$quill` metadata, YAML
   errors, `parse::input_too_large` for inputs > 10 MiB).

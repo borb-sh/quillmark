@@ -185,7 +185,9 @@ An unanswered field draws no diagnostic. Partial documents are accepted, and
 ## Error contract
 
 An engine refusal raises `QuillmarkError`, carrying a non-empty `.diagnostics`
-list of `Diagnostic` objects. An argument the binding cannot read at all — a
+list of `Diagnostic` objects, the first an error. A failed Typst render also
+carries the quill's load warnings after its errors, so read each entry's
+`severity`. An argument the binding cannot read at all — a
 non-finite float, a value with no JSON form, a malformed `path` sequence —
 raises `ValueError` before the engine is called, described by no diagnostic.
 

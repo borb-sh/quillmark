@@ -53,9 +53,12 @@ diagnostics themselves: the machine-routable identity of a failure is each
 diagnostic's namespaced `code`, and consumers route on codes, not on a type.
 Multi-problem stages (validation, quill config, backend
 compilation) carry several diagnostics so every problem reaches the caller in
-one pass. `Display` follows the count-based message rule shared with both
-bindings: the primary diagnostic's message for a single diagnostic, an
-`"<N> error(s): <first message>"` aggregate for more.
+one pass. The first is an error. A `Warning` after the errors is one the
+failing stage raised before it failed, carried because it can explain the
+failure ([Warning flow](#warning-flow)). `Display` follows the count-based
+message rule shared with both bindings: the primary diagnostic's message for a
+single error, an `"<N> error(s): <first message>"` aggregate for more,
+warnings not counted.
 
 Notable codes: `quill::name_mismatch` / `quill::version_mismatch`, the
 document is well-formed but paired with the wrong quill (see
@@ -179,6 +182,13 @@ warnings first, then validation warnings, then compile warnings, with no dedup
 across families.
 `backend::declined_construct` dedups within itself, per field: its producer
 sees every occurrence at once, so the occurrences collapse into `count`.
+
+A Typst `open` failing once its world has loaded, in codegen or the compile,
+leaves no session to serve the quill-load warnings ([below](#typst)), so its
+`RenderError` carries them after its errors. An `#import` of a package the
+load skipped fails as `typst::file_not_found`, and only
+`typst::package_manifest` says why. A failed `update` carries none: the
+session goes on serving them.
 
 ## Bindings Error Delegation
 

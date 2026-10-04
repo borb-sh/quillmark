@@ -3,7 +3,8 @@ use crate::errors::{CliError, Result};
 use crate::output::{derive_output_path, page_output_path, write_file, write_stdout};
 use clap::Parser;
 use quillmark::{
-    CalendarDate, Document, OutputFormat, Quill, Quillmark, RenderOptions, RenderResult, Severity,
+    CalendarDate, Diagnostic, Document, OutputFormat, Quill, Quillmark, RenderError,
+    RenderOptions, RenderResult, Severity,
 };
 use std::path::{Path, PathBuf};
 
@@ -64,6 +65,7 @@ pub fn execute(args: RenderArgs) -> Result<()> {
     let mut result = match rendered {
         Ok(result) => result,
         Err(e) => {
+            let (e, carried) = split_warnings(e);
             // Only a result carries `validate`'s warnings, and a failed render
             // may be failing on the input they name.
             if !args.quiet {
@@ -71,7 +73,11 @@ pub fn execute(args: RenderArgs) -> Result<()> {
                     .validate(&parsed)
                     .into_iter()
                     .filter(|d| d.severity == Severity::Warning);
-                let warnings: Vec<_> = parse_warnings.into_iter().chain(unclaimed).collect();
+                let warnings: Vec<_> = parse_warnings
+                    .into_iter()
+                    .chain(unclaimed)
+                    .chain(carried)
+                    .collect();
                 crate::errors::print_warnings(&warnings);
             }
             return Err(e);
@@ -120,6 +126,19 @@ pub fn execute(args: RenderArgs) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// A failed render's errors apart from the warnings it carries beside them,
+/// which print with the other warnings.
+fn split_warnings(err: CliError) -> (CliError, Vec<Diagnostic>) {
+    let CliError::Render(err) = err else {
+        return (err, Vec::new());
+    };
+    let (errors, warnings): (Vec<_>, Vec<_>) = err
+        .into_diagnostics()
+        .into_iter()
+        .partition(|d| d.severity == Severity::Error);
+    (CliError::Render(RenderError::new(errors)), warnings)
 }
 
 /// The `--output-data` file, when asked for, then the render.
