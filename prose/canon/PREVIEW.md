@@ -110,9 +110,11 @@ compositing of its own. Backends satisfy it differently:
   `tiny_skia::Pixmap` → unpremultiply → RGBA8).
 - **acroform** rasterizes its stamped PDF via hayro, which draws each
   widget's baked `/AP` appearance stream, so field values appear in the raster
-  on their own with no regions-compositing by the caller. It is the same
-  document `render` hands back, stamped at session-open and again at each
-  `update`.
+  on their own with no regions-compositing by the caller. The raster is
+  stamped at session-open and again at each `update`. It is the stamp `render`
+  hands back but for each checkbox's `/AP` `/N`: the deliverable names both
+  states there for a filler to toggle, and hayro reads `/N` only as a stream,
+  so the raster's names the one state its `/AS` selects.
 
 `Ok(None)` is the out-of-range page; the `Err` is a
 `scale` no page can be rasterized at. Neither rasterizer bounds the buffer it

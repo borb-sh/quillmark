@@ -20,8 +20,8 @@ pub mod testkit;
 
 pub use error::PdfError;
 pub use stamp::{
-    regions_of, stamp, StampOptions, CHECKBOX_ON_STATE, CHECK_FONT, CHECK_FONT_RESOURCE,
-    CHECK_GLYPH,
+    regions_of, stamp, AppearanceStates, StampOptions, CHECKBOX_ON_STATE, CHECK_FONT,
+    CHECK_FONT_RESOURCE, CHECK_GLYPH,
 };
 
 const CODE_BAD_RECT: &str = "pdf::bad_rect";

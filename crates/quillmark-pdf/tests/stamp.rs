@@ -6,7 +6,9 @@
 use std::collections::HashMap;
 
 use quillmark_pdf::testkit::BasePdf;
-use quillmark_pdf::{regions_of, stamp, FieldSpec, FieldType, StampOptions};
+use quillmark_pdf::{
+    regions_of, stamp, AppearanceStates, FieldSpec, FieldType, StampOptions, CHECKBOX_ON_STATE,
+};
 
 /// An `n`-page US-Letter base satisfying the spine's input contract.
 fn build_base_pdf(n: usize) -> Vec<u8> {
@@ -68,11 +70,12 @@ fn all_four_fields() -> Vec<FieldSpec> {
 }
 
 /// The stamped document, its AcroForm dict, and its `/T` → widget map.
-fn stamped_on(
+fn stamped_with(
     base: Vec<u8>,
     fields: &[FieldSpec],
+    opts: &StampOptions,
 ) -> (lopdf::Document, lopdf::Dictionary, HashMap<String, lopdf::Dictionary>) {
-    let out = stamp(base, fields, &StampOptions::default()).expect("stamp ok");
+    let out = stamp(base, fields, opts).expect("stamp ok");
     let doc = lopdf::Document::load_mem(&out).expect("lopdf reparse");
     let af_ref = doc
         .catalog()
@@ -93,6 +96,13 @@ fn stamped_on(
         by_name.insert(name, w.clone());
     }
     (doc, af, by_name)
+}
+
+fn stamped_on(
+    base: Vec<u8>,
+    fields: &[FieldSpec],
+) -> (lopdf::Document, lopdf::Dictionary, HashMap<String, lopdf::Dictionary>) {
+    stamped_with(base, fields, &StampOptions::default())
 }
 
 /// [`stamped_on`] a one-page base.
@@ -507,6 +517,124 @@ fn normal_appearance<'a>(doc: &'a lopdf::Document, w: &lopdf::Dictionary) -> Opt
         .ok()
 }
 
+/// A widget's `/AP` `/N` state dictionary, each state name resolved to its
+/// stream, in name order.
+fn appearance_states<'a>(
+    doc: &'a lopdf::Document,
+    w: &lopdf::Dictionary,
+) -> Vec<(Vec<u8>, &'a lopdf::Stream)> {
+    let ap = w.get(b"AP").expect("/AP").as_dict().expect("/AP is a dict");
+    let n = ap
+        .get(b"N")
+        .expect("/AP carries /N")
+        .as_dict()
+        .expect("/N is a state dictionary");
+    let mut states: Vec<_> = n
+        .iter()
+        .map(|(name, stream)| {
+            let id = stream
+                .as_reference()
+                .expect("a state is one indirect stream");
+            (
+                name.clone(),
+                doc.get_object(id).unwrap().as_stream().expect("a stream"),
+            )
+        })
+        .collect();
+    states.sort_by(|a, b| a.0.cmp(&b.0));
+    states
+}
+
+fn bbox(stream: &lopdf::Stream) -> Vec<f32> {
+    stream
+        .dict
+        .get(b"BBox")
+        .unwrap()
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_float().unwrap())
+        .collect()
+}
+
+fn checkbox(value: Option<&str>) -> FieldSpec {
+    let mut agree = FieldSpec::new(
+        "Agree".into(),
+        0,
+        [180.0, 560.0, 194.0, 574.0],
+        FieldType::Checkbox,
+    );
+    agree.schema_field = Some("agree".into());
+    agree.value = value.map(str::to_string);
+    agree
+}
+
+/// ISO 32000-1 §12.7.4.2.3: a check box's appearance dictionary names its on
+/// state and `Off`, and `/AS` selects one. Both ride every box whatever its
+/// value, so a filler toggling it has the other state to show.
+#[test]
+fn a_checkbox_carries_both_states_and_as_names_its_value() {
+    for (value, state) in [
+        (Some(CHECKBOX_ON_STATE), CHECKBOX_ON_STATE),
+        (None, "Off"),
+        (Some("Off"), "Off"),
+    ] {
+        let (doc, _, w) = stamped(&[checkbox(value)]);
+        let agree = &w["Agree"];
+        for key in [&b"AS"[..], b"V"] {
+            assert_eq!(
+                agree.get(key).unwrap().as_name().unwrap(),
+                state.as_bytes(),
+                "{value:?}"
+            );
+        }
+
+        let states = appearance_states(&doc, agree);
+        let names: Vec<&[u8]> = states.iter().map(|(name, _)| name.as_slice()).collect();
+        assert_eq!(
+            names,
+            [&b"Off"[..], CHECKBOX_ON_STATE.as_bytes()],
+            "{value:?}"
+        );
+        let (off, on) = (states[0].1, states[1].1);
+
+        assert_eq!(
+            bbox(on),
+            [0.0, 0.0, 14.0, 14.0],
+            "the box moved to the origin"
+        );
+        assert_eq!(bbox(off), bbox(on), "both states cover the one box");
+        let drawn = String::from_utf8_lossy(&on.content).into_owned();
+        assert!(
+            drawn.contains("/ZaDb") && drawn.contains("(4) Tj"),
+            "on draws the mark: {drawn}"
+        );
+        assert!(
+            off.content.is_empty(),
+            "off is on without its mark, which is all on draws"
+        );
+    }
+}
+
+/// The document a rasterizer reading `/N` only as a stream draws: each box's
+/// `/N` is the state its `/AS` names.
+#[test]
+fn a_selected_states_stamp_writes_the_one_stream_as_names() {
+    let opts = StampOptions {
+        states: AppearanceStates::Selected,
+        ..StampOptions::default()
+    };
+    for (value, marked) in [(Some(CHECKBOX_ON_STATE), true), (None, false)] {
+        let (doc, _, w) = stamped_with(build_base_pdf(1), &[checkbox(value)], &opts);
+        let n = normal_appearance(&doc, &w["Agree"]).expect("a box draws its state");
+        assert_eq!(
+            String::from_utf8_lossy(&n.content).contains("(4) Tj"),
+            marked,
+            "{value:?}"
+        );
+    }
+}
+
 #[test]
 fn a_value_is_baked_into_the_widgets_own_appearance_stream() {
     let (doc, af, w) = stamped(&all_four_fields());
@@ -519,16 +647,7 @@ fn a_value_is_baked_into_the_widgets_own_appearance_stream() {
     );
     // `/BBox` is the field box moved to the origin, so a consumer maps it onto
     // `/Rect` without a translation and clips the value to the box.
-    let bbox: Vec<f32> = full
-        .dict
-        .get(b"BBox")
-        .unwrap()
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|v| v.as_float().unwrap())
-        .collect();
-    assert_eq!(bbox, [0.0, 0.0, 340.0, 20.0]);
+    assert_eq!(bbox(full), [0.0, 0.0, 340.0, 20.0]);
     let drawn = String::from_utf8_lossy(&full.content).into_owned();
     assert!(drawn.contains("(Ada Lovelace) Tj"), "{drawn}");
 
@@ -566,13 +685,6 @@ fn a_value_is_baked_into_the_widgets_own_appearance_stream() {
     let color = normal_appearance(&doc, &w["FavoriteColor"]).expect("a chosen option bakes an /AP");
     assert!(String::from_utf8_lossy(&color.content).contains("(green) Tj"));
 
-    // A checked box bakes one stream rather than a per-state subdictionary: the
-    // state a stamp writes is the state it renders at.
-    let agree = normal_appearance(&doc, &w["Agree"]).expect("a checked box bakes an /AP");
-    let drawn = String::from_utf8_lossy(&agree.content).into_owned();
-    assert!(drawn.contains("/ZaDb"), "{drawn}");
-    assert!(drawn.contains("(4) Tj"), "{drawn}");
-
     assert!(
         w["Comments"].get(b"AP").is_err(),
         "a blank field bakes nothing to draw"
@@ -580,32 +692,22 @@ fn a_value_is_baked_into_the_widgets_own_appearance_stream() {
 }
 
 #[test]
-fn a_widget_with_nothing_to_show_bakes_no_appearance() {
-    let mut unchecked = FieldSpec::new(
-        "Agree".into(),
-        0,
-        [180.0, 560.0, 194.0, 574.0],
-        FieldType::Checkbox,
-    );
-    unchecked.value = Some("Off".into());
+fn an_unsigned_signature_bakes_no_appearance() {
     let sig = FieldSpec::new(
         "Signature".into(),
         0,
         [180.0, 100.0, 520.0, 140.0],
         FieldType::Signature,
     );
-    let (_, _, w) = stamped(&[unchecked, sig]);
-
-    assert!(w["Agree"].get(b"AP").is_err(), "an unchecked box");
-    assert!(w["Signature"].get(b"AP").is_err(), "an unsigned signature");
+    let (_, _, w) = stamped(&[sig]);
+    assert!(w["Signature"].get(b"AP").is_err());
 }
 
 #[test]
 fn a_face_an_appearance_draws_with_declares_the_encoding_it_writes() {
     let (doc, _, w) = stamped(&all_four_fields());
-    let font = |widget: &lopdf::Dictionary, resource: &[u8]| {
-        let id = normal_appearance(&doc, widget)
-            .expect("an appearance")
+    let font = |ap: &lopdf::Stream, resource: &[u8]| {
+        let id = ap
             .dict
             .get(b"Resources")
             .unwrap()
@@ -623,7 +725,7 @@ fn a_face_an_appearance_draws_with_declares_the_encoding_it_writes() {
     };
 
     assert_eq!(
-        font(&w["FullName"], b"Helv")
+        font(normal_appearance(&doc, &w["FullName"]).unwrap(), b"Helv")
             .get(b"Encoding")
             .expect("a text face declares one")
             .as_name()
@@ -632,7 +734,9 @@ fn a_face_an_appearance_draws_with_declares_the_encoding_it_writes() {
         "the stream writes WinAnsi bytes, so the face must read them as such"
     );
     assert!(
-        font(&w["Agree"], b"ZaDb").get(b"Encoding").is_err(),
+        font(appearance_states(&doc, &w["Agree"])[1].1, b"ZaDb")
+            .get(b"Encoding")
+            .is_err(),
         "the symbol face keeps its built-in encoding, where the check glyph lives"
     );
 }

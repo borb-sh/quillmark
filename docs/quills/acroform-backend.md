@@ -251,9 +251,11 @@ PDF is emitted whole, so a `RenderOptions::pages` selection errors with
 raster path (`render_rgba`), not an `OutputFormat`, and this backend paints. See
 [PREVIEW.md](https://github.com/borb-sh/quillmark/blob/main/prose/canon/PREVIEW.md).
 
-The PDF is the real deliverable, and the canvas rasterizes that same document: the stamped PDF is one file, which the session paints from and `render()` hands back.
+The PDF is the real deliverable, and the canvas rasterizes the same stamp but for each checkbox's `/AP` `/N`, which there names only the state the box shows (the canvas rasterizer reads no state dictionary).
 
 Each widget is a real field carrying `/NeedAppearances` **and** a baked `/AP` appearance stream drawing its current value. The two split the work: a viewer that synthesizes appearances (Acrobat, Chrome/pdfium, Preview.app, pdf.js's forms layer) rebuilds each value from `/V` and `/DA`, refitting it as the user types; a consumer that synthesizes nothing (a raster pipeline, Ghostscript, the canvas) draws the baked stream and shows the value rather than an empty box.
+
+A checkbox bakes both of its states, checked or not: `/AP << /N << /Yes … /Off … >> >>`, with `/AS` and `/V` naming the current one. `Yes` draws the check mark and `Off` draws nothing, the background owning the box itself. A later stage that fills the delivered PDF (pypdf, PyMuPDF) toggles a box by renaming `/AS` and `/V`, with no appearance to regenerate.
 
 ### Baked-appearance fidelity limits
 
