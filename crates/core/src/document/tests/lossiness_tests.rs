@@ -245,6 +245,78 @@ fn a_comment_under_a_scalar_below_its_key_follows_the_value() {
     }
 }
 
+/// Each comment keeps the container and slot the YAML gives it, whatever the
+/// spelling's indentation: a sequence at its key's column, a comment indented
+/// less than its block, a compact nested sequence, a continuation line.
+#[test]
+fn a_comment_keeps_its_slot_under_any_indentation() {
+    let cases = [
+        (
+            "to:\n# lead\n- name: a # c1\n  # inner\n  rank: 1\n- name: b\n",
+            "to:\n  # lead\n  - name: a # c1\n    # inner\n    rank: 1\n  - name: b\n",
+        ),
+        (
+            "o:\n  k:\n  - a # c\n  - b\n  j: 1\n",
+            "o:\n  k:\n    - a # c\n    - b\n  j: 1\n",
+        ),
+        (
+            "classification:\n  value: CUI\n# note\n  controlled_by: SAF/AA # tail\n  other: 1\n",
+            "classification:\n  value: CUI\n  # note\n  controlled_by: SAF/AA # tail\n  other: 1\n",
+        ),
+        (
+            "l:\n  - - x # c1\n    - y # c2\n  - - z # c3\n",
+            "l:\n  -\n    - x # c1\n    - y # c2\n  -\n    - z # c3\n",
+        ),
+        ("note: first\n  key:value # z\n", "note: first key:value # z\n"),
+        (
+            "to:\n- a\n- b\n# about next\nnext: 1\n",
+            "to:\n  - a\n  - b\n# about next\nnext: 1\n",
+        ),
+    ];
+    for (fields, emitted) in cases {
+        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
+        let doc = Document::parse(&src).unwrap_or_else(|e| panic!("{src}\n{e}")).document;
+        let md = doc.to_markdown();
+        assert!(md.contains(emitted), "Source:\n{src}\nGot:\n{md}");
+        assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
+    }
+}
+
+/// A tag warns at its own node's path, whatever the indentation around it.
+#[test]
+fn a_tag_warns_at_its_node() {
+    let cases = [
+        ("to:\n- name: !foo x\n", "main.to[0].name"),
+        (
+            "classification:\n  value: CUI\n# note\n  controlled_by: !foo SAF/AA\n",
+            "main.classification.controlled_by",
+        ),
+        ("l:\n  - &a\n    x: 1\n    y: !foo 2\n", "main.l[0].y"),
+        ("l:\n  - !foo\n    x: 1\n", "main.l[0]"),
+    ];
+    for (fields, path) in cases {
+        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
+        let out = Document::parse(&src).unwrap_or_else(|e| panic!("{src}\n{e}"));
+        assert_eq!(
+            anchors(&out),
+            [("parse::unsupported_yaml_tag", Some(path))],
+            "{src}"
+        );
+    }
+}
+
+/// A column-zero key the YAML reads as a key is one, so a `#` inside its
+/// quoted value is text and the refusal names the field.
+#[test]
+fn a_key_outside_the_field_grammar_is_refused_as_a_field_name() {
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\nog:title: \"Issue #5\"\n~~~\n";
+    let err = Document::parse(src).expect_err("`og:title` is no field name");
+    let crate::error::ParseError::InvalidStructure(message) = err else {
+        panic!("expected the field-name refusal, got {err:?}");
+    };
+    assert!(message.contains("og:title"), "{message}");
+}
+
 /// A tag or anchor ahead of a quoted scalar or flow collection leaves a ` #`
 /// inside it text, and a comment after it a comment.
 #[test]
