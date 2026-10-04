@@ -466,7 +466,7 @@ main:
             type: number
 ```
 
-A document may write a single value where an array is declared: it is a spelling of a one-element array, and the schema is what disambiguates it. `tags: one` renders as `tags: [one]` does, and `quillmark check` passes it. The element is then judged against `items`, so a mapping written for `tags` is a `validation::type_mismatch` at `tags[0]`, while one written for `cells` is its one row. Likewise, a bare boolean, integer, or number written where a `string` is declared adopts its scalar token (`true`, `47`, `1.0`) instead of failing.
+A document may write a single value where an array is declared: it is a spelling of a one-element array, and the schema is what disambiguates it. `tags: one` renders as `tags: [one]` does, and `quillmark check` passes it. The element is then judged against `items`, so a mapping written for `tags` is a `validation::type_mismatch` at `tags[0]`, while one written for `cells` is its one row. Likewise, a bare boolean, integer, or number written where a `string` is declared adopts its canonical scalar token (`true`, `47`, `1.0`; `1.50` reads `1.5`) instead of failing.
 
 Use `type: object` with `properties:` for a single structured mapping:
 
