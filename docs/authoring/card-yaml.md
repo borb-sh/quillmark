@@ -112,6 +112,19 @@ leading underscore, but no loadable quill carries one.
 The data payload (everything in the YAML mapping except the `$`-prefixed
 metadata keys) is standard YAML.
 
+YAML reads an unquoted value by its shape before the schema sees it, so a
+`string` field takes what YAML read, not what you wrote. Quote these:
+
+| Written | Reaches the page | Write instead |
+|---|---|---|
+| `zip: 02134`, a leading zero | `2134.0` | `zip: "02134"` |
+| `ver: 1.10`, a version-like number | `1.1` | `ver: "1.10"` |
+| `text: Approve Item #12`, a space then `#` | `Approve Item`: the rest is a comment | `text: "Approve Item #12"` |
+
+`quillmark check` reports none of them: each is well-formed YAML, read as a
+number or cut at a comment. Words need no quotes: only `true` and `false` are
+booleans, so `yes`, `no`, `on`, `off`, `y` and `n` stay text.
+
 **Strings:**
 ```yaml
 title: Simple String
