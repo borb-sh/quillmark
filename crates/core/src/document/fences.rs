@@ -151,8 +151,33 @@ fn last_field_key(lines: &Lines<'_>, opener_k: usize) -> Option<String> {
     payload_lines(lines, opener_k)
         .map(|j| lines.line_text(j))
         .filter(|text| !text.starts_with(' '))
-        .filter_map(|text| super::prescan::key_end(text).map(|end| text[..end].to_string()))
+        .filter_map(|text| key_end(text).map(|end| text[..end].to_string()))
         .last()
+}
+
+/// Byte index of the `:` closing `line`'s leading key, or `None` when `line`
+/// does not open with one. A key is `[a-zA-Z_][a-zA-Z0-9_]*`, optionally
+/// `$`-prefixed for system keys.
+fn key_end(line: &str) -> Option<usize> {
+    let bytes = line.as_bytes();
+    if bytes.is_empty() {
+        return None;
+    }
+    let mut i;
+    if bytes[0] == b'$' {
+        if bytes.len() < 2 || !(bytes[1].is_ascii_alphabetic() || bytes[1] == b'_') {
+            return None;
+        }
+        i = 2;
+    } else if bytes[0].is_ascii_alphabetic() || bytes[0] == b'_' {
+        i = 1;
+    } else {
+        return None;
+    }
+    while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'_') {
+        i += 1;
+    }
+    (i < bytes.len() && bytes[i] == b':').then_some(i)
 }
 
 fn near_closer_below(lines: &Lines<'_>, opener_k: usize) -> Option<(usize, String)> {

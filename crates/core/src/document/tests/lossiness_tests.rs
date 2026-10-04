@@ -144,7 +144,7 @@ fn a_tag_inside_meta_keeps_its_value_and_warns_without_a_path() {
 
 /// A line continuing a flow collection, opened on its key's line or the line
 /// below, is the collection's, never a key of the mapping around it, so a tag
-/// there stays on its own value.
+/// there stays on its own value and warns at that value's path.
 #[test]
 fn a_tag_inside_a_multi_line_flow_collection_stays_on_its_value() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\n\
@@ -163,7 +163,11 @@ fn a_tag_inside_a_multi_line_flow_collection_stays_on_its_value() {
     );
     assert_eq!(get("tags"), serde_json::json!(["a # [", "b"]));
     assert_eq!(get("c"), "C");
-    assert_eq!(anchors(&out), [("parse::unsupported_yaml_tag", Some("main.c"))]);
+    assert_eq!(
+        anchors(&out),
+        ["main.x.b", "main.addr.y[1].b", "main.tags[0]", "main.c"]
+            .map(|path| ("parse::unsupported_yaml_tag", Some(path)))
+    );
 }
 
 /// A comment trailing a line that continues a flow collection or a quoted
@@ -245,6 +249,93 @@ fn a_comment_under_a_scalar_below_its_key_follows_the_value() {
     }
 }
 
+/// Each comment keeps the container and slot the YAML gives it, whatever the
+/// spelling's indentation: a sequence at its key's column, a comment indented
+/// less than its block, a compact nested sequence, a continuation line.
+#[test]
+fn a_comment_keeps_its_slot_under_any_indentation() {
+    let cases = [
+        (
+            "to:\n# lead\n- name: a # c1\n  # inner\n  rank: 1\n- name: b\n",
+            "to:\n  # lead\n  - name: a # c1\n    # inner\n    rank: 1\n  - name: b\n",
+        ),
+        (
+            "o:\n  k:\n  - a # c\n  - b\n  j: 1\n",
+            "o:\n  k:\n    - a # c\n    - b\n  j: 1\n",
+        ),
+        (
+            "classification:\n  value: CUI\n# note\n  controlled_by: SAF/AA # tail\n  other: 1\n",
+            "classification:\n  value: CUI\n  # note\n  controlled_by: SAF/AA # tail\n  other: 1\n",
+        ),
+        (
+            "l:\n  - - x # c1\n    - w # c2\n  - - z # c3\n",
+            "l:\n  -\n    - x # c1\n    - w # c2\n  -\n    - z # c3\n",
+        ),
+        ("note: first\n  key:value # z\n", "note: first key:value # z\n"),
+        (
+            "to:\n- a\n- b\n# about next\nnext: 1\n",
+            "to:\n  - a\n  - b\n# about next\nnext: 1\n",
+        ),
+    ];
+    for (fields, emitted) in cases {
+        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
+        let doc = Document::parse(&src).unwrap_or_else(|e| panic!("{src}\n{e}")).document;
+        let md = doc.to_markdown();
+        assert!(md.contains(emitted), "Source:\n{src}\nGot:\n{md}");
+        assert_eq!(Document::parse(&md).unwrap().document, doc, "{md}");
+    }
+}
+
+/// A tag warns at its own node's path, whatever the indentation around it.
+#[test]
+fn a_tag_warns_at_its_node() {
+    let cases = [
+        ("to:\n- name: !foo x\n", "main.to[0].name"),
+        (
+            "classification:\n  value: CUI\n# note\n  controlled_by: !foo SAF/AA\n",
+            "main.classification.controlled_by",
+        ),
+        ("l:\n  - &a\n    x: 1\n    y: !foo 2\n", "main.l[0].y"),
+        ("l:\n  - !foo\n    x: 1\n", "main.l[0]"),
+    ];
+    for (fields, path) in cases {
+        let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
+        let out = Document::parse(&src).unwrap_or_else(|e| panic!("{src}\n{e}"));
+        assert_eq!(
+            anchors(&out),
+            [("parse::unsupported_yaml_tag", Some(path))],
+            "{src}"
+        );
+    }
+}
+
+/// Comments under key paths past the prescan's budget refuse the block.
+#[test]
+fn comments_past_the_path_budget_refuse_the_block() {
+    let long = "k".repeat(1000);
+    let mut fields = String::new();
+    for depth in 0..8 {
+        fields.push_str(&format!("{}{long}{depth}:\n", " ".repeat(depth * 2)));
+    }
+    fields.push_str(&format!("{}x: 1\n", " ".repeat(16)));
+    fields.push_str(&format!("{}#\n", " ".repeat(16)).repeat(2000));
+    let src = format!("~~~card-yaml\n$quill: q\n$kind: main\n{fields}~~~\n");
+    let err = Document::parse(&src).expect_err("over the budget");
+    assert_eq!(err.code(), "parse::invalid_structure");
+}
+
+/// A column-zero key the YAML reads as a key is one, so a `#` inside its
+/// quoted value is text and the refusal names the field.
+#[test]
+fn a_key_outside_the_field_grammar_is_refused_as_a_field_name() {
+    let src = "~~~card-yaml\n$quill: q\n$kind: main\nog:title: \"Issue #5\"\n~~~\n";
+    let err = Document::parse(src).expect_err("`og:title` is no field name");
+    let crate::error::ParseError::InvalidStructure(message) = err else {
+        panic!("expected the field-name refusal, got {err:?}");
+    };
+    assert!(message.contains("og:title"), "{message}");
+}
+
 /// A tag or anchor ahead of a quoted scalar or flow collection leaves a ` #`
 /// inside it text, and a comment after it a comment.
 #[test]
@@ -268,7 +359,8 @@ fn a_hash_inside_a_quoted_value_behind_a_tag_or_anchor_is_text() {
 }
 
 /// A tag or anchor ahead of `|` or `>` leaves the block's lines its text: no
-/// key, comment or tag among them reaches the mapping around it.
+/// key, comment or tag among them reaches the mapping around it. The tag on
+/// the block itself warns at the block's path.
 #[test]
 fn a_block_scalar_behind_a_tag_or_anchor_is_text() {
     let src = "~~~card-yaml\n$quill: q\n$kind: main\n\
@@ -281,14 +373,12 @@ fn a_block_scalar_behind_a_tag_or_anchor_is_text() {
         serde_json::json!({"body": "# Summary\nsubject: !t TBD\n", "subject": "Final"})
     );
     assert_eq!(get("notes"), serde_json::json!(["# kept\n"]));
-    assert!(out.warnings.is_empty(), "{:?}", out.warnings);
+    assert_eq!(anchors(&out), [("parse::unsupported_yaml_tag", Some("main.notes[0]"))]);
     let md = out.document.to_markdown();
     assert_eq!(md.matches("# Summary").count(), 1, "{md}");
     assert_eq!(md.matches("# kept").count(), 1, "{md}");
 }
 
-/// The prescan splits on `\n`, so CRLF input reaches it with a trailing `\r` on
-/// every line.
 #[test]
 fn crlf_input_parses_as_its_lf_twin() {
     let lf = "~~~card-yaml\n$quill: q\n$kind: main\n# note\nx: # trailing\ny: keep\n~~~\n\nBody.\n";

@@ -1173,12 +1173,18 @@ impl From<CardV0_82_0> for CardV0_92_0 {
 
 impl From<PayloadV0_82_0> for PayloadV0_92_0 {
     fn from(p: PayloadV0_82_0) -> Self {
+        let mut items = Vec::with_capacity(p.items.len());
+        let mut dropped = false;
+        for item in p.items {
+            let trailer = matches!(item, PayloadItemV0_82_0::Comment { inline: true, .. });
+            if std::mem::take(&mut dropped) && trailer {
+                continue;
+            }
+            dropped = matches!(item, PayloadItemV0_82_0::Id { .. });
+            items.extend(PayloadItemV0_92_0::from_v0_82_0(item));
+        }
         PayloadV0_92_0 {
-            items: p
-                .items
-                .into_iter()
-                .filter_map(PayloadItemV0_92_0::from_v0_82_0)
-                .collect(),
+            items,
             nested_comments: p
                 .nested_comments
                 .into_iter()
@@ -1684,6 +1690,35 @@ title: Hi
         assert!(!md.contains("$id"), "{md}");
         assert!(!md.contains("card-7"), "{md}");
         assert_eq!(doc, Document::parse(&md).unwrap().document);
+    }
+
+    /// A dropped `$id` takes its inline trailer with it, so the trailer cannot
+    /// land on the item above.
+    #[test]
+    fn v0_82_0_id_item_is_dropped_with_its_trailer() {
+        let json = r#"{
+            "schema": "quillmark/document@0.82.0",
+            "main": {
+                "payload": {"items": [
+                    {"type": "quill", "value": "q@1.0"},
+                    {"type": "kind", "value": "main"},
+                    {"type": "id", "value": "card-7"},
+                    {"type": "comment", "text": "the card's id", "inline": true},
+                    {"type": "comment", "text": "own line"},
+                    {"type": "field", "key": "title", "value": "Hello"},
+                    {"type": "comment", "text": "kept", "inline": true}
+                ]},
+                "body": ""
+            },
+            "cards": []
+        }"#;
+        let doc: Document = serde_json::from_str(json).unwrap();
+        let md = doc.to_markdown();
+        assert!(
+            md.contains("$kind: main\n# own line\ntitle: Hello # kept\n"),
+            "{md}"
+        );
+        assert!(!md.contains("the card's id"), "{md}");
     }
 
     #[test]

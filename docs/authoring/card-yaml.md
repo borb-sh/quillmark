@@ -191,12 +191,10 @@ identically to comments on data fields.
 
 ## YAML Tags
 
-Custom YAML tags (`!include`, `!env`, …) are not supported. A tag opening a
-block-style key's value on the key's own line is dropped with a
-`parse::unsupported_yaml_tag` warning and its value kept. Anywhere else the
-YAML parser drops the tag silently and keeps the value: inside a flow
-collection, on a bare `- ` element, after an anchor (`key: &a !env x`), or on
-the line below its key.
+Custom YAML tags (`!include`, `!env`, …) are not supported. A tag is dropped
+with a `parse::unsupported_yaml_tag` warning at the tagged node's path and its
+value kept, wherever it sits: on a key's value, a `- ` element, a key, or a
+node inside a flow collection.
 
 A core tag (`!!str 5`) takes effect as the value is read, so `k: !!str 5` keeps
 `"5"`, a string; the tag itself drops and warns the same way.

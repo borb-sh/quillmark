@@ -109,6 +109,19 @@ $kind: main
     assert!(card.seed().is_none());
 }
 
+/// Removing an overlay keeps its siblings in their order.
+#[test]
+fn removing_a_seed_overlay_keeps_the_order_of_the_rest() {
+    let mut doc = parse("~~~card-yaml\n$quill: q@1.0\n$kind: main\n~~~\n");
+    let mut card = doc.main_mut();
+    for kind in ["a", "b", "c"] {
+        card.store_seed_overlay(kind, json!({ "x": kind })).unwrap();
+    }
+    card.remove_seed_overlay("a").unwrap();
+    let kinds: Vec<&str> = card.seed().unwrap().keys().map(String::as_str).collect();
+    assert_eq!(kinds, ["b", "c"]);
+}
+
 /// An overlay edit rewrites `$seed` where it stands, its line's trailer kept,
 /// and removing a kind the map lacks changes nothing.
 #[test]
