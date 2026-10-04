@@ -167,9 +167,11 @@ export type {
  * This is a STRUCTURAL interface, not a class: the WASM layer throws a real
  * `Error` and attaches `diagnostics` to it, so there is no constructor to
  * `instanceof` against, narrow with {@link isQuillmarkError}. `diagnostics`
- * is always non-empty; `message` is the first diagnostic's message (or an
- * `"N error(s): …"` aggregate for multi-error failures), so iterate
- * `diagnostics` for per-error detail. The shape is identical to
+ * is always non-empty and opens with an error. A `severity: 'warning'` entry
+ * after the errors is one raised before the failure that can explain it, such
+ * as a package the quill's load skipped. `message` is the first diagnostic's
+ * message (or an `"N error(s): …"` aggregate for multi-error failures), so
+ * iterate `diagnostics` for per-error detail. The shape is identical to
  * `RenderResult.warnings` entries.
  */
 export interface QuillmarkError extends Error {
