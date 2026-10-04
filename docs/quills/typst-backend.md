@@ -224,7 +224,7 @@ Plate authors style output with Typst's standard `#set` directives:
 
 ```typst
 #set page(paper: "us-letter", margin: 1in, numbering: "1")
-#set text(font: "Linux Libertine", size: 11pt, lang: "en")
+#set text(font: "Figtree", size: 11pt, lang: "en")  // the quill ships assets/fonts/Figtree-Regular.ttf
 #set par(justify: true, leading: 0.65em)
 ```
 
