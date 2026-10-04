@@ -24,7 +24,7 @@ A present `type: date` / `type: datetime` field is a native `datetime`; a blank 
 ```typst
 #data.issued.display("[day padding:none] [month repr:long] [year]")  // native string
 #data.issued.year()                                                   // components: int
-#data.issued < data.due                                               // comparison, arithmetic
+#(data.issued < data.due)                                             // comparison, arithmetic
 #some-package(date: data.issued)                                      // any datetime-consuming package
 #display("issued", "[day padding:none] [month repr:long] [year]")     // rendered, click-to-edit
 #display(row, "due", "[year]")                                        // the same, for a row or card in hand
@@ -33,7 +33,7 @@ A present `type: date` / `type: datetime` field is a native `datetime`; a blank 
 
 `datetime.today()` returns the render date the host supplied, the same date a `today` field renders as. The engine reads no clock, and the host owns the time zone, so an `offset:` is ignored: `datetime.today(offset: 0)` is the host's date, not UTC's.
 
-Everything except the last two is ordinary Typst, because the value is an ordinary `datetime`. `display(field, ..args)` takes the field's *schema address*, or a dictionary and the date's key within it, rather than its value, and prints the date as `datetime.display` would with the same patterns; an unknown address fails the render, and a blank date gives `none`. Reach for `data.<field>` whenever you want the value itself: math, comparison, components, or handing it to a package. The two print the same ink and differ only in [editor previews](editor-regions.md#dates-display-and-data), where `display` keeps the printed date clickable.
+Everything except the helper's two `display` calls is ordinary Typst, because the value is an ordinary `datetime`. `display(field, ..args)` takes the field's *schema address*, or a dictionary and the date's key within it, rather than its value, and prints the date as `datetime.display` would with the same patterns; an unknown address fails the render, and a blank date gives `none`. Reach for `data.<field>` whenever you want the value itself: math, comparison, components, or handing it to a package. The two print the same ink and differ only in [editor previews](editor-regions.md#dates-display-and-data), where `display` keeps the printed date clickable.
 
 ### Which accessor to reach for
 
@@ -224,7 +224,7 @@ Plate authors style output with Typst's standard `#set` directives:
 
 ```typst
 #set page(paper: "us-letter", margin: 1in, numbering: "1")
-#set text(font: "Linux Libertine", size: 11pt, lang: "en")
+#set text(font: "Figtree", size: 11pt, lang: "en")  // the quill ships assets/fonts/Figtree-Regular.ttf
 #set par(justify: true, leading: 0.65em)
 ```
 
@@ -252,13 +252,15 @@ Witness:
 
 ### Positioning
 
-A widget is ordinary Typst inline content sized `width × height`. It participates in layout the same way `#rect(width: 200pt, height: 50pt)` would: content after it gets pushed by the box's dimensions. Two modes:
+A widget is ordinary Typst inline content sized `width × height`, laid out the way `#box(width: 200pt, height: 50pt)` would be: it sits on the line it is called on, and the line grows to its height. Two modes:
 
-**In-flow (reserves layout space).** Drop the call where you want to claim that block of space and let the rest of the document flow around it:
+**In-flow (reserves layout space).** Drop the call where you want to claim that space and let the rest of the document flow around it. A paragraph break on each side of the call gives the widget a line of its own:
 
 ```typst
 Sign here:
-#signature-field("approver")  // reserves 200×50pt below the label
+
+#signature-field("approver")  // its own paragraph: 200×50pt below the label
+
 The above signature acknowledges receipt.
 ```
 
@@ -295,11 +297,11 @@ Inside `#box`, `#table`, `#figure`, `#footnote`, `#move`, `#pad`: a widget track
 
 `value:` is forwarded verbatim; the Rust adapter maps it to the AcroForm value per `type`:
 
-**Text**: `value` is a string (numbers stringify). A blank value emits no `/V`. Set `multiline: true` for a multi-line box.
+**Text**: `value` is a string, a number, a boolean, or `none`, so it takes a data field: `string`, `enum`, `integer`, `number`, or `boolean`. A number or boolean stringifies, and a blank value emits no `/V`. A `richtext` or `plaintext` value reaches the plate as content and a `date` or `datetime` value as a `datetime`, and passing either fails the render. Set `multiline: true` for a multi-line box.
 
 ```typst
 #form-field("full_name", type: "text", value: data.name)
-#form-field("bio", type: "text", value: data.bio, multiline: true, height: 80pt)
+#form-field("bio", type: "text", value: data.bio, multiline: true, height: 80pt)  // bio: { type: string }
 ```
 
 **Signature**: `value` is ignored. PDF output gains a clickable SigField widget at the call site, which Acrobat — or any reader that supports form signing — presents as a "Sign Here" affordance.
