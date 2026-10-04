@@ -54,11 +54,21 @@ pub(crate) fn depth_check_meta_map<E>(
     Ok(map)
 }
 
+/// The one YAML reading every engine parse shares. Booleans resolve under
+/// YAML 1.2's core schema: only `true` and `false`, in any letter case, are
+/// booleans, and YAML 1.1's words (`y`, `no`, `On`, `OFF`) stay strings.
+pub(crate) fn parse_yaml<'de, T: Deserialize<'de>>(
+    yaml: &'de str,
+) -> Result<T, serde_saphyr::Error> {
+    serde_saphyr::from_str_with_options(yaml, serde_saphyr::options! { strict_booleans: true })
+}
+
 impl QuillValue {
     /// Parse a YAML string under the parser's own budget, so an over-deep
-    /// document errors rather than overflowing its stack.
+    /// document errors rather than overflowing its stack. Only `true` and
+    /// `false` read as booleans; `yes`, `n` and `off` are strings.
     pub fn from_yaml_str(yaml_str: &str) -> Result<Self, crate::error::YamlError> {
-        let json_val: serde_json::Value = serde_saphyr::from_str(yaml_str)
+        let json_val: serde_json::Value = parse_yaml(yaml_str)
             .map_err(|e| crate::error::YamlError::from_de(e, yaml_str))?;
         Ok(Self::from_json(json_val))
     }

@@ -927,6 +927,7 @@ fn a_literal_outside_its_declaration_is_refused_by_code() {
     for (field, code) in [
         ("    f:\n      type: integer\n      default: 20.04\n", "quill::default_type_mismatch"),
         ("    f:\n      type: boolean\n      default: \"true\"\n", "quill::default_type_mismatch"),
+        ("    f:\n      type: boolean\n      default: yes\n", "quill::default_type_mismatch"),
         ("    f:\n      type: datetime\n      default: 42\n", "quill::default_type_mismatch"),
         (
             "    f:\n      type: array\n      items: { type: string }\n      default: foo\n",
@@ -989,6 +990,21 @@ fn enum_rejects_a_blank_value_but_accepts_a_blank_default() {
             values: vec!["UNCLASSIFIED".to_string(), "CUI".to_string()]
         },
         "the declared choices carry no blank"
+    );
+}
+
+/// `Quill.yaml` reads booleans as a document does: YAML 1.1's words are the
+/// strings written, so a domain spells `NO` bare.
+#[test]
+fn a_yaml_1_1_word_in_quill_yaml_is_a_string() {
+    let config =
+        quill_with_field("    country:\n      type: enum\n      values: [US, NO, y, Off]\n")
+            .expect("word members load");
+    assert_eq!(
+        config.main.fields["country"].r#type,
+        FieldType::Enum {
+            values: ["US", "NO", "y", "Off"].map(String::from).to_vec()
+        }
     );
 }
 

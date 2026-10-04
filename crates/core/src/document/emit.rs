@@ -618,7 +618,7 @@ fn literal_block(s: &str) -> Option<(&'static str, Vec<&str>)> {
         }
         probe.push('\n');
     }
-    match serde_saphyr::from_str::<JsonValue>(&probe) {
+    match crate::value::parse_yaml::<JsonValue>(&probe) {
         Ok(JsonValue::String(back)) if back == s => Some((header, lines)),
         _ => None,
     }
@@ -674,7 +674,7 @@ pub(crate) fn saphyr_emit_scalar(value: &JsonValue) -> String {
             let has_edge_whitespace = !s.is_empty()
                 && (s.starts_with(char::is_whitespace) || s.ends_with(char::is_whitespace));
             let reparses_same = matches!(
-                serde_saphyr::from_str::<JsonValue>(&buf),
+                crate::value::parse_yaml::<JsonValue>(&buf),
                 Ok(JsonValue::String(ref s2)) if s2 == s
             );
             if has_edge_whitespace || !reparses_same {

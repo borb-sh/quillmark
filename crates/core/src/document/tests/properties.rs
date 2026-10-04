@@ -179,6 +179,42 @@ proptest! {
     }
 }
 
+/// A word YAML 1.1 or 1.2 reads as a boolean, each letter's case drawn.
+fn arb_boolean_word() -> impl Strategy<Value = String> {
+    (
+        prop::sample::select(&["y", "n", "yes", "no", "on", "off", "true", "false"][..]),
+        any::<u8>(),
+    )
+        .prop_map(|(word, upper)| {
+            word.chars()
+                .enumerate()
+                .map(|(i, c)| if (upper >> i) & 1 == 1 { c.to_ascii_uppercase() } else { c })
+                .collect()
+        })
+}
+
+proptest! {
+    /// Booleans resolve under YAML 1.2's core schema: a plain scalar is a
+    /// boolean exactly when it spells `true` or `false`, and any other word
+    /// is the string written, as a field, a sequence element and a nested
+    /// value alike.
+    #[test]
+    fn only_true_and_false_read_as_booleans(word in arb_boolean_word()) {
+        let src = format!("~~~\n$quill: q\nv: {word}\nlist: [{word}]\nmap:\n  k: {word}\n~~~\n");
+        let doc = Document::parse(&src).expect("a well-formed block").document;
+        let want = match word.to_ascii_lowercase().as_str() {
+            "true" => json!(true),
+            "false" => json!(false),
+            _ => json!(word),
+        };
+        let payload = doc.main().payload();
+        let read = |key: &str| payload.get(key).map(|v| v.as_json().clone());
+        prop_assert_eq!(read("v"), Some(want.clone()));
+        prop_assert_eq!(read("list"), Some(json!([want.clone()])));
+        prop_assert_eq!(read("map"), Some(json!({ "k": want })));
+    }
+}
+
 /// Multi-line text built from what a literal block must refuse or hold verbatim:
 /// edge and line-end whitespace, YAML indicators, a fence, a comment-shaped
 /// line, and the line breaks YAML reads that `\n` does not.

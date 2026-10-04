@@ -592,7 +592,7 @@ fn split_nested_key(line: &str) -> Option<(String, String, String)> {
     let i = nested_key_end(line)?;
     let source = &line[..i];
     let key = match source.as_bytes().first() {
-        Some(b'"') | Some(b'\'') => serde_saphyr::from_str::<String>(source).ok()?,
+        Some(b'"') | Some(b'\'') => crate::value::parse_yaml::<String>(source).ok()?,
         _ => source.trim_end().to_string(),
     };
     Some((key, source.to_string(), line[i + 1..].to_string()))
