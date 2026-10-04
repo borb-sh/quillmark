@@ -533,7 +533,7 @@ fn read_plate(source: &Quill) -> Result<Plate, RenderError> {
         RenderError::coded_hint(
             "typst::plate_path_invalid",
             format!("plate file '{plate_file}' is not a path Typst can load ({e})"),
-            "Rename the file to a plain relative path, and `typst.plate_file` with it.",
+            "Separate `typst.plate_file` with `/`, and rename the file if its own name holds a `\\`.",
         )
     })?;
 
