@@ -61,6 +61,8 @@ Notable codes: `quill::name_mismatch` / `quill::version_mismatch` (a well-formed
 
 A Typst compile classifies into four codes: `typst::file_not_found` (a file the quill's world refused — a missing asset is the common one), `typst::unknown_variable`, `typst::type_error`, and `typst::compile` for everything else, warnings included. They are a routing key only: which file was searched for, or which symbol was unknown, is read from `message`.
 
+Before any compile, opening a Typst quill can refuse its plate: `typst::plate_missing` when `typst.plate_file` names no file in the quill, and `typst::plate_path_invalid` when it names one at a path Typst cannot load.
+
 ## Warnings vs errors
 
 Fatality is a two-value ladder: `Error` blocks the stage that emits it; `Warning` never does. There is no lint-level configuration and no warning-to-error promotion. Warnings ride the same `Diagnostic` currency on non-fatal channels:

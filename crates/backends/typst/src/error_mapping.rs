@@ -4,6 +4,8 @@
 use crate::world::QuillWorld;
 use quillmark_core::error::{Diagnostic, Location, Severity};
 use typst::diag::SourceDiagnostic;
+use typst::syntax::{DiagSpan, FileId, RootedPath, VirtualPath, VirtualRoot};
+use typst::World;
 
 pub(crate) fn map_typst_errors(errors: &[SourceDiagnostic], world: &QuillWorld) -> Vec<Diagnostic> {
     errors
@@ -20,13 +22,45 @@ fn map_single_diagnostic(error: &SourceDiagnostic, world: &QuillWorld) -> Diagno
 
     let location = resolve_span_to_location(error.span, world);
 
-    let hint = error.hints.first().map(|h| h.v.to_string());
+    let hint = error
+        .hints
+        .first()
+        .map(|h| h.v.to_string())
+        .or_else(|| rooted_path_hint(&error.message, error.span, world));
 
     let mut diag = Diagnostic::new(severity, error.message.to_string());
     diag.code = Some(classify(&error.message).to_string());
     diag.location = location;
     diag.hint = hint;
     diag
+}
+
+const FILE_NOT_FOUND: &str = "file not found (searched at ";
+
+/// The rooted spelling of a path a module below the quill root missed, offered
+/// only where the world loads a file at it: a bare path resolves from the
+/// directory of the file naming it.
+fn rooted_path_hint(message: &str, span: DiagSpan, world: &QuillWorld) -> Option<String> {
+    let searched = message.strip_prefix(FILE_NOT_FOUND)?.strip_suffix(')')?;
+    let file = span.id()?;
+    if !matches!(file.root(), VirtualRoot::Project) {
+        return None;
+    }
+    let dir = file.vpath().parent().filter(|dir| !dir.is_root())?;
+    let rest = searched
+        .strip_prefix(dir.get_without_slash())?
+        .strip_prefix('/')?;
+    let rooted = FileId::new(RootedPath::new(
+        VirtualRoot::Project,
+        VirtualPath::new(rest).ok()?,
+    ));
+    (world.source(rooted).is_ok() || world.file(rooted).is_ok()).then(|| {
+        let rooted = rooted.vpath().get_with_slash();
+        format!(
+            "a path without a leading `/` resolves from the directory of the file \
+             naming it; write `{rooted}` for the one at the quill root"
+        )
+    })
 }
 
 /// Typst renders a type mismatch two ways: the cast machinery's
@@ -51,7 +85,7 @@ fn is_type_error(message: &str) -> bool {
 /// code spelled by the message itself, which would carry author-supplied text
 /// into a routing key and leave that key unbounded.
 fn classify(message: &str) -> &'static str {
-    if message.starts_with("file not found (searched at ") {
+    if message.starts_with(FILE_NOT_FOUND) {
         "typst::file_not_found"
     } else if message.starts_with("unknown variable: ") {
         "typst::unknown_variable"
@@ -63,7 +97,7 @@ fn classify(message: &str) -> &'static str {
 }
 
 fn resolve_span_to_location(span: typst::syntax::DiagSpan, world: &QuillWorld) -> Option<Location> {
-    use typst::{World, WorldExt};
+    use typst::WorldExt;
 
     // A diagnostic from an injected helper or vendored package reports
     // coordinates in that file, not the plate. Detached spans fall back to main.
