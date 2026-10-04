@@ -1,7 +1,7 @@
-//! The `/AP` `/N` appearance a stamped widget carries: one Form XObject drawing
-//! the field's current value, so a consumer that never synthesizes
-//! `/NeedAppearances` appearances — hayro, pdfium, Ghostscript — shows the same
-//! page a form viewer does.
+//! The `/AP` `/N` appearance a stamped widget carries: Form XObjects drawing the
+//! field's value, so a consumer that never synthesizes `/NeedAppearances`
+//! appearances — hayro, pdfium, Ghostscript — shows the same page a form viewer
+//! does. A value widget draws one stream; a checkbox draws one per state.
 //!
 //! Drawing commits to a byte encoding and a concrete size: text is transcoded to
 //! WinAnsi and set in the widget's own base-14 face at [`FieldSpec::font_size`],
@@ -45,18 +45,27 @@ fn check_size(h: f32) -> f32 {
     (h * 0.75).clamp(MIN_SIZE, MAX_SIZE)
 }
 
-/// What a widget draws for its current value: the `/DR` face the stream selects,
-/// the field box's extent, and the stream itself in appearance space — the field
-/// box with its lower-left corner at the origin.
+/// What a widget's `/AP` `/N` holds.
+pub(crate) enum Normal {
+    /// The one stream a text or choice widget draws its value in.
+    Value(Appearance),
+    /// A checkbox's two states, drawn whatever its value, so a filler renaming
+    /// `/AS` has a state to show (ISO 32000-1 §12.7.4.2.3).
+    States { on: Appearance, off: Appearance },
+}
+
+/// One appearance stream: the `/DR` face it selects, if any, the field box's
+/// extent, and the stream itself in appearance space — the field box with its
+/// lower-left corner at the origin.
 pub(crate) struct Appearance {
-    resource: &'static str,
+    resource: Option<&'static str>,
     bbox: [f32; 2],
     content: Vec<u8>,
 }
 
 /// The appearance `spec` draws, or `None` when it draws nothing: a blank field,
-/// an unchecked box, a signature, or a box with no area to draw in.
-pub(crate) fn of(spec: &FieldSpec) -> Option<Appearance> {
+/// a signature, or a box with no area to draw in.
+pub(crate) fn of(spec: &FieldSpec) -> Option<Normal> {
     let [x0, y0, x1, y1] = spec.rect;
     let (w, h) = (x1 - x0, y1 - y0);
     if !(w > 0.0 && h > 0.0) {
@@ -65,19 +74,7 @@ pub(crate) fn of(spec: &FieldSpec) -> Option<Appearance> {
 
     let (resource, size, x, y, lines) = match &spec.field_type {
         FieldType::Signature => return None,
-        FieldType::Checkbox => {
-            if !spec.is_checked() {
-                return None;
-            }
-            let size = check_size(h);
-            (
-                CHECK_FONT_RESOURCE,
-                size,
-                (w - size * CHECK_GLYPH_WIDTH_FACTOR) * 0.5,
-                (h - size) * 0.5,
-                vec![CHECK_GLYPH.to_vec()],
-            )
-        }
+        FieldType::Checkbox => return Some(check_states([w, h])),
         FieldType::Text { .. } => {
             let size = text_size(spec, h);
             (
@@ -103,27 +100,50 @@ pub(crate) fn of(spec: &FieldSpec) -> Option<Appearance> {
     if lines.is_empty() {
         return None;
     }
-    Some(Appearance {
-        resource,
+    Some(Normal::Value(Appearance {
+        resource: Some(resource),
         bbox: [w, h],
         content: show_lines(resource, size, x, y, &lines),
-    })
+    }))
+}
+
+/// On shows the check glyph centred in the box. Off draws nothing: the
+/// background owns the box's border and fill, so the mark is all on draws.
+fn check_states(bbox: [f32; 2]) -> Normal {
+    let [w, h] = bbox;
+    let size = check_size(h);
+    let x = (w - size * CHECK_GLYPH_WIDTH_FACTOR) * 0.5;
+    let y = (h - size) * 0.5;
+    Normal::States {
+        on: Appearance {
+            resource: Some(CHECK_FONT_RESOURCE),
+            bbox,
+            content: show_lines(CHECK_FONT_RESOURCE, size, x, y, &[CHECK_GLYPH.to_vec()]),
+        },
+        off: Appearance {
+            resource: None,
+            bbox,
+            content: Vec::new(),
+        },
+    }
 }
 
 impl Appearance {
     /// This appearance as one indirect Form XObject, over a `/BBox` the size of
-    /// the field box and a `/Resources` binding the one face it selects: a form
-    /// resolves names in its own dictionary, not the page's, and the `/BBox`
-    /// clips an over-long value off the neighbouring content.
+    /// the field box and a `/Resources` binding the one face it selects, as
+    /// `font_id`: a form resolves names in its own dictionary, not the page's,
+    /// and the `/BBox` clips an over-long value off the neighbouring content.
     pub(crate) fn object(&self, id: u32, font_id: u32) -> Result<UpdatedObject, PdfError> {
         let [w, h] = self.bbox;
         let mut chunk = Chunk::new();
         {
             let mut form = chunk.form_xobject(to_ref(id)?, &self.content);
             form.bbox(Rect::new(0.0, 0.0, w, h));
-            form.resources()
-                .fonts()
-                .pair(Name(self.resource.as_bytes()), to_ref(font_id)?);
+            if let Some(resource) = self.resource {
+                form.resources()
+                    .fonts()
+                    .pair(Name(resource.as_bytes()), to_ref(font_id)?);
+            }
             form.finish();
         }
         Ok(UpdatedObject::new(id, chunk.as_bytes().to_vec()))
@@ -188,15 +208,21 @@ mod tests {
         spec
     }
 
+    fn value(spec: &FieldSpec) -> Appearance {
+        match of(spec) {
+            Some(Normal::Value(ap)) => ap,
+            _ => panic!("{} draws no value stream", spec.name),
+        }
+    }
+
     fn content(spec: &FieldSpec) -> String {
-        String::from_utf8_lossy(&of(spec).expect("an appearance").content).into_owned()
+        String::from_utf8_lossy(&value(spec).content).into_owned()
     }
 
     #[test]
     fn nothing_to_draw_is_no_appearance() {
         assert!(of(&text(None)).is_none(), "a blank field");
         assert!(of(&text(Some(""))).is_none(), "an empty value");
-        assert!(of(&checkbox(false)).is_none(), "an unchecked box");
         assert!(
             of(&FieldSpec::new(
                 "Sig".into(),
@@ -218,15 +244,16 @@ mod tests {
             [72.0, 700.0, 300.0, 700.0],
             [300.0, 700.0, 72.0, 720.0],
         ] {
-            let mut spec = text(Some("Ada Lovelace"));
-            spec.rect = rect;
-            assert!(of(&spec).is_none(), "{rect:?}");
+            for mut spec in [text(Some("Ada Lovelace")), checkbox(true)] {
+                spec.rect = rect;
+                assert!(of(&spec).is_none(), "{rect:?}");
+            }
         }
     }
 
     #[test]
     fn the_appearance_is_drawn_in_the_box_moved_to_the_origin() {
-        let ap = of(&text(Some("Ada Lovelace"))).expect("an appearance");
+        let ap = value(&text(Some("Ada Lovelace")));
         assert_eq!(ap.bbox, [228.0, 20.0], "the field box's own extent");
         let drawn = String::from_utf8_lossy(&ap.content).into_owned();
         assert!(
@@ -250,8 +277,8 @@ mod tests {
         let mut spec = text(Some("Ada"));
         spec.font = FormFont::Times;
         spec.font_size = Some(9.0);
-        let ap = of(&spec).expect("an appearance");
-        assert_eq!(ap.resource, "TiRo");
+        let ap = value(&spec);
+        assert_eq!(ap.resource, Some("TiRo"));
         assert!(
             String::from_utf8_lossy(&ap.content).contains("/TiRo 9 Tf"),
             "an explicit size is drawn at that size, never the box's auto-size"
@@ -267,20 +294,32 @@ mod tests {
     }
 
     #[test]
-    fn a_checked_box_draws_the_check_glyph_centred_in_its_own_face() {
-        let ap = of(&checkbox(true)).expect("an appearance");
-        assert_eq!(ap.resource, CHECK_FONT_RESOURCE);
-        let drawn = String::from_utf8_lossy(&ap.content).into_owned();
-        assert!(drawn.contains("/ZaDb 12 Tf"), "{drawn}");
-        assert!(drawn.contains("(4) Tj"), "{drawn}");
-        assert!(drawn.contains("\n5.4 3 Td\n"), "centred in the box: {drawn}");
+    fn a_box_draws_both_states_whatever_its_value() {
+        for checked in [true, false] {
+            let Some(Normal::States { on, off }) = of(&checkbox(checked)) else {
+                panic!("checked: {checked}: a box draws its states");
+            };
+            assert_eq!(on.resource, Some(CHECK_FONT_RESOURCE));
+            let drawn = String::from_utf8_lossy(&on.content).into_owned();
+            assert!(drawn.contains("/ZaDb 12 Tf"), "{drawn}");
+            assert!(drawn.contains("(4) Tj"), "{drawn}");
+            assert!(
+                drawn.contains("\n5.4 3 Td\n"),
+                "centred in the box: {drawn}"
+            );
+
+            assert_eq!(off.bbox, on.bbox, "both states cover the one box");
+            assert!(
+                off.content.is_empty(),
+                "off is on without its mark, which is all on draws"
+            );
+            assert_eq!(off.resource, None);
+        }
     }
 
     #[test]
     fn value_bytes_are_transcoded_to_the_faces_winansi_encoding() {
-        let drawn = of(&text(Some("Caf\u{e9} \u{2014} \u{65e5}")))
-            .expect("an appearance")
-            .content;
+        let drawn = value(&text(Some("Caf\u{e9} \u{2014} \u{65e5}"))).content;
         // WinAnsi: é→0xE9, —→0x97; 日 has no WinAnsi byte.
         let want: &[u8] = &[b'C', b'a', b'f', 0xE9, b' ', 0x97, b' ', b'?'];
         assert!(

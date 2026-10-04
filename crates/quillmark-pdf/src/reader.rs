@@ -340,13 +340,21 @@ fn is_obj_header_tail(rest: &[u8]) -> bool {
 }
 
 /// Locate `/Key` in a dict's *inner* bytes (between its `<<` / `>>`) and return
-/// its raw value slice, beginning just after the key token.
+/// its raw value slice, beginning just after the key token. `None` when the
+/// dict has no such key or its value is `null`: ISO 32000-1 §7.3.9 makes the two
+/// the same entry, so every read goes through here.
+pub(crate) fn find_dict_value<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
+    find_dict_entry(dict_bytes, key).filter(|value| !is_null(value))
+}
+
+/// [`find_dict_value`] without the `null` filter: the entry a rewrite replaces,
+/// whatever it holds.
 ///
 /// Entries alternate `key value key value …`, so the scan reads a key Name then
 /// consumes its value wholesale via `read_value_end` (stepping over nested
 /// `<<>>` / `[]` / `()` / `<>` as a unit). Only keys are matched, so a Name in
 /// value position (`/Subtype /Producer`) is never mistaken for one.
-pub(crate) fn find_dict_value<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
+fn find_dict_entry<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a [u8]> {
     let key_marker = format!("/{}", key);
     let km = key_marker.as_bytes();
     let mut i = 0;
@@ -375,22 +383,28 @@ pub(crate) fn find_dict_value<'a>(dict_bytes: &'a [u8], key: &str) -> Option<&'a
     }
 }
 
-/// Replace `key`'s value in a flat dict. `value` MUST be the subslice
-/// [`find_dict_value`] returned for that key: its start locates the key span by
-/// pointer subtraction rather than a re-scan, so a `key` token inside another
-/// value cannot be matched by accident. `key` is the on-page byte form,
-/// including the leading slash (`b"/Producer"`).
-pub(crate) fn splice_dict_value(dict: &[u8], key: &[u8], value: &[u8], new_value: &[u8]) -> Vec<u8> {
+fn is_null(value: &[u8]) -> bool {
+    value[skip_ws_and_comments(value, 0)..] == *b"null"
+}
+
+/// A flat dict's inner bytes with `key` (bare, `"Producer"`) holding
+/// `new_value`: the entry replaced in place where the dict carries one, a `null`
+/// one included, else appended. A dict never ends up naming `key` twice.
+pub(crate) fn set_dict_value(dict: &[u8], key: &str, new_value: &[u8]) -> Vec<u8> {
+    let Some(value) = find_dict_entry(dict, key) else {
+        let mut out = dict.to_vec();
+        out.extend_from_slice(format!(" /{key} ").as_bytes());
+        out.extend_from_slice(new_value);
+        return out;
+    };
+    // The entry's own subslice locates the key span by pointer subtraction
+    // rather than a re-scan, so a `key` token inside another value cannot match.
     let value_start = value.as_ptr() as usize - dict.as_ptr() as usize;
-    let value_end = value_start + value.len();
-    let key_at = value_start - key.len();
-    let mut out =
-        Vec::with_capacity(key_at + key.len() + 1 + new_value.len() + dict.len() - value_end);
-    out.extend_from_slice(&dict[..key_at]);
-    out.extend_from_slice(key);
-    out.push(b' ');
+    let key_at = value_start - (1 + key.len());
+    let mut out = dict[..key_at].to_vec();
+    out.extend_from_slice(format!("/{key} ").as_bytes());
     out.extend_from_slice(new_value);
-    out.extend_from_slice(&dict[value_end..]);
+    out.extend_from_slice(&dict[value_start + value.len()..]);
     out
 }
 
@@ -946,6 +960,60 @@ mod tests {
         let dict = b" /Subtype /Producer /Producer (real) /Creator (X) ";
         let v = find_dict_value(dict, "Producer").expect("found the key, not the value");
         assert_eq!(v.trim_ascii(), b"(real)");
+    }
+
+    #[test]
+    fn a_null_value_reads_as_absent() {
+        for dict in [
+            &b" /AcroForm null /Pages 2 0 R "[..],
+            b" /AcroForm\nnull/Pages 2 0 R",
+            b" /AcroForm %stripped\n null /Pages 2 0 R ",
+        ] {
+            assert_eq!(
+                find_dict_value(dict, "AcroForm"),
+                None,
+                "{:?}",
+                String::from_utf8_lossy(dict)
+            );
+            assert_eq!(
+                find_dict_value(dict, "Pages").map(<[u8]>::trim_ascii),
+                Some(&b"2 0 R"[..])
+            );
+        }
+        assert_eq!(
+            find_dict_value(b" /Title (null) /Kind /null ", "Title").map(<[u8]>::trim_ascii),
+            Some(&b"(null)"[..]),
+            "a string spelling null is a value"
+        );
+        assert!(
+            find_dict_value(b" /Kind /null ", "Kind").is_some(),
+            "so is the name /null"
+        );
+    }
+
+    #[test]
+    fn set_dict_value_replaces_the_one_entry_or_appends_it() {
+        for (dict, want) in [
+            (
+                &b"/Title (Hi) /Producer (Old) /Creator (X)"[..],
+                &b"/Title (Hi) /Producer (New) /Creator (X)"[..],
+            ),
+            (
+                b"/Title (Hi) /Producer null /Creator (X)",
+                b"/Title (Hi) /Producer (New) /Creator (X)",
+            ),
+            (b"/Title (Hi)", b"/Title (Hi) /Producer (New)"),
+            // A `/Producer` Name in value position is not the key.
+            (
+                b"/Title (Hi) /Marker /Producer",
+                b"/Title (Hi) /Marker /Producer /Producer (New)",
+            ),
+        ] {
+            assert_eq!(
+                String::from_utf8_lossy(&set_dict_value(dict, "Producer", b"(New)")),
+                String::from_utf8_lossy(want)
+            );
+        }
     }
 
     #[test]
