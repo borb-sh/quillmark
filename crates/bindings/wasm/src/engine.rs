@@ -542,7 +542,10 @@ impl Quillmark {
         opts: Option<Ts<RenderOptions>>,
         today: Option<String>,
     ) -> Result<Ts<RenderResult>, JsValue> {
-        let rust_opts = render_options_or_throw(opts)?;
+        let rust_opts = render_options_or_throw(
+            opts,
+            "the render date is the trailing argument: engine.render(quill, doc, options, today)",
+        )?;
         let today = render_date(today)?;
         let result = self
             .inner
@@ -1695,9 +1698,8 @@ impl Document {
     }
 }
 
-/// Mirrors the `Addr` TS interface. Unknown keys are rejected in
-/// [`from_js`](Addr::from_js), not via `deny_unknown_fields`: `serde_wasm_bindgen`
-/// looks up known fields rather than visiting every key, so it never enforces it.
+/// Mirrors the `Addr` TS interface. [`from_js`](Addr::from_js) refuses an
+/// unknown key through [`reject_unknown_keys`].
 #[derive(serde::Deserialize, Default)]
 struct Addr {
     #[serde(default)]
@@ -1714,19 +1716,9 @@ impl Addr {
         if value.is_undefined() || value.is_null() {
             return Ok(Addr::default());
         }
-        if let Some(obj) = value.dyn_ref::<js_sys::Object>() {
-            for key in js_sys::Object::keys(obj).iter() {
-                if let Some(k) = key.as_string() {
-                    if k != "card" && k != "field" {
-                        return Err(WasmError::from(format!(
-                            "addr has unknown key `{k}`; an address takes only \
-                             `card` and `field`"
-                        ))
-                        .to_js_value());
-                    }
-                }
-            }
-        }
+        reject_unknown_keys(value, &["card", "field"], |k| {
+            format!("addr has unknown key `{k}`; an address takes only `card` and `field`")
+        })?;
         serde_wasm_bindgen::from_value(value.clone())
             .map_err(|e| WasmError::from(format!("addr must be an Addr object: {e}")).to_js_value())
     }
@@ -2214,6 +2206,28 @@ fn reject_deep_js_value(value: &JsValue, ctx: &str) -> Result<(), JsValue> {
     Ok(())
 }
 
+/// Refuse an own key outside `known`, worded by `refusal`. `serde_wasm_bindgen`
+/// looks up the fields a struct declares rather than visiting every key, so it
+/// never enforces `deny_unknown_fields`: a misspelled optional key would read as
+/// absent. A value that is not an object passes, for the deserializer to refuse.
+fn reject_unknown_keys(
+    value: &JsValue,
+    known: &[&str],
+    refusal: impl FnOnce(&str) -> String,
+) -> Result<(), JsValue> {
+    let Some(obj) = value.dyn_ref::<js_sys::Object>() else {
+        return Ok(());
+    };
+    match js_sys::Object::keys(obj)
+        .iter()
+        .filter_map(|key| key.as_string())
+        .find(|k| !known.contains(&k.as_str()))
+    {
+        Some(k) => Err(WasmError::from(refusal(&k)).to_js_value()),
+        None => Ok(()),
+    }
+}
+
 fn js_value_to_object(
     value: &JsValue,
     ctx: &str,
@@ -2295,13 +2309,25 @@ fn render_date(today: Option<String>) -> Result<quillmark_core::quill::CalendarD
     }
 }
 
-/// The render verbs' shared argument read: an absent `options` is the default.
+/// The render verbs' shared argument read: an absent `options` is the default,
+/// and a key outside [`RenderOptions::KEYS`] throws. `date_at` names where the
+/// verb takes its render date, for a caller who put `today` among the options.
 #[cfg(feature = "render")]
 fn render_options_or_throw(
     opts: Option<Ts<RenderOptions>>,
+    date_at: &str,
 ) -> Result<quillmark_core::types::RenderOptions, JsValue> {
     let opts = match opts {
-        Some(ts) => from_ts_or_throw(&ts)?,
+        Some(ts) => {
+            reject_unknown_keys(&ts.js_value(), &RenderOptions::KEYS, |k| match k {
+                "today" => format!("render options have unknown key `today`; {date_at}"),
+                _ => format!(
+                    "render options have unknown key `{k}`; RenderOptions takes only `{}`",
+                    RenderOptions::KEYS.join("`, `")
+                ),
+            })?;
+            from_ts_or_throw(&ts)?
+        }
         None => RenderOptions::default(),
     };
     Ok(opts.into())
@@ -2325,33 +2351,17 @@ fn card_to_js(card: &quillmark_core::document::Card) -> Result<JsValue, JsValue>
 }
 
 fn js_to_card(value: &JsValue) -> Result<quillmark_core::document::Card, JsValue> {
-    // `serde_wasm_bindgen` does not honor `#[serde(deny_unknown_fields)]` on a
-    // struct (it looks up known fields rather than visiting every key), so
-    // enforce it here: a flat `{ kind, fields }` object fails loudly instead of
-    // yielding a silently-empty card. A payload item is an internally tagged
-    // enum, read through `deserialize_any` over every key, so its deny holds.
-    if let Some(obj) = value.dyn_ref::<js_sys::Object>() {
-        const ALLOWED: &[&str] = &[
-            "kind",
-            "quill",
-            "ext",
-            "seed",
-            "payloadItems",
-            "body",
-        ];
-        for key in js_sys::Object::keys(obj).iter() {
-            if let Some(k) = key.as_string() {
-                if !ALLOWED.contains(&k.as_str()) {
-                    return Err(WasmError::from(format!(
-                        "card has unknown field `{k}`; expected a CardInput \
-                         {{ kind, payloadItems, body, … }}, where each field is \
-                         a payload item {{ type: 'field', key, value }}"
-                    ))
-                    .to_js_value());
-                }
-            }
-        }
-    }
+    // A flat `{ kind, fields }` object fails here rather than yielding an empty
+    // card. A payload item is an internally tagged enum, read through
+    // `deserialize_any` over every key, so its own deny holds without a walk.
+    const KEYS: &[&str] = &["kind", "quill", "ext", "seed", "payloadItems", "body"];
+    reject_unknown_keys(value, KEYS, |k| {
+        format!(
+            "card has unknown field `{k}`; expected a CardInput \
+             {{ kind, payloadItems, body, … }}, where each field is \
+             a payload item {{ type: 'field', key, value }}"
+        )
+    })?;
     reject_deep_js_value(value, "insertCard")?;
     let wire: quillmark_core::document::CardWire = serde_wasm_bindgen::from_value(value.clone())
         .map_err(|e| WasmError::from(format!("card must be a Card object: {e}")).to_js_value())?;
@@ -2528,7 +2538,10 @@ impl LiveSession {
 
     #[wasm_bindgen(js_name = render)]
     pub fn render(&self, opts: Option<Ts<RenderOptions>>) -> Result<Ts<RenderResult>, JsValue> {
-        let rust_opts = render_options_or_throw(opts)?;
+        let rust_opts = render_options_or_throw(
+            opts,
+            "a session renders on the date it opened with: engine.open(quill, doc, today)",
+        )?;
 
         let result = self
             .inner

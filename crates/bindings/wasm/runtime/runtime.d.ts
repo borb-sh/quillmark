@@ -236,7 +236,11 @@ export interface Artifact {
 	mimeType: string;
 }
 
-/** Options for one render. */
+/**
+ * Options for one render. Any other key throws, `today` included: the render
+ * date is an argument of {@link Engine.render} and {@link Engine.open}, not an
+ * option.
+ */
 export interface RenderOptions {
 	format?: OutputFormat;
 	/**
@@ -371,6 +375,7 @@ export interface BackendDescriptor {
 	formats: OutputFormat[];
 }
 
+/** Options for `new Engine(...)`. A key other than `backends` throws. */
 export interface EngineOptions {
 	/**
 	 * Extra or overriding backend descriptors, merged over the built-ins. Keys are
@@ -407,7 +412,8 @@ export declare class Engine {
 	 * document it opened from, so {@link LiveSession.render} carries the
 	 * compile's alone: read `doc.warnings` and `quill.validate(doc)` beside it.
 	 *
-	 * `today` reads as on {@link open}.
+	 * `today` reads as on {@link open}. An `options` key outside
+	 * {@link RenderOptions} rejects, `today` among them.
 	 */
 	render(quill: Quill, doc: Document, options?: RenderOptions, today?: string): Promise<RenderResult>;
 

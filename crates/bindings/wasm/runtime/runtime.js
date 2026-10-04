@@ -161,6 +161,25 @@ function quillmarkError(code, message, hint) {
 	return err;
 }
 
+/**
+ * Throw on an own key of an options object outside `known`. The JS twin of the
+ * binding's `reject_unknown_keys`, in the uncoded shape it throws: a misspelled
+ * optional key would otherwise read as absent.
+ * @param {unknown} options
+ * @param {string[]} known
+ * @param {string} what the options' name, for the message
+ * @returns {void}
+ */
+function rejectUnknownKeys(options, known, what) {
+	for (const key of Object.keys(options ?? {})) {
+		if (known.includes(key)) continue;
+		const message = `${what} have unknown key \`${key}\`; ${what} take only \`${known.join('`, `')}\``;
+		const err = /** @type {any} */ (new Error(message));
+		err.diagnostics = [{ severity: 'error', message }];
+		throw err;
+	}
+}
+
 // These checks deliver the ERROR, not the rejection, at the seams that cross
 // into backend memory as DATA — `Engine` and `LiveSession.update` — where a
 // foreign handle would otherwise work silently at the price of a whole-document
@@ -374,6 +393,7 @@ export class Engine {
 	 * @param {{ backends?: Record<string, { load: () => Promise<unknown>, formats: string[] }> }} [options]
 	 */
 	constructor(options) {
+		rejectUnknownKeys(options, ['backends'], 'Engine options');
 		const merged = { ...DEFAULT_BACKENDS, ...(options?.backends ?? {}) };
 		/** @type {Record<string, { load: () => Promise<unknown>, formats: string[] }>} */
 		const loaders = {};
