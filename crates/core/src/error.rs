@@ -528,7 +528,9 @@ impl ParseError {
 }
 
 /// Main error type for rendering operations: a non-empty collection of
-/// [`Diagnostic`]s.
+/// [`Diagnostic`]s, the first an error. A [`Severity::Warning`] after the
+/// errors is one the failing stage raised before it failed, carried because it
+/// can explain the failure.
 ///
 /// There is no failure taxonomy beyond the diagnostics themselves: route on
 /// each diagnostic's namespaced `code`, not on a type. Every consumer and
@@ -584,14 +586,19 @@ impl RenderError {
     }
 
     /// The summary line shared by `Display` and every binding's exception
-    /// message: the sole diagnostic's `message` for one, an
-    /// `"<N> error(s): <first message>"` aggregate for more. Bindings delegate
-    /// here rather than re-deriving the rule.
+    /// message: the first diagnostic's `message`, as an
+    /// `"<N> error(s): <first message>"` aggregate where `N`, the count of
+    /// [`Severity::Error`] diagnostics, exceeds one. Bindings delegate here
+    /// rather than re-deriving the rule.
     pub fn summary_message(diags: &[Diagnostic]) -> String {
-        match diags {
-            [d] => d.message.clone(),
-            [first, ..] => format!("{} error(s): {}", diags.len(), first.message),
-            [] => "render error".to_string(),
+        let errors = diags
+            .iter()
+            .filter(|d| d.severity == Severity::Error)
+            .count();
+        match diags.first() {
+            Some(first) if errors > 1 => format!("{errors} error(s): {}", first.message),
+            Some(first) => first.message.clone(),
+            None => "render error".to_string(),
         }
     }
 }
@@ -680,12 +687,16 @@ mod tests {
     }
 
     #[test]
-    fn test_render_error_display_aggregates_multi_diagnostic() {
+    fn test_render_error_display_aggregates_its_errors_alone() {
+        let warning = Diagnostic::new(Severity::Warning, "w".to_string());
         let err = RenderError::new(vec![
             Diagnostic::new(Severity::Error, "a".to_string()),
             Diagnostic::new(Severity::Error, "b".to_string()),
+            warning.clone(),
         ]);
         assert_eq!(err.to_string(), "2 error(s): a");
+        let err = RenderError::new(vec![Diagnostic::new(Severity::Error, "a".to_string()), warning]);
+        assert_eq!(err.to_string(), "a");
     }
 }
 

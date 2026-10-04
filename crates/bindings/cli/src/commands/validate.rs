@@ -40,6 +40,16 @@ impl ValidationResult {
     fn has_errors(&self) -> bool {
         self.count(Severity::Error) > 0
     }
+
+    /// Every error a render raised, and each warning not already held: every
+    /// render of the quill, failed or not, carries the quill's load warnings.
+    fn add_render_diagnostics(&mut self, diagnostics: Vec<Diagnostic>) {
+        for diag in diagnostics {
+            if diag.severity == Severity::Error || !self.issues.contains(&diag) {
+                self.issues.push(diag);
+            }
+        }
+    }
 }
 
 pub fn execute(args: ValidateArgs) -> Result<()> {
@@ -279,11 +289,7 @@ fn validate_renders(
                 if verbose {
                     println!("    {label}: ok");
                 }
-                for warning in warnings {
-                    if !result.issues.contains(&warning) {
-                        result.issues.push(warning);
-                    }
-                }
+                result.add_render_diagnostics(warnings);
             }
             Err(failure) => {
                 result.add(
@@ -291,37 +297,35 @@ fn validate_renders(
                     format!("the {label} document {}", failure.what),
                     "cli::canonical_document_failed",
                 );
-                result.issues.extend(failure.diagnostics);
+                result.add_render_diagnostics(failure.diagnostics);
             }
         }
     }
 
     let Some(example) = example else { return };
     let Some(document) = &example.document else { return };
-    match render(document) {
-        // A warning a canonical document raised too is the plate's, not the
-        // example's; one `validate` already raised is counted once.
-        Ok(warnings) => {
-            let fresh: Vec<Diagnostic> = warnings
-                .into_iter()
-                .filter(|w| !result.issues.contains(w) && !example.diagnostics.contains(w))
-                .collect();
-            if verbose && fresh.is_empty() {
-                println!("    example: ok");
-            }
-            example.diagnostics.extend(fresh);
-        }
-        Err(failure) => {
-            example.diagnostics.push(
-                Diagnostic::new(
-                    Severity::Error,
-                    format!("the example document {}", failure.what),
-                )
+    let (failed, diagnostics) = match render(document) {
+        Ok(warnings) => (None, warnings),
+        Err(failure) => (Some(failure.what), failure.diagnostics),
+    };
+    // A warning a canonical document raised too is the plate's, not the
+    // example's; one `validate` already raised is counted once.
+    let fresh: Vec<Diagnostic> = diagnostics
+        .into_iter()
+        .filter(|d| {
+            d.severity == Severity::Error
+                || (!result.issues.contains(d) && !example.diagnostics.contains(d))
+        })
+        .collect();
+    match failed {
+        None if verbose && fresh.is_empty() => println!("    example: ok"),
+        None => {}
+        Some(what) => example.diagnostics.push(
+            Diagnostic::new(Severity::Error, format!("the example document {what}"))
                 .with_code("cli::example_render_failed".to_string()),
-            );
-            example.diagnostics.extend(failure.diagnostics);
-        }
+        ),
     }
+    example.diagnostics.extend(fresh);
 }
 
 /// The one advisory check config parsing does not already make: `default:`
