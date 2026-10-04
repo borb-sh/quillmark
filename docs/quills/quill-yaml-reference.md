@@ -1008,6 +1008,8 @@ typst:
   plate_file: plate.typ
 ```
 
+A `plate_file` naming no file fails the render as `typst::plate_missing`. One naming a file at a path holding a `\`, which Typst refuses, fails as `typst::plate_path_invalid`: separate the path with `/`, and rename a file whose own name holds a `\`.
+
 Any other key under `typst` is ignored, with a `typst::unknown_key` warning on each render. Packages are not declared here: a quill vendors them under `packages/`, as the [Typst Backend Guide](typst-backend.md#typst-packages) describes.
 
 ---
