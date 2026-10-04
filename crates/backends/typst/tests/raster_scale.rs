@@ -3,10 +3,10 @@
 //!
 //! What counts as unrasterizable is `quillmark_core::backend`'s to say and is
 //! pinned there; what this backend owes is the wiring — both raster knobs reach
-//! that check, and every page it counts paints.
+//! that check, and every page it counts paints at the size the check counts.
 
 use quillmark_core::{
-    backend::Backend,
+    backend::{raster_size, Backend},
     error::RenderError,
     session::LiveSession,
     types::{OutputFormat, RenderOptions},
@@ -72,16 +72,19 @@ fn both_raster_knobs_reach_the_check_and_every_counted_page_paints() {
 
     assert!(session.page_count() > 0, "the plate draws a page");
     for page in 0..session.page_count() {
-        assert!(
-            session.page_size_pt(page).is_some(),
-            "page {page} is counted, so it has an extent"
-        );
-        assert!(
-            session
-                .render_rgba(page, 1.0)
-                .expect("a counted page rasterizes at 1x")
-                .is_some(),
-            "page {page} is counted, so it paints"
-        );
+        let (width_pt, height_pt) = session
+            .page_size_pt(page)
+            .unwrap_or_else(|| panic!("page {page} is counted, so it has an extent"));
+        for scale in [0.001, 1.0, 2.5] {
+            let (w, h, _) = session
+                .render_rgba(page, scale)
+                .unwrap_or_else(|e| panic!("page {page} rasterizes at {scale}x: {e}"))
+                .unwrap_or_else(|| panic!("page {page} is counted, so it paints"));
+            assert_eq!(
+                (w, h),
+                raster_size(scale, width_pt, height_pt),
+                "page {page} at {scale}x is the size the check counts"
+            );
+        }
     }
 }

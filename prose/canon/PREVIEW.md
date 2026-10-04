@@ -118,11 +118,19 @@ compositing of its own. Backends satisfy it differently:
 `scale` no page can be rasterized at. Neither rasterizer bounds the buffer it
 sizes from `scale × page size`, so a scale that is not finite and positive, or
 that puts a side of the page past `MAX_RASTER_SIDE` (16384 px), is refused
-under `backend::invalid_raster_scale` before either is asked.
+under `backend::invalid_raster_scale` before either is asked. Both size a side
+alike, rounded and at least 1 px (core's `raster_size`, which `typst-render`
+computes itself and acroform hands hayro, whose own floor reaches 0 px), so the
+check counts what is allocated and a tiny scale paints one pixel rather than
+none.
+
 `RenderOptions.ppi` meets the same refusal on the byte-artifact path; `paint`
-reduces its scale to the ceiling first (`fit_raster_scale`), since a preview
-drawn soft beats one not drawn, where an export at fewer pixels than asked for
-is a wrong file.
+reduces its scale to the ceiling first (`canvas_scale`), since a preview drawn
+soft beats one not drawn, where an export at fewer pixels than asked for is a
+wrong file. `paint` checks its scale as the `f64` a JS number is, before it
+narrows to the rasterizers' `f32`, so a scale past `f32::MAX` is reduced like
+any other, and one under `f32::MIN_POSITIVE`, which narrowing would change
+rather than round, is refused under the same code.
 
 ### Painter owns the canvas
 

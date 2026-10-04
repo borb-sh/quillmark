@@ -70,7 +70,8 @@ pub trait SessionHandle: Send + Sync + 'static {
     ///
     /// A scale the page cannot be rasterized at is the `Err`: run it through
     /// [`check_raster`](crate::backend::check_raster), which every raster path
-    /// shares.
+    /// shares, and allocate the raster at
+    /// [`raster_size`](crate::backend::raster_size), the size that check counts.
     fn render_rgba(
         &self,
         page: usize,
@@ -370,7 +371,7 @@ main:
             return Ok(None);
         };
         crate::backend::check_raster(scale, w, h)?;
-        let (pw, ph) = ((w * scale) as u32, (h * scale) as u32);
+        let (pw, ph) = crate::backend::raster_size(scale, w, h);
         Ok(Some((pw, ph, vec![255; (pw as usize) * (ph as usize) * 4])))
     }
 

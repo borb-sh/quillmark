@@ -11,7 +11,7 @@ use typst_svg::SvgOptions;
 use crate::error_mapping::map_typst_errors;
 use crate::world::QuillWorld;
 use quillmark_core::{
-    backend::{check_raster, page_selection_not_supported, selected_pages},
+    backend::{check_raster_ppi, page_selection_not_supported, selected_pages},
     error::{Diagnostic, RenderError, RenderResult},
     types::{Artifact, OutputFormat},
 };
@@ -78,7 +78,7 @@ pub(crate) fn render_document_pages(
             for idx in selected_indices {
                 let page = &document.pages()[idx];
                 let size = page.frame.size();
-                check_raster(scale, size.x.to_pt() as f32, size.y.to_pt() as f32)?;
+                check_raster_ppi(ppi, size.x.to_pt() as f32, size.y.to_pt() as f32)?;
                 let pixmap = typst_render::render(page, &opts);
                 let png_data = pixmap.encode_png().map_err(|e| {
                     RenderError::coded("typst::png_encoding", format!("PNG encoding failed: {e}"))

@@ -138,23 +138,28 @@ fn a_checked_box_puts_its_mark_on_the_canvas() {
 
 /// The wiring, not the rule: what `check_raster` refuses is pinned once at
 /// `quillmark_core::backend`, and what this backend owes is a raster for every
-/// page it counts and that refusal for a scale it cannot draw.
+/// page it counts, at the size that check counts, and that refusal for a scale
+/// it cannot draw.
 #[test]
 fn every_counted_page_paints_and_an_undrawable_scale_is_refused() {
     let session = open();
     assert!(session.page_count() > 0, "sample_form has pages");
     for page in 0..session.page_count() {
-        assert!(
-            session.page_size_pt(page).is_some(),
-            "page {page} is counted, so it has an extent"
-        );
-        assert!(
-            session
-                .render_rgba(page, 1.0)
-                .expect("a counted page rasterizes at 1x")
-                .is_some(),
-            "page {page} is counted, so it paints"
-        );
+        let (width_pt, height_pt) = session
+            .page_size_pt(page)
+            .unwrap_or_else(|| panic!("page {page} is counted, so it has an extent"));
+        for scale in [0.001, 1.0, 2.5] {
+            let (w, h, rgba) = session
+                .render_rgba(page, scale)
+                .unwrap_or_else(|e| panic!("page {page} rasterizes at {scale}x: {e}"))
+                .unwrap_or_else(|| panic!("page {page} is counted, so it paints"));
+            assert_eq!(
+                (w, h),
+                quillmark_core::backend::raster_size(scale, width_pt, height_pt),
+                "page {page} at {scale}x is the size the check counts"
+            );
+            assert_eq!(rgba.len(), (w as usize) * (h as usize) * 4);
+        }
     }
 
     assert_eq!(
