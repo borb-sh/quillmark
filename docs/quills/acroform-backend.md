@@ -20,6 +20,8 @@ my-form/
 
 At load the backend binds each field's value from your document data and writes the AcroForm **fresh** from `form.json` onto the background. It never reads or reconciles a form already in `form.pdf`: a background that still carries one is refused (`pdf::existing_acroform`), since a second `/AcroForm` on the catalog is a dict the spec does not define and the old widgets would stay live in the page `/Annots`.
 
+A catalog `/AcroForm null` is no form: ISO 32000-1 §7.3.9 reads an entry whose value is `null` as absent. A background stripped that way (PyMuPDF's `xref_set_key` sets a key to `null` rather than deleting it) stamps, and the fresh `/AcroForm` replaces the null entry. Every entry the backend reads off `form.pdf` follows the same rule.
+
 !!! note "Where the assets come from"
     Producing a clean `form.pdf` + `form.json` from a raw source PDF (decrypt, strip, extract, verify) is the job of a separate *qualification* layer and is out of scope for the engine; the engine checks the result of the stripping, not how it was reached. V1 quills hand-author both assets; the `sample_form` fixture in `crates/fixtures/resources/quills/sample_form/` is a worked example.
 

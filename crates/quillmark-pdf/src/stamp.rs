@@ -17,7 +17,9 @@ use quillmark_core::region::RenderedRegion;
 
 use crate::appearance;
 use crate::error::PdfError;
-use crate::reader::{err, find_dict_value, parse_indirect_ref, ObjectIndex, UpdatedObject};
+use crate::reader::{
+    err, find_dict_value, parse_indirect_ref, set_dict_value, ObjectIndex, UpdatedObject,
+};
 use crate::update::PdfUpdate;
 use crate::writer::{alloc_id, append_refs_to_array_key, dict_object, to_ref, type1_font_object};
 use crate::{FieldSpec, FieldType, FormFont, TextAlign};
@@ -232,8 +234,11 @@ pub fn stamp(
         // A widget is fillable only if reachable both ways: the catalog's
         // `/AcroForm /Fields` (added here) and the page's `/Annots` (below).
         let cat_dict = idx.dict(up.catalog_id, CODE_PARSE, "catalog")?;
-        let mut cat_inner = cat_dict.to_vec();
-        cat_inner.extend_from_slice(format!(" /AcroForm {acroform_id} 0 R").as_bytes());
+        let cat_inner = set_dict_value(
+            cat_dict,
+            "AcroForm",
+            format!("{acroform_id} 0 R").as_bytes(),
+        );
         up.objects.push(dict_object(up.catalog_id, &cat_inner));
 
         for (page_idx, widget_refs) in widgets_by_page.iter().enumerate() {

@@ -5,7 +5,7 @@ use pdf_writer::{Chunk, Name, Ref};
 
 use crate::error::PdfError;
 use crate::reader::{
-    err, find_dict_value, splice_dict_value, InfoSource, ObjectIndex, UpdatedObject,
+    err, find_dict_value, set_dict_value, InfoSource, ObjectIndex, UpdatedObject,
 };
 
 const CODE_PARSE: &str = "pdf::write";
@@ -100,7 +100,7 @@ pub(crate) fn pdf_text_string(s: &str) -> Vec<u8> {
 }
 
 /// Append `refs` as indirect references to `dict`'s inline array `key`, writing
-/// a fresh single-element array when the key is absent. `code` carries the
+/// a fresh array when the key is absent. `code` carries the
 /// caller's error code for an array that never closes, and `on_non_array` builds
 /// the refusal for an existing value that is not an inline array.
 pub(crate) fn append_refs_to_array_key(
@@ -116,42 +116,22 @@ pub(crate) fn append_refs_to_array_key(
         .collect::<Vec<_>>()
         .join(" ");
 
-    let Some(existing) = find_dict_value(dict, key) else {
-        let mut out = dict.to_vec();
-        out.extend_from_slice(format!(" /{key} [{refs_str}]").as_bytes());
-        return Ok(out);
-    };
-
-    let trimmed = existing.trim_ascii();
-    if !trimmed.starts_with(b"[") {
-        return Err(on_non_array(existing));
-    }
-    let end = trimmed
-        .iter()
-        .rposition(|&b| b == b']')
-        .ok_or_else(|| err(code, format!("/{key} array missing ]")))?;
-    let inner = &trimmed[1..end];
-    let merged = format!("[{} {refs_str}]", String::from_utf8_lossy(inner).trim());
-    Ok(splice_dict_value(
-        dict,
-        format!("/{key}").as_bytes(),
-        existing,
-        merged.as_bytes(),
-    ))
-}
-
-/// Replace `/Producer`'s value if present, else append the entry.
-pub(crate) fn upsert_producer(info_dict: &[u8], literal: &[u8]) -> Vec<u8> {
-    let key = b"/Producer";
-    match find_dict_value(info_dict, "Producer") {
-        None => {
-            let mut out = info_dict.to_vec();
-            out.extend_from_slice(b" /Producer ");
-            out.extend_from_slice(literal);
-            out
+    let merged = match find_dict_value(dict, key) {
+        None => format!("[{refs_str}]"),
+        Some(existing) => {
+            let trimmed = existing.trim_ascii();
+            if !trimmed.starts_with(b"[") {
+                return Err(on_non_array(existing));
+            }
+            let end = trimmed
+                .iter()
+                .rposition(|&b| b == b']')
+                .ok_or_else(|| err(code, format!("/{key} array missing ]")))?;
+            let inner = &trimmed[1..end];
+            format!("[{} {refs_str}]", String::from_utf8_lossy(inner).trim())
         }
-        Some(value) => splice_dict_value(info_dict, key, value, literal),
-    }
+    };
+    Ok(set_dict_value(dict, key, merged.as_bytes()))
 }
 
 /// Stamp `/Info` `/Producer = producer`, pushing the updated or freshly created
@@ -172,12 +152,15 @@ pub(crate) fn apply_producer_stamp(
             idx.assert_overwrite_gen_zero(info_id, "/Info")?;
             let what = format!("/Info object {info_id}");
             let info_dict = idx.dict(info_id, CODE_PARSE, &what)?;
-            objects.push(dict_object(info_id, &upsert_producer(info_dict, &literal)));
+            objects.push(dict_object(
+                info_id,
+                &set_dict_value(info_dict, "Producer", &literal),
+            ));
             Ok(None)
         }
         InfoSource::Entries(entries) => {
             let info_id = alloc_id(next_id)?;
-            let inner = upsert_producer(entries.trim_ascii(), &literal);
+            let inner = set_dict_value(entries.trim_ascii(), "Producer", &literal);
             objects.push(dict_object(info_id, inner.trim_ascii()));
             Ok(Some(info_id))
         }
@@ -286,30 +269,5 @@ mod tests {
     #[test]
     fn pdf_text_string_non_bmp_uses_surrogate_pair() {
         assert_eq!(pdf_text_string("😀"), b"<FEFFD83DDE00>");
-    }
-
-    #[test]
-    fn upsert_producer_replaces_existing_value() {
-        let info = b"/Title (Hi) /Producer (Old) /Creator (X)";
-        let out = upsert_producer(info, b"(New)");
-        assert_eq!(&out, b"/Title (Hi) /Producer (New) /Creator (X)");
-    }
-
-    #[test]
-    fn upsert_producer_appends_when_absent() {
-        let info = b"/Title (Hi)";
-        let out = upsert_producer(info, b"(New)");
-        assert_eq!(&out, b"/Title (Hi) /Producer (New)");
-    }
-
-    #[test]
-    fn upsert_producer_ignores_producer_name_in_value_position() {
-        // A `/Producer` Name in value position is not the key.
-        let info = b"/Title (Hi) /Marker /Producer /Creator (X)";
-        let out = upsert_producer(info, b"(New)");
-        assert_eq!(
-            &out,
-            b"/Title (Hi) /Marker /Producer /Creator (X) /Producer (New)"
-        );
     }
 }
