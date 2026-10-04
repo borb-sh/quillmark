@@ -164,14 +164,7 @@ impl QuillWorld {
             Bytes::new(helper::generate_typst_toml().into_bytes()),
         );
 
-        let main_vpath = plate
-            .file
-            .as_deref()
-            .and_then(|f| VirtualPath::new(f).ok())
-            .unwrap_or_else(|| {
-                VirtualPath::new("main.typ").expect("\"main.typ\" is a valid virtual path")
-            });
-        let main_id = file_id(None, main_vpath);
+        let main_id = file_id(None, plate.path.clone());
         Self::load_project_sources(source, main_id, &mut sources, &mut load_warnings);
         let source = Source::new(main_id, plate.text.clone());
 
@@ -648,10 +641,9 @@ mod tests {
             ),
             ("packages/inner/lib.typ", "#let word = \"there\"\n"),
         ]);
-        let plate = crate::Plate {
-            file: None,
-            text: "#import \"@preview/outer:1.2.0\": greet\n#greet\n".to_string(),
-        };
+        let plate = crate::Plate::undeclared(
+            "#import \"@preview/outer:1.2.0\": greet\n#greet\n".to_string(),
+        );
         let world = QuillWorld::new(&quill, &plate).expect("world");
         crate::compile::compile_document(&world).expect("the vendored chain resolves");
     }
@@ -831,10 +823,7 @@ mod tests {
             "  plate_file: plate.typ\n  packages:\n    - \"@preview/bubble:0.2.2\"\n",
             &[],
         );
-        let plate = crate::Plate {
-            file: None,
-            text: "// probe".to_string(),
-        };
+        let plate = crate::Plate::undeclared("// probe".to_string());
         let world = QuillWorld::new(&quill, &plate).expect("world");
         let flagged: Vec<&str> = world
             .load_warnings()
